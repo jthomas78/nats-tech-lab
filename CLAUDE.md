@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Session Memory
+
+At the start of every session, read all files in `.claude/memory/` — starting with `MEMORY.md` as the index — and apply them as persistent context. When saving new memories during a session, write them to `.claude/memory/` (not `~/.claude/projects/`) so they are shared across devices via git.
+
 ## Purpose
 
 A lab for evaluating NATS.io patterns relevant to a V3 greenfield logistics platform. Each demo is self-contained: the user picks a demo from the lab shell, reads an intro, launches it via Docker, and tears it down when done.
