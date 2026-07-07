@@ -63,8 +63,8 @@ Stream:   DICTIONARY
 Subjects: DICTIONARY.entry.created, DICTIONARY.entry.updated
 Retention: LimitsPolicy (enables replay — NOT InterestPolicy)
 
-KV bucket: dict-{context}  (e.g. dict-en-GB, dict-us-west)
-Key format: {entityType}:{id}
+KV buckets: dict-a-{context} (Shape A read model), dict-b-{context} (Shape B cache)
+Key format: {entityType}.{id}   — NATS KV keys only allow [-/_=.a-zA-Z0-9]; ':' is illegal
 Value: JSON-encoded DictionaryEntry
 ```
 

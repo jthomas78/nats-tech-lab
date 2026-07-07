@@ -135,10 +135,16 @@ Storage:        File
 ### KV Bucket Design
 
 ```
-Bucket name:    dict-{context}   (e.g. dict-en-GB, dict-us-west)
-Key format:     {entityType}:{id}
+Bucket names:   dict-a-{context}  (Shape A read model)
+                dict-b-{context}  (Shape B cache)
+Key format:     {entityType}.{id}
 Value:          JSON-encoded DictionaryEntry
 ```
+
+> **Implementation finding:** the original `{entityType}:{id}` key format is
+> invalid — NATS KV keys only allow `[-/_=.a-zA-Z0-9]`, so `.` is used as the
+> separator. Buckets were also split per shape (`dict-a-*` / `dict-b-*`) so
+> the two projections stay independent for the side-by-side comparison.
 
 ### Frontend (Demo UI)
 
@@ -173,46 +179,58 @@ Tear-down is `docker compose down` inside the demo directory.
 
 ### Phase 0 — Scaffolding
 
-- [ ] Initialise Go module in `demos/01-dictionary/backend/`
-- [ ] Port `internal/monolith` interfaces from Fizmath Plaza
-- [ ] Write `internal/jstream/stream.go` with `LimitsPolicy`
-- [ ] Write `internal/kvstore/kv.go` wrapper
-- [ ] `docker-compose.yml` for demo 01 (NATS + Postgres only first)
+- [x] Initialise Go module in `demos/01-dictionary/backend/`
+- [x] Port `internal/monolith` interfaces from Fizmath Plaza (written fresh: `Monolith` + `Module`)
+- [x] Write `internal/jstream/stream.go` with `LimitsPolicy`
+- [x] Write `internal/kvstore/kv.go` wrapper
+- [x] `docker-compose.yml` for demo 01 (NATS + Postgres only first)
 
 ### Phase 1 — Shape A (KV-only read model)
 
-- [ ] `dictionary/internal/domain/` — DictionaryEntry, events
-- [ ] `dictionary/internal/application/commands/` — CreateEntry, UpdateEntry
-- [ ] `dictionary/internal/eventhandler/` — consumes JetStream, writes to KV
-- [ ] `dictionary/internal/application/queries/` — GetEntry reads from KV
-- [ ] `dictionary/internal/rest/` — HTTP handlers
-- [ ] Backend wired in `composition.go` + `cmd/main.go`
-- [ ] Smoke test: create entry → event → KV → GET returns value
+- [x] `dictionary/internal/domain/` — DictionaryEntry, events
+- [x] `dictionary/internal/application/commands/` — CreateEntry, UpdateEntry
+- [x] `dictionary/internal/eventhandler/` — consumes JetStream, writes to KV
+- [x] `dictionary/internal/application/queries/` — GetEntry reads from KV
+- [x] `dictionary/internal/rest/` — HTTP handlers
+- [x] Backend wired in `composition.go` + `cmd/main.go`
+- [x] Smoke test: create entry → event → KV → GET returns value
+      (`dictionary/integration_test.go` against an embedded in-process NATS server)
 
 ### Phase 2 — Shape B (KV cache + Postgres projection)
 
-- [ ] `dictionary/internal/postgres/` — repo implementation, migration
-- [ ] Event handler variant: projects to Postgres AND writes KV
-- [ ] Query variant: KV hit → return; KV miss → Postgres → write KV → return
-- [ ] Demonstrate cache miss path explicitly in demo UI
+- [x] `dictionary/internal/postgres/` — repo implementation, migration
+- [x] Event handler variant: projects to Postgres AND writes KV
+- [x] Query variant: KV hit → return; KV miss → Postgres → write KV → return
+- [x] Demonstrate cache miss path explicitly in demo UI
+      (`DELETE /api/shape-b/cache/...` + per-row Evict button, hit/miss badge)
 
 ### Phase 3 — Demo Frontend
 
-- [ ] Scaffold Vue 3 app in `demos/01-dictionary/frontend/`
-- [ ] Install PrimeVue v4, create shared UniFi theme preset (Aura base + `--p-*` token overrides)
-- [ ] Side-by-side Shape A / Shape B panels (use `<DataTable size="small">`)
-- [ ] Create/Update entry form
-- [ ] KV watch → SSE → reactive panel updates
-- [ ] Default to dark mode (`p-dark` class on `documentElement`)
-- [ ] Add frontend container to docker-compose.yml
+- [x] Scaffold Vue 3 app in `demos/01-dictionary/frontend/`
+- [x] Install PrimeVue v4, create shared UniFi theme preset (Aura base + `--p-*` token overrides)
+      (`shared/unifi-theme/` at repo root; dependency-free factory so both apps import the same file)
+- [x] Side-by-side Shape A / Shape B panels (use `<DataTable size="small">`)
+- [x] Create/Update entry form
+- [x] KV watch → SSE → reactive panel updates (`GET /api/watch/{context}` → EventSource → Pinia)
+- [x] Default to dark mode (`p-dark` class on `documentElement`)
+- [x] Add frontend container to docker-compose.yml
 
 ### Phase 4 — Lab Shell
 
-- [ ] Scaffold Vue 3 + PrimeVue v4 in `lab-shell/`
-- [ ] Import shared UniFi theme preset (same file as demo frontend)
-- [ ] Demo menu page
-- [ ] Demo 01 intro page (content from README.md)
-- [ ] "Launch demo" → new tab
+- [x] Scaffold Vue 3 + PrimeVue v4 in `lab-shell/`
+- [x] Import shared UniFi theme preset (same file as demo frontend)
+- [x] Demo menu page
+- [x] Demo 01 intro page (content from README.md, imported `?raw` + rendered with marked)
+- [x] "Launch demo" → new tab
+
+### Verification status (2026-07-07)
+
+Docker is not installed on the dev machine, so the compose stack has not been
+run end to end. What IS verified: `go build`, `go vet`, and `go test` all pass
+(integration tests run command → event → projector → KV → query against a
+real embedded JetStream, plus Shape B cache hit/miss/backfill); both frontends
+build with `npm run build`. Postgres repo + Dockerfiles + nginx SSE proxy are
+code-reviewed but need `docker compose up --build` for a live run.
 
 ---
 

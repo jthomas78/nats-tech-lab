@@ -1,0 +1,24 @@
+{
+  "name": "nats-tech-lab-shell",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@primevue/themes": "^4",
+    "marked": "^15",
+    "pinia": "^3",
+    "primeicons": "^7",
+    "primevue": "^4",
+    "vue": "^3.5",
+    "vue-router": "^4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6",
+    "vite": "^7"
+  }
+}

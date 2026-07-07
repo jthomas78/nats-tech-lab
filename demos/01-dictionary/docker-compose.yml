@@ -1,0 +1,54 @@
+services:
+  nats:
+    image: nats:2.11-alpine
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222" # monitoring
+    volumes:
+      - nats-data:/data
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: dict
+      POSTGRES_PASSWORD: dict
+      POSTGRES_DB: dictionary
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dict -d dictionary"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  backend:
+    build: ./backend
+    environment:
+      NATS_URL: nats://nats:4222
+      DATABASE_URL: postgres://dict:dict@postgres:5432/dictionary?sslmode=disable
+      HTTP_ADDR: ":8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      nats:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      # Context is the repo root so the build can copy the shared UniFi
+      # theme preset (shared/unifi-theme) alongside the app source.
+      context: ../..
+      dockerfile: demos/01-dictionary/frontend/Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  nats-data:
+  pg-data:

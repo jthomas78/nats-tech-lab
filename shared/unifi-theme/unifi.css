@@ -1,0 +1,49 @@
+/* Shared UniFi-flavoured base styles for all lab frontends. */
+
+:root {
+  /* Text tokens verified by the plan (medium confidence). */
+  --p-text-color: #dee0e3;
+  --p-text-muted-color: #b7bcc2;
+  --p-text-disabled-color: #737c87;
+
+  /* Placeholders — extract from a live UniFi instance and replace. */
+  --lab-bg: #14171b;
+  --lab-panel-bg: #1a1e23;
+  --lab-panel-border: #2c3138;
+  --lab-accent: #006fff;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--lab-bg);
+  color: var(--p-text-color);
+  font-family:
+    'Inter',
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  font-size: 14px;
+}
+
+.lab-panel {
+  background: var(--lab-panel-bg);
+  border: 1px solid var(--lab-panel-border);
+  border-radius: 4px; /* UniFi is angular: small radii, dense layout */
+  padding: 1rem;
+}
+
+.lab-panel h2,
+.lab-panel h3 {
+  margin-top: 0;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.lab-muted {
+  color: var(--p-text-muted-color);
+}
