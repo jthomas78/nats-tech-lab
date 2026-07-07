@@ -1,0 +1,95 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Purpose
+
+A lab for evaluating NATS.io patterns relevant to a V3 greenfield logistics platform. Each demo is self-contained: the user picks a demo from the lab shell, reads an intro, launches it via Docker, and tears it down when done.
+
+The core architectural question: **what is the correct responsibility split between JetStream (event backbone), NATS KV (fast lookup/watch/cache), Postgres (transactional source of truth), and CQRS projections?**
+
+## Repository Layout
+
+```
+nats-tech-lab/
+  lab-shell/              # Vue 3 + PrimeVue + Pinia — demo menu + intro pages
+  demos/
+    01-dictionary/        # First demo: Dictionary POC
+      backend/            # Go service (hexagonal layout)
+      frontend/           # Vue 3 demo UI
+      docker-compose.yml  # Postgres + NATS + backend + frontend
+      README.md           # Intro text shown in lab shell
+```
+
+Each demo has its own `docker-compose.yml` and does **not** share a network with the lab shell or other demos.
+
+## Commands
+
+### Backend (Go — `demos/01-dictionary/backend/`)
+
+```bash
+go build ./...
+go test ./...
+go test ./path/to/package/...   # run a single package
+docker compose up --build       # from demos/01-dictionary/
+docker compose down             # tear down
+```
+
+### Frontend (Vue 3 — `demos/01-dictionary/frontend/` or `lab-shell/`)
+
+```bash
+npm install
+npm run dev
+npm run build
+```
+
+## Demo 01 — Dictionary POC
+
+### What it demonstrates
+
+Two side-by-side shapes for serving dictionary/reference data (dropdowns, enums, locale config, CQRS read-model lookup):
+
+- **Shape A — KV as read model**: JetStream event handlers project directly into NATS KV; reads go straight to KV with no Postgres read table.
+- **Shape B — KV as cache in front of Postgres**: canonical CQRS projection in Postgres; KV is a derived cache with watch-based invalidation; cache miss falls through to Postgres.
+
+### Stream / KV design
+
+```
+Stream:   DICTIONARY
+Subjects: DICTIONARY.entry.created, DICTIONARY.entry.updated
+Retention: LimitsPolicy (enables replay — NOT InterestPolicy)
+
+KV bucket: dict-{context}  (e.g. dict-en-GB, dict-us-west)
+Key format: {entityType}:{id}
+Value: JSON-encoded DictionaryEntry
+```
+
+### Backend package layout
+
+```
+cmd/main.go                       # bootstraps monolith, calls Startup on each module
+internal/monolith/                # Monolith + Module interfaces
+internal/jstream/stream.go        # JetStream wrapper (LimitsPolicy)
+internal/kvstore/kv.go            # NATS KV wrapper
+dictionary/
+  composition.go
+  internal/
+    domain/                       # DictionaryEntry entity, events, repo interface
+    application/commands/         # CreateEntry, UpdateEntry
+    application/queries/          # GetEntry (Shape A: KV; Shape B: KV→Postgres)
+    postgres/                     # repo impl + migration (Shape B only)
+    eventhandler/                 # JetStream consumer → projects into KV
+    rest/                         # HTTP handlers
+```
+
+## Architectural Notes
+
+- **Hexagonal layout** throughout the Go backend: domain has no framework deps; adapters (postgres, rest, eventhandler) live in their own packages and wire in via `composition.go`.
+- **Pinia stores** in the frontend are an intentional analogue to server-side materialized views — both are projected read models derived from an event source. This parallel should be preserved in UI and docs.
+- **LimitsPolicy** (not InterestPolicy) on JetStream streams — required to support event replay.
+- **Context-scoped KV keys**: every lookup includes a tenant/region/locale prefix — no global unscoped lookups.
+- The demo frontend updates reactively via KV watch → SSE (or WebSocket) → frontend panels.
+
+## Implementation Status
+
+See `.claude/plans/Dictionary-POC-Plan.md` for the full phased plan and checkbox tracking. Current branch `poc/dictionary` is at Phase 0 (scaffolding not yet started).
