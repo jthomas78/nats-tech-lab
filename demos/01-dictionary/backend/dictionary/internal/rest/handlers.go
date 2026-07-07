@@ -10,7 +10,8 @@
 //	GET    /api/shape-b/entries/{context}/{entityType}/{id} read via KV cache → Postgres
 //	DELETE /api/shape-b/cache/{context}/{entityType}/{id}   evict cache key (demo the miss path)
 //	GET    /api/watch/{context}                             SSE stream of KV changes, both shapes
-//	GET    /api/jetstream/watch                             SSE stream of raw JetStream messages
+//	GET    /api/jetstream/watch                             SSE stream of raw JetStream messages (live, DeliverNew)
+//	GET    /api/jetstream/stream                            SSE stream of all JetStream messages (replay + live, DeliverAll)
 package rest
 
 import (
@@ -50,6 +51,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/shape-b/cache/{context}/{entityType}/{id}", h.evictShapeBCache)
 	mux.HandleFunc("GET /api/watch/{context}", h.watch)
 	mux.HandleFunc("GET /api/jetstream/watch", h.watchJetStream)
+	mux.HandleFunc("GET /api/jetstream/stream", h.replayJetStream)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

@@ -1,0 +1,32 @@
+{
+    "cSpell.words": [
+        "datatable",
+        "eventhandler",
+        "healthz",
+        "httpx",
+        "inputtext",
+        "jackc",
+        "jetstream",
+        "jstream",
+        "kvstore",
+        "nolint",
+        "nums",
+        "Pinia",
+        "primevue",
+        "selectbutton",
+        "sslmode",
+        "stdlib",
+        "TIMESTAMPTZ",
+        "upserts"
+    ],
+    "cSpell.languageSettings": [
+        {
+            "languageId": "javascript,javascriptreact,typescript,typescriptreact",
+            "ignoreRegExpList": ["/(?:from|import|require)\\s+['\"][^'\"]+['\"]/g"]
+        },
+        {
+            "languageId": "go",
+            "ignoreRegExpList": ["/^\\s*\"[^\"]+\"/gm"]
+        }
+    ]
+}

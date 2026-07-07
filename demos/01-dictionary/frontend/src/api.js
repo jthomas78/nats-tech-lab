@@ -47,3 +47,4 @@ export function watchUrl(context) {
 }
 
 export const jetstreamWatchUrl = '/api/jetstream/watch'
+export const jetstreamStreamUrl = '/api/jetstream/stream'

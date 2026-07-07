@@ -39,8 +39,8 @@ func RegisterShapeA(ctx context.Context, js jetstream.JetStream, kv *kvstore.Sto
 }
 
 // RegisterShapeB starts the Shape B projector: events update the canonical
-// Postgres projection first, then refresh the KV cache (watch-based
-// invalidation by overwrite).
+// Postgres projection first, then eagerly write the result through to the KV
+// cache so subsequent reads are served from KV without hitting Postgres.
 func RegisterShapeB(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, repo domain.Repository, log *slog.Logger) (jetstream.ConsumeContext, error) {
 	return register(ctx, js, "dict-shape-b", log, func(msgCtx context.Context, event domain.EntryEvent) error {
 		persisted, err := repo.Upsert(msgCtx, event.Entry)

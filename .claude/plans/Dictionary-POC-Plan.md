@@ -88,7 +88,7 @@ Dictionary/reference data (UI dropdowns, enums, locale config, tenant config, CQ
 
 - Canonical CQRS projection lives in Postgres (the write-side event sourcing table)
 - KV is a derived, low-latency cache/distribution layer
-- Watch-based invalidation: when Postgres projection updates, handler writes to KV
+- Eager write-through: the JetStream handler upserts Postgres then immediately overwrites the KV entry with the persisted value
 - Cache miss falls through to Postgres
 
 ### Backend (Go)

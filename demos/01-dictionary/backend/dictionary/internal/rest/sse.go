@@ -113,10 +113,20 @@ type jsEvent struct {
 	Payload   json.RawMessage `json:"payload"`
 }
 
+// replayJetStream streams all JetStream messages from the beginning of the
+// DICTIONARY stream, then continues delivering new ones. Uses DeliverAll policy.
+func (h *Handlers) replayJetStream(w http.ResponseWriter, r *http.Request) {
+	h.streamJetStream(w, r, jetstream.DeliverAllPolicy)
+}
+
 // watchJetStream streams raw JetStream messages from the DICTIONARY stream over
 // SSE. It uses an ephemeral ordered consumer with DeliverNew so only messages
 // published after the connection is established are delivered — no replay.
 func (h *Handlers) watchJetStream(w http.ResponseWriter, r *http.Request) {
+	h.streamJetStream(w, r, jetstream.DeliverNewPolicy)
+}
+
+func (h *Handlers) streamJetStream(w http.ResponseWriter, r *http.Request, policy jetstream.DeliverPolicy) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming unsupported")
@@ -125,8 +135,8 @@ func (h *Handlers) watchJetStream(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	consumer, err := h.js.OrderedConsumer(ctx, domain.StreamName, jetstream.OrderedConsumerConfig{
-		FilterSubjects:  domain.StreamSubjects(),
-		DeliverPolicy:   jetstream.DeliverNewPolicy,
+		FilterSubjects: domain.StreamSubjects(),
+		DeliverPolicy:  policy,
 	})
 	if err != nil {
 		h.log.Error("create ordered consumer", "err", err)
