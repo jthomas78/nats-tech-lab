@@ -2,11 +2,12 @@
 import Button from 'primevue/button'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
+import Divider from 'primevue/divider'
 import Tag from 'primevue/tag'
 import { useToast } from 'primevue/usetoast'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
-import { evictShapeBCache, getShapeA, getShapeB } from '../api'
+import { evictShapeBCache, getShapeA, getShapeB, listShapeB } from '../api'
 import { useDictionaryStore } from '../stores/dictionary'
 
 const props = defineProps({
@@ -21,6 +22,22 @@ const rows = computed(() => (props.shape === 'A' ? store.shapeARows : store.shap
 
 // key → result of the last explicit read ({ source, cacheHit?, revision? })
 const lastRead = ref({})
+
+// Shape B only: canonical Postgres projection rows
+const pgRows = ref([])
+
+async function refreshPgRows() {
+  if (props.shape !== 'B') return
+  try {
+    const res = await listShapeB(store.context)
+    pgRows.value = res?.entries ?? []
+  } catch {
+    // silently ignore — Postgres may not be running in dev
+  }
+}
+
+watch(() => store.context, refreshPgRows, { immediate: true })
+watch(() => store.shapeBRows, refreshPgRows)
 
 async function readEntry(row) {
   try {
@@ -90,6 +107,19 @@ async function evict(row) {
         </template>
       </Column>
     </DataTable>
+
+    <template v-if="shape === 'B'">
+      <Divider />
+      <div class="pg-header">
+        <span class="pg-title">Postgres Projection</span>
+        <span class="lab-muted pg-subtitle">canonical source of truth — persists after KV eviction</span>
+      </div>
+      <DataTable :value="pgRows" size="small" data-key="key" :empty-message="'no rows in postgres yet'">
+        <Column field="key" header="Key" />
+        <Column field="label" header="Label" />
+        <Column field="version" header="PG version" style="font-variant-numeric:tabular-nums" />
+      </DataTable>
+    </template>
   </section>
 </template>
 
@@ -103,5 +133,21 @@ async function evict(row) {
   display: flex;
   gap: 0.25rem;
   justify-content: flex-end;
+}
+.pg-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.375rem;
+}
+.pg-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--p-text-muted-color);
+}
+.pg-subtitle {
+  font-size: 11px;
 }
 </style>

@@ -34,6 +34,10 @@ export function getShapeB(context, entityType, id) {
   return request(`/api/shape-b/entries/${context}/${entityType}/${id}`)
 }
 
+export function listShapeB(context) {
+  return request(`/api/shape-b/entries/${context}`)
+}
+
 export function evictShapeBCache(context, entityType, id) {
   return request(`/api/shape-b/cache/${context}/${entityType}/${id}`, { method: 'DELETE' })
 }
@@ -41,3 +45,5 @@ export function evictShapeBCache(context, entityType, id) {
 export function watchUrl(context) {
   return `/api/watch/${context}`
 }
+
+export const jetstreamWatchUrl = '/api/jetstream/watch'

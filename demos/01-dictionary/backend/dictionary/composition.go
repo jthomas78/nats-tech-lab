@@ -52,7 +52,7 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 		commands.NewHandler(jstream.NewPublisher(js)),
 		queries.NewShapeA(kvA),
 		queries.NewShapeB(kvB, repo),
-		kvA, kvB, log,
+		kvA, kvB, js, log,
 	)
 	handlers.Mount(mono.Mux())
 	return nil

@@ -10,6 +10,7 @@
 //	GET    /api/shape-b/entries/{context}/{entityType}/{id} read via KV cache → Postgres
 //	DELETE /api/shape-b/cache/{context}/{entityType}/{id}   evict cache key (demo the miss path)
 //	GET    /api/watch/{context}                             SSE stream of KV changes, both shapes
+//	GET    /api/jetstream/watch                             SSE stream of raw JetStream messages
 package rest
 
 import (
@@ -22,6 +23,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/dictionary/internal/application/queries"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/internal/kvstore"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 type Handlers struct {
@@ -30,11 +32,12 @@ type Handlers struct {
 	shapeB   *queries.ShapeB
 	kvA      *kvstore.Store
 	kvB      *kvstore.Store
+	js       jetstream.JetStream
 	log      *slog.Logger
 }
 
-func NewHandlers(cmd *commands.Handler, shapeA *queries.ShapeA, shapeB *queries.ShapeB, kvA, kvB *kvstore.Store, log *slog.Logger) *Handlers {
-	return &Handlers{commands: cmd, shapeA: shapeA, shapeB: shapeB, kvA: kvA, kvB: kvB, log: log}
+func NewHandlers(cmd *commands.Handler, shapeA *queries.ShapeA, shapeB *queries.ShapeB, kvA, kvB *kvstore.Store, js jetstream.JetStream, log *slog.Logger) *Handlers {
+	return &Handlers{commands: cmd, shapeA: shapeA, shapeB: shapeB, kvA: kvA, kvB: kvB, js: js, log: log}
 }
 
 func (h *Handlers) Mount(mux *http.ServeMux) {
@@ -46,6 +49,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/shape-b/entries/{context}/{entityType}/{id}", h.getShapeB)
 	mux.HandleFunc("DELETE /api/shape-b/cache/{context}/{entityType}/{id}", h.evictShapeBCache)
 	mux.HandleFunc("GET /api/watch/{context}", h.watch)
+	mux.HandleFunc("GET /api/jetstream/watch", h.watchJetStream)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

@@ -1,15 +1,24 @@
 <script setup>
+import Button from 'primevue/button'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import Toast from 'primevue/toast'
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 
 import EntryForm from './components/EntryForm.vue'
 import EventLog from './components/EventLog.vue'
+import JetStreamPanel from './components/JetStreamPanel.vue'
 import ShapePanel from './components/ShapePanel.vue'
 import { CONTEXTS, useDictionaryStore } from './stores/dictionary'
+import { isDark, toggleTheme } from '@unifi-theme/preset.js'
 
 const store = useDictionaryStore()
+const dark = ref(isDark())
+
+function handleToggleTheme() {
+  toggleTheme()
+  dark.value = isDark()
+}
 
 onMounted(() => store.connect())
 onUnmounted(() => store.disconnect())
@@ -33,11 +42,24 @@ onUnmounted(() => store.disconnect())
           size="small"
           @update:model-value="store.setContext($event)"
         />
+        <Button
+          :icon="dark ? 'pi pi-sun' : 'pi pi-moon'"
+          :aria-label="dark ? 'Switch to light mode' : 'Switch to dark mode'"
+          text
+          rounded
+          size="small"
+          @click="handleToggleTheme"
+        />
       </div>
     </header>
 
+    <!-- 1. Command input — dispatch side -->
     <EntryForm />
 
+    <!-- 2. JetStream — raw NATS messages -->
+    <JetStreamPanel />
+
+    <!-- 3. KV projections — Shape A (KV-only) | Shape B (KV cache + Postgres) -->
     <div class="panels">
       <ShapePanel shape="A" title="Shape A — KV as read model">
         Events are projected straight into <code>dict-a-{{ store.context }}</code>. Reads go to KV
@@ -50,6 +72,7 @@ onUnmounted(() => store.disconnect())
       </ShapePanel>
     </div>
 
+    <!-- 4. KV watch stream — filterable -->
     <EventLog />
   </div>
 </template>

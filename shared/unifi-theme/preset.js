@@ -30,6 +30,26 @@ export const createUnifiPreset = (definePreset, Aura) =>
       950: '#001d42',
     },
     colorScheme: {
+      light: {
+        surface: {
+          0: '#ffffff',
+          50: '#f4f5f7',
+          100: '#e8eaed',
+          200: '#d1d5db',
+          300: '#9aa1a9',
+          400: '#737c87',
+          500: '#4e5560',
+          600: '#3a4049',
+          700: '#2c3138',
+          800: '#1a1e23',
+          900: '#14171b',
+          950: '#0f1114',
+        },
+        text: {
+          color: '#1e2328',
+          mutedColor: '#4e5560',
+        },
+      },
       dark: {
         surface: {
           0: '#ffffff',
@@ -58,6 +78,14 @@ export const createUnifiPreset = (definePreset, Aura) =>
 // document element. Call once at app startup; the lab defaults to dark.
 export function enableDarkMode() {
   document.documentElement.classList.add('p-dark')
+}
+
+export function toggleTheme() {
+  document.documentElement.classList.toggle('p-dark')
+}
+
+export function isDark() {
+  return document.documentElement.classList.contains('p-dark')
 }
 
 export const themeOptions = {

@@ -1,16 +1,25 @@
 /* Shared UniFi-flavoured base styles for all lab frontends. */
 
+/* Dark (default) */
 :root {
-  /* Text tokens verified by the plan (medium confidence). */
   --p-text-color: #dee0e3;
   --p-text-muted-color: #b7bcc2;
   --p-text-disabled-color: #737c87;
-
-  /* Placeholders — extract from a live UniFi instance and replace. */
   --lab-bg: #14171b;
   --lab-panel-bg: #1a1e23;
   --lab-panel-border: #2c3138;
   --lab-accent: #006fff;
+}
+
+/* Light overrides — applied when .p-dark is absent */
+:root:not(.p-dark) {
+  --p-text-color: #1e2328;
+  --p-text-muted-color: #4e5560;
+  --p-text-disabled-color: #9aa1a9;
+  --lab-bg: #f4f5f7;
+  --lab-panel-bg: #ffffff;
+  --lab-panel-border: #d1d5db;
+  --lab-accent: #005fdb;
 }
 
 html,

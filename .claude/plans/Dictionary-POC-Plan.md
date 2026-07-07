@@ -223,6 +223,23 @@ Tear-down is `docker compose down` inside the demo directory.
 - [x] Demo 01 intro page (content from README.md, imported `?raw` + rendered with marked)
 - [x] "Launch demo" → new tab
 
+### Phase 5 — Data-Flow Vertical Layout Redesign
+
+Restructure the demo frontend so the screen layout maps top-to-bottom to the data pipeline:
+Command → JetStream → KV projections → KV watch stream.
+
+- [x] Backend: add `GET /api/jetstream/watch` SSE endpoint (ephemeral ordered consumer on `DICTIONARY.*`, `DeliverNew` policy)
+  - `rest/handlers.go` — add `js jetstream.JetStream` field + param + new route
+  - `rest/sse.go` — add `jsEvent` struct + `watchJetStream` handler
+  - `composition.go` — pass `mono.JS()` to `rest.NewHandlers`
+- [x] Frontend: reorder `App.vue` sections (EntryForm → JetStreamPanel → panels → EventLog)
+- [x] New `components/JetStreamPanel.vue` — live NATS subject/seq/payload feed via `/api/jetstream/watch`
+- [x] `components/ShapePanel.vue` — Shape B: add Postgres projection sub-table below KV cache rows
+- [x] `src/api.js` — add `listShapeB(context)` → `GET /api/shape-b/entries/{context}`
+- [x] `components/EventLog.vue` — add filter bar: Shape (All/A/B), Op (All/PUT/DEL/PURGE), Key text search
+
+> Full implementation detail in `.claude/plans/shiny-skipping-flask.md`
+
 ### Verification status (2026-07-07)
 
 Docker is not installed on the dev machine, so the compose stack has not been

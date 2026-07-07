@@ -50,7 +50,7 @@ docker compose up --build
 | Service     | URL                    |
 | ----------- | ---------------------- |
 | Demo UI     | http://localhost:5173  |
-| Backend API | http://localhost:8080  |
+| Backend API | http://localhost:18080 |
 | NATS        | nats://localhost:14222 (monitor: http://localhost:18222) |
 | Postgres    | localhost:15432 (`dict`/`dict`, db `dictionary`)         |
 
