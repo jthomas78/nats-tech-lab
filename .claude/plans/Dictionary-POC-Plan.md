@@ -25,9 +25,10 @@ nats-tech-lab/
 
 ## Lab Shell (Phase 1)
 
-**Stack:** Vue 3 + PrimeVue + Pinia
+**Stack:** Vue 3 + PrimeVue v4 + Pinia
 
 **Responsibility:** A simple menu listing available demos. Each entry shows:
+
 - Demo title and one-line description
 - A "Launch" button that opens the demo UI in a new tab (or iframe — decided: new tab for Phase 1)
 - A brief intro page explaining the pattern being demonstrated
@@ -38,11 +39,38 @@ nats-tech-lab/
 
 ---
 
+## UI Styling — UniFi Aesthetic
+
+**Library:** PrimeVue v4 (Vue 3-only). Start from the **Aura preset** (darkest built-in) and override `--p-*` CSS tokens.
+
+**Design target:** UniFi Network Application — dark, data-dense, angular. Not a pixel-perfect clone; enough fidelity to evoke the aesthetic.
+
+**Verified starting tokens** (community reverse-engineered from proxmorph; text colors survived adversarial verification, background/accent did not — extract those from a live UniFi instance via devtools):
+
+```css
+/* Text — medium confidence (proxmorph, 2-1 vote) */
+--p-text-color:          #DEE0E3;   /* primary text */
+--p-text-muted-color:    #B7BCC2;   /* secondary / label */
+--p-text-disabled-color: #737C87;   /* disabled / hint */
+
+/* Background + accent — extract from live UniFi instance */
+/* Open UniFi Network App → devtools → inspect :root for --ubnt-* or --unifi-* */
+```
+
+**Dark mode:** PrimeVue v4 activates dark mode via `document.documentElement.classList.toggle('p-dark')` — the same class-toggle pattern UniFi uses (`.ubnt-mod-dark` on `body`). Default to dark.
+
+**Data tables:** Use `<DataTable size="small">` — supports frozen columns, row grouping, multi-level headers, and lazy loading, matching the density of UniFi's grid views.
+
+**Shared theme file:** Both `lab-shell/` and `demos/01-dictionary/frontend/` import the same custom Aura-based preset so styling stays in sync across frontends.
+
+---
+
 ## Demo 01 — Dictionary POC
 
 ### Problem
 
 Dictionary/reference data (UI dropdowns, enums, locale config, tenant config, CQRS read-model lookup data) needs to be:
+
 - Derived from an event source
 - Returned based on application context (tenant, region, locale)
 - Available with low latency
@@ -50,12 +78,14 @@ Dictionary/reference data (UI dropdowns, enums, locale config, tenant config, CQ
 ### Two Shapes to Compare Side-by-Side
 
 #### Shape A — NATS KV as the Read Model
+
 - Event handlers project directly from JetStream into KV
 - Dictionary reads go straight to KV
 - No Postgres-backed read table involved
 - KV key format: `{context}:{entityType}:{id}` (e.g. `en-GB:currency:GBP`)
 
 #### Shape B — NATS KV as Cache in Front of Postgres
+
 - Canonical CQRS projection lives in Postgres (the write-side event sourcing table)
 - KV is a derived, low-latency cache/distribution layer
 - Watch-based invalidation: when Postgres projection updates, handler writes to KV
@@ -66,12 +96,14 @@ Dictionary/reference data (UI dropdowns, enums, locale config, tenant config, CQ
 Borrow from Fizmath Plaza: jstream wrapper, waiter, monolith composition, hexagonal layout, Docker Compose setup. **Do not retrofit Fizmath — start fresh.**
 
 **Key differences from Fizmath Plaza:**
+
 - Stream retention: `LimitsPolicy` (not `InterestPolicy`) — required for event replay
 - Add NATS KV store usage (Fizmath has none)
 - Context-aware key design (tenant/region/locale in key prefix)
 - No gRPC-Gateway needed for this demo — plain HTTP REST is fine
 
 **Domain structure:**
+
 ```
 demos/01-dictionary/backend/
   cmd/main.go               # bootstraps monolith, calls Startup on each module
@@ -113,6 +145,7 @@ Value:          JSON-encoded DictionaryEntry
 Isolated Vue 3 app inside `demos/01-dictionary/frontend/`. Own docker-compose service.
 
 Two panels side by side:
+
 - **Shape A panel** — reads from KV directly; shows key, value, KV sequence
 - **Shape B panel** — reads from KV cache with Postgres fallback; shows cache hit/miss
 
@@ -139,6 +172,7 @@ Tear-down is `docker compose down` inside the demo directory.
 ## Implementation Phases
 
 ### Phase 0 — Scaffolding
+
 - [ ] Initialise Go module in `demos/01-dictionary/backend/`
 - [ ] Port `internal/monolith` interfaces from Fizmath Plaza
 - [ ] Write `internal/jstream/stream.go` with `LimitsPolicy`
@@ -146,6 +180,7 @@ Tear-down is `docker compose down` inside the demo directory.
 - [ ] `docker-compose.yml` for demo 01 (NATS + Postgres only first)
 
 ### Phase 1 — Shape A (KV-only read model)
+
 - [ ] `dictionary/internal/domain/` — DictionaryEntry, events
 - [ ] `dictionary/internal/application/commands/` — CreateEntry, UpdateEntry
 - [ ] `dictionary/internal/eventhandler/` — consumes JetStream, writes to KV
@@ -155,20 +190,26 @@ Tear-down is `docker compose down` inside the demo directory.
 - [ ] Smoke test: create entry → event → KV → GET returns value
 
 ### Phase 2 — Shape B (KV cache + Postgres projection)
+
 - [ ] `dictionary/internal/postgres/` — repo implementation, migration
 - [ ] Event handler variant: projects to Postgres AND writes KV
 - [ ] Query variant: KV hit → return; KV miss → Postgres → write KV → return
 - [ ] Demonstrate cache miss path explicitly in demo UI
 
 ### Phase 3 — Demo Frontend
+
 - [ ] Scaffold Vue 3 app in `demos/01-dictionary/frontend/`
-- [ ] Side-by-side Shape A / Shape B panels
+- [ ] Install PrimeVue v4, create shared UniFi theme preset (Aura base + `--p-*` token overrides)
+- [ ] Side-by-side Shape A / Shape B panels (use `<DataTable size="small">`)
 - [ ] Create/Update entry form
 - [ ] KV watch → SSE → reactive panel updates
+- [ ] Default to dark mode (`p-dark` class on `documentElement`)
 - [ ] Add frontend container to docker-compose.yml
 
 ### Phase 4 — Lab Shell
-- [ ] Scaffold Vue 3 + PrimeVue in `lab-shell/`
+
+- [ ] Scaffold Vue 3 + PrimeVue v4 in `lab-shell/`
+- [ ] Import shared UniFi theme preset (same file as demo frontend)
 - [ ] Demo menu page
 - [ ] Demo 01 intro page (content from README.md)
 - [ ] "Launch demo" → new tab
