@@ -1,0 +1,841 @@
+<title>Dictionary POC — Architecture Overview</title>
+<meta name="description" content="Data flow, projections, rehydration, and reactive updates in the NATS Dictionary POC.">
+<style>
+  /* ── Token System ── */
+  :root {
+    --bg:         #0B0F1A;
+    --s1:         #111827;
+    --s2:         #172033;
+    --border:     #1D2D45;
+    --border-dim: #152030;
+    --text-1:     #C9D5E3;
+    --text-2:     #607898;
+    --text-3:     #3D5270;
+    --blue:       #3B82F6;
+    --green:      #10B981;
+    --amber:      #F59E0B;
+    --purple:     #A78BFA;
+    --red:        #F87171;
+    --blue-dim:   rgba(59,130,246,.12);
+    --green-dim:  rgba(16,185,129,.12);
+    --amber-dim:  rgba(245,158,11,.10);
+    --purple-dim: rgba(167,139,250,.10);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text-1);
+    font-family: Inter, 'Helvetica Neue', Arial, sans-serif;
+    font-size: 12px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Sticky doc header ── */
+  .doc-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--s1);
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .doc-header-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-1);
+    letter-spacing: -0.1px;
+    white-space: nowrap;
+  }
+  .doc-header-sep {
+    color: var(--text-3);
+    font-size: 14px;
+    font-weight: 300;
+  }
+  .badge {
+    font-family: 'SF Mono', 'Cascadia Code', ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--text-2);
+    background: var(--s2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 6px;
+    white-space: nowrap;
+  }
+  .doc-header-ports {
+    margin-left: auto;
+    font-family: 'SF Mono', 'Cascadia Code', ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--text-3);
+    white-space: nowrap;
+    display: flex;
+    gap: 12px;
+  }
+  .doc-header-ports span { color: var(--text-2); }
+
+  /* ── Page body ── */
+  .page { max-width: 900px; margin: 0 auto; padding: 22px 20px 56px; }
+
+  /* ── Lead ── */
+  .lead {
+    color: var(--text-2);
+    font-size: 11.5px;
+    line-height: 1.65;
+    max-width: 680px;
+    margin-bottom: 18px;
+  }
+
+  /* ── Shape cards ── */
+  .shape-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .shape-card {
+    background: var(--s1);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 13px 15px;
+  }
+  .shape-card.a { border-top: 2px solid var(--blue); }
+  .shape-card.b { border-top: 2px solid var(--green); }
+  .shape-tag {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-bottom: 6px;
+  }
+  .shape-card.a .shape-tag { background: var(--blue-dim);  color: var(--blue); }
+  .shape-card.b .shape-tag { background: var(--green-dim); color: var(--green); }
+  .shape-card h3 {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    margin-bottom: 5px;
+  }
+  .shape-card.a h3 { color: var(--blue); }
+  .shape-card.b h3 { color: var(--green); }
+  .shape-card p { font-size: 11px; color: var(--text-2); line-height: 1.6; }
+  .shape-card p strong { color: var(--text-1); font-weight: 600; }
+
+  /* ── Divider ── */
+  hr { border: none; border-top: 1px solid var(--border-dim); margin: 20px 0; }
+
+  /* ── Section label (rail + eyebrow) ── */
+  .section-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 26px 0 10px;
+  }
+  .section-label::before {
+    content: '';
+    display: block;
+    width: 3px;
+    height: 13px;
+    border-radius: 2px;
+    background: var(--text-3);
+    flex-shrink: 0;
+  }
+  .section-label.blue::before   { background: var(--blue); }
+  .section-label.green::before  { background: var(--green); }
+  .section-label.amber::before  { background: var(--amber); }
+  .section-label.purple::before { background: var(--purple); }
+  .section-label h2 {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-2);
+  }
+
+  /* ── Inline code ── */
+  code {
+    font-family: 'SF Mono', 'Cascadia Code', ui-monospace, monospace;
+    font-size: 10.5px;
+    background: var(--s2);
+    border: 1px solid var(--border-dim);
+    border-radius: 3px;
+    padding: 0 4px;
+    color: var(--amber);
+  }
+  a { color: var(--blue); text-decoration: none; }
+
+  /* ── Diagram wrapper ── */
+  .diagram {
+    background: var(--s1);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 16px;
+    overflow-x: auto;
+    margin-bottom: 4px;
+  }
+  .diagram svg { display: block; margin: 0 auto; }
+
+  /* ── Step lists ── */
+  .steps { list-style: none; padding: 0; margin-bottom: 4px; }
+  .steps li {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border-dim);
+  }
+  .steps li:last-child { border-bottom: none; }
+  .step-num {
+    flex-shrink: 0;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--s2);
+    border: 1px solid var(--border);
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-3);
+    font-family: 'SF Mono', ui-monospace, monospace;
+    display: flex; align-items: center; justify-content: center;
+    margin-top: 1px;
+  }
+  .steps .note {
+    font-family: 'SF Mono', 'Cascadia Code', ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--text-3);
+    margin-top: 2px;
+  }
+
+  /* ── Section panels ── */
+  .panel {
+    background: var(--s1);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 13px 15px;
+    margin-bottom: 10px;
+  }
+  .panel p { color: var(--text-2); margin-bottom: 8px; }
+  .panel p:last-child { margin-bottom: 0; }
+  .panel.a      { border-left: 2px solid var(--blue); }
+  .panel.b      { border-left: 2px solid var(--green); }
+  .panel.amber  { border-left: 2px solid var(--amber); }
+  .panel.purple { border-left: 2px solid var(--purple); }
+
+  .panel h3 {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    margin-bottom: 6px;
+    margin-top: 12px;
+  }
+  .panel h3:first-child { margin-top: 0; }
+
+  /* ── KV chips ── */
+  .kv { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .kv-item {
+    background: var(--s2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-family: 'SF Mono', 'Cascadia Code', ui-monospace, monospace;
+    font-size: 10.5px;
+    color: var(--text-1);
+  }
+  .kv-item span { color: var(--text-3); margin-right: 4px; }
+
+  /* ── API table ── */
+  .api-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .api-table th {
+    text-align: left;
+    padding: 5px 8px;
+    background: var(--s2);
+    color: var(--text-2);
+    font-weight: 600;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .api-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--border-dim);
+    color: var(--text-2);
+    vertical-align: top;
+  }
+  .api-table tr:last-child td { border-bottom: none; }
+  .api-table td:first-child { width: 64px; white-space: nowrap; }
+  .api-table code { background: none; border: none; padding: 0; color: var(--blue); font-size: 10.5px; }
+  .method {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: 'SF Mono', ui-monospace, monospace;
+    letter-spacing: 0.3px;
+  }
+  .get  { background: var(--green-dim);          color: var(--green); }
+  .post { background: var(--blue-dim);           color: var(--blue); }
+  .put  { background: var(--amber-dim);          color: var(--amber); }
+  .del  { background: rgba(248,113,113,.12);     color: var(--red); }
+
+  /* ── Module table ── */
+  .mod-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .mod-table th {
+    text-align: left;
+    padding: 5px 8px;
+    background: var(--s2);
+    color: var(--text-2);
+    font-weight: 600;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .mod-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--border-dim);
+    vertical-align: top;
+  }
+  .mod-table tr:last-child td { border-bottom: none; }
+  .mod-table .path {
+    font-family: 'SF Mono', 'Cascadia Code', ui-monospace, monospace;
+    font-size: 10.5px;
+    color: var(--blue);
+    white-space: nowrap;
+  }
+  .mod-table .desc { color: var(--text-2); }
+
+  @media (max-width: 640px) {
+    .shape-grid { grid-template-columns: 1fr; }
+    .doc-header-ports { display: none; }
+    .api-table, .mod-table { font-size: 10px; }
+  }
+</style>
+
+<!-- Sticky doc header -->
+<div class="doc-header">
+  <span class="doc-header-title">Dictionary POC</span>
+  <span class="doc-header-sep">·</span>
+  <span class="doc-header-title" style="color:var(--text-2);font-weight:400;">Architecture Overview</span>
+  <span class="badge">poc/dictionary</span>
+  <div class="doc-header-ports">
+    <span>:18080</span> backend
+    <span>:5173</span> frontend
+    <span>:14222</span> NATS
+    <span>:15432</span> Postgres
+  </div>
+</div>
+
+<div class="page">
+
+  <p class="lead">
+    How reference data flows from commands through JetStream into two competing read-model shapes,
+    and how the browser stays live via KV Watch → SSE.
+  </p>
+
+  <div class="shape-grid">
+    <div class="shape-card a">
+      <div class="shape-tag">Shape A</div>
+      <h3>KV as read model</h3>
+      <p>Events project <strong>directly into NATS KV</strong>. The KV bucket <em>is</em> the read model — no Postgres read table. KV revision = entry version. Reads never touch Postgres.</p>
+    </div>
+    <div class="shape-card b">
+      <div class="shape-tag">Shape B</div>
+      <h3>KV as cache in front of Postgres</h3>
+      <p>Events project to <strong>Postgres first</strong> (source of truth), then refresh the KV cache. Cache miss falls through to Postgres and backfills KV. Evict any row to watch the miss path.</p>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- ── DATA FLOW DIAGRAM ── -->
+  <div class="section-label">
+    <h2>Data Flow</h2>
+  </div>
+  <div class="diagram">
+    <svg width="800" height="360" viewBox="0 0 800 360" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;height:auto;">
+      <defs>
+        <marker id="ar"   markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#3D5270"/></marker>
+        <marker id="ara"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#3B82F6"/></marker>
+        <marker id="arb"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#10B981"/></marker>
+        <marker id="arb2" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#A78BFA"/></marker>
+        <marker id="ars"  markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#3D5270"/></marker>
+      </defs>
+
+      <!-- Client -->
+      <rect x="8" y="148" width="80" height="44" rx="4" fill="#172033" stroke="#1D2D45"/>
+      <text x="48" y="166" text-anchor="middle" fill="#C9D5E3" font-size="11" font-family="system-ui">HTTP</text>
+      <text x="48" y="181" text-anchor="middle" fill="#C9D5E3" font-size="11" font-family="system-ui">Client</text>
+
+      <line x1="88" y1="170" x2="113" y2="170" stroke="#3D5270" stroke-width="1.5" marker-end="url(#ar)"/>
+      <text x="100" y="163" text-anchor="middle" fill="#607898" font-size="9" font-family="system-ui">POST/PUT</text>
+
+      <!-- REST -->
+      <rect x="114" y="148" width="90" height="44" rx="4" fill="#172033" stroke="#1D2D45"/>
+      <text x="159" y="166" text-anchor="middle" fill="#C9D5E3" font-size="11" font-family="system-ui">REST</text>
+      <text x="159" y="181" text-anchor="middle" fill="#607898" font-size="10" font-family="system-ui">handlers.go</text>
+
+      <line x1="204" y1="170" x2="229" y2="170" stroke="#3D5270" stroke-width="1.5" marker-end="url(#ar)"/>
+
+      <!-- Command Handler -->
+      <rect x="230" y="148" width="100" height="44" rx="4" fill="#172033" stroke="#1D2D45"/>
+      <text x="280" y="163" text-anchor="middle" fill="#C9D5E3" font-size="11" font-family="system-ui">Command</text>
+      <text x="280" y="178" text-anchor="middle" fill="#C9D5E3" font-size="11" font-family="system-ui">Handler</text>
+      <text x="280" y="191" text-anchor="middle" fill="#607898" font-size="9" font-family="system-ui">commands.go</text>
+
+      <!-- 202 Accepted -->
+      <text x="163" y="144" text-anchor="middle" fill="#10B981" font-size="10" font-weight="bold" font-family="system-ui">202 Accepted</text>
+      <line x1="204" y1="148" x2="114" y2="148" stroke="#10B981" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arb)"/>
+
+      <!-- → JetStream -->
+      <line x1="330" y1="170" x2="358" y2="170" stroke="#F59E0B" stroke-width="1.5" marker-end="url(#ar)"/>
+      <text x="344" y="163" text-anchor="middle" fill="#F59E0B" font-size="9" font-family="system-ui">publish</text>
+
+      <!-- JetStream -->
+      <rect x="359" y="138" width="120" height="64" rx="4" fill="#172033" stroke="#F59E0B" stroke-width="1.5"/>
+      <text x="419" y="158" text-anchor="middle" fill="#F59E0B" font-size="12" font-weight="bold" font-family="system-ui">JetStream</text>
+      <text x="419" y="173" text-anchor="middle" fill="#C9D5E3" font-size="10" font-family="system-ui">DICTIONARY stream</text>
+      <text x="419" y="186" text-anchor="middle" fill="#607898" font-size="9" font-family="system-ui">LimitsPolicy · FileStorage</text>
+      <text x="419" y="198" text-anchor="middle" fill="#607898" font-size="9" font-family="system-ui">entry.created / entry.updated</text>
+
+      <!-- Shape A branch -->
+      <line x1="419" y1="138" x2="419" y2="80" stroke="#3B82F6" stroke-width="1.5" marker-end="url(#ara)"/>
+      <line x1="419" y1="80" x2="510" y2="80" stroke="#3B82F6" stroke-width="1.5" marker-end="url(#ara)"/>
+      <text x="465" y="73" text-anchor="middle" fill="#3B82F6" font-size="9" font-family="system-ui">consumer: dict-shape-a</text>
+
+      <rect x="511" y="58" width="116" height="44" rx="4" fill="#172033" stroke="#3B82F6" stroke-width="1.5"/>
+      <text x="569" y="76" text-anchor="middle" fill="#3B82F6" font-size="11" font-weight="bold" font-family="system-ui">Shape A Handler</text>
+      <text x="569" y="91" text-anchor="middle" fill="#607898" font-size="9" font-family="system-ui">eventhandler/handler.go</text>
+
+      <line x1="627" y1="80" x2="670" y2="80" stroke="#3B82F6" stroke-width="1.5" marker-end="url(#ara)"/>
+      <text x="649" y="73" text-anchor="middle" fill="#3B82F6" font-size="9" font-family="system-ui">Put()</text>
+
+      <rect x="671" y="56" width="120" height="48" rx="4" fill="rgba(59,130,246,.08)" stroke="#3B82F6"/>
+      <text x="731" y="76" text-anchor="middle" fill="#3B82F6" font-size="11" font-weight="bold" font-family="system-ui">NATS KV</text>
+      <text x="731" y="90" text-anchor="middle" fill="#C9D5E3" font-size="10" font-family="system-ui">dict-a-{ctx}</text>
+      <text x="731" y="102" text-anchor="middle" fill="#607898" font-size="9" font-family="system-ui">{entityType}.{id}</text>
+
+      <!-- Shape B branch -->
+      <line x1="419" y1="202" x2="419" y2="258" stroke="#10B981" stroke-width="1.5" marker-end="url(#arb)"/>
+      <line x1="419" y1="258" x2="510" y2="258" stroke="#10B981" stroke-width="1.5" marker-end="url(#arb)"/>
+      <text x="465" y="272" text-anchor="middle" fill="#10B981" font-size="9" font-family="system-ui">consumer: dict-shape-b</text>
+
+      <rect x="511" y="236" width="116" height="44" rx="4" fill="#172033" stroke="#10B981" stroke-width="1.5"/>
+      <text x="569" y="254" text-anchor="middle" fill="#10B981" font-size="11" font-weight="bold" font-family="system-ui">Shape B Handler</text>
+      <text x="569" y="269" text-anchor="middle" fill="#607898" font-size="9" font-family="system-ui">eventhandler/handler.go</text>
+
+      <line x1="627" y1="258" x2="660" y2="258" stroke="#A78BFA" stroke-width="1.5" marker-end="url(#arb2)"/>
+      <text x="644" y="251" text-anchor="middle" fill="#A78BFA" font-size="9" font-family="system-ui">Upsert()</text>
+
+      <rect x="661" y="232" width="120" height="52" rx="4" fill="rgba(167,139,250,.08)" stroke="#A78BFA"/>
+      <text x="721" y="253" text-anchor="middle" fill="#A78BFA" font-size="11" font-weight="bold" font-family="system-ui">Postgres</text>
+      <text x="721" y="268" text-anchor="middle" fill="#C9D5E3" font-size="10" font-family="system-ui">dictionary_entries</text>
+      <text x="721" y="281" text-anchor="middle" fill="#607898" font-size="9" font-family="system-ui">source of truth</text>
+
+      <!-- Postgres → KV B -->
+      <line x1="721" y1="232" x2="721" y2="160" stroke="#10B981" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arb)"/>
+      <text x="734" y="200" text-anchor="middle" fill="#10B981" font-size="9" font-family="system-ui" transform="rotate(-90,740,200)">Put() cache</text>
+
+      <rect x="671" y="130" width="120" height="48" rx="4" fill="rgba(16,185,129,.08)" stroke="#10B981"/>
+      <text x="731" y="150" text-anchor="middle" fill="#10B981" font-size="11" font-weight="bold" font-family="system-ui">NATS KV</text>
+      <text x="731" y="165" text-anchor="middle" fill="#C9D5E3" font-size="10" font-family="system-ui">dict-b-{ctx}</text>
+      <text x="731" y="177" text-anchor="middle" fill="#607898" font-size="9" font-family="system-ui">{entityType}.{id}</text>
+
+      <!-- KV Watch / SSE -->
+      <line x1="731" y1="104" x2="731" y2="130" stroke="#3B82F6" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#ara)"/>
+      <line x1="731" y1="178" x2="731" y2="188" stroke="#10B981" stroke-width="1" stroke-dasharray="3,3"/>
+      <text x="757" y="120" fill="#607898" font-size="9" font-family="system-ui">KV Watch</text>
+      <text x="757" y="197" fill="#607898" font-size="9" font-family="system-ui">→ SSE</text>
+
+      <rect x="660" y="310" width="130" height="36" rx="4" fill="#172033" stroke="#1D2D45"/>
+      <text x="725" y="328" text-anchor="middle" fill="#607898" font-size="11" font-family="system-ui">Browser EventSource</text>
+      <text x="725" y="341" text-anchor="middle" fill="#607898" font-size="10" font-family="system-ui">→ Pinia store (live)</text>
+      <line x1="731" y1="188" x2="731" y2="310" stroke="#3D5270" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#ars)"/>
+
+      <!-- Read labels -->
+      <text x="419" y="30" text-anchor="middle" fill="#3B82F6" font-size="10" font-weight="bold" font-family="system-ui">SHAPE A READ: GET /api/shape-a/entries/{ctx}/...</text>
+      <text x="419" y="340" text-anchor="middle" fill="#10B981" font-size="10" font-weight="bold" font-family="system-ui">SHAPE B READ: GET /api/shape-b/entries/{ctx}/... → KV hit or KV miss → Postgres → backfill KV</text>
+
+      <!-- Shape separator -->
+      <line x1="350" y1="220" x2="800" y2="220" stroke="#1D2D45" stroke-width="1" stroke-dasharray="6,4"/>
+    </svg>
+  </div>
+
+  <hr>
+
+  <!-- ── WRITE PATH ── -->
+  <div class="section-label amber">
+    <h2>Write Path</h2>
+  </div>
+  <div class="panel amber">
+    <p>Every state change is a command that produces a JetStream event. The HTTP caller gets <code>202 Accepted</code> immediately — projections are async.</p>
+    <ol class="steps">
+      <li>
+        <div class="step-num">1</div>
+        <div>
+          <strong>POST /api/entries</strong> or <strong>PUT /api/entries/{ctx}/{type}/{id}</strong> hits the REST handler.
+          <div class="note">rest/handlers.go → decodes JSON body, calls command handler</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">2</div>
+        <div>
+          Command handler validates the <code>DictionaryEntry</code>, wraps it in an <code>EntryEvent{OccurredAt}</code>, marshals to JSON, and publishes to JetStream subject <code>DICTIONARY.entry.created</code> or <code>DICTIONARY.entry.updated</code>.
+          <div class="note">commands/commands.go → internal/jstream/stream.go (LimitsPolicy, FileStorage)</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">3</div>
+        <div>REST handler returns <strong>202 Accepted</strong> with the entry payload. The client does not wait for projections.</div>
+      </li>
+      <li>
+        <div class="step-num">4</div>
+        <div>
+          JetStream delivers the event concurrently to <strong>two durable consumers</strong>: <code>dict-shape-a</code> (Shape A handler) and <code>dict-shape-b</code> (Shape B handler). Each acks explicitly; projection failure → nak → redeliver.
+          <div class="note">eventhandler/handler.go</div>
+        </div>
+      </li>
+    </ol>
+  </div>
+
+  <hr>
+
+  <!-- ── SHAPE A ── -->
+  <div class="section-label blue">
+    <h2>Shape A — KV as Read Model</h2>
+  </div>
+  <div class="panel a">
+    <h3 style="color:var(--blue);">Projection</h3>
+    <ol class="steps">
+      <li>
+        <div class="step-num">1</div>
+        <div>Shape A event handler receives the event from JetStream consumer <code>dict-shape-a</code>.</div>
+      </li>
+      <li>
+        <div class="step-num">2</div>
+        <div>
+          Deserializes <code>EntryEvent</code>, preserves original <code>CreatedAt</code> on updates, writes entry JSON to KV bucket <code>dict-a-{context}</code> under key <code>{entityType}.{id}</code>.
+          <div class="note">KVStore.Put() — internal/kvstore/kv.go; bucket created lazily on first write</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">3</div>
+        <div>Acks the JetStream message. The KV revision number becomes the entry version.</div>
+      </li>
+    </ol>
+    <h3 style="color:var(--blue);margin-top:12px;">Read Path</h3>
+    <ol class="steps">
+      <li>
+        <div class="step-num">1</div>
+        <div><strong>GET /api/shape-a/entries/{ctx}</strong> or <strong>/{ctx}/{type}/{id}</strong></div>
+      </li>
+      <li>
+        <div class="step-num">2</div>
+        <div>
+          Query handler calls <code>KVStore.Get()</code> on <code>dict-a-{context}</code>. No Postgres involved.
+          <div class="note">application/queries/get_entry.go — ShapeAQueries</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">3</div>
+        <div>Response includes <code>"source": "kv"</code> and the KV revision as version.</div>
+      </li>
+    </ol>
+    <div class="kv" style="margin-top:10px;">
+      <div class="kv-item"><span>bucket</span>dict-a-en-GB</div>
+      <div class="kv-item"><span>key</span>currency.GBP</div>
+      <div class="kv-item"><span>value</span>{"label":"British Pound",...}</div>
+      <div class="kv-item"><span>source</span>kv</div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- ── SHAPE B ── -->
+  <div class="section-label green">
+    <h2>Shape B — KV as Cache in Front of Postgres</h2>
+  </div>
+  <div class="panel b">
+    <h3 style="color:var(--green);">Projection</h3>
+    <ol class="steps">
+      <li>
+        <div class="step-num">1</div>
+        <div>Shape B event handler receives the event from JetStream consumer <code>dict-shape-b</code>.</div>
+      </li>
+      <li>
+        <div class="step-num">2</div>
+        <div>
+          <strong>Upserts to Postgres first</strong>: <code>INSERT ... ON CONFLICT DO UPDATE</code>. On conflict, increments version and sets <code>updated_at</code>. Returns the persisted row (with server-assigned version and <code>created_at</code>).
+          <div class="note">postgres/repository.go — Upsert()</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">3</div>
+        <div>
+          Writes the <em>persisted</em> entry (canonical version from Postgres) to KV cache bucket <code>dict-b-{context}</code> under key <code>{entityType}.{id}</code>.
+          <div class="note">KVStore.Put() — bucket created lazily</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">4</div>
+        <div>Acks the JetStream message. Projection failure at either step → nak → redeliver.</div>
+      </li>
+    </ol>
+    <h3 style="color:var(--green);margin-top:12px;">Read Path — Cache Hit</h3>
+    <ol class="steps">
+      <li>
+        <div class="step-num">1</div>
+        <div><strong>GET /api/shape-b/entries/{ctx}/{type}/{id}</strong></div>
+      </li>
+      <li>
+        <div class="step-num">2</div>
+        <div>
+          Query handler calls <code>KVStore.Get()</code> on <code>dict-b-{context}</code>. Entry found → return immediately.
+          <div class="note">application/queries/get_entry.go — ShapeBQueries.GetEntry()</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">3</div>
+        <div>Response: <code>"source": "kv-cache"</code>, <code>"cacheHit": true</code>.</div>
+      </li>
+    </ol>
+    <h3 style="color:var(--green);margin-top:12px;">Read Path — Cache Miss + Backfill</h3>
+    <ol class="steps">
+      <li>
+        <div class="step-num">1</div>
+        <div>KV Get returns <code>nats.ErrKeyNotFound</code> (entry evicted or bucket empty).</div>
+      </li>
+      <li>
+        <div class="step-num">2</div>
+        <div>Falls through to <code>PostgresRepo.Find()</code>. Returns <code>ErrNotFound</code> if truly absent.</div>
+      </li>
+      <li>
+        <div class="step-num">3</div>
+        <div>
+          Backfills KV: writes retrieved row into <code>dict-b-{context}</code> so next read is a hit.
+          <div class="note">demo: DELETE /api/shape-b/cache/{ctx}/{type}/{id} → evicts a key → next GET shows miss path</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">4</div>
+        <div>Response: <code>"source": "postgres"</code>, <code>"cacheHit": false</code>.</div>
+      </li>
+    </ol>
+    <div class="kv" style="margin-top:10px;">
+      <div class="kv-item"><span>bucket</span>dict-b-en-GB</div>
+      <div class="kv-item"><span>key</span>currency.GBP</div>
+      <div class="kv-item"><span>pg table</span>dictionary_entries</div>
+      <div class="kv-item"><span>pk</span>(context, entity_type, id)</div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- ── REHYDRATION ── -->
+  <div class="section-label amber">
+    <h2>Rehydration via LimitsPolicy Replay</h2>
+  </div>
+  <div class="panel amber">
+    <p>The <code>DICTIONARY</code> stream uses <code>LimitsPolicy</code> retention — events are <strong>kept after acknowledgement</strong> (unlike <code>InterestPolicy</code> which deletes on ack). This means a consumer can start from sequence 1 and replay the full history at any time.</p>
+    <ol class="steps">
+      <li>
+        <div class="step-num">1</div>
+        <div>Delete or wipe a KV bucket (e.g. <code>nats kv purge dict-a-en-GB</code>).</div>
+      </li>
+      <li>
+        <div class="step-num">2</div>
+        <div>Restart the backend (or trigger a consumer reset). The event handler replays from stream sequence 1.</div>
+      </li>
+      <li>
+        <div class="step-num">3</div>
+        <div>
+          The KV bucket is rebuilt from events — no data loss, no manual re-seeding.
+          <div class="note">internal/jstream/stream.go — RetentionPolicy: nats.LimitsPolicy</div>
+        </div>
+      </li>
+    </ol>
+    <p style="margin-top:8px;font-size:11px;">This is also why <code>InterestPolicy</code> was rejected: consumers would have to be live at publish time or events would be dropped on the floor, making replay impossible.</p>
+  </div>
+
+  <hr>
+
+  <!-- ── SSE / REACTIVE ── -->
+  <div class="section-label purple">
+    <h2>Reactive Updates — KV Watch → SSE → Pinia</h2>
+  </div>
+  <div class="panel purple">
+    <ol class="steps">
+      <li>
+        <div class="step-num">1</div>
+        <div>
+          Browser opens <code>GET /api/watch/{context}</code> (EventSource). The SSE handler starts a <strong>KV Watch</strong> on both <code>dict-a-{ctx}</code> and <code>dict-b-{ctx}</code> buckets concurrently.
+          <div class="note">rest/sse.go — SSEHandler</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">2</div>
+        <div>
+          The watcher <strong>replays current state first</strong> (all existing keys → nil marker → then live). Each KV update emits an SSE event: <code>{"shape":"a"|"b", "key":"currency.GBP", "op":"PUT"|"DEL"|"PURGE", "revision":N, "value":{...}}</code>.
+        </div>
+      </li>
+      <li>
+        <div class="step-num">3</div>
+        <div>
+          The Vue frontend's <code>EventSource</code> listener routes events to the correct <strong>Pinia store</strong> (Shape A or Shape B). The store mutates reactively — no polling.
+          <div class="note">Pinia stores here are the frontend analogue of server-side materialized views: both are projected read models derived from an event stream, one layer further out.</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">4</div>
+        <div>A 15-second heartbeat (<code>:ping</code>) keeps the SSE connection alive through proxies and load balancers.</div>
+      </li>
+    </ol>
+  </div>
+
+  <hr>
+
+  <!-- ── API REFERENCE ── -->
+  <div class="section-label">
+    <h2>API Reference</h2>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="api-table">
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>Path</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="method post">POST</span></td>
+          <td><code>/api/entries</code></td>
+          <td>Create entry → publishes <code>entry.created</code> → 202</td>
+        </tr>
+        <tr>
+          <td><span class="method put">PUT</span></td>
+          <td><code>/api/entries/{ctx}/{type}/{id}</code></td>
+          <td>Update entry → publishes <code>entry.updated</code> → 202</td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span></td>
+          <td><code>/api/shape-a/entries/{ctx}</code></td>
+          <td>List all Shape A entries for context (reads from KV)</td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span></td>
+          <td><code>/api/shape-a/entries/{ctx}/{type}/{id}</code></td>
+          <td>Get single Shape A entry (KV only, <code>source: "kv"</code>)</td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span></td>
+          <td><code>/api/shape-b/entries/{ctx}</code></td>
+          <td>List all Shape B entries (reads from Postgres, canonical)</td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span></td>
+          <td><code>/api/shape-b/entries/{ctx}/{type}/{id}</code></td>
+          <td>Get Shape B entry — KV hit or miss → Postgres → backfill</td>
+        </tr>
+        <tr>
+          <td><span class="method del">DEL</span></td>
+          <td><code>/api/shape-b/cache/{ctx}/{type}/{id}</code></td>
+          <td>Evict a KV cache key (forces miss on next GET)</td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span></td>
+          <td><code>/api/watch/{ctx}</code></td>
+          <td>SSE stream — KV Watch on both buckets, live + replay</td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span></td>
+          <td><code>/healthz</code></td>
+          <td>Health check</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <hr>
+
+  <!-- ── MODULE MAP ── -->
+  <div class="section-label">
+    <h2>Module Map</h2>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="mod-table">
+      <thead>
+        <tr>
+          <th>Package / File</th>
+          <th>Responsibility</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="path">cmd/main.go</td>
+          <td class="desc">Bootstrap — connects NATS + Postgres, creates HTTP server with CORS, registers Dictionary module, starts monolith</td>
+        </tr>
+        <tr>
+          <td class="path">internal/jstream/stream.go</td>
+          <td class="desc">JetStream wrapper — <code>CreateStream(LimitsPolicy, FileStorage)</code>, <code>Publisher.Publish()</code></td>
+        </tr>
+        <tr>
+          <td class="path">internal/kvstore/kv.go</td>
+          <td class="desc">KV wrapper — context-scoped bucket names (<code>{prefix}-{ctx}</code>), lazy creation, Put/Get/Delete/Keys/Watch</td>
+        </tr>
+        <tr>
+          <td class="path">dictionary/composition.go</td>
+          <td class="desc">Wires all layers — creates KV stores, registers event handlers for both shapes, mounts REST handlers, creates DICTIONARY stream</td>
+        </tr>
+        <tr>
+          <td class="path">dictionary/internal/domain/</td>
+          <td class="desc"><code>DictionaryEntry</code> entity + <code>KVKey()</code> + <code>Validate()</code>; event types; Repository port interface</td>
+        </tr>
+        <tr>
+          <td class="path">dictionary/internal/application/commands/commands.go</td>
+          <td class="desc">CreateEntry + UpdateEntry — validate, marshal as <code>EntryEvent</code>, publish to JetStream</td>
+        </tr>
+        <tr>
+          <td class="path">dictionary/internal/application/queries/get_entry.go</td>
+          <td class="desc">ShapeAQueries (KV only) and ShapeBQueries (KV → Postgres → backfill)</td>
+        </tr>
+        <tr>
+          <td class="path">dictionary/internal/eventhandler/handler.go</td>
+          <td class="desc">Durable JetStream consumers for Shape A (→ KV) and Shape B (→ Postgres → KV); explicit ack; poison-message handling</td>
+        </tr>
+        <tr>
+          <td class="path">dictionary/internal/postgres/repository.go</td>
+          <td class="desc">Shape B Postgres repo — Upsert (INSERT ON CONFLICT), Find, List</td>
+        </tr>
+        <tr>
+          <td class="path">dictionary/internal/postgres/migrate.go</td>
+          <td class="desc">Auto-migration — <code>dictionary_entries(context, entity_type, id, label, attributes JSONB, version, created_at, updated_at)</code></td>
+        </tr>
+        <tr>
+          <td class="path">dictionary/internal/rest/handlers.go</td>
+          <td class="desc">HTTP handlers for commands + Shape A/B queries + cache eviction + healthz</td>
+        </tr>
+        <tr>
+          <td class="path">dictionary/internal/rest/sse.go</td>
+          <td class="desc">SSE endpoint — watches both KV buckets, replays current state, streams live updates with 15s heartbeat</td>
+        </tr>
+        <tr>
+          <td class="path">demos/01-dictionary/frontend/</td>
+          <td class="desc">Vue 3 demo UI — side-by-side Shape A/B panels, create/update form, EventSource → Pinia reactive updates</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>

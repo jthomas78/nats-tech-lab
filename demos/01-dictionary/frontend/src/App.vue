@@ -58,10 +58,10 @@ onUnmounted(() => store.disconnect())
 .layout {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 1rem;
+  padding: 0.75rem;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.625rem;
 }
 .topbar {
   display: flex;
@@ -69,19 +69,20 @@ onUnmounted(() => store.disconnect())
   align-items: center;
 }
 .topbar h1 {
-  margin: 0 0 0.25rem;
-  font-size: 1.25rem;
+  margin: 0 0 2px;
+  font-size: 15px; /* UniFi --desktop-font-size-large, line-height: 24px */
+  line-height: 24px;
   letter-spacing: 0.02em;
 }
 .topbar-right {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.625rem;
 }
 .panels {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1rem;
+  gap: 0.625rem;
 }
 @media (max-width: 900px) {
   .panels {

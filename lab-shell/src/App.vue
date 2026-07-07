@@ -19,15 +19,15 @@
 .shell {
   max-width: 1080px;
   margin: 0 auto;
-  padding: 1rem;
+  padding: 0.75rem;
 }
 .topbar {
   display: flex;
   align-items: baseline;
-  gap: 1rem;
-  padding-bottom: 1rem;
+  gap: 0.75rem;
+  padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--lab-panel-border);
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
 }
 .brand {
   display: inline-flex;
@@ -35,7 +35,7 @@
   gap: 0.5rem;
   color: var(--p-text-color);
   text-decoration: none;
-  font-size: 1.15rem;
+  font-size: 1rem;
   font-weight: 600;
   letter-spacing: 0.02em;
 }

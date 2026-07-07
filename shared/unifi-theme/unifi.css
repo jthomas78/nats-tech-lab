@@ -27,21 +27,32 @@ body {
     'Helvetica Neue',
     Arial,
     sans-serif;
-  font-size: 14px;
+  font-size: 13px;         /* UniFi --desktop-font-size-medium, line-height: 20px */
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
 }
 
 .lab-panel {
   background: var(--lab-panel-bg);
   border: 1px solid var(--lab-panel-border);
   border-radius: 4px; /* UniFi is angular: small radii, dense layout */
-  padding: 1rem;
+  padding: 0.75rem;
 }
 
 .lab-panel h2,
 .lab-panel h3 {
   margin-top: 0;
+  font-size: 11px; /* UniFi --desktop-font-size-small, line-height: 16px */
+  line-height: 16px;
   font-weight: 600;
   letter-spacing: 0.01em;
+}
+
+/* ── DataTable density — target UniFi's 24px row height ── */
+/* PrimeVue v4 DataTable size="small" cell padding override */
+:root {
+  --p-datatable-sm-body-cell-padding: 2px 8px;
+  --p-datatable-sm-header-cell-padding: 4px 8px;
 }
 
 .lab-muted {
