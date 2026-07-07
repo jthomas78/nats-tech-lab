@@ -2,9 +2,13 @@ services:
   nats:
     image: nats:2.11-alpine
     command: ["-js", "-sd", "/data", "-m", "8222"]
+    # Host ports are remapped (14222/18222) because dev machines often
+    # already run a NATS on the default 4222. The backend talks to NATS over
+    # the compose network (nats:4222), so these mappings are only for
+    # debugging from the host (e.g. the nats CLI).
     ports:
-      - "4222:4222"
-      - "8222:8222" # monitoring
+      - "14222:4222"
+      - "18222:8222" # monitoring
     volumes:
       - nats-data:/data
 
@@ -14,8 +18,10 @@ services:
       POSTGRES_USER: dict
       POSTGRES_PASSWORD: dict
       POSTGRES_DB: dictionary
+    # Remapped for the same reason as NATS: avoid clashing with a local
+    # Postgres. The backend uses the compose-internal postgres:5432.
     ports:
-      - "5432:5432"
+      - "15432:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
     healthcheck:

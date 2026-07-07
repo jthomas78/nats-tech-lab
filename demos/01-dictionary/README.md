@@ -41,5 +41,7 @@ docker compose up --build    # then open http://localhost:5173
 docker compose down          # tear down (add -v to drop data)
 ```
 
-Services: NATS (JetStream, monitor on :8222), Postgres 16, Go backend
-(:8080), Vue 3 demo UI (:5173).
+Services: NATS (JetStream, host :14222, monitor :18222), Postgres 16 (host
+:15432), Go backend (:8080), Vue 3 demo UI (:5173). NATS and Postgres use
+non-default host ports to avoid clashing with instances already running on
+your machine; inside the compose network they use the standard ports.
