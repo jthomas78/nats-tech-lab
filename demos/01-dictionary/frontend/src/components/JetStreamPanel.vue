@@ -109,9 +109,9 @@ function handleTabChange(value) {
       </div>
     </div>
 
-    <Tabs v-if="!collapsed" default-value="0" @update:value="handleTabChange">
+    <Tabs v-if="!collapsed" v-model:value="activeTab" @update:value="handleTabChange">
       <TabList>
-        <Tab value="0">
+        <Tab value="0" class="tab-messages">
           Messages
           <Tag
             :severity="liveConnected ? 'success' : 'danger'"
@@ -120,7 +120,7 @@ function handleTabChange(value) {
             @click.stop
           />
         </Tab>
-        <Tab value="1">
+        <Tab value="1" class="tab-stream">
           Stream
           <Tag
             :severity="streamConnected ? 'success' : 'secondary'"
@@ -253,6 +253,28 @@ function handleTabChange(value) {
 }
 .js-panel :deep(.p-tabs) {
   --p-tabs-tablist-border-width: 0 0 1px 0;
+}
+
+/* All tabs: grey background, muted text when inactive */
+.js-panel :deep(.p-tab) {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px 4px 0 0;
+  color: var(--p-text-muted-color);
+}
+
+/* Active tabs share the same elevated grey background */
+.js-panel :deep(.p-tab-active) {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+/* Active colour is carried only by text + underline */
+.js-panel :deep(.tab-messages.p-tab-active) {
+  border-bottom-color: var(--lab-accent);
+  color: var(--lab-accent);
+}
+.js-panel :deep(.tab-stream.p-tab-active) {
+  border-bottom-color: #c8921e;
+  color: var(--lab-accent);
 }
 .payload-cell {
   cursor: pointer;
