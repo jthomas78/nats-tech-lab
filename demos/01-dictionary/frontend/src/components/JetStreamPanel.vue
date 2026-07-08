@@ -62,7 +62,9 @@ const activeTab = ref('0')
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 function subjectSeverity(subject) {
-  return subject?.endsWith('.created') ? 'success' : 'warn'
+  if (!subject) return 'secondary'
+  if (subject.endsWith('.arrived') || subject.endsWith('.loaded')) return 'success'
+  return 'warn'
 }
 
 function subjectLabel(subject) {
@@ -134,7 +136,7 @@ function handleTabChange(value) {
       <TabPanels>
         <!-- Messages: live session only -->
         <TabPanel value="0">
-          <DataTable :value="liveEvents" size="small" paginator :rows="5" class="js-table">
+          <DataTable :value="liveEvents" size="small" paginator :rows="5" class="js-table" resizableColumns columnResizeMode="expand">
             <template #empty>
               <span class="lab-muted">Waiting for messages — publish an entry to see it here.</span>
             </template>
@@ -165,7 +167,7 @@ function handleTabChange(value) {
 
         <!-- Stream: full history, DeliverAll -->
         <TabPanel value="1">
-          <DataTable :value="streamEvents" size="small" paginator :rows="5" class="js-table">
+          <DataTable :value="streamEvents" size="small" paginator :rows="5" class="js-table" resizableColumns columnResizeMode="expand">
             <template #empty>
               <span class="lab-muted">No stream history yet.</span>
             </template>

@@ -1,4 +1,5 @@
-// Package postgres implements the Shape B canonical projection repository.
+// Package postgres implements the Shape B canonical projection repository
+// for the shipping domain.
 package postgres
 
 import (
@@ -15,75 +16,75 @@ type Repository struct {
 	db *sql.DB
 }
 
-func NewRepository(db *sql.DB) *Repository {
-	return &Repository{db: db}
-}
+func NewRepository(db *sql.DB) *Repository { return &Repository{db: db} }
 
-func (r *Repository) Upsert(ctx context.Context, entry domain.DictionaryEntry) (domain.DictionaryEntry, error) {
-	attrs, err := json.Marshal(entry.Attributes)
+func (r *Repository) Upsert(ctx context.Context, state domain.ShipState) (domain.ShipState, error) {
+	cargo, err := json.Marshal(state.Cargo)
 	if err != nil {
-		return domain.DictionaryEntry{}, fmt.Errorf("marshal attributes: %w", err)
+		return domain.ShipState{}, fmt.Errorf("marshal cargo: %w", err)
 	}
-	row := r.db.QueryRowContext(ctx, `
-		INSERT INTO dictionary_entries (context, entity_type, id, label, attributes, version, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, 1, $6, $7)
-		ON CONFLICT (context, entity_type, id) DO UPDATE
-		SET label      = EXCLUDED.label,
-		    attributes = EXCLUDED.attributes,
-		    version    = dictionary_entries.version + 1,
-		    updated_at = EXCLUDED.updated_at
-		RETURNING version, created_at`,
-		entry.Context, entry.EntityType, entry.ID, entry.Label, attrs, entry.UpdatedAt, entry.UpdatedAt)
-	if err := row.Scan(&entry.Version, &entry.CreatedAt); err != nil {
-		return domain.DictionaryEntry{}, fmt.Errorf("upsert entry: %w", err)
+	_, err = r.db.ExecContext(ctx, `
+		INSERT INTO ships (context, ship_id, ship_name, current_port, cargo, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (context, ship_id) DO UPDATE
+		SET ship_name    = EXCLUDED.ship_name,
+		    current_port = EXCLUDED.current_port,
+		    cargo        = EXCLUDED.cargo,
+		    updated_at   = EXCLUDED.updated_at`,
+		state.Context, state.ShipID, state.ShipName, state.CurrentPort, cargo, state.UpdatedAt)
+	if err != nil {
+		return domain.ShipState{}, fmt.Errorf("upsert ship: %w", err)
 	}
-	return entry, nil
+	return state, nil
 }
 
-func (r *Repository) Find(ctx context.Context, kvContext, entityType, id string) (domain.DictionaryEntry, error) {
+func (r *Repository) Find(ctx context.Context, kvContext, shipID string) (domain.ShipState, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT context, entity_type, id, label, attributes, version, created_at, updated_at
-		FROM dictionary_entries
-		WHERE context = $1 AND entity_type = $2 AND id = $3`,
-		kvContext, entityType, id)
-	entry, err := scanEntry(row.Scan)
+		SELECT context, ship_id, ship_name, current_port, cargo, updated_at
+		FROM ships
+		WHERE context = $1 AND ship_id = $2`,
+		kvContext, shipID)
+	state, err := scanShip(row.Scan)
 	if errors.Is(err, sql.ErrNoRows) {
-		return domain.DictionaryEntry{}, domain.ErrNotFound
+		return domain.ShipState{}, domain.ErrNotFound
 	}
-	return entry, err
+	return state, err
 }
 
-func (r *Repository) List(ctx context.Context, kvContext string) ([]domain.DictionaryEntry, error) {
+func (r *Repository) List(ctx context.Context, kvContext string) ([]domain.ShipState, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT context, entity_type, id, label, attributes, version, created_at, updated_at
-		FROM dictionary_entries
+		SELECT context, ship_id, ship_name, current_port, cargo, updated_at
+		FROM ships
 		WHERE context = $1
-		ORDER BY entity_type, id`,
+		ORDER BY ship_id`,
 		kvContext)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	entries := make([]domain.DictionaryEntry, 0)
+	var ships []domain.ShipState
 	for rows.Next() {
-		entry, err := scanEntry(rows.Scan)
+		state, err := scanShip(rows.Scan)
 		if err != nil {
 			return nil, err
 		}
-		entries = append(entries, entry)
+		ships = append(ships, state)
 	}
-	return entries, rows.Err()
+	return ships, rows.Err()
 }
 
-func scanEntry(scan func(...any) error) (domain.DictionaryEntry, error) {
-	var entry domain.DictionaryEntry
-	var attrs []byte
-	if err := scan(&entry.Context, &entry.EntityType, &entry.ID, &entry.Label, &attrs, &entry.Version, &entry.CreatedAt, &entry.UpdatedAt); err != nil {
-		return domain.DictionaryEntry{}, err
+func scanShip(scan func(...any) error) (domain.ShipState, error) {
+	var state domain.ShipState
+	var cargoJSON []byte
+	if err := scan(&state.Context, &state.ShipID, &state.ShipName, &state.CurrentPort, &cargoJSON, &state.UpdatedAt); err != nil {
+		return domain.ShipState{}, err
 	}
-	if err := json.Unmarshal(attrs, &entry.Attributes); err != nil {
-		return domain.DictionaryEntry{}, fmt.Errorf("unmarshal attributes: %w", err)
+	if err := json.Unmarshal(cargoJSON, &state.Cargo); err != nil {
+		return domain.ShipState{}, fmt.Errorf("unmarshal cargo: %w", err)
 	}
-	return entry, nil
+	if state.Cargo == nil {
+		state.Cargo = []domain.Cargo{}
+	}
+	return state, nil
 }

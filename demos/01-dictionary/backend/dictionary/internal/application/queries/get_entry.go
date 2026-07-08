@@ -1,9 +1,8 @@
-// Package queries holds the read-side use cases for both shapes.
+// Package queries holds the read-side use cases for all three shapes.
 //
-// Shape A treats NATS KV as the read model itself: reads never touch
-// Postgres. Shape B treats KV as a cache in front of the canonical Postgres
-// projection: a hit is served from KV, a miss falls through to Postgres and
-// backfills the cache.
+// Shape A treats NATS KV as the read model: reads never touch Postgres.
+// Shape B treats KV as a cache in front of the canonical Postgres projection.
+// Shape C reconstructs state by replaying JetStream from seq=1 (see shape_c.go).
 package queries
 
 import (
@@ -18,105 +17,88 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/internal/kvstore"
 )
 
+// ─── Shape A ─────────────────────────────────────────────────────────────────
+
 // ShapeA reads directly from the KV read model.
 type ShapeA struct {
 	kv *kvstore.Store
 }
 
-func NewShapeA(kv *kvstore.Store) *ShapeA {
-	return &ShapeA{kv: kv}
-}
+func NewShapeA(kv *kvstore.Store) *ShapeA { return &ShapeA{kv: kv} }
 
-// GetEntry returns the entry and its KV revision.
-func (q *ShapeA) GetEntry(ctx context.Context, kvContext, entityType, id string) (domain.DictionaryEntry, uint64, error) {
-	key := entityType + "." + id
-	value, revision, err := q.kv.Get(ctx, kvContext, key)
-	if errors.Is(err, jetstream.ErrKeyNotFound) {
-		return domain.DictionaryEntry{}, 0, domain.ErrNotFound
-	}
-	if err != nil {
-		return domain.DictionaryEntry{}, 0, err
-	}
-	var entry domain.DictionaryEntry
-	if err := json.Unmarshal(value, &entry); err != nil {
-		return domain.DictionaryEntry{}, 0, fmt.Errorf("unmarshal kv value %s: %w", key, err)
-	}
-	return entry, revision, nil
-}
-
-// ListEntries returns every entry in the context's bucket.
-func (q *ShapeA) ListEntries(ctx context.Context, kvContext string) ([]domain.DictionaryEntry, error) {
+// ListShips returns every ship state in the context's KV bucket.
+func (q *ShapeA) ListShips(ctx context.Context, kvContext string) ([]domain.ShipState, error) {
 	keys, err := q.kv.Keys(ctx, kvContext)
 	if err != nil {
 		return nil, err
 	}
-	entries := make([]domain.DictionaryEntry, 0, len(keys))
+	ships := make([]domain.ShipState, 0, len(keys))
 	for _, key := range keys {
 		value, _, err := q.kv.Get(ctx, kvContext, key)
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
-			continue // deleted between list and get
+			continue
 		}
 		if err != nil {
 			return nil, err
 		}
-		var entry domain.DictionaryEntry
-		if err := json.Unmarshal(value, &entry); err != nil {
+		var state domain.ShipState
+		if err := json.Unmarshal(value, &state); err != nil {
 			return nil, fmt.Errorf("unmarshal kv value %s: %w", key, err)
 		}
-		entries = append(entries, entry)
+		ships = append(ships, state)
 	}
-	return entries, nil
+	return ships, nil
 }
 
-// ShapeB reads from the KV cache and falls through to Postgres on a miss.
+// ─── Shape B ─────────────────────────────────────────────────────────────────
+
+// ShapeB reads from the KV cache, falling through to Postgres on a miss.
 type ShapeB struct {
 	kv   *kvstore.Store
-	repo domain.Repository
+	repo domain.ShipRepository
 }
 
-func NewShapeB(kv *kvstore.Store, repo domain.Repository) *ShapeB {
+func NewShapeB(kv *kvstore.Store, repo domain.ShipRepository) *ShapeB {
 	return &ShapeB{kv: kv, repo: repo}
 }
 
-// GetEntry returns the entry and whether it was served from the cache.
-// On a miss the entry is fetched from Postgres and written back to KV.
-func (q *ShapeB) GetEntry(ctx context.Context, kvContext, entityType, id string) (domain.DictionaryEntry, bool, error) {
-	key := entityType + "." + id
-	value, _, err := q.kv.Get(ctx, kvContext, key)
+// GetShip returns the ship state and whether it was served from the cache.
+// On a miss the state is fetched from Postgres and written back to KV.
+func (q *ShapeB) GetShip(ctx context.Context, kvContext, shipID string) (domain.ShipState, bool, error) {
+	key := "ship." + shipID
+	raw, _, err := q.kv.Get(ctx, kvContext, key)
 	if err == nil {
-		var entry domain.DictionaryEntry
-		if err := json.Unmarshal(value, &entry); err != nil {
-			return domain.DictionaryEntry{}, false, fmt.Errorf("unmarshal kv value %s: %w", key, err)
+		var state domain.ShipState
+		if err := json.Unmarshal(raw, &state); err != nil {
+			return domain.ShipState{}, false, fmt.Errorf("unmarshal kv value %s: %w", key, err)
 		}
-		return entry, true, nil
+		return state, true, nil
 	}
 	if !errors.Is(err, jetstream.ErrKeyNotFound) {
-		return domain.DictionaryEntry{}, false, err
+		return domain.ShipState{}, false, err
 	}
 
-	// Cache miss: fall through to the canonical projection.
-	entry, err := q.repo.Find(ctx, kvContext, entityType, id)
+	// Cache miss: fall through to Postgres.
+	state, err := q.repo.Find(ctx, kvContext, shipID)
 	if err != nil {
-		return domain.DictionaryEntry{}, false, err
+		return domain.ShipState{}, false, err
 	}
 
-	// Backfill the cache so the next read is a hit. A failure here is
-	// logged by the caller, not fatal: the read itself succeeded.
-	if data, err := json.Marshal(entry); err == nil {
+	if data, err := json.Marshal(state); err == nil {
 		_, _ = q.kv.Put(ctx, kvContext, key, data)
 	}
-	return entry, false, nil
+	return state, false, nil
 }
 
-// ListEntries returns the canonical projection rows for a context.
-func (q *ShapeB) ListEntries(ctx context.Context, kvContext string) ([]domain.DictionaryEntry, error) {
+// ListShips returns the canonical Postgres projection rows for a fleet context.
+func (q *ShapeB) ListShips(ctx context.Context, kvContext string) ([]domain.ShipState, error) {
 	return q.repo.List(ctx, kvContext)
 }
 
-// EvictCacheEntry removes a key from the Shape B cache so the demo can show
-// the miss → Postgres → backfill path explicitly.
-func (q *ShapeB) EvictCacheEntry(ctx context.Context, kvContext, entityType, id string) error {
-	err := q.kv.Delete(ctx, kvContext, entityType+"."+id)
+// EvictCacheShip removes a ship's key from the Shape B KV cache so the demo
+// can show the miss → Postgres → backfill path.
+func (q *ShapeB) EvictCacheShip(ctx context.Context, kvContext, shipID string) error {
+	err := q.kv.Delete(ctx, kvContext, "ship."+shipID)
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
 		return domain.ErrNotFound
 	}

@@ -48,12 +48,11 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 		return err
 	}
 
-	handlers := rest.NewHandlers(
-		commands.NewHandler(jstream.NewPublisher(js)),
-		queries.NewShapeA(kvA),
-		queries.NewShapeB(kvB, repo),
-		kvA, kvB, js, log,
-	)
+	shipHandler := commands.NewShipHandler(jstream.NewPublisher(js), js)
+	shapeB := queries.NewShapeB(kvB, repo)
+	shapeC := queries.NewShapeC(js)
+
+	handlers := rest.NewHandlers(shipHandler, shapeB, shapeC, kvA, kvB, js, log)
 	handlers.Mount(mono.Mux())
 	return nil
 }

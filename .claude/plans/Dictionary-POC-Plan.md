@@ -240,6 +240,149 @@ Command → JetStream → KV projections → KV watch stream.
 
 > Full implementation detail in `.claude/plans/shiny-skipping-flask.md`
 
+### Phase 6 — Shipping Domain + Shape C (Event Sourcing Reconstruction)
+
+**Domain reference:** Martin Fowler — Event Sourcing: https://martinfowler.com/eaaDev/EventSourcing.html
+(Ship → Port → Cargo as the domain subject)
+
+**Structural reference:** Petrosyan — CQRS and Event Sourcing in Go: https://medium.com/@stani.petrosyan/how-to-implement-cqrs-and-event-sourcing-pattern-in-go-fd47dc0afd80
+(CommandBus → Handler → hydrate aggregate → validate → publish as the Go implementation pattern)
+
+#### Motivation
+
+Shape A and Shape B demonstrate event-driven CQRS: events flow into persistent projections (KV, Postgres) and reads go to those projections. What they don't show is the defining property of pure event sourcing: **the ability to reconstruct current state by replaying the event log alone, with no persistent read model**.
+
+Shape C closes that gap. It also introduces a domain with real business rules, where the command handler must know current aggregate state before accepting a command — a pattern not present in the generic dictionary domain.
+
+#### Domain change — replace dictionary with shipping
+
+The generic create/update entry form is replaced with a shipping operations panel. The infrastructure (JetStream, KV, Postgres, SSE) is unchanged; only the domain and UI fields change.
+
+| Concept | Example values |
+|---|---|
+| Ship | "Orient Express", "Pacific Star" |
+| Port | "Hamburg", "Rotterdam", "Singapore" |
+| Cargo | "Electronics — 42 units", "Textiles — 180 units" |
+| Events | `ship.arrived`, `ship.departed`, `cargo.loaded`, `cargo.unloaded` |
+
+#### Domain rules (enforced before publishing to JetStream)
+
+- A ship **cannot depart** a port it has not arrived at
+- A ship **cannot arrive** at a port it is already at
+- A ship **cannot load or unload cargo** unless it is currently docked in port
+
+#### Architecture — ShipAggregate (Petrosyan's CommandBus pattern adapted for NATS JetStream)
+
+The key structural difference from the Medium article: the event store is **NATS JetStream**, not an in-memory store. Aggregate hydration replays events from JetStream filtered by ship ID. Otherwise the pattern is identical.
+
+The flow for each command:
+
+1. Command arrives via REST (e.g. `DepartPort{shipID: "orient-express", port: "Hamburg"}`)
+2. Command handler creates a blank `ShipAggregate` for that ship ID
+3. Handler calls `aggregate.Hydrate(ctx, js, shipID)` — replays all events for that ship from JetStream to rebuild current state (current port, cargo manifest)
+4. Handler calls `aggregate.Depart(port)` — validates the rule, returns the new event or an error
+5. On success, handler publishes the event to JetStream
+
+The same `ShipAggregate.Hydrate` + `Apply` logic is used by both the command handlers (write side) and Shape C's fleet query (read side). This is the key insight: **one aggregate, two uses**.
+
+#### Shape C — pure event sourcing read model
+
+- No KV bucket, no Postgres table
+- `GET /api/shape-c/fleet` replays the full stream from `seq=1`, builds a `ShipAggregate` per ship by calling `Apply` for each event, returns the current fleet state
+- Sits alongside Shape A and Shape B in the panels grid
+- Makes the reconstruction property visible: clear the KV / Postgres data, hit the endpoint — Shape C still returns correct state from the event log alone
+
+#### Frontend changes
+
+- **Shipping Operations panel** replaces `EntryForm.vue` — operation selector (Arrive / Depart / Load / Unload) with contextual fields per operation; domain rule violations shown as inline error messages (not just toasts)
+- **Shape C panel** added to the panels grid alongside A and B — fleet table: ship, current port, cargo manifest
+- JetStream panel Stream tab now shows the full shipping event history
+
+#### Files to add / modify
+
+| File | Change |
+|---|---|
+| `backend/dictionary/internal/domain/ship.go` | `ShipAggregate`: state (shipID, currentPort, cargo list), `Hydrate(ctx, js, shipID)`, `Apply(event)`, command methods `Arrive / Depart / LoadCargo / UnloadCargo` each returning a domain event or error |
+| `backend/dictionary/internal/domain/events.go` | Replace entry events with: `ShipArrived`, `ShipDeparted`, `CargoLoaded`, `CargoUnloaded`; update `StreamSubjects()` |
+| `backend/dictionary/internal/application/commands/ship.go` | Four command handlers (one per operation); each hydrates the aggregate, calls the domain method, publishes on success |
+| `backend/dictionary/internal/application/queries/shape_c.go` | `ReconstructFleet(ctx, js)`: iterates all stream messages, routes each to the correct `ShipAggregate` via `Apply`, returns `[]ShipState` |
+| `backend/dictionary/internal/rest/handlers.go` | Replace entry routes with ship command routes; add `GET /api/shape-c/fleet`; remove Shape A/B list routes that depended on entry domain (KV watch still works — shape A/B projectors just project ship events now) |
+| `backend/dictionary/internal/eventhandler/handler.go` | Update to consume new event subjects |
+| `backend/dictionary/composition.go` | Wire new command handlers and Shape C query |
+| `frontend/src/components/ShippingForm.vue` | New — replaces `EntryForm.vue`; operation selector + contextual fields + inline validation errors |
+| `frontend/src/components/ShapeCPanel.vue` | New — fleet state table (ship, current port, cargo) polled from `GET /api/shape-c/fleet` |
+| `frontend/src/App.vue` | Replace `<EntryForm />` with `<ShippingForm />`; add `<ShapeCPanel />` to panels grid |
+| `frontend/src/api.js` | Replace entry functions with ship command functions; add `getFleet()` |
+| `frontend/src/stores/dictionary.js` | Update KV watch event shape to match ship projection keys |
+
+#### Checklist
+
+- [x] Backend: `domain/ship.go` — `ShipAggregate` with `Hydrate`, `Apply`, and four rule-enforcing command methods
+- [x] Backend: `domain/events.go` — replace entry event types with four shipping events; update `StreamSubjects()`
+- [x] Backend: `application/commands/commands.go` — four handlers, each hydrates aggregate before publishing
+- [x] Backend: `application/queries/shape_c.go` — `ReconstructFleet` via full stream replay
+- [x] Backend: `rest/handlers.go` — new ship command routes + `GET /api/shape-c/fleet`
+- [x] Backend: `eventhandler/handler.go` — consume updated subjects
+- [x] Backend: `composition.go` — wire new handlers and Shape C query
+- [x] Backend: `go build ./...` + `go test ./...` green
+- [x] Frontend: `ShippingForm.vue` — operation selector, contextual fields, inline error display
+- [x] Frontend: `ShapeCPanel.vue` — fleet table, reconstructed on demand from `/api/shape-c/fleet`
+- [x] Frontend: `App.vue` — swap form, add Shape C panel
+- [x] Frontend: `api.js` — ship commands + `getFleet`
+- [x] Frontend: `npm run build` green
+- [x] Frontend: `stores/dictionary.js` — track `seenPorts` (unique, sorted); updated in `applyWatchEvent` from `event.value.currentPort` on every PUT event
+- [x] Frontend: `ShippingForm.vue` — `portOptions` computed merges static `BASE_PORTS` with `store.seenPorts`; port dropdown auto-populates with any port seen in the event source that is not already in the static list
+
+### Phase 7 — Swagger / OpenAPI
+
+Add self-documenting API support using `swaggo/swag` so the backend routes are explorable without reading source code. This becomes more valuable as the route list grows through Phase 8+.
+
+**Approach:** annotate existing handlers with `swaggo` doc comments; `swag init` generates an OpenAPI 2.0 spec; serve Swagger UI at `/swagger/` via `swaggo/http-swagger`.
+
+#### Checklist
+
+- [ ] Backend: `go get github.com/swaggo/swag` + `go get github.com/swaggo/http-swagger`
+- [ ] Backend: annotate all existing handlers in `rest/handlers.go` and `rest/sse.go` with `swaggo` comments (summary, params, responses)
+- [ ] Backend: run `swag init` from `backend/` to generate `docs/` package
+- [ ] Backend: mount Swagger UI at `GET /swagger/*` in `handlers.go`
+- [ ] Backend: add `swag init` step to docker build so the spec stays in sync
+- [ ] Verify UI accessible at `http://localhost:18080/swagger/`
+
+---
+
+### Phase 8 — KV Metadata Projections (Superset Data Types)
+
+#### Background
+
+The shipping domain exposes a broader architectural question: beyond ship state (Shape A/B/C), what other *derived lookup sets* should be maintained as KV projections rather than reconstructed from the event log or accumulated client-side?
+
+The working model is a **superset of KV data types**, of which `meta.*` is the first:
+
+| Namespace | Purpose | Status |
+|---|---|---|
+| `ship.*` | Per-ship current state (Shape A/B projections) | implemented |
+| `meta.*` | Cross-cutting derived lookup sets (ports seen, cargo types seen, etc.) | **this phase** |
+| `locale.*` | Localisation config per context | out of scope — future phase |
+| `tenant.*` | Tenant-specific configuration | out of scope — future phase |
+
+The `locale.*` and `tenant.*` namespaces are noted here for continuity but are not in scope for this phase of the POC.
+
+#### Goal for this phase — `meta.known-ports`
+
+Move port-list accumulation from the frontend (`seenPorts` in Pinia) to a backend KV projection, so the full set of ports ever seen survives app reload without event replay.
+
+**Pattern:** the `eventhandler` projector already processes every ship event. Extend it to also maintain a `meta.known-ports` KV key (JSON array, sorted) in a dedicated `dict-meta-{context}` bucket. The frontend seeds `seenPorts` from this key on SSE connect rather than accumulating from scratch.
+
+#### Checklist
+
+- [ ] Backend: create `dict-meta-{context}` KV bucket in `kvstore` / `composition.go`
+- [ ] Backend: `eventhandler/handler.go` — on each `ShipArrived` / `ShipDeparted` event, read `meta.known-ports`, merge new port, write back (idempotent upsert)
+- [ ] Backend: `rest/handlers.go` — add `GET /api/meta/{context}/known-ports` returning the KV value
+- [ ] Frontend: `api.js` — add `getKnownPorts(context)`
+- [ ] Frontend: `stores/dictionary.js` — on `connect()`, fetch `getKnownPorts` and seed `seenPorts` before the SSE stream opens; continue merging live events as before
+- [ ] Frontend: `ShippingForm.vue` — no change needed; `portOptions` already reads from `store.seenPorts`
+- [ ] Update `ARCHITECTURE.md` — rename the existing `Port Dropdown Selection Data` section to `Metadata Projections (meta.*)` and expand it to cover: the full superset of KV namespaces (`ship.*`, `meta.*`, `locale.*`, `tenant.*`), the `dict-meta-{context}` bucket design, how the projector maintains `meta.known-ports` incrementally, and how the frontend seeds from the REST endpoint on connect before switching to live SSE updates
+
 ### Verification status (2026-07-07)
 
 Docker is not installed on the dev machine, so the compose stack has not been

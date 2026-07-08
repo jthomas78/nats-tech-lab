@@ -1,13 +1,15 @@
-// Package commands holds the write-side use cases. Commands validate input
-// and publish events to JetStream; all state is derived downstream by the
-// event handlers (Shape A: KV, Shape B: Postgres + KV).
+// Package commands holds the write-side use cases for the shipping domain.
+// Each command hydrates the ShipAggregate from JetStream before applying a
+// domain rule, then publishes the resulting event. This is the Petrosyan
+// CommandBus pattern adapted for NATS JetStream as the event store.
 package commands
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
+
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/dictionary/internal/domain"
 )
@@ -17,56 +19,148 @@ type Publisher interface {
 	Publish(ctx context.Context, subject string, data []byte) error
 }
 
-// EntryInput carries the caller-supplied fields shared by create and update.
-type EntryInput struct {
-	Context    string         `json:"context"`
-	EntityType string         `json:"entityType"`
-	ID         string         `json:"id"`
-	Label      string         `json:"label"`
-	Attributes map[string]any `json:"attributes,omitempty"`
+// ShipInput carries the caller-supplied fields for a ship command.
+type ShipInput struct {
+	Context  string       `json:"context"`            // fleet / KV-bucket qualifier
+	ShipID   string       `json:"shipID"`
+	ShipName string       `json:"shipName,omitempty"` // used on first Arrive
+	Port     string       `json:"port,omitempty"`
+	Cargo    *domain.Cargo `json:"cargo,omitempty"`
 }
 
-func (in EntryInput) toEntry(now time.Time) domain.DictionaryEntry {
-	return domain.DictionaryEntry{
-		Context:    in.Context,
-		EntityType: in.EntityType,
-		ID:         in.ID,
-		Label:      in.Label,
-		Attributes: in.Attributes,
-		CreatedAt:  now,
-		UpdatedAt:  now,
-	}
-}
-
-// Handler executes CreateEntry and UpdateEntry commands.
-type Handler struct {
+// ShipHandler executes the four ship commands. It holds both the publish
+// port and the JetStream handle used for aggregate hydration (read before write).
+type ShipHandler struct {
 	pub Publisher
+	js  jetstream.JetStream
 }
 
-func NewHandler(pub Publisher) *Handler {
-	return &Handler{pub: pub}
+func NewShipHandler(pub Publisher, js jetstream.JetStream) *ShipHandler {
+	return &ShipHandler{pub: pub, js: js}
 }
 
-func (h *Handler) CreateEntry(ctx context.Context, in EntryInput) (domain.DictionaryEntry, error) {
-	return h.publish(ctx, in, domain.SubjectEntryCreated)
-}
-
-func (h *Handler) UpdateEntry(ctx context.Context, in EntryInput) (domain.DictionaryEntry, error) {
-	return h.publish(ctx, in, domain.SubjectEntryUpdated)
-}
-
-func (h *Handler) publish(ctx context.Context, in EntryInput, subject string) (domain.DictionaryEntry, error) {
-	now := time.Now().UTC()
-	entry := in.toEntry(now)
-	if err := entry.Validate(); err != nil {
-		return domain.DictionaryEntry{}, err
-	}
-	payload, err := json.Marshal(domain.EntryEvent{Entry: entry, OccurredAt: now})
+func (h *ShipHandler) ArrivePort(ctx context.Context, in ShipInput) (domain.ShipState, error) {
+	agg, err := h.hydrate(ctx, in.ShipID)
 	if err != nil {
-		return domain.DictionaryEntry{}, fmt.Errorf("marshal event: %w", err)
+		return domain.ShipState{}, err
 	}
-	if err := h.pub.Publish(ctx, subject, payload); err != nil {
-		return domain.DictionaryEntry{}, err
+	event, err := agg.Arrive(in.Port, in.ShipName)
+	if err != nil {
+		return domain.ShipState{}, err
 	}
-	return entry, nil
+	event.Context = in.Context
+	if err := h.publish(ctx, domain.SubjectShipArrived, event); err != nil {
+		return domain.ShipState{}, err
+	}
+	agg.Apply(domain.SubjectShipArrived, event)
+	return agg.State(in.Context), nil
+}
+
+func (h *ShipHandler) DepartPort(ctx context.Context, in ShipInput) (domain.ShipState, error) {
+	agg, err := h.hydrate(ctx, in.ShipID)
+	if err != nil {
+		return domain.ShipState{}, err
+	}
+	event, err := agg.Depart(in.Port)
+	if err != nil {
+		return domain.ShipState{}, err
+	}
+	event.Context = in.Context
+	if err := h.publish(ctx, domain.SubjectShipDeparted, event); err != nil {
+		return domain.ShipState{}, err
+	}
+	agg.Apply(domain.SubjectShipDeparted, event)
+	return agg.State(in.Context), nil
+}
+
+func (h *ShipHandler) LoadCargo(ctx context.Context, in ShipInput) (domain.ShipState, error) {
+	if in.Cargo == nil {
+		return domain.ShipState{}, fmt.Errorf("cargo is required")
+	}
+	agg, err := h.hydrate(ctx, in.ShipID)
+	if err != nil {
+		return domain.ShipState{}, err
+	}
+	event, err := agg.LoadCargo(*in.Cargo)
+	if err != nil {
+		return domain.ShipState{}, err
+	}
+	event.Context = in.Context
+	if err := h.publish(ctx, domain.SubjectCargoLoaded, event); err != nil {
+		return domain.ShipState{}, err
+	}
+	agg.Apply(domain.SubjectCargoLoaded, event)
+	return agg.State(in.Context), nil
+}
+
+func (h *ShipHandler) UnloadCargo(ctx context.Context, in ShipInput) (domain.ShipState, error) {
+	if in.Cargo == nil {
+		return domain.ShipState{}, fmt.Errorf("cargo is required")
+	}
+	agg, err := h.hydrate(ctx, in.ShipID)
+	if err != nil {
+		return domain.ShipState{}, err
+	}
+	event, err := agg.UnloadCargo(*in.Cargo)
+	if err != nil {
+		return domain.ShipState{}, err
+	}
+	event.Context = in.Context
+	if err := h.publish(ctx, domain.SubjectCargoUnloaded, event); err != nil {
+		return domain.ShipState{}, err
+	}
+	agg.Apply(domain.SubjectCargoUnloaded, event)
+	return agg.State(in.Context), nil
+}
+
+// hydrate replays all events for shipID from JetStream and returns the current
+// aggregate state. If the stream is empty the aggregate is returned blank.
+func (h *ShipHandler) hydrate(ctx context.Context, shipID string) (*domain.ShipAggregate, error) {
+	agg := &domain.ShipAggregate{ShipID: shipID}
+
+	info, err := h.js.Stream(ctx, domain.StreamName)
+	if err != nil {
+		return nil, fmt.Errorf("hydrate: stream info: %w", err)
+	}
+	lastSeq := info.CachedInfo().State.LastSeq
+	if lastSeq == 0 {
+		return agg, nil
+	}
+
+	consumer, err := h.js.OrderedConsumer(ctx, domain.StreamName, jetstream.OrderedConsumerConfig{
+		FilterSubjects: domain.StreamSubjects(),
+		DeliverPolicy:  jetstream.DeliverAllPolicy,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("hydrate: create consumer: %w", err)
+	}
+	msgs, err := consumer.Messages()
+	if err != nil {
+		return nil, fmt.Errorf("hydrate: messages: %w", err)
+	}
+	defer msgs.Stop()
+
+	for {
+		msg, err := msgs.Next()
+		if err != nil {
+			break
+		}
+		var event domain.ShipEvent
+		if json.Unmarshal(msg.Data(), &event) == nil && event.ShipID == shipID {
+			agg.Apply(msg.Subject(), event)
+		}
+		meta, _ := msg.Metadata()
+		if meta != nil && meta.Sequence.Stream >= lastSeq {
+			break
+		}
+	}
+	return agg, nil
+}
+
+func (h *ShipHandler) publish(ctx context.Context, subject string, event domain.ShipEvent) error {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("marshal event: %w", err)
+	}
+	return h.pub.Publish(ctx, subject, data)
 }

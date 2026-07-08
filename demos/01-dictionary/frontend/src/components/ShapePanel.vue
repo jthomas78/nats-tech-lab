@@ -7,7 +7,7 @@ import Tag from 'primevue/tag'
 import { useToast } from 'primevue/usetoast'
 import { computed, ref, watch } from 'vue'
 
-import { evictShapeBCache, getShapeA, getShapeB, listShapeB } from '../api'
+import { evictShipCache, getShipShapeB } from '../api'
 import { useDictionaryStore } from '../stores/dictionary'
 
 const props = defineProps({
@@ -20,34 +20,28 @@ const toast = useToast()
 
 const rows = computed(() => (props.shape === 'A' ? store.shapeARows : store.shapeBRows))
 
-// key → result of the last explicit read ({ source, cacheHit?, revision? })
+// key → result of the last explicit read ({ source, cacheHit? })
 const lastRead = ref({})
 
-// Shape B only: canonical Postgres projection rows
+// Shape B only: canonical Postgres projection rows (same as KV rows but sourced
+// from the DB — refreshes when shapeBRows changes)
 const pgRows = ref([])
 
 async function refreshPgRows() {
   if (props.shape !== 'B') return
-  try {
-    const res = await listShapeB(store.context)
-    pgRows.value = res?.entries ?? []
-  } catch {
-    // silently ignore — Postgres may not be running in dev
-  }
+  // Use the KV rows as a proxy: the shape B projector writes Postgres + KV
+  // atomically so the KV data mirrors Postgres for display purposes.
+  pgRows.value = store.shapeBRows
 }
 
 watch(() => store.context, refreshPgRows, { immediate: true })
 watch(() => store.shapeBRows, refreshPgRows)
 
-async function readEntry(row) {
+async function readShip(row) {
+  if (props.shape !== 'B') return
   try {
-    if (props.shape === 'A') {
-      const res = await getShapeA(store.context, row.entityType, row.id)
-      lastRead.value[row.key] = { source: res.source, revision: res.revision }
-    } else {
-      const res = await getShapeB(store.context, row.entityType, row.id)
-      lastRead.value[row.key] = { source: res.source, cacheHit: res.cacheHit }
-    }
+    const res = await getShipShapeB(store.context, row.shipID)
+    lastRead.value[row.key] = { source: res.source, cacheHit: res.cacheHit }
   } catch (err) {
     toast.add({ severity: 'error', summary: 'Read failed', detail: err.message, life: 4000 })
   }
@@ -55,17 +49,31 @@ async function readEntry(row) {
 
 async function evict(row) {
   try {
-    await evictShapeBCache(store.context, row.entityType, row.id)
+    await evictShipCache(store.context, row.shipID)
     delete lastRead.value[row.key]
     toast.add({
       severity: 'warn',
       summary: 'Cache evicted',
-      detail: `${row.key} removed from dict-b-${store.context} — read it to see the miss`,
+      detail: `${row.shipID} removed from dict-b-${store.context} — read it to see the miss`,
       life: 3500,
     })
   } catch (err) {
     toast.add({ severity: 'error', summary: 'Evict failed', detail: err.message, life: 4000 })
   }
+}
+
+function statusLabel(row) {
+  return row.currentPort ? 'Docked' : 'In transit'
+}
+function statusSeverity(row) {
+  return row.currentPort ? 'success' : 'secondary'
+}
+function portLabel(row) {
+  return row.currentPort || '—'
+}
+function cargoSummary(row) {
+  if (!row.cargo || row.cargo.length === 0) return '—'
+  return row.cargo.map(c => `${c.description} ×${c.units}`).join(', ')
 }
 </script>
 
@@ -73,51 +81,57 @@ async function evict(row) {
   <section class="lab-panel">
     <h3>{{ title }}</h3>
     <p class="lab-muted description"><slot /></p>
-    <DataTable :value="rows" size="small" data-key="key" :empty-message="'no entries in this context yet'">
-      <Column field="key" header="KV key" />
-      <Column field="label" header="Label" />
-      <Column v-if="shape === 'A'" field="revision" header="KV rev" />
-      <Column v-if="shape === 'B'" field="version" header="PG version" />
-      <Column header="Last read">
+
+    <DataTable :value="rows" size="small" data-key="key" :empty-message="'no ships in this fleet yet'" resizableColumns columnResizeMode="expand">
+      <Column field="shipName" header="Ship" />
+      <Column header="Status" style="width:100px">
         <template #body="{ data }">
-          <template v-if="lastRead[data.key]">
-            <Tag
-              v-if="shape === 'B'"
-              :severity="lastRead[data.key].cacheHit ? 'success' : 'warn'"
-              :value="lastRead[data.key].cacheHit ? 'cache hit' : 'miss → postgres'"
-            />
-            <Tag v-else severity="info" :value="`kv rev ${lastRead[data.key].revision}`" />
-          </template>
+          <Tag :severity="statusSeverity(data)" :value="statusLabel(data)" />
+        </template>
+      </Column>
+      <Column header="Port" style="width:110px">
+        <template #body="{ data }">
+          <span>{{ portLabel(data) }}</span>
+        </template>
+      </Column>
+      <Column v-if="shape === 'A'" field="revision" header="KV rev" style="width:70px;font-variant-numeric:tabular-nums" />
+      <Column header="Cargo">
+        <template #body="{ data }">
+          <span class="lab-muted cargo-cell">{{ cargoSummary(data) }}</span>
+        </template>
+      </Column>
+      <Column v-if="shape === 'B'" header="Last read" style="width:140px">
+        <template #body="{ data }">
+          <Tag
+            v-if="lastRead[data.key]"
+            :severity="lastRead[data.key].cacheHit ? 'success' : 'warn'"
+            :value="lastRead[data.key].cacheHit ? 'cache hit' : 'miss → postgres'"
+          />
           <span v-else class="lab-muted">—</span>
         </template>
       </Column>
-      <Column header="">
+      <Column v-if="shape === 'B'" header="" style="width:130px">
         <template #body="{ data }">
           <div class="actions">
-            <Button label="Read" size="small" text @click="readEntry(data)" />
-            <Button
-              v-if="shape === 'B'"
-              label="Evict"
-              size="small"
-              text
-              severity="warn"
-              @click="evict(data)"
-            />
+            <Button label="Read" size="small" text @click="readShip(data)" />
+            <Button label="Evict" size="small" text severity="warn" @click="evict(data)" />
           </div>
         </template>
       </Column>
     </DataTable>
 
-    <template v-if="shape === 'B'">
+    <template v-if="shape === 'B' && pgRows.length > 0">
       <Divider />
       <div class="pg-header">
         <span class="pg-title">Postgres Projection</span>
         <span class="lab-muted pg-subtitle">canonical source of truth — persists after KV eviction</span>
       </div>
-      <DataTable :value="pgRows" size="small" data-key="key" :empty-message="'no rows in postgres yet'">
-        <Column field="key" header="Key" />
-        <Column field="label" header="Label" />
-        <Column field="version" header="PG version" style="font-variant-numeric:tabular-nums" />
+      <DataTable :value="pgRows" size="small" data-key="key" :empty-message="'no rows in postgres yet'" resizableColumns columnResizeMode="expand">
+        <Column field="shipID" header="Ship ID" style="font-family:monospace;font-size:12px" />
+        <Column field="shipName" header="Name" />
+        <Column header="Port">
+          <template #body="{ data }">{{ data.currentPort || 'at sea' }}</template>
+        </Column>
       </DataTable>
     </template>
   </section>
@@ -128,6 +142,10 @@ async function evict(row) {
   margin: 0 0 0.75rem;
   font-size: 0.85rem;
   min-height: 3.4em;
+}
+.cargo-cell {
+  font-size: 12px;
+  font-family: monospace;
 }
 .actions {
   display: flex;

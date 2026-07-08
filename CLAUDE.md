@@ -54,7 +54,7 @@ npm run build
 Two side-by-side shapes for serving dictionary/reference data (dropdowns, enums, locale config, CQRS read-model lookup):
 
 - **Shape A — KV as read model**: JetStream event handlers project directly into NATS KV; reads go straight to KV with no Postgres read table.
-- **Shape B — KV as cache in front of Postgres**: canonical CQRS projection in Postgres; KV is a derived cache with watch-based invalidation; cache miss falls through to Postgres.
+- **Shape B — KV as cache in front of Postgres**: canonical CQRS projection in Postgres; KV is an eager write-through cache — the same JetStream event handler that upserts Postgres also overwrites the KV entry; cache miss falls through to Postgres.
 
 ### Stream / KV design
 

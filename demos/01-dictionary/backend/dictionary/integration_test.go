@@ -1,9 +1,10 @@
 package dictionary
 
-// Smoke tests running against an embedded in-process NATS server (real
-// JetStream, real KV). Shape A is tested end to end: command → event →
-// projector → KV → query. Shape B is tested with a fake repository standing
-// in for Postgres, exercising the cache hit / miss / backfill paths.
+// Integration tests running against an embedded in-process NATS server (real
+// JetStream, real KV). Tests cover:
+//   - Shape A: ship command → event → projector → KV → query
+//   - Shape B: ship command → event → Postgres (fake) + KV → cache hit/miss
+//   - Shape C: multiple commands → full JetStream replay → fleet reconstruction
 
 import (
 	"context"
@@ -28,11 +29,7 @@ import (
 
 func startJetStream(t *testing.T) jetstream.JetStream {
 	t.Helper()
-	opts := &server.Options{
-		JetStream: true,
-		StoreDir:  t.TempDir(),
-		Port:      -1,
-	}
+	opts := &server.Options{JetStream: true, StoreDir: t.TempDir(), Port: -1}
 	srv, err := server.NewServer(opts)
 	if err != nil {
 		t.Fatalf("new server: %v", err)
@@ -57,7 +54,6 @@ func startJetStream(t *testing.T) jetstream.JetStream {
 	return js
 }
 
-// eventually polls fn until it returns nil or the timeout expires.
 func eventually(t *testing.T, timeout time.Duration, fn func() error) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -71,7 +67,9 @@ func eventually(t *testing.T, timeout time.Duration, fn func() error) {
 	t.Fatalf("condition not met within %s: %v", timeout, err)
 }
 
-func TestShapeA_CreateUpdateReadFromKV(t *testing.T) {
+// ─── Shape A ─────────────────────────────────────────────────────────────────
+
+func TestShapeA_ShipProjection(t *testing.T) {
 	ctx := context.Background()
 	js := startJetStream(t)
 	log := slog.New(slog.DiscardHandler)
@@ -83,59 +81,92 @@ func TestShapeA_CreateUpdateReadFromKV(t *testing.T) {
 	}
 	defer consume.Stop()
 
-	cmd := commands.NewHandler(jstream.NewPublisher(js))
-	query := queries.NewShapeA(kvA)
+	ship := commands.NewShipHandler(jstream.NewPublisher(js), js)
+	const ctx2 = "global"
 
-	// Create: command → event → projector → KV → query.
-	_, err = cmd.CreateEntry(ctx, commands.EntryInput{
-		Context: "en-GB", EntityType: "currency", ID: "GBP", Label: "Pound Sterling",
+	// Arrive Hamburg
+	_, err = ship.ArrivePort(ctx, commands.ShipInput{
+		Context: ctx2, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg",
 	})
 	if err != nil {
-		t.Fatalf("create: %v", err)
+		t.Fatalf("arrive: %v", err)
 	}
 
-	var createdAt time.Time
 	eventually(t, 5*time.Second, func() error {
-		entry, revision, err := query.GetEntry(ctx, "en-GB", "currency", "GBP")
-		if err != nil {
-			return err
-		}
-		if entry.Label != "Pound Sterling" {
-			return fmt.Errorf("label = %q", entry.Label)
-		}
-		if revision == 0 {
-			return errors.New("revision = 0")
-		}
-		createdAt = entry.CreatedAt
-		return nil
-	})
-
-	// Update: overwrites the KV value but preserves createdAt.
-	_, err = cmd.UpdateEntry(ctx, commands.EntryInput{
-		Context: "en-GB", EntityType: "currency", ID: "GBP", Label: "Pound Sterling (GBP)",
-	})
-	if err != nil {
-		t.Fatalf("update: %v", err)
-	}
-	eventually(t, 5*time.Second, func() error {
-		entry, _, err := query.GetEntry(ctx, "en-GB", "currency", "GBP")
-		if err != nil {
-			return err
-		}
-		if entry.Label != "Pound Sterling (GBP)" {
-			return fmt.Errorf("label = %q", entry.Label)
-		}
-		if !entry.CreatedAt.Equal(createdAt) {
-			return fmt.Errorf("createdAt changed: %s != %s", entry.CreatedAt, createdAt)
+		keys, err := kvA.Keys(ctx, ctx2)
+		if err != nil || len(keys) == 0 {
+			return fmt.Errorf("waiting for KV entry: %v", err)
 		}
 		return nil
 	})
 
-	// Context isolation: the same key does not exist in another context.
-	if _, _, err := query.GetEntry(ctx, "en-US", "currency", "GBP"); !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("expected ErrNotFound in en-US context, got %v", err)
+	// Load cargo
+	_, err = ship.LoadCargo(ctx, commands.ShipInput{
+		Context: ctx2, ShipID: "orient-express",
+		Cargo: &domain.Cargo{Description: "Electronics", Units: 42},
+	})
+	if err != nil {
+		t.Fatalf("load cargo: %v", err)
 	}
+
+	// Depart
+	_, err = ship.DepartPort(ctx, commands.ShipInput{
+		Context: ctx2, ShipID: "orient-express", Port: "Hamburg",
+	})
+	if err != nil {
+		t.Fatalf("depart: %v", err)
+	}
+
+	// Shape A KV should reflect departed state (no port) with cargo
+	eventually(t, 5*time.Second, func() error {
+		q := queries.NewShapeA(kvA)
+		ships, err := q.ListShips(ctx, ctx2)
+		if err != nil {
+			return err
+		}
+		if len(ships) == 0 {
+			return errors.New("no ships in KV")
+		}
+		s := ships[0]
+		if s.CurrentPort != "" {
+			return fmt.Errorf("expected at sea, got port=%q", s.CurrentPort)
+		}
+		if len(s.Cargo) != 1 || s.Cargo[0].Units != 42 {
+			return fmt.Errorf("unexpected cargo: %+v", s.Cargo)
+		}
+		return nil
+	})
+
+	// Domain rule: cannot depart a port the ship is not at
+	_, err = ship.DepartPort(ctx, commands.ShipInput{
+		Context: ctx2, ShipID: "orient-express", Port: "Hamburg",
+	})
+	if !errors.Is(err, domain.ErrNotDocked) {
+		t.Fatalf("expected ErrNotDocked, got %v", err)
+	}
+
+	// Domain rule: cannot arrive at a new port while at sea (OK) but cannot
+	// arrive while already docked.
+	_, err = ship.ArrivePort(ctx, commands.ShipInput{
+		Context: ctx2, ShipID: "orient-express", Port: "Rotterdam",
+	})
+	if err != nil {
+		t.Fatalf("arrive Rotterdam: %v", err)
+	}
+
+	// Domain rule: cannot arrive again without departing first.
+	eventually(t, 5*time.Second, func() error {
+		_, err = ship.ArrivePort(ctx, commands.ShipInput{
+			Context: ctx2, ShipID: "orient-express", Port: "Singapore",
+		})
+		if !errors.Is(err, domain.ErrMustDepart) {
+			return fmt.Errorf("expected ErrMustDepart, got %v", err)
+		}
+		return nil
+	})
 }
+
+// ─── Shape B ─────────────────────────────────────────────────────────────────
 
 func TestShapeB_CacheHitMissBackfill(t *testing.T) {
 	ctx := context.Background()
@@ -150,49 +181,50 @@ func TestShapeB_CacheHitMissBackfill(t *testing.T) {
 	}
 	defer consume.Stop()
 
-	cmd := commands.NewHandler(jstream.NewPublisher(js))
-	query := queries.NewShapeB(kvB, repo)
+	ship := commands.NewShipHandler(jstream.NewPublisher(js), js)
+	q := queries.NewShapeB(kvB, repo)
+	const ctx2 = "global"
 
-	_, err = cmd.CreateEntry(ctx, commands.EntryInput{
-		Context: "en-GB", EntityType: "currency", ID: "EUR", Label: "Euro",
+	_, err = ship.ArrivePort(ctx, commands.ShipInput{
+		Context: ctx2, ShipID: "pacific-star", ShipName: "Pacific Star", Port: "Singapore",
 	})
 	if err != nil {
-		t.Fatalf("create: %v", err)
+		t.Fatalf("arrive: %v", err)
 	}
 
-	// Projector writes Postgres (fake) then warms the cache → hit.
+	// Projector writes Postgres then warms the cache → hit
 	eventually(t, 5*time.Second, func() error {
-		entry, cacheHit, err := query.GetEntry(ctx, "en-GB", "currency", "EUR")
+		s, cacheHit, err := q.GetShip(ctx, ctx2, "pacific-star")
 		if err != nil {
 			return err
 		}
 		if !cacheHit {
 			return errors.New("expected cache hit after projection")
 		}
-		if entry.Version != 1 {
-			return fmt.Errorf("version = %d", entry.Version)
+		if s.ShipName != "Pacific Star" {
+			return fmt.Errorf("shipName = %q", s.ShipName)
 		}
 		return nil
 	})
 
-	// Evict → miss → falls through to the repo → backfills the cache.
-	if err := query.EvictCacheEntry(ctx, "en-GB", "currency", "EUR"); err != nil {
+	// Evict → miss → Postgres fallthrough → backfill
+	if err := q.EvictCacheShip(ctx, ctx2, "pacific-star"); err != nil {
 		t.Fatalf("evict: %v", err)
 	}
-	entry, cacheHit, err := query.GetEntry(ctx, "en-GB", "currency", "EUR")
+	s, cacheHit, err := q.GetShip(ctx, ctx2, "pacific-star")
 	if err != nil {
 		t.Fatalf("get after evict: %v", err)
 	}
 	if cacheHit {
 		t.Fatal("expected cache miss after eviction")
 	}
-	if entry.Label != "Euro" {
-		t.Fatalf("label = %q", entry.Label)
+	if s.ShipName != "Pacific Star" {
+		t.Fatalf("shipName = %q after miss", s.ShipName)
 	}
 
-	// Backfilled: next read is a hit again.
+	// Backfilled: next read is a hit
 	eventually(t, 5*time.Second, func() error {
-		_, cacheHit, err := query.GetEntry(ctx, "en-GB", "currency", "EUR")
+		_, cacheHit, err := q.GetShip(ctx, ctx2, "pacific-star")
 		if err != nil {
 			return err
 		}
@@ -202,57 +234,121 @@ func TestShapeB_CacheHitMissBackfill(t *testing.T) {
 		return nil
 	})
 
-	// Unknown entries miss the cache AND the projection.
-	if _, _, err := query.GetEntry(ctx, "en-GB", "currency", "XXX"); !errors.Is(err, domain.ErrNotFound) {
+	// Unknown ship misses both KV and Postgres
+	if _, _, err := q.GetShip(ctx, ctx2, "unknown-vessel"); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
-// fakeRepo is an in-memory stand-in for the Postgres projection.
+// ─── Shape C ─────────────────────────────────────────────────────────────────
+
+func TestShapeC_ReconstructFleet(t *testing.T) {
+	ctx := context.Background()
+	js := startJetStream(t)
+
+	ship := commands.NewShipHandler(jstream.NewPublisher(js), js)
+	const ctx2 = "global"
+
+	// Two ships perform a sequence of operations.
+	steps := []func() error{
+		func() error {
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: ctx2, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg",
+			})
+			return err
+		},
+		func() error {
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: ctx2, ShipID: "pacific-star", ShipName: "Pacific Star", Port: "Rotterdam",
+			})
+			return err
+		},
+		func() error {
+			_, err := ship.LoadCargo(ctx, commands.ShipInput{
+				Context: ctx2, ShipID: "orient-express",
+				Cargo: &domain.Cargo{Description: "Electronics", Units: 42},
+			})
+			return err
+		},
+		func() error {
+			_, err := ship.DepartPort(ctx, commands.ShipInput{
+				Context: ctx2, ShipID: "orient-express", Port: "Hamburg",
+			})
+			return err
+		},
+	}
+	for i, step := range steps {
+		if err := step(); err != nil {
+			t.Fatalf("step %d: %v", i, err)
+		}
+	}
+
+	// Shape C: reconstruct without KV or Postgres
+	q := queries.NewShapeC(js)
+	fleet, err := q.ReconstructFleet(ctx)
+	if err != nil {
+		t.Fatalf("reconstruct fleet: %v", err)
+	}
+	if len(fleet) != 2 {
+		t.Fatalf("expected 2 ships, got %d", len(fleet))
+	}
+
+	byID := make(map[string]domain.ShipState)
+	for _, s := range fleet {
+		byID[s.ShipID] = s
+	}
+
+	oe := byID["orient-express"]
+	if oe.CurrentPort != "" {
+		t.Errorf("orient-express: expected at sea, got %q", oe.CurrentPort)
+	}
+	if len(oe.Cargo) != 1 || oe.Cargo[0].Units != 42 {
+		t.Errorf("orient-express: unexpected cargo %+v", oe.Cargo)
+	}
+
+	ps := byID["pacific-star"]
+	if ps.CurrentPort != "Rotterdam" {
+		t.Errorf("pacific-star: expected Rotterdam, got %q", ps.CurrentPort)
+	}
+}
+
+// ─── fakeRepo ────────────────────────────────────────────────────────────────
+
 type fakeRepo struct {
-	mu      sync.Mutex
-	entries map[string]domain.DictionaryEntry
+	mu    sync.Mutex
+	ships map[string]domain.ShipState
 }
 
 func newFakeRepo() *fakeRepo {
-	return &fakeRepo{entries: make(map[string]domain.DictionaryEntry)}
+	return &fakeRepo{ships: make(map[string]domain.ShipState)}
 }
 
-func (r *fakeRepo) key(kvContext, entityType, id string) string {
-	return kvContext + "/" + entityType + "/" + id
-}
+func (r *fakeRepo) key(kvContext, shipID string) string { return kvContext + "/" + shipID }
 
-func (r *fakeRepo) Upsert(_ context.Context, entry domain.DictionaryEntry) (domain.DictionaryEntry, error) {
+func (r *fakeRepo) Upsert(_ context.Context, state domain.ShipState) (domain.ShipState, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	k := r.key(entry.Context, entry.EntityType, entry.ID)
-	if existing, ok := r.entries[k]; ok {
-		entry.Version = existing.Version + 1
-		entry.CreatedAt = existing.CreatedAt
-	} else {
-		entry.Version = 1
-	}
-	r.entries[k] = entry
-	return entry, nil
+	r.ships[r.key(state.Context, state.ShipID)] = state
+	return state, nil
 }
 
-func (r *fakeRepo) Find(_ context.Context, kvContext, entityType, id string) (domain.DictionaryEntry, error) {
+func (r *fakeRepo) Find(_ context.Context, kvContext, shipID string) (domain.ShipState, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	entry, ok := r.entries[r.key(kvContext, entityType, id)]
+	s, ok := r.ships[r.key(kvContext, shipID)]
 	if !ok {
-		return domain.DictionaryEntry{}, domain.ErrNotFound
+		return domain.ShipState{}, domain.ErrNotFound
 	}
-	return entry, nil
+	return s, nil
 }
 
-func (r *fakeRepo) List(_ context.Context, kvContext string) ([]domain.DictionaryEntry, error) {
+func (r *fakeRepo) List(_ context.Context, kvContext string) ([]domain.ShipState, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var out []domain.DictionaryEntry
-	for _, e := range r.entries {
-		if e.Context == kvContext {
-			out = append(out, e)
+	var out []domain.ShipState
+	for _, s := range r.ships {
+		if s.Context == kvContext {
+			out = append(out, s)
 		}
 	}
 	return out, nil

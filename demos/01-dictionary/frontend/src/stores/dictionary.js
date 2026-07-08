@@ -5,25 +5,31 @@ import { defineStore } from 'pinia'
 
 import { watchUrl } from '../api'
 
-export const CONTEXTS = ['en-GB', 'en-US', 'de-DE']
+// Fleet contexts scope the KV buckets, same as tenant/region in the dictionary
+// domain. Each context maps to dict-a-{context} and dict-b-{context} buckets.
+export const CONTEXTS = ['global', 'atlantic-fleet', 'pacific-fleet']
 
 export const useDictionaryStore = defineStore('dictionary', {
   state: () => ({
     context: CONTEXTS[0],
-    // key ({entityType}.{id}) → { entry, revision } per shape
+    // key (ship.{shipID}) → { state: ShipState, revision } per shape
     shapeA: {},
     shapeB: {},
     // rolling log of raw watch events, newest first
     events: [],
     connected: false,
     _source: null,
+    // ports seen across all events so the shipping form can auto-populate
+    seenPorts: [],
   }),
 
   getters: {
+    // Each row spreads all ShipState fields so ShapePanel columns can reference
+    // data.shipName, data.currentPort, data.cargo etc. directly.
     shapeARows: (state) =>
-      Object.entries(state.shapeA).map(([key, v]) => ({ key, revision: v.revision, ...v.entry })),
+      Object.entries(state.shapeA).map(([key, v]) => ({ key, revision: v.revision, ...v.state })),
     shapeBRows: (state) =>
-      Object.entries(state.shapeB).map(([key, v]) => ({ key, revision: v.revision, ...v.entry })),
+      Object.entries(state.shapeB).map(([key, v]) => ({ key, revision: v.revision, ...v.state })),
   },
 
   actions: {
@@ -38,18 +44,13 @@ export const useDictionaryStore = defineStore('dictionary', {
       this.shapeA = {}
       this.shapeB = {}
       this.events = []
+      this.seenPorts = []
 
       const source = new EventSource(watchUrl(this.context))
       this._source = source
-      source.onopen = () => {
-        this.connected = true
-      }
-      source.onerror = () => {
-        this.connected = false
-      }
-      source.onmessage = (msg) => {
-        this.applyWatchEvent(JSON.parse(msg.data))
-      }
+      source.onopen = () => { this.connected = true }
+      source.onerror = () => { this.connected = false }
+      source.onmessage = (msg) => { this.applyWatchEvent(JSON.parse(msg.data)) }
     },
 
     disconnect() {
@@ -63,9 +64,13 @@ export const useDictionaryStore = defineStore('dictionary', {
     applyWatchEvent(event) {
       const target = event.shape === 'A' ? this.shapeA : this.shapeB
       if (event.op === 'PUT') {
-        target[event.key] = { entry: event.value, revision: event.revision }
+        target[event.key] = { state: event.value, revision: event.revision }
+        const port = event.value?.currentPort
+        if (port && !this.seenPorts.includes(port)) {
+          this.seenPorts = [...this.seenPorts, port].sort()
+        }
       } else {
-        // Delete/purge: Shape A entries disappear; Shape B keys reappear on
+        // Delete/purge: Shape A ships disappear; Shape B keys reappear on
         // the next read via the Postgres fallthrough + backfill.
         delete target[event.key]
       }

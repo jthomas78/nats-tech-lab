@@ -2,14 +2,14 @@ package domain
 
 import "context"
 
-// Repository is the port for the Shape B canonical projection in Postgres.
-type Repository interface {
-	// Upsert inserts or updates the projection row and returns the entry
-	// with its persisted version and createdAt filled in.
-	Upsert(ctx context.Context, entry DictionaryEntry) (DictionaryEntry, error)
+// ShipRepository is the port for the Shape B canonical projection in Postgres.
+type ShipRepository interface {
+	// Upsert inserts or updates the ship row and returns the stored state.
+	Upsert(ctx context.Context, state ShipState) (ShipState, error)
 
-	// Find returns ErrNotFound when no row exists.
-	Find(ctx context.Context, kvContext, entityType, id string) (DictionaryEntry, error)
+	// Find returns ErrNotFound when no row exists for the given context + shipID.
+	Find(ctx context.Context, kvContext, shipID string) (ShipState, error)
 
-	List(ctx context.Context, kvContext string) ([]DictionaryEntry, error)
+	// List returns every ship in the given fleet context.
+	List(ctx context.Context, kvContext string) ([]ShipState, error)
 }

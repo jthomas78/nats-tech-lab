@@ -1,17 +1,17 @@
-// Package rest exposes the dictionary module over HTTP.
+// Package rest exposes the shipping module over HTTP.
 //
 // Routes:
 //
-//	POST   /api/entries                                     create entry (fires event)
-//	PUT    /api/entries/{context}/{entityType}/{id}         update entry (fires event)
-//	GET    /api/shape-a/entries/{context}                   list Shape A read model
-//	GET    /api/shape-a/entries/{context}/{entityType}/{id} read from KV read model
-//	GET    /api/shape-b/entries/{context}                   list canonical Postgres projection
-//	GET    /api/shape-b/entries/{context}/{entityType}/{id} read via KV cache → Postgres
-//	DELETE /api/shape-b/cache/{context}/{entityType}/{id}   evict cache key (demo the miss path)
-//	GET    /api/watch/{context}                             SSE stream of KV changes, both shapes
-//	GET    /api/jetstream/watch                             SSE stream of raw JetStream messages (live, DeliverNew)
-//	GET    /api/jetstream/stream                            SSE stream of all JetStream messages (replay + live, DeliverAll)
+//	POST   /api/ships/arrive                          arrive at port (fires ship.arrived event)
+//	POST   /api/ships/depart                          depart from port (fires ship.departed event)
+//	POST   /api/ships/cargo/load                      load cargo (fires cargo.loaded event)
+//	POST   /api/ships/cargo/unload                    unload cargo (fires cargo.unloaded event)
+//	GET    /api/shape-b/ships/{context}/{shipID}      read ship via KV cache → Postgres
+//	DELETE /api/shape-b/cache/{context}/{shipID}      evict cache key (demo the miss path)
+//	GET    /api/shape-c/fleet                         reconstruct fleet from JetStream replay
+//	GET    /api/watch/{context}                       SSE stream of KV changes, both shapes
+//	GET    /api/jetstream/watch                       SSE stream of live JetStream messages (DeliverNew)
+//	GET    /api/jetstream/stream                      SSE stream of all JetStream messages (DeliverAll)
 package rest
 
 import (
@@ -28,27 +28,34 @@ import (
 )
 
 type Handlers struct {
-	commands *commands.Handler
-	shapeA   *queries.ShapeA
-	shapeB   *queries.ShapeB
-	kvA      *kvstore.Store
-	kvB      *kvstore.Store
-	js       jetstream.JetStream
-	log      *slog.Logger
+	ships  *commands.ShipHandler
+	shapeB *queries.ShapeB
+	shapeC *queries.ShapeC
+	kvA    *kvstore.Store
+	kvB    *kvstore.Store
+	js     jetstream.JetStream
+	log    *slog.Logger
 }
 
-func NewHandlers(cmd *commands.Handler, shapeA *queries.ShapeA, shapeB *queries.ShapeB, kvA, kvB *kvstore.Store, js jetstream.JetStream, log *slog.Logger) *Handlers {
-	return &Handlers{commands: cmd, shapeA: shapeA, shapeB: shapeB, kvA: kvA, kvB: kvB, js: js, log: log}
+func NewHandlers(
+	ships *commands.ShipHandler,
+	shapeB *queries.ShapeB,
+	shapeC *queries.ShapeC,
+	kvA, kvB *kvstore.Store,
+	js jetstream.JetStream,
+	log *slog.Logger,
+) *Handlers {
+	return &Handlers{ships: ships, shapeB: shapeB, shapeC: shapeC, kvA: kvA, kvB: kvB, js: js, log: log}
 }
 
 func (h *Handlers) Mount(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/entries", h.createEntry)
-	mux.HandleFunc("PUT /api/entries/{context}/{entityType}/{id}", h.updateEntry)
-	mux.HandleFunc("GET /api/shape-a/entries/{context}", h.listShapeA)
-	mux.HandleFunc("GET /api/shape-a/entries/{context}/{entityType}/{id}", h.getShapeA)
-	mux.HandleFunc("GET /api/shape-b/entries/{context}", h.listShapeB)
-	mux.HandleFunc("GET /api/shape-b/entries/{context}/{entityType}/{id}", h.getShapeB)
-	mux.HandleFunc("DELETE /api/shape-b/cache/{context}/{entityType}/{id}", h.evictShapeBCache)
+	mux.HandleFunc("POST /api/ships/arrive", h.arrivePort)
+	mux.HandleFunc("POST /api/ships/depart", h.departPort)
+	mux.HandleFunc("POST /api/ships/cargo/load", h.loadCargo)
+	mux.HandleFunc("POST /api/ships/cargo/unload", h.unloadCargo)
+	mux.HandleFunc("GET /api/shape-b/ships/{context}/{shipID}", h.getShipShapeB)
+	mux.HandleFunc("DELETE /api/shape-b/cache/{context}/{shipID}", h.evictShipCache)
+	mux.HandleFunc("GET /api/shape-c/fleet", h.getFleet)
 	mux.HandleFunc("GET /api/watch/{context}", h.watch)
 	mux.HandleFunc("GET /api/jetstream/watch", h.watchJetStream)
 	mux.HandleFunc("GET /api/jetstream/stream", h.replayJetStream)
@@ -57,58 +64,64 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	})
 }
 
-func (h *Handlers) createEntry(w http.ResponseWriter, r *http.Request) {
-	var in commands.EntryInput
+func (h *Handlers) arrivePort(w http.ResponseWriter, r *http.Request) {
+	var in commands.ShipInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	entry, err := h.commands.CreateEntry(r.Context(), in)
+	state, err := h.ships.ArrivePort(r.Context(), in)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		h.writeCommandError(w, err)
 		return
 	}
-	// 202: the command is accepted, projections update asynchronously.
-	writeJSON(w, http.StatusAccepted, map[string]any{"entry": entry})
+	writeJSON(w, http.StatusAccepted, map[string]any{"ship": state})
 }
 
-func (h *Handlers) updateEntry(w http.ResponseWriter, r *http.Request) {
-	var in commands.EntryInput
+func (h *Handlers) departPort(w http.ResponseWriter, r *http.Request) {
+	var in commands.ShipInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	in.Context = r.PathValue("context")
-	in.EntityType = r.PathValue("entityType")
-	in.ID = r.PathValue("id")
-	entry, err := h.commands.UpdateEntry(r.Context(), in)
+	state, err := h.ships.DepartPort(r.Context(), in)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		h.writeCommandError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"entry": entry})
+	writeJSON(w, http.StatusAccepted, map[string]any{"ship": state})
 }
 
-func (h *Handlers) getShapeA(w http.ResponseWriter, r *http.Request) {
-	entry, revision, err := h.shapeA.GetEntry(r.Context(), r.PathValue("context"), r.PathValue("entityType"), r.PathValue("id"))
-	if err != nil {
-		h.writeQueryError(w, err)
+func (h *Handlers) loadCargo(w http.ResponseWriter, r *http.Request) {
+	var in commands.ShipInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"entry": entry, "revision": revision, "source": "kv"})
-}
-
-func (h *Handlers) listShapeA(w http.ResponseWriter, r *http.Request) {
-	entries, err := h.shapeA.ListEntries(r.Context(), r.PathValue("context"))
+	state, err := h.ships.LoadCargo(r.Context(), in)
 	if err != nil {
-		h.writeQueryError(w, err)
+		h.writeCommandError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+	writeJSON(w, http.StatusAccepted, map[string]any{"ship": state})
 }
 
-func (h *Handlers) getShapeB(w http.ResponseWriter, r *http.Request) {
-	entry, cacheHit, err := h.shapeB.GetEntry(r.Context(), r.PathValue("context"), r.PathValue("entityType"), r.PathValue("id"))
+func (h *Handlers) unloadCargo(w http.ResponseWriter, r *http.Request) {
+	var in commands.ShipInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	state, err := h.ships.UnloadCargo(r.Context(), in)
+	if err != nil {
+		h.writeCommandError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"ship": state})
+}
+
+func (h *Handlers) getShipShapeB(w http.ResponseWriter, r *http.Request) {
+	state, cacheHit, err := h.shapeB.GetShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
 	if err != nil {
 		h.writeQueryError(w, err)
 		return
@@ -117,20 +130,11 @@ func (h *Handlers) getShapeB(w http.ResponseWriter, r *http.Request) {
 	if cacheHit {
 		source = "kv-cache"
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"entry": entry, "cacheHit": cacheHit, "source": source})
+	writeJSON(w, http.StatusOK, map[string]any{"ship": state, "cacheHit": cacheHit, "source": source})
 }
 
-func (h *Handlers) listShapeB(w http.ResponseWriter, r *http.Request) {
-	entries, err := h.shapeB.ListEntries(r.Context(), r.PathValue("context"))
-	if err != nil {
-		h.writeQueryError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
-}
-
-func (h *Handlers) evictShapeBCache(w http.ResponseWriter, r *http.Request) {
-	err := h.shapeB.EvictCacheEntry(r.Context(), r.PathValue("context"), r.PathValue("entityType"), r.PathValue("id"))
+func (h *Handlers) evictShipCache(w http.ResponseWriter, r *http.Request) {
+	err := h.shapeB.EvictCacheShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
 	if err != nil {
 		h.writeQueryError(w, err)
 		return
@@ -138,9 +142,32 @@ func (h *Handlers) evictShapeBCache(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handlers) getFleet(w http.ResponseWriter, r *http.Request) {
+	fleet, err := h.shapeC.ReconstructFleet(r.Context())
+	if err != nil {
+		h.log.Error("reconstruct fleet", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"fleet": fleet})
+}
+
+// writeCommandError maps domain rule violations to 422 so the frontend can
+// distinguish them from schema errors (400).
+func (h *Handlers) writeCommandError(w http.ResponseWriter, err error) {
+	if errors.Is(err, domain.ErrAlreadyDocked) ||
+		errors.Is(err, domain.ErrMustDepart) ||
+		errors.Is(err, domain.ErrNotDocked) ||
+		errors.Is(err, domain.ErrNotInPort) {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	writeError(w, http.StatusBadRequest, err.Error())
+}
+
 func (h *Handlers) writeQueryError(w http.ResponseWriter, err error) {
 	if errors.Is(err, domain.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "entry not found")
+		writeError(w, http.StatusNotFound, "ship not found")
 		return
 	}
 	h.log.Error("query failed", "err", err)

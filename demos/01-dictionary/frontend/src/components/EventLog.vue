@@ -71,6 +71,8 @@ const filteredEvents = computed(() => {
       paginator
       :first="(currentPage - 1) * 8"
       @page="currentPage = $event.page + 1"
+      resizableColumns
+      columnResizeMode="expand"
     >
       <template #empty>
         <span class="lab-muted">No events match the current filter.</span>

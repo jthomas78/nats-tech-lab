@@ -14,33 +14,41 @@ async function request(path, options = {}) {
   return body
 }
 
-export function createEntry(input) {
-  return request('/api/entries', { method: 'POST', body: JSON.stringify(input) })
+// ── Ship commands ─────────────────────────────────────────────────────────────
+
+export function arrivePort(input) {
+  return request('/api/ships/arrive', { method: 'POST', body: JSON.stringify(input) })
 }
 
-export function updateEntry(input) {
-  const { context, entityType, id, ...rest } = input
-  return request(`/api/entries/${context}/${entityType}/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(rest),
-  })
+export function departPort(input) {
+  return request('/api/ships/depart', { method: 'POST', body: JSON.stringify(input) })
 }
 
-export function getShapeA(context, entityType, id) {
-  return request(`/api/shape-a/entries/${context}/${entityType}/${id}`)
+export function loadCargo(input) {
+  return request('/api/ships/cargo/load', { method: 'POST', body: JSON.stringify(input) })
 }
 
-export function getShapeB(context, entityType, id) {
-  return request(`/api/shape-b/entries/${context}/${entityType}/${id}`)
+export function unloadCargo(input) {
+  return request('/api/ships/cargo/unload', { method: 'POST', body: JSON.stringify(input) })
 }
 
-export function listShapeB(context) {
-  return request(`/api/shape-b/entries/${context}`)
+// ── Shape B reads (KV cache → Postgres) ──────────────────────────────────────
+
+export function getShipShapeB(context, shipID) {
+  return request(`/api/shape-b/ships/${context}/${shipID}`)
 }
 
-export function evictShapeBCache(context, entityType, id) {
-  return request(`/api/shape-b/cache/${context}/${entityType}/${id}`, { method: 'DELETE' })
+export function evictShipCache(context, shipID) {
+  return request(`/api/shape-b/cache/${context}/${shipID}`, { method: 'DELETE' })
 }
+
+// ── Shape C fleet reconstruction ─────────────────────────────────────────────
+
+export function getFleet() {
+  return request('/api/shape-c/fleet')
+}
+
+// ── SSE stream URLs ───────────────────────────────────────────────────────────
 
 export function watchUrl(context) {
   return `/api/watch/${context}`

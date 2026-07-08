@@ -1,6 +1,6 @@
-// Package eventhandler contains the JetStream consumers that project
-// dictionary events into the two read-side shapes. Each shape has its own
-// durable consumer so the projections replay and advance independently.
+// Package eventhandler contains the JetStream consumers that project shipping
+// events into the two read-side shapes. Each shape has its own durable consumer
+// so the projections replay and advance independently.
 package eventhandler
 
 import (
@@ -14,26 +14,19 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/internal/kvstore"
 )
 
-// RegisterShapeA starts the Shape A projector: events are written straight
-// into the context-scoped KV bucket, which IS the read model.
+// RegisterShapeA starts the Shape A projector: ship events are projected
+// directly into the context-scoped KV bucket, which IS the read model.
+// On each event the projector reads the current KV state, applies the event
+// delta via ShipAggregate, and writes the new ShipState back.
 func RegisterShapeA(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, log *slog.Logger) (jetstream.ConsumeContext, error) {
-	return register(ctx, js, "dict-shape-a", log, func(msgCtx context.Context, event domain.EntryEvent) error {
-		entry := event.Entry
-		key := entry.KVKey()
-
-		// Preserve the original createdAt when an update overwrites the key.
-		if prev, _, err := kv.Get(msgCtx, entry.Context, key); err == nil {
-			var existing domain.DictionaryEntry
-			if json.Unmarshal(prev, &existing) == nil && !existing.CreatedAt.IsZero() {
-				entry.CreatedAt = existing.CreatedAt
-			}
-		}
-
-		data, err := json.Marshal(entry)
+	return register(ctx, js, "ship-shape-a", log, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
+		agg := currentAgg(msgCtx, kv, event)
+		agg.Apply(subject, event)
+		data, err := json.Marshal(agg.State(event.Context))
 		if err != nil {
 			return err
 		}
-		_, err = kv.Put(msgCtx, entry.Context, key, data)
+		_, err = kv.Put(msgCtx, event.Context, "ship."+event.ShipID, data)
 		return err
 	})
 }
@@ -41,9 +34,13 @@ func RegisterShapeA(ctx context.Context, js jetstream.JetStream, kv *kvstore.Sto
 // RegisterShapeB starts the Shape B projector: events update the canonical
 // Postgres projection first, then eagerly write the result through to the KV
 // cache so subsequent reads are served from KV without hitting Postgres.
-func RegisterShapeB(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, repo domain.Repository, log *slog.Logger) (jetstream.ConsumeContext, error) {
-	return register(ctx, js, "dict-shape-b", log, func(msgCtx context.Context, event domain.EntryEvent) error {
-		persisted, err := repo.Upsert(msgCtx, event.Entry)
+func RegisterShapeB(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, repo domain.ShipRepository, log *slog.Logger) (jetstream.ConsumeContext, error) {
+	return register(ctx, js, "ship-shape-b", log, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
+		agg := currentAgg(msgCtx, kv, event)
+		agg.Apply(subject, event)
+		state := agg.State(event.Context)
+
+		persisted, err := repo.Upsert(msgCtx, state)
 		if err != nil {
 			return err
 		}
@@ -51,12 +48,33 @@ func RegisterShapeB(ctx context.Context, js jetstream.JetStream, kv *kvstore.Sto
 		if err != nil {
 			return err
 		}
-		_, err = kv.Put(msgCtx, persisted.Context, persisted.KVKey(), data)
+		_, err = kv.Put(msgCtx, event.Context, "ship."+event.ShipID, data)
 		return err
 	})
 }
 
-func register(ctx context.Context, js jetstream.JetStream, durable string, log *slog.Logger, project func(context.Context, domain.EntryEvent) error) (jetstream.ConsumeContext, error) {
+// currentAgg reads the current KV state for the ship and loads it into a
+// ShipAggregate so the projector can apply a single-event delta efficiently
+// without replaying the full JetStream history.
+func currentAgg(ctx context.Context, kv *kvstore.Store, event domain.ShipEvent) *domain.ShipAggregate {
+	agg := &domain.ShipAggregate{ShipID: event.ShipID}
+	raw, _, err := kv.Get(ctx, event.Context, "ship."+event.ShipID)
+	if err == nil {
+		var existing domain.ShipState
+		if json.Unmarshal(raw, &existing) == nil {
+			agg.FromState(existing)
+		}
+	}
+	return agg
+}
+
+func register(
+	ctx context.Context,
+	js jetstream.JetStream,
+	durable string,
+	log *slog.Logger,
+	project func(context.Context, string, domain.ShipEvent) error,
+) (jetstream.ConsumeContext, error) {
 	cons, err := js.CreateOrUpdateConsumer(ctx, domain.StreamName, jetstream.ConsumerConfig{
 		Durable:       durable,
 		FilterSubject: domain.SubjectWildcard,
@@ -66,13 +84,21 @@ func register(ctx context.Context, js jetstream.JetStream, durable string, log *
 		return nil, err
 	}
 	return cons.Consume(func(msg jetstream.Msg) {
-		var event domain.EntryEvent
+		var event domain.ShipEvent
 		if err := json.Unmarshal(msg.Data(), &event); err != nil {
 			log.Error("drop malformed event", "consumer", durable, "subject", msg.Subject(), "err", err)
-			_ = msg.Ack() // poison message: ack so it does not redeliver forever
+			_ = msg.Ack()
 			return
 		}
-		if err := project(ctx, event); err != nil {
+		// Skip messages from a previous domain version (e.g. DICTIONARY.entry.*)
+		// that unmarshal without error but produce an empty shipID. Ack them as
+		// poison messages so they are not redelivered indefinitely.
+		if event.ShipID == "" {
+			log.Warn("skip legacy event (no shipID)", "consumer", durable, "subject", msg.Subject())
+			_ = msg.Ack()
+			return
+		}
+		if err := project(ctx, msg.Subject(), event); err != nil {
 			log.Error("projection failed, will redeliver", "consumer", durable, "subject", msg.Subject(), "err", err)
 			_ = msg.Nak()
 			return

@@ -5,10 +5,11 @@ import Tag from 'primevue/tag'
 import Toast from 'primevue/toast'
 import { onMounted, onUnmounted, ref } from 'vue'
 
-import EntryForm from './components/EntryForm.vue'
 import EventLog from './components/EventLog.vue'
 import JetStreamPanel from './components/JetStreamPanel.vue'
+import ShapeCPanel from './components/ShapeCPanel.vue'
 import ShapePanel from './components/ShapePanel.vue'
+import ShippingForm from './components/ShippingForm.vue'
 import { CONTEXTS, useDictionaryStore } from './stores/dictionary'
 import { isDark, toggleTheme } from '@unifi-theme/preset.js'
 
@@ -29,12 +30,12 @@ onUnmounted(() => store.disconnect())
   <div class="layout">
     <header class="topbar">
       <div>
-        <h1>Dictionary POC</h1>
-        <span class="lab-muted">JetStream → projections → KV, two shapes side by side</span>
+        <h1>EventSourcing CQRS POC</h1>
+        <span class="lab-muted">JetStream → projections → KV, three shapes side by side</span>
       </div>
       <div class="topbar-right">
         <Tag :severity="store.connected ? 'success' : 'danger'" :value="store.connected ? 'watching' : 'disconnected'" />
-        <label class="lab-muted" for="context">Context</label>
+        <label class="lab-muted" for="context">Fleet</label>
         <Select
           id="context"
           :model-value="store.context"
@@ -54,7 +55,7 @@ onUnmounted(() => store.disconnect())
     </header>
 
     <!-- 1. Command input — dispatch side -->
-    <EntryForm />
+    <ShippingForm />
 
     <!-- 2. JetStream — raw NATS messages -->
     <JetStreamPanel />
@@ -62,17 +63,20 @@ onUnmounted(() => store.disconnect())
     <!-- 3. KV projections — Shape A (KV-only) | Shape B (KV cache + Postgres) -->
     <div class="panels">
       <ShapePanel shape="A" title="Shape A — KV as read model">
-        Events are projected straight into <code>dict-a-{{ store.context }}</code>. Reads go to KV
-        only; the KV revision is the version. No Postgres involved.
+        Ship events are projected straight into <code>dict-a-{{ store.context }}</code>. Reads go to
+        KV only; the KV revision is the version. No Postgres involved.
       </ShapePanel>
       <ShapePanel shape="B" title="Shape B — KV cache in front of Postgres">
         Events update the canonical Postgres projection, then refresh
-        <code>dict-b-{{ store.context }}</code>. Evict a key, then read it to watch the miss →
+        <code>dict-b-{{ store.context }}</code>. Evict a ship, then read it to watch the miss →
         Postgres → backfill path.
       </ShapePanel>
     </div>
 
-    <!-- 4. KV watch stream — filterable -->
+    <!-- 4. Shape C — event sourcing reconstruction (no KV, no Postgres) -->
+    <ShapeCPanel />
+
+    <!-- 5. KV watch stream — filterable -->
     <EventLog />
   </div>
 </template>
@@ -93,7 +97,7 @@ onUnmounted(() => store.disconnect())
 }
 .topbar h1 {
   margin: 0 0 2px;
-  font-size: 15px; /* UniFi --desktop-font-size-large, line-height: 24px */
+  font-size: 15px;
   line-height: 24px;
   letter-spacing: 0.02em;
 }
