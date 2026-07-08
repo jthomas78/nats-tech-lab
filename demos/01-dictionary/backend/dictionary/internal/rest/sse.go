@@ -29,6 +29,16 @@ func opString(op jetstream.KeyValueOp) string {
 	}
 }
 
+// watch godoc
+//
+// @Summary      KV watch stream (SSE)
+// @Description  Server-Sent Events stream of NATS KV changes for both the Shape A and Shape B buckets in the given context. Replays current bucket state first (snapshot), then delivers live updates. Each event is a JSON-encoded watchEvent object.
+// @Tags         streams
+// @Produce      text/event-stream
+// @Param        context  path      string  true  "Fleet context (e.g. global, atlantic-fleet)"
+// @Success      200      {string}  string  "SSE stream — data: {watchEvent JSON}"
+// @Failure      500      {object}  errorResponse
+// @Router       /api/watch/{context} [get]
 // watch streams KV changes for a context over SSE. It watches both the
 // Shape A read-model bucket and the Shape B cache bucket, replaying current
 // state first, then pushing live updates. This is the server half of the
@@ -113,12 +123,30 @@ type jsEvent struct {
 	Payload   json.RawMessage `json:"payload"`
 }
 
+// replayJetStream godoc
+//
+// @Summary      JetStream full replay + live stream (SSE)
+// @Description  Server-Sent Events stream of raw DICTIONARY.* JetStream messages using DeliverAll policy — replays from seq=1, then continues with live messages. Each event is a JSON-encoded jsEvent object.
+// @Tags         streams
+// @Produce      text/event-stream
+// @Success      200  {string}  string  "SSE stream — data: {jsEvent JSON}"
+// @Failure      500  {object}  errorResponse
+// @Router       /api/jetstream/stream [get]
 // replayJetStream streams all JetStream messages from the beginning of the
 // DICTIONARY stream, then continues delivering new ones. Uses DeliverAll policy.
 func (h *Handlers) replayJetStream(w http.ResponseWriter, r *http.Request) {
 	h.streamJetStream(w, r, jetstream.DeliverAllPolicy)
 }
 
+// watchJetStream godoc
+//
+// @Summary      JetStream live watch (SSE)
+// @Description  Server-Sent Events stream of raw DICTIONARY.* JetStream messages using DeliverNew policy — only messages published after the connection opens. Each event is a JSON-encoded jsEvent object.
+// @Tags         streams
+// @Produce      text/event-stream
+// @Success      200  {string}  string  "SSE stream — data: {jsEvent JSON}"
+// @Failure      500  {object}  errorResponse
+// @Router       /api/jetstream/watch [get]
 // watchJetStream streams raw JetStream messages from the DICTIONARY stream over
 // SSE. It uses an ephemeral ordered consumer with DeliverNew so only messages
 // published after the connection is established are delivered — no replay.

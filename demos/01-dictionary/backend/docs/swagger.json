@@ -1,0 +1,505 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Shipping domain backend for the NATS Tech Lab POC. Demonstrates JetStream event sourcing, NATS KV projections (Shape A / Shape B), and pure event reconstruction (Shape C).",
+        "title": "EventSourcing CQRS POC — Shipping API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:18080",
+    "basePath": "/",
+    "paths": {
+        "/api/jetstream/stream": {
+            "get": {
+                "description": "Server-Sent Events stream of raw DICTIONARY.* JetStream messages using DeliverAll policy — replays from seq=1, then continues with live messages. Each event is a JSON-encoded jsEvent object.",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "streams"
+                ],
+                "summary": "JetStream full replay + live stream (SSE)",
+                "responses": {
+                    "200": {
+                        "description": "SSE stream — data: {jsEvent JSON}",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/jetstream/watch": {
+            "get": {
+                "description": "Server-Sent Events stream of raw DICTIONARY.* JetStream messages using DeliverNew policy — only messages published after the connection opens. Each event is a JSON-encoded jsEvent object.",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "streams"
+                ],
+                "summary": "JetStream live watch (SSE)",
+                "responses": {
+                    "200": {
+                        "description": "SSE stream — data: {jsEvent JSON}",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/shape-b/cache/{context}/{shipID}": {
+            "delete": {
+                "description": "Deletes the KV cache entry for a ship in the Shape B bucket. The next read will miss and fall through to Postgres, demonstrating the cache-miss path.",
+                "tags": [
+                    "shape-b"
+                ],
+                "summary": "Evict Shape B cache entry",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Fleet context",
+                        "name": "context",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Ship identifier",
+                        "name": "shipID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Cache entry evicted"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/shape-b/ships/{context}/{shipID}": {
+            "get": {
+                "description": "Returns current ship state from the Shape B read model: checks KV cache first, falls through to Postgres on a miss and backfills the cache.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "shape-b"
+                ],
+                "summary": "Get ship (Shape B — KV cache → Postgres)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Fleet context (e.g. global, atlantic-fleet)",
+                        "name": "context",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Ship identifier (e.g. orient-express)",
+                        "name": "shipID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/rest.shipBResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/shape-c/fleet": {
+            "get": {
+                "description": "Replays the full JetStream event log from seq=1 and reconstructs the current fleet state by folding all ship events through ShipAggregate.Apply. No KV or Postgres involved.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "shape-c"
+                ],
+                "summary": "Reconstruct fleet (Shape C — pure event sourcing)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/rest.fleetResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ships/arrive": {
+            "post": {
+                "description": "Ship arrives at a port. Validates domain rules (must not already be docked), then publishes a ship.arrived event to JetStream.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ships"
+                ],
+                "summary": "Arrive at port",
+                "parameters": [
+                    {
+                        "description": "context, shipID, shipName (first arrival only), port",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/commands.ShipInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/rest.shipResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Domain rule violation",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ships/cargo/load": {
+            "post": {
+                "description": "Loads a cargo item onto a ship. The ship must be docked in port. Publishes a cargo.loaded event.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cargo"
+                ],
+                "summary": "Load cargo",
+                "parameters": [
+                    {
+                        "description": "context, shipID, cargo (description + units)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/commands.ShipInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/rest.shipResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Ship not docked",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ships/cargo/unload": {
+            "post": {
+                "description": "Removes a cargo item from a ship's manifest by description. The ship must be docked in port. Publishes a cargo.unloaded event.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cargo"
+                ],
+                "summary": "Unload cargo",
+                "parameters": [
+                    {
+                        "description": "context, shipID, cargo (description + units)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/commands.ShipInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/rest.shipResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Ship not docked",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ships/depart": {
+            "post": {
+                "description": "Ship departs from a port. Validates that the ship is currently docked at the named port, then publishes a ship.departed event.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ships"
+                ],
+                "summary": "Depart from port",
+                "parameters": [
+                    {
+                        "description": "context, shipID, port",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/commands.ShipInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/rest.shipResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Domain rule violation",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/watch/{context}": {
+            "get": {
+                "description": "Server-Sent Events stream of NATS KV changes for both the Shape A and Shape B buckets in the given context. Replays current bucket state first (snapshot), then delivers live updates. Each event is a JSON-encoded watchEvent object.",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "streams"
+                ],
+                "summary": "KV watch stream (SSE)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Fleet context (e.g. global, atlantic-fleet)",
+                        "name": "context",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "SSE stream — data: {watchEvent JSON}",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "commands.ShipInput": {
+            "type": "object",
+            "properties": {
+                "cargo": {
+                    "$ref": "#/definitions/domain.Cargo"
+                },
+                "context": {
+                    "description": "fleet / KV-bucket qualifier",
+                    "type": "string"
+                },
+                "port": {
+                    "type": "string"
+                },
+                "shipID": {
+                    "type": "string"
+                },
+                "shipName": {
+                    "description": "used on first Arrive",
+                    "type": "string"
+                }
+            }
+        },
+        "domain.Cargo": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "units": {
+                    "type": "integer"
+                }
+            }
+        },
+        "domain.ShipState": {
+            "type": "object",
+            "properties": {
+                "cargo": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/domain.Cargo"
+                    }
+                },
+                "context": {
+                    "description": "fleet / KV-bucket qualifier",
+                    "type": "string"
+                },
+                "currentPort": {
+                    "description": "\"\" = at sea",
+                    "type": "string"
+                },
+                "shipID": {
+                    "type": "string"
+                },
+                "shipName": {
+                    "type": "string"
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "rest.errorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "rest.fleetResponse": {
+            "type": "object",
+            "properties": {
+                "fleet": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/domain.ShipState"
+                    }
+                }
+            }
+        },
+        "rest.shipBResponse": {
+            "type": "object",
+            "properties": {
+                "cacheHit": {
+                    "type": "boolean"
+                },
+                "ship": {
+                    "$ref": "#/definitions/domain.ShipState"
+                },
+                "source": {
+                    "description": "\"kv-cache\" or \"postgres\"",
+                    "type": "string"
+                }
+            }
+        },
+        "rest.shipResponse": {
+            "type": "object",
+            "properties": {
+                "ship": {
+                    "$ref": "#/definitions/domain.ShipState"
+                }
+            }
+        }
+    }
+}

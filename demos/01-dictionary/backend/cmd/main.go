@@ -1,6 +1,12 @@
 // Command main bootstraps the dictionary demo monolith: it connects the
 // shared infrastructure (NATS JetStream, Postgres, HTTP mux) and calls
 // Startup on each module.
+//
+// @title           EventSourcing CQRS POC — Shipping API
+// @version         1.0
+// @description     Shipping domain backend for the NATS Tech Lab POC. Demonstrates JetStream event sourcing, NATS KV projections (Shape A / Shape B), and pure event reconstruction (Shape C).
+// @host            localhost:18080
+// @BasePath        /
 package main
 
 import (
@@ -17,6 +23,8 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	_ "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/docs"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/dictionary"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/internal/httpx"

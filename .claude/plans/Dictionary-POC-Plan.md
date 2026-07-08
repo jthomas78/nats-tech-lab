@@ -341,11 +341,11 @@ Add self-documenting API support using `swaggo/swag` so the backend routes are e
 
 #### Checklist
 
-- [ ] Backend: `go get github.com/swaggo/swag` + `go get github.com/swaggo/http-swagger`
-- [ ] Backend: annotate all existing handlers in `rest/handlers.go` and `rest/sse.go` with `swaggo` comments (summary, params, responses)
-- [ ] Backend: run `swag init` from `backend/` to generate `docs/` package
-- [ ] Backend: mount Swagger UI at `GET /swagger/*` in `handlers.go`
-- [ ] Backend: add `swag init` step to docker build so the spec stays in sync
+- [x] Backend: `go get github.com/swaggo/swag` + `go get github.com/swaggo/http-swagger`
+- [x] Backend: annotate all existing handlers in `rest/handlers.go` and `rest/sse.go` with `swaggo` comments (summary, params, responses)
+- [x] Backend: run `swag init` from `backend/` to generate `docs/` package
+- [x] Backend: mount Swagger UI at `/swagger/` in `handlers.go` via `httpSwagger.Handler`
+- [x] Backend: add `swag init` step to Dockerfile so the spec stays in sync with handlers
 - [ ] Verify UI accessible at `http://localhost:18080/swagger/`
 
 ---

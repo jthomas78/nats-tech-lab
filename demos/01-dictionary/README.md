@@ -60,11 +60,15 @@ docker compose down -v       # also drop NATS and Postgres data volumes
 
 | Service      | Host address                                                    |
 | ------------ | --------------------------------------------------------------- |
+| Lab shell    | http://localhost:5170                                           |
 | Demo UI      | http://localhost:5173                                           |
+| Swagger UI   | http://localhost:18080/swagger/                                 |
 | Backend API  | http://localhost:18080                                          |
 | NATS client  | nats://localhost:14222                                          |
 | NATS monitor | http://localhost:18222                                          |
-| Postgres     | localhost:15432 — user `dict`, password `dict`, db `dictionary` |
+| Postgres     | localhost:15432                                                 |
+
+**Postgres credentials:** host `localhost`, port `15432`, user `dict`, password `dict`, database `dictionary`
 
 All host ports are non-default to avoid clashing with services already
 running on your machine. Inside the compose network the services use the
