@@ -49,15 +49,15 @@ var _ = ReportAfterSuite("tree output", func(report types.Report) {
 
 		indent := strings.Repeat("  ", len(containers))
 		if spec.Failed() {
-			fmt.Printf("%s✗ %s\n", indent, spec.LeafNodeText)
+			fmt.Printf("%s\033[31m✗\033[0m %s\n", indent, spec.LeafNodeText)
 			failed++
 		} else {
-			fmt.Printf("%s✓ %s\n", indent, spec.LeafNodeText)
+			fmt.Printf("%s\033[32m✓\033[0m %s\n", indent, spec.LeafNodeText)
 			passed++
 		}
 	}
 
-	fmt.Printf("\n%d passed, %d failed\n", passed, failed)
+	fmt.Printf("\n\033[32m%d passed\033[0m, \033[31m%d failed\033[0m\n", passed, failed)
 })
 
 func commonPrefixLen(a, b []string) int {
