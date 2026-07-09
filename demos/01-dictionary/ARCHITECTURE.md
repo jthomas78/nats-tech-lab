@@ -88,6 +88,71 @@ The **Shipping Operations** form port dropdown needs to show all ports ever seen
 
 ---
 
+### Frontend Data Store (Pinia) Bindings to Backend
+
+The Pinia store (`stores/dictionary.js`) is the browser-side equivalent of a server-side projection — a materialized view that stays current by receiving pushed events rather than polling.
+
+#### Connection lifecycle
+
+```
+connect()
+  └─ new EventSource(GET /api/watch/{context})   ← long-lived HTTP connection
+       └─ source.onmessage = (msg) => applyWatchEvent(JSON.parse(msg.data))
+```
+
+`connect()` is called on app mount and whenever the Fleet context dropdown changes. The previous `EventSource` is closed first (`disconnect()`), then a new one is opened scoped to the selected context (e.g. `global`, `atlantic-fleet`).
+
+#### Server push path
+
+```
+NATS KV write (Shape A or B projector)
+  └─ kvstore.Watch() in rest/sse.go                ← backend watches the KV bucket
+       └─ writes JSON event to HTTP response stream  ← SSE frame: "data: {...}\n\n"
+            └─ browser EventSource fires onmessage   ← intercept point in the store
+                 └─ applyWatchEvent(event)            ← mutates Pinia state
+                      └─ Vue components re-render     ← reactive binding
+```
+
+No polling. No manual refresh. The component re-renders because it reads from reactive Pinia state, and `applyWatchEvent` mutates that state directly.
+
+#### `applyWatchEvent` — what it does
+
+Each SSE event carries: `shape` (A or B), `op` (PUT / DEL / PURGE), `key`, `value` (the `ShipState` JSON), and `revision` (NATS KV sequence number).
+
+```js
+applyWatchEvent(event) {
+  const target = event.shape === 'A' ? this.shapeA : this.shapeB
+
+  if (event.op === 'PUT') {
+    target[event.key] = { state: event.value, revision: event.revision }
+    // also merges any new port into seenPorts for the dropdown
+  } else {
+    delete target[event.key]   // DEL or PURGE — ship removed from view
+  }
+
+  this.events.unshift({ ...event, at: new Date().toLocaleTimeString() })
+  if (this.events.length > 50) this.events.pop()   // KV watch log, capped
+}
+```
+
+#### EventSource vs WebSocket
+
+`EventSource` (SSE) is used here rather than WebSocket because the data flow is one-directional: the server pushes, the browser only reads. Commands (Arrive, Depart, Load, Unload) travel back to the server as separate `fetch` POST requests — they do not need the watch channel.
+
+| | EventSource (SSE) | WebSocket |
+|---|---|---|
+| Direction | Server → browser only | Full duplex |
+| Protocol | Plain HTTP | `ws://` upgrade |
+| Proxy/firewall support | Works without config | Requires explicit support |
+| Auto-reconnect | Built in | Must implement manually |
+| Used for | KV watch stream | Not used in this demo |
+
+#### Context scoping
+
+The Fleet dropdown sets `store.context`. Changing it calls `connect()`, which reconnects the `EventSource` to `/api/watch/{newContext}`. The backend watch endpoint (`rest/sse.go`) opens a `kvstore.Watch()` on `dict-a-{context}` and `dict-b-{context}` — so the frontend view is always isolated to the selected context bucket. `shapeA` and `shapeB` in the store are cleared on reconnect so stale data from the previous context does not bleed through.
+
+---
+
 ### Snapshots
 
 **Not formally implemented.** Two implicit approximations exist:

@@ -2,9 +2,11 @@
     "cSpell.words": [
         "datatable",
         "eventhandler",
+        "healthcheck",
         "healthz",
         "httpx",
         "inputtext",
+        "isready",
         "jackc",
         "jetstream",
         "jstream",
@@ -17,6 +19,8 @@
         "sslmode",
         "stdlib",
         "TIMESTAMPTZ",
+        "topbar",
+        "unifi",
         "upserts"
     ],
     "cSpell.languageSettings": [
@@ -26,7 +30,7 @@
         },
         {
             "languageId": "go",
-            "ignoreRegExpList": ["/^\\s*\"[^\"]+\"/gm"]
+            "ignoreRegExpList": ["/^\\s*\\.?\\s*\"[^\"]+\"/gm"]
         }
     ]
 }
