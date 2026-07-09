@@ -13,3 +13,11 @@ type ShipRepository interface {
 	// List returns every ship in the given fleet context.
 	List(ctx context.Context, kvContext string) ([]ShipState, error)
 }
+
+// ContainerRepository is the port for the canonical container projection in
+// Postgres. The projector upserts on every container event; reads are served
+// from the container KV bucket, so no query methods are needed here.
+type ContainerRepository interface {
+	// Upsert inserts or updates the container row and returns the stored state.
+	Upsert(ctx context.Context, state ContainerState) (ContainerState, error)
+}

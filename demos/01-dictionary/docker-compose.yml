@@ -55,6 +55,15 @@ services:
     depends_on:
       - backend
 
+  frontend-port:
+    build:
+      context: ../..
+      dockerfile: demos/01-dictionary/frontend-port/Dockerfile
+    ports:
+      - "5174:80"
+    depends_on:
+      - backend
+
 volumes:
   nats-data:
   pg-data:

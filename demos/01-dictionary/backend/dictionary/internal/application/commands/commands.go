@@ -1,5 +1,5 @@
 // Package commands holds the write-side use cases for the shipping domain.
-// Each command hydrates the ShipAggregate from JetStream before applying a
+// Each command hydrates its aggregate(s) from JetStream before applying a
 // domain rule, then publishes the resulting event. This is the Petrosyan
 // CommandBus pattern adapted for NATS JetStream as the event store.
 package commands
@@ -21,14 +21,13 @@ type Publisher interface {
 
 // ShipInput carries the caller-supplied fields for a ship command.
 type ShipInput struct {
-	Context  string       `json:"context"`            // fleet / KV-bucket qualifier
-	ShipID   string       `json:"shipID"`
-	ShipName string       `json:"shipName,omitempty"` // used on first Arrive
-	Port     string       `json:"port,omitempty"`
-	Cargo    *domain.Cargo `json:"cargo,omitempty"`
+	Context  string `json:"context"` // fleet / KV-bucket qualifier
+	ShipID   string `json:"shipID"`
+	ShipName string `json:"shipName,omitempty"` // used on first Arrive
+	Port     string `json:"port,omitempty"`
 }
 
-// ShipHandler executes the four ship commands. It holds both the publish
+// ShipHandler executes the ship movement commands. It holds both the publish
 // port and the JetStream handle used for aggregate hydration (read before write).
 type ShipHandler struct {
 	pub Publisher
@@ -73,88 +72,28 @@ func (h *ShipHandler) DepartPort(ctx context.Context, in ShipInput) (domain.Ship
 	return agg.State(in.Context), nil
 }
 
-func (h *ShipHandler) LoadCargo(ctx context.Context, in ShipInput) (domain.ShipState, error) {
-	if in.Cargo == nil {
-		return domain.ShipState{}, fmt.Errorf("cargo is required")
-	}
-	agg, err := h.hydrate(ctx, in.ShipID)
-	if err != nil {
-		return domain.ShipState{}, err
-	}
-	event, err := agg.LoadCargo(*in.Cargo)
-	if err != nil {
-		return domain.ShipState{}, err
-	}
-	event.Context = in.Context
-	if err := h.publish(ctx, domain.SubjectCargoLoaded, event); err != nil {
-		return domain.ShipState{}, err
-	}
-	agg.Apply(domain.SubjectCargoLoaded, event)
-	return agg.State(in.Context), nil
-}
-
-func (h *ShipHandler) UnloadCargo(ctx context.Context, in ShipInput) (domain.ShipState, error) {
-	if in.Cargo == nil {
-		return domain.ShipState{}, fmt.Errorf("cargo is required")
-	}
-	agg, err := h.hydrate(ctx, in.ShipID)
-	if err != nil {
-		return domain.ShipState{}, err
-	}
-	event, err := agg.UnloadCargo(*in.Cargo)
-	if err != nil {
-		return domain.ShipState{}, err
-	}
-	event.Context = in.Context
-	if err := h.publish(ctx, domain.SubjectCargoUnloaded, event); err != nil {
-		return domain.ShipState{}, err
-	}
-	agg.Apply(domain.SubjectCargoUnloaded, event)
-	return agg.State(in.Context), nil
-}
-
-// hydrate replays all events for shipID from JetStream and returns the current
-// aggregate state. If the stream is empty the aggregate is returned blank.
+// hydrate replays the stream and folds the ship events for shipID into a
+// fresh aggregate. If the stream is empty the aggregate is returned blank.
 func (h *ShipHandler) hydrate(ctx context.Context, shipID string) (*domain.ShipAggregate, error) {
 	agg := &domain.ShipAggregate{ShipID: shipID}
 
-	info, err := h.js.Stream(ctx, domain.StreamName)
-	if err != nil {
-		return nil, fmt.Errorf("hydrate: stream info: %w", err)
-	}
-	lastSeq := info.CachedInfo().State.LastSeq
-	if lastSeq == 0 {
-		return agg, nil
-	}
-
-	consumer, err := h.js.OrderedConsumer(ctx, domain.StreamName, jetstream.OrderedConsumerConfig{
-		FilterSubjects: domain.StreamSubjects(),
-		DeliverPolicy:  jetstream.DeliverAllPolicy,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("hydrate: create consumer: %w", err)
-	}
-	msgs, err := consumer.Messages()
-	if err != nil {
-		return nil, fmt.Errorf("hydrate: messages: %w", err)
-	}
-	defer msgs.Stop()
-
-	for {
-		msg, err := msgs.Next()
-		if err != nil {
-			break
+	replay := func(subject string, data []byte) {
+		if !isShipSubject(subject) {
+			return
 		}
 		var event domain.ShipEvent
-		if json.Unmarshal(msg.Data(), &event) == nil && event.ShipID == shipID {
-			agg.Apply(msg.Subject(), event)
-		}
-		meta, _ := msg.Metadata()
-		if meta != nil && meta.Sequence.Stream >= lastSeq {
-			break
+		if json.Unmarshal(data, &event) == nil && event.ShipID == shipID {
+			agg.Apply(subject, event)
 		}
 	}
+	if err := replayStream(ctx, h.js, replay); err != nil {
+		return nil, err
+	}
 	return agg, nil
+}
+
+func isShipSubject(subject string) bool {
+	return subject == domain.SubjectShipArrived || subject == domain.SubjectShipDeparted
 }
 
 func (h *ShipHandler) publish(ctx context.Context, subject string, event domain.ShipEvent) error {
@@ -163,4 +102,51 @@ func (h *ShipHandler) publish(ctx context.Context, subject string, event domain.
 		return fmt.Errorf("marshal event: %w", err)
 	}
 	return h.pub.Publish(ctx, subject, data)
+}
+
+// replayStream folds every message in the SHIPPING stream through fn, in
+// order, from seq=1 up to the stream's last sequence at call time. It always
+// consumes the full subject set — the caller routes by subject — because a
+// subject-filtered consumer could never observe the terminating sequence when
+// the last message belongs to the other aggregate. Shared by the ship
+// hydrator and the container pair-hydrator.
+func replayStream(
+	ctx context.Context,
+	js jetstream.JetStream,
+	fn func(subject string, data []byte),
+) error {
+	info, err := js.Stream(ctx, domain.StreamName)
+	if err != nil {
+		return fmt.Errorf("hydrate: stream info: %w", err)
+	}
+	lastSeq := info.CachedInfo().State.LastSeq
+	if lastSeq == 0 {
+		return nil
+	}
+
+	consumer, err := js.OrderedConsumer(ctx, domain.StreamName, jetstream.OrderedConsumerConfig{
+		FilterSubjects: domain.StreamSubjects(),
+		DeliverPolicy:  jetstream.DeliverAllPolicy,
+	})
+	if err != nil {
+		return fmt.Errorf("hydrate: create consumer: %w", err)
+	}
+	msgs, err := consumer.Messages()
+	if err != nil {
+		return fmt.Errorf("hydrate: messages: %w", err)
+	}
+	defer msgs.Stop()
+
+	for {
+		msg, err := msgs.Next()
+		if err != nil {
+			break
+		}
+		fn(msg.Subject(), msg.Data())
+		meta, _ := msg.Metadata()
+		if meta != nil && meta.Sequence.Stream >= lastSeq {
+			break
+		}
+	}
+	return nil
 }

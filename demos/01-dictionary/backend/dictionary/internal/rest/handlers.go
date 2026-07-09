@@ -4,17 +4,25 @@
 //
 //	POST   /api/ships/arrive                          arrive at port (fires ship.arrived event)
 //	POST   /api/ships/depart                          depart from port (fires ship.departed event)
-//	POST   /api/ships/cargo/load                      load cargo (fires cargo.loaded event)
-//	POST   /api/ships/cargo/unload                    unload cargo (fires cargo.unloaded event)
+//	POST   /api/containers/register                   register container in origin terminal (container.registered)
+//	POST   /api/containers/load                       load container onto docked ship (container.loaded)
+//	POST   /api/containers/unload                     unload container at destination (container.unloaded)
+//	GET    /api/containers/{context}                  all containers in the context
+//	GET    /api/terminal/{context}/{port}             containers in the terminal yard at a port
+//	GET    /api/manifest/{context}/{shipID}           containers on a ship (the manifest join)
+//	GET    /api/meta/{context}/known-ports            every port seen in the event history
+//	GET    /api/meta/{context}/known-containers       every container ID ever registered
 //	GET    /api/shape-b/ships/{context}/{shipID}      read ship via KV cache → Postgres
 //	DELETE /api/shape-b/cache/{context}/{shipID}      evict cache key (demo the miss path)
-//	GET    /api/shape-c/fleet                         reconstruct fleet from JetStream replay
-//	GET    /api/watch/{context}                       SSE stream of KV changes, both shapes
+//	GET    /api/shape-c/fleet                         reconstruct fleet + containers from JetStream replay
+//	GET    /api/watch/{context}                       SSE stream of ship KV changes, both shapes
+//	GET    /api/watch-terminal/{context}              SSE stream of container + meta KV changes
 //	GET    /api/jetstream/watch                       SSE stream of live JetStream messages (DeliverNew)
 //	GET    /api/jetstream/stream                      SSE stream of all JetStream messages (DeliverAll)
 package rest
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -41,44 +49,63 @@ type shipBResponse struct {
 	Source   string           `json:"source"` // "kv-cache" or "postgres"
 }
 
-type fleetResponse struct {
-	Fleet []domain.ShipState `json:"fleet"`
+type containerResponse struct {
+	Container domain.ContainerState `json:"container"`
+}
+
+type containersResponse struct {
+	Containers []domain.ContainerState `json:"containers"`
+}
+
+type metaValuesResponse struct {
+	Values []string `json:"values"`
 }
 
 type errorResponse struct {
 	Error string `json:"error"`
 }
 
-type Handlers struct {
-	ships  *commands.ShipHandler
-	shapeB *queries.ShapeB
-	shapeC *queries.ShapeC
-	kvA    *kvstore.Store
-	kvB    *kvstore.Store
-	js     jetstream.JetStream
-	log    *slog.Logger
+// Deps bundles everything the HTTP layer needs; keeps NewHandlers readable as
+// the module grows.
+type Deps struct {
+	Ships      *commands.ShipHandler
+	Containers *commands.ContainerHandler
+	ShapeB     *queries.ShapeB
+	ShapeC     *queries.ShapeC
+	Terminal   *queries.Terminal
+	Meta       *queries.Meta
+	KVA        *kvstore.Store // Shape A ship read model
+	KVB        *kvstore.Store // Shape B ship cache
+	KVCont     *kvstore.Store // container projection
+	KVMeta     *kvstore.Store // meta.* lookup sets
+	JS         jetstream.JetStream
+	Log        *slog.Logger
 }
 
-func NewHandlers(
-	ships *commands.ShipHandler,
-	shapeB *queries.ShapeB,
-	shapeC *queries.ShapeC,
-	kvA, kvB *kvstore.Store,
-	js jetstream.JetStream,
-	log *slog.Logger,
-) *Handlers {
-	return &Handlers{ships: ships, shapeB: shapeB, shapeC: shapeC, kvA: kvA, kvB: kvB, js: js, log: log}
+type Handlers struct {
+	deps Deps
+}
+
+func NewHandlers(deps Deps) *Handlers {
+	return &Handlers{deps: deps}
 }
 
 func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/ships/arrive", h.arrivePort)
 	mux.HandleFunc("POST /api/ships/depart", h.departPort)
-	mux.HandleFunc("POST /api/ships/cargo/load", h.loadCargo)
-	mux.HandleFunc("POST /api/ships/cargo/unload", h.unloadCargo)
+	mux.HandleFunc("POST /api/containers/register", h.registerContainer)
+	mux.HandleFunc("POST /api/containers/load", h.loadContainer)
+	mux.HandleFunc("POST /api/containers/unload", h.unloadContainer)
+	mux.HandleFunc("GET /api/containers/{context}", h.listContainers)
+	mux.HandleFunc("GET /api/terminal/{context}/{port}", h.terminalByPort)
+	mux.HandleFunc("GET /api/manifest/{context}/{shipID}", h.manifestByShip)
+	mux.HandleFunc("GET /api/meta/{context}/known-ports", h.knownPorts)
+	mux.HandleFunc("GET /api/meta/{context}/known-containers", h.knownContainers)
 	mux.HandleFunc("GET /api/shape-b/ships/{context}/{shipID}", h.getShipShapeB)
 	mux.HandleFunc("DELETE /api/shape-b/cache/{context}/{shipID}", h.evictShipCache)
 	mux.HandleFunc("GET /api/shape-c/fleet", h.getFleet)
 	mux.HandleFunc("GET /api/watch/{context}", h.watch)
+	mux.HandleFunc("GET /api/watch-terminal/{context}", h.watchTerminal)
 	mux.HandleFunc("GET /api/jetstream/watch", h.watchJetStream)
 	mux.HandleFunc("GET /api/jetstream/stream", h.replayJetStream)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -88,6 +115,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 		httpSwagger.URL("/swagger/doc.json"),
 	))
 }
+
+// ─── Ship commands ────────────────────────────────────────────────────────────
 
 // arrivePort godoc
 //
@@ -107,7 +136,7 @@ func (h *Handlers) arrivePort(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	state, err := h.ships.ArrivePort(r.Context(), in)
+	state, err := h.deps.Ships.ArrivePort(r.Context(), in)
 	if err != nil {
 		h.writeCommandError(w, err)
 		return
@@ -133,7 +162,7 @@ func (h *Handlers) departPort(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	state, err := h.ships.DepartPort(r.Context(), in)
+	state, err := h.deps.Ships.DepartPort(r.Context(), in)
 	if err != nil {
 		h.writeCommandError(w, err)
 		return
@@ -141,57 +170,176 @@ func (h *Handlers) departPort(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"ship": state})
 }
 
-// loadCargo godoc
+// ─── Container commands ───────────────────────────────────────────────────────
+
+// registerContainer godoc
 //
-// @Summary      Load cargo
-// @Description  Loads a cargo item onto a ship. The ship must be docked in port. Publishes a cargo.loaded event.
-// @Tags         cargo
+// @Summary      Register container
+// @Description  Registers a new container in its origin port's terminal yard (BR-015: a container ID can only be registered once). Publishes a container.registered event.
+// @Tags         containers
 // @Accept       json
 // @Produce      json
-// @Param        body  body      commands.ShipInput  true  "context, shipID, cargo (description + units)"
-// @Success      202   {object}  shipResponse
+// @Param        body  body      commands.ContainerInput  true  "context, containerID (ISO 6346), cargo, originPort, destPort"
+// @Success      202   {object}  containerResponse
 // @Failure      400   {object}  errorResponse
-// @Failure      422   {object}  errorResponse  "Ship not docked"
-// @Router       /api/ships/cargo/load [post]
-func (h *Handlers) loadCargo(w http.ResponseWriter, r *http.Request) {
-	var in commands.ShipInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	state, err := h.ships.LoadCargo(r.Context(), in)
-	if err != nil {
-		h.writeCommandError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"ship": state})
+// @Failure      422   {object}  errorResponse  "Domain rule violation"
+// @Router       /api/containers/register [post]
+func (h *Handlers) registerContainer(w http.ResponseWriter, r *http.Request) {
+	h.containerCommand(w, r, h.deps.Containers.RegisterContainer)
 }
 
-// unloadCargo godoc
+// loadContainer godoc
 //
-// @Summary      Unload cargo
-// @Description  Removes a cargo item from a ship's manifest by description. The ship must be docked in port. Publishes a cargo.unloaded event.
-// @Tags         cargo
+// @Summary      Load container onto ship
+// @Description  Crane-loads a container onto a docked ship. Enforces BR-008, BR-010, BR-012 and BR-014 from one atomic replay of the SHIPPING stream (both aggregates share it in Phase 8). Publishes a container.loaded event.
+// @Tags         containers
 // @Accept       json
 // @Produce      json
-// @Param        body  body      commands.ShipInput  true  "context, shipID, cargo (description + units)"
-// @Success      202   {object}  shipResponse
+// @Param        body  body      commands.ContainerInput  true  "context, containerID, shipID"
+// @Success      202   {object}  containerResponse
 // @Failure      400   {object}  errorResponse
-// @Failure      422   {object}  errorResponse  "Ship not docked"
-// @Router       /api/ships/cargo/unload [post]
-func (h *Handlers) unloadCargo(w http.ResponseWriter, r *http.Request) {
-	var in commands.ShipInput
+// @Failure      404   {object}  errorResponse  "Container not registered"
+// @Failure      422   {object}  errorResponse  "Domain rule violation"
+// @Router       /api/containers/load [post]
+func (h *Handlers) loadContainer(w http.ResponseWriter, r *http.Request) {
+	h.containerCommand(w, r, h.deps.Containers.LoadContainer)
+}
+
+// unloadContainer godoc
+//
+// @Summary      Unload container from ship
+// @Description  Crane-unloads a container into the terminal at the ship's current port. Enforces BR-009, BR-011, BR-012 and BR-013. Publishes a container.unloaded event.
+// @Tags         containers
+// @Accept       json
+// @Produce      json
+// @Param        body  body      commands.ContainerInput  true  "context, containerID, shipID"
+// @Success      202   {object}  containerResponse
+// @Failure      400   {object}  errorResponse
+// @Failure      404   {object}  errorResponse  "Container not registered"
+// @Failure      422   {object}  errorResponse  "Domain rule violation"
+// @Router       /api/containers/unload [post]
+func (h *Handlers) unloadContainer(w http.ResponseWriter, r *http.Request) {
+	h.containerCommand(w, r, h.deps.Containers.UnloadContainer)
+}
+
+func (h *Handlers) containerCommand(
+	w http.ResponseWriter,
+	r *http.Request,
+	cmd func(context.Context, commands.ContainerInput) (domain.ContainerState, error),
+) {
+	var in commands.ContainerInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	state, err := h.ships.UnloadCargo(r.Context(), in)
+	state, err := cmd(r.Context(), in)
 	if err != nil {
 		h.writeCommandError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"ship": state})
+	writeJSON(w, http.StatusAccepted, map[string]any{"container": state})
 }
+
+// ─── Terminal / meta queries ──────────────────────────────────────────────────
+
+// listContainers godoc
+//
+// @Summary      List all containers
+// @Description  Returns every container state in the context's KV projection.
+// @Tags         terminal
+// @Produce      json
+// @Param        context  path      string  true  "Fleet context (e.g. global)"
+// @Success      200      {object}  containersResponse
+// @Failure      500      {object}  errorResponse
+// @Router       /api/containers/{context} [get]
+func (h *Handlers) listContainers(w http.ResponseWriter, r *http.Request) {
+	containers, err := h.deps.Terminal.List(r.Context(), r.PathValue("context"))
+	if err != nil {
+		h.writeQueryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"containers": containers})
+}
+
+// terminalByPort godoc
+//
+// @Summary      Containers in a terminal yard
+// @Description  Returns the containers currently in-terminal at the given port (terminalPort match — no status branching).
+// @Tags         terminal
+// @Produce      json
+// @Param        context  path      string  true  "Fleet context"
+// @Param        port     path      string  true  "Port name (e.g. Hamburg)"
+// @Success      200      {object}  containersResponse
+// @Failure      500      {object}  errorResponse
+// @Router       /api/terminal/{context}/{port} [get]
+func (h *Handlers) terminalByPort(w http.ResponseWriter, r *http.Request) {
+	containers, err := h.deps.Terminal.ListByPort(r.Context(), r.PathValue("context"), r.PathValue("port"))
+	if err != nil {
+		h.writeQueryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"containers": containers})
+}
+
+// manifestByShip godoc
+//
+// @Summary      Ship manifest
+// @Description  Returns the containers currently on the named ship (onShipID join) — the ship aggregate no longer carries a manifest itself.
+// @Tags         terminal
+// @Produce      json
+// @Param        context  path      string  true  "Fleet context"
+// @Param        shipID   path      string  true  "Ship identifier"
+// @Success      200      {object}  containersResponse
+// @Failure      500      {object}  errorResponse
+// @Router       /api/manifest/{context}/{shipID} [get]
+func (h *Handlers) manifestByShip(w http.ResponseWriter, r *http.Request) {
+	containers, err := h.deps.Terminal.ListByShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
+	if err != nil {
+		h.writeQueryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"containers": containers})
+}
+
+// knownPorts godoc
+//
+// @Summary      Known ports
+// @Description  Every port ever seen in the context's event history (ship arrivals/departures + container origin/destination ports). Backed by the meta.known-ports KV projection; survives reload without event replay.
+// @Tags         meta
+// @Produce      json
+// @Param        context  path      string  true  "Fleet context"
+// @Success      200      {object}  metaValuesResponse
+// @Failure      500      {object}  errorResponse
+// @Router       /api/meta/{context}/known-ports [get]
+func (h *Handlers) knownPorts(w http.ResponseWriter, r *http.Request) {
+	ports, err := h.deps.Meta.KnownPorts(r.Context(), r.PathValue("context"))
+	if err != nil {
+		h.writeQueryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"values": ports})
+}
+
+// knownContainers godoc
+//
+// @Summary      Known container IDs
+// @Description  Every container ID ever registered in the context. Backed by the meta.known-containers KV projection.
+// @Tags         meta
+// @Produce      json
+// @Param        context  path      string  true  "Fleet context"
+// @Success      200      {object}  metaValuesResponse
+// @Failure      500      {object}  errorResponse
+// @Router       /api/meta/{context}/known-containers [get]
+func (h *Handlers) knownContainers(w http.ResponseWriter, r *http.Request) {
+	ids, err := h.deps.Meta.KnownContainers(r.Context(), r.PathValue("context"))
+	if err != nil {
+		h.writeQueryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"values": ids})
+}
+
+// ─── Shape B / Shape C ────────────────────────────────────────────────────────
 
 // getShipShapeB godoc
 //
@@ -206,7 +354,7 @@ func (h *Handlers) unloadCargo(w http.ResponseWriter, r *http.Request) {
 // @Failure      500      {object}  errorResponse
 // @Router       /api/shape-b/ships/{context}/{shipID} [get]
 func (h *Handlers) getShipShapeB(w http.ResponseWriter, r *http.Request) {
-	state, cacheHit, err := h.shapeB.GetShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
+	state, cacheHit, err := h.deps.ShapeB.GetShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
 	if err != nil {
 		h.writeQueryError(w, err)
 		return
@@ -230,7 +378,7 @@ func (h *Handlers) getShipShapeB(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  errorResponse
 // @Router       /api/shape-b/cache/{context}/{shipID} [delete]
 func (h *Handlers) evictShipCache(w http.ResponseWriter, r *http.Request) {
-	err := h.shapeB.EvictCacheShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
+	err := h.deps.ShapeB.EvictCacheShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
 	if err != nil {
 		h.writeQueryError(w, err)
 		return
@@ -241,42 +389,53 @@ func (h *Handlers) evictShipCache(w http.ResponseWriter, r *http.Request) {
 // getFleet godoc
 //
 // @Summary      Reconstruct fleet (Shape C — pure event sourcing)
-// @Description  Replays the full JetStream event log from seq=1 and reconstructs the current fleet state by folding all ship events through ShipAggregate.Apply. No KV or Postgres involved.
+// @Description  Replays the full JetStream event log from seq=1 and reconstructs current state: ship.* events fold into ShipAggregates, container.* events into ContainerAggregates, and each ship's manifest is the onShipID join. No KV or Postgres involved.
 // @Tags         shape-c
 // @Produce      json
-// @Success      200  {object}  fleetResponse
+// @Success      200  {object}  queries.FleetReconstruction
 // @Failure      500  {object}  errorResponse
 // @Router       /api/shape-c/fleet [get]
 func (h *Handlers) getFleet(w http.ResponseWriter, r *http.Request) {
-	fleet, err := h.shapeC.ReconstructFleet(r.Context())
+	result, err := h.deps.ShapeC.ReconstructFleet(r.Context())
 	if err != nil {
-		h.log.Error("reconstruct fleet", "err", err)
+		h.deps.Log.Error("reconstruct fleet", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"fleet": fleet})
+	writeJSON(w, http.StatusOK, result)
 }
 
+// ─── Error mapping ────────────────────────────────────────────────────────────
+
 // writeCommandError maps domain rule violations to 422 so the frontend can
-// distinguish them from schema errors (400).
+// distinguish them from schema errors (400) and missing entities (404).
 func (h *Handlers) writeCommandError(w http.ResponseWriter, err error) {
-	if errors.Is(err, domain.ErrAlreadyDocked) ||
-		errors.Is(err, domain.ErrMustDepart) ||
-		errors.Is(err, domain.ErrNotDocked) ||
-		errors.Is(err, domain.ErrNotInPort) ||
-		errors.Is(err, domain.ErrCargoNotFound) {
+	switch {
+	case errors.Is(err, domain.ErrContainerNotFound), errors.Is(err, domain.ErrNotFound):
+		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, domain.ErrAlreadyDocked),
+		errors.Is(err, domain.ErrMustDepart),
+		errors.Is(err, domain.ErrNotDocked),
+		errors.Is(err, domain.ErrNotInPort),
+		errors.Is(err, domain.ErrContainerAtDestination),
+		errors.Is(err, domain.ErrWrongDestination),
+		errors.Is(err, domain.ErrContainerNotInTerminal),
+		errors.Is(err, domain.ErrContainerNotOnShip),
+		errors.Is(err, domain.ErrWrongShip),
+		errors.Is(err, domain.ErrContainerNotAtPort),
+		errors.Is(err, domain.ErrContainerExists):
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
-		return
+	default:
+		writeError(w, http.StatusBadRequest, err.Error())
 	}
-	writeError(w, http.StatusBadRequest, err.Error())
 }
 
 func (h *Handlers) writeQueryError(w http.ResponseWriter, err error) {
-	if errors.Is(err, domain.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "ship not found")
+	if errors.Is(err, domain.ErrNotFound) || errors.Is(err, domain.ErrContainerNotFound) {
+		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	h.log.Error("query failed", "err", err)
+	h.deps.Log.Error("query failed", "err", err)
 	writeError(w, http.StatusInternalServerError, "internal error")
 }
 

@@ -1,6 +1,10 @@
-// Package domain holds the shipping domain: ShipState (projected read model),
-// ShipAggregate (pure command-side logic and Shape C reconstruction), and
-// the four domain errors. No framework dependencies.
+// Package domain holds the shipping domain: Ship and Container aggregates,
+// their projected read models (ShipState, ContainerState), events, and the
+// domain errors. No framework dependencies.
+//
+// Cargo moved off the ship aggregate in Phase 8: a ship's manifest is now
+// derived by joining containers whose OnShipID matches the ship — see
+// container.go and the terminal queries.
 package domain
 
 import (
@@ -16,17 +20,10 @@ var (
 	ErrAlreadyDocked = errors.New("ship is already docked at this port")
 	ErrMustDepart    = errors.New("ship must depart current port first")
 	ErrNotDocked     = errors.New("ship is not docked at this port")
-	ErrNotInPort     = errors.New("ship must be docked to load or unload cargo")
-	ErrCargoNotFound = errors.New("cargo item not found in manifest")
+	ErrNotInPort     = errors.New("ship must be docked to load or unload containers") // BR-012
 )
 
 // ─── Value objects ────────────────────────────────────────────────────────────
-
-// Cargo is a single item in a ship's manifest.
-type Cargo struct {
-	Description string `json:"description"`
-	Units       int    `json:"units"`
-}
 
 // ShipStatus represents the AIS navigational status of a ship.
 type ShipStatus string
@@ -42,14 +39,15 @@ const (
 // ─── Read model (projected into KV and Postgres) ─────────────────────────────
 
 // ShipState is the materialised view stored in NATS KV (Shape A/B read model)
-// and in Postgres (Shape B canonical projection).
+// and in Postgres (Shape B canonical projection). The container manifest is
+// NOT part of ship state — it is a join over the container projection
+// (OnShipID == ShipID).
 type ShipState struct {
 	Context     string     `json:"context"` // fleet / KV-bucket qualifier
 	ShipID      string     `json:"shipID"`
 	ShipName    string     `json:"shipName"`
 	Status      ShipStatus `json:"status"`      // AIS navigational status
 	CurrentPort string     `json:"currentPort"` // "" = at sea
-	Cargo       []Cargo    `json:"cargo"`
 	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
@@ -59,7 +57,7 @@ func (s ShipState) KVKey() string { return "ship." + s.ShipID }
 // ─── Aggregate (command validation + Shape C reconstruction) ──────────────────
 
 // ShipAggregate reconstructs ship state by replaying events. It is the single
-// place where domain rules are enforced (write side) and where Shape C reads
+// place where the ship rules are enforced (write side) and where Shape C reads
 // derive their fleet view (read side). The Hydrate / ReconstructFleet helpers
 // that feed events into the aggregate live in the application layer so the
 // domain stays free of JetStream imports.
@@ -67,7 +65,6 @@ type ShipAggregate struct {
 	ShipID      string
 	ShipName    string
 	CurrentPort string // "" = at sea
-	Cargo       []Cargo
 	UpdatedAt   time.Time
 }
 
@@ -84,31 +81,11 @@ func (a *ShipAggregate) Apply(subject string, event ShipEvent) {
 		a.CurrentPort = event.Port
 	case SubjectShipDeparted:
 		a.CurrentPort = ""
-	case SubjectCargoLoaded:
-		if event.Cargo != nil {
-			a.Cargo = append(a.Cargo, *event.Cargo)
-		}
-	case SubjectCargoUnloaded:
-		if event.Cargo != nil {
-			a.removeCargo(event.Cargo.Description)
-		}
 	}
-}
-
-func (a *ShipAggregate) removeCargo(description string) {
-	out := a.Cargo[:0]
-	for _, c := range a.Cargo {
-		if c.Description != description {
-			out = append(out, c)
-		}
-	}
-	a.Cargo = out
 }
 
 // State returns a snapshot of the aggregate as a ShipState projection.
 func (a *ShipAggregate) State(context string) ShipState {
-	cargo := make([]Cargo, len(a.Cargo))
-	copy(cargo, a.Cargo)
 	status := StatusInTransit
 	if a.CurrentPort != "" {
 		status = StatusDocked
@@ -119,7 +96,6 @@ func (a *ShipAggregate) State(context string) ShipState {
 		ShipName:    a.ShipName,
 		Status:      status,
 		CurrentPort: a.CurrentPort,
-		Cargo:       cargo,
 		UpdatedAt:   a.UpdatedAt,
 	}
 }
@@ -130,7 +106,6 @@ func (a *ShipAggregate) FromState(s ShipState) {
 	a.ShipID = s.ShipID
 	a.ShipName = s.ShipName
 	a.CurrentPort = s.CurrentPort
-	a.Cargo = s.Cargo
 	a.UpdatedAt = s.UpdatedAt
 }
 
@@ -169,41 +144,6 @@ func (a *ShipAggregate) Depart(port string) (ShipEvent, error) {
 	return ShipEvent{
 		ShipID:     a.ShipID,
 		Port:       port,
-		OccurredAt: time.Now().UTC(),
-	}, nil
-}
-
-// LoadCargo returns a CargoLoaded event if the ship is docked.
-func (a *ShipAggregate) LoadCargo(cargo Cargo) (ShipEvent, error) {
-	if a.CurrentPort == "" {
-		return ShipEvent{}, ErrNotInPort
-	}
-	return ShipEvent{
-		ShipID:     a.ShipID,
-		Cargo:      &cargo,
-		OccurredAt: time.Now().UTC(),
-	}, nil
-}
-
-// UnloadCargo returns a CargoUnloaded event if the ship is docked and the
-// cargo item exists in the manifest.
-func (a *ShipAggregate) UnloadCargo(cargo Cargo) (ShipEvent, error) {
-	if a.CurrentPort == "" {
-		return ShipEvent{}, ErrNotInPort
-	}
-	found := false
-	for _, c := range a.Cargo {
-		if c.Description == cargo.Description {
-			found = true
-			break
-		}
-	}
-	if !found {
-		return ShipEvent{}, fmt.Errorf("%w: %q", ErrCargoNotFound, cargo.Description)
-	}
-	return ShipEvent{
-		ShipID:     a.ShipID,
-		Cargo:      &cargo,
 		OccurredAt: time.Now().UTC(),
 	}, nil
 }

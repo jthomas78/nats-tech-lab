@@ -87,10 +87,6 @@ function statusSeverity(row) {
 function portLabel(row) {
   return row.currentPort || '—'
 }
-function cargoSummary(row) {
-  if (!row.cargo || row.cargo.length === 0) return '—'
-  return row.cargo.map(c => `${c.description} ×${c.units}`).join(', ')
-}
 </script>
 
 <template>
@@ -111,11 +107,6 @@ function cargoSummary(row) {
         </template>
       </Column>
       <Column v-if="shape === 'A'" field="revision" header="KV rev" style="width:70px;font-variant-numeric:tabular-nums" />
-      <Column header="Cargo">
-        <template #body="{ data }">
-          <span class="lab-muted cargo-cell">{{ cargoSummary(data) }}</span>
-        </template>
-      </Column>
       <Column v-if="shape === 'B'" header="Last read" style="width:140px">
         <template #body="{ data }">
           <Tag
@@ -158,10 +149,6 @@ function cargoSummary(row) {
   margin: 0 0 0.75rem;
   font-size: 0.85rem;
   min-height: 3.4em;
-}
-.cargo-cell {
-  font-size: 12px;
-  font-family: monospace;
 }
 .actions {
   display: flex;

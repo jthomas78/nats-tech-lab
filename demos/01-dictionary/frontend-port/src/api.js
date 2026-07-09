@@ -40,40 +40,8 @@ export function unloadContainer(input) {
 
 // ── Terminal / meta queries ───────────────────────────────────────────────────
 
-export function listContainers(context) {
-  return request(`/api/containers/${context}`)
-}
-
-export function getTerminal(context, port) {
-  return request(`/api/terminal/${context}/${encodeURIComponent(port)}`)
-}
-
-export function getManifest(context, shipID) {
-  return request(`/api/manifest/${context}/${shipID}`)
-}
-
 export function getKnownPorts(context) {
   return request(`/api/meta/${context}/known-ports`)
-}
-
-export function getKnownContainers(context) {
-  return request(`/api/meta/${context}/known-containers`)
-}
-
-// ── Shape B reads (KV cache → Postgres) ──────────────────────────────────────
-
-export function getShipShapeB(context, shipID) {
-  return request(`/api/shape-b/ships/${context}/${shipID}`)
-}
-
-export function evictShipCache(context, shipID) {
-  return request(`/api/shape-b/cache/${context}/${shipID}`, { method: 'DELETE' })
-}
-
-// ── Shape C fleet reconstruction ─────────────────────────────────────────────
-
-export function getFleet() {
-  return request('/api/shape-c/fleet')
 }
 
 // ── SSE stream URLs ───────────────────────────────────────────────────────────
@@ -84,11 +52,4 @@ export function watchUrl(context) {
 
 export function watchTerminalUrl(context) {
   return `/api/watch-terminal/${context}`
-}
-
-export function jetstreamWatchUrl(stream = 'SHIPPING') {
-  return `/api/jetstream/watch?stream=${encodeURIComponent(stream)}`
-}
-export function jetstreamStreamUrl(stream = 'SHIPPING') {
-  return `/api/jetstream/stream?stream=${encodeURIComponent(stream)}`
 }

@@ -76,8 +76,10 @@ func register(
 	project func(context.Context, string, domain.ShipEvent) error,
 ) (jetstream.ConsumeContext, error) {
 	cons, err := js.CreateOrUpdateConsumer(ctx, domain.StreamName, jetstream.ConsumerConfig{
-		Durable:       durable,
-		FilterSubject: domain.SubjectWildcard,
+		Durable: durable,
+		// Ship projectors only consume ship movement events; container.*
+		// events are handled by the container projector (container_handler.go).
+		FilterSubject: domain.SubjectShipWildcard,
 		AckPolicy:     jetstream.AckExplicitPolicy,
 	})
 	if err != nil {
@@ -90,7 +92,7 @@ func register(
 			_ = msg.Ack()
 			return
 		}
-		// Skip messages from a previous domain version (e.g. DICTIONARY.entry.*)
+		// Skip messages from a previous domain version (e.g. legacy entry.* events)
 		// that unmarshal without error but produce an empty shipID. Ack them as
 		// poison messages so they are not redelivered indefinitely.
 		if event.ShipID == "" {

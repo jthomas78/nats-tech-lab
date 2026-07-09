@@ -3,7 +3,7 @@
 // stream (here: KV watch → SSE), one layer further out. See CLAUDE.md.
 import { defineStore } from 'pinia'
 
-import { watchUrl } from '../api'
+import { getKnownPorts, watchUrl } from '../api'
 
 // Fleet contexts scope the KV buckets, same as tenant/region in the dictionary
 // domain. Each context maps to dict-a-{context} and dict-b-{context} buckets.
@@ -46,6 +46,12 @@ export const useDictionaryStore = defineStore('dictionary', {
       this.events = []
       this.seenPorts = []
 
+      // Seed the port list from the meta.known-ports KV projection so the
+      // full port history survives reload; live events keep merging below.
+      getKnownPorts(this.context)
+        .then((res) => this.mergePorts(res?.values ?? []))
+        .catch(() => {})
+
       const source = new EventSource(watchUrl(this.context))
       this._source = source
       source.onopen = () => { this.connected = true }
@@ -61,14 +67,17 @@ export const useDictionaryStore = defineStore('dictionary', {
       this.connected = false
     },
 
+    mergePorts(ports) {
+      const merged = new Set([...this.seenPorts, ...ports])
+      this.seenPorts = [...merged].sort()
+    },
+
     applyWatchEvent(event) {
       const target = event.shape === 'A' ? this.shapeA : this.shapeB
       if (event.op === 'PUT') {
         target[event.key] = { state: event.value, revision: event.revision }
         const port = event.value?.currentPort
-        if (port && !this.seenPorts.includes(port)) {
-          this.seenPorts = [...this.seenPorts, port].sort()
-        }
+        if (port) this.mergePorts([port])
       } else {
         // Delete/purge: Shape A ships disappear; Shape B keys reappear on
         // the next read via the Postgres fallthrough + backfill.

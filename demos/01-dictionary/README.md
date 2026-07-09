@@ -8,7 +8,7 @@ side by side.
 
 ## Shape A — NATS KV as the read model
 
-Events on the `DICTIONARY` JetStream stream are projected **directly into a
+Events on the `SHIPPING` JetStream stream are projected **directly into a
 context-scoped KV bucket** (`dict-a-{context}`). Reads go straight to KV.
 There is no Postgres read table at all — the KV bucket *is* the read model,
 and the KV revision number is the entry's version.
@@ -27,13 +27,29 @@ No KV bucket, no Postgres table. Current fleet state is derived entirely from
 replaying the JetStream event log from `seq=1`. Demonstrates the defining
 property of pure event sourcing: correct state with no persistent read model.
 
-## UI layout — data flow top to bottom
+## Two aggregates, one stream (Phase 8)
+
+The domain has two aggregates — **Ship** (arrive/depart) and **Container**
+(register/load/unload, ISO 6346 IDs) — co-located on the single `SHIPPING`
+stream, partitioned by subject. Cross-aggregate rules (a ship must be docked
+at the container's terminal to load it, a container can only be unloaded at
+its destination, …) are enforced from **one atomic replay** that hydrates both
+aggregates. See [BUSINESS_RULES.md](BUSINESS_RULES.md) for BR-001 … BR-015.
+
+## Two frontends
+
+| App | URL | Role |
+|---|---|---|
+| Admin / NATS debug | http://localhost:5173 | Raw stream feed, KV buckets, Shape A/B/C projections |
+| Port Management | http://localhost:5174 | One port at a time: terminal yard, docked ships + manifests, container operations |
+
+## Admin UI layout — data flow top to bottom
 
 The demo screen maps vertically to the pipeline:
 
-1. **Shipping Operations** — dispatch a command (Arrive / Depart / Load / Unload); the backend validates domain rules, publishes to JetStream, and returns immediately.
-2. **JetStream panel** — live feed of raw `DICTIONARY.*` messages as they arrive on the stream: subject, sequence number, timestamp, payload. Click a row to expand the full payload.
-3. **Shape A | Shape B | Shape C** — projections side by side. Shape B also shows the canonical **Postgres projection** below the KV cache rows.
+1. **Shipping Operations** — dispatch a command (Arrive / Depart / Register / Load / Unload container); the backend validates domain rules, publishes to JetStream, and returns immediately.
+2. **JetStream panel** — live feed of raw `SHIPPING.*` messages as they arrive on the stream: subject, sequence number, timestamp, payload. Click a row to expand the full payload.
+3. **Shape A | Shape B | Shape C** — projections side by side. Shape B also shows the canonical **Postgres projection** below the KV cache rows. Shape C reconstructs ships **and** containers, joining each ship's manifest.
 4. **KV Watch Stream** — every KV change event from both buckets. Filter by shape (A / B), operation (PUT / DEL / PURGE), or key text to isolate the event you're interested in.
 
 ## What to watch
@@ -48,27 +64,74 @@ The demo screen maps vertically to the pipeline:
 
 ```bash
 cd demos/01-dictionary
-docker compose up --build    # builds Go backend + Vue frontend, then starts all services
+docker compose up --build    # builds the Go backend + both Vue frontends, then starts all services
 ```
 
-Then open **http://localhost:5173**.
+Then open **http://localhost:5173** for the Admin / NATS debug UI, or
+**http://localhost:5174** for Port Management.
 
 ```bash
 docker compose down          # stop and remove containers
 docker compose down -v       # also drop NATS and Postgres data volumes
 ```
 
-| Service      | Host address                                                    |
-| ------------ | --------------------------------------------------------------- |
-| Lab shell    | http://localhost:5170                                           |
-| Demo UI      | http://localhost:5173                                           |
-| Swagger UI   | http://localhost:18080/swagger/                                 |
-| Backend API  | http://localhost:18080                                          |
-| NATS client  | nats://localhost:14222                                          |
-| NATS monitor | http://localhost:18222                                          |
-| Postgres     | localhost:15432                                                 |
+| Service         | Host address                                                 |
+| --------------- | ------------------------------------------------------------ |
+| Lab shell       | http://localhost:5170                                        |
+| Admin UI        | http://localhost:5173                                        |
+| Port Management | http://localhost:5174                                        |
+| Swagger UI      | http://localhost:18080/swagger/                              |
+| Backend API     | http://localhost:18080                                       |
+| NATS client     | nats://localhost:14222                                       |
+| NATS monitor    | http://localhost:18222                                       |
+| Postgres        | localhost:15432                                              |
 
 **Postgres credentials:** host `localhost`, port `15432`, user `dict`, password `dict`, database `dictionary`
+
+## Dev mode (outside Docker)
+
+Useful for backend hot-reload, or for Vue DevTools (the Docker build serves a
+production bundle, which DevTools can't inspect). Requires four terminals.
+
+**1. NATS + Postgres only** (still via Docker — no need to run these natively):
+
+```bash
+cd demos/01-dictionary
+docker compose up nats postgres
+```
+
+**2. Backend** — the code defaults to the *standard* ports (`localhost:4222`,
+`localhost:5432`), but Docker maps them to `14222` / `15432` on the host, so
+point the backend at those explicitly:
+
+```bash
+cd demos/01-dictionary/backend
+NATS_URL=nats://localhost:14222 \
+DATABASE_URL="postgres://dict:dict@localhost:15432/dictionary?sslmode=disable" \
+go run ./cmd/main.go
+```
+
+The backend now listens on `:8080` (not `18080` — that remap only applies to
+the Dockerized backend service).
+
+**3. Admin frontend:**
+
+```bash
+cd demos/01-dictionary/frontend
+npm install   # first time only
+npm run dev   # http://localhost:5173, proxies /api to localhost:8080 (see vite.config.js)
+```
+
+**4. Port Management frontend** (optional, separate terminal):
+
+```bash
+cd demos/01-dictionary/frontend-port
+npm install   # first time only
+npm run dev   # http://localhost:5174, proxies /api to localhost:8080
+```
+
+Both `vite.config.js` files proxy `/api` to `http://localhost:8080` — the
+plain backend port, since nothing is remapping it outside Docker.
 
 ## Run the tests
 

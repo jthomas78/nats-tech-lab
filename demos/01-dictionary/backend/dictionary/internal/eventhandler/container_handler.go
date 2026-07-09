@@ -1,0 +1,85 @@
+package eventhandler
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+
+	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/dictionary/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/internal/kvstore"
+)
+
+// RegisterContainers starts the container projector: container events update
+// the canonical Postgres projection first, then eagerly write through to the
+// container-{context} KV bucket (the read model served by the terminal
+// queries). One durable consumer, positioned independently of the ship
+// projectors.
+func RegisterContainers(
+	ctx context.Context,
+	js jetstream.JetStream,
+	kv *kvstore.Store,
+	repo domain.ContainerRepository,
+	log *slog.Logger,
+) (jetstream.ConsumeContext, error) {
+	cons, err := js.CreateOrUpdateConsumer(ctx, domain.StreamName, jetstream.ConsumerConfig{
+		Durable:       "container-projector",
+		FilterSubject: domain.SubjectContainerWildcard,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return cons.Consume(func(msg jetstream.Msg) {
+		var event domain.ContainerEvent
+		if err := json.Unmarshal(msg.Data(), &event); err != nil {
+			log.Error("drop malformed container event", "subject", msg.Subject(), "err", err)
+			_ = msg.Ack()
+			return
+		}
+		if event.ContainerID == "" {
+			log.Warn("skip container event without containerID", "subject", msg.Subject())
+			_ = msg.Ack()
+			return
+		}
+
+		agg := currentContainerAgg(ctx, kv, event)
+		agg.Apply(msg.Subject(), event)
+		state := agg.State(event.Context)
+
+		persisted, err := repo.Upsert(ctx, state)
+		if err != nil {
+			log.Error("container projection failed, will redeliver", "subject", msg.Subject(), "err", err)
+			_ = msg.Nak()
+			return
+		}
+		data, err := json.Marshal(persisted)
+		if err != nil {
+			log.Error("marshal container state", "err", err)
+			_ = msg.Nak()
+			return
+		}
+		if _, err := kv.Put(ctx, event.Context, state.KVKey(), data); err != nil {
+			log.Error("container kv write failed, will redeliver", "subject", msg.Subject(), "err", err)
+			_ = msg.Nak()
+			return
+		}
+		_ = msg.Ack()
+	})
+}
+
+// currentContainerAgg reads the current KV state for the container and loads
+// it into a ContainerAggregate so the projector can apply a single-event
+// delta without replaying the full JetStream history.
+func currentContainerAgg(ctx context.Context, kv *kvstore.Store, event domain.ContainerEvent) *domain.ContainerAggregate {
+	agg := &domain.ContainerAggregate{ContainerID: event.ContainerID}
+	raw, _, err := kv.Get(ctx, event.Context, "container."+event.ContainerID)
+	if err == nil {
+		var existing domain.ContainerState
+		if json.Unmarshal(raw, &existing) == nil {
+			agg.FromState(existing)
+		}
+	}
+	return agg
+}

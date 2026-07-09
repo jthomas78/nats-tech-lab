@@ -6,12 +6,15 @@ import (
 	"time"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/dictionary/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/internal/kvstore"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// watchEvent is one SSE payload: a KV change in either shape's bucket.
+// watchEvent is one SSE payload: a KV change in one of the watched buckets.
+// Shape identifies the source bucket family: "A" / "B" (ship projections),
+// "CONTAINER" (container projection), "META" (meta.* lookup sets).
 type watchEvent struct {
-	Shape    string          `json:"shape"` // "A" or "B"
+	Shape    string          `json:"shape"`
 	Key      string          `json:"key"`
 	Op       string          `json:"op"` // PUT, DEL, PURGE
 	Revision uint64          `json:"revision"`
@@ -31,19 +34,50 @@ func opString(op jetstream.KeyValueOp) string {
 
 // watch godoc
 //
-// @Summary      KV watch stream (SSE)
-// @Description  Server-Sent Events stream of NATS KV changes for both the Shape A and Shape B buckets in the given context. Replays current bucket state first (snapshot), then delivers live updates. Each event is a JSON-encoded watchEvent object.
+// @Summary      Ship KV watch stream (SSE)
+// @Description  Server-Sent Events stream of NATS KV changes for both the Shape A and Shape B ship buckets in the given context. Replays current bucket state first (snapshot), then delivers live updates. Each event is a JSON-encoded watchEvent object.
 // @Tags         streams
 // @Produce      text/event-stream
 // @Param        context  path      string  true  "Fleet context (e.g. global, atlantic-fleet)"
 // @Success      200      {string}  string  "SSE stream — data: {watchEvent JSON}"
 // @Failure      500      {object}  errorResponse
 // @Router       /api/watch/{context} [get]
-// watch streams KV changes for a context over SSE. It watches both the
+// watch streams ship KV changes for a context over SSE. It watches both the
 // Shape A read-model bucket and the Shape B cache bucket, replaying current
 // state first, then pushing live updates. This is the server half of the
 // KV watch → SSE → Pinia store pipeline.
 func (h *Handlers) watch(w http.ResponseWriter, r *http.Request) {
+	h.watchBuckets(w, r, []watchSource{
+		{shape: "A", store: h.deps.KVA},
+		{shape: "B", store: h.deps.KVB},
+	})
+}
+
+// watchTerminal godoc
+//
+// @Summary      Terminal KV watch stream (SSE)
+// @Description  Server-Sent Events stream of NATS KV changes for the container projection bucket and the meta.* lookup bucket in the given context. Replays current state first, then delivers live updates. Shape is "CONTAINER" or "META".
+// @Tags         streams
+// @Produce      text/event-stream
+// @Param        context  path      string  true  "Fleet context (e.g. global)"
+// @Success      200      {string}  string  "SSE stream — data: {watchEvent JSON}"
+// @Failure      500      {object}  errorResponse
+// @Router       /api/watch-terminal/{context} [get]
+// watchTerminal is the terminal-side twin of watch: container states and
+// meta.* lookup sets, consumed by the Port Management frontend.
+func (h *Handlers) watchTerminal(w http.ResponseWriter, r *http.Request) {
+	h.watchBuckets(w, r, []watchSource{
+		{shape: "CONTAINER", store: h.deps.KVCont},
+		{shape: "META", store: h.deps.KVMeta},
+	})
+}
+
+type watchSource struct {
+	shape string
+	store *kvstore.Store
+}
+
+func (h *Handlers) watchBuckets(w http.ResponseWriter, r *http.Request, sources []watchSource) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming unsupported")
@@ -52,21 +86,39 @@ func (h *Handlers) watch(w http.ResponseWriter, r *http.Request) {
 	kvContext := r.PathValue("context")
 	ctx := r.Context()
 
-	watcherA, err := h.kvA.Watch(ctx, kvContext)
-	if err != nil {
-		h.log.Error("watch shape A", "context", kvContext, "err", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
+	type update struct {
+		shape string
+		entry jetstream.KeyValueEntry
 	}
-	defer func() { _ = watcherA.Stop() }()
+	updates := make(chan update, 16)
 
-	watcherB, err := h.kvB.Watch(ctx, kvContext)
-	if err != nil {
-		h.log.Error("watch shape B", "context", kvContext, "err", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
+	for _, src := range sources {
+		watcher, err := src.store.Watch(ctx, kvContext)
+		if err != nil {
+			h.deps.Log.Error("kv watch", "shape", src.shape, "context", kvContext, "err", err)
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		defer func() { _ = watcher.Stop() }()
+
+		go func(shape string, watcher jetstream.KeyWatcher) {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case entry, ok := <-watcher.Updates():
+					if !ok {
+						return
+					}
+					select {
+					case updates <- update{shape: shape, entry: entry}:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+		}(src.shape, watcher)
 	}
-	defer func() { _ = watcherB.Stop() }()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -104,10 +156,8 @@ func (h *Handlers) watch(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ctx.Done():
 			return
-		case entry := <-watcherA.Updates():
-			send("A", entry)
-		case entry := <-watcherB.Updates():
-			send("B", entry)
+		case u := <-updates:
+			send(u.shape, u.entry)
 		case <-heartbeat.C:
 			_, _ = w.Write([]byte(": ping\n\n"))
 			flusher.Flush()
@@ -126,14 +176,16 @@ type jsEvent struct {
 // replayJetStream godoc
 //
 // @Summary      JetStream full replay + live stream (SSE)
-// @Description  Server-Sent Events stream of raw DICTIONARY.* JetStream messages using DeliverAll policy — replays from seq=1, then continues with live messages. Each event is a JSON-encoded jsEvent object.
+// @Description  Server-Sent Events stream of raw SHIPPING.* JetStream messages using DeliverAll policy — replays from seq=1, then continues with live messages. Each event is a JSON-encoded jsEvent object.
 // @Tags         streams
 // @Produce      text/event-stream
+// @Param        stream  query     string  false  "Stream name (default SHIPPING)"
 // @Success      200  {string}  string  "SSE stream — data: {jsEvent JSON}"
+// @Failure      400  {object}  errorResponse  "Unknown stream"
 // @Failure      500  {object}  errorResponse
 // @Router       /api/jetstream/stream [get]
 // replayJetStream streams all JetStream messages from the beginning of the
-// DICTIONARY stream, then continues delivering new ones. Uses DeliverAll policy.
+// SHIPPING stream, then continues delivering new ones. Uses DeliverAll policy.
 func (h *Handlers) replayJetStream(w http.ResponseWriter, r *http.Request) {
 	h.streamJetStream(w, r, jetstream.DeliverAllPolicy)
 }
@@ -141,13 +193,15 @@ func (h *Handlers) replayJetStream(w http.ResponseWriter, r *http.Request) {
 // watchJetStream godoc
 //
 // @Summary      JetStream live watch (SSE)
-// @Description  Server-Sent Events stream of raw DICTIONARY.* JetStream messages using DeliverNew policy — only messages published after the connection opens. Each event is a JSON-encoded jsEvent object.
+// @Description  Server-Sent Events stream of raw SHIPPING.* JetStream messages using DeliverNew policy — only messages published after the connection opens. Each event is a JSON-encoded jsEvent object.
 // @Tags         streams
 // @Produce      text/event-stream
+// @Param        stream  query     string  false  "Stream name (default SHIPPING)"
 // @Success      200  {string}  string  "SSE stream — data: {jsEvent JSON}"
+// @Failure      400  {object}  errorResponse  "Unknown stream"
 // @Failure      500  {object}  errorResponse
 // @Router       /api/jetstream/watch [get]
-// watchJetStream streams raw JetStream messages from the DICTIONARY stream over
+// watchJetStream streams raw JetStream messages from the SHIPPING stream over
 // SSE. It uses an ephemeral ordered consumer with DeliverNew so only messages
 // published after the connection is established are delivered — no replay.
 func (h *Handlers) watchJetStream(w http.ResponseWriter, r *http.Request) {
@@ -162,19 +216,33 @@ func (h *Handlers) streamJetStream(w http.ResponseWriter, r *http.Request, polic
 	}
 	ctx := r.Context()
 
-	consumer, err := h.js.OrderedConsumer(ctx, domain.StreamName, jetstream.OrderedConsumerConfig{
-		FilterSubjects: domain.StreamSubjects(),
+	streamName := r.URL.Query().Get("stream")
+	if streamName == "" {
+		streamName = domain.StreamName
+	}
+
+	var filterSubjects []string
+	switch streamName {
+	case domain.StreamName:
+		filterSubjects = domain.StreamSubjects()
+	default:
+		writeError(w, http.StatusBadRequest, "unknown stream: "+streamName)
+		return
+	}
+
+	consumer, err := h.deps.JS.OrderedConsumer(ctx, streamName, jetstream.OrderedConsumerConfig{
+		FilterSubjects: filterSubjects,
 		DeliverPolicy:  policy,
 	})
 	if err != nil {
-		h.log.Error("create ordered consumer", "err", err)
+		h.deps.Log.Error("create ordered consumer", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
 	msgs, err := consumer.Messages()
 	if err != nil {
-		h.log.Error("consume jetstream messages", "err", err)
+		h.deps.Log.Error("consume jetstream messages", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}

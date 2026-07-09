@@ -15,9 +15,194 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/containers/load": {
+            "post": {
+                "description": "Crane-loads a container onto a docked ship. Enforces BR-008, BR-010, BR-012 and BR-014 from one atomic replay of the SHIPPING stream (both aggregates share it in Phase 8). Publishes a container.loaded event.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "containers"
+                ],
+                "summary": "Load container onto ship",
+                "parameters": [
+                    {
+                        "description": "context, containerID, shipID",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ContainerInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.containerResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Container not registered",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Domain rule violation",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/containers/register": {
+            "post": {
+                "description": "Registers a new container in its origin port's terminal yard (BR-015: a container ID can only be registered once). Publishes a container.registered event.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "containers"
+                ],
+                "summary": "Register container",
+                "parameters": [
+                    {
+                        "description": "context, containerID (ISO 6346), cargo, originPort, destPort",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ContainerInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.containerResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Domain rule violation",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/containers/unload": {
+            "post": {
+                "description": "Crane-unloads a container into the terminal at the ship's current port. Enforces BR-009, BR-011, BR-012 and BR-013. Publishes a container.unloaded event.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "containers"
+                ],
+                "summary": "Unload container from ship",
+                "parameters": [
+                    {
+                        "description": "context, containerID, shipID",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ContainerInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.containerResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Container not registered",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Domain rule violation",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/containers/{context}": {
+            "get": {
+                "description": "Returns every container state in the context's KV projection.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "terminal"
+                ],
+                "summary": "List all containers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Fleet context (e.g. global)",
+                        "name": "context",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.containersResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/jetstream/stream": {
             "get": {
-                "description": "Server-Sent Events stream of raw DICTIONARY.* JetStream messages using DeliverAll policy — replays from seq=1, then continues with live messages. Each event is a JSON-encoded jsEvent object.",
+                "description": "Server-Sent Events stream of raw SHIPPING.* JetStream messages using DeliverAll policy — replays from seq=1, then continues with live messages. Each event is a JSON-encoded jsEvent object.",
                 "produces": [
                     "text/event-stream"
                 ],
@@ -25,6 +210,14 @@ const docTemplate = `{
                     "streams"
                 ],
                 "summary": "JetStream full replay + live stream (SSE)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stream name (default SHIPPING)",
+                        "name": "stream",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "SSE stream — data: {jsEvent JSON}",
@@ -32,10 +225,16 @@ const docTemplate = `{
                             "type": "string"
                         }
                     },
+                    "400": {
+                        "description": "Unknown stream",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
                         }
                     }
                 }
@@ -43,7 +242,7 @@ const docTemplate = `{
         },
         "/api/jetstream/watch": {
             "get": {
-                "description": "Server-Sent Events stream of raw DICTIONARY.* JetStream messages using DeliverNew policy — only messages published after the connection opens. Each event is a JSON-encoded jsEvent object.",
+                "description": "Server-Sent Events stream of raw SHIPPING.* JetStream messages using DeliverNew policy — only messages published after the connection opens. Each event is a JSON-encoded jsEvent object.",
                 "produces": [
                     "text/event-stream"
                 ],
@@ -51,6 +250,14 @@ const docTemplate = `{
                     "streams"
                 ],
                 "summary": "JetStream live watch (SSE)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stream name (default SHIPPING)",
+                        "name": "stream",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "SSE stream — data: {jsEvent JSON}",
@@ -58,10 +265,128 @@ const docTemplate = `{
                             "type": "string"
                         }
                     },
+                    "400": {
+                        "description": "Unknown stream",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/manifest/{context}/{shipID}": {
+            "get": {
+                "description": "Returns the containers currently on the named ship (onShipID join) — the ship aggregate no longer carries a manifest itself.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "terminal"
+                ],
+                "summary": "Ship manifest",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Fleet context",
+                        "name": "context",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Ship identifier",
+                        "name": "shipID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.containersResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/meta/{context}/known-containers": {
+            "get": {
+                "description": "Every container ID ever registered in the context. Backed by the meta.known-containers KV projection.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "meta"
+                ],
+                "summary": "Known container IDs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Fleet context",
+                        "name": "context",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.metaValuesResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/meta/{context}/known-ports": {
+            "get": {
+                "description": "Every port ever seen in the context's event history (ship arrivals/departures + container origin/destination ports). Backed by the meta.known-ports KV projection; survives reload without event replay.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "meta"
+                ],
+                "summary": "Known ports",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Fleet context",
+                        "name": "context",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.metaValuesResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
                         }
                     }
                 }
@@ -97,13 +422,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
                         }
                     }
                 }
@@ -139,19 +464,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/rest.shipBResponse"
+                            "$ref": "#/definitions/dictionary_internal_rest.shipBResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
                         }
                     }
                 }
@@ -159,7 +484,7 @@ const docTemplate = `{
         },
         "/api/shape-c/fleet": {
             "get": {
-                "description": "Replays the full JetStream event log from seq=1 and reconstructs the current fleet state by folding all ship events through ShipAggregate.Apply. No KV or Postgres involved.",
+                "description": "Replays the full JetStream event log from seq=1 and reconstructs current state: ship.* events fold into ShipAggregates, container.* events into ContainerAggregates, and each ship's manifest is the onShipID join. No KV or Postgres involved.",
                 "produces": [
                     "application/json"
                 ],
@@ -171,13 +496,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/rest.fleetResponse"
+                            "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_queries.FleetReconstruction"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
                         }
                     }
                 }
@@ -203,7 +528,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/commands.ShipInput"
+                            "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ShipInput"
                         }
                     }
                 ],
@@ -211,111 +536,19 @@ const docTemplate = `{
                     "202": {
                         "description": "Accepted",
                         "schema": {
-                            "$ref": "#/definitions/rest.shipResponse"
+                            "$ref": "#/definitions/dictionary_internal_rest.shipResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
                         }
                     },
                     "422": {
                         "description": "Domain rule violation",
                         "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/ships/cargo/load": {
-            "post": {
-                "description": "Loads a cargo item onto a ship. The ship must be docked in port. Publishes a cargo.loaded event.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "cargo"
-                ],
-                "summary": "Load cargo",
-                "parameters": [
-                    {
-                        "description": "context, shipID, cargo (description + units)",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/commands.ShipInput"
-                        }
-                    }
-                ],
-                "responses": {
-                    "202": {
-                        "description": "Accepted",
-                        "schema": {
-                            "$ref": "#/definitions/rest.shipResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    },
-                    "422": {
-                        "description": "Ship not docked",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/ships/cargo/unload": {
-            "post": {
-                "description": "Removes a cargo item from a ship's manifest by description. The ship must be docked in port. Publishes a cargo.unloaded event.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "cargo"
-                ],
-                "summary": "Unload cargo",
-                "parameters": [
-                    {
-                        "description": "context, shipID, cargo (description + units)",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/commands.ShipInput"
-                        }
-                    }
-                ],
-                "responses": {
-                    "202": {
-                        "description": "Accepted",
-                        "schema": {
-                            "$ref": "#/definitions/rest.shipResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    },
-                    "422": {
-                        "description": "Ship not docked",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
                         }
                     }
                 }
@@ -341,7 +574,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/commands.ShipInput"
+                            "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ShipInput"
                         }
                     }
                 ],
@@ -349,19 +582,96 @@ const docTemplate = `{
                     "202": {
                         "description": "Accepted",
                         "schema": {
-                            "$ref": "#/definitions/rest.shipResponse"
+                            "$ref": "#/definitions/dictionary_internal_rest.shipResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
                         }
                     },
                     "422": {
                         "description": "Domain rule violation",
                         "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/terminal/{context}/{port}": {
+            "get": {
+                "description": "Returns the containers currently in-terminal at the given port (terminalPort match — no status branching).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "terminal"
+                ],
+                "summary": "Containers in a terminal yard",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Fleet context",
+                        "name": "context",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Port name (e.g. Hamburg)",
+                        "name": "port",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.containersResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/watch-terminal/{context}": {
+            "get": {
+                "description": "Server-Sent Events stream of NATS KV changes for the container projection bucket and the meta.* lookup bucket in the given context. Replays current state first, then delivers live updates. Shape is \"CONTAINER\" or \"META\".",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "streams"
+                ],
+                "summary": "Terminal KV watch stream (SSE)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Fleet context (e.g. global)",
+                        "name": "context",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "SSE stream — data: {watchEvent JSON}",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
                         }
                     }
                 }
@@ -369,14 +679,14 @@ const docTemplate = `{
         },
         "/api/watch/{context}": {
             "get": {
-                "description": "Server-Sent Events stream of NATS KV changes for both the Shape A and Shape B buckets in the given context. Replays current bucket state first (snapshot), then delivers live updates. Each event is a JSON-encoded watchEvent object.",
+                "description": "Server-Sent Events stream of NATS KV changes for both the Shape A and Shape B ship buckets in the given context. Replays current bucket state first (snapshot), then delivers live updates. Each event is a JSON-encoded watchEvent object.",
                 "produces": [
                     "text/event-stream"
                 ],
                 "tags": [
                     "streams"
                 ],
-                "summary": "KV watch stream (SSE)",
+                "summary": "Ship KV watch stream (SSE)",
                 "parameters": [
                     {
                         "type": "string",
@@ -396,7 +706,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
                         }
                     }
                 }
@@ -404,12 +714,99 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "commands.ShipInput": {
+        "dictionary_internal_rest.containerResponse": {
+            "type": "object",
+            "properties": {
+                "container": {
+                    "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerState"
+                }
+            }
+        },
+        "dictionary_internal_rest.containersResponse": {
+            "type": "object",
+            "properties": {
+                "containers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerState"
+                    }
+                }
+            }
+        },
+        "dictionary_internal_rest.errorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "dictionary_internal_rest.metaValuesResponse": {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "dictionary_internal_rest.shipBResponse": {
+            "type": "object",
+            "properties": {
+                "cacheHit": {
+                    "type": "boolean"
+                },
+                "ship": {
+                    "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipState"
+                },
+                "source": {
+                    "description": "\"kv-cache\" or \"postgres\"",
+                    "type": "string"
+                }
+            }
+        },
+        "dictionary_internal_rest.shipResponse": {
+            "type": "object",
+            "properties": {
+                "ship": {
+                    "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipState"
+                }
+            }
+        },
+        "github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ContainerInput": {
             "type": "object",
             "properties": {
                 "cargo": {
-                    "$ref": "#/definitions/domain.Cargo"
+                    "description": "register",
+                    "type": "string"
                 },
+                "containerID": {
+                    "description": "ISO 6346, e.g. TCKU1234567",
+                    "type": "string"
+                },
+                "context": {
+                    "description": "fleet / KV-bucket qualifier",
+                    "type": "string"
+                },
+                "destPort": {
+                    "description": "register",
+                    "type": "string"
+                },
+                "originPort": {
+                    "description": "register",
+                    "type": "string"
+                },
+                "shipID": {
+                    "description": "load / unload",
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ShipInput": {
+            "type": "object",
+            "properties": {
                 "context": {
                     "description": "fleet / KV-bucket qualifier",
                     "type": "string"
@@ -426,26 +823,118 @@ const docTemplate = `{
                 }
             }
         },
-        "domain.Cargo": {
+        "github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_queries.FleetReconstruction": {
             "type": "object",
             "properties": {
-                "description": {
-                    "type": "string"
+                "containers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerState"
+                    }
                 },
-                "units": {
-                    "type": "integer"
+                "fleet": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_queries.ShipWithManifest"
+                    }
                 }
             }
         },
-        "domain.ShipState": {
+        "github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_queries.ShipWithManifest": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "description": "fleet / KV-bucket qualifier",
+                    "type": "string"
+                },
+                "currentPort": {
+                    "description": "\"\" = at sea",
+                    "type": "string"
+                },
+                "manifest": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerState"
+                    }
+                },
+                "shipID": {
+                    "type": "string"
+                },
+                "shipName": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "AIS navigational status",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipStatus"
+                        }
+                    ]
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerState": {
             "type": "object",
             "properties": {
                 "cargo": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/domain.Cargo"
-                    }
+                    "description": "description of contents",
+                    "type": "string"
                 },
+                "containerID": {
+                    "description": "ISO 6346, e.g. TCKU1234567",
+                    "type": "string"
+                },
+                "context": {
+                    "description": "fleet / KV-bucket qualifier",
+                    "type": "string"
+                },
+                "destPort": {
+                    "type": "string"
+                },
+                "onShipID": {
+                    "description": "set iff Status == on-ship",
+                    "type": "string"
+                },
+                "originPort": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerStatus"
+                },
+                "terminalPort": {
+                    "description": "set iff Status == in-terminal",
+                    "type": "string"
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerStatus": {
+            "type": "string",
+            "enum": [
+                "in-terminal",
+                "on-ship"
+            ],
+            "x-enum-comments": {
+                "ContainerInTerminal": "in a port terminal yard",
+                "ContainerOnShip": "crane-loaded onto a ship"
+            },
+            "x-enum-descriptions": [
+                "in a port terminal yard",
+                "crane-loaded onto a ship"
+            ],
+            "x-enum-varnames": [
+                "ContainerInTerminal",
+                "ContainerOnShip"
+            ]
+        },
+        "github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipState": {
+            "type": "object",
+            "properties": {
                 "context": {
                     "description": "fleet / KV-bucket qualifier",
                     "type": "string"
@@ -460,52 +949,49 @@ const docTemplate = `{
                 "shipName": {
                     "type": "string"
                 },
+                "status": {
+                    "description": "AIS navigational status",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipStatus"
+                        }
+                    ]
+                },
                 "updatedAt": {
                     "type": "string"
                 }
             }
         },
-        "rest.errorResponse": {
-            "type": "object",
-            "properties": {
-                "error": {
-                    "type": "string"
-                }
-            }
-        },
-        "rest.fleetResponse": {
-            "type": "object",
-            "properties": {
-                "fleet": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/domain.ShipState"
-                    }
-                }
-            }
-        },
-        "rest.shipBResponse": {
-            "type": "object",
-            "properties": {
-                "cacheHit": {
-                    "type": "boolean"
-                },
-                "ship": {
-                    "$ref": "#/definitions/domain.ShipState"
-                },
-                "source": {
-                    "description": "\"kv-cache\" or \"postgres\"",
-                    "type": "string"
-                }
-            }
-        },
-        "rest.shipResponse": {
-            "type": "object",
-            "properties": {
-                "ship": {
-                    "$ref": "#/definitions/domain.ShipState"
-                }
-            }
+        "github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipStatus": {
+            "type": "string",
+            "enum": [
+                "in-transit",
+                "docked",
+                "at-anchor",
+                "not-under-command",
+                "restricted-manoeuvrability"
+            ],
+            "x-enum-comments": {
+                "StatusAtAnchor": "amber",
+                "StatusDocked": "green",
+                "StatusInTransit": "blue",
+                "StatusNotUnderCommand": "red",
+                "StatusRestrictedManoeuvrability": "orange"
+            },
+            "x-enum-descriptions": [
+                "blue",
+                "green",
+                "amber",
+                "red",
+                "orange"
+            ],
+            "x-enum-varnames": [
+                "StatusInTransit",
+                "StatusDocked",
+                "StatusAtAnchor",
+                "StatusNotUnderCommand",
+                "StatusRestrictedManoeuvrability"
+            ]
         }
     }
 }`

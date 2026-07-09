@@ -8,6 +8,7 @@ import { onMounted, ref } from 'vue'
 import { getFleet } from '../api'
 
 const fleet = ref([])
+const containers = ref([])
 const loading = ref(false)
 const lastReconstructed = ref(null)
 const collapsed = ref(false)
@@ -17,9 +18,11 @@ async function reconstruct() {
   try {
     const res = await getFleet()
     fleet.value = res?.fleet ?? []
+    containers.value = res?.containers ?? []
     lastReconstructed.value = new Date().toLocaleTimeString()
   } catch {
     fleet.value = []
+    containers.value = []
   } finally {
     loading.value = false
   }
@@ -53,9 +56,13 @@ function portLabel(ship) {
   return ship.currentPort || '—'
 }
 
-function cargoSummary(ship) {
-  if (!ship.cargo || ship.cargo.length === 0) return '—'
-  return ship.cargo.map(c => `${c.description} ×${c.units}`).join(', ')
+function manifestSummary(ship) {
+  if (!ship.manifest || ship.manifest.length === 0) return '—'
+  return ship.manifest.map(c => `${c.containerID} (${c.cargo})`).join(', ')
+}
+
+function containerLocation(c) {
+  return c.status === 'on-ship' ? `on ${c.onShipID}` : `${c.terminalPort} terminal`
 }
 </script>
 
@@ -83,7 +90,7 @@ function cargoSummary(ship) {
     <template v-if="!collapsed">
       <p class="description">
         No KV, no Postgres. Current fleet state is derived entirely from replaying
-        <code>DICTIONARY.*</code> from <code>seq=1</code> — demonstrating Fowler's Event Sourcing property.
+        <code>SHIPPING.*</code> from <code>seq=1</code> — demonstrating Fowler's Event Sourcing property.
         Clear KV / Postgres, click Reconstruct: the correct fleet still appears.
       </p>
 
@@ -110,12 +117,39 @@ function cargoSummary(ship) {
             <span>{{ portLabel(data) }}</span>
           </template>
         </Column>
-        <Column header="Cargo manifest">
+        <Column header="Container manifest">
           <template #body="{ data }">
-            <span class="cargo-cell">{{ cargoSummary(data) }}</span>
+            <span class="cargo-cell">{{ manifestSummary(data) }}</span>
           </template>
         </Column>
       </DataTable>
+
+      <template v-if="containers.length > 0">
+        <p class="description containers-title">Containers — reconstructed from the same replay</p>
+        <DataTable
+          :value="containers"
+          size="small"
+          data-key="containerID"
+          :loading="loading"
+          resizableColumns
+          columnResizeMode="expand"
+        >
+          <Column field="containerID" header="Container" style="font-family:monospace;font-size:12px" />
+          <Column field="cargo" header="Cargo" />
+          <Column field="originPort" header="Origin" style="width:110px" />
+          <Column field="destPort" header="Destination" style="width:110px" />
+          <Column header="Status" style="width:110px">
+            <template #body="{ data }">
+              <Tag :severity="data.status === 'on-ship' ? 'info' : 'success'" :value="data.status" />
+            </template>
+          </Column>
+          <Column header="Location" style="width:160px">
+            <template #body="{ data }">
+              <span>{{ containerLocation(data) }}</span>
+            </template>
+          </Column>
+        </DataTable>
+      </template>
     </template>
   </section>
 </template>
@@ -159,5 +193,9 @@ function cargoSummary(ship) {
 .cargo-cell {
   font-size: 13px;
   color: var(--p-text-color);
+}
+.containers-title {
+  margin-top: 0.75rem;
+  font-weight: 600;
 }
 </style>

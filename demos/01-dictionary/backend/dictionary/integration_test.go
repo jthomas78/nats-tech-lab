@@ -4,8 +4,8 @@ package dictionary
 // JetStream, real KV). Covers:
 //   - Shape A: ship command → event → projector → KV → query
 //   - Shape B: ship command → event → Postgres (fake) + KV → cache hit/miss
-//   - Shape C: multiple commands → full JetStream replay → fleet reconstruction
-//   - Domain rules: every BR-XXX rule has an isolated spec
+//   - Shape C: ships + containers → full JetStream replay → fleet reconstruction
+//   - Ship domain rules: BR-001 … BR-003 (container rules live in container_test.go)
 
 import (
 	"context"
@@ -78,7 +78,7 @@ var _ = Describe("Shape A — KV as read model", func() {
 		ship = commands.NewShipHandler(jstream.NewPublisher(js), js)
 	})
 
-	It("projects ship state into KV after arrive / load / depart / unload", func() {
+	It("projects ship state into KV after arrive / depart", func() {
 		const fleetCtx = "global"
 
 		By("arriving at Hamburg")
@@ -87,20 +87,22 @@ var _ = Describe("Shape A — KV as read model", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 
+		By("verifying KV reflects the docked state")
 		eventually(func() error {
-			keys, err := kvA.Keys(ctx, fleetCtx)
-			if err != nil || len(keys) == 0 {
+			q := queries.NewShapeA(kvA)
+			ships, err := q.ListShips(ctx, fleetCtx)
+			if err != nil {
+				return err
+			}
+			if len(ships) != 1 {
 				return errors.New("waiting for KV entry")
+			}
+			s := ships[0]
+			if s.CurrentPort != "Hamburg" || s.Status != domain.StatusDocked {
+				return errors.New("docked state not projected yet")
 			}
 			return nil
 		})
-
-		By("loading cargo")
-		_, err = ship.LoadCargo(ctx, commands.ShipInput{
-			Context: fleetCtx, ShipID: "orient-express",
-			Cargo: &domain.Cargo{Description: "Electronics", Units: 42},
-		})
-		Expect(err).NotTo(HaveOccurred())
 
 		By("departing Hamburg")
 		_, err = ship.DepartPort(ctx, commands.ShipInput{
@@ -108,52 +110,19 @@ var _ = Describe("Shape A — KV as read model", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		By("verifying KV reflects at-sea state with cargo")
+		By("verifying KV reflects the at-sea state")
 		eventually(func() error {
 			q := queries.NewShapeA(kvA)
 			ships, err := q.ListShips(ctx, fleetCtx)
 			if err != nil {
 				return err
 			}
-			if len(ships) == 0 {
+			if len(ships) != 1 {
 				return errors.New("no ships in KV")
 			}
 			s := ships[0]
-			if s.CurrentPort != "" {
-				return errors.New("expected at sea")
-			}
-			if len(s.Cargo) != 1 || s.Cargo[0].Units != 42 {
-				return errors.New("cargo not projected yet")
-			}
-			return nil
-		})
-
-		By("arriving at Rotterdam")
-		_, err = ship.ArrivePort(ctx, commands.ShipInput{
-			Context: fleetCtx, ShipID: "orient-express", Port: "Rotterdam",
-		})
-		Expect(err).NotTo(HaveOccurred())
-
-		By("unloading cargo")
-		eventually(func() error {
-			_, err = ship.UnloadCargo(ctx, commands.ShipInput{
-				Context: fleetCtx, ShipID: "orient-express",
-				Cargo: &domain.Cargo{Description: "Electronics", Units: 42},
-			})
-			return err
-		})
-
-		By("verifying cargo is empty in KV")
-		eventually(func() error {
-			q := queries.NewShapeA(kvA)
-			ships, err := q.ListShips(ctx, fleetCtx)
-			if err != nil {
-				return err
-			}
-			for _, s := range ships {
-				if s.ShipID == "orient-express" && len(s.Cargo) != 0 {
-					return errors.New("cargo not cleared in KV yet")
-				}
+			if s.CurrentPort != "" || s.Status != domain.StatusInTransit {
+				return errors.New("at-sea state not projected yet")
 			}
 			return nil
 		})
@@ -235,34 +204,42 @@ var _ = Describe("Shape B — KV cache in front of Postgres", func() {
 // ─── Shape C ─────────────────────────────────────────────────────────────────
 
 var _ = Describe("Shape C — pure event sourcing reconstruction", func() {
-	It("reconstructs fleet state by replaying JetStream from seq=1", func() {
+	It("reconstructs ships, containers, and manifests by replaying JetStream from seq=1", func() {
 		ctx := context.Background()
 		js := newJetStream()
-		ship := commands.NewShipHandler(jstream.NewPublisher(js), js)
+		pub := jstream.NewPublisher(js)
+		ships := commands.NewShipHandler(pub, js)
+		containers := commands.NewContainerHandler(pub, js)
 		const fleetCtx = "global"
 
 		steps := []func() error{
 			func() error {
-				_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				_, err := ships.ArrivePort(ctx, commands.ShipInput{
 					Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg",
 				})
 				return err
 			},
 			func() error {
-				_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				_, err := ships.ArrivePort(ctx, commands.ShipInput{
 					Context: fleetCtx, ShipID: "pacific-star", ShipName: "Pacific Star", Port: "Rotterdam",
 				})
 				return err
 			},
 			func() error {
-				_, err := ship.LoadCargo(ctx, commands.ShipInput{
-					Context: fleetCtx, ShipID: "orient-express",
-					Cargo: &domain.Cargo{Description: "Electronics", Units: 42},
+				_, err := containers.RegisterContainer(ctx, commands.ContainerInput{
+					Context: fleetCtx, ContainerID: "TCKU1234567",
+					Cargo: "Electronics", OriginPort: "Hamburg", DestPort: "Singapore",
 				})
 				return err
 			},
 			func() error {
-				_, err := ship.DepartPort(ctx, commands.ShipInput{
+				_, err := containers.LoadContainer(ctx, commands.ContainerInput{
+					Context: fleetCtx, ContainerID: "TCKU1234567", ShipID: "orient-express",
+				})
+				return err
+			},
+			func() error {
+				_, err := ships.DepartPort(ctx, commands.ShipInput{
 					Context: fleetCtx, ShipID: "orient-express", Port: "Hamburg",
 				})
 				return err
@@ -273,28 +250,40 @@ var _ = Describe("Shape C — pure event sourcing reconstruction", func() {
 		}
 
 		q := queries.NewShapeC(js)
-		fleet, err := q.ReconstructFleet(ctx)
+		result, err := q.ReconstructFleet(ctx)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(fleet).To(HaveLen(2))
+		Expect(result.Fleet).To(HaveLen(2))
+		Expect(result.Containers).To(HaveLen(1))
 
-		byID := make(map[string]domain.ShipState)
-		for _, s := range fleet {
+		byID := make(map[string]queries.ShipWithManifest)
+		for _, s := range result.Fleet {
 			byID[s.ShipID] = s
 		}
 
+		By("orient-express is at sea, still carrying the loaded container")
 		oe := byID["orient-express"]
-		Expect(oe.CurrentPort).To(BeEmpty(), "orient-express should be at sea")
-		Expect(oe.Cargo).To(HaveLen(1))
-		Expect(oe.Cargo[0].Units).To(Equal(42))
+		Expect(oe.CurrentPort).To(BeEmpty())
+		Expect(oe.Manifest).To(HaveLen(1))
+		Expect(oe.Manifest[0].ContainerID).To(Equal("TCKU1234567"))
 
+		By("pacific-star is docked at Rotterdam with an empty manifest")
 		ps := byID["pacific-star"]
 		Expect(ps.CurrentPort).To(Equal("Rotterdam"))
+		Expect(ps.Manifest).To(BeEmpty())
+
+		By("the container is on-ship, reconstructed from events alone")
+		c := result.Containers[0]
+		Expect(c.Status).To(Equal(domain.ContainerOnShip))
+		Expect(c.OnShipID).To(HaveValue(Equal("orient-express")))
+		Expect(c.TerminalPort).To(BeNil())
 	})
 })
 
-// ─── Domain rules ─────────────────────────────────────────────────────────────
+// ─── Ship domain rules ────────────────────────────────────────────────────────
 //
-// Each spec maps directly to a rule in BUSINESS_RULES.md.
+// Each spec maps directly to a rule in BUSINESS_RULES.md. BR-004 … BR-007 were
+// retired in Phase 8 (cargo moved to the container aggregate); the container
+// rules BR-008 … BR-015 live in container_test.go.
 
 var _ = Describe("Domain Rules", func() {
 	var (
@@ -342,60 +331,6 @@ var _ = Describe("Domain Rules", func() {
 				Context: fleetCtx, ShipID: "br003-vessel", Port: "Hamburg",
 			})
 			Expect(errors.Is(err, domain.ErrNotDocked)).To(BeTrue())
-		})
-	})
-
-	Context("BR-004: cannot load cargo unless docked", func() {
-		It("returns ErrNotInPort", func() {
-			_, err := ship.LoadCargo(ctx, commands.ShipInput{
-				Context: fleetCtx, ShipID: "br004-vessel",
-				Cargo: &domain.Cargo{Description: "Steel", Units: 10},
-			})
-			Expect(errors.Is(err, domain.ErrNotInPort)).To(BeTrue())
-		})
-	})
-
-	Context("BR-005: cannot unload cargo unless docked", func() {
-		It("returns ErrNotInPort", func() {
-			_, err := ship.UnloadCargo(ctx, commands.ShipInput{
-				Context: fleetCtx, ShipID: "br005-vessel",
-				Cargo: &domain.Cargo{Description: "Steel", Units: 10},
-			})
-			Expect(errors.Is(err, domain.ErrNotInPort)).To(BeTrue())
-		})
-	})
-
-	Context("BR-006: cannot unload cargo not in the manifest", func() {
-		It("returns ErrCargoNotFound", func() {
-			Expect(ship.ArrivePort(ctx, commands.ShipInput{
-				Context: fleetCtx, ShipID: "br006-vessel", ShipName: "BR006", Port: "Hamburg",
-			})).Error().NotTo(HaveOccurred())
-			Expect(ship.LoadCargo(ctx, commands.ShipInput{
-				Context: fleetCtx, ShipID: "br006-vessel",
-				Cargo: &domain.Cargo{Description: "Electronics", Units: 10},
-			})).Error().NotTo(HaveOccurred())
-
-			_, err := ship.UnloadCargo(ctx, commands.ShipInput{
-				Context: fleetCtx, ShipID: "br006-vessel",
-				Cargo: &domain.Cargo{Description: "Nonexistent", Units: 1},
-			})
-			Expect(errors.Is(err, domain.ErrCargoNotFound)).To(BeTrue())
-		})
-	})
-
-	Context("BR-007: cargo payload is required", func() {
-		It("rejects nil cargo on load", func() {
-			_, err := ship.LoadCargo(ctx, commands.ShipInput{
-				Context: fleetCtx, ShipID: "br007-vessel", Cargo: nil,
-			})
-			Expect(err).To(MatchError("cargo is required"))
-		})
-
-		It("rejects nil cargo on unload", func() {
-			_, err := ship.UnloadCargo(ctx, commands.ShipInput{
-				Context: fleetCtx, ShipID: "br007-vessel", Cargo: nil,
-			})
-			Expect(err).To(MatchError("cargo is required"))
 		})
 	})
 })

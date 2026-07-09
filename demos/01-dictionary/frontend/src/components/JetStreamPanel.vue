@@ -1,15 +1,22 @@
 <script setup>
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
+import Select from 'primevue/select'
 import Tab from 'primevue/tab'
 import TabList from 'primevue/tablist'
 import TabPanel from 'primevue/tabpanel'
 import TabPanels from 'primevue/tabpanels'
 import Tabs from 'primevue/tabs'
 import Tag from 'primevue/tag'
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { jetstreamStreamUrl, jetstreamWatchUrl } from '../api'
+
+// ── Stream selector ───────────────────────────────────────────────────────────
+const selectedStream = ref('SHIPPING')
+const streamOptions = [
+  { label: 'SHIPPING', value: 'SHIPPING' },
+]
 
 // ── Messages tab (live, DeliverNew) ──────────────────────────────────────────
 const liveEvents = ref([])
@@ -17,7 +24,7 @@ const liveConnected = ref(false)
 let liveSource = null
 
 function connectLive() {
-  liveSource = new EventSource(jetstreamWatchUrl)
+  liveSource = new EventSource(jetstreamWatchUrl(selectedStream.value))
   liveSource.onopen = () => { liveConnected.value = true }
   liveSource.onmessage = (e) => {
     const ev = JSON.parse(e.data)
@@ -38,7 +45,7 @@ let streamSource = null
 
 function connectStream() {
   if (streamSource) return
-  streamSource = new EventSource(jetstreamStreamUrl)
+  streamSource = new EventSource(jetstreamStreamUrl(selectedStream.value))
   streamSource.onopen = () => { streamConnected.value = true }
   streamSource.onmessage = (e) => {
     const ev = JSON.parse(e.data)
@@ -50,8 +57,21 @@ function connectStream() {
 
 function disconnectStream() {
   streamSource?.close()
+  streamSource = null
   streamConnected.value = false
 }
+
+watch(selectedStream, () => {
+  disconnectLive()
+  liveEvents.value = []
+  connectLive()
+  // if stream tab was open, reset and reconnect
+  if (streamSource) {
+    disconnectStream()
+    streamEvents.value = []
+    connectStream()
+  }
+})
 
 onMounted(connectLive)
 onUnmounted(() => { disconnectLive(); disconnectStream() })
@@ -106,7 +126,14 @@ function handleTabChange(value) {
       <div class="panel-header-left">
         <span class="collapse-icon">{{ collapsed ? '▶' : '▼' }}</span>
         <span class="panel-title">JetStream</span>
-        <span class="lab-muted panel-subtitle">DICTIONARY stream</span>
+        <Select
+          v-model="selectedStream"
+          :options="streamOptions"
+          option-label="label"
+          option-value="value"
+          class="stream-select"
+          @click.stop
+        />
         <span v-if="liveEvents.length > 0" class="msg-count">{{ liveEvents.length }}</span>
       </div>
     </div>
@@ -245,6 +272,18 @@ function handleTabChange(value) {
 .tab-tag {
   margin-left: 0.4rem;
   font-size: 10px;
+}
+.stream-select {
+  height: 24px;
+  font-size: 11px;
+}
+.stream-select :deep(.p-select-label) {
+  padding: 0 0.4rem;
+  font-size: 11px;
+  line-height: 24px;
+}
+.stream-select :deep(.p-select-dropdown) {
+  width: 1.5rem;
 }
 .subject-full {
   font-size: 11px;

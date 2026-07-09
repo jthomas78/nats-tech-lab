@@ -6,31 +6,47 @@ Deep reference for how this demo is implemented. For the overview and run instru
 
 ## CQRS Pattern — Code Mapping
 
-### Write Model
+### Write Model — two aggregates, one stream
+
+Phase 8 introduced a second aggregate. Both are co-located on the single
+`SHIPPING` stream, partitioned by subject:
+
+| Aggregate | Subjects | Rules |
+|---|---|---|
+| `ShipAggregate` (`domain/ship.go`) | `SHIPPING.ship.arrived / .departed` | BR-001 … BR-003 |
+| `ContainerAggregate` (`domain/container.go`) | `SHIPPING.container.registered / .loaded / .unloaded` | BR-008 … BR-015 |
 
 **`dictionary/internal/application/commands/commands.go`**
 
-- `ShipHandler` — command handler with `ArrivePort()`, `DepartPort()`, `LoadCargo()`, `UnloadCargo()`
+- `ShipHandler` — `ArrivePort()`, `DepartPort()`
 - `hydrate()` — replays full JetStream history to rebuild the aggregate before each write (no snapshot shortcut)
+- `replayStream()` — shared fold over the stream; always consumes the full subject set (a subject-filtered consumer could never observe the terminating sequence when the last message belongs to the other aggregate)
 - `Publisher` interface — outbound port to JetStream
 
-**`dictionary/internal/domain/ship.go`**
+**`dictionary/internal/application/commands/container.go`**
 
-- `ShipAggregate` — pure domain aggregate; command methods enforce invariants and return domain events
-- `Apply()` — applies one event to aggregate state (used by both write side and Shape C)
-- `FromState()` — restores aggregate from a `ShipState` projection (used by projectors)
+- `ContainerHandler` — `RegisterContainer()`, `LoadContainer()`, `UnloadContainer()`
+- `hydratePair()` — rebuilds **both** aggregates from **one atomic replay** of `SHIPPING`. This is why the cross-aggregate rules (BR-008, BR-012, BR-014: container state × ship's docked port) are strongly consistent in Phase 8. Phase 9 splits the stream and turns exactly this spot into the invariant-spanning-two-aggregates problem.
 
-**Event store:** JetStream stream `DICTIONARY` (`internal/jstream/stream.go`), `LimitsPolicy` so replay is always possible.
+**`dictionary/internal/domain/ship.go` / `container.go`**
+
+- Command methods enforce invariants and return domain events; `Apply()` folds one event into state (used by write side, projectors via `FromState()`, and Shape C)
+- Cargo is no longer part of the ship aggregate — a ship's manifest is the container join (`onShipID == shipID`)
+- `ContainerState` models location as two explicit nullable fields (`terminalPort` / `onShipID`, exactly one non-nil) so queries never branch on status
+
+**Event store:** JetStream stream `SHIPPING` (`internal/jstream/stream.go`), `LimitsPolicy` so replay is always possible.
 
 ---
 
 ### Projections
 
-**`dictionary/internal/eventhandler/handler.go`**
+**`dictionary/internal/eventhandler/`**
 
-- `RegisterShapeA()` — durable consumer `ship-shape-a`; projects each event delta directly into KV (no Postgres)
-- `RegisterShapeB()` — durable consumer `ship-shape-b`; upserts Postgres first, then writes through to KV cache
-- `currentAgg()` — reads current KV state into a `ShipAggregate` via `FromState()` before applying one delta, so the projector never replays the full stream
+- `RegisterShapeA()` — durable consumer `ship-shape-a` on `SHIPPING.ship.>`; projects each event delta directly into KV (no Postgres)
+- `RegisterShapeB()` — durable consumer `ship-shape-b` on `SHIPPING.ship.>`; upserts Postgres first, then writes through to KV cache
+- `RegisterContainers()` — durable consumer `container-projector` on `SHIPPING.container.>`; upserts the Postgres `containers` table, then writes through to the `container-{context}` KV bucket
+- `RegisterMeta()` — durable consumer `meta-projector` on `SHIPPING.>`; maintains the `meta.*` lookup sets (see Metadata Projections below)
+- `currentAgg()` / `currentContainerAgg()` — read current KV state into an aggregate via `FromState()` before applying one delta, so projectors never replay the full stream
 
 Each consumer is independently position-tracked and can lag, replay, or rebuild on its own.
 
@@ -43,54 +59,74 @@ Each consumer is independently position-tracked and can lag, replay, or rebuild 
 | A | KV bucket `dict-a-{context}` (authoritative) | `ShapeA.ListShips()` | `queries/get_entry.go` |
 | B | Postgres (canonical) + KV `dict-b-{context}` (write-through cache) | `ShapeB.GetShip()` / `ShapeB.ListShips()` | `queries/get_entry.go` |
 | C | None — full JetStream replay on every call | `ShapeC.ReconstructFleet()` | `queries/shape_c.go` |
+| Terminal | KV bucket `container-{context}` | `Terminal.ListByPort()` (yard) / `Terminal.ListByShip()` (manifest) | `queries/terminal.go` |
+| Meta | KV bucket `meta-{context}` | `Meta.KnownPorts()` / `Meta.KnownContainers()` | `queries/meta.go` |
 
 Shape B also exposes `EvictCacheShip()` to force the KV miss → Postgres → backfill path.
+Shape C now folds **both** aggregate types from the same replay and returns each
+ship with its manifest (`ShipWithManifest`) plus every reconstructed container.
 
 ---
 
 ### Materialized Views
 
-- **KV buckets** (`internal/kvstore/kv.go`) — `dict-a-{context}` (Shape A read model) and `dict-b-{context}` (Shape B cache); values are JSON-encoded `ShipState`
-- **Postgres `ships` table** (`postgres/migrate.go`, `postgres/repository.go`) — Shape B canonical projection; upserted via `INSERT … ON CONFLICT DO UPDATE`
-- **`ShipState` struct** (`domain/ship.go`) — shared projected value type stored in both KV and Postgres
-- **Pinia stores** (frontend) — client-side materialized views fed by `kvstore.Watch()` → SSE (`rest/sse.go`); the same projection-from-event-stream pattern one layer further out
+- **KV buckets** (`internal/kvstore/kv.go`) — all context-scoped: `dict-a-{context}` (Shape A ships), `dict-b-{context}` (Shape B cache), `container-{context}` (container projection), `meta-{context}` (lookup sets)
+- **Postgres `ships` + `containers` tables** (`postgres/`) — canonical projections; upserted via `INSERT … ON CONFLICT DO UPDATE`
+- **`ShipState` / `ContainerState` structs** (`domain/`) — shared projected value types stored in both KV and Postgres
+- **Pinia stores** (frontends) — client-side materialized views fed by `kvstore.Watch()` → SSE (`rest/sse.go`); the same projection-from-event-stream pattern one layer further out. The Port Management frontend even performs the manifest join (`onShipID == shipID`) client-side over its projected containers.
 
 ---
 
 ### Metadata Projections (`meta.*`)
 
-Beyond per-ship state (`ship.*`), the KV store holds a second namespace for cross-cutting derived lookup sets that any part of the UI may need. The working superset of KV namespaces is:
+Beyond per-entity state, the KV store holds a namespace for cross-cutting derived lookup sets that any part of the UI may need. The working superset of KV namespaces is:
 
-| Namespace | Purpose | Status |
-|---|---|---|
-| `ship.*` | Per-ship current state (Shape A/B projections) | implemented |
-| `meta.*` | Cross-cutting derived lookup sets (ports seen, cargo types, etc.) | in progress |
-| `locale.*` | Localisation config per context | future |
-| `tenant.*` | Tenant-specific configuration | future |
+| Namespace | Bucket family | Purpose | Status |
+|---|---|---|---|
+| `ship.*` | `dict-a-*` / `dict-b-*` | Per-ship current state (Shape A/B projections) | implemented |
+| `container.*` | `container-*` | Per-container current state (terminal projection) | implemented (Phase 8) |
+| `meta.*` | `meta-*` | Cross-cutting derived lookup sets | implemented (Phase 8) |
+| `locale.*` | — | Localisation config per context | future |
+| `tenant.*` | — | Tenant-specific configuration | future |
 
-#### `meta.known-ports` — port dropdown data
+#### `meta.known-ports` / `meta.known-containers`
 
-The **Shipping Operations** form port dropdown needs to show all ports ever seen in the event stream — not just ports ships are currently docked at. This is maintained as a `meta.known-ports` entry in a `dict-meta-{context}` KV bucket, projected by the backend event handler.
+UI selectors (the admin port dropdown, the Port Management port selector and
+container pickers) need the **full history** of ports and container IDs — not
+just what current entity state happens to reference. These are maintained as
+sorted JSON arrays in the `meta-{context}` bucket by the `meta-projector`
+durable consumer (`eventhandler/meta_handler.go`):
 
-**Current implementation (frontend-only, pre-Phase 7):**
+- `ship.arrived` / `ship.departed` → merge the port into `known-ports`
+- `container.registered` → merge origin **and** destination ports into `known-ports`; merge the container ID into `known-containers`
 
-- `stores/dictionary.js` maintains a `seenPorts` array in Pinia state, accumulated from live SSE watch events.
-- `ShippingForm.vue` computes `portOptions` as the sorted union of a static `BASE_PORTS` list and `store.seenPorts` using a `Set`.
-- The `<Select>` component has the `editable` prop — a typed port appears in the dropdown once its event flows back through the SSE stream.
-- **Limitation:** `seenPorts` is in-memory only. Ports that ships have departed are not in current KV state, so they are lost on reload unless a ship happens to be currently docked there.
+Exposed over REST:
 
-**Planned implementation (Phase 7 — backend KV projection):**
+- `GET /api/meta/{context}/known-ports`
+- `GET /api/meta/{context}/known-containers`
 
-- The `eventhandler` projector will maintain `meta.known-ports` in `dict-meta-{context}` — updated incrementally on each `ShipArrived` / `ShipDeparted` event.
-- `GET /api/meta/{context}/known-ports` will expose the KV value.
-- On `connect()`, the frontend will seed `seenPorts` from this endpoint before the SSE stream opens, then continue merging live events as before.
-- Result: the full port history survives app reload without event replay, and without the frontend needing to reconstruct it from scratch.
+On `connect()` both frontends seed their selectors from these endpoints before
+the SSE streams open, then keep merging live events (`META` watch events on
+`/api/watch-terminal/{context}`, ship PUT events on `/api/watch/{context}`).
+Result: the full history survives app reload without event replay and without
+client-side reconstruction — the pre-Phase-8 `seenPorts` in-memory-only
+limitation is gone.
+
+Because a single durable consumer processes events sequentially, the
+read-merge-write on each meta key has no concurrent writers.
 
 ---
 
 ### Frontend Data Store (Pinia) Bindings to Backend
 
-The Pinia store (`stores/dictionary.js`) is the browser-side equivalent of a server-side projection — a materialized view that stays current by receiving pushed events rather than polling.
+There are two frontends, each with its own Pinia store — both are browser-side equivalents of server-side projections: materialized views that stay current by receiving pushed events rather than polling.
+
+| Frontend | Store | SSE channels |
+|---|---|---|
+| `frontend/` (admin, :5173) | `stores/dictionary.js` | `/api/watch/{context}` (Shape A + B ship buckets) |
+| `frontend-port/` (Port Management, :5174) | `stores/port.js` | `/api/watch/{context}` (ships) + `/api/watch-terminal/{context}` (containers + `meta.*`) |
+
+The sections below describe the admin store; the port store follows the same pattern with two `EventSource` connections and client-side joins (`dockedShips`, `yardContainers`, `manifestFor`).
 
 #### Connection lifecycle
 

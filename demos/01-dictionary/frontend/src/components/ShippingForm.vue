@@ -1,22 +1,21 @@
 <script setup>
 import Button from 'primevue/button'
-import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import { useToast } from 'primevue/usetoast'
 import { computed, reactive, ref } from 'vue'
 
-import { arrivePort, departPort, loadCargo, unloadCargo } from '../api'
+import { arrivePort, departPort, loadContainer, registerContainer, unloadContainer } from '../api'
 import { useDictionaryStore } from '../stores/dictionary'
 
 const OPERATIONS = [
   { label: 'Arrive at port', value: 'arrive' },
   { label: 'Depart from port', value: 'depart' },
-  { label: 'Load cargo', value: 'load' },
-  { label: 'Unload cargo', value: 'unload' },
+  { label: 'Register container', value: 'register' },
+  { label: 'Load container', value: 'load' },
+  { label: 'Unload container', value: 'unload' },
 ]
 
-const EXAMPLE_SHIPS = ['Orient Express', 'Pacific Star', 'Atlantic Pioneer', 'Nordic Voyager']
 const BASE_PORTS = ['Hamburg', 'Rotterdam', 'Singapore', 'New York', 'Shanghai', 'Sydney']
 
 const store = useDictionaryStore()
@@ -34,18 +33,23 @@ const form = reactive({
   shipID: '',
   shipName: '',
   port: '',
-  cargoDescription: '',
-  cargoUnits: 1,
+  containerID: '',
+  cargo: '',
+  originPort: '',
+  destPort: '',
 })
 
+const needsShip = computed(() => form.op !== 'register')
 const needsPort = computed(() => form.op === 'arrive' || form.op === 'depart')
-const needsCargo = computed(() => form.op === 'load' || form.op === 'unload')
 const needsShipName = computed(() => form.op === 'arrive')
+const needsContainer = computed(() => form.op === 'register' || form.op === 'load' || form.op === 'unload')
+const needsRoute = computed(() => form.op === 'register')
 
 const isValid = computed(() => {
-  if (!form.shipID) return false
+  if (needsShip.value && !form.shipID) return false
   if (needsPort.value && !form.port) return false
-  if (needsCargo.value && !form.cargoDescription) return false
+  if (needsContainer.value && !form.containerID) return false
+  if (needsRoute.value && (!form.cargo || !form.originPort || !form.destPort)) return false
   return true
 })
 
@@ -55,33 +59,48 @@ async function submit() {
   domainError.value = ''
   busy.value = true
   try {
-    const base = { context: store.context, shipID: form.shipID.trim() }
+    const context = store.context
     let result
     switch (form.op) {
       case 'arrive':
-        result = await arrivePort({ ...base, shipName: form.shipName.trim() || form.shipID, port: form.port })
+        result = await arrivePort({
+          context, shipID: form.shipID.trim(),
+          shipName: form.shipName.trim() || form.shipID, port: form.port,
+        })
         break
       case 'depart':
-        result = await departPort({ ...base, port: form.port })
+        result = await departPort({ context, shipID: form.shipID.trim(), port: form.port })
+        break
+      case 'register':
+        result = await registerContainer({
+          context, containerID: form.containerID.trim(),
+          cargo: form.cargo.trim(), originPort: form.originPort, destPort: form.destPort,
+        })
         break
       case 'load':
-        result = await loadCargo({ ...base, cargo: { description: form.cargoDescription.trim(), units: form.cargoUnits } })
+        result = await loadContainer({
+          context, containerID: form.containerID.trim(), shipID: form.shipID.trim(),
+        })
         break
       case 'unload':
-        result = await unloadCargo({ ...base, cargo: { description: form.cargoDescription.trim(), units: form.cargoUnits } })
+        result = await unloadContainer({
+          context, containerID: form.containerID.trim(), shipID: form.shipID.trim(),
+        })
         break
     }
     const ship = result?.ship
-    toast.add({
-      severity: 'success',
-      summary: 'Command accepted',
-      detail: ship
-        ? `${ship.shipName} — ${ship.currentPort || 'at sea'} — ${ship.cargo?.length ?? 0} cargo item(s)`
-        : 'Event published, projections updating',
-      life: 3000,
-    })
+    const container = result?.container
+    let detail = 'Event published, projections updating'
+    if (ship) {
+      detail = `${ship.shipName} — ${ship.currentPort || 'at sea'}`
+    } else if (container) {
+      detail = container.status === 'on-ship'
+        ? `${container.containerID} — on ${container.onShipID}`
+        : `${container.containerID} — in ${container.terminalPort} terminal`
+    }
+    toast.add({ severity: 'success', summary: 'Command accepted', detail, life: 3000 })
   } catch (err) {
-    // 422 = domain rule violation — show inline; other errors → toast
+    // 404/422 = domain rule violation — show inline; other errors → toast
     if (err.message && !err.message.startsWith('5')) {
       domainError.value = err.message
     } else {
@@ -101,6 +120,7 @@ async function submit() {
       <Select v-model="form.op" :options="OPERATIONS" option-label="label" option-value="value" size="small" @change="clearError" />
 
       <InputText
+        v-if="needsShip"
         v-model.trim="form.shipID"
         placeholder="ship ID, e.g. orient-express"
         size="small"
@@ -124,9 +144,19 @@ async function submit() {
         @change="clearError"
       />
 
-      <template v-if="needsCargo">
-        <InputText v-model.trim="form.cargoDescription" placeholder="cargo, e.g. Electronics" size="small" @input="clearError" />
-        <InputNumber v-model="form.cargoUnits" :min="1" placeholder="units" size="small" style="width:90px" />
+      <InputText
+        v-if="needsContainer"
+        v-model.trim="form.containerID"
+        placeholder="container ID, e.g. TCKU1234567"
+        size="small"
+        style="width:200px"
+        @input="clearError"
+      />
+
+      <template v-if="needsRoute">
+        <InputText v-model.trim="form.cargo" placeholder="cargo, e.g. Electronics" size="small" @input="clearError" />
+        <Select v-model="form.originPort" :options="portOptions" placeholder="origin port" editable size="small" @change="clearError" />
+        <Select v-model="form.destPort" :options="portOptions" placeholder="destination port" editable size="small" @change="clearError" />
       </template>
 
       <Button
@@ -143,9 +173,9 @@ async function submit() {
     </div>
 
     <p class="lab-muted hint">
-      Commands publish <code>DICTIONARY.ship.*</code> / <code>DICTIONARY.cargo.*</code> events.
-      Domain rules are enforced before publishing — invalid transitions return an error above.
-      Fleet: <code>{{ store.context }}</code>
+      Commands publish <code>SHIPPING.ship.*</code> / <code>SHIPPING.container.*</code> events —
+      two aggregates, one stream. Domain rules (BR-001…BR-015) are enforced before publishing;
+      invalid transitions return an error above. Fleet: <code>{{ store.context }}</code>
     </p>
   </form>
 </template>
