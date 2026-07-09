@@ -70,6 +70,29 @@ docker compose down -v       # also drop NATS and Postgres data volumes
 
 **Postgres credentials:** host `localhost`, port `15432`, user `dict`, password `dict`, database `dictionary`
 
+## Run the tests
+
+From `demos/01-dictionary/backend/`:
+
+```bash
+# Preferred — runs the suite and prints the spec tree at the end
+ginkgo ./...
+
+# Watch mode — re-runs on every file save (useful during development)
+ginkgo watch ./...
+
+# No install required fallback
+go test ./...
+```
+
+Install the `ginkgo` CLI once with:
+
+```bash
+go install github.com/onsi/ginkgo/v2/ginkgo@latest
+```
+
+All business rules must have a passing test. See [BUSINESS_RULES.md](BUSINESS_RULES.md) for the full rule inventory.
+
 All host ports are non-default to avoid clashing with services already
 running on your machine. Inside the compose network the services use the
 standard ports (4222, 8222, 5432, 8080).

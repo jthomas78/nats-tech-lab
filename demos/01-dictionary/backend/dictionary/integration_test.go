@@ -1,19 +1,21 @@
 package dictionary
 
 // Integration tests running against an embedded in-process NATS server (real
-// JetStream, real KV). Tests cover:
+// JetStream, real KV). Covers:
 //   - Shape A: ship command → event → projector → KV → query
 //   - Shape B: ship command → event → Postgres (fake) + KV → cache hit/miss
 //   - Shape C: multiple commands → full JetStream replay → fleet reconstruction
+//   - Domain rules: every BR-XXX rule has an isolated spec
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"sync"
-	"testing"
 	"time"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -27,290 +29,376 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/internal/kvstore"
 )
 
-func startJetStream(t *testing.T) jetstream.JetStream {
-	t.Helper()
-	opts := &server.Options{JetStream: true, StoreDir: t.TempDir(), Port: -1}
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+func newJetStream() jetstream.JetStream {
+	GinkgoHelper()
+	opts := &server.Options{JetStream: true, StoreDir: GinkgoT().TempDir(), Port: -1}
 	srv, err := server.NewServer(opts)
-	if err != nil {
-		t.Fatalf("new server: %v", err)
-	}
+	Expect(err).NotTo(HaveOccurred())
 	srv.Start()
-	t.Cleanup(srv.Shutdown)
-	if !srv.ReadyForConnections(10 * time.Second) {
-		t.Fatal("nats server not ready")
-	}
+	DeferCleanup(srv.Shutdown)
+	Expect(srv.ReadyForConnections(10 * time.Second)).To(BeTrue())
+
 	nc, err := nats.Connect(srv.ClientURL())
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	t.Cleanup(nc.Close)
+	Expect(err).NotTo(HaveOccurred())
+	DeferCleanup(nc.Close)
+
 	js, err := jetstream.New(nc)
-	if err != nil {
-		t.Fatalf("jetstream: %v", err)
-	}
-	if _, err := jstream.CreateStream(context.Background(), js, domain.StreamName, domain.StreamSubjects()); err != nil {
-		t.Fatalf("create stream: %v", err)
-	}
+	Expect(err).NotTo(HaveOccurred())
+
+	_, err = jstream.CreateStream(context.Background(), js, domain.StreamName, domain.StreamSubjects())
+	Expect(err).NotTo(HaveOccurred())
 	return js
 }
 
-func eventually(t *testing.T, timeout time.Duration, fn func() error) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	var err error
-	for time.Now().Before(deadline) {
-		if err = fn(); err == nil {
-			return
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	t.Fatalf("condition not met within %s: %v", timeout, err)
+// eventually retries fn until it returns nil or the timeout elapses.
+func eventually(fn func() error) {
+	GinkgoHelper()
+	Eventually(fn, 5*time.Second, 25*time.Millisecond).Should(Succeed())
 }
 
 // ─── Shape A ─────────────────────────────────────────────────────────────────
 
-func TestShapeA_ShipProjection(t *testing.T) {
-	ctx := context.Background()
-	js := startJetStream(t)
-	log := slog.New(slog.DiscardHandler)
+var _ = Describe("Shape A — KV as read model", func() {
+	var (
+		ctx  context.Context
+		ship *commands.ShipHandler
+		kvA  *kvstore.Store
+	)
 
-	kvA := kvstore.New(js, "dict-a")
-	consume, err := eventhandler.RegisterShapeA(ctx, js, kvA, log)
-	if err != nil {
-		t.Fatalf("register shape A: %v", err)
-	}
-	defer consume.Stop()
-
-	ship := commands.NewShipHandler(jstream.NewPublisher(js), js)
-	const ctx2 = "global"
-
-	// Arrive Hamburg
-	_, err = ship.ArrivePort(ctx, commands.ShipInput{
-		Context: ctx2, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg",
-	})
-	if err != nil {
-		t.Fatalf("arrive: %v", err)
-	}
-
-	eventually(t, 5*time.Second, func() error {
-		keys, err := kvA.Keys(ctx, ctx2)
-		if err != nil || len(keys) == 0 {
-			return fmt.Errorf("waiting for KV entry: %v", err)
-		}
-		return nil
+	BeforeEach(func() {
+		ctx = context.Background()
+		js := newJetStream()
+		kvA = kvstore.New(js, "dict-a")
+		log := slog.New(slog.DiscardHandler)
+		consume, err := eventhandler.RegisterShapeA(ctx, js, kvA, log)
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(consume.Stop)
+		ship = commands.NewShipHandler(jstream.NewPublisher(js), js)
 	})
 
-	// Load cargo
-	_, err = ship.LoadCargo(ctx, commands.ShipInput{
-		Context: ctx2, ShipID: "orient-express",
-		Cargo: &domain.Cargo{Description: "Electronics", Units: 42},
-	})
-	if err != nil {
-		t.Fatalf("load cargo: %v", err)
-	}
+	It("projects ship state into KV after arrive / load / depart / unload", func() {
+		const fleetCtx = "global"
 
-	// Depart
-	_, err = ship.DepartPort(ctx, commands.ShipInput{
-		Context: ctx2, ShipID: "orient-express", Port: "Hamburg",
-	})
-	if err != nil {
-		t.Fatalf("depart: %v", err)
-	}
-
-	// Shape A KV should reflect departed state (no port) with cargo
-	eventually(t, 5*time.Second, func() error {
-		q := queries.NewShapeA(kvA)
-		ships, err := q.ListShips(ctx, ctx2)
-		if err != nil {
-			return err
-		}
-		if len(ships) == 0 {
-			return errors.New("no ships in KV")
-		}
-		s := ships[0]
-		if s.CurrentPort != "" {
-			return fmt.Errorf("expected at sea, got port=%q", s.CurrentPort)
-		}
-		if len(s.Cargo) != 1 || s.Cargo[0].Units != 42 {
-			return fmt.Errorf("unexpected cargo: %+v", s.Cargo)
-		}
-		return nil
-	})
-
-	// Domain rule: cannot depart a port the ship is not at
-	_, err = ship.DepartPort(ctx, commands.ShipInput{
-		Context: ctx2, ShipID: "orient-express", Port: "Hamburg",
-	})
-	if !errors.Is(err, domain.ErrNotDocked) {
-		t.Fatalf("expected ErrNotDocked, got %v", err)
-	}
-
-	// Domain rule: cannot arrive at a new port while at sea (OK) but cannot
-	// arrive while already docked.
-	_, err = ship.ArrivePort(ctx, commands.ShipInput{
-		Context: ctx2, ShipID: "orient-express", Port: "Rotterdam",
-	})
-	if err != nil {
-		t.Fatalf("arrive Rotterdam: %v", err)
-	}
-
-	// Domain rule: cannot arrive again without departing first.
-	eventually(t, 5*time.Second, func() error {
-		_, err = ship.ArrivePort(ctx, commands.ShipInput{
-			Context: ctx2, ShipID: "orient-express", Port: "Singapore",
+		By("arriving at Hamburg")
+		_, err := ship.ArrivePort(ctx, commands.ShipInput{
+			Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg",
 		})
-		if !errors.Is(err, domain.ErrMustDepart) {
-			return fmt.Errorf("expected ErrMustDepart, got %v", err)
-		}
-		return nil
-	})
-}
+		Expect(err).NotTo(HaveOccurred())
 
-// ─── Shape B ─────────────────────────────────────────────────────────────────
+		eventually(func() error {
+			keys, err := kvA.Keys(ctx, fleetCtx)
+			if err != nil || len(keys) == 0 {
+				return errors.New("waiting for KV entry")
+			}
+			return nil
+		})
 
-func TestShapeB_CacheHitMissBackfill(t *testing.T) {
-	ctx := context.Background()
-	js := startJetStream(t)
-	log := slog.New(slog.DiscardHandler)
+		By("loading cargo")
+		_, err = ship.LoadCargo(ctx, commands.ShipInput{
+			Context: fleetCtx, ShipID: "orient-express",
+			Cargo: &domain.Cargo{Description: "Electronics", Units: 42},
+		})
+		Expect(err).NotTo(HaveOccurred())
 
-	kvB := kvstore.New(js, "dict-b")
-	repo := newFakeRepo()
-	consume, err := eventhandler.RegisterShapeB(ctx, js, kvB, repo, log)
-	if err != nil {
-		t.Fatalf("register shape B: %v", err)
-	}
-	defer consume.Stop()
+		By("departing Hamburg")
+		_, err = ship.DepartPort(ctx, commands.ShipInput{
+			Context: fleetCtx, ShipID: "orient-express", Port: "Hamburg",
+		})
+		Expect(err).NotTo(HaveOccurred())
 
-	ship := commands.NewShipHandler(jstream.NewPublisher(js), js)
-	q := queries.NewShapeB(kvB, repo)
-	const ctx2 = "global"
+		By("verifying KV reflects at-sea state with cargo")
+		eventually(func() error {
+			q := queries.NewShapeA(kvA)
+			ships, err := q.ListShips(ctx, fleetCtx)
+			if err != nil {
+				return err
+			}
+			if len(ships) == 0 {
+				return errors.New("no ships in KV")
+			}
+			s := ships[0]
+			if s.CurrentPort != "" {
+				return errors.New("expected at sea")
+			}
+			if len(s.Cargo) != 1 || s.Cargo[0].Units != 42 {
+				return errors.New("cargo not projected yet")
+			}
+			return nil
+		})
 
-	_, err = ship.ArrivePort(ctx, commands.ShipInput{
-		Context: ctx2, ShipID: "pacific-star", ShipName: "Pacific Star", Port: "Singapore",
-	})
-	if err != nil {
-		t.Fatalf("arrive: %v", err)
-	}
+		By("arriving at Rotterdam")
+		_, err = ship.ArrivePort(ctx, commands.ShipInput{
+			Context: fleetCtx, ShipID: "orient-express", Port: "Rotterdam",
+		})
+		Expect(err).NotTo(HaveOccurred())
 
-	// Projector writes Postgres then warms the cache → hit
-	eventually(t, 5*time.Second, func() error {
-		s, cacheHit, err := q.GetShip(ctx, ctx2, "pacific-star")
-		if err != nil {
-			return err
-		}
-		if !cacheHit {
-			return errors.New("expected cache hit after projection")
-		}
-		if s.ShipName != "Pacific Star" {
-			return fmt.Errorf("shipName = %q", s.ShipName)
-		}
-		return nil
-	})
-
-	// Evict → miss → Postgres fallthrough → backfill
-	if err := q.EvictCacheShip(ctx, ctx2, "pacific-star"); err != nil {
-		t.Fatalf("evict: %v", err)
-	}
-	s, cacheHit, err := q.GetShip(ctx, ctx2, "pacific-star")
-	if err != nil {
-		t.Fatalf("get after evict: %v", err)
-	}
-	if cacheHit {
-		t.Fatal("expected cache miss after eviction")
-	}
-	if s.ShipName != "Pacific Star" {
-		t.Fatalf("shipName = %q after miss", s.ShipName)
-	}
-
-	// Backfilled: next read is a hit
-	eventually(t, 5*time.Second, func() error {
-		_, cacheHit, err := q.GetShip(ctx, ctx2, "pacific-star")
-		if err != nil {
-			return err
-		}
-		if !cacheHit {
-			return errors.New("expected cache hit after backfill")
-		}
-		return nil
-	})
-
-	// Unknown ship misses both KV and Postgres
-	if _, _, err := q.GetShip(ctx, ctx2, "unknown-vessel"); !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("expected ErrNotFound, got %v", err)
-	}
-}
-
-// ─── Shape C ─────────────────────────────────────────────────────────────────
-
-func TestShapeC_ReconstructFleet(t *testing.T) {
-	ctx := context.Background()
-	js := startJetStream(t)
-
-	ship := commands.NewShipHandler(jstream.NewPublisher(js), js)
-	const ctx2 = "global"
-
-	// Two ships perform a sequence of operations.
-	steps := []func() error{
-		func() error {
-			_, err := ship.ArrivePort(ctx, commands.ShipInput{
-				Context: ctx2, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg",
-			})
-			return err
-		},
-		func() error {
-			_, err := ship.ArrivePort(ctx, commands.ShipInput{
-				Context: ctx2, ShipID: "pacific-star", ShipName: "Pacific Star", Port: "Rotterdam",
-			})
-			return err
-		},
-		func() error {
-			_, err := ship.LoadCargo(ctx, commands.ShipInput{
-				Context: ctx2, ShipID: "orient-express",
+		By("unloading cargo")
+		eventually(func() error {
+			_, err = ship.UnloadCargo(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "orient-express",
 				Cargo: &domain.Cargo{Description: "Electronics", Units: 42},
 			})
 			return err
-		},
-		func() error {
-			_, err := ship.DepartPort(ctx, commands.ShipInput{
-				Context: ctx2, ShipID: "orient-express", Port: "Hamburg",
-			})
-			return err
-		},
-	}
-	for i, step := range steps {
-		if err := step(); err != nil {
-			t.Fatalf("step %d: %v", i, err)
+		})
+
+		By("verifying cargo is empty in KV")
+		eventually(func() error {
+			q := queries.NewShapeA(kvA)
+			ships, err := q.ListShips(ctx, fleetCtx)
+			if err != nil {
+				return err
+			}
+			for _, s := range ships {
+				if s.ShipID == "orient-express" && len(s.Cargo) != 0 {
+					return errors.New("cargo not cleared in KV yet")
+				}
+			}
+			return nil
+		})
+	})
+})
+
+// ─── Shape B ─────────────────────────────────────────────────────────────────
+
+var _ = Describe("Shape B — KV cache in front of Postgres", func() {
+	var (
+		ctx  context.Context
+		ship *commands.ShipHandler
+		q    *queries.ShapeB
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		js := newJetStream()
+		kvB := kvstore.New(js, "dict-b")
+		repo := newFakeRepo()
+		log := slog.New(slog.DiscardHandler)
+		consume, err := eventhandler.RegisterShapeB(ctx, js, kvB, repo, log)
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(consume.Stop)
+		ship = commands.NewShipHandler(jstream.NewPublisher(js), js)
+		q = queries.NewShapeB(kvB, repo)
+	})
+
+	It("warms the cache on arrive and falls through to Postgres on eviction", func() {
+		const fleetCtx = "global"
+
+		_, err := ship.ArrivePort(ctx, commands.ShipInput{
+			Context: fleetCtx, ShipID: "pacific-star", ShipName: "Pacific Star", Port: "Singapore",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		By("expecting a cache hit after projection")
+		eventually(func() error {
+			s, cacheHit, err := q.GetShip(ctx, fleetCtx, "pacific-star")
+			if err != nil {
+				return err
+			}
+			if !cacheHit {
+				return errors.New("expected cache hit after projection")
+			}
+			if s.ShipName != "Pacific Star" {
+				return errors.New("unexpected ship name")
+			}
+			return nil
+		})
+
+		By("evicting the cache entry")
+		Expect(q.EvictCacheShip(ctx, fleetCtx, "pacific-star")).To(Succeed())
+
+		By("expecting a cache miss with Postgres fallthrough")
+		s, cacheHit, err := q.GetShip(ctx, fleetCtx, "pacific-star")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cacheHit).To(BeFalse(), "expected cache miss after eviction")
+		Expect(s.ShipName).To(Equal("Pacific Star"))
+
+		By("expecting the cache to be backfilled on next read")
+		eventually(func() error {
+			_, cacheHit, err := q.GetShip(ctx, fleetCtx, "pacific-star")
+			if err != nil {
+				return err
+			}
+			if !cacheHit {
+				return errors.New("expected cache hit after backfill")
+			}
+			return nil
+		})
+
+		By("expecting ErrNotFound for an unknown ship")
+		_, _, err = q.GetShip(ctx, fleetCtx, "unknown-vessel")
+		Expect(errors.Is(err, domain.ErrNotFound)).To(BeTrue())
+	})
+})
+
+// ─── Shape C ─────────────────────────────────────────────────────────────────
+
+var _ = Describe("Shape C — pure event sourcing reconstruction", func() {
+	It("reconstructs fleet state by replaying JetStream from seq=1", func() {
+		ctx := context.Background()
+		js := newJetStream()
+		ship := commands.NewShipHandler(jstream.NewPublisher(js), js)
+		const fleetCtx = "global"
+
+		steps := []func() error{
+			func() error {
+				_, err := ship.ArrivePort(ctx, commands.ShipInput{
+					Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg",
+				})
+				return err
+			},
+			func() error {
+				_, err := ship.ArrivePort(ctx, commands.ShipInput{
+					Context: fleetCtx, ShipID: "pacific-star", ShipName: "Pacific Star", Port: "Rotterdam",
+				})
+				return err
+			},
+			func() error {
+				_, err := ship.LoadCargo(ctx, commands.ShipInput{
+					Context: fleetCtx, ShipID: "orient-express",
+					Cargo: &domain.Cargo{Description: "Electronics", Units: 42},
+				})
+				return err
+			},
+			func() error {
+				_, err := ship.DepartPort(ctx, commands.ShipInput{
+					Context: fleetCtx, ShipID: "orient-express", Port: "Hamburg",
+				})
+				return err
+			},
 		}
-	}
+		for _, step := range steps {
+			Expect(step()).To(Succeed())
+		}
 
-	// Shape C: reconstruct without KV or Postgres
-	q := queries.NewShapeC(js)
-	fleet, err := q.ReconstructFleet(ctx)
-	if err != nil {
-		t.Fatalf("reconstruct fleet: %v", err)
-	}
-	if len(fleet) != 2 {
-		t.Fatalf("expected 2 ships, got %d", len(fleet))
-	}
+		q := queries.NewShapeC(js)
+		fleet, err := q.ReconstructFleet(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(fleet).To(HaveLen(2))
 
-	byID := make(map[string]domain.ShipState)
-	for _, s := range fleet {
-		byID[s.ShipID] = s
-	}
+		byID := make(map[string]domain.ShipState)
+		for _, s := range fleet {
+			byID[s.ShipID] = s
+		}
 
-	oe := byID["orient-express"]
-	if oe.CurrentPort != "" {
-		t.Errorf("orient-express: expected at sea, got %q", oe.CurrentPort)
-	}
-	if len(oe.Cargo) != 1 || oe.Cargo[0].Units != 42 {
-		t.Errorf("orient-express: unexpected cargo %+v", oe.Cargo)
-	}
+		oe := byID["orient-express"]
+		Expect(oe.CurrentPort).To(BeEmpty(), "orient-express should be at sea")
+		Expect(oe.Cargo).To(HaveLen(1))
+		Expect(oe.Cargo[0].Units).To(Equal(42))
 
-	ps := byID["pacific-star"]
-	if ps.CurrentPort != "Rotterdam" {
-		t.Errorf("pacific-star: expected Rotterdam, got %q", ps.CurrentPort)
-	}
-}
+		ps := byID["pacific-star"]
+		Expect(ps.CurrentPort).To(Equal("Rotterdam"))
+	})
+})
+
+// ─── Domain rules ─────────────────────────────────────────────────────────────
+//
+// Each spec maps directly to a rule in BUSINESS_RULES.md.
+
+var _ = Describe("Domain Rules", func() {
+	var (
+		ctx  context.Context
+		ship *commands.ShipHandler
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		js := newJetStream()
+		ship = commands.NewShipHandler(jstream.NewPublisher(js), js)
+	})
+
+	const fleetCtx = "global"
+
+	Context("BR-001: cannot arrive at port already docked at", func() {
+		It("returns ErrAlreadyDocked", func() {
+			Expect(ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br001-vessel", ShipName: "BR001", Port: "Hamburg",
+			})).Error().NotTo(HaveOccurred())
+
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br001-vessel", Port: "Hamburg",
+			})
+			Expect(errors.Is(err, domain.ErrAlreadyDocked)).To(BeTrue())
+		})
+	})
+
+	Context("BR-002: must depart before arriving at a new port", func() {
+		It("returns ErrMustDepart", func() {
+			Expect(ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br002-vessel", ShipName: "BR002", Port: "Hamburg",
+			})).Error().NotTo(HaveOccurred())
+
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br002-vessel", Port: "Rotterdam",
+			})
+			Expect(errors.Is(err, domain.ErrMustDepart)).To(BeTrue())
+		})
+	})
+
+	Context("BR-003: cannot depart a port the ship is not at", func() {
+		It("returns ErrNotDocked", func() {
+			_, err := ship.DepartPort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br003-vessel", Port: "Hamburg",
+			})
+			Expect(errors.Is(err, domain.ErrNotDocked)).To(BeTrue())
+		})
+	})
+
+	Context("BR-004: cannot load cargo unless docked", func() {
+		It("returns ErrNotInPort", func() {
+			_, err := ship.LoadCargo(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br004-vessel",
+				Cargo: &domain.Cargo{Description: "Steel", Units: 10},
+			})
+			Expect(errors.Is(err, domain.ErrNotInPort)).To(BeTrue())
+		})
+	})
+
+	Context("BR-005: cannot unload cargo unless docked", func() {
+		It("returns ErrNotInPort", func() {
+			_, err := ship.UnloadCargo(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br005-vessel",
+				Cargo: &domain.Cargo{Description: "Steel", Units: 10},
+			})
+			Expect(errors.Is(err, domain.ErrNotInPort)).To(BeTrue())
+		})
+	})
+
+	Context("BR-006: cannot unload cargo not in the manifest", func() {
+		It("returns ErrCargoNotFound", func() {
+			Expect(ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br006-vessel", ShipName: "BR006", Port: "Hamburg",
+			})).Error().NotTo(HaveOccurred())
+			Expect(ship.LoadCargo(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br006-vessel",
+				Cargo: &domain.Cargo{Description: "Electronics", Units: 10},
+			})).Error().NotTo(HaveOccurred())
+
+			_, err := ship.UnloadCargo(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br006-vessel",
+				Cargo: &domain.Cargo{Description: "Nonexistent", Units: 1},
+			})
+			Expect(errors.Is(err, domain.ErrCargoNotFound)).To(BeTrue())
+		})
+	})
+
+	Context("BR-007: cargo payload is required", func() {
+		It("rejects nil cargo on load", func() {
+			_, err := ship.LoadCargo(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br007-vessel", Cargo: nil,
+			})
+			Expect(err).To(MatchError("cargo is required"))
+		})
+
+		It("rejects nil cargo on unload", func() {
+			_, err := ship.UnloadCargo(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br007-vessel", Cargo: nil,
+			})
+			Expect(err).To(MatchError("cargo is required"))
+		})
+	})
+})
 
 // ─── fakeRepo ────────────────────────────────────────────────────────────────
 

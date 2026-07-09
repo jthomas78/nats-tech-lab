@@ -333,11 +333,13 @@ The same `ShipAggregate.Hydrate` + `Apply` logic is used by both the command han
 - [x] Frontend: `stores/dictionary.js` — track `seenPorts` (unique, sorted); updated in `applyWatchEvent` from `event.value.currentPort` on every PUT event
 - [x] Frontend: `ShippingForm.vue` — `portOptions` computed merges static `BASE_PORTS` with `store.seenPorts`; port dropdown auto-populates with any port seen in the event source that is not already in the static list
 
-### Phase 7 — Swagger / OpenAPI
+### Phase 7 — Swagger / OpenAPI + Ginkgo Test Runner
 
-Add self-documenting API support using `swaggo/swag` so the backend routes are explorable without reading source code. This becomes more valuable as the route list grows through Phase 8+.
+Add self-documenting API support using `swaggo/swag` so the backend routes are explorable without reading source code. Also establishes Ginkgo as the canonical test runner to support the red→green→refactor cycle for all subsequent phases.
 
-**Approach:** annotate existing handlers with `swaggo` doc comments; `swag init` generates an OpenAPI 2.0 spec; serve Swagger UI at `/swagger/` via `swaggo/http-swagger`.
+**Swagger approach:** annotate existing handlers with `swaggo` doc comments; `swag init` generates an OpenAPI 2.0 spec; serve Swagger UI at `/swagger/` via `swaggo/http-swagger`.
+
+**Ginkgo approach:** `github.com/onsi/ginkgo/v2` with Gomega matchers. A custom `ReportAfterSuite` in `dictionary/suite_test.go` prints a spec tree grouping results under their `Describe` / `Context` nodes, mirroring the `BUSINESS_RULES.md` structure. For each subsequent phase: write specs first (one `Context` per rule, one `It` per assertion), run `ginkgo ./...` to confirm red, implement, confirm green.
 
 #### Checklist
 
@@ -346,7 +348,10 @@ Add self-documenting API support using `swaggo/swag` so the backend routes are e
 - [x] Backend: run `swag init` from `backend/` to generate `docs/` package
 - [x] Backend: mount Swagger UI at `/swagger/` in `handlers.go` via `httpSwagger.Handler`
 - [x] Backend: add `swag init` step to Dockerfile so the spec stays in sync with handlers
-- [ ] Verify UI accessible at `http://localhost:18080/swagger/`
+- [x] Backend: `go get github.com/onsi/ginkgo/v2` + `go get github.com/onsi/gomega`; install `ginkgo` CLI
+- [x] Backend: rewrite `dictionary/integration_test.go` in Ginkgo DSL (`Describe` / `Context` / `It` / `By` / `BeforeEach`)
+- [x] Backend: `dictionary/suite_test.go` — bootstrap + `ReportAfterSuite` tree reporter
+- [ ] Verify Swagger UI accessible at `http://localhost:18080/swagger/`
 
 ---
 

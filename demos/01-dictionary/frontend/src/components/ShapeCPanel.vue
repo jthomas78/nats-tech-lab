@@ -27,11 +27,27 @@ async function reconstruct() {
 
 onMounted(reconstruct)
 
+const STATUS_LABEL = {
+  'in-transit':                 'In transit',
+  'docked':                     'Docked',
+  'at-anchor':                  'At anchor',
+  'not-under-command':          'Not under command',
+  'restricted-manoeuvrability': 'Restricted',
+}
+
+const STATUS_SEVERITY = {
+  'in-transit':                 'info',      // blue
+  'docked':                     'success',   // green
+  'at-anchor':                  'warn',      // amber
+  'not-under-command':          'danger',    // red
+  'restricted-manoeuvrability': 'contrast',  // orange — closest PrimeVue severity
+}
+
 function statusLabel(ship) {
-  return ship.currentPort ? 'Docked' : 'In transit'
+  return STATUS_LABEL[ship.status] ?? (ship.currentPort ? 'Docked' : 'In transit')
 }
 function statusSeverity(ship) {
-  return ship.currentPort ? 'success' : 'secondary'
+  return STATUS_SEVERITY[ship.status] ?? (ship.currentPort ? 'success' : 'info')
 }
 function portLabel(ship) {
   return ship.currentPort || '—'

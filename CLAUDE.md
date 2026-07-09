@@ -33,8 +33,15 @@ Each demo has its own `docker-compose.yml` and does **not** share a network with
 
 ```bash
 go build ./...
+
+# Tests — preferred runner is Ginkgo (install once: go install github.com/onsi/ginkgo/v2/ginkgo@latest)
+ginkgo ./...                    # runs suite and prints spec tree at the end
+ginkgo watch ./...              # re-run on file changes
+
+# Fallback (no install required)
 go test ./...
 go test ./path/to/package/...   # run a single package
+
 docker compose up --build       # from demos/01-dictionary/
 docker compose down             # tear down
 ```
@@ -93,6 +100,36 @@ dictionary/
 - **LimitsPolicy** (not InterestPolicy) on JetStream streams — required to support event replay.
 - **Context-scoped KV keys**: every lookup includes a tenant/region/locale prefix — no global unscoped lookups.
 - The demo frontend updates reactively via KV watch → SSE (or WebSocket) → frontend panels.
+
+## Quality Rules
+
+These apply to every task — new features, changes, and bug fixes alike:
+
+1. **Every business rule must have a test.** If a domain rule is added or changed, a corresponding integration test must be added or updated in the same task before marking it complete.
+2. **All tests must be green before a task is complete.** Run `ginkgo ./...` from `demos/01-dictionary/backend/` as the final step of any backend change. A task is not done until this passes clean.
+3. **Business rules live in the domain layer** (`dictionary/internal/domain/`). Rule enforcement must not leak into handlers or application services.
+4. **The business rules summary must be kept in sync.** When a rule is added or removed, update `demos/01-dictionary/BUSINESS_RULES.md` as part of the same task.
+
+## AI Agent Workflow
+
+When updating or implementing a plan phase, the agent should follow this sequence:
+
+1. **Ask for business rules first.** Before writing any code or updating a plan, ask the user to confirm or supply the applicable business rules for the feature. If rules are already in `BUSINESS_RULES.md`, confirm they are complete and up to date.
+2. **Derive tests from rules, not from implementation.** Each business rule maps to one `Context` block in Ginkgo with one or more `It` assertions. Write the specs before writing the implementation (red → green → refactor).
+3. **Update `BUSINESS_RULES.md` and the plan together.** New rules go into `BUSINESS_RULES.md` and the plan checklist in the same commit.
+
+## AI Skill Roles (Future)
+
+Skill files (`.claude/skills/`) will be introduced to give the AI agent specialised personas for different stages of delivery. Planned roles:
+
+| Skill | Responsibility |
+|---|---|
+| `product-owner` | Captures business requirements; challenges scope; owns acceptance criteria |
+| `technical-analyst` | Translates requirements into technical consequences; identifies constraints and risks |
+| `software-developer` | Implements the requirement; follows the red→green→refactor cycle |
+| `tester` | Validates correctness against the business rules; owns the Ginkgo spec tree |
+
+These skills are **not yet implemented**. The note is here to record the intent: as the lab grows, plan phases should be walked through each role in sequence rather than going directly from requirement to code.
 
 ## Implementation Status
 

@@ -62,11 +62,27 @@ async function evict(row) {
   }
 }
 
+const STATUS_LABEL = {
+  'in-transit':                 'In transit',
+  'docked':                     'Docked',
+  'at-anchor':                  'At anchor',
+  'not-under-command':          'Not under command',
+  'restricted-manoeuvrability': 'Restricted',
+}
+
+const STATUS_SEVERITY = {
+  'in-transit':                 'info',      // blue
+  'docked':                     'success',   // green
+  'at-anchor':                  'warn',      // amber
+  'not-under-command':          'danger',    // red
+  'restricted-manoeuvrability': 'contrast',  // orange — closest PrimeVue severity
+}
+
 function statusLabel(row) {
-  return row.currentPort ? 'Docked' : 'In transit'
+  return STATUS_LABEL[row.status] ?? (row.currentPort ? 'Docked' : 'In transit')
 }
 function statusSeverity(row) {
-  return row.currentPort ? 'success' : 'secondary'
+  return STATUS_SEVERITY[row.status] ?? (row.currentPort ? 'success' : 'info')
 }
 function portLabel(row) {
   return row.currentPort || '—'

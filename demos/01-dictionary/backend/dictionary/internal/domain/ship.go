@@ -17,6 +17,7 @@ var (
 	ErrMustDepart    = errors.New("ship must depart current port first")
 	ErrNotDocked     = errors.New("ship is not docked at this port")
 	ErrNotInPort     = errors.New("ship must be docked to load or unload cargo")
+	ErrCargoNotFound = errors.New("cargo item not found in manifest")
 )
 
 // ─── Value objects ────────────────────────────────────────────────────────────
@@ -27,17 +28,29 @@ type Cargo struct {
 	Units       int    `json:"units"`
 }
 
+// ShipStatus represents the AIS navigational status of a ship.
+type ShipStatus string
+
+const (
+	StatusInTransit                 ShipStatus = "in-transit"                 // blue
+	StatusDocked                    ShipStatus = "docked"                     // green
+	StatusAtAnchor                  ShipStatus = "at-anchor"                  // amber
+	StatusNotUnderCommand           ShipStatus = "not-under-command"          // red
+	StatusRestrictedManoeuvrability ShipStatus = "restricted-manoeuvrability" // orange
+)
+
 // ─── Read model (projected into KV and Postgres) ─────────────────────────────
 
 // ShipState is the materialised view stored in NATS KV (Shape A/B read model)
 // and in Postgres (Shape B canonical projection).
 type ShipState struct {
-	Context     string    `json:"context"` // fleet / KV-bucket qualifier
-	ShipID      string    `json:"shipID"`
-	ShipName    string    `json:"shipName"`
-	CurrentPort string    `json:"currentPort"` // "" = at sea
-	Cargo       []Cargo   `json:"cargo"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	Context     string     `json:"context"` // fleet / KV-bucket qualifier
+	ShipID      string     `json:"shipID"`
+	ShipName    string     `json:"shipName"`
+	Status      ShipStatus `json:"status"`      // AIS navigational status
+	CurrentPort string     `json:"currentPort"` // "" = at sea
+	Cargo       []Cargo    `json:"cargo"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
 // KVKey returns the key within the context-scoped bucket: ship.{shipID}.
@@ -96,10 +109,15 @@ func (a *ShipAggregate) removeCargo(description string) {
 func (a *ShipAggregate) State(context string) ShipState {
 	cargo := make([]Cargo, len(a.Cargo))
 	copy(cargo, a.Cargo)
+	status := StatusInTransit
+	if a.CurrentPort != "" {
+		status = StatusDocked
+	}
 	return ShipState{
 		Context:     context,
 		ShipID:      a.ShipID,
 		ShipName:    a.ShipName,
+		Status:      status,
 		CurrentPort: a.CurrentPort,
 		Cargo:       cargo,
 		UpdatedAt:   a.UpdatedAt,
@@ -167,10 +185,21 @@ func (a *ShipAggregate) LoadCargo(cargo Cargo) (ShipEvent, error) {
 	}, nil
 }
 
-// UnloadCargo returns a CargoUnloaded event if the ship is docked.
+// UnloadCargo returns a CargoUnloaded event if the ship is docked and the
+// cargo item exists in the manifest.
 func (a *ShipAggregate) UnloadCargo(cargo Cargo) (ShipEvent, error) {
 	if a.CurrentPort == "" {
 		return ShipEvent{}, ErrNotInPort
+	}
+	found := false
+	for _, c := range a.Cargo {
+		if c.Description == cargo.Description {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return ShipEvent{}, fmt.Errorf("%w: %q", ErrCargoNotFound, cargo.Description)
 	}
 	return ShipEvent{
 		ShipID:     a.ShipID,

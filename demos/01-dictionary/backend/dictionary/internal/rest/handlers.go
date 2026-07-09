@@ -263,7 +263,8 @@ func (h *Handlers) writeCommandError(w http.ResponseWriter, err error) {
 	if errors.Is(err, domain.ErrAlreadyDocked) ||
 		errors.Is(err, domain.ErrMustDepart) ||
 		errors.Is(err, domain.ErrNotDocked) ||
-		errors.Is(err, domain.ErrNotInPort) {
+		errors.Is(err, domain.ErrNotInPort) ||
+		errors.Is(err, domain.ErrCargoNotFound) {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
