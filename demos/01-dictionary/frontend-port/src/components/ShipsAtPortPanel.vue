@@ -7,7 +7,7 @@ import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import { useToast } from 'primevue/usetoast'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 
 import { arrivePort, departPort, unloadContainer } from '../api'
 import { usePortStore } from '../stores/port'
@@ -15,11 +15,7 @@ import { usePortStore } from '../stores/port'
 const store = usePortStore()
 const toast = useToast()
 
-function manifestSummary(ship) {
-  const manifest = store.manifestFor(ship.shipID)
-  if (manifest.length === 0) return '—'
-  return manifest.map((c) => `${c.containerID} (${c.cargo} → ${c.destPort})`).join(', ')
-}
+const expandedShips = ref({})
 
 const dockedShipOptions = computed(() => store.dockedShips.map((s) => s.shipID))
 
@@ -70,35 +66,49 @@ async function submitDepart() {
 }
 
 // ── Unload container ───────────────────────────────────────────────────────────
+// Unload is inline on each manifest row (not a separate ship/container
+// picker) — the row already carries both, and destPort tells us whether the
+// action is even legal here.
 
-const unloadForm = reactive({ shipID: '', containerID: '' })
-const unloadBusy = ref(false)
-const unloadError = ref('')
+const unloadBusyID = ref('')
+const unloadErrorByShip = reactive({})
 
-const unloadManifestOptions = computed(() =>
-  unloadForm.shipID ? store.manifestFor(unloadForm.shipID).map((c) => c.containerID) : [],
-)
-
-async function submitUnload() {
-  unloadError.value = ''
-  unloadBusy.value = true
+async function submitUnload(shipID, containerID) {
+  delete unloadErrorByShip[shipID]
+  unloadBusyID.value = containerID
   try {
-    await unloadContainer({ context: store.context, containerID: unloadForm.containerID, shipID: unloadForm.shipID })
-    toast.add({ severity: 'success', summary: 'Container unloaded', detail: unloadForm.containerID, life: 2500 })
-    unloadForm.containerID = ''
+    await unloadContainer({ context: store.context, containerID, shipID })
+    toast.add({ severity: 'success', summary: 'Container unloaded', detail: containerID, life: 2500 })
   } catch (err) {
-    unloadError.value = err.message
+    unloadErrorByShip[shipID] = err.message
   } finally {
-    unloadBusy.value = false
+    unloadBusyID.value = ''
   }
 }
+
+// Docked-ship select only ever lists ships at the current port, but the
+// underlying v-model value is a plain string — switching ports doesn't clear
+// a stale selection just because it drops out of the option list, so the
+// depart form must be reset explicitly or a stale ship can still pass the
+// "field set" enablement check.
+watch(
+  () => store.port,
+  () => {
+    departShipID.value = ''
+    departError.value = ''
+    for (const key of Object.keys(unloadErrorByShip)) delete unloadErrorByShip[key]
+  },
+)
 </script>
 
 <template>
   <section class="lab-panel">
     <h3>Ships at Port — {{ store.port || '—' }}</h3>
 
-    <div class="ops">
+    <div v-if="!store.port" class="lab-muted no-port">
+      Select or add a port to move ships in and out.
+    </div>
+    <div v-else class="ops">
       <div class="op-row">
         <InputText v-model.trim="arriveForm.shipID" placeholder="ship ID, e.g. orient-express" size="small" />
         <InputText v-model.trim="arriveForm.shipName" placeholder="ship name (first arrival only)" size="small" />
@@ -113,33 +123,20 @@ async function submitUnload() {
         <Button label="Depart" size="small" :disabled="departBusy || !departShipID" :loading="departBusy" @click="submitDepart" />
       </div>
       <div v-if="departError" class="domain-error">{{ departError }}</div>
-
-      <Divider />
-
-      <div class="op-row">
-        <Select v-model="unloadForm.shipID" :options="dockedShipOptions" placeholder="docked ship" size="small" />
-        <Select
-          v-model="unloadForm.containerID"
-          :options="unloadManifestOptions"
-          placeholder="container on ship"
-          size="small"
-          style="width:200px"
-        />
-        <Button
-          label="Unload"
-          size="small"
-          :disabled="unloadBusy || !unloadForm.shipID || !unloadForm.containerID"
-          :loading="unloadBusy"
-          @click="submitUnload"
-        />
-      </div>
-      <div v-if="unloadError" class="domain-error">{{ unloadError }}</div>
     </div>
 
-    <DataTable :value="store.dockedShips" size="small" data-key="shipID" resizableColumns columnResizeMode="expand">
+    <DataTable
+      v-model:expandedRows="expandedShips"
+      :value="store.dockedShips"
+      size="small"
+      data-key="shipID"
+      resizableColumns
+      columnResizeMode="expand"
+    >
       <template #empty>
         <span class="lab-muted">No ships docked here — send an arrival above.</span>
       </template>
+      <Column expander style="width:2.5rem" />
       <Column field="shipID" header="Ship ID" style="font-family:monospace;font-size:12px" />
       <Column field="shipName" header="Name" />
       <Column header="Status" style="width:100px">
@@ -147,11 +144,41 @@ async function submitUnload() {
           <Tag severity="success" value="Docked" />
         </template>
       </Column>
-      <Column header="Manifest">
+      <Column header="Manifest" style="width:100px">
         <template #body="{ data }">
-          <span class="manifest-cell">{{ manifestSummary(data) }}</span>
+          <span class="lab-muted manifest-count">{{ store.manifestFor(data.shipID).length }} container(s)</span>
         </template>
       </Column>
+
+      <template #expansion="{ data }">
+        <DataTable :value="store.manifestFor(data.shipID)" size="small" data-key="containerID" class="manifest-table">
+          <template #empty>
+            <span class="lab-muted">No containers on this ship.</span>
+          </template>
+          <Column field="containerID" header="Container" style="font-family:monospace;font-size:12px" />
+          <Column field="cargo" header="Cargo" />
+          <Column field="originPort" header="Origin" style="width:110px" />
+          <Column header="Destination" style="width:130px">
+            <template #body="{ data: container }">
+              <Tag :severity="container.destPort === store.port ? 'success' : 'info'" :value="container.destPort" />
+            </template>
+          </Column>
+          <Column header="" style="width:100px">
+            <template #body="{ data: container }">
+              <Button
+                label="Unload"
+                size="small"
+                :disabled="container.destPort !== store.port || unloadBusyID === container.containerID"
+                :loading="unloadBusyID === container.containerID"
+                @click="submitUnload(data.shipID, container.containerID)"
+              />
+            </template>
+          </Column>
+        </DataTable>
+        <div v-if="unloadErrorByShip[data.shipID]" class="domain-error manifest-error">
+          {{ unloadErrorByShip[data.shipID] }}
+        </div>
+      </template>
     </DataTable>
   </section>
 </template>
@@ -162,6 +189,10 @@ async function submitUnload() {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+}
+.no-port {
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
 }
 .op-row {
   display: flex;
@@ -177,8 +208,17 @@ async function submitUnload() {
   border-radius: 4px;
   padding: 0.35rem 0.6rem;
 }
-.manifest-cell {
+.manifest-count {
   font-size: 12px;
-  font-family: monospace;
+}
+.manifest-table {
+  margin: 0.25rem 0 0.5rem 2.5rem;
+  border-left: 2px solid var(--lab-accent);
+  border-radius: 3px;
+  --p-datatable-header-cell-background: color-mix(in srgb, var(--lab-panel-bg) 90%, var(--lab-accent) 10%);
+  --p-datatable-row-background: color-mix(in srgb, var(--lab-panel-bg) 96%, var(--lab-accent) 4%);
+}
+.manifest-error {
+  margin: 0 0 0.5rem 2.5rem;
 }
 </style>

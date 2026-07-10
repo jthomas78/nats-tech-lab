@@ -81,7 +81,10 @@ async function submitLoad() {
   <section class="lab-panel">
     <h3>Terminal Yard — {{ store.port || '—' }}</h3>
 
-    <div class="ops">
+    <div v-if="!store.port" class="lab-muted no-port">
+      Select or add a port to register and load containers.
+    </div>
+    <div v-else class="ops">
       <Button label="Register container" icon="pi pi-plus" size="small" outlined @click="openRegister" />
 
       <div class="op-row">
@@ -151,6 +154,10 @@ async function submitLoad() {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+.no-port {
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
 }
 .op-row {
   display: flex;

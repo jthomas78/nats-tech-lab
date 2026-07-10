@@ -57,12 +57,13 @@ export const usePortStore = defineStore('port', {
       this.port = port
     },
 
-    // Adds a port to the selectable list and makes it active. There is no
-    // backend Port aggregate/endpoint — a port only becomes durable in
+    // Stages a new port in the selectable list and makes it active. NOT a
+    // command — it publishes no event (contrast registerContainer). There is
+    // no backend Port aggregate/endpoint: a port only becomes durable in
     // meta.known-ports once a real ship arrival or container registration
     // event references it. This is a client-side convenience so a brand-new
     // port can be selected immediately, before any such event exists.
-    registerPort(port) {
+    addShippingPort(port) {
       const trimmed = port.trim()
       if (!trimmed) return
       this.mergeKnownPorts([trimmed])

@@ -20,7 +20,7 @@ function handleToggleTheme() {
   dark.value = isDark()
 }
 
-// ── Register a new port (popup) ───────────────────────────────────────────────
+// ── Add a shipping port (popup) ───────────────────────────────────────────────
 
 const newPortVisible = ref(false)
 const newPortName = ref('')
@@ -32,7 +32,7 @@ function openNewPort() {
 
 function submitNewPort() {
   if (!newPortName.value.trim()) return
-  store.registerPort(newPortName.value)
+  store.addShippingPort(newPortName.value)
   newPortVisible.value = false
 }
 
@@ -70,7 +70,7 @@ onUnmounted(() => store.disconnect())
         />
         <Button
           icon="pi pi-plus"
-          aria-label="Register a new port"
+          aria-label="Add a shipping port"
           text
           rounded
           size="small"
@@ -94,7 +94,7 @@ onUnmounted(() => store.disconnect())
       <ShipsAtPortPanel />
     </div>
 
-    <Dialog v-model:visible="newPortVisible" header="Register a new port" modal style="width:22rem">
+    <Dialog v-model:visible="newPortVisible" header="Add a shipping port" modal style="width:22rem">
       <InputText
         v-model="newPortName"
         placeholder="port name, e.g. Hamburg"
@@ -102,9 +102,13 @@ onUnmounted(() => store.disconnect())
         style="width:100%"
         @keyup.enter="submitNewPort"
       />
+      <p class="lab-muted dialog-note">
+        Staged in this session only. The port becomes durable once a ship arrives
+        or a container is registered there.
+      </p>
       <template #footer>
         <Button label="Cancel" text size="small" @click="newPortVisible = false" />
-        <Button label="Register" size="small" :disabled="!newPortName.trim()" @click="submitNewPort" />
+        <Button label="Add" size="small" :disabled="!newPortName.trim()" @click="submitNewPort" />
       </template>
     </Dialog>
   </div>
@@ -134,6 +138,10 @@ onUnmounted(() => store.disconnect())
   display: flex;
   align-items: center;
   gap: 0.625rem;
+}
+.dialog-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
 }
 .panels {
   display: grid;

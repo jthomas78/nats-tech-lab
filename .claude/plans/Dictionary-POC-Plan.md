@@ -351,7 +351,7 @@ Add self-documenting API support using `swaggo/swag` so the backend routes are e
 - [x] Backend: `go get github.com/onsi/ginkgo/v2` + `go get github.com/onsi/gomega`; install `ginkgo` CLI
 - [x] Backend: rewrite `dictionary/integration_test.go` in Ginkgo DSL (`Describe` / `Context` / `It` / `By` / `BeforeEach`)
 - [x] Backend: `dictionary/suite_test.go` — bootstrap + `ReportAfterSuite` tree reporter
-- [ ] Verify Swagger UI accessible at `http://localhost:18080/swagger/`
+- [x] Verify Swagger UI accessible at `http://localhost:18080/swagger/` (verified live 2026-07-09 once Docker was installed)
 
 ---
 
@@ -469,7 +469,7 @@ The working superset of KV namespaces:
 - [x] Port selector (topbar) — seeded from `known-ports` on `connect()` before SSE opens, then merges live `META` events; drives all panels
 - [x] Terminal panel — containers in yard: ID, cargo, origin, destination
 - [x] Ships at port panel — docked ships with container manifests (client-side join by `onShipID == shipID`)
-- [x] Operations panel — Arrive / Depart / Register Container / Load Container / Unload Container, all scoped to the selected port
+- [x] Operations panel — Arrive / Depart / Register Container / Load Container / Unload Container, all scoped to the selected port _(superseded by the UX-refinement block below: this standalone panel was removed and its operations localized onto the Terminal Yard / Ships at Port panels)_
 - [x] Inline rule violation feedback (BR-008 to BR-015 error messages)
 - [x] SSE watch — `/api/watch/{context}` (ships) + `/api/watch-terminal/{context}` (containers + meta)
 
@@ -480,10 +480,11 @@ standalone panel and onto the panel whose data they act on, and a new port
 can be added directly from the topbar instead of only appearing after an
 event references it.
 
-- [x] Topbar — `+` icon button next to the Port `<Select>`; opens a popup (`Dialog`) capturing a new port name
-- [x] `port.js` store — `registerPort(port)` adds the name to `knownPorts` and makes it active; documented as client-side only (no backend Port aggregate — the port becomes durable in `meta.known-ports` once a real ship arrival or container registration references it)
+- [x] Topbar — `+` icon button next to the Port `<Select>`; opens a popup (`Dialog`) capturing a new port name (labelled "Add", with a "staged in this session only" note)
+- [x] `port.js` store — `addShippingPort(port)` adds the name to `knownPorts` and makes it active; named `add*` (not `register*`) to avoid colliding with the event-publishing command verb, and documented as client-side only (no backend Port aggregate — the port becomes durable in `meta.known-ports` once a real ship arrival or container registration references it)
 - [x] `TerminalPanel.vue` — "Register container" (popup) + inline "Load container" row, above the yard `DataTable`
 - [x] `ShipsAtPortPanel.vue` — inline "Ship arrives" / "Ship departs" / "Unload container" rows, above the ships `DataTable`
+- [x] Both panels gate their operations on a selected port (`v-if="store.port"` with a fallback prompt) — restores the guard the removed `OperationsPanel` had; without it Arrive sent `port:""` and returned a nonsensical `ErrAlreadyDocked`
 - [x] Removed `OperationsPanel.vue` and its use in `App.vue` — no more standalone "Operations — select a port" panel
 - [x] `npm run build` + lint green (0 errors)
 
@@ -593,14 +594,17 @@ Both are correct implementations of event sourcing fundamentals — the point is
 
 ---
 
-### Verification status (2026-07-07)
+### Verification status (2026-07-09)
 
-Docker is not installed on the dev machine, so the compose stack has not been
-run end to end. What IS verified: `go build`, `go vet`, and `go test` all pass
-(integration tests run command → event → projector → KV → query against a
-real embedded JetStream, plus Shape B cache hit/miss/backfill); both frontends
-build with `npm run build`. Postgres repo + Dockerfiles + nginx SSE proxy are
-code-reviewed but need `docker compose up --build` for a live run.
+The full compose stack now runs end to end (Docker installed 2026-07-09):
+all five services build and start (`nats`, `postgres`, `backend`, `frontend`,
+`frontend-port`), Swagger UI serves at `:18080/swagger/`, both frontends serve
+with working nginx `/api` proxies, and a live smoke test exercised the full
+container lifecycle against the real stack — register → load → BR-012
+rejection at sea → unload at destination — with the `meta.known-ports`
+projection, terminal yard query, and Shape C fleet+container reconstruction
+all returning correct results. `go build` / `go vet` / `ginkgo ./...`
+(22/22 specs) and both frontend builds remain green.
 
 ---
 
