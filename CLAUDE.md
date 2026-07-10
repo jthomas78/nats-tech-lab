@@ -112,6 +112,8 @@ These apply to every task — new features, changes, and bug fixes alike:
 
 ## AI Agent Workflow
 
+Any exploration touching more than 3 files should be delegated to an Explore subagent rather than done with inline `Read`/`grep` calls — keeps the main conversation's context window free for the actual task.
+
 When updating or implementing a plan phase, the agent should follow this sequence:
 
 1. **Ask for business rules first.** Before writing any code or updating a plan, ask the user to confirm or supply the applicable business rules for the feature. If rules are already in `BUSINESS_RULES.md`, confirm they are complete and up to date.

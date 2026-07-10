@@ -413,6 +413,7 @@ All of these are enforced **from a single replay of the `SHIPPING` stream** — 
 | BR-013 | A container can only be unloaded from the ship it is actually on (`onShipID == shipID`) | `ErrWrongShip` | container |
 | BR-014 | A container can only be loaded when the ship is docked at the container's terminal port (`terminalPort == ship.currentPort`) | `ErrContainerNotAtPort` | ship + container |
 | BR-015 | A container ID can only be registered once | `ErrContainerExists` | container |
+| BR-016 | A container ID must be in ISO 6346 format: `TCKU` + 7 digits | `ErrInvalidContainerID` | container |
 
 #### Frontend split
 
@@ -501,6 +502,98 @@ event references it.
 - [x] `ARCHITECTURE.md` — update stream design (single `SHIPPING` stream, two aggregates); add container domain and `meta.*` KV namespace
 - [x] `BUSINESS_RULES.md` — retire BR-004 to BR-007; add BR-008 to BR-015
 - [x] `README.md` — two-aggregate overview, two-frontend table, service table with `frontend-port` entry
+
+---
+
+### Phase 8.2 — Ship Management Split View, Fleet Panel, Yard Split, BR-016
+
+**Branch:** `poc/dictionary1.8.2`
+
+#### Overview
+
+Follow-up work on top of the Phase 8 baseline, kicked off by this request:
+
+> I'd like to update the plan - phase 8 with the following:
+> On Port Management UI:
+> - Split the UI into 2 vertical group panels:
+>    - Ships at sea or in-transit (you can choose best header title)
+>       - A table showing all ship in transit
+>    - Port Management
+>       - Existing functionality with only change is to move the port selection dropdown into this panel
+>
+> The main title for the UI should be Ship Management
+
+All of it is scoped to `frontend-port/` plus one small backend rule (BR-016);
+no other backend, domain, or business-rule change beyond what's called out
+below.
+
+A first draft of the split defined "in transit" as `store.ships` minus
+`store.dockedShips` — caught in review as wrong, since it would silently
+exclude ships docked at a port other than the one currently selected. That
+gap led directly to the fleet-wide redesign below, so the two-group layout
+described in the request above was never shipped as originally worded — it
+was superseded by a single fleet-wide panel before implementation.
+
+Also confirmed (no code change, informational only): none of this UI work
+needed backend changes for rule enforcement — the domain aggregates
+re-derive state from the event stream on every command regardless of which
+frontend (or a raw API call) issued it, so there is no way for a second UI
+to bypass BR-008 etc. by supplying different client-side state.
+
+#### Ship Management split view + Fleet panel
+
+Restructure `frontend-port/` from a single row of two port-scoped panels
+into two stacked **group panels** — a port-independent, fleet-wide "Fleet"
+group above the existing port-scoped "Port Management" group — and rename
+the page to reflect that it now spans both.
+
+Docked-vs-in-transit is derived from the ship model (`domain/ship.go`): a
+ship is at sea when `currentPort === ''` (projected `status === 'in-transit'`);
+otherwise it is `docked` at `currentPort`. The Fleet panel lists **every** ship
+in the context and filters on this client-side, so a ship docked at a
+non-selected port is still visible there (no blind spot) — the original
+"in-transit-only" design from the request above would have left such ships
+invisible, which is why it was replaced with a fleet-wide filterable panel
+(`all` / `docked` / `in-transit`) instead of the originally-requested
+two-group split.
+
+- [x] `App.vue` — title "Port Management" → "Ship Management"; subtitle now "fleet overview · terminal yard · docked ships · container operations"; single `.panels` grid replaced with two stacked `.group` sections
+- [x] `port.js` store — added an `allShips` getter (`Object.values(state.ships)` sorted by `shipID`); fleet-scoped implicitly (the store already only holds the current context's ships). Docked/in-transit is filtered in the panel, not the store
+- [x] New `FleetPanel.vue` — a `.lab-panel` with a `Select` status filter (`All` / `Docked` / `In transit`, default `All`) over `store.allShips`; columns: Ship ID (monospace), Name, Status (`Tag`: Docked=success / In transit=info), Port (`currentPort` or "at sea"), and manifest count (`store.manifestFor(shipID).length` — a ship at sea still carries its loaded containers via `onShipID`). Not gated on `store.port`. Empty state: "No ships match this filter." Read-only — no operations
+- [x] "Port Management" group — a `.group` wrapper (`<h2>` heading "Port Management" + the port `<Select>`, `editable`, and the `+` "Add port" button/`Dialog`, all moved out of the topbar) enclosing the existing `TerminalPanel.vue` and `ShipsAtPortPanel.vue` in their current 2-column grid, unchanged
+- [x] Topbar — keeps the Fleet (context) `<Select>`, connection `Tag`, and theme toggle (both groups are fleet-scoped); the Port `<Select>` + `+` button moved into the Port Management group
+- [x] Port-gating still holds: the two port-scoped panels keep their `v-if="store.port"` fallback; the Fleet panel renders regardless of selection
+- [x] `npm run build` + lint green (0 errors)
+
+#### Terminal Yard split (Outbound / Arrived)
+
+Splits the single yard `DataTable` in `TerminalPanel.vue` into two: Outbound
+(`destPort !== store.port`) and Arrived (`destPort === store.port`, i.e. the
+container has reached its destination terminal — the domain has no separate
+"delivered" status, this is a client-side view of the same `in-terminal`
+containers). Client-side filter over the existing `store.yardContainers`
+getter — no store, query, or backend change.
+
+- [x] `TerminalPanel.vue` — `outboundContainers` / `arrivedContainers` computed filters; two `DataTable`s with their own empty states, replacing the single yard table
+- [x] Load dropdown narrowed to `outboundContainers` only — loading an arrived container is always rejected by BR-008, so offering it was a guaranteed-fail UX trap
+- [x] `npm run build` + lint green (0 errors)
+
+#### BR-016: container ID format (TCKU + 7 digits)
+
+Formal domain rule: a container ID must match ISO 6346 shape with a fixed
+`TCKU` owner prefix (case-sensitive) + exactly 7 digits, e.g. `TCKU1234567`.
+Enforced server-side (source of truth) with client-side validation in
+`frontend-port/` for fast feedback; the admin debug frontend (`frontend/`)
+is intentionally left as free-form raw input since it exists to exercise
+the raw API.
+
+- [x] `domain/container.go` — `ErrInvalidContainerID` + `containerIDPattern` (`^TCKU[0-9]{7}$`); checked first in `ContainerAggregate.Register()`, before BR-015's already-registered check
+- [x] `rest/handlers.go` — `ErrInvalidContainerID` mapped to 422 alongside the other container domain errors; swagger doc comment on `registerContainer` updated to mention BR-016 (`docs/docs.go` / `swagger.json` / `swagger.yaml` hand-patched — `swag init` regeneration produced a large unrelated `$ref`-naming diff from a swag version/config mismatch, so it was reverted in favor of a targeted string edit)
+- [x] Ginkgo spec — `Container Domain Rules / BR-016`, two cases (wrong prefix, wrong digit count); confirmed all existing test container IDs already matched `TCKU` + 7 digits before adding the rule, so no other spec needed updating
+- [x] `frontend-port/TerminalPanel.vue` — client-side `CONTAINER_ID_PATTERN` mirrors the domain regex; Register button disabled until valid; inline hint shown once the field is non-empty and invalid
+- [x] `BUSINESS_RULES.md` — BR-016 entry added
+- [x] Phase 8 container-rules table — BR-016 row added
+- [x] `go build ./...` + `ginkgo ./...` green (24/24) + `npm run build` + lint green (0 errors)
 
 ---
 

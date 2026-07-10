@@ -2,21 +2,28 @@ package domain
 
 import (
 	"errors"
+	"regexp"
 	"time"
 )
 
-// ─── Errors (BR-008 … BR-015; BR-012 reuses ErrNotInPort from ship.go) ───────
+// ─── Errors (BR-008 … BR-016; BR-012 reuses ErrNotInPort from ship.go) ───────
 
 var (
 	ErrContainerNotFound      = errors.New("container not found")
-	ErrContainerAtDestination = errors.New("container destination matches the ship's current port")    // BR-008
-	ErrWrongDestination       = errors.New("container can only be unloaded at its destination port")   // BR-009
-	ErrContainerNotInTerminal = errors.New("container must be in a terminal to be loaded")             // BR-010
-	ErrContainerNotOnShip     = errors.New("container must be on a ship to be unloaded")               // BR-011
-	ErrWrongShip              = errors.New("container is not on this ship")                            // BR-013
-	ErrContainerNotAtPort     = errors.New("container is not in a terminal at the ship's current port") // BR-014
-	ErrContainerExists        = errors.New("container is already registered")                          // BR-015
+	ErrContainerAtDestination = errors.New("container destination matches the ship's current port")              // BR-008
+	ErrWrongDestination       = errors.New("container can only be unloaded at its destination port")             // BR-009
+	ErrContainerNotInTerminal = errors.New("container must be in a terminal to be loaded")                       // BR-010
+	ErrContainerNotOnShip     = errors.New("container must be on a ship to be unloaded")                         // BR-011
+	ErrWrongShip              = errors.New("container is not on this ship")                                      // BR-013
+	ErrContainerNotAtPort     = errors.New("container is not in a terminal at the ship's current port")          // BR-014
+	ErrContainerExists        = errors.New("container is already registered")                                    // BR-015
+	ErrInvalidContainerID     = errors.New("container ID must be in ISO 6346 format: TCKU followed by 7 digits") // BR-016
 )
+
+// containerIDPattern is the ISO 6346 shape this lab enforces: the fixed
+// owner prefix TCKU (case-sensitive) followed by exactly 7 digits, e.g.
+// TCKU1234567. BR-016.
+var containerIDPattern = regexp.MustCompile(`^TCKU[0-9]{7}$`)
 
 // ─── Value objects ────────────────────────────────────────────────────────────
 
@@ -52,7 +59,7 @@ func (c ContainerState) KVKey() string { return "container." + c.ContainerID }
 // ─── Aggregate (command validation + Shape C reconstruction) ──────────────────
 
 // ContainerAggregate reconstructs container state by replaying events. It is
-// the single place where the container rules (BR-008 … BR-015) are enforced.
+// the single place where the container rules (BR-008 … BR-016) are enforced.
 // Cross-aggregate rules (BR-008, BR-012, BR-014) take the ship's identity and
 // current port as parameters — in Phase 8 both aggregates hydrate from one
 // atomic replay of the SHIPPING stream, so these checks are strongly
@@ -139,6 +146,9 @@ func (c *ContainerAggregate) FromState(s ContainerState) {
 // Register places a new container in the origin port's terminal.
 // BR-015: a container ID can only be registered once.
 func (c *ContainerAggregate) Register(cargo, originPort, destPort string) (ContainerEvent, error) {
+	if !containerIDPattern.MatchString(c.ContainerID) {
+		return ContainerEvent{}, ErrInvalidContainerID // BR-016
+	}
 	if c.registered {
 		return ContainerEvent{}, ErrContainerExists // BR-015
 	}

@@ -175,7 +175,7 @@ func (h *Handlers) departPort(w http.ResponseWriter, r *http.Request) {
 // registerContainer godoc
 //
 // @Summary      Register container
-// @Description  Registers a new container in its origin port's terminal yard (BR-015: a container ID can only be registered once). Publishes a container.registered event.
+// @Description  Registers a new container in its origin port's terminal yard (BR-015: a container ID can only be registered once; BR-016: container ID must be TCKU + 7 digits). Publishes a container.registered event.
 // @Tags         containers
 // @Accept       json
 // @Produce      json
@@ -423,7 +423,8 @@ func (h *Handlers) writeCommandError(w http.ResponseWriter, err error) {
 		errors.Is(err, domain.ErrContainerNotOnShip),
 		errors.Is(err, domain.ErrWrongShip),
 		errors.Is(err, domain.ErrContainerNotAtPort),
-		errors.Is(err, domain.ErrContainerExists):
+		errors.Is(err, domain.ErrContainerExists),
+		errors.Is(err, domain.ErrInvalidContainerID):
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeError(w, http.StatusBadRequest, err.Error())

@@ -137,6 +137,15 @@ Re-registering an existing container ID would silently reset its state (e.g. tel
 
 ---
 
+### BR-016 — A container ID must be in ISO 6346 format (TCKU + 7 digits)
+Every container ID must start with the fixed owner prefix `TCKU` (case-sensitive) followed by exactly 7 digits, e.g. `TCKU1234567`. This lab fixes the owner code rather than validating the full ISO 6346 owner-code space.
+
+- **Error:** `ErrInvalidContainerID` — "container ID must be in ISO 6346 format: TCKU followed by 7 digits"
+- **Enforced in:** `ContainerAggregate.Register()`
+- **Test:** `Container Domain Rules / BR-016`
+
+---
+
 ## Guards (not numbered rules)
 
 - **Unregistered container** — load/unload of a container with no `.registered`

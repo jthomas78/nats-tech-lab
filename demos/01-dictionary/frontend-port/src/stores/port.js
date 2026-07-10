@@ -32,6 +32,13 @@ export const usePortStore = defineStore('port', {
         .filter((s) => s.currentPort === state.port)
         .sort((a, b) => a.shipID.localeCompare(b.shipID)),
 
+    // Every ship in the fleet, regardless of port or status. Port-independent
+    // (fleet-scoped only — the store holds one context's ships), so the Fleet
+    // panel does not gate on the selected port. Docked-vs-in-transit is derived
+    // from currentPort ('' == at sea); the Fleet panel filters on it client-side.
+    allShips: (state) =>
+      Object.values(state.ships).sort((a, b) => a.shipID.localeCompare(b.shipID)),
+
     // Containers in the terminal yard at the selected port (terminalPort
     // match — never branches on status).
     yardContainers: (state) =>

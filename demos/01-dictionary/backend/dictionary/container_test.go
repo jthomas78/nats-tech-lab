@@ -1,7 +1,7 @@
 package dictionary
 
 // Container / terminal domain specs (Phase 8). Each Context maps to a rule in
-// BUSINESS_RULES.md (BR-008 … BR-015). Written before the implementation
+// BUSINESS_RULES.md (BR-008 … BR-016). Written before the implementation
 // (red → green → refactor). Both aggregates live on the single SHIPPING
 // stream, so every cross-aggregate rule is enforced from one atomic replay.
 
@@ -218,6 +218,24 @@ var _ = Describe("Container Domain Rules", func() {
 				Cargo: "Textiles", OriginPort: "Rotterdam", DestPort: "Sydney",
 			})
 			Expect(errors.Is(err, domain.ErrContainerExists)).To(BeTrue())
+		})
+	})
+
+	Context("BR-016: a container ID must be in ISO 6346 format (TCKU + 7 digits)", func() {
+		It("returns ErrInvalidContainerID for a non-TCKU prefix", func() {
+			_, err := containers.RegisterContainer(ctx, commands.ContainerInput{
+				Context: fleetCtx, ContainerID: "MSCU0000160",
+				Cargo: "Electronics", OriginPort: "Hamburg", DestPort: "Singapore",
+			})
+			Expect(errors.Is(err, domain.ErrInvalidContainerID)).To(BeTrue())
+		})
+
+		It("returns ErrInvalidContainerID for the wrong digit count", func() {
+			_, err := containers.RegisterContainer(ctx, commands.ContainerInput{
+				Context: fleetCtx, ContainerID: "TCKU001",
+				Cargo: "Electronics", OriginPort: "Hamburg", DestPort: "Singapore",
+			})
+			Expect(errors.Is(err, domain.ErrInvalidContainerID)).To(BeTrue())
 		})
 	})
 

@@ -24,6 +24,12 @@ const registerForm = reactive({ containerID: '', cargo: '', destPort: '' })
 
 const destPortOptions = computed(() => store.knownPorts.filter((p) => p !== store.port))
 
+// BR-016: TCKU + 7 digits (case-sensitive), mirrors the domain check in
+// ContainerAggregate.Register(). Client-side only for fast feedback — the
+// backend is the source of truth and re-validates on submit.
+const CONTAINER_ID_PATTERN = /^TCKU[0-9]{7}$/
+const containerIDValid = computed(() => CONTAINER_ID_PATTERN.test(registerForm.containerID))
+
 function openRegister() {
   registerForm.containerID = ''
   registerForm.cargo = ''
@@ -58,7 +64,15 @@ const loadForm = reactive({ containerID: '', shipID: '' })
 const loadBusy = ref(false)
 const loadError = ref('')
 
-const yardContainerOptions = computed(() => store.yardContainers.map((c) => c.containerID))
+// Yard containers split by destination: outbound still needs to travel from
+// here; arrived means terminalPort == destPort (BR-008/BR-009 territory —
+// the domain has no separate "delivered" status, this is a client-side view
+// of the same in-terminal containers). Only outbound containers are offered
+// for loading — loading an arrived container is always rejected by BR-008.
+const outboundContainers = computed(() => store.yardContainers.filter((c) => c.destPort !== store.port))
+const arrivedContainers = computed(() => store.yardContainers.filter((c) => c.destPort === store.port))
+
+const yardContainerOptions = computed(() => outboundContainers.value.map((c) => c.containerID))
 const dockedShipOptions = computed(() => store.dockedShips.map((s) => s.shipID))
 
 async function submitLoad() {
@@ -112,16 +126,32 @@ async function submitLoad() {
       <div v-if="loadError" class="domain-error">{{ loadError }}</div>
     </div>
 
-    <DataTable :value="store.yardContainers" size="small" data-key="containerID" resizableColumns columnResizeMode="expand">
+    <h4>Outbound</h4>
+    <DataTable :value="outboundContainers" size="small" data-key="containerID" resizableColumns columnResizeMode="expand">
       <template #empty>
-        <span class="lab-muted">No containers in this yard — register one above.</span>
+        <span class="lab-muted">No outbound containers in this yard — register one above.</span>
       </template>
       <Column field="containerID" header="Container" style="font-family:monospace;font-size:12px" />
       <Column field="cargo" header="Cargo" />
       <Column field="originPort" header="Origin" style="width:110px" />
       <Column header="Destination" style="width:130px">
         <template #body="{ data }">
-          <Tag :severity="data.destPort === store.port ? 'success' : 'info'" :value="data.destPort" />
+          <Tag severity="info" :value="data.destPort" />
+        </template>
+      </Column>
+    </DataTable>
+
+    <h4>Arrived</h4>
+    <DataTable :value="arrivedContainers" size="small" data-key="containerID" resizableColumns columnResizeMode="expand">
+      <template #empty>
+        <span class="lab-muted">No containers have arrived at their destination here.</span>
+      </template>
+      <Column field="containerID" header="Container" style="font-family:monospace;font-size:12px" />
+      <Column field="cargo" header="Cargo" />
+      <Column field="originPort" header="Origin" style="width:110px" />
+      <Column header="Destination" style="width:130px">
+        <template #body="{ data }">
+          <Tag severity="success" :value="data.destPort" />
         </template>
       </Column>
     </DataTable>
@@ -129,6 +159,9 @@ async function submitLoad() {
     <Dialog v-model:visible="registerVisible" header="Register container" modal style="width:26rem">
       <div class="dialog-fields">
         <InputText v-model.trim="registerForm.containerID" placeholder="container ID, e.g. TCKU1234567" size="small" />
+        <span v-if="registerForm.containerID && !containerIDValid" class="format-hint">
+          Must be TCKU followed by 7 digits, e.g. TCKU1234567
+        </span>
         <InputText v-model.trim="registerForm.cargo" placeholder="cargo, e.g. Electronics" size="small" />
         <Select v-model="registerForm.destPort" :options="destPortOptions" placeholder="destination port" editable size="small" />
         <span class="lab-muted">Origin terminal: <code>{{ store.port }}</code></span>
@@ -139,7 +172,7 @@ async function submitLoad() {
         <Button
           label="Register"
           size="small"
-          :disabled="registerBusy || !registerForm.containerID || !registerForm.cargo || !registerForm.destPort"
+          :disabled="registerBusy || !containerIDValid || !registerForm.cargo || !registerForm.destPort"
           :loading="registerBusy"
           @click="submitRegister"
         />
@@ -177,5 +210,21 @@ async function submitLoad() {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+}
+.format-hint {
+  margin-top: -0.35rem;
+  font-size: 0.75rem;
+  color: var(--p-red-400, #f87171);
+}
+h4 {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--p-text-muted-color);
+}
+h4:first-of-type {
+  margin-top: 0;
 }
 </style>

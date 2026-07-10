@@ -63,7 +63,7 @@
         },
         "/api/containers/register": {
             "post": {
-                "description": "Registers a new container in its origin port's terminal yard (BR-015: a container ID can only be registered once). Publishes a container.registered event.",
+                "description": "Registers a new container in its origin port's terminal yard (BR-015: a container ID can only be registered once; BR-016: container ID must be TCKU + 7 digits). Publishes a container.registered event.",
                 "consumes": [
                     "application/json"
                 ],

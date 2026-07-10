@@ -7,6 +7,7 @@ import Tag from 'primevue/tag'
 import Toast from 'primevue/toast'
 import { onMounted, onUnmounted, ref } from 'vue'
 
+import FleetPanel from './components/FleetPanel.vue'
 import ShipsAtPortPanel from './components/ShipsAtPortPanel.vue'
 import TerminalPanel from './components/TerminalPanel.vue'
 import { CONTEXTS, usePortStore } from './stores/port'
@@ -45,8 +46,8 @@ onUnmounted(() => store.disconnect())
   <div class="layout">
     <header class="topbar">
       <div>
-        <h1>Port Management</h1>
-        <span class="lab-muted">terminal yard · docked ships · container operations</span>
+        <h1>Ship Management</h1>
+        <span class="lab-muted">fleet overview · terminal yard · docked ships · container operations</span>
       </div>
       <div class="topbar-right">
         <Tag :severity="store.connected ? 'success' : 'danger'" :value="store.connected ? 'watching' : 'disconnected'" />
@@ -57,24 +58,6 @@ onUnmounted(() => store.disconnect())
           :options="CONTEXTS"
           size="small"
           @update:model-value="store.setContext($event)"
-        />
-        <label class="lab-muted" for="port">Port</label>
-        <Select
-          id="port"
-          :model-value="store.port"
-          :options="store.knownPorts"
-          placeholder="select port"
-          editable
-          size="small"
-          @update:model-value="store.setPort($event)"
-        />
-        <Button
-          icon="pi pi-plus"
-          aria-label="Add a shipping port"
-          text
-          rounded
-          size="small"
-          @click="openNewPort"
         />
         <Button
           :icon="dark ? 'pi pi-sun' : 'pi pi-moon'"
@@ -87,12 +70,46 @@ onUnmounted(() => store.disconnect())
       </div>
     </header>
 
-    <!-- Terminal yard + docked ships; each panel owns the operations that
-         act on it (register/load in the yard, arrive/depart/unload for ships) -->
-    <div class="panels">
-      <TerminalPanel />
-      <ShipsAtPortPanel />
-    </div>
+    <!-- Fleet-wide ship list (all / docked / in-transit); port-independent,
+         fleet-scoped only -->
+    <section class="group">
+      <FleetPanel />
+    </section>
+
+    <!-- Port Management — everything scoped to the selected port. The port
+         selector lives here (not the topbar) because it only scopes this
+         group; the in-transit view above is port-independent. -->
+    <section class="group">
+      <div class="group-head">
+        <h2>Port Management</h2>
+        <div class="group-head-controls">
+          <label class="lab-muted" for="port">Port</label>
+          <Select
+            id="port"
+            :model-value="store.port"
+            :options="store.knownPorts"
+            placeholder="select port"
+            editable
+            size="small"
+            @update:model-value="store.setPort($event)"
+          />
+          <Button
+            icon="pi pi-plus"
+            aria-label="Add a shipping port"
+            text
+            rounded
+            size="small"
+            @click="openNewPort"
+          />
+        </div>
+      </div>
+      <!-- Terminal yard + docked ships; each panel owns the operations that
+           act on it (register/load in the yard, arrive/depart/unload for ships) -->
+      <div class="panels">
+        <TerminalPanel />
+        <ShipsAtPortPanel />
+      </div>
+    </section>
 
     <Dialog v-model:visible="newPortVisible" header="Add a shipping port" modal style="width:22rem">
       <InputText
@@ -142,6 +159,27 @@ onUnmounted(() => store.disconnect())
 .dialog-note {
   margin: 0.5rem 0 0;
   font-size: 0.8rem;
+}
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+.group-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.group-head h2 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  letter-spacing: 0.02em;
+}
+.group-head-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
 }
 .panels {
   display: grid;

@@ -265,8 +265,8 @@ paths:
       consumes:
       - application/json
       description: 'Registers a new container in its origin port''s terminal yard
-        (BR-015: a container ID can only be registered once). Publishes a container.registered
-        event.'
+        (BR-015: a container ID can only be registered once; BR-016: container ID
+        must be TCKU + 7 digits). Publishes a container.registered event.'
       parameters:
       - description: context, containerID (ISO 6346), cargo, originPort, destPort
         in: body

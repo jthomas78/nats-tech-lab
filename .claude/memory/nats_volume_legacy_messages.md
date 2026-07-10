@@ -1,11 +1,11 @@
 ---
 name: nats-volume-legacy-messages
-description: Old NATS volumes carry DICTIONARY.entry.* messages that loop-crash the new ship projectors
+description: Old NATS volumes carry stale-domain messages (e.g. legacy DICTIONARY.entry.* under the old stream name) that loop-crash newer projectors on the current SHIPPING stream
 metadata:
   type: project
 ---
 
-When running Docker after a domain change (e.g. Phase 5 → Phase 6), the `nats-data` volume still contains messages from the previous domain with subjects like `DICTIONARY.entry.created`. The new durable consumers use `FilterSubject: "DICTIONARY.>"` which delivers them. Go's JSON unmarshal succeeds (lenient — unmatched fields become zero values), producing a `ShipEvent` with empty `ShipID`. The projector then tries `kv.Put(..., "ship.", ...)` → `"nats: invalid key"` → Nak → infinite redeliver loop, flooding the log.
+When running Docker after a domain change (originally seen Phase 5 → Phase 6; the same class of bug applies to any subject/stream rename, including the Phase 8 `DICTIONARY` → `SHIPPING` stream rename), the `nats-data` volume still contains messages from the previous domain with subjects like `DICTIONARY.entry.created`. A durable consumer with a broad `FilterSubject` (e.g. `SHIPPING.>` today, was `DICTIONARY.>`) delivers them. Go's JSON unmarshal succeeds (lenient — unmatched fields become zero values), producing e.g. a `ShipEvent` with empty `ShipID`. The projector then tries `kv.Put(..., "ship.", ...)` → `"nats: invalid key"` → Nak → infinite redeliver loop, flooding the log.
 
 **Code fix (applied):** In `eventhandler/handler.go`, after unmarshal, check `event.ShipID == ""` and Ack+skip with a Warn log. This stops the loop on hot-restart without clearing volumes.
 
