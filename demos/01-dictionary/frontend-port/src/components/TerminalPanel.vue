@@ -3,6 +3,8 @@ import Button from 'primevue/button'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
 import Dialog from 'primevue/dialog'
+import InputGroup from 'primevue/inputgroup'
+import InputGroupAddon from 'primevue/inputgroupaddon'
 import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
@@ -20,18 +22,26 @@ const toast = useToast()
 const registerVisible = ref(false)
 const registerBusy = ref(false)
 const registerError = ref('')
-const registerForm = reactive({ containerID: '', cargo: '', destPort: '' })
+const registerForm = reactive({ cargo: '', destPort: '' })
 
 const destPortOptions = computed(() => store.knownPorts.filter((p) => p !== store.port))
 
 // BR-016: TCKU + 7 digits (case-sensitive), mirrors the domain check in
-// ContainerAggregate.Register(). Client-side only for fast feedback — the
-// backend is the source of truth and re-validates on submit.
-const CONTAINER_ID_PATTERN = /^TCKU[0-9]{7}$/
-const containerIDValid = computed(() => CONTAINER_ID_PATTERN.test(registerForm.containerID))
+// ContainerAggregate.Register(). The TCKU prefix is fixed and shown as a
+// read-only addon — the user only ever types the 7-digit suffix, so an
+// invalid prefix is not something they can enter here. Client-side only for
+// fast feedback — the backend is the source of truth and re-validates on submit.
+const CONTAINER_ID_PREFIX = 'TCKU'
+const containerSuffix = ref('')
+const fullContainerID = computed(() => `${CONTAINER_ID_PREFIX}${containerSuffix.value}`)
+const containerIDValid = computed(() => /^[0-9]{7}$/.test(containerSuffix.value))
+
+function onSuffixInput() {
+  containerSuffix.value = containerSuffix.value.replace(/\D/g, '').slice(0, 7)
+}
 
 function openRegister() {
-  registerForm.containerID = ''
+  containerSuffix.value = ''
   registerForm.cargo = ''
   registerForm.destPort = ''
   registerError.value = ''
@@ -44,12 +54,12 @@ async function submitRegister() {
   try {
     await registerContainer({
       context: store.context,
-      containerID: registerForm.containerID.trim(),
+      containerID: fullContainerID.value,
       cargo: registerForm.cargo.trim(),
       originPort: store.port,
       destPort: registerForm.destPort,
     })
-    toast.add({ severity: 'success', summary: 'Container registered', detail: registerForm.containerID, life: 2500 })
+    toast.add({ severity: 'success', summary: 'Container registered', detail: fullContainerID.value, life: 2500 })
     registerVisible.value = false
   } catch (err) {
     registerError.value = err.message
@@ -158,9 +168,19 @@ async function submitLoad() {
 
     <Dialog v-model:visible="registerVisible" header="Register container" modal style="width:26rem">
       <div class="dialog-fields">
-        <InputText v-model.trim="registerForm.containerID" placeholder="container ID, e.g. TCKU1234567" size="small" />
-        <span v-if="registerForm.containerID && !containerIDValid" class="format-hint">
-          Must be TCKU followed by 7 digits, e.g. TCKU1234567
+        <InputGroup>
+          <InputGroupAddon>{{ CONTAINER_ID_PREFIX }}</InputGroupAddon>
+          <InputText
+            v-model="containerSuffix"
+            placeholder="1234567"
+            size="small"
+            inputmode="numeric"
+            maxlength="7"
+            @input="onSuffixInput"
+          />
+        </InputGroup>
+        <span v-if="containerSuffix && !containerIDValid" class="format-hint">
+          Must be 7 digits, e.g. {{ CONTAINER_ID_PREFIX }}1234567
         </span>
         <InputText v-model.trim="registerForm.cargo" placeholder="cargo, e.g. Electronics" size="small" />
         <Select v-model="registerForm.destPort" :options="destPortOptions" placeholder="destination port" editable size="small" />
