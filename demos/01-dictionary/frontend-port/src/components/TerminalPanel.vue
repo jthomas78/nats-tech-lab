@@ -6,6 +6,7 @@ import Dialog from 'primevue/dialog'
 import InputGroup from 'primevue/inputgroup'
 import InputGroupAddon from 'primevue/inputgroupaddon'
 import InputText from 'primevue/inputtext'
+import Menu from 'primevue/menu'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import { useToast } from 'primevue/usetoast'
@@ -69,10 +70,11 @@ async function submitRegister() {
 }
 
 // ── Load container onto a docked ship ─────────────────────────────────────────
-
-const loadForm = reactive({ containerID: '', shipID: '' })
-const loadBusy = ref(false)
-const loadError = ref('')
+// Inline on each Outbound row: "Load" opens a popup menu of ships docked at
+// this port (there is no separate ship-picker row) — choosing a ship loads
+// immediately, no extra confirm step, matching the single-click Unload/Depart
+// actions elsewhere in this UI. Errors surface as a toast since a menu item
+// click has no natural inline error slot.
 
 // Yard containers split by destination: outbound still needs to travel from
 // here; arrived means terminalPort == destPort (BR-008/BR-009 territory —
@@ -82,21 +84,28 @@ const loadError = ref('')
 const outboundContainers = computed(() => store.yardContainers.filter((c) => c.destPort !== store.port))
 const arrivedContainers = computed(() => store.yardContainers.filter((c) => c.destPort === store.port))
 
-const yardContainerOptions = computed(() => outboundContainers.value.map((c) => c.containerID))
-const dockedShipOptions = computed(() => store.dockedShips.map((s) => s.shipID))
+const loadBusyID = ref('')
+const shipMenu = ref()
+const menuContainerID = ref('')
 
-async function submitLoad() {
-  loadError.value = ''
-  loadBusy.value = true
+const shipMenuItems = computed(() =>
+  store.dockedShips.map((s) => ({ label: s.shipID, command: () => submitLoad(menuContainerID.value, s.shipID) })),
+)
+
+function openShipMenu(event, containerID) {
+  menuContainerID.value = containerID
+  shipMenu.value.toggle(event)
+}
+
+async function submitLoad(containerID, shipID) {
+  loadBusyID.value = containerID
   try {
-    await loadContainer({ context: store.context, containerID: loadForm.containerID, shipID: loadForm.shipID })
-    toast.add({ severity: 'success', summary: 'Container loaded', detail: `${loadForm.containerID} → ${loadForm.shipID}`, life: 2500 })
-    loadForm.containerID = ''
-    loadForm.shipID = ''
+    await loadContainer({ context: store.context, containerID, shipID })
+    toast.add({ severity: 'success', summary: 'Container loaded', detail: `${containerID} → ${shipID}`, life: 2500 })
   } catch (err) {
-    loadError.value = err.message
+    toast.add({ severity: 'error', summary: 'Load failed', detail: err.message, life: 4000 })
   } finally {
-    loadBusy.value = false
+    loadBusyID.value = ''
   }
 }
 </script>
@@ -110,30 +119,6 @@ async function submitLoad() {
     </div>
     <div v-else class="ops">
       <Button label="Register container" icon="pi pi-plus" size="small" outlined @click="openRegister" />
-
-      <div class="op-row">
-        <Select
-          v-model="loadForm.containerID"
-          :options="yardContainerOptions"
-          placeholder="container in yard"
-          size="small"
-          style="width:200px"
-        />
-        <Select
-          v-model="loadForm.shipID"
-          :options="dockedShipOptions"
-          placeholder="docked ship"
-          size="small"
-        />
-        <Button
-          label="Load"
-          size="small"
-          :disabled="loadBusy || !loadForm.containerID || !loadForm.shipID"
-          :loading="loadBusy"
-          @click="submitLoad"
-        />
-      </div>
-      <div v-if="loadError" class="domain-error">{{ loadError }}</div>
     </div>
 
     <h4>Outbound</h4>
@@ -149,7 +134,20 @@ async function submitLoad() {
           <Tag severity="info" :value="data.destPort" />
         </template>
       </Column>
+      <Column header="" style="width:100px">
+        <template #body="{ data: container }">
+          <Button
+            label="Load"
+            size="small"
+            :disabled="store.dockedShips.length === 0 || loadBusyID === container.containerID"
+            :loading="loadBusyID === container.containerID"
+            :title="store.dockedShips.length === 0 ? 'No ships docked here' : ''"
+            @click="openShipMenu($event, container.containerID)"
+          />
+        </template>
+      </Column>
     </DataTable>
+    <Menu ref="shipMenu" :model="shipMenuItems" popup />
 
     <h4>Arrived</h4>
     <DataTable :value="arrivedContainers" size="small" data-key="containerID" resizableColumns columnResizeMode="expand">

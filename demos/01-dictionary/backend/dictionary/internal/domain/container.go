@@ -43,7 +43,8 @@ const (
 // never branch on Status to interpret an overloaded string.
 type ContainerState struct {
 	Context      string          `json:"context"`     // fleet / KV-bucket qualifier
-	ContainerID  string          `json:"containerID"` // ISO 6346, e.g. TCKU1234567
+	ID           string          `json:"id"`          // surrogate key (UUID) — aggregate identity
+	ContainerID  string          `json:"containerID"` // ISO 6346 natural key, e.g. TCKU1234567
 	Cargo        string          `json:"cargo"`       // description of contents
 	OriginPort   string          `json:"originPort"`
 	DestPort     string          `json:"destPort"`
@@ -53,7 +54,10 @@ type ContainerState struct {
 	UpdatedAt    time.Time       `json:"updatedAt"`
 }
 
-// KVKey returns the key within the context-scoped bucket: container.{id}.
+// KVKey returns the key within the context-scoped bucket: container.{containerID}.
+// The read-model bucket is keyed by the human-facing natural key for query
+// convenience (and doubles as the natural-key lookup); the surrogate ID is
+// carried as a field. Aggregate identity on the write side is still the ID.
 func (c ContainerState) KVKey() string { return "container." + c.ContainerID }
 
 // ─── Aggregate (command validation + Shape C reconstruction) ──────────────────
@@ -65,7 +69,8 @@ func (c ContainerState) KVKey() string { return "container." + c.ContainerID }
 // atomic replay of the SHIPPING stream, so these checks are strongly
 // consistent.
 type ContainerAggregate struct {
-	ContainerID  string
+	ID           string // surrogate key (UUID) — the immutable aggregate identity
+	ContainerID  string // ISO 6346 natural key
 	Cargo        string
 	OriginPort   string
 	DestPort     string
@@ -78,8 +83,12 @@ type ContainerAggregate struct {
 }
 
 // Apply folds one event into the aggregate's state. Subject selects the
-// transition; unknown subjects are silently ignored.
+// transition; unknown subjects are silently ignored. Every event carries the
+// surrogate ID and the natural ContainerID; both are refreshed on each fold.
 func (c *ContainerAggregate) Apply(subject string, event ContainerEvent) {
+	if event.ID != "" {
+		c.ID = event.ID
+	}
 	c.ContainerID = event.ContainerID
 	c.UpdatedAt = event.OccurredAt
 	switch subject {
@@ -109,6 +118,7 @@ func (c *ContainerAggregate) Apply(subject string, event ContainerEvent) {
 func (c *ContainerAggregate) State(context string) ContainerState {
 	state := ContainerState{
 		Context:     context,
+		ID:          c.ID,
 		ContainerID: c.ContainerID,
 		Cargo:       c.Cargo,
 		OriginPort:  c.OriginPort,
@@ -130,6 +140,7 @@ func (c *ContainerAggregate) State(context string) ContainerState {
 // FromState restores aggregate fields from an existing ContainerState so the
 // event projector can apply a delta without replaying from JetStream.
 func (c *ContainerAggregate) FromState(s ContainerState) {
+	c.ID = s.ID
 	c.ContainerID = s.ContainerID
 	c.Cargo = s.Cargo
 	c.OriginPort = s.OriginPort
@@ -141,10 +152,18 @@ func (c *ContainerAggregate) FromState(s ContainerState) {
 	c.registered = s.ContainerID != ""
 }
 
+// IsRegistered reports whether a .registered event has been folded into this
+// aggregate — i.e. the natural key already maps to a container. The application
+// layer uses it to decide whether to mint a new surrogate key on Register.
+func (c *ContainerAggregate) IsRegistered() bool { return c.registered }
+
 // ─── Command methods (each returns the new event or a domain error) ───────────
 
-// Register places a new container in the origin port's terminal.
-// BR-015: a container ID can only be registered once.
+// Register places a new container in the origin port's terminal. c.ID must
+// already hold the freshly-minted surrogate key (the application layer mints it
+// and derives c.registered by resolving the natural key against the event
+// stream). BR-016: valid ISO 6346 format. BR-015: a container ID can only be
+// registered once.
 func (c *ContainerAggregate) Register(cargo, originPort, destPort string) (ContainerEvent, error) {
 	if !containerIDPattern.MatchString(c.ContainerID) {
 		return ContainerEvent{}, ErrInvalidContainerID // BR-016
@@ -153,6 +172,7 @@ func (c *ContainerAggregate) Register(cargo, originPort, destPort string) (Conta
 		return ContainerEvent{}, ErrContainerExists // BR-015
 	}
 	return ContainerEvent{
+		ID:          c.ID,
 		ContainerID: c.ContainerID,
 		Cargo:       cargo,
 		OriginPort:  originPort,
@@ -183,6 +203,7 @@ func (c *ContainerAggregate) Load(shipID, shipPort string) (ContainerEvent, erro
 		return ContainerEvent{}, ErrContainerAtDestination // BR-008
 	}
 	return ContainerEvent{
+		ID:          c.ID,
 		ContainerID: c.ContainerID,
 		ShipID:      shipID,
 		Port:        shipPort,
@@ -210,6 +231,7 @@ func (c *ContainerAggregate) Unload(shipID, shipPort string) (ContainerEvent, er
 		return ContainerEvent{}, ErrWrongDestination // BR-009
 	}
 	return ContainerEvent{
+		ID:          c.ID,
 		ContainerID: c.ContainerID,
 		ShipID:      shipID,
 		Port:        shipPort,

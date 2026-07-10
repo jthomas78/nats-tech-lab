@@ -894,6 +894,10 @@ const docTemplate = `{
                 "destPort": {
                     "type": "string"
                 },
+                "id": {
+                    "description": "surrogate key (UUID) — aggregate identity",
+                    "type": "string"
+                },
                 "onShipID": {
                     "description": "set iff Status == on-ship",
                     "type": "string"

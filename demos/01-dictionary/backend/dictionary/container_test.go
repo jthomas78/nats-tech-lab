@@ -239,6 +239,59 @@ var _ = Describe("Container Domain Rules", func() {
 		})
 	})
 
+	// ── surrogate key (Phase 8.3) ─────────────────────────────────────────────
+
+	Context("surrogate key: the container's identity is an immutable UUID, not the ISO 6346 natural key", func() {
+		It("assigns a UUID at registration, distinct from the container ID", func() {
+			state, err := containers.RegisterContainer(ctx, commands.ContainerInput{
+				Context: fleetCtx, ContainerID: "TCKU0000200",
+				Cargo: "Electronics", OriginPort: "Hamburg", DestPort: "Singapore",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(state.ID).To(MatchRegexp(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`))
+			Expect(state.ID).NotTo(Equal(state.ContainerID))
+		})
+
+		It("keeps the same id stable across load and unload", func() {
+			registered, err := containers.RegisterContainer(ctx, commands.ContainerInput{
+				Context: fleetCtx, ContainerID: "TCKU0000201",
+				Cargo: "Electronics", OriginPort: "Hamburg", DestPort: "Rotterdam",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			id := registered.ID
+
+			arrive("surrogate-ship", "Hamburg")
+			loaded, err := containers.LoadContainer(ctx, commands.ContainerInput{
+				Context: fleetCtx, ContainerID: "TCKU0000201", ShipID: "surrogate-ship",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(loaded.ID).To(Equal(id))
+
+			depart("surrogate-ship", "Hamburg")
+			arrive("surrogate-ship", "Rotterdam")
+			unloaded, err := containers.UnloadContainer(ctx, commands.ContainerInput{
+				Context: fleetCtx, ContainerID: "TCKU0000201", ShipID: "surrogate-ship",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(unloaded.ID).To(Equal(id))
+		})
+
+		It("still rejects a duplicate natural key (BR-015) even though identity is the surrogate key", func() {
+			first, err := containers.RegisterContainer(ctx, commands.ContainerInput{
+				Context: fleetCtx, ContainerID: "TCKU0000202",
+				Cargo: "Electronics", OriginPort: "Hamburg", DestPort: "Singapore",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(first.ID).NotTo(BeEmpty())
+
+			_, err = containers.RegisterContainer(ctx, commands.ContainerInput{
+				Context: fleetCtx, ContainerID: "TCKU0000202",
+				Cargo: "Textiles", OriginPort: "Rotterdam", DestPort: "Sydney",
+			})
+			Expect(errors.Is(err, domain.ErrContainerExists)).To(BeTrue())
+		})
+	})
+
 	// ── guards (not numbered rules) ───────────────────────────────────────────
 
 	Context("unregistered container", func() {

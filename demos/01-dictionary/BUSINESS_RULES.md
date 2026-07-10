@@ -132,8 +132,8 @@ Loading pulls a container from a specific yard: the ship must be docked at that 
 Re-registering an existing container ID would silently reset its state (e.g. teleporting an on-ship container back into a yard).
 
 - **Error:** `ErrContainerExists` — "container is already registered"
-- **Enforced in:** `ContainerAggregate.Register()`
-- **Test:** `Container Domain Rules / BR-015`
+- **Enforced in:** `ContainerAggregate.Register()` — the rule decision stays in the domain (`c.registered`), but since Phase 8.3 the container's identity is a surrogate key (UUID), so uniqueness is a **natural-key** constraint. The application (`RegisterContainer`) resolves the natural key against the event stream (`hydrateByNaturalKey`) and folds any existing `.registered` event in, so the domain still sees `c.registered == true` and rejects the duplicate. Resolution is against the authoritative event log, not an eventually-consistent read projection.
+- **Test:** `Container Domain Rules / BR-015` and `Container Domain Rules / surrogate key …`
 
 ---
 

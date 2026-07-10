@@ -73,7 +73,7 @@ func RegisterContainers(
 // it into a ContainerAggregate so the projector can apply a single-event
 // delta without replaying the full JetStream history.
 func currentContainerAgg(ctx context.Context, kv *kvstore.Store, event domain.ContainerEvent) *domain.ContainerAggregate {
-	agg := &domain.ContainerAggregate{ContainerID: event.ContainerID}
+	agg := &domain.ContainerAggregate{ID: event.ID, ContainerID: event.ContainerID}
 	raw, _, err := kv.Get(ctx, event.Context, "container."+event.ContainerID)
 	if err == nil {
 		var existing domain.ContainerState

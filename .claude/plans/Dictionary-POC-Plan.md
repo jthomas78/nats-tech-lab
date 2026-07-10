@@ -597,6 +597,115 @@ the raw API.
 
 ---
 
+### Phase 8.3 — Surrogate Key (UUID) for Container
+
+#### Overview
+
+Follow-up to fixing `TCKU0001` by hand in Phase 8.2: rather than building a
+`container.id-corrected` corrective-event pattern to handle natural-key
+mistakes after the fact, adopt an immutable **surrogate key (UUID)** as
+`Container`'s true aggregate identity now, while the POC is still small and
+before the design becomes load-bearing across the backend and both
+frontends. This is the "design it in from day one" side of the
+surrogate-vs-corrective-event tradeoff — cheap here, expensive as a later
+retrofit on a real (V3) system.
+
+**Scope: `Container` only, not `Ship`.** See design rationale below.
+
+Because this changes what `ContainerAggregate` folds by (and the `containers`
+table's primary key), existing event history and the old Postgres schema are not
+compatible without a backfill migration. For a POC the reset is cheaper than the
+migration — a `docker compose down -v` clears `nats-data` and `pg-data` so
+Container aggregates adopt UUID identity from the next registration, no backfill
+needed. (Ship data is lost too since it shares the stream/volumes, but `Ship`
+itself is unchanged — only test data is lost, not the model.) This is tracked as
+the single operational step in the checklist below.
+
+#### Design rationale — Container gets a surrogate key, Ship does not
+
+| | `Container` | `Ship` |
+|---|---|---|
+| Natural key | Container ID, ISO 6346 format (BR-016: `TCKU` + 7 digits) | Ship ID — an internal slug/handle (e.g. `my-ship`) |
+| External interchange standard? | Yes — ISO 6346 exists specifically so *other systems* recognize the same container by this ID | No — no equivalent business rule constrains or standardizes it for external use |
+| Correction/rename risk | Real — this is exactly what happened with `TCKU0001` | Low — nothing today forces or expects a ship ID to be corrected |
+| Identity model | Surrogate key (UUID) = identity; container ID = mutable natural-key attribute | Natural key stays the identity — no surrogate needed |
+
+The general lesson (captured in the personal Event Sourcing notes this
+session produced) is: adopt a surrogate key where the natural key is an
+external interchange standard that a system doesn't fully control and may
+need to correct. `Ship` doesn't have that pressure, so adding a surrogate
+key there would be indirection without a matching benefit — this phase
+does **not** touch `Ship`.
+
+#### Design
+
+```
+Container
+  id            string   — surrogate key (UUID), assigned at Register(); this is what
+                            Hydrate/Apply fold by — never changes after creation
+  containerID   string   — natural key, ISO 6346 format (BR-016); mutable attribute,
+                            enforced unique via the new natural-key index (not by folding)
+  cargo         string
+  originPort    string
+  destPort      string
+  status        enum     — in-terminal | on-ship
+  terminalPort  *string
+  onShipID      *string
+```
+
+A new `container-index-{context}` KV bucket (or a unique Postgres column,
+depending on final implementation choice) maps `containerID -> id (UUID)`,
+maintained by the container-projector on every `container.registered`
+event. This index is **load-bearing**, not optional — every natural-key
+route or command has to resolve through it before it can hydrate or query
+by the surrogate key (see the "indexing cost" discussion below).
+
+Public API surface stays **natural-key addressed**
+(`/api/containers/{containerID}`, `LoadContainer(containerID, ...)`) — per
+the earlier decision that ISO 6346 is meant to be the external interchange
+key. Response bodies gain an `id` (UUID) field alongside `containerID` for
+callers that want a stable reference across a future correction.
+
+> **Two implementation refinements vs. the design sketch above**, both to keep
+> BR-015 strongly consistent:
+> 1. **No separate index bucket.** The command side resolves `containerID -> id`
+>    from the **event stream replay** (authoritative), not from an
+>    eventually-consistent read projection. So there is no `container-index-*`
+>    KV bucket; the natural-key "index" is (a) the stream itself on the write
+>    side and (b) the `UNIQUE (context, container_id)` Postgres column on the
+>    read side. This sidesteps the stale-read hazard the notes flagged for
+>    validating a write against a read model.
+> 2. **BR-015 stays a domain rule, unchanged in spirit.** `RegisterContainer`
+>    hydrates the container by natural key (`hydrateByNaturalKey`) so the domain
+>    still sees `c.registered == true` and rejects the duplicate in
+>    `ContainerAggregate.Register()` — the rule did *not* move into the handler.
+
+#### Checklist
+
+**Backend**
+- [x] `domain/container.go` — `ID` (UUID) added to `ContainerAggregate` + `ContainerState`; `Apply`/`State`/`FromState` carry it; `Register`/`Load`/`Unload` emit it; `IsRegistered()` exposed for the mint-decision
+- [x] `domain/events.go` — `ContainerEvent` gains an `id` field alongside `containerID`, carried on every container event
+- [x] `application/commands/container.go` — `RegisterContainer` mints a dependency-free UUID v4 (`newSurrogateID`) after `hydrateByNaturalKey` confirms the natural key is free; `hydratePair` (Load/Unload) resolves `containerID -> id` from the `.registered` event, then folds strictly by `id`
+- [x] Natural-key resolution: chosen mechanism is the **event-stream replay** on the write side + the `UNIQUE (context, container_id)` Postgres column on the read side (no separate `container-index-*` KV bucket — see refinement note above)
+- [x] `postgres/migrate.go` — `containers` PK is now `(context, id)`; `container_id` carries `UNIQUE (context, container_id)`; `container_repository.go` upserts on the surrogate key
+- [x] `eventhandler/container_handler.go` — projector carries `id` end to end (`currentContainerAgg` seeds it); KV read model stays keyed by `container.{containerID}` and carries `id` as a field (doubles as the natural-key lookup)
+- [x] `rest/handlers.go` — routes stay natural-key addressed; `ContainerState` responses include `id` automatically; swagger `ContainerState` definition hand-patched (docs.go / swagger.json / swagger.yaml) to add the field without a `swag init` regen; BR-015 confirmed still rejecting duplicates via a Ginkgo spec
+- [x] `go build ./...` + `go vet` + `gofmt` + `ginkgo ./...` green (50/50; 3 new surrogate-key specs)
+
+**Frontend**
+- [x] `frontend-port/` — confirmed no change required (panels key/display by `containerID`; the new `id` field is additive and ignored)
+- [ ] `frontend/` (admin debug UI) — optional, skipped: could show `id` alongside `containerID` in Shape A/B/C panels; deferred as non-essential
+- [x] Neither frontend touched, so no rebuild needed (backward-compatible JSON addition)
+
+**Documentation**
+- [x] `ARCHITECTURE.md` — new "Container identity — surrogate key (Phase 8.3)" subsection: fold-by-id, Postgres PK/UNIQUE, KV read model, and why `Ship` is out of scope; aggregate-rules range bumped to BR-016
+- [x] `BUSINESS_RULES.md` — BR-015 enforcement note updated (natural-key resolution against the stream; rule stays in the domain)
+
+**Operational (run when bringing the live stack onto the new schema)**
+- [ ] `docker compose down -v` — the running Postgres still has the old `containers` schema (PK `(context, container_id)`, no `id` column); `CREATE TABLE IF NOT EXISTS` won't alter it, so a volume reset is required before the backend can upsert on `(context, id)`. Left for the user to run (destructive — wipes the current dev data).
+
+---
+
 ### Phase 9 — Stream Split + Cross-Aggregate Consistency
 
 #### Goal

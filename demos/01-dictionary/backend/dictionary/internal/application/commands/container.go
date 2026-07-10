@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 
@@ -49,9 +50,16 @@ func (h *ContainerHandler) RegisterContainer(ctx context.Context, in ContainerIn
 		return domain.ContainerState{}, fmt.Errorf("destPort is required")
 	}
 
-	_, cont, err := h.hydratePair(ctx, "", in.ContainerID)
+	// Resolve the natural key against the event stream (strongly consistent,
+	// authoritative) to detect an existing registration for BR-015. A brand-new
+	// container gets a freshly-minted surrogate key; an already-registered one
+	// hydrates its existing id so Register can reject the duplicate.
+	cont, err := h.hydrateByNaturalKey(ctx, in.ContainerID)
 	if err != nil {
 		return domain.ContainerState{}, err
+	}
+	if !cont.IsRegistered() {
+		cont.ID = newSurrogateID()
 	}
 	event, err := cont.Register(in.Cargo, in.OriginPort, in.DestPort)
 	if err != nil {
@@ -118,14 +126,17 @@ func requireIDs(in ContainerInput) error {
 	return nil
 }
 
-// hydratePair rebuilds BOTH aggregates from one replay of the SHIPPING
-// stream: ship.* events with a matching shipID fold into the ShipAggregate,
-// container.* events with a matching containerID fold into the
-// ContainerAggregate. Because both come from the same replay, cross-aggregate
-// rule checks see a single consistent point in time.
+// hydratePair rebuilds BOTH aggregates from one replay of the SHIPPING stream.
+// Ship events with a matching shipID fold into the ShipAggregate. Container
+// events fold by the immutable surrogate id (Phase 8.3): the id is resolved
+// from the .registered event whose natural key matches containerID, then every
+// event carrying that id is folded — so identity is the UUID, not the mutable
+// ISO 6346 natural key. Because both aggregates come from the same replay,
+// cross-aggregate rule checks see a single consistent point in time.
 func (h *ContainerHandler) hydratePair(ctx context.Context, shipID, containerID string) (*domain.ShipAggregate, *domain.ContainerAggregate, error) {
 	ship := &domain.ShipAggregate{ShipID: shipID}
-	cont := &domain.ContainerAggregate{ContainerID: containerID}
+	cont := &domain.ContainerAggregate{}
+	var targetID string // surrogate id the natural key resolves to
 
 	replay := func(subject string, data []byte) {
 		if isShipSubject(subject) {
@@ -136,7 +147,13 @@ func (h *ContainerHandler) hydratePair(ctx context.Context, shipID, containerID 
 			return
 		}
 		var event domain.ContainerEvent
-		if json.Unmarshal(data, &event) == nil && event.ContainerID == containerID {
+		if json.Unmarshal(data, &event) != nil {
+			return
+		}
+		if subject == domain.SubjectContainerRegistered && targetID == "" && event.ContainerID == containerID {
+			targetID = event.ID
+		}
+		if targetID != "" && event.ID == targetID {
 			cont.Apply(subject, event)
 		}
 	}
@@ -144,6 +161,39 @@ func (h *ContainerHandler) hydratePair(ctx context.Context, shipID, containerID 
 		return nil, nil, err
 	}
 	return ship, cont, nil
+}
+
+// hydrateByNaturalKey folds every container event with a matching natural key
+// into a fresh aggregate. Used only by Register, which has no surrogate id yet:
+// it must resolve uniqueness (BR-015) by the natural key against the event
+// stream. If a registration exists the aggregate carries its id and reports
+// IsRegistered(); otherwise it is blank and the caller mints a new id.
+func (h *ContainerHandler) hydrateByNaturalKey(ctx context.Context, containerID string) (*domain.ContainerAggregate, error) {
+	cont := &domain.ContainerAggregate{ContainerID: containerID}
+	replay := func(subject string, data []byte) {
+		if isShipSubject(subject) {
+			return
+		}
+		var event domain.ContainerEvent
+		if json.Unmarshal(data, &event) == nil && event.ContainerID == containerID {
+			cont.Apply(subject, event)
+		}
+	}
+	if err := replayStream(ctx, h.js, replay); err != nil {
+		return nil, err
+	}
+	return cont, nil
+}
+
+// newSurrogateID returns a random RFC 4122 v4 UUID. Containers use it as their
+// immutable aggregate identity (Phase 8.3), decoupling identity from the
+// mutable ISO 6346 natural key. Dependency-free so the POC builds offline.
+func newSurrogateID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 func (h *ContainerHandler) publish(ctx context.Context, subject string, event domain.ContainerEvent) error {

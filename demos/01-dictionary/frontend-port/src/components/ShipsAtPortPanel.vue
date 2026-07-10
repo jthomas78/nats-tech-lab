@@ -2,8 +2,6 @@
 import Button from 'primevue/button'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
-import Divider from 'primevue/divider'
-import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import { useToast } from 'primevue/usetoast'
@@ -17,11 +15,21 @@ const toast = useToast()
 
 const expandedShips = ref({})
 
-const dockedShipOptions = computed(() => store.dockedShips.map((s) => s.shipID))
-
 // ── Ship arrives ───────────────────────────────────────────────────────────────
+// One dropdown, not a form: registering a brand-new ship now happens from the
+// Fleet panel's "+" dialog (first arrival there). This picker only brings an
+// *existing* ship here, so it only ever needs to identify which one — no name
+// field. Only ships at sea are offered: a ship docked elsewhere must depart
+// first (BR-002, ErrMustDepart), so listing it here would be a guaranteed-fail
+// option, the same trap the outbound-only Load dropdown avoids elsewhere.
 
-const arriveForm = reactive({ shipID: '', shipName: '' })
+const shipsAtSeaOptions = computed(() =>
+  store.allShips
+    .filter((s) => s.currentPort === '')
+    .map((s) => ({ label: `${s.shipID} — ${s.shipName}`, value: s.shipID })),
+)
+
+const arriveShipID = ref('')
 const arriveBusy = ref(false)
 const arriveError = ref('')
 
@@ -29,15 +37,9 @@ async function submitArrive() {
   arriveError.value = ''
   arriveBusy.value = true
   try {
-    await arrivePort({
-      context: store.context,
-      shipID: arriveForm.shipID.trim(),
-      shipName: arriveForm.shipName.trim() || arriveForm.shipID.trim(),
-      port: store.port,
-    })
-    toast.add({ severity: 'success', summary: 'Ship arrived', detail: arriveForm.shipID, life: 2500 })
-    arriveForm.shipID = ''
-    arriveForm.shipName = ''
+    await arrivePort({ context: store.context, shipID: arriveShipID.value, port: store.port })
+    toast.add({ severity: 'success', summary: 'Ship arrived', detail: arriveShipID.value, life: 2500 })
+    arriveShipID.value = ''
   } catch (err) {
     arriveError.value = err.message
   } finally {
@@ -46,22 +48,22 @@ async function submitArrive() {
 }
 
 // ── Ship departs ───────────────────────────────────────────────────────────────
+// Depart is inline on each docked-ship row (not a separate ship picker) — the
+// row already identifies the ship, and every ship in this table is docked at
+// the selected port, so the action is always valid here. Errors surface as a
+// toast since a row action has no natural inline error slot.
 
-const departShipID = ref('')
-const departBusy = ref(false)
-const departError = ref('')
+const departBusyID = ref('')
 
-async function submitDepart() {
-  departError.value = ''
-  departBusy.value = true
+async function submitDepart(shipID) {
+  departBusyID.value = shipID
   try {
-    await departPort({ context: store.context, shipID: departShipID.value, port: store.port })
-    toast.add({ severity: 'success', summary: 'Ship departed', detail: departShipID.value, life: 2500 })
-    departShipID.value = ''
+    await departPort({ context: store.context, shipID, port: store.port })
+    toast.add({ severity: 'success', summary: 'Ship departed', detail: shipID, life: 2500 })
   } catch (err) {
-    departError.value = err.message
+    toast.add({ severity: 'error', summary: 'Depart failed', detail: err.message, life: 4000 })
   } finally {
-    departBusy.value = false
+    departBusyID.value = ''
   }
 }
 
@@ -86,16 +88,15 @@ async function submitUnload(shipID, containerID) {
   }
 }
 
-// Docked-ship select only ever lists ships at the current port, but the
-// underlying v-model value is a plain string — switching ports doesn't clear
-// a stale selection just because it drops out of the option list, so the
-// depart form must be reset explicitly or a stale ship can still pass the
-// "field set" enablement check.
+// Clear the arrive error and stale per-ship unload errors when the selected
+// port changes. (Depart and unload are inline row actions with no stale
+// Select value to reset — the earlier depart-picker bug is gone with the
+// picker. The arrive Select's options are fleet-wide, not port-scoped, so its
+// value itself never goes stale on a port switch — only its error does.)
 watch(
   () => store.port,
   () => {
-    departShipID.value = ''
-    departError.value = ''
+    arriveError.value = ''
     for (const key of Object.keys(unloadErrorByShip)) delete unloadErrorByShip[key]
   },
 )
@@ -110,19 +111,25 @@ watch(
     </div>
     <div v-else class="ops">
       <div class="op-row">
-        <InputText v-model.trim="arriveForm.shipID" placeholder="ship ID, e.g. orient-express" size="small" />
-        <InputText v-model.trim="arriveForm.shipName" placeholder="ship name (first arrival only)" size="small" />
-        <Button label="Arrive" size="small" :disabled="arriveBusy || !arriveForm.shipID" :loading="arriveBusy" @click="submitArrive" />
+        <Select
+          v-model="arriveShipID"
+          :options="shipsAtSeaOptions"
+          option-label="label"
+          option-value="value"
+          placeholder="ship at sea"
+          size="small"
+          style="width:220px"
+        />
+        <Button
+          label="Arrive"
+          size="small"
+          :disabled="arriveBusy || !arriveShipID"
+          :loading="arriveBusy"
+          :title="shipsAtSeaOptions.length === 0 ? 'No ships at sea — register one from the Fleet panel' : ''"
+          @click="submitArrive"
+        />
       </div>
       <div v-if="arriveError" class="domain-error">{{ arriveError }}</div>
-
-      <Divider />
-
-      <div class="op-row">
-        <Select v-model="departShipID" :options="dockedShipOptions" placeholder="docked ship" size="small" />
-        <Button label="Depart" size="small" :disabled="departBusy || !departShipID" :loading="departBusy" @click="submitDepart" />
-      </div>
-      <div v-if="departError" class="domain-error">{{ departError }}</div>
     </div>
 
     <DataTable
@@ -147,6 +154,17 @@ watch(
       <Column header="Manifest" style="width:100px">
         <template #body="{ data }">
           <span class="lab-muted manifest-count">{{ store.manifestFor(data.shipID).length }} container(s)</span>
+        </template>
+      </Column>
+      <Column header="" style="width:110px">
+        <template #body="{ data }">
+          <Button
+            label="Depart"
+            size="small"
+            :disabled="departBusyID === data.shipID"
+            :loading="departBusyID === data.shipID"
+            @click="submitDepart(data.shipID)"
+          />
         </template>
       </Column>
 

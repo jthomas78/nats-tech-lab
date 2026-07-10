@@ -89,7 +89,6 @@ onUnmounted(() => store.disconnect())
             :model-value="store.port"
             :options="store.knownPorts"
             placeholder="select port"
-            editable
             size="small"
             @update:model-value="store.setPort($event)"
           />

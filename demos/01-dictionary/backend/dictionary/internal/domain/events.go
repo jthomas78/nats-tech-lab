@@ -47,9 +47,16 @@ type ShipEvent struct {
 }
 
 // ContainerEvent is the envelope published on every container subject.
+//
+// ID is the container's immutable surrogate key (UUID), minted once at
+// registration and carried on every subsequent event (Phase 8.3). It — not the
+// ISO 6346 ContainerID — is the aggregate identity that hydration folds by, so
+// a container's history stays together even if its natural key were later
+// corrected. ContainerID remains the human-facing natural key.
 type ContainerEvent struct {
 	Context     string    `json:"context"`              // fleet / KV-bucket qualifier
-	ContainerID string    `json:"containerID"`          // ISO 6346 identifier
+	ID          string    `json:"id"`                   // surrogate key (UUID) — aggregate identity
+	ContainerID string    `json:"containerID"`          // ISO 6346 natural key
 	Cargo       string    `json:"cargo,omitempty"`      // .registered
 	OriginPort  string    `json:"originPort,omitempty"` // .registered
 	DestPort    string    `json:"destPort,omitempty"`   // .registered

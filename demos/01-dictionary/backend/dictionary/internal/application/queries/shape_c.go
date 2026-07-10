@@ -21,7 +21,7 @@ type ShipWithManifest struct {
 // FleetReconstruction is the full Shape C result: every ship (with manifest)
 // and every container seen in the event history.
 type FleetReconstruction struct {
-	Fleet      []ShipWithManifest       `json:"fleet"`
+	Fleet      []ShipWithManifest      `json:"fleet"`
 	Containers []domain.ContainerState `json:"containers"`
 }
 
@@ -89,15 +89,18 @@ func (q *ShapeC) ReconstructFleet(ctx context.Context) (FleetReconstruction, err
 				shipContexts[event.ShipID] = event.Context
 			}
 		case domain.SubjectContainerRegistered, domain.SubjectContainerLoaded, domain.SubjectContainerUnloaded:
+			// Fold by the surrogate id (Phase 8.3) — the immutable aggregate
+			// identity — so a container's events group under one key regardless
+			// of its natural key.
 			var event domain.ContainerEvent
-			if json.Unmarshal(msg.Data(), &event) == nil && event.ContainerID != "" {
-				agg, ok := containers[event.ContainerID]
+			if json.Unmarshal(msg.Data(), &event) == nil && event.ID != "" {
+				agg, ok := containers[event.ID]
 				if !ok {
 					agg = &domain.ContainerAggregate{}
-					containers[event.ContainerID] = agg
+					containers[event.ID] = agg
 				}
 				agg.Apply(msg.Subject(), event)
-				containerContexts[event.ContainerID] = event.Context
+				containerContexts[event.ID] = event.Context
 			}
 		}
 		meta, _ := msg.Metadata()

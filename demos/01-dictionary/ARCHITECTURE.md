@@ -14,7 +14,7 @@ Phase 8 introduced a second aggregate. Both are co-located on the single
 | Aggregate | Subjects | Rules |
 |---|---|---|
 | `ShipAggregate` (`domain/ship.go`) | `SHIPPING.ship.arrived / .departed` | BR-001 … BR-003 |
-| `ContainerAggregate` (`domain/container.go`) | `SHIPPING.container.registered / .loaded / .unloaded` | BR-008 … BR-015 |
+| `ContainerAggregate` (`domain/container.go`) | `SHIPPING.container.registered / .loaded / .unloaded` | BR-008 … BR-016 |
 
 **`dictionary/internal/application/commands/commands.go`**
 
@@ -26,7 +26,18 @@ Phase 8 introduced a second aggregate. Both are co-located on the single
 **`dictionary/internal/application/commands/container.go`**
 
 - `ContainerHandler` — `RegisterContainer()`, `LoadContainer()`, `UnloadContainer()`
-- `hydratePair()` — rebuilds **both** aggregates from **one atomic replay** of `SHIPPING`. This is why the cross-aggregate rules (BR-008, BR-012, BR-014: container state × ship's docked port) are strongly consistent in Phase 8. Phase 9 splits the stream and turns exactly this spot into the invariant-spanning-two-aggregates problem.
+- `hydratePair()` — rebuilds **both** aggregates from **one atomic replay** of `SHIPPING`. Ship events fold by `shipID`; container events fold by the **surrogate id** (see below). This is why the cross-aggregate rules (BR-008, BR-012, BR-014: container state × ship's docked port) are strongly consistent in Phase 8. Phase 9 splits the stream and turns exactly this spot into the invariant-spanning-two-aggregates problem.
+- `RegisterContainer()` — mints a fresh surrogate id (`newSurrogateID()`, a dependency-free UUID v4) after `hydrateByNaturalKey()` confirms the natural key is free (BR-015, resolved against the event stream — authoritative, not from a read projection)
+
+#### Container identity — surrogate key (Phase 8.3)
+
+`Container`'s aggregate identity is an immutable **surrogate key** (`id`, a UUID) minted at registration — *not* the ISO 6346 `containerID`. Every container event carries both; hydration and Shape C fold by `id`, so a container's history stays together even if its natural key were later corrected. `containerID` is a mutable natural-key attribute with its own uniqueness constraint (BR-015).
+
+- **Write side:** `hydratePair()` resolves `containerID → id` from the `.registered` event, then folds strictly by `id`.
+- **Postgres:** `containers` primary key is `(context, id)`; `container_id` carries a `UNIQUE (context, container_id)` constraint.
+- **KV read model:** the `container-{context}` bucket stays keyed by the human-facing `container.{containerID}` (query convenience) and carries `id` as a field — so it doubles as the natural-key → id lookup.
+
+**Why `Container` and not `Ship`.** The scope is deliberately container-only. `Container`'s natural key is ISO 6346 — an **external interchange standard** other systems reference and that can need correcting (BR-016 exists precisely because a bad ID slipped in). `Ship`'s id is an internal slug with no external-format rule, no correction pressure, so a surrogate key there would be indirection without benefit. This is the recognised industry default: use a surrogate key where the natural key is an externally-governed standard you don't fully control.
 
 **`dictionary/internal/domain/ship.go` / `container.go`**
 
@@ -71,7 +82,7 @@ ship with its manifest (`ShipWithManifest`) plus every reconstructed container.
 ### Materialized Views
 
 - **KV buckets** (`internal/kvstore/kv.go`) — all context-scoped: `dict-a-{context}` (Shape A ships), `dict-b-{context}` (Shape B cache), `container-{context}` (container projection), `meta-{context}` (lookup sets)
-- **Postgres `ships` + `containers` tables** (`postgres/`) — canonical projections; upserted via `INSERT … ON CONFLICT DO UPDATE`
+- **Postgres `ships` + `containers` tables** (`postgres/`) — canonical projections; upserted via `INSERT … ON CONFLICT DO UPDATE` (containers conflict on the surrogate key `(context, id)`; `container_id` is `UNIQUE`)
 - **`ShipState` / `ContainerState` structs** (`domain/`) — shared projected value types stored in both KV and Postgres
 - **Pinia stores** (frontends) — client-side materialized views fed by `kvstore.Watch()` → SSE (`rest/sse.go`); the same projection-from-event-stream pattern one layer further out. The Port Management frontend even performs the manifest join (`onShipID == shipID`) client-side over its projected containers.
 
