@@ -359,16 +359,16 @@ Add self-documenting API support using `swaggo/swag` so the backend routes are e
 
 #### Overview
 
-Introduces the `Container` domain entity (a second aggregate alongside `Ship`), the terminal/port model, and a purpose-built Port Management frontend — all on a **single JetStream stream**. This is the baseline: two aggregates sharing one consistency boundary, so every cross-aggregate rule (BR-008…BR-012) is enforced with **strong consistency from a single atomic replay**. Phase 9 then splits the stream to expose the distributed-consistency problem.
+Introduces the `Container` domain entity (a second aggregate alongside `Ship`), the terminal/port model, and a purpose-built Port Management frontend — all on a **single JetStream stream**. This is the baseline: two aggregates sharing one consistency boundary, so every cross-aggregate rule (BR-008…BR-012) is enforced with **strong consistency from a single atomic replay**. Phase 12 then splits the stream to expose the distributed-consistency problem.
 
-> **Why single-stream first.** The invariant-spanning-aggregates problem comes from `Ship` and `Container` being *separate aggregates* — not from stream topology. Keeping both aggregates on one stream in Phase 8 means a command handler hydrates **both** from one replay of `SHIPPING` (folding `ship.*` into `ShipAggregate`, `container.*` into `ContainerAggregate`), so cross-aggregate rules stay locally consistent. Phase 9 changes exactly one variable — the stream split — turning the same invariant into a distributed problem. This isolation is the teaching point.
+> **Why single-stream first.** The invariant-spanning-aggregates problem comes from `Ship` and `Container` being *separate aggregates* — not from stream topology. Keeping both aggregates on one stream in Phase 8 means a command handler hydrates **both** from one replay of `SHIPPING` (folding `ship.*` into `ShipAggregate`, `container.*` into `ContainerAggregate`), so cross-aggregate rules stay locally consistent. Phase 12 changes exactly one variable — the stream split — turning the same invariant into a distributed problem. This isolation is the teaching point.
 
 #### Terminology
 
 - **Terminal** (not warehouse) — the facility at a port where containers are stored in the yard and crane-loaded onto ships. Every port has a terminal.
 - **Container** — ISO 6346 shipping container (e.g. `TCKU1234567`), the unit of cargo transport.
 
-#### Aggregate design (the decision that makes Phase 9 a clean delta)
+#### Aggregate design (the decision that makes Phase 12 a clean delta)
 
 - `Container` is its **own aggregate** (`ContainerAggregate`), **not** folded into `ShipAggregate`. A container's lifecycle (`registered in terminal → loaded → unloaded at destination`) means it belongs to no ship while it sits in the yard, so it cannot be a field on the ship aggregate the way `Cargo` is today.
 - Both aggregate types are **co-located on the single `SHIPPING` stream**, partitioned by subject:
@@ -706,35 +706,131 @@ callers that want a stable reference across a future correction.
 
 ---
 
-### Phase 9 — Stream Split + Cross-Aggregate Consistency
+### Phase 9 — Subject Taxonomy + Doc Realignment
 
 #### Goal
 
-Extract `container.*` events from the shared `SHIPPING` stream into a dedicated `TERMINAL` stream, turning the two aggregates into two independent bounded contexts. This is a **single-variable change** on top of Phase 8: the aggregates, rules, and frontends are unchanged — only the stream topology moves. The purpose is to make the **invariant-spanning-two-aggregates problem** concrete and demonstrate the solution options.
+Move tenant, region, and aggregate identity out of the JSON payload and into subject tokens, adopting the target production scheme:
+
+```
+{region}.events.{tenant}.{aggregate}.{id}.{event}
+e.g.  emea.events.acme.ship.SH-001.arrived
+      emea.events.acme.container.9f3c…uuid….loaded
+```
+
+Region and tenant are **hardcoded constants for the POC** (`emea`, `acme`) — the point is that the subject *shape* is right from here on, because subject taxonomy is the highest-cost-to-change axis in the whole system and every later phase multiplies the number of subjects and consumers built on it.
+
+#### Why this phase must precede Phase 10
+
+`Nats-Expected-Last-Subject-Sequence` (Phase 10's optimistic-concurrency guard) is scoped **per subject**. With today's `SHIPPING.ship.arrived` shape, every ship shares one subject — the guard would serialize the entire fleet. The aggregate-instance `{id}` token is what makes per-aggregate concurrency control possible at all.
+
+#### Design notes
+
+- Stream name stays `SHIPPING`; it now binds `{region}.events.{tenant}.ship.>` and `{region}.events.{tenant}.container.>` (until Phase 12 moves the container binding to `TERMINAL`).
+- The `{id}` token is the **aggregate identity**: `shipID` for ships, the **surrogate UUID** (Phase 8.3) for containers — not the ISO 6346 natural key.
+- Subject constants in `domain/events.go` become **builder functions** (`ShipSubject(region, tenant, shipID, event)`), since subjects are now parameterized.
+- Consumers/queries that switch on the full subject string must instead **parse tokens** (aggregate + event type by position).
+- Hydrating a single ship can now use a **filtered consumer** on `{region}.events.{tenant}.ship.{id}.>` instead of folding the whole stream — a replay-cost win that Phase 13 can measure. Natural-key container lookup still scans `…container.>`.
+- The `Context` payload field stays for now (KV bucket naming still uses it); subjects become the authoritative scoping mechanism. Whether `context` collapses into `{tenant}`/`{region}` is decided in Phase 14.
+
+#### Checklist
+
+- [ ] `domain/events.go` — replace subject constants with builder functions; add hardcoded `Region = "emea"`, `Tenant = "acme"` constants; update wildcards
+- [ ] `internal/jstream/stream.go` — stream binds the new subject filters
+- [ ] `application/commands/` — publish to per-instance subjects; hydrate via filtered subject where the aggregate ID is known
+- [ ] `eventhandler/`, `queries/`, `rest/sse.go` — update filter subjects; parse event type from subject tokens
+- [ ] Frontend JetStream panel — subject display/filtering updated for the new shape
+- [ ] Docs realignment (same commit): fix `CLAUDE.md` dictionary-domain drift (package layout, entities); update stale "Phase 9 = stream split" references in `ARCHITECTURE.md`, `BUSINESS_RULES.md`, and code comments (`events.go`, `container.go`) to Phase 12
+- [ ] `go build ./...` + `ginkgo ./...` green
+
+---
+
+### Phase 10 — Write-Side Safety (Optimistic Concurrency + Publish Dedup)
+
+#### Goal
+
+Close the two producer-side correctness gaps that stand between "JetStream as event log" and "JetStream as trustworthy event store":
+
+1. **Blind publish → lost invariants under concurrency.** Command handlers hydrate-validate-publish with no guard between read and write. Two concurrent commands on the same aggregate both hydrate the same pre-state, both pass validation, both publish — producing events that are individually valid but jointly violate a business rule (e.g. the same container loaded onto two ships).
+2. **No publish dedup → client retries double-write the source of truth.** An HTTP client retrying a command after a timed-out response durably appends the business event twice. In transport-mode this would be caught downstream by Postgres constraints; in event-store mode the duplicate *is* the record.
+
+#### Design
+
+- **Optimistic concurrency**: `hydrate()` already walks the aggregate's events — it additionally returns the last stream sequence seen. Publish carries `Nats-Expected-Last-Subject-Sequence`; if another event landed in between, the server rejects the append (err 10071), and the handler re-hydrates, re-validates, and retries (bounded).
+  - ⚠️ **Verify against current NATS docs before implementing**: an aggregate's events span multiple subjects (`…{id}.arrived` vs `…{id}.departed`), and the plain header checks the last sequence *of the published subject only*. Newer servers support `Nats-Expected-Last-Subject-Sequence-Subject` to guard against a wildcard filter (`…{id}.>`). Confirm server + nats.go client support; if unavailable, fall back to a single per-aggregate subject with the event type in the payload/headers, and document the trade-off.
+- **Publish dedup**: every publish sets `Nats-Msg-Id` derived from a command idempotency key (client-supplied header, generated by the frontend per user action). Configure the stream's `Duplicates` window **explicitly** (don't rely on the 2-minute default silently).
+- The `Publisher` port grows an options parameter (expected sequence, message ID) — kept transport-agnostic in signature so the interface doesn't leak `jetstream` types into `application/`.
+
+#### Checklist
+
+- [ ] Verify `Nats-Expected-Last-Subject-Sequence[-Subject]` semantics and `Duplicates` window behavior against current NATS server / nats.go docs (features move between releases)
+- [ ] `hydrate()` / `hydratePair()` return the last relevant stream sequence
+- [ ] `Publisher` port + `jstream` adapter: publish options (expected last sequence, msg ID)
+- [ ] Command handlers: guard publishes, bounded retry-on-conflict (re-hydrate → re-validate → re-publish)
+- [ ] `Nats-Msg-Id` on every publish; explicit stream `Duplicates` window in `CreateStream`
+- [ ] REST: accept/generate a command idempotency key per request
+- [ ] Ginkgo specs: concurrent conflicting commands — exactly one wins, loser re-validates (double-load race rejected); duplicate publish with same msg ID appends once
+- [ ] `BUSINESS_RULES.md`: document the concurrency guarantee the event store now provides
+- [ ] `go build ./...` + `ginkgo ./...` green
+
+---
+
+### Phase 11 — Projection Hardening (Consumer-Side Idempotency + Explicit Limits)
+
+#### Goal
+
+Make projections safe under redelivery and reordering **by engineering, not by accident**. Today's safety rests on "redelivering the same event re-applies the same upsert" — true only if delivery order is preserved, which depends on unexamined consumer defaults. Also make the stream's "never discard" property an explicit decision rather than an implicit absence of limits.
+
+#### Design
+
+- **KV writes**: replace naive `Put` with a guarded write — the stored value carries the source event's stream sequence; the projector skips any event older than what's stored, using `Update` with expected revision (CAS loop) so a stale redelivery can never clobber newer state.
+- **Postgres projection**: same guard — persist the last-applied stream sequence per row and skip older events in the upsert (`WHERE excluded.seq > current.seq` style).
+- **Consumer ordering**: verify `Consume()` callback concurrency and `MaxAckPending` defaults against current nats.go docs (do not assume); set `MaxAckPending` explicitly per projector and document the ordering guarantee relied upon.
+- **Explicit retention decision**: `CreateStream` currently sets no `MaxAge`/`MaxMsgs`/`MaxBytes` — "never discard" is true only implicitly. Make it explicit: document unbounded-is-deliberate in the config (or set `DiscardPolicy` intentionally), so the config can't be copied forward with the decision invisible.
+- **Poison messages**: current behavior (ack-on-unmarshal-failure to avoid redelivery loops) is documented; consider a dead-letter subject (`{region}.dlq.{tenant}.…`) instead of silently acking.
+
+#### Checklist
+
+- [ ] Verify `Consume()` ordering / `MaxAckPending` semantics against current nats.go docs
+- [ ] `kvstore.Store`: guarded write API (sequence-aware CAS); all projector call sites migrated off naive `Put`
+- [ ] Postgres projectors: last-applied-sequence guard in upserts
+- [ ] Explicit `MaxAckPending` on all projector consumers
+- [ ] `CreateStream`: retention/discard decision made explicit in code comment + config
+- [ ] Poison-message policy: dead-letter subject or documented ack-and-log, decided and implemented
+- [ ] Ginkgo specs: out-of-order redelivery does not clobber newer KV/Postgres state; duplicate redelivery is a no-op
+- [ ] `go build ./...` + `ginkgo ./...` green
+
+---
+
+### Phase 12 — Stream Split + Cross-Aggregate Consistency
+
+#### Goal
+
+Extract container events from the shared `SHIPPING` stream into a dedicated `TERMINAL` stream, turning the two aggregates into two independent bounded contexts. This is a **single-variable change** on top of Phases 8–11: the aggregates, rules, and frontends are unchanged — only the stream topology moves. Post-Phase 9 this is even cleaner than originally planned: **the subjects themselves do not change** — a subject can belong to only one stream, so the split is purely moving the `…container.>` binding from `SHIPPING` to `TERMINAL`. The purpose is to make the **invariant-spanning-two-aggregates problem** concrete and demonstrate the solution options.
 
 #### The problem this phase exposes
 
 After the split, BR-008 (container destPort vs ship's current port) and BR-012 (ship must be docked) still need **both** aggregates' state — but the container command handler can no longer get the ship's state from the same replay. `ContainerAggregate` hydrates from `TERMINAL`; the ship's docked state lives in `SHIPPING`. There is no atomic cross-stream replay.
 
-| Stream | Subjects | Bounded context |
+| Stream | Subject binding | Bounded context |
 |---|---|---|
-| `SHIPPING` | `SHIPPING.ship.arrived`, `SHIPPING.ship.departed` | Ship movements |
-| `TERMINAL` | `TERMINAL.container.registered`, `TERMINAL.container.loaded`, `TERMINAL.container.unloaded` | Container lifecycle |
+| `SHIPPING` | `{region}.events.{tenant}.ship.>` | Ship movements |
+| `TERMINAL` | `{region}.events.{tenant}.container.>` | Container lifecycle |
 
 #### Solution options to implement and document
 
 The demo implements **option 1** as the default and documents the trade-offs of all three:
 
-1. **Read-model guard (default)** — the container handler reads the ship's KV projection (Shape A/B) to check docked state / current port. Fast and keeps the streams independent, but validates a write against an eventually-consistent read (stale-read window — which Phase 10 measures under load).
+1. **Read-model guard (default)** — the container handler reads the ship's KV projection (Shape A/B) to check docked state / current port. Fast and keeps the streams independent, but validates a write against an eventually-consistent read (stale-read window — which Phase 13 measures under load).
 2. **Hydrate both streams** — the container handler additionally replays `SHIPPING` for the ship. Strongly consistent, but the container context is no longer independent and every load/unload replays two streams.
 3. **Saga / compensating event** — accept the write optimistically and emit a compensating `container.load-rejected` event if the ship turns out not to be docked. The "correct" DDD answer for separate contexts; heaviest to implement.
 
 #### Checklist
 
-- [ ] `internal/jstream/stream.go` — add the `TERMINAL` stream (subjects `TERMINAL.>`); `SHIPPING` keeps only `ship.*`
-- [ ] `domain/events.go` — move `container.*` subject constants from `SHIPPING.*` to `TERMINAL.*`
-- [ ] `application/commands/container.go` — publish container events to `TERMINAL`; replace the in-replay ship check with the **read-model guard** (option 1) for BR-008 / BR-012
-- [ ] `eventhandler/` — container projector consumes `TERMINAL.*`; ship projector unchanged on `SHIPPING.*`
+- [ ] `internal/jstream/stream.go` — add the `TERMINAL` stream binding `{region}.events.{tenant}.container.>`; `SHIPPING` keeps only `…ship.>` (subjects themselves unchanged post-Phase 9)
+- [ ] `domain/events.go` — route container subject builders / stream-name references to `TERMINAL`
+- [ ] `application/commands/container.go` — hydrate containers from `TERMINAL`; replace the in-replay ship check with the **read-model guard** (option 1) for BR-008 / BR-012
+- [ ] `eventhandler/` — container projector consumes from `TERMINAL`; ship projector unchanged on `SHIPPING`
 - [ ] Ginkgo specs — BR-008 / BR-012 still green via the read-model guard; add a spec documenting the stale-read window (guard sees pre-departure state)
 - [ ] Frontend (`frontend/`): JetStream panel stream selector — add `TERMINAL` entry (`streamOptions`); backend `streamJetStream` switch — add `TERMINAL` case
 - [ ] Frontend (`frontend-port/`): add SSE watch on `TERMINAL.*`
@@ -743,7 +839,7 @@ The demo implements **option 1** as the default and documents the trade-offs of 
 
 ---
 
-### Phase 10 — Performance & Load Testing
+### Phase 13 — Performance & Load Testing
 
 #### Goal
 
@@ -768,6 +864,7 @@ Both are correct implementations of event sourcing fundamentals — the point is
 | KV watch fan-out — many SSE clients | How many concurrent SSE connections the backend sustains before lag |
 | Container load/unload burst — terminal throughput | Cross-stream (`SHIPPING` + `TERMINAL`) consumer lag under write pressure |
 | Projection lag — event published → KV updated | End-to-end latency of the Shape A/B projectors under load |
+| Optimistic-concurrency contention — concurrent commands, same aggregate | Retry rate and latency cost of the Phase 10 sequence guard under contention |
 
 #### Baseline metrics to capture
 
@@ -796,6 +893,27 @@ Both are correct implementations of event sourcing fundamentals — the point is
 
 ---
 
+### Phase 14 (optional) — NATS Accounts Tenancy Spike
+
+#### Goal
+
+Today tenancy is a string convention: one unauthenticated `nats.Connect`, tenant scoping enforced only by the subject/bucket names the application happens to use. NATS **accounts** are the server-enforced isolation mechanism — this spike exercises them so "subject prefixes are enough" vs "accounts are required" is a measured decision, not an assumption, before the real platform commits.
+
+#### Scope (spike, not production auth)
+
+- Two accounts in server config (e.g. `acme`, `globex`) with per-tenant credentials; backend connects per tenant.
+- Verify the server actually enforces isolation: tenant A's credentials cannot publish/subscribe/replay tenant B's subjects or KV buckets — including JetStream API access (streams/consumers are per-account resources).
+- Resolve the taxonomy interaction: inside an account, the `{tenant}` subject token is redundant — decide whether the token stays (portability across account-per-tenant vs shared-account deployments) or the account *is* the tenant boundary, and document the trade-off.
+- Note but don't implement: operator/JWT mode vs static server-config accounts; exports/imports for any cross-tenant sharing.
+
+#### Checklist
+
+- [ ] Server config with two accounts + creds; docker-compose wiring
+- [ ] Isolation verified by test: cross-tenant publish/subscribe/JetStream access rejected by the server
+- [ ] Decision documented in `ARCHITECTURE.md`: account-per-tenant vs shared-account+prefixes, and what the `{tenant}` subject token means under each
+
+---
+
 ### Verification status (2026-07-09)
 
 The full compose stack now runs end to end (Docker installed 2026-07-09):
@@ -812,7 +930,7 @@ all returning correct results. `go build` / `go vet` / `ginkgo ./...`
 
 ## Working Assumptions
 
-- Postgres remains the source of truth for governed dictionary data (Shape B assumption)
+- JetStream is the source of truth: commands hydrate aggregates by replaying the stream, and Postgres (Shape B) and KV (Shapes A/B) are downstream projections populated only by event consumers — never written directly by the command path. (Superseded earlier assumption that Postgres was the source of truth for Shape B.)
 - NATS KV is appropriate for low-latency lookup and watch-based invalidation
 - Context key (tenant/region/locale) is always present in the KV key — no global/unscoped lookups
 - Eventual consistency is acceptable for dictionary reads
