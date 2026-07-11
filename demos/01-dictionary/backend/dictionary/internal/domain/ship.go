@@ -71,15 +71,19 @@ type ShipAggregate struct {
 // Apply folds one event into the aggregate's state. Subject selects the
 // transition; unknown subjects are silently ignored.
 func (a *ShipAggregate) Apply(subject string, event ShipEvent) {
-	a.ShipID = event.ShipID
+	aggregate, id, eventType, ok := SubjectDetails(subject)
+	if !ok || aggregate != "ship" {
+		return
+	}
+	a.ShipID = id
 	a.UpdatedAt = event.OccurredAt
-	switch subject {
-	case SubjectShipArrived:
+	switch eventType {
+	case ShipArrivedEvent:
 		if a.ShipName == "" && event.ShipName != "" {
 			a.ShipName = event.ShipName
 		}
 		a.CurrentPort = event.Port
-	case SubjectShipDeparted:
+	case ShipDepartedEvent:
 		a.CurrentPort = ""
 	}
 }

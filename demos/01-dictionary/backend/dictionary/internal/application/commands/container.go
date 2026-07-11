@@ -25,7 +25,7 @@ type ContainerInput struct {
 // the container's and the ship's state to enforce the cross-aggregate rules
 // (BR-008, BR-012, BR-014) — in Phase 8 both aggregates are co-located on the
 // single SHIPPING stream, so one atomic replay hydrates both and the checks
-// are strongly consistent. Phase 9 splits the streams and turns exactly this
+// are strongly consistent. Phase 12 splits the streams and turns exactly this
 // spot into the distributed-consistency problem.
 type ContainerHandler struct {
 	pub Publisher
@@ -66,10 +66,11 @@ func (h *ContainerHandler) RegisterContainer(ctx context.Context, in ContainerIn
 		return domain.ContainerState{}, err
 	}
 	event.Context = in.Context
-	if err := h.publish(ctx, domain.SubjectContainerRegistered, event); err != nil {
+	subject := domain.ContainerSubject(domain.Region, domain.Tenant, event.ID, domain.ContainerRegisteredEvent)
+	if err := h.publish(ctx, subject, event); err != nil {
 		return domain.ContainerState{}, err
 	}
-	cont.Apply(domain.SubjectContainerRegistered, event)
+	cont.Apply(subject, event)
 	return cont.State(in.Context), nil
 }
 
@@ -87,10 +88,11 @@ func (h *ContainerHandler) LoadContainer(ctx context.Context, in ContainerInput)
 		return domain.ContainerState{}, err
 	}
 	event.Context = in.Context
-	if err := h.publish(ctx, domain.SubjectContainerLoaded, event); err != nil {
+	subject := domain.ContainerSubject(domain.Region, domain.Tenant, event.ID, domain.ContainerLoadedEvent)
+	if err := h.publish(ctx, subject, event); err != nil {
 		return domain.ContainerState{}, err
 	}
-	cont.Apply(domain.SubjectContainerLoaded, event)
+	cont.Apply(subject, event)
 	return cont.State(in.Context), nil
 }
 
@@ -109,10 +111,11 @@ func (h *ContainerHandler) UnloadContainer(ctx context.Context, in ContainerInpu
 		return domain.ContainerState{}, err
 	}
 	event.Context = in.Context
-	if err := h.publish(ctx, domain.SubjectContainerUnloaded, event); err != nil {
+	subject := domain.ContainerSubject(domain.Region, domain.Tenant, event.ID, domain.ContainerUnloadedEvent)
+	if err := h.publish(ctx, subject, event); err != nil {
 		return domain.ContainerState{}, err
 	}
-	cont.Apply(domain.SubjectContainerUnloaded, event)
+	cont.Apply(subject, event)
 	return cont.State(in.Context), nil
 }
 
@@ -141,7 +144,8 @@ func (h *ContainerHandler) hydratePair(ctx context.Context, shipID, containerID 
 	replay := func(subject string, data []byte) {
 		if isShipSubject(subject) {
 			var event domain.ShipEvent
-			if json.Unmarshal(data, &event) == nil && shipID != "" && event.ShipID == shipID {
+			_, subjectShipID, _, ok := domain.SubjectDetails(subject)
+			if json.Unmarshal(data, &event) == nil && shipID != "" && subjectShipID == shipID && ok {
 				ship.Apply(subject, event)
 			}
 			return
@@ -150,10 +154,11 @@ func (h *ContainerHandler) hydratePair(ctx context.Context, shipID, containerID 
 		if json.Unmarshal(data, &event) != nil {
 			return
 		}
-		if subject == domain.SubjectContainerRegistered && targetID == "" && event.ContainerID == containerID {
-			targetID = event.ID
+		aggregate, subjectID, eventType, ok := domain.SubjectDetails(subject)
+		if ok && aggregate == "container" && eventType == domain.ContainerRegisteredEvent && targetID == "" && event.ContainerID == containerID {
+			targetID = subjectID
 		}
-		if targetID != "" && event.ID == targetID {
+		if targetID != "" && subjectID == targetID {
 			cont.Apply(subject, event)
 		}
 	}

@@ -173,7 +173,7 @@ async function submit() {
     </div>
 
     <p class="lab-muted hint">
-      Commands publish <code>SHIPPING.ship.*</code> / <code>SHIPPING.container.*</code> events —
+      Commands publish <code>emea.events.acme.{aggregate}.{id}.{event}</code> subjects —
       two aggregates, one stream. Domain rules (BR-001…BR-015) are enforced before publishing;
       invalid transitions return an error above. Fleet: <code>{{ store.context }}</code>
     </p>

@@ -202,7 +202,7 @@ const docTemplate = `{
         },
         "/api/jetstream/stream": {
             "get": {
-                "description": "Server-Sent Events stream of raw SHIPPING.* JetStream messages using DeliverAll policy — replays from seq=1, then continues with live messages. Each event is a JSON-encoded jsEvent object.",
+                "description": "Server-Sent Events stream of raw emea.events.acme.\u003e messages from SHIPPING using DeliverAll policy — replays from seq=1, then continues live. Each event is a JSON-encoded jsEvent object.",
                 "produces": [
                     "text/event-stream"
                 ],
@@ -242,7 +242,7 @@ const docTemplate = `{
         },
         "/api/jetstream/watch": {
             "get": {
-                "description": "Server-Sent Events stream of raw SHIPPING.* JetStream messages using DeliverNew policy — only messages published after the connection opens. Each event is a JSON-encoded jsEvent object.",
+                "description": "Server-Sent Events stream of raw emea.events.acme.\u003e messages from SHIPPING using DeliverNew policy — only messages published after connection. Each event is a JSON-encoded jsEvent object.",
                 "produces": [
                     "text/event-stream"
                 ],

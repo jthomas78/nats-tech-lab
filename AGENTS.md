@@ -1,10 +1,10 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Session Memory
 
-At the start of every session, read all files in `.claude/memory/` — starting with `MEMORY.md` as the index — and apply them as persistent context. When saving new memories during a session, write them to `.claude/memory/` (not `~/.claude/projects/`) so they are shared across devices via git.
+At the start of every session, read all files in `.Codex/memory/` — starting with `MEMORY.md` as the index — and apply them as persistent context. When saving new memories during a session, write them to `.Codex/memory/` (not `~/.Codex/projects/`) so they are shared across devices via git.
 
 ## Purpose
 
@@ -20,9 +20,8 @@ nats-tech-lab/
   demos/
     01-dictionary/        # First demo: Dictionary POC
       backend/            # Go service (hexagonal layout)
-	  frontend/           # Vue 3 architecture/demo UI
-	  frontend-port/      # Vue 3 ship/terminal operations UI
-	  docker-compose.yml  # Postgres + NATS + backend + both frontends
+      frontend/           # Vue 3 demo UI
+      docker-compose.yml  # Postgres + NATS + backend + frontend
       README.md           # Intro text shown in lab shell
 ```
 
@@ -47,7 +46,7 @@ docker compose up --build       # from demos/01-dictionary/
 docker compose down             # tear down
 ```
 
-### Frontend (Vue 3 — either demo frontend or `lab-shell/`)
+### Frontend (Vue 3 — `demos/01-dictionary/frontend/` or `lab-shell/`)
 
 ```bash
 npm install
@@ -59,23 +58,21 @@ npm run build
 
 ### What it demonstrates
 
-Three side-by-side CQRS/event-sourcing shapes over a shipping domain with Ship and Container aggregates:
+Two side-by-side shapes for serving dictionary/reference data (dropdowns, enums, locale config, CQRS read-model lookup):
 
 - **Shape A — KV as read model**: JetStream event handlers project directly into NATS KV; reads go straight to KV with no Postgres read table.
 - **Shape B — KV as cache in front of Postgres**: canonical CQRS projection in Postgres; KV is an eager write-through cache — the same JetStream event handler that upserts Postgres also overwrites the KV entry; cache miss falls through to Postgres.
-- **Shape C — event-sourced reconstruction**: ship and container state is rebuilt directly from JetStream history.
 
 ### Stream / KV design
 
 ```
-Stream:   SHIPPING
-Subjects: emea.events.acme.ship.{shipID}.{arrived|departed}
-          emea.events.acme.container.{surrogateUUID}.{registered|loaded|unloaded}
+Stream:   DICTIONARY
+Subjects: DICTIONARY.entry.created, DICTIONARY.entry.updated
 Retention: LimitsPolicy (enables replay — NOT InterestPolicy)
 
-KV buckets: dict-a-{context}, dict-b-{context}, container-{context}, meta-{context}
+KV buckets: dict-a-{context} (Shape A read model), dict-b-{context} (Shape B cache)
 Key format: {entityType}.{id}   — NATS KV keys only allow [-/_=.a-zA-Z0-9]; ':' is illegal
-Value: JSON-encoded ShipState / ContainerState / metadata
+Value: JSON-encoded DictionaryEntry
 ```
 
 ### Backend package layout
@@ -88,11 +85,11 @@ internal/kvstore/kv.go            # NATS KV wrapper
 dictionary/
   composition.go
   internal/
-    domain/                       # Ship + Container aggregates, events, repository ports
-    application/commands/         # ship/container commands + JetStream hydration
-    application/queries/          # Shapes A/B/C, terminal and metadata queries
-    postgres/                     # ship/container projection repositories
-    eventhandler/                 # JetStream consumers → Postgres/KV projections
+    domain/                       # DictionaryEntry entity, events, repo interface
+    application/commands/         # CreateEntry, UpdateEntry
+    application/queries/          # GetEntry (Shape A: KV; Shape B: KV→Postgres)
+    postgres/                     # repo impl + migration (Shape B only)
+    eventhandler/                 # JetStream consumer → projects into KV
     rest/                         # HTTP handlers
 ```
 
@@ -125,7 +122,7 @@ When updating or implementing a plan phase, the agent should follow this sequenc
 
 ## AI Skill Roles (Future)
 
-Skill files (`.claude/skills/`) will be introduced to give the AI agent specialised personas for different stages of delivery. Planned roles:
+Skill files (`.Codex/skills/`) will be introduced to give the AI agent specialised personas for different stages of delivery. Planned roles:
 
 | Skill | Responsibility |
 |---|---|
@@ -138,4 +135,4 @@ These skills are **not yet implemented**. The note is here to record the intent:
 
 ## Implementation Status
 
-See `.claude/plans/Dictionary-POC-Plan.md` for the full phased plan and checkbox tracking.
+See `.Codex/plans/Dictionary-POC-Plan.md` for the full phased plan and checkbox tracking. Current branch `poc/dictionary` is at Phase 0 (scaffolding not yet started).

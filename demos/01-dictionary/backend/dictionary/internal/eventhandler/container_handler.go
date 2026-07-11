@@ -32,17 +32,19 @@ func RegisterContainers(
 		return nil, err
 	}
 	return cons.Consume(func(msg jetstream.Msg) {
+		aggregate, id, _, subjectOK := domain.SubjectDetails(msg.Subject())
 		var event domain.ContainerEvent
 		if err := json.Unmarshal(msg.Data(), &event); err != nil {
 			log.Error("drop malformed container event", "subject", msg.Subject(), "err", err)
 			_ = msg.Ack()
 			return
 		}
-		if event.ContainerID == "" {
+		if !subjectOK || aggregate != "container" || event.ContainerID == "" {
 			log.Warn("skip container event without containerID", "subject", msg.Subject())
 			_ = msg.Ack()
 			return
 		}
+		event.ID = id
 
 		agg := currentContainerAgg(ctx, kv, event)
 		agg.Apply(msg.Subject(), event)

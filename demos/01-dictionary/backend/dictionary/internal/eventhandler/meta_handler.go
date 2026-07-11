@@ -50,10 +50,15 @@ func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store
 		}
 
 		var err error
-		switch msg.Subject() {
-		case domain.SubjectShipArrived, domain.SubjectShipDeparted:
+		aggregate, eventType, ok := domain.SubjectTokens(msg.Subject())
+		if !ok {
+			_ = msg.Ack()
+			return
+		}
+		switch {
+		case aggregate == "ship" && (eventType == domain.ShipArrivedEvent || eventType == domain.ShipDepartedEvent):
 			err = mergeSet(ctx, kv, event.Context, queries.MetaKeyKnownPorts, event.Port)
-		case domain.SubjectContainerRegistered:
+		case aggregate == "container" && eventType == domain.ContainerRegisteredEvent:
 			err = mergeSet(ctx, kv, event.Context, queries.MetaKeyKnownPorts, event.OriginPort, event.DestPort)
 			if err == nil {
 				err = mergeSet(ctx, kv, event.Context, queries.MetaKeyKnownContainers, event.ContainerID)

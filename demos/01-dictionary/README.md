@@ -48,7 +48,7 @@ aggregates. See [BUSINESS_RULES.md](BUSINESS_RULES.md) for BR-001 … BR-015.
 The demo screen maps vertically to the pipeline:
 
 1. **Shipping Operations** — dispatch a command (Arrive / Depart / Register / Load / Unload container); the backend validates domain rules, publishes to JetStream, and returns immediately.
-2. **JetStream panel** — live feed of raw `SHIPPING.*` messages as they arrive on the stream: subject, sequence number, timestamp, payload. Click a row to expand the full payload.
+2. **JetStream panel** — live feed of raw `emea.events.acme.>` messages as they arrive on `SHIPPING`: subject, sequence number, timestamp, payload. Click a row to expand the full payload.
 3. **Shape A | Shape B | Shape C** — projections side by side. Shape B also shows the canonical **Postgres projection** below the KV cache rows. Shape C reconstructs ships **and** containers, joining each ship's manifest.
 4. **KV Watch Stream** — every KV change event from both buckets. Filter by shape (A / B), operation (PUT / DEL / PURGE), or key text to isolate the event you're interested in.
 

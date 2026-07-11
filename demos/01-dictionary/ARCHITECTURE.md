@@ -13,25 +13,25 @@ Phase 8 introduced a second aggregate. Both are co-located on the single
 
 | Aggregate | Subjects | Rules |
 |---|---|---|
-| `ShipAggregate` (`domain/ship.go`) | `SHIPPING.ship.arrived / .departed` | BR-001 … BR-003 |
-| `ContainerAggregate` (`domain/container.go`) | `SHIPPING.container.registered / .loaded / .unloaded` | BR-008 … BR-016 |
+| `ShipAggregate` (`domain/ship.go`) | `emea.events.acme.ship.{shipID}.{arrived\|departed}` | BR-001 … BR-003 |
+| `ContainerAggregate` (`domain/container.go`) | `emea.events.acme.container.{uuid}.{registered\|loaded\|unloaded}` | BR-008 … BR-016 |
 
 **`dictionary/internal/application/commands/commands.go`**
 
 - `ShipHandler` — `ArrivePort()`, `DepartPort()`
-- `hydrate()` — replays full JetStream history to rebuild the aggregate before each write (no snapshot shortcut)
-- `replayStream()` — shared fold over the stream; always consumes the full subject set (a subject-filtered consumer could never observe the terminating sequence when the last message belongs to the other aggregate)
+- `hydrate()` — replays only `emea.events.acme.ship.{shipID}.>` to rebuild one ship before each write
+- `replayStream()` — shared full-stream fold retained for cross-aggregate container commands
 - `Publisher` interface — outbound port to JetStream
 
 **`dictionary/internal/application/commands/container.go`**
 
 - `ContainerHandler` — `RegisterContainer()`, `LoadContainer()`, `UnloadContainer()`
-- `hydratePair()` — rebuilds **both** aggregates from **one atomic replay** of `SHIPPING`. Ship events fold by `shipID`; container events fold by the **surrogate id** (see below). This is why the cross-aggregate rules (BR-008, BR-012, BR-014: container state × ship's docked port) are strongly consistent in Phase 8. Phase 9 splits the stream and turns exactly this spot into the invariant-spanning-two-aggregates problem.
+- `hydratePair()` — rebuilds **both** aggregates from **one atomic replay** of `SHIPPING`. Identity is parsed from each subject. This keeps cross-aggregate rules strongly consistent until Phase 12 splits the stream.
 - `RegisterContainer()` — mints a fresh surrogate id (`newSurrogateID()`, a dependency-free UUID v4) after `hydrateByNaturalKey()` confirms the natural key is free (BR-015, resolved against the event stream — authoritative, not from a read projection)
 
 #### Container identity — surrogate key (Phase 8.3)
 
-`Container`'s aggregate identity is an immutable **surrogate key** (`id`, a UUID) minted at registration — *not* the ISO 6346 `containerID`. Every container event carries both; hydration and Shape C fold by `id`, so a container's history stays together even if its natural key were later corrected. `containerID` is a mutable natural-key attribute with its own uniqueness constraint (BR-015).
+`Container`'s aggregate identity is an immutable **surrogate key** (`id`, a UUID) minted at registration — *not* the ISO 6346 `containerID`. The UUID is carried in the subject; `containerID` remains in the payload as the mutable natural key (BR-015).
 
 - **Write side:** `hydratePair()` resolves `containerID → id` from the `.registered` event, then folds strictly by `id`.
 - **Postgres:** `containers` primary key is `(context, id)`; `container_id` carries a `UNIQUE (context, container_id)` constraint.
@@ -53,10 +53,9 @@ Phase 8 introduced a second aggregate. Both are co-located on the single
 
 **`dictionary/internal/eventhandler/`**
 
-- `RegisterShapeA()` — durable consumer `ship-shape-a` on `SHIPPING.ship.>`; projects each event delta directly into KV (no Postgres)
-- `RegisterShapeB()` — durable consumer `ship-shape-b` on `SHIPPING.ship.>`; upserts Postgres first, then writes through to KV cache
-- `RegisterContainers()` — durable consumer `container-projector` on `SHIPPING.container.>`; upserts the Postgres `containers` table, then writes through to the `container-{context}` KV bucket
-- `RegisterMeta()` — durable consumer `meta-projector` on `SHIPPING.>`; maintains the `meta.*` lookup sets (see Metadata Projections below)
+- `RegisterShapeA()` / `RegisterShapeB()` consume `emea.events.acme.ship.>`
+- `RegisterContainers()` consumes `emea.events.acme.container.>`
+- `RegisterMeta()` consumes `emea.events.acme.>` and maintains the `meta.*` lookup sets
 - `currentAgg()` / `currentContainerAgg()` — read current KV state into an aggregate via `FromState()` before applying one delta, so projectors never replay the full stream
 
 Each consumer is independently position-tracked and can lag, replay, or rebuild on its own.

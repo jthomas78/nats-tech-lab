@@ -333,8 +333,8 @@ paths:
       - containers
   /api/jetstream/stream:
     get:
-      description: Server-Sent Events stream of raw SHIPPING.* JetStream messages
-        using DeliverAll policy — replays from seq=1, then continues with live messages.
+      description: Server-Sent Events stream of raw emea.events.acme.> messages from
+        SHIPPING using DeliverAll policy — replays from seq=1, then continues live.
         Each event is a JSON-encoded jsEvent object.
       parameters:
       - description: Stream name (default SHIPPING)
@@ -361,8 +361,8 @@ paths:
       - streams
   /api/jetstream/watch:
     get:
-      description: Server-Sent Events stream of raw SHIPPING.* JetStream messages
-        using DeliverNew policy — only messages published after the connection opens.
+      description: Server-Sent Events stream of raw emea.events.acme.> messages from
+        SHIPPING using DeliverNew policy — only messages published after connection.
         Each event is a JSON-encoded jsEvent object.
       parameters:
       - description: Stream name (default SHIPPING)

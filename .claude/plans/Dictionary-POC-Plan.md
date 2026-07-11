@@ -735,13 +735,13 @@ Region and tenant are **hardcoded constants for the POC** (`emea`, `acme`) — t
 
 #### Checklist
 
-- [ ] `domain/events.go` — replace subject constants with builder functions; add hardcoded `Region = "emea"`, `Tenant = "acme"` constants; update wildcards
-- [ ] `internal/jstream/stream.go` — stream binds the new subject filters
-- [ ] `application/commands/` — publish to per-instance subjects; hydrate via filtered subject where the aggregate ID is known
-- [ ] `eventhandler/`, `queries/`, `rest/sse.go` — update filter subjects; parse event type from subject tokens
-- [ ] Frontend JetStream panel — subject display/filtering updated for the new shape
-- [ ] Docs realignment (same commit): fix `CLAUDE.md` dictionary-domain drift (package layout, entities); update stale "Phase 9 = stream split" references in `ARCHITECTURE.md`, `BUSINESS_RULES.md`, and code comments (`events.go`, `container.go`) to Phase 12
-- [ ] `go build ./...` + `ginkgo ./...` green
+- [x] `domain/events.go` — replace subject constants with builder functions; add hardcoded `Region = "emea"`, `Tenant = "acme"` constants; update wildcards
+- [x] `internal/jstream/stream.go` — stream binds the new subject filters
+- [x] `application/commands/` — publish to per-instance subjects; hydrate via filtered subject where the aggregate ID is known
+- [x] `eventhandler/`, `queries/`, `rest/sse.go` — update filter subjects; parse event type from subject tokens
+- [x] Frontend JetStream panel — subject display/filtering updated for the new shape
+- [x] Docs realignment (same commit): fix `CLAUDE.md` dictionary-domain drift (package layout, entities); update stale "Phase 9 = stream split" references in `ARCHITECTURE.md`, `BUSINESS_RULES.md`, and code comments (`events.go`, `container.go`) to Phase 12
+- [x] `go build ./...` + `ginkgo ./...` green (52/52 tests, including subject-taxonomy tests)
 
 ---
 

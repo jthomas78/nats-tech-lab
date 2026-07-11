@@ -76,31 +76,34 @@ func (q *ShapeC) ReconstructFleet(ctx context.Context) (FleetReconstruction, err
 		if err != nil {
 			break
 		}
-		switch msg.Subject() {
-		case domain.SubjectShipArrived, domain.SubjectShipDeparted:
+		aggregate, id, eventType, subjectOK := domain.SubjectDetails(msg.Subject())
+		switch {
+		case subjectOK && aggregate == "ship" && (eventType == domain.ShipArrivedEvent || eventType == domain.ShipDepartedEvent):
 			var event domain.ShipEvent
-			if json.Unmarshal(msg.Data(), &event) == nil && event.ShipID != "" {
-				agg, ok := ships[event.ShipID]
+			if json.Unmarshal(msg.Data(), &event) == nil {
+				event.ShipID = id
+				agg, ok := ships[id]
 				if !ok {
 					agg = &domain.ShipAggregate{}
-					ships[event.ShipID] = agg
+					ships[id] = agg
 				}
 				agg.Apply(msg.Subject(), event)
-				shipContexts[event.ShipID] = event.Context
+				shipContexts[id] = event.Context
 			}
-		case domain.SubjectContainerRegistered, domain.SubjectContainerLoaded, domain.SubjectContainerUnloaded:
+		case subjectOK && aggregate == "container" && (eventType == domain.ContainerRegisteredEvent || eventType == domain.ContainerLoadedEvent || eventType == domain.ContainerUnloadedEvent):
 			// Fold by the surrogate id (Phase 8.3) — the immutable aggregate
 			// identity — so a container's events group under one key regardless
 			// of its natural key.
 			var event domain.ContainerEvent
-			if json.Unmarshal(msg.Data(), &event) == nil && event.ID != "" {
-				agg, ok := containers[event.ID]
+			if json.Unmarshal(msg.Data(), &event) == nil {
+				event.ID = id
+				agg, ok := containers[id]
 				if !ok {
 					agg = &domain.ContainerAggregate{}
-					containers[event.ID] = agg
+					containers[id] = agg
 				}
 				agg.Apply(msg.Subject(), event)
-				containerContexts[event.ID] = event.Context
+				containerContexts[id] = event.Context
 			}
 		}
 		meta, _ := msg.Metadata()

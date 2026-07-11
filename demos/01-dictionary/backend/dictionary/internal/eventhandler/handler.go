@@ -86,6 +86,7 @@ func register(
 		return nil, err
 	}
 	return cons.Consume(func(msg jetstream.Msg) {
+		aggregate, id, _, subjectOK := domain.SubjectDetails(msg.Subject())
 		var event domain.ShipEvent
 		if err := json.Unmarshal(msg.Data(), &event); err != nil {
 			log.Error("drop malformed event", "consumer", durable, "subject", msg.Subject(), "err", err)
@@ -95,11 +96,12 @@ func register(
 		// Skip messages from a previous domain version (e.g. legacy entry.* events)
 		// that unmarshal without error but produce an empty shipID. Ack them as
 		// poison messages so they are not redelivered indefinitely.
-		if event.ShipID == "" {
+		if !subjectOK || aggregate != "ship" {
 			log.Warn("skip legacy event (no shipID)", "consumer", durable, "subject", msg.Subject())
 			_ = msg.Ack()
 			return
 		}
+		event.ShipID = id
 		if err := project(ctx, msg.Subject(), event); err != nil {
 			log.Error("projection failed, will redeliver", "consumer", durable, "subject", msg.Subject(), "err", err)
 			_ = msg.Nak()

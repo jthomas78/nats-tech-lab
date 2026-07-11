@@ -65,7 +65,7 @@ func (c ContainerState) KVKey() string { return "container." + c.ContainerID }
 // ContainerAggregate reconstructs container state by replaying events. It is
 // the single place where the container rules (BR-008 … BR-016) are enforced.
 // Cross-aggregate rules (BR-008, BR-012, BR-014) take the ship's identity and
-// current port as parameters — in Phase 8 both aggregates hydrate from one
+// current port as parameters — until Phase 12 both aggregates hydrate from one
 // atomic replay of the SHIPPING stream, so these checks are strongly
 // consistent.
 type ContainerAggregate struct {
@@ -86,13 +86,15 @@ type ContainerAggregate struct {
 // transition; unknown subjects are silently ignored. Every event carries the
 // surrogate ID and the natural ContainerID; both are refreshed on each fold.
 func (c *ContainerAggregate) Apply(subject string, event ContainerEvent) {
-	if event.ID != "" {
-		c.ID = event.ID
+	aggregate, id, eventType, ok := SubjectDetails(subject)
+	if !ok || aggregate != "container" {
+		return
 	}
+	c.ID = id
 	c.ContainerID = event.ContainerID
 	c.UpdatedAt = event.OccurredAt
-	switch subject {
-	case SubjectContainerRegistered:
+	switch eventType {
+	case ContainerRegisteredEvent:
 		c.registered = true
 		c.Cargo = event.Cargo
 		c.OriginPort = event.OriginPort
@@ -101,12 +103,12 @@ func (c *ContainerAggregate) Apply(subject string, event ContainerEvent) {
 		port := event.OriginPort
 		c.TerminalPort = &port
 		c.OnShipID = nil
-	case SubjectContainerLoaded:
+	case ContainerLoadedEvent:
 		c.Status = ContainerOnShip
 		ship := event.ShipID
 		c.OnShipID = &ship
 		c.TerminalPort = nil
-	case SubjectContainerUnloaded:
+	case ContainerUnloadedEvent:
 		c.Status = ContainerInTerminal
 		port := event.Port
 		c.TerminalPort = &port

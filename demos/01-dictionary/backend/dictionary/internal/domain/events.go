@@ -1,38 +1,66 @@
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Both aggregates (Ship and Container) are co-located on the single SHIPPING
 // stream, partitioned by subject. This keeps every cross-aggregate rule
-// checkable from one atomic replay (Phase 8 baseline). Phase 9 extracts the
+// checkable from one atomic replay (Phase 8 baseline). Phase 12 extracts the
 // container subjects into a dedicated TERMINAL stream to expose the
 // distributed-consistency problem.
 const (
 	StreamName = "SHIPPING"
+	Region     = "emea"
+	Tenant     = "acme"
 
-	SubjectShipArrived  = "SHIPPING.ship.arrived"
-	SubjectShipDeparted = "SHIPPING.ship.departed"
-
-	SubjectContainerRegistered = "SHIPPING.container.registered"
-	SubjectContainerLoaded     = "SHIPPING.container.loaded"
-	SubjectContainerUnloaded   = "SHIPPING.container.unloaded"
+	ShipArrivedEvent         = "arrived"
+	ShipDepartedEvent        = "departed"
+	ContainerRegisteredEvent = "registered"
+	ContainerLoadedEvent     = "loaded"
+	ContainerUnloadedEvent   = "unloaded"
 
 	// SubjectWildcard matches every event in the SHIPPING stream.
-	SubjectWildcard = "SHIPPING.>"
+	SubjectWildcard = Region + ".events." + Tenant + ".>"
 	// SubjectShipWildcard matches only ship movement events.
-	SubjectShipWildcard = "SHIPPING.ship.>"
+	SubjectShipWildcard = Region + ".events." + Tenant + ".ship.>"
 	// SubjectContainerWildcard matches only container lifecycle events.
-	SubjectContainerWildcard = "SHIPPING.container.>"
+	SubjectContainerWildcard = Region + ".events." + Tenant + ".container.>"
 )
+
+func ShipSubject(region, tenant, shipID, event string) string {
+	return strings.Join([]string{region, "events", tenant, "ship", shipID, event}, ".")
+}
+
+func ContainerSubject(region, tenant, id, event string) string {
+	return strings.Join([]string{region, "events", tenant, "container", id, event}, ".")
+}
+
+func ShipInstanceSubject(region, tenant, shipID string) string {
+	return strings.Join([]string{region, "events", tenant, "ship", shipID, ">"}, ".")
+}
+
+// SubjectDetails returns the aggregate identity and event tokens from a
+// production-form subject: {region}.events.{tenant}.{aggregate}.{id}.{event}.
+func SubjectDetails(subject string) (aggregate, id, event string, ok bool) {
+	parts := strings.Split(subject, ".")
+	if len(parts) != 6 || parts[1] != "events" || parts[4] == "" {
+		return "", "", "", false
+	}
+	return parts[3], parts[4], parts[5], true
+}
+
+func SubjectTokens(subject string) (aggregate, event string, ok bool) {
+	aggregate, _, event, ok = SubjectDetails(subject)
+	return
+}
 
 // StreamSubjects lists the subjects bound to the SHIPPING stream.
 func StreamSubjects() []string {
 	return []string{
-		SubjectShipArrived,
-		SubjectShipDeparted,
-		SubjectContainerRegistered,
-		SubjectContainerLoaded,
-		SubjectContainerUnloaded,
+		SubjectShipWildcard,
+		SubjectContainerWildcard,
 	}
 }
 
@@ -40,7 +68,7 @@ func StreamSubjects() []string {
 // relevant to the subject are populated; the rest are zero values.
 type ShipEvent struct {
 	Context    string    `json:"context"`            // fleet / KV-bucket qualifier
-	ShipID     string    `json:"shipID"`             // stable machine identifier
+	ShipID     string    `json:"-"`                  // aggregate identity comes from the subject
 	ShipName   string    `json:"shipName,omitempty"` // carried on .arrived for replay
 	Port       string    `json:"port,omitempty"`     // .arrived / .departed
 	OccurredAt time.Time `json:"occurredAt"`
@@ -49,13 +77,11 @@ type ShipEvent struct {
 // ContainerEvent is the envelope published on every container subject.
 //
 // ID is the container's immutable surrogate key (UUID), minted once at
-// registration and carried on every subsequent event (Phase 8.3). It — not the
-// ISO 6346 ContainerID — is the aggregate identity that hydration folds by, so
-// a container's history stays together even if its natural key were later
-// corrected. ContainerID remains the human-facing natural key.
+// registration and carried in every event subject (Phase 8.3). It — not the ISO
+// 6346 ContainerID — is the aggregate identity that hydration folds by.
 type ContainerEvent struct {
 	Context     string    `json:"context"`              // fleet / KV-bucket qualifier
-	ID          string    `json:"id"`                   // surrogate key (UUID) — aggregate identity
+	ID          string    `json:"-"`                    // aggregate identity comes from the subject
 	ContainerID string    `json:"containerID"`          // ISO 6346 natural key
 	Cargo       string    `json:"cargo,omitempty"`      // .registered
 	OriginPort  string    `json:"originPort,omitempty"` // .registered

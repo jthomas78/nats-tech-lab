@@ -10,7 +10,7 @@ Two aggregates share the single `SHIPPING` stream (Phase 8):
 
 Cross-aggregate rules (BR-008, BR-012, BR-014) need both aggregates' state.
 Both hydrate from **one atomic replay** of the `SHIPPING` stream
-(`commands.hydratePair`), so these checks are strongly consistent. Phase 9
+(`commands.hydratePair`), so these checks are strongly consistent. Phase 12
 splits the stream and turns exactly these rules into the
 invariant-spanning-two-aggregates problem.
 

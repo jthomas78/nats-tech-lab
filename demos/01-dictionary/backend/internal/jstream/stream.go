@@ -10,9 +10,9 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// CreateStream creates or updates a stream with LimitsPolicy retention and
-// file storage. LimitsPolicy is required for event replay: messages survive
-// acknowledgement and stay until size/age limits evict them.
+// CreateStream creates or updates a stream with the supplied production-form
+// subject filters, LimitsPolicy retention, and file storage. LimitsPolicy is
+// required for replay: messages survive acknowledgement until limits evict them.
 func CreateStream(ctx context.Context, js jetstream.JetStream, name string, subjects []string) (jetstream.Stream, error) {
 	stream, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 		Name:      name,

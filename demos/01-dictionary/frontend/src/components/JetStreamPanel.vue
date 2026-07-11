@@ -165,14 +165,14 @@ function handleTabChange(value) {
         <TabPanel value="0">
           <DataTable :value="liveEvents" size="small" paginator :rows="5" class="js-table" resizableColumns columnResizeMode="expand">
             <template #empty>
-              <span class="lab-muted">Waiting for messages — publish an entry to see it here.</span>
+              <span class="lab-muted">Waiting for messages — execute a shipping command to see it here.</span>
             </template>
             <Column header="Event" style="width:90px">
               <template #body="{ data }">
                 <Tag :severity="subjectSeverity(data.subject)" :value="subjectLabel(data.subject)" />
               </template>
             </Column>
-            <Column header="Subject" style="width:220px">
+            <Column header="Subject" style="width:320px">
               <template #body="{ data }">
                 <span class="subject-full lab-muted">{{ data.subject }}</span>
               </template>
@@ -204,7 +204,7 @@ function handleTabChange(value) {
                 <Tag :severity="subjectSeverity(data.subject)" :value="subjectLabel(data.subject)" />
               </template>
             </Column>
-            <Column header="Subject" style="width:220px">
+            <Column header="Subject" style="width:320px">
               <template #body="{ data }">
                 <span class="subject-full lab-muted">{{ data.subject }}</span>
               </template>

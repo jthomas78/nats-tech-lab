@@ -176,7 +176,7 @@ type jsEvent struct {
 // replayJetStream godoc
 //
 // @Summary      JetStream full replay + live stream (SSE)
-// @Description  Server-Sent Events stream of raw SHIPPING.* JetStream messages using DeliverAll policy — replays from seq=1, then continues with live messages. Each event is a JSON-encoded jsEvent object.
+// @Description  Server-Sent Events stream of raw emea.events.acme.> messages from SHIPPING using DeliverAll policy — replays from seq=1, then continues live. Each event is a JSON-encoded jsEvent object.
 // @Tags         streams
 // @Produce      text/event-stream
 // @Param        stream  query     string  false  "Stream name (default SHIPPING)"
@@ -193,7 +193,7 @@ func (h *Handlers) replayJetStream(w http.ResponseWriter, r *http.Request) {
 // watchJetStream godoc
 //
 // @Summary      JetStream live watch (SSE)
-// @Description  Server-Sent Events stream of raw SHIPPING.* JetStream messages using DeliverNew policy — only messages published after the connection opens. Each event is a JSON-encoded jsEvent object.
+// @Description  Server-Sent Events stream of raw emea.events.acme.> messages from SHIPPING using DeliverNew policy — only messages published after connection. Each event is a JSON-encoded jsEvent object.
 // @Tags         streams
 // @Produce      text/event-stream
 // @Param        stream  query     string  false  "Stream name (default SHIPPING)"

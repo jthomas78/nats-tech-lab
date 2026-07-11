@@ -90,7 +90,7 @@ function containerLocation(c) {
     <template v-if="!collapsed">
       <p class="description">
         No KV, no Postgres. Current fleet state is derived entirely from replaying
-        <code>SHIPPING.*</code> from <code>seq=1</code> — demonstrating Fowler's Event Sourcing property.
+        the <code>SHIPPING</code> stream from <code>seq=1</code> — demonstrating Fowler's Event Sourcing property.
         Clear KV / Postgres, click Reconstruct: the correct fleet still appears.
       </p>
 
