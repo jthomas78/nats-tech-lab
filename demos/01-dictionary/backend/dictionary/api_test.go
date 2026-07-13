@@ -47,6 +47,7 @@ func newAPIServer() *apiServer {
 	kvContainers := kvstore.New(js, "container")
 	kvMeta := kvstore.New(js, "meta")
 	repo := newFakeRepo()
+	portRepo := newFakePortRepo()
 
 	consumeA, err := eventhandler.RegisterShapeA(ctx, js, kvA, log)
 	Expect(err).NotTo(HaveOccurred())
@@ -66,8 +67,9 @@ func newAPIServer() *apiServer {
 
 	pub := jstream.NewPublisher(js)
 	handlers := rest.NewHandlers(rest.Deps{
-		Ships:      commands.NewShipHandler(pub, js),
-		Containers: commands.NewContainerHandler(pub, js),
+		Ships:      commands.NewShipHandler(pub, js, portRepo),
+		Containers: commands.NewContainerHandler(pub, js, portRepo),
+		Ports:      commands.NewPortHandler(portRepo),
 		ShapeB:     queries.NewShapeB(kvB, repo),
 		ShapeC:     queries.NewShapeC(js),
 		Terminal:   queries.NewTerminal(kvContainers),
@@ -441,6 +443,62 @@ var _ = Describe("HTTP API", func() {
 		})
 	})
 
+	// ── ports ─────────────────────────────────────────────────────────────────
+
+	Describe("ports", func() {
+		It("GET /api/ports/{context} returns the seeded default ports", func() {
+			resp := api.get("/api/ports/" + ctx)
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			var body struct {
+				Values []string `json:"values"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+			Expect(body.Values).To(ContainElement("Hamburg"))
+		})
+
+		It("POST /api/ports registers a new port, then it is usable and listed", func() {
+			resp := api.post("/api/ports", map[string]any{"context": ctx, "name": "Atlantis"})
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+			list := api.get("/api/ports/" + ctx)
+			defer list.Body.Close()
+			var body struct {
+				Values []string `json:"values"`
+			}
+			Expect(json.NewDecoder(list.Body).Decode(&body)).To(Succeed())
+			Expect(body.Values).To(ContainElement("Atlantis"))
+
+			arrive := api.post("/api/ships/arrive", map[string]any{
+				"context": ctx, "shipID": "atlantis-ship", "shipName": "Atlantis Ship", "port": "Atlantis",
+			})
+			defer arrive.Body.Close()
+			Expect(arrive.StatusCode).To(Equal(http.StatusAccepted))
+		})
+
+		It("returns 422 when arriving at an unregistered port (BR-017)", func() {
+			resp := api.post("/api/ships/arrive", map[string]any{
+				"context": ctx, "shipID": "no-port-ship", "shipName": "No Port", "port": "Nowhere",
+			})
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusUnprocessableEntity))
+			body := readBody(resp)
+			Expect(body["error"]).To(ContainSubstring(domain.ErrUnknownPort.Error()))
+		})
+
+		It("returns 422 when registering a container with an unregistered destination port (BR-018)", func() {
+			resp := api.post("/api/containers/register", map[string]any{
+				"context": ctx, "containerID": "TCKU5000001",
+				"cargo": "Electronics", "originPort": "Hamburg", "destPort": "Nowhere",
+			})
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusUnprocessableEntity))
+			body := readBody(resp)
+			Expect(body["error"]).To(ContainSubstring(domain.ErrUnknownPort.Error()))
+		})
+	})
+
 	// ── meta queries ──────────────────────────────────────────────────────────
 
 	Describe("meta queries", func() {
@@ -451,32 +509,6 @@ var _ = Describe("HTTP API", func() {
 			api.fire("/api/containers/register", map[string]any{
 				"context": ctx, "containerID": "TCKU3000001",
 				"cargo": "Electronics", "originPort": "Rotterdam", "destPort": "Singapore",
-			})
-		})
-
-		It("GET /api/meta/{context}/known-ports accumulates ports from ship and container events", func() {
-			eventually(func() error {
-				resp := api.get("/api/meta/" + ctx + "/known-ports")
-				defer resp.Body.Close()
-				if resp.StatusCode != http.StatusOK {
-					return errors.New("unexpected status")
-				}
-				var body struct {
-					Values []string `json:"values"`
-				}
-				if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-					return err
-				}
-				want := map[string]bool{"Hamburg": false, "Rotterdam": false, "Singapore": false}
-				for _, p := range body.Values {
-					want[p] = true
-				}
-				for p, found := range want {
-					if !found {
-						return errors.New("known-ports missing: " + p)
-					}
-				}
-				return nil
 			})
 		})
 

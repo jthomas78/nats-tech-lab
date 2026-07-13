@@ -5,6 +5,7 @@ import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import Toast from 'primevue/toast'
+import { useToast } from 'primevue/usetoast'
 import { onMounted, onUnmounted, ref } from 'vue'
 
 import FleetPanel from './components/FleetPanel.vue'
@@ -15,6 +16,7 @@ import { isDark, toggleTheme } from '@unifi-theme/preset.js'
 
 const store = usePortStore()
 const dark = ref(isDark())
+const toast = useToast()
 
 function handleToggleTheme() {
   toggleTheme()
@@ -31,10 +33,14 @@ function openNewPort() {
   newPortVisible.value = true
 }
 
-function submitNewPort() {
+async function submitNewPort() {
   if (!newPortName.value.trim()) return
-  store.addShippingPort(newPortName.value)
-  newPortVisible.value = false
+  try {
+    await store.addShippingPort(newPortName.value)
+    newPortVisible.value = false
+  } catch (err) {
+    toast.add({ severity: 'error', summary: 'Could not add port', detail: err.message, life: 4000 })
+  }
 }
 
 onMounted(() => store.connect())
@@ -119,8 +125,8 @@ onUnmounted(() => store.disconnect())
         @keyup.enter="submitNewPort"
       />
       <p class="lab-muted dialog-note">
-        Staged in this session only. The port becomes durable once a ship arrives
-        or a container is registered there.
+        Registered immediately in the ports table (Postgres) — usable by every
+        ship arrival and container registration from now on.
       </p>
       <template #footer>
         <Button label="Cancel" text size="small" @click="newPortVisible = false" />

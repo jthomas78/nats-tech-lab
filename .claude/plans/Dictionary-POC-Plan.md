@@ -745,6 +745,28 @@ Region and tenant are **hardcoded constants for the POC** (`emea`, `acme`) — t
 
 ---
 
+### Phase 9.5 — Ports Reference Table (BR-017, BR-018)
+
+#### Goal
+
+Replace the frontend-only port list (hardcoded `BASE_PORTS` in `ShippingForm.vue`; client-side-only `addShippingPort` in the `frontend-port` port store) with a real Postgres-backed reference table, registered via a REST API. Ports are plain master data — a direct Postgres write, not an event-sourced aggregate — since a port has no lifecycle worth replaying; it exists only to be looked up when enforcing BR-017/BR-018. This also retires the derived `meta.known-ports` KV projection, which is now redundant with the registry.
+
+#### Checklist
+
+- [x] `domain/repository.go` — `PortRepository` interface (`Exists`, `Register`, `List`)
+- [x] `domain/ship.go` / `container.go` — `ErrUnknownPort`; `ShipAggregate.Arrive()` takes `portKnown bool`; `ContainerAggregate.Register()` takes `originKnown, destKnown bool`
+- [x] `postgres/migrate.go` — `ports` table (context-scoped); seeds the original 6 default ports for every fleet context so a fresh install still works out of the box
+- [x] `postgres/port_repository.go` — `PortRepository` implementation
+- [x] `application/commands/port.go` — `PortHandler` (direct repo write/read, no JetStream)
+- [x] `ShipHandler` / `ContainerHandler` — resolve port existence via `PortRepository.Exists()` before calling `Arrive`/`Register`
+- [x] `rest/handlers.go` — `GET /api/ports/{context}`, `POST /api/ports`; removed `GET /api/meta/{context}/known-ports`
+- [x] `eventhandler/meta_handler.go` + `queries/meta.go` — retired `known-ports` (kept `known-containers`)
+- [x] Frontend — both `api.js` clients: `getPorts`/`registerPort` replace `getKnownPorts`; `dictionary.js` and `port.js` stores seed from the new endpoint; `frontend-port`'s existing "add a shipping port" dialog now calls `POST /api/ports` instead of staging client-side only; `ShippingForm.vue`'s `BASE_PORTS` removed
+- [x] `BUSINESS_RULES.md` — BR-017, BR-018
+- [x] `go build ./...` + `ginkgo ./...` green (56/56 tests)
+
+---
+
 ### Phase 10 — Write-Side Safety (Optimistic Concurrency + Publish Dedup)
 
 #### Goal

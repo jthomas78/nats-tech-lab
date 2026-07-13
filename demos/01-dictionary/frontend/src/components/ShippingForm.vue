@@ -16,14 +16,13 @@ const OPERATIONS = [
   { label: 'Unload container', value: 'unload' },
 ]
 
-const BASE_PORTS = ['Hamburg', 'Rotterdam', 'Singapore', 'New York', 'Shanghai', 'Sydney']
-
 const store = useDictionaryStore()
 
-const portOptions = computed(() => {
-  const merged = new Set([...BASE_PORTS, ...store.seenPorts])
-  return [...merged].sort()
-})
+// Backed by the Postgres ports registry (BR-017/BR-018), seeded via
+// getPorts() on connect — see stores/dictionary.js. Typing an unregistered
+// port here (the Select is editable) is rejected server-side with a clear
+// domain error, shown below.
+const portOptions = computed(() => [...store.seenPorts].sort())
 const toast = useToast()
 const busy = ref(false)
 const domainError = ref('')
@@ -174,7 +173,7 @@ async function submit() {
 
     <p class="lab-muted hint">
       Commands publish <code>emea.events.acme.{aggregate}.{id}.{event}</code> subjects —
-      two aggregates, one stream. Domain rules (BR-001…BR-015) are enforced before publishing;
+      two aggregates, one stream. Domain rules (BR-001…BR-018) are enforced before publishing;
       invalid transitions return an error above. Fleet: <code>{{ store.context }}</code>
     </p>
   </form>

@@ -13,25 +13,22 @@ import (
 
 // Meta KV keys — cross-cutting derived lookup sets in the meta-{context}
 // bucket, maintained incrementally by the meta projector.
+//
+// known-ports was retired: ports are now the Postgres-backed reference table
+// (BR-017, BR-018) served by commands.PortHandler / GET /api/ports/{context},
+// not a derived event-history projection.
 const (
-	MetaKeyKnownPorts      = "known-ports"
 	MetaKeyKnownContainers = "known-containers"
 )
 
 // Meta reads the cross-cutting lookup sets from the meta-{context} KV bucket.
-// These back UI selectors (port dropdowns, container pickers) so the full
-// history survives reload without client-side accumulation or event replay.
+// These back UI selectors (container pickers) so the full history survives
+// reload without client-side accumulation or event replay.
 type Meta struct {
 	kv *kvstore.Store
 }
 
 func NewMeta(kv *kvstore.Store) *Meta { return &Meta{kv: kv} }
-
-// KnownPorts returns every port ever seen in the context's event history —
-// ship arrivals/departures plus container origin/destination ports. Sorted.
-func (q *Meta) KnownPorts(ctx context.Context, kvContext string) ([]string, error) {
-	return q.stringSet(ctx, kvContext, MetaKeyKnownPorts)
-}
 
 // KnownContainers returns every container ID ever registered in the context. Sorted.
 func (q *Meta) KnownContainers(ctx context.Context, kvContext string) ([]string, error) {

@@ -1,7 +1,7 @@
 package dictionary
 
 // Container / terminal domain specs (Phase 8). Each Context maps to a rule in
-// BUSINESS_RULES.md (BR-008 … BR-016). Written before the implementation
+// BUSINESS_RULES.md (BR-008 … BR-018). Written before the implementation
 // (red → green → refactor). Both aggregates live on the single SHIPPING
 // stream, so every cross-aggregate rule is enforced from one atomic replay.
 
@@ -34,8 +34,9 @@ var _ = Describe("Container Domain Rules", func() {
 		ctx = context.Background()
 		js := newJetStream()
 		pub := jstream.NewPublisher(js)
-		ships = commands.NewShipHandler(pub, js)
-		containers = commands.NewContainerHandler(pub, js)
+		portRepo := newFakePortRepo()
+		ships = commands.NewShipHandler(pub, js, portRepo)
+		containers = commands.NewContainerHandler(pub, js, portRepo)
 	})
 
 	// ── scenario helpers ──────────────────────────────────────────────────────
@@ -239,6 +240,24 @@ var _ = Describe("Container Domain Rules", func() {
 		})
 	})
 
+	Context("BR-018: a container's origin and destination ports must be registered", func() {
+		It("returns ErrUnknownPort for an unregistered origin port", func() {
+			_, err := containers.RegisterContainer(ctx, commands.ContainerInput{
+				Context: fleetCtx, ContainerID: "TCKU0000180",
+				Cargo: "Electronics", OriginPort: "Atlantis", DestPort: "Singapore",
+			})
+			Expect(errors.Is(err, domain.ErrUnknownPort)).To(BeTrue())
+		})
+
+		It("returns ErrUnknownPort for an unregistered destination port", func() {
+			_, err := containers.RegisterContainer(ctx, commands.ContainerInput{
+				Context: fleetCtx, ContainerID: "TCKU0000181",
+				Cargo: "Electronics", OriginPort: "Hamburg", DestPort: "Atlantis",
+			})
+			Expect(errors.Is(err, domain.ErrUnknownPort)).To(BeTrue())
+		})
+	})
+
 	// ── surrogate key (Phase 8.3) ─────────────────────────────────────────────
 
 	Context("surrogate key: the container's identity is an immutable UUID, not the ISO 6346 natural key", func() {
@@ -349,8 +368,9 @@ var _ = Describe("Terminal read models", func() {
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(consumeM.Stop)
 
-		ships = commands.NewShipHandler(pub, js)
-		containers = commands.NewContainerHandler(pub, js)
+		portRepo := newFakePortRepo()
+		ships = commands.NewShipHandler(pub, js, portRepo)
+		containers = commands.NewContainerHandler(pub, js, portRepo)
 		terminal = queries.NewTerminal(kvContainers)
 		meta = queries.NewMeta(kvMeta)
 	})
@@ -407,7 +427,7 @@ var _ = Describe("Terminal read models", func() {
 		})
 	})
 
-	It("maintains meta.known-ports and meta.known-containers", func() {
+	It("maintains meta.known-containers", func() {
 		_, err := ships.ArrivePort(ctx, commands.ShipInput{
 			Context: fleetCtx, ShipID: "meta-ship", ShipName: "Meta", Port: "Hamburg",
 		})
@@ -418,27 +438,6 @@ var _ = Describe("Terminal read models", func() {
 			Cargo: "Textiles", OriginPort: "Rotterdam", DestPort: "Singapore",
 		})
 		Expect(err).NotTo(HaveOccurred())
-
-		By("known-ports accumulates ship ports and container origin/destination ports")
-		eventually(func() error {
-			ports, err := meta.KnownPorts(ctx, fleetCtx)
-			if err != nil {
-				return err
-			}
-			for _, want := range []string{"Hamburg", "Rotterdam", "Singapore"} {
-				found := false
-				for _, p := range ports {
-					if p == want {
-						found = true
-						break
-					}
-				}
-				if !found {
-					return errors.New("known-ports missing " + want)
-				}
-			}
-			return nil
-		})
 
 		By("known-containers accumulates registered container IDs")
 		eventually(func() error {

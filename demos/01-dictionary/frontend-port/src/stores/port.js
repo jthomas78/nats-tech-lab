@@ -5,7 +5,7 @@
 // — the same join the backend terminal queries and Shape C perform.
 import { defineStore } from 'pinia'
 
-import { getKnownPorts, watchTerminalUrl, watchUrl } from '../api'
+import { getPorts, registerPort, watchTerminalUrl, watchUrl } from '../api'
 
 export const CONTEXTS = ['global', 'atlantic-fleet', 'pacific-fleet']
 
@@ -64,15 +64,14 @@ export const usePortStore = defineStore('port', {
       this.port = port
     },
 
-    // Stages a new port in the selectable list and makes it active. NOT a
-    // command — it publishes no event (contrast registerContainer). There is
-    // no backend Port aggregate/endpoint: a port only becomes durable in
-    // meta.known-ports once a real ship arrival or container registration
-    // event references it. This is a client-side convenience so a brand-new
-    // port can be selected immediately, before any such event exists.
-    addShippingPort(port) {
+    // Registers a new port in the Postgres-backed ports registry (BR-017/
+    // BR-018) via POST /api/ports, then makes it active. Unlike ship/container
+    // commands this is a direct write, not an event — ports are reference
+    // data, not an event-sourced aggregate.
+    async addShippingPort(port) {
       const trimmed = port.trim()
       if (!trimmed) return
+      await registerPort(this.context, trimmed)
       this.mergeKnownPorts([trimmed])
       this.port = trimmed
     },
@@ -84,9 +83,10 @@ export const usePortStore = defineStore('port', {
       this.knownPorts = []
       this.knownContainers = []
 
-      // Seed the port selector from the meta.known-ports projection before
-      // the SSE streams open; live META events keep it current afterwards.
-      getKnownPorts(this.context)
+      // Seed the port selector from the Postgres-backed ports registry
+      // before the SSE streams open; live META events keep it current
+      // afterwards (registering a port also merges it in immediately).
+      getPorts(this.context)
         .then((res) => {
           this.mergeKnownPorts(res?.values ?? [])
           if (!this.port && this.knownPorts.length > 0) {
@@ -142,12 +142,8 @@ export const usePortStore = defineStore('port', {
         }
         return
       }
-      if (event.shape === 'META' && event.op === 'PUT') {
-        if (event.key === 'known-ports') {
-          this.mergeKnownPorts(event.value ?? [])
-        } else if (event.key === 'known-containers') {
-          this.knownContainers = event.value ?? []
-        }
+      if (event.shape === 'META' && event.op === 'PUT' && event.key === 'known-containers') {
+        this.knownContainers = event.value ?? []
       }
     },
   },

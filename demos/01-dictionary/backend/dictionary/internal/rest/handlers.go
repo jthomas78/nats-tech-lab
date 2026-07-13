@@ -10,7 +10,8 @@
 //	GET    /api/containers/{context}                  all containers in the context
 //	GET    /api/terminal/{context}/{port}             containers in the terminal yard at a port
 //	GET    /api/manifest/{context}/{shipID}           containers on a ship (the manifest join)
-//	GET    /api/meta/{context}/known-ports            every port seen in the event history
+//	GET    /api/ports/{context}                       every port registered for the fleet context
+//	POST   /api/ports                                 register a new port (context, name)
 //	GET    /api/meta/{context}/known-containers       every container ID ever registered
 //	GET    /api/shape-b/ships/{context}/{shipID}      read ship via KV cache → Postgres
 //	DELETE /api/shape-b/cache/{context}/{shipID}      evict cache key (demo the miss path)
@@ -70,6 +71,7 @@ type errorResponse struct {
 type Deps struct {
 	Ships      *commands.ShipHandler
 	Containers *commands.ContainerHandler
+	Ports      *commands.PortHandler
 	ShapeB     *queries.ShapeB
 	ShapeC     *queries.ShapeC
 	Terminal   *queries.Terminal
@@ -99,7 +101,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/containers/{context}", h.listContainers)
 	mux.HandleFunc("GET /api/terminal/{context}/{port}", h.terminalByPort)
 	mux.HandleFunc("GET /api/manifest/{context}/{shipID}", h.manifestByShip)
-	mux.HandleFunc("GET /api/meta/{context}/known-ports", h.knownPorts)
+	mux.HandleFunc("GET /api/ports/{context}", h.listPorts)
+	mux.HandleFunc("POST /api/ports", h.registerPort)
 	mux.HandleFunc("GET /api/meta/{context}/known-containers", h.knownContainers)
 	mux.HandleFunc("GET /api/shape-b/ships/{context}/{shipID}", h.getShipShapeB)
 	mux.HandleFunc("DELETE /api/shape-b/cache/{context}/{shipID}", h.evictShipCache)
@@ -301,23 +304,53 @@ func (h *Handlers) manifestByShip(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"containers": containers})
 }
 
-// knownPorts godoc
+// listPorts godoc
 //
-// @Summary      Known ports
-// @Description  Every port ever seen in the context's event history (ship arrivals/departures + container origin/destination ports). Backed by the meta.known-ports KV projection; survives reload without event replay.
-// @Tags         meta
+// @Summary      List registered ports
+// @Description  Every port registered for the fleet context. Backed by the Postgres ports reference table (BR-017, BR-018) — plain master data, not event-derived.
+// @Tags         ports
 // @Produce      json
 // @Param        context  path      string  true  "Fleet context"
 // @Success      200      {object}  metaValuesResponse
 // @Failure      500      {object}  errorResponse
-// @Router       /api/meta/{context}/known-ports [get]
-func (h *Handlers) knownPorts(w http.ResponseWriter, r *http.Request) {
-	ports, err := h.deps.Meta.KnownPorts(r.Context(), r.PathValue("context"))
+// @Router       /api/ports/{context} [get]
+func (h *Handlers) listPorts(w http.ResponseWriter, r *http.Request) {
+	ports, err := h.deps.Ports.List(r.Context(), r.PathValue("context"))
 	if err != nil {
 		h.writeQueryError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"values": ports})
+}
+
+// registerPortInput is the request body for registerPort.
+type registerPortInput struct {
+	Context string `json:"context"`
+	Name    string `json:"name"`
+}
+
+// registerPort godoc
+//
+// @Summary      Register a port
+// @Description  Adds a port to the fleet context's ports registry. Direct Postgres write, not an event — ports are reference data, not an event-sourced aggregate. Idempotent.
+// @Tags         ports
+// @Accept       json
+// @Produce      json
+// @Param        body  body      registerPortInput  true  "context, name"
+// @Success      201   {object}  metaValuesResponse
+// @Failure      400   {object}  errorResponse
+// @Router       /api/ports [post]
+func (h *Handlers) registerPort(w http.ResponseWriter, r *http.Request) {
+	var in registerPortInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := h.deps.Ports.Register(r.Context(), in.Context, in.Name); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"port": in.Name})
 }
 
 // knownContainers godoc
@@ -424,7 +457,8 @@ func (h *Handlers) writeCommandError(w http.ResponseWriter, err error) {
 		errors.Is(err, domain.ErrWrongShip),
 		errors.Is(err, domain.ErrContainerNotAtPort),
 		errors.Is(err, domain.ErrContainerExists),
-		errors.Is(err, domain.ErrInvalidContainerID):
+		errors.Is(err, domain.ErrInvalidContainerID),
+		errors.Is(err, domain.ErrUnknownPort):
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeError(w, http.StatusBadRequest, err.Error())

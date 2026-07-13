@@ -21,7 +21,7 @@ const (
 	//   dict-a    — Shape A ship read model
 	//   dict-b    — Shape B ship cache
 	//   container — container projection (terminal queries read model)
-	//   meta      — cross-cutting lookup sets (known-ports, known-containers)
+	//   meta      — cross-cutting lookup sets (known-containers)
 	shapeABucketPrefix    = "dict-a"
 	shapeBBucketPrefix    = "dict-b"
 	containerBucketPrefix = "container"
@@ -47,6 +47,7 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 	kvMeta := kvstore.New(js, metaBucketPrefix)
 	shipRepo := postgres.NewRepository(mono.DB())
 	containerRepo := postgres.NewContainerRepository(mono.DB())
+	portRepo := postgres.NewPortRepository(mono.DB())
 
 	if _, err := eventhandler.RegisterShapeA(ctx, js, kvA, log); err != nil {
 		return err
@@ -63,8 +64,9 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 
 	pub := jstream.NewPublisher(js)
 	handlers := rest.NewHandlers(rest.Deps{
-		Ships:      commands.NewShipHandler(pub, js),
-		Containers: commands.NewContainerHandler(pub, js),
+		Ships:      commands.NewShipHandler(pub, js, portRepo),
+		Containers: commands.NewContainerHandler(pub, js, portRepo),
+		Ports:      commands.NewPortHandler(portRepo),
 		ShapeB:     queries.NewShapeB(kvB, shipRepo),
 		ShapeC:     queries.NewShapeC(js),
 		Terminal:   queries.NewTerminal(kvContainers),

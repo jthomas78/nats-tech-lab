@@ -13,30 +13,26 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/internal/kvstore"
 )
 
-// metaEvent is the union of the fields the meta projector needs from either
-// event envelope — both ShipEvent and ContainerEvent decode into it.
+// metaEvent carries the fields the meta projector needs from a
+// ContainerEvent envelope.
 type metaEvent struct {
 	Context     string `json:"context"`
-	Port        string `json:"port"`
 	ContainerID string `json:"containerID"`
-	OriginPort  string `json:"originPort"`
-	DestPort    string `json:"destPort"`
 }
 
 // RegisterMeta starts the meta projector: it maintains the cross-cutting
 // lookup sets in the meta-{context} KV bucket:
 //
-//	known-ports      — ship arrival/departure ports plus container origin and
-//	                   destination ports (JSON array, sorted)
 //	known-containers — every registered container ID (JSON array, sorted)
 //
-// These survive reload without event replay and without the frontend having
-// to accumulate them client-side. A single durable consumer processes events
+// This survives reload without event replay and without the frontend having
+// to accumulate it client-side. A single durable consumer processes events
 // sequentially, so the read-merge-write below has no concurrent writers.
+// (known-ports was retired — ports are now the Postgres reference table.)
 func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, log *slog.Logger) (jetstream.ConsumeContext, error) {
 	cons, err := js.CreateOrUpdateConsumer(ctx, domain.StreamName, jetstream.ConsumerConfig{
 		Durable:       "meta-projector",
-		FilterSubject: domain.SubjectWildcard,
+		FilterSubject: domain.SubjectContainerWildcard,
 		AckPolicy:     jetstream.AckExplicitPolicy,
 	})
 	if err != nil {
@@ -49,22 +45,12 @@ func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store
 			return
 		}
 
-		var err error
 		aggregate, eventType, ok := domain.SubjectTokens(msg.Subject())
-		if !ok {
+		if !ok || aggregate != "container" || eventType != domain.ContainerRegisteredEvent {
 			_ = msg.Ack()
 			return
 		}
-		switch {
-		case aggregate == "ship" && (eventType == domain.ShipArrivedEvent || eventType == domain.ShipDepartedEvent):
-			err = mergeSet(ctx, kv, event.Context, queries.MetaKeyKnownPorts, event.Port)
-		case aggregate == "container" && eventType == domain.ContainerRegisteredEvent:
-			err = mergeSet(ctx, kv, event.Context, queries.MetaKeyKnownPorts, event.OriginPort, event.DestPort)
-			if err == nil {
-				err = mergeSet(ctx, kv, event.Context, queries.MetaKeyKnownContainers, event.ContainerID)
-			}
-		}
-		if err != nil {
+		if err := mergeSet(ctx, kv, event.Context, queries.MetaKeyKnownContainers, event.ContainerID); err != nil {
 			log.Error("meta projection failed, will redeliver", "subject", msg.Subject(), "err", err)
 			_ = msg.Nak()
 			return

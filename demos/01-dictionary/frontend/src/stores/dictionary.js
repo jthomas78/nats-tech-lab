@@ -3,7 +3,7 @@
 // stream (here: KV watch → SSE), one layer further out. See CLAUDE.md.
 import { defineStore } from 'pinia'
 
-import { getKnownPorts, watchUrl } from '../api'
+import { getPorts, watchUrl } from '../api'
 
 // Fleet contexts scope the KV buckets, same as tenant/region in the dictionary
 // domain. Each context maps to dict-a-{context} and dict-b-{context} buckets.
@@ -46,9 +46,10 @@ export const useDictionaryStore = defineStore('dictionary', {
       this.events = []
       this.seenPorts = []
 
-      // Seed the port list from the meta.known-ports KV projection so the
-      // full port history survives reload; live events keep merging below.
-      getKnownPorts(this.context)
+      // Seed the port list from the Postgres-backed ports registry
+      // (BR-017/BR-018) so the dropdown reflects real, arrival-eligible
+      // ports; live ship-arrival events keep merging below.
+      getPorts(this.context)
         .then((res) => this.mergePorts(res?.values ?? []))
         .catch(() => {})
 

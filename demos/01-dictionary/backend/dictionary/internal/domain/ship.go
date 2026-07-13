@@ -21,6 +21,7 @@ var (
 	ErrMustDepart    = errors.New("ship must depart current port first")
 	ErrNotDocked     = errors.New("ship is not docked at this port")
 	ErrNotInPort     = errors.New("ship must be docked to load or unload containers") // BR-012
+	ErrUnknownPort   = errors.New("port is not registered")                          // BR-017 (also reused by container.go for BR-018)
 )
 
 // ─── Value objects ────────────────────────────────────────────────────────────
@@ -117,7 +118,13 @@ func (a *ShipAggregate) FromState(s ShipState) {
 
 // Arrive returns a ShipArrived event if the ship is currently at sea.
 // shipName is only used when this is the ship's first recorded arrival.
-func (a *ShipAggregate) Arrive(port, shipName string) (ShipEvent, error) {
+// portKnown reports whether port exists in the ports registry (BR-017); the
+// application layer resolves this via PortRepository before calling Arrive,
+// the same pattern used for the cross-aggregate checks in container.go.
+func (a *ShipAggregate) Arrive(port, shipName string, portKnown bool) (ShipEvent, error) {
+	if !portKnown {
+		return ShipEvent{}, ErrUnknownPort // BR-017
+	}
 	if a.CurrentPort == port {
 		return ShipEvent{}, ErrAlreadyDocked
 	}

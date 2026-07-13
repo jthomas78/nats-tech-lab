@@ -42,21 +42,20 @@ func NewShapeC(js jetstream.JetStream) *ShapeC { return &ShapeC{js: js} }
 func (q *ShapeC) ReconstructFleet(ctx context.Context) (FleetReconstruction, error) {
 	empty := FleetReconstruction{Fleet: []ShipWithManifest{}, Containers: []domain.ContainerState{}}
 
-	info, err := q.js.Stream(ctx, domain.StreamName)
-	if err != nil {
-		return empty, fmt.Errorf("stream info: %w", err)
-	}
-	lastSeq := info.CachedInfo().State.LastSeq
-	if lastSeq == 0 {
-		return empty, nil
-	}
-
 	consumer, err := q.js.OrderedConsumer(ctx, domain.StreamName, jetstream.OrderedConsumerConfig{
 		FilterSubjects: domain.StreamSubjects(),
 		DeliverPolicy:  jetstream.DeliverAllPolicy,
 	})
 	if err != nil {
 		return empty, fmt.Errorf("ordered consumer: %w", err)
+	}
+	// Completion is measured against the filtered consumer's pending count, not
+	// the stream's LastSeq. After a subject migration the stream can still hold
+	// messages that no longer match StreamSubjects() (e.g. pre-Phase-9 events);
+	// folding until LastSeq would block forever on a tail message the filtered
+	// consumer never delivers.
+	if consumer.CachedInfo().NumPending == 0 {
+		return empty, nil
 	}
 	msgs, err := consumer.Messages()
 	if err != nil {
@@ -107,7 +106,7 @@ func (q *ShapeC) ReconstructFleet(ctx context.Context) (FleetReconstruction, err
 			}
 		}
 		meta, _ := msg.Metadata()
-		if meta != nil && meta.Sequence.Stream >= lastSeq {
+		if meta != nil && meta.NumPending == 0 {
 			break
 		}
 	}

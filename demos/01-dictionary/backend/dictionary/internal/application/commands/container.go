@@ -28,12 +28,13 @@ type ContainerInput struct {
 // are strongly consistent. Phase 12 splits the streams and turns exactly this
 // spot into the distributed-consistency problem.
 type ContainerHandler struct {
-	pub Publisher
-	js  jetstream.JetStream
+	pub   Publisher
+	js    jetstream.JetStream
+	ports domain.PortRepository
 }
 
-func NewContainerHandler(pub Publisher, js jetstream.JetStream) *ContainerHandler {
-	return &ContainerHandler{pub: pub, js: js}
+func NewContainerHandler(pub Publisher, js jetstream.JetStream, ports domain.PortRepository) *ContainerHandler {
+	return &ContainerHandler{pub: pub, js: js, ports: ports}
 }
 
 // RegisterContainer places a new container in the origin port's terminal.
@@ -61,7 +62,15 @@ func (h *ContainerHandler) RegisterContainer(ctx context.Context, in ContainerIn
 	if !cont.IsRegistered() {
 		cont.ID = newSurrogateID()
 	}
-	event, err := cont.Register(in.Cargo, in.OriginPort, in.DestPort)
+	originKnown, err := h.ports.Exists(ctx, in.Context, in.OriginPort)
+	if err != nil {
+		return domain.ContainerState{}, err
+	}
+	destKnown, err := h.ports.Exists(ctx, in.Context, in.DestPort)
+	if err != nil {
+		return domain.ContainerState{}, err
+	}
+	event, err := cont.Register(in.Cargo, in.OriginPort, in.DestPort, originKnown, destKnown)
 	if err != nil {
 		return domain.ContainerState{}, err
 	}

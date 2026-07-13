@@ -30,12 +30,13 @@ type ShipInput struct {
 // ShipHandler executes the ship movement commands. It holds both the publish
 // port and the JetStream handle used for aggregate hydration (read before write).
 type ShipHandler struct {
-	pub Publisher
-	js  jetstream.JetStream
+	pub   Publisher
+	js    jetstream.JetStream
+	ports domain.PortRepository
 }
 
-func NewShipHandler(pub Publisher, js jetstream.JetStream) *ShipHandler {
-	return &ShipHandler{pub: pub, js: js}
+func NewShipHandler(pub Publisher, js jetstream.JetStream, ports domain.PortRepository) *ShipHandler {
+	return &ShipHandler{pub: pub, js: js, ports: ports}
 }
 
 func (h *ShipHandler) ArrivePort(ctx context.Context, in ShipInput) (domain.ShipState, error) {
@@ -43,7 +44,11 @@ func (h *ShipHandler) ArrivePort(ctx context.Context, in ShipInput) (domain.Ship
 	if err != nil {
 		return domain.ShipState{}, err
 	}
-	event, err := agg.Arrive(in.Port, in.ShipName)
+	portKnown, err := h.ports.Exists(ctx, in.Context, in.Port)
+	if err != nil {
+		return domain.ShipState{}, err
+	}
+	event, err := agg.Arrive(in.Port, in.ShipName, portKnown)
 	if err != nil {
 		return domain.ShipState{}, err
 	}

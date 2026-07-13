@@ -52,5 +52,42 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("migrate containers: %w", err)
 	}
+
+	// Ports are plain reference/master data (BR-017, BR-018), not an
+	// event-sourced aggregate: registered once via POST /api/ports, looked up
+	// by Ship/Container commands. Context-scoped like every other lookup here.
+	_, err = db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS ports (
+			context    TEXT        NOT NULL,
+			name       TEXT        NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			PRIMARY KEY (context, name)
+		)`)
+	if err != nil {
+		return fmt.Errorf("migrate ports: %w", err)
+	}
+	if err := seedDefaultPorts(ctx, db); err != nil {
+		return fmt.Errorf("seed ports: %w", err)
+	}
+	return nil
+}
+
+// seedDefaultPorts pre-registers the demo's original fixed port list (formerly
+// hardcoded as BASE_PORTS in ShippingForm.vue) for every fleet context the
+// frontends offer, so a fresh install still has a working set of ports without
+// a manual registration step. Idempotent — ON CONFLICT DO NOTHING.
+func seedDefaultPorts(ctx context.Context, db *sql.DB) error {
+	contexts := []string{"global", "atlantic-fleet", "pacific-fleet"}
+	defaults := []string{"Hamburg", "Rotterdam", "Singapore", "New York", "Shanghai", "Sydney"}
+	for _, kvContext := range contexts {
+		for _, name := range defaults {
+			if _, err := db.ExecContext(ctx, `
+				INSERT INTO ports (context, name) VALUES ($1, $2)
+				ON CONFLICT (context, name) DO NOTHING`,
+				kvContext, name); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }

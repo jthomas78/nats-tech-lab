@@ -38,10 +38,14 @@ export function unloadContainer(input) {
   return request('/api/containers/unload', { method: 'POST', body: JSON.stringify(input) })
 }
 
-// ── Terminal / meta queries ───────────────────────────────────────────────────
+// ── Ports (Postgres-backed reference table, BR-017/BR-018) ───────────────────
 
-export function getKnownPorts(context) {
-  return request(`/api/meta/${context}/known-ports`)
+export function getPorts(context) {
+  return request(`/api/ports/${context}`)
+}
+
+export function registerPort(context, name) {
+  return request('/api/ports', { method: 'POST', body: JSON.stringify({ context, name }) })
 }
 
 // ── SSE stream URLs ───────────────────────────────────────────────────────────

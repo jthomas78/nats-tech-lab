@@ -49,6 +49,15 @@ A ship can only depart the port it is currently docked at. Attempting to depart 
 
 ---
 
+### BR-017 — A ship can only arrive at a registered port
+Ports are reference data (a Postgres `ports` table, not an event-sourced aggregate — registered via `POST /api/ports`). Arriving at a port that isn't registered is rejected.
+
+- **Error:** `ErrUnknownPort` — "port is not registered"
+- **Enforced in:** `ShipAggregate.Arrive()` — the application layer (`ShipHandler.ArrivePort`) resolves `portKnown` via `domain.PortRepository.Exists()` and passes it in as a parameter, the same pattern used for the cross-aggregate checks in `container.go`.
+- **Test:** `Domain Rules / BR-017`
+
+---
+
 ## Retired Rules (Phase 8)
 
 Cargo moved off the ship aggregate: a ship's manifest is now the container
@@ -143,6 +152,15 @@ Every container ID must start with the fixed owner prefix `TCKU` (case-sensitive
 - **Error:** `ErrInvalidContainerID` — "container ID must be in ISO 6346 format: TCKU followed by 7 digits"
 - **Enforced in:** `ContainerAggregate.Register()`
 - **Test:** `Container Domain Rules / BR-016`
+
+---
+
+### BR-018 — A container's origin and destination ports must both be registered
+Registering a container with an origin or destination port that isn't in the ports registry is rejected. Reuses `ErrUnknownPort` (BR-017's error), since it's the same underlying rule applied to the container's two port fields instead of a ship's arrival port.
+
+- **Error:** `ErrUnknownPort` — "port is not registered"
+- **Enforced in:** `ContainerAggregate.Register()` — checked after BR-016 (format) and before BR-015 (duplicate registration). The application layer (`ContainerHandler.RegisterContainer`) resolves `originKnown`/`destKnown` via `domain.PortRepository.Exists()`.
+- **Test:** `Container Domain Rules / BR-018`
 
 ---
 

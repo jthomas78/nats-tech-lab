@@ -103,6 +103,7 @@ dictionary/
 - **LimitsPolicy** (not InterestPolicy) on JetStream streams — required to support event replay.
 - **Context-scoped KV keys**: every lookup includes a tenant/region/locale prefix — no global unscoped lookups.
 - The demo frontend updates reactively via KV watch → SSE (or WebSocket) → frontend panels.
+- **Event sourcing vs plain CRUD — the deciding question is "does anything need to replay this," not "does it change."** Event-source an entity when its *history* is itself a domain concern: something needs to reconstruct state from the log (Shape C), enforce rules against a point-in-time replay (Ship/Container cross-aggregate checks), or audit a sequence of transitions. Use plain Postgres CRUD when only *current state* matters and nothing ever reconstructs it from history — typically reference/master data with no state machine (lookup tables, config, enums). Don't let "is it reference data" be the whole test, though: some reference-looking data secretly needs history (a rate table where "what was in effect on date X" matters), and some lifecycle-looking entities are simple enough for plain CRUD if nothing ever replays them. See `demos/01-dictionary/ARCHITECTURE.md` § "Event Sourcing vs Plain CRUD" for the worked example (Ship/Container vs the ports registry).
 
 ## Quality Rules
 

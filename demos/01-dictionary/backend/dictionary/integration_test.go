@@ -5,12 +5,14 @@ package dictionary
 //   - Shape A: ship command → event → projector → KV → query
 //   - Shape B: ship command → event → Postgres (fake) + KV → cache hit/miss
 //   - Shape C: ships + containers → full JetStream replay → fleet reconstruction
-//   - Ship domain rules: BR-001 … BR-003 (container rules live in container_test.go)
+//   - Ship domain rules: BR-001 … BR-003, BR-017 (container rules live in container_test.go)
 
 import (
 	"context"
 	"errors"
 	"log/slog"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -75,7 +77,7 @@ var _ = Describe("Shape A — KV as read model", func() {
 		consume, err := eventhandler.RegisterShapeA(ctx, js, kvA, log)
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(consume.Stop)
-		ship = commands.NewShipHandler(jstream.NewPublisher(js), js)
+		ship = commands.NewShipHandler(jstream.NewPublisher(js), js, newFakePortRepo())
 	})
 
 	It("projects ship state into KV after arrive / depart", func() {
@@ -147,7 +149,7 @@ var _ = Describe("Shape B — KV cache in front of Postgres", func() {
 		consume, err := eventhandler.RegisterShapeB(ctx, js, kvB, repo, log)
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(consume.Stop)
-		ship = commands.NewShipHandler(jstream.NewPublisher(js), js)
+		ship = commands.NewShipHandler(jstream.NewPublisher(js), js, newFakePortRepo())
 		q = queries.NewShapeB(kvB, repo)
 	})
 
@@ -208,8 +210,9 @@ var _ = Describe("Shape C — pure event sourcing reconstruction", func() {
 		ctx := context.Background()
 		js := newJetStream()
 		pub := jstream.NewPublisher(js)
-		ships := commands.NewShipHandler(pub, js)
-		containers := commands.NewContainerHandler(pub, js)
+		portRepo := newFakePortRepo()
+		ships := commands.NewShipHandler(pub, js, portRepo)
+		containers := commands.NewContainerHandler(pub, js, portRepo)
 		const fleetCtx = "global"
 
 		steps := []func() error{
@@ -294,7 +297,7 @@ var _ = Describe("Domain Rules", func() {
 	BeforeEach(func() {
 		ctx = context.Background()
 		js := newJetStream()
-		ship = commands.NewShipHandler(jstream.NewPublisher(js), js)
+		ship = commands.NewShipHandler(jstream.NewPublisher(js), js, newFakePortRepo())
 	})
 
 	const fleetCtx = "global"
@@ -331,6 +334,15 @@ var _ = Describe("Domain Rules", func() {
 				Context: fleetCtx, ShipID: "br003-vessel", Port: "Hamburg",
 			})
 			Expect(errors.Is(err, domain.ErrNotDocked)).To(BeTrue())
+		})
+	})
+
+	Context("BR-017: cannot arrive at a port that is not registered", func() {
+		It("returns ErrUnknownPort", func() {
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br017-vessel", ShipName: "BR017", Port: "Atlantis",
+			})
+			Expect(errors.Is(err, domain.ErrUnknownPort)).To(BeTrue())
 		})
 	})
 })
@@ -374,5 +386,57 @@ func (r *fakeRepo) List(_ context.Context, kvContext string) ([]domain.ShipState
 			out = append(out, s)
 		}
 	}
+	return out, nil
+}
+
+// ─── fakePortRepo ────────────────────────────────────────────────────────────
+
+// defaultTestPorts mirrors the production seedDefaultPorts list (postgres
+// package) so existing scenarios keep working under BR-017/BR-018 without
+// every test explicitly registering a port first.
+var defaultTestPorts = []string{"Hamburg", "Rotterdam", "Singapore", "New York", "Shanghai", "Sydney"}
+var defaultTestContexts = []string{"global", "atlantic-fleet", "pacific-fleet"}
+
+type fakePortRepo struct {
+	mu    sync.Mutex
+	known map[string]bool
+}
+
+func newFakePortRepo() *fakePortRepo {
+	r := &fakePortRepo{known: make(map[string]bool)}
+	for _, kvContext := range defaultTestContexts {
+		for _, name := range defaultTestPorts {
+			r.known[r.key(kvContext, name)] = true
+		}
+	}
+	return r
+}
+
+func (r *fakePortRepo) key(kvContext, name string) string { return kvContext + "|" + name }
+
+func (r *fakePortRepo) Exists(_ context.Context, kvContext, name string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.known[r.key(kvContext, name)], nil
+}
+
+func (r *fakePortRepo) Register(_ context.Context, kvContext, name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.known[r.key(kvContext, name)] = true
+	return nil
+}
+
+func (r *fakePortRepo) List(_ context.Context, kvContext string) ([]string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	prefix := kvContext + "|"
+	for k := range r.known {
+		if strings.HasPrefix(k, prefix) {
+			out = append(out, strings.TrimPrefix(k, prefix))
+		}
+	}
+	sort.Strings(out)
 	return out, nil
 }

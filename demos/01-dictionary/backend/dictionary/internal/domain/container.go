@@ -164,11 +164,16 @@ func (c *ContainerAggregate) IsRegistered() bool { return c.registered }
 // Register places a new container in the origin port's terminal. c.ID must
 // already hold the freshly-minted surrogate key (the application layer mints it
 // and derives c.registered by resolving the natural key against the event
-// stream). BR-016: valid ISO 6346 format. BR-015: a container ID can only be
-// registered once.
-func (c *ContainerAggregate) Register(cargo, originPort, destPort string) (ContainerEvent, error) {
+// stream). BR-016: valid ISO 6346 format. originKnown/destKnown report whether
+// the origin/destination ports exist in the ports registry (BR-018), resolved
+// by the application layer via PortRepository before calling Register. BR-015:
+// a container ID can only be registered once.
+func (c *ContainerAggregate) Register(cargo, originPort, destPort string, originKnown, destKnown bool) (ContainerEvent, error) {
 	if !containerIDPattern.MatchString(c.ContainerID) {
 		return ContainerEvent{}, ErrInvalidContainerID // BR-016
+	}
+	if !originKnown || !destKnown {
+		return ContainerEvent{}, ErrUnknownPort // BR-018
 	}
 	if c.registered {
 		return ContainerEvent{}, ErrContainerExists // BR-015

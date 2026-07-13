@@ -13,8 +13,13 @@ Phase 8 introduced a second aggregate. Both are co-located on the single
 
 | Aggregate | Subjects | Rules |
 |---|---|---|
-| `ShipAggregate` (`domain/ship.go`) | `emea.events.acme.ship.{shipID}.{arrived\|departed}` | BR-001 … BR-003 |
-| `ContainerAggregate` (`domain/container.go`) | `emea.events.acme.container.{uuid}.{registered\|loaded\|unloaded}` | BR-008 … BR-016 |
+| `ShipAggregate` (`domain/ship.go`) | `emea.events.acme.ship.{shipID}.{arrived\|departed}` | BR-001 … BR-003, BR-017 |
+| `ContainerAggregate` (`domain/container.go`) | `emea.events.acme.container.{uuid}.{registered\|loaded\|unloaded}` | BR-008 … BR-016, BR-018 |
+
+Ports (the `originPort`/`destPort`/arrival-port values referenced above) are
+**not** a third aggregate — they're plain Postgres reference data (BR-017,
+BR-018 check them, but don't event-source them). See "Event Sourcing vs Plain
+CRUD" below.
 
 **`dictionary/internal/application/commands/commands.go`**
 
@@ -70,7 +75,8 @@ Each consumer is independently position-tracked and can lag, replay, or rebuild 
 | B | Postgres (canonical) + KV `dict-b-{context}` (write-through cache) | `ShapeB.GetShip()` / `ShapeB.ListShips()` | `queries/get_entry.go` |
 | C | None — full JetStream replay on every call | `ShapeC.ReconstructFleet()` | `queries/shape_c.go` |
 | Terminal | KV bucket `container-{context}` | `Terminal.ListByPort()` (yard) / `Terminal.ListByShip()` (manifest) | `queries/terminal.go` |
-| Meta | KV bucket `meta-{context}` | `Meta.KnownPorts()` / `Meta.KnownContainers()` | `queries/meta.go` |
+| Meta | KV bucket `meta-{context}` | `Meta.KnownContainers()` | `queries/meta.go` |
+| Ports | Postgres `ports` table (not KV, not event-sourced) | `PortHandler.List()` | `postgres/port_repository.go` |
 
 Shape B also exposes `EvictCacheShip()` to force the KV miss → Postgres → backfill path.
 Shape C now folds **both** aggregate types from the same replay and returns each
@@ -82,6 +88,7 @@ ship with its manifest (`ShipWithManifest`) plus every reconstructed container.
 
 - **KV buckets** (`internal/kvstore/kv.go`) — all context-scoped: `dict-a-{context}` (Shape A ships), `dict-b-{context}` (Shape B cache), `container-{context}` (container projection), `meta-{context}` (lookup sets)
 - **Postgres `ships` + `containers` tables** (`postgres/`) — canonical projections; upserted via `INSERT … ON CONFLICT DO UPDATE` (containers conflict on the surrogate key `(context, id)`; `container_id` is `UNIQUE`)
+- **Postgres `ports` table** (`postgres/port_repository.go`) — plain reference data, not a projection: no JetStream event ever writes it. Written directly by `POST /api/ports`; read by `ShipHandler`/`ContainerHandler` (BR-017/BR-018) and `GET /api/ports/{context}`. See "Event Sourcing vs Plain CRUD" below.
 - **`ShipState` / `ContainerState` structs** (`domain/`) — shared projected value types stored in both KV and Postgres
 - **Pinia stores** (frontends) — client-side materialized views fed by `kvstore.Watch()` → SSE (`rest/sse.go`); the same projection-from-event-stream pattern one layer further out. The Port Management frontend even performs the manifest join (`onShipID == shipID`) client-side over its projected containers.
 
@@ -99,31 +106,64 @@ Beyond per-entity state, the KV store holds a namespace for cross-cutting derive
 | `locale.*` | — | Localisation config per context | future |
 | `tenant.*` | — | Tenant-specific configuration | future |
 
-#### `meta.known-ports` / `meta.known-containers`
+#### `meta.known-containers`
 
-UI selectors (the admin port dropdown, the Port Management port selector and
-container pickers) need the **full history** of ports and container IDs — not
-just what current entity state happens to reference. These are maintained as
-sorted JSON arrays in the `meta-{context}` bucket by the `meta-projector`
-durable consumer (`eventhandler/meta_handler.go`):
+The container ID picker needs the **full history** of registered container
+IDs — not just what current entity state happens to reference. This is
+maintained as a sorted JSON array in the `meta-{context}` bucket by the
+`meta-projector` durable consumer (`eventhandler/meta_handler.go`):
 
-- `ship.arrived` / `ship.departed` → merge the port into `known-ports`
-- `container.registered` → merge origin **and** destination ports into `known-ports`; merge the container ID into `known-containers`
+- `container.registered` → merge the container ID into `known-containers`
 
-Exposed over REST:
+Exposed over REST: `GET /api/meta/{context}/known-containers`.
 
-- `GET /api/meta/{context}/known-ports`
-- `GET /api/meta/{context}/known-containers`
-
-On `connect()` both frontends seed their selectors from these endpoints before
-the SSE streams open, then keep merging live events (`META` watch events on
-`/api/watch-terminal/{context}`, ship PUT events on `/api/watch/{context}`).
-Result: the full history survives app reload without event replay and without
-client-side reconstruction — the pre-Phase-8 `seenPorts` in-memory-only
-limitation is gone.
+On `connect()` both frontends seed the container picker from this endpoint
+before the SSE streams open, then keep merging live `META` watch events on
+`/api/watch-terminal/{context}`. Result: the full history survives app reload
+without event replay and without client-side reconstruction.
 
 Because a single durable consumer processes events sequentially, the
-read-merge-write on each meta key has no concurrent writers.
+read-merge-write on the meta key has no concurrent writers.
+
+`meta.known-ports` (the equivalent projection for ports) was **retired** —
+see "Event Sourcing vs Plain CRUD" below for why ports moved to a Postgres
+reference table instead of a derived KV projection.
+
+---
+
+### Event Sourcing vs Plain CRUD — Design Heuristic
+
+Not every piece of state in this domain is event-sourced, and the ports
+registry (`postgres/port_repository.go`, `POST/GET /api/ports`) is the
+worked example of where the lab draws that line.
+
+**The deciding question is "does anything need to replay this to reconstruct
+state," not "does it change over time."**
+
+| | Ship / Container | Ports |
+|---|---|---|
+| Write path | `ArrivePort`/`Register` etc. publish a JetStream event | `POST /api/ports` writes straight to Postgres, no event |
+| State machine | Yes — `arrived → docked → departed`, `registered → loaded → unloaded`, with cross-aggregate rules that need a point-in-time replay of both aggregates together (BR-008, BR-012, BR-014) | No — a port is either registered or not; there is no transition to get wrong |
+| Reconstructable from history? | Yes, and exercised directly — Shape C (`ReconstructFleet`) rebuilds ships **and** containers from `seq=1` with no KV/Postgres involved | No consumer ever asks "what ports existed as of sequence N" — Shape C's reconstructed fleet doesn't need a reconstructed ports list; the registry is looked up live at command time |
+| Audit need | The sequence of transitions *is* the domain fact (BR-015's duplicate check is resolved against the authoritative log, not a projection) | Satisfied by a plain `created_at` column — no one needs to replay to answer "when was this port added" |
+
+Before event-sourcing a new entity in this lab, check whether it actually
+clears that bar. It's an "it depends" call the moment either of these becomes
+true — and neither is true for ports today:
+
+- The entity gains a **real state machine** (e.g. ports could be
+  deactivated or renamed, and a stale in-flight command needs to know which
+  state was in effect).
+- Someone needs a **temporal query** (e.g. "which ports were valid when this
+  historical container was registered"), not just current state.
+
+Forcing event sourcing onto something that never clears this bar just adds
+ceremony — subjects, consumers, projections — with no corresponding benefit.
+Reference/master data (lookup tables, config, enums) is the common case that
+fails the bar; but don't treat "is it reference data" as the test on its own,
+since some reference-looking tables secretly need history (a rate table
+where "what was in effect on date X" matters) and some lifecycle-looking
+entities are simple enough for plain CRUD if nothing ever replays them.
 
 ---
 

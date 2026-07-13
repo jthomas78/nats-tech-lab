@@ -52,8 +52,14 @@ export function getManifest(context, shipID) {
   return request(`/api/manifest/${context}/${shipID}`)
 }
 
-export function getKnownPorts(context) {
-  return request(`/api/meta/${context}/known-ports`)
+// ── Ports (Postgres-backed reference table, BR-017/BR-018) ───────────────────
+
+export function getPorts(context) {
+  return request(`/api/ports/${context}`)
+}
+
+export function registerPort(context, name) {
+  return request('/api/ports', { method: 'POST', body: JSON.stringify({ context, name }) })
 }
 
 export function getKnownContainers(context) {
