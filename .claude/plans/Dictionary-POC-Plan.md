@@ -359,16 +359,16 @@ Add self-documenting API support using `swaggo/swag` so the backend routes are e
 
 #### Overview
 
-Introduces the `Container` domain entity (a second aggregate alongside `Ship`), the terminal/port model, and a purpose-built Port Management frontend — all on a **single JetStream stream**. This is the baseline: two aggregates sharing one consistency boundary, so every cross-aggregate rule (BR-008…BR-012) is enforced with **strong consistency from a single atomic replay**. Phase 12 then splits the stream to expose the distributed-consistency problem.
+Introduces the `Container` domain entity (a second aggregate alongside `Ship`), the terminal/port model, and a purpose-built Port Management frontend — all on a **single JetStream stream**. This is the baseline: two aggregates sharing one consistency boundary, so every cross-aggregate rule (BR-008…BR-012) is enforced with **strong consistency from a single atomic replay**. Phase 13 then splits the stream to expose the distributed-consistency problem.
 
-> **Why single-stream first.** The invariant-spanning-aggregates problem comes from `Ship` and `Container` being *separate aggregates* — not from stream topology. Keeping both aggregates on one stream in Phase 8 means a command handler hydrates **both** from one replay of `SHIPPING` (folding `ship.*` into `ShipAggregate`, `container.*` into `ContainerAggregate`), so cross-aggregate rules stay locally consistent. Phase 12 changes exactly one variable — the stream split — turning the same invariant into a distributed problem. This isolation is the teaching point.
+> **Why single-stream first.** The invariant-spanning-aggregates problem comes from `Ship` and `Container` being *separate aggregates* — not from stream topology. Keeping both aggregates on one stream in Phase 8 means a command handler hydrates **both** from one replay of `SHIPPING` (folding `ship.*` into `ShipAggregate`, `container.*` into `ContainerAggregate`), so cross-aggregate rules stay locally consistent. Phase 13 changes exactly one variable — the stream split — turning the same invariant into a distributed problem. This isolation is the teaching point.
 
 #### Terminology
 
 - **Terminal** (not warehouse) — the facility at a port where containers are stored in the yard and crane-loaded onto ships. Every port has a terminal.
 - **Container** — ISO 6346 shipping container (e.g. `TCKU1234567`), the unit of cargo transport.
 
-#### Aggregate design (the decision that makes Phase 12 a clean delta)
+#### Aggregate design (the decision that makes Phase 13 a clean delta)
 
 - `Container` is its **own aggregate** (`ContainerAggregate`), **not** folded into `ShipAggregate`. A container's lifecycle (`registered in terminal → loaded → unloaded at destination`) means it belongs to no ship while it sits in the yard, so it cannot be a field on the ship aggregate the way `Cargo` is today.
 - Both aggregate types are **co-located on the single `SHIPPING` stream**, partitioned by subject:
@@ -720,18 +720,18 @@ e.g.  emea.events.acme.ship.SH-001.arrived
 
 Region and tenant are **hardcoded constants for the POC** (`emea`, `acme`) — the point is that the subject *shape* is right from here on, because subject taxonomy is the highest-cost-to-change axis in the whole system and every later phase multiplies the number of subjects and consumers built on it.
 
-#### Why this phase must precede Phase 10
+#### Why this phase must precede Phase 11
 
-`Nats-Expected-Last-Subject-Sequence` (Phase 10's optimistic-concurrency guard) is scoped **per subject**. With today's `SHIPPING.ship.arrived` shape, every ship shares one subject — the guard would serialize the entire fleet. The aggregate-instance `{id}` token is what makes per-aggregate concurrency control possible at all.
+`Nats-Expected-Last-Subject-Sequence` (Phase 11's optimistic-concurrency guard) is scoped **per subject**. With today's `SHIPPING.ship.arrived` shape, every ship shares one subject — the guard would serialize the entire fleet. The aggregate-instance `{id}` token is what makes per-aggregate concurrency control possible at all.
 
 #### Design notes
 
-- Stream name stays `SHIPPING`; it now binds `{region}.events.{tenant}.ship.>` and `{region}.events.{tenant}.container.>` (until Phase 12 moves the container binding to `TERMINAL`).
+- Stream name stays `SHIPPING`; it now binds `{region}.events.{tenant}.ship.>` and `{region}.events.{tenant}.container.>` (until Phase 13 moves the container binding to `TERMINAL`).
 - The `{id}` token is the **aggregate identity**: `shipID` for ships, the **surrogate UUID** (Phase 8.3) for containers — not the ISO 6346 natural key.
 - Subject constants in `domain/events.go` become **builder functions** (`ShipSubject(region, tenant, shipID, event)`), since subjects are now parameterized.
 - Consumers/queries that switch on the full subject string must instead **parse tokens** (aggregate + event type by position).
-- Hydrating a single ship can now use a **filtered consumer** on `{region}.events.{tenant}.ship.{id}.>` instead of folding the whole stream — a replay-cost win that Phase 13 can measure. Natural-key container lookup still scans `…container.>`.
-- The `Context` payload field stays for now (KV bucket naming still uses it); subjects become the authoritative scoping mechanism. Whether `context` collapses into `{tenant}`/`{region}` is decided in Phase 14.
+- Hydrating a single ship can now use a **filtered consumer** on `{region}.events.{tenant}.ship.{id}.>` instead of folding the whole stream — a replay-cost win that Phase 14 can measure. Natural-key container lookup still scans `…container.>`.
+- The `Context` payload field stays for now (KV bucket naming still uses it); subjects become the authoritative scoping mechanism. Whether `context` collapses into `{tenant}`/`{region}` is decided in Phase 15.
 
 #### Checklist
 
@@ -786,7 +786,55 @@ Give the admin UI (`frontend/`, "EventSourcing CQRS POC") a tabbed panel for bro
 
 ---
 
-### Phase 10 — Write-Side Safety (Optimistic Concurrency + Publish Dedup)
+### Phase 10 — Performance Baseline (pull-forward, pre-Phase 11/13)
+
+#### Goal
+
+Establish a load-test **baseline on the current implementation**, before the write path and stream topology change in later phases. This is a scoped pull-forward of the full performance work (Phase 14) — **measurement only, no mitigations**.
+
+Two known scalability gaps already exist and are this baseline's primary targets:
+
+1. **Shape C — full replay on every call.** `ReconstructFleet` replays from `seq=1` every time. Latency grows linearly with stream depth.
+2. **Write-side hydration — full replay per command.** `hydrate()` in `commands.go` replays all events for a ship on every command. A busy ship accumulates history and slows its own writes.
+
+Both are correct implementations of event-sourcing fundamentals — the point is to *measure* the degradation curve, not fix it here.
+
+#### Why pull this forward
+
+1. **The harness is phase-independent.** k6 install, the seed script, the docker load environment, and the metrics-capture format are reused by every subsequent phase — building them now is pure upside.
+2. **A clean pre-guard baseline is only obtainable now.** Phases 11–13 don't change the two gaps' fundamentals. Capturing command latency **before** Phase 11's optimistic-concurrency guard lands gives a before/after delta that answers Phase 14's question — "what does the sequence guard cost?" — and cannot be reconstructed later.
+
+#### In scope (stable against Phases 11–13)
+
+- k6 harness + seed script (reusable infrastructure)
+- Shape C reconstruction latency vs stream depth
+- Single-ship write-side hydration degradation
+- Raw command-throughput ceiling (concurrent ships)
+
+#### Explicitly deferred to Phase 14 (would be thrown away if measured now)
+
+- Optimistic-concurrency contention → needs **Phase 11** (guard doesn't exist yet)
+- Cross-stream burst / consumer lag → needs **Phase 13** (no `TERMINAL` stream yet)
+- Cross-aggregate stale-read window → needs **Phase 13**
+
+> **Measurement only.** This phase characterises the degradation curves; it does **not** implement mitigations (snapshotting, etc.), because those interact with Phases 11–13. Record results as a **partial pass** in `PERFORMANCE.md`, clearly separating captured baselines from pending (deferred) scenarios owned by Phase 14.
+
+#### Tool
+
+**k6** (`k6.io`) — scripted load testing in JavaScript, runs outside the Go stack, produces latency percentiles and throughput metrics. Alternatively `vegeta` for simpler HTTP load. The same harness is carried into Phase 14.
+
+#### Checklist
+
+- [ ] Choose and install load testing tool (k6 recommended)
+- [ ] Write k6 script: seed data (register containers, arrive ships), then run burst scenarios
+- [ ] Scenario: single-ship hydration degradation — measure latency at 10 / 100 / 1k / 10k prior events
+- [ ] Scenario: concurrent ships — ramp from 10 to 500 concurrent command senders, capture p95 latency and error rate (raw command-throughput ceiling)
+- [ ] Scenario: Shape C reconstruction — measure response time as stream depth grows
+- [ ] Create `demos/01-dictionary/PERFORMANCE.md` as a **partial pass**: captured baselines vs. pending (deferred) scenarios clearly separated
+
+---
+
+### Phase 11 — Write-Side Safety (Optimistic Concurrency + Publish Dedup)
 
 #### Goal
 
@@ -816,7 +864,7 @@ Close the two producer-side correctness gaps that stand between "JetStream as ev
 
 ---
 
-### Phase 11 — Projection Hardening (Consumer-Side Idempotency + Explicit Limits)
+### Phase 12 — Projection Hardening (Consumer-Side Idempotency + Explicit Limits)
 
 #### Goal
 
@@ -843,11 +891,11 @@ Make projections safe under redelivery and reordering **by engineering, not by a
 
 ---
 
-### Phase 12 — Stream Split + Cross-Aggregate Consistency
+### Phase 13 — Stream Split + Cross-Aggregate Consistency
 
 #### Goal
 
-Extract container events from the shared `SHIPPING` stream into a dedicated `TERMINAL` stream, turning the two aggregates into two independent bounded contexts. This is a **single-variable change** on top of Phases 8–11: the aggregates, rules, and frontends are unchanged — only the stream topology moves. Post-Phase 9 this is even cleaner than originally planned: **the subjects themselves do not change** — a subject can belong to only one stream, so the split is purely moving the `…container.>` binding from `SHIPPING` to `TERMINAL`. The purpose is to make the **invariant-spanning-two-aggregates problem** concrete and demonstrate the solution options.
+Extract container events from the shared `SHIPPING` stream into a dedicated `TERMINAL` stream, turning the two aggregates into two independent bounded contexts. This is a **single-variable change** on top of Phases 8–12: the aggregates, rules, and frontends are unchanged — only the stream topology moves. Post-Phase 9 this is even cleaner than originally planned: **the subjects themselves do not change** — a subject can belong to only one stream, so the split is purely moving the `…container.>` binding from `SHIPPING` to `TERMINAL`. The purpose is to make the **invariant-spanning-two-aggregates problem** concrete and demonstrate the solution options.
 
 #### The problem this phase exposes
 
@@ -862,7 +910,7 @@ After the split, BR-008 (container destPort vs ship's current port) and BR-012 (
 
 The demo implements **option 1** as the default and documents the trade-offs of all three:
 
-1. **Read-model guard (default)** — the container handler reads the ship's KV projection (Shape A/B) to check docked state / current port. Fast and keeps the streams independent, but validates a write against an eventually-consistent read (stale-read window — which Phase 13 measures under load).
+1. **Read-model guard (default)** — the container handler reads the ship's KV projection (Shape A/B) to check docked state / current port. Fast and keeps the streams independent, but validates a write against an eventually-consistent read (stale-read window — which Phase 14 measures under load).
 2. **Hydrate both streams** — the container handler additionally replays `SHIPPING` for the ship. Strongly consistent, but the container context is no longer independent and every load/unload replays two streams.
 3. **Saga / compensating event** — accept the write optimistically and emit a compensating `container.load-rejected` event if the ship turns out not to be docked. The "correct" DDD answer for separate contexts; heaviest to implement.
 
@@ -880,16 +928,36 @@ The demo implements **option 1** as the default and documents the trade-offs of 
 
 ---
 
-### Phase 13 — Performance & Load Testing
+### Phase 14 — Performance & Load Testing (full suite)
 
 #### Goal
 
-Validate that the architecture holds under realistic throughput and identify the bottlenecks before any production consideration. The POC has two known scalability gaps that need to be measured and understood:
+Validate that the *final* architecture holds under realistic throughput and identify the bottlenecks before any production consideration, building on the baseline established in **Phase 10**. Runs after the write path (Phase 11) and stream split (Phase 13) are in place, so the scenarios those phases gate can finally be measured. The POC has two known scalability gaps — first characterised in Phase 10, re-measured here against the final architecture:
 
 1. **Shape C — full replay on every call.** `ReconstructFleet` replays from `seq=1` every time. Latency grows linearly with stream depth.
 2. **Write-side hydration — full replay per command.** `hydrate()` in `commands.go` replays all events for a ship on every command. A busy ship accumulates history and slows its own writes.
 
 Both are correct implementations of event sourcing fundamentals — the point is to *measure* the degradation curve and document where snapshots or other mitigations become necessary.
+
+#### Phase 13-lite — pull-forward baseline (pre-Phase 10/12)
+
+The full suite below is sequenced after Phases 10–12 so it measures the *final* architecture. But a scoped slice is worth pulling forward **now**, on the current implementation, for two reasons:
+
+1. **The harness is phase-independent.** k6 install, the seed script, the docker load environment, and the metrics-capture format are reused by every subsequent phase — building them now is pure upside.
+2. **A clean before-Phase-10 baseline is only obtainable now.** The two headline gaps (Shape C replay, `hydrate()` replay) already exist and Phases 10–12 don't change their fundamentals. Capturing command latency **before** Phase 10's optimistic-concurrency guard lands gives a before/after delta that answers Phase 13's own question — "what does the sequence guard cost?" — and cannot be reconstructed later.
+
+**In scope for 13-lite** (stable against Phases 10–12):
+- k6 harness + seed script (reusable infrastructure)
+- Shape C reconstruction latency vs stream depth
+- Single-ship write-side hydration degradation
+- Raw command-throughput ceiling (concurrent ships)
+
+**Deferred to their gating phase** (would be thrown away if measured now):
+- Optimistic-concurrency contention → **Phase 10** (guard doesn't exist yet)
+- Cross-stream burst / consumer lag → **Phase 12** (no `TERMINAL` stream yet)
+- Cross-aggregate stale-read window → **Phase 12**
+
+> **Measurement only.** 13-lite characterises the degradation curves; it does **not** implement mitigations (snapshotting, etc.), because those interact with Phases 10–12. Record results as a **partial pass** in `PERFORMANCE.md`, clearly separating captured baselines from pending (deferred) scenarios.
 
 #### Tool
 
@@ -897,15 +965,15 @@ Both are correct implementations of event sourcing fundamentals — the point is
 
 #### Test scenarios
 
-| Scenario | What it measures |
-|---|---|
-| High-frequency arrivals/departures — single ship | Write-side hydration degradation as event count grows |
-| High-frequency arrivals/departures — many ships concurrently | Throughput ceiling of the command pipeline |
-| Shape C fleet reconstruction under load | Replay latency vs stream depth; degradation curve |
-| KV watch fan-out — many SSE clients | How many concurrent SSE connections the backend sustains before lag |
-| Container load/unload burst — terminal throughput | Cross-stream (`SHIPPING` + `TERMINAL`) consumer lag under write pressure |
-| Projection lag — event published → KV updated | End-to-end latency of the Shape A/B projectors under load |
-| Optimistic-concurrency contention — concurrent commands, same aggregate | Retry rate and latency cost of the Phase 10 sequence guard under contention |
+| Scenario | What it measures | Gate |
+|---|---|---|
+| High-frequency arrivals/departures — single ship | Write-side hydration degradation as event count grows | **13-lite** |
+| High-frequency arrivals/departures — many ships concurrently | Throughput ceiling of the command pipeline | **13-lite** |
+| Shape C fleet reconstruction under load | Replay latency vs stream depth; degradation curve | **13-lite** |
+| KV watch fan-out — many SSE clients | How many concurrent SSE connections the backend sustains before lag | 13-lite (optional) |
+| Container load/unload burst — terminal throughput | Cross-stream (`SHIPPING` + `TERMINAL`) consumer lag under write pressure | Phase 12 |
+| Projection lag — event published → KV updated | End-to-end latency of the Shape A/B projectors under load | 13-lite |
+| Optimistic-concurrency contention — concurrent commands, same aggregate | Retry rate and latency cost of the Phase 10 sequence guard under contention | Phase 10 |
 
 #### Baseline metrics to capture
 
@@ -922,14 +990,21 @@ Both are correct implementations of event sourcing fundamentals — the point is
 
 #### Checklist
 
+**Phase 13-lite (pull forward now — pre-Phase 10/12):**
+
 - [ ] Choose and install load testing tool (k6 recommended)
 - [ ] Write k6 script: seed data (register containers, arrive ships), then run burst scenarios
 - [ ] Scenario: single-ship hydration degradation — measure latency at 10 / 100 / 1k / 10k prior events
-- [ ] Scenario: concurrent ships — ramp from 10 to 500 concurrent command senders, capture p95 latency and error rate
+- [ ] Scenario: concurrent ships — ramp from 10 to 500 concurrent command senders, capture p95 latency and error rate (raw command-throughput ceiling)
 - [ ] Scenario: Shape C reconstruction — measure response time as stream depth grows
-- [ ] Scenario: SSE fan-out — open 1 / 10 / 50 / 100 concurrent SSE clients, measure KV watch lag
-- [ ] Scenario: cross-stream burst — fire `SHIPPING` and `TERMINAL` events concurrently, measure projection consumer lag
-- [ ] Document results in `demos/01-dictionary/PERFORMANCE.md` — baseline numbers, degradation curves, identified thresholds
+- [ ] Create `demos/01-dictionary/PERFORMANCE.md` as a **partial pass**: captured baselines vs. pending (deferred) scenarios clearly separated
+
+**Deferred to gating phases (do NOT run in 13-lite):**
+
+- [ ] Scenario: optimistic-concurrency contention — retry rate and latency cost of the sequence guard *(needs Phase 10)*
+- [ ] Scenario: cross-stream burst — fire `SHIPPING` and `TERMINAL` events concurrently, measure projection consumer lag *(needs Phase 12)*
+- [ ] Scenario: SSE fan-out — open 1 / 10 / 50 / 100 concurrent SSE clients, measure KV watch lag *(13-lite optional; run when SSE path is load-relevant)*
+- [ ] Finalise `PERFORMANCE.md` — full baseline numbers, degradation curves, identified thresholds
 - [ ] Document architectural mitigations for each bottleneck (snapshot strategy, consumer parallelism, SSE load balancing)
 
 ---
