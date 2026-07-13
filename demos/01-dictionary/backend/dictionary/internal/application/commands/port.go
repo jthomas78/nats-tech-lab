@@ -33,3 +33,10 @@ func (h *PortHandler) Register(ctx context.Context, kvContext, name string) erro
 func (h *PortHandler) List(ctx context.Context, kvContext string) ([]string, error) {
 	return h.repo.List(ctx, kvContext)
 }
+
+// ListRecords returns the full ports table (name + registration time) for the
+// admin Postgres Tables panel — the raw-row view, as opposed to List's
+// dropdown-friendly name-only slice.
+func (h *PortHandler) ListRecords(ctx context.Context, kvContext string) ([]domain.PortRecord, error) {
+	return h.repo.ListRecords(ctx, kvContext)
+}

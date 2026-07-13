@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"database/sql"
+
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/dictionary/internal/domain"
 )
 
 // PortRepository is the Postgres-backed ports reference table (BR-017,
@@ -46,4 +48,23 @@ func (r *PortRepository) List(ctx context.Context, kvContext string) ([]string, 
 		ports = append(ports, name)
 	}
 	return ports, rows.Err()
+}
+
+func (r *PortRepository) ListRecords(ctx context.Context, kvContext string) ([]domain.PortRecord, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT name, created_at FROM ports WHERE context = $1 ORDER BY name`, kvContext)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	records := []domain.PortRecord{}
+	for rows.Next() {
+		var rec domain.PortRecord
+		if err := rows.Scan(&rec.Name, &rec.CreatedAt); err != nil {
+			return nil, err
+		}
+		records = append(records, rec)
+	}
+	return records, rows.Err()
 }

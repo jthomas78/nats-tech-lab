@@ -88,7 +88,7 @@ ship with its manifest (`ShipWithManifest`) plus every reconstructed container.
 
 - **KV buckets** (`internal/kvstore/kv.go`) — all context-scoped: `dict-a-{context}` (Shape A ships), `dict-b-{context}` (Shape B cache), `container-{context}` (container projection), `meta-{context}` (lookup sets)
 - **Postgres `ships` + `containers` tables** (`postgres/`) — canonical projections; upserted via `INSERT … ON CONFLICT DO UPDATE` (containers conflict on the surrogate key `(context, id)`; `container_id` is `UNIQUE`)
-- **Postgres `ports` table** (`postgres/port_repository.go`) — plain reference data, not a projection: no JetStream event ever writes it. Written directly by `POST /api/ports`; read by `ShipHandler`/`ContainerHandler` (BR-017/BR-018) and `GET /api/ports/{context}`. See "Event Sourcing vs Plain CRUD" below.
+- **Postgres `ports` table** (`postgres/port_repository.go`) — plain reference data, not a projection: no JetStream event ever writes it. Written directly by `POST /api/ports`; read by `ShipHandler`/`ContainerHandler` (BR-017/BR-018), `GET /api/ports/{context}` (names, for dropdowns), and `GET /api/admin/ports/{context}` (raw rows — name + `createdAt` — for the admin Postgres Tables panel, below). See "Event Sourcing vs Plain CRUD" below.
 - **`ShipState` / `ContainerState` structs** (`domain/`) — shared projected value types stored in both KV and Postgres
 - **Pinia stores** (frontends) — client-side materialized views fed by `kvstore.Watch()` → SSE (`rest/sse.go`); the same projection-from-event-stream pattern one layer further out. The Port Management frontend even performs the manifest join (`onShipID == shipID`) client-side over its projected containers.
 
@@ -164,6 +164,21 @@ fails the bar; but don't treat "is it reference data" as the test on its own,
 since some reference-looking tables secretly need history (a rate table
 where "what was in effect on date X" matters) and some lifecycle-looking
 entities are simple enough for plain CRUD if nothing ever replays them.
+
+---
+
+### Postgres Tables Panel (Admin UI)
+
+`frontend/src/components/PostgresTablesPanel.vue`, mounted in `App.vue` right
+after `JetStreamPanel` — the two panels pair the "raw source" views together:
+JetStream shows the raw event log, this panel shows a raw Postgres table that
+has **no** event log at all. It's the concrete UI counterpart to "Event
+Sourcing vs Plain CRUD" above.
+
+- Collapsible, same hand-rolled header/collapse pattern as `JetStreamPanel`/`ShapeCPanel` (no shared composable — copy-pasted per existing convention).
+- Contents are grouped under a heading (currently one: **Reference Data**), each group a `Tabs` block with one tab per table. Today that's just **Ports**. Adding another Postgres table later (e.g. a "Projections" group with the `ships`/`containers` tables) means adding another heading + `Tabs` block, not a redesign.
+- Data source: `GET /api/admin/ports/{context}` (`rest/handlers.go` → `commands.PortHandler.ListRecords` → `domain.PortRepository.ListRecords` → `postgres/port_repository.go`), returning raw rows (`name`, `createdAt`) — distinct from `GET /api/ports/{context}`, which returns names only and backs the dropdowns.
+- No live push channel (unlike KV, Postgres writes here aren't watched) — a manual refresh button re-fetches, and the table also refetches when the Fleet context changes.
 
 ---
 

@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -496,6 +497,32 @@ var _ = Describe("HTTP API", func() {
 			Expect(resp.StatusCode).To(Equal(http.StatusUnprocessableEntity))
 			body := readBody(resp)
 			Expect(body["error"]).To(ContainSubstring(domain.ErrUnknownPort.Error()))
+		})
+	})
+
+	// ── admin — postgres tables ───────────────────────────────────────────────
+
+	Describe("admin — postgres tables", func() {
+		It("GET /api/admin/ports/{context} returns raw rows with name and createdAt", func() {
+			resp := api.get("/api/admin/ports/" + ctx)
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			var body struct {
+				Rows []struct {
+					Name      string    `json:"name"`
+					CreatedAt time.Time `json:"createdAt"`
+				} `json:"rows"`
+			}
+			Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+
+			var hamburg *time.Time
+			for _, row := range body.Rows {
+				if row.Name == "Hamburg" {
+					hamburg = &row.CreatedAt
+				}
+			}
+			Expect(hamburg).NotTo(BeNil(), "expected Hamburg in the raw rows")
+			Expect(*hamburg).NotTo(BeZero())
 		})
 	})
 

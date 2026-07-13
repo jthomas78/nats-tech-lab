@@ -62,6 +62,12 @@ export function registerPort(context, name) {
   return request('/api/ports', { method: 'POST', body: JSON.stringify({ context, name }) })
 }
 
+// Raw ports table rows (name + createdAt) for the admin Postgres Tables
+// panel — distinct from getPorts, which returns names only for dropdowns.
+export function getPortsTable(context) {
+  return request(`/api/admin/ports/${context}`)
+}
+
 export function getKnownContainers(context) {
   return request(`/api/meta/${context}/known-containers`)
 }

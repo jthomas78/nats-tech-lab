@@ -398,15 +398,17 @@ var defaultTestPorts = []string{"Hamburg", "Rotterdam", "Singapore", "New York",
 var defaultTestContexts = []string{"global", "atlantic-fleet", "pacific-fleet"}
 
 type fakePortRepo struct {
-	mu    sync.Mutex
-	known map[string]bool
+	mu      sync.Mutex
+	known   map[string]bool
+	created map[string]time.Time
 }
 
 func newFakePortRepo() *fakePortRepo {
-	r := &fakePortRepo{known: make(map[string]bool)}
+	r := &fakePortRepo{known: make(map[string]bool), created: make(map[string]time.Time)}
 	for _, kvContext := range defaultTestContexts {
 		for _, name := range defaultTestPorts {
 			r.known[r.key(kvContext, name)] = true
+			r.created[r.key(kvContext, name)] = time.Now()
 		}
 	}
 	return r
@@ -423,7 +425,11 @@ func (r *fakePortRepo) Exists(_ context.Context, kvContext, name string) (bool, 
 func (r *fakePortRepo) Register(_ context.Context, kvContext, name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.known[r.key(kvContext, name)] = true
+	k := r.key(kvContext, name)
+	if !r.known[k] {
+		r.created[k] = time.Now()
+	}
+	r.known[k] = true
 	return nil
 }
 
@@ -438,5 +444,22 @@ func (r *fakePortRepo) List(_ context.Context, kvContext string) ([]string, erro
 		}
 	}
 	sort.Strings(out)
+	return out, nil
+}
+
+func (r *fakePortRepo) ListRecords(_ context.Context, kvContext string) ([]domain.PortRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []domain.PortRecord
+	prefix := kvContext + "|"
+	for k := range r.known {
+		if strings.HasPrefix(k, prefix) {
+			out = append(out, domain.PortRecord{
+				Name:      strings.TrimPrefix(k, prefix),
+				CreatedAt: r.created[k],
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }

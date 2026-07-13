@@ -1,6 +1,9 @@
 package domain
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // ShipRepository is the port for the Shape B canonical projection in Postgres.
 type ShipRepository interface {
@@ -34,4 +37,15 @@ type PortRepository interface {
 
 	// List returns every registered port in the fleet context, sorted.
 	List(ctx context.Context, kvContext string) ([]string, error)
+
+	// ListRecords returns every registered port as a full row (name +
+	// registration time), sorted by name — the raw-table view for the admin
+	// Postgres Tables panel, as opposed to List's dropdown-friendly names.
+	ListRecords(ctx context.Context, kvContext string) ([]PortRecord, error)
+}
+
+// PortRecord is one row of the ports reference table.
+type PortRecord struct {
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"createdAt"`
 }

@@ -7,6 +7,7 @@ import { onMounted, onUnmounted, ref } from 'vue'
 
 import EventLog from './components/EventLog.vue'
 import JetStreamPanel from './components/JetStreamPanel.vue'
+import PostgresTablesPanel from './components/PostgresTablesPanel.vue'
 import ShapeCPanel from './components/ShapeCPanel.vue'
 import ShapePanel from './components/ShapePanel.vue'
 import ShippingForm from './components/ShippingForm.vue'
@@ -59,6 +60,9 @@ onUnmounted(() => store.disconnect())
 
     <!-- 2. JetStream — raw NATS messages -->
     <JetStreamPanel />
+
+    <!-- 2.5. Postgres tables — raw reference data (not event-sourced) -->
+    <PostgresTablesPanel />
 
     <!-- 3. KV projections — Shape A (KV-only) | Shape B (KV cache + Postgres) -->
     <div class="panels">

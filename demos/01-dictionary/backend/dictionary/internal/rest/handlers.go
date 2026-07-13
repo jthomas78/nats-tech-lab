@@ -12,6 +12,7 @@
 //	GET    /api/manifest/{context}/{shipID}           containers on a ship (the manifest join)
 //	GET    /api/ports/{context}                       every port registered for the fleet context
 //	POST   /api/ports                                 register a new port (context, name)
+//	GET    /api/admin/ports/{context}                 raw ports table rows (name + createdAt) — admin Postgres Tables panel
 //	GET    /api/meta/{context}/known-containers       every container ID ever registered
 //	GET    /api/shape-b/ships/{context}/{shipID}      read ship via KV cache → Postgres
 //	DELETE /api/shape-b/cache/{context}/{shipID}      evict cache key (demo the miss path)
@@ -103,6 +104,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/manifest/{context}/{shipID}", h.manifestByShip)
 	mux.HandleFunc("GET /api/ports/{context}", h.listPorts)
 	mux.HandleFunc("POST /api/ports", h.registerPort)
+	mux.HandleFunc("GET /api/admin/ports/{context}", h.adminPortsTable)
 	mux.HandleFunc("GET /api/meta/{context}/known-containers", h.knownContainers)
 	mux.HandleFunc("GET /api/shape-b/ships/{context}/{shipID}", h.getShipShapeB)
 	mux.HandleFunc("DELETE /api/shape-b/cache/{context}/{shipID}", h.evictShipCache)
@@ -351,6 +353,30 @@ func (h *Handlers) registerPort(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"port": in.Name})
+}
+
+// portsTableResponse is the Swagger response envelope for adminPortsTable.
+type portsTableResponse struct {
+	Rows []domain.PortRecord `json:"rows"`
+}
+
+// adminPortsTable godoc
+//
+// @Summary      Raw ports table (admin)
+// @Description  Every row of the Postgres ports table for the fleet context — name and registration time. Backs the admin "Postgres Tables" panel; distinct from GET /api/ports/{context}, which returns names only for dropdowns.
+// @Tags         admin
+// @Produce      json
+// @Param        context  path      string  true  "Fleet context"
+// @Success      200      {object}  portsTableResponse
+// @Failure      500      {object}  errorResponse
+// @Router       /api/admin/ports/{context} [get]
+func (h *Handlers) adminPortsTable(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.deps.Ports.ListRecords(r.Context(), r.PathValue("context"))
+	if err != nil {
+		h.writeQueryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rows": rows})
 }
 
 // knownContainers godoc
