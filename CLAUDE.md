@@ -29,9 +29,21 @@ nats-tech-lab/
 	  frontend-port/      # Vue 3 ship/terminal operations UI
 	  docker-compose.yml  # Postgres + NATS + backend + both frontends
       README.md           # Intro text shown in lab shell
+  obsidian/
+    POC-Dictionaries/     # Obsidian vault for demo 01 (research, findings, stakeholder docs)
 ```
 
 Each demo has its own `docker-compose.yml` and does **not** share a network with the lab shell or other demos.
+
+## Obsidian Vault (`obsidian/POC-Dictionaries/`)
+
+An Obsidian vault accompanies demo 01, used to:
+
+- **Capture research notes** — investigation and background on the NATS/CQRS patterns being evaluated.
+- **Document the POC and findings** — problem statement, design write-ups, and results as they emerge.
+- **Communicate the POC with stakeholders** — the vault is the shareable narrative layer (including exported PDFs like the pattern cards and poster).
+
+Treat these as living documents: when a phase produces a notable finding or decision, add or update the relevant note here as well as the code-side docs (`ARCHITECTURE.md`, `BUSINESS_RULES.md`). The vault is the source-of-truth for *why* and *what we learned*; the repo docs remain the source-of-truth for *how the code works*.
 
 ## Commands
 
