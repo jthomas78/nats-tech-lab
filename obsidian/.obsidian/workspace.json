@@ -11,10 +11,14 @@
             "id": "c50d6372ff085bfe",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "POC-Dictionaries/PERFORMANCE.md",
+                "mode": "source",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "New tab"
+              "title": "PERFORMANCE"
             }
           }
         ]
@@ -74,7 +78,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 470.5
+    "width": 235.5
   },
   "right": {
     "id": "0e936b3f4ebbe464",
@@ -90,6 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
+                "file": "POC-Dictionaries/PERFORMANCE.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -99,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks"
+              "title": "Backlinks for PERFORMANCE"
             }
           },
           {
@@ -108,11 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
+                "file": "POC-Dictionaries/PERFORMANCE.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links"
+              "title": "Outgoing links from PERFORMANCE"
             }
           },
           {
@@ -150,19 +156,21 @@
             "state": {
               "type": "outline",
               "state": {
+                "file": "POC-Dictionaries/PERFORMANCE.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline"
+              "title": "Outline of PERFORMANCE"
             }
           }
         ]
       }
     ],
     "direction": "horizontal",
-    "width": 520.5
+    "width": 520.5,
+    "collapsed": true
   },
   "left-ribbon": {
     "hiddenItems": {
@@ -175,6 +183,8 @@
       "bases:Create new base": false
     }
   },
-  "active": "398f933131b9a7a9",
-  "lastOpenFiles": []
+  "active": "c50d6372ff085bfe",
+  "lastOpenFiles": [
+    "POC-Dictionaries/PERFORMANCE.md"
+  ]
 }

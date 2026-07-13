@@ -4,6 +4,110 @@ Deep reference for how this demo is implemented. For the overview and run instru
 
 ---
 
+## Shape Classification — Variant Identifiers
+
+The POC compares several CQRS/event-sourcing **variants** and measures how they
+perform as it evolves. Each variant gets a **stable identifier** so the same
+operation can be compared across implementations and phases — the k6 harness
+tags every metric with its `shape` id (see [PERFORMANCE.md](PERFORMANCE.md)),
+and these ids are frozen once assigned.
+
+**Grammar:** `Shape<Surface>.<Mechanism>[.<Scope>]`
+
+- **Surface** — the CQRS role: `Write` (command side — validates, produces
+  events), `Proj` (consumer side — materialises read models from events),
+  `Read` (query side — serves reads).
+- **Mechanism** — a short code naming the *distinguishing technique* of the
+  variant (grouped by facet below). An id names the code(s) that distinguish
+  the variant and holds the rest as context; compose facets with `.` when more
+  than one varies (e.g. `Write.FR.OB`).
+- **Scope** — suffix: *(default)* single aggregate; **`.AGG`** = aggregation
+  (fold/join/group across many aggregates, or a derived cross-cutting set). Sub-
+  types may be suffixed later (`.AGG/join`, `.AGG/group`, `.AGG/set`).
+
+### Code registry (grouped by facet)
+
+**State access** — how current state is obtained/materialised:
+
+| Code | Meaning | Status |
+|---|---|---|
+| `FR` | full replay (seq `1…end` of the relevant scope) | implemented |
+| `S` | snapshot + tail replay | reserved (Phase 14) |
+| `KV` | KV projection (materialised read model in NATS KV) | implemented |
+| `PG` | Postgres canonical + KV write-through cache | implemented |
+| `CRUD` | plain Postgres, non-event-sourced | implemented (ports) |
+
+**Publish / commit reliability** — Write surface, how the event is durably produced:
+
+| Code | Meaning | Status |
+|---|---|---|
+| `DP` | direct publish (`js.Publish`; the publish *is* the commit) | implemented (all commands) |
+| `OB` | transactional outbox (atomic state-write + relay) | reserved |
+
+**Consumer reliability** — Proj surface, how events are safely applied:
+
+| Code | Meaning | Status |
+|---|---|---|
+| `AL1` | at-least-once, non-idempotent (redelivery on failure) | implemented |
+| `IDEM` | idempotent consumer / inbox dedup | reserved (Phase 11) |
+
+`FR` scope note: it means **whole-stream** replay on `Read.FR.AGG` (fleet) but
+**per-aggregate** (filtered) replay on `Write.FR` (hydration) — scope is a
+property of the surface, so it isn't repeated in the code.
+
+### Phase-9 inventory
+
+**Write (command) surface** — publish reliability is `DP` throughout.
+
+| Id | Path / fn | Distinguishing mechanism | Scope | Legacy | File |
+|---|---|---|---|---|---|
+| `Write.FR` | ship arrive/depart (`hydrate`) | full replay, filtered per-ship | single | — | commands.go:84 |
+| `Write.FR` | container register (`hydrateByNaturalKey`) | full replay, per-container | single | — | container.go:185 |
+| `Write.FR.AGG` | container load/unload (`hydratePair`) | one replay folds **ship + container** | multi | — | container.go:148 |
+| `Write.CRUD` | port register | Postgres INSERT (idempotent) | ref data | — | port.go:23 |
+
+**Proj (projection/consumer) surface** — consumer reliability is `AL1` throughout.
+
+| Id | Consumer (durable) | Writes to | Scope | Legacy | File |
+|---|---|---|---|---|---|
+| `Proj.KV` | `ship-shape-a` | `dict-a` KV (IS the read model) | per-ship | **Shape A** | handler.go:21 |
+| `Proj.PG` | `ship-shape-b` | Postgres `ships` → `dict-b` KV cache | per-ship | **Shape B** | handler.go:37 |
+| `Proj.PG` | `container-projector` | Postgres `containers` → `container` KV | per-container | — | container_handler.go:19 |
+| `Proj.KV.AGG` | `meta-projector` | `meta` KV `known-containers` (merge-set) | derived set | — | meta_handler.go:32 |
+
+**Read (query) surface**
+
+| Id | Route | Mechanism | Scope | Legacy | File |
+|---|---|---|---|---|---|
+| `Read.PG` | `GET /api/shape-b/ships/{ctx}/{id}` | KV cache → Postgres fallback | single | Shape B (read) | get_entry.go:67 |
+| `Read.FR.AGG` | `GET /api/shape-c/fleet` | full replay: fold all + join manifest | multi | **Shape C** | shape_c.go:42 |
+| `Read.KV.AGG` | `GET /api/manifest/{ctx}/{ship}` | filter `container` KV (join) | multi/join | — | terminal.go:65 |
+| `Read.KV.AGG` | `GET /api/terminal/{ctx}/{port}` | filter `container` KV (group) | multi/group | — | terminal.go:49 |
+| `Read.KV.AGG` | `GET /api/containers/{ctx}` | scan `container` KV | multi/set | — | terminal.go:25 |
+| `Read.KV.AGG` | `GET /api/meta/{ctx}/known-containers` | get `meta` KV set | derived set | — | meta.go:34 |
+| `Read.CRUD` | `GET /api/ports/{ctx}`, `GET /api/admin/ports/{ctx}` | Postgres SELECT | ref data | — | port_repository.go |
+| `Read.KV` | *(single-ship KV lookup)* | KV | single | Shape A | get_entry.go:22 — defined, **unwired** |
+
+*(Out of scheme — observability, no read model: the SSE `/api/watch*` streams and raw `/api/jetstream/*`.)*
+
+### Legacy `A`/`B`/`C` alias map
+
+The old letters straddled **surfaces**, which is why they read as overlapping —
+`A`/`B` are mostly *projection* strategies, `C` a *read* strategy:
+
+| Legacy | Maps to | Note |
+|---|---|---|
+| Shape A | `Proj.KV` (+ unwired `Read.KV`) | "KV as read model" is a projection choice |
+| Shape B | `Proj.PG` + `Read.PG` | the projection **and** its cached read (two surfaces) |
+| Shape C | `Read.FR.AGG` | read-time reconstruction across all aggregates |
+
+The ids are a **documentation / measurement layer**: HTTP route slugs
+(`/api/shape-b`, `/api/shape-c`) and existing code are unchanged. Aggregation
+(`.AGG`) now appears explicitly on all three surfaces — `Write.FR.AGG`
+(`hydratePair`), `Proj.KV.AGG` (`meta-projector`), and the `Read.*.AGG` queries.
+
+---
+
 ## CQRS Pattern — Code Mapping
 
 ### Write Model — two aggregates, one stream

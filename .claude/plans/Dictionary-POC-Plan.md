@@ -6,6 +6,8 @@ A lab application for evaluating NATS.io patterns in the context of a V3 greenfi
 
 The core architectural question being investigated: **what is the correct responsibility split between JetStream (event backbone), NATS KV (fast lookup/watch/cache), Postgres (transactional source of truth), and CQRS projections?**
 
+**Project goal — Dictionary (shared reference/master data):** a central repository for lookup values used throughout the platform — vehicle types, order statuses, currencies, units of measure, trailer types, Incoterms, hazard classes, countries, etc. — delivered as a separate service with localization, typed cross-references, and a versioned NATS-KV cache. See [Dictionary-Service-Plan.md](Dictionary-Service-Plan.md) (proposed Phase 11).
+
 ---
 
 ## Project Structure
@@ -825,12 +827,32 @@ Both are correct implementations of event-sourcing fundamentals — the point is
 
 #### Checklist
 
-- [ ] Choose and install load testing tool (k6 recommended)
-- [ ] Write k6 script: seed data (register containers, arrive ships), then run burst scenarios
-- [ ] Scenario: single-ship hydration degradation — measure latency at 10 / 100 / 1k / 10k prior events
-- [ ] Scenario: concurrent ships — ramp from 10 to 500 concurrent command senders, capture p95 latency and error rate (raw command-throughput ceiling)
-- [ ] Scenario: Shape C reconstruction — measure response time as stream depth grows
-- [ ] Create `demos/01-dictionary/PERFORMANCE.md` as a **partial pass**: captured baselines vs. pending (deferred) scenarios clearly separated
+Harness lives in [`demos/01-dictionary/perf/`](../../demos/01-dictionary/perf/README.md) (k6, env-overridable, targets the dockerized backend on `:18080`).
+
+- [x] Choose load testing tool (k6) — install (`brew install k6`) still required on the run machine
+- [x] Write k6 script: seed data (`perf/seed.js` — register containers, arrive ships) + shared lib (`perf/lib/`)
+- [x] Scenario written: single-ship hydration degradation (`perf/scenarios/hydration-single-ship.js`) — latency bucketed by prior-event band
+- [x] Scenario written: concurrent ships (`perf/scenarios/throughput-concurrent-ships.js`) — ramp to 500 VUs, p95 + error rate
+- [x] Scenario written: Shape C reconstruction (`perf/scenarios/shape-c-reconstruction.js`) — latency sampled per stream depth
+- [x] Create `demos/01-dictionary/PERFORMANCE.md` as a **partial pass**: baseline tables filled, deferred scenarios (Phases 11/13) separated
+- [x] **Capture baselines** (2026-07-13, M3 Pro / dockerized): Shape C ~linear replay curve (0.9→45ms @100→10k); hydration per-command climbs 0.65→18ms @0→10k events; throughput ceiling ≈3,800 cmd/s — key finding: Postgres `max_connections=100` + an uncapped `*sql.DB` pool (no `SetMaxOpenConns`) are the concurrency bottleneck (flagged for Phase 14, not fixed)
+
+---
+
+### Phase 11 (proposed, pending approval) — Dictionary as a Service
+
+> **Separate plan document: [Dictionary-Service-Plan.md](Dictionary-Service-Plan.md)** — DRAFT.
+>
+> New project goal: the Dictionary as **shared reference/master data** — a central repository for
+> lookup values used throughout the platform (vehicle types, order statuses, currencies, units of
+> measure, trailer types, Incoterms, hazard classes, countries, …), with localization, typed
+> cross-references, and a versioned NATS-KV cache protocol. Delivered as a **separate service**
+> (own Go service + container, own Postgres schema, own `refdata-{context}` KV bucket) — additive
+> to the compose stack, no changes to the existing shipping implementation.
+>
+> **On approval:** that plan's sub-phases become Phase 11.1–11.5 here, and the phases below
+> renumber 11→12, 12→13, 13→14, 14→15, 15→16 (with a cross-reference sweep — see the
+> "Renumbering on approval" section of the sub-plan). Until then the numbering below is unchanged.
 
 ---
 
@@ -939,25 +961,7 @@ Validate that the *final* architecture holds under realistic throughput and iden
 
 Both are correct implementations of event sourcing fundamentals — the point is to *measure* the degradation curve and document where snapshots or other mitigations become necessary.
 
-#### Phase 13-lite — pull-forward baseline (pre-Phase 10/12)
-
-The full suite below is sequenced after Phases 10–12 so it measures the *final* architecture. But a scoped slice is worth pulling forward **now**, on the current implementation, for two reasons:
-
-1. **The harness is phase-independent.** k6 install, the seed script, the docker load environment, and the metrics-capture format are reused by every subsequent phase — building them now is pure upside.
-2. **A clean before-Phase-10 baseline is only obtainable now.** The two headline gaps (Shape C replay, `hydrate()` replay) already exist and Phases 10–12 don't change their fundamentals. Capturing command latency **before** Phase 10's optimistic-concurrency guard lands gives a before/after delta that answers Phase 13's own question — "what does the sequence guard cost?" — and cannot be reconstructed later.
-
-**In scope for 13-lite** (stable against Phases 10–12):
-- k6 harness + seed script (reusable infrastructure)
-- Shape C reconstruction latency vs stream depth
-- Single-ship write-side hydration degradation
-- Raw command-throughput ceiling (concurrent ships)
-
-**Deferred to their gating phase** (would be thrown away if measured now):
-- Optimistic-concurrency contention → **Phase 10** (guard doesn't exist yet)
-- Cross-stream burst / consumer lag → **Phase 12** (no `TERMINAL` stream yet)
-- Cross-aggregate stale-read window → **Phase 12**
-
-> **Measurement only.** 13-lite characterises the degradation curves; it does **not** implement mitigations (snapshotting, etc.), because those interact with Phases 10–12. Record results as a **partial pass** in `PERFORMANCE.md`, clearly separating captured baselines from pending (deferred) scenarios.
+> The baseline harness and the Shape C / single-ship / throughput scenarios are delivered in **Phase 10** (pull-forward baseline). This phase reuses that harness, adds the scenarios gated by Phases 11 and 13, and re-measures the Phase 10 baselines against the final architecture.
 
 #### Tool
 
@@ -965,15 +969,15 @@ The full suite below is sequenced after Phases 10–12 so it measures the *final
 
 #### Test scenarios
 
-| Scenario | What it measures | Gate |
+| Scenario | What it measures | Status |
 |---|---|---|
-| High-frequency arrivals/departures — single ship | Write-side hydration degradation as event count grows | **13-lite** |
-| High-frequency arrivals/departures — many ships concurrently | Throughput ceiling of the command pipeline | **13-lite** |
-| Shape C fleet reconstruction under load | Replay latency vs stream depth; degradation curve | **13-lite** |
-| KV watch fan-out — many SSE clients | How many concurrent SSE connections the backend sustains before lag | 13-lite (optional) |
-| Container load/unload burst — terminal throughput | Cross-stream (`SHIPPING` + `TERMINAL`) consumer lag under write pressure | Phase 12 |
-| Projection lag — event published → KV updated | End-to-end latency of the Shape A/B projectors under load | 13-lite |
-| Optimistic-concurrency contention — concurrent commands, same aggregate | Retry rate and latency cost of the Phase 10 sequence guard under contention | Phase 10 |
+| High-frequency arrivals/departures — single ship | Write-side hydration degradation as event count grows | baseline in Phase 10; re-measure |
+| High-frequency arrivals/departures — many ships concurrently | Throughput ceiling of the command pipeline | baseline in Phase 10; re-measure |
+| Shape C fleet reconstruction under load | Replay latency vs stream depth; degradation curve | baseline in Phase 10; re-measure |
+| KV watch fan-out — many SSE clients | How many concurrent SSE connections the backend sustains before lag | this phase |
+| Container load/unload burst — terminal throughput | Cross-stream (`SHIPPING` + `TERMINAL`) consumer lag under write pressure | needs Phase 13 |
+| Projection lag — event published → KV updated | End-to-end latency of the Shape A/B projectors under load | this phase |
+| Optimistic-concurrency contention — concurrent commands, same aggregate | Retry rate and latency cost of the Phase 11 sequence guard under contention | needs Phase 11 |
 
 #### Baseline metrics to capture
 
@@ -990,26 +994,19 @@ The full suite below is sequenced after Phases 10–12 so it measures the *final
 
 #### Checklist
 
-**Phase 13-lite (pull forward now — pre-Phase 10/12):**
+The baseline harness, seed script, and the Shape C / single-ship / throughput scenarios are delivered in **Phase 10**. This phase completes the remaining (gated) scenarios and finalises the report:
 
-- [ ] Choose and install load testing tool (k6 recommended)
-- [ ] Write k6 script: seed data (register containers, arrive ships), then run burst scenarios
-- [ ] Scenario: single-ship hydration degradation — measure latency at 10 / 100 / 1k / 10k prior events
-- [ ] Scenario: concurrent ships — ramp from 10 to 500 concurrent command senders, capture p95 latency and error rate (raw command-throughput ceiling)
-- [ ] Scenario: Shape C reconstruction — measure response time as stream depth grows
-- [ ] Create `demos/01-dictionary/PERFORMANCE.md` as a **partial pass**: captured baselines vs. pending (deferred) scenarios clearly separated
-
-**Deferred to gating phases (do NOT run in 13-lite):**
-
-- [ ] Scenario: optimistic-concurrency contention — retry rate and latency cost of the sequence guard *(needs Phase 10)*
-- [ ] Scenario: cross-stream burst — fire `SHIPPING` and `TERMINAL` events concurrently, measure projection consumer lag *(needs Phase 12)*
-- [ ] Scenario: SSE fan-out — open 1 / 10 / 50 / 100 concurrent SSE clients, measure KV watch lag *(13-lite optional; run when SSE path is load-relevant)*
-- [ ] Finalise `PERFORMANCE.md` — full baseline numbers, degradation curves, identified thresholds
+- [ ] Scenario: optimistic-concurrency contention — retry rate and latency cost of the Phase 11 sequence guard *(needs Phase 11)*
+- [ ] Scenario: cross-stream burst — fire `SHIPPING` and `TERMINAL` events concurrently, measure projection consumer lag *(needs Phase 13)*
+- [ ] Scenario: SSE fan-out — open 1 / 10 / 50 / 100 concurrent SSE clients, measure KV watch lag
+- [ ] Scenario: projection lag — event published → KV updated, measured under load
+- [ ] Re-measure the Phase 10 baseline scenarios against the final architecture (with guard + split) and record the before/after delta
+- [ ] Finalise `demos/01-dictionary/PERFORMANCE.md` — full baseline numbers, degradation curves, identified thresholds
 - [ ] Document architectural mitigations for each bottleneck (snapshot strategy, consumer parallelism, SSE load balancing)
 
 ---
 
-### Phase 14 (optional) — NATS Accounts Tenancy Spike
+### Phase 15 (optional) — NATS Accounts Tenancy Spike
 
 #### Goal
 
