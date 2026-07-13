@@ -9,3 +9,4 @@
 - [Stale Select value bug pattern](stale_select_value_bug_pattern.md) — PrimeVue Select v-model doesn't auto-clear when options change; must `watch` and reset explicitly
 - [swag regen diff noise](swag_regen_diff_noise.md) — `swag init` rewrites all $ref names repo-wide; hand-patch doc strings instead of regenerating
 - [BR classification heuristic](br_classification_heuristic.md) — check `commands/*.go` for precedent before asking whether a check is a formal BR or input validation
+- [Event sourcing source-of-truth patterns](event_sourcing_source_of_truth_patterns.md) — Pattern A (Postgres+outbox) vs Pattern B (JetStream-as-truth); B answers the POC question; pending Obsidian note append

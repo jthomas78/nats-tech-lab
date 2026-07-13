@@ -6,6 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 At the start of every session, read all files in `.claude/memory/` — starting with `MEMORY.md` as the index — and apply them as persistent context. When saving new memories during a session, write them to `.claude/memory/` (not `~/.claude/projects/`) so they are shared across devices via git.
 
+## General preferences
+
+- If asked to do too much work at once, stop and state that clearly.
+- If computer use is helpful for completing or verifying work, shell out to GPT-5.5 with Codex for it (the `codex:rescue` skill / `codex:codex-rescue` agent).
+
 ## Purpose
 
 A lab for evaluating NATS.io patterns relevant to a V3 greenfield logistics platform. Each demo is self-contained: the user picks a demo from the lab shell, reads an intro, launches it via Docker, and tears it down when done.

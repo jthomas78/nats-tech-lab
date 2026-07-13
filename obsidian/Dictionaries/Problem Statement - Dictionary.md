@@ -1,0 +1,59 @@
+For the V3 greenfield logistics platform, we need to evaluate the role of NATS.io in the target architecture, especially in relation to CQRS, event sourcing/event streaming, and materialized views in the form of dictionary/reference data or stores.
+
+Data is derived from the event source, and must be returned based on application context (such as tenant, region, or locale), ensuring that lookups resolve to the correct values for the current execution environment.
+
+The initial task description is **"Dictionary"**, with additional context around language/localization, NATS, stores, and possibly databases. This needs clarification because "dictionary" can mean several different types of application data.
+
+Examples of application dictionary data:
+
+- UI dropdown/reference values
+- Application enums
+- Language/i18n translation strings
+- Locale-specific data such as country, currency, region, tax, or carrier-zone values
+- Tenant-specific configuration/reference data
+- CQRS read-model lookup data
+
+The key architectural question is whether these dictionaries should be stored directly in NATS KV, kept in Postgres and distributed through NATS/KV as a cache, or modeled as event-sourced reference data projected into KV stores via event handlers.
+
+Since this is a POC, both of the following read-side shapes should be explored and compared rather than committed to upfront:
+
+- **NATS KV as the read model** — event handlers project directly from JetStream into KV, and dictionary reads go straight to KV with no Postgres-backed read table involved.
+- **NATS KV alongside a Postgres-backed read model** — the canonical CQRS projection lives in Postgres; KV is a derived, low-latency cache/distribution layer in front of or alongside it.
+
+This investigation and POC should define the correct responsibility split between:
+
+- **JetStream** as the event backbone
+- **NATS KV** as a fast key-value/cache/watch mechanism
+- **Postgres** as the transactional system of record / source of truth
+- **The persistent event log (JetStream stream)** as an alternative source-of-truth candidate, noting the open question of replay performance and cost when the log is extremely large
+- **CQRS projections** as read-side models
+
+There must also be a demoable application (it does not need to be a logistics application) so the approach can be showcased and the implementation reviewed in code.
+
+## Clarification Questions
+
+
+### Q-Group 1
+
+1. When the requirement says "Dictionary", does it mean localization/i18n text, UI dropdown values, enums, business reference data, or all of these?
+2. Are dictionary values global, per region, per tenant, or per customer contract?
+3. Who edits dictionary data: developers, admins, operations users, or external integrations?
+4. Do changes need audit history, approval workflow, rollback, or versioning?
+5. Do services need strongly consistent reads, or is eventual consistency acceptable?
+6. Should Postgres remain the source of truth with NATS KV as a cache/distribution layer?
+7. Are dictionary values part of CQRS read models, or independent reference data used by those models?
+
+## Q-Group 2
+1. How do software companies normally solve data that relates to: 
+	- Localization 
+	- Multitenant configuration
+	- Enum mappings 
+	> *I'd also like to know if the context of EventSourcing and CQRS and databases how that'll fit in.*
+2. 
+
+
+## Working Assumption
+
+Dropdown values and enums were not mentioned explicitly in the original prompt, but they should be included in the investigation because they are common meanings of "dictionary" in application requirements.
+
+The current recommended assumption is that **Postgres remains the source of truth** for governed dictionary/reference data, while **NATS KV can be used as a distribution/cache layer** where low-latency lookup and watch-based invalidation are useful.

@@ -767,6 +767,25 @@ Replace the frontend-only port list (hardcoded `BASE_PORTS` in `ShippingForm.vue
 
 ---
 
+### Phase 9.6 — Postgres Tables Admin Panel (Reference Data → Ports)
+
+#### Goal
+
+Give the admin UI (`frontend/`, "EventSourcing CQRS POC") a tabbed panel for browsing raw Postgres table contents, grouped under headings — starting with a "Reference Data" group containing one table, Ports. Pairs with `JetStreamPanel` (raw event log) as the other "raw source" view, and is the concrete UI counterpart to the "Event Sourcing vs Plain CRUD" heuristic added to `ARCHITECTURE.md` in Phase 9.5: this panel shows a table with no event log at all.
+
+#### Checklist
+
+- [x] `domain/repository.go` — `PortRecord{Name, CreatedAt}`; `ListRecords` added to `PortRepository` interface
+- [x] `postgres/port_repository.go` — `ListRecords` implementation (`SELECT name, created_at`)
+- [x] `application/commands/port.go` — `PortHandler.ListRecords` forwards to the repo
+- [x] `rest/handlers.go` — `GET /api/admin/ports/{context}` returns `{"rows": [{name, createdAt}]}`; distinct namespace (`/api/admin/...`) from the domain-facing `/api/ports/*`, reserved for future per-table admin views (e.g. ships/containers)
+- [x] Tests — `fakePortRepo.ListRecords` (`integration_test.go`); new `admin — postgres tables` spec in `api_test.go`
+- [x] Frontend — `api.js`: `getPortsTable(context)`; new `PostgresTablesPanel.vue` (collapsible, same header pattern as `JetStreamPanel`/`ShapeCPanel`; "Reference Data" group wrapping a `Tabs` with a Ports tab; manual refresh button, no live push channel since Postgres writes here aren't KV-watched); mounted in `App.vue` right after `JetStreamPanel`
+- [x] `ARCHITECTURE.md` — new "Postgres Tables Panel (Admin UI)" subsection
+- [x] `go build ./...` + `ginkgo ./...` green (57/57 tests); `npm run build` clean in `frontend/`
+
+---
+
 ### Phase 10 — Write-Side Safety (Optimistic Concurrency + Publish Dedup)
 
 #### Goal
