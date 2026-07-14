@@ -4,6 +4,7 @@ package dictionary
 
 import (
 	"context"
+	"os"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/dictionary/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/dictionary/internal/application/queries"
@@ -14,6 +15,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/internal/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/internal/kvstore"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/internal/monolith"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/internal/refdataconsumer"
 )
 
 const (
@@ -22,10 +24,14 @@ const (
 	//   dict-b    — Shape B ship cache
 	//   container — container projection (terminal queries read model)
 	//   meta      — cross-cutting lookup sets (known-containers)
+	//   refdata   — refdata-service's Q5 versioned-read cache (Phase 11.3
+	//               consumer demo; owned/written by refdata-service, this
+	//               module only reads it)
 	shapeABucketPrefix    = "dict-a"
 	shapeBBucketPrefix    = "dict-b"
 	containerBucketPrefix = "container"
 	metaBucketPrefix      = "meta"
+	refdataBucketPrefix   = "refdata"
 )
 
 type Module struct{}
@@ -45,6 +51,8 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 	kvB := kvstore.New(js, shapeBBucketPrefix)
 	kvContainers := kvstore.New(js, containerBucketPrefix)
 	kvMeta := kvstore.New(js, metaBucketPrefix)
+	kvRefdata := kvstore.New(js, refdataBucketPrefix)
+	refdata := refdataconsumer.New(kvRefdata, refdataServiceURL())
 	shipRepo := postgres.NewRepository(mono.DB())
 	containerRepo := postgres.NewContainerRepository(mono.DB())
 	portRepo := postgres.NewPortRepository(mono.DB())
@@ -75,9 +83,17 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 		KVB:        kvB,
 		KVCont:     kvContainers,
 		KVMeta:     kvMeta,
+		Refdata:    refdata,
 		JS:         js,
 		Log:        log,
 	})
 	handlers.Mount(mono.Mux())
 	return nil
+}
+
+func refdataServiceURL() string {
+	if v := os.Getenv("REFDATA_SERVICE_URL"); v != "" {
+		return v
+	}
+	return "http://localhost:18081"
 }

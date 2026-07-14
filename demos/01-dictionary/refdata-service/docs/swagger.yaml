@@ -1,0 +1,705 @@
+basePath: /
+definitions:
+  domain.DictionaryItem:
+    properties:
+      attrs:
+        additionalProperties: {}
+        type: object
+      code:
+        type: string
+      context:
+        type: string
+      status:
+        $ref: '#/definitions/domain.ItemStatus'
+      typeKey:
+        type: string
+    type: object
+  domain.DictionaryReference:
+    properties:
+      context:
+        type: string
+      fromCode:
+        type: string
+      fromTypeKey:
+        type: string
+      relation:
+        type: string
+      toCode:
+        type: string
+      toTypeKey:
+        type: string
+    type: object
+  domain.DictionaryType:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      typeKey:
+        type: string
+    type: object
+  domain.ItemStatus:
+    enum:
+    - active
+    - deprecated
+    type: string
+    x-enum-varnames:
+    - StatusActive
+    - StatusDeprecated
+  domain.Localization:
+    properties:
+      code:
+        type: string
+      context:
+        type: string
+      description:
+        type: string
+      label:
+        type: string
+      locale:
+        type: string
+      source:
+        description: '"manual" | "ai" (BR-D07 — not yet enforced)'
+        type: string
+      typeKey:
+        type: string
+    type: object
+  rest.cacheStatusResponse:
+    properties:
+      inSync:
+        type: boolean
+      kvItemCount:
+        type: integer
+      kvVersion:
+        type: integer
+      postgresVersion:
+        type: integer
+      typeKey:
+        type: string
+    type: object
+  rest.completenessResponse:
+    properties:
+      locale:
+        type: string
+      localized:
+        type: integer
+      total:
+        type: integer
+      typeKey:
+        type: string
+    type: object
+  rest.errorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  rest.itemRequest:
+    properties:
+      attrs:
+        additionalProperties: {}
+        type: object
+      code:
+        type: string
+      context:
+        type: string
+      typeKey:
+        type: string
+    type: object
+  rest.itemResponse:
+    properties:
+      item:
+        $ref: '#/definitions/domain.DictionaryItem'
+    type: object
+  rest.itemsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/domain.DictionaryItem'
+        type: array
+    type: object
+  rest.localeRequest:
+    properties:
+      context:
+        type: string
+      isDefault:
+        type: boolean
+      locale:
+        type: string
+    type: object
+  rest.localesResponse:
+    properties:
+      locales:
+        items:
+          type: string
+        type: array
+    type: object
+  rest.localizationRequest:
+    properties:
+      code:
+        type: string
+      context:
+        type: string
+      description:
+        type: string
+      label:
+        type: string
+      locale:
+        type: string
+      typeKey:
+        type: string
+    type: object
+  rest.localizationsResponse:
+    properties:
+      localizations:
+        items:
+          $ref: '#/definitions/domain.Localization'
+        type: array
+    type: object
+  rest.referenceRequest:
+    properties:
+      context:
+        type: string
+      declaredTargetType:
+        type: string
+      fromCode:
+        type: string
+      fromTypeKey:
+        type: string
+      relation:
+        type: string
+      toCode:
+        type: string
+      toTypeKey:
+        type: string
+    type: object
+  rest.referencesResponse:
+    properties:
+      references:
+        items:
+          $ref: '#/definitions/domain.DictionaryReference'
+        type: array
+    type: object
+  rest.resolvedItemResponse:
+    properties:
+      description:
+        type: string
+      expanded:
+        $ref: '#/definitions/domain.DictionaryItem'
+      item:
+        $ref: '#/definitions/domain.DictionaryItem'
+      label:
+        type: string
+      locale:
+        type: string
+    type: object
+  rest.typeRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      typeKey:
+        type: string
+    type: object
+  rest.typesResponse:
+    properties:
+      types:
+        items:
+          $ref: '#/definitions/domain.DictionaryType'
+        type: array
+    type: object
+host: localhost:18081
+info:
+  contact: {}
+  description: Dictionary-as-a-service backend for the NATS Tech Lab POC. Plain Postgres
+    CRUD reference data (currencies, countries, Incoterms, units of measure, hazard
+    classes) with typed cross-references.
+  title: Reference Data Service API
+  version: "1.0"
+paths:
+  /api/refdata-watch/{context}:
+    get:
+      description: Server-Sent Events stream of NATS KV changes in the refdata-{context}
+        cache bucket — item entries and {type}._meta version bumps. Replays current
+        state first, then live updates. Live invalidation feed for a frontend cache-status
+        widget.
+      parameters:
+      - description: tenant/region context
+        in: path
+        name: context
+        required: true
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: 'SSE stream — data: {watchEvent JSON}'
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Cache KV watch stream (SSE)
+      tags:
+      - streams
+  /api/refdata/{context}/{type}:
+    get:
+      description: Lists items of a dictionary type in a context, optionally locale-resolved
+        (BR-D03). Excludes deprecated items unless ?all=true is passed (BR-D06).
+      parameters:
+      - description: tenant/region context
+        in: path
+        name: context
+        required: true
+        type: string
+      - description: dictionary type key
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: include deprecated items
+        in: query
+        name: all
+        type: boolean
+      - description: resolve each item's label in this locale
+        in: query
+        name: locale
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.itemsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: List items
+      tags:
+      - items
+  /api/refdata/{context}/{type}/{code}:
+    get:
+      description: 'Resolves a single item regardless of status (BR-D06: deprecated
+        items still resolve). ?locale= resolves a label via BR-D03''s fallback chain;
+        ?expand= inlines the item a named relation points to.'
+      parameters:
+      - description: tenant/region context
+        in: path
+        name: context
+        required: true
+        type: string
+      - description: dictionary type key
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: item code
+        in: path
+        name: code
+        required: true
+        type: string
+      - description: resolve the label in this locale (BR-D03)
+        in: query
+        name: locale
+        type: string
+      - description: relation name to expand into the response
+        in: query
+        name: expand
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.resolvedItemResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Get an item
+      tags:
+      - items
+  /api/refdata/{context}/{type}/{code}/localizations:
+    get:
+      description: Every locale's localization recorded for one item — the editor's
+        Localizations tab.
+      parameters:
+      - description: tenant/region context
+        in: path
+        name: context
+        required: true
+        type: string
+      - description: dictionary type key
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: item code
+        in: path
+        name: code
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.localizationsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: List an item's localizations
+      tags:
+      - localization
+  /api/refdata/{context}/{type}/{code}/references:
+    get:
+      description: Every typed reference recorded from one item — the editor's References
+        tab.
+      parameters:
+      - description: tenant/region context
+        in: path
+        name: context
+        required: true
+        type: string
+      - description: dictionary type key
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: item code
+        in: path
+        name: code
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.referencesResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: List an item's outbound references
+      tags:
+      - references
+  /api/refdata/{context}/{type}/cache-status:
+    get:
+      description: Compares Postgres's current set version (BR-D04) against the refdata-{context}
+        KV cache's {type}._meta version — the Q5 versioned-read protocol made visible
+        for a cache status widget.
+      parameters:
+      - description: tenant/region context
+        in: path
+        name: context
+        required: true
+        type: string
+      - description: dictionary type key
+        in: path
+        name: type
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.cacheStatusResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Cache status
+      tags:
+      - localization
+  /api/refdata/{context}/{type}/completeness:
+    get:
+      description: Reports how many of a type's items have a localization for the
+        given locale.
+      parameters:
+      - description: tenant/region context
+        in: path
+        name: context
+        required: true
+        type: string
+      - description: dictionary type key
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: locale to check completeness for
+        in: query
+        name: locale
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.completenessResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Localization completeness
+      tags:
+      - localization
+  /api/refdata/{context}/locales:
+    get:
+      description: Lists locales registered for a context.
+      parameters:
+      - description: tenant/region context
+        in: path
+        name: context
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.localesResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: List locales
+      tags:
+      - localization
+  /api/refdata/{context}/types:
+    get:
+      description: Lists every registered dictionary type (currency, country, incoterm,
+        …).
+      parameters:
+      - description: tenant/region context
+        in: path
+        name: context
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.typesResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: List dictionary types
+      tags:
+      - types
+  /api/refdata/admin/items:
+    post:
+      consumes:
+      - application/json
+      description: 'Registers a new dictionary item (BR-D01: the code must be free
+        within its type+context).'
+      parameters:
+      - description: typeKey, code, context, attrs
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/rest.itemRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/rest.itemResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+        "409":
+          description: 'BR-D01: duplicate code'
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Register an item
+      tags:
+      - items
+  /api/refdata/admin/items/{type}/{context}/{code}:
+    delete:
+      description: 'Hard-deletes an unreferenced item. BR-D02: a referenced item cannot
+        be deleted — deprecate it instead.'
+      parameters:
+      - description: dictionary type key
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: tenant/region context
+        in: path
+        name: context
+        required: true
+        type: string
+      - description: item code
+        in: path
+        name: code
+        required: true
+        type: string
+      responses:
+        "204":
+          description: no content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+        "409":
+          description: 'BR-D02: item is referenced'
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Delete an item
+      tags:
+      - items
+  /api/refdata/admin/items/{type}/{context}/{code}/deprecate:
+    post:
+      description: Marks an item deprecated. Used for BR-D02's referenced-item path
+        instead of delete.
+      parameters:
+      - description: dictionary type key
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: tenant/region context
+        in: path
+        name: context
+        required: true
+        type: string
+      - description: item code
+        in: path
+        name: code
+        required: true
+        type: string
+      responses:
+        "204":
+          description: no content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Deprecate an item
+      tags:
+      - items
+  /api/refdata/admin/locales:
+    post:
+      consumes:
+      - application/json
+      description: Registers a locale as known for a context; at most one locale per
+        context may be marked default.
+      parameters:
+      - description: context, locale, isDefault
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/rest.localeRequest'
+      responses:
+        "201":
+          description: created
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Register a locale
+      tags:
+      - localization
+  /api/refdata/admin/localizations:
+    post:
+      consumes:
+      - application/json
+      description: Upserts an item's label/description for one locale. The item must
+        already exist.
+      parameters:
+      - description: typeKey, code, context, locale, label, description
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/rest.localizationRequest'
+      responses:
+        "204":
+          description: no content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Set an item's localization
+      tags:
+      - localization
+  /api/refdata/admin/references:
+    post:
+      consumes:
+      - application/json
+      description: 'Links two items via a named relation. BR-D05: the target must
+        exist, be active, and match the relation''s declared type.'
+      parameters:
+      - description: context, fromTypeKey, fromCode, relation, declaredTargetType,
+          toTypeKey, toCode
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/rest.referenceRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: created
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+        "422":
+          description: 'BR-D05: invalid reference target'
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Create a typed reference
+      tags:
+      - references
+  /api/refdata/admin/types:
+    post:
+      consumes:
+      - application/json
+      description: Registers (or updates the name/description of) a dictionary type,
+        e.g. "currency".
+      parameters:
+      - description: typeKey, name, description
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/rest.typeRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: created
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Register a dictionary type
+      tags:
+      - types
+swagger: "2.0"

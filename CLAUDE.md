@@ -24,10 +24,14 @@ nats-tech-lab/
   lab-shell/              # Vue 3 + PrimeVue + Pinia — demo menu + intro pages
   demos/
     01-dictionary/        # First demo: Dictionary POC
-      backend/            # Go service (hexagonal layout)
+      backend/            # Go service (hexagonal layout) — Ship/Container CQRS shapes A/B/C
+      refdata-service/    # Go service (Phase 11) — dictionary-as-a-service, own Postgres schema + container
+        README.md         # refdata-service-specific: what it is, how to run/query it standalone
+        DICTIONARY.md      # refdata-service-specific: seeding, Postgres schema/ER diagram
 	  frontend/           # Vue 3 architecture/demo UI
 	  frontend-port/      # Vue 3 ship/terminal operations UI
-	  docker-compose.yml  # Postgres + NATS + backend + both frontends
+	  frontend-dict/      # Vue 3 dictionary/reference-data admin UI (Phase 11)
+	  docker-compose.yml  # Postgres + NATS + backend + refdata-service + all three frontends
       README.md           # Intro text shown in lab shell
   obsidian/
     POC-Dictionaries/     # Obsidian vault for demo 01 (research, findings, stakeholder docs)
@@ -63,6 +67,19 @@ go test ./path/to/package/...   # run a single package
 docker compose up --build       # from demos/01-dictionary/
 docker compose down             # tear down
 ```
+
+### Refdata service (Go — `demos/01-dictionary/refdata-service/`)
+
+```bash
+go build ./...
+go test ./...
+
+docker compose up --build       # from demos/01-dictionary/ — starts backend + refdata-service together
+```
+
+See `demos/01-dictionary/refdata-service/README.md` for standalone run instructions (including the
+default-port collision with `backend` when both run outside Docker) and `DICTIONARY.md` for seeding
+and schema details.
 
 ### Frontend (Vue 3 — either demo frontend or `lab-shell/`)
 

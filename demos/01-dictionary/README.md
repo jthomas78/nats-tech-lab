@@ -36,12 +36,27 @@ at the container's terminal to load it, a container can only be unloaded at
 its destination, …) are enforced from **one atomic replay** that hydrates both
 aggregates. See [BUSINESS_RULES.md](BUSINESS_RULES.md) for BR-001 … BR-015.
 
-## Two frontends
+## Three frontends
 
 | App | URL | Role |
 |---|---|---|
 | Admin / NATS debug | http://localhost:5173 | Raw stream feed, KV buckets, Shape A/B/C projections |
 | Port Management | http://localhost:5174 | One port at a time: terminal yard, docked ships + manifests, container operations |
+| Dictionary | http://localhost:5175 | Reference-data admin: type navigator, item grid, localization/reference editor, locales panel, cache status widget (Phase 11) |
+
+## Dictionary as a Service (Phase 11)
+
+A **separate service** (`refdata-service/`, its own Postgres schema and container) providing
+shared reference/master data — currencies, countries, Incoterms, units of measure, hazard
+classes — with localization (BR-D03 fallback chain), typed cross-references (BR-D05), and a
+versioned NATS-KV cache protocol (BR-D04, Q5). Nothing here is event-sourced: it's plain Postgres
+CRUD, since no consumer ever needs to replay a lookup value's history. See
+[Dictionary-Service-Plan.md](../../.claude/plans/Dictionary-Service-Plan.md) and `ARCHITECTURE.md`'s
+"Reference Data Service" section for the full design.
+
+The shipping backend demonstrates consuming it: `GET /api/refdata-demo/{context}/{type}/{code}`
+reads the `refdata-{context}` KV cache directly, falling through to refdata-service's REST API on
+a miss or a stale (version-mismatched) entry — the concrete example is the **hazard-class** type.
 
 ## Admin UI layout — data flow top to bottom
 
@@ -67,24 +82,27 @@ cd demos/01-dictionary
 docker compose up --build    # builds the Go backend + both Vue frontends, then starts all services
 ```
 
-Then open **http://localhost:5173** for the Admin / NATS debug UI, or
-**http://localhost:5174** for Port Management.
+Then open **http://localhost:5173** for the Admin / NATS debug UI,
+**http://localhost:5174** for Port Management, or **http://localhost:5175** for Dictionary.
 
 ```bash
 docker compose down          # stop and remove containers
 docker compose down -v       # also drop NATS and Postgres data volumes
 ```
 
-| Service         | Host address                                                 |
-| --------------- | ------------------------------------------------------------ |
-| Lab shell       | http://localhost:5170                                        |
-| Admin UI        | http://localhost:5173                                        |
-| Port Management | http://localhost:5174                                        |
-| Swagger UI      | http://localhost:18080/swagger/                              |
-| Backend API     | http://localhost:18080                                       |
-| NATS client     | nats://localhost:14222                                       |
-| NATS monitor    | http://localhost:18222                                       |
-| Postgres        | localhost:15432                                              |
+| Service              | Host address                                                 |
+| -------------------- | ------------------------------------------------------------ |
+| Lab shell            | http://localhost:5170                                        |
+| Admin UI              | http://localhost:5173                                        |
+| Port Management       | http://localhost:5174                                        |
+| Dictionary            | http://localhost:5175                                        |
+| Swagger UI (backend)  | http://localhost:18080/swagger/                              |
+| Backend API           | http://localhost:18080                                       |
+| Swagger UI (refdata)  | http://localhost:18081/swagger/                              |
+| refdata-service API   | http://localhost:18081                                       |
+| NATS client           | nats://localhost:14222                                       |
+| NATS monitor          | http://localhost:18222                                       |
+| Postgres              | localhost:15432                                              |
 
 **Postgres credentials:** host `localhost`, port `15432`, user `dict`, password `dict`, database `dictionary`
 
@@ -132,6 +150,26 @@ npm run dev   # http://localhost:5174, proxies /api to localhost:8080
 
 Both `vite.config.js` files proxy `/api` to `http://localhost:8080` — the
 plain backend port, since nothing is remapping it outside Docker.
+
+**5. refdata-service** (separate service, separate terminal). Its code also defaults to `:8080`,
+which collides if the backend from step 2 is already running locally — so run it on `:8081`
+instead when both are up at once:
+
+```bash
+cd demos/01-dictionary/refdata-service
+NATS_URL=nats://localhost:14222 \
+DATABASE_URL="postgres://dict:dict@localhost:15432/dictionary?sslmode=disable" \
+HTTP_ADDR=:8081 \
+go run ./cmd/main.go
+```
+
+**6. Dictionary frontend** (optional, separate terminal):
+
+```bash
+cd demos/01-dictionary/frontend-dict
+npm install   # first time only
+npm run dev   # http://localhost:5175, proxies /api to localhost:8081 (refdata-service, see vite.config.js)
+```
 
 ## Run the tests
 

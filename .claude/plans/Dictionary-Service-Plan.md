@@ -1,11 +1,19 @@
 # Dictionary as a Service — Plan
 
-> **Status: DRAFT — pending approval.**
-> On approval this becomes **Phase 11** of the main plan (sub-phases 11.1, 11.2, …), and the
-> current Phases 11–15 renumber to 12–16. Until then the main plan carries a *proposed* reference
-> to this document and no renumbering happens.
+> **Status: APPROVED (2026-07-13).** This is now **Phase 11** of the main plan (sub-phases
+> 11.1–11.5 below); the former Phases 11–15 have renumbered to 12–16.
 >
 > Main plan: [Dictionary-POC-Plan.md](Dictionary-POC-Plan.md)
+>
+> **Decisions made at approval:**
+> 1. **Q1 — Option B (separate service).** `refdata-service/` is its own Go service/container,
+>    own Postgres schema, own KV bucket — not a module in the existing monolith.
+> 2. **11.3 demo consumer — hazard classes.** The shipping backend consumes the `hazard-class`
+>    dictionary type via KV with version-mismatch re-read, as the concrete cross-service proof.
+> 3. **Scope — 11.1–11.4 approved now.** The AI-assisted translation increment inside 11.4 and
+>    the Q6-role-3 NATS `micro` request-reply spike in 11.3 are **not** in scope for this pass —
+>    deferred/parked, revisit later. 11.5 (consolidation write-up) remains optional/deferrable.
+> 4. **BR-D01–D07 confirmed as drafted**, unchanged from the table below.
 
 ## Definition (project goal)
 
@@ -271,64 +279,122 @@ implementation, and lands in `BUSINESS_RULES.md` in the same commit.
 
 ### Phase 11.1 — Core service (Postgres CRUD + read API)
 
-- [ ] `refdata-service/` scaffold: `cmd/main.go`, hexagonal layout (`internal/domain`,
-      `internal/postgres`, `internal/rest`), own Dockerfile, compose entry
-- [ ] Postgres schema: `dictionary_types`, `dictionary_items`, `dictionary_localizations`,
-      `dictionary_references` (+ migration, own schema `refdata`)
-- [ ] Domain: item lifecycle (create / update / delete-when-unreferenced / deprecate), typed
-      references, BR-D01/02/05/06
-- [ ] REST: read API (`GET` set / item / version probe / locales) + admin CRUD
-- [ ] Swagger: `swag` annotations on all endpoints, Swagger UI served at `/swagger/` (Phase 7 toolchain)
-- [ ] Seed: ISO 4217, ISO 3166, Incoterms 2020, UNECE Rec 20 subset, UN hazard classes
-- [ ] Ginkgo specs from the confirmed business rules; `ginkgo ./...` green
-- [ ] `BUSINESS_RULES.md` + `ARCHITECTURE.md` sections for the new service
+> **Complete (2026-07-14).**
+
+- [x] `refdata-service/` scaffold: own `go.mod`, `cmd/main.go` (connects Postgres, runs
+      migration + seed, starts the HTTP server), hexagonal layout under `refdata/internal/`
+      (`domain`, `application/commands`, `postgres`, `rest`), own Dockerfile, compose entry
+      (shares the `postgres` service, own `DATABASE_URL`, port `18081`)
+- [x] Postgres schema: `dictionary_types`, `dictionary_items`, `dictionary_localizations`,
+      `dictionary_references` (+ migration, own schema `refdata`) — `refdata/internal/postgres/migrate.go`
+- [x] Domain: item lifecycle (create / delete-when-unreferenced / deprecate), typed
+      references, BR-D01/02/05/06 — `refdata/internal/domain/dictionary.go` +
+      `refdata/internal/application/commands/{item,reference,type}.go`
+- [x] REST: read API (list types, list/get items, BR-D06 assignable-vs-all) + admin CRUD
+      (register type/item, deprecate, delete, create reference) — `refdata/internal/rest/handlers.go`.
+      Version-probe and locale-scoped reads are **not yet meaningful** (no set-version or locale
+      data exists until 11.2/11.3) — added when those land, not stubbed here.
+- [x] Swagger: `swag` annotations on all endpoints, generated `docs/`, Swagger UI served at
+      `/swagger/` (same toolchain as Phase 7, `swag init` run fresh — no prior docs to diff against)
+- [x] Seed: representative subsets of ISO 4217 (35 currencies), ISO 3166 (52 countries), the
+      full Incoterms 2020 (11 terms), a UNECE Rec 20 subset (12 units), and all 9 UN hazard
+      classes — `refdata/seed.go`, idempotent (`RegisterItem` + `ErrDuplicateItemCode` ignored),
+      run from `Startup()` on every boot
+- [x] Ginkgo specs from the confirmed business rules; `ginkgo ./...` green (12/12 —
+      `refdata/item_test.go`, `refdata/reference_test.go`, in-memory fakes, no real Postgres in
+      the suite, same convention as the shipping backend's `fakePortRepo`)
+- [x] `BUSINESS_RULES.md` + `ARCHITECTURE.md` sections for the new service
 
 ### Phase 11.2 — Localization + reference resolution
 
-- [ ] Localization CRUD + fallback-chain resolution (BR-D03) server-side
-- [ ] Locale management: add a locale to a context; per-type localization-completeness query
-- [ ] Reference expansion on the read API (`?expand=defaultCurrency`)
-- [ ] Bulk localized export per type (`GET …/{type}?locale=…` returns full localized set)
-- [ ] Ginkgo specs: fallback chain, reference expansion, deprecated-item resolution
+> **Complete (2026-07-14).**
+
+- [x] Localization CRUD + fallback-chain resolution (BR-D03) server-side —
+      `domain.ResolveLabel()` + `commands.LocalizationHandler`
+- [x] Locale management: add a locale to a context; per-type localization-completeness query —
+      `LocalizationHandler.AddLocale/ListLocales/Completeness`, `postgres.LocaleRepository`
+- [x] Reference expansion on the read API (`?expand=defaultCurrency`) — `ReferenceHandler.Expand()`,
+      `GET /api/refdata/{context}/{type}/{code}?expand=...`
+- [x] Bulk localized export per type (`GET …/{type}?locale=…` returns full localized set) —
+      `listItems` in `refdata/internal/rest/handlers.go`
+- [x] Ginkgo specs: fallback chain, reference expansion, deprecated-item resolution, locale
+      management, completeness (`refdata/localization_test.go`, 8 specs; suite total 20/20 green)
 
 ### Phase 11.3 — KV cache + versioned-read protocol + NATS comms
 
-- [ ] Set-version bump in the same transaction as every mutation (BR-D04)
-- [ ] Write-through projection to `refdata-{context}` (`{type}.{code}` + `{type}._meta`)
-- [ ] Miss path: API back-fills KV
-- [ ] `REFDATA` change-event stream (Q6 role 2): `{region}.refdata.{tenant}.{type}.changed`
-      published after commit; LimitsPolicy + explicit bounded `MaxAge`; payload = pointer
+> **Complete (2026-07-14).** One deliberate atomicity simplification vs. the original design
+> sketch: the version bump (`VersionRepository.Bump`, a single atomic Postgres `UPSERT ...
+> RETURNING`) is a separate statement from the item/reference/localization write, not wrapped in
+> one shared multi-statement transaction — sequenced at the application-handler level immediately
+> after the write succeeds, rather than at the SQL level. Documented as a known trade-off (same
+> spirit as Q6's publish-after-commit note), not silently glossed over.
+
+- [x] Set-version bump per mutation (BR-D04) — `postgres.VersionRepository.Bump()`, atomic at the
+      statement level
+- [x] Write-through projection to `refdata-{context}` (`{type}.{code}` + `{type}._meta`) —
+      `kvcache.Projector.NotifyItemChanged()`, carrying the item + its localizations + outbound
+      references, not just the raw row
+- [x] Miss path: API back-fills KV — `kvcache.Projector.Backfill()`, called from the REST `getItem`
+      handler as a best-effort side effect
+- [x] `REFDATA` change-event stream (Q6 role 2): `{region}.refdata.{tenant}.{type}.changed`
+      published after commit; LimitsPolicy + explicit bounded `MaxAge` (48h); payload = pointer
       (type + new set version), never state
-- [ ] Consumer protocol documented + demonstrated: existing shipping backend consumes one
-      dictionary type (e.g. hazard classes or vehicle types) via KV with version-mismatch re-read
-- [ ] KV watch → SSE for live invalidation
-- [ ] (optional spike) NATS `micro` request-reply lookup endpoint (Q6 role 3), trade-off documented
-- [ ] Ginkgo specs: version bump atomicity, mismatch → re-read, cold start, miss back-fill,
-      change event published on mutation
+- [x] Consumer protocol documented + demonstrated: `backend/internal/refdataconsumer` consumes the
+      **hazard-class** dictionary type via KV with version-mismatch re-read, demoed at
+      `GET /api/refdata-demo/{context}/{type}/{code}` on the shipping backend
+- [x] KV watch → SSE for live invalidation — `GET /api/refdata-watch/{context}` on refdata-service
+- [x] Ginkgo specs: version bump atomicity (20 concurrent mutations, no lost bumps), cache/`_meta`
+      rebuild, change event published on mutation, cold start, miss back-fill
+      (`refdata/kvcache_test.go`, 7 specs; suite total 27/27 green); version-mismatch → re-read
+      covered by `backend/internal/refdataconsumer/consumer_test.go` (4 specs, plain `go test`)
+- [~] Q6-role-3 (NATS `micro` request-reply lookup) — parked per the approval decision, not built
+
+> Q6-role-3 (NATS `micro` request-reply lookup endpoint) is **parked, not in this pass's scope** —
+> revisit later if a service-to-service NATS-only consumer becomes real.
 
 ### Phase 11.4 — UniFi-style frontend (extra)
 
-- [ ] `frontend-dict/` scaffold sharing the Aura/UniFi theme preset
-- [ ] View / add / delete entries — delete offered only while unreferenced, deprecate otherwise (BR-D02)
-- [ ] Item editor (localization + references tabs)
-- [ ] Locales panel: add a language, per-type completeness view
-- [ ] (optional) AI-assisted translation: backend `translate` endpoint (Claude API, server-side
-      key), draft → human review → save, `source: ai` flag (BR-D07)
-- [ ] Cache status widget (Postgres version vs KV `_meta`, live via SSE)
-- [ ] Compose entry + `npm run build` clean
+> **Complete (2026-07-14).** Verified live in-browser against the full Docker stack, not just
+> `npm run build` — see ARCHITECTURE.md's "Dictionary frontend" subsection for the full component
+> map and what was exercised.
+
+- [x] `frontend-dict/` scaffold sharing the Aura/UniFi theme preset (dev port 5175)
+- [x] View / add / delete entries — delete offered but a 409 (BR-D02, referenced) is caught and the
+      toast points at Deprecate instead
+- [x] Item editor (localization + references tabs) — required two new REST list endpoints
+      (`.../{code}/localizations`, `.../{code}/references`) not built in earlier sub-phases
+- [x] Locales panel: add a language, per-type completeness view
+- [x] Cache status widget (Postgres version vs KV `_meta`, live via SSE) — required a new
+      `GET .../{type}/cache-status` REST endpoint
+- [x] Compose entry (`5175:80`, depends on `refdata-service`) + `npm run build` + lint clean (0 errors)
+
+> AI-assisted translation (backend `translate` endpoint, Claude API, draft → human review → save,
+> BR-D07's `source: ai` flag) is **parked, not in this pass's scope** — the BR-D07 rule itself
+> stays confirmed for whenever the feature lands; only the UI/endpoint work is deferred.
 
 ### Phase 11.5 — (optional) Consolidation + build-vs-buy write-up
 
-- [ ] Evaluate migrating the Phase 9.5 ports registry into the dictionary service (UN/LOCODE
-      seed); decide and document — migrate or leave as-is with rationale
-- [ ] Obsidian vault note (`obsidian/POC-Dictionaries/`): findings write-up — build-vs-buy
-      conclusion (Q4), the versioned-cache protocol result (Q5), stakeholder summary
+> **Complete (2026-07-14).**
 
-## Renumbering on approval
+- [x] Evaluate migrating the Phase 9.5 ports registry into the dictionary service (UN/LOCODE
+      seed); decide and document — **decision: leave as-is, not migrated.** Ports are checked
+      synchronously on the shipping backend's hot write path (BR-017/018, every ship arrival and
+      container registration); moving that check to refdata-service would turn a fast in-process
+      Postgres query into a cross-service call with a new failure mode, contradicting the
+      fast-and-self-contained write path Phases 8–14 protect. If revisited, the KV-cache-plus-
+      REST-fallback pattern already built for the hazard-class demo (`internal/refdataconsumer`)
+      is the right consumption model, not a synchronous per-command call. Full rationale in the
+      Obsidian note below.
+- [x] Obsidian vault note (`obsidian/POC-Dictionaries/Findings - Dictionary Service (Phase 11).md`):
+      findings write-up — build-vs-buy conclusion (Q4: build, not buy — commercial RDM solves a
+      governance problem this platform doesn't have; Directus flagged as an admin-UI shortcut if
+      ever needed), the versioned-cache protocol result (Q5: confirmed via a real cross-service
+      demo, including a nil-interface bug caught during verification), ports decision, and a
+      stakeholder summary
 
-When this plan is approved, in one commit:
+## Renumbering (done at approval)
 
-| Current | Becomes |
+| Was | Now |
 |---|---|
 | *(new)* | **Phase 11 — Dictionary as a Service** (11.1–11.5 above) |
 | Phase 11 — Write-Side Safety | Phase 12 |
@@ -337,24 +403,20 @@ When this plan is approved, in one commit:
 | Phase 14 — Performance & Load Testing | Phase 15 |
 | Phase 15 — NATS Accounts Spike | Phase 16 |
 
-Cross-reference sweep required in the same commit (phase numbers are cited widely):
+Cross-reference sweep (same commit):
 
-- [ ] Main plan internal references (Phase 9 "why this precedes Phase 11", Phase 10's
-      Phase 11/13/14 mentions, Phase 13/14 mutual references)
-- [ ] `demos/01-dictionary/PERFORMANCE.md` — deferred-scenario phase labels
-- [ ] `ARCHITECTURE.md`, `BUSINESS_RULES.md`, code comments (`events.go`, `container.go`) that
+- [x] Main plan internal references (Phase 9 "why this precedes Phase 11"→12, Phase 10's
+      Phase 11/13/14 mentions→12/14/15, Phase 13/14 mutual references→14/15)
+- [x] `demos/01-dictionary/PERFORMANCE.md` — deferred-scenario phase labels
+- [x] `ARCHITECTURE.md`, `BUSINESS_RULES.md`, code comments (`events.go`, `container.go`) that
       cite Phases 11–15
-- [ ] `.claude/memory/` notes citing phase numbers
-- [ ] `obsidian/POC-Dictionaries/` notes citing phase numbers
+- [x] `.claude/memory/` notes citing phase numbers
+- [x] `obsidian/POC-Dictionaries/` notes citing phase numbers
 
-## Open questions to settle at approval
+## Open questions — resolved at approval (2026-07-13)
 
-1. **Option A vs B** for Q1 — plan recommends B (separate service).
-2. Which dictionary type the shipping backend should consume in 11.3 as the demonstration
-   consumer (hazard classes? vehicle types?).
-3. Whether 11.4 (frontend) is in the approved scope now or parked as "extra, when reached" —
-   and within it, whether the AI-translation increment is in scope (needs a Claude API key in
-   the service environment).
-4. Confirm/amend BR-D01…BR-D07 — in particular BR-D02's resolution of "delete entries":
-   hard-delete only while unreferenced, deprecate once referenced.
-5. Q6 role 3 (NATS `micro` request-reply): include the optional spike in 11.3 or drop it.
+1. **Option A vs B** for Q1 — **B (separate service)**, as recommended.
+2. Demonstration consumer in 11.3 — **hazard classes**.
+3. **11.1–11.4 approved now.** AI-translation increment inside 11.4 — **parked**.
+4. **BR-D01…BR-D07 confirmed as drafted**, including BR-D02's delete-vs-deprecate resolution.
+5. Q6 role 3 (NATS `micro` request-reply) — **dropped from this pass's scope**, parked.

@@ -10,7 +10,7 @@ Two aggregates share the single `SHIPPING` stream (Phase 8):
 
 Cross-aggregate rules (BR-008, BR-012, BR-014) need both aggregates' state.
 Both hydrate from **one atomic replay** of the `SHIPPING` stream
-(`commands.hydratePair`), so these checks are strongly consistent. Phase 12
+(`commands.hydratePair`), so these checks are strongly consistent. Phase 14
 splits the stream and turns exactly these rules into the
 invariant-spanning-two-aggregates problem.
 
@@ -193,3 +193,64 @@ Ships carry an AIS-aligned status derived from their current state. This is a re
 |---|---|---|
 | `ContainerInTerminal` | `"in-terminal"` | `terminalPort` set, `onShipID` nil |
 | `ContainerOnShip` | `"on-ship"` | `onShipID` set, `terminalPort` nil |
+
+---
+
+# Business Rules — Reference Data Service (`refdata-service/`)
+
+Phase 11, [Dictionary-Service-Plan.md](../../.claude/plans/Dictionary-Service-Plan.md). A
+separate service, separate Postgres schema (`refdata`) — plain CRUD, not
+event-sourced (nothing ever replays a lookup value; see "Event Sourcing vs
+Plain CRUD" above). Rules live in `refdata-service/refdata/internal/domain/dictionary.go`
+and are enforced by the command handlers in
+`refdata-service/refdata/internal/application/commands/`. BR-D07 (AI-translation
+review gate) is parked — not in this pass's scope.
+
+### BR-D01 — Item codes are unique per `{type, context}`
+Registering an item whose code already exists for the same dictionary type and context is rejected. The same code is allowed again in a *different* context.
+
+- **Error:** `ErrDuplicateItemCode` — "item code already registered for this type and context"
+- **Enforced in:** `commands.ItemHandler.RegisterItem()` — checks `ItemRepository.Exists()` before insert
+- **Test:** `Dictionary Item Domain Rules / BR-D01`
+
+---
+
+### BR-D03 — Locale resolution follows the fallback chain: requested locale → language → default locale → code
+Resolving an item's label for a locale never fails outright. It tries the exact requested locale, then the bare language (`de-DE` → `de`), then the context's registered default locale, and finally falls back to the item's code itself as the label.
+
+- **Enforced in:** `domain.ResolveLabel()`, called from `commands.LocalizationHandler.ResolveItem()`
+- **Test:** `Dictionary Localization Domain Rules / BR-D03`
+
+---
+
+### BR-D04 — Every mutation to a type's items, localizations, or references bumps that type's set version atomically with the write
+Registering/deprecating/deleting an item, setting a localization, or creating a reference each bump `{context, type}`'s set version — a single-statement Postgres `UPSERT ... RETURNING`, so a concurrent bump can never be lost or torn. The bump then rebuilds the affected item's KV cache entry and the type's `_meta` entry (both stamped with the new version) and publishes a bounded change-event pointer on the `REFDATA` stream. This is the write side of the Q5 versioned-read protocol (see ARCHITECTURE.md).
+
+- **Enforced in:** `postgres.VersionRepository.Bump()` (the atomic increment) + `kvcache.Projector.NotifyItemChanged()` (cache rebuild + event publish), wired into `ItemHandler`/`ReferenceHandler`/`LocalizationHandler` via the `domain.ChangeNotifier` port
+- **Test:** `KV cache + versioned-read protocol (Phase 11.3) / bumps the set version atomically`, plus the cache-rebuild, `_meta`, and change-event specs in the same file
+
+---
+
+### BR-D02 — An unreferenced item may be hard-deleted; a referenced item must be deprecated instead
+Deleting an item that is the target of another item's typed reference would silently break that reference. Referenced items can only be deprecated (status flip), never hard-deleted.
+
+- **Error:** `ErrItemReferenced` — "item is referenced and cannot be deleted; deprecate instead"
+- **Enforced in:** `commands.ItemHandler.DeleteItem()` — checks `ReferenceRepository.IsReferenced()` before delete
+- **Test:** `Dictionary Item Domain Rules / BR-D02`
+
+---
+
+### BR-D05 — A reference must target an active item of the relation's declared type
+Creating a typed reference (e.g. country → defaultCurrency → currency) is rejected if the target doesn't exist, isn't active, or isn't of the type the relation declares as its target.
+
+- **Errors:** `ErrReferenceTargetWrongType`, `ErrReferenceTargetNotFound`, `ErrReferenceTargetNotActive`
+- **Enforced in:** `commands.ReferenceHandler.CreateReference()`
+- **Test:** `Dictionary Reference Domain Rules / BR-D05`
+
+---
+
+### BR-D06 — Deprecated items still resolve on read; excluded from assignable-value listings by default
+A deprecated item must remain resolvable so historic data stays renderable, but it should not appear as a choice when a user is picking a new value.
+
+- **Enforced in:** `commands.ItemHandler.Get()` (no status filter) vs `ListAssignable()` (filters via `domain.FilterAssignable()`)
+- **Test:** `Dictionary Item Domain Rules / BR-D06`

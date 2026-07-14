@@ -7,7 +7,7 @@ import (
 
 // Both aggregates (Ship and Container) are co-located on the single SHIPPING
 // stream, partitioned by subject. This keeps every cross-aggregate rule
-// checkable from one atomic replay (Phase 8 baseline). Phase 12 extracts the
+// checkable from one atomic replay (Phase 8 baseline). Phase 14 extracts the
 // container subjects into a dedicated TERMINAL stream to expose the
 // distributed-consistency problem.
 const (

@@ -386,6 +386,61 @@
                 }
             }
         },
+        "/api/refdata-demo/{context}/{type}/{code}": {
+            "get": {
+                "description": "Demonstrates the Q5 versioned-read protocol from the consuming side: reads the refdata-service's KV cache directly, falling through to its REST API (which also backfills the cache) on a miss or a stale entry.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "refdata-demo"
+                ],
+                "summary": "Get a reference-data item (Phase 11.3 cross-service consumer demo)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "tenant/region context (e.g. emea-acme)",
+                        "name": "context",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "dictionary type key (e.g. hazard-class)",
+                        "name": "type",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "item code",
+                        "name": "code",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.refdataDemoResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/shape-b/cache/{context}/{shipID}": {
             "delete": {
                 "description": "Deletes the KV cache entry for a ship in the Shape B bucket. The next read will miss and fall through to Postgres, demonstrating the cache-miss path.",
@@ -743,6 +798,25 @@
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "dictionary_internal_rest.refdataDemoResponse": {
+            "type": "object",
+            "properties": {
+                "attrs": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "code": {
+                    "type": "string"
+                },
+                "source": {
+                    "description": "\"kv-cache\" | \"api-refetch\"",
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
                 }
             }
         },

@@ -36,6 +36,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/dictionary/internal/application/queries"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/internal/kvstore"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/internal/refdataconsumer"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -67,6 +68,13 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
+type refdataDemoResponse struct {
+	Code   string         `json:"code"`
+	Status string         `json:"status"`
+	Attrs  map[string]any `json:"attrs"`
+	Source string         `json:"source"` // "kv-cache" | "api-refetch"
+}
+
 // Deps bundles everything the HTTP layer needs; keeps NewHandlers readable as
 // the module grows.
 type Deps struct {
@@ -77,10 +85,11 @@ type Deps struct {
 	ShapeC     *queries.ShapeC
 	Terminal   *queries.Terminal
 	Meta       *queries.Meta
-	KVA        *kvstore.Store // Shape A ship read model
-	KVB        *kvstore.Store // Shape B ship cache
-	KVCont     *kvstore.Store // container projection
-	KVMeta     *kvstore.Store // meta.* lookup sets
+	KVA        *kvstore.Store            // Shape A ship read model
+	KVB        *kvstore.Store            // Shape B ship cache
+	KVCont     *kvstore.Store            // container projection
+	KVMeta     *kvstore.Store            // meta.* lookup sets
+	Refdata    *refdataconsumer.Consumer // Phase 11.3 cross-service consumer demo
 	JS         jetstream.JetStream
 	Log        *slog.Logger
 }
@@ -113,6 +122,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/watch-terminal/{context}", h.watchTerminal)
 	mux.HandleFunc("GET /api/jetstream/watch", h.watchJetStream)
 	mux.HandleFunc("GET /api/jetstream/stream", h.replayJetStream)
+	mux.HandleFunc("GET /api/refdata-demo/{context}/{type}/{code}", h.getRefdataDemo)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -423,6 +433,36 @@ func (h *Handlers) getShipShapeB(w http.ResponseWriter, r *http.Request) {
 		source = "kv-cache"
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ship": state, "cacheHit": cacheHit, "source": source})
+}
+
+// getRefdataDemo godoc
+//
+// @Summary      Get a reference-data item (Phase 11.3 cross-service consumer demo)
+// @Description  Demonstrates the Q5 versioned-read protocol from the consuming side: reads the refdata-service's KV cache directly, falling through to its REST API (which also backfills the cache) on a miss or a stale entry.
+// @Tags         refdata-demo
+// @Produce      json
+// @Param        context  path      string  true  "tenant/region context (e.g. emea-acme)"
+// @Param        type     path      string  true  "dictionary type key (e.g. hazard-class)"
+// @Param        code     path      string  true  "item code"
+// @Success      200      {object}  refdataDemoResponse
+// @Failure      404      {object}  errorResponse
+// @Failure      500      {object}  errorResponse
+// @Router       /api/refdata-demo/{context}/{type}/{code} [get]
+func (h *Handlers) getRefdataDemo(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Refdata == nil {
+		writeError(w, http.StatusInternalServerError, "refdata consumer not configured")
+		return
+	}
+	result, err := h.deps.Refdata.Lookup(r.Context(), r.PathValue("context"), r.PathValue("type"), r.PathValue("code"))
+	if errors.Is(err, refdataconsumer.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "item not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, refdataDemoResponse{Code: result.Code, Status: result.Status, Attrs: result.Attrs, Source: result.Source})
 }
 
 // evictShipCache godoc

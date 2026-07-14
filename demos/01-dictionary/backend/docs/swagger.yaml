@@ -24,6 +24,19 @@ definitions:
           type: string
         type: array
     type: object
+  dictionary_internal_rest.refdataDemoResponse:
+    properties:
+      attrs:
+        additionalProperties: true
+        type: object
+      code:
+        type: string
+      source:
+        description: '"kv-cache" | "api-refetch"'
+        type: string
+      status:
+        type: string
+    type: object
   dictionary_internal_rest.shipBResponse:
     properties:
       cacheHit:
@@ -465,6 +478,45 @@ paths:
       summary: Known ports
       tags:
       - meta
+  /api/refdata-demo/{context}/{type}/{code}:
+    get:
+      description: Demonstrates the Q5 versioned-read protocol from the consuming
+        side: reads the refdata-service's KV cache directly, falling through to
+        its REST API (which also backfills the cache) on a miss or a stale entry.
+      parameters:
+      - description: tenant/region context (e.g. emea-acme)
+        in: path
+        name: context
+        required: true
+        type: string
+      - description: dictionary type key (e.g. hazard-class)
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: item code
+        in: path
+        name: code
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dictionary_internal_rest.refdataDemoResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+      summary: Get a reference-data item (Phase 11.3 cross-service consumer demo)
+      tags:
+      - refdata-demo
   /api/shape-b/cache/{context}/{shipID}:
     delete:
       description: Deletes the KV cache entry for a ship in the Shape B bucket. The

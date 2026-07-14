@@ -32,7 +32,7 @@ and these ids are frozen once assigned.
 | Code | Meaning | Status |
 |---|---|---|
 | `FR` | full replay (seq `1…end` of the relevant scope) | implemented |
-| `S` | snapshot + tail replay | reserved (Phase 14) |
+| `S` | snapshot + tail replay | reserved (Phase 15) |
 | `KV` | KV projection (materialised read model in NATS KV) | implemented |
 | `PG` | Postgres canonical + KV write-through cache | implemented |
 | `CRUD` | plain Postgres, non-event-sourced | implemented (ports) |
@@ -49,7 +49,7 @@ and these ids are frozen once assigned.
 | Code | Meaning | Status |
 |---|---|---|
 | `AL1` | at-least-once, non-idempotent (redelivery on failure) | implemented |
-| `IDEM` | idempotent consumer / inbox dedup | reserved (Phase 11) |
+| `IDEM` | idempotent consumer / inbox dedup | reserved (Phase 13) |
 
 `FR` scope note: it means **whole-stream** replay on `Read.FR.AGG` (fleet) but
 **per-aggregate** (filtered) replay on `Write.FR` (hydration) — scope is a
@@ -135,7 +135,7 @@ CRUD" below.
 **`dictionary/internal/application/commands/container.go`**
 
 - `ContainerHandler` — `RegisterContainer()`, `LoadContainer()`, `UnloadContainer()`
-- `hydratePair()` — rebuilds **both** aggregates from **one atomic replay** of `SHIPPING`. Identity is parsed from each subject. This keeps cross-aggregate rules strongly consistent until Phase 12 splits the stream.
+- `hydratePair()` — rebuilds **both** aggregates from **one atomic replay** of `SHIPPING`. Identity is parsed from each subject. This keeps cross-aggregate rules strongly consistent until Phase 14 splits the stream.
 - `RegisterContainer()` — mints a fresh surrogate id (`newSurrogateID()`, a dependency-free UUID v4) after `hydrateByNaturalKey()` confirms the natural key is free (BR-015, resolved against the event stream — authoritative, not from a read projection)
 
 #### Container identity — surrogate key (Phase 8.3)
@@ -365,3 +365,123 @@ The Fleet dropdown sets `store.context`. Changing it calls `connect()`, which re
 1. **Projector-side implicit snapshot** — `currentAgg()` in `eventhandler/handler.go` reads current KV state into a `ShipAggregate` via `FromState()`. KV acts as a rolling snapshot so projectors apply one delta per event rather than replaying from `seq=1`.
 
 2. **Write-side has no snapshot** — `hydrate()` in `commands.go` replays all events from `seq=1` on every command. This is the main scalability gap: as the stream grows, every write gets slower. A proper snapshot would checkpoint aggregate state at a known sequence number and replay only the tail.
+
+---
+
+## Reference Data Service (`refdata-service/`)
+
+Phase 11, [Dictionary-Service-Plan.md](../../.claude/plans/Dictionary-Service-Plan.md) — a
+**separate Go service and container**, not a module in the shipping backend's monolith. It shares
+the same Postgres instance as `backend` but owns its own schema (`refdata`) and tables; it does
+not touch the `SHIPPING` stream, KV buckets, or Postgres tables the shipping backend uses.
+
+**Why plain CRUD, not event-sourced.** Per the "Event Sourcing vs Plain CRUD" heuristic above:
+nothing in the platform ever needs to replay a dictionary item's history to reconstruct it — only
+its *current* value is ever consulted. So there is no aggregate and no event log. NATS JetStream
+*is* used (Phase 11.3), but strictly for cache distribution and a bounded change-event feed —
+never as this service's source of truth (Dictionary-Service-Plan.md's Q6). Postgres remains
+authoritative throughout.
+
+**Layout** mirrors the shipping backend's hexagonal style, scoped to its own module:
+
+```
+refdata-service/
+  cmd/main.go                    — connects Postgres + NATS, runs migration + seed, starts HTTP
+  refdata/
+    composition.go               — wires Postgres repos + KV cache + REFDATA stream into handlers
+    seed.go                      — idempotent ISO/UNECE/UN seed data (currencies, countries, …)
+    internal/
+      domain/                    — DictionaryType/Item/Reference/Localization, BR-D01–D06 sentinel errors
+      application/commands/      — ItemHandler, ReferenceHandler, TypeHandler, LocalizationHandler
+      postgres/                  — migrate.go (schema refdata) + repo implementations + VersionRepository
+      kvcache/                   — Q5 versioned-read protocol: Projector (bump+rebuild+publish), Entry/MetaEntry
+      jstream/, kvstore/         — same wrapper shape as the shipping backend's (separate module, so duplicated)
+      rest/                      — REST + Swagger + SSE watch endpoint
+```
+
+**Identity.** A `DictionaryItem`'s identity is the natural composite key `(context, type_key,
+code)` — no surrogate key. Unlike `Container` (Phase 8.3), a dictionary code is never an external
+interchange standard a *different* system might correct out from under this service; the type
+registry itself defines the code space, so there's no natural-key-correction pressure to design
+around. There is deliberately no per-item version column either — versioning is a property of the
+type's whole set (BR-D04), not of one row.
+
+### Q5 versioned-read protocol (Phase 11.3)
+
+Every mutation (`ItemHandler`/`ReferenceHandler`/`LocalizationHandler`, via the shared
+`domain.ChangeNotifier` port implemented by `kvcache.Projector`) does three things, in order:
+
+1. **Bump** `{context, type}`'s set version — a single atomic Postgres `UPSERT ... RETURNING`
+   (`postgres.VersionRepository.Bump`), so a concurrent bump is never lost or torn.
+2. **Rebuild** the affected item's KV cache entry (`refdata-{context}` bucket, key `{type}.{code}`)
+   — the item plus its localizations and outbound references, stamped with the new version — and
+   the type's `{type}._meta` entry (version + item count). A deleted item's key is removed instead.
+3. **Publish** a bounded change-event *pointer* (`{region}.refdata.{tenant}.{type}.changed` on the
+   `REFDATA` stream, `LimitsPolicy` + explicit `MaxAge` — 48h in this lab) carrying only
+   `{typeKey, context, version}`, never item state. `REFDATA` is a notification channel, not an
+   event store; a consumer that missed a push can always re-derive truth from KV or the REST API.
+
+**Cache miss / cold start.** `Projector.Backfill` performs the same rebuild at the type's *current*
+version, without bumping it or publishing an event — used by the REST `GET` item handler as a
+best-effort side effect after every successful read, so a consumer that hit a miss and fell
+through to the API leaves the cache warm for the next reader (identical in spirit to Shape B's
+miss path).
+
+**Consumer demo (shipping backend).** `backend/internal/refdataconsumer` reads the
+`refdata-{context}` KV bucket directly — the shipping backend has no dependency on
+refdata-service's Go code, only on the bucket-naming and JSON-shape convention, exactly as two
+independent platform services would agree in the real system. `Consumer.Lookup` reads the item's
+cache entry and the type's `_meta` in the same call: if the entry's stamped version doesn't match
+`_meta`'s current version (or either key is missing), it falls through to
+`GET /api/refdata/{context}/{type}/{code}` on refdata-service's REST API — the "updatable read on
+version mismatch" this design targets. Exposed for the demo at
+`GET /api/refdata-demo/{context}/{type}/{code}` on the shipping backend (`{"source": "kv-cache" |
+"api-refetch"}`), the hazard-class type being the concrete example. `REFDATA_SERVICE_URL` (compose:
+`http://refdata-service:8080`) points at the REST fallback.
+
+**Testing.** Domain-rule Ginkgo specs (`refdata/item_test.go`, `refdata/reference_test.go`,
+`refdata/localization_test.go`) run against in-memory fake repos (`refdata/fakes_test.go`) — no
+real Postgres/NATS. `refdata/kvcache_test.go` runs against a real embedded in-process NATS server
+(JetStream + KV), same convention as the shipping backend's `integration_test.go`, covering version
+bump atomicity under concurrency, cache/`_meta` rebuild, change-event publication, cold start, and
+miss backfill. The consumer demo's version-mismatch behavior is covered by
+`backend/internal/refdataconsumer/consumer_test.go` (embedded NATS KV + `httptest` fake REST API).
+
+### Dictionary frontend (`frontend-dict/`, Phase 11.4)
+
+A fourth Vue 3 + PrimeVue v4 app, same UniFi theme preset (`@unifi-theme`) and structural
+conventions as `frontend/` and `frontend-port/` (dev port `5175`; nginx proxies `/api/` straight to
+`refdata-service:8080` in the Docker build, not to `backend`).
+
+```
+frontend-dict/src/
+  App.vue                       — topbar + two-column layout (type navigator, content)
+  api.js                        — thin REST client, same request()/error convention as the other frontends
+  stores/dictionary.js          — Pinia store: types+items fetched fresh from REST (plain CRUD, not
+                                   an event-sourced read model); SSE watch on refdata-{context} only
+                                   drives the cache-status widget's "something changed" signal
+  components/
+    TypeNavigator.vue           — left rail, types with item counts
+    ItemGrid.vue                — main panel: locale selector, show-deprecated toggle, add/edit/
+                                   deprecate/delete (BR-D02: delete offered but a 409 on a referenced
+                                   item is caught and the toast points at Deprecate instead)
+    ItemEditorDialog.vue        — Localizations tab + References tab, each list-then-add
+    LocalesPanel.vue            — registered locales, add-locale form (with default flag),
+                                   per-type localization completeness for a chosen locale
+    CacheStatusWidget.vue       — Postgres set version vs KV _meta version (Q5, made visible);
+                                   re-fetches on type change and on a matching SSE watch event
+```
+
+**Two REST additions this frontend needed** that weren't required by any earlier sub-phase:
+`GET /api/refdata/{context}/{type}/{code}/localizations` and `.../references` (list, not just
+single-relation `Get`/`Expand`) so the editor can show what's already there, and
+`GET /api/refdata/{context}/{type}/cache-status` (Postgres version + KV `_meta` version + item
+count + `inSync` bool in one response) so the widget doesn't have to parse KV JSON client-side.
+
+AI-assisted translation is **out of scope** (parked per the Phase 11 approval decision) — the
+Localizations tab only supports manual entry.
+
+**Verified live** (2026-07-14): full stack via `docker compose up --build`, exercised in-browser —
+type navigator counts, item grid CRUD, localization add + fallback-chain resolution, reference
+creation (`country.AE --defaultCurrency--> currency.AED`), locales panel, and the cache status
+widget correctly reporting `Postgres version == KV version, in sync` after a live mutation.

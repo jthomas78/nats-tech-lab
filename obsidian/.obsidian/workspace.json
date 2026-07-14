@@ -11,14 +11,12 @@
             "id": "c50d6372ff085bfe",
             "type": "leaf",
             "state": {
-              "type": "markdown",
+              "type": "pdf",
               "state": {
-                "file": "POC-Dictionaries/PERFORMANCE.md",
-                "mode": "source",
-                "source": false
+                "file": "POC-Dictionaries/Event Sourcing + CQRS + NATS — Poster.pdf"
               },
-              "icon": "lucide-file",
-              "title": "PERFORMANCE"
+              "icon": "lucide-file-text",
+              "title": "Event Sourcing + CQRS + NATS — Poster"
             }
           }
         ]
@@ -78,7 +76,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 235.5
+    "width": 200
   },
   "right": {
     "id": "0e936b3f4ebbe464",
@@ -94,7 +92,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "POC-Dictionaries/PERFORMANCE.md",
+                "file": "POC-Dictionaries/Event Sourcing + CQRS + NATS — Poster.pdf",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +102,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for PERFORMANCE"
+              "title": "Backlinks for Event Sourcing + CQRS + NATS — Poster"
             }
           },
           {
@@ -113,12 +111,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "POC-Dictionaries/PERFORMANCE.md",
+                "file": "POC-Dictionaries/Event Sourcing + CQRS + NATS — Poster.pdf",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from PERFORMANCE"
+              "title": "Outgoing links from Event Sourcing + CQRS + NATS — Poster"
             }
           },
           {
@@ -156,13 +154,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "POC-Dictionaries/PERFORMANCE.md",
+                "file": "POC-Dictionaries/Event Sourcing + CQRS + NATS — Poster.pdf",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of PERFORMANCE"
+              "title": "Outline of Event Sourcing + CQRS + NATS — Poster"
             }
           }
         ]
@@ -185,6 +183,8 @@
   },
   "active": "c50d6372ff085bfe",
   "lastOpenFiles": [
+    "POC-Dictionaries/Findings - Dictionary Service (Phase 11).md",
+    "POC-Dictionaries/Event Sourcing + CQRS + NATS — Pattern Cards.pdf",
     "POC-Dictionaries/PERFORMANCE.md"
   ]
 }
