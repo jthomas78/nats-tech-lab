@@ -68,6 +68,139 @@ duplicates, and `SetLocalization` is an upsert keyed on
 localization rows or bump the type's set version beyond what the upsert
 itself triggers.
 
+## Data Access Paths
+
+Three ways to reach the same data, one source of truth. Postgres is
+authoritative; NATS KV is a cache kept in sync with it; the NATS JetStream
+change stream carries only invalidation *pointers*, never values.
+
+```mermaid
+
+flowchart LR
+    subgraph Clients
+        A[Admin curl / psql]
+        B[frontend-dict UI]
+        C["Shipping backend<br/>refdataconsumer"]
+    end
+
+    subgraph "refdata-service"
+        REST["REST API<br/>/api/refdata/..."]
+        SSE["/api/refdata-watch/{context}<br/>(SSE)"]
+    end
+
+    PG[("Postgres<br/>refdata schema<br/>(source of truth)")]
+    KV[("NATS KV<br/>refdata-{context}<br/>(cache)")]
+    STREAM["NATS JetStream<br/>REFDATA change stream<br/>(change-event pointers only)"]
+
+    A -- "SQL, direct" --> PG
+    A -- "HTTP" --> REST
+    B -- "HTTP" --> REST
+    B -- "SSE" --> SSE
+    C -- "1: read KV directly" --> KV
+    C -- "2: miss/stale -> REST" --> REST
+
+    REST -- "read/write<br/>(authoritative)" --> PG
+    REST -- "read-through cache<br/>write-through on mutation" --> KV
+    REST -- "publish pointer<br/>on mutation" --> STREAM
+    SSE -- "kv.Watch()<br/>(direct KV subscription,<br/>not the change stream)" --> KV
+```
+
+**Path 1 — Postgres directly.** SQL against `refdata.*` tables. Always
+correct, bypasses every cache. Use this when you need ground truth or are
+debugging a stale-cache suspicion.
+
+**Path 2 — REST.** The service's own read path (`GET
+/api/refdata/{context}/{type}/{code}`, etc.). Internally it's cache-first:
+check KV → if present and its stamped version matches
+`dictionary_set_versions`, return it; if missing or stale, read Postgres,
+backfill KV, then return. This is what `frontend-dict` and most callers
+should use — it always resolves to something correct, and it's what keeps
+KV warm.
+
+**Path 3 — NATS KV directly.** Consumers embedded in another service (e.g.
+the shipping backend's `refdataconsumer.Lookup`) read the
+`refdata-{context}` bucket directly, keyed `{type_key}.{code}`, checking the
+entry's `version` against the type's `{type_key}._meta`. On a hit, no
+network call to refdata-service is needed at all — that's the point of the
+cache. On a miss or version mismatch, the consumer falls back to **Path 2**
+(REST), which also repairs the cache entry for the next reader.
+
+**Not a retrieval path — the change stream.** The `REFDATA` JetStream stream
+carries only a pointer (`{context, type_key, code}` + the new version),
+published on every mutation. It cannot answer "what is this item's value"
+by itself; nothing in this codebase currently consumes it as a push
+signal — it exists as a bounded, replayable audit trail of *that* a change
+happened. The live cache-status widget in `frontend-dict` is driven by a
+separate mechanism: its SSE stream (`/api/refdata-watch/{context}`) does its
+own direct `kv.Watch()` on the KV bucket, not a subscription to this stream.
+See "Push for freshness, version for truth" in
+`.claude/plans/Dictionary-Service-Plan.md` (Q5).
+
+## Cross-Service Consumption
+
+How the shipping backend (`demos/01-dictionary/backend/`) reads this
+service's reference data — read-side only. Reference-data lookups
+(resolving a display label, a hazard-class name, a port's country) are
+never part of the shipping domain's write path — commands validate against
+fixed business rules, not against refdata — and today's Shape A/B/C
+**reconstruction queries don't depend on refdata at all** (see
+`backend/dictionary/internal/application/queries/` and
+`internal/eventhandler/` — neither references it). The one place the
+backend does consume refdata is its standalone demo route, `GET
+/api/refdata-demo/{context}/{type}/{code}`, which exercises the pattern any
+future read-side reconstruction would use if it needed to resolve a label
+while assembling a response.
+
+That consumption works because **both services connect to the same NATS
+server** — `NATS_URL=nats://nats:4222` for both `backend` and
+`refdata-service` in `docker-compose.yml`. A JetStream KV bucket lives on
+the NATS server itself, not inside whichever process created it, so:
+
+- `refdata-service` owns and writes the `refdata-{context}` bucket (via its
+  `kvcache.Projector`, on every mutation).
+- The shipping backend's `refdataconsumer` opens a `KeyValue` handle to that
+  *same* bucket name over its own JetStream connection and reads it
+  directly — no call into refdata-service's process for a cache hit.
+
+There's no NATS-level access control separating the two services (no
+accounts/permissions configured) — "refdata-service owns this bucket" is a
+codebase convention (see the comment in `backend/dictionary/composition.go`),
+not an enforced boundary. Postgres, by contrast, *is* genuinely isolated:
+the backend has no access to the `refdata` schema at all; every refdata read
+that isn't served from the shared KV cache must go through refdata-service's
+REST API.
+
+```mermaid
+flowchart TB
+    subgraph "Shipping backend (backend)"
+        RQ["Shape A/B/C query<br/>(read side, reconstruction)"]
+        RC["refdataconsumer.Lookup"]
+        RQ -.->|"not wired in today —<br/>demo route only"| RC
+    end
+
+    subgraph NATS["Shared NATS server (nats:4222)"]
+        KV[("KV bucket<br/>refdata-{context}")]
+    end
+
+    subgraph "refdata-service"
+        REST["REST API"]
+        PROJ["kvcache.Projector<br/>(writes on every mutation)"]
+        PG[("Postgres<br/>refdata schema<br/>(backend has no access)")]
+    end
+
+    RC -- "1: read directly<br/>(cache hit — no REST call)" --> KV
+    RC -- "2: miss/stale<br/>-> REST call" --> REST
+    REST -- reads/writes --> PG
+    REST -- backfills --> KV
+    PROJ -- writes --> KV
+    PROJ -- reads --> PG
+```
+
+Net effect: if reconstruction ever needed a reference-data label, it would
+be a **read-only, KV-first lookup** — cheap and local on a hit, falling
+through to a REST call to refdata-service only on a miss or a stale
+version, exactly as described above in "Data Access Paths".
+
 ## Database Schema
 
 Own Postgres schema (`refdata`), same physical database (`dictionary`) as the

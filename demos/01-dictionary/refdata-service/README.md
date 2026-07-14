@@ -10,11 +10,12 @@ replay a lookup value's history, only its current value. NATS JetStream/KV
 are used strictly for cache distribution and a bounded change-event feed —
 never as this service's source of truth.
 
-For the seeding process and the Postgres schema (including an ER diagram),
-see [DICTIONARY.md](DICTIONARY.md). For the full design rationale (the Q5
-versioned-read cache protocol, event-sourced vs. plain CRUD, KV bucket
-layout), see [../ARCHITECTURE.md](../ARCHITECTURE.md) § "Reference Data
-Service" and `../../../.claude/plans/Dictionary-Service-Plan.md`.
+For the seeding process, the Postgres schema (including an ER diagram), data
+access paths, and cross-service consumption, see
+[ARCHITECTURE-DICTIONARY.md](ARCHITECTURE-DICTIONARY.md). For the broader
+design rationale (the Q5 versioned-read cache protocol, event-sourced vs.
+plain CRUD, KV bucket layout), see [../ARCHITECTURE.md](../ARCHITECTURE.md)
+§ "Reference Data Service" and `../../../.claude/plans/Dictionary-Service-Plan.md`.
 
 ## Run it
 
@@ -65,8 +66,37 @@ so its `/api/refdata-demo/...` consumer demo route can reach it.
 
 ## Querying it
 
-Once running (examples below assume `:8081` — adjust to whatever
-`HTTP_ADDR` you used):
+Three ways to look at the same data — Postgres (source of truth), REST (the
+service's own read path, locale-aware), and NATS KV (the cache the REST
+layer backfills and that consumers like the shipping backend's
+`refdataconsumer` read directly).
+
+### Docker compose SQL (once the stack is up)
+
+```bash
+cd demos/01-dictionary
+docker compose exec postgres psql -U dict -d dictionary
+
+# then, inside psql:
+SELECT * FROM refdata.dictionary_types;
+SELECT code, status, attrs FROM refdata.dictionary_items WHERE type_key = 'ship-status';
+SELECT code, locale, label FROM refdata.dictionary_localizations WHERE type_key = 'ship-status' ORDER BY code, locale;
+SELECT * FROM refdata.dictionary_locales;
+SELECT * FROM refdata.dictionary_set_versions;
+```
+
+Or one-shot, without an interactive session:
+
+```bash
+docker compose exec postgres psql -U dict -d dictionary -c \
+  "SELECT code, locale, label FROM refdata.dictionary_localizations WHERE type_key='ship-status' ORDER BY code, locale;"
+```
+
+### REST using curl (refdata-service)
+
+Examples below assume `:8081` — adjust to whatever `HTTP_ADDR` you used, or
+`:8080` if using compose (see [../README.md](../README.md) for the full
+stack's port table):
 
 ```bash
 # List registered types
@@ -92,8 +122,60 @@ curl -s http://localhost:8081/api/refdata/emea-acme/ship-status/cache-status | j
 ```
 
 Full route list is documented at the top of
-`refdata/internal/rest/handlers.go`. Swagger UI is served at
-`/swagger/index.html` on the same port.
+`refdata/internal/rest/handlers.go`.
+
+**Swagger UI** — browsable at `http://localhost:8081/swagger/index.html`
+(same port as the REST API above; `:8080` if using compose). Raw OpenAPI
+spec at `/swagger/doc.json`. Definitions are generated from Go annotations
+(`@title`, route comments in `internal/rest/handlers.go`, etc., rooted at
+`cmd/main.go`) into `docs/` — this happens automatically in the Docker
+build (see `Dockerfile`); to regenerate locally after changing annotations:
+
+```bash
+go install github.com/swaggo/swag/cmd/swag@v1.16.6   # once
+cd demos/01-dictionary/refdata-service
+swag init --generalInfo cmd/main.go --dir . --output docs/ --parseDependency=false --parseInternal
+```
+
+### NATS KV using NATS CLI
+
+Bucket naming is `refdata-{context}` (prefix `refdata`, see
+`internal/kvstore/kv.go`); keys are `{type_key}.{code}` for an item and
+`{type_key}._meta` for the type's version/count stamp (see
+`internal/kvcache/kvcache.go`). Requires the
+[`nats` CLI](https://github.com/nats-io/natscli) pointed at the compose
+NATS port:
+
+```bash
+export NATS_URL=nats://localhost:14222
+
+# List KV buckets
+nats kv ls
+
+# List keys in the context's bucket
+nats kv ls refdata-emea-acme
+
+# Get one item's cached entry (item + localizations + references + version)
+nats kv get refdata-emea-acme ship-status.docked
+
+# Get the type's _meta (current version, item count, last update)
+nats kv get refdata-emea-acme ship-status._meta
+
+# Watch the bucket live — e.g. while re-seeding or editing via frontend-dict
+nats kv watch refdata-emea-acme
+```
+
+When running with NATS wired (compose, or `go run ./cmd` with `NATS_URL`
+set), every write goes through the same `ChangeNotifier` path — so `Seed`'s
+registrations at startup already populate the KV cache; you don't need to
+`GET` an item first for it to show up in `nats kv get`. The miss → refetch →
+backfill path (Q5) only kicks in later, if the bucket is wiped or a cache
+entry goes stale relative to `dictionary_set_versions`.
+
+See [ARCHITECTURE-DICTIONARY.md](ARCHITECTURE-DICTIONARY.md) §
+"Cross-Service Consumption" for how the shipping backend reads this
+service's reference data (read-side only, and how the shared NATS instance
+makes the KV cache path possible).
 
 ## Tests
 

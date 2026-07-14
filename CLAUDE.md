@@ -27,7 +27,8 @@ nats-tech-lab/
       backend/            # Go service (hexagonal layout) — Ship/Container CQRS shapes A/B/C
       refdata-service/    # Go service (Phase 11) — dictionary-as-a-service, own Postgres schema + container
         README.md         # refdata-service-specific: what it is, how to run/query it standalone
-        DICTIONARY.md      # refdata-service-specific: seeding, Postgres schema/ER diagram
+        ARCHITECTURE-DICTIONARY.md  # refdata-service's overall architecture: seeding, Postgres
+                          # schema/ER diagram, data access paths, cross-service consumption
 	  frontend/           # Vue 3 architecture/demo UI
 	  frontend-port/      # Vue 3 ship/terminal operations UI
 	  frontend-dict/      # Vue 3 dictionary/reference-data admin UI (Phase 11)
@@ -78,8 +79,9 @@ docker compose up --build       # from demos/01-dictionary/ — starts backend +
 ```
 
 See `demos/01-dictionary/refdata-service/README.md` for standalone run instructions (including the
-default-port collision with `backend` when both run outside Docker) and `DICTIONARY.md` for seeding
-and schema details.
+default-port collision with `backend` when both run outside Docker) and `ARCHITECTURE-DICTIONARY.md`
+for its overall architecture — seeding, Postgres schema/ER diagram, data access paths (Postgres/REST/KV),
+and cross-service consumption from the shipping backend.
 
 ### Frontend (Vue 3 — either demo frontend or `lab-shell/`)
 
