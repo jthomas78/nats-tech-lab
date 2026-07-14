@@ -392,6 +392,31 @@ implementation, and lands in `BUSINESS_RULES.md` in the same commit.
       demo, including a nil-interface bug caught during verification), ports decision, and a
       stakeholder summary
 
+### Phase 11.6 — Shipping UI consumes localized ship-status from refdata
+
+> **Complete (2026-07-14).** The shipping backend now resolves `ship-status` labels
+> from the `refdata-emea-acme` KV cache (KV-first, REST fallback — BR-D08) and both
+> shipping frontends render them in a user-selected locale, updating live on refdata
+> change. Refdata context is fixed at `emea-acme`, independent of the fleet selector.
+
+- [x] Extend `internal/refdataconsumer`: decode the cached `localizations` map, add a
+      `locale` param to `Lookup`, resolve labels KV-first via the BR-D03 fallback chain
+      (reimplemented locally — no refdata-service import), add `ResolveType` (enumerates
+      the bucket via `kvstore.Keys`) and a `Locales` REST passthrough
+- [x] Backend REST: `GET /api/refdata/types/{type}?locale=` and `GET /api/refdata/locales`
+      (fixed `refdataContext = "emea-acme"`); `GET /api/refdata-watch` SSE reusing the
+      existing `watchBuckets` engine (refactored to take an explicit context); `getRefdataDemo`
+      now forwards `?locale=`
+- [x] Shared `useRefdataLabels` composable (`demos/01-dictionary/shared/refdata/`, `@refdata`
+      vite alias in both apps): fetch label map + locales, live-refresh via SSE, `statusLabel()`
+      with built-in English fallback
+- [x] Admin UI (`frontend/`): locale `<Select>` in topbar; `ShapePanel`/`ShapeCPanel` resolve
+      labels from refdata, keeping the local `STATUS_SEVERITY` colour map
+- [x] Port UI (`frontend-port/`): locale `<Select>`; `FleetPanel`/`ShipsAtPortPanel` adopt the
+      `ship.status` field for the label, keeping `currentPort`-derived fallback + severity
+- [x] **BR-D08** added to `BUSINESS_RULES.md`; consumer specs cover KV-hit resolution,
+      language/default/code fallback, `?locale=` forwarding on miss, and `ResolveType`
+
 ## Renumbering (done at approval)
 
 | Was | Now |

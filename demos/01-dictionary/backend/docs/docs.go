@@ -15,6 +15,41 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/admin/ports/{context}": {
+            "get": {
+                "description": "Every row of the Postgres ports table for the fleet context — name and registration time. Backs the admin \"Postgres Tables\" panel; distinct from GET /api/ports/{context}, which returns names only for dropdowns.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Raw ports table (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Fleet context",
+                        "name": "context",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/rest.portsTableResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/containers/load": {
             "post": {
                 "description": "Crane-loads a container onto a docked ship. Enforces BR-008, BR-010, BR-012 and BR-014 from one atomic replay of the SHIPPING stream (both aggregates share it in Phase 8). Publishes a container.loaded event.",
@@ -35,7 +70,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ContainerInput"
+                            "$ref": "#/definitions/commands.ContainerInput"
                         }
                     }
                 ],
@@ -43,25 +78,25 @@ const docTemplate = `{
                     "202": {
                         "description": "Accepted",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.containerResponse"
+                            "$ref": "#/definitions/rest.containerResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     },
                     "404": {
                         "description": "Container not registered",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     },
                     "422": {
                         "description": "Domain rule violation",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -87,7 +122,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ContainerInput"
+                            "$ref": "#/definitions/commands.ContainerInput"
                         }
                     }
                 ],
@@ -95,19 +130,19 @@ const docTemplate = `{
                     "202": {
                         "description": "Accepted",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.containerResponse"
+                            "$ref": "#/definitions/rest.containerResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     },
                     "422": {
                         "description": "Domain rule violation",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -133,7 +168,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ContainerInput"
+                            "$ref": "#/definitions/commands.ContainerInput"
                         }
                     }
                 ],
@@ -141,25 +176,25 @@ const docTemplate = `{
                     "202": {
                         "description": "Accepted",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.containerResponse"
+                            "$ref": "#/definitions/rest.containerResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     },
                     "404": {
                         "description": "Container not registered",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     },
                     "422": {
                         "description": "Domain rule violation",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -188,13 +223,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.containersResponse"
+                            "$ref": "#/definitions/rest.containersResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -228,13 +263,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Unknown stream",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -268,13 +303,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Unknown stream",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -310,13 +345,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.containersResponse"
+                            "$ref": "#/definitions/rest.containersResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -345,28 +380,68 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.metaValuesResponse"
+                            "$ref": "#/definitions/rest.metaValuesResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
             }
         },
-        "/api/meta/{context}/known-ports": {
-            "get": {
-                "description": "Every port ever seen in the context's event history (ship arrivals/departures + container origin/destination ports). Backed by the meta.known-ports KV projection; survives reload without event replay.",
+        "/api/ports": {
+            "post": {
+                "description": "Adds a port to the fleet context's ports registry. Direct Postgres write, not an event — ports are reference data, not an event-sourced aggregate. Idempotent.",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "meta"
+                    "ports"
                 ],
-                "summary": "Known ports",
+                "summary": "Register a port",
+                "parameters": [
+                    {
+                        "description": "context, name",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/rest.registerPortInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/rest.metaValuesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ports/{context}": {
+            "get": {
+                "description": "Every port registered for the fleet context. Backed by the Postgres ports reference table (BR-017, BR-018) — plain master data, not event-derived.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ports"
+                ],
+                "summary": "List registered ports",
                 "parameters": [
                     {
                         "type": "string",
@@ -380,13 +455,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.metaValuesResponse"
+                            "$ref": "#/definitions/rest.metaValuesResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -429,19 +504,112 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.refdataDemoResponse"
+                            "$ref": "#/definitions/rest.refdataDemoResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/refdata-watch": {
+            "get": {
+                "description": "Server-Sent Events stream of NATS KV changes in the refdata-{emea-acme} cache bucket the shipping backend reads (owned by refdata-service). Drives live label refresh in the shipping UIs. Fixed refdata context — no fleet-context param.",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "streams"
+                ],
+                "summary": "Refdata KV watch stream (SSE, Phase 11.6)",
+                "responses": {
+                    "200": {
+                        "description": "SSE stream — data: {watchEvent JSON}",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/refdata/locales": {
+            "get": {
+                "description": "Returns the locales registered for the fixed refdata context, for the frontend locale switcher.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "refdata"
+                ],
+                "summary": "List reference-data locales (Phase 11.6)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/rest.metaValuesResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/refdata/types/{type}": {
+            "get": {
+                "description": "Returns every item of a dictionary type under the fixed refdata context, each with its label resolved for the requested locale (BR-D03 fallback). Read KV-first via the Q5 protocol; per-item source is \"kv-cache\" or \"api-refetch\".",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "refdata"
+                ],
+                "summary": "Resolve all items of a reference-data type (Phase 11.6)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "dictionary type key (e.g. ship-status)",
+                        "name": "type",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "locale to resolve labels in (e.g. en, es)",
+                        "name": "locale",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/rest.refdataItemsResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -477,13 +645,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -519,19 +687,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.shipBResponse"
+                            "$ref": "#/definitions/rest.shipBResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -551,13 +719,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_queries.FleetReconstruction"
+                            "$ref": "#/definitions/queries.FleetReconstruction"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -583,7 +751,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ShipInput"
+                            "$ref": "#/definitions/commands.ShipInput"
                         }
                     }
                 ],
@@ -591,19 +759,19 @@ const docTemplate = `{
                     "202": {
                         "description": "Accepted",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.shipResponse"
+                            "$ref": "#/definitions/rest.shipResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     },
                     "422": {
                         "description": "Domain rule violation",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -629,7 +797,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ShipInput"
+                            "$ref": "#/definitions/commands.ShipInput"
                         }
                     }
                 ],
@@ -637,19 +805,19 @@ const docTemplate = `{
                     "202": {
                         "description": "Accepted",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.shipResponse"
+                            "$ref": "#/definitions/rest.shipResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     },
                     "422": {
                         "description": "Domain rule violation",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -685,13 +853,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.containersResponse"
+                            "$ref": "#/definitions/rest.containersResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -726,7 +894,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -761,7 +929,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dictionary_internal_rest.errorResponse"
+                            "$ref": "#/definitions/rest.errorResponse"
                         }
                     }
                 }
@@ -769,87 +937,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "dictionary_internal_rest.containerResponse": {
-            "type": "object",
-            "properties": {
-                "container": {
-                    "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerState"
-                }
-            }
-        },
-        "dictionary_internal_rest.containersResponse": {
-            "type": "object",
-            "properties": {
-                "containers": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerState"
-                    }
-                }
-            }
-        },
-        "dictionary_internal_rest.errorResponse": {
-            "type": "object",
-            "properties": {
-                "error": {
-                    "type": "string"
-                }
-            }
-        },
-        "dictionary_internal_rest.metaValuesResponse": {
-            "type": "object",
-            "properties": {
-                "values": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "dictionary_internal_rest.refdataDemoResponse": {
-            "type": "object",
-            "properties": {
-                "attrs": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "code": {
-                    "type": "string"
-                },
-                "source": {
-                    "description": "\"kv-cache\" | \"api-refetch\"",
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                }
-            }
-        },
-        "dictionary_internal_rest.shipBResponse": {
-            "type": "object",
-            "properties": {
-                "cacheHit": {
-                    "type": "boolean"
-                },
-                "ship": {
-                    "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipState"
-                },
-                "source": {
-                    "description": "\"kv-cache\" or \"postgres\"",
-                    "type": "string"
-                }
-            }
-        },
-        "dictionary_internal_rest.shipResponse": {
-            "type": "object",
-            "properties": {
-                "ship": {
-                    "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipState"
-                }
-            }
-        },
-        "github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ContainerInput": {
+        "commands.ContainerInput": {
             "type": "object",
             "properties": {
                 "cargo": {
@@ -878,7 +966,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ShipInput": {
+        "commands.ShipInput": {
             "type": "object",
             "properties": {
                 "context": {
@@ -897,60 +985,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_queries.FleetReconstruction": {
-            "type": "object",
-            "properties": {
-                "containers": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerState"
-                    }
-                },
-                "fleet": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_queries.ShipWithManifest"
-                    }
-                }
-            }
-        },
-        "github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_queries.ShipWithManifest": {
-            "type": "object",
-            "properties": {
-                "context": {
-                    "description": "fleet / KV-bucket qualifier",
-                    "type": "string"
-                },
-                "currentPort": {
-                    "description": "\"\" = at sea",
-                    "type": "string"
-                },
-                "manifest": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerState"
-                    }
-                },
-                "shipID": {
-                    "type": "string"
-                },
-                "shipName": {
-                    "type": "string"
-                },
-                "status": {
-                    "description": "AIS navigational status",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipStatus"
-                        }
-                    ]
-                },
-                "updatedAt": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerState": {
+        "domain.ContainerState": {
             "type": "object",
             "properties": {
                 "cargo": {
@@ -958,7 +993,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "containerID": {
-                    "description": "ISO 6346, e.g. TCKU1234567",
+                    "description": "ISO 6346 natural key, e.g. TCKU1234567",
                     "type": "string"
                 },
                 "context": {
@@ -980,7 +1015,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerStatus"
+                    "$ref": "#/definitions/domain.ContainerStatus"
                 },
                 "terminalPort": {
                     "description": "set iff Status == in-terminal",
@@ -991,7 +1026,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerStatus": {
+        "domain.ContainerStatus": {
             "type": "string",
             "enum": [
                 "in-terminal",
@@ -1010,7 +1045,18 @@ const docTemplate = `{
                 "ContainerOnShip"
             ]
         },
-        "github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipState": {
+        "domain.PortRecord": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "domain.ShipState": {
             "type": "object",
             "properties": {
                 "context": {
@@ -1031,7 +1077,7 @@ const docTemplate = `{
                     "description": "AIS navigational status",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipStatus"
+                            "$ref": "#/definitions/domain.ShipStatus"
                         }
                     ]
                 },
@@ -1040,7 +1086,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipStatus": {
+        "domain.ShipStatus": {
             "type": "string",
             "enum": [
                 "in-transit",
@@ -1070,6 +1116,175 @@ const docTemplate = `{
                 "StatusNotUnderCommand",
                 "StatusRestrictedManoeuvrability"
             ]
+        },
+        "queries.FleetReconstruction": {
+            "type": "object",
+            "properties": {
+                "containers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/domain.ContainerState"
+                    }
+                },
+                "fleet": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/queries.ShipWithManifest"
+                    }
+                }
+            }
+        },
+        "queries.ShipWithManifest": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "description": "fleet / KV-bucket qualifier",
+                    "type": "string"
+                },
+                "currentPort": {
+                    "description": "\"\" = at sea",
+                    "type": "string"
+                },
+                "manifest": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/domain.ContainerState"
+                    }
+                },
+                "shipID": {
+                    "type": "string"
+                },
+                "shipName": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "AIS navigational status",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/domain.ShipStatus"
+                        }
+                    ]
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "rest.containerResponse": {
+            "type": "object",
+            "properties": {
+                "container": {
+                    "$ref": "#/definitions/domain.ContainerState"
+                }
+            }
+        },
+        "rest.containersResponse": {
+            "type": "object",
+            "properties": {
+                "containers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/domain.ContainerState"
+                    }
+                }
+            }
+        },
+        "rest.errorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "rest.metaValuesResponse": {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "rest.portsTableResponse": {
+            "type": "object",
+            "properties": {
+                "rows": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/domain.PortRecord"
+                    }
+                }
+            }
+        },
+        "rest.refdataDemoResponse": {
+            "type": "object",
+            "properties": {
+                "attrs": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "code": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "source": {
+                    "description": "\"kv-cache\" | \"api-refetch\"",
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "rest.refdataItemsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/rest.refdataDemoResponse"
+                    }
+                }
+            }
+        },
+        "rest.registerPortInput": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "rest.shipBResponse": {
+            "type": "object",
+            "properties": {
+                "cacheHit": {
+                    "type": "boolean"
+                },
+                "ship": {
+                    "$ref": "#/definitions/domain.ShipState"
+                },
+                "source": {
+                    "description": "\"kv-cache\" or \"postgres\"",
+                    "type": "string"
+                }
+            }
+        },
+        "rest.shipResponse": {
+            "type": "object",
+            "properties": {
+                "ship": {
+                    "$ref": "#/definitions/domain.ShipState"
+                }
+            }
         }
     }
 }`

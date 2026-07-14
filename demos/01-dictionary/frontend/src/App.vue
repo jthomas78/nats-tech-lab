@@ -13,8 +13,10 @@ import ShapePanel from './components/ShapePanel.vue'
 import ShippingForm from './components/ShippingForm.vue'
 import { CONTEXTS, useDictionaryStore } from './stores/dictionary'
 import { isDark, toggleTheme } from '@unifi-theme/preset.js'
+import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
 
 const store = useDictionaryStore()
+const { selectedLocale, locales, connect: connectRefdata, disconnect: disconnectRefdata } = useRefdataLabels()
 const dark = ref(isDark())
 
 function handleToggleTheme() {
@@ -22,8 +24,14 @@ function handleToggleTheme() {
   dark.value = isDark()
 }
 
-onMounted(() => store.connect())
-onUnmounted(() => store.disconnect())
+onMounted(() => {
+  store.connect()
+  connectRefdata()
+})
+onUnmounted(() => {
+  store.disconnect()
+  disconnectRefdata()
+})
 </script>
 
 <template>
@@ -43,6 +51,14 @@ onUnmounted(() => store.disconnect())
           :options="CONTEXTS"
           size="small"
           @update:model-value="store.setContext($event)"
+        />
+        <label class="lab-muted" for="locale">Language</label>
+        <Select
+          id="locale"
+          v-model="selectedLocale"
+          :options="locales"
+          size="small"
+          placeholder="—"
         />
         <Button
           :icon="dark ? 'pi pi-sun' : 'pi pi-moon'"

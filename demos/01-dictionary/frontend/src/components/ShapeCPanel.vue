@@ -6,6 +6,9 @@ import Tag from 'primevue/tag'
 import { onMounted, ref } from 'vue'
 
 import { getFleet } from '../api'
+import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
+
+const { statusLabel: resolveStatusLabel } = useRefdataLabels()
 
 const fleet = ref([])
 const containers = ref([])
@@ -30,14 +33,8 @@ async function reconstruct() {
 
 onMounted(reconstruct)
 
-const STATUS_LABEL = {
-  'in-transit':                 'In transit',
-  'docked':                     'Docked',
-  'at-anchor':                  'At anchor',
-  'not-under-command':          'Not under command',
-  'restricted-manoeuvrability': 'Restricted',
-}
-
+// Severity/colour stays a frontend concern (Phase 11.6); only the label text
+// comes from refdata via the shared composable.
 const STATUS_SEVERITY = {
   'in-transit':                 'info',      // blue
   'docked':                     'success',   // green
@@ -47,7 +44,7 @@ const STATUS_SEVERITY = {
 }
 
 function statusLabel(ship) {
-  return STATUS_LABEL[ship.status] ?? (ship.currentPort ? 'Docked' : 'In transit')
+  return resolveStatusLabel(ship.status, ship.currentPort ? 'Docked' : 'In transit')
 }
 function statusSeverity(ship) {
   return STATUS_SEVERITY[ship.status] ?? (ship.currentPort ? 'success' : 'info')

@@ -71,8 +71,13 @@ type errorResponse struct {
 type refdataDemoResponse struct {
 	Code   string         `json:"code"`
 	Status string         `json:"status"`
+	Label  string         `json:"label,omitempty"`
 	Attrs  map[string]any `json:"attrs"`
 	Source string         `json:"source"` // "kv-cache" | "api-refetch"
+}
+
+type refdataItemsResponse struct {
+	Items []refdataDemoResponse `json:"items"`
 }
 
 // Deps bundles everything the HTTP layer needs; keeps NewHandlers readable as
@@ -89,6 +94,7 @@ type Deps struct {
 	KVB        *kvstore.Store            // Shape B ship cache
 	KVCont     *kvstore.Store            // container projection
 	KVMeta     *kvstore.Store            // meta.* lookup sets
+	KVRefdata  *kvstore.Store            // refdata-service's Q5 cache (read-only; Phase 11.6 SSE watch)
 	Refdata    *refdataconsumer.Consumer // Phase 11.3 cross-service consumer demo
 	JS         jetstream.JetStream
 	Log        *slog.Logger
@@ -123,6 +129,9 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/jetstream/watch", h.watchJetStream)
 	mux.HandleFunc("GET /api/jetstream/stream", h.replayJetStream)
 	mux.HandleFunc("GET /api/refdata-demo/{context}/{type}/{code}", h.getRefdataDemo)
+	mux.HandleFunc("GET /api/refdata/types/{type}", h.listRefdataType)
+	mux.HandleFunc("GET /api/refdata/locales", h.listRefdataLocales)
+	mux.HandleFunc("GET /api/refdata-watch", h.watchRefdata)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -453,7 +462,7 @@ func (h *Handlers) getRefdataDemo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "refdata consumer not configured")
 		return
 	}
-	result, err := h.deps.Refdata.Lookup(r.Context(), r.PathValue("context"), r.PathValue("type"), r.PathValue("code"))
+	result, err := h.deps.Refdata.Lookup(r.Context(), r.PathValue("context"), r.PathValue("type"), r.PathValue("code"), r.URL.Query().Get("locale"))
 	if errors.Is(err, refdataconsumer.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "item not found")
 		return
@@ -462,7 +471,63 @@ func (h *Handlers) getRefdataDemo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, refdataDemoResponse{Code: result.Code, Status: result.Status, Attrs: result.Attrs, Source: result.Source})
+	writeJSON(w, http.StatusOK, refdataDemoResponse{Code: result.Code, Status: result.Status, Label: result.Label, Attrs: result.Attrs, Source: result.Source})
+}
+
+// refdataContext is the fixed tenant/region context the shipping backend
+// reads reference data under — it matches refdata-service's seed DefaultContext
+// and is deliberately independent of the fleet context selector (global,
+// atlantic-fleet, …), which scopes ship/container data, not reference data.
+const refdataContext = "emea-acme"
+
+// listRefdataType godoc
+//
+// @Summary      Resolve all items of a reference-data type (Phase 11.6)
+// @Description  Returns every item of a dictionary type under the fixed refdata context, each with its label resolved for the requested locale (BR-D03 fallback). Read KV-first via the Q5 protocol; per-item source is "kv-cache" or "api-refetch".
+// @Tags         refdata
+// @Produce      json
+// @Param        type    path   string  true   "dictionary type key (e.g. ship-status)"
+// @Param        locale  query  string  false  "locale to resolve labels in (e.g. en, es)"
+// @Success      200     {object}  refdataItemsResponse
+// @Failure      500     {object}  errorResponse
+// @Router       /api/refdata/types/{type} [get]
+func (h *Handlers) listRefdataType(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Refdata == nil {
+		writeError(w, http.StatusInternalServerError, "refdata consumer not configured")
+		return
+	}
+	results, err := h.deps.Refdata.ResolveType(r.Context(), refdataContext, r.PathValue("type"), r.URL.Query().Get("locale"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	items := make([]refdataDemoResponse, 0, len(results))
+	for _, res := range results {
+		items = append(items, refdataDemoResponse{Code: res.Code, Status: res.Status, Label: res.Label, Attrs: res.Attrs, Source: res.Source})
+	}
+	writeJSON(w, http.StatusOK, refdataItemsResponse{Items: items})
+}
+
+// listRefdataLocales godoc
+//
+// @Summary      List reference-data locales (Phase 11.6)
+// @Description  Returns the locales registered for the fixed refdata context, for the frontend locale switcher.
+// @Tags         refdata
+// @Produce      json
+// @Success      200  {object}  metaValuesResponse
+// @Failure      500  {object}  errorResponse
+// @Router       /api/refdata/locales [get]
+func (h *Handlers) listRefdataLocales(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Refdata == nil {
+		writeError(w, http.StatusInternalServerError, "refdata consumer not configured")
+		return
+	}
+	locales, err := h.deps.Refdata.Locales(r.Context(), refdataContext)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"locales": locales})
 }
 
 // evictShipCache godoc

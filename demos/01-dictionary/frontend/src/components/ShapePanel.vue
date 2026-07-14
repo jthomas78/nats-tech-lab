@@ -9,6 +9,7 @@ import { computed, ref, watch } from 'vue'
 
 import { evictShipCache, getShipShapeB } from '../api'
 import { useDictionaryStore } from '../stores/dictionary'
+import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
 
 const props = defineProps({
   shape: { type: String, required: true }, // 'A' | 'B'
@@ -17,6 +18,7 @@ const props = defineProps({
 
 const store = useDictionaryStore()
 const toast = useToast()
+const { statusLabel: resolveStatusLabel } = useRefdataLabels()
 
 const rows = computed(() => (props.shape === 'A' ? store.shapeARows : store.shapeBRows))
 
@@ -62,14 +64,8 @@ async function evict(row) {
   }
 }
 
-const STATUS_LABEL = {
-  'in-transit':                 'In transit',
-  'docked':                     'Docked',
-  'at-anchor':                  'At anchor',
-  'not-under-command':          'Not under command',
-  'restricted-manoeuvrability': 'Restricted',
-}
-
+// Severity/colour stays a frontend concern (Phase 11.6); only the label text
+// comes from refdata via the shared composable.
 const STATUS_SEVERITY = {
   'in-transit':                 'info',      // blue
   'docked':                     'success',   // green
@@ -78,8 +74,11 @@ const STATUS_SEVERITY = {
   'restricted-manoeuvrability': 'contrast',  // orange — closest PrimeVue severity
 }
 
+// Label resolves from refdata (locale-aware); falls back to a currentPort-derived
+// string when the ship has no explicit status, and to the built-in map when
+// refdata is unreachable (handled inside the composable).
 function statusLabel(row) {
-  return STATUS_LABEL[row.status] ?? (row.currentPort ? 'Docked' : 'In transit')
+  return resolveStatusLabel(row.status, row.currentPort ? 'Docked' : 'In transit')
 }
 function statusSeverity(row) {
   return STATUS_SEVERITY[row.status] ?? (row.currentPort ? 'success' : 'info')

@@ -1,58 +1,6 @@
 basePath: /
 definitions:
-  dictionary_internal_rest.containerResponse:
-    properties:
-      container:
-        $ref: '#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerState'
-    type: object
-  dictionary_internal_rest.containersResponse:
-    properties:
-      containers:
-        items:
-          $ref: '#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerState'
-        type: array
-    type: object
-  dictionary_internal_rest.errorResponse:
-    properties:
-      error:
-        type: string
-    type: object
-  dictionary_internal_rest.metaValuesResponse:
-    properties:
-      values:
-        items:
-          type: string
-        type: array
-    type: object
-  dictionary_internal_rest.refdataDemoResponse:
-    properties:
-      attrs:
-        additionalProperties: true
-        type: object
-      code:
-        type: string
-      source:
-        description: '"kv-cache" | "api-refetch"'
-        type: string
-      status:
-        type: string
-    type: object
-  dictionary_internal_rest.shipBResponse:
-    properties:
-      cacheHit:
-        type: boolean
-      ship:
-        $ref: '#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipState'
-      source:
-        description: '"kv-cache" or "postgres"'
-        type: string
-    type: object
-  dictionary_internal_rest.shipResponse:
-    properties:
-      ship:
-        $ref: '#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipState'
-    type: object
-  github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ContainerInput:
+  commands.ContainerInput:
     properties:
       cargo:
         description: register
@@ -73,7 +21,7 @@ definitions:
         description: load / unload
         type: string
     type: object
-  github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ShipInput:
+  commands.ShipInput:
     properties:
       context:
         description: fleet / KV-bucket qualifier
@@ -86,47 +34,13 @@ definitions:
         description: used on first Arrive
         type: string
     type: object
-  github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_queries.FleetReconstruction:
-    properties:
-      containers:
-        items:
-          $ref: '#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerState'
-        type: array
-      fleet:
-        items:
-          $ref: '#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_queries.ShipWithManifest'
-        type: array
-    type: object
-  github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_queries.ShipWithManifest:
-    properties:
-      context:
-        description: fleet / KV-bucket qualifier
-        type: string
-      currentPort:
-        description: '"" = at sea'
-        type: string
-      manifest:
-        items:
-          $ref: '#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerState'
-        type: array
-      shipID:
-        type: string
-      shipName:
-        type: string
-      status:
-        allOf:
-        - $ref: '#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipStatus'
-        description: AIS navigational status
-      updatedAt:
-        type: string
-    type: object
-  github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerState:
+  domain.ContainerState:
     properties:
       cargo:
         description: description of contents
         type: string
       containerID:
-        description: ISO 6346, e.g. TCKU1234567
+        description: ISO 6346 natural key, e.g. TCKU1234567
         type: string
       context:
         description: fleet / KV-bucket qualifier
@@ -142,14 +56,14 @@ definitions:
       originPort:
         type: string
       status:
-        $ref: '#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerStatus'
+        $ref: '#/definitions/domain.ContainerStatus'
       terminalPort:
         description: set iff Status == in-terminal
         type: string
       updatedAt:
         type: string
     type: object
-  github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ContainerStatus:
+  domain.ContainerStatus:
     enum:
     - in-terminal
     - on-ship
@@ -163,7 +77,14 @@ definitions:
     x-enum-varnames:
     - ContainerInTerminal
     - ContainerOnShip
-  github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipState:
+  domain.PortRecord:
+    properties:
+      createdAt:
+        type: string
+      name:
+        type: string
+    type: object
+  domain.ShipState:
     properties:
       context:
         description: fleet / KV-bucket qualifier
@@ -177,12 +98,12 @@ definitions:
         type: string
       status:
         allOf:
-        - $ref: '#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipStatus'
+        - $ref: '#/definitions/domain.ShipStatus'
         description: AIS navigational status
       updatedAt:
         type: string
     type: object
-  github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_domain.ShipStatus:
+  domain.ShipStatus:
     enum:
     - in-transit
     - docked
@@ -208,6 +129,115 @@ definitions:
     - StatusAtAnchor
     - StatusNotUnderCommand
     - StatusRestrictedManoeuvrability
+  queries.FleetReconstruction:
+    properties:
+      containers:
+        items:
+          $ref: '#/definitions/domain.ContainerState'
+        type: array
+      fleet:
+        items:
+          $ref: '#/definitions/queries.ShipWithManifest'
+        type: array
+    type: object
+  queries.ShipWithManifest:
+    properties:
+      context:
+        description: fleet / KV-bucket qualifier
+        type: string
+      currentPort:
+        description: '"" = at sea'
+        type: string
+      manifest:
+        items:
+          $ref: '#/definitions/domain.ContainerState'
+        type: array
+      shipID:
+        type: string
+      shipName:
+        type: string
+      status:
+        allOf:
+        - $ref: '#/definitions/domain.ShipStatus'
+        description: AIS navigational status
+      updatedAt:
+        type: string
+    type: object
+  rest.containerResponse:
+    properties:
+      container:
+        $ref: '#/definitions/domain.ContainerState'
+    type: object
+  rest.containersResponse:
+    properties:
+      containers:
+        items:
+          $ref: '#/definitions/domain.ContainerState'
+        type: array
+    type: object
+  rest.errorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  rest.metaValuesResponse:
+    properties:
+      values:
+        items:
+          type: string
+        type: array
+    type: object
+  rest.portsTableResponse:
+    properties:
+      rows:
+        items:
+          $ref: '#/definitions/domain.PortRecord'
+        type: array
+    type: object
+  rest.refdataDemoResponse:
+    properties:
+      attrs:
+        additionalProperties: {}
+        type: object
+      code:
+        type: string
+      label:
+        type: string
+      source:
+        description: '"kv-cache" | "api-refetch"'
+        type: string
+      status:
+        type: string
+    type: object
+  rest.refdataItemsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/rest.refdataDemoResponse'
+        type: array
+    type: object
+  rest.registerPortInput:
+    properties:
+      context:
+        type: string
+      name:
+        type: string
+    type: object
+  rest.shipBResponse:
+    properties:
+      cacheHit:
+        type: boolean
+      ship:
+        $ref: '#/definitions/domain.ShipState'
+      source:
+        description: '"kv-cache" or "postgres"'
+        type: string
+    type: object
+  rest.shipResponse:
+    properties:
+      ship:
+        $ref: '#/definitions/domain.ShipState'
+    type: object
 host: localhost:18080
 info:
   contact: {}
@@ -217,6 +247,31 @@ info:
   title: EventSourcing CQRS POC — Shipping API
   version: "1.0"
 paths:
+  /api/admin/ports/{context}:
+    get:
+      description: Every row of the Postgres ports table for the fleet context — name
+        and registration time. Backs the admin "Postgres Tables" panel; distinct from
+        GET /api/ports/{context}, which returns names only for dropdowns.
+      parameters:
+      - description: Fleet context
+        in: path
+        name: context
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.portsTableResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Raw ports table (admin)
+      tags:
+      - admin
   /api/containers/{context}:
     get:
       description: Returns every container state in the context's KV projection.
@@ -232,11 +287,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.containersResponse'
+            $ref: '#/definitions/rest.containersResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: List all containers
       tags:
       - terminal
@@ -253,26 +308,26 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ContainerInput'
+          $ref: '#/definitions/commands.ContainerInput'
       produces:
       - application/json
       responses:
         "202":
           description: Accepted
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.containerResponse'
+            $ref: '#/definitions/rest.containerResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
         "404":
           description: Container not registered
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
         "422":
           description: Domain rule violation
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: Load container onto ship
       tags:
       - containers
@@ -289,22 +344,22 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ContainerInput'
+          $ref: '#/definitions/commands.ContainerInput'
       produces:
       - application/json
       responses:
         "202":
           description: Accepted
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.containerResponse'
+            $ref: '#/definitions/rest.containerResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
         "422":
           description: Domain rule violation
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: Register container
       tags:
       - containers
@@ -321,26 +376,26 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ContainerInput'
+          $ref: '#/definitions/commands.ContainerInput'
       produces:
       - application/json
       responses:
         "202":
           description: Accepted
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.containerResponse'
+            $ref: '#/definitions/rest.containerResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
         "404":
           description: Container not registered
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
         "422":
           description: Domain rule violation
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: Unload container from ship
       tags:
       - containers
@@ -364,11 +419,11 @@ paths:
         "400":
           description: Unknown stream
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: JetStream full replay + live stream (SSE)
       tags:
       - streams
@@ -392,11 +447,11 @@ paths:
         "400":
           description: Unknown stream
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: JetStream live watch (SSE)
       tags:
       - streams
@@ -421,11 +476,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.containersResponse'
+            $ref: '#/definitions/rest.containersResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: Ship manifest
       tags:
       - terminal
@@ -445,19 +500,46 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.metaValuesResponse'
+            $ref: '#/definitions/rest.metaValuesResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: Known container IDs
       tags:
       - meta
-  /api/meta/{context}/known-ports:
+  /api/ports:
+    post:
+      consumes:
+      - application/json
+      description: Adds a port to the fleet context's ports registry. Direct Postgres
+        write, not an event — ports are reference data, not an event-sourced aggregate.
+        Idempotent.
+      parameters:
+      - description: context, name
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/rest.registerPortInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/rest.metaValuesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Register a port
+      tags:
+      - ports
+  /api/ports/{context}:
     get:
-      description: Every port ever seen in the context's event history (ship arrivals/departures
-        + container origin/destination ports). Backed by the meta.known-ports KV projection;
-        survives reload without event replay.
+      description: Every port registered for the fleet context. Backed by the Postgres
+        ports reference table (BR-017, BR-018) — plain master data, not event-derived.
       parameters:
       - description: Fleet context
         in: path
@@ -470,19 +552,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.metaValuesResponse'
+            $ref: '#/definitions/rest.metaValuesResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
-      summary: Known ports
+            $ref: '#/definitions/rest.errorResponse'
+      summary: List registered ports
       tags:
-      - meta
+      - ports
   /api/refdata-demo/{context}/{type}/{code}:
     get:
-      description: Demonstrates the Q5 versioned-read protocol from the consuming
-        side: reads the refdata-service's KV cache directly, falling through to
-        its REST API (which also backfills the cache) on a miss or a stale entry.
+      description: 'Demonstrates the Q5 versioned-read protocol from the consuming
+        side: reads the refdata-service''s KV cache directly, falling through to its
+        REST API (which also backfills the cache) on a miss or a stale entry.'
       parameters:
       - description: tenant/region context (e.g. emea-acme)
         in: path
@@ -505,18 +587,85 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.refdataDemoResponse'
+            $ref: '#/definitions/rest.refdataDemoResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: Get a reference-data item (Phase 11.3 cross-service consumer demo)
       tags:
       - refdata-demo
+  /api/refdata-watch:
+    get:
+      description: Server-Sent Events stream of NATS KV changes in the refdata-{emea-acme}
+        cache bucket the shipping backend reads (owned by refdata-service). Drives
+        live label refresh in the shipping UIs. Fixed refdata context — no fleet-context
+        param.
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: 'SSE stream — data: {watchEvent JSON}'
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Refdata KV watch stream (SSE, Phase 11.6)
+      tags:
+      - streams
+  /api/refdata/locales:
+    get:
+      description: Returns the locales registered for the fixed refdata context, for
+        the frontend locale switcher.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.metaValuesResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: List reference-data locales (Phase 11.6)
+      tags:
+      - refdata
+  /api/refdata/types/{type}:
+    get:
+      description: Returns every item of a dictionary type under the fixed refdata
+        context, each with its label resolved for the requested locale (BR-D03 fallback).
+        Read KV-first via the Q5 protocol; per-item source is "kv-cache" or "api-refetch".
+      parameters:
+      - description: dictionary type key (e.g. ship-status)
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: locale to resolve labels in (e.g. en, es)
+        in: query
+        name: locale
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.refdataItemsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Resolve all items of a reference-data type (Phase 11.6)
+      tags:
+      - refdata
   /api/shape-b/cache/{context}/{shipID}:
     delete:
       description: Deletes the KV cache entry for a ship in the Shape B bucket. The
@@ -539,11 +688,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: Evict Shape B cache entry
       tags:
       - shape-b
@@ -568,15 +717,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.shipBResponse'
+            $ref: '#/definitions/rest.shipBResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: Get ship (Shape B — KV cache → Postgres)
       tags:
       - shape-b
@@ -592,11 +741,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_queries.FleetReconstruction'
+            $ref: '#/definitions/queries.FleetReconstruction'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: Reconstruct fleet (Shape C — pure event sourcing)
       tags:
       - shape-c
@@ -612,22 +761,22 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ShipInput'
+          $ref: '#/definitions/commands.ShipInput'
       produces:
       - application/json
       responses:
         "202":
           description: Accepted
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.shipResponse'
+            $ref: '#/definitions/rest.shipResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
         "422":
           description: Domain rule violation
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: Arrive at port
       tags:
       - ships
@@ -643,22 +792,22 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_jthomas78_nats-tech-lab_demos_01-dictionary_backend_dictionary_internal_application_commands.ShipInput'
+          $ref: '#/definitions/commands.ShipInput'
       produces:
       - application/json
       responses:
         "202":
           description: Accepted
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.shipResponse'
+            $ref: '#/definitions/rest.shipResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
         "422":
           description: Domain rule violation
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: Depart from port
       tags:
       - ships
@@ -683,11 +832,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.containersResponse'
+            $ref: '#/definitions/rest.containersResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: Containers in a terminal yard
       tags:
       - terminal
@@ -712,7 +861,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: Terminal KV watch stream (SSE)
       tags:
       - streams
@@ -738,7 +887,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dictionary_internal_rest.errorResponse'
+            $ref: '#/definitions/rest.errorResponse'
       summary: Ship KV watch stream (SSE)
       tags:
       - streams

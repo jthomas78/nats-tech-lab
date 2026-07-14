@@ -254,3 +254,11 @@ A deprecated item must remain resolvable so historic data stays renderable, but 
 
 - **Enforced in:** `commands.ItemHandler.Get()` (no status filter) vs `ListAssignable()` (filters via `domain.FilterAssignable()`)
 - **Test:** `Dictionary Item Domain Rules / BR-D06`
+
+---
+
+### BR-D08 — A consumer resolves reference-data labels KV-first, applying the BR-D03 fallback chain; a miss or stale entry falls back to REST
+Phase 11.6. When the shipping backend resolves a reference-data label for display, it reads the `refdata-{context}` KV cache directly and resolves the requested locale's label from the cached localizations map, applying the same fallback chain as BR-D03 (requested locale → bare language → default locale → the code itself). A KV miss or a stale (version-mismatched) entry — the Q5 read protocol's miss case — falls back to the refdata-service REST API with `?locale=`, which resolves the label server-side via the authoritative `ResolveLabel` and backfills the cache. The consumer reimplements the ~10-line fallback rather than importing refdata-service (the two services share only a wire shape); the default locale is a constant mirroring the context's seeded default. Enforced on the *consuming* side (the shipping backend), so it lives here alongside the producer rules it depends on.
+
+- **Enforced in:** `backend/internal/refdataconsumer/Consumer.Lookup()` / `ResolveType()` (`resolveLabel()` implements the fallback; `fetchViaAPI()` forwards `?locale=`)
+- **Test:** `backend/internal/refdataconsumer` — `TestLookupResolvesLabelFromKV`, `TestLookupLabelFallsBackToBareLanguage`, `TestLookupLabelFallsBackToDefaultThenCode`, `TestLookupMissForwardsLocaleToAPI`, `TestResolveTypeReturnsAllCodesFromKV`

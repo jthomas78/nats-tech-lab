@@ -11,6 +11,7 @@ import { computed, reactive, ref } from 'vue'
 
 import { arrivePort } from '../api'
 import { usePortStore } from '../stores/port'
+import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
 
 // Fleet-wide, read-only view of every ship in the context, regardless of the
 // selected port. A status filter narrows it to docked or in-transit ships;
@@ -19,12 +20,16 @@ import { usePortStore } from '../stores/port'
 // onShipID join survives departure), so the manifest count stays meaningful.
 const store = usePortStore()
 const toast = useToast()
+const { statusLabel } = useRefdataLabels()
 
-const STATUS_FILTERS = [
+// Filter options — the docked/in-transit labels resolve from refdata (so they
+// re-translate with the locale switcher); "All" is a filter meta-option with
+// no reference-data code, so it stays as-is.
+const statusFilters = computed(() => [
   { label: 'All', value: 'all' },
-  { label: 'Docked', value: 'docked' },
-  { label: 'In transit', value: 'in-transit' },
-]
+  { label: statusLabel('docked', 'Docked'), value: 'docked' },
+  { label: statusLabel('in-transit', 'In transit'), value: 'in-transit' },
+])
 const statusFilter = ref('all')
 
 const filteredShips = computed(() => {
@@ -82,7 +87,7 @@ async function submitRegister() {
         <Select
           id="fleet-status"
           v-model="statusFilter"
-          :options="STATUS_FILTERS"
+          :options="statusFilters"
           option-label="label"
           option-value="value"
           size="small"
@@ -108,7 +113,7 @@ async function submitRegister() {
         <template #body="{ data }">
           <Tag
             :severity="data.currentPort ? 'success' : 'info'"
-            :value="data.currentPort ? 'Docked' : 'In transit'"
+            :value="statusLabel(data.status, data.currentPort ? 'Docked' : 'In transit')"
           />
         </template>
       </Column>

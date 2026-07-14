@@ -83,6 +83,7 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 		KVB:        kvB,
 		KVCont:     kvContainers,
 		KVMeta:     kvMeta,
+		KVRefdata:  kvRefdata,
 		Refdata:    refdata,
 		JS:         js,
 		Log:        log,

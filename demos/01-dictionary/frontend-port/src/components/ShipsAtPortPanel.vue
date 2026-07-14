@@ -9,9 +9,11 @@ import { computed, reactive, ref, watch } from 'vue'
 
 import { arrivePort, departPort, unloadContainer } from '../api'
 import { usePortStore } from '../stores/port'
+import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
 
 const store = usePortStore()
 const toast = useToast()
+const { statusLabel } = useRefdataLabels()
 
 const expandedShips = ref({})
 
@@ -147,8 +149,8 @@ watch(
       <Column field="shipID" header="Ship ID" style="font-family:monospace;font-size:12px" />
       <Column field="shipName" header="Name" />
       <Column header="Status" style="width:100px">
-        <template #body>
-          <Tag severity="success" value="Docked" />
+        <template #body="{ data }">
+          <Tag severity="success" :value="statusLabel(data.status, 'Docked')" />
         </template>
       </Column>
       <Column header="Manifest" style="width:100px">

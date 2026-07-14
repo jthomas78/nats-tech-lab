@@ -47,7 +47,7 @@ func opString(op jetstream.KeyValueOp) string {
 // state first, then pushing live updates. This is the server half of the
 // KV watch → SSE → Pinia store pipeline.
 func (h *Handlers) watch(w http.ResponseWriter, r *http.Request) {
-	h.watchBuckets(w, r, []watchSource{
+	h.watchBuckets(w, r, r.PathValue("context"), []watchSource{
 		{shape: "A", store: h.deps.KVA},
 		{shape: "B", store: h.deps.KVB},
 	})
@@ -66,9 +66,24 @@ func (h *Handlers) watch(w http.ResponseWriter, r *http.Request) {
 // watchTerminal is the terminal-side twin of watch: container states and
 // meta.* lookup sets, consumed by the Port Management frontend.
 func (h *Handlers) watchTerminal(w http.ResponseWriter, r *http.Request) {
-	h.watchBuckets(w, r, []watchSource{
+	h.watchBuckets(w, r, r.PathValue("context"), []watchSource{
 		{shape: "CONTAINER", store: h.deps.KVCont},
 		{shape: "META", store: h.deps.KVMeta},
+	})
+}
+
+// watchRefdata godoc
+//
+// @Summary      Refdata KV watch stream (SSE, Phase 11.6)
+// @Description  Server-Sent Events stream of NATS KV changes in the refdata-{emea-acme} cache bucket the shipping backend reads (owned by refdata-service). Drives live label refresh in the shipping UIs. Fixed refdata context — no fleet-context param.
+// @Tags         streams
+// @Produce      text/event-stream
+// @Success      200  {string}  string  "SSE stream — data: {watchEvent JSON}"
+// @Failure      500  {object}  errorResponse
+// @Router       /api/refdata-watch [get]
+func (h *Handlers) watchRefdata(w http.ResponseWriter, r *http.Request) {
+	h.watchBuckets(w, r, refdataContext, []watchSource{
+		{shape: "REFDATA", store: h.deps.KVRefdata},
 	})
 }
 
@@ -77,13 +92,12 @@ type watchSource struct {
 	store *kvstore.Store
 }
 
-func (h *Handlers) watchBuckets(w http.ResponseWriter, r *http.Request, sources []watchSource) {
+func (h *Handlers) watchBuckets(w http.ResponseWriter, r *http.Request, kvContext string, sources []watchSource) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
-	kvContext := r.PathValue("context")
 	ctx := r.Context()
 
 	type update struct {
