@@ -1,0 +1,30 @@
+name: Frontend Port
+
+on:
+  push:
+    paths:
+      - 'demos/01-dictionary/frontend-port/**'
+      - 'demos/01-dictionary/refdata-service/refdata/seed.go'
+      - 'demos/01-dictionary/shared/refdata/**'
+  pull_request:
+    paths:
+      - 'demos/01-dictionary/frontend-port/**'
+      - 'demos/01-dictionary/refdata-service/refdata/seed.go'
+      - 'demos/01-dictionary/shared/refdata/**'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: demos/01-dictionary/frontend-port
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: demos/01-dictionary/frontend-port/package-lock.json
+      - run: npm ci
+      - run: npm run check:i18n
+      - run: npm run build

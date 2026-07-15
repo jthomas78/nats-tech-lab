@@ -69,6 +69,22 @@ var _ = Describe("Seed", func() {
 		Expect(localizations).To(ContainElement(And(HaveField("Locale", "es"), HaveField("Label", "Atracado"))))
 	})
 
+	It("gives every seeded ui-copy key both an en and an es label (BR-D16)", func() {
+		all, err := items.List(ctx, "ui-copy", refdata.DefaultContext)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(len(all)).To(BeNumerically(">", 2), "expected the full Phase 11.10 ui-copy catalog, not just the Phase 11.7 proof-of-concept keys")
+
+		for _, item := range all {
+			localizations, err := locs.ListForItem(ctx, item.TypeKey, item.Context, item.Code)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(localizations).To(ContainElement(HaveField("Locale", "en")), "missing en label for ui-copy key %q", item.Code)
+			Expect(localizations).To(ContainElement(HaveField("Locale", "es")), "missing es label for ui-copy key %q", item.Code)
+			for _, loc := range localizations {
+				Expect(loc.Label).NotTo(BeEmpty(), "ui-copy key %q has a blank %s label", item.Code, loc.Locale)
+			}
+		}
+	})
+
 	It("is idempotent — seeding twice does not error or duplicate localizations", func() {
 		Expect(refdata.Seed(ctx, h)).To(Succeed())
 

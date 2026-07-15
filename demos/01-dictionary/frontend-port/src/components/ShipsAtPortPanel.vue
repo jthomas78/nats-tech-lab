@@ -5,6 +5,7 @@ import DataTable from 'primevue/datatable'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import { useToast } from 'primevue/usetoast'
+import { useI18n } from 'vue-i18n'
 import { computed, reactive, ref, watch } from 'vue'
 
 import { arrivePort, departPort, unloadContainer } from '../api'
@@ -14,6 +15,7 @@ import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
 const store = usePortStore()
 const toast = useToast()
 const { statusLabel } = useRefdataLabels()
+const { t } = useI18n()
 
 const expandedShips = ref({})
 
@@ -40,7 +42,7 @@ async function submitArrive() {
   arriveBusy.value = true
   try {
     await arrivePort({ context: store.context, shipID: arriveShipID.value, port: store.port })
-    toast.add({ severity: 'success', summary: 'Ship arrived', detail: arriveShipID.value, life: 2500 })
+    toast.add({ severity: 'success', summary: t('toast.shipArrived'), detail: arriveShipID.value, life: 2500 })
     arriveShipID.value = ''
   } catch (err) {
     arriveError.value = err.message
@@ -61,9 +63,9 @@ async function submitDepart(shipID) {
   departBusyID.value = shipID
   try {
     await departPort({ context: store.context, shipID, port: store.port })
-    toast.add({ severity: 'success', summary: 'Ship departed', detail: shipID, life: 2500 })
+    toast.add({ severity: 'success', summary: t('toast.shipDeparted'), detail: shipID, life: 2500 })
   } catch (err) {
-    toast.add({ severity: 'error', summary: 'Depart failed', detail: err.message, life: 4000 })
+    toast.add({ severity: 'error', summary: t('toast.departFailed'), detail: err.message, life: 4000 })
   } finally {
     departBusyID.value = ''
   }
@@ -82,7 +84,7 @@ async function submitUnload(shipID, containerID) {
   unloadBusyID.value = containerID
   try {
     await unloadContainer({ context: store.context, containerID, shipID })
-    toast.add({ severity: 'success', summary: 'Container unloaded', detail: containerID, life: 2500 })
+    toast.add({ severity: 'success', summary: t('toast.containerUnloaded'), detail: containerID, life: 2500 })
   } catch (err) {
     unloadErrorByShip[shipID] = err.message
   } finally {
@@ -106,10 +108,10 @@ watch(
 
 <template>
   <section class="lab-panel">
-    <h3>Ships at Port — {{ store.port || '—' }}</h3>
+    <h3>{{ t('shipsAtPort.title', { port: store.port || '—' }) }}</h3>
 
     <div v-if="!store.port" class="lab-muted no-port">
-      Select or add a port to move ships in and out.
+      {{ t('shipsAtPort.selectPort') }}
     </div>
     <div v-else class="ops">
       <div class="op-row">
@@ -118,16 +120,16 @@ watch(
           :options="shipsAtSeaOptions"
           option-label="label"
           option-value="value"
-          placeholder="ship at sea"
+          :placeholder="t('shipsAtPort.atSea')"
           size="small"
           style="width:220px"
         />
         <Button
-          label="Arrive"
+          :label="t('action.arrive')"
           size="small"
           :disabled="arriveBusy || !arriveShipID"
           :loading="arriveBusy"
-          :title="shipsAtSeaOptions.length === 0 ? 'No ships at sea — register one from the Fleet panel' : ''"
+          :title="shipsAtSeaOptions.length === 0 ? t('shipsAtPort.noShipsAtSea') : ''"
           @click="submitArrive"
         />
       </div>
@@ -143,25 +145,25 @@ watch(
       columnResizeMode="expand"
     >
       <template #empty>
-        <span class="lab-muted">No ships docked here — send an arrival above.</span>
+        <span class="lab-muted">{{ t('shipsAtPort.empty') }}</span>
       </template>
       <Column expander style="width:2.5rem" />
-      <Column field="shipID" header="Ship ID" style="font-family:monospace;font-size:12px" />
-      <Column field="shipName" header="Name" />
-      <Column header="Status" style="width:100px">
+      <Column field="shipID" :header="t('table.shipId')" style="font-family:monospace;font-size:12px" />
+      <Column field="shipName" :header="t('table.name')" />
+      <Column :header="t('status.label')" style="width:100px">
         <template #body="{ data }">
-          <Tag severity="success" :value="statusLabel(data.status, 'Docked')" />
+          <Tag severity="success" :value="statusLabel(data.status)" />
         </template>
       </Column>
-      <Column header="Manifest" style="width:100px">
+      <Column :header="t('table.manifest')" style="width:100px">
         <template #body="{ data }">
-          <span class="lab-muted manifest-count">{{ store.manifestFor(data.shipID).length }} container(s)</span>
+          <span class="lab-muted manifest-count">{{ t('container.count', store.manifestFor(data.shipID).length) }}</span>
         </template>
       </Column>
       <Column header="" style="width:110px">
         <template #body="{ data }">
           <Button
-            label="Depart"
+            :label="t('action.depart')"
             size="small"
             :disabled="departBusyID === data.shipID"
             :loading="departBusyID === data.shipID"
@@ -173,12 +175,12 @@ watch(
       <template #expansion="{ data }">
         <DataTable :value="store.manifestFor(data.shipID)" size="small" data-key="containerID" class="manifest-table">
           <template #empty>
-            <span class="lab-muted">No containers on this ship.</span>
+            <span class="lab-muted">{{ t('manifest.empty') }}</span>
           </template>
-          <Column field="containerID" header="Container" style="font-family:monospace;font-size:12px" />
-          <Column field="cargo" header="Cargo" />
-          <Column field="originPort" header="Origin" style="width:110px" />
-          <Column header="Destination" style="width:130px">
+          <Column field="containerID" :header="t('table.container')" style="font-family:monospace;font-size:12px" />
+          <Column field="cargo" :header="t('table.cargo')" />
+          <Column field="originPort" :header="t('table.origin')" style="width:110px" />
+          <Column :header="t('table.destination')" style="width:130px">
             <template #body="{ data: container }">
               <Tag :severity="container.destPort === store.port ? 'success' : 'info'" :value="container.destPort" />
             </template>
@@ -186,7 +188,7 @@ watch(
           <Column header="" style="width:100px">
             <template #body="{ data: container }">
               <Button
-                label="Unload"
+                :label="t('action.unload')"
                 size="small"
                 :disabled="container.destPort !== store.port || unloadBusyID === container.containerID"
                 :loading="unloadBusyID === container.containerID"

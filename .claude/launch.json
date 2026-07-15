@@ -20,6 +20,13 @@
       ],
       "cwd": "demos/01-dictionary/frontend-dict",
       "port": 5199
+    },
+    {
+      "name": "frontend-port",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "demos/01-dictionary/frontend-port",
+      "port": 5174
     }
   ]
 }

@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "gen:i18n": "node scripts/gen-i18n.mjs",
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "prebuild": "npm run gen:i18n",
     "build": "vite build",
     "preview": "vite preview"
   },

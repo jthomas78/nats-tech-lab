@@ -29,8 +29,8 @@ const { t } = useI18n()
 // refdata type (Phase 11.7) via the same locale switcher.
 const statusFilters = computed(() => [
   { label: t('filter.all'), value: 'all' },
-  { label: statusLabel('docked', 'Docked'), value: 'docked' },
-  { label: statusLabel('in-transit', 'In transit'), value: 'in-transit' },
+  { label: statusLabel('docked'), value: 'docked' },
+  { label: statusLabel('in-transit'), value: 'in-transit' },
 ])
 const statusFilter = ref('all')
 
@@ -70,7 +70,7 @@ async function submitRegister() {
       shipName: registerForm.shipName.trim() || registerForm.shipID.trim(),
       port: registerForm.port,
     })
-    toast.add({ severity: 'success', summary: 'Ship registered', detail: registerForm.shipID, life: 2500 })
+    toast.add({ severity: 'success', summary: t('toast.shipRegistered'), detail: registerForm.shipID, life: 2500 })
     registerVisible.value = false
   } catch (err) {
     registerError.value = err.message
@@ -83,9 +83,9 @@ async function submitRegister() {
 <template>
   <section class="lab-panel">
     <div class="fleet-head">
-      <h3>Fleet</h3>
+      <h3>{{ t('fleet.title') }}</h3>
       <div class="fleet-head-controls">
-        <label class="lab-muted" for="fleet-status">Status</label>
+        <label class="lab-muted" for="fleet-status">{{ t('status.label') }}</label>
         <Select
           id="fleet-status"
           v-model="statusFilter"
@@ -96,7 +96,7 @@ async function submitRegister() {
         />
         <Button
           icon="pi pi-plus"
-          aria-label="Register a new ship"
+          :aria-label="t('a11y.registerShip')"
           text
           rounded
           size="small"
@@ -107,41 +107,41 @@ async function submitRegister() {
 
     <DataTable :value="filteredShips" size="small" data-key="shipID">
       <template #empty>
-        <span class="lab-muted">No ships match this filter.</span>
+        <span class="lab-muted">{{ t('fleet.empty') }}</span>
       </template>
-      <Column field="shipID" header="Ship ID" style="font-family:monospace;font-size:12px" />
-      <Column field="shipName" header="Name" />
-      <Column header="Status" style="width:110px">
+      <Column field="shipID" :header="t('table.shipId')" style="font-family:monospace;font-size:12px" />
+      <Column field="shipName" :header="t('table.name')" />
+      <Column :header="t('status.label')" style="width:110px">
         <template #body="{ data }">
           <Tag
             :severity="data.currentPort ? 'success' : 'info'"
-            :value="statusLabel(data.status, data.currentPort ? 'Docked' : 'In transit')"
+            :value="statusLabel(data.status)"
           />
         </template>
       </Column>
-      <Column header="Port" style="width:140px">
+      <Column :header="t('table.port')" style="width:140px">
         <template #body="{ data }">
-          <span :class="data.currentPort ? '' : 'lab-muted'">{{ data.currentPort || 'at sea' }}</span>
+          <span :class="data.currentPort ? '' : 'lab-muted'">{{ data.currentPort || t('fleet.atSea') }}</span>
         </template>
       </Column>
-      <Column header="Manifest" style="width:100px">
+      <Column :header="t('table.manifest')" style="width:100px">
         <template #body="{ data }">
-          <span class="lab-muted manifest-count">{{ store.manifestFor(data.shipID).length }} container(s)</span>
+          <span class="lab-muted manifest-count">{{ t('container.count', store.manifestFor(data.shipID).length) }}</span>
         </template>
       </Column>
     </DataTable>
 
-    <Dialog v-model:visible="registerVisible" header="Register ship" modal style="width:26rem">
+    <Dialog v-model:visible="registerVisible" :header="t('fleet.register')" modal style="width:26rem">
       <div class="dialog-fields">
-        <InputText v-model.trim="registerForm.shipID" placeholder="ship ID, e.g. orient-express" size="small" />
-        <InputText v-model.trim="registerForm.shipName" placeholder="ship name, e.g. Orient Express" size="small" />
-        <Select v-model="registerForm.port" :options="store.knownPorts" placeholder="arrival port" size="small" />
+        <InputText v-model.trim="registerForm.shipID" :placeholder="t('ship.idPlaceholder')" size="small" />
+        <InputText v-model.trim="registerForm.shipName" :placeholder="t('ship.namePlaceholder')" size="small" />
+        <Select v-model="registerForm.port" :options="store.knownPorts" :placeholder="t('ship.arrivalPort')" size="small" />
       </div>
       <div v-if="registerError" class="domain-error">{{ registerError }}</div>
       <template #footer>
-        <Button label="Cancel" text size="small" @click="registerVisible = false" />
+        <Button :label="t('action.cancel')" text size="small" @click="registerVisible = false" />
         <Button
-          label="Register"
+          :label="t('action.register')"
           size="small"
           :disabled="registerBusy || !registerForm.shipID || !registerForm.port"
           :loading="registerBusy"

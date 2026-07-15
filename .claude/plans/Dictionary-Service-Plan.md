@@ -617,6 +617,132 @@ Target shape:
       `GET /{context}/locales` now returns `defaultLocale` (additive), with the
       single-default invariant promoted to **BR-D14** (spec in `localization_test.go`).
 
+### Phase 11.10 — Localize the shipping UI (static strings + enums, en/es)
+
+> **Approved (2026-07-15) — Option D (all refdata, generated fallback).** Extends Phase
+> 11.7's refdata-as-TMS pattern from its two proof-of-concept keys (`filter.all`,
+> `nav.language`) to the *whole* Port UI (`frontend-port`). Implemented (2026-07-15),
+> pending independent Spanish-copy review.
+
+**Scope (from the 2026-07-15 inventory).** `frontend-port` only. `frontend` (the
+architecture/demo UI) is out of scope; `frontend-dict` is a separate admin app with its
+own locale mechanism and no vue-i18n wiring — not in scope here.
+
+- **~90 hardcoded user-facing literals across 4 files** — `App.vue` (~18),
+  `FleetPanel.vue` (~20), `ShipsAtPortPanel.vue` (~22), `TerminalPanel.vue` (~26):
+  headings, buttons, column headers, placeholders, toasts, empty states, aria-labels,
+  validation hints. Only 2 (`nav.language`, `filter.all`) go through `t()` today.
+- **Enums are largely already done.** `ship-status` — the only *coded* enum rendered in
+  the Port UI — resolves through refdata end-to-end (Phase 11.6). No other coded enum is
+  displayed: container-status is derived into Outbound/Arrived buckets client-side and
+  isn't even seeded; port names are free-form values, not coded reference data.
+- **No number/date/currency formatting** exists in `frontend-port` — nothing to localize
+  there (the only `toLocaleString`/date calls live in `frontend/`, out of scope).
+
+**Decision — where does UI copy live? Option D chosen (2026-07-15).** Today (Phase 11.7)
+every UI string routed through i18n is a `ui-copy` refdata item (en+es rows) *and* a
+bundled `uiCopyFallback.en.js` entry — BR-D11 requires the bundled `en` so chrome still
+renders when refdata is unreachable. The options considered (kept below for the record):
+
+| Option | UI-copy home | Per-string cost | Trade-off |
+|---|---|---|---|
+| **A — all refdata** | every string a `ui-copy` item | ~3 artifacts (en+es seed rows + bundled `en` fallback) | Maximal TMS thesis. But BR-D11 still forces a bundled `en` for each string, so `en` is maintained *twice* (seed + fallback); weakest safety for strings coupled to code — a validation hint can silently drift from the regex it describes. |
+| **B — all bundled** | vue-i18n catalog (en+es), dev-owned | 2 entries, one place | Simplest; code-reviewed; keys greppable. Abandons refdata-as-TMS for the Port UI (refdata keeps only domain *data* labels like ship-status) — contradicts Phase 11.7's direction. |
+| **C — split by editorial ownership** | domain-facing copy → refdata; implementation-coupled chrome → bundled | mixed | Demonstrates the *judgment* of where dictionary-as-a-service earns its keep; avoids double-maintaining `en` for chrome nobody edits live. Requires the boundary be encoded as a namespace convention (proposed BR-D17) so it isn't ad hoc. |
+| **D — all refdata, *generated* fallback** *(chosen)* | every string a `ui-copy` item; the bundled `en` is a build-time *snapshot of the seed*, not hand-written | 1 authored artifact (seed en+es) + generator + CI drift check | "Option A done right." Single source of truth (refdata), but the bundle is *compiled* from the seed like a lockfile — so no double-`en` maintenance and no drift; keeps first-paint correctness and offline degrade (BR-D11 stays). Cost is one-time tooling, not per-string effort. Pairs with a `<UiString code>` seam for call-site provenance. |
+
+Fault line for Option C, had it been chosen — **would a translator/steward ever edit this
+live, decoupled from a code change?** *Yes* → refdata (panel titles, section headers,
+status/filter labels, empty-state prose, domain buttons like Arrive/Depart/Unload, success
+toasts like "Ship arrived"). *No* → bundled (validation hints that mirror a regex/format,
+placeholders embedding format examples like `TCKU1234567`, aria-labels, error/diagnostic
+toasts like "Depart failed"). Kept here only as the discarded alternative's reasoning.
+
+**Option D — chosen (2026-07-15).** Keep *refdata as the sole authored source* (like A),
+but stop *hand-writing* the bundled fallback — **generate** it from `uiCopySeed` at build
+time and commit it (lockfile model): a generator emits `shared/refdata/uiCopyFallback.en.js`
+with a `GENERATED — do not edit` banner, a `prebuild` hook keeps it fresh, and a
+CI drift-check fails if regenerating yields a diff (this is what keeps the seed authoritative
+rather than silently forking). The generated catalog drops into the existing override-base
+slot (`useUiCopy.js:45`) unchanged — live refdata overlays it once the fetch lands — so
+there is *no runtime change*, and the "frozen at seed values" concern is invisible because
+it is only the cold-paint base. This gives A's single-source purity **and** clean admin-UI
+provenance (every string is a `ui-copy` item, so all are visible/editable in the Dictionary
+UI) **without** A's double-maintenance. A no-bundle variant (copy as a hard runtime
+dependency, retiring BR-D11) was considered and rejected — it surrenders first-paint
+correctness for nothing the generated bundle doesn't already give. Because D routes every
+string through refdata (no split), **BR-D17's namespace-boundary convention does not
+apply** — that was only needed for Option C's dev-owned/refdata split.
+
+**Track 1 — static UI strings (the bulk of the work).**
+
+- [x] Design a key namespace (e.g. `port.*`, `fleet.*`, `terminal.*`, `status.*`,
+      `form.*`, `a11y.*`, `toast.*`) — under Option D this is purely organizational
+      (every key lives in refdata regardless of prefix), not a routing boundary.
+- [x] Extract each literal → `t('key')` in templates and the composition `t` in
+      `<script setup>` for toasts/JS across the 4 files.
+- [ ] Supply `en` + `es` for every key as a `ui-copy` seed row (`uiCopySeed` in
+      `seed.go`) — the sole authored source under Option D; the bundled fallback is
+      generated from it (see Build tooling below), never hand-written. **`es`
+      is a deliverable, not auto-fill** — seeded; pending human/translator review before
+      being accepted as final.
+- [x] **Interpolation** — `Ships at Port — {port}`, `Terminal Yard — {port}` use named
+      interpolation, not string concatenation.
+- [x] **Pluralization** — `container(s)` (two files) uses vue-i18n plural rules with real
+      `es` plural forms, not an English `(s)` suffix.
+
+**Track 2 — enums (small; mostly already done).**
+
+- [x] The derived display labels `at sea` (`FleetPanel.vue`) and the `Outbound` / `Arrived`
+      bucket headers (`TerminalPanel.vue`) are **UI copy, not refdata enums** — route them
+      through Track 1.
+- [ ] *(Only if a second coded enum is ever surfaced in the Port UI)* generalize
+      `shared/refdata/useRefdataLabels.js` from its single hardwired type (`ship-status`)
+      to multi-type. **Not required by any string in today's Port UI — list-only here so
+      the constraint is on record.** `hazard-class`/`incoterm` are seeded (en+es) but
+      unconsumed; wiring them is its own future phase, not this one.
+
+**Consolidation / cleanup.**
+
+- [x] Reconcile the duplicated English ship-status fallbacks — call sites now rely on the
+      single `SHIP_STATUS_FALLBACK` map in `useRefdataLabels.js`, which remains intentional
+      offline resilience for the domain enum.
+
+**Build tooling (required by Option D).**
+
+- [x] Node generator emits the bundled catalog from `refdata-service`'s `uiCopySeed`.
+      Output is committed with a `GENERATED — do not edit` banner (lockfile model) and drops
+      into the existing `useUiCopy.js:45` override base, so no runtime change.
+- [x] `npm run gen:i18n` wired as a `prebuild` hook so `npm run build` can't ship a stale
+      bundle.
+- [x] **CI drift check** — regenerate in CI and fail on any diff. The load-bearing piece:
+      it is what makes the seed authoritative and prevents a silent two-source fork.
+- [x] Decide bundle breadth — default-locale (`en`) only, enough for cold-paint (live locale
+      overlays once fetched), vs all locales for full offline rendering at a larger JS size.
+- [ ] *(optional, complements D)* a `<UiString code="…">` component/directive as the
+      refdata-bound call-site seam: makes provenance explicit (every `<UiString>` *is* a
+      refdata string — answers "which values are refdata-bound?"), centralizes the
+      pending/missing-key state, and gives a free inspect hook. Complements `t()` rather than
+      replacing it (attributes / aria-labels / placeholders still need functional `t()`), and
+      does **not** remove cold-paint — hence still generate the bundle.
+
+**Quality (per CLAUDE.md — BR + test + docs in the same task).**
+
+- [x] **BR-D16:** all user-facing Port-UI copy resolves through the i18n layer —
+      no bare user-facing literals in `frontend-port` templates. Testable (a lint/scan step
+      or a spec asserting rendered strings come from the catalog).
+- [ ] ~~BR-D17~~ — dropped. It only made sense under Option C's dev-owned/refdata split;
+      Option D routes every string through refdata, so there is no boundary to encode.
+- [x] Update `BUSINESS_RULES.md` and this checklist together. (Next free number is
+      **BR-D16** — BR-D15 is already claimed by the implicit-`en`-default work in
+      `localization.go`/`localization_test.go`.)
+
+**Cautions.** Keep the enum track from ballooning — no coded enum beyond `ship-status` is
+shown today, so resist generalizing `useRefdataLabels` speculatively. The heavy part is
+breadth (string extraction + translation data), not architecture; the pipeline already
+exists. Do not start extraction before the Decision is made — re-homing strings after the
+fact is the expensive mistake this gate exists to prevent.
+
 ## Renumbering (done at approval)
 
 | Was | Now |

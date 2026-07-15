@@ -10,6 +10,7 @@ import Menu from 'primevue/menu'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import { useToast } from 'primevue/usetoast'
+import { useI18n } from 'vue-i18n'
 import { computed, reactive, ref } from 'vue'
 
 import { loadContainer, registerContainer } from '../api'
@@ -17,6 +18,7 @@ import { usePortStore } from '../stores/port'
 
 const store = usePortStore()
 const toast = useToast()
+const { t } = useI18n()
 
 // ── Register container (popup) ────────────────────────────────────────────────
 
@@ -60,7 +62,7 @@ async function submitRegister() {
       originPort: store.port,
       destPort: registerForm.destPort,
     })
-    toast.add({ severity: 'success', summary: 'Container registered', detail: fullContainerID.value, life: 2500 })
+    toast.add({ severity: 'success', summary: t('toast.containerRegistered'), detail: fullContainerID.value, life: 2500 })
     registerVisible.value = false
   } catch (err) {
     registerError.value = err.message
@@ -101,9 +103,9 @@ async function submitLoad(containerID, shipID) {
   loadBusyID.value = containerID
   try {
     await loadContainer({ context: store.context, containerID, shipID })
-    toast.add({ severity: 'success', summary: 'Container loaded', detail: `${containerID} → ${shipID}`, life: 2500 })
+    toast.add({ severity: 'success', summary: t('toast.containerLoaded'), detail: `${containerID} → ${shipID}`, life: 2500 })
   } catch (err) {
-    toast.add({ severity: 'error', summary: 'Load failed', detail: err.message, life: 4000 })
+    toast.add({ severity: 'error', summary: t('toast.loadFailed'), detail: err.message, life: 4000 })
   } finally {
     loadBusyID.value = ''
   }
@@ -112,24 +114,24 @@ async function submitLoad(containerID, shipID) {
 
 <template>
   <section class="lab-panel">
-    <h3>Terminal Yard — {{ store.port || '—' }}</h3>
+    <h3>{{ t('terminal.title', { port: store.port || '—' }) }}</h3>
 
     <div v-if="!store.port" class="lab-muted no-port">
-      Select or add a port to register and load containers.
+      {{ t('terminal.selectPort') }}
     </div>
     <div v-else class="ops">
-      <Button label="Register container" icon="pi pi-plus" size="small" outlined @click="openRegister" />
+      <Button :label="t('terminal.registerContainer')" icon="pi pi-plus" size="small" outlined @click="openRegister" />
     </div>
 
-    <h4>Outbound</h4>
+    <h4>{{ t('terminal.outbound') }}</h4>
     <DataTable :value="outboundContainers" size="small" data-key="containerID" resizableColumns columnResizeMode="expand">
       <template #empty>
-        <span class="lab-muted">No outbound containers in this yard — register one above.</span>
+        <span class="lab-muted">{{ t('terminal.outboundEmpty') }}</span>
       </template>
-      <Column field="containerID" header="Container" style="font-family:monospace;font-size:12px" />
-      <Column field="cargo" header="Cargo" />
-      <Column field="originPort" header="Origin" style="width:110px" />
-      <Column header="Destination" style="width:130px">
+      <Column field="containerID" :header="t('table.container')" style="font-family:monospace;font-size:12px" />
+      <Column field="cargo" :header="t('table.cargo')" />
+      <Column field="originPort" :header="t('table.origin')" style="width:110px" />
+      <Column :header="t('table.destination')" style="width:130px">
         <template #body="{ data }">
           <Tag severity="info" :value="data.destPort" />
         </template>
@@ -137,11 +139,11 @@ async function submitLoad(containerID, shipID) {
       <Column header="" style="width:100px">
         <template #body="{ data: container }">
           <Button
-            label="Load"
+            :label="t('action.load')"
             size="small"
             :disabled="store.dockedShips.length === 0 || loadBusyID === container.containerID"
             :loading="loadBusyID === container.containerID"
-            :title="store.dockedShips.length === 0 ? 'No ships docked here' : ''"
+            :title="store.dockedShips.length === 0 ? t('terminal.noDockedShips') : ''"
             @click="openShipMenu($event, container.containerID)"
           />
         </template>
@@ -149,28 +151,28 @@ async function submitLoad(containerID, shipID) {
     </DataTable>
     <Menu ref="shipMenu" :model="shipMenuItems" popup />
 
-    <h4>Arrived</h4>
+    <h4>{{ t('terminal.arrived') }}</h4>
     <DataTable :value="arrivedContainers" size="small" data-key="containerID" resizableColumns columnResizeMode="expand">
       <template #empty>
-        <span class="lab-muted">No containers have arrived at their destination here.</span>
+        <span class="lab-muted">{{ t('terminal.arrivedEmpty') }}</span>
       </template>
-      <Column field="containerID" header="Container" style="font-family:monospace;font-size:12px" />
-      <Column field="cargo" header="Cargo" />
-      <Column field="originPort" header="Origin" style="width:110px" />
-      <Column header="Destination" style="width:130px">
+      <Column field="containerID" :header="t('table.container')" style="font-family:monospace;font-size:12px" />
+      <Column field="cargo" :header="t('table.cargo')" />
+      <Column field="originPort" :header="t('table.origin')" style="width:110px" />
+      <Column :header="t('table.destination')" style="width:130px">
         <template #body="{ data }">
           <Tag severity="success" :value="data.destPort" />
         </template>
       </Column>
     </DataTable>
 
-    <Dialog v-model:visible="registerVisible" header="Register container" modal style="width:26rem">
+    <Dialog v-model:visible="registerVisible" :header="t('terminal.registerContainer')" modal style="width:26rem">
       <div class="dialog-fields">
         <InputGroup>
           <InputGroupAddon>{{ CONTAINER_ID_PREFIX }}</InputGroupAddon>
           <InputText
             v-model="containerSuffix"
-            placeholder="1234567"
+            :placeholder="t('container.suffixPlaceholder')"
             size="small"
             inputmode="numeric"
             maxlength="7"
@@ -178,17 +180,17 @@ async function submitLoad(containerID, shipID) {
           />
         </InputGroup>
         <span v-if="containerSuffix && !containerIDValid" class="format-hint">
-          Must be 7 digits, e.g. {{ CONTAINER_ID_PREFIX }}1234567
+          {{ t('container.formatHint', { containerId: `${CONTAINER_ID_PREFIX}1234567` }) }}
         </span>
-        <InputText v-model.trim="registerForm.cargo" placeholder="cargo, e.g. Electronics" size="small" />
-        <Select v-model="registerForm.destPort" :options="destPortOptions" placeholder="destination port" editable size="small" />
-        <span class="lab-muted">Origin terminal: <code>{{ store.port }}</code></span>
+        <InputText v-model.trim="registerForm.cargo" :placeholder="t('container.cargoPlaceholder')" size="small" />
+        <Select v-model="registerForm.destPort" :options="destPortOptions" :placeholder="t('container.destinationPort')" editable size="small" />
+        <span class="lab-muted">{{ t('container.originTerminal', { port: store.port }) }}</span>
       </div>
       <div v-if="registerError" class="domain-error">{{ registerError }}</div>
       <template #footer>
-        <Button label="Cancel" text size="small" @click="registerVisible = false" />
+        <Button :label="t('action.cancel')" text size="small" @click="registerVisible = false" />
         <Button
-          label="Register"
+          :label="t('action.register')"
           size="small"
           :disabled="registerBusy || !containerIDValid || !registerForm.cargo || !registerForm.destPort"
           :loading="registerBusy"

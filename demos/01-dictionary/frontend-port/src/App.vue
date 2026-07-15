@@ -46,7 +46,7 @@ async function submitNewPort() {
     await store.addShippingPort(newPortName.value)
     newPortVisible.value = false
   } catch (err) {
-    toast.add({ severity: 'error', summary: 'Could not add port', detail: err.message, life: 4000 })
+    toast.add({ severity: 'error', summary: t('toast.portAddFailed'), detail: err.message, life: 4000 })
   }
 }
 
@@ -67,12 +67,12 @@ onUnmounted(() => {
   <div class="layout">
     <header class="topbar">
       <div>
-        <h1>Ship Management</h1>
-        <span class="lab-muted">fleet overview · terminal yard · docked ships · container operations</span>
+        <h1>{{ t('app.title') }}</h1>
+        <span class="lab-muted">{{ t('app.subtitle') }}</span>
       </div>
       <div class="topbar-right">
-        <Tag :severity="store.connected ? 'success' : 'danger'" :value="store.connected ? 'watching' : 'disconnected'" />
-        <label class="lab-muted" for="context">Fleet</label>
+        <Tag :severity="store.connected ? 'success' : 'danger'" :value="store.connected ? t('connection.watching') : t('connection.disconnected')" />
+        <label class="lab-muted" for="context">{{ t('context.fleet') }}</label>
         <Select
           id="context"
           :model-value="store.context"
@@ -86,16 +86,16 @@ onUnmounted(() => {
           v-model="selectedLocale"
           :options="locales"
           size="small"
-          placeholder="—"
+          :placeholder="t('select.none')"
         />
         <Tag
           v-if="usingFallback || partialFallback"
           severity="warning"
-          :value="usingFallback ? 'UI text: bundled (refdata unreachable)' : 'UI text: partially bundled'"
+          :value="usingFallback ? t('fallback.unreachable') : t('fallback.partial')"
         />
         <Button
           :icon="dark ? 'pi pi-sun' : 'pi pi-moon'"
-          :aria-label="dark ? 'Switch to light mode' : 'Switch to dark mode'"
+          :aria-label="dark ? t('a11y.lightMode') : t('a11y.darkMode')"
           text
           rounded
           size="small"
@@ -115,20 +115,20 @@ onUnmounted(() => {
          group; the in-transit view above is port-independent. -->
     <section class="group">
       <div class="group-head">
-        <h2>Port Management</h2>
+        <h2>{{ t('port.management') }}</h2>
         <div class="group-head-controls">
-          <label class="lab-muted" for="port">Port</label>
+          <label class="lab-muted" for="port">{{ t('port.label') }}</label>
           <Select
             id="port"
             :model-value="store.port"
             :options="store.knownPorts"
-            placeholder="select port"
+            :placeholder="t('port.select')"
             size="small"
             @update:model-value="store.setPort($event)"
           />
           <Button
             icon="pi pi-plus"
-            aria-label="Add a shipping port"
+            :aria-label="t('port.add')"
             text
             rounded
             size="small"
@@ -144,21 +144,20 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <Dialog v-model:visible="newPortVisible" header="Add a shipping port" modal style="width:22rem">
+    <Dialog v-model:visible="newPortVisible" :header="t('port.addDialog')" modal style="width:22rem">
       <InputText
         v-model="newPortName"
-        placeholder="port name, e.g. Hamburg"
+        :placeholder="t('port.namePlaceholder')"
         size="small"
         style="width:100%"
         @keyup.enter="submitNewPort"
       />
       <p class="lab-muted dialog-note">
-        Registered immediately in the ports table (Postgres) — usable by every
-        ship arrival and container registration from now on.
+        {{ t('port.addHelp') }}
       </p>
       <template #footer>
-        <Button label="Cancel" text size="small" @click="newPortVisible = false" />
-        <Button label="Add" size="small" :disabled="!newPortName.trim()" @click="submitNewPort" />
+        <Button :label="t('action.cancel')" text size="small" @click="newPortVisible = false" />
+        <Button :label="t('action.add')" size="small" :disabled="!newPortName.trim()" @click="submitNewPort" />
       </template>
     </Dialog>
   </div>

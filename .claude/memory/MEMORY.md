@@ -10,3 +10,6 @@
 - [swag regen diff noise](swag_regen_diff_noise.md) — `swag init` rewrites all $ref names repo-wide; hand-patch doc strings instead of regenerating
 - [BR classification heuristic](br_classification_heuristic.md) — check `commands/*.go` for precedent before asking whether a check is a formal BR or input validation
 - [Event sourcing source-of-truth patterns](event_sourcing_source_of_truth_patterns.md) — Pattern A (Postgres+outbox) vs Pattern B (JetStream-as-truth); B answers the POC question; pending Obsidian note append
+- [UI bug triage: trust framing](ui_bug_triage_trust_framing.md) — when user says "the UI" is wrong, investigate frontend first, don't default to backend audits
+- [PrimeVue RadioButtonGroup for shared state](primevue_radiobutton_group_for_shared_state.md) — standalone RadioButtons in a v-for each keep local state; wrap in RadioButtonGroup
+- [Phase 11.10 localization approved, Option D](phase_11_10_localization_decision_pending.md) — frontend-port localization approved (refdata + generated fallback); not yet implemented

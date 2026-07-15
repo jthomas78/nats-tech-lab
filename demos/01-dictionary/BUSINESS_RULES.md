@@ -311,3 +311,18 @@ Phase 11.9. The default locale is the BR-D03 fallback target, so it must be unam
 
 - **Enforced in:** `postgres.LocaleRepository.Add()` — clears `is_default` for the context and sets the new default in one transaction
 - **Test:** `Localization Domain Rules / Locale management` — "moves the default when another locale is marked default"
+
+---
+
+### BR-D16 — All Port-UI copy resolves through the i18n/refdata layer
+Phase 11.10. Every user-facing string in `frontend-port` — including headings, controls,
+form labels, validation and error feedback, empty states, accessibility labels, derived
+status labels, and notifications — is addressed by a `ui-copy` code through vue-i18n.
+The `ui-copy` seed is the sole authored source for both English and Spanish. A committed,
+generated English catalog provides the BR-D11 cold-paint fallback when refdata is
+unreachable; live refdata overlays that catalog once loaded.
+
+- **Enforced in:** `frontend-port` Vue components via `t()` plus the generated
+  `shared/refdata/uiCopyFallback.en.js` catalog
+- **Test:** `frontend-port/scripts/check-i18n.mjs` rejects bare user-facing literals;
+  `npm run check:i18n` regenerates the fallback and rejects drift

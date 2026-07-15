@@ -5,6 +5,7 @@ FROM node:24-alpine AS build
 WORKDIR /repo
 COPY shared ./shared
 COPY demos/01-dictionary/shared ./demos/01-dictionary/shared
+COPY demos/01-dictionary/refdata-service/refdata/seed.go ./demos/01-dictionary/refdata-service/refdata/seed.go
 COPY demos/01-dictionary/frontend-port ./demos/01-dictionary/frontend-port
 WORKDIR /repo/demos/01-dictionary/frontend-port
 RUN npm install && npm run build

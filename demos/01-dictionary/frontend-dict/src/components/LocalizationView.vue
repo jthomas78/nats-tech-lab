@@ -6,6 +6,7 @@ import DataTable from 'primevue/datatable'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import RadioButton from 'primevue/radiobutton'
+import RadioButtonGroup from 'primevue/radiobuttongroup'
 import Tag from 'primevue/tag'
 import { useToast } from 'primevue/usetoast'
 import { onMounted, ref, watch } from 'vue'
@@ -114,32 +115,34 @@ function ratioSeverity(cell) {
           @click="openRegister"
         />
       </div>
-      <DataTable
-        :value="store.locales.map((l) => ({ locale: l }))"
-        size="small"
-        data-key="locale"
+      <RadioButtonGroup
+        :model-value="store.defaultLocale"
+        @update:model-value="makeDefault"
       >
-        <template #empty>
-          No locales registered for this context yet.
-        </template>
-        <Column
-          field="locale"
-          header="Locale"
-        />
-        <Column header="Default">
-          <template #body="{ data }">
-            <RadioButton
-              :model-value="store.defaultLocale"
-              :value="data.locale"
-              name="default-locale"
-              size="small"
-              :input-id="`default-${data.locale}`"
-              :aria-label="`Make ${data.locale} the default locale`"
-              @update:model-value="makeDefault(data.locale)"
-            />
+        <DataTable
+          :value="store.locales.map((l) => ({ locale: l }))"
+          size="small"
+          data-key="locale"
+        >
+          <template #empty>
+            No locales registered for this context yet.
           </template>
-        </Column>
-      </DataTable>
+          <Column
+            field="locale"
+            header="Locale"
+          />
+          <Column header="Default">
+            <template #body="{ data }">
+              <RadioButton
+                :value="data.locale"
+                size="small"
+                :input-id="`default-${data.locale}`"
+                :aria-label="`Make ${data.locale} the default locale`"
+              />
+            </template>
+          </Column>
+        </DataTable>
+      </RadioButtonGroup>
 
       <Dialog
         v-model:visible="registerVisible"
@@ -251,5 +254,11 @@ function ratioSeverity(cell) {
 .matrix-hint {
   margin: 0 0 0.5rem;
   font-size: 12px;
+}
+/* RadioButtonGroup's root defaults to display:inline-flex — it only exists
+   here to share one d_value across all rows' radios (see PrimeVue's
+   BaseEditableHolder), not to lay anything out, so drop it from the box tree. */
+:deep(.p-radiobutton-group) {
+  display: contents;
 }
 </style>
