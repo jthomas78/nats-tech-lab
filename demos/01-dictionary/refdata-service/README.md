@@ -31,6 +31,27 @@ backend, and all three frontends. See the top-level
 admin UI (`frontend-dict`, http://localhost:5175) that browses this
 service's data.
 
+**Gotcha: stale containers don't pick up new seed data.** `Seed` (in
+`refdata/seed.go`) runs on every `refdata-service` boot and is per-item
+idempotent — it inserts new keys and leaves existing ones alone — but it
+only runs when the process actually starts. A long-running container from
+before a `seed.go` change (e.g. new `ui-copy` keys) keeps serving the old
+catalog indefinitely; `docker compose up` with no flags won't rebuild an
+image that already exists. After changing `seed.go`, rebuild and recreate
+the container, then restart `backend` too so its KV cache/`refdataconsumer`
+picks up the new entries:
+
+```bash
+cd demos/01-dictionary
+docker compose build refdata-service
+docker compose up -d --force-recreate refdata-service
+docker compose restart backend
+```
+
+Symptom if you skip this: the shipping UI's language switch changes only a
+couple of strings (whatever was seeded when the container last started)
+and silently leaves the rest in English.
+
 **Standalone, outside Docker** (useful for hot-reload during development).
 Requires Postgres and NATS already running — the easiest way is via compose:
 

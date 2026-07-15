@@ -24,6 +24,7 @@ Seeded types, each a `DictionaryType` (`type_key`, `name`, `description`):
 | `uom` | UNECE Recommendation 20 unit codes (subset) | 12 |
 | `hazard-class` | UN dangerous goods hazard classes (complete) | 9 |
 | `ship-status` | AIS navigational status (mirrors backend `ShipStatus`) | 5 |
+| `ui-copy` | Port-UI chrome, actions, feedback, and accessibility copy | see `uiCopySeed` |
 
 `ship-status` is the first Shipping-domain enum onboarded into refdata — its
 5 codes (`in-transit`, `docked`, `at-anchor`, `not-under-command`,
@@ -70,11 +71,9 @@ itself triggers.
 
 ## Type Categories & Governance
 
-> **Status:** design model, not yet in code. Today every `DictionaryType` is
-> registered flat (`type_key`, `name`, `description` — no `category` field).
-> The categorization below is the intended model; adding a `category` field and
-> grouping the Dictionary UI by it is tracked as Phase 11.7 in
-> `../../../.claude/plans/Dictionary-Service-Plan.md`.
+> **Status:** implemented in Phase 11.7. Every `DictionaryType` has a controlled
+> `category`, and the Dictionary UI groups types by it. The categorization below
+> is the governance model behind that field.
 
 As the type registry grows, the types are not interchangeable — they fall into
 categories that carry **different rules about who edits them and whether codes
@@ -85,7 +84,7 @@ the reason to formalize categories.
 |---|---|---|---|---|
 | Standards-based reference data | currency, country, incoterm, uom, hazard-class | external standards (ISO 4217/3166, Incoterms, UNECE, UN) | data stewards | rarely change; adds are safe |
 | Domain enums | ship-status | the backend domain (`ShipStatus` consts) | developers own codes; stewards translate | ⚠️ adding/removing a code here is meaningless unless the domain emits it |
-| UI copy / i18n | ui-copy (proposed, Phase 11.7) | the frontend | translators | keys owned by devs; only labels are translatable |
+| UI copy / i18n | ui-copy | the frontend | translators | keys owned by devs; only labels are translatable |
 
 The functionally critical line is **UI copy vs. everything else**: UI copy is
 not reference data at all, and must be namespaced so its keys never leak into
@@ -95,6 +94,42 @@ invent `ship-status` codes the shipping backend will never emit.
 
 `category` is orthogonal to `context` (tenant/region, e.g. `emea-acme`): context
 scopes *which data set*, category classifies *what kind of type* it is.
+
+## Shipping UI Dictionary Map
+
+The Port UI uses the Dictionary service in two deliberately different ways:
+`ui-copy` owns all human-facing chrome, while `ship-status` owns the labels for
+the one coded shipping enum the UI currently renders. The selected locale is
+shared across both paths. Free-form port names and client-derived container
+buckets are intentionally not Dictionary types.
+
+The editable Draw.io source workbook lives in `../diagrams/`, and the exported
+PNGs are kept beside this document for Markdown rendering. Regenerate all three exports
+from the demo directory with `./diagrams/export-png.sh`.
+
+![Shipping UI dictionary ownership map](shipping-ui-dictionary-map.png)
+
+Editable Draw.io source: [architecture-dictionary.drawio](../diagrams/architecture-dictionary.drawio), page `Shipping UI dictionary ownership map`
+
+### Localized rendering lifecycle
+
+The generated fallback makes first paint deterministic. Once live data is
+available, `useUiCopy` and `useRefdataLabels` overlay the selected locale and
+refresh after the KV-watch-backed SSE signal. The fallback is therefore a
+resilience layer, not a second editorial source.
+
+![Localized rendering lifecycle](localized-rendering-lifecycle.png)
+
+Editable Draw.io source: [architecture-dictionary.drawio](../diagrams/architecture-dictionary.drawio), page `Localized rendering lifecycle`
+
+### Runtime sequence
+
+The runtime sequence makes the client-facing query contract explicit: a normal
+KV hit, the miss/stale REST fallback, and the mutation-to-SSE refresh path.
+
+![Shipping UI Dictionary read sequence](shipping-ui-dictionary-sequence.png)
+
+Editable Draw.io source: [architecture-dictionary.drawio](../diagrams/architecture-dictionary.drawio), page `Shipping UI Dictionary read sequence`
 
 ## Data Access Paths
 
