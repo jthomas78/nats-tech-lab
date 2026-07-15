@@ -16,11 +16,19 @@ export const useDictionaryStore = defineStore('dictionary', {
     typeCounts: {},
     selectedType: '',
     items: [],
+    // Master-detail selection (Phase 11.9): the code whose detail panel is
+    // shown next to the item list. Kept valid by refreshItems.
+    selectedCode: '',
     showDeprecated: false,
     locales: [],
-    selectedLocale: '',
+    defaultLocale: '', // the context's fallback locale (BR-D03); '' if none set
+    selectedLocale: 'en', // BR-D13: default to en rather than raw codes ('')
     connected: false,
     lastCacheEvent: null, // { key, revision, at } — bumped on every SSE message
+    // 'items' — the type navigator + item grid (default); 'localization' —
+    // the promoted locale-admin + types×locales completeness matrix view
+    // (Phase 11.7). Not a route — this app has no router, just a mode flag.
+    activeView: 'items',
     _source: null,
   }),
 
@@ -72,11 +80,22 @@ export const useDictionaryStore = defineStore('dictionary', {
     async refreshLocales() {
       const res = await listLocales(this.context)
       this.locales = res?.locales ?? []
+      this.defaultLocale = res?.defaultLocale ?? ''
     },
 
     async selectType(typeKey) {
+      this.activeView = 'items'
       this.selectedType = typeKey
+      this.selectedCode = ''
       await this.refreshItems()
+    },
+
+    selectItem(code) {
+      this.selectedCode = code
+    },
+
+    showLocalizationView() {
+      this.activeView = 'localization'
     },
 
     async refreshItems() {
@@ -89,6 +108,13 @@ export const useDictionaryStore = defineStore('dictionary', {
         locale: this.selectedLocale,
       })
       this.items = res?.items ?? []
+      // Keep the detail panel pointing at something real: drop a selection
+      // that fell out of the list (deleted / filtered), default to the first
+      // item otherwise.
+      const codes = this.items.map((i) => i.code || i.item?.code)
+      if (!codes.includes(this.selectedCode)) {
+        this.selectedCode = codes[0] ?? ''
+      }
     },
 
     async fetchItemDetail(code) {
@@ -97,6 +123,13 @@ export const useDictionaryStore = defineStore('dictionary', {
 
     async addLocaleToContext(locale, isDefault) {
       await addLocale(this.context, locale, isDefault)
+      await this.refreshLocales()
+    },
+
+    // Registering an existing locale with isDefault=true is the API's
+    // set-default operation — the backend clears the old default atomically.
+    async setDefaultLocale(locale) {
+      await addLocale(this.context, locale, true)
       await this.refreshLocales()
     },
   },

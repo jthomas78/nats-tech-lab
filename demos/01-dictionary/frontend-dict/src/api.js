@@ -50,6 +50,10 @@ export function deprecateItem(typeKey, context, code) {
   return request(`/api/refdata/admin/items/${typeKey}/${context}/${code}/deprecate`, { method: 'POST' })
 }
 
+export function reactivateItem(typeKey, context, code) {
+  return request(`/api/refdata/admin/items/${typeKey}/${context}/${code}/reactivate`, { method: 'POST' })
+}
+
 export function deleteItem(typeKey, context, code) {
   return request(`/api/refdata/admin/items/${typeKey}/${context}/${code}`, { method: 'DELETE' })
 }

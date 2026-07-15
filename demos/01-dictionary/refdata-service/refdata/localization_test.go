@@ -69,6 +69,17 @@ var _ = Describe("Dictionary Localization Domain Rules", func() {
 			Expect(resolved.Localization.Label).To(Equal("Euro"))
 		})
 
+		It("treats en as the implicit default in the fallback chain when no locale is marked default (BR-D15)", func() {
+			// No AddLocale(..., true) anywhere — the context has no marked default.
+			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "en", Label: "Euro",
+			})).To(Succeed())
+
+			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "fr-FR")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resolved.Localization.Label).To(Equal("Euro"))
+		})
+
 		It("never fails outright — falls back to the code itself when nothing resolves", func() {
 			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "ja-JP")
 			Expect(err).NotTo(HaveOccurred())
@@ -109,6 +120,21 @@ var _ = Describe("Dictionary Localization Domain Rules", func() {
 			locales, err := locH.ListLocales(ctx, itemCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(locales).To(ContainElement("de-DE"))
+		})
+
+		It("reports en as the default when no locale is marked default (BR-D15)", func() {
+			defaultLocale, err := locH.DefaultLocale(ctx, itemCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(defaultLocale).To(Equal("en"))
+		})
+
+		It("moves the default when another locale is marked default — at most one per context (BR-D14)", func() {
+			Expect(locH.AddLocale(ctx, itemCtx, "en", true)).To(Succeed())
+			Expect(locH.AddLocale(ctx, itemCtx, "es", true)).To(Succeed())
+
+			defaultLocale, err := locH.DefaultLocale(ctx, itemCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(defaultLocale).To(Equal("es"))
 		})
 
 		It("reports localization completeness for a locale", func() {

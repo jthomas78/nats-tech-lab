@@ -1,0 +1,25 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend-dict",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "demos/01-dictionary/frontend-dict",
+      "port": 5175
+    },
+    {
+      "name": "frontend-dict-vs-docker",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--config",
+        "vite.docker.config.js"
+      ],
+      "cwd": "demos/01-dictionary/frontend-dict",
+      "port": 5199
+    }
+  ]
+}

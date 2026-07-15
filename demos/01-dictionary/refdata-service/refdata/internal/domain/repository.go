@@ -19,6 +19,7 @@ type ItemRepository interface {
 	Get(ctx context.Context, typeKey, itemContext, code string) (DictionaryItem, error)
 	List(ctx context.Context, typeKey, itemContext string) ([]DictionaryItem, error)
 	Deprecate(ctx context.Context, typeKey, itemContext, code string) error
+	Reactivate(ctx context.Context, typeKey, itemContext, code string) error
 	Delete(ctx context.Context, typeKey, itemContext, code string) error
 }
 

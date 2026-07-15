@@ -93,6 +93,19 @@ func (h *ItemHandler) DeprecateItem(ctx context.Context, typeKey, itemContext, c
 	return h.notify(ctx, typeKey, itemContext, code)
 }
 
+// ReactivateItem flips a deprecated item back to active — BR-D12: reactivation
+// is a plain status reversal, symmetric with DeprecateItem, with no
+// restrictions on when or how many times it can be applied.
+func (h *ItemHandler) ReactivateItem(ctx context.Context, typeKey, itemContext, code string) error {
+	if _, err := h.items.Get(ctx, typeKey, itemContext, code); err != nil {
+		return err
+	}
+	if err := h.items.Reactivate(ctx, typeKey, itemContext, code); err != nil {
+		return err
+	}
+	return h.notify(ctx, typeKey, itemContext, code)
+}
+
 // DeleteItem hard-deletes an item. BR-D02: only unreferenced items may be
 // hard-deleted; a referenced item must be deprecated instead.
 func (h *ItemHandler) DeleteItem(ctx context.Context, typeKey, itemContext, code string) error {

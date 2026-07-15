@@ -70,6 +70,19 @@ func (r *fakeItemRepo) Deprecate(_ context.Context, typeKey, itemContext, code s
 	return nil
 }
 
+func (r *fakeItemRepo) Reactivate(_ context.Context, typeKey, itemContext, code string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := r.key(typeKey, itemContext, code)
+	item, ok := r.items[k]
+	if !ok {
+		return domain.ErrItemNotFound
+	}
+	item.Status = domain.StatusActive
+	r.items[k] = item
+	return nil
+}
+
 func (r *fakeItemRepo) Delete(_ context.Context, typeKey, itemContext, code string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

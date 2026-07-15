@@ -262,3 +262,52 @@ Phase 11.6. When the shipping backend resolves a reference-data label for displa
 
 - **Enforced in:** `backend/internal/refdataconsumer/Consumer.Lookup()` / `ResolveType()` (`resolveLabel()` implements the fallback; `fetchViaAPI()` forwards `?locale=`)
 - **Test:** `backend/internal/refdataconsumer` — `TestLookupResolvesLabelFromKV`, `TestLookupLabelFallsBackToBareLanguage`, `TestLookupLabelFallsBackToDefaultThenCode`, `TestLookupMissForwardsLocaleToAPI`, `TestResolveTypeReturnsAllCodesFromKV`
+
+---
+
+### BR-D09 — Dictionary types are categorized into a small controlled vocabulary
+Phase 11.7. Every `DictionaryType` carries a `category` — one of `standards`, `domain-enum`, `ui-copy`, or (reserved for later) `config` — set at type-registration time. Registering a type with any other value is rejected. Category is orthogonal to `context` (tenant/region): it groups *types* by who owns and edits them (see ARCHITECTURE-DICTIONARY.md § "Type Categories & Governance"), not by tenant.
+
+- **Error:** `ErrInvalidCategory` — "dictionary type category is not a recognized category"
+- **Enforced in:** `domain.ValidateCategory()`, called from `commands.TypeHandler.RegisterType()`
+- **Test:** `Dictionary Type Domain Rules / BR-D09`
+
+---
+
+### BR-D10 — `ui-copy` items are exempt from typed-reference targeting
+No relation ever declares `ui-copy` as its target type, so BR-D05's target-type validation never applies to a `ui-copy` item, and BR-D02's referenced-item-must-deprecate constraint never triggers for one either — nothing can reference a UI-copy key. This is a structural consequence of no relation declaring that target, not a special-cased exemption in the reference/delete code paths; an unreferenced `ui-copy` item hard-deletes exactly like any other unreferenced item under BR-D02.
+
+- **Enforced in:** (no dedicated enforcement — the absence of any `ui-copy`-targeting relation in the seed/domain is what the test guards against regressing)
+- **Test:** `Dictionary Type Domain Rules / BR-D10`
+
+---
+
+### BR-D11 — The frontend falls back to a bundled UI-copy catalog when refdata is unreachable, and visibly indicates it
+Phase 11.7. UI chrome strings (button labels, filter options) are sourced from the `ui-copy` dictionary type at runtime via vue-i18n, the same KV-cached pipeline as domain labels (BR-D08). If the fetch fails (refdata-service unreachable) or a key has no `ui-copy` entry, the frontend serves a bundled default-locale (`en`) catalog shipped in the build instead — chrome must still render — but the UI must clearly indicate fallback is active (a visible banner/badge). Never silently serve stale or English copy without surfacing that the live catalog isn't being used.
+
+- **Enforced in:** `shared/refdata/useUiCopy.js` (`usingFallback` flag), rendered by each shipping frontend's `App.vue`
+- **Test:** manual — verified in browser by stopping refdata-service and confirming the fallback banner appears (frontend build has no JS test harness; see CLAUDE.md's UI-testing guidance)
+
+---
+
+### BR-D12 — A deprecated item can be reactivated back to active
+Phase 11.8. Deprecation (BR-D02, BR-D06) is not permanent: an admin can flip a deprecated item back to `active` at any time, with no restrictions (e.g. no check for a code collision with a newer item, no reason/audit requirement). This is a plain status reversal, symmetric with `DeprecateItem` — reactivating an item that's already active is a no-op that succeeds.
+
+- **Enforced in:** `commands.ItemHandler.ReactivateItem()` — checks the item exists (`ErrItemNotFound` otherwise), then flips status and bumps the type's version (BR-D04) same as deprecate
+- **Test:** `Dictionary Item Domain Rules / BR-D12`
+
+---
+
+### BR-D13 — The dictionary admin UI's locale selector defaults to `en`, not raw codes
+Phase 11.8. `frontend-dict`'s locale dropdown previously defaulted to an empty selection, which resolves items by their raw code instead of a localized label (BR-D03). It now defaults to `en` on load, matching the precedent already established in `shared/refdata/useRefdataLabels.js` for the other two frontends. A user can still explicitly pick `(code)` from the dropdown to see raw codes.
+
+- **Enforced in:** `frontend-dict/src/stores/dictionary.js` — `selectedLocale` initial state
+- **Test:** manual — verified in browser (frontend build has no JS test harness; see BR-D11's note)
+
+---
+
+### BR-D14 — At most one default locale per context
+Phase 11.9. The default locale is the BR-D03 fallback target, so it must be unambiguous: registering a locale with `isDefault=true` *moves* the default — the previously-default locale is unmarked in the same transaction. There is no separate "set default" operation; re-registering an existing locale is an upsert, so `POST /api/refdata/admin/locales` with `isDefault=true` is both "add as default" and "make this the default". The admin UI renders this as a radio column (exactly-one semantics): the current default cannot be un-set, only replaced.
+
+- **Enforced in:** `postgres.LocaleRepository.Add()` — clears `is_default` for the context and sets the new default in one transaction
+- **Test:** `Localization Domain Rules / Locale management` — "moves the default when another locale is marked default"

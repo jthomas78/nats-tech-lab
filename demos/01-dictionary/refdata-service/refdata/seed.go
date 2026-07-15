@@ -31,14 +31,16 @@ func Seed(ctx context.Context, h *Handlers) error {
 		typeKey     string
 		name        string
 		description string
+		category    domain.TypeCategory
 		items       []seedItem
 	}{
-		{"currency", "Currency", "ISO 4217 currency codes (subset)", currencySeed},
-		{"country", "Country", "ISO 3166-1 alpha-2 country codes (subset)", countrySeed},
-		{"incoterm", "Incoterm", "Incoterms 2020 delivery terms", incotermSeed},
-		{"uom", "Unit of Measure", "UNECE Recommendation 20 unit codes (subset)", uomSeed},
-		{"hazard-class", "Hazard Class", "UN dangerous goods hazard classes", hazardClassSeed},
-		{"ship-status", "Ship Status", "AIS navigational status (mirrors backend ShipStatus)", shipStatusSeed},
+		{"currency", "Currency", "ISO 4217 currency codes (subset)", domain.CategoryStandards, currencySeed},
+		{"country", "Country", "ISO 3166-1 alpha-2 country codes (subset)", domain.CategoryStandards, countrySeed},
+		{"incoterm", "Incoterm", "Incoterms 2020 delivery terms", domain.CategoryStandards, incotermSeed},
+		{"uom", "Unit of Measure", "UNECE Recommendation 20 unit codes (subset)", domain.CategoryStandards, uomSeed},
+		{"hazard-class", "Hazard Class", "UN dangerous goods hazard classes", domain.CategoryStandards, hazardClassSeed},
+		{"ship-status", "Ship Status", "AIS navigational status (mirrors backend ShipStatus)", domain.CategoryDomainEnum, shipStatusSeed},
+		{"ui-copy", "UI Copy", "Frontend UI chrome strings, sourced as reference data (Phase 11.7)", domain.CategoryUICopy, uiCopySeed},
 	}
 
 	if err := h.Localizations.AddLocale(ctx, DefaultContext, "en", true); err != nil {
@@ -50,7 +52,7 @@ func Seed(ctx context.Context, h *Handlers) error {
 
 	for _, s := range seeds {
 		if err := h.Types.RegisterType(ctx, domain.DictionaryType{
-			TypeKey: s.typeKey, Name: s.name, Description: s.description,
+			TypeKey: s.typeKey, Name: s.name, Description: s.description, Category: s.category,
 		}); err != nil {
 			return err
 		}
@@ -150,4 +152,14 @@ var shipStatusSeed = []seedItem{
 	{"at-anchor", "At Anchor", "Fondeado"},
 	{"not-under-command", "Not Under Command", "Sin gobierno"},
 	{"restricted-manoeuvrability", "Restricted Manoeuvrability", "Maniobrabilidad restringida"},
+}
+
+// uiCopySeed is UI chrome copy (Phase 11.7) — codes are vue-i18n message
+// keys, not domain codes; labels are the copy itself. Deliberately small:
+// this seeds the two strings the shipping frontends actually adopt this
+// phase (the status-filter "All" option and the topbar "Language" label),
+// not a full i18n catalog.
+var uiCopySeed = []seedItem{
+	{"filter.all", "All", "Todos"},
+	{"nav.language", "Language", "Idioma"},
 }

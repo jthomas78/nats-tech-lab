@@ -420,7 +420,6 @@ implementation, and lands in `BUSINESS_RULES.md` in the same commit.
 ### Phase 11.7 — UI copy via refdata + dictionary type categories (refdata-as-TMS)
 
 > **Category field, `ui-copy` type, and the Localization view are done (2026-07-14).**
-> **A UI-restructure pass (design review 2026-07-15) shipped as Phase 11.9.**
 > Extends Phase 11.6's pattern from *domain reference data* (ship statuses) to *UI
 > chrome* — the Port UI's status-filter "All" option and both apps' "Language" label are
 > now sourced from refdata via vue-i18n, with a bundled fallback catalog. Per-category
@@ -559,63 +558,6 @@ proliferation, so resist until a real need appears. `category` is orthogonal to 
       status flip, BR-D04 version bump/cache rebuild), a Postgres `Reactivate` repo method, and
       `POST /api/refdata/admin/items/{type}/{context}/{code}/reactivate`. `ItemGrid.vue` gets a
       symmetric "Reactivate" row action, enabled only when an item is deprecated.
-
-### Phase 11.9 — Dictionary UI restructure (master-detail + governance-split sidebar)
-
-> **Complete (2026-07-15, approved same day).** Second layout pass on `frontend-dict`,
-> agreed in review. Scope note: **display labels and layout only** — the BR-D09 category
-> vocabulary (`standards` / `domain-enum` / `ui-copy` / `config`) is unchanged in the
-> domain, DB, and API, so no business-rule or backend changes are involved.
-
-Target shape:
-
-```
-┌ Topbar: Dictionary · Context · [watching] · ☾ ──────────────────────────┐
-├───────────────┬──────────────────────────────────────────────────────────┤
-│ REFERENCE DATA│  country  [standards] 52 items   Locale▾ ⊘ +Add          │
-│   country     │  ┌ item list ──────────┐ ┌ item detail ────────────────┐ │
-│   currency    │  │ ZA  South Africa    │ │ ZA — South Africa           │ │
-│   …           │  │ ZW  Zimbabwe        │ │ [Attrs][Localizations][Refs]│ │
-│ ───────────── │  │ … (filterable,      │ │                             │ │
-│ DOMAIN        │  │    compact)         │ │                             │ │
-│  ▸ Enums      │  └─────────────────────┘ └─────────────────────────────┘ │
-│  ▸ UI Strings │                                                          │
-│  ▸ Configura… │                                                          │
-│ ───────────── │                                                          │
-│ ⚑ Localization│                                                          │
-└───────────────┴──────────────────────────────────────────────────────────┘
-```
-
-- [x] **Category display renames** (labels centralized in `src/categories.js`, consumed
-      by `TypeNavigator.vue` and the main-panel category chip — category *keys* unchanged):
-      `Domain Enums` → **Enums**, `UI Copy` → **UI Strings**, `Config` → **Configuration**;
-      `Reference Data` stays.
-- [x] **Sidebar encodes the governance split** — Reference Data vs Domain — as *visual*
-      grouping, not a deeper tree: Reference Data group first, then a divider with a
-      `DOMAIN` super-eyebrow above the Enums / UI Strings / Configuration groups. The
-      Phase 11.8 expand/collapse behavior stays on the category eyebrows (Category → Type);
-      the Domain super-eyebrow is a non-interactive label — no third interaction level.
-      Revisit collapsible nesting only if the type count grows past ~15.
-- [x] **Master-detail everywhere** — the main panel becomes `[item list | item detail]`
-      for *all* categories (one spatial model; no per-category layout forks). New
-      `ItemDetailPanel.vue` (driven by `store.selectedCode`, kept valid by
-      `refreshItems`) takes over `ItemEditorDialog`'s tabs plus a new **Attrs** tab and
-      the per-item lifecycle actions (deprecate / reactivate / delete), killing the
-      modal churn when walking item-by-item. Only **density** varies by category:
-      a filter input appears for `standards` types (or any list past ~15 items);
-      enums/UI strings/configuration show their full small sets.
-- [x] `ItemEditorDialog.vue` retired — the detail panel covers edit; create stayed a
-      dialog (the small "Register item" form), as anticipated.
-- [x] The **ItemGrid header split** deferred in Phase 11.7 is subsumed: type identity
-      (name, category chip, item count) sits left; view controls (locale, deprecated
-      toggle, Add) sit right.
-- [x] *(follow-up, same day)* **Locales panel: Default column + register dialog.** The
-      Localization view's Locales table gains a Default column with radio (exactly-one)
-      semantics — picking another locale *moves* the default via the existing
-      `POST /admin/locales` upsert, which clears the old default atomically; the inline
-      add-row became a `+ Add` → "Register locale" dialog. Read-side support added:
-      `GET /{context}/locales` now returns `defaultLocale` (additive), with the
-      single-default invariant promoted to **BR-D14** (spec in `localization_test.go`).
 
 ## Renumbering (done at approval)
 

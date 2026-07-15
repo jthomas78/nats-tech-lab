@@ -91,6 +91,14 @@ func (r *ItemRepository) Deprecate(ctx context.Context, typeKey, itemContext, co
 	return err
 }
 
+func (r *ItemRepository) Reactivate(ctx context.Context, typeKey, itemContext, code string) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE refdata.dictionary_items SET status = 'active', updated_at = now()
+		WHERE context = $1 AND type_key = $2 AND code = $3`,
+		itemContext, typeKey, code)
+	return err
+}
+
 func (r *ItemRepository) Delete(ctx context.Context, typeKey, itemContext, code string) error {
 	_, err := r.db.ExecContext(ctx, `
 		DELETE FROM refdata.dictionary_items WHERE context = $1 AND type_key = $2 AND code = $3`,

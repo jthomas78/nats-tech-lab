@@ -11,6 +11,7 @@ import { createApp } from 'vue'
 import { createUnifiPreset, enableDarkMode, themeOptions } from '@unifi-theme/preset.js'
 
 import App from './App.vue'
+import { i18n } from './i18n.js'
 
 enableDarkMode()
 
@@ -23,4 +24,5 @@ app.use(PrimeVue, {
   },
 })
 app.use(ToastService)
+app.use(i18n)
 app.mount('#app')

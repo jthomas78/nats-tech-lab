@@ -13,6 +13,19 @@ type Localization struct {
 	Source      string `json:"source"` // "manual" | "ai" (BR-D07 — not yet enforced)
 }
 
+// ImplicitDefaultLocale is the default locale a context falls back to when no
+// locale is explicitly marked default (BR-D15).
+const ImplicitDefaultLocale = "en"
+
+// EffectiveDefaultLocale applies BR-D15: the explicitly marked default when
+// one exists, ImplicitDefaultLocale otherwise.
+func EffectiveDefaultLocale(marked string) string {
+	if marked == "" {
+		return ImplicitDefaultLocale
+	}
+	return marked
+}
+
 // ResolveLabel implements BR-D03's fallback chain: requested locale ->
 // language -> default locale -> code. Resolution never fails outright for an
 // existing item — if nothing matches, the code itself is returned as the

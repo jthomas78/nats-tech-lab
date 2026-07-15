@@ -12,6 +12,7 @@
 //	GET    /api/refdata/{context}/{type}/cache-status      Postgres set version vs KV _meta version (cache status widget)
 //	POST   /api/refdata/admin/items                        register an item (BR-D01)
 //	POST   /api/refdata/admin/items/{type}/{context}/{code}/deprecate  deprecate an item
+//	POST   /api/refdata/admin/items/{type}/{context}/{code}/reactivate reactivate a deprecated item (BR-D12)
 //	DELETE /api/refdata/admin/items/{type}/{context}/{code} delete an unreferenced item (BR-D02)
 //	POST   /api/refdata/admin/references                   create a typed reference (BR-D05)
 //	GET    /api/refdata/{context}/locales                  locales known to this context
@@ -39,9 +40,10 @@ type errorResponse struct {
 }
 
 type typeRequest struct {
-	TypeKey     string `json:"typeKey"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	TypeKey     string              `json:"typeKey"`
+	Name        string              `json:"name"`
+	Description string              `json:"description"`
+	Category    domain.TypeCategory `json:"category"`
 }
 
 type typesResponse struct {
@@ -98,6 +100,8 @@ type localeRequest struct {
 
 type localesResponse struct {
 	Locales []string `json:"locales"`
+	// DefaultLocale is "" when no locale is marked default for the context.
+	DefaultLocale string `json:"defaultLocale"`
 }
 
 type resolvedItemResponse struct {
@@ -154,6 +158,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/refdata/{context}/{type}/{code}/references", h.listItemReferences)
 	mux.HandleFunc("POST /api/refdata/admin/items", h.registerItem)
 	mux.HandleFunc("POST /api/refdata/admin/items/{type}/{context}/{code}/deprecate", h.deprecateItem)
+	mux.HandleFunc("POST /api/refdata/admin/items/{type}/{context}/{code}/reactivate", h.reactivateItem)
 	mux.HandleFunc("DELETE /api/refdata/admin/items/{type}/{context}/{code}", h.deleteItem)
 	mux.HandleFunc("POST /api/refdata/admin/references", h.createReference)
 	mux.HandleFunc("POST /api/refdata/admin/localizations", h.setLocalization)
@@ -179,11 +184,11 @@ func (h *Handlers) listTypes(w http.ResponseWriter, r *http.Request) {
 }
 
 // @Summary      Register a dictionary type
-// @Description  Registers (or updates the name/description of) a dictionary type, e.g. "currency".
+// @Description  Registers (or updates the name/description/category of) a dictionary type, e.g. "currency". Category (BR-D09) must be one of "standards", "domain-enum", "ui-copy", "config".
 // @Tags         types
 // @Accept       json
 // @Produce      json
-// @Param        body  body  typeRequest  true  "typeKey, name, description"
+// @Param        body  body  typeRequest  true  "typeKey, name, description, category"
 // @Success      201   "created"
 // @Failure      400   {object}  errorResponse
 // @Router       /api/refdata/admin/types [post]
@@ -194,7 +199,7 @@ func (h *Handlers) registerType(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := h.deps.Types.RegisterType(r.Context(), domain.DictionaryType{
-		TypeKey: req.TypeKey, Name: req.Name, Description: req.Description,
+		TypeKey: req.TypeKey, Name: req.Name, Description: req.Description, Category: req.Category,
 	})
 	if err != nil {
 		h.writeError(w, err)
@@ -406,7 +411,7 @@ func (h *Handlers) cacheStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // @Summary      List locales
-// @Description  Lists locales registered for a context.
+// @Description  Lists locales registered for a context, including which one is the default.
 // @Tags         localization
 // @Produce      json
 // @Param        context  path      string  true  "tenant/region context"
@@ -419,7 +424,12 @@ func (h *Handlers) listLocales(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, localesResponse{Locales: locales})
+	defaultLocale, err := h.deps.Localizations.DefaultLocale(r.Context(), r.PathValue("context"))
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, localesResponse{Locales: locales, DefaultLocale: defaultLocale})
 }
 
 // @Summary      Register a locale
@@ -506,6 +516,24 @@ func (h *Handlers) registerItem(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/refdata/admin/items/{type}/{context}/{code}/deprecate [post]
 func (h *Handlers) deprecateItem(w http.ResponseWriter, r *http.Request) {
 	err := h.deps.Items.DeprecateItem(r.Context(), r.PathValue("type"), r.PathValue("context"), r.PathValue("code"))
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// @Summary      Reactivate an item
+// @Description  Flips a deprecated item back to active. BR-D12: a plain status reversal, symmetric with deprecate.
+// @Tags         items
+// @Param        type     path  string  true  "dictionary type key"
+// @Param        context  path  string  true  "tenant/region context"
+// @Param        code     path  string  true  "item code"
+// @Success      204      "no content"
+// @Failure      404      {object}  errorResponse
+// @Router       /api/refdata/admin/items/{type}/{context}/{code}/reactivate [post]
+func (h *Handlers) reactivateItem(w http.ResponseWriter, r *http.Request) {
+	err := h.deps.Items.ReactivateItem(r.Context(), r.PathValue("type"), r.PathValue("context"), r.PathValue("code"))
 	if err != nil {
 		h.writeError(w, err)
 		return

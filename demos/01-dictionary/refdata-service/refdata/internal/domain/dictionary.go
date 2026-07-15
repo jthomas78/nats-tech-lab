@@ -13,11 +13,25 @@ const (
 	StatusDeprecated ItemStatus = "deprecated"
 )
 
+// TypeCategory is the controlled vocabulary for a dictionary type's
+// governance bucket (BR-D09) — who owns and edits the type's codes, not
+// which tenant/region they belong to (see ARCHITECTURE-DICTIONARY.md §
+// "Type Categories & Governance").
+type TypeCategory string
+
+const (
+	CategoryStandards  TypeCategory = "standards"
+	CategoryDomainEnum TypeCategory = "domain-enum"
+	CategoryUICopy     TypeCategory = "ui-copy"
+	CategoryConfig     TypeCategory = "config" // reserved, not seeded yet
+)
+
 // DictionaryType is a type-registry entry, e.g. "currency", "country".
 type DictionaryType struct {
-	TypeKey     string `json:"typeKey"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	TypeKey     string       `json:"typeKey"`
+	Name        string       `json:"name"`
+	Description string       `json:"description"`
+	Category    TypeCategory `json:"category"`
 }
 
 // DictionaryItem is one lookup value within a type, scoped to a context
@@ -64,7 +78,21 @@ var (
 
 	// ErrReferenceNotFound — the named relation has no reference recorded from this item.
 	ErrReferenceNotFound = errors.New("no reference found for this relation")
+
+	// ErrInvalidCategory — BR-D09: category must be one of the controlled vocabulary.
+	ErrInvalidCategory = errors.New("dictionary type category is not a recognized category")
 )
+
+// ValidateCategory enforces BR-D09 — a dictionary type's category must be
+// one of the small controlled vocabulary, not a free-form string.
+func ValidateCategory(c TypeCategory) error {
+	switch c {
+	case CategoryStandards, CategoryDomainEnum, CategoryUICopy, CategoryConfig:
+		return nil
+	default:
+		return ErrInvalidCategory
+	}
+}
 
 // FilterAssignable applies BR-D06's default listing rule: deprecated items
 // still resolve on direct Get, but are excluded from "assignable values"

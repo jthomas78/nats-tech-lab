@@ -16,18 +16,18 @@ func NewTypeRepository(db *sql.DB) *TypeRepository { return &TypeRepository{db: 
 
 func (r *TypeRepository) Register(ctx context.Context, t domain.DictionaryType) error {
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO refdata.dictionary_types (type_key, name, description)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (type_key) DO UPDATE SET name = $2, description = $3`,
-		t.TypeKey, t.Name, t.Description)
+		INSERT INTO refdata.dictionary_types (type_key, name, description, category)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (type_key) DO UPDATE SET name = $2, description = $3, category = $4`,
+		t.TypeKey, t.Name, t.Description, t.Category)
 	return err
 }
 
 func (r *TypeRepository) Get(ctx context.Context, typeKey string) (domain.DictionaryType, error) {
 	var t domain.DictionaryType
 	err := r.db.QueryRowContext(ctx, `
-		SELECT type_key, name, description FROM refdata.dictionary_types WHERE type_key = $1`,
-		typeKey).Scan(&t.TypeKey, &t.Name, &t.Description)
+		SELECT type_key, name, description, category FROM refdata.dictionary_types WHERE type_key = $1`,
+		typeKey).Scan(&t.TypeKey, &t.Name, &t.Description, &t.Category)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.DictionaryType{}, domain.ErrTypeNotFound
 	}
@@ -36,7 +36,7 @@ func (r *TypeRepository) Get(ctx context.Context, typeKey string) (domain.Dictio
 
 func (r *TypeRepository) List(ctx context.Context) ([]domain.DictionaryType, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT type_key, name, description FROM refdata.dictionary_types ORDER BY type_key`)
+		SELECT type_key, name, description, category FROM refdata.dictionary_types ORDER BY type_key`)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func (r *TypeRepository) List(ctx context.Context) ([]domain.DictionaryType, err
 	types := []domain.DictionaryType{}
 	for rows.Next() {
 		var t domain.DictionaryType
-		if err := rows.Scan(&t.TypeKey, &t.Name, &t.Description); err != nil {
+		if err := rows.Scan(&t.TypeKey, &t.Name, &t.Description, &t.Category); err != nil {
 			return nil, err
 		}
 		types = append(types, t)

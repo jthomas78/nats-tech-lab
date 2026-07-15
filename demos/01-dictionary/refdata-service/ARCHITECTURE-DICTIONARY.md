@@ -68,6 +68,34 @@ duplicates, and `SetLocalization` is an upsert keyed on
 localization rows or bump the type's set version beyond what the upsert
 itself triggers.
 
+## Type Categories & Governance
+
+> **Status:** design model, not yet in code. Today every `DictionaryType` is
+> registered flat (`type_key`, `name`, `description` — no `category` field).
+> The categorization below is the intended model; adding a `category` field and
+> grouping the Dictionary UI by it is tracked as Phase 11.7 in
+> `../../../.claude/plans/Dictionary-Service-Plan.md`.
+
+As the type registry grows, the types are not interchangeable — they fall into
+categories that carry **different rules about who edits them and whether codes
+are safe to change at runtime**. That governance difference (not cosmetics) is
+the reason to formalize categories.
+
+| Category | Examples | Source of truth | Who edits | Codes at runtime |
+|---|---|---|---|---|
+| Standards-based reference data | currency, country, incoterm, uom, hazard-class | external standards (ISO 4217/3166, Incoterms, UNECE, UN) | data stewards | rarely change; adds are safe |
+| Domain enums | ship-status | the backend domain (`ShipStatus` consts) | developers own codes; stewards translate | ⚠️ adding/removing a code here is meaningless unless the domain emits it |
+| UI copy / i18n | ui-copy (proposed, Phase 11.7) | the frontend | translators | keys owned by devs; only labels are translatable |
+
+The functionally critical line is **UI copy vs. everything else**: UI copy is
+not reference data at all, and must be namespaced so its keys never leak into
+business/reference-data queries. The standards-vs-domain-enum distinction is
+more informational, but still worth surfacing — e.g. a steward should not
+invent `ship-status` codes the shipping backend will never emit.
+
+`category` is orthogonal to `context` (tenant/region, e.g. `emea-acme`): context
+scopes *which data set*, category classifies *what kind of type* it is.
+
 ## Data Access Paths
 
 Three ways to reach the same data, one source of truth. Postgres is

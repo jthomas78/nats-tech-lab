@@ -7,7 +7,7 @@ import { onMounted, onUnmounted, ref } from 'vue'
 
 import CacheStatusWidget from './components/CacheStatusWidget.vue'
 import ItemGrid from './components/ItemGrid.vue'
-import LocalesPanel from './components/LocalesPanel.vue'
+import LocalizationView from './components/LocalizationView.vue'
 import TypeNavigator from './components/TypeNavigator.vue'
 import { CONTEXTS, useDictionaryStore } from './stores/dictionary'
 import { isDark, toggleTheme } from '@unifi-theme/preset.js'
@@ -62,11 +62,13 @@ onUnmounted(() => store.disconnect())
     <div class="main">
       <TypeNavigator />
       <div class="content">
-        <ItemGrid />
-        <div class="lower-panels">
-          <LocalesPanel />
-          <CacheStatusWidget />
-        </div>
+        <LocalizationView v-if="store.activeView === 'localization'" />
+        <template v-else>
+          <ItemGrid />
+          <div class="lower-panels">
+            <CacheStatusWidget />
+          </div>
+        </template>
       </div>
     </div>
   </div>
@@ -110,14 +112,11 @@ onUnmounted(() => store.disconnect())
 }
 .lower-panels {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 0.625rem;
 }
 @media (max-width: 900px) {
   .main {
-    grid-template-columns: 1fr;
-  }
-  .lower-panels {
     grid-template-columns: 1fr;
   }
 }

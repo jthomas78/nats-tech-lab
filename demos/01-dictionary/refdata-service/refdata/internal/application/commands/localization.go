@@ -66,7 +66,7 @@ func (h *LocalizationHandler) ResolveItem(ctx context.Context, typeKey, itemCont
 	if err != nil {
 		return ResolvedItem{}, err
 	}
-	defaultLocale, err := h.locales.Default(ctx, itemContext)
+	defaultLocale, err := h.DefaultLocale(ctx, itemContext)
 	if err != nil {
 		return ResolvedItem{}, err
 	}
@@ -88,6 +88,16 @@ func (h *LocalizationHandler) AddLocale(ctx context.Context, itemContext, locale
 
 func (h *LocalizationHandler) ListLocales(ctx context.Context, itemContext string) ([]string, error) {
 	return h.locales.List(ctx, itemContext)
+}
+
+// DefaultLocale reports the context's effective default locale: the one
+// marked default, or en when none is marked (BR-D15).
+func (h *LocalizationHandler) DefaultLocale(ctx context.Context, itemContext string) (string, error) {
+	marked, err := h.locales.Default(ctx, itemContext)
+	if err != nil {
+		return "", err
+	}
+	return domain.EffectiveDefaultLocale(marked), nil
 }
 
 // Completeness reports how many of a type's items have a localization for

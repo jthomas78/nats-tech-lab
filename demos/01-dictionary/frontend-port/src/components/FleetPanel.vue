@@ -7,6 +7,7 @@ import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import { useToast } from 'primevue/usetoast'
+import { useI18n } from 'vue-i18n'
 import { computed, reactive, ref } from 'vue'
 
 import { arrivePort } from '../api'
@@ -21,12 +22,13 @@ import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
 const store = usePortStore()
 const toast = useToast()
 const { statusLabel } = useRefdataLabels()
+const { t } = useI18n()
 
-// Filter options — the docked/in-transit labels resolve from refdata (so they
-// re-translate with the locale switcher); "All" is a filter meta-option with
-// no reference-data code, so it stays as-is.
+// Filter options — the docked/in-transit labels resolve from ship-status
+// refdata (domain-enum); "All" is UI chrome, resolved from the ui-copy
+// refdata type (Phase 11.7) via the same locale switcher.
 const statusFilters = computed(() => [
-  { label: 'All', value: 'all' },
+  { label: t('filter.all'), value: 'all' },
   { label: statusLabel('docked', 'Docked'), value: 'docked' },
   { label: statusLabel('in-transit', 'In transit'), value: 'in-transit' },
 ])

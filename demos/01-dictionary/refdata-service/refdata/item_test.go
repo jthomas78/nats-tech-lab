@@ -85,6 +85,45 @@ var _ = Describe("Dictionary Item Domain Rules", func() {
 		})
 	})
 
+	Context("BR-D12: a deprecated item can be reactivated back to active", func() {
+		BeforeEach(func() {
+			_, err := h.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: "JPY", Context: "emea-acme"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(h.DeprecateItem(ctx, "currency", "emea-acme", "JPY")).To(Succeed())
+		})
+
+		It("flips a deprecated item back to active", func() {
+			Expect(h.ReactivateItem(ctx, "currency", "emea-acme", "JPY")).To(Succeed())
+			item, err := h.Get(ctx, "currency", "emea-acme", "JPY")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(item.Status).To(Equal(domain.StatusActive))
+		})
+
+		It("reappears in ListAssignable once reactivated", func() {
+			Expect(h.ReactivateItem(ctx, "currency", "emea-acme", "JPY")).To(Succeed())
+			assignable, err := h.ListAssignable(ctx, "currency", "emea-acme")
+			Expect(err).NotTo(HaveOccurred())
+			codes := make([]string, 0, len(assignable))
+			for _, item := range assignable {
+				codes = append(codes, item.Code)
+			}
+			Expect(codes).To(ContainElement("JPY"))
+		})
+
+		It("is a no-op when reactivating an item that is already active", func() {
+			Expect(h.ReactivateItem(ctx, "currency", "emea-acme", "JPY")).To(Succeed())
+			Expect(h.ReactivateItem(ctx, "currency", "emea-acme", "JPY")).To(Succeed())
+			item, err := h.Get(ctx, "currency", "emea-acme", "JPY")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(item.Status).To(Equal(domain.StatusActive))
+		})
+
+		It("returns ErrItemNotFound when reactivating an item that doesn't exist", func() {
+			err := h.ReactivateItem(ctx, "currency", "emea-acme", "does-not-exist")
+			Expect(errors.Is(err, domain.ErrItemNotFound)).To(BeTrue())
+		})
+	})
+
 	Context("BR-D06: deprecated items still resolve on read but are excluded from assignable-value listings by default", func() {
 		BeforeEach(func() {
 			_, err := h.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: "GBP", Context: "emea-acme"})

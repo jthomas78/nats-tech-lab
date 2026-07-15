@@ -1,8 +1,10 @@
-# Build context is the REPO ROOT (see docker-compose.yml) so the shared
-# UniFi theme preset can be copied in alongside the app.
+# Build context is the REPO ROOT (see docker-compose.yml) so both the
+# repo-root shared UniFi theme preset (@unifi-theme) and the demo-local
+# shared refdata composables (@refdata) can be copied in alongside the app.
 FROM node:24-alpine AS build
 WORKDIR /repo
 COPY shared ./shared
+COPY demos/01-dictionary/shared ./demos/01-dictionary/shared
 COPY demos/01-dictionary/frontend ./demos/01-dictionary/frontend
 WORKDIR /repo/demos/01-dictionary/frontend
 RUN npm install && npm run build

@@ -6,6 +6,7 @@ import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import Toast from 'primevue/toast'
 import { useToast } from 'primevue/usetoast'
+import { useI18n } from 'vue-i18n'
 import { onMounted, onUnmounted, ref } from 'vue'
 
 import FleetPanel from './components/FleetPanel.vue'
@@ -14,9 +15,13 @@ import TerminalPanel from './components/TerminalPanel.vue'
 import { CONTEXTS, usePortStore } from './stores/port'
 import { isDark, toggleTheme } from '@unifi-theme/preset.js'
 import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
+import { useUiCopy } from '@refdata/useUiCopy.js'
+import { i18n } from './i18n.js'
 
 const store = usePortStore()
 const { selectedLocale, locales, connect: connectRefdata, disconnect: disconnectRefdata } = useRefdataLabels()
+const { usingFallback, partialFallback, connect: connectUiCopy, disconnect: disconnectUiCopy } = useUiCopy()
+const { t } = useI18n()
 const dark = ref(isDark())
 const toast = useToast()
 
@@ -48,10 +53,12 @@ async function submitNewPort() {
 onMounted(() => {
   store.connect()
   connectRefdata()
+  connectUiCopy(i18n)
 })
 onUnmounted(() => {
   store.disconnect()
   disconnectRefdata()
+  disconnectUiCopy()
 })
 </script>
 
@@ -73,13 +80,18 @@ onUnmounted(() => {
           size="small"
           @update:model-value="store.setContext($event)"
         />
-        <label class="lab-muted" for="locale">Language</label>
+        <label class="lab-muted" for="locale">{{ t('nav.language') }}</label>
         <Select
           id="locale"
           v-model="selectedLocale"
           :options="locales"
           size="small"
           placeholder="—"
+        />
+        <Tag
+          v-if="usingFallback || partialFallback"
+          severity="warning"
+          :value="usingFallback ? 'UI text: bundled (refdata unreachable)' : 'UI text: partially bundled'"
         />
         <Button
           :icon="dark ? 'pi pi-sun' : 'pi pi-moon'"

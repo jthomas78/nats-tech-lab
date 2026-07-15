@@ -18,6 +18,11 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			description TEXT NOT NULL DEFAULT ''
 		)`,
 
+		// BR-D09 (Phase 11.7): category is a controlled vocabulary validated in
+		// the domain layer (domain.ValidateCategory), not a DB CHECK constraint —
+		// consistent with how ItemStatus is validated in Go, not SQL.
+		`ALTER TABLE refdata.dictionary_types ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'standards'`,
+
 		// No per-item version column: versioning is a property of the type's
 		// whole set (BR-D04), tracked in dictionary_set_versions and stamped
 		// onto the KV cache entry (kvcache.Entry.Version) — not on the row.
