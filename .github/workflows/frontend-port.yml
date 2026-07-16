@@ -27,4 +27,5 @@ jobs:
           cache-dependency-path: demos/01-dictionary/frontend-port/package-lock.json
       - run: npm ci
       - run: npm run check:i18n
+      - run: npm run test
       - run: npm run build

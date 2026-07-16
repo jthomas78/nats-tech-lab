@@ -192,6 +192,16 @@ Install the `ginkgo` CLI once with:
 go install github.com/onsi/ginkgo/v2/ginkgo@latest
 ```
 
+From `demos/01-dictionary/frontend-port/`:
+
+```bash
+# Run the Port Management frontend test suite once
+npm run test
+
+# Watch mode — re-runs affected tests on every file save
+npm run test:watch
+```
+
 All business rules must have a passing test. See [BUSINESS_RULES.md](BUSINESS_RULES.md) for the full rule inventory.
 
 All host ports are non-default to avoid clashing with services already

@@ -7,7 +7,7 @@ metadata:
 
 **Phase 6** (merged into `poc/dictionary1.6`, 2026-07-07) replaced the generic `DictionaryEntry` domain with a shipping domain (Fowler Ship/Port/Cargo + Petrosyan Go structural pattern): `ShipAggregate`, `hydrate()` replay-per-command, Shape A/B/C all wired. Stream was named `DICTIONARY`; subjects were `DICTIONARY.ship.*` / `DICTIONARY.cargo.*`.
 
-**Phase 8** (current, branch `poc/dictionary1.8.2`) is a bigger revision on top of Phase 6, not a separate phase to track independently — this memory describes the current state directly rather than a historical snapshot:
+**Phase 8** (introduced on branch `poc/dictionary1.8.2`; the repo has since moved on to later phases, e.g. Phase 11's dictionary-as-a-service work) was a bigger revision on top of Phase 6, not a separate phase to track independently — this memory describes the Ship/Container domain foundation, which later phases have built on rather than replaced:
 
 - Stream renamed `DICTIONARY` → `SHIPPING` (breaking change to every subject).
 - `Container` added as its own aggregate (`ContainerAggregate`, `domain/container.go`), co-located with `ShipAggregate` on the single `SHIPPING` stream. The `Cargo` value object on `ShipAggregate` was retired — a ship's manifest is now a client-side/query-side join on `onShipID == shipID`.

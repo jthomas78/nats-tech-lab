@@ -325,4 +325,6 @@ unreachable; live refdata overlays that catalog once loaded.
 - **Enforced in:** `frontend-port` Vue components via `t()` plus the generated
   `shared/refdata/uiCopyFallback.en.js` catalog
 - **Test:** `frontend-port/scripts/check-i18n.mjs` rejects bare user-facing literals;
-  `npm run check:i18n` regenerates the fallback and rejects drift
+  `npm run check:i18n` regenerates the fallback and rejects drift;
+  `frontend-port/src/App.spec.js` mounts the real UI with vue-i18n and verifies locale
+  switching, interpolation, pluralization, and mutually-exclusive Fleet/Port rendering

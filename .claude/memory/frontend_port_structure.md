@@ -1,18 +1,24 @@
 ---
 name: frontend-port-structure
-description: frontend-port/ layout, component responsibilities, and store getter conventions after the Ship Management split
+description: frontend-port/ layout (activity-bar Fleet/Port view split), i18n architecture, component responsibilities, and store getter conventions
 metadata:
   type: project
 ---
 
-`demos/01-dictionary/frontend-port/` (dev port 5174) is titled **"Ship Management"** in `App.vue` (renamed from "Port Management" — the title now spans both fleet-wide and port-scoped views).
+`demos/01-dictionary/frontend-port/` (dev port 5174) is titled **"Ship Management"** in `App.vue`, spanning both fleet-wide and port-scoped views.
 
-**Layout — two stacked `.group` sections in `App.vue`:**
-1. `FleetPanel.vue` — fleet-wide, read-only, NOT gated on `store.port`. Status filter `Select` (All/Docked/In transit) over `store.allShips`. Shows every ship regardless of which port is selected, including ones docked elsewhere — this replaced an earlier "ships in transit only" design that had a blind spot (docked-elsewhere ships were invisible).
-2. "Port Management" group — wraps `TerminalPanel.vue` + `ShipsAtPortPanel.vue`, both still gated on `v-if="store.port"`. The port `<Select>` + "Add port" `+` button live in this group's header now, not the topbar (moved out because the Fleet group above doesn't need it). Topbar keeps only the Fleet/context `<Select>`, connection status `Tag`, and theme toggle — those are fleet-scoped, not port-scoped.
+**Layout — activity-bar view switch (superseded the old stacked-sections layout as of Phase 11.10, 2026-07-16):** `App.vue` holds a single `activeView` ref (`'fleet'` | `'port'`); `NavSidebar.vue` (with `IconFleet.vue`/`IconPort.vue`) renders the nav items and drives `v-model="activeView"`. Exactly one of the two `<section>`s renders at a time (`v-if`/`v-else`, `data-testid="fleet-view"` / `"port-view"`) — never both simultaneously. Add more views by pushing onto the `views` computed array, not by introducing a router.
+1. Fleet view (`data-testid="fleet-view"`) — `FleetPanel.vue`, fleet-wide, read-only, NOT gated on `store.port`. Status filter `Select` (All/Docked/In transit) over `store.allShips`. Shows every ship regardless of which port is selected, including ones docked elsewhere.
+2. Port view (`data-testid="port-view"`) — wraps `TerminalPanel.vue` + `ShipsAtPortPanel.vue`, gated on `v-if="store.port"`. The port `<Select>` + "Add port" `+` button live in this view's header, not the topbar. Topbar keeps only the Fleet/context `<Select>`, connection status `Tag`, and theme toggle — fleet-scoped, not port-scoped.
+
+The topbar subtitle (`.topbar .lab-muted`) switches per view too: `app.subtitleFleet` vs `app.subtitlePort` (two separate ui-copy keys, split from one shared `app.subtitle` during Phase 11.10).
+
+**Localization (Phase 11.10, implemented 2026-07-16) — Option D: all UI copy lives in refdata, no bundled hand-maintained fallback.** Every user-facing string in `frontend-port` (~90 literals across `App.vue`/`FleetPanel.vue`/`ShipsAtPortPanel.vue`/`TerminalPanel.vue`) is a `ui-copy` refdata item (en+es rows in `refdata-service/refdata/seed.go`'s `uiCopySeed`) — the sole authored source, routed through `t()`. The bundled cold-paint fallback (`shared/refdata/uiCopyFallback.en.js`, required by BR-D11) is *generated* from that seed by `scripts/gen-i18n.mjs` (shared parsing logic lives in `scripts/parseUiCopySeed.mjs`), wired as a `prebuild` hook, with a CI drift-check (`npm run check:i18n`) failing the build if regenerating produces a diff — this is what keeps the seed authoritative. BR-D16 (`BUSINESS_RULES.md`) is the rule of record; full decision rationale (why D over the other three options considered) is in `.claude/plans/Dictionary-Service-Plan.md`'s Phase 11.10 section — don't re-litigate it if asked to continue this work.
+
+**Test harness:** `frontend-port` now has Vitest + `@vue/test-utils` + `happy-dom` (`npm test`, wired into CI in `.github/workflows/frontend-port.yml`). `src/App.spec.js` mounts `App.vue` with a real i18n instance built from the seed (via `parseUiCopySeed.mjs`) and asserts locale-switch, interpolation, pluralization, and the fleet/port no-overlap invariant. Gotcha: resolve `seed.go`'s path via `import.meta.url`/`fileURLToPath`, not `process.cwd()` (breaks under different invocation directories) — and avoid the literal `new URL('...', import.meta.url)` pattern in test files, since Vite's import analysis special-cases that exact syntax for asset resolution and rewrites it to a broken `/@fs/...` dev-server URL; use `dirname(fileURLToPath(import.meta.url))` + `path.resolve` instead.
 
 **`stores/port.js` getter conventions:** `dockedShips` and `allShips` both sort by `shipID`; filtering (docked vs in-transit vs by-port) is done in the getter or the component, never mutating state. `manifestFor(shipID)` is a join on `onShipID`, valid for ships at sea too (a container stays on a ship's manifest after departure).
 
 **Operations are localized on the panel whose data they act on** (not a standalone Operations panel — that was removed in an earlier UX pass): Register/Load on `TerminalPanel.vue`, Arrive/Depart/Unload on `ShipsAtPortPanel.vue`. Unload is inline per manifest row (enabled only when `container.destPort === store.port`), not a separate ship/container picker — see [[stale-select-value-on-filter-change]] for why the picker version was buggy.
 
-**How to apply:** When adding a new panel or operation to this frontend, follow the existing pattern — gate port-scoped panels on `store.port`, keep fleet-wide views ungated, and put the operation's controls on the panel showing the data it acts on.
+**How to apply:** When adding a new panel or operation to this frontend, follow the existing pattern — gate port-scoped panels on `store.port`, keep fleet-wide views ungated, put the operation's controls on the panel showing the data it acts on, and route any new user-facing string through refdata `ui-copy` (not a hardcoded literal or a hand-written fallback entry).

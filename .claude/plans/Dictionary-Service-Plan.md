@@ -726,11 +726,87 @@ apply** — that was only needed for Option C's dev-owned/refdata split.
       replacing it (attributes / aria-labels / placeholders still need functional `t()`), and
       does **not** remove cold-paint — hence still generate the bundle.
 
+**Track 3 — frontend test harness (closes the BR-D16 UI-rendering gap).**
+
+> **Added 2026-07-15.** Gap found during review: Phase 11.10's localization is verified
+> today only by (a) `scripts/check-i18n.mjs` — a *static* scan that greps `.vue` files for
+> bare literals and runs the generator drift-check, and (b) `refdata/seed_test.go`'s BR-D16
+> spec, which proves the seed *data* is complete (en+es non-empty) but never mounts the UI.
+> Nothing renders `App.vue`, switches locale, and asserts the visible strings actually
+> change. Per CLAUDE.md ("every business rule must have a test"), BR-D16's *consumption*
+> side is uncovered — all locale-switch verification this session was manual via the browser.
+> This track adds an automated rendered-output harness. **`frontend-port` has no test
+> framework installed today** (deps: `@primevue/themes`, `pinia`, `primeicons`, `primevue`,
+> `vue`, `vue-i18n`; scripts: `dev`, `gen:i18n`, `check:i18n`, `prebuild`, `build`, `preview`
+> — no `test`).
+
+> **Also in scope for this track (undocumented until now):** landing the harness required
+> mounting `App.vue` after the Fleet/Port split into an activity-bar layout — `NavSidebar.vue`
+> + `icons/IconFleet.vue` + `icons/IconPort.vue`, `App.vue`'s `activeView` ref replacing the
+> old always-both-sections layout, and `app.subtitle` splitting into `app.subtitleFleet` /
+> `app.subtitlePort` (one per view). This UI restructuring wasn't itemized under Track 1 —
+> recorded here since the Track 3 no-view-overlap spec exists specifically to guard it.
+
+> **Post-review hardening (2026-07-16):** a completeness review of this track found the
+> harness passing but fragile in three ways, now fixed:
+> - `App.spec.js`'s `seedCatalogs()` resolved `seed.go` via `resolve(process.cwd(), ...)`,
+>   so the suite only passed when `npm test` ran with `frontend-port` as cwd. It now derives
+>   the path from `import.meta.url` (matching `scripts/gen-i18n.mjs`'s approach), and passes
+>   regardless of invocation directory. Note it deliberately avoids the literal
+>   `new URL('...', import.meta.url)` pattern — Vite's import analysis special-cases exactly
+>   that syntax for asset resolution and rewrites it to a dev-server `/@fs/...` URL, which
+>   breaks a plain `readFileSync`; `dirname(fileURLToPath(import.meta.url))` sidesteps it.
+> - The seed-parsing regex/boundary logic was duplicated between `gen-i18n.mjs` and
+>   `App.spec.js`. Extracted into `scripts/parseUiCopySeed.mjs`, imported by both, so a future
+>   seed-format change only needs fixing in one place.
+> - The pluralization spec asserted `.manifest-count` nodes by DOM position
+>   (`[0,1,2]` order), which happened to match ship-insertion order but wasn't guaranteed by
+>   the DataTable. Rewrote as `manifestCountsByShipId()`, keying each assertion to its row's
+>   own shipID instead of render order.
+> - Added assertions for the `app.subtitlePort` branch (previously only `subtitleFleet` was
+>   exercised) and broadened the "no bare en literal survives locale switch" check to also
+>   cover the language-selector label and connection-status tag, not just the title/nav.
+
+- [x] **Install the harness** in `demos/01-dictionary/frontend-port`: `vitest`,
+      `@vue/test-utils`, and a DOM env (`happy-dom` preferred over `jsdom` — lighter, enough
+      for text assertions). Add `"test": "vitest run"` (and optionally `"test:watch":
+      "vitest"`) to `package.json` scripts. Configure `test.environment = 'happy-dom'` in
+      `vite.config.js` (Vitest reads the existing Vite config, so the `@refdata`/`@unifi-theme`
+      aliases and the Vue plugin come for free — do not duplicate them).
+- [x] **Mount with a real i18n instance.** Build the test i18n from the *generated*
+      `shared/refdata/uiCopyFallback.en.js` for `en`, plus an `es` catalog. Prefer deriving
+      both locales from `refdata-service`'s `uiCopySeed` so the test can't silently drift from
+      the authored source (mirror how `scripts/gen-i18n.mjs` parses `seed.go`); at minimum,
+      seed the handful of keys the assertions below touch. Stub the network layer
+      (`useUiCopy`/`useRefdataLabels` refdata fetch) so tests are offline and deterministic —
+      the point is to prove the *i18n consumption path* renders, not to hit refdata.
+- [x] **BR-D16 rendered-output specs** (the load-bearing tests):
+      - Locale switch changes visible chrome: mount at `en`, assert the topbar title, nav
+        labels ("Fleet Management" / "Port Management"), and view subtitle render their `en`
+        strings; set `i18n.global.locale` to `es`, `await nextTick()`, assert the *same* nodes
+        now show the `es` strings ("Gestión de flota" / "Gestión portuaria" / etc.). This is
+        the test that would have caught the stale-container symptom (only 2 strings switching).
+      - Interpolation localizes: a string using named interpolation (e.g. `Ships at Port —
+        {port}` / `Terminal Yard — {port}`) renders the port value inside the localized frame
+        in both locales.
+      - Pluralization localizes: the `container(s)` plural renders correct `en` and real `es`
+        plural forms at counts 0/1/2 — not an English `(s)` suffix.
+      - No bare literals leak: assert no assertion-targeted node still shows the `en` string
+        after switching to `es` (guards against a `t()` call that was missed).
+- [x] **No-view-overlap spec** (guards the Track-1 `v-if`/`v-else` in `App.vue`): with
+      `activeView = 'fleet'` the Fleet panel renders and the Port section does not; toggling to
+      `'port'` inverts it — the two views are never in the DOM simultaneously.
+- [x] **Wire into CI** alongside `check:i18n` (the static scan and the rendered harness are
+      complementary, not redundant — keep both). `npm run test` must pass green as the task's
+      final step, same gate CLAUDE.md imposes on the Go suite.
+
 **Quality (per CLAUDE.md — BR + test + docs in the same task).**
 
 - [x] **BR-D16:** all user-facing Port-UI copy resolves through the i18n layer —
-      no bare user-facing literals in `frontend-port` templates. Testable (a lint/scan step
-      or a spec asserting rendered strings come from the catalog).
+      no bare user-facing literals in `frontend-port` templates. *Static* side covered by
+      `scripts/check-i18n.mjs`; *rendered* side (locale switch actually changes visible
+      strings) covered by the Track 3 harness above — **the Vitest specs are the BR-D16
+      test of record for the UI-consumption path.**
 - [ ] ~~BR-D17~~ — dropped. It only made sense under Option C's dev-owned/refdata split;
       Option D routes every string through refdata, so there is no boundary to encode.
 - [x] Update `BUSINESS_RULES.md` and this checklist together. (Next free number is
