@@ -106,6 +106,20 @@ func (h *ItemHandler) ReactivateItem(ctx context.Context, typeKey, itemContext, 
 	return h.notify(ctx, typeKey, itemContext, code)
 }
 
+// UpdateItemAttrs replaces an item's entire attrs map (BR-D18). Full
+// replace, not a per-key merge — consistent with RegisterItem's Attrs
+// semantics. Works regardless of item status, mirroring BR-D06's
+// read-regardless-of-status stance rather than gating writes on Deprecate.
+func (h *ItemHandler) UpdateItemAttrs(ctx context.Context, typeKey, itemContext, code string, attrs map[string]any) error {
+	if _, err := h.items.Get(ctx, typeKey, itemContext, code); err != nil {
+		return err
+	}
+	if err := h.items.UpdateAttrs(ctx, typeKey, itemContext, code, attrs); err != nil {
+		return err
+	}
+	return h.notify(ctx, typeKey, itemContext, code)
+}
+
 // DeleteItem hard-deletes an item. BR-D02: only unreferenced items may be
 // hard-deleted; a referenced item must be deprecated instead.
 func (h *ItemHandler) DeleteItem(ctx context.Context, typeKey, itemContext, code string) error {

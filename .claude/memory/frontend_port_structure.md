@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-`demos/01-dictionary/frontend-port/` (dev port 5174) is titled **"Ship Management"** in `App.vue`, spanning both fleet-wide and port-scoped views.
+`demos/01-dictionary/frontend-port/` (dev port 5174) is titled **"SeaFreight Flow"** in `App.vue` (renamed from "Ship Management" 2026-07-16 — a brand name, so `app.title`'s `en`/`es` seed values are intentionally identical, unlike every other ui-copy string), spanning both fleet-wide and port-scoped views.
 
 **Layout — activity-bar view switch (superseded the old stacked-sections layout as of Phase 11.10, 2026-07-16):** `App.vue` holds a single `activeView` ref (`'fleet'` | `'port'`); `NavSidebar.vue` (with `IconFleet.vue`/`IconPort.vue`) renders the nav items and drives `v-model="activeView"`. Exactly one of the two `<section>`s renders at a time (`v-if`/`v-else`, `data-testid="fleet-view"` / `"port-view"`) — never both simultaneously. Add more views by pushing onto the `views` computed array, not by introducing a router.
 1. Fleet view (`data-testid="fleet-view"`) — `FleetPanel.vue`, fleet-wide, read-only, NOT gated on `store.port`. Status filter `Select` (All/Docked/In transit) over `store.allShips`. Shows every ship regardless of which port is selected, including ones docked elsewhere.

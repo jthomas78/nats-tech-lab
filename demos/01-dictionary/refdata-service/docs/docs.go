@@ -145,6 +145,67 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/refdata/admin/items/{type}/{context}/{code}/attrs": {
+            "patch": {
+                "description": "Replaces an item's entire attrs map (BR-D18) — a full replace, not a per-key merge. Works regardless of item status.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "items"
+                ],
+                "summary": "Replace an item's attrs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "dictionary type key",
+                        "name": "type",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "tenant/region context",
+                        "name": "context",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "item code",
+                        "name": "code",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "attrs",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/rest.updateAttrsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "no content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/refdata/admin/items/{type}/{context}/{code}/deprecate": {
             "post": {
                 "description": "Marks an item deprecated. Used for BR-D02's referenced-item path instead of delete.",
@@ -152,6 +213,49 @@ const docTemplate = `{
                     "items"
                 ],
                 "summary": "Deprecate an item",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "dictionary type key",
+                        "name": "type",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "tenant/region context",
+                        "name": "context",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "item code",
+                        "name": "code",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "no content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/refdata/admin/items/{type}/{context}/{code}/reactivate": {
+            "post": {
+                "description": "Flips a deprecated item back to active. BR-D12: a plain status reversal, symmetric with deprecate.",
+                "tags": [
+                    "items"
+                ],
+                "summary": "Reactivate an item",
                 "parameters": [
                     {
                         "type": "string",
@@ -307,7 +411,7 @@ const docTemplate = `{
         },
         "/api/refdata/admin/types": {
             "post": {
-                "description": "Registers (or updates the name/description of) a dictionary type, e.g. \"currency\".",
+                "description": "Registers (or updates the name/description/category of) a dictionary type, e.g. \"currency\". Category (BR-D09) must be one of \"standards\", \"domain-enum\", \"ui-copy\", \"config\".",
                 "consumes": [
                     "application/json"
                 ],
@@ -320,7 +424,7 @@ const docTemplate = `{
                 "summary": "Register a dictionary type",
                 "parameters": [
                     {
-                        "description": "typeKey, name, description",
+                        "description": "typeKey, name, description, category",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -344,7 +448,7 @@ const docTemplate = `{
         },
         "/api/refdata/{context}/locales": {
             "get": {
-                "description": "Lists locales registered for a context.",
+                "description": "Lists locales registered for a context, including which one is the default.",
                 "produces": [
                     "application/json"
                 ],
@@ -765,6 +869,9 @@ const docTemplate = `{
         "domain.DictionaryType": {
             "type": "object",
             "properties": {
+                "category": {
+                    "$ref": "#/definitions/domain.TypeCategory"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -813,6 +920,30 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "domain.TypeCategory": {
+            "type": "string",
+            "enum": [
+                "standards",
+                "domain-enum",
+                "ui-copy",
+                "config"
+            ],
+            "x-enum-comments": {
+                "CategoryConfig": "reserved, not seeded yet"
+            },
+            "x-enum-descriptions": [
+                "",
+                "",
+                "",
+                "reserved, not seeded yet"
+            ],
+            "x-enum-varnames": [
+                "CategoryStandards",
+                "CategoryDomainEnum",
+                "CategoryUICopy",
+                "CategoryConfig"
+            ]
         },
         "rest.cacheStatusResponse": {
             "type": "object",
@@ -913,6 +1044,10 @@ const docTemplate = `{
         "rest.localesResponse": {
             "type": "object",
             "properties": {
+                "defaultLocale": {
+                    "description": "DefaultLocale is \"\" when no locale is marked default for the context.",
+                    "type": "string"
+                },
                 "locales": {
                     "type": "array",
                     "items": {
@@ -1015,6 +1150,9 @@ const docTemplate = `{
         "rest.typeRequest": {
             "type": "object",
             "properties": {
+                "category": {
+                    "$ref": "#/definitions/domain.TypeCategory"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -1034,6 +1172,15 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/domain.DictionaryType"
                     }
+                }
+            }
+        },
+        "rest.updateAttrsRequest": {
+            "type": "object",
+            "properties": {
+                "attrs": {
+                    "type": "object",
+                    "additionalProperties": {}
                 }
             }
         }

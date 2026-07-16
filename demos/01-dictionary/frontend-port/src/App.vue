@@ -23,7 +23,7 @@ import { i18n } from './i18n.js'
 
 const store = usePortStore()
 const { selectedLocale, locales, connect: connectRefdata, disconnect: disconnectRefdata } = useRefdataLabels()
-const { usingFallback, partialFallback, connect: connectUiCopy, disconnect: disconnectUiCopy } = useUiCopy()
+const { usingFallback, partialFallback, switching, connect: connectUiCopy, disconnect: disconnectUiCopy } = useUiCopy()
 const { t } = useI18n()
 const dark = ref(isDark())
 const toast = useToast()
@@ -98,6 +98,7 @@ onUnmounted(() => {
           id="locale"
           v-model="selectedLocale"
           :options="locales"
+          :loading="switching"
           size="small"
           :placeholder="t('select.none')"
         />

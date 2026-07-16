@@ -33,6 +33,11 @@ const connected = ref(false)
 
 let source = null
 let started = false
+// Bumped on every refreshLabels() call — same out-of-order-response guard as
+// useUiCopy.js's refreshCatalog(): a switch triggers a new fetch while an
+// earlier one (e.g. the initial connect() fetch) may still be in flight, and
+// responses aren't guaranteed to resolve in request order.
+let requestToken = 0
 
 async function fetchJSON(path) {
   const res = await fetch(path, { headers: { 'Content-Type': 'application/json' } })
@@ -42,9 +47,11 @@ async function fetchJSON(path) {
 }
 
 async function refreshLabels() {
+  const myToken = ++requestToken
   try {
     const q = selectedLocale.value ? `?locale=${encodeURIComponent(selectedLocale.value)}` : ''
     const data = await fetchJSON(`/api/refdata/types/${TYPE_KEY}${q}`)
+    if (myToken !== requestToken) return // a newer request has since started — discard this stale result
     const map = {}
     for (const item of data.items || []) map[item.code] = item.label || item.code
     labels.value = map

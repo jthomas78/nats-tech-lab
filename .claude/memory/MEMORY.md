@@ -12,3 +12,4 @@
 - [Event sourcing source-of-truth patterns](event_sourcing_source_of_truth_patterns.md) — Pattern A (Postgres+outbox) vs Pattern B (JetStream-as-truth); B answers the POC question
 - [UI bug triage: trust framing](ui_bug_triage_trust_framing.md) — when user says "the UI" is wrong, investigate frontend first, don't default to backend audits
 - [PrimeVue RadioButtonGroup for shared state](primevue_radiobutton_group_for_shared_state.md) — standalone RadioButtons in a v-for each keep local state; wrap in RadioButtonGroup
+- [Locale switch race condition](locale_switch_race_condition.md) — overlapping locale-switch fetches can resolve out of order; fixed with a request-token guard, not a BR-D rule

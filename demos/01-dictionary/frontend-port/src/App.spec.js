@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App.vue'
 import { usePortStore } from './stores/port.js'
 import { parseUiCopySeed } from '../scripts/parseUiCopySeed.mjs'
+import { useUiCopy } from '@refdata/useUiCopy.js'
 
 vi.mock('@refdata/useRefdataLabels.js', () => {
   const selectedLocale = ref('en')
@@ -28,14 +29,18 @@ vi.mock('@refdata/useRefdataLabels.js', () => {
   }
 })
 
-vi.mock('@refdata/useUiCopy.js', () => ({
-  useUiCopy: () => ({
-    usingFallback: ref(false),
-    partialFallback: ref(false),
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-  }),
-}))
+vi.mock('@refdata/useUiCopy.js', () => {
+  const switching = ref(false)
+  return {
+    useUiCopy: () => ({
+      usingFallback: ref(false),
+      partialFallback: ref(false),
+      switching,
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    }),
+  }
+})
 
 // Deliberately avoids `new URL('...', import.meta.url)` — Vite's import
 // analysis special-cases that exact literal pattern for asset resolution and
@@ -98,12 +103,15 @@ function manifestCountsByShipId(wrapper) {
 }
 
 describe('BR-D16 Port UI localization', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useUiCopy().switching.value = false // the mock's `switching` ref is module-level and outlives each test
+  })
 
   it('reactively switches visible chrome from English to Spanish', async () => {
     const { wrapper, i18n } = mountApp()
 
-    expect(wrapper.get('h1').text()).toBe('Ship Management')
+    expect(wrapper.get('h1').text()).toBe('SeaFreight Flow')
     expect(wrapper.findAll('.nav-item').map((node) => node.text())).toEqual([
       'Fleet Management',
       'Port Management',
@@ -117,7 +125,9 @@ describe('BR-D16 Port UI localization', () => {
 
     await switchLocale(i18n, 'es')
 
-    expect(wrapper.get('h1').text()).toBe('Gestión de buques')
+    // Title is treated as a brand name — unchanged across locales, unlike
+    // the rest of the chrome.
+    expect(wrapper.get('h1').text()).toBe('SeaFreight Flow')
     expect(wrapper.findAll('.nav-item').map((node) => node.text())).toEqual([
       'Gestión de flota',
       'Gestión portuaria',
@@ -128,9 +138,9 @@ describe('BR-D16 Port UI localization', () => {
     expect(wrapper.get('label[for="locale"]').text()).toBe('Idioma')
     expect(wrapper.get('.topbar-right .p-tag-label').text()).toBe('desconectado')
 
-    // No assertion-targeted en string survives the switch to es.
+    // No assertion-targeted en string survives the switch to es. (app.title
+    // is deliberately excluded — it's a brand name, unchanged across locales.)
     for (const enString of [
-      'Ship Management',
       'Fleet Management',
       'Port Management',
       'fleet overview · docked ships · manifests',
@@ -195,5 +205,20 @@ describe('BR-D16 Port UI localization', () => {
 
     expect(wrapper.find('[data-testid="fleet-view"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="port-view"]').exists()).toBe(true)
+  })
+
+  it('shows a loading spinner on the locale control while a switch is in flight', async () => {
+    const { wrapper } = mountApp()
+    const { switching } = useUiCopy()
+
+    expect(wrapper.find('#locale [data-pc-section="loadingicon"]').exists()).toBe(false)
+
+    switching.value = true
+    await nextTick()
+    expect(wrapper.find('#locale [data-pc-section="loadingicon"]').exists()).toBe(true)
+
+    switching.value = false
+    await nextTick()
+    expect(wrapper.find('#locale [data-pc-section="loadingicon"]').exists()).toBe(false)
   })
 })

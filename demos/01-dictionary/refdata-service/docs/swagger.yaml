@@ -31,6 +31,8 @@ definitions:
     type: object
   domain.DictionaryType:
     properties:
+      category:
+        $ref: '#/definitions/domain.TypeCategory'
       description:
         type: string
       name:
@@ -64,6 +66,25 @@ definitions:
       typeKey:
         type: string
     type: object
+  domain.TypeCategory:
+    enum:
+    - standards
+    - domain-enum
+    - ui-copy
+    - config
+    type: string
+    x-enum-comments:
+      CategoryConfig: reserved, not seeded yet
+    x-enum-descriptions:
+    - ""
+    - ""
+    - ""
+    - reserved, not seeded yet
+    x-enum-varnames:
+    - CategoryStandards
+    - CategoryDomainEnum
+    - CategoryUICopy
+    - CategoryConfig
   rest.cacheStatusResponse:
     properties:
       inSync:
@@ -128,6 +149,10 @@ definitions:
     type: object
   rest.localesResponse:
     properties:
+      defaultLocale:
+        description: DefaultLocale is "" when no locale is marked default for the
+          context.
+        type: string
       locales:
         items:
           type: string
@@ -194,6 +219,8 @@ definitions:
     type: object
   rest.typeRequest:
     properties:
+      category:
+        $ref: '#/definitions/domain.TypeCategory'
       description:
         type: string
       name:
@@ -207,6 +234,12 @@ definitions:
         items:
           $ref: '#/definitions/domain.DictionaryType'
         type: array
+    type: object
+  rest.updateAttrsRequest:
+    properties:
+      attrs:
+        additionalProperties: {}
+        type: object
     type: object
 host: localhost:18081
 info:
@@ -457,7 +490,8 @@ paths:
       - localization
   /api/refdata/{context}/locales:
     get:
-      description: Lists locales registered for a context.
+      description: Lists locales registered for a context, including which one is
+        the default.
       parameters:
       - description: tenant/region context
         in: path
@@ -567,6 +601,48 @@ paths:
       summary: Delete an item
       tags:
       - items
+  /api/refdata/admin/items/{type}/{context}/{code}/attrs:
+    patch:
+      consumes:
+      - application/json
+      description: Replaces an item's entire attrs map (BR-D18) — a full replace,
+        not a per-key merge. Works regardless of item status.
+      parameters:
+      - description: dictionary type key
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: tenant/region context
+        in: path
+        name: context
+        required: true
+        type: string
+      - description: item code
+        in: path
+        name: code
+        required: true
+        type: string
+      - description: attrs
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/rest.updateAttrsRequest'
+      responses:
+        "204":
+          description: no content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Replace an item's attrs
+      tags:
+      - items
   /api/refdata/admin/items/{type}/{context}/{code}/deprecate:
     post:
       description: Marks an item deprecated. Used for BR-D02's referenced-item path
@@ -595,6 +671,36 @@ paths:
           schema:
             $ref: '#/definitions/rest.errorResponse'
       summary: Deprecate an item
+      tags:
+      - items
+  /api/refdata/admin/items/{type}/{context}/{code}/reactivate:
+    post:
+      description: 'Flips a deprecated item back to active. BR-D12: a plain status
+        reversal, symmetric with deprecate.'
+      parameters:
+      - description: dictionary type key
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: tenant/region context
+        in: path
+        name: context
+        required: true
+        type: string
+      - description: item code
+        in: path
+        name: code
+        required: true
+        type: string
+      responses:
+        "204":
+          description: no content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Reactivate an item
       tags:
       - items
   /api/refdata/admin/locales:
@@ -681,10 +787,11 @@ paths:
     post:
       consumes:
       - application/json
-      description: Registers (or updates the name/description of) a dictionary type,
-        e.g. "currency".
+      description: Registers (or updates the name/description/category of) a dictionary
+        type, e.g. "currency". Category (BR-D09) must be one of "standards", "domain-enum",
+        "ui-copy", "config".
       parameters:
-      - description: typeKey, name, description
+      - description: typeKey, name, description, category
         in: body
         name: body
         required: true

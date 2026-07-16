@@ -13,6 +13,7 @@
 //	POST   /api/refdata/admin/items                        register an item (BR-D01)
 //	POST   /api/refdata/admin/items/{type}/{context}/{code}/deprecate  deprecate an item
 //	POST   /api/refdata/admin/items/{type}/{context}/{code}/reactivate reactivate a deprecated item (BR-D12)
+//	PATCH  /api/refdata/admin/items/{type}/{context}/{code}/attrs      replace an item's attrs map (BR-D18)
 //	DELETE /api/refdata/admin/items/{type}/{context}/{code} delete an unreferenced item (BR-D02)
 //	POST   /api/refdata/admin/references                   create a typed reference (BR-D05)
 //	GET    /api/refdata/{context}/locales                  locales known to this context
@@ -59,6 +60,10 @@ type itemRequest struct {
 
 type itemResponse struct {
 	Item domain.DictionaryItem `json:"item"`
+}
+
+type updateAttrsRequest struct {
+	Attrs map[string]any `json:"attrs"`
 }
 
 type itemsResponse struct {
@@ -159,6 +164,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/refdata/admin/items", h.registerItem)
 	mux.HandleFunc("POST /api/refdata/admin/items/{type}/{context}/{code}/deprecate", h.deprecateItem)
 	mux.HandleFunc("POST /api/refdata/admin/items/{type}/{context}/{code}/reactivate", h.reactivateItem)
+	mux.HandleFunc("PATCH /api/refdata/admin/items/{type}/{context}/{code}/attrs", h.updateItemAttrs)
 	mux.HandleFunc("DELETE /api/refdata/admin/items/{type}/{context}/{code}", h.deleteItem)
 	mux.HandleFunc("POST /api/refdata/admin/references", h.createReference)
 	mux.HandleFunc("POST /api/refdata/admin/localizations", h.setLocalization)
@@ -534,6 +540,32 @@ func (h *Handlers) deprecateItem(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/refdata/admin/items/{type}/{context}/{code}/reactivate [post]
 func (h *Handlers) reactivateItem(w http.ResponseWriter, r *http.Request) {
 	err := h.deps.Items.ReactivateItem(r.Context(), r.PathValue("type"), r.PathValue("context"), r.PathValue("code"))
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// @Summary      Replace an item's attrs
+// @Description  Replaces an item's entire attrs map (BR-D18) — a full replace, not a per-key merge. Works regardless of item status.
+// @Tags         items
+// @Accept       json
+// @Param        type     path  string              true  "dictionary type key"
+// @Param        context  path  string              true  "tenant/region context"
+// @Param        code     path  string              true  "item code"
+// @Param        body     body  updateAttrsRequest  true  "attrs"
+// @Success      204      "no content"
+// @Failure      400      {object}  errorResponse
+// @Failure      404      {object}  errorResponse
+// @Router       /api/refdata/admin/items/{type}/{context}/{code}/attrs [patch]
+func (h *Handlers) updateItemAttrs(w http.ResponseWriter, r *http.Request) {
+	var req updateAttrsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid request body"})
+		return
+	}
+	err := h.deps.Items.UpdateItemAttrs(r.Context(), r.PathValue("type"), r.PathValue("context"), r.PathValue("code"), req.Attrs)
 	if err != nil {
 		h.writeError(w, err)
 		return

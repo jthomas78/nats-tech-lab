@@ -83,6 +83,19 @@ func (r *fakeItemRepo) Reactivate(_ context.Context, typeKey, itemContext, code 
 	return nil
 }
 
+func (r *fakeItemRepo) UpdateAttrs(_ context.Context, typeKey, itemContext, code string, attrs map[string]any) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := r.key(typeKey, itemContext, code)
+	item, ok := r.items[k]
+	if !ok {
+		return domain.ErrItemNotFound
+	}
+	item.Attrs = attrs
+	r.items[k] = item
+	return nil
+}
+
 func (r *fakeItemRepo) Delete(_ context.Context, typeKey, itemContext, code string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

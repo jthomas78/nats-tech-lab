@@ -13,7 +13,7 @@ metadata:
 - `Container` added as its own aggregate (`ContainerAggregate`, `domain/container.go`), co-located with `ShipAggregate` on the single `SHIPPING` stream. The `Cargo` value object on `ShipAggregate` was retired — a ship's manifest is now a client-side/query-side join on `onShipID == shipID`.
 - Container lifecycle: `ContainerStatus` has exactly two values, `in-terminal` / `on-ship` (no richer states like "delivered" — see [[container-status-model]]).
 - Business rules BR-008 through BR-016 live in `domain/container.go`; BR-001 through BR-003 (ship rules) in `domain/ship.go`. Full list in `demos/01-dictionary/BUSINESS_RULES.md`.
-- Second frontend added: `frontend-port/` (Port Management / Ship Management UI, dev port 5174) alongside the original `frontend/` (admin/raw NATS debug view, port 5173). See [[frontend-port-structure]].
+- Second frontend added: `frontend-port/` (Port Management / "SeaFreight Flow" UI, dev port 5174) alongside the original `frontend/` (admin/raw NATS debug view, port 5173). See [[frontend-port-structure]].
 - `meta-{context}` KV bucket added for `known-ports` / `known-containers` lookups feeding UI dropdowns.
 
 **Architecture decisions (set in Phase 6, still governing Phase 8):**

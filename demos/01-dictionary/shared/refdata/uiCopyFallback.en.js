@@ -6,7 +6,7 @@ export const uiCopyFallbackEn = {
   "nav.portManagement": "Port Management",
   "nav.viewSelector": "View",
   "select.none": "—",
-  "app.title": "Ship Management",
+  "app.title": "SeaFreight Flow",
   "app.subtitleFleet": "fleet overview · docked ships · manifests",
   "app.subtitlePort": "terminal yard · ships at port · container operations",
   "connection.watching": "watching",

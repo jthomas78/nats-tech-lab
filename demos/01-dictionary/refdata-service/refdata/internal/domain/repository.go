@@ -21,6 +21,9 @@ type ItemRepository interface {
 	Deprecate(ctx context.Context, typeKey, itemContext, code string) error
 	Reactivate(ctx context.Context, typeKey, itemContext, code string) error
 	Delete(ctx context.Context, typeKey, itemContext, code string) error
+	// UpdateAttrs replaces an item's entire attrs map (BR-D18) — a full
+	// replace, not a per-key merge, matching Create's Attrs semantics.
+	UpdateAttrs(ctx context.Context, typeKey, itemContext, code string, attrs map[string]any) error
 }
 
 // ReferenceRepository is the typed-reference port.

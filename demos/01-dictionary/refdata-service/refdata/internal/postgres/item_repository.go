@@ -99,6 +99,18 @@ func (r *ItemRepository) Reactivate(ctx context.Context, typeKey, itemContext, c
 	return err
 }
 
+func (r *ItemRepository) UpdateAttrs(ctx context.Context, typeKey, itemContext, code string, attrs map[string]any) error {
+	marshaled, err := json.Marshal(attrs)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, `
+		UPDATE refdata.dictionary_items SET attrs = $1, updated_at = now()
+		WHERE context = $2 AND type_key = $3 AND code = $4`,
+		marshaled, itemContext, typeKey, code)
+	return err
+}
+
 func (r *ItemRepository) Delete(ctx context.Context, typeKey, itemContext, code string) error {
 	_, err := r.db.ExecContext(ctx, `
 		DELETE FROM refdata.dictionary_items WHERE context = $1 AND type_key = $2 AND code = $3`,

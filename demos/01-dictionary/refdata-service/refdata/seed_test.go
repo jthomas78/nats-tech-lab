@@ -35,13 +35,13 @@ var _ = Describe("Seed", func() {
 		Expect(refdata.Seed(ctx, h)).To(Succeed())
 	})
 
-	It("registers en as the default locale and es as a secondary locale for the seed context", func() {
+	It("registers en as the default locale and es/af-ZA as secondary locales for the seed context", func() {
 		locales, err := h.Localizations.ListLocales(ctx, refdata.DefaultContext)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(locales).To(ContainElements("en", "es"))
+		Expect(locales).To(ContainElements("en", "es", "af-ZA"))
 	})
 
-	It("gives every seeded item both an en and an es label", func() {
+	It("gives every seeded item an en, an es, and an af-ZA label", func() {
 		all, err := items.List(ctx, "currency", refdata.DefaultContext)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(all).NotTo(BeEmpty())
@@ -51,10 +51,11 @@ var _ = Describe("Seed", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(localizations).To(ContainElement(HaveField("Locale", "en")))
 			Expect(localizations).To(ContainElement(HaveField("Locale", "es")))
+			Expect(localizations).To(ContainElement(HaveField("Locale", "af-ZA")))
 		}
 	})
 
-	It("registers ship-status mirroring the backend's ShipStatus values, with en/es labels", func() {
+	It("registers ship-status mirroring the backend's ShipStatus values, with en/es/af-ZA labels", func() {
 		all, err := items.List(ctx, "ship-status", refdata.DefaultContext)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(all).To(HaveLen(5))
@@ -67,9 +68,10 @@ var _ = Describe("Seed", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(localizations).To(ContainElement(And(HaveField("Locale", "en"), HaveField("Label", "Docked"))))
 		Expect(localizations).To(ContainElement(And(HaveField("Locale", "es"), HaveField("Label", "Atracado"))))
+		Expect(localizations).To(ContainElement(And(HaveField("Locale", "af-ZA"), HaveField("Label", "Vasgemeer"))))
 	})
 
-	It("gives every seeded ui-copy key both an en and an es label (BR-D16)", func() {
+	It("gives every seeded ui-copy key an en, an es, and an af-ZA label (BR-D16)", func() {
 		all, err := items.List(ctx, "ui-copy", refdata.DefaultContext)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(len(all)).To(BeNumerically(">", 2), "expected the full Phase 11.10 ui-copy catalog, not just the Phase 11.7 proof-of-concept keys")
@@ -79,6 +81,7 @@ var _ = Describe("Seed", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(localizations).To(ContainElement(HaveField("Locale", "en")), "missing en label for ui-copy key %q", item.Code)
 			Expect(localizations).To(ContainElement(HaveField("Locale", "es")), "missing es label for ui-copy key %q", item.Code)
+			Expect(localizations).To(ContainElement(HaveField("Locale", "af-ZA")), "missing af-ZA label for ui-copy key %q", item.Code)
 			for _, loc := range localizations {
 				Expect(loc.Label).NotTo(BeEmpty(), "ui-copy key %q has a blank %s label", item.Code, loc.Locale)
 			}
@@ -90,8 +93,9 @@ var _ = Describe("Seed", func() {
 
 		localizations, err := locs.ListForItem(ctx, "hazard-class", refdata.DefaultContext, "3")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(localizations).To(HaveLen(2))
+		Expect(localizations).To(HaveLen(3))
 		Expect(localizations).To(ContainElement(And(HaveField("Locale", "en"), HaveField("Label", "Flammable Liquids"))))
 		Expect(localizations).To(ContainElement(And(HaveField("Locale", "es"), HaveField("Label", "Líquidos inflamables"))))
+		Expect(localizations).To(ContainElement(And(HaveField("Locale", "af-ZA"), HaveField("Label", "Ontvlambare Vloeistowwe"))))
 	})
 })

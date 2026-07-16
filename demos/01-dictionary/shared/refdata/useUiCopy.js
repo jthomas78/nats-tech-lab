@@ -14,6 +14,15 @@
 //    way through — no real translation for this locale yet) — partialFallback
 // Either flag means the UI should show a visible "using bundled text" badge;
 // never silently serve the gap.
+//
+// refreshCatalog() is re-entrant: switching locale while a previous switch's
+// fetch is still in flight (e.g. right after mount, before the initial fetch
+// settles) starts a second overlapping request. Network responses aren't
+// guaranteed to resolve in request order, so a request-token guard discards
+// any result that's no longer the most recently started one — otherwise a
+// slow, stale request can win the race and silently revert a newer locale
+// switch. `switching` reflects whether the latest request is still pending,
+// so a caller can disable the locale control while a switch is in flight.
 
 import { ref, watch } from 'vue'
 
@@ -25,10 +34,16 @@ const { selectedLocale } = useRefdataLabels()
 
 const usingFallback = ref(false)
 const partialFallback = ref(false)
+const switching = ref(false)
 
 let i18n = null
 let source = null
 let started = false
+// Bumped on every refreshCatalog() call; a call only applies its result if
+// it's still the most recently *started* one when its fetch resolves —
+// guards against an earlier, slower request (e.g. the initial mount fetch)
+// clobbering a locale the user has since switched to.
+let requestToken = 0
 
 async function fetchJSON(path) {
   const res = await fetch(path, { headers: { 'Content-Type': 'application/json' } })
@@ -40,8 +55,11 @@ async function fetchJSON(path) {
 async function refreshCatalog() {
   if (!i18n) return
   const locale = selectedLocale.value || 'en'
+  const myToken = ++requestToken
+  switching.value = true
   try {
     const data = await fetchJSON(`/api/refdata/types/${TYPE_KEY}?locale=${encodeURIComponent(locale)}`)
+    if (myToken !== requestToken) return // a newer request has since started — discard this stale result
     const messages = { ...uiCopyFallbackEn }
     let fellThrough = false
     for (const item of data.items || []) {
@@ -55,11 +73,13 @@ async function refreshCatalog() {
     usingFallback.value = false
     i18n.global.setLocaleMessage(locale, messages)
   } catch {
+    if (myToken !== requestToken) return
     usingFallback.value = true
     partialFallback.value = false
     i18n.global.setLocaleMessage(locale, { ...uiCopyFallbackEn })
   }
   i18n.global.locale.value = locale
+  switching.value = false
 }
 
 function connect(i18nInstance) {
@@ -86,5 +106,5 @@ function disconnect() {
 watch(selectedLocale, () => refreshCatalog())
 
 export function useUiCopy() {
-  return { usingFallback, partialFallback, connect, disconnect }
+  return { usingFallback, partialFallback, switching, connect, disconnect }
 }

@@ -1,7 +1,11 @@
 // Shared by scripts/gen-i18n.mjs (build-time fallback generation) and
 // src/App.spec.js (test-time catalog derivation) so both stay parsed
 // identically — a format change to uiCopySeed only needs fixing once.
-const ITEM = /\{"([^"]+)",\s*"((?:\\.|[^"])*)",\s*"((?:\\.|[^"])*)"\}/g
+//
+// seedItem is {code, en, es, af-ZA} — the 4th (af-ZA) field is matched but
+// intentionally unused here: frontend-port's vue-i18n wiring only consumes
+// en/es (Phase 11.10's scope), af-ZA isn't a selectable UI locale yet.
+const ITEM = /\{"([^"]+)",\s*"((?:\\.|[^"])*)",\s*"((?:\\.|[^"])*)",\s*"(?:\\.|[^"])*"\}/g
 
 export function parseUiCopySeed(seedSource) {
   const start = seedSource.indexOf('var uiCopySeed = []seedItem{')

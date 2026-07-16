@@ -328,3 +328,18 @@ unreachable; live refdata overlays that catalog once loaded.
   `npm run check:i18n` regenerates the fallback and rejects drift;
   `frontend-port/src/App.spec.js` mounts the real UI with vue-i18n and verifies locale
   switching, interpolation, pluralization, and mutually-exclusive Fleet/Port rendering
+
+---
+
+### BR-D18 — An item's attrs can be replaced after creation, independent of status or localization
+`RegisterItem` is insert-only, so an item's `attrs` map was previously frozen at whatever
+was passed at creation — a real gap: `attrs.name` is the bootstrap display name shown before
+an admin-created item has any localization (see `frontend-dict`'s `ItemGrid.vue` `labelFor()`
+fallback chain), but nothing could ever correct it afterward. `UpdateItemAttrs` replaces the
+entire `attrs` map in one call — a full replace, not a per-key merge, matching `RegisterItem`'s
+Attrs semantics — and works regardless of item status, mirroring BR-D06's
+read-regardless-of-status stance rather than gating writes on deprecation.
+
+- **Errors:** `ErrItemNotFound` if the item doesn't exist
+- **Enforced in:** `commands.ItemHandler.UpdateItemAttrs()`
+- **Test:** `Dictionary Item Domain Rules / BR-D18`
