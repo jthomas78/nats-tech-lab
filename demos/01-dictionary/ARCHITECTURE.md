@@ -32,7 +32,7 @@ and these ids are frozen once assigned.
 | Code | Meaning | Status |
 |---|---|---|
 | `FR` | full replay (seq `1…end` of the relevant scope) | implemented |
-| `S` | snapshot + tail replay | reserved (Phase 15) |
+| `S` | snapshot + tail replay | reserved (Phase 16) |
 | `KV` | KV projection (materialised read model in NATS KV) | implemented |
 | `PG` | Postgres canonical + KV write-through cache | implemented |
 | `CRUD` | plain Postgres, non-event-sourced | implemented (ports) |
@@ -49,7 +49,7 @@ and these ids are frozen once assigned.
 | Code | Meaning | Status |
 |---|---|---|
 | `AL1` | at-least-once, non-idempotent (redelivery on failure) | implemented |
-| `IDEM` | idempotent consumer / inbox dedup | reserved (Phase 13) |
+| `IDEM` | idempotent consumer / inbox dedup | reserved (Phase 14) |
 
 `FR` scope note: it means **whole-stream** replay on `Read.FR.AGG` (fleet) but
 **per-aggregate** (filtered) replay on `Write.FR` (hydration) — scope is a
@@ -135,7 +135,7 @@ CRUD" below.
 **`dictionary/internal/application/commands/container.go`**
 
 - `ContainerHandler` — `RegisterContainer()`, `LoadContainer()`, `UnloadContainer()`
-- `hydratePair()` — rebuilds **both** aggregates from **one atomic replay** of `SHIPPING`. Identity is parsed from each subject. This keeps cross-aggregate rules strongly consistent until Phase 14 splits the stream.
+- `hydratePair()` — rebuilds **both** aggregates from **one atomic replay** of `SHIPPING`. Identity is parsed from each subject. This keeps cross-aggregate rules strongly consistent until Phase 15 splits the stream.
 - `RegisterContainer()` — mints a fresh surrogate id (`newSurrogateID()`, a dependency-free UUID v4) after `hydrateByNaturalKey()` confirms the natural key is free (BR-015, resolved against the event stream — authoritative, not from a read projection)
 
 #### Container identity — surrogate key (Phase 8.3)

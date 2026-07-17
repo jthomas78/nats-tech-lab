@@ -10,7 +10,7 @@ Two aggregates share the single `SHIPPING` stream (Phase 8):
 
 Cross-aggregate rules (BR-008, BR-012, BR-014) need both aggregates' state.
 Both hydrate from **one atomic replay** of the `SHIPPING` stream
-(`commands.hydratePair`), so these checks are strongly consistent. Phase 14
+(`commands.hydratePair`), so these checks are strongly consistent. Phase 15
 splits the stream and turns exactly these rules into the
 invariant-spanning-two-aggregates problem.
 
@@ -161,6 +161,17 @@ Registering a container with an origin or destination port that isn't in the por
 - **Error:** `ErrUnknownPort` — "port is not registered"
 - **Enforced in:** `ContainerAggregate.Register()` — checked after BR-016 (format) and before BR-015 (duplicate registration). The application layer (`ContainerHandler.RegisterContainer`) resolves `originKnown`/`destKnown` via `domain.PortRepository.Exists()`.
 - **Test:** `Container Domain Rules / BR-018`
+
+---
+
+### BR-019 — A ship's on-board container count must not exceed its capacity (PROPOSED — not yet implemented)
+Every ship has a maximum container capacity, a fixed number set at registration (a ship's first `Arrive`, mirroring how `ShipName` is set-once at first arrival). Loading a container onto a ship whose current on-ship container count already equals its capacity is rejected — the ship must be under capacity, not merely docked (BR-012) and at the container's terminal port (BR-014).
+
+- **Error:** `ErrCapacityExceeded` — "ship is at container capacity"
+- **Enforced in:** `ContainerAggregate.Load()` — checked alongside the existing BR-012/BR-010/BR-014/BR-008 checks; requires the ship's current on-ship container count, resolved by the application layer before the domain check (mechanism — event-replay count vs. Shape A/B read-model query — to be decided during implementation; see Phase 12 of `Dictionary-POC-Plan.md`)
+- **Test:** `Container Domain Rules / BR-019` (not yet written — pending implementation)
+
+**Frontend:** `frontend-port` ("SeaFreight Flow") gains a load-capacity indicator column (e.g. `12 / 50`, colored by how full the ship is) in both `FleetPanel.vue` and `ShipsAtPortPanel.vue`, pairing the new `capacity` field with the container count already computed via `store.manifestFor(shipID).length`.
 
 ---
 
@@ -343,3 +354,40 @@ read-regardless-of-status stance rather than gating writes on deprecation.
 - **Errors:** `ErrItemNotFound` if the item doesn't exist
 - **Enforced in:** `commands.ItemHandler.UpdateItemAttrs()`
 - **Test:** `Dictionary Item Domain Rules / BR-D18`
+
+---
+
+### BR-D19 — Cold paint renders the persisted locale's last-known catalog, not the bundled default
+`frontend-port`'s selected locale persists across reloads (`localStorage`). Once that's true,
+every reload into a non-`en` locale would otherwise cold-paint in the bundled English catalog
+(BR-D11 only ever bundles `en`) for the length of the live refetch — visibly mismatching the
+locale shown as selected. This is distinct from BR-D11: BR-D11 covers refdata being
+*unreachable*; here refdata is reachable, it just hasn't answered *yet*. The last
+successfully-fetched ui-copy catalog and ship-status label map for each locale are cached
+(`localStorage`) and applied synchronously — before the live refetch — the moment a component
+connects (ui-copy) or at module load (ship-status labels, since that state doesn't wait for a
+component to call `connect()`). A locale visited for the very first time still cold-paints in
+`en` until its first successful fetch; there's nothing to prime from yet.
+
+- **Enforced in:** `shared/refdata/useUiCopy.js` (`primeFromCache()`, called from `connect()`),
+  `shared/refdata/useRefdataLabels.js` (`labels` seeded from cache at module load)
+- **Test:** `frontend-port/src/useUiCopy.spec.js` — "useUiCopy BR-D19 catalog cache";
+  `frontend-port/src/useRefdataLabels.spec.js` — "useRefdataLabels ship-status label cache"
+
+---
+
+### BR-D20 — A locale code must be lower case
+
+A locale code (a context's registered locale, or the `locale` on a per-item localization) must
+be entirely lower case — `af-za`, not the BCP-47-conventional `af-ZA`. BCP-47 upper-cases the
+region subtag by convention, but this system standardizes on lower case throughout so locale-code
+equality is a plain string comparison everywhere it's checked (Postgres `TEXT` columns, NATS KV
+keys, frontend cache keys) without a canonicalization step first. This is a format rule at the
+point of entry, not a read-side normalization — a locale is validated when it's registered
+(`AddLocale`) or when a localization is written (`SetLocalization`); nothing downstream lowercases
+on the admin's behalf.
+
+- **Errors:** `ErrInvalidLocaleFormat` if the locale contains any upper-case character
+- **Enforced in:** `domain.ValidateLocale()`, called from
+  `commands.LocalizationHandler.AddLocale()` and `commands.LocalizationHandler.SetLocalization()`
+- **Test:** `Dictionary Localization Domain Rules / Locale management / BR-D20`

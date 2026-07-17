@@ -27,8 +27,12 @@ export const useDictionaryStore = defineStore('dictionary', {
     lastCacheEvent: null, // { key, revision, at } — bumped on every SSE message
     // 'items' — the type navigator + item grid (default); 'localization' —
     // the promoted locale-admin + types×locales completeness matrix view
-    // (Phase 11.7). Not a route — this app has no router, just a mode flag.
+    // (Phase 11.7); 'domain-category' — a category-level list of types
+    // (e.g. all Enums), so the tree stays flat and a category can hold more
+    // than one type without redesigning the nav. Not a route — this app has
+    // no router, just a mode flag.
     activeView: 'items',
+    selectedCategory: '', // set when activeView === 'domain-category'
     _source: null,
   }),
 
@@ -96,6 +100,31 @@ export const useDictionaryStore = defineStore('dictionary', {
 
     showLocalizationView() {
       this.activeView = 'localization'
+    },
+
+    async showCategoryView(categoryKey) {
+      this.activeView = 'domain-category'
+      this.selectedCategory = categoryKey
+      // Auto-select the first type in the category so the values pane isn't
+      // empty on entry. Types are already loaded (refreshTypes on connect).
+      const first = this.types
+        .filter((t) => (t.category || 'standards') === categoryKey)
+        .sort((a, b) => a.typeKey.localeCompare(b.typeKey))[0]
+      if (first) {
+        await this.selectCategoryType(first.typeKey)
+      } else {
+        this.selectedType = ''
+        this.items = []
+      }
+    },
+
+    // Select a type from within the category view. Unlike selectType this does
+    // NOT flip activeView back to 'items' — the type's entries render in the
+    // category view's own values pane, so we stay in the master-detail.
+    async selectCategoryType(typeKey) {
+      this.selectedType = typeKey
+      this.selectedCode = ''
+      await this.refreshItems()
     },
 
     async refreshItems() {

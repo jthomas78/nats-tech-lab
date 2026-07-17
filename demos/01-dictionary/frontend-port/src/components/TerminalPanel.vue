@@ -119,11 +119,19 @@ async function submitLoad(containerID, shipID) {
     <div v-if="!store.port" class="lab-muted no-port">
       {{ t('terminal.selectPort') }}
     </div>
-    <div v-else class="ops">
-      <Button :label="t('terminal.registerContainer')" icon="pi pi-plus" size="small" outlined @click="openRegister" />
-    </div>
 
-    <h4>{{ t('terminal.outbound') }}</h4>
+    <div class="section-head">
+      <h4>{{ t('terminal.outbound') }}</h4>
+      <Button
+        v-if="store.port"
+        icon="pi pi-plus"
+        :aria-label="t('terminal.registerContainer')"
+        text
+        rounded
+        size="small"
+        @click="openRegister"
+      />
+    </div>
     <DataTable :value="outboundContainers" size="small" data-key="containerID" resizableColumns columnResizeMode="expand">
       <template #empty>
         <span class="lab-muted">{{ t('terminal.outboundEmpty') }}</span>
@@ -202,11 +210,10 @@ async function submitLoad(containerID, shipID) {
 </template>
 
 <style scoped>
-.ops {
-  margin-bottom: 0.75rem;
+.section-head {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  justify-content: space-between;
+  align-items: center;
 }
 .no-port {
   margin-bottom: 0.75rem;
@@ -244,7 +251,7 @@ h4 {
   letter-spacing: 0.01em;
   color: var(--p-text-muted-color);
 }
-h4:first-of-type {
+.section-head h4 {
   margin-top: 0;
 }
 </style>

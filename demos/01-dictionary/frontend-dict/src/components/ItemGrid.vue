@@ -10,6 +10,7 @@ import { computed, ref, watch } from 'vue'
 
 import { registerItem } from '../api'
 import { categoryLabel } from '../categories'
+import { codeFor, labelFor, statusFor } from '../itemFields'
 import { useDictionaryStore } from '../stores/dictionary'
 import ItemDetailPanel from './ItemDetailPanel.vue'
 
@@ -71,16 +72,6 @@ async function submitAdd() {
   } catch (err) {
     toast.add({ severity: 'error', summary: 'Could not register item', detail: err.message, life: 4000 })
   }
-}
-
-function labelFor(item) {
-  return item.label || item.item?.attrs?.name || item.attrs?.name || item.code || item.item?.code
-}
-function codeFor(item) {
-  return item.code || item.item?.code
-}
-function statusFor(item) {
-  return item.status || item.item?.status
 }
 </script>
 
@@ -303,8 +294,8 @@ function statusFor(item) {
   background: var(--lab-disabled-bg);
 }
 .item-list li.active {
-  background: var(--lab-accent);
-  color: #fff;
+  background: var(--p-highlight-background);
+  color: var(--p-highlight-color);
 }
 .item-list li.active .item-label {
   color: inherit;

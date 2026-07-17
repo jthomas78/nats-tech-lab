@@ -1,6 +1,25 @@
 package domain
 
-import "strings"
+import (
+	"errors"
+	"strings"
+)
+
+// ErrInvalidLocaleFormat — BR-D20: a locale code must be lower case.
+var ErrInvalidLocaleFormat = errors.New("locale code must be lower case")
+
+// ValidateLocale enforces BR-D20 — every locale code entry (registered
+// context locale or per-item localization) must be lower case, e.g. "af-za"
+// not "af-ZA". BCP-47 conventionally upper-cases the region subtag, but this
+// system standardizes on lower case throughout so locale-code equality is a
+// plain string comparison everywhere it's used (Postgres, NATS KV keys,
+// frontend cache keys) without a canonicalization step.
+func ValidateLocale(locale string) error {
+	if locale != strings.ToLower(locale) {
+		return ErrInvalidLocaleFormat
+	}
+	return nil
+}
 
 // Localization is one locale's label/description for an item.
 type Localization struct {

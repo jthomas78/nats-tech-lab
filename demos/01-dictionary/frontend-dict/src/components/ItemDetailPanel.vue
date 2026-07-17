@@ -10,6 +10,7 @@ import TabPanel from 'primevue/tabpanel'
 import TabPanels from 'primevue/tabpanels'
 import Tabs from 'primevue/tabs'
 import Tag from 'primevue/tag'
+import ToggleSwitch from 'primevue/toggleswitch'
 import { useToast } from 'primevue/usetoast'
 import { computed, ref, watch } from 'vue'
 
@@ -21,7 +22,10 @@ import {
   listItemReferences,
   reactivateItem,
   setLocalization,
+  updateItem,
 } from '../api'
+import { attrsFor, labelFor, statusFor } from '../itemFields'
+import { buildTranslationRows, filterTranslationRows } from '../localization'
 import { useDictionaryStore } from '../stores/dictionary'
 
 const store = useDictionaryStore()
@@ -33,10 +37,20 @@ const references = ref([])
 const loading = ref(false)
 
 const code = computed(() => store.selectedCode)
-const attrs = computed(() => detail.value?.item?.attrs ?? detail.value?.attrs ?? {})
-const attrRows = computed(() => Object.entries(attrs.value).map(([key, value]) => ({ key, value })))
-const status = computed(() => detail.value?.item?.status ?? detail.value?.status ?? '')
-const label = computed(() => detail.value?.label ?? attrs.value.name ?? '')
+// The default label/description live in attrs (attrs.name / attrs.description)
+// — distinct from `label`, which is the *locale-resolved* display value (may
+// already be a translation if a non-default locale is selected). General-tab
+// edits must read/write attrs directly: mixing up the resolved label with
+// attrs.name would silently overwrite the default with whatever locale is
+// currently selected.
+const attrs = computed(() => attrsFor(detail.value ?? {}))
+const otherAttrRows = computed(() =>
+  Object.entries(attrs.value)
+    .filter(([key]) => key !== 'name' && key !== 'description')
+    .map(([key, value]) => ({ key, value })),
+)
+const status = computed(() => statusFor(detail.value ?? {}))
+const label = computed(() => detail.value?.label ?? labelFor(detail.value ?? {}))
 
 async function load() {
   if (!code.value || !store.selectedType) {
@@ -109,54 +123,77 @@ async function onDelete() {
   }
 }
 
-// ── Localization form ────────────────────────────────────────────────────────
+// ── General tab: default label / description (BR-D18 full attrs replace) ────
 
-const locLocale = ref('')
-const locLabel = ref('')
-const locDescription = ref('')
+const editingGeneral = ref(false)
+const generalLabel = ref('')
+const generalDescription = ref('')
 
-function localeExists(locale) {
-  return localizations.value.some((l) => l.locale === locale.trim())
+function startEditGeneral() {
+  generalLabel.value = attrs.value.name || ''
+  generalDescription.value = attrs.value.description || ''
+  editingGeneral.value = true
 }
 
-async function submitLocalization() {
-  if (!locLocale.value.trim() || !locLabel.value.trim() || localeExists(locLocale.value)) return
+function cancelEditGeneral() {
+  editingGeneral.value = false
+}
+
+async function submitGeneral() {
+  if (!generalLabel.value.trim()) return
   try {
-    await setLocalization({
-      typeKey: store.selectedType,
-      code: code.value,
-      context: store.context,
-      locale: locLocale.value.trim(),
-      label: locLabel.value.trim(),
-      description: locDescription.value.trim(),
-    })
-    locLocale.value = ''
-    locLabel.value = ''
-    locDescription.value = ''
+    const nextAttrs = { ...attrs.value, name: generalLabel.value.trim() }
+    if (generalDescription.value.trim()) nextAttrs.description = generalDescription.value.trim()
+    else delete nextAttrs.description
+    await updateItem(store.selectedType, store.context, code.value, nextAttrs)
+    editingGeneral.value = false
     await Promise.all([store.refreshItems(), load()])
-    toast.add({ severity: 'success', summary: 'Localization added', life: 2500 })
+    toast.add({ severity: 'success', summary: 'Item updated', life: 2500 })
   } catch (err) {
-    toast.add({ severity: 'error', summary: 'Could not add localization', detail: err.message, life: 4000 })
+    toast.add({ severity: 'error', summary: 'Could not update item', detail: err.message, life: 4000 })
   }
 }
 
-// ── Inline update (existing locale) ──────────────────────────────────────────
+// ── Translations tab ──────────────────────────────────────────────────────────
+// Every registered locale gets a row (Default / Complete / Missing), not just
+// the locales that already have an explicit localization — that's the whole
+// point of surfacing "Missing" as a first-class status.
+
+const translationQuery = ref('')
+const missingOnly = ref(false)
+
+const translationRows = computed(() =>
+  buildTranslationRows({
+    locales: store.locales,
+    defaultLocale: store.defaultLocale,
+    localizations: localizations.value,
+    defaultLabel: attrs.value.name,
+  }),
+)
+const filteredTranslationRows = computed(() =>
+  filterTranslationRows(translationRows.value, {
+    query: translationQuery.value,
+    missingOnly: missingOnly.value,
+  }),
+)
 
 const editingLocale = ref(null)
 const editLabel = ref('')
 const editDescription = ref('')
 
-function startEdit(row) {
+function startEditTranslation(row) {
   editingLocale.value = row.locale
-  editLabel.value = row.label || ''
+  editLabel.value = row.translation || ''
   editDescription.value = row.description || ''
 }
 
-function cancelEdit() {
+function cancelEditTranslation() {
   editingLocale.value = null
 }
 
-async function submitUpdate(row) {
+// setLocalization upserts — the same call creates a translation for a
+// currently-"Missing" locale or updates an existing one.
+async function submitTranslation(row) {
   if (!editLabel.value.trim()) return
   try {
     await setLocalization({
@@ -169,13 +206,34 @@ async function submitUpdate(row) {
     })
     editingLocale.value = null
     await Promise.all([store.refreshItems(), load()])
-    toast.add({ severity: 'success', summary: 'Localization updated', life: 2500 })
+    toast.add({ severity: 'success', summary: 'Translation saved', life: 2500 })
   } catch (err) {
-    toast.add({ severity: 'error', summary: 'Could not update localization', detail: err.message, life: 4000 })
+    toast.add({ severity: 'error', summary: 'Could not save translation', detail: err.message, life: 4000 })
   }
 }
 
-// ── Reference form ───────────────────────────────────────────────────────────
+const newLocale = ref('')
+const newLocaleTaken = computed(() => store.locales.includes(newLocale.value.trim()))
+
+async function submitAddLocale() {
+  const locale = newLocale.value.trim()
+  if (!locale || newLocaleTaken.value) return
+  try {
+    await store.addLocaleToContext(locale, false)
+    newLocale.value = ''
+    toast.add({ severity: 'success', summary: `Locale ${locale} added`, life: 2500 })
+  } catch (err) {
+    toast.add({ severity: 'error', summary: 'Could not add locale', detail: err.message, life: 4000 })
+  }
+}
+
+function translationSeverity(rowStatus) {
+  if (rowStatus === 'default') return 'info'
+  if (rowStatus === 'complete') return 'success'
+  return 'warning'
+}
+
+// ── Usage tab (formerly References) ──────────────────────────────────────────
 
 const refRelation = ref('')
 const refTargetType = ref('')
@@ -257,82 +315,132 @@ async function submitReference() {
         </div>
       </div>
 
-      <Tabs value="attrs">
+      <Tabs value="general">
         <TabList>
-          <Tab value="attrs">
-            Attrs
+          <Tab value="general">
+            General
           </Tab>
-          <Tab value="localizations">
-            Localizations
+          <Tab value="translations">
+            Translations
           </Tab>
-          <Tab value="references">
-            References
+          <Tab value="usage">
+            Usage
           </Tab>
         </TabList>
         <TabPanels>
-          <TabPanel value="attrs">
-            <DataTable
-              :value="attrRows"
-              size="small"
-              data-key="key"
-            >
-              <template #empty>
-                No attributes on this item.
-              </template>
-              <Column
-                field="key"
-                header="Key"
-              />
-              <Column header="Value">
-                <template #body="{ data }">
-                  {{ typeof data.value === 'object' ? JSON.stringify(data.value) : data.value }}
+          <TabPanel value="general">
+            <div class="general-fields">
+              <div class="general-row">
+                <label class="lab-muted">Key</label>
+                <span class="general-key">{{ code }}</span>
+              </div>
+              <div class="general-row">
+                <label class="lab-muted">Default label</label>
+                <InputText
+                  v-if="editingGeneral"
+                  v-model="generalLabel"
+                  size="small"
+                />
+                <span v-else>{{ attrs.name || '—' }}</span>
+              </div>
+              <div class="general-row">
+                <label class="lab-muted">Status</label>
+                <Tag
+                  :severity="status === 'active' ? 'success' : 'warning'"
+                  :value="status"
+                />
+              </div>
+              <div class="general-row">
+                <label class="lab-muted">Description</label>
+                <InputText
+                  v-if="editingGeneral"
+                  v-model="generalDescription"
+                  size="small"
+                  placeholder="optional"
+                />
+                <span
+                  v-else
+                  class="lab-muted"
+                >{{ attrs.description || '—' }}</span>
+              </div>
+              <div class="general-actions">
+                <template v-if="editingGeneral">
+                  <Button
+                    label="Save"
+                    icon="pi pi-check"
+                    size="small"
+                    :disabled="!generalLabel.trim()"
+                    @click="submitGeneral"
+                  />
+                  <Button
+                    label="Cancel"
+                    text
+                    size="small"
+                    @click="cancelEditGeneral"
+                  />
                 </template>
-              </Column>
-            </DataTable>
+                <Button
+                  v-else
+                  label="Edit"
+                  icon="pi pi-pencil"
+                  text
+                  size="small"
+                  @click="startEditGeneral"
+                />
+              </div>
+            </div>
+            <template v-if="otherAttrRows.length > 0">
+              <h5 class="lab-muted section-label">
+                Other attributes
+              </h5>
+              <DataTable
+                :value="otherAttrRows"
+                size="small"
+                data-key="key"
+              >
+                <Column
+                  field="key"
+                  header="Key"
+                />
+                <Column header="Value">
+                  <template #body="{ data }">
+                    {{ typeof data.value === 'object' ? JSON.stringify(data.value) : data.value }}
+                  </template>
+                </Column>
+              </DataTable>
+            </template>
           </TabPanel>
-          <TabPanel value="localizations">
-            <div class="add-row">
+          <TabPanel value="translations">
+            <div class="translations-toolbar">
               <InputText
-                v-model="locLocale"
-                placeholder="locale (e.g. de-DE)"
+                v-model="translationQuery"
+                placeholder="Search locales…"
                 size="small"
-                style="flex: 0 0 7rem"
+                style="flex: 1 1 10rem"
               />
-              <InputText
-                v-model="locLabel"
-                placeholder="label"
-                size="small"
-                style="flex: 1 1 7rem"
-              />
-              <InputText
-                v-model="locDescription"
-                placeholder="description (optional)"
-                size="small"
-                style="flex: 2 1 8rem"
-              />
-              <Button
-                icon="pi pi-plus"
-                label="Add"
-                size="small"
-                aria-label="Add localization"
-                :disabled="!locLocale.trim() || !locLabel.trim() || localeExists(locLocale)"
-                :title="localeExists(locLocale) ? 'That locale already exists — use Update on its row instead.' : null"
-                @click="submitLocalization"
-              />
+              <div class="missing-toggle">
+                <label class="lab-muted">Missing only</label>
+                <ToggleSwitch v-model="missingOnly" />
+              </div>
             </div>
             <DataTable
-              :value="localizations"
+              :value="filteredTranslationRows"
               size="small"
               data-key="locale"
             >
               <template #empty>
-                No localizations yet.
+                No locales registered yet.
               </template>
               <Column
                 field="locale"
                 header="Locale"
+                style="width: 6rem; font-family: monospace"
               />
-              <Column header="Label">
+              <Column
+                field="displayName"
+                header="Display name"
+              />
+              <Column header="Translation">
                 <template #body="{ data }">
                   <InputText
                     v-if="editingLocale === data.locale"
@@ -340,7 +448,7 @@ async function submitReference() {
                     size="small"
                     style="width: 100%"
                   />
-                  <span v-else>{{ data.label }}</span>
+                  <span v-else>{{ data.translation || '—' }}</span>
                 </template>
               </Column>
               <Column header="Description">
@@ -351,13 +459,20 @@ async function submitReference() {
                     size="small"
                     style="width: 100%"
                   />
-                  <span v-else>{{ data.description }}</span>
+                  <span
+                    v-else
+                    class="lab-muted"
+                  >{{ data.description || '—' }}</span>
                 </template>
               </Column>
-              <Column
-                field="source"
-                header="Source"
-              />
+              <Column header="Status">
+                <template #body="{ data }">
+                  <Tag
+                    :severity="translationSeverity(data.status)"
+                    :value="data.status"
+                  />
+                </template>
+              </Column>
               <Column header="Actions">
                 <template #body="{ data }">
                   <div
@@ -370,14 +485,14 @@ async function submitReference() {
                       size="small"
                       aria-label="Save"
                       :disabled="!editLabel.trim()"
-                      @click="submitUpdate(data)"
+                      @click="submitTranslation(data)"
                     />
                     <Button
                       icon="pi pi-times"
                       text
                       size="small"
                       aria-label="Cancel"
-                      @click="cancelEdit"
+                      @click="cancelEditTranslation"
                     />
                   </div>
                   <Button
@@ -385,14 +500,30 @@ async function submitReference() {
                     icon="pi pi-pencil"
                     text
                     size="small"
-                    aria-label="Update"
-                    @click="startEdit(data)"
+                    aria-label="Edit translation"
+                    @click="startEditTranslation(data)"
                   />
                 </template>
               </Column>
             </DataTable>
+            <div class="add-row">
+              <InputText
+                v-model="newLocale"
+                placeholder="new locale (e.g. de-DE)"
+                size="small"
+                style="flex: 0 0 10rem"
+              />
+              <Button
+                icon="pi pi-plus"
+                label="Add locale"
+                size="small"
+                :disabled="!newLocale.trim() || newLocaleTaken"
+                :title="newLocaleTaken ? 'That locale is already registered.' : null"
+                @click="submitAddLocale"
+              />
+            </div>
           </TabPanel>
-          <TabPanel value="references">
+          <TabPanel value="usage">
             <DataTable
               :value="references"
               size="small"
@@ -485,11 +616,55 @@ async function submitReference() {
   gap: 2px;
   flex: 0 0 auto;
 }
+.general-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.general-row {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  align-items: center;
+  gap: 0.5rem;
+}
+.general-row label {
+  font-size: 11px;
+}
+.general-key {
+  font-family: monospace;
+  font-size: 13px;
+}
+.general-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.section-label {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.translations-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+.missing-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.missing-toggle label {
+  font-size: 11px;
+}
 .add-row {
   display: flex;
   gap: 0.5rem;
   align-items: center;
-  margin-bottom: 0.75rem;
+  margin-top: 0.75rem;
   flex-wrap: wrap;
 }
 .row-actions {

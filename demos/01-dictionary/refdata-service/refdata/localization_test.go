@@ -7,6 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/refdata-service/refdata/internal/application/commands"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/refdata-service/refdata/internal/domain"
 )
 
 var _ = Describe("Dictionary Localization Domain Rules", func() {
@@ -37,13 +38,13 @@ var _ = Describe("Dictionary Localization Domain Rules", func() {
 	Context("BR-D03: locale resolution follows requested locale -> language -> default locale -> code", func() {
 		It("resolves the exact requested locale when present", func() {
 			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
-				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "de-DE", Label: "Euro (DE)",
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "de-de", Label: "Euro (DE)",
 			})).To(Succeed())
 			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
 				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "de", Label: "Euro (de)",
 			})).To(Succeed())
 
-			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "de-DE")
+			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "de-de")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resolved.Localization.Label).To(Equal("Euro (DE)"))
 		})
@@ -53,7 +54,7 @@ var _ = Describe("Dictionary Localization Domain Rules", func() {
 				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "de", Label: "Euro (de)",
 			})).To(Succeed())
 
-			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "de-DE")
+			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "de-de")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resolved.Localization.Label).To(Equal("Euro (de)"))
 		})
@@ -64,7 +65,7 @@ var _ = Describe("Dictionary Localization Domain Rules", func() {
 				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "en", Label: "Euro",
 			})).To(Succeed())
 
-			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "fr-FR")
+			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "fr-fr")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resolved.Localization.Label).To(Equal("Euro"))
 		})
@@ -75,13 +76,13 @@ var _ = Describe("Dictionary Localization Domain Rules", func() {
 				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "en", Label: "Euro",
 			})).To(Succeed())
 
-			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "fr-FR")
+			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "fr-fr")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resolved.Localization.Label).To(Equal("Euro"))
 		})
 
 		It("never fails outright — falls back to the code itself when nothing resolves", func() {
-			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "ja-JP")
+			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "ja-jp")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resolved.Localization.Label).To(Equal("EUR"))
 		})
@@ -116,10 +117,26 @@ var _ = Describe("Dictionary Localization Domain Rules", func() {
 
 	Context("Locale management", func() {
 		It("registers a locale and lists it", func() {
-			Expect(locH.AddLocale(ctx, itemCtx, "de-DE", false)).To(Succeed())
+			Expect(locH.AddLocale(ctx, itemCtx, "de-de", false)).To(Succeed())
 			locales, err := locH.ListLocales(ctx, itemCtx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(locales).To(ContainElement("de-DE"))
+			Expect(locales).To(ContainElement("de-de"))
+		})
+
+		It("rejects a locale with any upper case character (BR-D20)", func() {
+			err := locH.AddLocale(ctx, itemCtx, "de-DE", false)
+			Expect(err).To(MatchError(domain.ErrInvalidLocaleFormat))
+
+			locales, err := locH.ListLocales(ctx, itemCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(locales).NotTo(ContainElement("de-DE"))
+		})
+
+		It("rejects setting a localization with an upper case locale (BR-D20)", func() {
+			err := locH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "de-DE", Label: "Euro (DE)",
+			})
+			Expect(err).To(MatchError(domain.ErrInvalidLocaleFormat))
 		})
 
 		It("reports en as the default when no locale is marked default (BR-D15)", func() {

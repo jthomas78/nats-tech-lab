@@ -1,19 +1,11 @@
 <script setup>
 import Badge from 'primevue/badge'
-import { computed, reactive } from 'vue'
+import { computed } from 'vue'
 
 import { CATEGORY_ORDER, categoryLabel, DOMAIN_CATEGORIES } from '../categories'
 import { useDictionaryStore } from '../stores/dictionary'
 
 const store = useDictionaryStore()
-
-// Tree expand/collapse state per category — starts expanded so nothing is
-// hidden on first load; collapsing is purely a navigation aid.
-const collapsed = reactive({})
-
-function toggleGroup(key) {
-  collapsed[key] = !collapsed[key]
-}
 
 const groups = computed(() => {
   const byCategory = new Map()
@@ -33,7 +25,7 @@ const groups = computed(() => {
 
 // Governance split (Phase 11.9): externally-owned reference data sits apart
 // from the platform-owned Domain groups. The DOMAIN super-eyebrow below is a
-// non-interactive label — expand/collapse stays on the category eyebrows.
+// non-interactive label, as are the reference-data category eyebrows.
 const referenceGroups = computed(() => groups.value.filter((g) => !DOMAIN_CATEGORIES.includes(g.key)))
 const domainGroups = computed(() => groups.value.filter((g) => DOMAIN_CATEGORIES.includes(g.key)))
 
@@ -49,19 +41,10 @@ function select(typeKey) {
       v-for="group in referenceGroups"
       :key="group.key"
     >
-      <button
-        type="button"
-        class="category-eyebrow"
-        :aria-expanded="!collapsed[group.key]"
-        @click="toggleGroup(group.key)"
-      >
-        <i :class="['pi', collapsed[group.key] ? 'pi-chevron-right' : 'pi-chevron-down']" />
+      <div class="category-eyebrow static">
         {{ group.label }}
-      </button>
-      <ul
-        v-show="!collapsed[group.key]"
-        class="type-list"
-      >
+      </div>
+      <ul class="type-list">
         <li
           v-for="t in group.types"
           :key="t.typeKey"
@@ -82,37 +65,16 @@ function select(typeKey) {
       <div class="super-eyebrow">
         Domain
       </div>
-      <template
-        v-for="group in domainGroups"
-        :key="group.key"
-      >
-        <button
-          type="button"
-          class="category-eyebrow domain-eyebrow"
-          :aria-expanded="!collapsed[group.key]"
-          @click="toggleGroup(group.key)"
+      <ul class="type-list">
+        <li
+          v-for="group in domainGroups"
+          :key="group.key"
+          :class="{ active: store.activeView === 'domain-category' && store.selectedCategory === group.key }"
+          @click="store.showCategoryView(group.key)"
         >
-          <i :class="['pi', collapsed[group.key] ? 'pi-chevron-right' : 'pi-chevron-down']" />
-          {{ group.label }}
-        </button>
-        <ul
-          v-show="!collapsed[group.key]"
-          class="type-list domain-list"
-        >
-          <li
-            v-for="t in group.types"
-            :key="t.typeKey"
-            :class="{ active: t.typeKey === store.selectedType }"
-            @click="select(t.typeKey)"
-          >
-            <span class="type-name">{{ t.name }}</span>
-            <Badge
-              :value="store.typeCounts[t.typeKey] ?? 0"
-              severity="secondary"
-            />
-          </li>
-        </ul>
-      </template>
+          <span class="type-name">{{ group.label }}</span>
+        </li>
+      </ul>
     </template>
 
     <p
@@ -165,22 +127,11 @@ function select(typeKey) {
   cursor: pointer;
   border-radius: 3px;
 }
-.category-eyebrow:hover {
-  background: var(--lab-disabled-bg);
-}
-.category-eyebrow .pi {
-  font-size: 9px;
+.category-eyebrow.static {
+  cursor: default;
 }
 .category-eyebrow:first-of-type {
   margin-top: 0;
-}
-/* Domain category eyebrows nest one step under the DOMAIN super-eyebrow. */
-.domain-eyebrow {
-  margin-top: 0.2rem;
-  padding-left: 0.9rem;
-}
-.domain-list {
-  padding-left: 0.4rem;
 }
 .type-list {
   list-style: none;
@@ -203,8 +154,8 @@ function select(typeKey) {
   background: var(--lab-disabled-bg);
 }
 .type-list li.active {
-  background: var(--lab-accent);
-  color: #fff;
+  background: var(--p-highlight-background);
+  color: var(--p-highlight-color);
 }
 .type-name {
   font-size: 12px;

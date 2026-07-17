@@ -38,6 +38,9 @@ func NewLocalizationHandler(items domain.ItemRepository, locs domain.Localizatio
 // SetLocalization upserts a label/description for an item in one locale.
 // The item must already exist.
 func (h *LocalizationHandler) SetLocalization(ctx context.Context, in LocalizationInput) error {
+	if err := domain.ValidateLocale(in.Locale); err != nil {
+		return err
+	}
 	if _, err := h.items.Get(ctx, in.TypeKey, in.Context, in.Code); err != nil {
 		return err
 	}
@@ -83,6 +86,9 @@ func (h *LocalizationHandler) ListForItem(ctx context.Context, typeKey, itemCont
 // AddLocale registers a locale as known for a context, optionally marking it
 // the default (there is at most one default per context).
 func (h *LocalizationHandler) AddLocale(ctx context.Context, itemContext, locale string, isDefault bool) error {
+	if err := domain.ValidateLocale(locale); err != nil {
+		return err
+	}
 	return h.locales.Add(ctx, itemContext, locale, isDefault)
 }
 

@@ -819,6 +819,73 @@ breadth (string extraction + translation data), not architecture; the pipeline a
 exists. Do not start extraction before the Decision is made — re-homing strings after the
 fact is the expensive mistake this gate exists to prevent.
 
+### Phase 11.11 — Enum value localization UX (IMPLEMENTED 2026-07-17)
+
+> Mirrors the detailed entry in [Dictionary-POC-Plan.md](Dictionary-POC-Plan.md) § Phase 11.11 —
+> that file is the source of truth for the full ASCII mockups; this is the tracking copy.
+
+**Goal.** Enum values (e.g. `Ship Status` → `at-anchor` = "At Anchor") can be viewed but not
+localized in `frontend-dict`, and reference-data items only get a one-locale-at-a-time editor.
+Make an enum value first-class, localizable data (stable key · default label · translations ·
+description · status) and make bulk translation across locales fast. Primarily a `frontend-dict`
+change — **frontend-only**, no new backend (see below).
+
+**Backend is already in place — no new endpoint or business rule.** The item-update this UX needs
+is **BR-D18**: `PATCH /api/refdata/admin/items/{type}/{context}/{code}/attrs`
+(`commands.ItemHandler.UpdateItemAttrs()`), a full attrs-map replace. Editing the default label =
+read attrs, set `attrs.name`/`attrs.description`, PATCH the whole map. Duplicate = `registerItem`
+with copied attrs. The only missing piece is a `frontend-dict` `updateItem` wrapper for that PATCH.
+
+**Design (three-level layout).**
+
+- **Left — enum types:** existing type list.
+- **Middle — enum values as a compact, sortable/searchable table** (replaces the text list):
+  `Key` (monospace, fixed width, truncate + full-key tooltip, not inline-editable) · `Default label`
+  (flexible) · `Status` (compact badge). Per-row overflow menu: Edit · Deactivate/Reactivate ·
+  Duplicate · Delete.
+- **Right — detail**, retabbed from `Attrs | Localizations | References` to first-class
+  **`General | Translations | Usage`**:
+  - **General** — Key (read-only) · Default label (editable) · Status · Description (editable).
+  - **Translations** — a table (Locale · Display name · Translation · Status =
+    Default/Complete/Missing) with search, a **Missing only** toggle, and **+ Add locale**; inline
+    edit. Display names via `Intl.DisplayNames`; "Missing" rows are a client-side join of
+    `store.locales` against existing localizations.
+  - **Usage** — where the value is referenced (existing `listItemReferences`).
+- **Bulk translation matrix** — a per-type **`Values | Translation Matrix`** toggle; matrix lays
+  values (rows) × locales (columns) with editable cells (each an existing `setLocalization` upsert).
+  Distinct from Phase 11.7's types×locales *completeness* matrix (that shows ratios; this edits
+  individual values within one type).
+
+**Checklist.**
+
+- [x] `api.js` + store: `updateItem` wrapping `PATCH …/items/{type}/{context}/{code}/attrs`
+      (BR-D18); duplicate via `registerItem`
+- [x] Middle panel → sortable/searchable `DataTable` (Key / Default label / Status), truncate +
+      tooltip, per-row overflow menu (Edit · Deactivate/Reactivate · Duplicate · Delete)
+- [x] Detail panel retabbed to `General | Translations | Usage` (`ItemDetailPanel.vue`; shared with
+      the Reference Data screen, so both benefit)
+- [x] Translations tab: locale table with Default/Complete/Missing status, `Intl.DisplayNames`
+      names, **Missing only** filter, **+ Add locale**, inline edit
+- [x] Bulk **Translation Matrix** view + `Values | Translation Matrix` toggle
+- [x] ~~All UI strings via `ui-copy` (BR-D16)~~ — dropped, N/A: `frontend-dict` has no
+      `vue-i18n`/`ui-copy` wiring (that's `frontend-port`-only per Phase 11.10's explicit scope);
+      new strings follow the existing plain-hardcoded-English convention already used throughout
+      `frontend-dict`.
+- [x] No new BR needed (reuses BR-D18). `frontend-dict` build green (`vite build`, `eslint`) +
+      new Vitest suite (`itemFields.spec.js`, `localization.spec.js`, 24 tests) for the pure
+      table/translation logic.
+- [x] New files: `src/itemFields.js`, `src/localization.js` (+ specs),
+      `src/components/TranslationMatrix.vue`
+- [ ] **Manual browser click-through still owed.** This was implemented and verified from a
+      background job with no display/browser access — every mutating endpoint (`updateItem` PATCH,
+      `setLocalization` upsert, `registerItem` for Add value/Duplicate, deprecate/reactivate/delete)
+      was exercised directly against the live `refdata-service` with disposable scratch data
+      (created, checked, deleted), confirming wire-format correctness, but no one has visually
+      confirmed the rendered UI (three-panel layout, `SelectButton` toggle, table styling,
+      responsiveness). Do this next time the app is opened in a real browser.
+
+---
+
 ## Renumbering (done at approval)
 
 | Was | Now |

@@ -15,6 +15,17 @@
 // Either flag means the UI should show a visible "using bundled text" badge;
 // never silently serve the gap.
 //
+// BR-D19: the last-successfully-fetched catalog for each locale is cached
+// (localStorage) and applied synchronously in connect(), *before* the live
+// refetch — otherwise, with the selected locale itself now persisted across
+// reloads, every reload into a non-en locale would cold-paint in bundled en
+// (the only ever-bundled locale) for the length of the refetch, visibly
+// mismatching the locale shown as selected. BR-D11 doesn't cover this: that
+// rule is about refdata being *unreachable*; here it's reachable, it just
+// hasn't answered *yet*. A locale visited for the very first time still
+// cold-paints in en until its first successful fetch — there's no cache to
+// prime from yet.
+//
 // refreshCatalog() is re-entrant: switching locale while a previous switch's
 // fetch is still in flight (e.g. right after mount, before the initial fetch
 // settles) starts a second overlapping request. Network responses aren't
@@ -30,11 +41,30 @@ import { uiCopyFallbackEn } from './uiCopyFallback.en.js'
 import { useRefdataLabels } from './useRefdataLabels.js'
 
 const TYPE_KEY = 'ui-copy'
+const CATALOG_CACHE_KEY = 'refdata.uiCopyCache'
 const { selectedLocale } = useRefdataLabels()
 
 const usingFallback = ref(false)
 const partialFallback = ref(false)
 const switching = ref(false)
+
+function readCatalogCache() {
+  try {
+    return JSON.parse(localStorage.getItem(CATALOG_CACHE_KEY) || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function writeCatalogCacheEntry(locale, entry) {
+  try {
+    const cache = readCatalogCache()
+    cache[locale] = entry
+    localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(cache))
+  } catch {
+    // storage disabled/unavailable — just won't prime cold paint next time
+  }
+}
 
 let i18n = null
 let source = null
@@ -72,6 +102,7 @@ async function refreshCatalog() {
     partialFallback.value = fellThrough
     usingFallback.value = false
     i18n.global.setLocaleMessage(locale, messages)
+    writeCatalogCacheEntry(locale, { messages, partialFallback: fellThrough })
   } catch {
     if (myToken !== requestToken) return
     usingFallback.value = true
@@ -82,8 +113,21 @@ async function refreshCatalog() {
   switching.value = false
 }
 
+// Applies a previously cached catalog for the current locale synchronously,
+// ahead of the live refetch (BR-D19) — a no-op if nothing's cached for it yet.
+function primeFromCache() {
+  const locale = selectedLocale.value || 'en'
+  const cached = readCatalogCache()[locale]
+  if (!cached) return
+  i18n.global.setLocaleMessage(locale, cached.messages)
+  i18n.global.locale.value = locale
+  partialFallback.value = cached.partialFallback
+  usingFallback.value = false
+}
+
 function connect(i18nInstance) {
   i18n = i18nInstance
+  primeFromCache()
   if (started) {
     refreshCatalog()
     return

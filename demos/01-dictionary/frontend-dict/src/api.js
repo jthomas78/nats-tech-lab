@@ -58,6 +58,16 @@ export function deleteItem(typeKey, context, code) {
   return request(`/api/refdata/admin/items/${typeKey}/${context}/${code}`, { method: 'DELETE' })
 }
 
+// Full replace of an item's attrs map (BR-D18) — not a per-key merge, so
+// callers must send the complete desired map (spread the current attrs and
+// override just the keys changing).
+export function updateItem(typeKey, context, code, attrs) {
+  return request(`/api/refdata/admin/items/${typeKey}/${context}/${code}/attrs`, {
+    method: 'PATCH',
+    body: JSON.stringify({ attrs }),
+  })
+}
+
 // ── References ─────────────────────────────────────────────────────────────────
 
 export function createReference(input) {

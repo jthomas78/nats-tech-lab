@@ -638,6 +638,8 @@ func (h *Handlers) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, domain.ErrReferenceTargetNotFound),
 		errors.Is(err, domain.ErrReferenceTargetNotActive):
 		status = http.StatusUnprocessableEntity
+	case errors.Is(err, domain.ErrInvalidLocaleFormat):
+		status = http.StatusBadRequest
 	}
 	if h.deps.Log != nil && status == http.StatusInternalServerError {
 		h.deps.Log.Error("refdata request failed", "err", err)

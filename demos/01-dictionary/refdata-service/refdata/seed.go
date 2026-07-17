@@ -16,7 +16,7 @@ type seedItem struct {
 	code   string
 	name   string // en label
 	nameEs string // es label
-	nameAf string // af-ZA label
+	nameAf string // af-za label
 }
 
 // Seed idempotently registers a representative subset of standard reference
@@ -24,11 +24,12 @@ type seedItem struct {
 // (~249 countries) — a recognizable, demo-sized subset of each, plus the
 // complete fixed lists (Incoterms 2020, UN hazard classes, ship-status).
 //
-// en, es, and af-ZA are seeded for every item so the locale-resolution path
+// en, es, and af-za are seeded for every item so the locale-resolution path
 // (BR-D03) and the dictionary UI's locale switcher have more than one
-// locale to exercise; es and af-ZA are not the seed context's default (en is).
-// Like es, the af-ZA labels are a machine-drafted first pass, not a
-// human/translator-reviewed deliverable.
+// locale to exercise; es and af-za are not the seed context's default (en is).
+// Like es, the af-za labels are a machine-drafted first pass, not a
+// human/translator-reviewed deliverable. Locale codes are lower case
+// throughout (BR-D20) — af-za, not the BCP-47-conventional af-ZA.
 func Seed(ctx context.Context, h *Handlers) error {
 	seeds := []struct {
 		typeKey     string
@@ -52,7 +53,7 @@ func Seed(ctx context.Context, h *Handlers) error {
 	if err := h.Localizations.AddLocale(ctx, DefaultContext, "es", false); err != nil {
 		return err
 	}
-	if err := h.Localizations.AddLocale(ctx, DefaultContext, "af-ZA", false); err != nil {
+	if err := h.Localizations.AddLocale(ctx, DefaultContext, "af-za", false); err != nil {
 		return err
 	}
 
@@ -94,7 +95,7 @@ func Seed(ctx context.Context, h *Handlers) error {
 				TypeKey: s.typeKey,
 				Code:    item.code,
 				Context: DefaultContext,
-				Locale:  "af-ZA",
+				Locale:  "af-za",
 				Label:   item.nameAf,
 			}); err != nil {
 				return err
@@ -254,7 +255,7 @@ var shipStatusSeed = []seedItem{
 // Codes are vue-i18n message keys, not domain codes. The generated bundled
 // English fallback is derived from this seed; do not edit it by hand.
 // frontend-port's vue-i18n wiring only consumes en/es (Phase 11.10's scope);
-// the af-ZA column exists in refdata/Postgres like every other seeded
+// the af-za column exists in refdata/Postgres like every other seeded
 // locale, but isn't surfaced as a selectable UI locale in frontend-port yet.
 var uiCopySeed = []seedItem{
 	{"filter.all", "All", "Todos", "Alle"},

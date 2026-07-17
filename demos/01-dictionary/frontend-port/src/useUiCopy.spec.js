@@ -20,6 +20,14 @@ function deferred() {
   return { promise, resolve }
 }
 
+// Resolves the deferred fetch as a genuine (ok, successful) Response —
+// resolving with a raw data object instead makes fetchJSON's `res.json()`
+// throw (no such method), silently routing through the catch/fallback
+// branch instead of the success path the test means to exercise.
+function mockFetchReturning(deferredEntry) {
+  return deferredEntry.promise.then((items) => ({ ok: true, json: () => Promise.resolve({ items }) }))
+}
+
 describe('useUiCopy request-ordering guard', () => {
   beforeEach(() => {
     global.EventSource = FakeEventSource
@@ -45,7 +53,7 @@ describe('useUiCopy request-ordering guard', () => {
     const esFetch = deferred()
     global.fetch = vi.fn((url) => {
       const locale = new URL(url, 'http://localhost').searchParams.get('locale')
-      return (locale === 'es' ? esFetch : enFetch).promise
+      return mockFetchReturning(locale === 'es' ? esFetch : enFetch)
     })
 
     const i18n = createI18n({ legacy: false, locale: 'en', fallbackLocale: 'en', messages: { en: {}, es: {} } })
@@ -57,16 +65,78 @@ describe('useUiCopy request-ordering guard', () => {
     await Promise.resolve() // let the watcher's refreshCatalog() call start
 
     // The newer 'es' request resolves first...
-    esFetch.resolve({ items: [{ code: 'app.title', label: 'SeaFreight Flow' }] })
+    esFetch.resolve([{ code: 'app.title', label: 'SeaFreight Flow' }])
     await new Promise((r) => setTimeout(r, 0))
     expect(i18n.global.locale.value).toBe('es')
     expect(switching.value).toBe(false)
 
     // ...then the older, now-stale 'en' request finally resolves too.
-    enFetch.resolve({ items: [{ code: 'app.title', label: 'SeaFreight Flow' }] })
+    enFetch.resolve([{ code: 'app.title', label: 'SeaFreight Flow' }])
     await new Promise((r) => setTimeout(r, 0))
 
     // The stale 'en' response must not clobber the user's 'es' selection.
     expect(i18n.global.locale.value).toBe('es')
+  })
+})
+
+// BR-D19 regression: cold paint must render the persisted locale's
+// last-known-good catalog immediately, not the bundled `en` default, while
+// the live refetch is still in flight.
+describe('useUiCopy BR-D19 catalog cache', () => {
+  beforeEach(() => {
+    global.EventSource = FakeEventSource
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    const { disconnect } = useUiCopy()
+    disconnect()
+    useRefdataLabels().selectedLocale.value = 'en'
+    localStorage.clear()
+    global.fetch = vi.fn(() => Promise.reject(new Error('fetch called after test teardown')))
+  })
+
+  it('applies a cached catalog synchronously in connect(), ahead of the live fetch', async () => {
+    localStorage.setItem(
+      'refdata.uiCopyCache',
+      JSON.stringify({ 'af-za': { messages: { 'app.title': 'SeaFreight Vloei (cached)' }, partialFallback: false } }),
+    )
+    const { selectedLocale } = useRefdataLabels()
+    selectedLocale.value = 'af-za'
+
+    const liveFetch = deferred()
+    global.fetch = vi.fn(() => mockFetchReturning(liveFetch))
+
+    const i18n = createI18n({ legacy: false, locale: 'en', fallbackLocale: 'en', messages: { en: {} } })
+    const { connect } = useUiCopy()
+    connect(i18n)
+
+    // Synchronous, before the live fetch has resolved (or even been awaited).
+    expect(i18n.global.locale.value).toBe('af-za')
+    expect(i18n.global.getLocaleMessage('af-za')['app.title']).toBe('SeaFreight Vloei (cached)')
+
+    // The live fetch still lands on top once it resolves.
+    liveFetch.resolve([{ code: 'app.title', label: 'SeaFreight Vloei' }])
+    await new Promise((r) => setTimeout(r, 0))
+    expect(i18n.global.getLocaleMessage('af-za')['app.title']).toBe('SeaFreight Vloei')
+  })
+
+  it('caches a successfully fetched catalog so the next connect() can prime from it', async () => {
+    const { selectedLocale } = useRefdataLabels()
+    selectedLocale.value = 'af-za'
+    global.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ items: [{ code: 'app.title', label: 'SeaFreight Vloei' }] }),
+      }),
+    )
+
+    const i18n = createI18n({ legacy: false, locale: 'en', fallbackLocale: 'en', messages: { en: {} } })
+    const { connect } = useUiCopy()
+    connect(i18n)
+    await new Promise((r) => setTimeout(r, 0))
+
+    const cache = JSON.parse(localStorage.getItem('refdata.uiCopyCache'))
+    expect(cache['af-za'].messages['app.title']).toBe('SeaFreight Vloei')
   })
 })

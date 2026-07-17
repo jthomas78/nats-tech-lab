@@ -361,16 +361,16 @@ Add self-documenting API support using `swaggo/swag` so the backend routes are e
 
 #### Overview
 
-Introduces the `Container` domain entity (a second aggregate alongside `Ship`), the terminal/port model, and a purpose-built Port Management frontend — all on a **single JetStream stream**. This is the baseline: two aggregates sharing one consistency boundary, so every cross-aggregate rule (BR-008…BR-012) is enforced with **strong consistency from a single atomic replay**. Phase 14 then splits the stream to expose the distributed-consistency problem.
+Introduces the `Container` domain entity (a second aggregate alongside `Ship`), the terminal/port model, and a purpose-built Port Management frontend — all on a **single JetStream stream**. This is the baseline: two aggregates sharing one consistency boundary, so every cross-aggregate rule (BR-008…BR-012) is enforced with **strong consistency from a single atomic replay**. Phase 15 then splits the stream to expose the distributed-consistency problem.
 
-> **Why single-stream first.** The invariant-spanning-aggregates problem comes from `Ship` and `Container` being *separate aggregates* — not from stream topology. Keeping both aggregates on one stream in Phase 8 means a command handler hydrates **both** from one replay of `SHIPPING` (folding `ship.*` into `ShipAggregate`, `container.*` into `ContainerAggregate`), so cross-aggregate rules stay locally consistent. Phase 14 changes exactly one variable — the stream split — turning the same invariant into a distributed problem. This isolation is the teaching point.
+> **Why single-stream first.** The invariant-spanning-aggregates problem comes from `Ship` and `Container` being *separate aggregates* — not from stream topology. Keeping both aggregates on one stream in Phase 8 means a command handler hydrates **both** from one replay of `SHIPPING` (folding `ship.*` into `ShipAggregate`, `container.*` into `ContainerAggregate`), so cross-aggregate rules stay locally consistent. Phase 15 changes exactly one variable — the stream split — turning the same invariant into a distributed problem. This isolation is the teaching point.
 
 #### Terminology
 
 - **Terminal** (not warehouse) — the facility at a port where containers are stored in the yard and crane-loaded onto ships. Every port has a terminal.
 - **Container** — ISO 6346 shipping container (e.g. `TCKU1234567`), the unit of cargo transport.
 
-#### Aggregate design (the decision that makes Phase 14 a clean delta)
+#### Aggregate design (the decision that makes Phase 15 a clean delta)
 
 - `Container` is its **own aggregate** (`ContainerAggregate`), **not** folded into `ShipAggregate`. A container's lifecycle (`registered in terminal → loaded → unloaded at destination`) means it belongs to no ship while it sits in the yard, so it cannot be a field on the ship aggregate the way `Cargo` is today.
 - Both aggregate types are **co-located on the single `SHIPPING` stream**, partitioned by subject:
@@ -722,18 +722,18 @@ e.g.  emea.events.acme.ship.SH-001.arrived
 
 Region and tenant are **hardcoded constants for the POC** (`emea`, `acme`) — the point is that the subject *shape* is right from here on, because subject taxonomy is the highest-cost-to-change axis in the whole system and every later phase multiplies the number of subjects and consumers built on it.
 
-#### Why this phase must precede Phase 12
+#### Why this phase must precede Phase 13
 
-`Nats-Expected-Last-Subject-Sequence` (Phase 12's optimistic-concurrency guard) is scoped **per subject**. With today's `SHIPPING.ship.arrived` shape, every ship shares one subject — the guard would serialize the entire fleet. The aggregate-instance `{id}` token is what makes per-aggregate concurrency control possible at all.
+`Nats-Expected-Last-Subject-Sequence` (Phase 13's optimistic-concurrency guard) is scoped **per subject**. With today's `SHIPPING.ship.arrived` shape, every ship shares one subject — the guard would serialize the entire fleet. The aggregate-instance `{id}` token is what makes per-aggregate concurrency control possible at all.
 
 #### Design notes
 
-- Stream name stays `SHIPPING`; it now binds `{region}.events.{tenant}.ship.>` and `{region}.events.{tenant}.container.>` (until Phase 13 moves the container binding to `TERMINAL`).
+- Stream name stays `SHIPPING`; it now binds `{region}.events.{tenant}.ship.>` and `{region}.events.{tenant}.container.>` (until Phase 14 moves the container binding to `TERMINAL`).
 - The `{id}` token is the **aggregate identity**: `shipID` for ships, the **surrogate UUID** (Phase 8.3) for containers — not the ISO 6346 natural key.
 - Subject constants in `domain/events.go` become **builder functions** (`ShipSubject(region, tenant, shipID, event)`), since subjects are now parameterized.
 - Consumers/queries that switch on the full subject string must instead **parse tokens** (aggregate + event type by position).
-- Hydrating a single ship can now use a **filtered consumer** on `{region}.events.{tenant}.ship.{id}.>` instead of folding the whole stream — a replay-cost win that Phase 14 can measure. Natural-key container lookup still scans `…container.>`.
-- The `Context` payload field stays for now (KV bucket naming still uses it); subjects become the authoritative scoping mechanism. Whether `context` collapses into `{tenant}`/`{region}` is decided in Phase 15.
+- Hydrating a single ship can now use a **filtered consumer** on `{region}.events.{tenant}.ship.{id}.>` instead of folding the whole stream — a replay-cost win that Phase 15 can measure. Natural-key container lookup still scans `…container.>`.
+- The `Context` payload field stays for now (KV bucket naming still uses it); subjects become the authoritative scoping mechanism. Whether `context` collapses into `{tenant}`/`{region}` is decided in Phase 16.
 
 #### Checklist
 
@@ -742,7 +742,7 @@ Region and tenant are **hardcoded constants for the POC** (`emea`, `acme`) — t
 - [x] `application/commands/` — publish to per-instance subjects; hydrate via filtered subject where the aggregate ID is known
 - [x] `eventhandler/`, `queries/`, `rest/sse.go` — update filter subjects; parse event type from subject tokens
 - [x] Frontend JetStream panel — subject display/filtering updated for the new shape
-- [x] Docs realignment (same commit): fix `CLAUDE.md` dictionary-domain drift (package layout, entities); update stale "Phase 9 = stream split" references in `ARCHITECTURE.md`, `BUSINESS_RULES.md`, and code comments (`events.go`, `container.go`) to Phase 12
+- [x] Docs realignment (same commit): fix `CLAUDE.md` dictionary-domain drift (package layout, entities); update stale "Phase 9 = stream split" references in `ARCHITECTURE.md`, `BUSINESS_RULES.md`, and code comments (`events.go`, `container.go`) to Phase 13
 - [x] `go build ./...` + `ginkgo ./...` green (52/52 tests, including subject-taxonomy tests)
 
 ---
@@ -788,11 +788,11 @@ Give the admin UI (`frontend/`, "EventSourcing CQRS POC") a tabbed panel for bro
 
 ---
 
-### Phase 10 — Performance Baseline (pull-forward, pre-Phase 11/13)
+### Phase 10 — Performance Baseline (pull-forward, pre-Phase 11/14)
 
 #### Goal
 
-Establish a load-test **baseline on the current implementation**, before the write path and stream topology change in later phases. This is a scoped pull-forward of the full performance work (Phase 15) — **measurement only, no mitigations**.
+Establish a load-test **baseline on the current implementation**, before the write path and stream topology change in later phases. This is a scoped pull-forward of the full performance work (Phase 16) — **measurement only, no mitigations**.
 
 Two known scalability gaps already exist and are this baseline's primary targets:
 
@@ -804,26 +804,26 @@ Both are correct implementations of event-sourcing fundamentals — the point is
 #### Why pull this forward
 
 1. **The harness is phase-independent.** k6 install, the seed script, the docker load environment, and the metrics-capture format are reused by every subsequent phase — building them now is pure upside.
-2. **A clean pre-guard baseline is only obtainable now.** Phases 12–14 don't change the two gaps' fundamentals. Capturing command latency **before** Phase 12's optimistic-concurrency guard lands gives a before/after delta that answers Phase 15's question — "what does the sequence guard cost?" — and cannot be reconstructed later.
+2. **A clean pre-guard baseline is only obtainable now.** Phases 13–15 don't change the two gaps' fundamentals. Capturing command latency **before** Phase 13's optimistic-concurrency guard lands gives a before/after delta that answers Phase 16's question — "what does the sequence guard cost?" — and cannot be reconstructed later.
 
-#### In scope (stable against Phases 12–14)
+#### In scope (stable against Phases 13–15)
 
 - k6 harness + seed script (reusable infrastructure)
 - Shape C reconstruction latency vs stream depth
 - Single-ship write-side hydration degradation
 - Raw command-throughput ceiling (concurrent ships)
 
-#### Explicitly deferred to Phase 15 (would be thrown away if measured now)
+#### Explicitly deferred to Phase 16 (would be thrown away if measured now)
 
-- Optimistic-concurrency contention → needs **Phase 12** (guard doesn't exist yet)
-- Cross-stream burst / consumer lag → needs **Phase 14** (no `TERMINAL` stream yet)
-- Cross-aggregate stale-read window → needs **Phase 14**
+- Optimistic-concurrency contention → needs **Phase 13** (guard doesn't exist yet)
+- Cross-stream burst / consumer lag → needs **Phase 15** (no `TERMINAL` stream yet)
+- Cross-aggregate stale-read window → needs **Phase 15**
 
-> **Measurement only.** This phase characterises the degradation curves; it does **not** implement mitigations (snapshotting, etc.), because those interact with Phases 12–14. Record results as a **partial pass** in `PERFORMANCE.md`, clearly separating captured baselines from pending (deferred) scenarios owned by Phase 15.
+> **Measurement only.** This phase characterises the degradation curves; it does **not** implement mitigations (snapshotting, etc.), because those interact with Phases 13–15. Record results as a **partial pass** in `PERFORMANCE.md`, clearly separating captured baselines from pending (deferred) scenarios owned by Phase 16.
 
 #### Tool
 
-**k6** (`k6.io`) — scripted load testing in JavaScript, runs outside the Go stack, produces latency percentiles and throughput metrics. Alternatively `vegeta` for simpler HTTP load. The same harness is carried into Phase 15.
+**k6** (`k6.io`) — scripted load testing in JavaScript, runs outside the Go stack, produces latency percentiles and throughput metrics. Alternatively `vegeta` for simpler HTTP load. The same harness is carried into Phase 16.
 
 #### Checklist
 
@@ -834,8 +834,8 @@ Harness lives in [`demos/01-dictionary/perf/`](../../demos/01-dictionary/perf/RE
 - [x] Scenario written: single-ship hydration degradation (`perf/scenarios/hydration-single-ship.js`) — latency bucketed by prior-event band
 - [x] Scenario written: concurrent ships (`perf/scenarios/throughput-concurrent-ships.js`) — ramp to 500 VUs, p95 + error rate
 - [x] Scenario written: Shape C reconstruction (`perf/scenarios/shape-c-reconstruction.js`) — latency sampled per stream depth
-- [x] Create `demos/01-dictionary/PERFORMANCE.md` as a **partial pass**: baseline tables filled, deferred scenarios (Phases 11/13) separated
-- [x] **Capture baselines** (2026-07-13, M3 Pro / dockerized): Shape C ~linear replay curve (0.9→45ms @100→10k); hydration per-command climbs 0.65→18ms @0→10k events; throughput ceiling ≈3,800 cmd/s — key finding: Postgres `max_connections=100` + an uncapped `*sql.DB` pool (no `SetMaxOpenConns`) are the concurrency bottleneck (flagged for Phase 14, not fixed)
+- [x] Create `demos/01-dictionary/PERFORMANCE.md` as a **partial pass**: baseline tables filled, deferred scenarios (Phases 11/14) separated
+- [x] **Capture baselines** (2026-07-13, M3 Pro / dockerized): Shape C ~linear replay curve (0.9→45ms @100→10k); hydration per-command climbs 0.65→18ms @0→10k events; throughput ceiling ≈3,800 cmd/s — key finding: Postgres `max_connections=100` + an uncapped `*sql.DB` pool (no `SetMaxOpenConns`) are the concurrency bottleneck (flagged for Phase 15, not fixed)
 
 ---
 
@@ -872,12 +872,175 @@ compose stack, no changes to the existing shipping implementation.
       item editor, locales panel, cache status widget (2026-07-14)
 - [x] **11.5 (optional)** — ports-registry migration evaluation (decision: leave as-is) +
       Obsidian findings write-up (2026-07-14)
+- [ ] **11.11 — Enum value localization UX** (`frontend-dict` three-panel redesign, frontend-only):
+      make enum values first-class, localizable data — compact values table, a
+      `General | Translations | Usage` detail panel, and a bulk translation matrix. Reuses the
+      existing BR-D18 attrs-update PATCH; no new backend. Full detail below.
+
+> Note: the inline list above is abbreviated (11.1–11.5); sub-phases 11.6–11.10 are already
+> delivered and tracked in [Dictionary-Service-Plan.md](Dictionary-Service-Plan.md), which is the
+> per-sub-phase source of truth. 11.11 is the next free number.
 
 See [Dictionary-Service-Plan.md](Dictionary-Service-Plan.md) for the full checklist per sub-phase.
 
+#### Phase 11.11 — Enum value localization UX (PROPOSED — added 2026-07-17)
+
+##### Goal
+
+Enum values (e.g. `Ship Status` → `at-anchor` = "At Anchor") can be viewed but not localized in the
+admin UI, and reference-data items only get a one-locale-at-a-time editor. Give both a proper
+localization workflow: treat an enum value as first-class data (stable key, default label,
+translations, description, status) rather than a bag of generic attributes, and make bulk
+translation across locales fast. This is primarily a `frontend-dict` change; the one backend
+addition is the service's first **item-update** endpoint (there is currently create / deprecate /
+reactivate / delete but no way to edit an existing item's default label or description).
+
+##### Design — three-level layout
+
+Keep the master-detail spatial model already used across the dictionary UI, now three panels:
+
+```
+┌─────────────────┬──────────────────────────────────┬────────────────────────────┐
+│ Enum types      │ Ship Status              5 values │ Selected value             │
+│                 │                                  │                             │
+│ + New enum      │ + Add value    Search…           │ General | Translations |    │
+│                 │                                  │           Usage             │
+│ Ship Status  5  │ Key         Default label  Status│                             │
+│ Cargo Type  12  │ at-anchor   At Anchor      ●     │ (tab content)               │
+│                 │ docked      Docked         ●     │                             │
+│                 │ in-transit  In Transit     ●     │                             │
+└─────────────────┴──────────────────────────────────┴────────────────────────────┘
+```
+
+- **Left — enum types:** existing type list (register type, per-type value count).
+- **Middle — enum values as a compact table** (replaces the current text list):
+  - `Key` — monospace, fixed width, truncates with the full key in a tooltip; not inline-editable.
+  - `Default label` — flexible width.
+  - `Status` — compact badge/icon (active / deprecated).
+  - Sortable and searchable; a per-row overflow menu offers **Edit · Deactivate/Reactivate ·
+    Duplicate · Delete**. Fixes today's problems: keys no longer wrap unpredictably, label no longer
+    reads as glued to the key, long values truncate cleanly, sort/search are trivial, and status is
+    visible in the list rather than only in the detail header.
+- **Right — selected value detail**, retabbed from the generic `Attrs | Localizations | References`
+  to first-class **`General | Translations | Usage`** ("Attributes" is too generic for what is
+  structured data — any genuinely arbitrary attrs still surface under General):
+  - **General** — Key (read-only), Default label (editable), Status, Description (editable).
+  - **Translations** — a table, not one locale at a time:
+
+    ```
+    Locale   Display name              Translation    Status
+    en-za    English — South Africa    At Anchor      Default
+    af-za    Afrikaans — South Africa  Voor Anker     Complete
+    fr-fr    French                    Au mouillage   Complete
+    de-de    German                    —              Missing
+    ```
+
+    (Locale codes are lower case throughout — BR-D20, added 2026-07-17 — not the
+    BCP-47-conventional upper-cased region subtag.)
+
+    Controls: search locales · **Missing only** toggle · **+ Add locale**. Inline editing is
+    appropriate here (low-risk, repetitive edits). Locale display names come from the browser's
+    `Intl.DisplayNames` — no backend change. "Missing" rows are a client-side join of the registered
+    locale set (`store.locales`) against the value's existing localizations.
+  - **Usage** — where the value is referenced (existing `listItemReferences`), reframed from the old
+    References tab.
+- **Bulk translation matrix** — a per-type **`Values | Translation Matrix`** toggle. The matrix lays
+  enum values (rows) against locales (columns) with editable cells, so a translator fills a whole
+  language column without opening each value:
+
+    ```
+    Enum value    English      Afrikaans    French
+    at-anchor     At Anchor    Voor Anker   Au mouillage
+    docked        Docked       Vasgemeer    À quai
+    in-transit    In Transit   In Transito  En transit
+    ```
+
+  Every cell is just an existing `setLocalization` upsert; no new API beyond the item-update
+  endpoint below. Distinct from Phase 11.7's types×locales completeness matrix (that shows ratios;
+  this edits individual values within one type).
+
+##### Design — backend (already delivered; frontend-only wiring left)
+
+The item-update capability this UX needs **already exists** — no new endpoint or business rule:
+
+- **BR-D18** — an item's `attrs` map can be replaced after creation, exposed as
+  `PATCH /api/refdata/admin/items/{type}/{context}/{code}/attrs` (`handlers.go`,
+  `commands.ItemHandler.UpdateItemAttrs()`). It's a **full-map replace**, so editing the default
+  label = read current attrs, set `attrs.name` (and `attrs.description`), PATCH the whole map back.
+  The stable key is not part of attrs and is already immutable.
+- **Duplicate** clones a value into a new key via the existing create path (`registerItem`, copying
+  attrs; translations start empty) — no backend change.
+
+The only missing piece is a `frontend-dict` `api.js`/store `updateItem` method that calls the
+existing PATCH; everything else in 11.11 is UI.
+
+##### Checklist
+
+- [x] `frontend-dict` `api.js` + store: `updateItem` method wrapping the existing
+      `PATCH …/items/{type}/{context}/{code}/attrs` (BR-D18); duplicate flow via `registerItem`
+      (implemented 2026-07-17)
+- [x] Middle panel → sortable/searchable `DataTable` (Key / Default label / Status), key truncates
+      with full-key tooltip, per-row overflow menu (Edit · Deactivate/Reactivate · Duplicate · Delete)
+      (implemented 2026-07-17)
+- [x] Detail panel retabbed to `General | Translations | Usage` (restructure `ItemDetailPanel.vue`;
+      shared with the Reference Data screen, so both benefit) (implemented 2026-07-17)
+- [x] Translations tab: locale table with Default/Complete/Missing status, `Intl.DisplayNames`
+      display names, **Missing only** filter, **+ Add locale**, inline edit (implemented 2026-07-17)
+- [x] Bulk **Translation Matrix** view + `Values | Translation Matrix` toggle (implemented 2026-07-17)
+- [x] ~~All UI strings routed through `ui-copy` (BR-D16)~~ — **N/A, corrected at implementation.**
+      `frontend-dict` has no `vue-i18n`/`ui-copy` wiring at all (unlike `frontend-port` —
+      Phase 11.10 explicitly scoped that work to `frontend-port` only); every existing
+      `frontend-dict` component (`categories.js`, `TypeNavigator.vue`, etc.) uses plain hardcoded
+      English strings. New strings in this phase follow that same existing convention rather than
+      introducing i18n wiring out of scope for this task.
+- [x] No new business rule needed — reuses BR-D18 as designed; no domain behaviour changed
+- [x] `frontend-dict` build green (`vite build`, `eslint`) + new Vitest suite (24 tests) for the
+      pure logic in `itemFields.js`/`localization.js`. **Browser click-through verification could
+      not be completed** — this session runs as a background job with no display/browser-extension
+      access, and the Codex rescue agent's Playwright fallback was blocked by sandbox filesystem
+      permissions. Substituted: every new mutating code path (`updateItem` PATCH, `setLocalization`
+      upsert create+edit, `registerItem` for Add value/Duplicate, deprecate/reactivate/delete) was
+      exercised directly against the live `refdata-service` container with disposable, cleaned-up
+      scratch data, confirming request/response shapes match the frontend's assumptions exactly.
+      **Recommend a manual click-through next time the app is opened in a real browser**,
+      particularly for layout/visual concerns (three-panel responsiveness, `SelectButton` toggle
+      styling, DataTable row-click highlight) that only a rendered check can catch.
+
 ---
 
-### Phase 12 — Write-Side Safety (Optimistic Concurrency + Publish Dedup)
+### Phase 12 (PROPOSED — awaiting approval) — Ship Container Capacity Limit
+
+#### Goal
+
+Ships currently have no maximum container capacity — a ship can be loaded with an unbounded number of containers. Add a fixed `Capacity` to the Ship aggregate and enforce it as a load-time domain rule (BR-019), plus surface a load-capacity indicator column in `frontend-port` ("SeaFreight Flow") so the constraint is visible, not just enforced.
+
+#### Design
+
+- **`Ship` domain model** (`dictionary/internal/domain/ship.go`): add `Capacity int` to `ShipState` (ship.go:46-53) and `ShipAggregate` (ship.go:65-70), threaded through `Apply()`/`State()`/`FromState()`.
+- **Setting capacity**: no "register ship" command exists — a ship's first `Arrive` is its registration (`ShipAggregate.Arrive()`, ship.go:124-144), which already set-once's `ShipName` when empty. `Capacity` follows the same set-once-at-first-arrival pattern: `ArrivePort` request gains an optional `capacity` field; if omitted on first arrival, a documented default is used (exact default — e.g. 20 — confirmed at implementation time, not fixed by this plan entry). There is still no update-ship command, so capacity is immutable after first arrival unless a follow-up phase adds one.
+- **Enforcing BR-019 on `Load`**: `ContainerAggregate.Load()` (container.go:196-219) gains a capacity check alongside its existing BR-012/BR-010/BR-014/BR-008 checks. This needs the ship's *current* on-ship container count at command time — `ContainerHandler.LoadContainer()` (application/commands/container.go:87-106) resolves this before calling `cont.Load(...)`. Two candidate mechanisms, to be decided during implementation:
+  1. Event-replay count (consistent with "JetStream is the source of truth" — Working Assumptions): count `.loaded`-without-subsequent-`.unloaded` container events for the ship's `shipID` at hydrate time.
+  2. Read-model query against the existing manifest join (Shape A/B projection) — faster, but reads an eventually-consistent projection to guard a write (same class of trade-off Phase 15 documents for BR-008/BR-012 read-model guards).
+- **Read model / API surface**: `ShipState`'s KV (Shape A/B) and Postgres projections need the new `Capacity` field so `GET` endpoints (fleet, shape-b ship, shape-c fleet) return it to the frontend.
+- **Frontend (`frontend-port`)**: `FleetPanel.vue` (columns at lines 112-131) and `ShipsAtPortPanel.vue` (columns at lines 150-163) each gain a load-capacity indicator column pairing the new `capacity` field with the container count already computed via `store.manifestFor(shipID).length` (e.g. `12 / 50`, colored by fullness). Route any new column label through `ui-copy` (BR-D16), not a hardcoded literal.
+
+#### Checklist
+
+- [ ] Confirm default capacity value and whether `capacity` is required or optional on `ArrivePort`
+- [ ] Decide event-replay vs read-model-guard mechanism for the current-count check (document the trade-off, mirroring Phase 15's treatment of BR-008/BR-012)
+- [ ] `ShipState`/`ShipAggregate`: add `Capacity`, thread through `Apply()`/`State()`/`FromState()`
+- [ ] `ArrivePort` command + REST handler: accept optional `capacity`, set-once on first arrival
+- [ ] `ContainerAggregate.Load()`: new `ErrCapacityExceeded` check (BR-019)
+- [ ] `ContainerHandler.LoadContainer()`: resolve current on-ship count before calling `Load()`
+- [ ] KV (Shape A/B) + Postgres ship projections: persist and return `Capacity`
+- [ ] Ginkgo specs written **before** implementation (red → green): `Container Domain Rules / BR-019` — load rejected at capacity, allowed under capacity, allowed exactly at capacity-minus-one
+- [ ] `frontend-port`: load-capacity column in `FleetPanel.vue` and `ShipsAtPortPanel.vue`, via `ui-copy`
+- [ ] `BUSINESS_RULES.md`: BR-019 updated from PROPOSED to enforced, with final error/enforcement/test references
+- [ ] `go build ./...` + `ginkgo ./...` green; frontend build green
+
+---
+
+### Phase 13 — Write-Side Safety (Optimistic Concurrency + Publish Dedup)
 
 #### Goal
 
@@ -907,7 +1070,7 @@ Close the two producer-side correctness gaps that stand between "JetStream as ev
 
 ---
 
-### Phase 13 — Projection Hardening (Consumer-Side Idempotency + Explicit Limits)
+### Phase 14 — Projection Hardening (Consumer-Side Idempotency + Explicit Limits)
 
 #### Goal
 
@@ -934,11 +1097,11 @@ Make projections safe under redelivery and reordering **by engineering, not by a
 
 ---
 
-### Phase 14 — Stream Split + Cross-Aggregate Consistency
+### Phase 15 — Stream Split + Cross-Aggregate Consistency
 
 #### Goal
 
-Extract container events from the shared `SHIPPING` stream into a dedicated `TERMINAL` stream, turning the two aggregates into two independent bounded contexts. This is a **single-variable change** on top of Phases 8–13: the aggregates, rules, and frontends are unchanged — only the stream topology moves. Post-Phase 9 this is even cleaner than originally planned: **the subjects themselves do not change** — a subject can belong to only one stream, so the split is purely moving the `…container.>` binding from `SHIPPING` to `TERMINAL`. The purpose is to make the **invariant-spanning-two-aggregates problem** concrete and demonstrate the solution options.
+Extract container events from the shared `SHIPPING` stream into a dedicated `TERMINAL` stream, turning the two aggregates into two independent bounded contexts. This is a **single-variable change** on top of Phases 8–14: the aggregates, rules, and frontends are unchanged — only the stream topology moves. Post-Phase 9 this is even cleaner than originally planned: **the subjects themselves do not change** — a subject can belong to only one stream, so the split is purely moving the `…container.>` binding from `SHIPPING` to `TERMINAL`. The purpose is to make the **invariant-spanning-two-aggregates problem** concrete and demonstrate the solution options.
 
 #### The problem this phase exposes
 
@@ -953,7 +1116,7 @@ After the split, BR-008 (container destPort vs ship's current port) and BR-012 (
 
 The demo implements **option 1** as the default and documents the trade-offs of all three:
 
-1. **Read-model guard (default)** — the container handler reads the ship's KV projection (Shape A/B) to check docked state / current port. Fast and keeps the streams independent, but validates a write against an eventually-consistent read (stale-read window — which Phase 14 measures under load).
+1. **Read-model guard (default)** — the container handler reads the ship's KV projection (Shape A/B) to check docked state / current port. Fast and keeps the streams independent, but validates a write against an eventually-consistent read (stale-read window — which Phase 15 measures under load).
 2. **Hydrate both streams** — the container handler additionally replays `SHIPPING` for the ship. Strongly consistent, but the container context is no longer independent and every load/unload replays two streams.
 3. **Saga / compensating event** — accept the write optimistically and emit a compensating `container.load-rejected` event if the ship turns out not to be docked. The "correct" DDD answer for separate contexts; heaviest to implement.
 
@@ -971,18 +1134,18 @@ The demo implements **option 1** as the default and documents the trade-offs of 
 
 ---
 
-### Phase 15 — Performance & Load Testing (full suite)
+### Phase 16 — Performance & Load Testing (full suite)
 
 #### Goal
 
-Validate that the *final* architecture holds under realistic throughput and identify the bottlenecks before any production consideration, building on the baseline established in **Phase 10**. Runs after the write path (Phase 12) and stream split (Phase 14) are in place, so the scenarios those phases gate can finally be measured. The POC has two known scalability gaps — first characterised in Phase 10, re-measured here against the final architecture:
+Validate that the *final* architecture holds under realistic throughput and identify the bottlenecks before any production consideration, building on the baseline established in **Phase 10**. Runs after the write path (Phase 13) and stream split (Phase 15) are in place, so the scenarios those phases gate can finally be measured. The POC has two known scalability gaps — first characterised in Phase 10, re-measured here against the final architecture:
 
 1. **Shape C — full replay on every call.** `ReconstructFleet` replays from `seq=1` every time. Latency grows linearly with stream depth.
 2. **Write-side hydration — full replay per command.** `hydrate()` in `commands.go` replays all events for a ship on every command. A busy ship accumulates history and slows its own writes.
 
 Both are correct implementations of event sourcing fundamentals — the point is to *measure* the degradation curve and document where snapshots or other mitigations become necessary.
 
-> The baseline harness and the Shape C / single-ship / throughput scenarios are delivered in **Phase 10** (pull-forward baseline). This phase reuses that harness, adds the scenarios gated by Phases 12 and 14, and re-measures the Phase 10 baselines against the final architecture.
+> The baseline harness and the Shape C / single-ship / throughput scenarios are delivered in **Phase 10** (pull-forward baseline). This phase reuses that harness, adds the scenarios gated by Phases 13 and 15, and re-measures the Phase 10 baselines against the final architecture.
 
 #### Tool
 
@@ -996,9 +1159,9 @@ Both are correct implementations of event sourcing fundamentals — the point is
 | High-frequency arrivals/departures — many ships concurrently | Throughput ceiling of the command pipeline | baseline in Phase 10; re-measure |
 | Shape C fleet reconstruction under load | Replay latency vs stream depth; degradation curve | baseline in Phase 10; re-measure |
 | KV watch fan-out — many SSE clients | How many concurrent SSE connections the backend sustains before lag | this phase |
-| Container load/unload burst — terminal throughput | Cross-stream (`SHIPPING` + `TERMINAL`) consumer lag under write pressure | needs Phase 14 |
+| Container load/unload burst — terminal throughput | Cross-stream (`SHIPPING` + `TERMINAL`) consumer lag under write pressure | needs Phase 15 |
 | Projection lag — event published → KV updated | End-to-end latency of the Shape A/B projectors under load | this phase |
-| Optimistic-concurrency contention — concurrent commands, same aggregate | Retry rate and latency cost of the Phase 12 sequence guard under contention | needs Phase 12 |
+| Optimistic-concurrency contention — concurrent commands, same aggregate | Retry rate and latency cost of the Phase 13 sequence guard under contention | needs Phase 13 |
 
 #### Baseline metrics to capture
 
@@ -1017,8 +1180,8 @@ Both are correct implementations of event sourcing fundamentals — the point is
 
 The baseline harness, seed script, and the Shape C / single-ship / throughput scenarios are delivered in **Phase 10**. This phase completes the remaining (gated) scenarios and finalises the report:
 
-- [ ] Scenario: optimistic-concurrency contention — retry rate and latency cost of the Phase 12 sequence guard *(needs Phase 12)*
-- [ ] Scenario: cross-stream burst — fire `SHIPPING` and `TERMINAL` events concurrently, measure projection consumer lag *(needs Phase 14)*
+- [ ] Scenario: optimistic-concurrency contention — retry rate and latency cost of the Phase 13 sequence guard *(needs Phase 13)*
+- [ ] Scenario: cross-stream burst — fire `SHIPPING` and `TERMINAL` events concurrently, measure projection consumer lag *(needs Phase 15)*
 - [ ] Scenario: SSE fan-out — open 1 / 10 / 50 / 100 concurrent SSE clients, measure KV watch lag
 - [ ] Scenario: projection lag — event published → KV updated, measured under load
 - [ ] Re-measure the Phase 10 baseline scenarios against the final architecture (with guard + split) and record the before/after delta
@@ -1027,7 +1190,7 @@ The baseline harness, seed script, and the Shape C / single-ship / throughput sc
 
 ---
 
-### Phase 16 (optional) — NATS Accounts Tenancy Spike
+### Phase 17 (optional) — NATS Accounts Tenancy Spike
 
 #### Goal
 
@@ -1048,6 +1211,32 @@ Today tenancy is a string convention: one unauthenticated `nats.Connect`, tenant
 
 ---
 
+### Phase 18 (optional, PLACEHOLDER — not yet a formal requirement) — Per-Tenant Runtime Theme Spike
+
+#### Goal
+
+Explore whether UI theme/branding (colors, tokens, light/dark presets) can be externalized per tenant and swapped **at runtime**, without a separate build/deploy per tenant. Raised as a "does it make sense to put theme data in the dictionary service" question (2026-07-17) — not a formal requirement yet, so this is scoped as a spike to prove the mechanism out, not a commitment to build it.
+
+#### Why this isn't just another `ui-copy`-style refdata type
+
+Theme data is fetch-then-apply's worst case: `ui-copy`/label fallback (BR-D11) and cold-paint caching (BR-D19) tolerate a brief English-text mismatch on first paint, but a full-page flash of the *wrong tenant's brand colors* before a client-side fetch resolves is far more visible and jarring — the same class of problem, magnified. Client-side fetch-and-apply (the pattern used everywhere else in this repo) is therefore the wrong default here.
+
+#### Scope (spike, not production-ready)
+
+- Dictionary service remains the source of truth for each tenant's theme tokens (a new `theme` dictionary type, context-scoped like everything else), but resolution is **not** a browser-side fetch-after-mount.
+- Prove out server-side/edge injection instead: a lightweight step (nginx, a tiny Go handler, or an SSR shell) resolves the tenant (subdomain/host header/path) and injects that tenant's CSS custom properties into `index.html` **before** it reaches the browser, so first paint is already correct — no flash, no fallback banner needed.
+- Note but don't implement: full SSR, a CDN/edge-cache layer for resolved theme HTML, and live theme-change propagation to already-open tabs (out of scope for a spike).
+
+#### Checklist
+
+- [ ] Confirm this is still wanted as a real requirement before scoping further (currently a placeholder)
+- [ ] `theme` dictionary type: define token schema (a small fixed set of CSS custom properties, not an open-ended style system)
+- [ ] Spike: a request-time injection step (nginx `sub_filter`, or a minimal Go handler in front of the static build) that resolves tenant → theme tokens → injects into the served `index.html`
+- [ ] Verify no flash-of-wrong-theme on first load for a tenant the browser has never seen (the actual test this spike exists to pass)
+- [ ] Document the trade-off vs. compiled-in-at-build-time in `ARCHITECTURE.md`: when per-tenant runtime branding is worth the added deploy-topology complexity vs. just rebuilding per tenant
+
+---
+
 ### Verification status (2026-07-09)
 
 The full compose stack now runs end to end (Docker installed 2026-07-09):
@@ -1059,6 +1248,28 @@ rejection at sea → unload at destination — with the `meta.known-ports`
 projection, terminal yard query, and Shape C fleet+container reconstruction
 all returning correct results. `go build` / `go vet` / `ginkgo ./...`
 (22/22 specs) and both frontend builds remain green.
+
+---
+
+## Renumbering (done at proposal)
+
+| Was | Now |
+|---|---|
+| *(new)* | **Phase 12 (PROPOSED) — Ship Container Capacity Limit** |
+| Phase 12 — Write-Side Safety | Phase 13 |
+| Phase 13 — Projection Hardening | Phase 14 |
+| Phase 14 — Stream Split | Phase 15 |
+| Phase 15 — Performance & Load Testing | Phase 16 |
+| Phase 16 (optional) — NATS Accounts Spike | Phase 17 (optional) |
+
+Cross-reference sweep (same commit):
+
+- [x] Main plan internal references (Phase 9 "why this precedes Phase 12"→13, Phase 10's
+      Phase 11/13/14 mentions→11/14/15, Phase 12–16 mutual references→13–17)
+- [x] `demos/01-dictionary/PERFORMANCE.md` (and the `obsidian/POC-Dictionaries/` copy) — deferred-scenario phase labels
+- [x] `demos/01-dictionary/perf/README.md` — deferred-scenario phase labels
+- [x] `ARCHITECTURE.md`, `BUSINESS_RULES.md` that cite Phases 12–16
+- [ ] `.claude/memory/` notes citing phase numbers (none currently do)
 
 ---
 

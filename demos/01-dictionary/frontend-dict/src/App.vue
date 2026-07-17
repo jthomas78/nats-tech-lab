@@ -6,6 +6,7 @@ import Toast from 'primevue/toast'
 import { onMounted, onUnmounted, ref } from 'vue'
 
 import CacheStatusWidget from './components/CacheStatusWidget.vue'
+import CategoryTypeList from './components/CategoryTypeList.vue'
 import ItemGrid from './components/ItemGrid.vue'
 import LocalizationView from './components/LocalizationView.vue'
 import TypeNavigator from './components/TypeNavigator.vue'
@@ -63,6 +64,7 @@ onUnmounted(() => store.disconnect())
       <TypeNavigator />
       <div class="content">
         <LocalizationView v-if="store.activeView === 'localization'" />
+        <CategoryTypeList v-else-if="store.activeView === 'domain-category'" />
         <template v-else>
           <ItemGrid />
           <div class="lower-panels">

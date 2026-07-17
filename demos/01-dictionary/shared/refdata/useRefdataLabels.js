@@ -11,10 +11,53 @@
 // State is module-level so the topbar locale <Select> and every panel in an
 // app share one instance and one SSE connection. All paths are relative, so
 // the vite dev proxy / nginx routes them to the backend.
+//
+// selectedLocale persists to localStorage (per-origin, so frontend-port and
+// frontend on their different dev ports don't share a choice) — no backend
+// user/session concept exists to store a preference server-side instead, and
+// a URL query param would need hand-rolled history sync since neither app
+// uses a router. No validation against the fetched `locales` list on read:
+// BR-D03's fallback chain already degrades a stale/invalid persisted locale
+// to the default rather than breaking anything.
+//
+// BR-D19: the last-successfully-fetched label map for each locale is also
+// cached and seeded into `labels` synchronously at module load (not just the
+// locale choice) — otherwise, on a reload into a persisted non-en locale,
+// statusLabel() would show the hardcoded English SHIP_STATUS_FALLBACK for
+// the length of the refetch, mismatching the locale shown as selected. See
+// useUiCopy.js's matching cache for the full rationale (same bug, same fix).
 
 import { ref, watch } from 'vue'
 
 const TYPE_KEY = 'ship-status'
+const LOCALE_STORAGE_KEY = 'refdata.locale'
+const LABELS_CACHE_KEY = 'refdata.shipStatusLabelsCache'
+
+function readStoredLocale() {
+  try {
+    return localStorage.getItem(LOCALE_STORAGE_KEY) || 'en'
+  } catch {
+    return 'en' // storage disabled/unavailable (e.g. some private-browsing modes)
+  }
+}
+
+function readLabelsCache() {
+  try {
+    return JSON.parse(localStorage.getItem(LABELS_CACHE_KEY) || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function writeLabelsCacheEntry(locale, map) {
+  try {
+    const cache = readLabelsCache()
+    cache[locale] = map
+    localStorage.setItem(LABELS_CACHE_KEY, JSON.stringify(cache))
+  } catch {
+    // storage disabled/unavailable — just won't prime cold paint next time
+  }
+}
 
 // Built-in English fallback — used when the backend/refdata is unreachable or
 // a code has no localization. Mirrors the labels seeded for `ship-status`.
@@ -26,9 +69,10 @@ const SHIP_STATUS_FALLBACK = {
   'restricted-manoeuvrability': 'Restricted Manoeuvrability',
 }
 
-const labels = ref({}) // code → label, resolved for selectedLocale
+const initialLocale = readStoredLocale()
+const labels = ref(readLabelsCache()[initialLocale] || {}) // code → label, resolved for selectedLocale
 const locales = ref([]) // locales registered in refdata (for the switcher)
-const selectedLocale = ref('en') // '' would mean raw codes; default to English
+const selectedLocale = ref(initialLocale) // '' would mean raw codes; defaults to the persisted choice, then English
 const connected = ref(false)
 
 let source = null
@@ -55,6 +99,7 @@ async function refreshLabels() {
     const map = {}
     for (const item of data.items || []) map[item.code] = item.label || item.code
     labels.value = map
+    writeLabelsCacheEntry(selectedLocale.value, map)
   } catch {
     // Keep the last known map; statusLabel() falls back to the built-in map.
   }
@@ -97,8 +142,15 @@ function disconnect() {
   connected.value = false
 }
 
-// Re-resolve labels whenever the user switches locale.
-watch(selectedLocale, () => refreshLabels())
+// Re-resolve labels whenever the user switches locale, and persist the choice.
+watch(selectedLocale, (locale) => {
+  refreshLabels()
+  try {
+    localStorage.setItem(LOCALE_STORAGE_KEY, locale)
+  } catch {
+    // storage disabled/unavailable — the choice just won't survive a reload
+  }
+})
 
 // statusLabel resolves a ship-status code to a display label:
 // backend-resolved label → built-in English fallback → caller's fallback
