@@ -88,6 +88,13 @@ export function getFleet() {
   return request('/api/shape-c/fleet')
 }
 
+// Names of every stream registered on the NATS server — backs the Streams
+// view's "+" picker so it reflects what's actually provisioned rather than a
+// hardcoded list.
+export function listStreams() {
+  return request('/api/jetstream/streams')
+}
+
 // ── SSE stream URLs ───────────────────────────────────────────────────────────
 
 export function watchUrl(context) {

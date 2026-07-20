@@ -183,8 +183,14 @@
   },
   "active": "c50d6372ff085bfe",
   "lastOpenFiles": [
-    "POC-Dictionaries/Findings - Dictionary Service (Phase 11).md",
     "POC-Dictionaries/Event Sourcing + CQRS + NATS — Pattern Cards.pdf",
+    "POC-Dictionaries/Event Sourcing + CQRS + NATS — Poster.pdf",
+    "POC-Dictionaries/Findings - Dictionary Service (Phase 11).md",
+    "POC-Dictionaries/Design - Event Sourcing + CQRS.md",
+    "POC-Dictionaries/TODO.md",
+    "POC-Dictionaries/Research - Dictionary - OpenCode.md",
+    "POC-Dictionaries/Research - Dictionary - Claude.md",
+    "POC-Dictionaries/Problem Statement - Dictionary.md",
     "POC-Dictionaries/PERFORMANCE.md"
   ]
 }

@@ -38,7 +38,7 @@
 import { ref, watch } from 'vue'
 
 import { uiCopyFallbackEn } from './uiCopyFallback.en.js'
-import { useRefdataLabels } from './useRefdataLabels.js'
+import { subscribeToChange, useRefdataLabels } from './useRefdataLabels.js'
 
 const TYPE_KEY = 'ui-copy'
 const CATALOG_CACHE_KEY = 'refdata.uiCopyCache'
@@ -67,7 +67,7 @@ function writeCatalogCacheEntry(locale, entry) {
 }
 
 let i18n = null
-let source = null
+let unsubscribeChange = null
 let started = false
 // Bumped on every refreshCatalog() call; a call only applies its result if
 // it's still the most recently *started* one when its fetch resolves —
@@ -134,15 +134,14 @@ function connect(i18nInstance) {
   }
   started = true
   refreshCatalog()
-  source = new EventSource('/api/refdata-watch')
-  source.onmessage = () => refreshCatalog()
+  // Reuses useRefdataLabels' single /api/refdata-watch connection rather than
+  // opening a second one — see subscribeToChange's doc comment for why.
+  unsubscribeChange = subscribeToChange(refreshCatalog)
 }
 
 function disconnect() {
-  if (source) {
-    source.close()
-    source = null
-  }
+  unsubscribeChange?.()
+  unsubscribeChange = null
   started = false
 }
 

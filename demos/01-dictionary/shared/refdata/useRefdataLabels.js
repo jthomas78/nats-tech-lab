@@ -77,6 +77,18 @@ const connected = ref(false)
 
 let source = null
 let started = false
+// Other composables (useUiCopy) need the same "something in refdata
+// changed" signal but must not open a second EventSource to
+// /api/refdata-watch — every persistent connection permanently occupies one
+// of the browser's ~6-per-origin slots, and this app already needs several
+// (KV watch, JetStream tabs). subscribeToChange() lets them react to this
+// module's one shared connection instead.
+const changeListeners = new Set()
+
+export function subscribeToChange(fn) {
+  changeListeners.add(fn)
+  return () => changeListeners.delete(fn)
+}
 // Bumped on every refreshLabels() call — same out-of-order-response guard as
 // useUiCopy.js's refreshCatalog(): a switch triggers a new fetch while an
 // earlier one (e.g. the initial connect() fetch) may still be in flight, and
@@ -130,6 +142,7 @@ function connect() {
   // any refdata KV change re-fetches the label map for the current locale.
   source.onmessage = () => {
     refreshLabels()
+    for (const fn of changeListeners) fn()
   }
 }
 

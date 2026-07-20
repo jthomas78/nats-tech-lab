@@ -2,6 +2,7 @@ package rest
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -235,20 +236,21 @@ func (h *Handlers) streamJetStream(w http.ResponseWriter, r *http.Request, polic
 		streamName = domain.StreamName
 	}
 
-	var filterSubjects []string
-	switch streamName {
-	case domain.StreamName:
-		filterSubjects = domain.StreamSubjects()
-	default:
-		writeError(w, http.StatusBadRequest, "unknown stream: "+streamName)
-		return
+	// SHIPPING carries two aggregates on one stream (ship.* and container.*);
+	// FilterSubjects narrows the ordered consumer to just its own subjects.
+	// Any other registered stream (e.g. REFDATA) gets no filter — deliver
+	// everything it carries, since it isn't the fixed two-aggregate shape.
+	cfg := jetstream.OrderedConsumerConfig{DeliverPolicy: policy}
+	if streamName == domain.StreamName {
+		cfg.FilterSubjects = domain.StreamSubjects()
 	}
 
-	consumer, err := h.deps.JS.OrderedConsumer(ctx, streamName, jetstream.OrderedConsumerConfig{
-		FilterSubjects: filterSubjects,
-		DeliverPolicy:  policy,
-	})
+	consumer, err := h.deps.JS.OrderedConsumer(ctx, streamName, cfg)
 	if err != nil {
+		if errors.Is(err, jetstream.ErrStreamNotFound) {
+			writeError(w, http.StatusBadRequest, "unknown stream: "+streamName)
+			return
+		}
 		h.deps.Log.Error("create ordered consumer", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return

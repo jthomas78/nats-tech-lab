@@ -19,6 +19,7 @@
 //	GET    /api/shape-c/fleet                         reconstruct fleet + containers from JetStream replay
 //	GET    /api/watch/{context}                       SSE stream of ship KV changes, both shapes
 //	GET    /api/watch-terminal/{context}              SSE stream of container + meta KV changes
+//	GET    /api/jetstream/streams                      names of every stream registered on the NATS server
 //	GET    /api/jetstream/watch                       SSE stream of live JetStream messages (DeliverNew)
 //	GET    /api/jetstream/stream                      SSE stream of all JetStream messages (DeliverAll)
 package rest
@@ -29,6 +30,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	httpSwagger "github.com/swaggo/http-swagger"
 
@@ -126,6 +128,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/shape-c/fleet", h.getFleet)
 	mux.HandleFunc("GET /api/watch/{context}", h.watch)
 	mux.HandleFunc("GET /api/watch-terminal/{context}", h.watchTerminal)
+	mux.HandleFunc("GET /api/jetstream/streams", h.listStreams)
 	mux.HandleFunc("GET /api/jetstream/watch", h.watchJetStream)
 	mux.HandleFunc("GET /api/jetstream/stream", h.replayJetStream)
 	mux.HandleFunc("GET /api/refdata-demo/{context}/{type}/{code}", h.getRefdataDemo)
@@ -567,6 +570,34 @@ func (h *Handlers) getFleet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// ─── JetStream introspection ──────────────────────────────────────────────────
+
+// listStreams godoc
+//
+// @Summary      List registered streams
+// @Description  Names of every event stream registered on the NATS server (not just SHIPPING) — lets the frontend's stream picker reflect what's actually provisioned. KV_* streams are NATS' internal storage for KV buckets, not event streams a client watches for messages, so they're excluded.
+// @Tags         streams
+// @Produce      json
+// @Success      200  {object}  metaValuesResponse
+// @Failure      500  {object}  errorResponse
+// @Router       /api/jetstream/streams [get]
+func (h *Handlers) listStreams(w http.ResponseWriter, r *http.Request) {
+	lister := h.deps.JS.StreamNames(r.Context())
+	names := []string{}
+	for name := range lister.Name() {
+		if strings.HasPrefix(name, "KV_") {
+			continue
+		}
+		names = append(names, name)
+	}
+	if err := lister.Err(); err != nil {
+		h.deps.Log.Error("list streams", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"values": names})
 }
 
 // ─── Error mapping ────────────────────────────────────────────────────────────
