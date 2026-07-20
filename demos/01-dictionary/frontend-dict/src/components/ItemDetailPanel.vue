@@ -3,6 +3,7 @@ import Button from 'primevue/button'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
 import InputText from 'primevue/inputtext'
+import Menu from 'primevue/menu'
 import Select from 'primevue/select'
 import Tab from 'primevue/tab'
 import TabList from 'primevue/tablist'
@@ -35,6 +36,10 @@ const detail = ref(null)
 const localizations = ref([])
 const references = ref([])
 const loading = ref(false)
+
+// Controlled so the header Edit button can jump to the Details tab (where the
+// edit fields live) regardless of which tab the admin was last on.
+const activeTab = ref('details')
 
 const code = computed(() => store.selectedCode)
 // The default label/description live in attrs (attrs.name / attrs.description)
@@ -121,6 +126,34 @@ async function onDelete() {
       life: 5000,
     })
   }
+}
+
+// ── Header actions: Edit (primary) + overflow menu (secondary/lifecycle) ─────
+// Icon-only header buttons were easy to miss; Edit is now a labelled primary
+// action and the lifecycle/destructive actions live in one overflow menu.
+
+const actionMenu = ref(null)
+
+function toggleActionMenu(event) {
+  actionMenu.value.toggle(event)
+}
+
+const actionMenuItems = computed(() => {
+  const active = status.value === 'active'
+  return [
+    active
+      ? { label: 'Deprecate', icon: 'pi pi-eye-slash', command: onDeprecate }
+      : { label: 'Reactivate', icon: 'pi pi-eye', command: onReactivate },
+    { separator: true },
+    { label: 'Delete', icon: 'pi pi-trash', class: 'danger-item', command: onDelete },
+  ]
+})
+
+// Edit always edits the record's Details fields, so jump there first — clearer
+// than silently arming an editor on a tab the admin can't see.
+function onHeaderEdit() {
+  activeTab.value = 'details'
+  startEditGeneral()
 }
 
 // ── General tab: default label / description (BR-D18 full attrs replace) ────
@@ -289,36 +322,32 @@ async function submitReference() {
         </div>
         <div class="detail-actions">
           <Button
-            icon="pi pi-eye-slash"
-            text
+            label="Edit"
+            icon="pi pi-pencil"
             size="small"
-            aria-label="Deprecate"
-            :disabled="status === 'deprecated'"
-            @click="onDeprecate"
+            :disabled="editingGeneral"
+            @click="onHeaderEdit"
           />
           <Button
-            icon="pi pi-eye"
+            icon="pi pi-ellipsis-v"
             text
             size="small"
-            aria-label="Reactivate"
-            :disabled="status !== 'deprecated'"
-            @click="onReactivate"
+            aria-label="More actions"
+            aria-haspopup="true"
+            @click="toggleActionMenu"
           />
-          <Button
-            icon="pi pi-trash"
-            text
-            severity="danger"
-            size="small"
-            aria-label="Delete"
-            @click="onDelete"
+          <Menu
+            ref="actionMenu"
+            :model="actionMenuItems"
+            popup
           />
         </div>
       </div>
 
-      <Tabs value="general">
+      <Tabs v-model:value="activeTab">
         <TabList>
-          <Tab value="general">
-            General
+          <Tab value="details">
+            Details
           </Tab>
           <Tab value="translations">
             Translations
@@ -328,7 +357,7 @@ async function submitReference() {
           </Tab>
         </TabList>
         <TabPanels>
-          <TabPanel value="general">
+          <TabPanel value="details">
             <div class="general-fields">
               <div class="general-row">
                 <label class="lab-muted">Key</label>
@@ -344,13 +373,6 @@ async function submitReference() {
                 <span v-else>{{ attrs.name || '—' }}</span>
               </div>
               <div class="general-row">
-                <label class="lab-muted">Status</label>
-                <Tag
-                  :severity="status === 'active' ? 'success' : 'warning'"
-                  :value="status"
-                />
-              </div>
-              <div class="general-row">
                 <label class="lab-muted">Description</label>
                 <InputText
                   v-if="editingGeneral"
@@ -363,29 +385,22 @@ async function submitReference() {
                   class="lab-muted"
                 >{{ attrs.description || '—' }}</span>
               </div>
-              <div class="general-actions">
-                <template v-if="editingGeneral">
-                  <Button
-                    label="Save"
-                    icon="pi pi-check"
-                    size="small"
-                    :disabled="!generalLabel.trim()"
-                    @click="submitGeneral"
-                  />
-                  <Button
-                    label="Cancel"
-                    text
-                    size="small"
-                    @click="cancelEditGeneral"
-                  />
-                </template>
+              <div
+                v-if="editingGeneral"
+                class="general-actions"
+              >
                 <Button
-                  v-else
-                  label="Edit"
-                  icon="pi pi-pencil"
+                  label="Save"
+                  icon="pi pi-check"
+                  size="small"
+                  :disabled="!generalLabel.trim()"
+                  @click="submitGeneral"
+                />
+                <Button
+                  label="Cancel"
                   text
                   size="small"
-                  @click="startEditGeneral"
+                  @click="cancelEditGeneral"
                 />
               </div>
             </div>
@@ -423,6 +438,7 @@ async function submitReference() {
                 <ToggleSwitch v-model="missingOnly" />
               </div>
             </div>
+            <div class="table-scroll">
             <DataTable
               :value="filteredTranslationRows"
               size="small"
@@ -506,6 +522,7 @@ async function submitReference() {
                 </template>
               </Column>
             </DataTable>
+            </div>
             <div class="add-row">
               <InputText
                 v-model="newLocale"
@@ -609,12 +626,18 @@ async function submitReference() {
 }
 .detail-label {
   font-weight: 400;
-  color: var(--lab-muted, #888);
+  color: var(--p-text-muted-color);
 }
 .detail-actions {
   display: flex;
-  gap: 2px;
+  align-items: center;
+  gap: 0.35rem;
   flex: 0 0 auto;
+}
+/* Destructive action in the overflow menu reads as danger without shouting. */
+:deep(.danger-item) .p-menu-item-link .p-menu-item-icon,
+:deep(.danger-item) .p-menu-item-link .p-menu-item-label {
+  color: var(--p-red-400, #e5484d);
 }
 .general-fields {
   display: flex;
@@ -686,5 +709,24 @@ async function submitReference() {
 :deep(.p-tabpanels) {
   padding-left: 0;
   padding-right: 0;
+}
+/* Below ~700px this table's columns no longer fit and PrimeVue's own
+   overflow-x:auto container takes over scrolling — that mechanism already
+   works, it just isn't visually obvious, so hint it with a right-edge fade
+   rather than adding a second (redundant) scroll container. */
+.table-scroll {
+  position: relative;
+}
+@media (max-width: 700px) {
+  .table-scroll::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 1.25rem;
+    pointer-events: none;
+    background: linear-gradient(to right, transparent, var(--lab-panel-bg, #1a1e23));
+  }
 }
 </style>

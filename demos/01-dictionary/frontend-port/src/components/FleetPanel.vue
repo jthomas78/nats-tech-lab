@@ -24,6 +24,15 @@ const toast = useToast()
 const { statusLabel } = useRefdataLabels()
 const { t } = useI18n()
 
+// Clicking a docked ship's port jumps to Port Management scoped to that port
+// — a shortcut so the user doesn't have to re-select it from the port
+// dropdown. Ships at sea have no port to jump to, so the cell stays plain text.
+const emit = defineEmits(['navigate-port'])
+function goToPort(port) {
+  if (!port) return
+  emit('navigate-port', port)
+}
+
 // Filter options — the docked/in-transit labels resolve from ship-status
 // refdata (domain-enum); "All" is UI chrome, resolved from the ui-copy
 // refdata type (Phase 11.7) via the same locale switcher.
@@ -121,7 +130,15 @@ async function submitRegister() {
       </Column>
       <Column :header="t('table.port')" style="width:140px">
         <template #body="{ data }">
-          <span :class="data.currentPort ? '' : 'lab-muted'">{{ data.currentPort || t('fleet.atSea') }}</span>
+          <span
+            v-if="data.currentPort"
+            class="port-link"
+            role="button"
+            tabindex="0"
+            @click="goToPort(data.currentPort)"
+            @keyup.enter="goToPort(data.currentPort)"
+          >{{ data.currentPort }}</span>
+          <span v-else class="lab-muted">{{ t('fleet.atSea') }}</span>
         </template>
       </Column>
       <Column :header="t('table.manifest')" style="width:100px">
@@ -168,6 +185,17 @@ async function submitRegister() {
 }
 .manifest-count {
   font-size: 12px;
+}
+.port-link {
+  cursor: pointer;
+  color: var(--p-primary-color, #4f9cf9);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.15s;
+}
+.port-link:hover,
+.port-link:focus-visible {
+  text-decoration-color: currentColor;
 }
 .dialog-fields {
   display: flex;

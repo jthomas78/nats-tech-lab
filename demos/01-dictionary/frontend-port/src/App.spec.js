@@ -221,4 +221,29 @@ describe('BR-D16 Port UI localization', () => {
     await nextTick()
     expect(wrapper.find('#locale [data-pc-section="loadingicon"]').exists()).toBe(false)
   })
+
+  it('BR-D21: clicking a docked ship\'s port in Fleet Management jumps to Port Management scoped to that port', async () => {
+    const ships = {
+      atlas: { shipID: 'atlas', shipName: 'Atlas', status: 'docked', currentPort: 'Valencia' },
+    }
+    const { wrapper, store } = mountApp({ ships, port: 'Hamburg' })
+
+    expect(wrapper.find('[data-testid="fleet-view"]').exists()).toBe(true)
+    expect(store.port).toBe('Hamburg')
+
+    await wrapper.get('[data-testid="fleet-view"] .port-link').trigger('click')
+
+    expect(store.port).toBe('Valencia')
+    expect(wrapper.find('[data-testid="port-view"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Terminal Yard — Valencia')
+  })
+
+  it('BR-D21: a ship at sea has no clickable port link', async () => {
+    const ships = {
+      atlas: { shipID: 'atlas', shipName: 'Atlas', status: 'in-transit', currentPort: '' },
+    }
+    const { wrapper } = mountApp({ ships })
+
+    expect(wrapper.find('[data-testid="fleet-view"] .port-link').exists()).toBe(false)
+  })
 })

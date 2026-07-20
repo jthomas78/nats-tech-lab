@@ -107,6 +107,40 @@ async function submitAddType() {
   }
 }
 
+// ── Edit an existing type's name/description ──────────────────────────────────
+// The key is the type's identity and stays read-only here — registerType is
+// an upsert keyed by typeKey (POST .../admin/types ON CONFLICT DO UPDATE), so
+// the same call that creates a type also renames/re-describes it in place.
+
+const editTypeVisible = ref(false)
+const editTypeKey = ref('')
+const editTypeName = ref('')
+const editTypeDescription = ref('')
+
+function openEditType(t) {
+  editTypeKey.value = t.typeKey
+  editTypeName.value = t.name
+  editTypeDescription.value = t.description || ''
+  editTypeVisible.value = true
+}
+
+async function submitEditType() {
+  if (!editTypeName.value.trim()) return
+  try {
+    await registerType({
+      typeKey: editTypeKey.value,
+      name: editTypeName.value.trim(),
+      description: editTypeDescription.value.trim(),
+      category: store.selectedCategory,
+    })
+    editTypeVisible.value = false
+    await store.refreshTypes()
+    toast.add({ severity: 'success', summary: `${singular.value} updated`, life: 2500 })
+  } catch (err) {
+    toast.add({ severity: 'error', summary: `Could not update ${singular.value.toLowerCase()}`, detail: err.message, life: 4000 })
+  }
+}
+
 // ── Add a value (item) to the selected type ───────────────────────────────────
 
 const addValueVisible = ref(false)
@@ -260,26 +294,69 @@ async function submitDuplicate() {
           size="small"
           @click="openAddType"
         />
-        <ul class="type-list">
-          <li
-            v-for="t in types"
-            :key="t.typeKey"
-            :class="{ active: t.typeKey === store.selectedType }"
-            @click="select(t.typeKey)"
-          >
-            <span class="type-name">{{ t.name }}</span>
-            <Badge
-              :value="store.typeCounts[t.typeKey] ?? 0"
-              severity="secondary"
-            />
-          </li>
-        </ul>
-        <p
-          v-if="types.length === 0"
-          class="lab-muted empty"
+        <DataTable
+          :value="types"
+          size="small"
+          data-key="typeKey"
+          selection-mode="single"
+          :selection="types.find((t) => t.typeKey === store.selectedType) ?? null"
+          sort-field="typeKey"
+          :sort-order="1"
+          scrollable
+          scroll-height="30rem"
+          class="type-table"
+          @row-click="select($event.data.typeKey)"
         >
-          No {{ singular.toLowerCase() }}s registered yet. Use New {{ singular.toLowerCase() }} to add one.
-        </p>
+          <template #empty>
+            No {{ singular.toLowerCase() }}s registered yet. Use New {{ singular.toLowerCase() }} to add one.
+          </template>
+          <Column
+            field="typeKey"
+            header="Key"
+            sortable
+            style="font-family: monospace; max-width: 8rem"
+          >
+            <template #body="{ data }">
+              <span
+                class="value-key"
+                :title="data.typeKey"
+              >{{ data.typeKey }}</span>
+            </template>
+          </Column>
+          <Column
+            field="name"
+            header="Name"
+            sortable
+          >
+            <template #body="{ data }">
+              <span
+                class="value-label"
+                :title="data.name"
+              >{{ data.name }}</span>
+            </template>
+          </Column>
+          <Column
+            header=""
+            style="width: 4.5rem"
+          >
+            <template #body="{ data }">
+              <span class="row-meta">
+                <Badge
+                  :value="store.typeCounts[data.typeKey] ?? 0"
+                  severity="secondary"
+                />
+                <Button
+                  icon="pi pi-pencil"
+                  text
+                  size="small"
+                  :aria-label="`Edit ${data.name}`"
+                  class="edit-type-btn"
+                  @click.stop="openEditType(data)"
+                />
+              </span>
+            </template>
+          </Column>
+        </DataTable>
       </div>
 
       <!-- Right: values (table or bulk matrix) + selected-value detail. -->
@@ -467,6 +544,59 @@ async function submitDuplicate() {
     </Dialog>
 
     <Dialog
+      v-model:visible="editTypeVisible"
+      :header="`Edit ${singular.toLowerCase()}`"
+      modal
+      style="width: 26rem"
+    >
+      <div class="field">
+        <label class="lab-muted">Key</label>
+        <InputText
+          :model-value="editTypeKey"
+          style="width: 100%"
+          disabled
+        />
+      </div>
+      <div class="field">
+        <label
+          class="lab-muted"
+          for="edit-type-name"
+        >Name</label>
+        <InputText
+          id="edit-type-name"
+          v-model="editTypeName"
+          style="width: 100%"
+        />
+      </div>
+      <div class="field">
+        <label
+          class="lab-muted"
+          for="edit-type-desc"
+        >Description</label>
+        <InputText
+          id="edit-type-desc"
+          v-model="editTypeDescription"
+          style="width: 100%"
+          placeholder="optional"
+        />
+      </div>
+      <template #footer>
+        <Button
+          label="Cancel"
+          text
+          size="small"
+          @click="editTypeVisible = false"
+        />
+        <Button
+          label="Save"
+          size="small"
+          :disabled="!editTypeName.trim()"
+          @click="submitEditType"
+        />
+      </template>
+    </Dialog>
+
+    <Dialog
       v-model:visible="addValueVisible"
       header="Add value"
       modal
@@ -604,35 +734,20 @@ async function submitDuplicate() {
   width: 100%;
   margin-bottom: 0.5rem;
 }
-.type-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 30rem;
-  overflow-y: auto;
-}
-.type-list li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.45rem 0.55rem;
-  border-radius: 3px;
+.type-table :deep(.p-datatable-tbody > tr) {
   cursor: pointer;
 }
-.type-list li:hover {
-  background: var(--lab-disabled-bg);
+.row-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex: 0 0 auto;
 }
-.type-list li.active {
-  background: var(--p-highlight-background);
-  color: var(--p-highlight-color);
+.edit-type-btn {
+  color: var(--p-text-muted-color);
 }
-.type-name {
-  font-size: 13px;
-  text-transform: capitalize;
+.type-table :deep(.p-datatable-tbody > tr.p-datatable-row-selected) .edit-type-btn {
+  color: inherit;
 }
 
 /* ── Content pane: values head, toolbar, values+detail split or matrix ── */

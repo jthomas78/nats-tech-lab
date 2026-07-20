@@ -38,6 +38,13 @@ const views = computed(() => [
 ])
 const subtitle = computed(() => (activeView.value === 'fleet' ? t('app.subtitleFleet') : t('app.subtitlePort')))
 
+// Fleet view's port column links directly into Port Management scoped to
+// that port, instead of leaving the user to re-select it from the dropdown.
+function handleNavigatePort(port) {
+  store.setPort(port)
+  activeView.value = 'port'
+}
+
 function handleToggleTheme() {
   toggleTheme()
   dark.value = isDark()
@@ -127,7 +134,7 @@ onUnmounted(() => {
         <!-- Fleet-wide ship list (all / docked / in-transit); port-independent,
              fleet-scoped only -->
         <section v-if="activeView === 'fleet'" class="group" data-testid="fleet-view">
-          <FleetPanel />
+          <FleetPanel @navigate-port="handleNavigatePort" />
         </section>
 
         <!-- Port Management — everything scoped to the selected port. The port

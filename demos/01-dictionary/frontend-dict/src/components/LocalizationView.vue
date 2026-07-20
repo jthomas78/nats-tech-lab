@@ -192,6 +192,7 @@ function ratioSeverity(cell) {
       <p class="lab-muted matrix-hint">
         Every dictionary type against every registered locale — no per-locale picker.
       </p>
+      <div class="table-scroll">
       <DataTable
         :value="store.types"
         size="small"
@@ -218,6 +219,7 @@ function ratioSeverity(cell) {
           </template>
         </Column>
       </DataTable>
+      </div>
     </div>
   </div>
 </template>
@@ -254,6 +256,23 @@ function ratioSeverity(cell) {
 .matrix-hint {
   margin: 0 0 0.5rem;
   font-size: 12px;
+}
+/* Same right-edge scroll hint as the Translations tab — this table is fine
+   today at 3 locales but grows one column per registered locale. */
+.table-scroll {
+  position: relative;
+}
+@media (max-width: 700px) {
+  .table-scroll::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 1.25rem;
+    pointer-events: none;
+    background: linear-gradient(to right, transparent, var(--lab-panel-bg, #1a1e23));
+  }
 }
 /* RadioButtonGroup's root defaults to display:inline-flex — it only exists
    here to share one d_value across all rows' radios (see PrimeVue's

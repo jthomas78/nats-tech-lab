@@ -391,3 +391,22 @@ on the admin's behalf.
 - **Enforced in:** `domain.ValidateLocale()`, called from
   `commands.LocalizationHandler.AddLocale()` and `commands.LocalizationHandler.SetLocalization()`
 - **Test:** `Dictionary Localization Domain Rules / Locale management / BR-D20`
+
+---
+
+### BR-D21 — Clicking a docked ship's port in Fleet Management jumps to Port Management scoped to that port
+
+Phase 12. In `frontend-port`'s Fleet Management view, a docked ship's Port cell is a
+navigation shortcut, not just a display field: clicking it (or activating it with Enter)
+switches the active view to Port Management and sets the selected port to that ship's
+`currentPort` — equivalent to picking the port from the Port Management dropdown manually.
+A ship at sea (`currentPort === ''`) has no port to jump to, so its cell renders as plain
+text, not a link. This is a frontend navigation/UX rule, not a domain rule — no backend
+state changes, and it has no Ginkgo coverage; it's exercised via the Vue component test below.
+
+- **Enforced in:** `frontend-port/src/components/FleetPanel.vue` (`goToPort()`, emits
+  `navigate-port`), `frontend-port/src/App.vue` (`handleNavigatePort()` sets `store.port`
+  and `activeView`)
+- **Test:** `frontend-port/src/App.spec.js` — "BR-D21: clicking a docked ship's port in Fleet
+  Management jumps to Port Management scoped to that port"; "BR-D21: a ship at sea has no
+  clickable port link"

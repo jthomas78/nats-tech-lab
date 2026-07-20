@@ -29,9 +29,9 @@ onUnmounted(() => store.disconnect())
   <Toast position="bottom-right" />
   <div class="layout">
     <header class="topbar">
-      <div>
+      <div class="dictionary-heading">
         <h1>Dictionary</h1>
-        <span class="lab-muted">reference data · localization · typed references · Q5 cache</span>
+        <span class="lab-muted subtitle">reference data · localization · typed references · Q5 cache</span>
       </div>
       <div class="topbar-right">
         <Tag
@@ -78,7 +78,7 @@ onUnmounted(() => store.disconnect())
 
 <style scoped>
 .layout {
-  max-width: 1280px;
+  max-width: 1600px;
   margin: 0 auto;
   padding: 0.75rem;
   display: flex;
@@ -96,10 +96,25 @@ onUnmounted(() => store.disconnect())
   line-height: 24px;
   letter-spacing: 0.02em;
 }
+/* min-width:0 lets this flex item shrink below the subtitle's un-wrapped
+   width so text-overflow:ellipsis can kick in — otherwise a flex item's
+   default min-width:auto floors it at that content width and the row
+   overflows instead. Without this the subtitle wraps to 5-6 lines on a
+   narrow viewport before any content renders. */
+.dictionary-heading {
+  min-width: 0;
+}
+.subtitle {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .topbar-right {
   display: flex;
   align-items: center;
   gap: 0.625rem;
+  flex-shrink: 0;
 }
 .main {
   display: grid;

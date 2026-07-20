@@ -12,6 +12,7 @@ import { registerItem } from '../api'
 import { categoryLabel } from '../categories'
 import { codeFor, labelFor, statusFor } from '../itemFields'
 import { useDictionaryStore } from '../stores/dictionary'
+import CacheSyncChip from './CacheSyncChip.vue'
 import ItemDetailPanel from './ItemDetailPanel.vue'
 
 const store = useDictionaryStore()
@@ -91,28 +92,31 @@ async function submitAdd() {
           v-if="store.selectedType"
           class="lab-muted item-count"
         >{{ store.items.length }} items</span>
+        <CacheSyncChip v-if="store.selectedType" />
       </div>
       <div class="grid-controls">
-        <label
-          class="lab-muted"
-          for="locale"
-        >Locale</label>
-        <Select
-          id="locale"
-          v-model="store.selectedLocale"
-          :options="localeOptions"
-          size="small"
-          placeholder="(code)"
-          style="width: 8rem"
-        />
-        <label
-          class="lab-muted"
-          for="show-deprecated"
-        >Show deprecated</label>
-        <ToggleSwitch
-          id="show-deprecated"
-          v-model="store.showDeprecated"
-        />
+        <div class="filter-group">
+          <label
+            class="lab-muted"
+            for="locale"
+          >Locale</label>
+          <Select
+            id="locale"
+            v-model="store.selectedLocale"
+            :options="localeOptions"
+            size="small"
+            placeholder="(code)"
+            style="width: 7rem"
+          />
+          <label
+            class="lab-muted"
+            for="show-deprecated"
+          >Show deprecated</label>
+          <ToggleSwitch
+            id="show-deprecated"
+            v-model="store.showDeprecated"
+          />
+        </div>
         <Button
           icon="pi pi-plus"
           label="Add"
@@ -243,11 +247,23 @@ async function submitAdd() {
 .grid-controls {
   display: flex;
   align-items: center;
+  gap: 0.75rem;
+}
+/* Filters are secondary — group them into one quiet cluster, offset from the
+   primary Add button by a hairline divider so Add doesn't compete with them. */
+.filter-group {
+  display: flex;
+  align-items: center;
   gap: 0.5rem;
+  padding-right: 0.75rem;
+  border-right: 1px solid var(--lab-disabled-bg);
+}
+.filter-group label {
+  font-size: 11px;
 }
 .master-detail {
   display: grid;
-  grid-template-columns: minmax(14rem, 2fr) 3fr;
+  grid-template-columns: minmax(12rem, 1fr) 2fr;
   gap: 0.75rem;
   align-items: start;
 }
@@ -256,16 +272,15 @@ async function submitAdd() {
     grid-template-columns: 1fr;
   }
 }
+/* Each pane is its own card now (rather than one flat surface split by a
+   border) so a short detail doesn't read as dead space inside a shared
+   background, and the list/detail relationship is unambiguous. */
 .item-list-pane {
   min-width: 0;
-  border-right: 1px solid var(--lab-disabled-bg);
-  padding-right: 0.75rem;
-}
-@media (max-width: 900px) {
-  .item-list-pane {
-    border-right: none;
-    padding-right: 0;
-  }
+  background: var(--lab-inset-bg, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--lab-disabled-bg);
+  border-radius: 6px;
+  padding: 0.5rem;
 }
 .item-filter {
   width: 100%;
@@ -278,7 +293,7 @@ async function submitAdd() {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 32rem;
+  max-height: 24rem;
   overflow-y: auto;
 }
 .item-list li {
@@ -287,6 +302,7 @@ async function submitAdd() {
   gap: 0.5rem;
   padding: 0.35rem 0.5rem;
   border-radius: 3px;
+  border-left: 3px solid transparent;
   cursor: pointer;
   font-size: 12px;
 }
@@ -296,6 +312,7 @@ async function submitAdd() {
 .item-list li.active {
   background: var(--p-highlight-background);
   color: var(--p-highlight-color);
+  border-left-color: var(--p-primary-color, #4f9cf9);
 }
 .item-list li.active .item-label {
   color: inherit;
@@ -305,11 +322,21 @@ async function submitAdd() {
   flex: 0 0 auto;
 }
 .item-label {
-  color: var(--lab-muted, #888);
+  color: var(--p-text-muted-color);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1 1 auto;
+}
+/* Matches .item-list-pane so the two panes read as siblings, and sizes to
+   its own content instead of stretching to the (often taller) list pane —
+   a short record no longer leaves a void inside a shared card background. */
+.detail-pane {
+  background: var(--lab-inset-bg, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--lab-disabled-bg);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  min-height: 12rem;
 }
 .field {
   margin-bottom: 0.75rem;

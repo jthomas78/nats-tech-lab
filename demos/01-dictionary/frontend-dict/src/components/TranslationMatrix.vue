@@ -121,6 +121,9 @@ async function submitCell(row, locale) {
       :loading="loading"
       size="small"
       data-key="code"
+      scrollable
+      scroll-direction="horizontal"
+      class="matrix-table"
     >
       <template #empty>
         No values in this type yet.
@@ -128,12 +131,24 @@ async function submitCell(row, locale) {
       <Column
         field="code"
         header="Enum value"
-        style="font-family: monospace; width: 10rem"
-      />
+        sortable
+        style="font-family: monospace; width: 16rem"
+        frozen
+      >
+        <template #body="{ data }">
+          <span
+            class="enum-key"
+            :title="data.code"
+          >{{ data.code }}</span>
+        </template>
+      </Column>
       <Column
         v-for="locale in store.locales"
         :key="locale"
+        :field="(row) => cellText(row, locale)"
         :header="locale"
+        sortable
+        style="width: 18rem"
       >
         <template #body="{ data }">
           <InputText
@@ -168,6 +183,25 @@ async function submitCell(row, locale) {
   width: 100%;
   max-width: 20rem;
   margin-bottom: 0.5rem;
+}
+/* Caps the table to the frozen "Enum value" column plus exactly 3 locale
+   columns (each a fixed 12rem below) — a 4th+ locale scrolls horizontally
+   instead of growing the table wider than the panel. table-layout:fixed makes
+   those widths authoritative — otherwise the browser's default content-driven
+   sizing (auto) shrinks columns below their declared width to fit long
+   translated strings, which both breaks the "3 columns" math and clips text
+   instead of wrapping it. */
+.matrix-table {
+  max-width: calc(16rem + 3 * 18rem);
+}
+.matrix-table :deep(.p-datatable-table) {
+  table-layout: fixed;
+}
+.enum-key {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .matrix-cell {
   display: block;

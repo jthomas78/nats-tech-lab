@@ -5,7 +5,7 @@
 // cache-status widget's "something changed, refetch" signal.
 import { defineStore } from 'pinia'
 
-import { addLocale, getItem, listItems, listLocales, listTypes, watchUrl } from '../api'
+import { addLocale, getCacheStatus, getItem, listItems, listLocales, listTypes, watchUrl } from '../api'
 
 export const CONTEXTS = ['emea-acme']
 
@@ -25,6 +25,10 @@ export const useDictionaryStore = defineStore('dictionary', {
     selectedLocale: 'en', // BR-D13: default to en rather than raw codes ('')
     connected: false,
     lastCacheEvent: null, // { key, revision, at } — bumped on every SSE message
+    // Single source of truth for the selected type's Postgres/KV sync state —
+    // read by both the compact header chip and the full Cache Status panel,
+    // so there's exactly one getCacheStatus call per type change, not two.
+    cacheStatus: null,
     // 'items' — the type navigator + item grid (default); 'localization' —
     // the promoted locale-admin + types×locales completeness matrix view
     // (Phase 11.7); 'domain-category' — a category-level list of types
@@ -52,6 +56,7 @@ export const useDictionaryStore = defineStore('dictionary', {
         try {
           const event = JSON.parse(msg.data)
           this.lastCacheEvent = { key: event.key, revision: event.revision, at: Date.now() }
+          if (event.key === `${this.selectedType}._meta`) this.refreshCacheStatus()
         } catch {
           // ignore malformed/heartbeat frames
         }
@@ -87,11 +92,20 @@ export const useDictionaryStore = defineStore('dictionary', {
       this.defaultLocale = res?.defaultLocale ?? ''
     },
 
+    // Fetches the new type's items BEFORE touching selectedType/selectedCode,
+    // then commits them together in one synchronous batch. ItemDetailPanel
+    // watches [selectedCode, selectedType, selectedLocale]; clearing
+    // selectedCode first (the old behavior) made that watcher fire on a
+    // momentary selectedType/selectedCode='' mismatch mid-fetch, blanking the
+    // detail panel to "Select an item…" and back — a visible flicker on
+    // every type switch.
     async selectType(typeKey) {
+      const items = await this._fetchItemsForType(typeKey)
       this.activeView = 'items'
       this.selectedType = typeKey
-      this.selectedCode = ''
-      await this.refreshItems()
+      this.items = items
+      this.selectedCode = this._firstCode(items)
+      await this.refreshCacheStatus()
     },
 
     selectItem(code) {
@@ -121,10 +135,34 @@ export const useDictionaryStore = defineStore('dictionary', {
     // Select a type from within the category view. Unlike selectType this does
     // NOT flip activeView back to 'items' — the type's entries render in the
     // category view's own values pane, so we stay in the master-detail.
+    // Same fetch-then-batch-commit ordering as selectType, for the same
+    // anti-flicker reason.
     async selectCategoryType(typeKey) {
+      const items = await this._fetchItemsForType(typeKey)
       this.selectedType = typeKey
-      this.selectedCode = ''
-      await this.refreshItems()
+      this.items = items
+      this.selectedCode = this._firstCode(items)
+      await this.refreshCacheStatus()
+    },
+
+    async refreshCacheStatus() {
+      if (!this.selectedType) {
+        this.cacheStatus = null
+        return
+      }
+      this.cacheStatus = await getCacheStatus(this.context, this.selectedType)
+    },
+
+    async _fetchItemsForType(typeKey) {
+      const res = await listItems(this.context, typeKey, {
+        all: this.showDeprecated,
+        locale: this.selectedLocale,
+      })
+      return res?.items ?? []
+    },
+
+    _firstCode(items) {
+      return items[0]?.code || items[0]?.item?.code || ''
     },
 
     async refreshItems() {
