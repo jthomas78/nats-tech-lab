@@ -69,7 +69,7 @@ For multi-tenant systems (identifier-first subjects):
 
 1. **New research findings:** Add to the appropriate `Dictionary - Research - *.md` file (Claude or OpenCode)
 2. **Design refinements:** Update `Design - Event Sourcing + JetStream + KV Stores.md` with proven patterns
-3. **Clarifications needed:** Add to or reference [[Problem Statement - Dictionary]] clarification questions
+3. **Clarifications needed:** Add to or reference [[1. Problem Statement - Dictionary]] clarification questions
 4. **Raw data, discussions, prompts:** Keep in `_raw/` folder to preserve traceability
 
 ---

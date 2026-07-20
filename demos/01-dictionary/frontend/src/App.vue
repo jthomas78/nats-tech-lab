@@ -6,8 +6,8 @@ import Toast from 'primevue/toast'
 import { useI18n } from 'vue-i18n'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
-import EventLog from './components/EventLog.vue'
 import JetStreamPanel from './components/JetStreamPanel.vue'
+import KvInspector from './components/KvInspector.vue'
 import NavSidebar from './components/NavSidebar.vue'
 import OverviewPanel from './components/OverviewPanel.vue'
 import PostgresTablesPanel from './components/PostgresTablesPanel.vue'
@@ -42,7 +42,7 @@ const sections = [
     eyebrow: 'JetStream',
     items: [
       { key: 'streams', label: 'Streams', icon: IconStreams },
-      { key: 'kv', label: 'KV Buckets', icon: IconKv, badge: 4 },
+      { key: 'kv', label: 'KV Buckets', icon: IconKv },
       { key: 'shapes', label: 'CQRS Shapes', icon: IconShapes, badge: 3 },
     ],
   },
@@ -55,7 +55,7 @@ const sections = [
 const SUBTITLES = {
   overview: 'pipeline health · dispatch a test command',
   streams: 'raw NATS messages · live tail and full replay',
-  kv: 'context-scoped KV change feed',
+  kv: 'every registered bucket · contents and live changes',
   shapes: 'three CQRS read-model shapes, side by side',
   tables: 'canonical Postgres tables by schema',
 }
@@ -137,9 +137,12 @@ onUnmounted(() => {
           </div>
         </section>
 
-        <!-- KV Buckets — context-scoped KV change feed -->
-        <section v-else-if="activeView === 'kv'" class="group" data-testid="kv-view">
-          <EventLog />
+        <!-- KV Buckets — every registered bucket, its contents + live update feed.
+             Manages its own internal scroll regions, so the section is flush. -->
+        <section v-else-if="activeView === 'kv'" class="group group--flush" data-testid="kv-view">
+          <div class="lab-panel streams-panel">
+            <KvInspector />
+          </div>
         </section>
 
         <!-- CQRS Shapes — A (KV read model) | B (KV cache + Postgres) | C (replay) -->

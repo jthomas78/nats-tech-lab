@@ -19,6 +19,8 @@
 //	GET    /api/shape-c/fleet                         reconstruct fleet + containers from JetStream replay
 //	GET    /api/watch/{context}                       SSE stream of ship KV changes, both shapes
 //	GET    /api/watch-terminal/{context}              SSE stream of container + meta KV changes
+//	GET    /api/kv/buckets                             every KV bucket registered on the NATS server (+ status)
+//	GET    /api/kv/buckets/{bucket}/watch              SSE: bucket contents snapshot then live changes
 //	GET    /api/jetstream/streams                      names of every stream registered on the NATS server
 //	GET    /api/jetstream/watch                       SSE stream of live JetStream messages (DeliverNew)
 //	GET    /api/jetstream/stream                      SSE stream of all JetStream messages (DeliverAll)
@@ -128,6 +130,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/shape-c/fleet", h.getFleet)
 	mux.HandleFunc("GET /api/watch/{context}", h.watch)
 	mux.HandleFunc("GET /api/watch-terminal/{context}", h.watchTerminal)
+	mux.HandleFunc("GET /api/kv/buckets", h.listKVBuckets)
+	mux.HandleFunc("GET /api/kv/buckets/{bucket}/watch", h.watchKVBucket)
 	mux.HandleFunc("GET /api/jetstream/streams", h.listStreams)
 	mux.HandleFunc("GET /api/jetstream/watch", h.watchJetStream)
 	mux.HandleFunc("GET /api/jetstream/stream", h.replayJetStream)

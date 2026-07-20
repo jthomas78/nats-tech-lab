@@ -95,7 +95,21 @@ export function listStreams() {
   return request('/api/jetstream/streams')
 }
 
+// Every KV bucket registered on the NATS server, with run-time status —
+// backs the KV inspector's bucket rail.
+export function listKVBuckets() {
+  return request('/api/kv/buckets')
+}
+
 // ── SSE stream URLs ───────────────────────────────────────────────────────────
+
+// One bucket's WatchAll feed: current contents (replay) → INIT_DONE → live
+// changes. Both the contents snapshot and the update feed come from this one
+// connection.
+export function kvBucketWatchUrl(bucket) {
+  return `/api/kv/buckets/${encodeURIComponent(bucket)}/watch`
+}
+
 
 export function watchUrl(context) {
   return `/api/watch/${context}`

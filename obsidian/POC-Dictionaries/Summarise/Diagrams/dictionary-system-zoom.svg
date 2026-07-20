@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1760" height="1000" viewBox="0 0 1760 1000" font-family="Inter, -apple-system, 'Segoe UI', sans-serif">
+  <defs>
+    <!--UNIFI-ICONS-->
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#4a515b"/>
+    </marker>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#006fff"/>
+    </marker>
+  </defs>
+
+  <rect width="1760" height="1000" fill="#14171b"/>
+
+  <!-- ================= header / zoom breadcrumb ================= -->
+  <rect x="60" y="26" width="560" height="26" rx="13" fill="#0f3d66" stroke="#006fff" stroke-width="1"/>
+  <text x="340" y="43" fill="#8ec4ff" font-size="11.5" font-weight="700" text-anchor="middle">◀ ZOOM FROM "V3 Logistics Platform — Initial Building Blocks" · DICTIONARY block</text>
+  <text x="60" y="88" fill="#dee0e3" font-size="26" font-weight="700">Dictionary POC — System Architecture</text>
+  <text x="60" y="114" fill="#b7bcc2" font-size="13.5">Frontends, backend services, and shared infrastructure — as actually implemented, not just designed</text>
+  <line x1="60" y1="134" x2="1700" y2="134" stroke="#2c3138" stroke-width="1"/>
+
+  <!-- ================= row 1: frontends ================= -->
+  <text x="60" y="164" fill="#8b929b" font-size="12.5" font-weight="700" letter-spacing="0.5">FRONTENDS · Vue 3 + PrimeVue + Pinia (UniFi theme)</text>
+
+  <rect x="60" y="182" width="385" height="130" rx="14" fill="#1a1e23" stroke="#2c3138" stroke-width="1.5"/>
+  <g color="#fff"><rect x="80" y="200" width="44" height="44" rx="10" fill="#006fff"/><use href="#ico-browser" x="80" y="200" width="44" height="44"/></g>
+  <text x="136" y="220" fill="#dee0e3" font-size="15" font-weight="600">Lab Shell</text>
+  <text x="136" y="238" fill="#b7bcc2" font-size="11.5">demo menu + intro pages</text>
+  <text x="136" y="284" fill="#006fff" font-size="12.5" font-weight="700">:5170</text>
+
+  <rect x="465" y="182" width="385" height="130" rx="14" fill="#1a1e23" stroke="#2c3138" stroke-width="1.5"/>
+  <g color="#fff"><rect x="485" y="200" width="44" height="44" rx="10" fill="#006fff"/><use href="#ico-browser" x="485" y="200" width="44" height="44"/></g>
+  <text x="541" y="220" fill="#dee0e3" font-size="15" font-weight="600">Admin / NATS Debug</text>
+  <text x="541" y="238" fill="#b7bcc2" font-size="11.5">stream feed · Shapes A/B/C · Postgres tables</text>
+  <text x="541" y="254" fill="#b7bcc2" font-size="11.5">KV Inspector (new) · bucket browser + live watch</text>
+  <text x="541" y="284" fill="#006fff" font-size="12.5" font-weight="700">:5173</text>
+
+  <rect x="870" y="182" width="385" height="130" rx="14" fill="#1a1e23" stroke="#2c3138" stroke-width="1.5"/>
+  <g color="#fff"><rect x="890" y="200" width="44" height="44" rx="10" fill="#006fff"/><use href="#ico-browser" x="890" y="200" width="44" height="44"/></g>
+  <text x="946" y="220" fill="#dee0e3" font-size="15" font-weight="600">Ship Management</text>
+  <text x="946" y="238" fill="#b7bcc2" font-size="11.5">fleet overview · terminal yard</text>
+  <text x="946" y="254" fill="#b7bcc2" font-size="11.5">docked ships · container ops</text>
+  <text x="946" y="284" fill="#006fff" font-size="12.5" font-weight="700">:5174</text>
+
+  <rect x="1275" y="182" width="385" height="130" rx="14" fill="#1a1e23" stroke="#006fff" stroke-width="1.5"/>
+  <g color="#fff"><rect x="1295" y="200" width="44" height="44" rx="10" fill="#006fff"/><use href="#ico-browser" x="1295" y="200" width="44" height="44"/></g>
+  <text x="1351" y="220" fill="#dee0e3" font-size="15" font-weight="600">Dictionary Admin</text>
+  <text x="1351" y="238" fill="#b7bcc2" font-size="11.5">types · items · locales · references</text>
+  <text x="1351" y="254" fill="#b7bcc2" font-size="11.5">localization editor · cache-status watch</text>
+  <text x="1351" y="284" fill="#006fff" font-size="12.5" font-weight="700">:5175</text>
+  <rect x="1580" y="192" width="70" height="17" rx="8.5" fill="#0f3d66" stroke="#006fff" stroke-width="1"/>
+  <text x="1615" y="204" fill="#8ec4ff" font-size="8.3" font-weight="700" text-anchor="middle">THIS POC</text>
+
+  <line x1="252" y1="312" x2="252" y2="360" stroke="#4a515b" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="657" y1="312" x2="465" y2="360" stroke="#4a515b" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="1062" y1="312" x2="900" y2="360" stroke="#4a515b" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="1467" y1="312" x2="1467" y2="360" stroke="#006fff" stroke-width="1.6" marker-end="url(#arrowBlue)"/>
+  <text x="255" y="340" fill="#8b929b" font-size="10.5">proxy /api</text>
+  <text x="1200" y="340" fill="#8b929b" font-size="10.5">proxy /api</text>
+  <text x="1477" y="340" fill="#8ec4ff" font-size="10.5">proxy /api</text>
+
+  <!-- ================= row 2: backend services ================= -->
+  <text x="60" y="352" fill="#8b929b" font-size="12.5" font-weight="700" letter-spacing="0.5">BACKEND SERVICES · Go (hexagonal), two independent services</text>
+
+  <rect x="60" y="370" width="810" height="200" rx="14" fill="#1a1e23" stroke="#2c3138" stroke-width="1.5"/>
+  <g color="#fff"><rect x="80" y="390" width="46" height="46" rx="11" fill="#006fff"/><use href="#ico-service" x="80" y="390" width="46" height="46"/></g>
+  <text x="138" y="410" fill="#dee0e3" font-size="16" font-weight="700">Shipping Backend</text>
+  <text x="138" y="432" fill="#b7bcc2" font-size="12">Ship + Container aggregates · event-sourced on the</text>
+  <text x="138" y="450" fill="#b7bcc2" font-size="12"><tspan font-weight="600" fill="#dee0e3">SHIPPING</tspan> stream (BR-001..BR-016)</text>
+  <text x="138" y="472" fill="#b7bcc2" font-size="12">Serves Shapes A / B / C · REST + Swagger + SSE</text>
+  <text x="138" y="494" fill="#b7bcc2" font-size="12"><tspan font-weight="600" fill="#dee0e3">internal/refdataconsumer</tspan> — reads refdata-service's</text>
+  <text x="138" y="512" fill="#b7bcc2" font-size="12">mirrored KV cache directly; no Go dependency between them</text>
+  <text x="138" y="546" fill="#8b929b" font-size="11">Seeds a demo-only <tspan fill="#dee0e3">ship-status</tspan> lookup at</text>
+  <text x="138" y="562" fill="#8b929b" font-size="11"><tspan font-family="ui-monospace,Menlo,monospace" fill="#b7bcc2">/api/refdata-demo/{context}/{type}/{code}</tspan></text>
+  <rect x="770" y="392" width="80" height="17" rx="8.5" fill="#23262b" stroke="#4a515b" stroke-width="1"/>
+  <text x="810" y="404" fill="#dee0e3" font-size="10.5" font-weight="700" text-anchor="middle">:18080</text>
+
+  <rect x="890" y="370" width="810" height="200" rx="14" fill="#1a1e23" stroke="#006fff" stroke-width="1.5"/>
+  <g color="#fff"><rect x="910" y="390" width="46" height="46" rx="11" fill="#006fff"/><use href="#ico-service" x="910" y="390" width="46" height="46"/></g>
+  <text x="968" y="410" fill="#dee0e3" font-size="16" font-weight="700">refdata-service</text>
+  <text x="968" y="432" fill="#b7bcc2" font-size="12">Reference / master data · plain Postgres CRUD —</text>
+  <text x="968" y="450" fill="#b7bcc2" font-size="12">no aggregate, no event log (nothing ever replays a lookup)</text>
+  <text x="968" y="472" fill="#b7bcc2" font-size="12">Type categories: standards · domain-enum · ui-copy ·</text>
+  <text x="968" y="490" fill="#b7bcc2" font-size="12">config <tspan fill="#8b929b">(reserved, unused)</tspan> — governs who may edit what</text>
+  <text x="968" y="512" fill="#b7bcc2" font-size="12">Q5 versioned-read cache · own <tspan font-family="ui-monospace,Menlo,monospace" fill="#dee0e3">refdata</tspan> Postgres schema</text>
+  <text x="968" y="546" fill="#8b929b" font-size="11">"Push for freshness, version for truth" — REST + Swagger</text>
+  <text x="968" y="562" fill="#8b929b" font-size="11">+ SSE (<tspan font-family="ui-monospace,Menlo,monospace" fill="#b7bcc2">/api/refdata-watch/{context}</tspan>)</text>
+  <rect x="1580" y="392" width="90" height="17" rx="8.5" fill="#0f3d66" stroke="#006fff" stroke-width="1"/>
+  <text x="1625" y="404" fill="#8ec4ff" font-size="8.5" font-weight="700" text-anchor="middle">:18081</text>
+
+  <line x1="870" y1="500" x2="890" y2="500" stroke="#006fff" stroke-width="1.8" stroke-dasharray="7,4" marker-end="url(#arrowBlue)"/>
+
+  <line x1="530" y1="570" x2="530" y2="628" stroke="#4a515b" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="1360" y1="570" x2="1360" y2="628" stroke="#4a515b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ================= row 3: shared infrastructure ================= -->
+  <text x="60" y="616" fill="#8b929b" font-size="12.5" font-weight="700" letter-spacing="0.5">SHARED INFRASTRUCTURE · one NATS server, one Postgres instance, isolated by convention + schema</text>
+
+  <rect x="60" y="634" width="810" height="240" rx="14" fill="#132a22" stroke="#27c07f" stroke-width="1.5"/>
+  <g color="#fff"><rect x="80" y="650" width="46" height="46" rx="11" fill="#27c07f"/><use href="#ico-nats" x="80" y="650" width="46" height="46"/></g>
+  <text x="138" y="670" fill="#dee0e3" font-size="16" font-weight="700">NATS / JetStream</text>
+  <text x="80" y="716" fill="#dee0e3" font-size="12.5" font-weight="600">Streams</text>
+  <text x="80" y="734" fill="#b7bcc2" font-size="11.5"><tspan font-family="ui-monospace,Menlo,monospace" fill="#dee0e3">SHIPPING</tspan> — LimitsPolicy, unbounded event store</text>
+  <text x="80" y="750" fill="#b7bcc2" font-size="11.5"><tspan font-family="ui-monospace,Menlo,monospace" fill="#dee0e3">REFDATA</tspan> — LimitsPolicy + 48h MaxAge, bounded</text>
+  <text x="80" y="766" fill="#b7bcc2" font-size="11.5">change-notification feed only (never a source of truth)</text>
+  <text x="80" y="798" fill="#dee0e3" font-size="12.5" font-weight="600">KV buckets</text>
+  <text x="80" y="816" fill="#b7bcc2" font-size="11.5"><tspan font-family="ui-monospace,Menlo,monospace" fill="#dee0e3">dict-a/b-{context}</tspan> · <tspan font-family="ui-monospace,Menlo,monospace" fill="#dee0e3">container-{context}</tspan> · <tspan font-family="ui-monospace,Menlo,monospace" fill="#dee0e3">meta-{context}</tspan></text>
+  <text x="80" y="832" fill="#b7bcc2" font-size="11.5"><tspan font-family="ui-monospace,Menlo,monospace" fill="#006fff">refdata-{context}</tspan> — written only by refdata-service,</text>
+  <text x="80" y="848" fill="#b7bcc2" font-size="11.5">mirror-read by the shipping backend</text>
+
+  <rect x="890" y="634" width="810" height="240" rx="14" fill="#132a22" stroke="#27c07f" stroke-width="1.5"/>
+  <g color="#fff"><rect x="910" y="650" width="46" height="46" rx="11" fill="#27c07f"/><use href="#ico-db" x="910" y="650" width="46" height="46"/></g>
+  <text x="968" y="670" fill="#dee0e3" font-size="16" font-weight="700">Postgres</text>
+  <text x="968" y="700" fill="#8b929b" font-size="11">one instance, two isolated schemas — the backend has</text>
+  <text x="968" y="716" fill="#8b929b" font-size="11">no access at all to <tspan font-family="ui-monospace,Menlo,monospace">refdata.*</tspan></text>
+  <text x="910" y="746" fill="#dee0e3" font-size="12.5" font-weight="600"><tspan font-family="ui-monospace,Menlo,monospace">public</tspan> schema (shipping)</text>
+  <text x="910" y="764" fill="#b7bcc2" font-size="11.5">ships · containers · ports</text>
+  <text x="910" y="796" fill="#dee0e3" font-size="12.5" font-weight="600"><tspan font-family="ui-monospace,Menlo,monospace">refdata</tspan> schema (reference data)</text>
+  <text x="910" y="814" fill="#b7bcc2" font-size="11.5">dictionary_types · dictionary_items ·</text>
+  <text x="910" y="830" fill="#b7bcc2" font-size="11.5">dictionary_localizations · dictionary_references ·</text>
+  <text x="910" y="846" fill="#b7bcc2" font-size="11.5">dictionary_locales · dictionary_set_versions</text>
+
+  <text x="60" y="908" fill="#8b929b" font-size="11.5">Isolation today is a codebase convention (bucket naming, JSON shape, separate schema) — not an enforced NATS-account or Postgres-role boundary. See "Outstanding POC Tasks."</text>
+  <text x="60" y="946" fill="#8b929b" font-size="11" font-style="italic">See "3. POC Design and Architecture" for the KV/Streams, Postgres, and API detail behind each box.</text>
+</svg>
