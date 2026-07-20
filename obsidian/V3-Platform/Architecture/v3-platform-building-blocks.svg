@@ -1,0 +1,287 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1760" height="1800" viewBox="0 0 1760 1800" font-family="Inter, -apple-system, 'Segoe UI', sans-serif">
+  <defs>
+    <!--UNIFI-ICONS-->
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8b929b"/>
+    </marker>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#006fff"/>
+    </marker>
+  </defs>
+  <rect width="1760" height="1800" fill="#14171b"/>
+
+  <!-- ===== TITLE ===== -->
+  <text x="40" y="42" fill="#dee0e3" font-size="26" font-weight="700">V3 Logistics Platform — Initial Building Blocks</text>
+  <text x="40" y="68" fill="#b7bcc2" font-size="12">Discussion draft assembled from round-1 Slack notes (James Kotze, Andrei, Hendrik) · for round-2 architecture review · NOT a final design</text>
+
+  <!-- ===== CLIENT LAYER ===== -->
+  <text x="40" y="104" fill="#8b929b" font-size="11" font-weight="700" letter-spacing="0.6">CLIENT LAYER</text>
+  <rect x="40" y="116" width="220" height="56" rx="10" fill="#1a1e23" stroke="#006fff" stroke-width="1.5"/>
+  <g color="#fff"><rect x="56" y="128" width="32" height="32" rx="7" fill="#006fff"/><use href="#ico-browser" x="56" y="128" width="32" height="32"/></g>
+  <text x="100" y="143" fill="#dee0e3" font-size="12" font-weight="700">Web / App Clients</text>
+  <text x="100" y="158" fill="#8ec4ff" font-size="9.5">browser + mobile frontends</text>
+  <!-- badge -->
+  <rect x="192" y="119" width="62" height="18" rx="9" fill="#0a2a5c" stroke="#006fff" stroke-width="0.8"/>
+  <text x="223" y="131" fill="#8ec4ff" font-size="8" font-weight="600" text-anchor="middle">PROPOSED</text>
+
+  <!-- connector down -->
+  <line x1="150" y1="172" x2="150" y2="198" stroke="#4a515b" stroke-width="1.2" stroke-dasharray="4,4"/>
+
+  <!-- ===== EDGE / ROUTING ===== -->
+  <text x="40" y="210" fill="#8b929b" font-size="11" font-weight="700" letter-spacing="0.6">EDGE / ROUTING — CONTESTED, TWO PATHS PROPOSED</text>
+
+  <!-- PATH A panel -->
+  <rect x="40" y="222" width="770" height="260" rx="12" fill="#1a1e23" stroke="#4a515b" stroke-width="1.3"/>
+  <text x="60" y="246" fill="#dee0e3" font-size="13" font-weight="700">PATH A — Gateway / Load Balancer (proposed baseline)</text>
+  <rect x="434" y="228" width="68" height="18" rx="9" fill="#0a2a5c" stroke="#006fff" stroke-width="0.8"/>
+  <text x="468" y="240" fill="#8ec4ff" font-size="8" font-weight="600" text-anchor="middle">PROPOSED</text>
+
+  <!-- GCP LB -->
+  <rect x="60" y="262" width="220" height="130" rx="8" fill="#14171b" stroke="#4a515b" stroke-width="1"/>
+  <g color="#fff"><rect x="76" y="274" width="28" height="28" rx="6" fill="#006fff"/><use href="#ico-service" x="76" y="274" width="28" height="28"/></g>
+  <text x="112" y="290" fill="#dee0e3" font-size="12" font-weight="700">GCP Global HTTPS LB</text>
+  <text x="76" y="318" fill="#8b929b" font-size="9.5">Single global anycast IP · BGP</text>
+  <text x="76" y="332" fill="#8b929b" font-size="9.5">routes to nearest edge PoP</text>
+  <text x="76" y="352" fill="#8b929b" font-size="9.5">Per-region backend MIGs</text>
+  <text x="76" y="366" fill="#8b929b" font-size="9.5">configured behind the one LB</text>
+  <text x="76" y="386" fill="#8b929b" font-size="9.5">Natively proxies the WS 101</text>
+
+  <!-- Gateway API -->
+  <rect x="300" y="262" width="220" height="130" rx="8" fill="#14171b" stroke="#4a515b" stroke-width="1"/>
+  <g color="#fff"><rect x="316" y="274" width="28" height="28" rx="6" fill="#006fff"/><use href="#ico-service" x="316" y="274" width="28" height="28"/></g>
+  <text x="352" y="290" fill="#dee0e3" font-size="12" font-weight="700">Gateway API</text>
+  <text x="316" y="318" fill="#8b929b" font-size="9.5">AuthZ / AuthN enforcement</text>
+  <text x="316" y="332" fill="#8b929b" font-size="9.5">Payload validation</text>
+  <text x="316" y="346" fill="#8b929b" font-size="9.5">HTTP → NATS translation</text>
+  <text x="316" y="366" fill="#8b929b" font-size="9.5">Also the enforcement point for</text>
+  <text x="316" y="380" fill="#8b929b" font-size="9.5">regional data-residency / compliance</text>
+
+  <!-- arrow LB→GW -->
+  <line x1="280" y1="327" x2="298" y2="327" stroke="#8b929b" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+
+  <!-- WebSocket MIG -->
+  <rect x="540" y="262" width="250" height="130" rx="8" fill="#14171b" stroke="#4a515b" stroke-width="1"/>
+  <g color="#fff"><rect x="556" y="274" width="28" height="28" rx="6" fill="#006fff"/><use href="#ico-service" x="556" y="274" width="28" height="28"/></g>
+  <text x="592" y="290" fill="#dee0e3" font-size="12" font-weight="700">WebSocket MIG (dedicated)</text>
+  <text x="556" y="318" fill="#8b929b" font-size="9.5">Separate MIG from the Gateway,</text>
+  <text x="556" y="332" fill="#8b929b" font-size="9.5">because WS needs connection</text>
+  <text x="556" y="346" fill="#8b929b" font-size="9.5">state affinity</text>
+  <text x="556" y="366" fill="#8b929b" font-size="9.5">Authenticates the WS connection,</text>
+  <text x="556" y="380" fill="#8b929b" font-size="9.5">then subscribes on the client's</text>
+
+  <!-- arrow GW→WS -->
+  <line x1="520" y1="327" x2="538" y2="327" stroke="#8b929b" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+
+  <!-- Path A bottom text -->
+  <text x="76" y="410" fill="#8b929b" font-size="9.5">Performance routing only —</text>
+  <text x="76" y="424" fill="#8b929b" font-size="9.5">compliance routing is the GW's job</text>
+
+  <!-- PATH B panel -->
+  <rect x="840" y="222" width="880" height="260" rx="12" fill="#14171b" stroke="#9a7b1e" stroke-width="1.3" stroke-dasharray="8,4"/>
+  <text x="860" y="246" fill="#dee0e3" font-size="13" font-weight="700">PATH B — NATS-native clients</text>
+  <text x="1060" y="246" fill="#c9a54a" font-size="12">(floated, unresolved)</text>
+  <rect x="1622" y="228" width="88" height="18" rx="9" fill="#2a2210" stroke="#9a7b1e" stroke-width="0.8"/>
+  <text x="1666" y="240" fill="#c9a54a" font-size="8" font-weight="600" text-anchor="middle">OPEN QUESTION</text>
+
+  <g color="#fff"><rect x="880" y="274" width="28" height="28" rx="6" fill="#9a7b1e"/><use href="#ico-browser" x="880" y="274" width="28" height="28"/></g>
+  <text x="920" y="292" fill="#dee0e3" font-size="12" font-weight="700">Clients connect to NATS directly</text>
+  <text x="880" y="318" fill="#c9a54a" font-size="9.5">"What if we didn't need a load</text>
+  <text x="880" y="332" fill="#c9a54a" font-size="9.5">balancer, or even HTTP support?"</text>
+  <text x="880" y="346" fill="#c9a54a" font-size="9.5">— James, thinking out loud</text>
+  <text x="880" y="372" fill="#8b929b" font-size="9.5">Bypasses LB + Gateway entirely.</text>
+  <text x="880" y="386" fill="#8b929b" font-size="9.5">Unresolved: how per-client subject</text>
+  <text x="880" y="400" fill="#8b929b" font-size="9.5">authorization is enforced at connect</text>
+  <text x="880" y="414" fill="#8b929b" font-size="9.5">time (NSC scopes alone were judged</text>
+  <text x="880" y="428" fill="#8b929b" font-size="9.5">insufficient — see AuthZ/FGA below)</text>
+
+  <!-- dashed arrow from Path A to Path B -->
+  <line x1="810" y1="350" x2="838" y2="350" stroke="#9a7b1e" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+
+  <!-- UNRESOLVED banner -->
+  <rect x="300" y="496" width="1160" height="28" rx="14" fill="#2a2210" stroke="#9a7b1e" stroke-width="1"/>
+  <text x="880" y="514" fill="#c9a54a" font-size="11" font-weight="600" text-anchor="middle">UNRESOLVED — pick a path before gateway responsibilities, WS handling, and rate-limit enforcement can be finalized</text>
+
+  <!-- connector down from edge to auth -->
+  <line x1="150" y1="482" x2="150" y2="540" stroke="#4a515b" stroke-width="1.2" stroke-dasharray="4,4"/>
+
+  <!-- ===== AUTH ===== -->
+  <text x="40" y="555" fill="#8b929b" font-size="11" font-weight="700" letter-spacing="0.6">AUTH — checkpoint before the backbone (queried by the Gateway on Path A; still needed if Path B ever ships)</text>
+
+  <!-- AuthN -->
+  <rect x="40" y="568" width="480" height="90" rx="10" fill="#1a1e23" stroke="#4a515b" stroke-width="1.3"/>
+  <g color="#fff"><rect x="56" y="580" width="28" height="28" rx="6" fill="#4a515b"/><use href="#ico-service" x="56" y="580" width="28" height="28"/></g>
+  <text x="92" y="596" fill="#dee0e3" font-size="12" font-weight="700">AuthN — authentik (candidate)</text>
+  <rect x="420" y="572" width="88" height="18" rx="9" fill="#1a1e23" stroke="#4a515b" stroke-width="0.8"/>
+  <text x="464" y="584" fill="#8b929b" font-size="8" font-weight="600" text-anchor="middle">NOT CONFIRMED</text>
+  <text x="56" y="622" fill="#8b929b" font-size="9.5">Managed authentication platform</text>
+  <text x="56" y="636" fill="#8b929b" font-size="9.5">Surfaced once in chat, no follow-up — confirm adoption before assuming it's decided</text>
+
+  <!-- AuthZ -->
+  <rect x="540" y="568" width="520" height="90" rx="10" fill="#1a1e23" stroke="#006fff" stroke-width="1.3"/>
+  <g color="#fff"><rect x="556" y="580" width="28" height="28" rx="6" fill="#006fff"/><use href="#ico-service" x="556" y="580" width="28" height="28"/></g>
+  <text x="592" y="596" fill="#dee0e3" font-size="12" font-weight="700">AuthZ / FGA (ReBAC)</text>
+  <rect x="960" y="572" width="88" height="18" rx="9" fill="#0a2a5c" stroke="#006fff" stroke-width="0.8"/>
+  <text x="1004" y="584" fill="#8ec4ff" font-size="8" font-weight="600" text-anchor="middle">PROPOSED</text>
+  <text x="556" y="622" fill="#8b929b" font-size="9.5">Zanzibar / OpenFGA-style: tenant / organization / user / role / document relation tuples — membership inferred</text>
+  <text x="556" y="640" fill="#8b929b" font-size="9.5">NATS NSC scoped signing keys were evaluated and rejected as too coarse for this — FGA is meant to cover the gap</text>
+  <text x="556" y="654" fill="#8b929b" font-size="9.5">Directly answers the earlier "who can see what" unknown for tenants / users / roles / businesses</text>
+
+  <!-- connector down to NATS -->
+  <line x1="150" y1="658" x2="150" y2="694" stroke="#4a515b" stroke-width="1.2" stroke-dasharray="4,4"/>
+
+  <!-- ===== COMMS BACKBONE ===== -->
+  <text x="40" y="708" fill="#8b929b" font-size="11" font-weight="700" letter-spacing="0.6">COMMS BACKBONE — the spine everything else depends on</text>
+
+  <rect x="40" y="720" width="880" height="100" rx="12" fill="#132a22" stroke="#27c07f" stroke-width="1.5"/>
+  <g color="#fff"><rect x="60" y="740" width="36" height="36" rx="8" fill="#27c07f"/><use href="#ico-nats" x="60" y="740" width="36" height="36"/></g>
+  <text x="106" y="758" fill="#dee0e3" font-size="14" font-weight="700">NATS</text>
+  <text x="106" y="776" fill="#8fdba8" font-size="10">Single message backbone for the whole platform</text>
+
+  <g color="#fff"><rect x="370" y="748" width="28" height="28" rx="6" fill="#27c07f"/><use href="#ico-stream" x="370" y="748" width="28" height="28"/></g>
+  <text x="406" y="762" fill="#dee0e3" font-size="11" font-weight="600">JetStream</text>
+  <text x="406" y="776" fill="#8b929b" font-size="9.5">event backbone / replay</text>
+
+  <g color="#fff"><rect x="550" y="748" width="28" height="28" rx="6" fill="#27c07f"/><use href="#ico-kv" x="550" y="748" width="28" height="28"/></g>
+  <text x="586" y="762" fill="#dee0e3" font-size="11" font-weight="600">NATS KV</text>
+  <text x="586" y="776" fill="#8b929b" font-size="9.5">fast lookup / cache / watch</text>
+
+  <text x="750" y="750" fill="#8b929b" font-size="9">This lab (nats-tech-lab) exists to</text>
+  <text x="750" y="764" fill="#8b929b" font-size="9">pressure-test exactly this spine</text>
+  <text x="750" y="778" fill="#8b929b" font-size="9">before it carries all of V3</text>
+
+  <rect x="852" y="724" width="62" height="18" rx="9" fill="#0a2a5c" stroke="#006fff" stroke-width="0.8"/>
+  <text x="883" y="736" fill="#8ec4ff" font-size="8" font-weight="600" text-anchor="middle">PROPOSED</text>
+
+  <!-- connector down -->
+  <line x1="480" y1="820" x2="480" y2="856" stroke="#4a515b" stroke-width="1.2" stroke-dasharray="4,4"/>
+
+  <!-- ===== SERVICES ===== -->
+  <text x="40" y="870" fill="#8b929b" font-size="11" font-weight="700" letter-spacing="0.6">SERVICES — candidate list only, none designed yet</text>
+
+  <!-- 9 service boxes -->
+  <rect x="40" y="884" width="120" height="60" rx="8" fill="#1a1e23" stroke="#4a515b" stroke-width="1"/>
+  <g color="#fff"><rect x="50" y="894" width="22" height="22" rx="5" fill="#4a515b"/><use href="#ico-service" x="50" y="894" width="22" height="22"/></g>
+  <text x="78" y="906" fill="#dee0e3" font-size="11" font-weight="600">Comms</text>
+  <rect x="52" y="924" width="96" height="14" rx="7" fill="#14171b" stroke="#4a515b" stroke-width="0.6"/>
+  <text x="100" y="934" fill="#8b929b" font-size="7" font-weight="500" text-anchor="middle">NOT DISCUSSED</text>
+
+  <rect x="180" y="884" width="120" height="60" rx="8" fill="#1a1e23" stroke="#4a515b" stroke-width="1"/>
+  <g color="#fff"><rect x="190" y="894" width="22" height="22" rx="5" fill="#4a515b"/><use href="#ico-service" x="190" y="894" width="22" height="22"/></g>
+  <text x="218" y="906" fill="#dee0e3" font-size="11" font-weight="600">Tracking</text>
+  <rect x="192" y="924" width="96" height="14" rx="7" fill="#14171b" stroke="#4a515b" stroke-width="0.6"/>
+  <text x="240" y="934" fill="#8b929b" font-size="7" font-weight="500" text-anchor="middle">NOT DISCUSSED</text>
+
+  <rect x="320" y="884" width="120" height="60" rx="8" fill="#1a1e23" stroke="#4a515b" stroke-width="1"/>
+  <g color="#fff"><rect x="330" y="894" width="22" height="22" rx="5" fill="#4a515b"/><use href="#ico-service" x="330" y="894" width="22" height="22"/></g>
+  <text x="358" y="906" fill="#dee0e3" font-size="11" font-weight="600">GEO</text>
+  <rect x="332" y="924" width="96" height="14" rx="7" fill="#14171b" stroke="#4a515b" stroke-width="0.6"/>
+  <text x="380" y="934" fill="#8b929b" font-size="7" font-weight="500" text-anchor="middle">NOT DISCUSSED</text>
+
+  <!-- Dictionary — highlighted -->
+  <rect x="460" y="884" width="120" height="60" rx="8" fill="#132a22" stroke="#27c07f" stroke-width="1.5"/>
+  <g color="#fff"><rect x="470" y="894" width="22" height="22" rx="5" fill="#27c07f"/><use href="#ico-kv" x="470" y="894" width="22" height="22"/></g>
+  <text x="498" y="906" fill="#dee0e3" font-size="11" font-weight="700">Dictionary</text>
+  <rect x="472" y="924" width="96" height="14" rx="7" fill="#132a22" stroke="#27c07f" stroke-width="0.6"/>
+  <text x="520" y="934" fill="#8fdba8" font-size="7" font-weight="600" text-anchor="middle">IN THIS LAB</text>
+
+  <rect x="600" y="884" width="120" height="60" rx="8" fill="#1a1e23" stroke="#4a515b" stroke-width="1"/>
+  <g color="#fff"><rect x="610" y="894" width="22" height="22" rx="5" fill="#4a515b"/><use href="#ico-service" x="610" y="894" width="22" height="22"/></g>
+  <text x="638" y="906" fill="#dee0e3" font-size="11" font-weight="600">Docs</text>
+  <rect x="612" y="924" width="96" height="14" rx="7" fill="#14171b" stroke="#4a515b" stroke-width="0.6"/>
+  <text x="660" y="934" fill="#8b929b" font-size="7" font-weight="500" text-anchor="middle">NOT DISCUSSED</text>
+
+  <rect x="740" y="884" width="120" height="60" rx="8" fill="#1a1e23" stroke="#4a515b" stroke-width="1"/>
+  <g color="#fff"><rect x="750" y="894" width="22" height="22" rx="5" fill="#4a515b"/><use href="#ico-service" x="750" y="894" width="22" height="22"/></g>
+  <text x="778" y="906" fill="#dee0e3" font-size="11" font-weight="600">Fleet</text>
+  <rect x="752" y="924" width="96" height="14" rx="7" fill="#14171b" stroke="#4a515b" stroke-width="0.6"/>
+  <text x="800" y="934" fill="#8b929b" font-size="7" font-weight="500" text-anchor="middle">NOT DISCUSSED</text>
+
+  <rect x="880" y="884" width="120" height="60" rx="8" fill="#1a1e23" stroke="#4a515b" stroke-width="1"/>
+  <g color="#fff"><rect x="890" y="894" width="22" height="22" rx="5" fill="#4a515b"/><use href="#ico-service" x="890" y="894" width="22" height="22"/></g>
+  <text x="918" y="906" fill="#dee0e3" font-size="11" font-weight="600">Routes</text>
+  <rect x="892" y="924" width="96" height="14" rx="7" fill="#14171b" stroke="#4a515b" stroke-width="0.6"/>
+  <text x="940" y="934" fill="#8b929b" font-size="7" font-weight="500" text-anchor="middle">NOT DISCUSSED</text>
+
+  <rect x="1020" y="884" width="120" height="60" rx="8" fill="#1a1e23" stroke="#4a515b" stroke-width="1"/>
+  <g color="#fff"><rect x="1030" y="894" width="22" height="22" rx="5" fill="#4a515b"/><use href="#ico-service" x="1030" y="894" width="22" height="22"/></g>
+  <text x="1058" y="906" fill="#dee0e3" font-size="11" font-weight="600">POI</text>
+  <rect x="1032" y="924" width="96" height="14" rx="7" fill="#14171b" stroke="#4a515b" stroke-width="0.6"/>
+  <text x="1080" y="934" fill="#8b929b" font-size="7" font-weight="500" text-anchor="middle">NOT DISCUSSED</text>
+
+  <rect x="1160" y="884" width="140" height="60" rx="8" fill="#1a1e23" stroke="#4a515b" stroke-width="1"/>
+  <g color="#fff"><rect x="1170" y="894" width="22" height="22" rx="5" fill="#4a515b"/><use href="#ico-service" x="1170" y="894" width="22" height="22"/></g>
+  <text x="1198" y="906" fill="#dee0e3" font-size="11" font-weight="600">Commodities</text>
+  <rect x="1172" y="924" width="96" height="14" rx="7" fill="#14171b" stroke="#4a515b" stroke-width="0.6"/>
+  <text x="1220" y="934" fill="#8b929b" font-size="7" font-weight="500" text-anchor="middle">NOT DISCUSSED</text>
+
+  <text x="40" y="970" fill="#8b929b" font-size="9.5">Each service: own VM, own Docker container, Java or Go (language choice not confirmed per-service vs. platform-wide)</text>
+
+  <!-- ===== PERSISTENCE ===== -->
+  <text x="40" y="1000" fill="#8b929b" font-size="11" font-weight="700" letter-spacing="0.6">PERSISTENCE — cross-cutting, sits under every service</text>
+
+  <rect x="40" y="1014" width="200" height="100" rx="10" fill="#132a22" stroke="#27c07f" stroke-width="1.5"/>
+  <g color="#fff"><rect x="60" y="1030" width="32" height="32" rx="7" fill="#27c07f"/><use href="#ico-db" x="60" y="1030" width="32" height="32"/></g>
+  <text x="100" y="1048" fill="#dee0e3" font-size="13" font-weight="700">Postgres</text>
+  <text x="60" y="1076" fill="#8b929b" font-size="9.5">Transactional source of truth,</text>
+  <text x="60" y="1090" fill="#8b929b" font-size="9.5">one schema per service</text>
+
+  <!-- Persistence split callout -->
+  <rect x="280" y="1014" width="640" height="100" rx="10" fill="#14171b" stroke="#9a7b1e" stroke-width="1.3" stroke-dasharray="8,4"/>
+  <text x="300" y="1038" fill="#dee0e3" font-size="12" font-weight="700">Postgres · NATS KV · JetStream — responsibility split not yet settled</text>
+  <rect x="852" y="1018" width="58" height="18" rx="9" fill="#2a2210" stroke="#9a7b1e" stroke-width="0.8"/>
+  <text x="881" y="1030" fill="#c9a54a" font-size="8" font-weight="600" text-anchor="middle">OPEN QUESTION</text>
+  <text x="300" y="1060" fill="#8b929b" font-size="9.5">Not discussed on this Slack thread at the platform level. This is the exact question this nats-tech-lab</text>
+  <text x="300" y="1074" fill="#8b929b" font-size="9.5">repo runs Shapes A/B/C to answer for the Dictionary service — round 2 should treat those findings as input,</text>
+  <text x="300" y="1088" fill="#8b929b" font-size="9.5">not a separate decision made from scratch per-service.</text>
+
+  <!-- ===== CROSS-CUTTING CONCERNS ===== -->
+  <text x="40" y="1148" fill="#8b929b" font-size="11" font-weight="700" letter-spacing="0.6">OTHER CROSS-CUTTING CONCERNS — raised once, not resolved</text>
+
+  <!-- Multi-tenancy (CORRECTED: was "Multi-tenant rate limiting") -->
+  <rect x="40" y="1162" width="340" height="110" rx="10" fill="#14171b" stroke="#9a7b1e" stroke-width="1.3" stroke-dasharray="8,4"/>
+  <text x="60" y="1186" fill="#dee0e3" font-size="12" font-weight="700">Multi-tenancy</text>
+  <rect x="298" y="1166" width="72" height="18" rx="9" fill="#2a2210" stroke="#9a7b1e" stroke-width="0.8"/>
+  <text x="334" y="1178" fill="#c9a54a" font-size="8" font-weight="600" text-anchor="middle">OPEN Q</text>
+  <text x="60" y="1208" fill="#8b929b" font-size="9.5">Subject-prefix soft isolation evaluated</text>
+  <text x="60" y="1222" fill="#8b929b" font-size="9.5">in this lab (emea.acme.* convention)</text>
+  <text x="60" y="1242" fill="#8b929b" font-size="9.5">Hard isolation (NATS Account per</text>
+  <text x="60" y="1256" fill="#8b929b" font-size="9.5">tenant) not yet evaluated — see AuthZ</text>
+
+  <!-- Regional data residency -->
+  <rect x="410" y="1162" width="360" height="110" rx="10" fill="#14171b" stroke="#9a7b1e" stroke-width="1.3" stroke-dasharray="8,4"/>
+  <text x="430" y="1186" fill="#dee0e3" font-size="12" font-weight="700">Regional data residency</text>
+  <rect x="680" y="1166" width="72" height="18" rx="9" fill="#2a2210" stroke="#9a7b1e" stroke-width="0.8"/>
+  <text x="716" y="1178" fill="#c9a54a" font-size="8" font-weight="600" text-anchor="middle">OPEN Q</text>
+  <text x="430" y="1208" fill="#8b929b" font-size="9.5">Team agreed compliance routing is a</text>
+  <text x="430" y="1222" fill="#8b929b" font-size="9.5">Gateway job, not the LB's — but only</text>
+  <text x="430" y="1242" fill="#8b929b" font-size="9.5">holds if Path A is the chosen path;</text>
+  <text x="430" y="1256" fill="#8b929b" font-size="9.5">which regions, which rules — unclear</text>
+
+  <!-- API contract / schema versioning -->
+  <rect x="800" y="1162" width="380" height="110" rx="10" fill="#14171b" stroke="#4a515b" stroke-width="1.3"/>
+  <text x="820" y="1186" fill="#dee0e3" font-size="12" font-weight="700">API contract / schema versioning</text>
+  <rect x="1080" y="1166" width="88" height="18" rx="9" fill="#14171b" stroke="#4a515b" stroke-width="0.6"/>
+  <text x="1124" y="1178" fill="#8b929b" font-size="8" font-weight="600" text-anchor="middle">NOT DISCUSSED</text>
+  <text x="820" y="1208" fill="#8b929b" font-size="9.5">Was on the original tech list, never</text>
+  <text x="820" y="1222" fill="#8b929b" font-size="9.5">revisited since</text>
+  <text x="820" y="1248" fill="#8b929b" font-size="9.5">High-stakes for an event-sourced system —</text>
+  <text x="820" y="1262" fill="#8b929b" font-size="9.5">schema evolution can break replay</text>
+
+  <!-- ===== REGIONS ===== -->
+  <text x="40" y="1320" fill="#8b929b" font-size="10">REGIONS: LB / Gateway / Services layers are assumed multi-region (global GCP LB, per-region backend MIGs) — which regions, and under what residency rules, is not yet confirmed.</text>
+
+  <!-- ===== LEGEND ===== -->
+  <rect x="40" y="1348" width="68" height="20" rx="10" fill="#0a2a5c" stroke="#006fff" stroke-width="0.8"/>
+  <text x="74" y="1362" fill="#8ec4ff" font-size="8.5" font-weight="600" text-anchor="middle">PROPOSED</text>
+  <text x="120" y="1362" fill="#8b929b" font-size="9.5">team has real conviction, not yet finalized</text>
+
+  <rect x="380" y="1348" width="88" height="20" rx="10" fill="#2a2210" stroke="#9a7b1e" stroke-width="0.8"/>
+  <text x="424" y="1362" fill="#c9a54a" font-size="8.5" font-weight="600" text-anchor="middle">OPEN QUESTION</text>
+  <text x="480" y="1362" fill="#8b929b" font-size="9.5">actively contested or unresolved between team members</text>
+
+  <rect x="780" y="1348" width="88" height="20" rx="10" fill="#14171b" stroke="#4a515b" stroke-width="0.8"/>
+  <text x="824" y="1362" fill="#8b929b" font-size="8.5" font-weight="600" text-anchor="middle">NOT DISCUSSED</text>
+  <text x="880" y="1362" fill="#8b929b" font-size="9.5">named on a list, nothing designed yet</text>
+
+  <text x="40" y="1396" fill="#8b929b" font-size="9.5">Source: v3-stuffies Slack channel, round 1. Assembled to seed round-2 discussion questions — verify every item with the team before treating it as decided.</text>
+</svg>
