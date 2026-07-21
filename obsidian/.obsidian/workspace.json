@@ -51,7 +51,7 @@
             "state": {
               "type": "search",
               "state": {
-                "query": "",
+                "query": "aggregate",
                 "matchingCase": false,
                 "explainSearch": false,
                 "collapseAll": false,
@@ -76,7 +76,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 316.5086555480957
+    "width": 483.5086555480957
   },
   "right": {
     "id": "0e936b3f4ebbe464",
@@ -183,30 +183,33 @@
   },
   "active": "398f933131b9a7a9",
   "lastOpenFiles": [
-    "V3-Platform/Architecture/v3-platform-building-blocks.svg",
-    "POC-Dictionaries/Architecture/system-architecture.png",
-    "POC-Dictionaries/Architecture/localized-rendering-lifecycle.png",
-    "POC-Dictionaries/Architecture/shipping-ui-dictionary-sequence.png",
-    "POC-Dictionaries/1. Problem Statement - Dictionary.md",
-    "POC-Dictionaries/Summary/1. Problem Space.md",
     "POC-Dictionaries/Summary/Diagrams/dictionary-system-zoom.png",
     "POC-Dictionaries/Summary/Diagrams/dictionary-runtime-sequence.png",
-    "POC-Dictionaries/Summary/Diagrams/dictionary-runtime-sequence.svg",
     "POC-Dictionaries/Summary/Diagrams/dictionary-er-diagram.png",
-    "POC-Dictionaries/Summary/Diagrams/dictionary-system-zoom.svg",
-    "POC-Dictionaries/Summary/Diagrams/dictionary-cross-service-consumption.svg",
+    "POC-Dictionaries/Summary/Diagrams/dictionary-data-types-and-retrieval.png",
     "POC-Dictionaries/Summary/Diagrams/dictionary-cross-service-consumption.png",
+    "POC-Dictionaries/1. Problem Statement - Dictionary.md",
+    "POC-Dictionaries/Summary/4. Outstanding POC Tasks.md",
+    "POC-Dictionaries/Summary/5. Data Types.md",
+    "POC-Dictionaries/3. Findings - Dictionary Service (Phase 11).md",
+    "V3-Platform/Architecture/v3-platform-building-blocks.svg",
+    "V3-Platform/Architecture/v3-platform-building-blocks.png",
+    "V3-Platform/System Design - V3 Logistics Platform.md",
+    "V3-Platform/System Design - V3 Logistics Platform.docx",
     "POC-Dictionaries/Summary/3. POC Design and Architecture.md",
+    "POC-Dictionaries/2. Research - Dictionary - Claude.md",
+    "Event sourcing/4. Design - Event Sourcing + CQRS.md",
+    "Event sourcing/Diagrams/event-sourcing-cqrs.png",
+    "Event sourcing/Diagrams/event-sourcing-cqrs.svg",
+    "Event sourcing/Diagrams",
+    "Event sourcing/Event Sourcing + CQRS + NATS — Pattern Cards.pdf",
+    "POC-Dictionaries/Architecture/system-architecture.png",
+    "POC-Dictionaries/Architecture/localized-rendering-lifecycle.png",
+    "POC-Dictionaries/Summary/1. Problem Space.md",
     "POC-Dictionaries/Summary/2. Requirements and Constraints.md",
     "POC-Dictionaries/Summary/0. Overview.md",
-    "POC-Dictionaries/3. Findings - Dictionary Service (Phase 11).md",
     "POC-Dictionaries/2. Research - Dictionary - OpenCode.md",
-    "POC-Dictionaries/2. Research - Dictionary - Claude.md",
-    "POC-Dictionaries/Summary/5. Data Types.md",
-    "POC-Dictionaries/Summary/4. Outstanding POC Tasks.md",
-    "Event sourcing/Event Sourcing + CQRS + NATS — Pattern Cards.pdf",
     "POC-Dictionaries/Summary/Diagrams",
-    "Event sourcing/4. Design - Event Sourcing + CQRS.md",
     "POC-Dictionaries/Summary",
     "POC-Dictionaries/CLAUDE.md",
     "POC-Dictionaries/PERFORMANCE.md",
@@ -215,7 +218,6 @@
     "Event sourcing",
     "Event sourcing/Event Sourcing + CQRS + NATS — Poster.pdf",
     "V3-Platform/Architecture",
-    "V3-Platform",
-    "POC-Dictionaries/Architecture"
+    "V3-Platform"
   ]
 }
