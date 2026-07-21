@@ -15,16 +15,16 @@ suite is finalised in Phase 16. See
 
 ## Test environment
 
-| Field | Value |
-|---|---|
-| Date | 2026-07-13 |
-| Host | Apple M3 Pro, 12 cores, 18 GB RAM |
-| OS | macOS 26.4.1 (Darwin 25.4.0) |
-| Stack | `docker compose -f demos/01-dictionary/docker-compose.yml` (all default config) |
-| Backend | host `:18080`, `CONTEXT=global` |
-| Postgres | `postgres:16-alpine`, `max_connections=100` (default) |
-| k6 version | v2.1.0 |
-| Docker | 29.6.1 |
+| Field      | Value                                                                           |
+| ---------- | ------------------------------------------------------------------------------- |
+| Date       | 2026-07-13                                                                      |
+| Host       | Apple M3 Pro, 12 cores, 18 GB RAM                                               |
+| OS         | macOS 26.4.1 (Darwin 25.4.0)                                                    |
+| Stack      | `docker compose -f demos/01-dictionary/docker-compose.yml` (all default config) |
+| Backend    | host `:18080`, `CONTEXT=global`                                                 |
+| Postgres   | `postgres:16-alpine`, `max_connections=100` (default)                           |
+| k6 version | v2.1.0                                                                          |
+| Docker     | 29.6.1                                                                          |
 
 > Numbers below are from a **single laptop run** against the dockerized stack —
 > a relative-degradation baseline, not an absolute production capacity figure.

@@ -11,12 +11,12 @@
             "id": "c50d6372ff085bfe",
             "type": "leaf",
             "state": {
-              "type": "image",
+              "type": "pdf",
               "state": {
-                "file": "V3-Platform/Architecture/v3-platform-building-blocks.png"
+                "file": "Event sourcing/Event Sourcing + CQRS + NATS — Pattern Cards.pdf"
               },
-              "icon": "lucide-image",
-              "title": "v3-platform-building-blocks"
+              "icon": "lucide-file-text",
+              "title": "Event Sourcing + CQRS + NATS — Pattern Cards"
             }
           }
         ]
@@ -76,7 +76,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 483.5086555480957
+    "width": 321.5086555480957
   },
   "right": {
     "id": "0e936b3f4ebbe464",
@@ -92,7 +92,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "V3-Platform/Architecture/v3-platform-building-blocks.png",
+                "file": "Event sourcing/Event Sourcing + CQRS + NATS — Pattern Cards.pdf",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -102,7 +102,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for v3-platform-building-blocks"
+              "title": "Backlinks for Event Sourcing + CQRS + NATS — Pattern Cards"
             }
           },
           {
@@ -111,12 +111,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "V3-Platform/Architecture/v3-platform-building-blocks.png",
+                "file": "Event sourcing/Event Sourcing + CQRS + NATS — Pattern Cards.pdf",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from v3-platform-building-blocks"
+              "title": "Outgoing links from Event Sourcing + CQRS + NATS — Pattern Cards"
             }
           },
           {
@@ -154,13 +154,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "V3-Platform/Architecture/v3-platform-building-blocks.png",
+                "file": "Event sourcing/Event Sourcing + CQRS + NATS — Pattern Cards.pdf",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of v3-platform-building-blocks"
+              "title": "Outline of Event Sourcing + CQRS + NATS — Pattern Cards"
             }
           }
         ]
@@ -181,38 +181,38 @@
       "bases:Create new base": false
     }
   },
-  "active": "398f933131b9a7a9",
+  "active": "c50d6372ff085bfe",
   "lastOpenFiles": [
-    "POC-Dictionaries/Summary/Diagrams/dictionary-system-zoom.png",
-    "POC-Dictionaries/Summary/Diagrams/dictionary-runtime-sequence.png",
-    "POC-Dictionaries/Summary/Diagrams/dictionary-er-diagram.png",
     "POC-Dictionaries/Summary/Diagrams/dictionary-data-types-and-retrieval.png",
-    "POC-Dictionaries/Summary/Diagrams/dictionary-cross-service-consumption.png",
+    "POC-Dictionaries/Summary/Diagrams/dictionary-er-diagram.png",
+    "POC-Dictionaries/Summary/Diagrams/dictionary-runtime-sequence.png",
+    "POC-Dictionaries/Summary/Diagrams/dictionary-system-zoom.png",
+    "POC-Dictionaries/Summary/Diagrams/dictionary-use-case.png",
+    "POC-Dictionaries/Summary/Diagrams/dictionary-cross-service-consumption.svg",
+    "V3-Platform/Architecture/v3-platform-building-blocks.png",
+    "Event sourcing/4. Design - Event Sourcing + CQRS.md",
+    "POC-Dictionaries/Summary/3. POC Design and Architecture.md",
+    "POC-Dictionaries/Summary/2. Requirements and Constraints.md",
+    "POC-Dictionaries/Summary/1. Problem Space.md",
+    "POC-Dictionaries/PERFORMANCE.md",
     "POC-Dictionaries/1. Problem Statement - Dictionary.md",
+    "POC-Dictionaries/Summary/Diagrams/dictionary-cross-service-consumption.png",
     "POC-Dictionaries/Summary/4. Outstanding POC Tasks.md",
     "POC-Dictionaries/Summary/5. Data Types.md",
     "POC-Dictionaries/3. Findings - Dictionary Service (Phase 11).md",
     "V3-Platform/Architecture/v3-platform-building-blocks.svg",
-    "V3-Platform/Architecture/v3-platform-building-blocks.png",
     "V3-Platform/System Design - V3 Logistics Platform.md",
     "V3-Platform/System Design - V3 Logistics Platform.docx",
-    "POC-Dictionaries/Summary/3. POC Design and Architecture.md",
     "POC-Dictionaries/2. Research - Dictionary - Claude.md",
-    "Event sourcing/4. Design - Event Sourcing + CQRS.md",
     "Event sourcing/Diagrams/event-sourcing-cqrs.png",
     "Event sourcing/Diagrams/event-sourcing-cqrs.svg",
     "Event sourcing/Diagrams",
     "Event sourcing/Event Sourcing + CQRS + NATS — Pattern Cards.pdf",
-    "POC-Dictionaries/Architecture/system-architecture.png",
-    "POC-Dictionaries/Architecture/localized-rendering-lifecycle.png",
-    "POC-Dictionaries/Summary/1. Problem Space.md",
-    "POC-Dictionaries/Summary/2. Requirements and Constraints.md",
     "POC-Dictionaries/Summary/0. Overview.md",
     "POC-Dictionaries/2. Research - Dictionary - OpenCode.md",
     "POC-Dictionaries/Summary/Diagrams",
     "POC-Dictionaries/Summary",
     "POC-Dictionaries/CLAUDE.md",
-    "POC-Dictionaries/PERFORMANCE.md",
     "POC-Dictionaries/_archive/TODO.md",
     "POC-Dictionaries/_archive",
     "Event sourcing",
