@@ -171,7 +171,7 @@ Every ship has a maximum container capacity, a fixed number set at registration 
 - **Enforced in:** `ContainerAggregate.Load()` — checked alongside the existing BR-012/BR-010/BR-014/BR-008 checks; requires the ship's current on-ship container count, resolved by the application layer before the domain check (mechanism — event-replay count vs. Shape A/B read-model query — to be decided during implementation; see Phase 12 of `Dictionary-POC-Plan.md`)
 - **Test:** `Container Domain Rules / BR-019` (not yet written — pending implementation)
 
-**Frontend:** `frontend-port` ("SeaFreight Flow") gains a load-capacity indicator column (e.g. `12 / 50`, colored by how full the ship is) in both `FleetPanel.vue` and `ShipsAtPortPanel.vue`, pairing the new `capacity` field with the container count already computed via `store.manifestFor(shipID).length`.
+**Frontend:** `frontend/seafreight-app` ("SeaFreight Flow") gains a load-capacity indicator column (e.g. `12 / 50`, colored by how full the ship is) in both `FleetPanel.vue` and `ShipsAtPortPanel.vue`, pairing the new `capacity` field with the container count already computed via `store.manifestFor(shipID).length`.
 
 ---
 
@@ -207,14 +207,14 @@ Ships carry an AIS-aligned status derived from their current state. This is a re
 
 ---
 
-# Business Rules — Reference Data Service (`refdata-service/`)
+# Business Rules — Reference Data Service (`backend/refdata-service/`)
 
 Phase 11, [Dictionary-Service-Plan.md](../../.claude/plans/Dictionary-Service-Plan.md). A
 separate service, separate Postgres schema (`refdata`) — plain CRUD, not
 event-sourced (nothing ever replays a lookup value; see "Event Sourcing vs
-Plain CRUD" above). Rules live in `refdata-service/refdata/internal/domain/dictionary.go`
+Plain CRUD" above). Rules live in `backend/refdata-service/refdata/internal/domain/dictionary.go`
 and are enforced by the command handlers in
-`refdata-service/refdata/internal/application/commands/`. BR-D07 (AI-translation
+`backend/refdata-service/refdata/internal/application/commands/`. BR-D07 (AI-translation
 review gate) is parked — not in this pass's scope.
 
 ### BR-D01 — Item codes are unique per `{type, context}`
@@ -271,8 +271,8 @@ A deprecated item must remain resolvable so historic data stays renderable, but 
 ### BR-D08 — A consumer resolves reference-data labels KV-first, applying the BR-D03 fallback chain; a miss or stale entry falls back to REST
 Phase 11.6. When the shipping backend resolves a reference-data label for display, it reads the `refdata-{context}` KV cache directly and resolves the requested locale's label from the cached localizations map, applying the same fallback chain as BR-D03 (requested locale → bare language → default locale → the code itself). A KV miss or a stale (version-mismatched) entry — the Q5 read protocol's miss case — falls back to the refdata-service REST API with `?locale=`, which resolves the label server-side via the authoritative `ResolveLabel` and backfills the cache. The consumer reimplements the ~10-line fallback rather than importing refdata-service (the two services share only a wire shape); the default locale is a constant mirroring the context's seeded default. Enforced on the *consuming* side (the shipping backend), so it lives here alongside the producer rules it depends on.
 
-- **Enforced in:** `backend/internal/refdataconsumer/Consumer.Lookup()` / `ResolveType()` (`resolveLabel()` implements the fallback; `fetchViaAPI()` forwards `?locale=`)
-- **Test:** `backend/internal/refdataconsumer` — `TestLookupResolvesLabelFromKV`, `TestLookupLabelFallsBackToBareLanguage`, `TestLookupLabelFallsBackToDefaultThenCode`, `TestLookupMissForwardsLocaleToAPI`, `TestResolveTypeReturnsAllCodesFromKV`
+- **Enforced in:** `backend/shipping-service/internal/refdataconsumer/Consumer.Lookup()` / `ResolveType()` (`resolveLabel()` implements the fallback; `fetchViaAPI()` forwards `?locale=`)
+- **Test:** `backend/shipping-service/internal/refdataconsumer` — `TestLookupResolvesLabelFromKV`, `TestLookupLabelFallsBackToBareLanguage`, `TestLookupLabelFallsBackToDefaultThenCode`, `TestLookupMissForwardsLocaleToAPI`, `TestResolveTypeReturnsAllCodesFromKV`
 
 ---
 
@@ -310,9 +310,9 @@ Phase 11.8. Deprecation (BR-D02, BR-D06) is not permanent: an admin can flip a d
 ---
 
 ### BR-D13 — The dictionary admin UI's locale selector defaults to `en`, not raw codes
-Phase 11.8. `frontend-dict`'s locale dropdown previously defaulted to an empty selection, which resolves items by their raw code instead of a localized label (BR-D03). It now defaults to `en` on load, matching the precedent already established in `shared/refdata/useRefdataLabels.js` for the other two frontends. A user can still explicitly pick `(code)` from the dropdown to see raw codes.
+Phase 11.8. `frontend/refdata`'s locale dropdown previously defaulted to an empty selection, which resolves items by their raw code instead of a localized label (BR-D03). It now defaults to `en` on load, matching the precedent already established in `shared/refdata/useRefdataLabels.js` for the other two frontends. A user can still explicitly pick `(code)` from the dropdown to see raw codes.
 
-- **Enforced in:** `frontend-dict/src/stores/dictionary.js` — `selectedLocale` initial state
+- **Enforced in:** `frontend/refdata/src/stores/dictionary.js` — `selectedLocale` initial state
 - **Test:** manual — verified in browser (frontend build has no JS test harness; see BR-D11's note)
 
 ---
@@ -326,18 +326,18 @@ Phase 11.9. The default locale is the BR-D03 fallback target, so it must be unam
 ---
 
 ### BR-D16 — All Port-UI copy resolves through the i18n/refdata layer
-Phase 11.10. Every user-facing string in `frontend-port` — including headings, controls,
+Phase 11.10. Every user-facing string in `frontend/seafreight-app` — including headings, controls,
 form labels, validation and error feedback, empty states, accessibility labels, derived
 status labels, and notifications — is addressed by a `ui-copy` code through vue-i18n.
 The `ui-copy` seed is the sole authored source for both English and Spanish. A committed,
 generated English catalog provides the BR-D11 cold-paint fallback when refdata is
 unreachable; live refdata overlays that catalog once loaded.
 
-- **Enforced in:** `frontend-port` Vue components via `t()` plus the generated
+- **Enforced in:** `frontend/seafreight-app` Vue components via `t()` plus the generated
   `shared/refdata/uiCopyFallback.en.js` catalog
-- **Test:** `frontend-port/scripts/check-i18n.mjs` rejects bare user-facing literals;
+- **Test:** `frontend/seafreight-app/scripts/check-i18n.mjs` rejects bare user-facing literals;
   `npm run check:i18n` regenerates the fallback and rejects drift;
-  `frontend-port/src/App.spec.js` mounts the real UI with vue-i18n and verifies locale
+  `frontend/seafreight-app/src/App.spec.js` mounts the real UI with vue-i18n and verifies locale
   switching, interpolation, pluralization, and mutually-exclusive Fleet/Port rendering
 
 ---
@@ -345,7 +345,7 @@ unreachable; live refdata overlays that catalog once loaded.
 ### BR-D18 — An item's attrs can be replaced after creation, independent of status or localization
 `RegisterItem` is insert-only, so an item's `attrs` map was previously frozen at whatever
 was passed at creation — a real gap: `attrs.name` is the bootstrap display name shown before
-an admin-created item has any localization (see `frontend-dict`'s `ItemGrid.vue` `labelFor()`
+an admin-created item has any localization (see `frontend/refdata`'s `ItemGrid.vue` `labelFor()`
 fallback chain), but nothing could ever correct it afterward. `UpdateItemAttrs` replaces the
 entire `attrs` map in one call — a full replace, not a per-key merge, matching `RegisterItem`'s
 Attrs semantics — and works regardless of item status, mirroring BR-D06's
@@ -358,7 +358,7 @@ read-regardless-of-status stance rather than gating writes on deprecation.
 ---
 
 ### BR-D19 — Cold paint renders the persisted locale's last-known catalog, not the bundled default
-`frontend-port`'s selected locale persists across reloads (`localStorage`). Once that's true,
+`frontend/seafreight-app`'s selected locale persists across reloads (`localStorage`). Once that's true,
 every reload into a non-`en` locale would otherwise cold-paint in the bundled English catalog
 (BR-D11 only ever bundles `en`) for the length of the live refetch — visibly mismatching the
 locale shown as selected. This is distinct from BR-D11: BR-D11 covers refdata being
@@ -371,8 +371,8 @@ component to call `connect()`). A locale visited for the very first time still c
 
 - **Enforced in:** `shared/refdata/useUiCopy.js` (`primeFromCache()`, called from `connect()`),
   `shared/refdata/useRefdataLabels.js` (`labels` seeded from cache at module load)
-- **Test:** `frontend-port/src/useUiCopy.spec.js` — "useUiCopy BR-D19 catalog cache";
-  `frontend-port/src/useRefdataLabels.spec.js` — "useRefdataLabels ship-status label cache"
+- **Test:** `frontend/seafreight-app/src/useUiCopy.spec.js` — "useUiCopy BR-D19 catalog cache";
+  `frontend/seafreight-app/src/useRefdataLabels.spec.js` — "useRefdataLabels ship-status label cache"
 
 ---
 
@@ -396,7 +396,7 @@ on the admin's behalf.
 
 ### BR-D21 — Clicking a docked ship's port in Fleet Management jumps to Port Management scoped to that port
 
-Phase 12. In `frontend-port`'s Fleet Management view, a docked ship's Port cell is a
+Phase 12. In `frontend/seafreight-app`'s Fleet Management view, a docked ship's Port cell is a
 navigation shortcut, not just a display field: clicking it (or activating it with Enter)
 switches the active view to Port Management and sets the selected port to that ship's
 `currentPort` — equivalent to picking the port from the Port Management dropdown manually.
@@ -404,9 +404,9 @@ A ship at sea (`currentPort === ''`) has no port to jump to, so its cell renders
 text, not a link. This is a frontend navigation/UX rule, not a domain rule — no backend
 state changes, and it has no Ginkgo coverage; it's exercised via the Vue component test below.
 
-- **Enforced in:** `frontend-port/src/components/FleetPanel.vue` (`goToPort()`, emits
-  `navigate-port`), `frontend-port/src/App.vue` (`handleNavigatePort()` sets `store.port`
+- **Enforced in:** `frontend/seafreight-app/src/components/FleetPanel.vue` (`goToPort()`, emits
+  `navigate-port`), `frontend/seafreight-app/src/App.vue` (`handleNavigatePort()` sets `store.port`
   and `activeView`)
-- **Test:** `frontend-port/src/App.spec.js` — "BR-D21: clicking a docked ship's port in Fleet
+- **Test:** `frontend/seafreight-app/src/App.spec.js` — "BR-D21: clicking a docked ship's port in Fleet
   Management jumps to Port Management scoped to that port"; "BR-D21: a ship at sea has no
   clickable port link"

@@ -1,39 +1,90 @@
-<mxfile host="Electron" modified="2026-07-15T00:00:00.000Z" agent="Codex" version="30.3.11">
-<diagram id="shipping-ui-map" name="Shipping UI dictionary ownership map">
+<mxfile host="Electron" agent="Codex" pages="4">
+  <diagram id="shipping-ui-map" name="Shipping UI dictionary ownership map">
     <mxGraphModel dx="1600" dy="1040" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1040" background="#14171B" math="0" shadow="0">
       <root>
-        <mxCell id="0"/>
-        <mxCell id="1" parent="0"/>
-        <mxCell id="title" value="Shipping UI — dictionary ownership map" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#DEE0E3;fontSize=28;fontStyle=1;align=left;verticalAlign=middle;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" vertex="1" parent="1"><mxGeometry x="56" y="28" width="720" height="40" as="geometry"/></mxCell>
-        <mxCell id="subtitle" value="AWS-style system view · UniFi palette · the selected locale drives both dictionary-backed display paths" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#B7BCC2;fontSize=15;align=left;verticalAlign=middle;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" vertex="1" parent="1"><mxGeometry x="56" y="67" width="1100" height="28" as="geometry"/></mxCell>
-
-        <mxCell id="ui-lane" value="PORT UI · frontend-port" style="swimlane;html=1;startSize=42;horizontal=1;rounded=1;fillColor=#14171B;swimlaneFillColor=#14171B;strokeColor=#4A515B;dashed=1;dashPattern=7 6;fontColor=#8B929B;fontSize=15;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;align=center;" vertex="1" parent="1"><mxGeometry x="48" y="116" width="700" height="760" as="geometry"/></mxCell>
-        <mxCell id="service-lane" value="DICTIONARY SERVICE · emea-acme" style="swimlane;html=1;startSize=42;horizontal=1;rounded=1;fillColor=#14171B;swimlaneFillColor=#14171B;strokeColor=#4A515B;dashed=1;dashPattern=7 6;fontColor=#8B929B;fontSize=15;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;align=center;" vertex="1" parent="1"><mxGeometry x="788" y="116" width="764" height="760" as="geometry"/></mxCell>
-
-        <mxCell id="app" value="App shell&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;top bar · theme · locale&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="ui-lane"><mxGeometry x="66" y="112" width="170" height="100" as="geometry"/></mxCell>
-        <mxCell id="fleet" value="Fleet panel&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;filter · table · register ship&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="ui-lane"><mxGeometry x="258" y="112" width="170" height="100" as="geometry"/></mxCell>
-        <mxCell id="ships" value="Ships at Port&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;arrive · depart · unload&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="ui-lane"><mxGeometry x="450" y="112" width="170" height="100" as="geometry"/></mxCell>
-        <mxCell id="terminal" value="Terminal Yard&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;register · load · buckets&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="ui-lane"><mxGeometry x="258" y="350" width="170" height="100" as="geometry"/></mxCell>
-        <mxCell id="locale" value="Shared locale control&lt;br&gt;&lt;font color='#4D9BFF' style='font-size:13px;font-weight:bold'&gt;selectedLocale = en | es&lt;/font&gt;&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;one selection fans out to both dictionary paths&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#2C3138;fontColor=#DEE0E3;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="ui-lane"><mxGeometry x="48" y="556" width="500" height="120" as="geometry"/></mxCell>
-
-        <mxCell id="uicopy" value="ui-copy&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;chrome · actions · toasts&lt;br&gt;a11y · placeholders&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=17;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="service-lane"><mxGeometry x="86" y="114" width="180" height="112" as="geometry"/></mxCell>
-        <mxCell id="status" value="ship-status&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;coded enum labels&lt;br&gt;docked · in transit · ...&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=17;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="service-lane"><mxGeometry x="326" y="114" width="180" height="112" as="geometry"/></mxCell>
-        <mxCell id="registry" value="Locale registry&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;en default · es available&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=17;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="service-lane"><mxGeometry x="566" y="114" width="150" height="112" as="geometry"/></mxCell>
-        <mxCell id="fallback" value="Generated en fallback&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;cold paint · outage resilience&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="service-lane"><mxGeometry x="86" y="372" width="180" height="100" as="geometry"/></mxCell>
-        <mxCell id="sse" value="KV watch → SSE&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;refresh after refdata change&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="service-lane"><mxGeometry x="326" y="372" width="180" height="100" as="geometry"/></mxCell>
-
-        <mxCell id="edge-app-copy" value="t(key) · HTTP read path" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1" source="app" target="uicopy"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="edge-fleet-copy" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;" edge="1" parent="1" source="fleet" target="uicopy"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="edge-ships-copy" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;" edge="1" parent="1" source="ships" target="uicopy"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="edge-terminal-copy" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;" edge="1" parent="1" source="terminal" target="uicopy"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="edge-fleet-status" value="statusLabel(code)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;strokeColor=#006FFF;dashed=1;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1" source="fleet" target="status"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="edge-ships-status" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;strokeColor=#006FFF;dashed=1;endArrow=classic;endFill=1;" edge="1" parent="1" source="ships" target="status"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="edge-locale-copy" value="selected locale" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1" source="locale" target="uicopy"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="edge-locale-status" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#006FFF;endArrow=classic;endFill=1;" edge="1" parent="1" source="locale" target="status"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="edge-copy-fallback" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6B7480;endArrow=classic;endFill=1;" edge="1" parent="1" source="uicopy" target="fallback"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="edge-sse" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6B7480;endArrow=classic;endFill=1;" edge="1" parent="1" source="sse" target="uicopy"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="not-dict" value="Not dictionary data&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;port names are free-form&lt;br&gt;Outbound / Arrived are derived&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#4A515B;dashed=1;fontColor=#DEE0E3;fontSize=15;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" vertex="1" parent="1"><mxGeometry x="1230" y="676" width="264" height="92" as="geometry"/></mxCell>
-        <mxCell id="legend" value="■  Port UI / refdata component     ■  authoritative registry     - -  coded-enum path     —  ui-copy / runtime path" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;align=left;" vertex="1" parent="1"><mxGeometry x="56" y="944" width="980" height="28" as="geometry"/></mxCell>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="page-bg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#14171B;strokeColor=none;locked=1;editable=0;" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="1600" height="1040" as="geometry" />
+        </mxCell>
+        <mxCell id="title" value="Shipping UI — dictionary ownership map" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#DEE0E3;fontSize=28;fontStyle=1;align=left;verticalAlign=middle;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" vertex="1" parent="1">
+          <mxGeometry x="56" y="28" width="720" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="AWS-style system view · UniFi palette · the selected locale drives both dictionary-backed display paths" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#B7BCC2;fontSize=15;align=left;verticalAlign=middle;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" vertex="1" parent="1">
+          <mxGeometry x="56" y="67" width="1100" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="ui-lane" value="PORT UI · frontend-port" style="swimlane;html=1;startSize=42;horizontal=1;rounded=1;arcSize=14;absoluteArcSize=1;fillColor=#14171B;swimlaneFillColor=#14171B;strokeColor=#4A515B;dashed=1;dashPattern=7 6;fontColor=#8B929B;fontSize=15;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=center;" vertex="1" parent="1">
+          <mxGeometry x="48" y="116" width="700" height="760" as="geometry" />
+        </mxCell>
+        <mxCell id="service-lane" value="DICTIONARY SERVICE · emea-acme" style="swimlane;html=1;startSize=42;horizontal=1;rounded=1;arcSize=14;absoluteArcSize=1;fillColor=#14171B;swimlaneFillColor=#14171B;strokeColor=#4A515B;dashed=1;dashPattern=7 6;fontColor=#8B929B;fontSize=15;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=center;" vertex="1" parent="1">
+          <mxGeometry x="788" y="116" width="764" height="760" as="geometry" />
+        </mxCell>
+        <mxCell id="app" value="App shell&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;top bar · theme · locale&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="ui-lane">
+          <mxGeometry x="66" y="112" width="170" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="fleet" value="Fleet panel&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;filter · table · register ship&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="ui-lane">
+          <mxGeometry x="258" y="112" width="170" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="ships" value="Ships at Port&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;arrive · depart · unload&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="ui-lane">
+          <mxGeometry x="450" y="112" width="170" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="terminal" value="Terminal Yard&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;register · load · buckets&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="ui-lane">
+          <mxGeometry x="258" y="350" width="170" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="locale" value="Shared locale control&lt;br&gt;&lt;font color=&#39;#4D9BFF&#39; style=&#39;font-size:13px;font-weight:bold&#39;&gt;selectedLocale = en | es&lt;/font&gt;&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;one selection fans out to both dictionary paths&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#2C3138;fontColor=#DEE0E3;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="ui-lane">
+          <mxGeometry x="48" y="556" width="500" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="uicopy" value="ui-copy&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;chrome · actions · toasts&lt;br&gt;a11y · placeholders&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=17;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="service-lane">
+          <mxGeometry x="86" y="114" width="180" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="status" value="ship-status&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;coded enum labels&lt;br&gt;docked · in transit · ...&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=17;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="service-lane">
+          <mxGeometry x="326" y="114" width="180" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="registry" value="Locale registry&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;en default · es available&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=17;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="service-lane">
+          <mxGeometry x="566" y="114" width="150" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="fallback" value="Generated en fallback&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;cold paint · outage resilience&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="service-lane">
+          <mxGeometry x="86" y="372" width="180" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="sse" value="KV watch → SSE&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;refresh after refdata change&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="service-lane">
+          <mxGeometry x="326" y="372" width="180" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-app-copy" value="t(key) · HTTP read path" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1" source="app" target="uicopy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-fleet-copy" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;" edge="1" parent="1" source="fleet" target="uicopy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-ships-copy" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;" edge="1" parent="1" source="ships" target="uicopy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-terminal-copy" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;" edge="1" parent="1" source="terminal" target="uicopy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-fleet-status" value="statusLabel(code)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;strokeColor=#006FFF;dashed=1;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1" source="fleet" target="status">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-ships-status" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;strokeColor=#006FFF;dashed=1;endArrow=classic;endFill=1;" edge="1" parent="1" source="ships" target="status">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-locale-copy" value="selected locale" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=none;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1" source="locale" target="uicopy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-locale-status" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#006FFF;endArrow=classic;endFill=1;" edge="1" parent="1" source="locale" target="status">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-copy-fallback" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6B7480;endArrow=classic;endFill=1;" edge="1" parent="1" source="uicopy" target="fallback">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-sse" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6B7480;endArrow=classic;endFill=1;" edge="1" parent="1" source="sse" target="uicopy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="not-dict" value="Not dictionary data&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;port names are free-form&lt;br&gt;Outbound / Arrived are derived&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#4A515B;dashed=1;fontColor=#DEE0E3;fontSize=15;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" vertex="1" parent="1">
+          <mxGeometry x="1230" y="676" width="264" height="92" as="geometry" />
+        </mxCell>
+        <mxCell id="legend" value="■  Port UI / refdata component     ■  authoritative registry     - -  coded-enum path     —  ui-copy / runtime path" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=left;" vertex="1" parent="1">
+          <mxGeometry x="56" y="944" width="980" height="28" as="geometry" />
+        </mxCell>
         <mxCell id="unifi-icon-map-app" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.6%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%2215%22%20y%3D%2220%22%20width%3D%2242%22%20height%3D%2232%22%20rx%3D%224%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2215%22%20y1%3D%2229%22%20x2%3D%2257%22%20y2%3D%2229%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2222%22%20cy%3D%2224.5%22%20r%3D%221.5%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2228%22%20cy%3D%2224.5%22%20r%3D%221.5%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2234%22%20cy%3D%2224.5%22%20r%3D%221.5%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="ui-lane"><mxGeometry x="74" y="120" width="28" height="28" as="geometry"/></mxCell>
         <mxCell id="unifi-icon-map-fleet" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.6%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%2215%22%20y%3D%2220%22%20width%3D%2242%22%20height%3D%2232%22%20rx%3D%224%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2215%22%20y1%3D%2229%22%20x2%3D%2257%22%20y2%3D%2229%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2222%22%20cy%3D%2224.5%22%20r%3D%221.5%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2228%22%20cy%3D%2224.5%22%20r%3D%221.5%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2234%22%20cy%3D%2224.5%22%20r%3D%221.5%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="ui-lane"><mxGeometry x="266" y="120" width="28" height="28" as="geometry"/></mxCell>
         <mxCell id="unifi-icon-map-ships" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.6%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%2215%22%20y%3D%2220%22%20width%3D%2242%22%20height%3D%2232%22%20rx%3D%224%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2215%22%20y1%3D%2229%22%20x2%3D%2257%22%20y2%3D%2229%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2222%22%20cy%3D%2224.5%22%20r%3D%221.5%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2228%22%20cy%3D%2224.5%22%20r%3D%221.5%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2234%22%20cy%3D%2224.5%22%20r%3D%221.5%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="ui-lane"><mxGeometry x="458" y="120" width="28" height="28" as="geometry"/></mxCell>
@@ -46,35 +97,98 @@
       </root>
     </mxGraphModel>
   </diagram>
-<diagram id="localized-rendering" name="Localized rendering lifecycle">
-    <mxGraphModel dx="1600" dy="920" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="920" background="#14171B" math="0" shadow="0">
+  <diagram id="localized-rendering" name="Localized rendering lifecycle">
+    <mxGraphModel dx="2054" dy="1311" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="920" background="#14171B" math="0" shadow="0">
       <root>
-        <mxCell id="0"/><mxCell id="1" parent="0"/>
-        <mxCell id="title" value="Localized rendering lifecycle" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#DEE0E3;fontSize=28;fontStyle=1;align=left;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" vertex="1" parent="1"><mxGeometry x="56" y="28" width="720" height="40" as="geometry"/></mxCell>
-        <mxCell id="subtitle" value="Generated fallback first; live Dictionary labels overlay it and refresh after a KV-watch-backed SSE signal" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#B7BCC2;fontSize=15;align=left;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" vertex="1" parent="1"><mxGeometry x="56" y="67" width="1100" height="28" as="geometry"/></mxCell>
-        <mxCell id="seed" value="SEED" style="swimlane;html=1;startSize=40;horizontal=1;rounded=1;fillColor=#14171B;swimlaneFillColor=#14171B;strokeColor=#4A515B;dashed=1;dashPattern=7 6;fontColor=#8B929B;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;align=center;" vertex="1" parent="1"><mxGeometry x="48" y="118" width="246" height="670" as="geometry"/></mxCell>
-        <mxCell id="build" value="BUILD" style="swimlane;html=1;startSize=40;horizontal=1;rounded=1;fillColor=#14171B;swimlaneFillColor=#14171B;strokeColor=#4A515B;dashed=1;dashPattern=7 6;fontColor=#8B929B;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;align=center;" vertex="1" parent="1"><mxGeometry x="326" y="118" width="246" height="670" as="geometry"/></mxCell>
-        <mxCell id="port" value="PORT UI" style="swimlane;html=1;startSize=40;horizontal=1;rounded=1;fillColor=#14171B;swimlaneFillColor=#14171B;strokeColor=#4A515B;dashed=1;dashPattern=7 6;fontColor=#8B929B;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;align=center;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="1"><mxGeometry x="604" y="118" width="246" height="670" as="geometry"/></mxCell>
-        <mxCell id="client" value="REFDATA CLIENT" style="swimlane;html=1;startSize=40;horizontal=1;rounded=1;fillColor=#14171B;swimlaneFillColor=#14171B;strokeColor=#4A515B;dashed=1;dashPattern=7 6;fontColor=#8B929B;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;align=center;" vertex="1" parent="1"><mxGeometry x="882" y="118" width="300" height="670" as="geometry"/></mxCell>
-        <mxCell id="read" value="DICTIONARY READ PATH" style="swimlane;html=1;startSize=40;horizontal=1;rounded=1;fillColor=#14171B;swimlaneFillColor=#14171B;strokeColor=#4A515B;dashed=1;dashPattern=7 6;fontColor=#8B929B;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;align=center;" vertex="1" parent="1"><mxGeometry x="1214" y="118" width="338" height="670" as="geometry"/></mxCell>
-
-        <mxCell id="seed-node" value="uiCopySeed&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;English + Spanish&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="seed"><mxGeometry x="64" y="92" width="118" height="96" as="geometry"/></mxCell>
-        <mxCell id="build-node" value="npm run gen:i18n&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;committed en fallback&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="build"><mxGeometry x="64" y="92" width="118" height="96" as="geometry"/></mxCell>
-        <mxCell id="port-node" value="vue-i18n first paint&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;always has English chrome&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="port"><mxGeometry x="64" y="92" width="118" height="96" as="geometry"/></mxCell>
-        <mxCell id="client-node" value="useUiCopy + labels&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;shared selectedLocale&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="client"><mxGeometry x="91" y="92" width="118" height="96" as="geometry"/></mxCell>
-        <mxCell id="read-node" value="KV-first / REST fallback&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;ui-copy + ship-status&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="read"><mxGeometry x="110" y="92" width="118" height="96" as="geometry"/></mxCell>
-        <mxCell id="cold" value="cold paint" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1" source="seed-node" target="build-node"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="bundle" value="committed bundle" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1" source="build-node" target="port-node"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="get" value="GET ?locale=" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1" source="port-node" target="client-node"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="read-edge" value="KV hit / REST fallback" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1" source="client-node" target="read-node"><mxGeometry relative="1" as="geometry"/></mxCell>
-
-        <mxCell id="rule1" value="1  Bundle is available before any network call&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;The generated English catalog makes UI chrome deterministic during first paint.&lt;/font&gt;" style="rounded=0;html=1;strokeColor=none;fillColor=none;fontColor=#DEE0E3;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;align=left;" vertex="1" parent="1"><mxGeometry x="72" y="354" width="1100" height="48" as="geometry"/></mxCell>
-        <mxCell id="rule2" value="2  Live labels overlay the selected locale&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;ui-copy feeds t(key); ship-status feeds statusLabel(code). Both follow the one locale selector.&lt;/font&gt;" style="rounded=0;html=1;strokeColor=none;fillColor=none;fontColor=#DEE0E3;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;align=left;" vertex="1" parent="1"><mxGeometry x="72" y="452" width="1200" height="48" as="geometry"/></mxCell>
-        <mxCell id="rule3" value="3  A refdata change becomes an SSE refresh signal&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;The client refetches the active locale and replaces the live overlay without changing the fallback source.&lt;/font&gt;" style="rounded=0;html=1;strokeColor=none;fillColor=none;fontColor=#DEE0E3;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;align=left;" vertex="1" parent="1"><mxGeometry x="72" y="550" width="1200" height="48" as="geometry"/></mxCell>
-        <mxCell id="sse" value="KV watch → SSE&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;change signal only&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=15;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="client"><mxGeometry x="91" y="378" width="118" height="92" as="geometry"/></mxCell>
-        <mxCell id="refresh" value="refresh active locale" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#006FFF;dashed=1;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1" source="sse" target="port-node"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="fallback" value="Refdata unreachable&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:12px'&gt;serve generated English · show fallback indicator&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#9A7B1E;fontColor=#DEE0E3;fontSize=15;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="read"><mxGeometry x="18" y="538" width="302" height="82" as="geometry"/></mxCell>
-        <mxCell id="fallback-edge" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9A7B1E;endArrow=classic;endFill=1;" edge="1" parent="1" source="client-node" target="fallback"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="page-bg" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#14171B;strokeColor=none;locked=1;editable=0;" value="" vertex="1">
+          <mxGeometry height="920" width="1600" as="geometry" />
+        </mxCell>
+        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#DEE0E3;fontSize=28;fontStyle=1;align=left;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="Localized rendering lifecycle" vertex="1">
+          <mxGeometry height="40" width="720" x="56" y="28" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#B7BCC2;fontSize=15;align=left;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="Generated fallback first; live Dictionary labels overlay it and refresh after a KV-watch-backed SSE signal" vertex="1">
+          <mxGeometry height="28" width="1100" x="56" y="67" as="geometry" />
+        </mxCell>
+        <mxCell id="seed" parent="1" style="swimlane;html=1;startSize=40;horizontal=1;rounded=1;arcSize=14;absoluteArcSize=1;fillColor=#14171B;swimlaneFillColor=#14171B;strokeColor=#4A515B;dashed=1;dashPattern=7 6;fontColor=#8B929B;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=center;" value="SEED" vertex="1">
+          <mxGeometry height="670" width="246" x="48" y="118" as="geometry" />
+        </mxCell>
+        <mxCell id="seed-node" parent="seed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" value="uiCopySeed&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;English + Spanish&lt;/font&gt;" vertex="1">
+          <mxGeometry height="96" width="118" x="64" y="92" as="geometry" />
+        </mxCell>
+        <mxCell id="build" parent="1" style="swimlane;html=1;startSize=40;horizontal=1;rounded=1;arcSize=14;absoluteArcSize=1;fillColor=#14171B;swimlaneFillColor=#14171B;strokeColor=#4A515B;dashed=1;dashPattern=7 6;fontColor=#8B929B;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=center;" value="BUILD" vertex="1">
+          <mxGeometry height="670" width="246" x="326" y="118" as="geometry" />
+        </mxCell>
+        <mxCell id="build-node" parent="build" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" value="npm run gen:i18n&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;committed en fallback&lt;/font&gt;" vertex="1">
+          <mxGeometry height="96" width="118" x="64" y="92" as="geometry" />
+        </mxCell>
+        <mxCell id="port" parent="1" style="swimlane;html=1;startSize=40;horizontal=1;rounded=1;arcSize=14;absoluteArcSize=1;fillColor=#14171B;swimlaneFillColor=#14171B;strokeColor=#4A515B;dashed=1;dashPattern=7 6;fontColor=#8B929B;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=center;verticalAlign=bottom;spacingBottom=10;" value="PORT UI" vertex="1">
+          <mxGeometry height="670" width="246" x="604" y="118" as="geometry" />
+        </mxCell>
+        <mxCell id="port-node" parent="port" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" value="vue-i18n first paint&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;always has English chrome&lt;/font&gt;" vertex="1">
+          <mxGeometry height="96" width="118" x="64" y="92" as="geometry" />
+        </mxCell>
+        <mxCell id="client" parent="1" style="swimlane;html=1;startSize=40;horizontal=1;rounded=1;arcSize=14;absoluteArcSize=1;fillColor=#14171B;swimlaneFillColor=#14171B;strokeColor=#4A515B;dashed=1;dashPattern=7 6;fontColor=#8B929B;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=center;" value="REFDATA CLIENT" vertex="1">
+          <mxGeometry height="670" width="300" x="882" y="118" as="geometry" />
+        </mxCell>
+        <mxCell id="client-node" parent="client" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" value="useUiCopy + labels&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;shared selectedLocale&lt;/font&gt;" vertex="1">
+          <mxGeometry height="96" width="118" x="91" y="92" as="geometry" />
+        </mxCell>
+        <mxCell id="sse" parent="client" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=15;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" value="KV watch → SSE&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;change signal only&lt;/font&gt;" vertex="1">
+          <mxGeometry height="92" width="118" x="91" y="378" as="geometry" />
+        </mxCell>
+        <mxCell id="read" parent="1" style="swimlane;html=1;startSize=40;horizontal=1;rounded=1;arcSize=14;absoluteArcSize=1;fillColor=#14171B;swimlaneFillColor=#14171B;strokeColor=#4A515B;dashed=1;dashPattern=7 6;fontColor=#8B929B;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=center;" value="DICTIONARY READ PATH" vertex="1">
+          <mxGeometry height="670" width="338" x="1214" y="118" as="geometry" />
+        </mxCell>
+        <mxCell id="read-node" parent="read" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" value="KV-first / REST fallback&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;ui-copy + ship-status&lt;/font&gt;" vertex="1">
+          <mxGeometry height="96" width="118" x="110" y="92" as="geometry" />
+        </mxCell>
+        <mxCell id="fallback" parent="read" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#9A7B1E;fontColor=#DEE0E3;fontSize=15;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" value="Refdata unreachable&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;serve generated English · show fallback indicator&lt;/font&gt;" vertex="1">
+          <mxGeometry height="82" width="302" x="18" y="538" as="geometry" />
+        </mxCell>
+        <mxCell id="cold" edge="1" parent="1" source="seed-node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" target="build-node" value="cold paint">
+          <mxGeometry relative="1" y="-12" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="bundle" edge="1" parent="1" source="build-node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" target="port-node" value="committed bundle">
+          <mxGeometry relative="1" x="0.025" y="-12" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="get" edge="1" parent="1" source="port-node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" target="client-node" value="GET ?locale=">
+          <mxGeometry relative="1" x="-0.1016" y="-12" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="read-edge" edge="1" parent="1" source="client-node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" target="read-node" value="KV hit / REST fallback">
+          <mxGeometry relative="1" x="-0.0644" y="-12" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="rule1" parent="1" style="rounded=0;html=1;strokeColor=none;fillColor=none;fontColor=#DEE0E3;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=left;" value="1  Bundle is available before any network call&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;The generated English catalog makes UI chrome deterministic during first paint.&lt;/font&gt;" vertex="1">
+          <mxGeometry height="48" width="1100" x="72" y="354" as="geometry" />
+        </mxCell>
+        <mxCell id="rule2" parent="1" style="rounded=0;html=1;strokeColor=none;fillColor=none;fontColor=#DEE0E3;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=left;" value="2  Live labels overlay the selected locale&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;ui-copy feeds t(key); ship-status feeds statusLabel(code). Both follow the one locale selector.&lt;/font&gt;" vertex="1">
+          <mxGeometry height="48" width="1200" x="72" y="452" as="geometry" />
+        </mxCell>
+        <mxCell id="rule3" parent="1" style="rounded=0;html=1;strokeColor=none;fillColor=none;fontColor=#DEE0E3;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=left;" value="3  A refdata change becomes an SSE refresh signal&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;The client refetches the active locale and replaces the live overlay without changing the fallback source.&lt;/font&gt;" vertex="1">
+          <mxGeometry height="48" width="1200" x="72" y="550" as="geometry" />
+        </mxCell>
+        <mxCell id="refresh" edge="1" parent="1" source="sse" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#006FFF;dashed=1;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" target="port-node" value="refresh active locale">
+          <mxGeometry relative="1" x="-0.1992" y="8" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="fallback-edge" edge="1" parent="1" source="client-node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#9A7B1E;endArrow=classic;endFill=1;" target="fallback" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1032" y="380" />
+              <mxPoint x="1390" y="380" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
         <mxCell id="unifi-icon-lifecycle-seed" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.6%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Cellipse%20cx%3D%2236%22%20cy%3D%2222%22%20rx%3D%2215%22%20ry%3D%226%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M21%2022%20L21%2050%20A15%206%200%200%200%2051%2050%20L51%2022%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M21%2036%20A15%206%200%200%200%2051%2036%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="seed"><mxGeometry x="72" y="102" width="28" height="28" as="geometry"/></mxCell>
         <mxCell id="unifi-icon-lifecycle-build" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.4%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M39%2015%20L25%2040%20L35%2040%20L32%2057%20L48%2031%20L38%2031%20Z%22%20stroke-linecap%3D%22round%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="build"><mxGeometry x="72" y="102" width="28" height="28" as="geometry"/></mxCell>
         <mxCell id="unifi-icon-lifecycle-port" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.6%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%2215%22%20y%3D%2220%22%20width%3D%2242%22%20height%3D%2232%22%20rx%3D%224%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2215%22%20y1%3D%2229%22%20x2%3D%2257%22%20y2%3D%2229%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2222%22%20cy%3D%2224.5%22%20r%3D%221.5%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2228%22%20cy%3D%2224.5%22%20r%3D%221.5%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2234%22%20cy%3D%2224.5%22%20r%3D%221.5%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="port"><mxGeometry x="72" y="102" width="28" height="28" as="geometry"/></mxCell>
@@ -84,50 +198,164 @@
       </root>
     </mxGraphModel>
   </diagram>
-<diagram id="shipping-ui-sequence" name="Shipping UI Dictionary read sequence">
+  <diagram id="shipping-ui-sequence" name="Shipping UI Dictionary read sequence">
     <mxGraphModel dx="1800" dy="1220" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1220" background="#14171B" math="0" shadow="0">
       <root>
-        <mxCell id="0"/><mxCell id="1" parent="0"/>
-        <mxCell id="title" value="Shipping UI — Dictionary read sequence" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#DEE0E3;fontSize=28;fontStyle=1;align=left;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" vertex="1" parent="1"><mxGeometry x="56" y="28" width="800" height="40" as="geometry"/></mxCell>
-        <mxCell id="subtitle" value="KV-first client reads, REST fallback on miss or stale data, and live refresh after a dictionary mutation" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#B7BCC2;fontSize=15;align=left;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" vertex="1" parent="1"><mxGeometry x="56" y="67" width="1100" height="28" as="geometry"/></mxCell>
-        <mxCell id="phase1" value="1 · INITIAL LOCALE LOAD / CACHE HIT" style="rounded=1;html=1;fillColor=#1A1E23;strokeColor=#2C3138;dashed=0;fontColor=#8B929B;fontSize=13;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;align=left;verticalAlign=top;spacingTop=42;spacingLeft=22;" vertex="1" parent="1"><mxGeometry x="48" y="188" width="1704" height="434" as="geometry"/></mxCell>
-        <mxCell id="phase2" value="2 · CACHE MISS OR STALE ENTRY / REST FALLBACK" style="rounded=1;html=1;fillColor=#1C1D1D;strokeColor=#665626;fontColor=#8B929B;fontSize=13;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;align=left;verticalAlign=top;spacingTop=24;spacingLeft=22;" vertex="1" parent="1"><mxGeometry x="48" y="638" width="1704" height="268" as="geometry"/></mxCell>
-        <mxCell id="phase3" value="3 · DICTIONARY MUTATION / LIVE REFRESH" style="rounded=1;html=1;fillColor=#19221F;strokeColor=#2C6750;fontColor=#8B929B;fontSize=13;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;align=left;verticalAlign=top;spacingTop=24;spacingLeft=22;" vertex="1" parent="1"><mxGeometry x="48" y="922" width="1704" height="230" as="geometry"/></mxCell>
-
-        <mxCell id="port" value="Port UI&lt;br&gt;&lt;font color='#4D9BFF' style='font-size:11px'&gt;frontend-port&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="1"><mxGeometry x="92" y="112" width="104" height="64" as="geometry"/></mxCell>
-        <mxCell id="composable" value="useUiCopy&lt;br&gt;&lt;font color='#4D9BFF' style='font-size:11px'&gt;useRefdataLabels&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="1"><mxGeometry x="334" y="112" width="104" height="64" as="geometry"/></mxCell>
-        <mxCell id="backend" value="Shipping backend&lt;br&gt;&lt;font color='#4D9BFF' style='font-size:11px'&gt;/api/refdata route&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="1"><mxGeometry x="576" y="112" width="104" height="64" as="geometry"/></mxCell>
-        <mxCell id="kv" value="NATS KV&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:11px'&gt;refdata-{context}&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="1"><mxGeometry x="818" y="112" width="104" height="64" as="geometry"/></mxCell>
-        <mxCell id="service" value="refdata-service&lt;br&gt;&lt;font color='#4D9BFF' style='font-size:11px'&gt;REST + projector&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="1"><mxGeometry x="1060" y="112" width="104" height="64" as="geometry"/></mxCell>
-        <mxCell id="postgres" value="Postgres&lt;br&gt;&lt;font color='#B7BCC2' style='font-size:11px'&gt;refdata schema&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="1"><mxGeometry x="1302" y="112" width="104" height="64" as="geometry"/></mxCell>
-        <mxCell id="sse" value="SSE watch&lt;br&gt;&lt;font color='#4D9BFF' style='font-size:11px'&gt;EventSource&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="1"><mxGeometry x="1544" y="112" width="104" height="64" as="geometry"/></mxCell>
-
-        <mxCell id="l1" style="shape=line;strokeColor=#4A515B;dashed=1;strokeWidth=1;direction=south;" vertex="1" parent="1"><mxGeometry x="144" y="234" width="1" height="896" as="geometry"/></mxCell>
-        <mxCell id="l2" style="shape=line;strokeColor=#4A515B;dashed=1;strokeWidth=1;direction=south;" vertex="1" parent="1"><mxGeometry x="386" y="234" width="1" height="896" as="geometry"/></mxCell>
-        <mxCell id="l3" style="shape=line;strokeColor=#4A515B;dashed=1;strokeWidth=1;direction=south;" vertex="1" parent="1"><mxGeometry x="628" y="234" width="1" height="896" as="geometry"/></mxCell>
-        <mxCell id="l4" style="shape=line;strokeColor=#4A515B;dashed=1;strokeWidth=1;direction=south;" vertex="1" parent="1"><mxGeometry x="870" y="234" width="1" height="896" as="geometry"/></mxCell>
-        <mxCell id="l5" style="shape=line;strokeColor=#4A515B;dashed=1;strokeWidth=1;direction=south;" vertex="1" parent="1"><mxGeometry x="1112" y="234" width="1" height="896" as="geometry"/></mxCell>
-        <mxCell id="l6" style="shape=line;strokeColor=#4A515B;dashed=1;strokeWidth=1;direction=south;" vertex="1" parent="1"><mxGeometry x="1354" y="234" width="1" height="896" as="geometry"/></mxCell>
-        <mxCell id="l7" style="shape=line;strokeColor=#4A515B;dashed=1;strokeWidth=1;direction=south;" vertex="1" parent="1"><mxGeometry x="1596" y="234" width="1" height="896" as="geometry"/></mxCell>
-
-        <mxCell id="m1" value="01  startup / selectedLocale = en" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="144" y="276" as="sourcePoint"/><mxPoint x="386" y="276" as="targetPoint"/></mxGeometry></mxCell>
-        <mxCell id="m2" value="02  GET /api/refdata/types/ui-copy?locale=en" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#DEE0E3;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="386" y="322" as="sourcePoint"/><mxPoint x="628" y="322" as="targetPoint"/></mxGeometry></mxCell>
-        <mxCell id="m3" value="03  read ui-copy entry + _meta" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#DEE0E3;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="628" y="368" as="sourcePoint"/><mxPoint x="870" y="368" as="targetPoint"/></mxGeometry></mxCell>
-        <mxCell id="m4" value="04  cache hit · version current" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;dashed=1;endArrow=classic;endFill=1;fontColor=#DEE0E3;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="870" y="414" as="sourcePoint"/><mxPoint x="628" y="414" as="targetPoint"/></mxGeometry></mxCell>
-        <mxCell id="m5" value="05  items with localized labels" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;dashed=1;endArrow=classic;endFill=1;fontColor=#DEE0E3;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="628" y="460" as="sourcePoint"/><mxPoint x="386" y="460" as="targetPoint"/></mxGeometry></mxCell>
-        <mxCell id="m6" value="06  setLocaleMessage(en, overlay)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;dashed=1;endArrow=classic;endFill=1;fontColor=#DEE0E3;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="386" y="506" as="sourcePoint"/><mxPoint x="144" y="506" as="targetPoint"/></mxGeometry></mxCell>
-        <mxCell id="m7" value="07  render live labels over generated fallback" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#27C07F;endArrow=classic;endFill=1;fontColor=#52D99B;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="386" y="552" as="sourcePoint"/><mxPoint x="144" y="552" as="targetPoint"/></mxGeometry></mxCell>
-        <mxCell id="note1" value="The same flow is used for ship-status; the composable changes only the type key and response map." style="text;html=1;strokeColor=none;fillColor=none;fontColor=#B7BCC2;fontSize=12;align=left;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" vertex="1" parent="1"><mxGeometry x="104" y="574" width="1000" height="24" as="geometry"/></mxCell>
-
-        <mxCell id="m8" value="08  miss or stale version detected" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="628" y="726" as="sourcePoint"/><mxPoint x="870" y="726" as="targetPoint"/></mxGeometry></mxCell>
-        <mxCell id="m9" value="09  GET authoritative item list ?locale=en" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#DEE0E3;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="628" y="772" as="sourcePoint"/><mxPoint x="1112" y="772" as="targetPoint"/></mxGeometry></mxCell>
-        <mxCell id="m10" value="10  resolve label from Postgres" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#DEE0E3;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="1112" y="818" as="sourcePoint"/><mxPoint x="1354" y="818" as="targetPoint"/></mxGeometry></mxCell>
-        <mxCell id="m11" value="11  backfill KV entry + _meta" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#27C07F;endArrow=classic;endFill=1;fontColor=#52D99B;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="1112" y="864" as="sourcePoint"/><mxPoint x="870" y="864" as="targetPoint"/></mxGeometry></mxCell>
-        <mxCell id="m11b" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;dashed=1;endArrow=classic;endFill=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="1112" y="874" as="sourcePoint"/><mxPoint x="628" y="874" as="targetPoint"/></mxGeometry></mxCell>
-
-        <mxCell id="m12" value="12  dictionary mutation: ui-copy.es label changed" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#27C07F;endArrow=classic;endFill=1;fontColor=#52D99B;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="1112" y="1010" as="sourcePoint"/><mxPoint x="1354" y="1010" as="targetPoint"/></mxGeometry></mxCell>
-        <mxCell id="m13" value="13  project update + publish change pointer" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#27C07F;endArrow=classic;endFill=1;fontColor=#52D99B;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="1112" y="1056" as="sourcePoint"/><mxPoint x="870" y="1056" as="targetPoint"/></mxGeometry></mxCell>
-        <mxCell id="m14" value="14  SSE signal → refetch active locale" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, 'Segoe UI', sans-serif;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="1596" y="1100" as="sourcePoint"/><mxPoint x="144" y="1100" as="targetPoint"/></mxGeometry></mxCell>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="page-bg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#14171B;strokeColor=none;locked=1;editable=0;" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="1800" height="1220" as="geometry" />
+        </mxCell>
+        <mxCell id="title" value="Shipping UI — Dictionary read sequence" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#DEE0E3;fontSize=28;fontStyle=1;align=left;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" vertex="1" parent="1">
+          <mxGeometry x="56" y="28" width="800" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="KV-first client reads, REST fallback on miss or stale data, and live refresh after a dictionary mutation" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#B7BCC2;fontSize=15;align=left;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" vertex="1" parent="1">
+          <mxGeometry x="56" y="67" width="1100" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="phase1" value="1 · INITIAL LOCALE LOAD / CACHE HIT" style="rounded=1;html=1;fillColor=#1A1E23;strokeColor=#2C3138;dashed=0;fontColor=#8B929B;fontSize=13;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=left;verticalAlign=top;spacingTop=42;spacingLeft=22;" vertex="1" parent="1">
+          <mxGeometry x="48" y="188" width="1704" height="434" as="geometry" />
+        </mxCell>
+        <mxCell id="phase2" value="2 · CACHE MISS OR STALE ENTRY / REST FALLBACK" style="rounded=1;html=1;fillColor=#1C1D1D;strokeColor=#665626;fontColor=#8B929B;fontSize=13;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=left;verticalAlign=top;spacingTop=24;spacingLeft=22;" vertex="1" parent="1">
+          <mxGeometry x="48" y="638" width="1704" height="268" as="geometry" />
+        </mxCell>
+        <mxCell id="phase3" value="3 · DICTIONARY MUTATION / LIVE REFRESH" style="rounded=1;html=1;fillColor=#19221F;strokeColor=#2C6750;fontColor=#8B929B;fontSize=13;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=left;verticalAlign=top;spacingTop=24;spacingLeft=22;" vertex="1" parent="1">
+          <mxGeometry x="48" y="922" width="1704" height="230" as="geometry" />
+        </mxCell>
+        <mxCell id="port" value="Port UI&lt;br&gt;&lt;font color=&#39;#4D9BFF&#39; style=&#39;font-size:11px&#39;&gt;frontend-port&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="1">
+          <mxGeometry x="92" y="112" width="104" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="composable" value="useUiCopy&lt;br&gt;&lt;font color=&#39;#4D9BFF&#39; style=&#39;font-size:11px&#39;&gt;useRefdataLabels&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="1">
+          <mxGeometry x="334" y="112" width="104" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="backend" value="Shipping backend&lt;br&gt;&lt;font color=&#39;#4D9BFF&#39; style=&#39;font-size:11px&#39;&gt;/api/refdata route&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="1">
+          <mxGeometry x="576" y="112" width="104" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="kv" value="NATS KV&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:11px&#39;&gt;refdata-{context}&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="1">
+          <mxGeometry x="818" y="112" width="104" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="service" value="refdata-service&lt;br&gt;&lt;font color=&#39;#4D9BFF&#39; style=&#39;font-size:11px&#39;&gt;REST + projector&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="1">
+          <mxGeometry x="1060" y="112" width="104" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="postgres" value="Postgres&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:11px&#39;&gt;refdata schema&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="1">
+          <mxGeometry x="1302" y="112" width="104" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="sse" value="SSE watch&lt;br&gt;&lt;font color=&#39;#4D9BFF&#39; style=&#39;font-size:11px&#39;&gt;EventSource&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" vertex="1" parent="1">
+          <mxGeometry x="1544" y="112" width="104" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="l1" style="shape=line;strokeColor=#4A515B;dashed=1;strokeWidth=1;direction=south;" vertex="1" parent="1">
+          <mxGeometry x="144" y="234" width="1" height="896" as="geometry" />
+        </mxCell>
+        <mxCell id="l2" style="shape=line;strokeColor=#4A515B;dashed=1;strokeWidth=1;direction=south;" vertex="1" parent="1">
+          <mxGeometry x="386" y="234" width="1" height="896" as="geometry" />
+        </mxCell>
+        <mxCell id="l3" style="shape=line;strokeColor=#4A515B;dashed=1;strokeWidth=1;direction=south;" vertex="1" parent="1">
+          <mxGeometry x="628" y="234" width="1" height="896" as="geometry" />
+        </mxCell>
+        <mxCell id="l4" style="shape=line;strokeColor=#4A515B;dashed=1;strokeWidth=1;direction=south;" vertex="1" parent="1">
+          <mxGeometry x="870" y="234" width="1" height="896" as="geometry" />
+        </mxCell>
+        <mxCell id="l5" style="shape=line;strokeColor=#4A515B;dashed=1;strokeWidth=1;direction=south;" vertex="1" parent="1">
+          <mxGeometry x="1112" y="234" width="1" height="896" as="geometry" />
+        </mxCell>
+        <mxCell id="l6" style="shape=line;strokeColor=#4A515B;dashed=1;strokeWidth=1;direction=south;" vertex="1" parent="1">
+          <mxGeometry x="1354" y="234" width="1" height="896" as="geometry" />
+        </mxCell>
+        <mxCell id="l7" style="shape=line;strokeColor=#4A515B;dashed=1;strokeWidth=1;direction=south;" vertex="1" parent="1">
+          <mxGeometry x="1596" y="234" width="1" height="896" as="geometry" />
+        </mxCell>
+        <mxCell id="m1" value="01  startup / selectedLocale = en" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="144" y="276" as="sourcePoint" />
+            <mxPoint x="386" y="276" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m2" value="02  GET /api/refdata/types/ui-copy?locale=en" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#DEE0E3;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="386" y="322" as="sourcePoint" />
+            <mxPoint x="628" y="322" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m3" value="03  read ui-copy entry + _meta" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#DEE0E3;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="628" y="368" as="sourcePoint" />
+            <mxPoint x="870" y="368" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m4" value="04  cache hit · version current" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;dashed=1;endArrow=classic;endFill=1;fontColor=#DEE0E3;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="870" y="414" as="sourcePoint" />
+            <mxPoint x="628" y="414" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m5" value="05  items with localized labels" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;dashed=1;endArrow=classic;endFill=1;fontColor=#DEE0E3;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="628" y="460" as="sourcePoint" />
+            <mxPoint x="386" y="460" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m6" value="06  setLocaleMessage(en, overlay)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;dashed=1;endArrow=classic;endFill=1;fontColor=#DEE0E3;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="386" y="506" as="sourcePoint" />
+            <mxPoint x="144" y="506" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m7" value="07  render live labels over generated fallback" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#27C07F;endArrow=classic;endFill=1;fontColor=#52D99B;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="386" y="552" as="sourcePoint" />
+            <mxPoint x="144" y="552" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="note1" value="The same flow is used for ship-status; the composable changes only the type key and response map." style="text;html=1;strokeColor=none;fillColor=none;fontColor=#B7BCC2;fontSize=12;align=left;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" vertex="1" parent="1">
+          <mxGeometry x="104" y="574" width="1000" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="m8" value="08  miss or stale version detected" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="628" y="726" as="sourcePoint" />
+            <mxPoint x="870" y="726" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m9" value="09  GET authoritative item list ?locale=en" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#DEE0E3;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="628" y="772" as="sourcePoint" />
+            <mxPoint x="1112" y="772" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m10" value="10  resolve label from Postgres" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#DEE0E3;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1112" y="818" as="sourcePoint" />
+            <mxPoint x="1354" y="818" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m11" value="11  backfill KV entry + _meta" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#27C07F;endArrow=classic;endFill=1;fontColor=#52D99B;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1112" y="864" as="sourcePoint" />
+            <mxPoint x="870" y="864" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m11b" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#6B7480;dashed=1;endArrow=classic;endFill=1;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1112" y="874" as="sourcePoint" />
+            <mxPoint x="628" y="874" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m12" value="12  dictionary mutation: ui-copy.es label changed" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#27C07F;endArrow=classic;endFill=1;fontColor=#52D99B;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1112" y="1010" as="sourcePoint" />
+            <mxPoint x="1354" y="1010" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m13" value="13  project update + publish change pointer" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#27C07F;endArrow=classic;endFill=1;fontColor=#52D99B;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1112" y="1056" as="sourcePoint" />
+            <mxPoint x="870" y="1056" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m14" value="14  SSE signal → refetch active locale" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;labelBackgroundColor=none;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1596" y="1100" as="sourcePoint" />
+            <mxPoint x="144" y="1100" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
         <mxCell id="unifi-icon-sequence-port" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.6%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%2215%22%20y%3D%2220%22%20width%3D%2242%22%20height%3D%2232%22%20rx%3D%224%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2215%22%20y1%3D%2229%22%20x2%3D%2257%22%20y2%3D%2229%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2222%22%20cy%3D%2224.5%22%20r%3D%221.5%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2228%22%20cy%3D%2224.5%22%20r%3D%221.5%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2234%22%20cy%3D%2224.5%22%20r%3D%221.5%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="1"><mxGeometry x="100" y="120" width="28" height="28" as="geometry"/></mxCell>
         <mxCell id="unifi-icon-sequence-composable" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.4%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M39%2015%20L25%2040%20L35%2040%20L32%2057%20L48%2031%20L38%2031%20Z%22%20stroke-linecap%3D%22round%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="1"><mxGeometry x="342" y="120" width="28" height="28" as="geometry"/></mxCell>
         <mxCell id="unifi-icon-sequence-backend" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.6%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M36%2013%20L55%2024%20L55%2046%20L36%2057%20L17%2046%20L17%2024%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%2229%22%20y%3D%2228%22%20width%3D%2214%22%20height%3D%2214%22%20rx%3D%223%22%20stroke-width%3D%222.4%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2236%22%20y1%3D%2242%22%20x2%3D%2236%22%20y2%3D%2249%22%20stroke-width%3D%222.4%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="1"><mxGeometry x="584" y="120" width="28" height="28" as="geometry"/></mxCell>
@@ -135,6 +363,166 @@
         <mxCell id="unifi-icon-sequence-service" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.6%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M36%2013%20L55%2024%20L55%2046%20L36%2057%20L17%2046%20L17%2024%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%2229%22%20y%3D%2228%22%20width%3D%2214%22%20height%3D%2214%22%20rx%3D%223%22%20stroke-width%3D%222.4%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2236%22%20y1%3D%2242%22%20x2%3D%2236%22%20y2%3D%2249%22%20stroke-width%3D%222.4%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="1"><mxGeometry x="1068" y="120" width="28" height="28" as="geometry"/></mxCell>
         <mxCell id="unifi-icon-sequence-postgres" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.6%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Cellipse%20cx%3D%2236%22%20cy%3D%2222%22%20rx%3D%2215%22%20ry%3D%226%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M21%2022%20L21%2050%20A15%206%200%200%200%2051%2050%20L51%2022%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M21%2036%20A15%206%200%200%200%2051%2036%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="1"><mxGeometry x="1310" y="120" width="28" height="28" as="geometry"/></mxCell>
         <mxCell id="unifi-icon-sequence-sse" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.4%22%20stroke-linecap%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2225%22%20cy%3D%2247%22%20r%3D%223%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M25%2038%20A9%209%200%200%201%2034%2047%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M25%2030%20A17%2017%200%200%201%2042%2047%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M25%2022%20A25%2025%200%200%201%2050%2047%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="1"><mxGeometry x="1552" y="120" width="28" height="28" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="docker-compose-network" name="Docker Compose network topology">
+    <mxGraphModel dx="2054" dy="1311" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1000" background="#14171B" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="page-bg" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#14171B;strokeColor=none;locked=1;editable=0;" value="" vertex="1">
+          <mxGeometry height="1000" width="1800" as="geometry" />
+        </mxCell>
+        <mxCell id="net-title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#DEE0E3;fontSize=28;fontStyle=1;align=left;verticalAlign=middle;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="Docker Compose — network topology (frontend / backend trust tiers)" vertex="1">
+          <mxGeometry height="40" width="1200" x="56" y="28" as="geometry" />
+        </mxCell>
+        <mxCell id="net-subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#B7BCC2;fontSize=15;align=left;verticalAlign=middle;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="demos/01-dictionary/docker-compose.yml · shipping-service and refdata-service are the only bridge points — nats and postgres are unreachable from the frontend network" vertex="1">
+          <mxGeometry height="28" width="1400" x="56" y="67" as="geometry" />
+        </mxCell>
+        <mxCell id="net-host" parent="1" style="rounded=1;arcSize=14;absoluteArcSize=1;html=1;fillColor=none;strokeColor=#4A515B;dashed=1;dashPattern=6 5;fontColor=#8B929B;fontSize=15;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=left;verticalAlign=top;spacingTop=12;spacingLeft=18;" value="HOST" vertex="1">
+          <mxGeometry height="790" width="1580" x="170" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="net-docker" parent="1" style="rounded=1;arcSize=14;absoluteArcSize=1;html=1;fillColor=none;strokeColor=#2C7BE5;dashed=1;dashPattern=6 5;fontColor=#5AA6F2;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=left;verticalAlign=top;spacingTop=12;spacingLeft=18;" value="DOCKER  ·  demos/01-dictionary/docker-compose.yml" vertex="1">
+          <mxGeometry height="720" width="1520" x="200" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="net-frontend" parent="1" style="rounded=1;arcSize=14;absoluteArcSize=1;html=1;fillColor=none;strokeColor=#4A515B;dashed=1;dashPattern=7 6;fontColor=#8B929B;fontSize=13;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=left;verticalAlign=top;spacingTop=40;spacingLeft=16;" value="frontend network" vertex="1">
+          <mxGeometry height="620" width="790" x="230" y="270" as="geometry" />
+        </mxCell>
+        <mxCell id="net-backend" parent="1" style="rounded=1;arcSize=14;absoluteArcSize=1;html=1;fillColor=none;strokeColor=#4A515B;dashed=1;dashPattern=7 6;fontColor=#8B929B;fontSize=13;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=right;verticalAlign=top;spacingTop=40;spacingRight=16;" value="backend network" vertex="1">
+          <mxGeometry height="590" width="790" x="800" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="actor" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=none;fontColor=#DEE0E3;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=6;" value="Browser user" vertex="1">
+          <mxGeometry height="110" width="100" x="20" y="458" as="geometry" />
+        </mxCell>
+        <mxCell id="admin-node" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="admin&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;nginx · host 5173→80&lt;/font&gt;" vertex="1">
+          <mxGeometry height="100" width="190" x="260" y="330" as="geometry" />
+        </mxCell>
+        <mxCell id="seafreight-node" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="seafreight-app&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;nginx · host 5174→80&lt;/font&gt;" vertex="1">
+          <mxGeometry height="100" width="190" x="260" y="540" as="geometry" />
+        </mxCell>
+        <mxCell id="refdata-node" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="refdata&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;nginx · host 5175→80&lt;/font&gt;" vertex="1">
+          <mxGeometry height="100" width="190" x="260" y="740" as="geometry" />
+        </mxCell>
+        <mxCell id="ship-svc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="shipping-service&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;container :8080 · host 18080→8080&lt;/font&gt;" vertex="1">
+          <mxGeometry height="110" width="150" x="835" y="325" as="geometry" />
+        </mxCell>
+        <mxCell id="refdata-svc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="refdata-service&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;container :8080 · host 18081→8080&lt;/font&gt;" vertex="1">
+          <mxGeometry height="110" width="150" x="835" y="535" as="geometry" />
+        </mxCell>
+        <mxCell id="nats" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="nats&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;JetStream + KV&lt;br&gt;host 14222→4222 · 18222→8222 (mon)&lt;/font&gt;" vertex="1">
+          <mxGeometry height="100" width="200" x="1230" y="330" as="geometry" />
+        </mxCell>
+        <mxCell id="nats-data" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#4A515B;dashed=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="volume: nats-data" vertex="1">
+          <mxGeometry height="50" width="200" x="1230" y="450" as="geometry" />
+        </mxCell>
+        <mxCell id="postgres" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" value="postgres&lt;br&gt;&lt;font color=&#39;#14171B&#39; style=&#39;font-size:12px&#39;&gt;dictionary DB · host 15432→5432&lt;/font&gt;" vertex="1">
+          <mxGeometry height="100" width="200" x="1230" y="540" as="geometry" />
+        </mxCell>
+        <mxCell id="pg-data" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#4A515B;dashed=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="volume: pg-data" vertex="1">
+          <mxGeometry height="50" width="200" x="1230" y="660" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-actor-admin" edge="1" parent="1" source="actor" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="admin-node" value="5173">
+          <mxGeometry relative="1" x="0.7736" y="-10" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="160" y="515" />
+              <mxPoint x="160" y="380" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-actor-seafreight" edge="1" parent="1" source="actor" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="seafreight-node" value="5174">
+          <mxGeometry relative="1" x="0.7073" y="-10" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="160" y="515" />
+              <mxPoint x="160" y="590" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-actor-refdatanode" edge="1" parent="1" source="actor" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="refdata-node" value="5175">
+          <mxGeometry relative="1" x="0.8519" y="-10" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="160" y="515" />
+              <mxPoint x="160" y="790" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-admin-ship" edge="1" parent="1" source="admin-node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;exitX=1;exitY=0.5;entryX=0;entryY=0.25;" target="ship-svc" value="proxy_pass :8080">
+          <mxGeometry relative="1" x="-0.6121" y="-10" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-seafreight-ship" edge="1" parent="1" source="seafreight-node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;exitX=1;exitY=0.5;entryX=0;entryY=0.75;" target="ship-svc" value="proxy_pass :8080">
+          <mxGeometry relative="1" x="-0.7181" y="-10" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-refdatanode-refdatasvc" edge="1" parent="1" source="refdata-node" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" target="refdata-svc" value="proxy_pass :8080">
+          <mxGeometry relative="1" x="-0.7355" y="-10" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-ship-nats" edge="1" parent="1" source="ship-svc" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="nats" value="nats:4222">
+          <mxGeometry relative="1" x="-0.3878" y="-7" as="geometry">
+            <mxPoint y="1" as="offset" />
+            <Array as="points">
+              <mxPoint x="1120" y="352.5" />
+              <mxPoint x="1120" y="380" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-refdatasvc-nats" edge="1" parent="1" source="refdata-svc" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;exitX=1;exitY=0.25;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="nats" value="nats:4222">
+          <mxGeometry relative="1" x="-0.6273" y="-7" as="geometry">
+            <mxPoint y="1" as="offset" />
+            <Array as="points">
+              <mxPoint x="1120" y="562.5" />
+              <mxPoint x="1120" y="380" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-ship-pg" edge="1" parent="1" source="ship-svc" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;exitX=1;exitY=0.75;" target="postgres" value="postgres:5432">
+          <mxGeometry relative="1" x="-0.6025" y="-7" as="geometry">
+            <mxPoint y="1" as="offset" />
+            <Array as="points">
+              <mxPoint x="985" y="412.5" />
+              <mxPoint x="1150" y="412.5" />
+              <mxPoint x="1150" y="590" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-refdatasvc-pg" edge="1" parent="1" source="refdata-svc" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="postgres" value="postgres:5432">
+          <mxGeometry relative="1" x="-0.3878" y="-15" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="1150" y="615" />
+              <mxPoint x="1150" y="590" />
+            </Array>
+            <mxPoint x="970" y="610" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge-nats-vol" edge="1" parent="1" source="nats" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#4A515B;dashed=1;endArrow=none;" target="nats-data" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-pg-vol" edge="1" parent="1" source="postgres" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#4A515B;dashed=1;endArrow=none;" target="pg-data" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="net-legend" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=left;" value="■  frontend-only     ■  bridge (joins both networks)     ■  backend-only     - -  volume mount     —  network reachability     grey dashed = compose network     blue dashed = Docker Compose project     outer dashed = Host" vertex="1">
+          <mxGeometry height="28" width="1500" x="56" y="972" as="geometry" />
+        </mxCell>
+        <mxCell id="actor-glyph" parent="1" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.6%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20color%3D%22%238b929b%22%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2236%22%20cy%3D%2224%22%20r%3D%229%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M18%2058%20C18%2044.5%2025.6%2038%2036%2038%20C46.4%2038%2054%2044.5%2054%2058%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" value="" vertex="1">
+          <mxGeometry height="80" width="80" x="30" y="468" as="geometry" />
+        </mxCell>
+        <mxCell id="unifi-icon-net-admin" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.4%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M18%2026%20L36%2016%20L54%2026%20L36%2036%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M18%2026%20L36%2036%20L36%2058%20L18%2048%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M54%2026%20L36%2036%20L36%2058%20L54%2048%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2218%22%20y1%3D%2226%22%20x2%3D%2218%22%20y2%3D%2248%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2254%22%20y1%3D%2226%22%20x2%3D%2254%22%20y2%3D%2248%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="1"><mxGeometry x="278" y="338" width="28" height="28" as="geometry"/></mxCell>
+        <mxCell id="unifi-icon-net-seafreight" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.4%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M18%2026%20L36%2016%20L54%2026%20L36%2036%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M18%2026%20L36%2036%20L36%2058%20L18%2048%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M54%2026%20L36%2036%20L36%2058%20L54%2048%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2218%22%20y1%3D%2226%22%20x2%3D%2218%22%20y2%3D%2248%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2254%22%20y1%3D%2226%22%20x2%3D%2254%22%20y2%3D%2248%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="1"><mxGeometry x="278" y="548" width="28" height="28" as="geometry"/></mxCell>
+        <mxCell id="unifi-icon-net-refdata-node" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.4%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M18%2026%20L36%2016%20L54%2026%20L36%2036%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M18%2026%20L36%2036%20L36%2058%20L18%2048%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M54%2026%20L36%2036%20L36%2058%20L54%2048%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2218%22%20y1%3D%2226%22%20x2%3D%2218%22%20y2%3D%2248%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2254%22%20y1%3D%2226%22%20x2%3D%2254%22%20y2%3D%2248%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="1"><mxGeometry x="278" y="748" width="28" height="28" as="geometry"/></mxCell>
+        <mxCell id="unifi-icon-net-ship-svc" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.4%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M18%2026%20L36%2016%20L54%2026%20L36%2036%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M18%2026%20L36%2036%20L36%2058%20L18%2048%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M54%2026%20L36%2036%20L36%2058%20L54%2048%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2218%22%20y1%3D%2226%22%20x2%3D%2218%22%20y2%3D%2248%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2254%22%20y1%3D%2226%22%20x2%3D%2254%22%20y2%3D%2248%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="1"><mxGeometry x="853" y="333" width="28" height="28" as="geometry"/></mxCell>
+        <mxCell id="unifi-icon-net-refdata-svc" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.4%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M18%2026%20L36%2016%20L54%2026%20L36%2036%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M18%2026%20L36%2036%20L36%2058%20L18%2048%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M54%2026%20L36%2036%20L36%2058%20L54%2048%20Z%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2218%22%20y1%3D%2226%22%20x2%3D%2218%22%20y2%3D%2248%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2254%22%20y1%3D%2226%22%20x2%3D%2254%22%20y2%3D%2248%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="1"><mxGeometry x="853" y="543" width="28" height="28" as="geometry"/></mxCell>
+        <mxCell id="unifi-icon-net-nats" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.4%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2225%22%20y1%3D%2227%22%20x2%3D%2247%22%20y2%3D%2227%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2225%22%20y1%3D%2227%22%20x2%3D%2236%22%20y2%3D%2248%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2247%22%20y1%3D%2227%22%20x2%3D%2236%22%20y2%3D%2248%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2225%22%20cy%3D%2227%22%20r%3D%226%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2247%22%20cy%3D%2227%22%20r%3D%226%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2236%22%20cy%3D%2248%22%20r%3D%226%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2225%22%20cy%3D%2227%22%20r%3D%222%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2247%22%20cy%3D%2227%22%20r%3D%222%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2236%22%20cy%3D%2248%22%20r%3D%222%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="1"><mxGeometry x="1248" y="338" width="28" height="28" as="geometry"/></mxCell>
+        <mxCell id="unifi-icon-net-nats-data" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.4%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%2219%22%20y%3D%2217%22%20width%3D%2234%22%20height%3D%2238%22%20rx%3D%226%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2236%22%20cy%3D%2228%22%20r%3D%224.5%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2227%22%20y1%3D%2241%22%20x2%3D%2245%22%20y2%3D%2241%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2227%22%20y1%3D%2247%22%20x2%3D%2245%22%20y2%3D%2247%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="1"><mxGeometry x="1248" y="458" width="28" height="28" as="geometry"/></mxCell>
+        <mxCell id="unifi-icon-net-postgres" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.6%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Cellipse%20cx%3D%2236%22%20cy%3D%2222%22%20rx%3D%2215%22%20ry%3D%226%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M21%2022%20L21%2050%20A15%206%200%200%200%2051%2050%20L51%2022%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M21%2036%20A15%206%200%200%200%2051%2036%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="1"><mxGeometry x="1248" y="548" width="28" height="28" as="geometry"/></mxCell>
+        <mxCell id="unifi-icon-net-pg-data" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2072%2072%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222.4%22%20stroke-linejoin%3D%22round%22%20color%3D%22%23fff%22%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%2219%22%20y%3D%2217%22%20width%3D%2234%22%20height%3D%2238%22%20rx%3D%226%22%2F%3E%0A%20%20%20%20%20%20%3Ccircle%20cx%3D%2236%22%20cy%3D%2228%22%20r%3D%224.5%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2227%22%20y1%3D%2241%22%20x2%3D%2245%22%20y2%3D%2241%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%20%20%3Cline%20x1%3D%2227%22%20y1%3D%2247%22%20x2%3D%2245%22%20y2%3D%2247%22%20stroke-width%3D%222.2%22%2F%3E%0A%20%20%20%20%3C%2Fsvg%3E;aspect=fixed;perimeter=0;strokeColor=none;fillColor=none;" vertex="1" parent="1"><mxGeometry x="1248" y="668" width="28" height="28" as="geometry"/></mxCell>
       </root>
     </mxGraphModel>
   </diagram>

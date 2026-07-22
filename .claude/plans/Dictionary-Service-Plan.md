@@ -735,10 +735,7 @@ apply** — that was only needed for Option C's dev-owned/refdata split.
 > Nothing renders `App.vue`, switches locale, and asserts the visible strings actually
 > change. Per CLAUDE.md ("every business rule must have a test"), BR-D16's *consumption*
 > side is uncovered — all locale-switch verification this session was manual via the browser.
-> This track adds an automated rendered-output harness. **`frontend-port` has no test
-> framework installed today** (deps: `@primevue/themes`, `pinia`, `primeicons`, `primevue`,
-> `vue`, `vue-i18n`; scripts: `dev`, `gen:i18n`, `check:i18n`, `prebuild`, `build`, `preview`
-> — no `test`).
+> This track adds an automated rendered-output harness.
 
 > **Also in scope for this track (undocumented until now):** landing the harness required
 > mounting `App.vue` after the Fleet/Port split into an activity-bar layout — `NavSidebar.vue`
@@ -906,6 +903,71 @@ Cross-reference sweep (same commit):
       cite Phases 11–15
 - [x] `.claude/memory/` notes citing phase numbers
 - [x] `obsidian/POC-Dictionaries/` notes citing phase numbers
+
+## Repo Restructuring — `backend/` and `frontend/` parent folders (completed 2026-07-22)
+
+`demos/01-dictionary/` had five sibling directories mixing Go services and Vue frontends at
+the same level (`backend`, `refdata-service`, `frontend`, `frontend-dict`, `frontend-port`).
+Restructured into two parent folders, renaming three directories to clearer business names:
+
+```
+demos/01-dictionary/
+  backend/
+    shipping-service/   (was: backend)
+    refdata-service/    (unchanged name, moved down one level)
+  frontend/
+    admin/               (was: frontend)
+    refdata/             (was: frontend-dict)
+    seafreight-app/      (was: frontend-port)
+```
+
+**Module isolation confirmed intact** (the driving concern for this move): `backend`'s and
+`refdata-service`'s `go.mod`s have zero cross-imports, no `go.work` file, no `replace`
+directives — each is a fully independent module communicating only over HTTP at runtime
+(`REFDATA_SERVICE_URL`). Nesting is filesystem organization only; both modules still build
+and test independently post-move.
+
+**Decisions made with the user before executing:**
+- Go module paths **updated to match** new physical location (mechanical rewrite, ~62/40
+  import lines across the two modules — safe given zero cross-module coupling).
+- Docker Compose service names, container hostnames, and `package.json` name fields
+  **renamed to match** (`shipping-service`, `admin`, `refdata`, `seafreight-app`).
+  `refdata-service`'s own service name/hostname is unchanged.
+- Historical entries in this file, `Dictionary-POC-Plan.md`, and `.ai-archive/*.md` **left
+  untouched** — phase-by-phase build logs describing what existed at the time, not live docs.
+
+**Checklist.**
+
+- [x] `git mv` all five directories into the new nested layout (temp-rename step for
+      `backend`→`backend/shipping-service` and `frontend`→`frontend/admin` to avoid nesting
+      a directory into itself); git tracked all ~180 touched files as renames, history intact
+- [x] Rewrote both `go.mod` module lines and every internal import to the new module paths
+- [x] `docker-compose.yml` — renamed service keys, updated all `build`/`dockerfile` paths and
+      `depends_on` references
+- [x] nginx `proxy_pass` targets updated (`admin`/`seafreight-app` → `shipping-service`;
+      `refdata`'s target unchanged)
+- [x] `package.json` name fields renamed to match (`admin`, `refdata`, `seafreight-app`)
+- [x] Frontend relative-path fixes — `vite.config.js` aliases (`@unifi-theme`, `@refdata`,
+      `server.fs.allow`) in all three apps, `seafreight-app`'s `gen-i18n.mjs` /
+      `parseUiCopySeed.mjs` / `App.spec.js` (these cross the backend/frontend split, so both
+      the extra frontend nesting level and refdata-service's own new nesting level apply)
+- [x] All three Dockerfiles updated (`shipping-service`'s and `refdata-service`'s own
+      Dockerfiles needed zero edits — confirmed path-agnostic)
+- [x] CI workflow renamed `frontend-port.yml` → `seafreight-app.yml`, paths/working-directory
+      updated
+- [x] `.claude/launch.json` — all 4 configs' `cwd` and identifiers updated
+- [x] Docs updated: `CLAUDE.md`, root `README.md`/`AGENTS.md` (path references only — pre-existing
+      unrelated staleness in those two left alone), `demos/01-dictionary/README.md`,
+      `ARCHITECTURE.md`, `BUSINESS_RULES.md`, `backend/refdata-service/README.md` +
+      `ARCHITECTURE-DICTIONARY.md` (relative-link depth fixed too), two Draw.io skill files
+- [x] `.claude/memory/frontend_port_structure.md` updated in place (filename kept, content
+      repointed + a path-note added) — Obsidian vault needed no changes (its only path
+      reference is to `docker-compose.yml` itself, which didn't move)
+- [x] Verified: `go build`/`go vet`/`ginkgo` green in both modules (57 + 52 specs), `npm run
+      build` green in all three frontends, `seafreight-app`'s full harness green
+      (`check:i18n`, `test` 15/15, `build`), `docker compose config` valid, full `docker
+      compose up --build` — all 5 services started and frontends reached their renamed
+      backend hostnames through nginx, then torn down clean
 
 ## Open questions — resolved at approval (2026-07-13)
 

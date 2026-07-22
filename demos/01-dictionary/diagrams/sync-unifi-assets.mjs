@@ -52,6 +52,17 @@ const iconCells = {
     ["sequence-postgres", "1", "ico-db", 1310, 120],
     ["sequence-sse", "1", "ico-sse", 1552, 120],
   ],
+  "docker-compose-network": [
+    ["net-admin", "1", "ico-container", 278, 338],
+    ["net-seafreight", "1", "ico-container", 278, 548],
+    ["net-refdata-node", "1", "ico-container", 278, 748],
+    ["net-ship-svc", "1", "ico-container", 853, 333],
+    ["net-refdata-svc", "1", "ico-container", 853, 543],
+    ["net-nats", "1", "ico-nats", 1248, 338],
+    ["net-nats-data", "1", "ico-volume", 1248, 458],
+    ["net-postgres", "1", "ico-db", 1248, 548],
+    ["net-pg-data", "1", "ico-volume", 1248, 668],
+  ],
 };
 
 const textCells = [

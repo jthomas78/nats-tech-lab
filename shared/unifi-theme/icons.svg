@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="704" viewBox="0 0 880 704" font-family="Inter, -apple-system, 'Segoe UI', sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="872" viewBox="0 0 880 872" font-family="Inter, -apple-system, 'Segoe UI', sans-serif">
   <!--
     UniFi-theme icon library for architecture diagrams (dark theme).
     Each icon is a 72x72 symbol element drawn in currentColor line art, so the
@@ -79,12 +79,35 @@
       <path d="M25 30 A17 17 0 0 1 42 47"/>
       <path d="M25 22 A25 25 0 0 1 50 47"/>
     </symbol>
+
+    <!-- Docker container / isometric microservice box -->
+    <symbol id="ico-container" viewBox="0 0 72 72" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round">
+      <path d="M18 26 L36 16 L54 26 L36 36 Z"/>
+      <path d="M18 26 L36 36 L36 58 L18 48 Z"/>
+      <path d="M54 26 L36 36 L36 58 L54 48 Z"/>
+      <line x1="18" y1="26" x2="18" y2="48" stroke-width="2.2"/>
+      <line x1="54" y1="26" x2="54" y2="48" stroke-width="2.2"/>
+    </symbol>
+
+    <!-- person / actor -->
+    <symbol id="ico-actor" viewBox="0 0 72 72" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="36" cy="24" r="9"/>
+      <path d="M18 58 C18 44.5 25.6 38 36 38 C46.4 38 54 44.5 54 58"/>
+    </symbol>
+
+    <!-- persisted volume / disk -->
+    <symbol id="ico-volume" viewBox="0 0 72 72" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round">
+      <rect x="19" y="17" width="34" height="38" rx="6"/>
+      <circle cx="36" cy="28" r="4.5"/>
+      <line x1="27" y1="41" x2="45" y2="41" stroke-width="2.2"/>
+      <line x1="27" y1="47" x2="45" y2="47" stroke-width="2.2"/>
+    </symbol>
   </defs>
 
   <!-- ================= visual index ================= -->
-  <rect width="880" height="704" fill="#14171b"/>
+  <rect width="880" height="872" fill="#14171b"/>
   <text x="48" y="54" fill="#dee0e3" font-size="26" font-weight="700">UniFi diagram icons</text>
-  <text x="48" y="82" fill="#b7bcc2" font-size="14">shared/unifi-theme/icons.svg · currentColor line art · eight 72×72 symbols</text>
+  <text x="48" y="82" fill="#b7bcc2" font-size="14">shared/unifi-theme/icons.svg · currentColor line art · eleven 72×72 symbols</text>
   <line x1="48" y1="106" x2="832" y2="106" stroke="#2c3138" stroke-width="1"/>
 
   <!-- component cards: 4 cols x 2 rows -->
@@ -128,10 +151,27 @@
   <text x="541" y="444" fill="#8b929b" font-size="11.5" text-anchor="middle">cache</text>
   <text x="743" y="444" fill="#8b929b" font-size="11.5" text-anchor="middle">SSE / live</text>
 
+  <!-- row 3 -->
+  <g color="#fff">
+    <rect x="48"  y="476" width="178" height="148" rx="14" fill="#1a1e23" stroke="#2c3138" stroke-width="1.5"/>
+    <rect x="101" y="496" width="72" height="72" rx="14" fill="#006fff"/><use href="#ico-container" x="101" y="496" width="72" height="72"/>
+    <rect x="250" y="476" width="178" height="148" rx="14" fill="#1a1e23" stroke="#2c3138" stroke-width="1.5"/>
+    <rect x="303" y="496" width="72" height="72" rx="14" fill="#8b929b"/><use href="#ico-actor"     x="303" y="496" width="72" height="72"/>
+    <rect x="452" y="476" width="178" height="148" rx="14" fill="#1a1e23" stroke="#2c3138" stroke-width="1.5"/>
+    <rect x="505" y="496" width="72" height="72" rx="14" fill="#27c07f"/><use href="#ico-volume"    x="505" y="496" width="72" height="72"/>
+  </g>
+  <text x="137" y="592" fill="#dee0e3" font-size="14" font-weight="600" text-anchor="middle">ico-container</text>
+  <text x="339" y="592" fill="#dee0e3" font-size="14" font-weight="600" text-anchor="middle">ico-actor</text>
+  <text x="541" y="592" fill="#dee0e3" font-size="14" font-weight="600" text-anchor="middle">ico-volume</text>
+  <text x="137" y="612" fill="#8b929b" font-size="11.5" text-anchor="middle">Docker container</text>
+  <text x="339" y="612" fill="#8b929b" font-size="11.5" text-anchor="middle">person / user</text>
+  <text x="541" y="612" fill="#8b929b" font-size="11.5" text-anchor="middle">persisted volume</text>
+
   <!-- usage -->
-  <text x="48" y="516" fill="#dee0e3" font-size="15" font-weight="600">Usage</text>
-  <text x="48" y="540" fill="#8b929b" font-size="12.5">Set the tile fill; the glyph inherits white from the wrapping group's <tspan font-family="ui-monospace, Menlo, monospace" fill="#b7bcc2">color</tspan>.</text>
-  <rect x="48" y="556" width="784" height="46" rx="8" fill="#0f1216" stroke="#2c3138" stroke-width="1"/>
-  <text x="66" y="584" fill="#b7bcc2" font-size="12.5" font-family="ui-monospace, Menlo, monospace">&lt;g color="#fff"&gt;&lt;rect … fill="#006fff"/&gt;&lt;use href="#ico-browser" width="72" height="72"/&gt;&lt;/g&gt;</text>
-  <text x="48" y="638" fill="#8b929b" font-size="12.5">Tile colour convention: <tspan fill="#4d9bff" font-weight="600">#006fff</tspan> for UI / compute · <tspan fill="#27c07f" font-weight="600">#27c07f</tspan> for stateful data stores.</text>
+  <text x="48" y="684" fill="#dee0e3" font-size="15" font-weight="600">Usage</text>
+  <text x="48" y="708" fill="#8b929b" font-size="12.5">Set the tile fill; the glyph inherits white from the wrapping group's <tspan font-family="ui-monospace, Menlo, monospace" fill="#b7bcc2">color</tspan>.</text>
+  <rect x="48" y="724" width="784" height="46" rx="8" fill="#0f1216" stroke="#2c3138" stroke-width="1"/>
+  <text x="66" y="752" fill="#b7bcc2" font-size="12.5" font-family="ui-monospace, Menlo, monospace">&lt;g color="#fff"&gt;&lt;rect … fill="#006fff"/&gt;&lt;use href="#ico-browser" width="72" height="72"/&gt;&lt;/g&gt;</text>
+  <text x="48" y="806" fill="#8b929b" font-size="12.5">Tile colour convention: <tspan fill="#4d9bff" font-weight="600">#006fff</tspan> for UI / compute · <tspan fill="#27c07f" font-weight="600">#27c07f</tspan> for stateful data stores.</text>
+  <text x="48" y="828" fill="#8b929b" font-size="12.5">ico-container = Docker microservice tile (isometric box) · ico-actor = neutral grey <tspan fill="#dee0e3" font-weight="600">#8b929b</tspan> tile · ico-volume = persisted mount, styled dashed when drawn.</text>
 </svg>

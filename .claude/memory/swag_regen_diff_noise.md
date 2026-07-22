@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-Running `swag init -g cmd/main.go -o docs` from `demos/01-dictionary/backend/` regenerates `docs/docs.go`, `docs/swagger.json`, `docs/swagger.yaml` — but it also rewrites every `$ref` from the existing fully-qualified form (`#/definitions/github_com_jthomas78_nats-tech-lab_..._commands.ContainerInput`) to a short form (`#/definitions/commands.ContainerInput`), producing a ~336-line diff across all three files for what should have been a one-line doc-comment change. This is a swag version/config mismatch with whatever generated the committed docs, not a real content change.
+Running `swag init -g cmd/main.go -o docs` from `demos/01-dictionary/backend/shipping-service/` regenerates `docs/docs.go`, `docs/swagger.json`, `docs/swagger.yaml` — but it also rewrites every `$ref` from the existing fully-qualified form (`#/definitions/github_com_jthomas78_nats-tech-lab_..._commands.ContainerInput`) to a short form (`#/definitions/commands.ContainerInput`), producing a ~336-line diff across all three files for what should have been a one-line doc-comment change. This is a swag version/config mismatch with whatever generated the committed docs, not a real content change.
 
 **Fix used:** revert the regenerated files (`git checkout -- docs/`) and hand-edit the specific description string in all three files (`docs.go`, `swagger.json`, `swagger.yaml` — note the YAML wraps long strings across lines with a different quoting style, edit carefully).
 

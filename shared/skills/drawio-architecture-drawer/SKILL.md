@@ -21,9 +21,9 @@ For the dictionary demo, the source workbook is:
 
 The generated images are:
 
-`demos/01-dictionary/refdata-service/shipping-ui-dictionary-map.png`
-`demos/01-dictionary/refdata-service/localized-rendering-lifecycle.png`
-`demos/01-dictionary/refdata-service/shipping-ui-dictionary-sequence.png`
+`demos/01-dictionary/backend/refdata-service/shipping-ui-dictionary-map.png`
+`demos/01-dictionary/backend/refdata-service/localized-rendering-lifecycle.png`
+`demos/01-dictionary/backend/refdata-service/shipping-ui-dictionary-sequence.png`
 
 ## UniFi visual language
 
@@ -59,7 +59,7 @@ Prefer restrained rounded rectangles, dashed system boundaries, clear directiona
 7. Validate the result:
    - `xmllint --noout demos/01-dictionary/diagrams/architecture-dictionary.drawio`
    - `git diff --check`
-   - `file demos/01-dictionary/refdata-service/*.png`
+   - `file demos/01-dictionary/backend/refdata-service/*.png`
    - visually inspect each PNG for clipping, overlap, unreadable labels, missing lifelines, and incorrect canvas colors.
 8. Update Markdown image links and the editable workbook link together.
 

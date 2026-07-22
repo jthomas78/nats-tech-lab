@@ -19,6 +19,7 @@ pages=(
   "shipping-ui-dictionary-map:1"
   "localized-rendering-lifecycle:2"
   "shipping-ui-dictionary-sequence:3"
+  "docker-compose-network:4"
 )
 
 for page in "${pages[@]}"; do
@@ -28,6 +29,6 @@ for page in "${pages[@]}"; do
     --export \
     --format png \
     --page-index "$page_index" \
-    --output "$DEMO_ROOT/refdata-service/$name.png" \
+    --output "$DEMO_ROOT/backend/refdata-service/$name.png" \
     "$source"
 done

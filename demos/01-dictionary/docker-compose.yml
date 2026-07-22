@@ -9,6 +9,8 @@ services:
     ports:
       - "14222:4222"
       - "18222:8222" # monitoring
+    networks:
+      - backend
     volumes:
       - nats-data:/data
 
@@ -22,6 +24,8 @@ services:
     # Postgres. The backend uses the compose-internal postgres:5432.
     ports:
       - "15432:5432"
+    networks:
+      - backend
     volumes:
       - pg-data:/var/lib/postgresql/data
     healthcheck:
@@ -30,8 +34,11 @@ services:
       timeout: 2s
       retries: 15
 
-  backend:
-    build: ./backend
+  shipping-service:
+    build: ./backend/shipping-service
+    networks:
+      - backend
+      - frontend
     environment:
       NATS_URL: nats://nats:4222
       DATABASE_URL: postgres://dict:dict@postgres:5432/dictionary?sslmode=disable
@@ -49,12 +56,15 @@ services:
         condition: service_healthy
 
   refdata-service:
-    build: ./refdata-service
+    build: ./backend/refdata-service
+    networks:
+      - backend
+      - frontend
     environment:
-      # Same Postgres instance/database as `backend`, own `refdata` schema —
-      # no shared tables (Phase 11, Dictionary-Service-Plan.md).
+      # Same Postgres instance/database as `shipping-service`, own `refdata`
+      # schema — no shared tables (Phase 11, Dictionary-Service-Plan.md).
       DATABASE_URL: postgres://dict:dict@postgres:5432/dictionary?sslmode=disable
-      # Same NATS server as `backend` — used only for the KV cache
+      # Same NATS server as `shipping-service` — used only for the KV cache
       # (refdata-{context}) and the bounded REFDATA change-event stream,
       # never as this service's source of truth (Q6).
       NATS_URL: nats://nats:4222
@@ -67,34 +77,48 @@ services:
       postgres:
         condition: service_healthy
 
-  frontend:
+  admin:
     build:
       # Context is the repo root so the build can copy the shared UniFi
       # theme preset (shared/unifi-theme) alongside the app source.
       context: ../..
-      dockerfile: demos/01-dictionary/frontend/Dockerfile
+      dockerfile: demos/01-dictionary/frontend/admin/Dockerfile
     ports:
       - "5173:80"
+    networks:
+      - frontend
     depends_on:
-      - backend
+      - shipping-service
 
-  frontend-port:
+  seafreight-app:
     build:
       context: ../..
-      dockerfile: demos/01-dictionary/frontend-port/Dockerfile
+      dockerfile: demos/01-dictionary/frontend/seafreight-app/Dockerfile
     ports:
       - "5174:80"
+    networks:
+      - frontend
     depends_on:
-      - backend
+      - shipping-service
 
-  frontend-dict:
+  refdata:
     build:
       context: ../..
-      dockerfile: demos/01-dictionary/frontend-dict/Dockerfile
+      dockerfile: demos/01-dictionary/frontend/refdata/Dockerfile
     ports:
       - "5175:80"
+    networks:
+      - frontend
     depends_on:
       - refdata-service
+
+networks:
+  # Trust-tier split (not per-service-pair): anything needing NATS/Postgres
+  # joins `backend`; anything the browser talks to joins `frontend`.
+  # shipping-service/refdata-service straddle both — they're the only bridge
+  # point, so frontend apps can reach them but never nats/postgres directly.
+  backend:
+  frontend:
 
 volumes:
   nats-data:

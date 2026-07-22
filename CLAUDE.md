@@ -24,15 +24,17 @@ nats-tech-lab/
   lab-shell/              # Vue 3 + PrimeVue + Pinia — demo menu + intro pages
   demos/
     01-dictionary/        # First demo: Dictionary POC
-      backend/            # Go service (hexagonal layout) — Ship/Container CQRS shapes A/B/C
-      refdata-service/    # Go service (Phase 11) — dictionary-as-a-service, own Postgres schema + container
-        README.md         # refdata-service-specific: what it is, how to run/query it standalone
-        ARCHITECTURE-DICTIONARY.md  # refdata-service's overall architecture: seeding, Postgres
-                          # schema/ER diagram, data access paths, cross-service consumption
-	  frontend/           # Vue 3 architecture/demo UI
-	  frontend-port/      # Vue 3 ship/terminal operations UI
-	  frontend-dict/      # Vue 3 dictionary/reference-data admin UI (Phase 11)
-	  docker-compose.yml  # Postgres + NATS + backend + refdata-service + all three frontends
+      backend/
+        shipping-service/ # Go service (hexagonal layout) — Ship/Container CQRS shapes A/B/C
+        refdata-service/  # Go service (Phase 11) — dictionary-as-a-service, own Postgres schema + container
+          README.md         # refdata-service-specific: what it is, how to run/query it standalone
+          ARCHITECTURE-DICTIONARY.md  # refdata-service's overall architecture: seeding, Postgres
+                            # schema/ER diagram, data access paths, cross-service consumption
+      frontend/
+        admin/           # Vue 3 architecture/demo UI
+        seafreight-app/  # Vue 3 ship/terminal operations UI
+        refdata/         # Vue 3 dictionary/reference-data admin UI (Phase 11)
+	  docker-compose.yml  # Postgres + NATS + shipping-service + refdata-service + all three frontends
       README.md           # Intro text shown in lab shell
   obsidian/
     POC-Dictionaries/     # Obsidian vault for demo 01 (research, findings, stakeholder docs)
@@ -52,7 +54,7 @@ Treat these as living documents: when a phase produces a notable finding or deci
 
 ## Commands
 
-### Backend (Go — `demos/01-dictionary/backend/`)
+### Backend (Go — `demos/01-dictionary/backend/shipping-service/`)
 
 ```bash
 go build ./...
@@ -69,17 +71,17 @@ docker compose up --build       # from demos/01-dictionary/
 docker compose down             # tear down
 ```
 
-### Refdata service (Go — `demos/01-dictionary/refdata-service/`)
+### Refdata service (Go — `demos/01-dictionary/backend/refdata-service/`)
 
 ```bash
 go build ./...
 go test ./...
 
-docker compose up --build       # from demos/01-dictionary/ — starts backend + refdata-service together
+docker compose up --build       # from demos/01-dictionary/ — starts shipping-service + refdata-service together
 ```
 
-See `demos/01-dictionary/refdata-service/README.md` for standalone run instructions (including the
-default-port collision with `backend` when both run outside Docker) and `ARCHITECTURE-DICTIONARY.md`
+See `demos/01-dictionary/backend/refdata-service/README.md` for standalone run instructions (including the
+default-port collision with `shipping-service` when both run outside Docker) and `ARCHITECTURE-DICTIONARY.md`
 for its overall architecture — seeding, Postgres schema/ER diagram, data access paths (Postgres/REST/KV),
 and cross-service consumption from the shipping backend.
 
@@ -146,7 +148,7 @@ dictionary/
 These apply to every task — new features, changes, and bug fixes alike:
 
 1. **Every business rule must have a test.** If a domain rule is added or changed, a corresponding integration test must be added or updated in the same task before marking it complete.
-2. **All tests must be green before a task is complete.** Run `ginkgo ./...` from `demos/01-dictionary/backend/` as the final step of any backend change. A task is not done until this passes clean.
+2. **All tests must be green before a task is complete.** Run `ginkgo ./...` from `demos/01-dictionary/backend/shipping-service/` as the final step of any backend change. A task is not done until this passes clean.
 3. **Business rules live in the domain layer** (`dictionary/internal/domain/`). Rule enforcement must not leak into handlers or application services.
 4. **The business rules summary must be kept in sync.** When a rule is added or removed, update `demos/01-dictionary/BUSINESS_RULES.md` as part of the same task.
 

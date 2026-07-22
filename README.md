@@ -15,9 +15,11 @@ lab-shell/              Vue 3 + PrimeVue — demo menu + intro pages
 shared/unifi-theme/     Shared UniFi-style theme preset (used by all frontends)
 demos/
   01-dictionary/        Dictionary POC: KV-as-read-model vs KV-as-cache-over-Postgres
-    backend/            Go service (hexagonal layout)
-    frontend/           Vue 3 demo UI
-    docker-compose.yml  NATS + Postgres + backend + frontend
+    backend/
+      shipping-service/ Go service (hexagonal layout)
+    frontend/
+      admin/            Vue 3 demo UI
+    docker-compose.yml  NATS + Postgres + shipping-service + admin
 ```
 
 ## Prerequisites
@@ -73,7 +75,7 @@ Backend (needs a local NATS with JetStream and a Postgres, or just run the
 tests — they use an embedded in-process NATS server):
 
 ```bash
-cd demos/01-dictionary/backend
+cd demos/01-dictionary/backend/shipping-service
 go test ./...        # integration smoke tests, no external services needed
 go build ./...
 ```
@@ -81,7 +83,7 @@ go build ./...
 Demo frontend in dev mode (proxies `/api` to `localhost:8080`):
 
 ```bash
-cd demos/01-dictionary/frontend
+cd demos/01-dictionary/frontend/admin
 npm install
 npm run dev          # → http://localhost:5173
 ```

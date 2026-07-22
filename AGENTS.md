@@ -19,9 +19,11 @@ nats-tech-lab/
   lab-shell/              # Vue 3 + PrimeVue + Pinia — demo menu + intro pages
   demos/
     01-dictionary/        # First demo: Dictionary POC
-      backend/            # Go service (hexagonal layout)
-      frontend/           # Vue 3 demo UI
-      docker-compose.yml  # Postgres + NATS + backend + frontend
+      backend/
+        shipping-service/ # Go service (hexagonal layout)
+      frontend/
+        admin/            # Vue 3 demo UI
+      docker-compose.yml  # Postgres + NATS + shipping-service + admin
       README.md           # Intro text shown in lab shell
 ```
 
@@ -29,7 +31,7 @@ Each demo has its own `docker-compose.yml` and does **not** share a network with
 
 ## Commands
 
-### Backend (Go — `demos/01-dictionary/backend/`)
+### Backend (Go — `demos/01-dictionary/backend/shipping-service/`)
 
 ```bash
 go build ./...
@@ -46,7 +48,7 @@ docker compose up --build       # from demos/01-dictionary/
 docker compose down             # tear down
 ```
 
-### Frontend (Vue 3 — `demos/01-dictionary/frontend/` or `lab-shell/`)
+### Frontend (Vue 3 — `demos/01-dictionary/frontend/admin/` or `lab-shell/`)
 
 ```bash
 npm install
@@ -106,7 +108,7 @@ dictionary/
 These apply to every task — new features, changes, and bug fixes alike:
 
 1. **Every business rule must have a test.** If a domain rule is added or changed, a corresponding integration test must be added or updated in the same task before marking it complete.
-2. **All tests must be green before a task is complete.** Run `ginkgo ./...` from `demos/01-dictionary/backend/` as the final step of any backend change. A task is not done until this passes clean.
+2. **All tests must be green before a task is complete.** Run `ginkgo ./...` from `demos/01-dictionary/backend/shipping-service/` as the final step of any backend change. A task is not done until this passes clean.
 3. **Business rules live in the domain layer** (`dictionary/internal/domain/`). Rule enforcement must not leak into handlers or application services.
 4. **The business rules summary must be kept in sync.** When a rule is added or removed, update `demos/01-dictionary/BUSINESS_RULES.md` as part of the same task.
 

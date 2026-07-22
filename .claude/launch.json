@@ -2,14 +2,14 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "frontend-dict",
+      "name": "refdata",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "cwd": "demos/01-dictionary/frontend-dict",
+      "cwd": "demos/01-dictionary/frontend/refdata",
       "port": 5175
     },
     {
-      "name": "frontend-dict-vs-docker",
+      "name": "refdata-vs-docker",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
@@ -18,15 +18,23 @@
         "--config",
         "vite.docker.config.js"
       ],
-      "cwd": "demos/01-dictionary/frontend-dict",
+      "cwd": "demos/01-dictionary/frontend/refdata",
       "port": 5199
     },
     {
-      "name": "frontend-port",
+      "name": "seafreight-app",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "cwd": "demos/01-dictionary/frontend-port",
+      "cwd": "demos/01-dictionary/frontend/seafreight-app",
       "port": 5174
+    },
+    {
+      "name": "admin",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "demos/01-dictionary/frontend/admin",
+      "port": 5173,
+      "autoPort": true
     }
   ]
 }

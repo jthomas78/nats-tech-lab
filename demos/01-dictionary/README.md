@@ -46,7 +46,7 @@ aggregates. See [BUSINESS_RULES.md](BUSINESS_RULES.md) for BR-001 … BR-015.
 
 ## Dictionary as a Service (Phase 11)
 
-A **separate service** (`refdata-service/`, its own Postgres schema and container) providing
+A **separate service** (`backend/refdata-service/`, its own Postgres schema and container) providing
 shared reference/master data — currencies, countries, Incoterms, units of measure, hazard
 classes — with localization (BR-D03 fallback chain), typed cross-references (BR-D05), and a
 versioned NATS-KV cache protocol (BR-D04, Q5). Nothing here is event-sourced: it's plain Postgres
@@ -123,7 +123,7 @@ docker compose up nats postgres
 point the backend at those explicitly:
 
 ```bash
-cd demos/01-dictionary/backend
+cd demos/01-dictionary/backend/shipping-service
 NATS_URL=nats://localhost:14222 \
 DATABASE_URL="postgres://dict:dict@localhost:15432/dictionary?sslmode=disable" \
 go run ./cmd/main.go
@@ -135,7 +135,7 @@ the Dockerized backend service).
 **3. Admin frontend:**
 
 ```bash
-cd demos/01-dictionary/frontend
+cd demos/01-dictionary/frontend/admin
 npm install   # first time only
 npm run dev   # http://localhost:5173, proxies /api to localhost:8080 (see vite.config.js)
 ```
@@ -143,7 +143,7 @@ npm run dev   # http://localhost:5173, proxies /api to localhost:8080 (see vite.
 **4. Port Management frontend** (optional, separate terminal):
 
 ```bash
-cd demos/01-dictionary/frontend-port
+cd demos/01-dictionary/frontend/seafreight-app
 npm install   # first time only
 npm run dev   # http://localhost:5174, proxies /api to localhost:8080
 ```
@@ -156,7 +156,7 @@ which collides if the backend from step 2 is already running locally — so run 
 instead when both are up at once:
 
 ```bash
-cd demos/01-dictionary/refdata-service
+cd demos/01-dictionary/backend/refdata-service
 NATS_URL=nats://localhost:14222 \
 DATABASE_URL="postgres://dict:dict@localhost:15432/dictionary?sslmode=disable" \
 HTTP_ADDR=:8081 \
@@ -166,14 +166,14 @@ go run ./cmd/main.go
 **6. Dictionary frontend** (optional, separate terminal):
 
 ```bash
-cd demos/01-dictionary/frontend-dict
+cd demos/01-dictionary/frontend/refdata
 npm install   # first time only
 npm run dev   # http://localhost:5175, proxies /api to localhost:8081 (refdata-service, see vite.config.js)
 ```
 
 ## Run the tests
 
-From `demos/01-dictionary/backend/`:
+From `demos/01-dictionary/backend/shipping-service/`:
 
 ```bash
 # Preferred — runs the suite and prints the spec tree at the end
@@ -192,7 +192,7 @@ Install the `ginkgo` CLI once with:
 go install github.com/onsi/ginkgo/v2/ginkgo@latest
 ```
 
-From `demos/01-dictionary/frontend-port/`:
+From `demos/01-dictionary/frontend/seafreight-app/`:
 
 ```bash
 # Run the Port Management frontend test suite once

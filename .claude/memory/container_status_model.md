@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-`ContainerStatus` (`demos/01-dictionary/backend/dictionary/internal/domain/container.go`) has exactly two values:
+`ContainerStatus` (`demos/01-dictionary/backend/shipping-service/dictionary/internal/domain/container.go`) has exactly two values:
 
 ```go
 const (

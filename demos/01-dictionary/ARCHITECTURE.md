@@ -273,7 +273,7 @@ entities are simple enough for plain CRUD if nothing ever replays them.
 
 ### Postgres Tables Panel (Admin UI)
 
-`frontend/src/components/PostgresTablesPanel.vue`, mounted in `App.vue` right
+`frontend/admin/src/components/PostgresTablesPanel.vue`, mounted in `App.vue` right
 after `JetStreamPanel` — the two panels pair the "raw source" views together:
 JetStream shows the raw event log, this panel shows a raw Postgres table that
 has **no** event log at all. It's the concrete UI counterpart to "Event
@@ -292,8 +292,8 @@ There are two frontends, each with its own Pinia store — both are browser-side
 
 | Frontend | Store | SSE channels |
 |---|---|---|
-| `frontend/` (admin, :5173) | `stores/dictionary.js` | `/api/watch/{context}` (Shape A + B ship buckets) |
-| `frontend-port/` (Port Management, :5174) | `stores/port.js` | `/api/watch/{context}` (ships) + `/api/watch-terminal/{context}` (containers + `meta.*`) |
+| `frontend/admin/` (admin, :5173) | `stores/dictionary.js` | `/api/watch/{context}` (Shape A + B ship buckets) |
+| `frontend/seafreight-app/` (Port Management, :5174) | `stores/port.js` | `/api/watch/{context}` (ships) + `/api/watch-terminal/{context}` (containers + `meta.*`) |
 
 The sections below describe the admin store; the port store follows the same pattern with two `EventSource` connections and client-side joins (`dockedShips`, `yardContainers`, `manifestFor`).
 
@@ -368,11 +368,11 @@ The Fleet dropdown sets `store.context`. Changing it calls `connect()`, which re
 
 ---
 
-## Reference Data Service (`refdata-service/`)
+## Reference Data Service (`backend/refdata-service/`)
 
 Phase 11, [Dictionary-Service-Plan.md](../../.claude/plans/Dictionary-Service-Plan.md) — a
 **separate Go service and container**, not a module in the shipping backend's monolith. It shares
-the same Postgres instance as `backend` but owns its own schema (`refdata`) and tables; it does
+the same Postgres instance as `shipping-service` but owns its own schema (`refdata`) and tables; it does
 not touch the `SHIPPING` stream, KV buckets, or Postgres tables the shipping backend uses.
 
 **Why plain CRUD, not event-sourced.** Per the "Event Sourcing vs Plain CRUD" heuristic above:
@@ -427,7 +427,7 @@ best-effort side effect after every successful read, so a consumer that hit a mi
 through to the API leaves the cache warm for the next reader (identical in spirit to Shape B's
 miss path).
 
-**Consumer demo (shipping backend).** `backend/internal/refdataconsumer` reads the
+**Consumer demo (shipping backend).** `backend/shipping-service/internal/refdataconsumer` reads the
 `refdata-{context}` KV bucket directly — the shipping backend has no dependency on
 refdata-service's Go code, only on the bucket-naming and JSON-shape convention, exactly as two
 independent platform services would agree in the real system. `Consumer.Lookup` reads the item's
@@ -445,16 +445,16 @@ real Postgres/NATS. `refdata/kvcache_test.go` runs against a real embedded in-pr
 (JetStream + KV), same convention as the shipping backend's `integration_test.go`, covering version
 bump atomicity under concurrency, cache/`_meta` rebuild, change-event publication, cold start, and
 miss backfill. The consumer demo's version-mismatch behavior is covered by
-`backend/internal/refdataconsumer/consumer_test.go` (embedded NATS KV + `httptest` fake REST API).
+`backend/shipping-service/internal/refdataconsumer/consumer_test.go` (embedded NATS KV + `httptest` fake REST API).
 
-### Dictionary frontend (`frontend-dict/`, Phase 11.4)
+### Dictionary frontend (`frontend/refdata/`, Phase 11.4)
 
 A fourth Vue 3 + PrimeVue v4 app, same UniFi theme preset (`@unifi-theme`) and structural
-conventions as `frontend/` and `frontend-port/` (dev port `5175`; nginx proxies `/api/` straight to
-`refdata-service:8080` in the Docker build, not to `backend`).
+conventions as `frontend/admin/` and `frontend/seafreight-app/` (dev port `5175`; nginx proxies `/api/` straight to
+`refdata-service:8080` in the Docker build, not to `shipping-service`).
 
 ```
-frontend-dict/src/
+frontend/refdata/src/
   App.vue                       — topbar + two-column layout (type navigator, content)
   api.js                        — thin REST client, same request()/error convention as the other frontends
   stores/dictionary.js          — Pinia store: types+items fetched fresh from REST (plain CRUD, not
