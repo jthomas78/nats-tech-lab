@@ -381,7 +381,7 @@ implementation, and lands in `BUSINESS_RULES.md` in the same commit.
       synchronously on the shipping backend's hot write path (BR-017/018, every ship arrival and
       container registration); moving that check to refdata-service would turn a fast in-process
       Postgres query into a cross-service call with a new failure mode, contradicting the
-      fast-and-self-contained write path Phases 8–14 protect. If revisited, the KV-cache-plus-
+      fast-and-self-contained write path Phases 8–15 protect. If revisited, the KV-cache-plus-
       REST-fallback pattern already built for the hazard-class demo (`internal/refdataconsumer`)
       is the right consumption model, not a synchronous per-command call. Full rationale in the
       Obsidian note below.
@@ -888,19 +888,19 @@ with copied attrs. The only missing piece is a `frontend-dict` `updateItem` wrap
 | Was | Now |
 |---|---|
 | *(new)* | **Phase 11 — Dictionary as a Service** (11.1–11.5 above) |
-| Phase 11 — Write-Side Safety | Phase 12 |
-| Phase 12 — Projection Hardening | Phase 13 |
-| Phase 13 — Stream Split | Phase 14 |
-| Phase 14 — Performance & Load Testing | Phase 15 |
-| Phase 15 — NATS Accounts Spike | Phase 16 |
+| Phase 11 — Write-Side Safety | Phase 13 (was 12) |
+| Phase 12 — Projection Hardening | Phase 14 (was 13) |
+| Phase 13 — Stream Split | Phase 15 (was 14) |
+| Phase 14 — Performance & Load Testing | Phase 16 (was 15) |
+| Phase 15 — NATS Accounts Spike | Phase 17 (was 16) |
 
 Cross-reference sweep (same commit):
 
-- [x] Main plan internal references (Phase 9 "why this precedes Phase 11"→12, Phase 10's
-      Phase 11/13/14 mentions→12/14/15, Phase 13/14 mutual references→14/15)
-- [x] `demos/01-dictionary/PERFORMANCE.md` — deferred-scenario phase labels
+- [x] Main plan internal references (Phase 9 "why this precedes Phase 12"→14, Phase 10's
+      Phase 11/14/15 mentions→11/15/16, Phase 13–17 mutual references→14–18)
+- [x] `demos/01-dictionary/PERFORMANCE.md` (and the `obsidian/POC-Dictionaries/` copy) — deferred-scenario phase labels
 - [x] `ARCHITECTURE.md`, `BUSINESS_RULES.md`, code comments (`events.go`, `container.go`) that
-      cite Phases 11–15
+      cite Phases 12–17
 - [x] `.claude/memory/` notes citing phase numbers
 - [x] `obsidian/POC-Dictionaries/` notes citing phase numbers
 

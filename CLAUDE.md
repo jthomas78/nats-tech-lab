@@ -10,6 +10,7 @@ At the start of every session, read all files in `.claude/memory/` — starting 
 
 - If asked to do too much work at once, stop and state that clearly.
 - If computer use is helpful for completing or verifying work, shell out to GPT-5.5 with Codex for it (the `codex:rescue` skill / `codex:codex-rescue` agent).
+- **Don't read large docs whole by default.** Before calling `Read` with no `offset`/`limit` on a file over ~150 lines, prefer `grep`/`Grep` for the section you need, or a targeted `Read` with `offset`/`limit`. Full reads are fine when you genuinely need the whole file (e.g. first pass on a new doc, or it's already short); the point is to default to targeted reads for the large reference docs in this repo (`ARCHITECTURE.md`, `BUSINESS_RULES-*.md`, `PERFORMANCE.md`, files under `.claude/plans/`), not to read them cover-to-cover out of habit.
 
 ## Purpose
 
@@ -150,7 +151,7 @@ These apply to every task — new features, changes, and bug fixes alike:
 1. **Every business rule must have a test.** If a domain rule is added or changed, a corresponding integration test must be added or updated in the same task before marking it complete.
 2. **All tests must be green before a task is complete.** Run `ginkgo ./...` from `demos/01-dictionary/backend/shipping-service/` as the final step of any backend change. A task is not done until this passes clean.
 3. **Business rules live in the domain layer** (`dictionary/internal/domain/`). Rule enforcement must not leak into handlers or application services.
-4. **The business rules summary must be kept in sync.** When a rule is added or removed, update `demos/01-dictionary/BUSINESS_RULES.md` as part of the same task.
+4. **The business rules summary must be kept in sync.** When a rule is added or removed, update the relevant domain file — `demos/01-dictionary/BUSINESS_RULES-SHIPPING.md` (Ship/Container) or `demos/01-dictionary/BUSINESS_RULES-REFDATA.md` (refdata-service) — as part of the same task. `BUSINESS_RULES.md` is just an index; don't add rule detail there.
 
 ## AI Agent Workflow
 
@@ -158,9 +159,9 @@ Any exploration touching more than 3 files should be delegated to an Explore sub
 
 When updating or implementing a plan phase, the agent should follow this sequence:
 
-1. **Ask for business rules first.** Before writing any code or updating a plan, ask the user to confirm or supply the applicable business rules for the feature. If rules are already in `BUSINESS_RULES.md`, confirm they are complete and up to date.
+1. **Ask for business rules first.** Before writing any code or updating a plan, ask the user to confirm or supply the applicable business rules for the feature. If rules are already documented (see `BUSINESS_RULES.md`'s index for which domain file), confirm they are complete and up to date.
 2. **Derive tests from rules, not from implementation.** Each business rule maps to one `Context` block in Ginkgo with one or more `It` assertions. Write the specs before writing the implementation (red → green → refactor).
-3. **Update `BUSINESS_RULES.md` and the plan together.** New rules go into `BUSINESS_RULES.md` and the plan checklist in the same commit.
+3. **Update the relevant `BUSINESS_RULES-*.md` and the plan together.** New rules go into the matching domain file and the plan checklist in the same commit.
 
 ## AI Skill Roles (Future)
 
