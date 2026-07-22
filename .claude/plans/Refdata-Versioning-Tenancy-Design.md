@@ -557,28 +557,31 @@ architecture docs.
 
 ---
 
-## 11. Open Questions
+## 11. Open Questions — RESOLVED (2026-07-22)
 
-1. **Draft editing model** — do edits to the draft go directly against the `corpus_items`
-   snapshot rows, or against the existing working tables with publish as a "copy to corpus"
-   step? The latter preserves the current editing UX but adds a copy step; the former is
-   cleaner but means the existing unversioned API would need to read from the draft's
-   `corpus_items` rows.
+All five decided; implementation may proceed against these answers.
 
-2. **Automated downstream re-publish** — BR-V08 says parent publish doesn't auto-publish
-   descendants. But should it auto-create a new draft for each descendant with the updated
-   inherited items, ready for an operator to review and publish? Or is that entirely manual?
+1. **Draft editing model** — **Working tables + copy-on-publish.** Edits go against the
+   existing `dictionary_items`/`dictionary_localizations`/etc. working tables (unchanged
+   editing UX, unchanged existing endpoints); publish flattens/copies their state into a new
+   immutable `corpus_*` row set (§3.3 already describes this model — confirmed, not changed).
 
-3. **Localization inheritance** — when a child inherits an item from a parent, does it also
-   inherit all the parent's localizations for that item? (Proposed: yes — the flattened
-   snapshot includes localizations. A child can override a specific locale for an inherited
-   item without overriding the item itself.)
+2. **Automated downstream re-publish** — **Fully manual, no auto-draft.** Per BR-V08, a
+   parent publish never auto-publishes or auto-drafts descendants. An operator manually opens
+   or creates a child draft when they want to pull in parent changes. No conflict-resolution
+   design needed for this phase since there's no automatic merge/overwrite path.
 
-4. **KV bucket cleanup** — with indefinite version coexistence, who deletes old KV buckets
-   when no consumer is pinned to them? Deferred until the pin registry (Phase 12.7+) exists.
+3. **Localization inheritance** — **Yes, localizations flow with the inherited item.** The
+   flattened snapshot at publish time includes localizations for inherited items. A child can
+   override a single locale for an inherited item without overriding the item itself —
+   consistent with BR-V07 (override breaks propagation per-item, not per-locale).
 
-5. **Corpus size at scale** — each published version snapshots the full flattened corpus.
-   With many types and many versions, the `corpus_items` table grows multiplicatively. Is
-   this acceptable, or should we consider delta-based storage? (Proposed: full snapshots for
-   now — the corpus is reference data, not transactional data, so the row count per version
-   is bounded by the dictionary size, not by traffic volume.)
+4. **KV bucket cleanup** — **Deferred to Phase 12.7+ / the pin registry.** No pin registry
+   exists in this phase, so there's no reliable way to know "no consumer is pinned" yet. Old
+   versioned KV buckets are left to accumulate for the POC; revisit once the pin registry
+   (§4.2) is built.
+
+5. **Corpus size at scale** — **Full snapshots, not delta-based storage.** The corpus is
+   reference data, not transactional data — row count per version is bounded by dictionary
+   size, not by traffic volume, so multiplicative growth across versions is cheap in practice.
+   Delta-based storage is not needed for this phase.
