@@ -97,4 +97,47 @@ var _ = Describe("Dictionary Type Domain Rules", func() {
 			Expect(referenced).To(BeFalse())
 		})
 	})
+
+	Context("BR-D22: typeKey must be a valid subject/KV-key token", func() {
+		It("registers a valid lowercase-hyphenated typeKey", func() {
+			Expect(th.RegisterType(ctx, domain.DictionaryType{
+				TypeKey: "hazard-class-2", Name: "Hazard Class 2", Category: domain.CategoryStandards,
+			})).To(Succeed())
+		})
+
+		It("rejects an empty typeKey", func() {
+			err := th.RegisterType(ctx, domain.DictionaryType{
+				TypeKey: "", Name: "Mystery", Category: domain.CategoryStandards,
+			})
+			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
+		})
+
+		It("rejects a typeKey containing a dot", func() {
+			err := th.RegisterType(ctx, domain.DictionaryType{
+				TypeKey: "hazard.class", Name: "Mystery", Category: domain.CategoryStandards,
+			})
+			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
+		})
+
+		It("rejects a typeKey containing '*'", func() {
+			err := th.RegisterType(ctx, domain.DictionaryType{
+				TypeKey: "hazard*class", Name: "Mystery", Category: domain.CategoryStandards,
+			})
+			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
+		})
+
+		It("rejects a typeKey containing '>'", func() {
+			err := th.RegisterType(ctx, domain.DictionaryType{
+				TypeKey: "hazard>class", Name: "Mystery", Category: domain.CategoryStandards,
+			})
+			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
+		})
+
+		It("rejects a typeKey containing whitespace", func() {
+			err := th.RegisterType(ctx, domain.DictionaryType{
+				TypeKey: "hazard class", Name: "Mystery", Category: domain.CategoryStandards,
+			})
+			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
+		})
+	})
 })

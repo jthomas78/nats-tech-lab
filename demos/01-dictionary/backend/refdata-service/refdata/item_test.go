@@ -185,4 +185,31 @@ var _ = Describe("Dictionary Item Domain Rules", func() {
 			Expect(codes).To(ConsistOf("EUR"))
 		})
 	})
+
+	Context("BR-D22: code must be a valid KV-key token", func() {
+		It("registers a valid code", func() {
+			_, err := h.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: "CHF", Context: "emea-acme"})
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("rejects an empty code", func() {
+			_, err := h.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: "", Context: "emea-acme"})
+			Expect(errors.Is(err, domain.ErrInvalidKVKeyComponent)).To(BeTrue())
+		})
+
+		It("rejects a code containing ':'", func() {
+			_, err := h.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: "CH:F", Context: "emea-acme"})
+			Expect(errors.Is(err, domain.ErrInvalidKVKeyComponent)).To(BeTrue())
+		})
+
+		It("rejects a code containing whitespace", func() {
+			_, err := h.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: "CH F", Context: "emea-acme"})
+			Expect(errors.Is(err, domain.ErrInvalidKVKeyComponent)).To(BeTrue())
+		})
+
+		It("accepts a code containing '.' — KV-key charset, not a subject-token charset", func() {
+			_, err := h.RegisterItem(ctx, commands.ItemInput{TypeKey: "ui-copy", Code: "filter.none", Context: "emea-acme"})
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
 })

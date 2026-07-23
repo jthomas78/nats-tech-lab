@@ -77,6 +77,73 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			version  INTEGER NOT NULL DEFAULT 0,
 			PRIMARY KEY (context, type_key)
 		)`,
+
+		// Phase 12 is additive: mutable dictionary_* rows remain the local
+		// overlay editing surface, while corpus_* stores immutable flattened
+		// snapshots for consumer-facing version reads.
+		`CREATE TABLE IF NOT EXISTS refdata.contexts (
+			context     TEXT PRIMARY KEY,
+			parent      TEXT REFERENCES refdata.contexts(context),
+			name        TEXT NOT NULL,
+			description TEXT NOT NULL DEFAULT '',
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+			CHECK (parent IS NULL OR parent <> context)
+		)`,
+
+		`CREATE TABLE IF NOT EXISTS refdata.corpus_versions (
+			context              TEXT NOT NULL REFERENCES refdata.contexts(context),
+			version              INTEGER NOT NULL CHECK (version > 0),
+			status               TEXT NOT NULL CHECK (status IN ('draft', 'published', 'rolled-back')),
+			parent_version       INTEGER,
+			base_context_version INTEGER,
+			created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+			published_at         TIMESTAMPTZ,
+			rolled_back_at       TIMESTAMPTZ,
+			rolled_back_by       INTEGER,
+			notes                TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (context, version)
+		)`,
+		// The partial index is the concurrency-safe database backstop for BR-V01.
+		`CREATE UNIQUE INDEX IF NOT EXISTS one_refdata_draft_per_context
+		 ON refdata.corpus_versions(context) WHERE status = 'draft'`,
+
+		`CREATE TABLE IF NOT EXISTS refdata.corpus_items (
+			context        TEXT NOT NULL,
+			version        INTEGER NOT NULL,
+			type_key       TEXT NOT NULL,
+			code           TEXT NOT NULL,
+			status         TEXT NOT NULL DEFAULT 'active',
+			attrs          JSONB NOT NULL DEFAULT '{}'::jsonb,
+			source_context TEXT NOT NULL,
+			is_override    BOOLEAN NOT NULL DEFAULT false,
+			PRIMARY KEY (context, version, type_key, code),
+			FOREIGN KEY (context, version) REFERENCES refdata.corpus_versions(context, version) ON DELETE RESTRICT
+		)`,
+		`CREATE TABLE IF NOT EXISTS refdata.corpus_localizations (
+			context        TEXT NOT NULL,
+			version        INTEGER NOT NULL,
+			type_key       TEXT NOT NULL,
+			code           TEXT NOT NULL,
+			locale         TEXT NOT NULL,
+			label          TEXT NOT NULL,
+			description    TEXT NOT NULL DEFAULT '',
+			source         TEXT NOT NULL DEFAULT 'manual',
+			source_context TEXT NOT NULL,
+			PRIMARY KEY (context, version, type_key, code, locale),
+			FOREIGN KEY (context, version, type_key, code) REFERENCES refdata.corpus_items(context, version, type_key, code) ON DELETE RESTRICT
+		)`,
+		`CREATE TABLE IF NOT EXISTS refdata.corpus_references (
+			context        TEXT NOT NULL,
+			version        INTEGER NOT NULL,
+			from_type_key  TEXT NOT NULL,
+			from_code      TEXT NOT NULL,
+			relation       TEXT NOT NULL,
+			to_type_key    TEXT NOT NULL,
+			to_code        TEXT NOT NULL,
+			source_context TEXT NOT NULL,
+			PRIMARY KEY (context, version, from_type_key, from_code, relation),
+			FOREIGN KEY (context, version) REFERENCES refdata.corpus_versions(context, version) ON DELETE RESTRICT
+		)`,
 	}
 
 	for _, stmt := range statements {

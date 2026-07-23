@@ -31,6 +31,17 @@ type seedItem struct {
 // human/translator-reviewed deliverable. Locale codes are lower case
 // throughout (BR-D20) — af-za, not the BCP-47-conventional af-ZA.
 func Seed(ctx context.Context, h *Handlers) error {
+	// Phase 12 migration creates contexts before the corpus tables. Seed the
+	// original single context as a root template so existing demo data remains
+	// valid while new tenants can inherit from it.
+	if h.Contexts != nil {
+		if err := h.Contexts.Register(ctx, domain.Context{
+			Context: DefaultContext, Name: "EMEA Acme", Description: "Seed tenant and root reference-data context",
+		}); err != nil {
+			return err
+		}
+	}
+
 	seeds := []struct {
 		typeKey     string
 		name        string

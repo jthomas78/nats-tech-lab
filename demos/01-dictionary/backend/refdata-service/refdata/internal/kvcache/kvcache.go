@@ -18,23 +18,29 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvstore"
 )
 
-// Region/Tenant mirror the shipping backend's subject-taxonomy convention
-// (Phase 9) — hardcoded constants for this lab, not yet multi-tenant.
-const (
-	Region = "emea"
-	Tenant = "acme"
-)
-
 // ChangeStreamName is the bounded JetStream stream carrying change-event
 // pointers (Q6 role 2) — never the source of truth.
 const ChangeStreamName = "REFDATA"
 
-// ChangeSubjectWildcard is the stream's subject filter.
-const ChangeSubjectWildcard = Region + ".refdata." + Tenant + ".*.changed"
+// Domain identifies this service in the shared evt.<tenant>.<domain>...
+// subject taxonomy — a fixed literal, not a wildcard.
+const Domain = "refdata"
 
-// ChangeSubject builds the subject a single type's change events publish to.
-func ChangeSubject(typeKey string) string {
-	return fmt.Sprintf("%s.refdata.%s.%s.changed", Region, Tenant, typeKey)
+// ChangeSubjectWildcard is the stream's subject filter, any context/type.
+//
+// The leading token is the fixed literal "evt", not a wildcard — a stream
+// subject filter whose first token is an unbounded wildcard (e.g.
+// "*.refdata.>") can textually overlap "$SYS.>"/"$JS.API.>" (a bare "*"
+// accepts "$SYS" as its value), and JetStream refuses to create such a
+// stream without NoAck — which would break the synchronous Publish/PubAck
+// flow the projector relies on. Putting "evt" first avoids the overlap
+// while leaving context/typeKey equally filterable.
+const ChangeSubjectWildcard = "evt.*." + Domain + ".*.changed"
+
+// ChangeSubject builds the subject a single type's change events publish to:
+// evt.{context}.refdata.{typeKey}.changed.
+func ChangeSubject(itemContext, typeKey string) string {
+	return fmt.Sprintf("evt.%s.%s.%s.changed", itemContext, Domain, typeKey)
 }
 
 // Entry is the KV cache's assembled read view of one item — the item plus
@@ -105,7 +111,7 @@ func (p *Projector) NotifyItemChanged(ctx context.Context, itemContext, typeKey,
 	if err != nil {
 		return err
 	}
-	return p.pub.Publish(ctx, ChangeSubject(typeKey), event)
+	return p.pub.Publish(ctx, ChangeSubject(itemContext, typeKey), event)
 }
 
 // Backfill rebuilds an item's cache entry at the type's CURRENT version,

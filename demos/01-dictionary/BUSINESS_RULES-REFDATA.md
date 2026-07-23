@@ -11,6 +11,35 @@ and are enforced by the command handlers in
 `backend/refdata-service/refdata/internal/application/commands/`. BR-D07 (AI-translation
 review gate) is parked — not in this pass's scope.
 
+Phase 12 is governed by the [Refdata Versioning, Tenancy & Template Inheritance design](../../.claude/plans/Refdata-Versioning-Tenancy-Design.md), including its [resolved open questions](../../.claude/plans/Refdata-Versioning-Tenancy-Design.md#11-open-questions--resolved-2026-07-22).
+
+### BR-V01–BR-V08 — Corpus versioning, tenancy, and template inheritance
+
+- **BR-V01:** A context has at most one draft corpus version at a time.
+- **BR-V02:** Only a draft can be published.
+- **BR-V03:** Publishing atomically commits the version status and its complete snapshot, or neither.
+- **BR-V04:** A rollback target must be a previously published version.
+- **BR-V05:** Rollback creates a new, forward-only published version; it never mutates history backwards.
+- **BR-V06:** A child cannot delete an inherited item; it may override it or leave it inherited.
+- **BR-V07:** A child override wins for that item for itself and all descendants, breaking parent propagation.
+- **BR-V08:** Publishing a parent never automatically creates, updates, or publishes descendant corpora.
+
+The domain guards are in `internal/domain/corpus.go` and `internal/domain/inheritance.go`; the
+database's partial unique index is the concurrent-write backstop for BR-V01. The Ginkgo context
+`Corpus Versioning and Template Inheritance Rules` covers the lifecycle and flattening rules in
+isolation (pure domain, no database); `corpus_repository_integration_test.go`'s Ginkgo context
+`Corpus and context repositories (Postgres integration)` covers the same rules as enforced by
+`internal/postgres/corpus_repository.go` and `context_repository.go` against a real Postgres —
+this is where BR-V06/V07 (inheritance across a real ancestor context, not just the same
+context's own prior version) and BR-V04/V05's audit fields are actually exercised end to end.
+
+**Localization inheritance** (resolved open question 3 in the design doc): a localization
+flows with its item down the inheritance chain. A context can override one locale of an item
+it did not itself author via `PutDraftLocalization` / `PUT .../draft/localizations` — a
+deliberate second write path alongside the working-table `SetLocalization`, because the
+working table's FK requires the item to exist in the same context's own `dictionary_items`,
+which structurally cannot express "override just this locale of an inherited item."
+
 ### BR-D01 — Item codes are unique per `{type, context}`
 Registering an item whose code already exists for the same dictionary type and context is rejected. The same code is allowed again in a *different* context.
 
@@ -204,3 +233,13 @@ state changes, and it has no Ginkgo coverage; it's exercised via the Vue compone
 - **Test:** `frontend/seafreight-app/src/App.spec.js` — "BR-D21: clicking a docked ship's port in Fleet
   Management jumps to Port Management scoped to that port"; "BR-D21: a ship at sea has no
   clickable port link"
+
+---
+
+### BR-D22 — TypeKey, Code, and Context must be valid subject/KV-key tokens
+
+`typeKey` and `context` are threaded into a NATS subject (`evt.{context}.refdata.{typeKey}.changed`) and KV bucket name (`refdata-{context}`) — both must match the subject-token charset `^[A-Za-z0-9_-]+$`. `code` only ever becomes part of a KV key (`{typeKey}.{code}`), never a subject, so it uses the more permissive KV-key-legal charset already documented in `CLAUDE.md`: `^[-/_=.a-zA-Z0-9]+$` (`:` is illegal per NATS KV key rules). All three reject the empty string.
+
+- **Error:** `ErrInvalidToken` (typeKey, context) / `ErrInvalidKVKeyComponent` (code)
+- **Enforced in:** `TypeHandler.RegisterType()` (typeKey), `ItemHandler.RegisterItem()` (code), `ContextHandler.Register()` (context)
+- **Test:** `Dictionary Type Domain Rules / BR-D22` (typeKey), `Dictionary Item Domain Rules / BR-D22` (code), `Context Domain Rules / BR-D22` (context)

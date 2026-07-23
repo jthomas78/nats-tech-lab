@@ -364,7 +364,12 @@ change-log table needed since both versions' full data is retained.
 ```
 POST   /api/refdata/admin/contexts              -- register a context (with optional parent)
 GET    /api/refdata/admin/contexts              -- list all contexts + hierarchy
-GET    /api/refdata/admin/contexts/{context}    -- get context details + ancestors
+GET    /api/refdata/admin/contexts/{context}/detail -- get context details + ancestors + descendants
+       (not a bare .../contexts/{context} — that 3-segment shape is
+       structurally ambiguous against the pre-existing
+       {context}/{type}/completeness and .../cache-status routes under
+       Go's net/http ServeMux; discovered when this phase's routes were
+       first exercised against a real server, 2026-07-22)
 ```
 
 ### Corpus Versioning
@@ -382,9 +387,17 @@ GET    /api/refdata/admin/corpus/{context}/diff/{v1}/{v2}   -- diff two versions
 ### Versioned Read (Consumer-Facing)
 ```
 GET    /api/refdata/v/{version}/{context}/{type}/{code}    -- read item at version
-GET    /api/refdata/v/{version}/{context}/{type}           -- list type at version
+GET    /api/refdata/v/{version}/{context}/{type}/items     -- list type at version
 GET    /api/refdata/v/latest/{context}/{type}/{code}       -- alias for current published
+GET    /api/refdata/v/latest/{context}/{type}/items        -- list type at latest published
 ```
+> Implementation note (2026-07-22): the "list type" routes carry a trailing
+> `/items` rather than the bare shape sketched above — a bare
+> `/v/{version}/{context}/{type}` is structurally ambiguous against the
+> pre-existing `{context}/{type}/{code}/localizations` and `.../references`
+> routes under Go's `net/http` ServeMux (same class of conflict as the
+> context-detail route below), caught only once these routes were exercised
+> against a real server rather than just `go build`.
 
 ### Existing Endpoints (Unchanged)
 The current unversioned endpoints (`/api/refdata/{context}/{type}/{code}`) continue to work,

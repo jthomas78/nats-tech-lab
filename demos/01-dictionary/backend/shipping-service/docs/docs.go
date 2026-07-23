@@ -275,6 +275,32 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/jetstream/streams": {
+            "get": {
+                "description": "Names of every event stream registered on the NATS server (not just SHIPPING) — lets the frontend's stream picker reflect what's actually provisioned. KV_* streams are NATS' internal storage for KV buckets, not event streams a client watches for messages, so they're excluded.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "streams"
+                ],
+                "summary": "List registered streams",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/rest.metaValuesResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/jetstream/watch": {
             "get": {
                 "description": "Server-Sent Events stream of raw emea.events.acme.\u003e messages from SHIPPING using DeliverNew policy — only messages published after connection. Each event is a JSON-encoded jsEvent object.",
@@ -302,6 +328,73 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Unknown stream",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/kv/buckets": {
+            "get": {
+                "description": "Every Key-Value bucket registered on the NATS server, with run-time status (value count, history depth, size, TTL, backing store). Backs the KV inspector's bucket rail — the raw NATS KV stores this lab provisions (dict-a/dict-b/container/meta per fleet context, plus refdata-service's cache).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "kv"
+                ],
+                "summary": "List KV buckets",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/rest.kvBucketsResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/kv/buckets/{bucket}/watch": {
+            "get": {
+                "description": "Server-Sent Events stream for one KV bucket by full name. Replays the bucket's current entries first (Live=false), sends an INIT_DONE control event, then streams live changes (Live=true). One connection drives both the contents snapshot and the live update feed — the same WatchAll semantics the NATS KV watch model is built on.",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "kv"
+                ],
+                "summary": "Watch a KV bucket (SSE)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "KV bucket name (e.g. dict-a-global, refdata-emea-acme)",
+                        "name": "bucket",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "SSE stream — data: {kvChange JSON}",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Unknown bucket",
                         "schema": {
                             "$ref": "#/definitions/rest.errorResponse"
                         }
@@ -777,6 +870,52 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/ships/correct-id": {
+            "post": {
+                "description": "Renames a registered ship's natural key (BR-022: newShipID must be valid and not currently in use by another ship in the context), preserving its surrogate identity. Publishes a ship.corrected event.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ships"
+                ],
+                "summary": "Correct a ship's shipID",
+                "parameters": [
+                    {
+                        "description": "context, shipID, newShipID",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/commands.ShipCorrectionInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/rest.shipResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Domain rule violation",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/ships/depart": {
             "post": {
                 "description": "Ship departs from a port. Validates that the ship is currently docked at the named port, then publishes a ship.departed event.",
@@ -793,6 +932,52 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "description": "context, shipID, port",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/commands.ShipInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/rest.shipResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Domain rule violation",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ships/register": {
+            "post": {
+                "description": "Mints a ship's surrogate identity explicitly (BR-021: a shipID can only be registered once). Optional — ArrivePort mints one implicitly on a ship's first arrival. Publishes a ship.registered event.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ships"
+                ],
+                "summary": "Register ship",
+                "parameters": [
+                    {
+                        "description": "context, shipID, shipName",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -966,6 +1151,20 @@ const docTemplate = `{
                 }
             }
         },
+        "commands.ShipCorrectionInput": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "type": "string"
+                },
+                "newShipID": {
+                    "type": "string"
+                },
+                "shipID": {
+                    "type": "string"
+                }
+            }
+        },
         "commands.ShipInput": {
             "type": "object",
             "properties": {
@@ -980,7 +1179,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "shipName": {
-                    "description": "used on first Arrive",
+                    "description": "used on Register / first Arrive",
                     "type": "string"
                 }
             }
@@ -1067,7 +1266,12 @@ const docTemplate = `{
                     "description": "\"\" = at sea",
                     "type": "string"
                 },
+                "id": {
+                    "description": "surrogate key (UUID) — aggregate identity",
+                    "type": "string"
+                },
                 "shipID": {
+                    "description": "mutable natural key (call-sign / fleet code)",
                     "type": "string"
                 },
                 "shipName": {
@@ -1145,6 +1349,10 @@ const docTemplate = `{
                     "description": "\"\" = at sea",
                     "type": "string"
                 },
+                "id": {
+                    "description": "surrogate key (UUID) — aggregate identity",
+                    "type": "string"
+                },
                 "manifest": {
                     "type": "array",
                     "items": {
@@ -1152,6 +1360,7 @@ const docTemplate = `{
                     }
                 },
                 "shipID": {
+                    "description": "mutable natural key (call-sign / fleet code)",
                     "type": "string"
                 },
                 "shipName": {
@@ -1194,6 +1403,40 @@ const docTemplate = `{
             "properties": {
                 "error": {
                     "type": "string"
+                }
+            }
+        },
+        "rest.kvBucket": {
+            "type": "object",
+            "properties": {
+                "backingStore": {
+                    "type": "string"
+                },
+                "bucket": {
+                    "type": "string"
+                },
+                "bytes": {
+                    "type": "integer"
+                },
+                "history": {
+                    "type": "integer"
+                },
+                "ttlSeconds": {
+                    "type": "integer"
+                },
+                "values": {
+                    "type": "integer"
+                }
+            }
+        },
+        "rest.kvBucketsResponse": {
+            "type": "object",
+            "properties": {
+                "buckets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/rest.kvBucket"
+                    }
                 }
             }
         },

@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -86,4 +87,32 @@ func (s *Store) Watch(ctx context.Context, kvContext string) (jetstream.KeyWatch
 		return nil, err
 	}
 	return kv.WatchAll(ctx)
+}
+
+// versionedBucketName is the corpus-versioned bucket naming convention —
+// {prefix}-{context}-v{version} — distinct from the unversioned
+// {prefix}-{context} bucket the plain Q5 cache (Bucket/Put/Get above) uses.
+func (s *Store) versionedBucketName(kvContext string, version int) string {
+	return fmt.Sprintf("%s-%s-v%d", s.prefix, kvContext, version)
+}
+
+// VersionedBucket creates (or updates the TTL of) the KV bucket for one
+// published corpus version. Not cached in s.buckets the way Bucket is —
+// versioned buckets are written rarely (on publish/rollback/supersede), not
+// on every request, so the map's memoization isn't worth the bookkeeping of
+// evicting entries for versions nobody reads anymore.
+func (s *Store) VersionedBucket(ctx context.Context, kvContext string, version int, ttl time.Duration) (jetstream.KeyValue, error) {
+	name := s.versionedBucketName(kvContext, version)
+	kv, err := s.js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: name, TTL: ttl})
+	if err != nil {
+		return nil, fmt.Errorf("create versioned kv bucket %s: %w", name, err)
+	}
+	return kv, nil
+}
+
+// VersionedBucketHandle gets a handle to an existing versioned bucket
+// without creating it or touching its TTL config — the read path's entry
+// point, so a plain GET can never accidentally reconfigure the bucket.
+func (s *Store) VersionedBucketHandle(ctx context.Context, kvContext string, version int) (jetstream.KeyValue, error) {
+	return s.js.KeyValue(ctx, s.versionedBucketName(kvContext, version))
 }

@@ -24,15 +24,24 @@ var _ = Describe("Seed", func() {
 		refs := newFakeReferenceRepo()
 		locs = newFakeLocalizationRepo()
 		locales := newFakeLocaleRepo()
+		contexts := newFakeContextRepo()
 
 		h = &refdata.Handlers{
 			Types:         commands.NewTypeHandler(newFakeTypeRepo()),
 			Items:         commands.NewItemHandler(items, refs, nil),
 			References:    commands.NewReferenceHandler(items, refs, nil),
 			Localizations: commands.NewLocalizationHandler(items, locs, locales, nil),
+			Contexts:      commands.NewContextHandler(contexts),
 		}
 
 		Expect(refdata.Seed(ctx, h)).To(Succeed())
+	})
+
+	It("registers the original seed context as a root context", func() {
+		context, err := h.Contexts.Get(ctx, refdata.DefaultContext)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(context.Parent).To(BeEmpty())
+		Expect(context.Name).To(Equal("EMEA Acme"))
 	})
 
 	It("registers en as the default locale and es/af-za as secondary locales for the seed context", func() {

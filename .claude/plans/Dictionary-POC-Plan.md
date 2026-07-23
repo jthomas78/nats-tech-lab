@@ -204,7 +204,7 @@ or checklist detail for a specific completed phase).
 
 **Verification status (2026-07-09):** full compose stack runs end to end (5 services), Swagger UI live, both frontend `/api` proxies working, live smoke test of full container lifecycle passing, `go build`/`go vet`/`ginkgo ./...` (22/22 at that point) and both frontend builds green. Full detail in the archive.
 
-### Phase 12 (PROPOSED — awaiting approval) — Refdata Versioning, Tenancy & Template Inheritance
+### Phase 12 (DONE, with known gaps noted below) — Refdata Versioning, Tenancy & Template Inheritance
 
 > **Full detail in separate design document: [Refdata-Versioning-Tenancy-Design.md](Refdata-Versioning-Tenancy-Design.md)** — sub-phases 12.1–12.7.
 
@@ -234,19 +234,103 @@ re-materialization on demand via rewrite-on-read).
 
 #### Sub-phases
 
-- [ ] **12.1 — Context Hierarchy**: `contexts` table, REST endpoints, hierarchy traversal
-- [ ] **12.2 — Corpus Versioning & Draft/Publish Lifecycle**: corpus snapshot tables, draft
-      editing, publish, version listing, diff
-- [ ] **12.3 — Rollback with Audit**: first-class rollback creating forward versions,
-      audit fields
-- [ ] **12.4 — Template Inheritance Resolution**: multi-level flattening algorithm, override
-      detection, propagation rules
-- [ ] **12.5 — Hybrid KV Materialization & Version Pinning**: versioned KV buckets, eager
-      materialization, TTL, lazy re-materialization, versioned read endpoints
-- [ ] **12.6 — Frontend (Versioning Admin UI)**: context hierarchy viewer, corpus version
-      management, publish/rollback, diff viewer
-- [ ] **12.7 — Consumer Integration & Documentation**: version-aware `refdataconsumer`,
-      architecture docs update
+- [x] **12.1 — Context Hierarchy**: `contexts` table, REST endpoints (register/list/get with
+      ancestors+descendants), recursive-CTE hierarchy traversal — now integration-tested
+      against real Postgres (3+ level chain)
+- [x] **12.2 — Corpus Versioning & Draft/Publish Lifecycle**: corpus snapshot tables, draft
+      create/edit/publish, version listing, per-version contents (`GET .../draft`,
+      `GET .../versions/{v}`), and a diff endpoint (`GET .../diff/{v1}/{v2}`, plain
+      added/removed/changed key list per the resolved audit-scope decision)
+- [x] **12.3 — Rollback with Audit**: first-class rollback creating forward versions,
+      audit fields (`rolled_back_at`, `rolled_back_by`) — integration-tested including
+      rollback to a non-immediately-preceding version
+- [x] **12.4 — Template Inheritance Resolution**: `CreateDraft` now actually resolves
+      inheritance from each ancestor context's latest *published* corpus (not just the
+      same context's own prior version, which is what the first implementation pass did) —
+      `domain.FlattenCorpus` is wired into the repository, not just unit-tested in isolation.
+      Localization inheritance (resolved Q3) is implemented too: `corpus_localizations` flows
+      with the item, and a new `PutDraftLocalization` (+ `PUT .../draft/localizations`) lets a
+      child override one locale of an inherited item without overriding the item — the
+      working-table `SetLocalization` path structurally can't do this (its FK requires the
+      item to live in the same context's own `dictionary_items`). Integration-tested for a
+      2-level chain including override survival across a later re-draft.
+- [x] **12.5 — Hybrid KV Materialization & Version Pinning**: versioned KV buckets
+      (`refdata-{context}-v{N}`), eager materialization on publish/rollback
+      (`kvcache.VersionNotifier`), bucket-level TTL for superseded versions
+      (`kvcache.SupersededVersionTTL` = 30d), rewrite-on-read on every versioned GET
+      (`kvcache.VersionReader`), and the versioned read REST surface
+      (`GET /api/refdata/v/{version}/{context}/{type}[/{code}]`,
+      `GET /api/refdata/v/latest/...`). Integration-tested against a real embedded
+      NATS/JetStream server (TTL and rewrite-on-read are genuine server behavior, not
+      something a fake can stand in for) in `kvcache_versioned_integration_test.go`.
+- [x] **12.6 — Frontend (Versioning Admin UI)**: new "Versioning" nav entry in `frontend/refdata`
+      alongside the existing Localization view, `VersioningPanel.vue` with three tabs — Contexts
+      (tree viewer + register-new-context dialog), Corpus Versions (create draft/publish/rollback,
+      version table with parent/base-context-version columns), Diff (pick two versions, see
+      added/removed/changed keys). New `stores/versioning.js` Pinia store. Verified end-to-end in
+      the browser against the live docker stack: created a draft (200 items/600 localizations from
+      the seed data), published it, made a working-table edit, drafted+published v2/v3, ran a real
+      diff (correctly showed `currency/USD: changed`), and rolled back to v1 (v4 published with
+      v1's content, v3 flipped to `rolled-back`, v1/v2 stayed `published` — versions coexisting
+      indefinitely, confirmed via a direct `GET /api/refdata/v/4/...` hit showing v1's data).
+- [x] **12.7 — Consumer Integration & Documentation**: `refdataconsumer.LookupAtVersion` reads
+      `refdata-{context}-v{N}` directly (KV-first, versioned-REST fallback), independent of the
+      existing unversioned `Lookup`; `ARCHITECTURE-DICTIONARY.md` documents the versioning model
+      end to end. Unit-tested (embedded NATS) in `consumer_test.go`.
+
+> **Correctness note (2026-07-22):** the first implementation pass (by Codex) had
+> `domain.FlattenCorpus` written and unit-tested but never actually called from
+> `CreateDraft` — a new draft only ever copied the *same context's* prior version, so no
+> context ever really inherited from a different parent context. This has been fixed and is
+> now covered by Postgres-backed integration tests in `corpus_repository_integration_test.go`
+> (context_repository.go and corpus_repository.go had zero test coverage beyond pure
+> in-memory domain checks before this pass).
+
+> **Known gaps (2026-07-22), left for a later phase:** KV bucket cleanup once a version has
+> no pinned consumers is deferred to a future pin registry (resolved open question 4);
+> `corpus_references` exists in the schema but nothing populates or flattens typed
+> references the way items and localizations are; and two Go `net/http` ServeMux route
+> conflicts were found and fixed only once these routes were exercised against a real
+> server rather than just `go build` — see `ARCHITECTURE-DICTIONARY.md`'s "Corpus
+> Versioning, Tenancy & Template Inheritance" section and the design doc's "Versioned Read"
+> note for detail; worth remembering that `go build`/`go vet` cannot catch this class of bug.
+
+- [x] **12.8 — Subject Taxonomy: Region/Tenant → Context (both services)**: an audit of NATS
+      subject naming against docs.nats.io/Synadia guidance found that both services built every
+      subject from hardcoded `Region = "emea"` / `Tenant = "acme"` Go constants, while the real
+      per-request tenant identity (`Context`) was carried only in the event payload
+      (`event.Context`), never the subject — so `ShipHandler.hydrate()`'s replay filter and
+      `ContainerHandler.hydratePair`/`hydrateByNaturalKey` never scoped by context at all: two
+      tenants sharing a `shipID` or container natural key would silently merge event histories.
+      Fixed by threading `Context`/`itemContext` into every subject and replay filter. Also added
+      a subject/KV-key token format validator (BR-020, BR-D22), since `ShipID`, `TypeKey`, `Code`,
+      and `Context` all flowed from REST input into a subject or KV key with no validation.
+      Final subject shapes (after a same-day follow-up revision, see below): shipping
+      `evt.{context}.shipping.{ship|container}.{id}.{event}`; refdata
+      `evt.{context}.refdata.{typeKey}.changed`. **Note:** the literal category token (`evt`) is
+      the *first* token, context second — not context-first as originally scoped — because
+      JetStream refuses to create a stream whose subject filter has an unbounded wildcard in the
+      leading position (`*.events.>` can textually overlap `$SYS.>`/`$JS.API.>`, and the server
+      requires `NoAck: true` to allow it, which would break the synchronous `Publish`/PubAck flow
+      every command handler relies on) — discovered via a real stream-creation failure during
+      implementation, not anticipated in the original design pass. Region is dropped entirely (a
+      future deployment-instance concern, not part of this lab's subject taxonomy); no
+      ancestor-wildcard subject design — the leaf `Context` value is used verbatim, same string as
+      the KV bucket-name convention. Requires a local dev data reset
+      (`docker compose down -v && up --build` — old-shape stream data is disposable lab data, no
+      migration/dual-read compatibility). NATS Accounts-based hard tenant isolation remains out of
+      scope (Phase 18).
+
+      **Same-day follow-up revision:** the shape above (`events.{context}.../refdata.{context}...`)
+      shipped and was live-verified, then revised once more per a direct user request to unify both
+      services under one shared prefix and add an explicit per-service partition: `Domain` constants
+      (`"shipping"`, `"refdata"`) were added to each service's domain package, and every subject
+      literal/wildcard/parser was updated so the category marker is `evt` (not `events`/`refdata`)
+      with the service name as its own token — e.g. `evt.{context}.shipping.ship.{shipID}.{event}`,
+      `evt.{context}.refdata.{typeKey}.changed`. A "reduce subject cardinality by moving entity id to
+      a header" variant was discussed and explicitly reverted — entity id stays a subject token in
+      every case, so `ShipHandler.hydrate()` keeps its targeted `FilterSubject`-based single-ship
+      replay (no regression to a full-stream-replay-and-filter-by-header pattern).
 
 #### Business Rules (New)
 
@@ -260,9 +344,42 @@ re-materialization on demand via rewrite-on-read).
 | BR-V06 | A child context cannot delete an inherited item |
 | BR-V07 | An override breaks propagation for that item to all descendants |
 | BR-V08 | Publishing a parent does not automatically publish descendants |
+| BR-020 (shipping) | shipID/context must be a valid subject/KV-bucket token |
+| BR-D22 (refdata) | typeKey/code/context must be a valid subject/KV-key token |
 
 See [Refdata-Versioning-Tenancy-Design.md](Refdata-Versioning-Tenancy-Design.md) for the
 full data model, API surface, migration strategy, and open questions.
+
+- [x] **12.9 — Ship Surrogate UUID Identity (mirrors Container's pattern)**: reverses an
+      earlier decision (documented in `ARCHITECTURE.md`'s former "Why `Container` and not
+      `Ship`" note) once it was clarified that `shipID` behaves like a name/call-sign/
+      internal-fleet-code — mutable, reassignable — the same pressure that already justified
+      `Container`'s surrogate key. `Ship`'s aggregate identity is now an immutable UUID
+      (`ID`), minted by `RegisterShip()` (new, explicit) or implicitly by `ArrivePort()` on
+      first arrival (optional pre-registration); `shipID` becomes a mutable natural key,
+      renameable via the new `CorrectShipID()` command. Because `shipID` is mutable, natural-
+      key resolution (`hydrateByNaturalKey()`) can no longer target one ship via `FilterSubject`
+      the way Container's dedup check does — it folds every ship's history in a context and
+      matches by *current* name (shared via `foldAllShips()`/`resolveShipByNaturalKey()` with
+      `ContainerHandler.hydratePair`, which had the identical ship-resolution dependency on the
+      old shipID-carrying subject). Postgres's `ships` table moves its conflict target to
+      `(context, id)` (mirrors `containers`); the KV read model stays keyed by the natural
+      `ship.{shipID}` for query convenience, so a correction is the one case requiring an
+      explicit KV rekey (delete old key, put new). Also fixed, found via test failure during
+      this work: Shape C's fleet-manifest join compared a container's `OnShipID` (always a
+      natural key) against the ship's surrogate map key — silently broken by this change until
+      corrected to compare against the ship's current `shipID`. Known limitation, verified live
+      and documented not fixed: a container's `OnShipID` snapshots the ship's name at load time
+      and doesn't track a later correction — renaming a ship mid-carriage leaves the container
+      stuck (unload fails with both the new name, BR-013, and the stale old name, BR-012, since
+      resolution is by current name); only unblocked by correcting back to the exact
+      pre-correction name first. New rules: BR-021 (a shipID can only be
+      registered once), BR-022 (a shipID can be corrected to another valid, unused shipID).
+      Requires the same local dev-data reset as 12.8 (old ship events/rows use the pre-surrogate
+      identity scheme).
+
+| BR-021 (shipping) | A shipID can only be registered once |
+| BR-022 (shipping) | A shipID can be corrected to another valid, unused shipID |
 
 ---
 
@@ -367,8 +484,8 @@ After the split, BR-008 (container destPort vs ship's current port) and BR-012 (
 
 | Stream | Subject binding | Bounded context |
 |---|---|---|
-| `SHIPPING` | `{region}.events.{tenant}.ship.>` | Ship movements |
-| `TERMINAL` | `{region}.events.{tenant}.container.>` | Container lifecycle |
+| `SHIPPING` | `evt.{tenant}.shipping.ship.>` | Ship movements |
+| `TERMINAL` | `evt.{tenant}.shipping.container.>` | Container lifecycle |
 
 #### Solution options to implement and document
 
@@ -380,7 +497,7 @@ The demo implements **option 1** as the default and documents the trade-offs of 
 
 #### Checklist
 
-- [ ] `internal/jstream/stream.go` — add the `TERMINAL` stream binding `{region}.events.{tenant}.container.>`; `SHIPPING` keeps only `…ship.>` (subjects themselves unchanged post-Phase 9)
+- [ ] `internal/jstream/stream.go` — add the `TERMINAL` stream binding `evt.{tenant}.shipping.container.>`; `SHIPPING` keeps only `…ship.>` (subjects themselves unchanged post-Phase 12.8)
 - [ ] `domain/events.go` — route container subject builders / stream-name references to `TERMINAL`
 - [ ] `application/commands/container.go` — hydrate containers from `TERMINAL`; replace the in-replay ship check with the **read-model guard** (option 1) for BR-008 / BR-012
 - [ ] `eventhandler/` — container projector consumes from `TERMINAL`; ship projector unchanged on `SHIPPING`

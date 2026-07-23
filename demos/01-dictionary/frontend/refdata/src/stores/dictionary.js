@@ -116,6 +116,10 @@ export const useDictionaryStore = defineStore('dictionary', {
       this.activeView = 'localization'
     },
 
+    showVersioningView() {
+      this.activeView = 'versioning'
+    },
+
     async showCategoryView(categoryKey) {
       this.activeView = 'domain-category'
       this.selectedCategory = categoryKey

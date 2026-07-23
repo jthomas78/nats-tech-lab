@@ -23,8 +23,17 @@ type Publisher interface {
 type ShipInput struct {
 	Context  string `json:"context"` // fleet / KV-bucket qualifier
 	ShipID   string `json:"shipID"`
-	ShipName string `json:"shipName,omitempty"` // used on first Arrive
+	ShipName string `json:"shipName,omitempty"` // used on Register / first Arrive
 	Port     string `json:"port,omitempty"`
+}
+
+// ShipCorrectionInput carries the caller-supplied fields for a shipID
+// correction (BR-022) — renaming a ship's natural key without affecting its
+// surrogate identity.
+type ShipCorrectionInput struct {
+	Context   string `json:"context"`
+	ShipID    string `json:"shipID"`
+	NewShipID string `json:"newShipID"`
 }
 
 // ShipHandler executes the ship movement commands. It holds both the publish
@@ -40,9 +49,17 @@ func NewShipHandler(pub Publisher, js jetstream.JetStream, ports domain.PortRepo
 }
 
 func (h *ShipHandler) ArrivePort(ctx context.Context, in ShipInput) (domain.ShipState, error) {
-	agg, err := h.hydrate(ctx, in.ShipID)
+	if err := domain.ValidateContext(in.Context); err != nil {
+		return domain.ShipState{}, err
+	}
+	agg, err := h.hydrateByNaturalKey(ctx, in.Context, in.ShipID)
 	if err != nil {
 		return domain.ShipState{}, err
+	}
+	if !agg.IsRegistered() {
+		if err := h.register(ctx, agg, in.Context, in.ShipName); err != nil {
+			return domain.ShipState{}, err
+		}
 	}
 	portKnown, err := h.ports.Exists(ctx, in.Context, in.Port)
 	if err != nil {
@@ -53,7 +70,7 @@ func (h *ShipHandler) ArrivePort(ctx context.Context, in ShipInput) (domain.Ship
 		return domain.ShipState{}, err
 	}
 	event.Context = in.Context
-	subject := domain.ShipSubject(domain.Region, domain.Tenant, in.ShipID, domain.ShipArrivedEvent)
+	subject := domain.ShipSubject(in.Context, agg.ID, domain.ShipArrivedEvent)
 	if err := h.publish(ctx, subject, event); err != nil {
 		return domain.ShipState{}, err
 	}
@@ -62,7 +79,10 @@ func (h *ShipHandler) ArrivePort(ctx context.Context, in ShipInput) (domain.Ship
 }
 
 func (h *ShipHandler) DepartPort(ctx context.Context, in ShipInput) (domain.ShipState, error) {
-	agg, err := h.hydrate(ctx, in.ShipID)
+	if err := domain.ValidateContext(in.Context); err != nil {
+		return domain.ShipState{}, err
+	}
+	agg, err := h.hydrateByNaturalKey(ctx, in.Context, in.ShipID)
 	if err != nil {
 		return domain.ShipState{}, err
 	}
@@ -71,7 +91,7 @@ func (h *ShipHandler) DepartPort(ctx context.Context, in ShipInput) (domain.Ship
 		return domain.ShipState{}, err
 	}
 	event.Context = in.Context
-	subject := domain.ShipSubject(domain.Region, domain.Tenant, in.ShipID, domain.ShipDepartedEvent)
+	subject := domain.ShipSubject(in.Context, agg.ID, domain.ShipDepartedEvent)
 	if err := h.publish(ctx, subject, event); err != nil {
 		return domain.ShipState{}, err
 	}
@@ -79,29 +99,159 @@ func (h *ShipHandler) DepartPort(ctx context.Context, in ShipInput) (domain.Ship
 	return agg.State(in.Context), nil
 }
 
-// hydrate replays the stream and folds the ship events for shipID into a
-// fresh aggregate. If the stream is empty the aggregate is returned blank.
-func (h *ShipHandler) hydrate(ctx context.Context, shipID string) (*domain.ShipAggregate, error) {
-	agg := &domain.ShipAggregate{ShipID: shipID}
+// RegisterShip mints a ship's surrogate identity explicitly (BR-021). Also
+// invoked implicitly by ArrivePort on a ship's first arrival — pre-registering
+// is optional, not a precondition.
+func (h *ShipHandler) RegisterShip(ctx context.Context, in ShipInput) (domain.ShipState, error) {
+	if err := domain.ValidateContext(in.Context); err != nil {
+		return domain.ShipState{}, err
+	}
+	agg, err := h.hydrateByNaturalKey(ctx, in.Context, in.ShipID)
+	if err != nil {
+		return domain.ShipState{}, err
+	}
+	if err := h.register(ctx, agg, in.Context, in.ShipName); err != nil {
+		return domain.ShipState{}, err
+	}
+	return agg.State(in.Context), nil
+}
 
+// register mints a fresh surrogate id for an unregistered aggregate,
+// publishes the .registered event, and folds it back in. Shared by
+// RegisterShip and ArrivePort's implicit-registration path.
+func (h *ShipHandler) register(ctx context.Context, agg *domain.ShipAggregate, shipContext, shipName string) error {
+	agg.ID = newSurrogateID()
+	event, err := agg.Register(shipName)
+	if err != nil {
+		return err
+	}
+	event.Context = shipContext
+	subject := domain.ShipSubject(shipContext, agg.ID, domain.ShipRegisteredEvent)
+	if err := h.publish(ctx, subject, event); err != nil {
+		return err
+	}
+	agg.Apply(subject, event)
+	return nil
+}
+
+// CorrectShipID renames a registered ship's natural key (BR-022), preserving
+// its surrogate identity.
+func (h *ShipHandler) CorrectShipID(ctx context.Context, in ShipCorrectionInput) (domain.ShipState, error) {
+	if err := domain.ValidateContext(in.Context); err != nil {
+		return domain.ShipState{}, err
+	}
+	if err := domain.ValidateShipID(in.ShipID); err != nil {
+		return domain.ShipState{}, err
+	}
+	if err := domain.ValidateShipID(in.NewShipID); err != nil {
+		return domain.ShipState{}, err
+	}
+	if in.ShipID == in.NewShipID {
+		return domain.ShipState{}, fmt.Errorf("newShipID must differ from the current shipID")
+	}
+	ships, err := h.foldAllShips(ctx, in.Context)
+	if err != nil {
+		return domain.ShipState{}, err
+	}
+	target := resolveShipByNaturalKey(ships, in.ShipID)
+	if !target.IsRegistered() {
+		return domain.ShipState{}, domain.ErrNotFound
+	}
+	if collision := resolveShipByNaturalKey(ships, in.NewShipID); collision.IsRegistered() {
+		return domain.ShipState{}, domain.ErrShipIDInUse
+	}
+	event, err := target.CorrectShipID(in.NewShipID)
+	if err != nil {
+		return domain.ShipState{}, err
+	}
+	event.Context = in.Context
+	subject := domain.ShipSubject(in.Context, target.ID, domain.ShipIDCorrectedEvent)
+	if err := h.publish(ctx, subject, event); err != nil {
+		return domain.ShipState{}, err
+	}
+	target.Apply(subject, event)
+	return target.State(in.Context), nil
+}
+
+// hydrateByNaturalKey resolves the ship whose CURRENT shipID matches shipID
+// by folding every ship's history in itemContext. A single-ship
+// FilterSubject replay (as used for Container) isn't enough here: ShipID is
+// mutable (BR-022), so the requested name might belong to a different
+// surrogate than it did historically.
+func (h *ShipHandler) hydrateByNaturalKey(ctx context.Context, itemContext, shipID string) (*domain.ShipAggregate, error) {
+	if err := domain.ValidateShipID(shipID); err != nil {
+		return nil, err
+	}
+	ships, err := h.foldAllShips(ctx, itemContext)
+	if err != nil {
+		return nil, err
+	}
+	return resolveShipByNaturalKey(ships, shipID), nil
+}
+
+// foldAllShips replays every ship event in itemContext into a map keyed by
+// surrogate id. Shared by hydrateByNaturalKey and CorrectShipID, which needs
+// to resolve both the source shipID and a possible target-name collision
+// from the same replay.
+func (h *ShipHandler) foldAllShips(ctx context.Context, itemContext string) (map[string]*domain.ShipAggregate, error) {
+	ships := make(map[string]*domain.ShipAggregate)
 	replay := func(subject string, data []byte) {
 		if !isShipSubject(subject) {
 			return
 		}
 		var event domain.ShipEvent
-		if json.Unmarshal(data, &event) == nil {
-			agg.Apply(subject, event)
+		if json.Unmarshal(data, &event) == nil && event.Context == itemContext {
+			foldShipEvent(ships, subject, event)
 		}
 	}
-	if err := replayFiltered(ctx, h.js, domain.ShipInstanceSubject(domain.Region, domain.Tenant, shipID), replay); err != nil {
+	if err := replayFiltered(ctx, h.js, domain.ShipContextWildcard(itemContext), replay); err != nil {
 		return nil, err
 	}
-	return agg, nil
+	return ships, nil
+}
+
+// foldShipEvent applies one ship event into the aggregate keyed by its
+// subject's surrogate id, creating the aggregate on first sight. Shared with
+// ContainerHandler.hydratePair, which folds ship events for the same reason
+// (a ship's natural key is no longer the subject-carried identity).
+func foldShipEvent(ships map[string]*domain.ShipAggregate, subject string, event domain.ShipEvent) {
+	_, subjectID, _, ok := domain.SubjectDetails(subject)
+	if !ok {
+		return
+	}
+	agg, exists := ships[subjectID]
+	if !exists {
+		agg = &domain.ShipAggregate{}
+		ships[subjectID] = agg
+	}
+	agg.Apply(subject, event)
+}
+
+// resolveShipByNaturalKey returns the ship whose CURRENT (post-fold) ShipID
+// equals shipID. Unlike Container's natural key, a ship's ShipID is mutable
+// (CorrectShipID), so resolution can't lock onto the first matching
+// .registered event — it must compare each candidate's final folded state.
+// Returns a blank, unregistered aggregate if no match.
+func resolveShipByNaturalKey(ships map[string]*domain.ShipAggregate, shipID string) *domain.ShipAggregate {
+	for _, agg := range ships {
+		if agg.IsRegistered() && agg.ShipID == shipID {
+			return agg
+		}
+	}
+	return &domain.ShipAggregate{ShipID: shipID}
 }
 
 func isShipSubject(subject string) bool {
 	aggregate, event, ok := domain.SubjectTokens(subject)
-	return ok && aggregate == "ship" && (event == domain.ShipArrivedEvent || event == domain.ShipDepartedEvent)
+	if !ok || aggregate != "ship" {
+		return false
+	}
+	switch event {
+	case domain.ShipRegisteredEvent, domain.ShipArrivedEvent, domain.ShipDepartedEvent, domain.ShipIDCorrectedEvent:
+		return true
+	default:
+		return false
+	}
 }
 
 // replayFiltered folds an aggregate instance's history. Unlike a full-stream

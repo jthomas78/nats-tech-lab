@@ -12,40 +12,72 @@ import (
 // distributed-consistency problem.
 const (
 	StreamName = "SHIPPING"
-	Region     = "emea"
-	Tenant     = "acme"
+	// Domain identifies this service in the shared evt.<tenant>.<domain>...
+	// subject taxonomy — a fixed literal, not a wildcard.
+	Domain = "shipping"
 
+	ShipRegisteredEvent      = "registered"
 	ShipArrivedEvent         = "arrived"
 	ShipDepartedEvent        = "departed"
+	ShipIDCorrectedEvent     = "corrected"
 	ContainerRegisteredEvent = "registered"
 	ContainerLoadedEvent     = "loaded"
 	ContainerUnloadedEvent   = "unloaded"
 
-	// SubjectWildcard matches every event in the SHIPPING stream.
-	SubjectWildcard = Region + ".events." + Tenant + ".>"
-	// SubjectShipWildcard matches only ship movement events.
-	SubjectShipWildcard = Region + ".events." + Tenant + ".ship.>"
-	// SubjectContainerWildcard matches only container lifecycle events.
-	SubjectContainerWildcard = Region + ".events." + Tenant + ".container.>"
+	// SubjectWildcard matches every event in the SHIPPING stream, any context.
+	//
+	// The leading token is the fixed literal "evt", not a wildcard — a
+	// stream subject filter whose first token is an unbounded wildcard (e.g.
+	// "*.shipping.>") can textually overlap "$SYS.>"/"$JS.API.>" (a bare "*"
+	// accepts "$SYS" as its value), and JetStream refuses to create such a
+	// stream without NoAck — which would break the synchronous
+	// Publish/PubAck flow every command handler relies on. Putting "evt"
+	// first avoids the overlap while leaving context equally filterable
+	// (FilterSubject/account permissions match a wildcard token in any
+	// position, not just a leading prefix).
+	SubjectWildcard = "evt.*." + Domain + ".>"
+	// SubjectShipWildcard matches ship movement events for every context —
+	// Shape A/B/meta projectors are intentionally tenant-agnostic (they
+	// project every tenant into its own context-scoped KV bucket via
+	// event.Context, not via per-tenant subject filtering).
+	SubjectShipWildcard = "evt.*." + Domain + ".ship.>"
+	// SubjectContainerWildcard matches container lifecycle events for every context.
+	SubjectContainerWildcard = "evt.*." + Domain + ".container.>"
 )
 
-func ShipSubject(region, tenant, shipID, event string) string {
-	return strings.Join([]string{region, "events", tenant, "ship", shipID, event}, ".")
+// ShipSubject builds a ship-movement event subject:
+// evt.{context}.shipping.ship.{shipID}.{event}.
+func ShipSubject(context, shipID, event string) string {
+	return strings.Join([]string{"evt", context, Domain, "ship", shipID, event}, ".")
 }
 
-func ContainerSubject(region, tenant, id, event string) string {
-	return strings.Join([]string{region, "events", tenant, "container", id, event}, ".")
+// ContainerSubject builds a container-lifecycle event subject:
+// evt.{context}.shipping.container.{id}.{event}.
+func ContainerSubject(context, id, event string) string {
+	return strings.Join([]string{"evt", context, Domain, "container", id, event}, ".")
 }
 
-func ShipInstanceSubject(region, tenant, shipID string) string {
-	return strings.Join([]string{region, "events", tenant, "ship", shipID, ">"}, ".")
+// ShipInstanceSubject builds the replay filter for one ship within one
+// context: evt.{context}.shipping.ship.{shipID}.>.
+func ShipInstanceSubject(context, shipID string) string {
+	return strings.Join([]string{"evt", context, Domain, "ship", shipID, ">"}, ".")
+}
+
+// ShipContextWildcard builds the replay filter for every ship in one
+// context: evt.{context}.shipping.ship.*.>. Needed because a ship's natural
+// key (ShipID) is mutable (BR-022) — resolving "which surrogate does this
+// shipID currently belong to" can't target one id the way
+// ShipInstanceSubject does; it must fold every ship's current state and
+// match by name.
+func ShipContextWildcard(context string) string {
+	return strings.Join([]string{"evt", context, Domain, "ship", "*", ">"}, ".")
 }
 
 // SubjectDetails returns the aggregate identity and event tokens from a
-// production-form subject: {region}.events.{tenant}.{aggregate}.{id}.{event}.
+// production-form subject: evt.{context}.shipping.{aggregate}.{id}.{event}.
 func SubjectDetails(subject string) (aggregate, id, event string, ok bool) {
 	parts := strings.Split(subject, ".")
-	if len(parts) != 6 || parts[1] != "events" || parts[4] == "" {
+	if len(parts) != 6 || parts[0] != "evt" || parts[2] != Domain || parts[4] == "" {
 		return "", "", "", false
 	}
 	return parts[3], parts[4], parts[5], true
@@ -66,12 +98,19 @@ func StreamSubjects() []string {
 
 // ShipEvent is the envelope published on every ship subject. Only the fields
 // relevant to the subject are populated; the rest are zero values.
+//
+// ID is the ship's immutable surrogate key (UUID), minted once at
+// registration and carried in every event subject — not ShipID, which is a
+// mutable natural key (call-sign / internal fleet code) correctable via
+// CorrectShipID (BR-022). This mirrors ContainerEvent's ID/ContainerID split.
 type ShipEvent struct {
-	Context    string    `json:"context"`            // fleet / KV-bucket qualifier
-	ShipID     string    `json:"-"`                  // aggregate identity comes from the subject
-	ShipName   string    `json:"shipName,omitempty"` // carried on .arrived for replay
-	Port       string    `json:"port,omitempty"`     // .arrived / .departed
-	OccurredAt time.Time `json:"occurredAt"`
+	Context        string    `json:"context"`                  // fleet / KV-bucket qualifier
+	ID             string    `json:"-"`                        // aggregate identity comes from the subject
+	ShipID         string    `json:"shipID"`                   // mutable natural key
+	PreviousShipID string    `json:"previousShipID,omitempty"` // .corrected only — lets projectors rekey KV
+	ShipName       string    `json:"shipName,omitempty"`       // carried on .registered/.arrived for replay
+	Port           string    `json:"port,omitempty"`           // .arrived / .departed
+	OccurredAt     time.Time `json:"occurredAt"`
 }
 
 // ContainerEvent is the envelope published on every container subject.

@@ -345,6 +345,219 @@ var _ = Describe("Domain Rules", func() {
 			Expect(errors.Is(err, domain.ErrUnknownPort)).To(BeTrue())
 		})
 	})
+
+	Context("BR-020: shipID and context must be valid subject/KV-bucket tokens", func() {
+		It("accepts a valid lowercase-hyphenated shipID and context", func() {
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br020-vessel", ShipName: "BR020", Port: "Hamburg",
+			})
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("rejects an empty shipID", func() {
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "", ShipName: "BR020", Port: "Hamburg",
+			})
+			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
+		})
+
+		It("rejects a shipID containing a dot", func() {
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br020.vessel", ShipName: "BR020", Port: "Hamburg",
+			})
+			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
+		})
+
+		It("rejects a shipID containing '*'", func() {
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br020*vessel", ShipName: "BR020", Port: "Hamburg",
+			})
+			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
+		})
+
+		It("rejects a shipID containing '>'", func() {
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br020>vessel", ShipName: "BR020", Port: "Hamburg",
+			})
+			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
+		})
+
+		It("rejects a shipID containing whitespace", func() {
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br020 vessel", ShipName: "BR020", Port: "Hamburg",
+			})
+			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
+		})
+
+		It("rejects an empty context", func() {
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: "", ShipID: "br020-ctx-vessel", ShipName: "BR020", Port: "Hamburg",
+			})
+			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
+		})
+
+		It("rejects a context containing a dot", func() {
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: "atlantic.fleet", ShipID: "br020-ctx-vessel", ShipName: "BR020", Port: "Hamburg",
+			})
+			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
+		})
+	})
+
+	Context("BR-021: a shipID can only be registered once", func() {
+		It("returns ErrShipExists on a duplicate explicit RegisterShip", func() {
+			_, err := ship.RegisterShip(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br021-vessel", ShipName: "BR021",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = ship.RegisterShip(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br021-vessel", ShipName: "BR021 Again",
+			})
+			Expect(errors.Is(err, domain.ErrShipExists)).To(BeTrue())
+		})
+
+		It("returns ErrShipExists when RegisterShip follows an implicit first-arrival registration", func() {
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br021-implicit-vessel", ShipName: "BR021", Port: "Hamburg",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = ship.RegisterShip(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br021-implicit-vessel", ShipName: "BR021",
+			})
+			Expect(errors.Is(err, domain.ErrShipExists)).To(BeTrue())
+		})
+	})
+
+	Context("BR-022: a shipID can be corrected to another valid, unused shipID", func() {
+		It("updates the ship's identity while preserving its surrogate id", func() {
+			registered, err := ship.RegisterShip(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br022-vessel", ShipName: "BR022",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			id := registered.ID
+
+			corrected, err := ship.CorrectShipID(ctx, commands.ShipCorrectionInput{
+				Context: fleetCtx, ShipID: "br022-vessel", NewShipID: "br022-vessel-renamed",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(corrected.ID).To(Equal(id))
+			Expect(corrected.ShipID).To(Equal("br022-vessel-renamed"))
+		})
+
+		It("rejects a target shipID already in use by another ship", func() {
+			_, err := ship.RegisterShip(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br022-taken", ShipName: "BR022 Taken",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = ship.RegisterShip(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br022-source", ShipName: "BR022 Source",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = ship.CorrectShipID(ctx, commands.ShipCorrectionInput{
+				Context: fleetCtx, ShipID: "br022-source", NewShipID: "br022-taken",
+			})
+			Expect(errors.Is(err, domain.ErrShipIDInUse)).To(BeTrue())
+		})
+
+		It("rejects correcting an unregistered shipID", func() {
+			_, err := ship.CorrectShipID(ctx, commands.ShipCorrectionInput{
+				Context: fleetCtx, ShipID: "br022-does-not-exist", NewShipID: "br022-new-name",
+			})
+			Expect(errors.Is(err, domain.ErrNotFound)).To(BeTrue())
+		})
+
+		It("rejects an invalid newShipID (BR-020)", func() {
+			_, err := ship.RegisterShip(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br022-invalid-target", ShipName: "BR022",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = ship.CorrectShipID(ctx, commands.ShipCorrectionInput{
+				Context: fleetCtx, ShipID: "br022-invalid-target", NewShipID: "br022.invalid",
+			})
+			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
+		})
+
+		It("rejects newShipID equal to the current shipID", func() {
+			_, err := ship.RegisterShip(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br022-noop", ShipName: "BR022",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = ship.CorrectShipID(ctx, commands.ShipCorrectionInput{
+				Context: fleetCtx, ShipID: "br022-noop", NewShipID: "br022-noop",
+			})
+			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Context("surrogate key: the ship's identity is an immutable UUID, not the mutable shipID", func() {
+		It("assigns a UUID on first arrival, distinct from the shipID", func() {
+			state, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "surrogate-vessel", ShipName: "Surrogate Test", Port: "Hamburg",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(state.ID).To(MatchRegexp(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`))
+			Expect(state.ID).NotTo(Equal(state.ShipID))
+		})
+
+		It("keeps the same id stable across arrive, depart, and a shipID correction", func() {
+			arrived, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "surrogate-stable-vessel", ShipName: "Surrogate Stable", Port: "Hamburg",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			id := arrived.ID
+
+			departed, err := ship.DepartPort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "surrogate-stable-vessel", Port: "Hamburg",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(departed.ID).To(Equal(id))
+
+			corrected, err := ship.CorrectShipID(ctx, commands.ShipCorrectionInput{
+				Context: fleetCtx, ShipID: "surrogate-stable-vessel", NewShipID: "surrogate-stable-vessel-renamed",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(corrected.ID).To(Equal(id))
+		})
+
+		It("still rejects a duplicate natural key (BR-021) even though identity is the surrogate key", func() {
+			_, err := ship.RegisterShip(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "surrogate-dup-vessel", ShipName: "Surrogate Dup",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = ship.RegisterShip(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "surrogate-dup-vessel", ShipName: "Surrogate Dup Again",
+			})
+			Expect(errors.Is(err, domain.ErrShipExists)).To(BeTrue())
+		})
+	})
+
+	Context("implicit registration: ArrivePort mints a surrogate without a prior RegisterShip", func() {
+		It("registers on first arrival with no explicit RegisterShip call", func() {
+			state, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "implicit-vessel", ShipName: "Implicit", Port: "Hamburg",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(state.ID).NotTo(BeEmpty())
+		})
+
+		It("does not re-mint on a second RegisterShip call after implicit registration", func() {
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "implicit-vessel-2", ShipName: "Implicit", Port: "Hamburg",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = ship.RegisterShip(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "implicit-vessel-2", ShipName: "Implicit",
+			})
+			Expect(errors.Is(err, domain.ErrShipExists)).To(BeTrue())
+		})
+	})
 })
 
 // ─── fakeRepo ────────────────────────────────────────────────────────────────
@@ -358,23 +571,29 @@ func newFakeRepo() *fakeRepo {
 	return &fakeRepo{ships: make(map[string]domain.ShipState)}
 }
 
-func (r *fakeRepo) key(kvContext, shipID string) string { return kvContext + "/" + shipID }
+// key is the surrogate-keyed storage key, mirroring the real repository's
+// (context, id) conflict target — so a shipID correction (BR-022) updates
+// the same entry in place rather than leaving a stale duplicate behind.
+func (r *fakeRepo) key(kvContext, id string) string { return kvContext + "/" + id }
 
 func (r *fakeRepo) Upsert(_ context.Context, state domain.ShipState) (domain.ShipState, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.ships[r.key(state.Context, state.ShipID)] = state
+	r.ships[r.key(state.Context, state.ID)] = state
 	return state, nil
 }
 
+// Find queries by the natural key (ship_id) — reads stay natural-key native,
+// mirroring the real repository.
 func (r *fakeRepo) Find(_ context.Context, kvContext, shipID string) (domain.ShipState, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	s, ok := r.ships[r.key(kvContext, shipID)]
-	if !ok {
-		return domain.ShipState{}, domain.ErrNotFound
+	for _, s := range r.ships {
+		if s.Context == kvContext && s.ShipID == shipID {
+			return s, nil
+		}
 	}
-	return s, nil
+	return domain.ShipState{}, domain.ErrNotFound
 }
 
 func (r *fakeRepo) List(_ context.Context, kvContext string) ([]domain.ShipState, error) {

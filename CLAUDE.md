@@ -108,9 +108,17 @@ Three side-by-side CQRS/event-sourcing shapes over a shipping domain with Ship a
 
 ```
 Stream:   SHIPPING
-Subjects: emea.events.acme.ship.{shipID}.{arrived|departed}
-          emea.events.acme.container.{surrogateUUID}.{registered|loaded|unloaded}
+Subjects: evt.{context}.shipping.ship.{shipID}.{arrived|departed}
+          evt.{context}.shipping.container.{surrogateUUID}.{registered|loaded|unloaded}
 Retention: LimitsPolicy (enables replay — NOT InterestPolicy)
+Note: the leading token is the fixed literal "evt", not a wildcard — a
+stream subject filter with an unbounded wildcard in the first position can
+textually overlap "$SYS.>"/"$JS.API.>", and JetStream refuses to create such
+a stream without NoAck (which would break synchronous Publish/PubAck). The
+second token ("shipping") identifies the service in a shared
+evt.<tenant>.<domain>.<entity>.<entity-id>.<event> taxonomy — refdata-service
+publishes under evt.{context}.refdata.{typeKey}.changed on its own REFDATA
+stream.
 
 KV buckets: dict-a-{context}, dict-b-{context}, container-{context}, meta-{context}
 Key format: {entityType}.{id}   — NATS KV keys only allow [-/_=.a-zA-Z0-9]; ':' is illegal

@@ -359,3 +359,112 @@ func TestResolveTypeFallsBackToAPIListWhenBucketEmpty(t *testing.T) {
 		t.Fatalf("expected 1 api-refetch item Atracado, got %+v", results)
 	}
 }
+
+func putVersionedCacheEntry(t *testing.T, kv *kvstore.Store, itemContext string, version int, typeKey, code string, locs map[string]localization) {
+	t.Helper()
+	entry := versionedCacheEntry{Version: version, Localizations: locs, SourceContext: itemContext}
+	entry.Item.Code = code
+	entry.Item.Status = "active"
+	entry.Item.Attrs = map[string]any{"name": code}
+	data, _ := json.Marshal(entry)
+	if _, err := kv.PutVersioned(context.Background(), itemContext, version, typeKey+"."+code, data); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestLookupAtVersionCacheHit — a consumer pinned to version 1 reads that
+// version's bucket directly, without calling the API, even though it never
+// wrote a "current" entry to the unversioned bucket at all (Phase 12.5's
+// versioned buckets are a separate read path from the plain Q5 cache).
+func TestLookupAtVersionCacheHit(t *testing.T) {
+	kv, cleanup := newTestKV(t)
+	defer cleanup()
+
+	putVersionedCacheEntry(t, kv, "emea-acme", 1, "currency", "usd", map[string]localization{
+		"en": {Locale: "en", Label: "US Dollar"},
+	})
+
+	apiCalled := false
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiCalled = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer api.Close()
+
+	c := New(kv, api.URL)
+	result, err := c.LookupAtVersion(context.Background(), "emea-acme", 1, "currency", "usd", "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Source != "kv-cache" {
+		t.Fatalf("expected kv-cache, got %s", result.Source)
+	}
+	if result.Label != "US Dollar" {
+		t.Fatalf("expected label US Dollar, got %s", result.Label)
+	}
+	if apiCalled {
+		t.Fatal("expected the API not to be called on a versioned cache hit")
+	}
+}
+
+// TestLookupAtVersionDifferentVersionsCoexist — pinning to two different
+// versions of the same item returns each version's own data, confirming old
+// and new corpus versions coexist independently rather than one clobbering
+// the other's bucket.
+func TestLookupAtVersionDifferentVersionsCoexist(t *testing.T) {
+	kv, cleanup := newTestKV(t)
+	defer cleanup()
+
+	putVersionedCacheEntry(t, kv, "emea-acme", 1, "currency", "usd", map[string]localization{"en": {Locale: "en", Label: "v1 label"}})
+	putVersionedCacheEntry(t, kv, "emea-acme", 2, "currency", "usd", map[string]localization{"en": {Locale: "en", Label: "v2 label"}})
+
+	c := New(kv, "")
+	v1, err := c.LookupAtVersion(context.Background(), "emea-acme", 1, "currency", "usd", "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2, err := c.LookupAtVersion(context.Background(), "emea-acme", 2, "currency", "usd", "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v1.Label != "v1 label" || v2.Label != "v2 label" {
+		t.Fatalf("expected independent versions, got v1=%q v2=%q", v1.Label, v2.Label)
+	}
+}
+
+// TestLookupAtVersionMissFallsThroughToVersionedAPI — a miss on the
+// versioned bucket falls back to the versioned REST endpoint, which returns
+// the full materialized entry (every locale, no server-side resolution) —
+// this consumer must resolve the label itself, same as the KV-hit path.
+func TestLookupAtVersionMissFallsThroughToVersionedAPI(t *testing.T) {
+	kv, cleanup := newTestKV(t)
+	defer cleanup()
+	// No versioned cache entry written — a cold miss.
+
+	var requestedPath string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPath = r.URL.Path
+		var entry versionedCacheEntry
+		entry.Item.Code = "usd"
+		entry.Item.Status = "active"
+		entry.Item.Attrs = map[string]any{"name": "US Dollar"}
+		entry.Localizations = map[string]localization{"en": {Locale: "en", Label: "US Dollar"}}
+		json.NewEncoder(w).Encode(entry)
+	}))
+	defer api.Close()
+
+	c := New(kv, api.URL)
+	result, err := c.LookupAtVersion(context.Background(), "emea-acme", 3, "currency", "usd", "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Source != "api-refetch" {
+		t.Fatalf("expected api-refetch, got %s", result.Source)
+	}
+	if result.Label != "US Dollar" {
+		t.Fatalf("expected label US Dollar, got %s", result.Label)
+	}
+	if requestedPath != "/api/refdata/v/3/emea-acme/currency/usd" {
+		t.Fatalf("expected the versioned endpoint path, got %s", requestedPath)
+	}
+}

@@ -9,14 +9,24 @@ import (
 // Migrate applies the canonical projection schemas. Idempotent; good enough
 // for a POC in place of a real migration tool.
 func Migrate(ctx context.Context, db *sql.DB) error {
+	// Ship's identity is a surrogate key (UUID) in the id column — the primary
+	// key — while ship_id (the mutable natural key: call-sign / fleet code)
+	// keeps its own uniqueness constraint and is correctable via CorrectShipID
+	// without needing to rekey this row. Fresh installs get this shape
+	// directly; per this repo's convention for this class of change
+	// (see the containers table below), `docker compose down -v` is required
+	// when adopting it — no in-place migration off the old (context, ship_id)
+	// PK is attempted here.
 	_, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS ships (
 			context      TEXT        NOT NULL,
+			id           TEXT        NOT NULL,
 			ship_id      TEXT        NOT NULL,
 			ship_name    TEXT        NOT NULL DEFAULT '',
 			current_port TEXT        NOT NULL DEFAULT '',
 			updated_at   TIMESTAMPTZ NOT NULL,
-			PRIMARY KEY (context, ship_id)
+			PRIMARY KEY (context, id),
+			UNIQUE (context, ship_id)
 		)`)
 	if err != nil {
 		return fmt.Errorf("migrate ships: %w", err)

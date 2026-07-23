@@ -178,6 +178,34 @@ Every ship has a maximum container capacity, a fixed number set at registration 
 
 ---
 
+### BR-020 — A shipID and context must be a valid subject/KV-bucket token
+`context` is threaded directly into a NATS subject (`evt.{context}.shipping.ship.{id}.{event}`) and a KV bucket name (`dict-a-{context}`, …). `shipID` (BR-021/BR-022: the mutable natural key, not the aggregate's surrogate `id`) is a KV-key component (`ship.{shipID}`) rather than a subject token, but is held to the same charset for consistency and because it's also carried in the event payload. Both must be non-empty and match `^[A-Za-z0-9_-]+$` — NATS's recommended safe subject-token charset. A dot would silently corrupt a KV key or split a subject across tokens; `*`/`>`/whitespace are NATS wildcard/subject metacharacters.
+
+- **Error:** `ErrInvalidToken` — "value must be a non-empty token of letters, digits, '-' or '_'"
+- **Enforced in:** `ShipHandler.hydrateByNaturalKey()` (ShipID, on every Arrive/Depart/Register/CorrectShipID) and `ArrivePort`/`DepartPort`/`RegisterContainer`/`LoadContainer`/`UnloadContainer`/`RegisterShip`/`CorrectShipID` (Context)
+- **Test:** `Domain Rules / BR-020`
+
+---
+
+### BR-021 — A shipID can only be registered once
+Re-registering an existing shipID would silently reset its state. Mirrors BR-015's container dedup, but on the natural key (a ship's surrogate `id` isn't known to the caller yet at registration time).
+
+- **Error:** `ErrShipExists` — "ship is already registered"
+- **Enforced in:** `ShipAggregate.Register()` — uniqueness is resolved against the authoritative event log (folding every ship's current state in the context, then matching by current `shipID`), not an eventually-consistent read projection, same convention as BR-015. `ArrivePort` calls this implicitly on a ship's first arrival; `RegisterShip` exposes it explicitly (optional pre-registration).
+- **Test:** `Domain Rules / BR-021`
+
+---
+
+### BR-022 — A shipID can be corrected to any other valid, currently-unused shipID within the same context
+`CorrectShipID` renames a registered ship's natural key (call-sign / internal fleet code) — e.g. after a re-flagging or a data-entry fix — without affecting its surrogate identity. `newShipID` must satisfy BR-020 and must not currently be in use by another registered ship in the same context. The ship being corrected must already be registered.
+
+- **Error:** `ErrShipIDInUse` — "shipID is already in use by another ship"; `ErrNotFound` if the source shipID isn't registered; `ErrInvalidToken` (BR-020) for a malformed `newShipID`.
+- **Enforced in:** `ShipHandler.CorrectShipID()` — resolves both the source and any target-name collision via the same authoritative-replay resolution as BR-021, then calls `ShipAggregate.CorrectShipID()`.
+- **Test:** `Domain Rules / BR-022`
+- **Known limitation (verified live):** a container's `onShipID` snapshots the ship's natural key at load time and is not updated by a later correction. Renaming a ship while it carries a container leaves that container stuck — unload fails with **both** the new name (BR-013, `onShipID` still holds the old name) **and** the old name (BR-012, `hydrateByNaturalKey`/`hydratePair` resolve a ship by its *current* name, so a stale name no longer matches any ship and looks unregistered/undocked). The only way to unblock it is to `CorrectShipID` back to the exact pre-correction name, unload, then correct forward again if still wanted. Documented, not fixed, in this pass.
+
+---
+
 ## Guards (not numbered rules)
 
 - **Unregistered container** — load/unload of a container with no `.registered`

@@ -65,6 +65,35 @@ type VersionRepository interface {
 	Current(ctx context.Context, itemContext, typeKey string) (int, error)
 }
 
+// ContextRepository persists the template/tenant hierarchy. Ancestors are
+// returned child-first, which is the precedence order used by FlattenCorpus.
+type ContextRepository interface {
+	Register(ctx context.Context, value Context) error
+	Get(ctx context.Context, contextKey string) (Context, error)
+	List(ctx context.Context) ([]Context, error)
+	Ancestors(ctx context.Context, contextKey string) ([]Context, error)
+	Descendants(ctx context.Context, contextKey string) ([]Context, error)
+}
+
+// CorpusRepository owns immutable corpus snapshots. Implementations must make
+// Publish transactional: the status transition and all snapshot rows either
+// commit together or not at all (BR-V03).
+type CorpusRepository interface {
+	CreateDraft(ctx context.Context, contextKey, notes string) (CorpusVersion, error)
+	PutDraftItem(ctx context.Context, contextKey string, item CorpusItem) error
+	// PutDraftLocalization overrides a single item-locale pair on the current
+	// draft directly, without touching the item's own row — the mechanism for
+	// a child overriding one locale of an item it inherited (resolved Q3).
+	PutDraftLocalization(ctx context.Context, contextKey string, loc CorpusLocalization) error
+	Publish(ctx context.Context, contextKey string) (CorpusVersion, error)
+	Rollback(ctx context.Context, contextKey string, targetVersion int, notes string) (CorpusVersion, error)
+	Versions(ctx context.Context, contextKey string) ([]CorpusVersion, error)
+	GetVersion(ctx context.Context, contextKey string, version int) (CorpusVersion, error)
+	ItemsAtVersion(ctx context.Context, contextKey string, version int) ([]CorpusItem, error)
+	LocalizationsAtVersion(ctx context.Context, contextKey string, version int) ([]CorpusLocalization, error)
+	Diff(ctx context.Context, contextKey string, fromVersion, toVersion int) ([]CorpusDiffEntry, error)
+}
+
 // ChangeNotifier is called after every committed mutation to an item's type
 // set (create/deprecate/delete an item, add/update a localization, create a
 // reference). It bumps the set version, refreshes the KV cache entry, and
@@ -73,4 +102,15 @@ type VersionRepository interface {
 // JetStream concrete types.
 type ChangeNotifier interface {
 	NotifyItemChanged(ctx context.Context, itemContext, typeKey, code string) error
+}
+
+// CorpusNotifier is called after a corpus version is published or rolled
+// back. It eagerly materializes that version's flattened content into its
+// own versioned KV bucket and marks every other non-draft version for that
+// context as superseded (TTL-governed) — the write side of the hybrid KV
+// materialization protocol (§5, Phase 12.5). Kept as a port, same reason as
+// ChangeNotifier: the application layer stays decoupled from KV/JetStream.
+type CorpusNotifier interface {
+	NotifyPublished(ctx context.Context, contextKey string, version int) error
+	NotifyRolledBack(ctx context.Context, contextKey string, version int) error
 }

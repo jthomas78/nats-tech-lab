@@ -10,6 +10,7 @@ import CategoryTypeList from './components/CategoryTypeList.vue'
 import ItemGrid from './components/ItemGrid.vue'
 import LocalizationView from './components/LocalizationView.vue'
 import TypeNavigator from './components/TypeNavigator.vue'
+import VersioningPanel from './components/VersioningPanel.vue'
 import { CONTEXTS, useDictionaryStore } from './stores/dictionary'
 import { isDark, toggleTheme } from '@unifi-theme/preset.js'
 
@@ -64,6 +65,7 @@ onUnmounted(() => store.disconnect())
       <TypeNavigator />
       <div class="content">
         <LocalizationView v-if="store.activeView === 'localization'" />
+        <VersioningPanel v-else-if="store.activeView === 'versioning'" />
         <CategoryTypeList v-else-if="store.activeView === 'domain-category'" />
         <template v-else>
           <ItemGrid />

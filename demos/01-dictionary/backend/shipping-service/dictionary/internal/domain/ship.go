@@ -21,7 +21,9 @@ var (
 	ErrMustDepart    = errors.New("ship must depart current port first")
 	ErrNotDocked     = errors.New("ship is not docked at this port")
 	ErrNotInPort     = errors.New("ship must be docked to load or unload containers") // BR-012
-	ErrUnknownPort   = errors.New("port is not registered")                          // BR-017 (also reused by container.go for BR-018)
+	ErrUnknownPort   = errors.New("port is not registered")                           // BR-017 (also reused by container.go for BR-018)
+	ErrShipExists    = errors.New("ship is already registered")                       // BR-021
+	ErrShipIDInUse   = errors.New("shipID is already in use by another ship")         // BR-022
 )
 
 // ─── Value objects ────────────────────────────────────────────────────────────
@@ -45,14 +47,18 @@ const (
 // (OnShipID == ShipID).
 type ShipState struct {
 	Context     string     `json:"context"` // fleet / KV-bucket qualifier
-	ShipID      string     `json:"shipID"`
+	ID          string     `json:"id"`      // surrogate key (UUID) — aggregate identity
+	ShipID      string     `json:"shipID"`  // mutable natural key (call-sign / fleet code)
 	ShipName    string     `json:"shipName"`
 	Status      ShipStatus `json:"status"`      // AIS navigational status
 	CurrentPort string     `json:"currentPort"` // "" = at sea
 	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
-// KVKey returns the key within the context-scoped bucket: ship.{shipID}.
+// KVKey returns the key within the context-scoped bucket: ship.{shipID}. The
+// read-model bucket is keyed by the human-facing natural key for query
+// convenience (and doubles as the natural-key lookup); the surrogate ID is
+// carried as a field. Aggregate identity on the write side is still the ID.
 func (s ShipState) KVKey() string { return "ship." + s.ShipID }
 
 // ─── Aggregate (command validation + Shape C reconstruction) ──────────────────
@@ -63,22 +69,33 @@ func (s ShipState) KVKey() string { return "ship." + s.ShipID }
 // that feed events into the aggregate live in the application layer so the
 // domain stays free of JetStream imports.
 type ShipAggregate struct {
-	ShipID      string
+	ID          string // surrogate key (UUID) — the immutable aggregate identity
+	ShipID      string // mutable natural key (call-sign / fleet code)
 	ShipName    string
 	CurrentPort string // "" = at sea
 	UpdatedAt   time.Time
+
+	registered bool // set once a .registered event has been applied
 }
 
 // Apply folds one event into the aggregate's state. Subject selects the
-// transition; unknown subjects are silently ignored.
+// transition; unknown subjects are silently ignored. Every event carries the
+// surrogate ID (subject) and the natural ShipID (payload); both are
+// refreshed on each fold, mirroring ContainerAggregate.Apply.
 func (a *ShipAggregate) Apply(subject string, event ShipEvent) {
 	aggregate, id, eventType, ok := SubjectDetails(subject)
 	if !ok || aggregate != "ship" {
 		return
 	}
-	a.ShipID = id
+	a.ID = id
+	a.ShipID = event.ShipID
 	a.UpdatedAt = event.OccurredAt
 	switch eventType {
+	case ShipRegisteredEvent:
+		a.registered = true
+		if event.ShipName != "" {
+			a.ShipName = event.ShipName
+		}
 	case ShipArrivedEvent:
 		if a.ShipName == "" && event.ShipName != "" {
 			a.ShipName = event.ShipName
@@ -86,7 +103,45 @@ func (a *ShipAggregate) Apply(subject string, event ShipEvent) {
 		a.CurrentPort = event.Port
 	case ShipDepartedEvent:
 		a.CurrentPort = ""
+	case ShipIDCorrectedEvent:
+		// a.ShipID is already updated above from event.ShipID (the new value).
 	}
+}
+
+// IsRegistered reports whether a .registered (or first-arrival implicit
+// registration) event has been folded into this aggregate.
+func (a *ShipAggregate) IsRegistered() bool { return a.registered }
+
+// Register returns a ShipRegistered event if this shipID has not already
+// been registered. a.ID must already hold the freshly-minted surrogate key
+// (the application layer resolves registration status by natural key first
+// — mirrors ContainerAggregate's Register/RegisterContainer pattern).
+// BR-021: a shipID can only be registered once.
+func (a *ShipAggregate) Register(shipName string) (ShipEvent, error) {
+	if a.registered {
+		return ShipEvent{}, ErrShipExists
+	}
+	return ShipEvent{
+		ID:         a.ID,
+		ShipID:     a.ShipID,
+		ShipName:   shipName,
+		OccurredAt: time.Now().UTC(),
+	}, nil
+}
+
+// CorrectShipID renames the ship's natural key. BR-022: the application
+// layer has already validated newShipID against BR-020 and checked it is
+// not currently in use by another ship in this context before calling this.
+func (a *ShipAggregate) CorrectShipID(newShipID string) (ShipEvent, error) {
+	if !a.registered {
+		return ShipEvent{}, ErrNotFound
+	}
+	return ShipEvent{
+		ID:             a.ID,
+		ShipID:         newShipID,
+		PreviousShipID: a.ShipID,
+		OccurredAt:     time.Now().UTC(),
+	}, nil
 }
 
 // State returns a snapshot of the aggregate as a ShipState projection.
@@ -97,6 +152,7 @@ func (a *ShipAggregate) State(context string) ShipState {
 	}
 	return ShipState{
 		Context:     context,
+		ID:          a.ID,
 		ShipID:      a.ShipID,
 		ShipName:    a.ShipName,
 		Status:      status,
@@ -108,10 +164,12 @@ func (a *ShipAggregate) State(context string) ShipState {
 // FromState restores aggregate fields from an existing ShipState so the
 // event projector can apply a delta without replaying from JetStream.
 func (a *ShipAggregate) FromState(s ShipState) {
+	a.ID = s.ID
 	a.ShipID = s.ShipID
 	a.ShipName = s.ShipName
 	a.CurrentPort = s.CurrentPort
 	a.UpdatedAt = s.UpdatedAt
+	a.registered = s.ID != ""
 }
 
 // ─── Command methods (each returns the new event or a domain error) ───────────

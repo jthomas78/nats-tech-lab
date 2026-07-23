@@ -12,3 +12,5 @@ When running Docker after a domain change (originally seen Phase 5 → Phase 6; 
 **Clean fix for users:** `docker compose down -v` from `demos/01-dictionary/` removes `nats-data` and `pg-data` volumes and starts fresh. Required when upgrading between incompatible domain versions.
 
 **How to apply:** When seeing `"projection failed, will redeliver"` with `"nats: invalid key"` in Docker logs, the NATS volume has stale data from a previous domain. Suggest `docker compose down -v`.
+
+**Recurred 2026-07-23:** the same class of change (subject taxonomy revised twice, then Ship's aggregate identity switched from `shipID` to a surrogate UUID) required `docker compose down -v` three more times in one session — confirms this isn't a one-off; any change to subject shape or aggregate identity in this repo should default to planning a volume reset rather than assuming in-place compatibility.

@@ -1,9 +1,16 @@
 ---
 name: shipping-domain-overview
-description: Current shipping domain state (Phase 8) — Ship + Container aggregates on the SHIPPING stream — how it got here from Phase 6, and the architecture decisions that still govern it
+description: Current shipping domain state (Phase 8, updated Phase 12.8/12.9) — Ship + Container aggregates on the SHIPPING stream, both now surrogate-UUID-keyed — how it got here from Phase 6, and the architecture decisions that still govern it
 metadata:
   type: project
 ---
+
+**Phase 12.8/12.9 update (2026-07-23):** two things changed after this file was first written — read this block before trusting anything below about subjects or Ship's identity.
+
+1. **Subject taxonomy is no longer `SHIPPING.ship.*`/`DICTIONARY.*`.** It went through two revisions this session and landed on `evt.<tenant>.<domain>.<entity>.<entity-id>.<event>` — e.g. `evt.global.shipping.ship.<uuid>.arrived`, `evt.emea-acme.refdata.currency.changed` (refdata-service's own stream/prefix). The leading token must be a fixed literal (`evt`), never a wildcard — JetStream refuses a stream subject filter with an unbounded wildcard in the first position (can textually overlap `$SYS.>`/`$JS.API.>`, forcing `NoAck` which breaks synchronous `Publish`/PubAck). See `internal/domain/events.go`'s doc comments and `ARCHITECTURE.md` for the live shape.
+2. **`Ship` now has a surrogate UUID identity too, mirroring `Container`.** `shipID` turned out to behave like a name/call-sign/internal-fleet-code (mutable, reassignable), not a permanent slug — the exact pressure that already justified `Container`'s surrogate key, reversing this file's earlier premise. `RegisterShip`/implicit-first-arrival mint the surrogate; `CorrectShipID` renames the natural key (BR-021, BR-022). Natural-key resolution (`hydrateByNaturalKey`) must now fold every ship in a context and match by *current* name — it can no longer target one ship via `FilterSubject` the way it used to (and the way `Container`'s dedup check still does, since `containerID` isn't correctable). See `ARCHITECTURE.md`'s "Ship identity — surrogate key" section and `BUSINESS_RULES-SHIPPING.md` BR-020…BR-022.
+
+Also: **`BUSINESS_RULES.md` split** into `BUSINESS_RULES-SHIPPING.md` (Ship/Container) and `BUSINESS_RULES-REFDATA.md` (refdata-service) — the bare filename below is stale, don't look for it.
 
 **Phase 6** (merged into `poc/dictionary1.6`, 2026-07-07) replaced the generic `DictionaryEntry` domain with a shipping domain (Fowler Ship/Port/Cargo + Petrosyan Go structural pattern): `ShipAggregate`, `hydrate()` replay-per-command, Shape A/B/C all wired. Stream was named `DICTIONARY`; subjects were `DICTIONARY.ship.*` / `DICTIONARY.cargo.*`.
 
@@ -12,7 +19,7 @@ metadata:
 - Stream renamed `DICTIONARY` → `SHIPPING` (breaking change to every subject).
 - `Container` added as its own aggregate (`ContainerAggregate`, `domain/container.go`), co-located with `ShipAggregate` on the single `SHIPPING` stream. The `Cargo` value object on `ShipAggregate` was retired — a ship's manifest is now a client-side/query-side join on `onShipID == shipID`.
 - Container lifecycle: `ContainerStatus` has exactly two values, `in-terminal` / `on-ship` (no richer states like "delivered" — see [[container-status-model]]).
-- Business rules BR-008 through BR-016 live in `domain/container.go`; BR-001 through BR-003 (ship rules) in `domain/ship.go`. Full list in `demos/01-dictionary/BUSINESS_RULES.md`.
+- Business rules BR-008 through BR-016 live in `domain/container.go`; BR-001 through BR-003 (ship rules) in `domain/ship.go`. Full list in `demos/01-dictionary/BUSINESS_RULES-SHIPPING.md` (not `BUSINESS_RULES.md`, which is now just an index — see the Phase 12.8/12.9 note above for the newer BR-020…BR-022).
 - Second frontend added: `frontend-port/` (Port Management / "SeaFreight Flow" UI, dev port 5174) alongside the original `frontend/` (admin/raw NATS debug view, port 5173). See [[frontend-port-structure]].
 - `meta-{context}` KV bucket added for `known-ports` / `known-containers` lookups feeding UI dropdowns.
 
@@ -24,4 +31,4 @@ metadata:
 - **Stopping condition for replay.** Both `hydrate()` and `ReconstructFleet()` read `js.Stream(ctx, StreamName).CachedInfo().State.LastSeq` upfront and stop consuming when `meta.Sequence.Stream >= lastSeq`. This avoids blocking on `msgs.Next()` waiting for future messages.
 - **Domain errors map to HTTP 422.** `writeCommandError` in `rest/handlers.go` maps domain errors (originally the four ship errors — `ErrAlreadyDocked`, `ErrMustDepart`, `ErrNotDocked`, `ErrNotInPort` — now also the container errors added through BR-016, e.g. `ErrInvalidContainerID`) to 422 Unprocessable Entity, so the frontend can show them as inline validation errors rather than generic 400s. Any new domain rule's error should follow this same mapping.
 
-**How to apply:** When asked about "the shipping domain" or "the stream," assume Phase 8 state (SHIPPING stream, two aggregates) unless the user is explicitly asking about pre-Phase-8 history. When adding a new command or projector, follow the hydrate/read-modify-write/422 conventions above rather than re-deriving them.
+**How to apply:** When asked about "the shipping domain" or "the stream," assume the Phase 12.8/12.9 state at the top of this file (SHIPPING stream, `evt.*` subjects, both aggregates surrogate-keyed) unless the user is explicitly asking about earlier history. When adding a new command or projector, follow the hydrate/read-modify-write/422 conventions below rather than re-deriving them — but note `hydrate()` for Ship is now `hydrateByNaturalKey()` and no longer a single-aggregate `FilterSubject` replay.

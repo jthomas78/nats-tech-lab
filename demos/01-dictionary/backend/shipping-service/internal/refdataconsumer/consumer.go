@@ -55,6 +55,22 @@ type cacheEntry struct {
 	Version       int                     `json:"version"`
 }
 
+// versionedCacheEntry mirrors refdata-service's kvcache.VersionedEntry
+// (Phase 12.5) — the per-corpus-version materialized item read from a
+// refdata-{context}-v{N} bucket when this consumer is pinned to a specific
+// version rather than always tracking the latest published one.
+type versionedCacheEntry struct {
+	Item struct {
+		Code   string         `json:"code"`
+		Status string         `json:"status"`
+		Attrs  map[string]any `json:"attrs"`
+	} `json:"item"`
+	Localizations map[string]localization `json:"localizations"`
+	SourceContext string                  `json:"sourceContext"`
+	IsOverride    bool                    `json:"isOverride"`
+	Version       int                     `json:"version"`
+}
+
 // metaEntry mirrors refdata-service's kvcache.MetaEntry.
 type metaEntry struct {
 	Version int `json:"version"`
@@ -148,6 +164,73 @@ func (c *Consumer) ResolveType(ctx context.Context, itemContext, typeKey, locale
 		}
 	}
 	return c.fetchTypeViaAPI(ctx, itemContext, typeKey, locale)
+}
+
+// LookupAtVersion resolves one item at a PINNED corpus version — the
+// version-pinning half of cross-service consumption (old and new corpus
+// versions coexist indefinitely; a consumer pinned to version N keeps
+// reading exactly that snapshot until it explicitly re-pins to a newer
+// one). KV-first against the refdata-{context}-v{N} bucket refdata-service
+// eagerly materializes on publish (Phase 12.5); a miss falls back to that
+// version's REST endpoint, which also keeps the bucket warm via the
+// server's own rewrite-on-read.
+func (c *Consumer) LookupAtVersion(ctx context.Context, itemContext string, version int, typeKey, code, locale string) (Result, error) {
+	if entry, ok := c.readVersionedCache(ctx, itemContext, version, typeKey, code); ok {
+		return Result{
+			Code:   entry.Item.Code,
+			Status: entry.Item.Status,
+			Label:  resolveLabel(entry.Localizations, locale, code),
+			Attrs:  entry.Item.Attrs,
+			Source: "kv-cache",
+		}, nil
+	}
+	return c.fetchVersionedViaAPI(ctx, itemContext, version, typeKey, code, locale)
+}
+
+func (c *Consumer) readVersionedCache(ctx context.Context, itemContext string, version int, typeKey, code string) (versionedCacheEntry, bool) {
+	var entry versionedCacheEntry
+	raw, _, err := c.kv.GetVersioned(ctx, itemContext, version, typeKey+"."+code)
+	if err != nil || json.Unmarshal(raw, &entry) != nil {
+		return versionedCacheEntry{}, false
+	}
+	return entry, true
+}
+
+// fetchVersionedViaAPI hits the versioned read endpoint (§7 "Versioned
+// Read"), which returns the full materialized entry — unlike the plain
+// protocol's ?locale= server-side resolution, the versioned protocol always
+// returns every locale and leaves resolution to the caller, so this uses
+// the same local resolveLabel as the KV-hit path for consistency.
+func (c *Consumer) fetchVersionedViaAPI(ctx context.Context, itemContext string, version int, typeKey, code, locale string) (Result, error) {
+	u := fmt.Sprintf("%s/api/refdata/v/%d/%s/%s/%s", c.baseURL, version, itemContext, typeKey, code)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return Result{}, err
+	}
+	resp, err := c.httpc.Do(req)
+	if err != nil {
+		return Result{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return Result{}, ErrNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		return Result{}, fmt.Errorf("refdata API returned %d", resp.StatusCode)
+	}
+
+	var entry versionedCacheEntry
+	if err := json.NewDecoder(resp.Body).Decode(&entry); err != nil {
+		return Result{}, err
+	}
+	return Result{
+		Code:   entry.Item.Code,
+		Status: entry.Item.Status,
+		Label:  resolveLabel(entry.Localizations, locale, entry.Item.Code),
+		Attrs:  entry.Item.Attrs,
+		Source: "api-refetch",
+	}, nil
 }
 
 // Locales returns the locales registered for the context. Locales live in

@@ -39,6 +39,9 @@ func NewContainerHandler(pub Publisher, js jetstream.JetStream, ports domain.Por
 
 // RegisterContainer places a new container in the origin port's terminal.
 func (h *ContainerHandler) RegisterContainer(ctx context.Context, in ContainerInput) (domain.ContainerState, error) {
+	if err := domain.ValidateContext(in.Context); err != nil {
+		return domain.ContainerState{}, err
+	}
 	// Input validation (application layer, like BR-007 — not a domain rule).
 	switch {
 	case in.ContainerID == "":
@@ -55,7 +58,7 @@ func (h *ContainerHandler) RegisterContainer(ctx context.Context, in ContainerIn
 	// authoritative) to detect an existing registration for BR-015. A brand-new
 	// container gets a freshly-minted surrogate key; an already-registered one
 	// hydrates its existing id so Register can reject the duplicate.
-	cont, err := h.hydrateByNaturalKey(ctx, in.ContainerID)
+	cont, err := h.hydrateByNaturalKey(ctx, in.Context, in.ContainerID)
 	if err != nil {
 		return domain.ContainerState{}, err
 	}
@@ -75,7 +78,7 @@ func (h *ContainerHandler) RegisterContainer(ctx context.Context, in ContainerIn
 		return domain.ContainerState{}, err
 	}
 	event.Context = in.Context
-	subject := domain.ContainerSubject(domain.Region, domain.Tenant, event.ID, domain.ContainerRegisteredEvent)
+	subject := domain.ContainerSubject(in.Context, event.ID, domain.ContainerRegisteredEvent)
 	if err := h.publish(ctx, subject, event); err != nil {
 		return domain.ContainerState{}, err
 	}
@@ -85,10 +88,13 @@ func (h *ContainerHandler) RegisterContainer(ctx context.Context, in ContainerIn
 
 // LoadContainer crane-loads a container onto a docked ship.
 func (h *ContainerHandler) LoadContainer(ctx context.Context, in ContainerInput) (domain.ContainerState, error) {
+	if err := domain.ValidateContext(in.Context); err != nil {
+		return domain.ContainerState{}, err
+	}
 	if err := requireIDs(in); err != nil {
 		return domain.ContainerState{}, err
 	}
-	ship, cont, err := h.hydratePair(ctx, in.ShipID, in.ContainerID)
+	ship, cont, err := h.hydratePair(ctx, in.Context, in.ShipID, in.ContainerID)
 	if err != nil {
 		return domain.ContainerState{}, err
 	}
@@ -97,7 +103,7 @@ func (h *ContainerHandler) LoadContainer(ctx context.Context, in ContainerInput)
 		return domain.ContainerState{}, err
 	}
 	event.Context = in.Context
-	subject := domain.ContainerSubject(domain.Region, domain.Tenant, event.ID, domain.ContainerLoadedEvent)
+	subject := domain.ContainerSubject(in.Context, event.ID, domain.ContainerLoadedEvent)
 	if err := h.publish(ctx, subject, event); err != nil {
 		return domain.ContainerState{}, err
 	}
@@ -108,10 +114,13 @@ func (h *ContainerHandler) LoadContainer(ctx context.Context, in ContainerInput)
 // UnloadContainer crane-unloads a container into the terminal at the ship's
 // current port.
 func (h *ContainerHandler) UnloadContainer(ctx context.Context, in ContainerInput) (domain.ContainerState, error) {
+	if err := domain.ValidateContext(in.Context); err != nil {
+		return domain.ContainerState{}, err
+	}
 	if err := requireIDs(in); err != nil {
 		return domain.ContainerState{}, err
 	}
-	ship, cont, err := h.hydratePair(ctx, in.ShipID, in.ContainerID)
+	ship, cont, err := h.hydratePair(ctx, in.Context, in.ShipID, in.ContainerID)
 	if err != nil {
 		return domain.ContainerState{}, err
 	}
@@ -120,7 +129,7 @@ func (h *ContainerHandler) UnloadContainer(ctx context.Context, in ContainerInpu
 		return domain.ContainerState{}, err
 	}
 	event.Context = in.Context
-	subject := domain.ContainerSubject(domain.Region, domain.Tenant, event.ID, domain.ContainerUnloadedEvent)
+	subject := domain.ContainerSubject(in.Context, event.ID, domain.ContainerUnloadedEvent)
 	if err := h.publish(ctx, subject, event); err != nil {
 		return domain.ContainerState{}, err
 	}
@@ -138,29 +147,36 @@ func requireIDs(in ContainerInput) error {
 	return nil
 }
 
-// hydratePair rebuilds BOTH aggregates from one replay of the SHIPPING stream.
-// Ship events with a matching shipID fold into the ShipAggregate. Container
-// events fold by the immutable surrogate id (Phase 8.3): the id is resolved
-// from the .registered event whose natural key matches containerID, then every
-// event carrying that id is folded — so identity is the UUID, not the mutable
-// ISO 6346 natural key. Because both aggregates come from the same replay,
-// cross-aggregate rule checks see a single consistent point in time.
-func (h *ContainerHandler) hydratePair(ctx context.Context, shipID, containerID string) (*domain.ShipAggregate, *domain.ContainerAggregate, error) {
-	ship := &domain.ShipAggregate{ShipID: shipID}
+// hydratePair rebuilds BOTH aggregates from one replay of the SHIPPING stream,
+// scoped to itemContext so two tenants sharing a shipID or container natural
+// key never fold into the same aggregate. Ship events fold into a
+// surrogate-id-keyed map (foldShipEvent) — like Container's natural key,
+// Ship's ShipID is mutable (BR-022), so the ship is resolved by CURRENT name
+// (resolveShipByNaturalKey) only after every ship's history is folded, not
+// by matching the subject directly. Container events fold by the immutable
+// surrogate id (Phase 8.3): the id is resolved from the .registered event
+// whose natural key matches containerID within the same context, then every
+// event carrying that id is folded — so identity is the UUID, not the
+// mutable ISO 6346 natural key. Because both aggregates come from the same
+// replay, cross-aggregate rule checks see a single consistent point in time.
+func (h *ContainerHandler) hydratePair(ctx context.Context, itemContext, shipID, containerID string) (*domain.ShipAggregate, *domain.ContainerAggregate, error) {
+	ships := make(map[string]*domain.ShipAggregate)
 	cont := &domain.ContainerAggregate{}
 	var targetID string // surrogate id the natural key resolves to
 
 	replay := func(subject string, data []byte) {
 		if isShipSubject(subject) {
 			var event domain.ShipEvent
-			_, subjectShipID, _, ok := domain.SubjectDetails(subject)
-			if json.Unmarshal(data, &event) == nil && shipID != "" && subjectShipID == shipID && ok {
-				ship.Apply(subject, event)
+			if json.Unmarshal(data, &event) == nil && event.Context == itemContext {
+				foldShipEvent(ships, subject, event)
 			}
 			return
 		}
 		var event domain.ContainerEvent
 		if json.Unmarshal(data, &event) != nil {
+			return
+		}
+		if event.Context != itemContext {
 			return
 		}
 		aggregate, subjectID, eventType, ok := domain.SubjectDetails(subject)
@@ -174,22 +190,24 @@ func (h *ContainerHandler) hydratePair(ctx context.Context, shipID, containerID 
 	if err := replayStream(ctx, h.js, replay); err != nil {
 		return nil, nil, err
 	}
-	return ship, cont, nil
+	return resolveShipByNaturalKey(ships, shipID), cont, nil
 }
 
 // hydrateByNaturalKey folds every container event with a matching natural key
-// into a fresh aggregate. Used only by Register, which has no surrogate id yet:
-// it must resolve uniqueness (BR-015) by the natural key against the event
-// stream. If a registration exists the aggregate carries its id and reports
-// IsRegistered(); otherwise it is blank and the caller mints a new id.
-func (h *ContainerHandler) hydrateByNaturalKey(ctx context.Context, containerID string) (*domain.ContainerAggregate, error) {
+// and itemContext into a fresh aggregate. Used only by Register, which has no
+// surrogate id yet: it must resolve uniqueness (BR-015) by the natural key
+// against the event stream, scoped to itemContext so two tenants may reuse
+// the same ISO 6346 code without colliding. If a registration exists the
+// aggregate carries its id and reports IsRegistered(); otherwise it is blank
+// and the caller mints a new id.
+func (h *ContainerHandler) hydrateByNaturalKey(ctx context.Context, itemContext, containerID string) (*domain.ContainerAggregate, error) {
 	cont := &domain.ContainerAggregate{ContainerID: containerID}
 	replay := func(subject string, data []byte) {
 		if isShipSubject(subject) {
 			return
 		}
 		var event domain.ContainerEvent
-		if json.Unmarshal(data, &event) == nil && event.ContainerID == containerID {
+		if json.Unmarshal(data, &event) == nil && event.ContainerID == containerID && event.Context == itemContext {
 			cont.Apply(subject, event)
 		}
 	}

@@ -35,6 +35,10 @@ func (h *ItemHandler) notify(ctx context.Context, typeKey, itemContext, code str
 // RegisterItem creates a new item. BR-D01: the code must be free within its
 // {type, context}.
 func (h *ItemHandler) RegisterItem(ctx context.Context, in ItemInput) (domain.DictionaryItem, error) {
+	if err := domain.ValidateCode(in.Code); err != nil {
+		return domain.DictionaryItem{}, err
+	}
+
 	exists, err := h.items.Exists(ctx, in.TypeKey, in.Context, in.Code)
 	if err != nil {
 		return domain.DictionaryItem{}, err

@@ -112,3 +112,67 @@ export function getCacheStatus(context, typeKey) {
 export function watchUrl(context) {
   return `/api/refdata-watch/${context}`
 }
+
+// ── Contexts (Phase 12.1 — context hierarchy) ───────────────────────────────────
+
+export function listContexts() {
+  return request('/api/refdata/admin/contexts')
+}
+
+export function getContext(context) {
+  return request(`/api/refdata/admin/contexts/${context}/detail`)
+}
+
+export function registerContext(input) {
+  return request('/api/refdata/admin/contexts', { method: 'POST', body: JSON.stringify(input) })
+}
+
+// ── Corpus versioning (Phase 12.2–12.5) ─────────────────────────────────────────
+
+export function listCorpusVersions(context) {
+  return request(`/api/refdata/admin/corpus/${context}/versions`)
+}
+
+export function getCorpusVersion(context, version) {
+  return request(`/api/refdata/admin/corpus/${context}/versions/${version}`)
+}
+
+export function getDraft(context) {
+  return request(`/api/refdata/admin/corpus/${context}/draft`)
+}
+
+export function createDraft(context, notes = '') {
+  return request(`/api/refdata/admin/corpus/${context}/draft`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
+  })
+}
+
+export function putDraftItem(context, item) {
+  return request(`/api/refdata/admin/corpus/${context}/draft/items`, {
+    method: 'PUT',
+    body: JSON.stringify(item),
+  })
+}
+
+export function putDraftLocalization(context, localization) {
+  return request(`/api/refdata/admin/corpus/${context}/draft/localizations`, {
+    method: 'PUT',
+    body: JSON.stringify(localization),
+  })
+}
+
+export function publishCorpus(context) {
+  return request(`/api/refdata/admin/corpus/${context}/publish`, { method: 'POST' })
+}
+
+export function rollbackCorpus(context, version, notes = '') {
+  return request(`/api/refdata/admin/corpus/${context}/rollback/${version}`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
+  })
+}
+
+export function diffCorpusVersions(context, fromVersion, toVersion) {
+  return request(`/api/refdata/admin/corpus/${context}/diff/${fromVersion}/${toVersion}`)
+}

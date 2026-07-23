@@ -108,6 +108,16 @@ function select(typeKey) {
           <span class="type-name">Localization</span>
         </span>
       </li>
+      <li
+        class="localization-entry"
+        :class="{ active: store.activeView === 'versioning' }"
+        @click="store.showVersioningView()"
+      >
+        <span class="type-label">
+          <i class="pi pi-history type-icon" />
+          <span class="type-name">Versioning</span>
+        </span>
+      </li>
     </ul>
   </div>
 </template>

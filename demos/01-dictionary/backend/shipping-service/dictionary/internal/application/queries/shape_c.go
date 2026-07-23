@@ -77,10 +77,9 @@ func (q *ShapeC) ReconstructFleet(ctx context.Context) (FleetReconstruction, err
 		}
 		aggregate, id, eventType, subjectOK := domain.SubjectDetails(msg.Subject())
 		switch {
-		case subjectOK && aggregate == "ship" && (eventType == domain.ShipArrivedEvent || eventType == domain.ShipDepartedEvent):
+		case subjectOK && aggregate == "ship" && (eventType == domain.ShipRegisteredEvent || eventType == domain.ShipArrivedEvent || eventType == domain.ShipDepartedEvent || eventType == domain.ShipIDCorrectedEvent):
 			var event domain.ShipEvent
 			if json.Unmarshal(msg.Data(), &event) == nil {
-				event.ShipID = id
 				agg, ok := ships[id]
 				if !ok {
 					agg = &domain.ShipAggregate{}
@@ -127,8 +126,11 @@ func (q *ShapeC) ReconstructFleet(ctx context.Context) (FleetReconstruction, err
 			ShipState: agg.State(shipContexts[id]),
 			Manifest:  []domain.ContainerState{},
 		}
+		// OnShipID carries the ship's natural key (ContainerEvent.ShipID is
+		// caller-supplied, never the ship's surrogate) — join against
+		// ship.ShipID, not the surrogate map key id.
 		for _, c := range result.Containers {
-			if c.OnShipID != nil && *c.OnShipID == id {
+			if c.OnShipID != nil && *c.OnShipID == ship.ShipID {
 				ship.Manifest = append(ship.Manifest, c)
 			}
 		}

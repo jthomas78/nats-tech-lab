@@ -264,6 +264,81 @@ be a **read-only, KV-first lookup** — cheap and local on a hit, falling
 through to a REST call to refdata-service only on a miss or a stale
 version, exactly as described above in "Data Access Paths".
 
+## Corpus Versioning, Tenancy & Template Inheritance (Phase 12)
+
+Full design rationale, data model, and open-question resolutions live in
+[Refdata-Versioning-Tenancy-Design.md](../../../../.claude/plans/Refdata-Versioning-Tenancy-Design.md).
+This section covers what changed for a *consumer* of the service, once
+Phase 12 sits alongside the unversioned Q5 protocol described above — the
+unversioned `refdata-{context}` bucket and REST paths are unchanged and
+keep serving "current working-table state" exactly as before; everything
+below is additive.
+
+**Contexts form a tree**, not a flat namespace: `global → emea → emea-acme`,
+registered via `POST /api/refdata/admin/contexts`. A context inherits every
+item its ancestors registered; it may add its own items or override an
+inherited one, but it can never delete an inherited item (BR-V06) — an
+override only ever wins for that item, never removes it from view.
+
+**A corpus version is an immutable, flattened snapshot** of one context's
+full effective item set — every inherited item plus every local
+addition/override, already resolved, so a read never walks the inheritance
+chain. Versions go through `draft → published`, and a rollback creates a
+**new** forward-numbered published version rather than rewriting history
+(BR-V04/V05) — old and new versions **coexist indefinitely**, which is what
+makes version pinning (below) meaningful.
+
+**Hybrid KV materialization (Phase 12.5):** every publish or rollback
+eagerly writes that version's full flattened content into its own bucket,
+`refdata-{context}-v{N}` — distinct from the unversioned `refdata-{context}`
+bucket. The version that is currently the latest published one has no TTL;
+every other version's bucket carries a 30-day TTL (`kvcache.SupersededVersionTTL`),
+and every versioned read rewrites the key it just fetched back to the
+bucket — "rewrite-on-read" — which resets that key's TTL clock. A version a
+consumer is actively pinned to therefore never expires under it; a version
+nobody reads anymore ages out on its own.
+
+```mermaid
+flowchart LR
+    ADMIN["Admin UI / API<br/>create draft → edit → publish"]
+    PG[("Postgres<br/>corpus_versions / corpus_items /<br/>corpus_localizations")]
+    NOTIFY["kvcache.VersionNotifier<br/>(on publish/rollback)"]
+    VKV[("NATS KV<br/>refdata-{context}-v{N}<br/>one bucket per version")]
+    CONSUMER["Consumer pinned to version N<br/>(refdataconsumer.LookupAtVersion)"]
+
+    ADMIN -- "publish/rollback" --> PG
+    PG -- "ItemsAtVersion / LocalizationsAtVersion" --> NOTIFY
+    NOTIFY -- "eager materialize (new version, no TTL)" --> VKV
+    NOTIFY -- "supersede (TTL)" --> VKV
+    CONSUMER -- "1: read directly<br/>(cache hit, rewrite-on-read)" --> VKV
+    CONSUMER -- "2: miss<br/>-> GET /api/refdata/v/{version}/..." --> ADMIN
+```
+
+**Version-pinned consumption (Phase 12.7):** `refdataconsumer.Consumer` gained
+`LookupAtVersion(ctx, context, version, typeKey, code, locale)` alongside the
+existing unversioned `Lookup` — the two are independent read paths, not a
+replacement. `LookupAtVersion` reads `refdata-{context}-v{N}` directly (a
+cache hit needs no call into refdata-service at all, same "shared NATS
+server" convention the unversioned path already relies on — see "Cross-Service
+Consumption" above); a miss falls back to
+`GET /api/refdata/v/{version}/{context}/{type}/{code}` (or `.../v/latest/...`
+for "whatever is currently published"), which returns the full materialized
+entry — every locale, no server-side `?locale=` resolution — so the consumer
+resolves the label locally with the same fallback chain (BR-D03) it already
+uses for the unversioned path.
+
+A plain list of changed keys between any two versions is available via
+`GET /api/refdata/admin/corpus/{context}/diff/{v1}/{v2}` — added/removed/changed,
+per the deliberately minimal audit-scope decision (§6.2 of the design doc).
+
+**Known gaps, left for a later phase:** the admin versioning UI (context
+hierarchy viewer, draft editor, publish/rollback controls, diff viewer) is
+not yet built into `frontend/refdata`; KV bucket cleanup once a version has
+no pinned consumers is deferred to a future pin registry (the design doc's
+resolved open question 4); and `corpus_references` exists in the schema but
+nothing yet populates or flattens typed references the way items and
+localizations are.
+
 ## Database Schema
 
 Own Postgres schema (`refdata`), same physical database (`dictionary`) as the

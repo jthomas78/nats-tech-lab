@@ -43,6 +43,9 @@ type Handlers struct {
 	KV            *kvstore.Store
 	Projector     *kvcache.Projector
 	Versions      domain.VersionRepository
+	Contexts      *commands.ContextHandler
+	Corpus        *commands.CorpusHandler
+	VersionReader *kvcache.VersionReader
 }
 
 // Startup runs the schema migration, seeds reference-standard data, wires
@@ -60,10 +63,14 @@ func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream) (*Handlers
 	locs := postgres.NewLocalizationRepository(db)
 	locales := postgres.NewLocaleRepository(db)
 	versions := postgres.NewVersionRepository(db)
+	contexts := postgres.NewContextRepository(db)
+	corpus := postgres.NewCorpusRepository(db)
 
 	var kv *kvstore.Store
 	var projector *kvcache.Projector
 	var notifier domain.ChangeNotifier // stays a true nil interface when js is nil
+	var corpusNotifier domain.CorpusNotifier
+	var versionReader *kvcache.VersionReader
 	if js != nil {
 		if _, err := jstream.CreateChangeStream(ctx, js, kvcache.ChangeStreamName, []string{kvcache.ChangeSubjectWildcard}, ChangeStreamMaxAge); err != nil {
 			return nil, err
@@ -71,6 +78,8 @@ func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream) (*Handlers
 		kv = kvstore.New(js, KVBucketPrefix)
 		projector = kvcache.NewProjector(kv, items, locs, refs, versions, jstream.NewPublisher(js))
 		notifier = projector
+		corpusNotifier = kvcache.NewVersionNotifier(kv, corpus)
+		versionReader = kvcache.NewVersionReader(kv)
 	}
 
 	h := &Handlers{
@@ -81,6 +90,9 @@ func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream) (*Handlers
 		KV:            kv,
 		Projector:     projector,
 		Versions:      versions,
+		Contexts:      commands.NewContextHandler(contexts),
+		Corpus:        commands.NewCorpusHandler(corpus, corpusNotifier),
+		VersionReader: versionReader,
 	}
 
 	if err := Seed(ctx, h); err != nil {
@@ -100,6 +112,9 @@ func (h *Handlers) Mount(mux *http.ServeMux, log *slog.Logger) {
 		KV:            h.KV,
 		Projector:     h.Projector,
 		Versions:      h.Versions,
+		Contexts:      h.Contexts,
+		Corpus:        h.Corpus,
+		VersionReader: h.VersionReader,
 		Log:           log,
 	}).Mount(mux)
 }

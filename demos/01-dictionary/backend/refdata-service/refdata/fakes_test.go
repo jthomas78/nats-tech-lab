@@ -13,6 +13,49 @@ type fakeItemRepo struct {
 	items map[string]domain.DictionaryItem
 }
 
+type fakeContextRepo struct{ contexts map[string]domain.Context }
+
+func newFakeContextRepo() *fakeContextRepo {
+	return &fakeContextRepo{contexts: map[string]domain.Context{}}
+}
+func (r *fakeContextRepo) Register(_ context.Context, value domain.Context) error {
+	r.contexts[value.Context] = value
+	return nil
+}
+func (r *fakeContextRepo) Get(_ context.Context, key string) (domain.Context, error) {
+	value, ok := r.contexts[key]
+	if !ok {
+		return domain.Context{}, domain.ErrContextNotFound
+	}
+	return value, nil
+}
+func (r *fakeContextRepo) List(_ context.Context) ([]domain.Context, error) {
+	out := make([]domain.Context, 0, len(r.contexts))
+	for _, value := range r.contexts {
+		out = append(out, value)
+	}
+	return out, nil
+}
+func (r *fakeContextRepo) Ancestors(_ context.Context, key string) ([]domain.Context, error) {
+	value, err := r.Get(context.Background(), key)
+	if err != nil {
+		return nil, err
+	}
+	out := []domain.Context{value}
+	for value.Parent != "" {
+		value, err = r.Get(context.Background(), value.Parent)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, value)
+	}
+	return out, nil
+}
+func (r *fakeContextRepo) Descendants(_ context.Context, key string) ([]domain.Context, error) {
+	_, err := r.Get(context.Background(), key)
+	return nil, err
+}
+
 func newFakeItemRepo() *fakeItemRepo {
 	return &fakeItemRepo{items: make(map[string]domain.DictionaryItem)}
 }

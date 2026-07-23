@@ -25,6 +25,7 @@ package rest
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -45,6 +46,52 @@ type typeRequest struct {
 	Name        string              `json:"name"`
 	Description string              `json:"description"`
 	Category    domain.TypeCategory `json:"category"`
+}
+
+type contextRequest struct {
+	Context     string `json:"context"`
+	Parent      string `json:"parent"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type contextsResponse struct {
+	Contexts []domain.Context `json:"contexts"`
+}
+
+type corpusRequest struct {
+	Notes string `json:"notes"`
+}
+type corpusVersionsResponse struct {
+	Versions []domain.CorpusVersion `json:"versions"`
+}
+type corpusItemRequest struct {
+	TypeKey       string            `json:"typeKey"`
+	Code          string            `json:"code"`
+	Status        domain.ItemStatus `json:"status"`
+	Attrs         map[string]any    `json:"attrs"`
+	SourceContext string            `json:"sourceContext"`
+	IsOverride    bool              `json:"isOverride"`
+}
+type corpusLocalizationRequest struct {
+	TypeKey       string `json:"typeKey"`
+	Code          string `json:"code"`
+	Locale        string `json:"locale"`
+	Label         string `json:"label"`
+	Description   string `json:"description"`
+	Source        string `json:"source"`
+	SourceContext string `json:"sourceContext"`
+}
+type corpusContentsResponse struct {
+	Version       domain.CorpusVersion        `json:"version"`
+	Items         []domain.CorpusItem         `json:"items"`
+	Localizations []domain.CorpusLocalization `json:"localizations"`
+}
+type corpusDiffResponse struct {
+	Entries []domain.CorpusDiffEntry `json:"entries"`
+}
+type versionedItemsResponse struct {
+	Items []kvcache.VersionedEntry `json:"items"`
 }
 
 type typesResponse struct {
@@ -141,6 +188,9 @@ type Deps struct {
 	KV            *kvstore.Store           // nil in tests that don't wire NATS
 	Projector     *kvcache.Projector       // nil in tests that don't wire NATS
 	Versions      domain.VersionRepository // nil in tests that don't wire NATS
+	Contexts      *commands.ContextHandler
+	Corpus        *commands.CorpusHandler
+	VersionReader *kvcache.VersionReader // nil in tests that don't wire NATS
 	Log           *slog.Logger
 }
 
@@ -151,6 +201,44 @@ type Handlers struct {
 func NewHandlers(deps Deps) *Handlers { return &Handlers{deps: deps} }
 
 func (h *Handlers) Mount(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/refdata/admin/contexts", h.registerContext)
+	mux.HandleFunc("GET /api/refdata/admin/contexts", h.listContexts)
+	// Trailing /detail (not bare .../contexts/{context}) is deliberate: a
+	// bare 3-segment admin/contexts/{context} is structurally ambiguous
+	// against the pre-existing {context}/{type}/completeness and
+	// .../cache-status routes — Go's ServeMux can't tell "admin" apart from
+	// a real context key at the same wildcard position, so it panics at
+	// startup rather than silently misrouting. A 4th literal segment can
+	// never collide with any 3-segment {context}/{type}/action pattern.
+	mux.HandleFunc("GET /api/refdata/admin/contexts/{context}/detail", h.getContext)
+	mux.HandleFunc("POST /api/refdata/admin/corpus/{context}/draft", h.createDraft)
+	mux.HandleFunc("GET /api/refdata/admin/corpus/{context}/draft", h.getDraft)
+	mux.HandleFunc("PUT /api/refdata/admin/corpus/{context}/draft/items", h.putDraftItem)
+	mux.HandleFunc("PUT /api/refdata/admin/corpus/{context}/draft/localizations", h.putDraftLocalization)
+	mux.HandleFunc("POST /api/refdata/admin/corpus/{context}/publish", h.publishCorpus)
+	mux.HandleFunc("POST /api/refdata/admin/corpus/{context}/rollback/{version}", h.rollbackCorpus)
+	mux.HandleFunc("GET /api/refdata/admin/corpus/{context}/versions", h.listCorpusVersions)
+	mux.HandleFunc("GET /api/refdata/admin/corpus/{context}/versions/{version}", h.getCorpusVersion)
+	mux.HandleFunc("GET /api/refdata/admin/corpus/{context}/diff/{from}/{to}", h.diffCorpus)
+	// "latest" is a valid dynamic value of {version}, not a second route —
+	// registering it as its own literal-prefixed pattern (`v/latest/...`)
+	// alongside `v/{version}/...` created two DIFFERENT ambiguity panics in a
+	// row against Go's net/http ServeMux (each only surfaces once a route
+	// with a literal in a position the other treats as wildcard is combined
+	// with a third route that has ITS literal at yet another position — see
+	// the design doc's "Versioned Read" section for the specifics). One
+	// pattern per shape, with the handler branching on the literal string
+	// "latest", sidesteps the whole class of conflict.
+	//
+	// "/items" (not a bare .../v/{version}/{context}/{type}) is deliberate
+	// too: a bare 4-segment shape there is structurally ambiguous against
+	// the pre-existing {context}/{type}/{code}/localizations and
+	// .../references routes for the same reason as the contexts/{context}
+	// fix above. The trailing literal is a strict specialization of the
+	// get-one route's shape (only one position differs, and only one side
+	// is a literal there), which Go's mux does allow.
+	mux.HandleFunc("GET /api/refdata/v/{version}/{context}/{type}/{code}", h.getVersionedItem)
+	mux.HandleFunc("GET /api/refdata/v/{version}/{context}/{type}/items", h.listVersionedItems)
 	mux.HandleFunc("GET /api/refdata/{context}/types", h.listTypes)
 	mux.HandleFunc("POST /api/refdata/admin/types", h.registerType)
 	mux.HandleFunc("GET /api/refdata/{context}/locales", h.listLocales)
@@ -170,6 +258,333 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/refdata/admin/localizations", h.setLocalization)
 	mux.HandleFunc("GET /api/refdata-watch/{context}", h.watch)
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
+}
+
+func (h *Handlers) createDraft(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Corpus == nil {
+		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "corpus versioning is not configured"})
+		return
+	}
+	var req corpusRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	version, err := h.deps.Corpus.CreateDraft(r.Context(), r.PathValue("context"), req.Notes)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusCreated, version)
+}
+func (h *Handlers) publishCorpus(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Corpus == nil {
+		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "corpus versioning is not configured"})
+		return
+	}
+	version, err := h.deps.Corpus.Publish(r.Context(), r.PathValue("context"))
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, version)
+}
+func (h *Handlers) rollbackCorpus(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Corpus == nil {
+		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "corpus versioning is not configured"})
+		return
+	}
+	var req corpusRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	var version int
+	if _, err := fmt.Sscanf(r.PathValue("version"), "%d", &version); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid version"})
+		return
+	}
+	result, err := h.deps.Corpus.Rollback(r.Context(), r.PathValue("context"), version, req.Notes)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, result)
+}
+func (h *Handlers) listCorpusVersions(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Corpus == nil {
+		h.writeJSON(w, http.StatusOK, corpusVersionsResponse{Versions: []domain.CorpusVersion{}})
+		return
+	}
+	versions, err := h.deps.Corpus.Versions(r.Context(), r.PathValue("context"))
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, corpusVersionsResponse{Versions: versions})
+}
+
+func (h *Handlers) getDraft(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Corpus == nil {
+		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "corpus versioning is not configured"})
+		return
+	}
+	contextKey := r.PathValue("context")
+	versions, err := h.deps.Corpus.Versions(r.Context(), contextKey)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	var draft *domain.CorpusVersion
+	for i := range versions {
+		if versions[i].Status == domain.CorpusDraft {
+			draft = &versions[i]
+			break
+		}
+	}
+	if draft == nil {
+		h.writeError(w, domain.ErrDraftNotFound)
+		return
+	}
+	h.writeCorpusContents(w, r, contextKey, *draft)
+}
+
+func (h *Handlers) getCorpusVersion(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Corpus == nil {
+		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "corpus versioning is not configured"})
+		return
+	}
+	contextKey := r.PathValue("context")
+	var number int
+	if _, err := fmt.Sscanf(r.PathValue("version"), "%d", &number); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid version"})
+		return
+	}
+	version, err := h.deps.Corpus.GetVersion(r.Context(), contextKey, number)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeCorpusContents(w, r, contextKey, version)
+}
+
+func (h *Handlers) writeCorpusContents(w http.ResponseWriter, r *http.Request, contextKey string, version domain.CorpusVersion) {
+	items, err := h.deps.Corpus.ItemsAtVersion(r.Context(), contextKey, version.Version)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	locs, err := h.deps.Corpus.LocalizationsAtVersion(r.Context(), contextKey, version.Version)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, corpusContentsResponse{Version: version, Items: items, Localizations: locs})
+}
+
+func (h *Handlers) putDraftItem(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Corpus == nil {
+		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "corpus versioning is not configured"})
+		return
+	}
+	var req corpusItemRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid request body"})
+		return
+	}
+	item := domain.CorpusItem{
+		DictionaryItem: domain.DictionaryItem{TypeKey: req.TypeKey, Code: req.Code, Status: req.Status, Attrs: req.Attrs},
+		SourceContext:  req.SourceContext,
+		IsOverride:     req.IsOverride,
+	}
+	if err := h.deps.Corpus.PutDraftItem(r.Context(), r.PathValue("context"), item); err != nil {
+		h.writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// putDraftLocalization overrides a single item-locale pair directly on the
+// draft — the mechanism for a child overriding one locale of an item it
+// inherited without overriding the item itself (resolved Q3).
+func (h *Handlers) putDraftLocalization(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Corpus == nil {
+		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "corpus versioning is not configured"})
+		return
+	}
+	var req corpusLocalizationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid request body"})
+		return
+	}
+	loc := domain.CorpusLocalization{
+		Localization: domain.Localization{
+			TypeKey: req.TypeKey, Code: req.Code, Locale: req.Locale,
+			Label: req.Label, Description: req.Description, Source: req.Source,
+		},
+		SourceContext: req.SourceContext,
+	}
+	if err := h.deps.Corpus.PutDraftLocalization(r.Context(), r.PathValue("context"), loc); err != nil {
+		h.writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handlers) diffCorpus(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Corpus == nil {
+		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "corpus versioning is not configured"})
+		return
+	}
+	var from, to int
+	if _, err := fmt.Sscanf(r.PathValue("from"), "%d", &from); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid from version"})
+		return
+	}
+	if _, err := fmt.Sscanf(r.PathValue("to"), "%d", &to); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid to version"})
+		return
+	}
+	entries, err := h.deps.Corpus.Diff(r.Context(), r.PathValue("context"), from, to)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, corpusDiffResponse{Entries: entries})
+}
+
+// getVersionedItem and listVersionedItems are the versioned-read surface
+// (§7 "Versioned Read") — the consumer-facing counterpart to the admin
+// corpus endpoints above. Every read is rewrite-on-read
+// (kvcache.VersionReader), keeping a pinned old version warm. {version}
+// accepts either a number or the literal "latest" — see resolveVersion.
+func (h *Handlers) getVersionedItem(w http.ResponseWriter, r *http.Request) {
+	if h.deps.VersionReader == nil {
+		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "versioned reads are not configured"})
+		return
+	}
+	version, err := h.resolveVersion(r)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	entry, err := h.deps.VersionReader.Get(r.Context(), r.PathValue("context"), version, r.PathValue("type"), r.PathValue("code"))
+	if err != nil {
+		h.writeVersionedError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, entry)
+}
+
+func (h *Handlers) listVersionedItems(w http.ResponseWriter, r *http.Request) {
+	if h.deps.VersionReader == nil {
+		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "versioned reads are not configured"})
+		return
+	}
+	version, err := h.resolveVersion(r)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	entries, err := h.deps.VersionReader.List(r.Context(), r.PathValue("context"), version, r.PathValue("type"))
+	if err != nil {
+		h.writeVersionedError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, versionedItemsResponse{Items: entries})
+}
+
+var errInvalidVersion = errors.New("invalid version")
+
+// resolveVersion parses {version}. The literal "latest" resolves to the
+// highest-numbered version currently in 'published' status — versions
+// coexist indefinitely (version pinning), so this is deliberately not just
+// MAX(version): a rolled-back version must not win.
+func (h *Handlers) resolveVersion(r *http.Request) (int, error) {
+	raw := r.PathValue("version")
+	if raw != "latest" {
+		var version int
+		if _, err := fmt.Sscanf(raw, "%d", &version); err != nil {
+			return 0, fmt.Errorf("%w: %q", errInvalidVersion, raw)
+		}
+		return version, nil
+	}
+	if h.deps.Corpus == nil {
+		return 0, domain.ErrContextNotFound
+	}
+	versions, err := h.deps.Corpus.Versions(r.Context(), r.PathValue("context"))
+	if err != nil {
+		return 0, err
+	}
+	latest := -1
+	for _, v := range versions {
+		if v.Status == domain.CorpusPublished && v.Version > latest {
+			latest = v.Version
+		}
+	}
+	if latest < 0 {
+		return 0, domain.ErrContextNotFound
+	}
+	return latest, nil
+}
+
+func (h *Handlers) writeVersionedError(w http.ResponseWriter, err error) {
+	if errors.Is(err, kvcache.ErrVersionedKeyNotFound) {
+		h.writeJSON(w, http.StatusNotFound, errorResponse{Error: err.Error()})
+		return
+	}
+	h.writeError(w, err)
+}
+
+func (h *Handlers) registerContext(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Contexts == nil {
+		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "context hierarchy is not configured"})
+		return
+	}
+	var req contextRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid request body"})
+		return
+	}
+	if err := h.deps.Contexts.Register(r.Context(), domain.Context{Context: req.Context, Parent: req.Parent, Name: req.Name, Description: req.Description}); err != nil {
+		h.writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (h *Handlers) listContexts(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Contexts == nil {
+		h.writeJSON(w, http.StatusOK, contextsResponse{Contexts: []domain.Context{}})
+		return
+	}
+	contexts, err := h.deps.Contexts.List(r.Context())
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, contextsResponse{Contexts: contexts})
+}
+
+func (h *Handlers) getContext(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Contexts == nil {
+		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "context hierarchy is not configured"})
+		return
+	}
+	value, err := h.deps.Contexts.Get(r.Context(), r.PathValue("context"))
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	ancestors, err := h.deps.Contexts.Ancestors(r.Context(), value.Context)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	descendants, err := h.deps.Contexts.Descendants(r.Context(), value.Context)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, struct {
+		Context     domain.Context   `json:"context"`
+		Ancestors   []domain.Context `json:"ancestors"`
+		Descendants []domain.Context `json:"descendants"`
+	}{Context: value, Ancestors: ancestors, Descendants: descendants})
 }
 
 // @Summary      List dictionary types
@@ -630,7 +1045,7 @@ func (h *Handlers) writeError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	switch {
 	case errors.Is(err, domain.ErrItemNotFound), errors.Is(err, domain.ErrTypeNotFound),
-		errors.Is(err, domain.ErrReferenceNotFound):
+		errors.Is(err, domain.ErrReferenceNotFound), errors.Is(err, domain.ErrContextNotFound):
 		status = http.StatusNotFound
 	case errors.Is(err, domain.ErrDuplicateItemCode), errors.Is(err, domain.ErrItemReferenced):
 		status = http.StatusConflict
@@ -639,6 +1054,14 @@ func (h *Handlers) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, domain.ErrReferenceTargetNotActive):
 		status = http.StatusUnprocessableEntity
 	case errors.Is(err, domain.ErrInvalidLocaleFormat):
+		status = http.StatusBadRequest
+	case errors.Is(err, domain.ErrContextCycle), errors.Is(err, domain.ErrCannotDeleteInheritedItem),
+		errors.Is(err, domain.ErrDraftAlreadyExists), errors.Is(err, domain.ErrOnlyDraftCanPublish),
+		errors.Is(err, domain.ErrRollbackTargetNotPublic):
+		status = http.StatusConflict
+	case errors.Is(err, domain.ErrDraftNotFound):
+		status = http.StatusNotFound
+	case errors.Is(err, errInvalidVersion):
 		status = http.StatusBadRequest
 	}
 	if h.deps.Log != nil && status == http.StatusInternalServerError {

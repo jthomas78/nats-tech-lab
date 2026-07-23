@@ -2,7 +2,7 @@
 
 - [Project plan location](project_plan_location.md) — Plans live in `.claude/plans/`, not repo root
 - [Dev machine toolchain](dev_machine_toolchain.md) — Linux box has no Docker; Mac (Homebrew/Volta) does — check before assuming
-- [Shipping domain overview](shipping_domain_overview.md) — Ship/Container aggregates on `SHIPPING` stream; hydrate/read-modify-write/422 conventions
+- [Shipping domain overview](shipping_domain_overview.md) — Ship/Container aggregates on `SHIPPING` stream; hydrate/read-modify-write/422 conventions; **updated 2026-07-23**: subjects are now `evt.<tenant>.<domain>.<entity>.<id>.<event>`, Ship is now surrogate-UUID-keyed like Container (BR-020…BR-022)
 - [NATS volume legacy messages](nats_volume_legacy_messages.md) — stale-subject Nak loop after a domain rename; fix: `docker compose down -v`
 - [Container status model](container_status_model.md) — only `in-terminal`/`on-ship` exist; derive UI splits from `destPort` client-side
 - [frontend-port structure](frontend_port_structure.md) — now at `frontend/seafreight-app/`; Fleet/Port view split, refdata i18n, Vitest gotchas
@@ -14,3 +14,4 @@
 - [PrimeVue RadioButtonGroup for shared state](primevue_radiobutton_group_for_shared_state.md) — standalone RadioButtons in v-for need grouping
 - [Locale switch race condition](locale_switch_race_condition.md) — overlapping fetches resolve out of order; fixed with a request-token guard
 - [Verify before resuming offloaded work](verify_before_resuming_offloaded_work.md) — check git log before trusting a resumed summary's "still open" claims
+- [Design discussion vs. implementation signal](design_discussion_vs_implementation_signal.md) — this user iterates/reverts design ideas before saying "let's plan" — don't implement early

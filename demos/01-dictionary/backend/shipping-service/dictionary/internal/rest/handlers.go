@@ -2,8 +2,10 @@
 //
 // Routes:
 //
-//	POST   /api/ships/arrive                          arrive at port (fires ship.arrived event)
+//	POST   /api/ships/arrive                          arrive at port (fires ship.arrived event; mints a surrogate id implicitly on first arrival)
 //	POST   /api/ships/depart                          depart from port (fires ship.departed event)
+//	POST   /api/ships/register                        mint a ship's surrogate id explicitly (BR-021, optional — see arrive)
+//	POST   /api/ships/correct-id                      rename a ship's shipID, preserving its surrogate id (BR-022)
 //	POST   /api/containers/register                   register container in origin terminal (container.registered)
 //	POST   /api/containers/load                       load container onto docked ship (container.loaded)
 //	POST   /api/containers/unload                     unload container at destination (container.unloaded)
@@ -115,6 +117,8 @@ func NewHandlers(deps Deps) *Handlers {
 func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/ships/arrive", h.arrivePort)
 	mux.HandleFunc("POST /api/ships/depart", h.departPort)
+	mux.HandleFunc("POST /api/ships/register", h.registerShip)
+	mux.HandleFunc("POST /api/ships/correct-id", h.correctShipID)
 	mux.HandleFunc("POST /api/containers/register", h.registerContainer)
 	mux.HandleFunc("POST /api/containers/load", h.loadContainer)
 	mux.HandleFunc("POST /api/containers/unload", h.unloadContainer)
@@ -194,6 +198,58 @@ func (h *Handlers) departPort(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state, err := h.deps.Ships.DepartPort(r.Context(), in)
+	if err != nil {
+		h.writeCommandError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"ship": state})
+}
+
+// registerShip godoc
+//
+// @Summary      Register ship
+// @Description  Mints a ship's surrogate identity explicitly (BR-021: a shipID can only be registered once). Optional — ArrivePort mints one implicitly on a ship's first arrival. Publishes a ship.registered event.
+// @Tags         ships
+// @Accept       json
+// @Produce      json
+// @Param        body  body      commands.ShipInput  true  "context, shipID, shipName"
+// @Success      202   {object}  shipResponse
+// @Failure      400   {object}  errorResponse
+// @Failure      422   {object}  errorResponse  "Domain rule violation"
+// @Router       /api/ships/register [post]
+func (h *Handlers) registerShip(w http.ResponseWriter, r *http.Request) {
+	var in commands.ShipInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	state, err := h.deps.Ships.RegisterShip(r.Context(), in)
+	if err != nil {
+		h.writeCommandError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"ship": state})
+}
+
+// correctShipID godoc
+//
+// @Summary      Correct a ship's shipID
+// @Description  Renames a registered ship's natural key (BR-022: newShipID must be valid and not currently in use by another ship in the context), preserving its surrogate identity. Publishes a ship.corrected event.
+// @Tags         ships
+// @Accept       json
+// @Produce      json
+// @Param        body  body      commands.ShipCorrectionInput  true  "context, shipID, newShipID"
+// @Success      202   {object}  shipResponse
+// @Failure      400   {object}  errorResponse
+// @Failure      422   {object}  errorResponse  "Domain rule violation"
+// @Router       /api/ships/correct-id [post]
+func (h *Handlers) correctShipID(w http.ResponseWriter, r *http.Request) {
+	var in commands.ShipCorrectionInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	state, err := h.deps.Ships.CorrectShipID(r.Context(), in)
 	if err != nil {
 		h.writeCommandError(w, err)
 		return
@@ -624,7 +680,9 @@ func (h *Handlers) writeCommandError(w http.ResponseWriter, err error) {
 		errors.Is(err, domain.ErrContainerNotAtPort),
 		errors.Is(err, domain.ErrContainerExists),
 		errors.Is(err, domain.ErrInvalidContainerID),
-		errors.Is(err, domain.ErrUnknownPort):
+		errors.Is(err, domain.ErrUnknownPort),
+		errors.Is(err, domain.ErrShipExists),
+		errors.Is(err, domain.ErrShipIDInUse):
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeError(w, http.StatusBadRequest, err.Error())

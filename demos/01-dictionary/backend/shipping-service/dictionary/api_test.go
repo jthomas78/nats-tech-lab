@@ -240,6 +240,70 @@ var _ = Describe("HTTP API", func() {
 		})
 	})
 
+	Describe("POST /api/ships/register", func() {
+		It("returns 202 with the registered ship state", func() {
+			resp := api.post("/api/ships/register", map[string]any{
+				"context": ctx, "shipID": "api-register-ship", "shipName": "API Register",
+			})
+			Expect(resp.StatusCode).To(Equal(http.StatusAccepted))
+			body := readBody(resp)
+			ship := body["ship"].(map[string]any)
+			Expect(ship["shipID"]).To(Equal("api-register-ship"))
+			Expect(ship["id"]).NotTo(BeEmpty())
+		})
+
+		It("returns 400 for malformed JSON", func() {
+			resp := api.postRaw("/api/ships/register", `{bad`)
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		})
+
+		It("returns 422 when BR-021 is violated (duplicate registration)", func() {
+			api.fire("/api/ships/register", map[string]any{
+				"context": ctx, "shipID": "api-dup-register-ship", "shipName": "Dup",
+			})
+			resp := api.post("/api/ships/register", map[string]any{
+				"context": ctx, "shipID": "api-dup-register-ship", "shipName": "Dup Again",
+			})
+			Expect(resp.StatusCode).To(Equal(http.StatusUnprocessableEntity))
+			body := readBody(resp)
+			Expect(body["error"]).To(ContainSubstring(domain.ErrShipExists.Error()))
+		})
+	})
+
+	Describe("POST /api/ships/correct-id", func() {
+		It("returns 202 with the ship's identity renamed, surrogate id preserved", func() {
+			registerResp := api.post("/api/ships/register", map[string]any{
+				"context": ctx, "shipID": "api-correct-ship", "shipName": "API Correct",
+			})
+			registered := readBody(registerResp)["ship"].(map[string]any)
+
+			resp := api.post("/api/ships/correct-id", map[string]any{
+				"context": ctx, "shipID": "api-correct-ship", "newShipID": "api-correct-ship-renamed",
+			})
+			Expect(resp.StatusCode).To(Equal(http.StatusAccepted))
+			body := readBody(resp)
+			ship := body["ship"].(map[string]any)
+			Expect(ship["shipID"]).To(Equal("api-correct-ship-renamed"))
+			Expect(ship["id"]).To(Equal(registered["id"]))
+		})
+
+		It("returns 422 when BR-022 is violated (target shipID already in use)", func() {
+			api.fire("/api/ships/register", map[string]any{
+				"context": ctx, "shipID": "api-correct-taken", "shipName": "Taken",
+			})
+			api.fire("/api/ships/register", map[string]any{
+				"context": ctx, "shipID": "api-correct-source", "shipName": "Source",
+			})
+			resp := api.post("/api/ships/correct-id", map[string]any{
+				"context": ctx, "shipID": "api-correct-source", "newShipID": "api-correct-taken",
+			})
+			Expect(resp.StatusCode).To(Equal(http.StatusUnprocessableEntity))
+			body := readBody(resp)
+			Expect(body["error"]).To(ContainSubstring(domain.ErrShipIDInUse.Error()))
+		})
+	})
+
 	// ── container commands ────────────────────────────────────────────────────
 
 	Describe("POST /api/containers/register", func() {

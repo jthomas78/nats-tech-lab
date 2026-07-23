@@ -81,6 +81,10 @@ var (
 
 	// ErrInvalidCategory — BR-D09: category must be one of the controlled vocabulary.
 	ErrInvalidCategory = errors.New("dictionary type category is not a recognized category")
+
+	// ErrCannotDeleteInheritedItem — BR-V06: local overlays can override but
+	// never remove an ancestor's item.
+	ErrCannotDeleteInheritedItem = errors.New("an inherited item cannot be deleted")
 )
 
 // ValidateCategory enforces BR-D09 — a dictionary type's category must be

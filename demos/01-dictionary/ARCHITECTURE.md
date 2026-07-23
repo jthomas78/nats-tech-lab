@@ -117,8 +117,8 @@ Phase 8 introduced a second aggregate. Both are co-located on the single
 
 | Aggregate | Subjects | Rules |
 |---|---|---|
-| `ShipAggregate` (`domain/ship.go`) | `emea.events.acme.ship.{shipID}.{arrived\|departed}` | BR-001 … BR-003, BR-017 |
-| `ContainerAggregate` (`domain/container.go`) | `emea.events.acme.container.{uuid}.{registered\|loaded\|unloaded}` | BR-008 … BR-016, BR-018 |
+| `ShipAggregate` (`domain/ship.go`) | `evt.{context}.shipping.ship.{id}.{registered\|arrived\|departed\|corrected}` | BR-001 … BR-003, BR-017, BR-020 … BR-022 |
+| `ContainerAggregate` (`domain/container.go`) | `evt.{context}.shipping.container.{uuid}.{registered\|loaded\|unloaded}` | BR-008 … BR-016, BR-018 |
 
 Ports (the `originPort`/`destPort`/arrival-port values referenced above) are
 **not** a third aggregate — they're plain Postgres reference data (BR-017,
@@ -127,15 +127,15 @@ CRUD" below.
 
 **`dictionary/internal/application/commands/commands.go`**
 
-- `ShipHandler` — `ArrivePort()`, `DepartPort()`
-- `hydrate()` — replays only `emea.events.acme.ship.{shipID}.>` to rebuild one ship before each write
+- `ShipHandler` — `ArrivePort()`, `DepartPort()`, `RegisterShip()`, `CorrectShipID()`
+- `hydrateByNaturalKey()` — resolves the ship whose *current* `shipID` matches the requested name by folding every ship's history in the context (`ShipContextWildcard`), then picking the match. A single-ship `FilterSubject` replay isn't enough once `shipID` is mutable (BR-022) — the requested name might belong to a different surrogate than it did historically. Shared with `CorrectShipID` via `foldAllShips()`.
 - `replayStream()` — shared full-stream fold retained for cross-aggregate container commands
 - `Publisher` interface — outbound port to JetStream
 
 **`dictionary/internal/application/commands/container.go`**
 
 - `ContainerHandler` — `RegisterContainer()`, `LoadContainer()`, `UnloadContainer()`
-- `hydratePair()` — rebuilds **both** aggregates from **one atomic replay** of `SHIPPING`. Identity is parsed from each subject. This keeps cross-aggregate rules strongly consistent until Phase 16 splits the stream.
+- `hydratePair()` — rebuilds **both** aggregates from **one atomic replay** of `SHIPPING`. Container identity is parsed from its subject; ship identity is resolved the same way `hydrateByNaturalKey` does (fold every ship event into a surrogate-keyed map, then match by current `shipID`) since the ship subject no longer carries the natural key. This keeps cross-aggregate rules strongly consistent until Phase 16 splits the stream.
 - `RegisterContainer()` — mints a fresh surrogate id (`newSurrogateID()`, a dependency-free UUID v4) after `hydrateByNaturalKey()` confirms the natural key is free (BR-015, resolved against the event stream — authoritative, not from a read projection)
 
 #### Container identity — surrogate key (Phase 8.3)
@@ -146,7 +146,14 @@ CRUD" below.
 - **Postgres:** `containers` primary key is `(context, id)`; `container_id` carries a `UNIQUE (context, container_id)` constraint.
 - **KV read model:** the `container-{context}` bucket stays keyed by the human-facing `container.{containerID}` (query convenience) and carries `id` as a field — so it doubles as the natural-key → id lookup.
 
-**Why `Container` and not `Ship`.** The scope is deliberately container-only. `Container`'s natural key is ISO 6346 — an **external interchange standard** other systems reference and that can need correcting (BR-016 exists precisely because a bad ID slipped in). `Ship`'s id is an internal slug with no external-format rule, no correction pressure, so a surrogate key there would be indirection without benefit. This is the recognised industry default: use a surrogate key where the natural key is an externally-governed standard you don't fully control.
+#### Ship identity — surrogate key
+
+`Ship` gained the same surrogate-key architecture as `Container` once it became clear `shipID` behaves like a name/call-sign/internal-fleet-code — mutable, reassignable — rather than a permanent internal slug (superseding an earlier decision that a Ship surrogate would be "indirection without benefit"; see BR-021/BR-022 in `BUSINESS_RULES-SHIPPING.md`).
+
+- **Write side:** `RegisterShip()` mints the surrogate `id` explicitly (BR-021); `ArrivePort` mints one implicitly on a ship's first arrival if none exists yet — pre-registering is optional, not a precondition. `CorrectShipID()` renames `shipID` without touching `id` (BR-022).
+- **Postgres:** `ships` primary key is `(context, id)`; `ship_id` carries a `UNIQUE (context, ship_id)` constraint — a correction is a plain column update, no rekey.
+- **KV read model:** the context-scoped bucket stays keyed by the human-facing `ship.{shipID}` (query convenience, mirrors Container) and carries `id` as a field. A correction (`.corrected` event, carrying `previousShipID`) is the one place a projector must **rekey** — delete the old `ship.{previousShipID}` entry, write the new `ship.{shipID}` one — since Postgres and the JetStream subject don't need to (both key by the immutable surrogate).
+- **Known limitation (verified live):** `ContainerState.OnShipID` snapshots the ship's natural key at load time and isn't updated by a later correction. Renaming a ship while it carries a container leaves that container stuck — unload fails with **both** the new name (BR-013) **and** the old name (BR-012 — `hydrateByNaturalKey`/`hydratePair` resolve by *current* name, so a stale name matches nothing). Only unblocked by correcting back to the exact pre-correction name first.
 
 **`dictionary/internal/domain/ship.go` / `container.go`**
 
@@ -162,9 +169,9 @@ CRUD" below.
 
 **`dictionary/internal/eventhandler/`**
 
-- `RegisterShapeA()` / `RegisterShapeB()` consume `emea.events.acme.ship.>`
-- `RegisterContainers()` consumes `emea.events.acme.container.>`
-- `RegisterMeta()` consumes `emea.events.acme.>` and maintains the `meta.*` lookup sets
+- `RegisterShapeA()` / `RegisterShapeB()` consume `evt.*.shipping.ship.>`
+- `RegisterContainers()` consumes `evt.*.shipping.container.>`
+- `RegisterMeta()` consumes `evt.*.shipping.container.>` and maintains the `meta.*` lookup sets
 - `currentAgg()` / `currentContainerAgg()` — read current KV state into an aggregate via `FromState()` before applying one delta, so projectors never replay the full stream
 
 Each consumer is independently position-tracked and can lag, replay, or rebuild on its own.
@@ -364,7 +371,7 @@ The Fleet dropdown sets `store.context`. Changing it calls `connect()`, which re
 
 1. **Projector-side implicit snapshot** — `currentAgg()` in `eventhandler/handler.go` reads current KV state into a `ShipAggregate` via `FromState()`. KV acts as a rolling snapshot so projectors apply one delta per event rather than replaying from `seq=1`.
 
-2. **Write-side has no snapshot** — `hydrate()` in `commands.go` replays all events from `seq=1` on every command. This is the main scalability gap: as the stream grows, every write gets slower. A proper snapshot would checkpoint aggregate state at a known sequence number and replay only the tail.
+2. **Write-side has no snapshot** — `hydrateByNaturalKey()` in `commands.go` replays every ship's events from `seq=1` on every command (widened from a single-ship filtered replay once `shipID` became mutable, BR-022 — a ship's current name can no longer be targeted by subject alone). This is the main scalability gap, more so now than before: as the number of ships in a context grows, every ship command gets slower, not just as the stream grows overall. A proper snapshot would checkpoint aggregate state at a known sequence number and replay only the tail.
 
 ---
 
@@ -416,7 +423,7 @@ Every mutation (`ItemHandler`/`ReferenceHandler`/`LocalizationHandler`, via the 
 2. **Rebuild** the affected item's KV cache entry (`refdata-{context}` bucket, key `{type}.{code}`)
    — the item plus its localizations and outbound references, stamped with the new version — and
    the type's `{type}._meta` entry (version + item count). A deleted item's key is removed instead.
-3. **Publish** a bounded change-event *pointer* (`{region}.refdata.{tenant}.{type}.changed` on the
+3. **Publish** a bounded change-event *pointer* (`evt.{context}.refdata.{type}.changed` on the
    `REFDATA` stream, `LimitsPolicy` + explicit `MaxAge` — 48h in this lab) carrying only
    `{typeKey, context, version}`, never item state. `REFDATA` is a notification channel, not an
    event store; a consumer that missed a push can always re-derive truth from KV or the REST API.

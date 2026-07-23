@@ -136,7 +136,7 @@ var _ = Describe("KV cache + versioned-read protocol (Phase 11.3)", func() {
 			msg = m
 		}
 		Expect(msg).NotTo(BeNil())
-		Expect(msg.Subject()).To(Equal(kvcache.ChangeSubject("currency")))
+		Expect(msg.Subject()).To(Equal(kvcache.ChangeSubject(itemCtx, "currency")))
 
 		var event kvcache.ChangeEvent
 		Expect(json.Unmarshal(msg.Data(), &event)).To(Succeed())

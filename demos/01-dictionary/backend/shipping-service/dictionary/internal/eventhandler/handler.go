@@ -20,13 +20,20 @@ import (
 // delta via ShipAggregate, and writes the new ShipState back.
 func RegisterShapeA(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, log *slog.Logger) (jetstream.ConsumeContext, error) {
 	return register(ctx, js, "ship-shape-a", log, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
-		agg := currentAgg(msgCtx, kv, event)
+		oldKey := shipKVKey(subject, event)
+		agg := currentAgg(msgCtx, kv, event.Context, oldKey)
 		agg.Apply(subject, event)
+		newKey := "ship." + agg.ShipID
 		data, err := json.Marshal(agg.State(event.Context))
 		if err != nil {
 			return err
 		}
-		_, err = kv.Put(msgCtx, event.Context, "ship."+event.ShipID, data)
+		if oldKey != newKey {
+			if err := kv.Delete(msgCtx, event.Context, oldKey); err != nil {
+				return err
+			}
+		}
+		_, err = kv.Put(msgCtx, event.Context, newKey, data)
 		return err
 	})
 }
@@ -36,7 +43,8 @@ func RegisterShapeA(ctx context.Context, js jetstream.JetStream, kv *kvstore.Sto
 // cache so subsequent reads are served from KV without hitting Postgres.
 func RegisterShapeB(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, repo domain.ShipRepository, log *slog.Logger) (jetstream.ConsumeContext, error) {
 	return register(ctx, js, "ship-shape-b", log, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
-		agg := currentAgg(msgCtx, kv, event)
+		oldKey := shipKVKey(subject, event)
+		agg := currentAgg(msgCtx, kv, event.Context, oldKey)
 		agg.Apply(subject, event)
 		state := agg.State(event.Context)
 
@@ -44,21 +52,39 @@ func RegisterShapeB(ctx context.Context, js jetstream.JetStream, kv *kvstore.Sto
 		if err != nil {
 			return err
 		}
+		newKey := "ship." + persisted.ShipID
 		data, err := json.Marshal(persisted)
 		if err != nil {
 			return err
 		}
-		_, err = kv.Put(msgCtx, event.Context, "ship."+event.ShipID, data)
+		if oldKey != newKey {
+			if err := kv.Delete(msgCtx, event.Context, oldKey); err != nil {
+				return err
+			}
+		}
+		_, err = kv.Put(msgCtx, event.Context, newKey, data)
 		return err
 	})
 }
 
-// currentAgg reads the current KV state for the ship and loads it into a
+// shipKVKey returns the KV key holding this ship's *pre-event* state. For a
+// .corrected event that's the key under the previous name (event.ShipID is
+// already the NEW name in the payload); for every other event type the
+// ship's name hasn't changed, so it's just today's key.
+func shipKVKey(subject string, event domain.ShipEvent) string {
+	_, _, eventType, _ := domain.SubjectDetails(subject)
+	if eventType == domain.ShipIDCorrectedEvent && event.PreviousShipID != "" {
+		return "ship." + event.PreviousShipID
+	}
+	return "ship." + event.ShipID
+}
+
+// currentAgg reads the ship's current KV state at key and loads it into a
 // ShipAggregate so the projector can apply a single-event delta efficiently
 // without replaying the full JetStream history.
-func currentAgg(ctx context.Context, kv *kvstore.Store, event domain.ShipEvent) *domain.ShipAggregate {
-	agg := &domain.ShipAggregate{ShipID: event.ShipID}
-	raw, _, err := kv.Get(ctx, event.Context, "ship."+event.ShipID)
+func currentAgg(ctx context.Context, kv *kvstore.Store, shipContext, key string) *domain.ShipAggregate {
+	agg := &domain.ShipAggregate{}
+	raw, _, err := kv.Get(ctx, shipContext, key)
 	if err == nil {
 		var existing domain.ShipState
 		if json.Unmarshal(raw, &existing) == nil {
@@ -96,12 +122,12 @@ func register(
 		// Skip messages from a previous domain version (e.g. legacy entry.* events)
 		// that unmarshal without error but produce an empty shipID. Ack them as
 		// poison messages so they are not redelivered indefinitely.
-		if !subjectOK || aggregate != "ship" {
+		if !subjectOK || aggregate != "ship" || event.ShipID == "" {
 			log.Warn("skip legacy event (no shipID)", "consumer", durable, "subject", msg.Subject())
 			_ = msg.Ack()
 			return
 		}
-		event.ShipID = id
+		event.ID = id
 		if err := project(ctx, msg.Subject(), event); err != nil {
 			log.Error("projection failed, will redeliver", "consumer", durable, "subject", msg.Subject(), "err", err)
 			_ = msg.Nak()
