@@ -40,9 +40,9 @@ aggregates. See [BUSINESS_RULES.md](BUSINESS_RULES.md) for BR-001 … BR-015.
 
 | App | URL | Role |
 |---|---|---|
-| Admin / NATS debug | http://localhost:5173 | Raw stream feed, KV buckets, Shape A/B/C projections |
-| Port Management | http://localhost:5174 | One port at a time: terminal yard, docked ships + manifests, container operations |
-| Dictionary | http://localhost:5175 | Reference-data admin: type navigator, item grid, localization/reference editor, locales panel, cache status widget (Phase 11) |
+| Admin / NATS debug | http://localhost:7100 | Raw stream feed, KV buckets, Shape A/B/C projections |
+| Port Management | http://localhost:7101 | One port at a time: terminal yard, docked ships + manifests, container operations |
+| Dictionary | http://localhost:7102 | Reference-data admin: type navigator, item grid, localization/reference editor, locales panel, cache status widget (Phase 11) |
 
 ## Dictionary as a Service (Phase 11)
 
@@ -82,8 +82,8 @@ cd demos/01-dictionary
 docker compose up --build    # builds the Go backend + both Vue frontends, then starts all services
 ```
 
-Then open **http://localhost:5173** for the Admin / NATS debug UI,
-**http://localhost:5174** for Port Management, or **http://localhost:5175** for Dictionary.
+Then open **http://localhost:7100** for the Admin / NATS debug UI,
+**http://localhost:7101** for Port Management, or **http://localhost:7102** for Dictionary.
 
 ```bash
 docker compose down          # stop and remove containers
@@ -93,15 +93,15 @@ docker compose down -v       # also drop NATS and Postgres data volumes
 | Service              | Host address                                                 |
 | -------------------- | ------------------------------------------------------------ |
 | Lab shell            | http://localhost:5170                                        |
-| Admin UI              | http://localhost:5173                                        |
-| Port Management       | http://localhost:5174                                        |
-| Dictionary            | http://localhost:5175                                        |
-| Swagger UI (backend)  | http://localhost:18080/swagger/                              |
-| Backend API           | http://localhost:18080                                       |
-| Swagger UI (refdata)  | http://localhost:18081/swagger/                              |
-| refdata-service API   | http://localhost:18081                                       |
-| NATS client           | nats://localhost:14222                                       |
-| NATS monitor          | http://localhost:18222                                       |
+| Admin UI              | http://localhost:7100                                        |
+| Port Management       | http://localhost:7101                                        |
+| Dictionary            | http://localhost:7102                                        |
+| Swagger UI (backend)  | http://localhost:7200/swagger/                              |
+| Backend API           | http://localhost:7200                                       |
+| Swagger UI (refdata)  | http://localhost:7201/swagger/                              |
+| refdata-service API   | http://localhost:7201                                       |
+| NATS client           | nats://localhost:4222                                       |
+| NATS monitor          | http://localhost:8222                                       |
 | Postgres              | localhost:15432                                              |
 
 **Postgres credentials:** host `localhost`, port `15432`, user `dict`, password `dict`, database `dictionary`
@@ -119,17 +119,17 @@ docker compose up nats postgres
 ```
 
 **2. Backend** — the code defaults to the *standard* ports (`localhost:4222`,
-`localhost:5432`), but Docker maps them to `14222` / `15432` on the host, so
-point the backend at those explicitly:
+`localhost:5432`), but Docker maps Postgres to `15432` on the host, so
+point the backend at that explicitly:
 
 ```bash
 cd demos/01-dictionary/backend/shipping-service
-NATS_URL=nats://localhost:14222 \
+NATS_URL=nats://localhost:4222 \
 DATABASE_URL="postgres://dict:dict@localhost:15432/dictionary?sslmode=disable" \
 go run ./cmd/main.go
 ```
 
-The backend now listens on `:8080` (not `18080` — that remap only applies to
+The backend now listens on `:8080` (not `7200` — that remap only applies to
 the Dockerized backend service).
 
 **3. Admin frontend:**
@@ -137,7 +137,7 @@ the Dockerized backend service).
 ```bash
 cd demos/01-dictionary/frontend/admin
 npm install   # first time only
-npm run dev   # http://localhost:5173, proxies /api to localhost:8080 (see vite.config.js)
+npm run dev   # http://localhost:7100, proxies /api to localhost:8080 (see vite.config.js)
 ```
 
 **4. Port Management frontend** (optional, separate terminal):
@@ -145,7 +145,7 @@ npm run dev   # http://localhost:5173, proxies /api to localhost:8080 (see vite.
 ```bash
 cd demos/01-dictionary/frontend/seafreight-app
 npm install   # first time only
-npm run dev   # http://localhost:5174, proxies /api to localhost:8080
+npm run dev   # http://localhost:7101, proxies /api to localhost:8080
 ```
 
 Both `vite.config.js` files proxy `/api` to `http://localhost:8080` — the
@@ -157,7 +157,7 @@ instead when both are up at once:
 
 ```bash
 cd demos/01-dictionary/backend/refdata-service
-NATS_URL=nats://localhost:14222 \
+NATS_URL=nats://localhost:4222 \
 DATABASE_URL="postgres://dict:dict@localhost:15432/dictionary?sslmode=disable" \
 HTTP_ADDR=:8081 \
 go run ./cmd/main.go
@@ -168,7 +168,7 @@ go run ./cmd/main.go
 ```bash
 cd demos/01-dictionary/frontend/refdata
 npm install   # first time only
-npm run dev   # http://localhost:5175, proxies /api to localhost:8081 (refdata-service, see vite.config.js)
+npm run dev   # http://localhost:7102, proxies /api to localhost:8081 (refdata-service, see vite.config.js)
 ```
 
 ## Run the tests
@@ -204,9 +204,10 @@ npm run test:watch
 
 All business rules must have a passing test. See [BUSINESS_RULES.md](BUSINESS_RULES.md) for the full rule inventory.
 
-All host ports are non-default to avoid clashing with services already
+NATS uses its standard host ports (4222, 8222). Other host ports (Postgres,
+backend APIs) are non-default to avoid clashing with services already
 running on your machine. Inside the compose network the services use the
-standard ports (4222, 8222, 5432, 8080).
+standard ports.
 
 ---
 

@@ -1,0 +1,194 @@
+/*
+  Shared app shell CSS — topbar + collapsible sidebar + main content
+  container. Extracted from shared/unifi-theme/app-shell-reference.html
+  (see shared/unifi-theme/LAYOUT.md for the contract this implements).
+
+  Page-content classes from the reference (.panel, .welcome-*, .stat-row,
+  .grid-2, etc.) are NOT included here — those are per-app/page concerns,
+  not shell concerns. Theme tokens (--lab-bg, --p-text-color, etc.) come
+  from shared/unifi-theme/unifi.css, imported separately by each app.
+*/
+
+.app { display: flex; flex-direction: column; height: 100vh; min-height: 700px; }
+
+/* ---------- topbar ---------- */
+.topbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  height: 52px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--lab-panel-border);
+}
+.brandmark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.brandmark .dot {
+  width: 18px; height: 18px; border-radius: 5px;
+  background: var(--lab-accent);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--lab-accent-ink); font-size: 10px; font-weight: 800;
+}
+.crumb {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--p-text-muted-color);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.crumb b { color: var(--p-text-color); font-weight: 600; }
+.crumb .sep { color: var(--p-text-disabled-color); }
+.crumb-select {
+  display: inline-flex; align-items: center; gap: 4px;
+  cursor: pointer; color: var(--p-text-color);
+}
+.crumb-select svg { opacity: 0.6; }
+
+.topbar-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.status-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600;
+  padding: 3px 8px; border-radius: 100px;
+  border: 1px solid var(--lab-panel-border);
+  color: var(--ok);
+  white-space: nowrap;
+}
+.status-tag .pip { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+.field-inline { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--p-text-muted-color); white-space: nowrap; }
+.field-inline select {
+  background: var(--lab-panel-bg);
+  border: 1px solid var(--lab-panel-border);
+  color: var(--p-text-color);
+  border-radius: 5px;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 4px 6px;
+}
+.icon-btn {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  color: var(--p-text-muted-color);
+  cursor: pointer;
+}
+.icon-btn:hover { border-color: var(--lab-panel-border); color: var(--p-text-color); }
+
+/* ---------- shell ---------- */
+.shell { flex: 1; display: flex; min-height: 0; }
+
+/* ---------- sidebar ---------- */
+.sidebar {
+  flex-shrink: 0;
+  width: 220px;
+  border-right: 1px solid var(--lab-panel-border);
+  display: flex;
+  flex-direction: column;
+  padding: 14px 10px;
+  gap: 14px;
+  transition: width 0.15s ease;
+}
+.sidebar.collapsed { width: 52px; align-items: center; }
+.sidebar.collapsed .label-fade { display: none; }
+.sidebar.collapsed .eyebrow { display: none; }
+.sidebar.collapsed .nav-group,
+.sidebar.collapsed .nav-scroll { width: 100%; align-items: center; }
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  width: 34px;
+  border-left: none;
+  border-radius: 6px;
+}
+.sidebar.collapsed .nav-item.active {
+  background: color-mix(in srgb, var(--lab-accent) 16%, var(--lab-panel-bg));
+  color: var(--lab-accent);
+}
+.sidebar.collapsed .nav-badge { display: none; }
+.sidebar.collapsed .sidebar-collapse-btn { width: 34px; }
+
+.nav-scroll { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+
+.nav-group { display: flex; flex-direction: column; gap: 1px; }
+.eyebrow {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 8px 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--p-text-disabled-color);
+  cursor: pointer;
+}
+.eyebrow svg { transition: transform 0.15s ease; opacity: 0.7; }
+.eyebrow.is-open svg { transform: rotate(90deg); }
+
+.nav-item {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%;
+  padding: 7px 8px;
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: 5px;
+  color: var(--p-text-muted-color);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  appearance: none;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.nav-item svg { flex-shrink: 0; opacity: 0.85; }
+.nav-item:hover { color: var(--p-text-color); }
+.nav-item.active {
+  background: var(--lab-panel-bg);
+  color: var(--p-text-color);
+  border-left-color: var(--lab-accent);
+  font-weight: 600;
+}
+.nav-badge {
+  margin-left: auto;
+  font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: var(--p-text-disabled-color);
+  background: var(--lab-disabled-bg);
+  border-radius: 100px;
+  padding: 1px 6px;
+}
+
+.sidebar-collapse-btn {
+  display: flex; align-items: center; justify-content: flex-end;
+  border: none;
+  background: none;
+  color: var(--p-text-muted-color);
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.sidebar-collapse-btn:hover { color: var(--p-text-color); }
+.sidebar-collapse-btn .chevrons {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+.sidebar.collapsed .sidebar-collapse-btn { justify-content: center; }
+.sidebar.collapsed .sidebar-collapse-btn .chevrons { transform: scaleX(-1); }
+
+/* ---------- main content ---------- */
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.main-inner { width: 100%; flex: 1; min-height: 0; overflow-y: auto; padding: 22px 28px 40px; display: flex; flex-direction: column; gap: 22px; }
+
+/* An optional #footer (a status/telemetry bar) renders full-bleed below
+   main-inner's own padding — flush to the viewport edges like the topbar,
+   not indented/floating inside the scrollable content's padding box. */
+.main-footer { flex-shrink: 0; }
+
+/* Opt-in: a page with one primary panel (a master-detail view, a big table)
+   can mark that panel .fill-height so it stretches to use the rest of the
+   viewport instead of sizing to its content and leaving dead space below —
+   siblings (e.g. a Cache Status card) keep their natural height. */
+.main-inner > .fill-height { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }

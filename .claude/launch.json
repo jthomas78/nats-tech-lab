@@ -6,7 +6,7 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "cwd": "demos/01-dictionary/frontend/refdata",
-      "port": 5175
+      "port": 7102
     },
     {
       "name": "refdata-vs-docker",
@@ -19,21 +19,29 @@
         "vite.docker.config.js"
       ],
       "cwd": "demos/01-dictionary/frontend/refdata",
-      "port": 5199
+      "port": 7103
     },
     {
       "name": "seafreight-app",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "cwd": "demos/01-dictionary/frontend/seafreight-app",
-      "port": 5174
+      "port": 7101
     },
     {
       "name": "admin",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "cwd": "demos/01-dictionary/frontend/admin",
-      "port": 5173,
+      "port": 7100,
+      "autoPort": true
+    },
+    {
+      "name": "lab-shell",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "lab-shell",
+      "port": 5176,
       "autoPort": true
     }
   ]

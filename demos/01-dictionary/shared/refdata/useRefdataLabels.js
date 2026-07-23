@@ -155,8 +155,17 @@ function disconnect() {
   connected.value = false
 }
 
+// Primes `labels` synchronously from a previously cached map for `locale`
+// (BR-D19's cold-paint fix, applied on switch too, not just module load) — a
+// no-op if this locale hasn't been fetched yet this session/browser.
+function primeLabelsFromCache(locale) {
+  const cached = readLabelsCache()[locale]
+  if (cached) labels.value = cached
+}
+
 // Re-resolve labels whenever the user switches locale, and persist the choice.
 watch(selectedLocale, (locale) => {
+  primeLabelsFromCache(locale)
   refreshLabels()
   try {
     localStorage.setItem(LOCALE_STORAGE_KEY, locale)

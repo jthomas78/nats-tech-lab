@@ -10,7 +10,7 @@ export const demos = [
       'Reference data two ways: NATS KV as the read model vs. KV as a cache in front of a Postgres CQRS projection.',
     tags: ['JetStream', 'KV', 'Postgres', 'CQRS'],
     intro: dictionaryIntro,
-    launchUrl: 'http://localhost:5173',
+    launchUrl: 'http://localhost:7100',
     composeDir: 'demos/01-dictionary',
   },
 ]

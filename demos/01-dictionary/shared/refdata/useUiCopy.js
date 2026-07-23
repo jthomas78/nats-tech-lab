@@ -145,8 +145,15 @@ function disconnect() {
   started = false
 }
 
-// Re-resolve the catalog whenever the shared locale switcher changes.
-watch(selectedLocale, () => refreshCatalog())
+// Re-resolve the catalog whenever the shared locale switcher changes. Primes
+// from cache first (BR-D19's same synchronous-paint trick, not just on
+// connect()) so revisiting a locale already fetched this session repaints
+// instantly instead of flashing the previous locale's copy for the length of
+// the refetch.
+watch(selectedLocale, () => {
+  primeFromCache()
+  refreshCatalog()
+})
 
 export function useUiCopy() {
   return { usingFallback, partialFallback, switching, connect, disconnect }

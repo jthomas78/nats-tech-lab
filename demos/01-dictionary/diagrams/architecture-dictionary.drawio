@@ -395,22 +395,22 @@
         <mxCell id="actor" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=none;fontColor=#DEE0E3;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=6;" value="Browser user" vertex="1">
           <mxGeometry height="110" width="100" x="20" y="458" as="geometry" />
         </mxCell>
-        <mxCell id="admin-node" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="admin&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;nginx · host 5173→80&lt;/font&gt;" vertex="1">
+        <mxCell id="admin-node" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="admin&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;nginx · host 7100→80&lt;/font&gt;" vertex="1">
           <mxGeometry height="100" width="190" x="260" y="330" as="geometry" />
         </mxCell>
-        <mxCell id="seafreight-node" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="seafreight-app&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;nginx · host 5174→80&lt;/font&gt;" vertex="1">
+        <mxCell id="seafreight-node" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="seafreight-app&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;nginx · host 7101→80&lt;/font&gt;" vertex="1">
           <mxGeometry height="100" width="190" x="260" y="540" as="geometry" />
         </mxCell>
-        <mxCell id="refdata-node" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="refdata&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;nginx · host 5175→80&lt;/font&gt;" vertex="1">
+        <mxCell id="refdata-node" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="refdata&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;nginx · host 7102→80&lt;/font&gt;" vertex="1">
           <mxGeometry height="100" width="190" x="260" y="740" as="geometry" />
         </mxCell>
-        <mxCell id="ship-svc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="shipping-service&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;container :8080 · host 18080→8080&lt;/font&gt;" vertex="1">
+        <mxCell id="ship-svc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="shipping-service&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;container :8080 · host 7200→8080&lt;/font&gt;" vertex="1">
           <mxGeometry height="110" width="150" x="835" y="325" as="geometry" />
         </mxCell>
-        <mxCell id="refdata-svc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="refdata-service&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;container :8080 · host 18081→8080&lt;/font&gt;" vertex="1">
+        <mxCell id="refdata-svc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="refdata-service&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;container :8080 · host 7201→8080&lt;/font&gt;" vertex="1">
           <mxGeometry height="110" width="150" x="835" y="535" as="geometry" />
         </mxCell>
-        <mxCell id="nats" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="nats&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;JetStream + KV&lt;br&gt;host 14222→4222 · 18222→8222 (mon)&lt;/font&gt;" vertex="1">
+        <mxCell id="nats" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="nats&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;JetStream + KV&lt;br&gt;host 4222 · 8222 (mon)&lt;/font&gt;" vertex="1">
           <mxGeometry height="100" width="200" x="1230" y="330" as="geometry" />
         </mxCell>
         <mxCell id="nats-data" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#4A515B;dashed=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="volume: nats-data" vertex="1">
@@ -422,7 +422,7 @@
         <mxCell id="pg-data" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#4A515B;dashed=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="volume: pg-data" vertex="1">
           <mxGeometry height="50" width="200" x="1230" y="660" as="geometry" />
         </mxCell>
-        <mxCell id="edge-actor-admin" edge="1" parent="1" source="actor" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="admin-node" value="5173">
+        <mxCell id="edge-actor-admin" edge="1" parent="1" source="actor" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="admin-node" value="7100">
           <mxGeometry relative="1" x="0.7736" y="-10" as="geometry">
             <mxPoint as="offset" />
             <Array as="points">
@@ -431,7 +431,7 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="edge-actor-seafreight" edge="1" parent="1" source="actor" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="seafreight-node" value="5174">
+        <mxCell id="edge-actor-seafreight" edge="1" parent="1" source="actor" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="seafreight-node" value="7101">
           <mxGeometry relative="1" x="0.7073" y="-10" as="geometry">
             <mxPoint as="offset" />
             <Array as="points">
@@ -440,7 +440,7 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="edge-actor-refdatanode" edge="1" parent="1" source="actor" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="refdata-node" value="5175">
+        <mxCell id="edge-actor-refdatanode" edge="1" parent="1" source="actor" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;strokeColor=#6B7480;endArrow=classic;endFill=1;fontColor=#B7BCC2;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="refdata-node" value="7102">
           <mxGeometry relative="1" x="0.8519" y="-10" as="geometry">
             <mxPoint as="offset" />
             <Array as="points">

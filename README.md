@@ -51,14 +51,15 @@ docker compose up --build
 
 | Service     | URL                    |
 | ----------- | ---------------------- |
-| Demo UI     | http://localhost:5173  |
-| Backend API | http://localhost:18080 |
-| NATS        | nats://localhost:14222 (monitor: http://localhost:18222) |
+| Demo UI     | http://localhost:7100  |
+| Backend API | http://localhost:7200 |
+| NATS        | nats://localhost:4222 (monitor: http://localhost:8222) |
 | Postgres    | localhost:15432 (`dict`/`dict`, db `dictionary`)         |
 
-NATS and Postgres are published on non-default host ports (14222/18222/15432)
-so the stack doesn't clash with a NATS or Postgres already running on your
-machine. Inside the compose network the services use the standard ports.
+Postgres is published on a non-default host port (15432) so the stack
+doesn't clash with a Postgres already running on your machine. NATS uses
+its standard ports (4222/8222). Inside the compose network the services
+use the standard ports.
 
 The "Launch" button in the lab shell opens the demo UI — the Docker stack
 must already be running.
@@ -85,7 +86,7 @@ Demo frontend in dev mode (proxies `/api` to `localhost:8080`):
 ```bash
 cd demos/01-dictionary/frontend/admin
 npm install
-npm run dev          # → http://localhost:5173
+npm run dev          # → http://localhost:7100
 ```
 
 ## Demo 01 — Dictionary POC

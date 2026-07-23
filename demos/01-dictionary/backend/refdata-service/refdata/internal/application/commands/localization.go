@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 )
@@ -44,6 +45,11 @@ func (h *LocalizationHandler) SetLocalization(ctx context.Context, in Localizati
 	if _, err := h.items.Get(ctx, in.TypeKey, in.Context, in.Code); err != nil {
 		return err
 	}
+	existing, err := h.locs.Get(ctx, in.TypeKey, in.Context, in.Code, in.Locale)
+	if err != nil && !errors.Is(err, domain.ErrLocalizationNotFound) {
+		return err
+	}
+	unchanged := err == nil && existing.Label == in.Label && existing.Description == in.Description
 	if err := h.locs.Upsert(ctx, domain.Localization{
 		TypeKey: in.TypeKey, Code: in.Code, Context: in.Context,
 		Locale: in.Locale, Label: in.Label, Description: in.Description,
@@ -51,7 +57,7 @@ func (h *LocalizationHandler) SetLocalization(ctx context.Context, in Localizati
 	}); err != nil {
 		return err
 	}
-	if h.notifier == nil {
+	if h.notifier == nil || unchanged {
 		return nil
 	}
 	return h.notifier.NotifyItemChanged(ctx, in.Context, in.TypeKey, in.Code)

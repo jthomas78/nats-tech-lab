@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 )
@@ -23,6 +24,23 @@ func (r *LocalizationRepository) Upsert(ctx context.Context, loc domain.Localiza
 		DO UPDATE SET label = $5, description = $6, source = $7`,
 		loc.Context, loc.TypeKey, loc.Code, loc.Locale, loc.Label, loc.Description, loc.Source)
 	return err
+}
+
+func (r *LocalizationRepository) Get(ctx context.Context, typeKey, itemContext, code, locale string) (domain.Localization, error) {
+	var loc domain.Localization
+	err := r.db.QueryRowContext(ctx, `
+		SELECT context, type_key, code, locale, label, description, source
+		FROM refdata.dictionary_localizations
+		WHERE context = $1 AND type_key = $2 AND code = $3 AND locale = $4`,
+		itemContext, typeKey, code, locale).
+		Scan(&loc.Context, &loc.TypeKey, &loc.Code, &loc.Locale, &loc.Label, &loc.Description, &loc.Source)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Localization{}, domain.ErrLocalizationNotFound
+	}
+	if err != nil {
+		return domain.Localization{}, err
+	}
+	return loc, nil
 }
 
 func (r *LocalizationRepository) ListForItem(ctx context.Context, typeKey, itemContext, code string) ([]domain.Localization, error) {

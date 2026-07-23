@@ -258,6 +258,8 @@ const parentOptions = computed(() => flattenTree(store.contextTree))
               :value="store.versions"
               size="small"
               data-key="version"
+              resizable-columns
+              column-resize-mode="fit"
             >
               <Column
                 field="version"
@@ -360,6 +362,8 @@ const parentOptions = computed(() => flattenTree(store.contextTree))
             <DataTable
               :value="store.diffEntries"
               size="small"
+              resizable-columns
+              column-resize-mode="fit"
             >
               <Column
                 field="typeKey"

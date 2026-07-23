@@ -11,13 +11,13 @@ suite. See `.claude/plans/Dictionary-POC-Plan.md` for scope.
 ## Prerequisites
 
 - **k6** — `brew install k6` (macOS). Runs outside the Go stack.
-- **The dockerized backend**, published on `http://localhost:18080`:
+- **The dockerized backend**, published on `http://localhost:7200`:
 
   ```bash
   # from repo root
   docker compose -f demos/01-dictionary/docker-compose.yml up --build -d
   # wait until ready
-  curl -sf http://localhost:18080/healthz && echo ok
+  curl -sf http://localhost:7200/healthz && echo ok
   ```
 
 ## Layout
@@ -72,7 +72,7 @@ k6 run --summary-export=hydration.json \
 
 | Var | Default | Applies to | Notes |
 |---|---|---|---|
-| `BASE_URL` | `http://localhost:18080` | all | point at a local backend if not using docker |
+| `BASE_URL` | `http://localhost:7200` | all | point at a local backend if not using docker |
 | `CONTEXT` | `global` | all | fleet context; `global` has auto-seeded ports |
 | `MAX_EVENTS` | `2000` | hydration | set `10000` for the full 1k–10k band |
 | `VUS` | `100` | throughput | concurrent command senders (run per level: 10/100/250/500) |

@@ -9,6 +9,8 @@ export default defineConfig({
     alias: {
       // Shared UniFi theme preset at the repo root (see CLAUDE.md).
       '@unifi-theme': fileURLToPath(new URL('../../../../shared/unifi-theme', import.meta.url)),
+      // Shared AppShell.vue + app-shell.css (see .claude/plans/AppShell-Extraction-Plan.md).
+      '@ui-shell': fileURLToPath(new URL('../../../../shared/ui-shell', import.meta.url)),
       // Demo-01 shared refdata-label composable (Phase 11.6).
       '@refdata': fileURLToPath(new URL('../../shared/refdata', import.meta.url)),
     },
@@ -17,14 +19,14 @@ export default defineConfig({
     environment: 'happy-dom',
   },
   server: {
-    port: 5174,
+    port: 7101,
     fs: {
       // Allow importing the shared theme from outside the app root.
       allow: [fileURLToPath(new URL('../../../..', import.meta.url))],
     },
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:7200',
         changeOrigin: true,
       },
     },

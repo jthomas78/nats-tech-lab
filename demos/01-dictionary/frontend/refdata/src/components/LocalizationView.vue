@@ -123,6 +123,8 @@ function ratioSeverity(cell) {
           :value="store.locales.map((l) => ({ locale: l }))"
           size="small"
           data-key="locale"
+          resizable-columns
+          column-resize-mode="fit"
         >
           <template #empty>
             No locales registered for this context yet.
@@ -198,6 +200,8 @@ function ratioSeverity(cell) {
         size="small"
         data-key="typeKey"
         :loading="loading"
+        resizable-columns
+        column-resize-mode="fit"
       >
         <template #empty>
           No dictionary types registered yet.

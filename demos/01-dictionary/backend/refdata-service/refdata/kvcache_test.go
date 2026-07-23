@@ -35,9 +35,10 @@ func newRefdataJetStream() jetstream.JetStream {
 	DeferCleanup(srv.Shutdown)
 	Expect(srv.ReadyForConnections(10 * time.Second)).To(BeTrue())
 
-	nc, err := nats.Connect(srv.ClientURL())
+	nc, err := nats.Connect(srv.ClientURL(), nats.Name("refdata-service-test"))
 	Expect(err).NotTo(HaveOccurred())
 	DeferCleanup(nc.Close)
+	Expect(nc.Opts.Name).NotTo(BeEmpty(), "nats connection must be named")
 
 	js, err := jetstream.New(nc)
 	Expect(err).NotTo(HaveOccurred())

@@ -12,29 +12,34 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import FleetPanel from './components/FleetPanel.vue'
 import IconFleet from './components/icons/IconFleet.vue'
 import IconPort from './components/icons/IconPort.vue'
-import NavSidebar from './components/NavSidebar.vue'
 import ShipsAtPortPanel from './components/ShipsAtPortPanel.vue'
 import TerminalPanel from './components/TerminalPanel.vue'
 import { CONTEXTS, usePortStore } from './stores/port'
-import { isDark, toggleTheme } from '@unifi-theme/preset.js'
 import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
 import { useUiCopy } from '@refdata/useUiCopy.js'
 import { i18n } from './i18n.js'
+import AppShell from '@ui-shell/AppShell.vue'
+import NavList from '@ui-shell/NavList.vue'
 
 const store = usePortStore()
 const { selectedLocale, locales, connect: connectRefdata, disconnect: disconnectRefdata } = useRefdataLabels()
 const { usingFallback, partialFallback, switching, connect: connectUiCopy, disconnect: disconnectUiCopy } = useUiCopy()
 const { t } = useI18n()
-const dark = ref(isDark())
 const toast = useToast()
 
 // ── View selection (activity bar) — mutually exclusive, one view rendered
 // at a time. A plain ref is enough for two views; add more by pushing onto
-// `views` rather than introducing routing.
+// `views` rather than introducing routing. Wrapped in a single ungrouped
+// section for NavList (shared/ui-shell) — no eyebrow grouping needed for
+// just two flat views.
 const activeView = ref('fleet')
-const views = computed(() => [
-  { key: 'fleet', label: t('nav.fleetManagement'), icon: IconFleet },
-  { key: 'port', label: t('nav.portManagement'), icon: IconPort },
+const sections = computed(() => [
+  {
+    items: [
+      { key: 'fleet', label: t('nav.fleetManagement'), icon: IconFleet },
+      { key: 'port', label: t('nav.portManagement'), icon: IconPort },
+    ],
+  },
 ])
 const subtitle = computed(() => (activeView.value === 'fleet' ? t('app.subtitleFleet') : t('app.subtitlePort')))
 
@@ -43,11 +48,6 @@ const subtitle = computed(() => (activeView.value === 'fleet' ? t('app.subtitleF
 function handleNavigatePort(port) {
   store.setPort(port)
   activeView.value = 'port'
-}
-
-function handleToggleTheme() {
-  toggleTheme()
-  dark.value = isDark()
 }
 
 // ── Add a shipping port (popup) ───────────────────────────────────────────────
@@ -84,94 +84,82 @@ onUnmounted(() => {
 
 <template>
   <Toast position="bottom-right" />
-  <div class="layout">
-    <header class="topbar">
-      <div>
-        <h1>{{ t('app.title') }}</h1>
-        <span class="lab-muted">{{ subtitle }}</span>
-      </div>
-      <div class="topbar-right">
-        <Tag :severity="store.connected ? 'success' : 'danger'" :value="store.connected ? t('connection.watching') : t('connection.disconnected')" />
-        <label class="lab-muted" for="context">{{ t('context.fleet') }}</label>
-        <Select
-          id="context"
-          :model-value="store.context"
-          :options="CONTEXTS"
-          size="small"
-          @update:model-value="store.setContext($event)"
-        />
-        <label class="lab-muted" for="locale">{{ t('nav.language') }}</label>
-        <Select
-          id="locale"
-          v-model="selectedLocale"
-          :options="locales"
-          :loading="switching"
-          size="small"
-          :placeholder="t('select.none')"
-        />
-        <Tag
-          v-if="usingFallback || partialFallback"
-          severity="warning"
-          :value="usingFallback ? t('fallback.unreachable') : t('fallback.partial')"
-        />
-        <Button
-          :icon="dark ? 'pi pi-sun' : 'pi pi-moon'"
-          :aria-label="dark ? t('a11y.lightMode') : t('a11y.darkMode')"
-          text
-          rounded
-          size="small"
-          @click="handleToggleTheme"
-        />
-      </div>
-    </header>
+  <AppShell>
+    <template #brand>
+      <span class="dot">S</span>
+      <span>{{ t('app.title') }}</span>
+    </template>
+    <template #breadcrumb>
+      <span class="lab-muted">{{ subtitle }}</span>
+    </template>
+    <template #topbar-right>
+      <Tag :severity="store.connected ? 'success' : 'danger'" :value="store.connected ? t('connection.watching') : t('connection.disconnected')" />
+      <label class="lab-muted" for="context">{{ t('context.fleet') }}</label>
+      <Select
+        id="context"
+        :model-value="store.context"
+        :options="CONTEXTS"
+        size="small"
+        @update:model-value="store.setContext($event)"
+      />
+      <label class="lab-muted" for="locale">{{ t('nav.language') }}</label>
+      <Select
+        id="locale"
+        v-model="selectedLocale"
+        :options="locales"
+        :loading="switching"
+        size="small"
+        :placeholder="t('select.none')"
+      />
+      <Tag
+        v-if="usingFallback || partialFallback"
+        severity="warning"
+        :value="usingFallback ? t('fallback.unreachable') : t('fallback.partial')"
+      />
+    </template>
+    <template #sidebar>
+      <NavList v-model="activeView" :sections="sections" :aria-label="t('nav.viewSelector')" />
+    </template>
 
-    <!-- Sidebar selects one view at a time (Fleet management / Port
-         management) — no overlap, extend by adding to `views`. -->
-    <div class="shell">
-      <NavSidebar v-model="activeView" :views="views" />
+    <!-- Fleet-wide ship list (all / docked / in-transit); port-independent,
+         fleet-scoped only -->
+    <section v-if="activeView === 'fleet'" class="group" data-testid="fleet-view">
+      <FleetPanel @navigate-port="handleNavigatePort" />
+    </section>
 
-      <div class="shell-content">
-        <!-- Fleet-wide ship list (all / docked / in-transit); port-independent,
-             fleet-scoped only -->
-        <section v-if="activeView === 'fleet'" class="group" data-testid="fleet-view">
-          <FleetPanel @navigate-port="handleNavigatePort" />
-        </section>
-
-        <!-- Port Management — everything scoped to the selected port. The port
-             selector lives here (not the topbar) because it only scopes this
-             group; the fleet view above is port-independent. -->
-        <section v-else class="group" data-testid="port-view">
-          <div class="group-head">
-            <h2>{{ t('port.management') }}</h2>
-            <div class="group-head-controls">
-              <label class="lab-muted" for="port">{{ t('port.label') }}</label>
-              <Select
-                id="port"
-                :model-value="store.port"
-                :options="store.knownPorts"
-                :placeholder="t('port.select')"
-                size="small"
-                @update:model-value="store.setPort($event)"
-              />
-              <Button
-                icon="pi pi-plus"
-                :aria-label="t('port.add')"
-                text
-                rounded
-                size="small"
-                @click="openNewPort"
-              />
-            </div>
-          </div>
-          <!-- Terminal yard + docked ships; each panel owns the operations that
-               act on it (register/load in the yard, arrive/depart/unload for ships) -->
-          <div class="panels">
-            <TerminalPanel />
-            <ShipsAtPortPanel />
-          </div>
-        </section>
+    <!-- Port Management — everything scoped to the selected port. The port
+         selector lives here (not the topbar) because it only scopes this
+         group; the fleet view above is port-independent. -->
+    <section v-else class="group" data-testid="port-view">
+      <div class="group-head">
+        <h2>{{ t('port.management') }}</h2>
+        <div class="group-head-controls">
+          <label class="lab-muted" for="port">{{ t('port.label') }}</label>
+          <Select
+            id="port"
+            :model-value="store.port"
+            :options="store.knownPorts"
+            :placeholder="t('port.select')"
+            size="small"
+            @update:model-value="store.setPort($event)"
+          />
+          <Button
+            icon="pi pi-plus"
+            :aria-label="t('port.add')"
+            text
+            rounded
+            size="small"
+            @click="openNewPort"
+          />
+        </div>
       </div>
-    </div>
+      <!-- Terminal yard + docked ships; each panel owns the operations that
+           act on it (register/load in the yard, arrive/depart/unload for ships) -->
+      <div class="panels">
+        <TerminalPanel />
+        <ShipsAtPortPanel />
+      </div>
+    </section>
 
     <Dialog v-model:visible="newPortVisible" :header="t('port.addDialog')" modal style="width:22rem">
       <InputText
@@ -189,49 +177,13 @@ onUnmounted(() => {
         <Button :label="t('action.add')" size="small" :disabled="!newPortName.trim()" @click="submitNewPort" />
       </template>
     </Dialog>
-  </div>
+  </AppShell>
 </template>
 
 <style scoped>
-.layout {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.625rem;
-}
-.topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.topbar h1 {
-  margin: 0 0 2px;
-  font-size: 15px;
-  line-height: 24px;
-  letter-spacing: 0.02em;
-}
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-}
 .dialog-note {
   margin: 0.5rem 0 0;
   font-size: 0.8rem;
-}
-.shell {
-  display: flex;
-  align-items: stretch;
-  gap: 0.625rem;
-}
-.shell-content {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.625rem;
 }
 .group {
   display: flex;

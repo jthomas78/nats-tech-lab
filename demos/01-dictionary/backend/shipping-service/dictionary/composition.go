@@ -96,5 +96,5 @@ func refdataServiceURL() string {
 	if v := os.Getenv("REFDATA_SERVICE_URL"); v != "" {
 		return v
 	}
-	return "http://localhost:18081"
+	return "http://localhost:7201"
 }

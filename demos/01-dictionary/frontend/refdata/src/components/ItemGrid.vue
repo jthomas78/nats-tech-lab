@@ -77,7 +77,7 @@ async function submitAdd() {
 </script>
 
 <template>
-  <div class="lab-panel item-grid">
+  <div class="lab-panel item-grid fill-height">
     <!-- Header split: type identity left, view controls right. -->
     <div class="grid-head">
       <div class="type-identity">
@@ -265,7 +265,8 @@ async function submitAdd() {
   display: grid;
   grid-template-columns: minmax(12rem, 1fr) 2fr;
   gap: 0.75rem;
-  align-items: start;
+  flex: 1;
+  min-height: 0;
 }
 @media (max-width: 900px) {
   .master-detail {
@@ -277,6 +278,9 @@ async function submitAdd() {
    background, and the list/detail relationship is unambiguous. */
 .item-list-pane {
   min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   background: var(--lab-inset-bg, rgba(255, 255, 255, 0.02));
   border: 1px solid var(--lab-disabled-bg);
   border-radius: 6px;
@@ -293,7 +297,8 @@ async function submitAdd() {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 24rem;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 .item-list li {
@@ -337,6 +342,7 @@ async function submitAdd() {
   border-radius: 6px;
   padding: 0.6rem 0.75rem;
   min-height: 12rem;
+  overflow-y: auto;
 }
 .field {
   margin-bottom: 0.75rem;

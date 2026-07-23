@@ -61,6 +61,9 @@ var (
 	ErrTypeNotFound = errors.New("dictionary type not found")
 	ErrItemNotFound = errors.New("dictionary item not found")
 
+	// ErrLocalizationNotFound — no label/description recorded for this item+locale yet.
+	ErrLocalizationNotFound = errors.New("no localization found for this item and locale")
+
 	// ErrDuplicateItemCode — BR-D01: item codes are unique per {type, context}.
 	ErrDuplicateItemCode = errors.New("item code already registered for this type and context")
 

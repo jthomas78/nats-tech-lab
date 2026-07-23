@@ -9,10 +9,12 @@ export default defineConfig({
     alias: {
       // Shared UniFi theme preset at the repo root (see CLAUDE.md).
       '@unifi-theme': fileURLToPath(new URL('../../../../shared/unifi-theme', import.meta.url)),
+      // Shared AppShell.vue + app-shell.css (see .claude/plans/AppShell-Extraction-Plan.md).
+      '@ui-shell': fileURLToPath(new URL('../../../../shared/ui-shell', import.meta.url)),
     },
   },
   server: {
-    port: 5175,
+    port: 7102,
     fs: {
       // Allow importing the shared theme from outside the app root.
       allow: [fileURLToPath(new URL('../../../..', import.meta.url))],
@@ -23,7 +25,7 @@ export default defineConfig({
       // locally — run refdata-service with HTTP_ADDR=:8081 (see README.md's
       // dev-mode instructions) while iterating on this frontend.
       '/api': {
-        target: 'http://localhost:8081',
+        target: 'http://localhost:7201',
         changeOrigin: true,
       },
     },

@@ -277,7 +277,7 @@ definitions:
       ship:
         $ref: '#/definitions/domain.ShipState'
     type: object
-host: localhost:18080
+host: localhost:7200
 info:
   contact: {}
   description: Shipping domain backend for the NATS Tech Lab POC. Demonstrates JetStream

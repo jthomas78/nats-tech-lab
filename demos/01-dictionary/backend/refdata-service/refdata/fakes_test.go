@@ -262,6 +262,17 @@ func (r *fakeLocalizationRepo) Upsert(_ context.Context, loc domain.Localization
 	return nil
 }
 
+func (r *fakeLocalizationRepo) Get(_ context.Context, typeKey, itemContext, code, locale string) (domain.Localization, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, l := range r.locs[r.key(typeKey, itemContext, code)] {
+		if l.Locale == locale {
+			return l, nil
+		}
+	}
+	return domain.Localization{}, domain.ErrLocalizationNotFound
+}
+
 func (r *fakeLocalizationRepo) ListForItem(_ context.Context, typeKey, itemContext, code string) ([]domain.Localization, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -349,4 +360,26 @@ func (r *fakeVersionRepo) Current(_ context.Context, itemContext, typeKey string
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.versions[r.key(itemContext, typeKey)], nil
+}
+
+// fakeNotifier is a domain.ChangeNotifier spy — counts calls so a test can
+// assert a no-op write skipped the notification.
+type fakeNotifier struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func newFakeNotifier() *fakeNotifier { return &fakeNotifier{} }
+
+func (n *fakeNotifier) NotifyItemChanged(_ context.Context, _, _, _ string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.calls++
+	return nil
+}
+
+func (n *fakeNotifier) callCount() int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.calls
 }

@@ -29,9 +29,12 @@ func newTestKV(t *testing.T) (*kvstore.Store, func()) {
 		t.Fatal("nats server not ready")
 	}
 
-	nc, err := nats.Connect(srv.ClientURL())
+	nc, err := nats.Connect(srv.ClientURL(), nats.Name("shipping-service-test"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if nc.Opts.Name == "" {
+		t.Fatal("expected nats connection to be named")
 	}
 	js, err := jetstream.New(nc)
 	if err != nil {

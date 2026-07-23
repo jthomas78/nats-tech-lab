@@ -243,3 +243,12 @@ state changes, and it has no Ginkgo coverage; it's exercised via the Vue compone
 - **Error:** `ErrInvalidToken` (typeKey, context) / `ErrInvalidKVKeyComponent` (code)
 - **Enforced in:** `TypeHandler.RegisterType()` (typeKey), `ItemHandler.RegisterItem()` (code), `ContextHandler.Register()` (context)
 - **Test:** `Dictionary Type Domain Rules / BR-D22` (typeKey), `Dictionary Item Domain Rules / BR-D22` (code), `Context Domain Rules / BR-D22` (context)
+
+---
+
+### BR-D23 — Setting a localization only publishes a change event when the label or description actually changed
+
+`SetLocalization` reads the existing localization for the (typeKey, context, code, locale) before upserting; if the new label and description are identical to what's already stored, the upsert still runs (harmless) but `NotifyItemChanged` is skipped — no version bump, no `evt.{context}.refdata.{typeKey}.changed` publish. This matters because `Seed()` runs unconditionally on every service startup and calls `SetLocalization` for every seeded item/locale (en/es/af-za) — without this guard, every restart or `docker compose up --build` re-published a full duplicate batch of change events onto the REFDATA stream even though nothing changed. Item creation (`RegisterItem`) already had an equivalent guard via `ErrDuplicateItemCode`; this closes the same gap on the localization-set path. A genuine label/description edit still notifies exactly as before.
+
+- **Enforced in:** `commands.LocalizationHandler.SetLocalization()` — via `domain.LocalizationRepository.Get()` (new), comparing `existing.Label`/`existing.Description` against the input before deciding whether to notify
+- **Test:** `Dictionary Localization Domain Rules / SetLocalization change-event notification`

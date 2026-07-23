@@ -6,7 +6,7 @@
         "contact": {},
         "version": "1.0"
     },
-    "host": "localhost:18081",
+    "host": "localhost:7201",
     "basePath": "/",
     "paths": {
         "/api/refdata-watch/{context}": {

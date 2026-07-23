@@ -99,6 +99,34 @@ var _ = Describe("Dictionary Localization Domain Rules", func() {
 		})
 	})
 
+	Context("SetLocalization change-event notification", func() {
+		It("does not notify when re-setting the same label/description for a locale (idempotent re-seed)", func() {
+			items := newFakeItemRepo()
+			refs := newFakeReferenceRepo()
+			locs := newFakeLocalizationRepo()
+			locales := newFakeLocaleRepo()
+			notifier := newFakeNotifier()
+
+			notifyingItemH := commands.NewItemHandler(items, refs, notifier)
+			notifyingLocH := commands.NewLocalizationHandler(items, locs, locales, notifier)
+
+			_, err := notifyingItemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: "EUR", Context: itemCtx})
+			Expect(err).NotTo(HaveOccurred())
+			baseline := notifier.callCount() // RegisterItem itself notifies once
+
+			input := commands.LocalizationInput{TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "en", Label: "Euro", Description: "Euro currency"}
+			Expect(notifyingLocH.SetLocalization(ctx, input)).To(Succeed())
+			Expect(notifier.callCount()).To(Equal(baseline+1), "first set for a locale must notify")
+
+			Expect(notifyingLocH.SetLocalization(ctx, input)).To(Succeed())
+			Expect(notifier.callCount()).To(Equal(baseline+1), "re-setting the identical label/description must not notify again")
+
+			input.Label = "Euro (updated)"
+			Expect(notifyingLocH.SetLocalization(ctx, input)).To(Succeed())
+			Expect(notifier.callCount()).To(Equal(baseline+2), "an actual label change must still notify")
+		})
+	})
+
 	Context("Reference expansion", func() {
 		It("expands a relation to its target item", func() {
 			_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "country", Code: "DE", Context: itemCtx})

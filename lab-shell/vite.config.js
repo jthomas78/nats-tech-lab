@@ -9,6 +9,8 @@ export default defineConfig({
     alias: {
       // Shared UniFi theme preset at the repo root (see CLAUDE.md).
       '@unifi-theme': fileURLToPath(new URL('../shared/unifi-theme', import.meta.url)),
+      // Shared AppShell.vue + app-shell.css (see .claude/plans/AppShell-Extraction-Plan.md).
+      '@ui-shell': fileURLToPath(new URL('../shared/ui-shell', import.meta.url)),
     },
   },
   server: {

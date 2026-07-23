@@ -412,6 +412,8 @@ async function submitReference() {
                 :value="otherAttrRows"
                 size="small"
                 data-key="key"
+                resizable-columns
+                column-resize-mode="fit"
               >
                 <Column
                   field="key"
@@ -443,6 +445,8 @@ async function submitReference() {
               :value="filteredTranslationRows"
               size="small"
               data-key="locale"
+              resizable-columns
+              column-resize-mode="fit"
             >
               <template #empty>
                 No locales registered yet.
@@ -545,6 +549,8 @@ async function submitReference() {
               :value="references"
               size="small"
               data-key="relation"
+              resizable-columns
+              column-resize-mode="fit"
             >
               <template #empty>
                 No outbound references yet.

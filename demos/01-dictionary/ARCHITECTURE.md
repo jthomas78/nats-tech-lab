@@ -299,8 +299,8 @@ There are two frontends, each with its own Pinia store — both are browser-side
 
 | Frontend | Store | SSE channels |
 |---|---|---|
-| `frontend/admin/` (admin, :5173) | `stores/dictionary.js` | `/api/watch/{context}` (Shape A + B ship buckets) |
-| `frontend/seafreight-app/` (Port Management, :5174) | `stores/port.js` | `/api/watch/{context}` (ships) + `/api/watch-terminal/{context}` (containers + `meta.*`) |
+| `frontend/admin/` (admin, :7100) | `stores/dictionary.js` | `/api/watch/{context}` (Shape A + B ship buckets) |
+| `frontend/seafreight-app/` (Port Management, :7101) | `stores/port.js` | `/api/watch/{context}` (ships) + `/api/watch-terminal/{context}` (containers + `meta.*`) |
 
 The sections below describe the admin store; the port store follows the same pattern with two `EventSource` connections and client-side joins (`dockedShips`, `yardContainers`, `manifestFor`).
 
@@ -457,7 +457,7 @@ miss backfill. The consumer demo's version-mismatch behavior is covered by
 ### Dictionary frontend (`frontend/refdata/`, Phase 11.4)
 
 A fourth Vue 3 + PrimeVue v4 app, same UniFi theme preset (`@unifi-theme`) and structural
-conventions as `frontend/admin/` and `frontend/seafreight-app/` (dev port `5175`; nginx proxies `/api/` straight to
+conventions as `frontend/admin/` and `frontend/seafreight-app/` (dev port `7102`; nginx proxies `/api/` straight to
 `refdata-service:8080` in the Docker build, not to `shipping-service`).
 
 ```

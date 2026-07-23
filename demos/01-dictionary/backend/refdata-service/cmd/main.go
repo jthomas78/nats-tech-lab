@@ -5,7 +5,7 @@
 // @title           Reference Data Service API
 // @version         1.0
 // @description     Dictionary-as-a-service backend for the NATS Tech Lab POC. Plain Postgres CRUD reference data (currencies, countries, Incoterms, units of measure, hazard classes) with typed cross-references.
-// @host            localhost:18081
+// @host            localhost:7201
 // @BasePath        /
 package main
 
@@ -112,7 +112,7 @@ func waitForPostgres(ctx context.Context, db *sql.DB) error {
 
 func waitForNATS(ctx context.Context, url string, connect func(*nats.Conn) error) error {
 	for {
-		conn, err := nats.Connect(url)
+		conn, err := nats.Connect(url, nats.Name("refdata-service"))
 		if err == nil {
 			return connect(conn)
 		}

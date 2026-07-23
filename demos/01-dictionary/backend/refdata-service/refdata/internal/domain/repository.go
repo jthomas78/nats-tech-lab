@@ -39,6 +39,10 @@ type ReferenceRepository interface {
 // LocalizationRepository is the per-item, per-locale label/description port.
 type LocalizationRepository interface {
 	Upsert(ctx context.Context, loc Localization) error
+	// Get returns the current localization for one locale, or
+	// ErrLocalizationNotFound if none is set yet — used to diff before
+	// notifying on a no-op re-seed/re-set.
+	Get(ctx context.Context, typeKey, itemContext, code, locale string) (Localization, error)
 	ListForItem(ctx context.Context, typeKey, itemContext, code string) ([]Localization, error)
 	// CountLocalized returns how many items of typeKey/itemContext have a
 	// localization row for locale — the numerator of a completeness ratio.

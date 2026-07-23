@@ -4,8 +4,8 @@
 // run unchanged against the dockerized stack (the default target) or a
 // locally-run backend. See perf/README.md for the knobs each scenario adds.
 
-// Backend HTTP API. docker-compose publishes the backend on host port 18080.
-export const BASE_URL = __ENV.BASE_URL || 'http://localhost:18080';
+// Backend HTTP API. docker-compose publishes the backend on host port 7200.
+export const BASE_URL = __ENV.BASE_URL || 'http://localhost:7200';
 
 // Fleet context — the KV-bucket qualifier sent as the `context` field/param.
 // `global` is chosen because the backend auto-seeds its ports on startup

@@ -43,6 +43,43 @@ nats-tech-lab/
 
 Each demo has its own `docker-compose.yml` and does **not** share a network with the lab shell or other demos.
 
+## Docker Host Port Allocation
+
+Host ports for demo `docker-compose.yml` files are assigned from two fixed 4-digit ranges, so ports stay predictable across demos and don't need per-demo negotiation:
+
+- **7100–7199** — frontend dev servers
+- **7200–7299** — backend/API services
+
+Datastores (Postgres, etc.) and NATS keep their own conventional ports (see each demo's `README.md`), since those defaults are widely recognized and worth preserving rather than folding into this range. Assign the next free port in sequence within a demo and record it in that demo's `README.md` port table.
+
+## Frontend Design System
+
+Every UI in this repo — `lab-shell/` and each app under
+`demos/01-dictionary/frontend/` — shares one visual identity and one page
+shell, defined in `shared/unifi-theme/`. **This overrides the generic
+instinct of design-oriented skills (e.g. `frontend-design`,
+`artifact-design`) to avoid "genericness" by inventing a new palette, type
+system, or page shell per task.** For any UI in this repo, reuse what's
+below and spend creative effort on the content within it, not the frame
+around it.
+
+- **Theme** — `shared/unifi-theme/unifi.css` + `preset.js`: colors,
+  typography (Inter, 13px/20px body), the PrimeVue v4 preset, and dark
+  mode (`.p-dark` on `<html>`). Imported by every app via the
+  `@unifi-theme` alias (see each app's `vite.config.js`). A new frontend
+  wires these the same way the existing four already do — it does not
+  define its own tokens or PrimeVue preset. Add a genuinely missing token
+  there rather than forking it locally in one app.
+- **Layout** — `shared/ui-shell/AppShell.vue` (+ `app-shell.css`): the top
+  bar / collapsible sidebar / main content shell, imported by every app
+  via the `@ui-shell` alias. Read `shared/unifi-theme/LAYOUT.md` before
+  building or redesigning any top-level screen — it documents the slot
+  API (`#brand`, `#breadcrumb`, `#topbar-right`, `#sidebar`, default) and
+  the per-app usage notes. A new frontend consumes `AppShell.vue` the
+  same way the existing four already do — it does not hand-roll its own
+  topbar/sidebar markup. `shared/unifi-theme/app-shell-reference.html`
+  remains the static visual reference the component is built from.
+
 ## Obsidian Vault (`obsidian/POC-Dictionaries/`)
 
 An Obsidian vault accompanies demo 01, used to:
@@ -150,6 +187,7 @@ dictionary/
 - **LimitsPolicy** (not InterestPolicy) on JetStream streams — required to support event replay.
 - **Context-scoped KV keys**: every lookup includes a tenant/region/locale prefix — no global unscoped lookups.
 - The demo frontend updates reactively via KV watch → SSE (or WebSocket) → frontend panels.
+- **Every `nats.Connect` call must set `nats.Name(...)`** with the service name (e.g. `"shipping-service"`, `"refdata-service"`) — anonymous connections are indistinguishable in `nats server list connections` / `/connz` when debugging a running stack. This is testable: assert `nc.Opts.Name != ""` (or equals the expected name) on the returned `*nats.Conn` in any test that calls `nats.Connect` directly.
 - **Event sourcing vs plain CRUD — the deciding question is "does anything need to replay this," not "does it change."** Event-source an entity when its *history* is itself a domain concern: something needs to reconstruct state from the log (Shape C), enforce rules against a point-in-time replay (Ship/Container cross-aggregate checks), or audit a sequence of transitions. Use plain Postgres CRUD when only *current state* matters and nothing ever reconstructs it from history — typically reference/master data with no state machine (lookup tables, config, enums). Don't let "is it reference data" be the whole test, though: some reference-looking data secretly needs history (a rate table where "what was in effect on date X" matters), and some lifecycle-looking entities are simple enough for plain CRUD if nothing ever replays them. See `demos/01-dictionary/ARCHITECTURE.md` § "Event Sourcing vs Plain CRUD" for the worked example (Ship/Container vs the ports registry).
 
 ## Quality Rules

@@ -123,6 +123,8 @@ async function submitCell(row, locale) {
       data-key="code"
       scrollable
       scroll-direction="horizontal"
+      resizable-columns
+      column-resize-mode="fit"
       class="matrix-table"
     >
       <template #empty>

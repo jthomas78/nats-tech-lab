@@ -111,7 +111,7 @@ describe('BR-D16 Port UI localization', () => {
   it('reactively switches visible chrome from English to Spanish', async () => {
     const { wrapper, i18n } = mountApp()
 
-    expect(wrapper.get('h1').text()).toBe('SeaFreight Flow')
+    expect(wrapper.get('.brandmark').text()).toBe('SSeaFreight Flow')
     expect(wrapper.findAll('.nav-item').map((node) => node.text())).toEqual([
       'Fleet Management',
       'Port Management',
@@ -127,7 +127,7 @@ describe('BR-D16 Port UI localization', () => {
 
     // Title is treated as a brand name — unchanged across locales, unlike
     // the rest of the chrome.
-    expect(wrapper.get('h1').text()).toBe('SeaFreight Flow')
+    expect(wrapper.get('.brandmark').text()).toBe('SSeaFreight Flow')
     expect(wrapper.findAll('.nav-item').map((node) => node.text())).toEqual([
       'Gestión de flota',
       'Gestión portuaria',

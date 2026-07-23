@@ -5,7 +5,7 @@
 // @title           EventSourcing CQRS POC — Shipping API
 // @version         1.0
 // @description     Shipping domain backend for the NATS Tech Lab POC. Demonstrates JetStream event sourcing, NATS KV projections (Shape A / Shape B), and pure event reconstruction (Shape C).
-// @host            localhost:18080
+// @host            localhost:7200
 // @BasePath        /
 package main
 
@@ -69,7 +69,7 @@ func run(log *slog.Logger) error {
 	var nc *nats.Conn
 	err := waiter.Wait(startupCtx, "nats", log, func(context.Context) error {
 		var err error
-		nc, err = nats.Connect(natsURL)
+		nc, err = nats.Connect(natsURL, nats.Name("shipping-service"))
 		return err
 	})
 	if err != nil {

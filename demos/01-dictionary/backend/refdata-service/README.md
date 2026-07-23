@@ -28,7 +28,7 @@ docker compose up --build
 This starts `refdata-service` alongside Postgres, NATS, the shipping
 backend, and all three frontends. See the top-level
 [../../README.md](../../README.md) for the full stack's ports and the Dictionary
-admin UI (`refdata`, http://localhost:5175) that browses this
+admin UI (`refdata`, http://localhost:7102) that browses this
 service's data.
 
 **Gotcha: stale containers don't pick up new seed data.** `Seed` (in
@@ -64,7 +64,7 @@ Then, in a separate terminal:
 
 ```bash
 cd demos/01-dictionary/backend/refdata-service
-NATS_URL=nats://localhost:14222 \
+NATS_URL=nats://localhost:4222 \
 DATABASE_URL="postgres://dict:dict@localhost:15432/dictionary?sslmode=disable" \
 go run ./cmd
 ```
@@ -75,14 +75,14 @@ give refdata-service a different port:
 
 ```bash
 cd demos/01-dictionary/backend/refdata-service
-NATS_URL=nats://localhost:14222 \
+NATS_URL=nats://localhost:4222 \
 DATABASE_URL="postgres://dict:dict@localhost:15432/dictionary?sslmode=disable" \
 HTTP_ADDR=:8081 \
 go run ./cmd
 ```
 
 If you run it on a non-default port, point the shipping backend's
-`REFDATA_SERVICE_URL` at it (default fallback is `http://localhost:18081`)
+`REFDATA_SERVICE_URL` at it (default fallback is `http://localhost:7201`)
 so its `/api/refdata-demo/...` consumer demo route can reach it.
 
 ## Querying it
@@ -168,7 +168,7 @@ Bucket naming is `refdata-{context}` (prefix `refdata`, see
 NATS port:
 
 ```bash
-export NATS_URL=nats://localhost:14222
+export NATS_URL=nats://localhost:4222
 
 # List KV buckets
 nats kv ls

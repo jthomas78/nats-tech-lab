@@ -278,7 +278,7 @@ async function submitDuplicate() {
 </script>
 
 <template>
-  <div class="lab-panel category-view">
+  <div class="lab-panel category-view fill-height">
     <div class="category-head">
       <h3>{{ categoryLabel(store.selectedCategory) }}</h3>
       <span class="lab-muted type-count">{{ types.length }} {{ types.length === 1 ? 'type' : 'types' }}</span>
@@ -303,7 +303,9 @@ async function submitDuplicate() {
           sort-field="typeKey"
           :sort-order="1"
           scrollable
-          scroll-height="30rem"
+          scroll-height="flex"
+          resizable-columns
+          column-resize-mode="fit"
           class="type-table"
           @row-click="select($event.data.typeKey)"
         >
@@ -397,6 +399,10 @@ async function submitDuplicate() {
                 :selection="filteredEntries.find((e) => e.code === store.selectedCode) ?? null"
                 sort-field="code"
                 :sort-order="1"
+                scrollable
+                scroll-height="flex"
+                resizable-columns
+                column-resize-mode="fit"
                 class="values-table"
                 @row-click="store.selectItem($event.data.code)"
               >
@@ -407,7 +413,7 @@ async function submitDuplicate() {
                   field="code"
                   header="Key"
                   sortable
-                  style="font-family: monospace; max-width: 9rem"
+                  style="font-family: monospace; width: 14rem"
                 >
                   <template #body="{ data }">
                     <span
@@ -710,7 +716,11 @@ async function submitDuplicate() {
   display: grid;
   grid-template-columns: minmax(10rem, 1fr) 4fr;
   gap: 0.75rem;
-  align-items: start;
+  flex: 1;
+  min-height: 0;
+}
+.category-view {
+  min-height: 0;
 }
 @media (max-width: 900px) {
   .master-detail {
@@ -721,8 +731,15 @@ async function submitDuplicate() {
 /* ── Type list (scrollable) ── */
 .type-pane {
   min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   border-right: 1px solid var(--lab-disabled-bg);
   padding-right: 0.75rem;
+}
+.type-table {
+  flex: 1;
+  min-height: 0;
 }
 @media (max-width: 900px) {
   .type-pane {
@@ -753,6 +770,9 @@ async function submitDuplicate() {
 /* ── Content pane: values head, toolbar, values+detail split or matrix ── */
 .content-pane {
   min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .values-head {
   display: flex;
@@ -784,9 +804,21 @@ async function submitDuplicate() {
 }
 .values-detail-split {
   display: grid;
-  grid-template-columns: minmax(15rem, 1.1fr) 2fr;
+  grid-template-columns: minmax(15rem, 1fr) 1fr;
   gap: 0.75rem;
-  align-items: start;
+  flex: 1;
+  min-height: 0;
+}
+.values-table {
+  min-height: 0;
+}
+.values-table :deep(.p-datatable-table),
+.values-table :deep(.p-datatable-table-container table) {
+  table-layout: fixed;
+  width: 100%;
+}
+.detail-pane {
+  overflow-y: auto;
 }
 @media (max-width: 1200px) {
   .values-detail-split {

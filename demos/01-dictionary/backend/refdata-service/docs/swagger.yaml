@@ -241,7 +241,7 @@ definitions:
         additionalProperties: {}
         type: object
     type: object
-host: localhost:18081
+host: localhost:7201
 info:
   contact: {}
   description: Dictionary-as-a-service backend for the NATS Tech Lab POC. Plain Postgres
