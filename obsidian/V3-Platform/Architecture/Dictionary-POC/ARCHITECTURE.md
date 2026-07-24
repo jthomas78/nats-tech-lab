@@ -1,6 +1,6 @@
 # Architecture — EventSourcing CQRS POC
 
-Deep reference for how this demo is implemented. For the overview and run instructions see [README.md](README.md).
+Deep reference for how this demo is implemented. For the overview and run instructions see [README.md](../../../../demos/01-dictionary/README.md).
 
 ---
 
@@ -9,7 +9,7 @@ Deep reference for how this demo is implemented. For the overview and run instru
 The POC compares several CQRS/event-sourcing **variants** and measures how they
 perform as it evolves. Each variant gets a **stable identifier** so the same
 operation can be compared across implementations and phases — the k6 harness
-tags every metric with its `shape` id (see [PERFORMANCE.md](PERFORMANCE.md)),
+tags every metric with its `shape` id (see [PERFORMANCE.md](../../../../demos/01-dictionary/PERFORMANCE.md)),
 and these ids are frozen once assigned.
 
 **Grammar:** `Shape<Surface>.<Mechanism>[.<Scope>]`
@@ -377,7 +377,7 @@ The Fleet dropdown sets `store.context`. Changing it calls `connect()`, which re
 
 ## Reference Data Service (`backend/refdata-service/`)
 
-Phase 11, [Dictionary-Service-Plan.md](../../.claude/plans/Dictionary-Service-Plan.md) — a
+Phase 11, [Dictionary-Service-Plan.md](../../../../.claude/plans/Dictionary-Service-Plan.md) — a
 **separate Go service and container**, not a module in the shipping backend's monolith. It shares
 the same Postgres instance as `shipping-service` but owns its own schema (`refdata`) and tables; it does
 not touch the `SHIPPING` stream, KV buckets, or Postgres tables the shipping backend uses.

@@ -51,7 +51,8 @@ shared reference/master data — currencies, countries, Incoterms, units of meas
 classes — with localization (BR-D03 fallback chain), typed cross-references (BR-D05), and a
 versioned NATS-KV cache protocol (BR-D04, Q5). Nothing here is event-sourced: it's plain Postgres
 CRUD, since no consumer ever needs to replay a lookup value's history. See
-[Dictionary-Service-Plan.md](../../.claude/plans/Dictionary-Service-Plan.md) and `ARCHITECTURE.md`'s
+[Dictionary-Service-Plan.md](../../.claude/plans/Dictionary-Service-Plan.md) and
+[ARCHITECTURE.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md)'s
 "Reference Data Service" section for the full design.
 
 The shipping backend demonstrates consuming it: `GET /api/refdata-demo/{context}/{type}/{code}`
@@ -102,9 +103,9 @@ docker compose down -v       # also drop NATS and Postgres data volumes
 | refdata-service API   | http://localhost:7201                                       |
 | NATS client           | nats://localhost:4222                                       |
 | NATS monitor          | http://localhost:8222                                       |
-| Postgres              | localhost:15432                                              |
+| Postgres              | localhost:5432                                               |
 
-**Postgres credentials:** host `localhost`, port `15432`, user `dict`, password `dict`, database `dictionary`
+**Postgres credentials:** host `localhost`, port `5432`, user `dict`, password `dict`, database `dictionary`
 
 ## Dev mode (outside Docker)
 
@@ -119,13 +120,13 @@ docker compose up nats postgres
 ```
 
 **2. Backend** — the code defaults to the *standard* ports (`localhost:4222`,
-`localhost:5432`), but Docker maps Postgres to `15432` on the host, so
-point the backend at that explicitly:
+`localhost:5432`), which now match what Docker publishes, so these env vars
+are just shown explicitly for clarity — omitting them works too:
 
 ```bash
 cd demos/01-dictionary/backend/shipping-service
 NATS_URL=nats://localhost:4222 \
-DATABASE_URL="postgres://dict:dict@localhost:15432/dictionary?sslmode=disable" \
+DATABASE_URL="postgres://dict:dict@localhost:5432/dictionary?sslmode=disable" \
 go run ./cmd/main.go
 ```
 
@@ -158,7 +159,7 @@ instead when both are up at once:
 ```bash
 cd demos/01-dictionary/backend/refdata-service
 NATS_URL=nats://localhost:4222 \
-DATABASE_URL="postgres://dict:dict@localhost:15432/dictionary?sslmode=disable" \
+DATABASE_URL="postgres://dict:dict@localhost:5432/dictionary?sslmode=disable" \
 HTTP_ADDR=:8081 \
 go run ./cmd/main.go
 ```
@@ -211,4 +212,10 @@ standard ports.
 
 ---
 
-For a deep dive into how each shape is implemented, see [ARCHITECTURE.md](ARCHITECTURE.md).
+For a deep dive into how each shape is implemented, see
+[ARCHITECTURE.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md)
+(moved to the obsidian vault; see CLAUDE.md's Obsidian Vault section).
+
+For how services talk to each other (REST/Swagger, NATS `rpc.*` request/reply,
+subject taxonomy), see
+[ARCHITECTURE-COMMUNICATIONS.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md).

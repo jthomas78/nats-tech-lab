@@ -3,8 +3,12 @@ import path from "node:path";
 
 const diagramsDir = path.dirname(new URL(import.meta.url).pathname);
 const demoRoot = path.resolve(diagramsDir, "..");
-const workbookPath = path.join(diagramsDir, "architecture-dictionary.drawio");
-const iconsPath = path.resolve(demoRoot, "..", "..", "shared", "unifi-theme", "icons.svg");
+const repoRoot = path.resolve(demoRoot, "..", "..");
+// The workbook and its exported images live in the obsidian vault, not this
+// directory — see obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md.
+const vaultDir = path.join(repoRoot, "obsidian", "V3-Platform", "Architecture", "Dictionary-POC");
+const workbookPath = path.join(vaultDir, "architecture-dictionary.drawio");
+const iconsPath = path.resolve(repoRoot, "shared", "unifi-theme", "icons.svg");
 const fontStack = "Inter, -apple-system, 'Segoe UI', sans-serif";
 
 const iconSource = fs.readFileSync(iconsPath, "utf8");
@@ -63,12 +67,23 @@ const iconCells = {
     ["net-postgres", "1", "ico-db", 1248, 548],
     ["net-pg-data", "1", "ico-volume", 1248, 668],
   ],
+  "rpc-proposed": [
+    ["rest-adapter", "1", "ico-service", 130, 222],
+    ["natsrpc-adapter", "1", "ico-nats", 480, 222],
+    ["commands-node", "1", "ico-service", 250, 452],
+    ["domain-node", "1", "ico-service", 250, 612],
+    ["store-node", "1", "ico-db", 480, 612],
+    ["ship-rpc-client", "1", "ico-nats", 1180, 222],
+    ["ship-commands", "1", "ico-service", 1180, 452],
+  ],
 };
 
 const textCells = [
   "app", "fleet", "ships", "terminal", "locale", "uicopy", "status", "registry", "fallback", "sse",
   "seed-node", "build-node", "port-node", "client-node", "read-node",
   "port", "composable", "backend", "kv", "service", "postgres",
+  "rest-adapter", "natsrpc-adapter", "commands-node", "domain-node", "store-node",
+  "ship-rpc-client", "ship-commands",
 ];
 
 let workbook = fs.readFileSync(workbookPath, "utf8");

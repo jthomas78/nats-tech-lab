@@ -16,10 +16,8 @@ services:
       POSTGRES_USER: dict
       POSTGRES_PASSWORD: dict
       POSTGRES_DB: dictionary
-    # Remapped for the same reason as NATS: avoid clashing with a local
-    # Postgres. The backend uses the compose-internal postgres:5432.
     ports:
-      - "15432:5432"
+      - "5432:5432"
     networks:
       - backend
     volumes:

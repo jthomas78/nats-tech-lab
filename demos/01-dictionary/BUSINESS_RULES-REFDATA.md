@@ -6,7 +6,7 @@
 Phase 11, [Dictionary-Service-Plan.md](../../.claude/plans/Dictionary-Service-Plan.md). A
 separate service, separate Postgres schema (`refdata`) — plain CRUD, not
 event-sourced (nothing ever replays a lookup value; see "Event Sourcing vs
-Plain CRUD" in `ARCHITECTURE.md`). Rules live in `backend/refdata-service/refdata/internal/domain/dictionary.go`
+Plain CRUD" in `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md`). Rules live in `backend/refdata-service/refdata/internal/domain/dictionary.go`
 and are enforced by the command handlers in
 `backend/refdata-service/refdata/internal/application/commands/`. BR-D07 (AI-translation
 review gate) is parked — not in this pass's scope.
@@ -58,7 +58,7 @@ Resolving an item's label for a locale never fails outright. It tries the exact 
 ---
 
 ### BR-D04 — Every mutation to a type's items, localizations, or references bumps that type's set version atomically with the write
-Registering/deprecating/deleting an item, setting a localization, or creating a reference each bump `{context, type}`'s set version — a single-statement Postgres `UPSERT ... RETURNING`, so a concurrent bump can never be lost or torn. The bump then rebuilds the affected item's KV cache entry and the type's `_meta` entry (both stamped with the new version) and publishes a bounded change-event pointer on the `REFDATA` stream. This is the write side of the Q5 versioned-read protocol (see ARCHITECTURE.md).
+Registering/deprecating/deleting an item, setting a localization, or creating a reference each bump `{context, type}`'s set version — a single-statement Postgres `UPSERT ... RETURNING`, so a concurrent bump can never be lost or torn. The bump then rebuilds the affected item's KV cache entry and the type's `_meta` entry (both stamped with the new version) and publishes a bounded change-event pointer on the `REFDATA` stream. This is the write side of the Q5 versioned-read protocol (see obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md).
 
 - **Enforced in:** `postgres.VersionRepository.Bump()` (the atomic increment) + `kvcache.Projector.NotifyItemChanged()` (cache rebuild + event publish), wired into `ItemHandler`/`ReferenceHandler`/`LocalizationHandler` via the `domain.ChangeNotifier` port
 - **Test:** `KV cache + versioned-read protocol (Phase 11.3) / bumps the set version atomically`, plus the cache-rebuild, `_meta`, and change-event specs in the same file
@@ -100,7 +100,7 @@ Phase 11.6. When the shipping backend resolves a reference-data label for displa
 ---
 
 ### BR-D09 — Dictionary types are categorized into a small controlled vocabulary
-Phase 11.7. Every `DictionaryType` carries a `category` — one of `standards`, `domain-enum`, `ui-copy`, or (reserved for later) `config` — set at type-registration time. Registering a type with any other value is rejected. Category is orthogonal to `context` (tenant/region): it groups *types* by who owns and edits them (see ARCHITECTURE-DICTIONARY.md § "Type Categories & Governance"), not by tenant.
+Phase 11.7. Every `DictionaryType` carries a `category` — one of `standards`, `domain-enum`, `ui-copy`, or (reserved for later) `config` — set at type-registration time. Registering a type with any other value is rejected. Category is orthogonal to `context` (tenant/region): it groups *types* by who owns and edits them (see obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-DICTIONARY.md § "Type Categories & Governance"), not by tenant.
 
 - **Error:** `ErrInvalidCategory` — "dictionary type category is not a recognized category"
 - **Enforced in:** `domain.ValidateCategory()`, called from `commands.TypeHandler.RegisterType()`

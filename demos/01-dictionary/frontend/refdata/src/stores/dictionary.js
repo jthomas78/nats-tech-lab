@@ -1,6 +1,6 @@
 // Pinia store for the Dictionary admin UI. Types/items are read fresh from
 // the REST API on selection (this is plain Postgres CRUD, not an
-// event-sourced read model — see ARCHITECTURE.md's "Event Sourcing vs Plain
+// event-sourced read model — see obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md's "Event Sourcing vs Plain
 // CRUD" heuristic), while the SSE watch on refdata-{context} only drives the
 // cache-status widget's "something changed, refetch" signal.
 import { defineStore } from 'pinia'

@@ -2,7 +2,7 @@
 
 Reference for `refdata-service`: how it's seeded, and its Postgres schema. For
 the service's design rationale (Q5 versioned-read cache protocol, event-sourced
-vs plain CRUD, KV bucket layout) see [../../ARCHITECTURE.md](../../ARCHITECTURE.md) §
+vs plain CRUD, KV bucket layout) see [ARCHITECTURE.md](ARCHITECTURE.md) §
 "Reference Data Service" and `../../../../.claude/plans/Dictionary-Service-Plan.md`.
 
 ---
@@ -103,13 +103,13 @@ the one coded shipping enum the UI currently renders. The selected locale is
 shared across both paths. Free-form port names and client-derived container
 buckets are intentionally not Dictionary types.
 
-The editable Draw.io source workbook lives in `../../diagrams/`, and the exported
-PNGs are kept beside this document for Markdown rendering. Regenerate all three exports
-from the demo directory with `./diagrams/export-png.sh`.
+The editable Draw.io source workbook lives beside this document, and the exported
+PNGs are kept in `images/` for Markdown rendering. Regenerate all exports
+from `demos/01-dictionary/` with `./diagrams/export-png.sh`.
 
-![Shipping UI dictionary ownership map](shipping-ui-dictionary-map.png)
+![Shipping UI dictionary ownership map](images/shipping-ui-dictionary-map.png)
 
-Editable Draw.io source: [architecture-dictionary.drawio](../../diagrams/architecture-dictionary.drawio), page `Shipping UI dictionary ownership map`
+Editable Draw.io source: [architecture-dictionary.drawio](architecture-dictionary.drawio), page `Shipping UI dictionary ownership map`
 
 ### Localized rendering lifecycle
 
@@ -118,18 +118,18 @@ available, `useUiCopy` and `useRefdataLabels` overlay the selected locale and
 refresh after the KV-watch-backed SSE signal. The fallback is therefore a
 resilience layer, not a second editorial source.
 
-![Localized rendering lifecycle](localized-rendering-lifecycle.png)
+![Localized rendering lifecycle](images/localized-rendering-lifecycle.png)
 
-Editable Draw.io source: [architecture-dictionary.drawio](../../diagrams/architecture-dictionary.drawio), page `Localized rendering lifecycle`
+Editable Draw.io source: [architecture-dictionary.drawio](architecture-dictionary.drawio), page `Localized rendering lifecycle`
 
 ### Runtime sequence
 
 The runtime sequence makes the client-facing query contract explicit: a normal
 KV hit, the miss/stale REST fallback, and the mutation-to-SSE refresh path.
 
-![Shipping UI Dictionary read sequence](shipping-ui-dictionary-sequence.png)
+![Shipping UI Dictionary read sequence](images/shipping-ui-dictionary-sequence.png)
 
-Editable Draw.io source: [architecture-dictionary.drawio](../../diagrams/architecture-dictionary.drawio), page `Shipping UI Dictionary read sequence`
+Editable Draw.io source: [architecture-dictionary.drawio](architecture-dictionary.drawio), page `Shipping UI Dictionary read sequence`
 
 ## Data Access Paths
 

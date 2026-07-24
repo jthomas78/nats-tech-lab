@@ -12,9 +12,10 @@ never as this service's source of truth.
 
 For the seeding process, the Postgres schema (including an ER diagram), data
 access paths, and cross-service consumption, see
-[ARCHITECTURE-DICTIONARY.md](ARCHITECTURE-DICTIONARY.md). For the broader
-design rationale (the Q5 versioned-read cache protocol, event-sourced vs.
-plain CRUD, KV bucket layout), see [../../ARCHITECTURE.md](../../ARCHITECTURE.md)
+[ARCHITECTURE-DICTIONARY.md](../../../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-DICTIONARY.md) (moved to the
+obsidian vault). For the broader design rationale (the Q5 versioned-read cache
+protocol, event-sourced vs. plain CRUD, KV bucket layout), see
+[ARCHITECTURE.md](../../../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md)
 § "Reference Data Service" and `../../../../.claude/plans/Dictionary-Service-Plan.md`.
 
 ## Run it
@@ -65,7 +66,7 @@ Then, in a separate terminal:
 ```bash
 cd demos/01-dictionary/backend/refdata-service
 NATS_URL=nats://localhost:4222 \
-DATABASE_URL="postgres://dict:dict@localhost:15432/dictionary?sslmode=disable" \
+DATABASE_URL="postgres://dict:dict@localhost:5432/dictionary?sslmode=disable" \
 go run ./cmd
 ```
 
@@ -76,7 +77,7 @@ give refdata-service a different port:
 ```bash
 cd demos/01-dictionary/backend/refdata-service
 NATS_URL=nats://localhost:4222 \
-DATABASE_URL="postgres://dict:dict@localhost:15432/dictionary?sslmode=disable" \
+DATABASE_URL="postgres://dict:dict@localhost:5432/dictionary?sslmode=disable" \
 HTTP_ADDR=:8081 \
 go run ./cmd
 ```
@@ -193,7 +194,7 @@ registrations at startup already populate the KV cache; you don't need to
 backfill path (Q5) only kicks in later, if the bucket is wiped or a cache
 entry goes stale relative to `dictionary_set_versions`.
 
-See [ARCHITECTURE-DICTIONARY.md](ARCHITECTURE-DICTIONARY.md) §
+See [ARCHITECTURE-DICTIONARY.md](../../../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-DICTIONARY.md) §
 "Cross-Service Consumption" for how the shipping backend reads this
 service's reference data (read-side only, and how the shared NATS instance
 makes the KV cache path possible).

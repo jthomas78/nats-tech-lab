@@ -54,12 +54,12 @@ docker compose up --build
 | Demo UI     | http://localhost:7100  |
 | Backend API | http://localhost:7200 |
 | NATS        | nats://localhost:4222 (monitor: http://localhost:8222) |
-| Postgres    | localhost:15432 (`dict`/`dict`, db `dictionary`)         |
+| Postgres    | localhost:5432 (`dict`/`dict`, db `dictionary`)          |
 
-Postgres is published on a non-default host port (15432) so the stack
-doesn't clash with a Postgres already running on your machine. NATS uses
-its standard ports (4222/8222). Inside the compose network the services
-use the standard ports.
+NATS and Postgres both use their standard host ports (4222/8222 and 5432) —
+if you already have a Postgres or NATS server running locally on those
+ports, stop it first or expect a port conflict when bringing the stack up.
+Inside the compose network the services use the standard ports too.
 
 The "Launch" button in the lab shell opens the demo UI — the Docker stack
 must already be running.

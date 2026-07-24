@@ -1,5 +1,5 @@
 // Package domain holds the reference-data model. Dictionary types/items are
-// plain Postgres CRUD, not event-sourced (see ARCHITECTURE.md § "Event
+// plain Postgres CRUD, not event-sourced (see obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md § "Event
 // Sourcing vs Plain CRUD") — nothing ever replays a lookup value, so there is
 // no aggregate/event log here, only entities and the rules that guard writes.
 package domain
@@ -15,7 +15,7 @@ const (
 
 // TypeCategory is the controlled vocabulary for a dictionary type's
 // governance bucket (BR-D09) — who owns and edits the type's codes, not
-// which tenant/region they belong to (see ARCHITECTURE-DICTIONARY.md §
+// which tenant/region they belong to (see obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-DICTIONARY.md §
 // "Type Categories & Governance").
 type TypeCategory string
 

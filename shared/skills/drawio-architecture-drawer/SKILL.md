@@ -15,15 +15,18 @@ Use this skill when an architecture diagram must remain editable in Draw.io and 
 - Keep generated PNGs beside the Markdown document that embeds them.
 - Use relative Markdown links so the document remains portable.
 
-For the dictionary demo, the source workbook is:
+For the dictionary demo, the source workbook and its exported images live in
+the obsidian vault (not beside the generation scripts) — see
+`obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md`.
+The workbook is:
 
-`demos/01-dictionary/diagrams/architecture-dictionary.drawio`
+`obsidian/V3-Platform/Architecture/Dictionary-POC/architecture-dictionary.drawio`
 
 The generated images are:
 
-`demos/01-dictionary/backend/refdata-service/shipping-ui-dictionary-map.png`
-`demos/01-dictionary/backend/refdata-service/localized-rendering-lifecycle.png`
-`demos/01-dictionary/backend/refdata-service/shipping-ui-dictionary-sequence.png`
+`obsidian/V3-Platform/Architecture/Dictionary-POC/images/shipping-ui-dictionary-map.png`
+`obsidian/V3-Platform/Architecture/Dictionary-POC/images/localized-rendering-lifecycle.png`
+`obsidian/V3-Platform/Architecture/Dictionary-POC/images/shipping-ui-dictionary-sequence.png`
 
 ## UniFi visual language
 
@@ -57,9 +60,9 @@ Prefer restrained rounded rectangles, dashed system boundaries, clear directiona
 
    The installed Draw.io Desktop build uses one-based `--page-index` values for this workbook. Keep its page-to-output mapping synchronized with the workbook.
 7. Validate the result:
-   - `xmllint --noout demos/01-dictionary/diagrams/architecture-dictionary.drawio`
+   - `xmllint --noout obsidian/V3-Platform/Architecture/Dictionary-POC/architecture-dictionary.drawio`
    - `git diff --check`
-   - `file demos/01-dictionary/backend/refdata-service/*.png`
+   - `file obsidian/V3-Platform/Architecture/Dictionary-POC/images/*.png`
    - visually inspect each PNG for clipping, overlap, unreadable labels, missing lifelines, and incorrect canvas colors.
 8. Update Markdown image links and the editable workbook link together.
 

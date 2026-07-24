@@ -26,7 +26,7 @@ const errorRate = new Rate('throughput_errors');
 const latency = new Trend('throughput_cmd_latency', true);
 
 export const options = {
-  // Variant id (see ARCHITECTURE.md "Shape Classification"). The workload is
+  // Variant id (see obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md "Shape Classification"). The workload is
   // the Write.FR command path; note the observed ceiling is Proj.PG-bound
   // (async projection connection limit — see PERFORMANCE.md).
   tags: { shape: 'Write.FR' },

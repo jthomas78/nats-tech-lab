@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-**Bug pattern found in `frontend-dict/src/components/LocalizationView.vue`** (Phase 11.9's locale-default radio column): a PrimeVue v4 `<RadioButton>` rendered once per row (one per locale), each bound independently via `:model-value="store.defaultLocale"` / `@update:model-value="makeDefault(data.locale)"`, produced a state where **both** the old and newly-clicked locale showed as checked simultaneously.
+**Bug pattern found in `frontend/refdata/src/components/LocalizationView.vue`** (path was `frontend-dict/...` before the 2026-07-22 rename) (Phase 11.9's locale-default radio column): a PrimeVue v4 `<RadioButton>` rendered once per row (one per locale), each bound independently via `:model-value="store.defaultLocale"` / `@update:model-value="makeDefault(data.locale)"`, produced a state where **both** the old and newly-clicked locale showed as checked simultaneously.
 
 **Root cause:** PrimeVue's `BaseEditableHolder` mixin gives every component instance its own local `d_value`, initialized from (and watched against) its own `modelValue` prop. Clicking a radio calls `writeValue()` on *that instance only*, which optimistically sets its own `d_value` immediately — before the async round-trip (`addLocale` POST → `refreshLocales` GET) resolves and the shared `store.defaultLocale` prop change propagates back down to every row's watcher. During that window (and it can appear "stuck" if the fetch is slow), the previously-checked row hasn't been told to uncheck yet, so two rows read as checked at once. This is not a backend issue — the Postgres set-default transaction was already atomic (see [ui-bug-triage-trust-framing](ui_bug_triage_trust_framing.md)).
 

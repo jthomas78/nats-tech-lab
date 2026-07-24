@@ -12,6 +12,8 @@ metadata:
 
 Also: **`BUSINESS_RULES.md` split** into `BUSINESS_RULES-SHIPPING.md` (Ship/Container) and `BUSINESS_RULES-REFDATA.md` (refdata-service) — the bare filename below is stale, don't look for it.
 
+**Path update (2026-07-24):** `ARCHITECTURE.md`/`ARCHITECTURE-DICTIONARY.md`/`ARCHITECTURE-COMMUNICATIONS.md` (all bare mentions above and below) moved out of the repo into `obsidian/V3-Platform/Architecture/Dictionary-POC/` — same content, new location. `BUSINESS_RULES-SHIPPING.md`/`BUSINESS_RULES-REFDATA.md` stayed in the repo at `demos/01-dictionary/`.
+
 **Phase 6** (merged into `poc/dictionary1.6`, 2026-07-07) replaced the generic `DictionaryEntry` domain with a shipping domain (Fowler Ship/Port/Cargo + Petrosyan Go structural pattern): `ShipAggregate`, `hydrate()` replay-per-command, Shape A/B/C all wired. Stream was named `DICTIONARY`; subjects were `DICTIONARY.ship.*` / `DICTIONARY.cargo.*`.
 
 **Phase 8** (introduced on branch `poc/dictionary1.8.2`; the repo has since moved on to later phases, e.g. Phase 11's dictionary-as-a-service work) was a bigger revision on top of Phase 6, not a separate phase to track independently — this memory describes the Ship/Container domain foundation, which later phases have built on rather than replaced:
@@ -20,7 +22,7 @@ Also: **`BUSINESS_RULES.md` split** into `BUSINESS_RULES-SHIPPING.md` (Ship/Cont
 - `Container` added as its own aggregate (`ContainerAggregate`, `domain/container.go`), co-located with `ShipAggregate` on the single `SHIPPING` stream. The `Cargo` value object on `ShipAggregate` was retired — a ship's manifest is now a client-side/query-side join on `onShipID == shipID`.
 - Container lifecycle: `ContainerStatus` has exactly two values, `in-terminal` / `on-ship` (no richer states like "delivered" — see [[container-status-model]]).
 - Business rules BR-008 through BR-016 live in `domain/container.go`; BR-001 through BR-003 (ship rules) in `domain/ship.go`. Full list in `demos/01-dictionary/BUSINESS_RULES-SHIPPING.md` (not `BUSINESS_RULES.md`, which is now just an index — see the Phase 12.8/12.9 note above for the newer BR-020…BR-022).
-- Second frontend added: `frontend-port/` (Port Management / "SeaFreight Flow" UI, dev port 5174) alongside the original `frontend/` (admin/raw NATS debug view, port 5173). See [[frontend-port-structure]].
+- Second frontend added: `frontend-port/` (Port Management / "SeaFreight Flow" UI, dev port 5174) alongside the original `frontend/` (admin/raw NATS debug view, port 5173) — since renamed to `frontend/seafreight-app/` and `frontend/admin/` respectively (2026-07-22 restructuring). See [[frontend-port-structure]].
 - `meta-{context}` KV bucket added for `known-ports` / `known-containers` lookups feeding UI dropdowns.
 
 **Architecture decisions (set in Phase 6, still governing Phase 8):**

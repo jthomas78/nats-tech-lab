@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-**Bug pattern found in `frontend-port/src/components/ShipsAtPortPanel.vue`:** a PrimeVue `<Select>` bound to a plain-string `v-model` (e.g. `unloadForm.shipID`) keeps its old value when the option list changes and no longer contains it (e.g. switching the selected port changes `dockedShipOptions`). The UI shows the placeholder text (looks unselected), but the underlying reactive value is still truthy — so any `:disabled="!form.shipID"` check still evaluates to enabled, and any submit still sends the stale value.
+**Bug pattern found in `frontend/seafreight-app/src/components/ShipsAtPortPanel.vue`** (path was `frontend-port/...` before the 2026-07-22 rename): a PrimeVue `<Select>` bound to a plain-string `v-model` (e.g. `unloadForm.shipID`) keeps its old value when the option list changes and no longer contains it (e.g. switching the selected port changes `dockedShipOptions`). The UI shows the placeholder text (looks unselected), but the underlying reactive value is still truthy — so any `:disabled="!form.shipID"` check still evaluates to enabled, and any submit still sends the stale value.
 
 **Fix applied:** an explicit `watch(() => store.port, () => { /* reset every dependent form field + error state */ })`. There is no built-in PrimeVue behavior that clears a `Select`'s `v-model` when its `:options` array changes — this must always be done manually with a watcher on whatever drives the option list.
 

@@ -31,7 +31,7 @@ const thresholds = {};
 for (const d of DEPTHS) thresholds[`shape_c_recon_latency{depth:${d}}`] = ['p(95)>=0'];
 
 export const options = {
-  // Variant id (see ARCHITECTURE.md "Shape Classification") tagged on every
+  // Variant id (see obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md "Shape Classification") tagged on every
   // metric so results are comparable across implementations/phases.
   tags: { shape: 'Read.FR.AGG' },
   summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],

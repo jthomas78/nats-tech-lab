@@ -10,7 +10,7 @@ At the start of every session, read all files in `.claude/memory/` — starting 
 
 - If asked to do too much work at once, stop and state that clearly.
 - If computer use is helpful for completing or verifying work, shell out to GPT-5.5 with Codex for it (the `codex:rescue` skill / `codex:codex-rescue` agent).
-- **Don't read large docs whole by default.** Before calling `Read` with no `offset`/`limit` on a file over ~150 lines, prefer `grep`/`Grep` for the section you need, or a targeted `Read` with `offset`/`limit`. Full reads are fine when you genuinely need the whole file (e.g. first pass on a new doc, or it's already short); the point is to default to targeted reads for the large reference docs in this repo (`ARCHITECTURE.md`, `BUSINESS_RULES-*.md`, `PERFORMANCE.md`, files under `.claude/plans/`), not to read them cover-to-cover out of habit.
+- **Don't read large docs whole by default.** Before calling `Read` with no `offset`/`limit` on a file over ~150 lines, prefer `grep`/`Grep` for the section you need, or a targeted `Read` with `offset`/`limit`. Full reads are fine when you genuinely need the whole file (e.g. first pass on a new doc, or it's already short); the point is to default to targeted reads for the large reference docs in this repo (`BUSINESS_RULES-*.md`, `PERFORMANCE.md`, files under `.claude/plans/`, and the `ARCHITECTURE*.md` files under `obsidian/V3-Platform/Architecture/Dictionary-POC/` — see "Architecture Docs" below), not to read them cover-to-cover out of habit.
 
 ## Purpose
 
@@ -29,8 +29,6 @@ nats-tech-lab/
         shipping-service/ # Go service (hexagonal layout) — Ship/Container CQRS shapes A/B/C
         refdata-service/  # Go service (Phase 11) — dictionary-as-a-service, own Postgres schema + container
           README.md         # refdata-service-specific: what it is, how to run/query it standalone
-          ARCHITECTURE-DICTIONARY.md  # refdata-service's overall architecture: seeding, Postgres
-                            # schema/ER diagram, data access paths, cross-service consumption
       frontend/
         admin/           # Vue 3 architecture/demo UI
         seafreight-app/  # Vue 3 ship/terminal operations UI
@@ -39,6 +37,9 @@ nats-tech-lab/
       README.md           # Intro text shown in lab shell
   obsidian/
     POC-Dictionaries/     # Obsidian vault for demo 01 (research, findings, stakeholder docs)
+    V3-Platform/
+      Architecture/
+        Dictionary-POC/   # Architecture reference docs for demo 01 (see "Architecture Docs" below)
 ```
 
 Each demo has its own `docker-compose.yml` and does **not** share a network with the lab shell or other demos.
@@ -88,7 +89,26 @@ An Obsidian vault accompanies demo 01, used to:
 - **Document the POC and findings** — problem statement, design write-ups, and results as they emerge.
 - **Communicate the POC with stakeholders** — the vault is the shareable narrative layer (including exported PDFs like the pattern cards and poster).
 
-Treat these as living documents: when a phase produces a notable finding or decision, add or update the relevant note here as well as the code-side docs (`ARCHITECTURE.md`, `BUSINESS_RULES.md`). The vault is the source-of-truth for *why* and *what we learned*; the repo docs remain the source-of-truth for *how the code works*.
+Treat these as living documents: when a phase produces a notable finding or decision, add or update the relevant note here as well as the code-side docs (`BUSINESS_RULES.md`, and the `ARCHITECTURE*.md` docs — see "Architecture Docs" below). `BUSINESS_RULES.md` remains the source-of-truth for *how the code works*; `POC-Dictionaries/` is the source-of-truth for *why* and *what we learned*.
+
+## Architecture Docs (`obsidian/V3-Platform/Architecture/Dictionary-POC/`)
+
+The `ARCHITECTURE*.md` reference docs — `ARCHITECTURE.md` (CQRS shape taxonomy,
+event sourcing vs. plain CRUD), `ARCHITECTURE-DICTIONARY.md` (refdata-service's
+seeding, Postgres schema/ER diagram, data access paths, cross-service
+consumption), and `ARCHITECTURE-COMMUNICATIONS.md` (REST/Swagger + NATS
+`rpc.*` dual-transport design, subject taxonomy) — live in the obsidian vault
+under `obsidian/V3-Platform/Architecture/Dictionary-POC/`, not in the repo
+tree, alongside the editable `architecture-dictionary.drawio` workbook and its
+exported PNGs (`images/`). This is a different vault location from
+`obsidian/POC-Dictionaries/` above: `POC-Dictionaries/` is the narrative/
+research vault (why and what was learned), while `Dictionary-POC/` under
+`V3-Platform/Architecture/` holds the code-facing architecture reference layer
+that used to live in the repo — still describing *how the code works*, just
+relocated. The diagram generation scripts
+(`demos/01-dictionary/diagrams/sync-unifi-assets.mjs`,
+`demos/01-dictionary/diagrams/export-png.sh`) remain in the repo and resolve
+paths into that vault directory; see the `drawio-architecture-drawer` skill.
 
 ## Commands
 
@@ -119,7 +139,8 @@ docker compose up --build       # from demos/01-dictionary/ — starts shipping-
 ```
 
 See `demos/01-dictionary/backend/refdata-service/README.md` for standalone run instructions (including the
-default-port collision with `shipping-service` when both run outside Docker) and `ARCHITECTURE-DICTIONARY.md`
+default-port collision with `shipping-service` when both run outside Docker) and
+`obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-DICTIONARY.md`
 for its overall architecture — seeding, Postgres schema/ER diagram, data access paths (Postgres/REST/KV),
 and cross-service consumption from the shipping backend.
 
@@ -188,7 +209,7 @@ dictionary/
 - **Context-scoped KV keys**: every lookup includes a tenant/region/locale prefix — no global unscoped lookups.
 - The demo frontend updates reactively via KV watch → SSE (or WebSocket) → frontend panels.
 - **Every `nats.Connect` call must set `nats.Name(...)`** with the service name (e.g. `"shipping-service"`, `"refdata-service"`) — anonymous connections are indistinguishable in `nats server list connections` / `/connz` when debugging a running stack. This is testable: assert `nc.Opts.Name != ""` (or equals the expected name) on the returned `*nats.Conn` in any test that calls `nats.Connect` directly.
-- **Event sourcing vs plain CRUD — the deciding question is "does anything need to replay this," not "does it change."** Event-source an entity when its *history* is itself a domain concern: something needs to reconstruct state from the log (Shape C), enforce rules against a point-in-time replay (Ship/Container cross-aggregate checks), or audit a sequence of transitions. Use plain Postgres CRUD when only *current state* matters and nothing ever reconstructs it from history — typically reference/master data with no state machine (lookup tables, config, enums). Don't let "is it reference data" be the whole test, though: some reference-looking data secretly needs history (a rate table where "what was in effect on date X" matters), and some lifecycle-looking entities are simple enough for plain CRUD if nothing ever replays them. See `demos/01-dictionary/ARCHITECTURE.md` § "Event Sourcing vs Plain CRUD" for the worked example (Ship/Container vs the ports registry).
+- **Event sourcing vs plain CRUD — the deciding question is "does anything need to replay this," not "does it change."** Event-source an entity when its *history* is itself a domain concern: something needs to reconstruct state from the log (Shape C), enforce rules against a point-in-time replay (Ship/Container cross-aggregate checks), or audit a sequence of transitions. Use plain Postgres CRUD when only *current state* matters and nothing ever reconstructs it from history — typically reference/master data with no state machine (lookup tables, config, enums). Don't let "is it reference data" be the whole test, though: some reference-looking data secretly needs history (a rate table where "what was in effect on date X" matters), and some lifecycle-looking entities are simple enough for plain CRUD if nothing ever replays them. See `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md` § "Event Sourcing vs Plain CRUD" for the worked example (Ship/Container vs the ports registry).
 
 ## Quality Rules
 

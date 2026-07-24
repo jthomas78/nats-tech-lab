@@ -68,7 +68,7 @@ onMounted(loadPorts)
             <TabPanel value="ports">
               <p class="lab-muted description">
                 Plain Postgres reference data, not event-sourced — see "Event Sourcing vs Plain CRUD"
-                in ARCHITECTURE.md. BR-017/BR-018 enforce that ships can only arrive at, and containers
+                in obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md. BR-017/BR-018 enforce that ships can only arrive at, and containers
                 can only route through, a port registered here.
               </p>
               <DataTable :value="portRows" size="small" paginator :rows="5" class="pg-table">
