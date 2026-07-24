@@ -1,11 +1,13 @@
 <script setup>
+import Button from 'primevue/button'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
 import InputText from 'primevue/inputtext'
+import Tag from 'primevue/tag'
 import { useToast } from 'primevue/usetoast'
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 
-import { listItemLocalizations, listItems, setLocalization } from '../api'
+import { draftTranslation, listItemLocalizations, listItems, setLocalization } from '../api'
 import { codeFor, labelFor } from '../itemFields'
 import { useDictionaryStore } from '../stores/dictionary'
 
@@ -74,10 +76,19 @@ function cellText(row, locale) {
 
 const editingCell = ref(null)
 const editValue = ref('')
+// Cells with an unsaved AI-drafted candidate, keyed by cellKey (BR-D07) —
+// never written to Postgres until the steward saves or discards each one.
+const drafts = reactive({})
+// Whether the cell currently being edited started from an AI draft, so
+// submitCell knows to record source: 'ai' rather than the 'manual' default.
+const editIsDraft = ref(false)
+const draftingLocale = ref(null) // locale column currently bulk-drafting, or null
 
 function startEditCell(row, locale) {
-  editingCell.value = cellKey(row.code, locale)
-  editValue.value = cellText(row, locale) || ''
+  const key = cellKey(row.code, locale)
+  editingCell.value = key
+  editIsDraft.value = Boolean(drafts[key])
+  editValue.value = drafts[key]?.label ?? cellText(row, locale) ?? ''
 }
 
 function cancelEditCell() {
@@ -86,10 +97,12 @@ function cancelEditCell() {
 
 async function submitCell(row, locale) {
   const value = editValue.value.trim()
-  if (!value || editingCell.value !== cellKey(row.code, locale)) {
+  const key = cellKey(row.code, locale)
+  if (!value || editingCell.value !== key) {
     editingCell.value = null
     return
   }
+  const wasDraft = editIsDraft.value
   try {
     await setLocalization({
       typeKey: props.typeKey,
@@ -97,13 +110,78 @@ async function submitCell(row, locale) {
       context: store.context,
       locale,
       label: value,
-      description: row.cells[locale]?.description || '',
+      description: drafts[key]?.description ?? row.cells[locale]?.description ?? '',
+      source: wasDraft ? 'ai' : 'manual',
     })
-    row.cells[locale] = { translation: value, description: row.cells[locale]?.description || '' }
+    row.cells[locale] = { translation: value, description: drafts[key]?.description ?? row.cells[locale]?.description ?? '' }
+    delete drafts[key]
   } catch (err) {
     toast.add({ severity: 'error', summary: 'Could not save translation', detail: err.message, life: 4000 })
   } finally {
     editingCell.value = null
+    editIsDraft.value = false
+  }
+}
+
+// Saves a drafted candidate verbatim, without opening the inline edit field
+// first — the fast path for "this AI draft looks fine as-is".
+async function acceptDraft(row, locale) {
+  const key = cellKey(row.code, locale)
+  const draft = drafts[key]
+  if (!draft) return
+  try {
+    await setLocalization({
+      typeKey: props.typeKey,
+      code: row.code,
+      context: store.context,
+      locale,
+      label: draft.label,
+      description: draft.description || '',
+      source: 'ai',
+    })
+    row.cells[locale] = { translation: draft.label, description: draft.description || '' }
+    delete drafts[key]
+  } catch (err) {
+    toast.add({ severity: 'error', summary: 'Could not save translation', detail: err.message, life: 4000 })
+  }
+}
+
+function discardDraft(row, locale) {
+  delete drafts[cellKey(row.code, locale)]
+}
+
+// Bulk "Draft missing (AI)" for one locale column — sequential, never
+// concurrent (BR-D24): each row awaits its own draft call before the next
+// starts. A single row's failure surfaces via toast but does not stop the
+// rest (BR-D07's per-locale failure guardrail applies per-row here).
+async function draftMissingForLocale(locale) {
+  draftingLocale.value = locale
+  let failures = 0
+  try {
+    for (const row of rows.value) {
+      if (cellText(row, locale)) continue // already has a saved or default value
+      try {
+        const res = await draftTranslation(props.typeKey, row.code, store.context, [locale])
+        const draft = res?.drafts?.[0]
+        if (draft && !draft.error) {
+          drafts[cellKey(row.code, locale)] = { label: draft.label, description: draft.description }
+        } else {
+          failures++
+        }
+      } catch {
+        failures++
+      }
+    }
+  } finally {
+    draftingLocale.value = null
+    if (failures > 0) {
+      toast.add({
+        severity: 'warn',
+        summary: 'Some AI drafts failed',
+        detail: `${failures} value(s) in "${locale}" could not be drafted.`,
+        life: 4000,
+      })
+    }
   }
 }
 </script>
@@ -148,10 +226,24 @@ async function submitCell(row, locale) {
         v-for="locale in store.locales"
         :key="locale"
         :field="(row) => cellText(row, locale)"
-        :header="locale"
         sortable
         style="width: 18rem"
       >
+        <template #header>
+          <span class="locale-header">
+            {{ locale }}
+            <Button
+              icon="pi pi-sparkles"
+              text
+              size="small"
+              aria-label="Draft missing (AI)"
+              title="Draft missing (AI)"
+              :loading="draftingLocale === locale"
+              :disabled="draftingLocale !== null"
+              @click.stop="draftMissingForLocale(locale)"
+            />
+          </span>
+        </template>
         <template #body="{ data }">
           <InputText
             v-if="editingCell === cellKey(data.code, locale)"
@@ -162,6 +254,36 @@ async function submitCell(row, locale) {
             @keyup.escape="cancelEditCell"
             @blur="submitCell(data, locale)"
           />
+          <div
+            v-else-if="drafts[cellKey(data.code, locale)]"
+            class="matrix-cell-draft"
+          >
+            <span
+              class="matrix-cell"
+              @click="startEditCell(data, locale)"
+            >{{ drafts[cellKey(data.code, locale)].label }}</span>
+            <Tag
+              severity="info"
+              value="AI"
+              class="ai-draft-tag"
+            />
+            <Button
+              icon="pi pi-check"
+              text
+              size="small"
+              aria-label="Accept draft"
+              title="Accept draft"
+              @click="acceptDraft(data, locale)"
+            />
+            <Button
+              icon="pi pi-times"
+              text
+              size="small"
+              aria-label="Discard draft"
+              title="Discard draft"
+              @click="discardDraft(data, locale)"
+            />
+          </div>
           <span
             v-else
             class="matrix-cell"
@@ -209,6 +331,28 @@ async function submitCell(row, locale) {
   display: block;
   cursor: pointer;
   padding: 0.15rem 0;
+}
+.locale-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+  width: 100%;
+}
+.matrix-cell-draft {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.matrix-cell-draft .matrix-cell {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-draft-tag {
+  flex: 0 0 auto;
 }
 .empty {
   padding: 0.5rem 0.25rem;

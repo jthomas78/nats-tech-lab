@@ -1,19 +1,38 @@
 # Dictionary as a Service — Plan
 
-> **Status: APPROVED (2026-07-13).** This is now **Phase 11** of the main plan (sub-phases
-> 11.1–11.5 below); the former Phases 11–15 have renumbered to 12–16.
+> **Status: APPROVED (2026-07-13; re-approved for 11.12 on 2026-07-24; 11.13 dropped the same
+> day — see its entry).** This is **Phase 11** of the main plan (sub-phases 11.1–11.12
+> delivered; see 11.12's entry for what shipped); the former Phases 11–15 have renumbered to
+> 13–17 (Phase 12 was inserted for refdata versioning/tenancy — see the "Renumbering" section
+> below).
 >
 > Main plan: [Dictionary-POC-Plan.md](Dictionary-POC-Plan.md)
 >
-> **Decisions made at approval:**
+> **Decisions made at original approval (2026-07-13):**
 > 1. **Q1 — Option B (separate service).** `refdata-service/` is its own Go service/container,
 >    own Postgres schema, own KV bucket — not a module in the existing monolith.
 > 2. **11.3 demo consumer — hazard classes.** The shipping backend consumes the `hazard-class`
 >    dictionary type via KV with version-mismatch re-read, as the concrete cross-service proof.
-> 3. **Scope — 11.1–11.4 approved now.** The AI-assisted translation increment inside 11.4 and
->    the Q6-role-3 NATS `micro` request-reply spike in 11.3 are **not** in scope for this pass —
->    deferred/parked, revisit later. 11.5 (consolidation write-up) remains optional/deferrable.
+> 3. **Scope — 11.1–11.4 approved then.** The AI-assisted translation increment inside 11.4 and
+>    the Q6-role-3 NATS `micro` request-reply spike in 11.3 were **not** in scope for that pass —
+>    deferred/parked. 11.5 (consolidation write-up) was optional/deferrable.
 > 4. **BR-D01–D07 confirmed as drafted**, unchanged from the table below.
+>
+> **Re-opened 2026-07-24 — approved, not yet implemented:**
+> 5. **Phase 11.12 — AI-assisted translation**, un-parking item 3 above — **approved and
+>    implemented 2026-07-24**. See the sub-phase entry for design/checklist.
+> 6. **Phase 11.13 — Countries (ISO 3166) as a second demo consumer — dropped**, not approved.
+>    Investigation found the generic `{type}` REST endpoints already serve `country` with zero
+>    new code (`country` is already seeded and localized); the only real options were a thin
+>    tests-only deliverable or a much larger real-domain-field change. User chose to drop it
+>    entirely rather than build either. See the sub-phase entry for the full rationale.
+> 7. **Q6 role 3 (NATS `micro` request-reply)** remains parked *for this plan* — it's superseded
+>    by [Dictionary-POC-Plan.md § Phase 12.10](Dictionary-POC-Plan.md), which covers the same
+>    NATS `micro` request-reply pattern generically. **12.10 is also approved (2026-07-24)**;
+>    see that phase's own entry for implementation status.
+> 8. **Both 11.12 and 12.10 followed the repo's AI Agent Workflow**: business rules confirmed
+>    with the user first (BR-D07/BR-D24 for 11.12; BR-D25/BR-D26 for 12.10, in
+>    `BUSINESS_RULES-REFDATA.md`), then Ginkgo specs written before code, red → green → refactor.
 
 ## Definition (project goal)
 
@@ -246,7 +265,7 @@ heuristic this service exists to demonstrate (nothing replays a lookup value to 
 |---|---|---|
 | **1. Cache distribution** | NATS KV (`refdata-{context}`) + KV watch — the Q5 protocol | **Yes — core of the design.** Note KV *is* a JetStream stream under the hood, so NATS streaming is already in the comms path. |
 | **2. Change-event feed** | Publish `refdata.changed` events to a small JetStream stream, e.g. subjects `{region}.refdata.{tenant}.{type}.changed` on a `REFDATA` stream, LimitsPolicy with a **bounded MaxAge** (e.g. 24–48h) | **Yes — recommended.** Gives services that don't watch KV (or that batch) a notification channel, and gives late/restarting consumers a short replayable window of *what changed* (type + new set version — a pointer, not the payload). Bounded age is the explicit signal that this is a change-feed, **not** an event store: truth is always re-fetchable from the API/KV. |
-| **3. Request-reply lookups** | NATS `micro` (services framework in nats.go): the dictionary answers `refdata.get.{type}.{code}` request-reply, with built-in discovery/stats/ping | **Optional spike.** For service-to-service consumers already on NATS, request-reply avoids HTTP entirely; REST+Swagger remains the admin/frontend/browser API. Worth a small demo endpoint in 11.3 to document the trade-off (one transport to operate vs HTTP ubiquity + Swagger tooling). |
+| **3. Request-reply lookups** | NATS `micro` (services framework in nats.go): the dictionary answers `refdata.get.{type}.{code}` request-reply, with built-in discovery/stats/ping | **Optional spike — dropped from 11.3's scope at the 2026-07-13 approval, superseded by [Dictionary-POC-Plan.md § Phase 12.10](Dictionary-POC-Plan.md), APPROVED 2026-07-24 (not yet implemented).** Phase 12.10 is the actual vehicle for this: a general `rpc.*` dual-transport pattern (not dictionary-specific) whose first concrete case is exactly this — shipping-service calling refdata-service's item lookup over NATS `micro` instead of REST. Not re-scoped here to avoid building it twice — see 12.10 for the live design/checklist. |
 
 What NATS should **not** do here:
 
@@ -881,6 +900,89 @@ with copied attrs. The only missing piece is a `frontend-dict` `updateItem` wrap
       confirmed the rendered UI (three-panel layout, `SelectButton` toggle, table styling,
       responsiveness). Do this next time the app is opened in a real browser.
 
+### Phase 11.12 (APPROVED 2026-07-24 — IMPLEMENTED 2026-07-24) — AI-assisted translation
+
+> **Un-parks the increment deferred at the original 2026-07-13 approval** (see "Open questions —
+> resolved at approval" item 3 below). Raised again and approved 2026-07-24; implemented the same
+> day. Bulk drafting is strictly sequential per the user's 2026-07-24 confirmation (BR-D24); the
+> Claude API client sits behind the `domain.TranslationDrafter` port so Ginkgo specs use a fake
+> rather than calling the real model API.
+> Builds on Phase 11.11's translation UX (`frontend/refdata`'s Translations tab / Translation
+> Matrix) and BR-D07 (already confirmed at the original approval, implemented here).
+
+#### Goal
+
+For a selected item/locale gap (or a whole type × locale gap), let a steward request an
+AI-drafted translation instead of typing it by hand. The model call is **backend-mediated only**
+— the browser never holds or sends a model API key — and nothing AI-generated is persisted
+without an explicit human save.
+
+#### Design
+
+- **Endpoint**: `POST /api/refdata/admin/{type}/{code}/translate` (already sketched in the Q2 API
+  list above) — body: target locale(s); calls the model (Claude API, key held server-side via env
+  var, never returned to the client) with the item's default-locale label/description as context;
+  returns draft label/description per requested locale. Drafts are **not** written to Postgres by
+  this call.
+- **Save is a separate, explicit step**: the existing `setLocalization` upsert (Phase 11.2/11.11)
+  persists a draft only once a human accepts it, with `source: ai` set on that row (BR-D07);
+  a human-edited-then-saved draft, or a manually-typed translation, is `source: manual`.
+- **Frontend**: Phase 11.11's Translations tab gains a "Draft with AI" action per missing-locale
+  row (single item) and the Translation Matrix gains a bulk "Draft missing (AI)" entry point per
+  Q3's original sketch; drafts render inline as editable, unsaved suggestions (visually distinct
+  from saved rows) until the steward saves or discards each one.
+- **Failure/cost guardrails**: model call failures surface inline (no silent empty drafts); no
+  auto-retry loop against the model API from bulk actions — a bulk "draft missing" issues one call
+  per item/locale sequentially or with bounded concurrency, not unbounded fan-out.
+
+#### Checklist
+
+- [x] Confirm/finalize business rules for this sub-phase — BR-D07 formalized as-drafted; new
+      BR-D24 added for the bulk sequential-only guard (user confirmed "sequential, one call at a
+      time" over bounded concurrency, and a mocked `TranslationDrafter` for tests over hitting the
+      real Anthropic API in Ginkgo specs).
+- [x] `refdata-service`: `translate` handler + backend-side Claude API client (key via env var,
+      `ANTHROPIC_API_KEY`, never logged or returned to the caller) —
+      `refdata/internal/anthropic/client.go`, wired through `commands.TranslationHandler`
+      (`refdata/internal/application/commands/translation.go`) behind the `domain.TranslationDrafter`
+      port; `Handlers.Translations` stays `nil` (REST returns 501) when the env var is unset.
+- [x] `dictionary_localizations`: the `source` column already existed from BR-D07's original
+      scope; `domain.ValidateSource` now enforces `manual|ai` and `SetLocalization` derives it
+      from the caller's input (defaulting to `manual`) instead of hardcoding `"manual"`.
+- [x] Swagger annotation for the new endpoint (Phase 11.1 toolchain) — `POST
+      /api/refdata/admin/{type}/{code}/translate`, regenerated via `swag init` (clean additive
+      diff, no `$ref`-renaming noise this time).
+- [x] `frontend/refdata`: "Draft with AI" (single, `ItemDetailPanel.vue`'s Translations tab) +
+      "Draft missing (AI)" (bulk, per-locale-column button in `TranslationMatrix.vue`) actions;
+      draft-vs-saved visual distinction (an "AI draft, unsaved" `Tag` / drafted-cell styling with
+      accept/discard icons); bulk drafting awaits each row sequentially, never `Promise.all`.
+- [x] Ginkgo specs: draft never persists without an explicit save call; saved draft records
+      `source: ai`; manually-typed/edited-then-saved translation records `source: manual` — see
+      `refdata/translation_test.go` ("Dictionary Translation Domain Rules").
+- [x] `BUSINESS_RULES-REFDATA.md` updated with BR-D07's and BR-D24's implementation status.
+- [x] `go build ./...` + `ginkgo ./...` green (92/92 specs); `frontend/refdata` `npm run build` +
+      `npm test` (vitest) clean — no lint script exists in this app to run. Manually verified in
+      the browser against the rebuilt `refdata-service`/`refdata` containers: with
+      `ANTHROPIC_API_KEY` unset, both the single-item and bulk "Draft with AI" actions correctly
+      surface a 501 "not configured" error end-to-end (frontend → REST → handler), and the bulk
+      action's network log confirmed 5 sequential per-row `POST .../translate` calls, never
+      concurrent.
+
+### ~~Phase 11.13 — Second demo consumer: Countries (ISO 3166)~~ — DROPPED (2026-07-24)
+
+> **Raised 2026-07-24, dropped the same day before implementation started.** Investigation
+> found `GET /api/refdata-demo/{context}/{type}/{code}` and `GET /api/refdata/types/{type}`
+> (`dictionary/internal/rest/handlers.go`) already take `{type}` as a fully generic path
+> parameter — nothing hardcodes `hazard-class`. Since `country` is already seeded (Phase 11.1)
+> and localized en/es (Phase 11.2), hitting either endpoint with `type=country` **already works
+> today with zero new code.** That collapsed this phase's real options to: (B) add only
+> consumer/Ginkgo specs proving it by test — a thin deliverable, mostly documenting something
+> already true — or (A) add a genuine new domain field (e.g. a container's destination country)
+> to make the lookup load-bearing, a much larger change than "a second demo consumer" implied.
+> Presented both; **user chose to drop the phase entirely** rather than build either. No further
+> work planned here; `country` remains available generically via the existing endpoints if a
+> real need for it as a domain field arises later.
+
 ---
 
 ## Renumbering (done at approval)
@@ -976,3 +1078,19 @@ and test independently post-move.
 3. **11.1–11.4 approved now.** AI-translation increment inside 11.4 — **parked**.
 4. **BR-D01…BR-D07 confirmed as drafted**, including BR-D02's delete-vs-deprecate resolution.
 5. Q6 role 3 (NATS `micro` request-reply) — **dropped from this pass's scope**, parked.
+
+## Open questions — resolved at second approval (2026-07-24)
+
+1. **AI-translation increment** (parked at item 3 above) — **un-parked, approved, and implemented
+   as Phase 11.12** (2026-07-24).
+2. **Second demo consumer type** — **dropped.** Investigation showed `country` already works
+   through the existing generic `{type}` endpoints with zero new code; neither remaining option
+   (tests-only, or a real new domain field) matched what "a second demo consumer phase" was
+   meant to deliver, so it was dropped rather than built as either.
+3. **Q6 role 3 revisited** — stays parked for this plan; superseded by
+   [Dictionary-POC-Plan.md § Phase 12.10](Dictionary-POC-Plan.md), **approved and implemented
+   2026-07-24** (Dual-Transport RPC + Admin UI Observability) — see that phase's own tasks list.
+4. **Phase 18 → 12.11 renumber** — considered and **declined**; Phase 18 (NATS Accounts Tenancy
+   Spike) stays where it is. 11.12/Phase 13 (Capacity Limit) also confirmed to stay at their
+   current numbering — none are versioning/tenancy/RPC work, so folding them under Phase 12
+   would be filing by proximity, not by topic. (11.13 was dropped entirely — see its own entry.)

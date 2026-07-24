@@ -125,3 +125,8 @@ export function jetstreamWatchUrl(stream = 'SHIPPING') {
 export function jetstreamStreamUrl(stream = 'SHIPPING') {
   return `/api/jetstream/stream?stream=${encodeURIComponent(stream)}`
 }
+
+// obs.rpc.* dual-transport RPC traffic (Phase 12.10) — live only, no replay.
+export function rpcWatchUrl() {
+  return '/api/rpc-watch'
+}

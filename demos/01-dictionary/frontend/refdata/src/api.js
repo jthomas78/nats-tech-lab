@@ -88,6 +88,18 @@ export function listItemLocalizations(context, typeKey, code) {
   return request(`/api/refdata/${context}/${typeKey}/${code}/localizations`)
 }
 
+// Drafts candidate label/description text per target locale (BR-D07) —
+// nothing is persisted by this call; save an accepted draft via
+// setLocalization({ ..., source: 'ai' }). Returns { drafts: [{ locale, label,
+// description, error }] } — a per-locale `error` means that locale's draft
+// failed without aborting the others in the same request.
+export function draftTranslation(typeKey, code, context, targetLocales) {
+  return request(`/api/refdata/admin/${typeKey}/${code}/translate`, {
+    method: 'POST',
+    body: JSON.stringify({ context, targetLocales }),
+  })
+}
+
 export function listLocales(context) {
   return request(`/api/refdata/${context}/locales`)
 }

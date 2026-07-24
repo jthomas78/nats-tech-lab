@@ -16,6 +16,10 @@ type LocalizationInput struct {
 	Locale      string
 	Label       string
 	Description string
+	// Source is "manual" or "ai" (BR-D07). Empty defaults to "manual" — the
+	// caller must explicitly say "ai" to record a saved translation as
+	// AI-drafted.
+	Source string
 }
 
 // ResolvedItem is an item paired with its BR-D03-resolved localization.
@@ -42,6 +46,13 @@ func (h *LocalizationHandler) SetLocalization(ctx context.Context, in Localizati
 	if err := domain.ValidateLocale(in.Locale); err != nil {
 		return err
 	}
+	source := in.Source
+	if source == "" {
+		source = domain.SourceManual
+	}
+	if err := domain.ValidateSource(source); err != nil {
+		return err
+	}
 	if _, err := h.items.Get(ctx, in.TypeKey, in.Context, in.Code); err != nil {
 		return err
 	}
@@ -49,11 +60,11 @@ func (h *LocalizationHandler) SetLocalization(ctx context.Context, in Localizati
 	if err != nil && !errors.Is(err, domain.ErrLocalizationNotFound) {
 		return err
 	}
-	unchanged := err == nil && existing.Label == in.Label && existing.Description == in.Description
+	unchanged := err == nil && existing.Label == in.Label && existing.Description == in.Description && existing.Source == source
 	if err := h.locs.Upsert(ctx, domain.Localization{
 		TypeKey: in.TypeKey, Code: in.Code, Context: in.Context,
 		Locale: in.Locale, Label: in.Label, Description: in.Description,
-		Source: "manual",
+		Source: source,
 	}); err != nil {
 		return err
 	}

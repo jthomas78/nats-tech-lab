@@ -9,7 +9,7 @@ event-sourced (nothing ever replays a lookup value; see "Event Sourcing vs
 Plain CRUD" in `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md`). Rules live in `backend/refdata-service/refdata/internal/domain/dictionary.go`
 and are enforced by the command handlers in
 `backend/refdata-service/refdata/internal/application/commands/`. BR-D07 (AI-translation
-review gate) is parked — not in this pass's scope.
+review gate) is implemented — Phase 11.12.
 
 Phase 12 is governed by the [Refdata Versioning, Tenancy & Template Inheritance design](../../.claude/plans/Refdata-Versioning-Tenancy-Design.md), including its [resolved open questions](../../.claude/plans/Refdata-Versioning-Tenancy-Design.md#11-open-questions--resolved-2026-07-22).
 
@@ -49,11 +49,16 @@ Registering an item whose code already exists for the same dictionary type and c
 
 ---
 
-### BR-D03 — Locale resolution follows the fallback chain: requested locale → language → default locale → code
-Resolving an item's label for a locale never fails outright. It tries the exact requested locale, then the bare language (`de-DE` → `de`), then the context's registered default locale, and finally falls back to the item's code itself as the label.
+### BR-D03 — Locale resolution follows the fallback chain: requested locale → language → default locale → code; the response marks whether it was an exact match
+Resolving an item's label for a locale never fails outright. It tries the exact requested locale, then the bare language (`de-DE` → `de`), then the context's registered default locale, and finally falls back to the item's code itself as the label. The response carries `isFallback` so a caller never has to infer what happened by comparing `label == code` (unreliable — a type's code can coincidentally equal its label) or by comparing the echoed `locale` to what it requested:
 
-- **Enforced in:** `domain.ResolveLabel()`, called from `commands.LocalizationHandler.ResolveItem()`
-- **Test:** `Dictionary Localization Domain Rules / BR-D03`
+- `isFallback: false` — the exact requested locale or its bare language matched.
+- `isFallback: true` — either a default-locale substitution (nothing requested matched, but the context's default locale had real data — `label` is real, `locale` in the response reports the *default* locale, not the one requested) or the terminal code-echo (nothing matched at all, `label` degraded to the code itself). Both count as "not what was asked for," so they collapse to the same flag; the response's `locale` field still distinguishes them (default locale vs. the literal input echoed back).
+
+No validation rejects a malformed/unregistered `requestedLocale` (e.g. `"e"`) — it's simply never matched at the exact/language tier, so a context with a real default-locale localization returns that as a fallback (`isFallback: true`, `locale: "en"`) rather than either erroring or misreporting it as an exact match.
+
+- **Enforced in:** `domain.ResolveLabel()`, called from `commands.LocalizationHandler.ResolveItem()`; surfaced as `"isFallback"` in both transports — REST's `resolvedItemResponse` (`*bool`, nil/omitted entirely when no `?locale=` resolution was attempted at all — see `getItem`/`listItems`) and the `rpc.*.refdata.item.get.v1` `ItemGetResponse` (plain `bool`, since that call always resolves a locale)
+- **Test:** `Dictionary Localization Domain Rules / BR-D03`, `NATS RPC Adapter (Phase 12.10) / BR-D25`
 
 ---
 
@@ -91,11 +96,21 @@ A deprecated item must remain resolvable so historic data stays renderable, but 
 
 ---
 
-### BR-D08 — A consumer resolves reference-data labels KV-first, applying the BR-D03 fallback chain; a miss or stale entry falls back to REST
-Phase 11.6. When the shipping backend resolves a reference-data label for display, it reads the `refdata-{context}` KV cache directly and resolves the requested locale's label from the cached localizations map, applying the same fallback chain as BR-D03 (requested locale → bare language → default locale → the code itself). A KV miss or a stale (version-mismatched) entry — the Q5 read protocol's miss case — falls back to the refdata-service REST API with `?locale=`, which resolves the label server-side via the authoritative `ResolveLabel` and backfills the cache. The consumer reimplements the ~10-line fallback rather than importing refdata-service (the two services share only a wire shape); the default locale is a constant mirroring the context's seeded default. Enforced on the *consuming* side (the shipping backend), so it lives here alongside the producer rules it depends on.
+### BR-D07 — AI-drafted translations are never persisted without explicit human save; persisted localizations record their `source`
 
-- **Enforced in:** `backend/shipping-service/internal/refdataconsumer/Consumer.Lookup()` / `ResolveType()` (`resolveLabel()` implements the fallback; `fetchViaAPI()` forwards `?locale=`)
-- **Test:** `backend/shipping-service/internal/refdataconsumer` — `TestLookupResolvesLabelFromKV`, `TestLookupLabelFallsBackToBareLanguage`, `TestLookupLabelFallsBackToDefaultThenCode`, `TestLookupMissForwardsLocaleToAPI`, `TestResolveTypeReturnsAllCodesFromKV`
+Phase 11.12. A steward can request an AI-drafted label/description for a missing locale instead of typing one by hand. The draft call (`POST /api/refdata/admin/{type}/{code}/translate`) only returns candidate text — it never writes to Postgres, never bumps the type's set version, and never publishes a change event. A draft becomes real only through the existing, separate `SetLocalization` save step, which now records `source: "ai"` on that row when the caller marks it as an accepted AI draft, and `source: "manual"` for a hand-typed or hand-edited-then-saved translation (this is the caller's explicit assertion, not something the domain infers from the text). Bulk drafting (a whole type × locale gap) issues one model call at a time, never concurrently — see BR-D24.
+
+- **Enforced in:** `commands.TranslationHandler.DraftTranslations()` (drafts only, no repository writes) / `commands.LocalizationHandler.SetLocalization()` (persists `in.Source`, defaulting to `"manual"` when unset, via the `domain.ValidateSource` guard)
+- **Error:** `ErrInvalidSource` — `source` must be `"manual"` or `"ai"`
+- **Test:** `Dictionary Translation Domain Rules / BR-D07`
+
+---
+
+### BR-D08 — A consumer resolves reference-data labels KV-first, applying the BR-D03 fallback chain; a miss or stale entry re-fetches via `rpc.*` exclusively (no REST fallback, per BR-D28)
+Phase 11.6, amended Phase 12.10, superseded by BR-D28 (Phase 12.11, IMPLEMENTED). When the shipping backend resolves a reference-data label for display, it reads the `refdata-{context}` KV cache directly and resolves the requested locale's label from the cached localizations map, applying the same fallback chain as BR-D03 (requested locale → bare language → default locale → the code itself). A KV miss or a stale (version-mismatched) entry — the Q5 read protocol's miss case — calls `rpc.{context}.refdata.item.get.v1` (`fetchViaRPC`) via a bounded number of retries with backoff (BR-D28); the reply resolves the label server-side via the authoritative `ResolveLabel` and backfills the cache. The consumer reimplements the ~10-line fallback rather than importing refdata-service (the two services share only a wire shape); the default locale is a constant mirroring the context's seeded default. Enforced on the *consuming* side (the shipping backend), so it lives here alongside the producer rules it depends on.
+
+- **Enforced in:** `backend/shipping-service/internal/refdataconsumer/Consumer.Lookup()` / `ResolveType()` (`resolveLabel()` implements the fallback chain; `fetchViaRPC()` makes the call via `requestRPC()`, BR-D28's bounded retry helper)
+- **Test:** `backend/shipping-service/internal/refdataconsumer` — `TestLookupResolvesLabelFromKV`, `TestLookupLabelFallsBackToBareLanguage`, `TestLookupLabelFallsBackToDefaultThenCode`, `TestLookupMissForwardsLocaleToRPC`, `TestResolveTypeReturnsAllCodesFromKV`, `TestLookupMissUsesRPC`
 
 ---
 
@@ -252,3 +267,54 @@ state changes, and it has no Ginkgo coverage; it's exercised via the Vue compone
 
 - **Enforced in:** `commands.LocalizationHandler.SetLocalization()` — via `domain.LocalizationRepository.Get()` (new), comparing `existing.Label`/`existing.Description` against the input before deciding whether to notify
 - **Test:** `Dictionary Localization Domain Rules / SetLocalization change-event notification`
+
+---
+
+### BR-D24 — Bulk AI translation drafting calls the model sequentially, never concurrently
+
+Phase 11.12. Two layers, same guard. (1) `DraftTranslations` drafts one item's several missing locales one at a time — a plain loop over target locales, not fanned out. (2) The Translation Matrix's "Draft missing (AI)" bulk action can span an entire type × locale gap across many items; since the `translate` endpoint is per-item (`POST /api/refdata/admin/{type}/{code}/translate`), the bulk case is a frontend-orchestrated loop that `await`s each item's translate call before issuing the next, never `Promise.all`. Both bound cost/load against the (external, rate-limited, billed) model API with the simplest possible implementation, at the cost of wall-clock time for large gaps. There is no separate concurrency limit to configure because there is no concurrency — a future bounded worker-pool is an explicit, separate change if this ever proves too slow in practice.
+
+- **Enforced in:** `commands.TranslationHandler.DraftTranslations()` (per-item, a plain `for` loop over target locales, no goroutines) and `frontend/refdata`'s bulk "Draft missing (AI)" action (a sequential `for...of` + `await`, never `Promise.all`, over items missing the target locale)
+- **Test:** `Dictionary Translation Domain Rules / BR-D24` (backend loop); `frontend/refdata` Vitest coverage for the bulk action's sequential await
+
+---
+
+### BR-D25 — An `rpc.*` operation must exist as a `commands`/`queries` method already exposed via REST
+
+Phase 12.10. The `natsrpc/` adapter is a second transport onto the *same* application-layer method the `rest/` adapter already calls — never a place for new business logic or a shortcut around it. Concretely: `natsrpc.Adapter`'s `item.get` endpoint calls `commands.LocalizationHandler.ResolveItem()`, the identical method backing `GET /api/refdata/{context}/{type}/{code}`. This keeps REST behavior as a working isolation tool for RPC bugs (§5 of `ARCHITECTURE-COMMUNICATIONS.md`): if a `rpc.*` call misbehaves but the equivalent REST call succeeds with the same input, the bug is in the `natsrpc/` adapter, not the domain. BR-D28 (Phase 12.11) extends this same parity requirement to `type.list`, `item.get-versioned`, and `locales.list`.
+
+- **Enforced in:** `natsrpc.Adapter` handlers call the exported `commands.*Handler` methods directly — no adapter-local reimplementation
+- **Test:** `NATS RPC Adapter / BR-D25` — asserts the RPC and REST paths return byte-identical results for the same input
+
+---
+
+### BR-D26 — An `obs.rpc.*` publish must never block or fail the real RPC reply
+
+Phase 12.10. Each `natsrpc/` handler fire-and-forget publishes a request and reply observability event (`obs.rpc.{context}.refdata.{entity}.{action}`) for the Admin UI's live view. This is a best-effort side-channel: a publish failure, a full/slow subscriber, or no subscriber at all must never add latency to, delay, or prevent the actual RPC reply reaching the caller. The reply-side `obs.rpc.*` publish fires even when the real call itself errored, so a failed call is still visible in the observability view.
+
+- **Enforced in:** `natsrpc.Adapter.publishObs()` — plain core NATS `Publish` (never `Request`), called without waiting for or checking delivery, wrapped so a panic/error from the publish itself is recovered/logged and never propagated to the caller's reply
+- **Test:** `NATS RPC Adapter / BR-D26` — a closed/absent `obs.rpc.*` subscriber does not delay or fail a concurrent RPC round-trip
+
+---
+
+### BR-D27 — The Q5 cache backfill on a successful item read must happen on both transports, not just REST
+
+The producer-side half of the Q5 versioned-read protocol (see `ARCHITECTURE-DICTIONARY.md`) is: whichever transport served a successful item read also rewrites that item's KV cache entry from Postgres, so a cache miss or stale entry self-heals for the *next* reader regardless of which transport hits it. REST's `getItem` handler already did this; the `natsrpc/` `item.get` endpoint (BR-D25) initially didn't, so an RPC-only consumer (e.g. `shipping-service`'s RPC-first `refdataconsumer`, Phase 12.10) could keep re-missing the cache and would only warm it if something else happened to also call REST for the same item. This is a dual-transport parity gap in the same spirit as BR-D25/BR-D26: an operation's *side effects*, not just its return value, must be transport-symmetric.
+
+- **Enforced in:** `natsrpc.Adapter.handleItemGet()` calls `kvcache.Projector.Backfill()` — the identical call REST's `getItem` makes — after every successful `ResolveItem()`, before replying; `projector` is an optional dependency (nil-safe, mirroring REST's own `Projector` nil check) so tests and any future JetStream-less deployment don't need to wire it
+- **Test:** `NATS RPC Adapter / BR-D27` — an `rpc.*` lookup against a cold cache leaves a fresh, readable KV entry behind
+
+---
+
+### BR-D28 (IMPLEMENTED, Phase 12.11, 2026-07-24) — `rpc.*` is the sole transport for backend-to-backend synchronous calls; no REST fallback
+An audit of actual `shipping-service` → `refdata-service` traffic (2026-07-24) found `rpc.*` was a minority transport despite Phase 12.10: only `Lookup`/`item.get` had any RPC path, and even that was the third tier behind a KV cache hit and an unconditional REST fallback on any RPC error — `ResolveType`, `LookupAtVersion`, and `Locales` had no `rpc.*` path at all and always called REST. **The requirement (superseding two earlier drafts of this rule — RPC-primary-with-REST-fallback, then RPC-primary-with-circuit-breaker) is: `rpc.*` is the only transport for backend-to-backend synchronous calls, full stop.** Every operation one backend service calls synchronously on another has an `rpc.*` counterpart. On a cache miss/refetch, the consumer retries `rpc.*` a bounded number of times (with backoff); if every retry fails, it returns `ErrRPCUnavailable` to its caller — there is no REST fallback to fall through to, in any form. Backend services are only aware of NATS for inter-service calls: no HTTP client, base URL, or hostname/port config pointing at a peer backend service. This does **not** change REST's role for frontend/edge clients (`frontend/admin`, `frontend/refdata`, `frontend/seafreight-app`, Swagger, third parties) — REST stays as each service's inbound surface for those callers and for human/test-suite debugging (§5 of `ARCHITECTURE-COMMUNICATIONS.md`) — or the KV-first cache-read pattern of BR-D08 — a cache hit still never calls either transport.
+
+- **Scope:** `rpc.*` coverage extends beyond `item.get` (BR-D25) to `type.list` (`ResolveType`), `item.get-versioned` (`LookupAtVersion`, corpus version travels in the request body), and `locales.list` (`Locales`) — all four served by `refdata-service`'s `internal/natsrpc/adapter.go` via a `natsrpc.Deps` struct. See `ARCHITECTURE-COMMUNICATIONS.md` § 7 for the full design record.
+- **Location transparency is a hard invariant, not a resilience trade-off:** `internal/refdataconsumer` has no `REFDATA_SERVICE_URL`, `refdataServiceURL()`, `baseURL`/`httpc`, or any REST-calling method — all deleted, along with the env var from `docker-compose.yml`. `Consumer` holds a `*kvstore.Store` and a `*nats.Conn` and nothing else; `New(kv, nc, ...)` takes `nc` as a required constructor argument (no more `WithNATS` option).
+- **Bounded retry:** `requestRPC()` makes 1 initial attempt + `rpcRetries` retries (default 2, so 3 total) with linear backoff (`rpcBackoff × attempt`, default 150ms) and a per-attempt timeout (default 3s) — overridable via `WithRPCRetries`/`WithRPCBackoff`/`WithRPCTimeout` (tests use these to stay fast). Exhausting every attempt returns `ErrRPCUnavailable`, wrapping the last underlying NATS error.
+- **Not-found vs. other business errors:** every `natsrpc` endpoint's error reply carries `notFound bool` alongside `error string` (`isNotFoundErr()` mirrors the same domain-sentinel set REST's own status-code switch checks). The consumer's `checkRPCError()` maps `notFound: true` to this package's `ErrNotFound`; anything else becomes a generic wrapped error. This restores, at the wire level, the not-found categorization the old design got "for free" by falling through to REST's own HTTP-status handling.
+- **Superseded decisions, kept here for history:** REST-as-secondary-interface and circuit-breaker/backoff were both confirmed in earlier passes over this design (2026-07-24) before being explicitly reversed the same day in favor of NATS-only + bounded-retry-then-error. Neither survives into this version of the rule.
+- **Consequence, resolved:** a sustained NATS outage on a KV miss now produces `ErrRPCUnavailable` where REST previously always eventually succeeded. `dictionary/internal/rest`'s `writeRefdataError()` maps this to HTTP 503 (distinct from the generic 500) for the Phase 11.3/11.6 demo endpoints that call `refdataconsumer` — a REST-layer error-handling decision, not a Ship/Container domain rule, so it is not tracked as a separate `BUSINESS_RULES-SHIPPING.md` entry.
+
+- **Enforced in:** `refdata-service`: `internal/natsrpc/adapter.go` (`handleTypeList`, `handleItemGetVersioned`, `handleLocalesList`, `isNotFoundErr`); `shipping-service`: `internal/refdataconsumer/consumer.go` (`requestRPC`, `checkRPCError`, `fetchViaRPC`, `fetchTypeViaRPC`, `fetchVersionedViaRPC`, `Locales`); `dictionary/internal/rest/handlers.go` (`writeRefdataError`)
+- **Test:** `refdata/natsrpc_test.go` — `BR-D25/BR-D28: type.list …`, `BR-D25/BR-D28: locales.list …`, and the separate `BR-D25/BR-D28: item.get-versioned …` Describe block; `backend/shipping-service/internal/refdataconsumer` — `TestLookupReturnsErrRPCUnavailableWhenNoResponder`, `TestLookupRetriesBeforeSucceeding`, `TestResolveTypeUsesRPCWhenBucketEmpty`, `TestLookupAtVersionMissUsesRPC`, `TestLocalesUsesRPC`, `TestLocalesReturnsErrRPCUnavailableWhenNoResponder`; `dictionary/internal/rest` — `TestGetRefdataDemoReturns503WhenRPCUnavailable`, `TestListRefdataTypeReturns503WhenRPCUnavailable`, `TestListRefdataLocalesReturns503WhenRPCUnavailable`

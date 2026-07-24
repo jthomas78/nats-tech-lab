@@ -702,6 +702,32 @@
                 }
             }
         },
+        "/api/rpc-watch": {
+            "get": {
+                "description": "Server-Sent Events stream of the refdata-service natsrpc adapter's best-effort obs.rpc.* observability side-channel — live only, no replay/backlog (core NATS subscribe while the request is open). Each event carries direction (\"request\"|\"reply\"), a correlationId pairing a request with its reply, the real rpc.* subject, and the payload. See ARCHITECTURE-COMMUNICATIONS.md §6.",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "streams"
+                ],
+                "summary": "obs.rpc.* dual-transport RPC traffic stream (SSE, Phase 12.10)",
+                "responses": {
+                    "200": {
+                        "description": "SSE stream — data: {obs.rpc.* JSON}",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/shape-b/cache/{context}/{shipID}": {
             "delete": {
                 "description": "Deletes the KV cache entry for a ship in the Shape B bucket. The next read will miss and fall through to Postgres, demonstrating the cache-miss path.",

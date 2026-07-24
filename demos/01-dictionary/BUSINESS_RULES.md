@@ -6,7 +6,7 @@ Split by domain so a rule add/edit only requires reading its own file:
   aggregates on the `SHIPPING` stream (BR-001–BR-019), plus guards, AIS status,
   and container status tables. Rules live in `dictionary/internal/domain/`.
 - **[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)** — Reference Data
-  Service (BR-D01–BR-D21). Rules live in
+  Service (BR-D01–BR-D28). Rules live in
   `backend/refdata-service/refdata/internal/domain/dictionary.go`.
 
 When CLAUDE.md's Quality Rule #4 says "update `BUSINESS_RULES.md`," it means:

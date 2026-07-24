@@ -19,6 +19,7 @@ import {
   createReference,
   deleteItem,
   deprecateItem,
+  draftTranslation,
   listItemLocalizations,
   listItemReferences,
   reactivateItem,
@@ -213,15 +214,50 @@ const filteredTranslationRows = computed(() =>
 const editingLocale = ref(null)
 const editLabel = ref('')
 const editDescription = ref('')
+// 'manual' | 'ai' (BR-D07) — which source a save should record. Set to 'ai'
+// only when the current edit was opened via "Draft with AI"; a manual edit
+// (pencil icon) always resets it to 'manual'.
+const editSource = ref('manual')
+const drafting = ref(null) // locale currently being drafted, or null
 
 function startEditTranslation(row) {
   editingLocale.value = row.locale
   editLabel.value = row.translation || ''
   editDescription.value = row.description || ''
+  editSource.value = 'manual'
 }
 
 function cancelEditTranslation() {
   editingLocale.value = null
+  editSource.value = 'manual'
+}
+
+// Requests an AI-drafted translation for one missing locale (BR-D07) — the
+// draft is never persisted here, only loaded into the same inline edit
+// fields a manual edit uses, so the steward can review/tweak before saving.
+async function draftTranslationForRow(row) {
+  drafting.value = row.locale
+  try {
+    const res = await draftTranslation(store.selectedType, code.value, store.context, [row.locale])
+    const draft = res?.drafts?.[0]
+    if (!draft || draft.error) {
+      toast.add({
+        severity: 'error',
+        summary: 'AI draft failed',
+        detail: draft?.error || 'No draft returned',
+        life: 4000,
+      })
+      return
+    }
+    editingLocale.value = row.locale
+    editLabel.value = draft.label || ''
+    editDescription.value = draft.description || ''
+    editSource.value = 'ai'
+  } catch (err) {
+    toast.add({ severity: 'error', summary: 'Could not draft translation', detail: err.message, life: 4000 })
+  } finally {
+    drafting.value = null
+  }
 }
 
 // setLocalization upserts — the same call creates a translation for a
@@ -236,8 +272,10 @@ async function submitTranslation(row) {
       locale: row.locale,
       label: editLabel.value.trim(),
       description: editDescription.value.trim(),
+      source: editSource.value,
     })
     editingLocale.value = null
+    editSource.value = 'manual'
     await Promise.all([store.refreshItems(), load()])
     toast.add({ severity: 'success', summary: 'Translation saved', life: 2500 })
   } catch (err) {
@@ -462,12 +500,22 @@ async function submitReference() {
               />
               <Column header="Translation">
                 <template #body="{ data }">
-                  <InputText
+                  <div
                     v-if="editingLocale === data.locale"
-                    v-model="editLabel"
-                    size="small"
-                    style="width: 100%"
-                  />
+                    class="translation-edit"
+                  >
+                    <InputText
+                      v-model="editLabel"
+                      size="small"
+                      style="width: 100%"
+                    />
+                    <Tag
+                      v-if="editSource === 'ai'"
+                      severity="info"
+                      value="AI draft, unsaved"
+                      class="ai-draft-tag"
+                    />
+                  </div>
                   <span v-else>{{ data.translation || '—' }}</span>
                 </template>
               </Column>
@@ -515,14 +563,29 @@ async function submitReference() {
                       @click="cancelEditTranslation"
                     />
                   </div>
-                  <Button
+                  <div
                     v-else
-                    icon="pi pi-pencil"
-                    text
-                    size="small"
-                    aria-label="Edit translation"
-                    @click="startEditTranslation(data)"
-                  />
+                    class="row-actions"
+                  >
+                    <Button
+                      icon="pi pi-pencil"
+                      text
+                      size="small"
+                      aria-label="Edit translation"
+                      @click="startEditTranslation(data)"
+                    />
+                    <Button
+                      v-if="data.status === 'missing'"
+                      icon="pi pi-sparkles"
+                      text
+                      size="small"
+                      aria-label="Draft with AI"
+                      title="Draft with AI"
+                      :loading="drafting === data.locale"
+                      :disabled="drafting !== null"
+                      @click="draftTranslationForRow(data)"
+                    />
+                  </div>
                 </template>
               </Column>
             </DataTable>
@@ -699,6 +762,15 @@ async function submitReference() {
 .row-actions {
   display: flex;
   gap: 2px;
+}
+.translation-edit {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.ai-draft-tag {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 /* Let flex inputs shrink below their intrinsic content width (default
    min-width:auto is what pushed the + button off the right edge). */

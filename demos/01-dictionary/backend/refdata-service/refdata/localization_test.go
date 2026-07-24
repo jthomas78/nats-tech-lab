@@ -47,6 +47,7 @@ var _ = Describe("Dictionary Localization Domain Rules", func() {
 			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "de-de")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resolved.Localization.Label).To(Equal("Euro (DE)"))
+			Expect(resolved.Localization.IsFallback).To(BeFalse(), "an exact-locale match is not a fallback")
 		})
 
 		It("falls back to the bare language when the exact locale is missing", func() {
@@ -57,6 +58,7 @@ var _ = Describe("Dictionary Localization Domain Rules", func() {
 			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "de-de")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resolved.Localization.Label).To(Equal("Euro (de)"))
+			Expect(resolved.Localization.IsFallback).To(BeFalse(), "a bare-language match is not a fallback")
 		})
 
 		It("falls back to the context's default locale when neither the requested locale nor its language exist", func() {
@@ -68,6 +70,8 @@ var _ = Describe("Dictionary Localization Domain Rules", func() {
 			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "fr-fr")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resolved.Localization.Label).To(Equal("Euro"))
+			Expect(resolved.Localization.Locale).To(Equal("en"), "the response reports which locale actually matched")
+			Expect(resolved.Localization.IsFallback).To(BeTrue(), "a default-locale substitution did not honor the exact requested locale")
 		})
 
 		It("treats en as the implicit default in the fallback chain when no locale is marked default (BR-D15)", func() {
@@ -79,12 +83,35 @@ var _ = Describe("Dictionary Localization Domain Rules", func() {
 			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "fr-fr")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resolved.Localization.Label).To(Equal("Euro"))
+			Expect(resolved.Localization.IsFallback).To(BeTrue(), "the implicit-default substitution did not honor the exact requested locale")
 		})
 
 		It("never fails outright — falls back to the code itself when nothing resolves", func() {
 			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "ja-jp")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resolved.Localization.Label).To(Equal("EUR"))
+			Expect(resolved.Localization.IsFallback).To(BeTrue(), "a code-echo is a fallback too")
+			Expect(resolved.Localization.Locale).To(Equal("ja-jp"), "the fallback still echoes back what was actually requested")
+		})
+
+		It("marks resolution as a fallback for a nonsense locale that matches nothing, even one coinciding with the code", func() {
+			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "e")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resolved.Localization.Label).To(Equal("EUR"))
+			Expect(resolved.Localization.IsFallback).To(BeTrue())
+		})
+
+		It("marks a nonsense locale as a fallback, not an exact match, when the default locale has real data (the live repro: 'e' should not look like 'en')", func() {
+			Expect(locH.AddLocale(ctx, itemCtx, "en", true)).To(Succeed())
+			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "en", Label: "Euro",
+			})).To(Succeed())
+
+			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "e")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resolved.Localization.Label).To(Equal("Euro"))
+			Expect(resolved.Localization.Locale).To(Equal("en"))
+			Expect(resolved.Localization.IsFallback).To(BeTrue(), "'e' itself never matched anything")
 		})
 
 		It("still resolves a deprecated item's label (BR-D06 interaction)", func() {

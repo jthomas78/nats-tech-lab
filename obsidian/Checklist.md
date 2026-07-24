@@ -1,0 +1,1 @@
+- One thing still flagged as genuinely open in all three docs (not something I resolved): once retries are exhausted, `Lookup`/etc. return a hard error where REST previously always eventually succeeded — I left this as an explicit task for 12.11 to decide how `shipping-service`'s own callers should react, since that's a shipping-domain question, not a transport one.

@@ -9,11 +9,13 @@ import JetStreamPanel from './components/JetStreamPanel.vue'
 import KvInspector from './components/KvInspector.vue'
 import OverviewPanel from './components/OverviewPanel.vue'
 import PostgresTablesPanel from './components/PostgresTablesPanel.vue'
+import RpcPanel from './components/RpcPanel.vue'
 import ShapeCPanel from './components/ShapeCPanel.vue'
 import ShapePanel from './components/ShapePanel.vue'
 import TelemetryStrip from './components/TelemetryStrip.vue'
 import IconKv from './components/icons/IconKv.vue'
 import IconOverview from './components/icons/IconOverview.vue'
+import IconRpc from './components/icons/IconRpc.vue'
 import IconShapes from './components/icons/IconShapes.vue'
 import IconStreams from './components/icons/IconStreams.vue'
 import IconTables from './components/icons/IconTables.vue'
@@ -42,6 +44,7 @@ const sections = [
       { key: 'streams', label: 'Streams', icon: IconStreams },
       { key: 'kv', label: 'KV Buckets', icon: IconKv },
       { key: 'shapes', label: 'CQRS Shapes', icon: IconShapes, badge: 3 },
+      { key: 'rpc', label: 'RPC Traffic', icon: IconRpc },
     ],
   },
   {
@@ -55,6 +58,7 @@ const SUBTITLES = {
   streams: 'raw NATS messages · live tail and full replay',
   kv: 'every registered bucket · contents and live changes',
   shapes: 'three CQRS read-model shapes, side by side',
+  rpc: 'rpc.* dual-transport calls · live only, no replay',
   tables: 'canonical Postgres tables by schema',
 }
 const subtitle = computed(() => SUBTITLES[activeView.value] ?? '')
@@ -144,6 +148,13 @@ onUnmounted(() => {
         </ShapePanel>
       </div>
       <ShapeCPanel />
+    </section>
+
+    <!-- RPC Traffic — obs.rpc.* dual-transport calls (Phase 12.10), live only -->
+    <section v-else-if="activeView === 'rpc'" class="group group--flush" data-testid="rpc-view">
+      <div class="lab-panel streams-panel">
+        <RpcPanel />
+      </div>
     </section>
 
     <!-- Postgres — canonical tables by schema -->

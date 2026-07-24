@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 )
@@ -382,4 +383,75 @@ func (n *fakeNotifier) callCount() int {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.calls
+}
+
+// fakeTranslationDrafter is a domain.TranslationDrafter spy — records each
+// call's input in order and tracks the highest number of overlapping calls,
+// so a test can assert BR-D24's "sequential, never concurrent" guarantee. An
+// optional per-call latency makes an accidental concurrent refactor
+// detectable (with zero latency, calls never overlap even if the caller did
+// fan out, since goroutine scheduling wouldn't reliably interleave them).
+type fakeTranslationDrafter struct {
+	mu          sync.Mutex
+	calls       []domain.TranslationDraftInput
+	inFlight    int
+	maxInFlight int
+	latency     time.Duration
+	errByLocale map[string]error
+}
+
+func newFakeTranslationDrafter() *fakeTranslationDrafter {
+	return &fakeTranslationDrafter{errByLocale: make(map[string]error)}
+}
+
+// failLocale makes the next (and every subsequent) Draft call for locale
+// return err instead of a successful draft.
+func (d *fakeTranslationDrafter) failLocale(locale string, err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.errByLocale[locale] = err
+}
+
+func (d *fakeTranslationDrafter) Draft(_ context.Context, in domain.TranslationDraftInput) (domain.TranslationDraft, error) {
+	d.mu.Lock()
+	d.calls = append(d.calls, in)
+	d.inFlight++
+	if d.inFlight > d.maxInFlight {
+		d.maxInFlight = d.inFlight
+	}
+	latency, callErr := d.latency, d.errByLocale[in.TargetLocale]
+	d.mu.Unlock()
+
+	if latency > 0 {
+		time.Sleep(latency)
+	}
+
+	d.mu.Lock()
+	d.inFlight--
+	d.mu.Unlock()
+
+	if callErr != nil {
+		return domain.TranslationDraft{}, callErr
+	}
+	return domain.TranslationDraft{
+		Locale:      in.TargetLocale,
+		Label:       in.SourceLabel + " (" + in.TargetLocale + ")",
+		Description: in.SourceDescription,
+	}, nil
+}
+
+func (d *fakeTranslationDrafter) callLocales() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := make([]string, len(d.calls))
+	for i, c := range d.calls {
+		out[i] = c.TargetLocale
+	}
+	return out
+}
+
+func (d *fakeTranslationDrafter) maxConcurrent() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.maxInFlight
 }

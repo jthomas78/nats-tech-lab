@@ -35,12 +35,14 @@ import (
 type app struct {
 	db     *sql.DB
 	js     jetstream.JetStream
+	nc     *nats.Conn
 	mux    *http.ServeMux
 	logger *slog.Logger
 }
 
 func (a *app) DB() *sql.DB             { return a.db }
 func (a *app) JS() jetstream.JetStream { return a.js }
+func (a *app) NC() *nats.Conn          { return a.nc }
 func (a *app) Mux() *http.ServeMux     { return a.mux }
 func (a *app) Logger() *slog.Logger    { return a.logger }
 
@@ -91,7 +93,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	a := &app{db: db, js: js, mux: http.NewServeMux(), logger: log}
+	a := &app{db: db, js: js, nc: nc, mux: http.NewServeMux(), logger: log}
 
 	modules := []monolith.Module{dictionary.Module{}}
 	for _, m := range modules {

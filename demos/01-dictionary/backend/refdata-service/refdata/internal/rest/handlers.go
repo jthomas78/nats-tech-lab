@@ -19,6 +19,7 @@
 //	GET    /api/refdata/{context}/locales                  locales known to this context
 //	POST   /api/refdata/admin/locales                      register a locale for a context
 //	POST   /api/refdata/admin/localizations                 set an item's label/description in one locale
+//	POST   /api/refdata/admin/{type}/{code}/translate        draft AI-assisted translations, unsaved (BR-D07)
 //	GET    /api/refdata-watch/{context}                     SSE stream of refdata-{context} KV cache changes
 package rest
 
@@ -142,6 +143,29 @@ type localizationRequest struct {
 	Locale      string `json:"locale"`
 	Label       string `json:"label"`
 	Description string `json:"description"`
+	// Source is "manual" or "ai" (BR-D07); omitted/empty defaults to "manual".
+	Source string `json:"source,omitempty"`
+}
+
+// translateRequest requests AI-drafted translations for one item across one
+// or more target locales (BR-D07). Nothing is persisted by this call.
+type translateRequest struct {
+	Context       string   `json:"context"`
+	TargetLocales []string `json:"targetLocales"`
+}
+
+type translateDraftResponse struct {
+	Locale      string `json:"locale"`
+	Label       string `json:"label,omitempty"`
+	Description string `json:"description,omitempty"`
+	// Error is set (and Label/Description empty) when drafting failed for
+	// this locale specifically — other locales in the same request are
+	// unaffected.
+	Error string `json:"error,omitempty"`
+}
+
+type translateResponse struct {
+	Drafts []translateDraftResponse `json:"drafts"`
 }
 
 type localeRequest struct {
@@ -157,11 +181,18 @@ type localesResponse struct {
 }
 
 type resolvedItemResponse struct {
-	Item        domain.DictionaryItem  `json:"item"`
-	Locale      string                 `json:"locale,omitempty"`
-	Label       string                 `json:"label,omitempty"`
-	Description string                 `json:"description,omitempty"`
-	Expanded    *domain.DictionaryItem `json:"expanded,omitempty"`
+	Item        domain.DictionaryItem `json:"item"`
+	Locale      string                `json:"locale,omitempty"`
+	Label       string                `json:"label,omitempty"`
+	Description string                `json:"description,omitempty"`
+	// IsFallback is nil when no ?locale= resolution was attempted at all (the
+	// plain item branch below) — a pointer so that case omits it entirely,
+	// distinct from the zero-value "false" once resolution was attempted.
+	// When resolution was attempted (BR-D03): false means the requested
+	// locale (or its bare language) matched exactly; true means either a
+	// default-locale substitution or the terminal code-echo.
+	IsFallback *bool                  `json:"isFallback,omitempty"`
+	Expanded   *domain.DictionaryItem `json:"expanded,omitempty"`
 }
 
 type completenessResponse struct {
@@ -190,7 +221,8 @@ type Deps struct {
 	Versions      domain.VersionRepository // nil in tests that don't wire NATS
 	Contexts      *commands.ContextHandler
 	Corpus        *commands.CorpusHandler
-	VersionReader *kvcache.VersionReader // nil in tests that don't wire NATS
+	VersionReader *kvcache.VersionReader       // nil in tests that don't wire NATS
+	Translations  *commands.TranslationHandler // nil when ANTHROPIC_API_KEY is unset
 	Log           *slog.Logger
 }
 
@@ -256,6 +288,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/refdata/admin/items/{type}/{context}/{code}", h.deleteItem)
 	mux.HandleFunc("POST /api/refdata/admin/references", h.createReference)
 	mux.HandleFunc("POST /api/refdata/admin/localizations", h.setLocalization)
+	mux.HandleFunc("POST /api/refdata/admin/{type}/{code}/translate", h.draftTranslation)
 	mux.HandleFunc("GET /api/refdata-watch/{context}", h.watch)
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 }
@@ -669,9 +702,11 @@ func (h *Handlers) listItems(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, err)
 			return
 		}
+		isFallback := res.Localization.IsFallback
 		resolved = append(resolved, resolvedItemResponse{
 			Item: res.Item, Locale: res.Localization.Locale,
 			Label: res.Localization.Label, Description: res.Localization.Description,
+			IsFallback: &isFallback,
 		})
 	}
 	h.writeJSON(w, http.StatusOK, struct {
@@ -680,7 +715,7 @@ func (h *Handlers) listItems(w http.ResponseWriter, r *http.Request) {
 }
 
 // @Summary      Get an item
-// @Description  Resolves a single item regardless of status (BR-D06: deprecated items still resolve). ?locale= resolves a label via BR-D03's fallback chain; ?expand= inlines the item a named relation points to.
+// @Description  Resolves a single item regardless of status (BR-D06: deprecated items still resolve). ?locale= resolves a label via BR-D03's fallback chain (response includes "isFallback": true/false — false means the exact requested locale matched, true means a default-locale substitution or code-echo); ?expand= inlines the item a named relation points to.
 // @Tags         items
 // @Produce      json
 // @Param        context  path      string  true   "tenant/region context"
@@ -706,6 +741,8 @@ func (h *Handlers) getItem(w http.ResponseWriter, r *http.Request) {
 		resp.Locale = resolved.Localization.Locale
 		resp.Label = resolved.Localization.Label
 		resp.Description = resolved.Localization.Description
+		isFallback := resolved.Localization.IsFallback
+		resp.IsFallback = &isFallback
 	} else {
 		item, err := h.deps.Items.Get(r.Context(), typeKey, itemContext, code)
 		if err != nil {
@@ -875,10 +912,10 @@ func (h *Handlers) addLocale(w http.ResponseWriter, r *http.Request) {
 }
 
 // @Summary      Set an item's localization
-// @Description  Upserts an item's label/description for one locale. The item must already exist.
+// @Description  Upserts an item's label/description for one locale. The item must already exist. source ("manual"|"ai", BR-D07) defaults to "manual" when omitted.
 // @Tags         localization
 // @Accept       json
-// @Param        body  body  localizationRequest  true  "typeKey, code, context, locale, label, description"
+// @Param        body  body  localizationRequest  true  "typeKey, code, context, locale, label, description, source"
 // @Success      204   "no content"
 // @Failure      400   {object}  errorResponse
 // @Failure      404   {object}  errorResponse
@@ -892,12 +929,54 @@ func (h *Handlers) setLocalization(w http.ResponseWriter, r *http.Request) {
 	err := h.deps.Localizations.SetLocalization(r.Context(), commands.LocalizationInput{
 		TypeKey: req.TypeKey, Code: req.Code, Context: req.Context,
 		Locale: req.Locale, Label: req.Label, Description: req.Description,
+		Source: req.Source,
 	})
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// @Summary      Draft AI-assisted translations for an item
+// @Description  Returns a candidate label/description per requested target locale (BR-D07). Nothing is persisted — save an accepted draft via POST /api/refdata/admin/localizations with source="ai". Returns 501 if ANTHROPIC_API_KEY is not configured.
+// @Tags         localization
+// @Accept       json
+// @Param        type  path  string  true  "type key"
+// @Param        code  path  string  true  "item code"
+// @Param        body  body  translateRequest  true  "context, targetLocales"
+// @Success      200   {object}  translateResponse
+// @Failure      400   {object}  errorResponse
+// @Failure      404   {object}  errorResponse
+// @Failure      501   {object}  errorResponse
+// @Router       /api/refdata/admin/{type}/{code}/translate [post]
+func (h *Handlers) draftTranslation(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Translations == nil {
+		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "AI-assisted translation drafting is not configured (ANTHROPIC_API_KEY unset)"})
+		return
+	}
+	var req translateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid request body"})
+		return
+	}
+	if len(req.TargetLocales) == 0 {
+		h.writeJSON(w, http.StatusBadRequest, errorResponse{Error: "targetLocales is required"})
+		return
+	}
+	drafts, err := h.deps.Translations.DraftTranslations(r.Context(), commands.DraftInput{
+		TypeKey: r.PathValue("type"), Code: r.PathValue("code"), Context: req.Context,
+		TargetLocales: req.TargetLocales,
+	})
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	out := make([]translateDraftResponse, len(drafts))
+	for i, d := range drafts {
+		out[i] = translateDraftResponse{Locale: d.Locale, Label: d.Label, Description: d.Description, Error: d.Error}
+	}
+	h.writeJSON(w, http.StatusOK, translateResponse{Drafts: out})
 }
 
 // @Summary      Register an item
@@ -1053,7 +1132,7 @@ func (h *Handlers) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, domain.ErrReferenceTargetNotFound),
 		errors.Is(err, domain.ErrReferenceTargetNotActive):
 		status = http.StatusUnprocessableEntity
-	case errors.Is(err, domain.ErrInvalidLocaleFormat):
+	case errors.Is(err, domain.ErrInvalidLocaleFormat), errors.Is(err, domain.ErrInvalidSource):
 		status = http.StatusBadRequest
 	case errors.Is(err, domain.ErrContextCycle), errors.Is(err, domain.ErrCannotDeleteInheritedItem),
 		errors.Is(err, domain.ErrDraftAlreadyExists), errors.Is(err, domain.ErrOnlyDraftCanPublish),

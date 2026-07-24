@@ -56,12 +56,23 @@ definitions:
         type: string
       description:
         type: string
+      isFallback:
+        description: |-
+          IsFallback is only meaningful on a value returned from ResolveLabel
+          (BR-D03): false when the requested locale (or its bare language)
+          matched exactly; true for either of the other two tiers — a
+          default-locale substitution (nothing requested matched, but the
+          context's default locale had real data) or the terminal code-echo
+          (nothing matched at all, Label degraded to the code itself). Zero-value
+          (false) on a Localization read any other way (e.g. from a repository
+          listing), since resolution never happened for those.
+        type: boolean
       label:
         type: string
       locale:
         type: string
       source:
-        description: '"manual" | "ai" (BR-D07 — not yet enforced)'
+        description: '"manual" | "ai" (BR-D07)'
         type: string
       typeKey:
         type: string
@@ -170,6 +181,10 @@ definitions:
         type: string
       locale:
         type: string
+      source:
+        description: Source is "manual" or "ai" (BR-D07); omitted/empty defaults to
+          "manual".
+        type: string
       typeKey:
         type: string
     type: object
@@ -210,12 +225,52 @@ definitions:
         type: string
       expanded:
         $ref: '#/definitions/domain.DictionaryItem'
+      isFallback:
+        description: |-
+          IsFallback is nil when no ?locale= resolution was attempted at all (the
+          plain item branch below) — a pointer so that case omits it entirely,
+          distinct from the zero-value "false" once resolution was attempted.
+          When resolution was attempted (BR-D03): false means the requested
+          locale (or its bare language) matched exactly; true means either a
+          default-locale substitution or the terminal code-echo.
+        type: boolean
       item:
         $ref: '#/definitions/domain.DictionaryItem'
       label:
         type: string
       locale:
         type: string
+    type: object
+  rest.translateDraftResponse:
+    properties:
+      description:
+        type: string
+      error:
+        description: |-
+          Error is set (and Label/Description empty) when drafting failed for
+          this locale specifically — other locales in the same request are
+          unaffected.
+        type: string
+      label:
+        type: string
+      locale:
+        type: string
+    type: object
+  rest.translateRequest:
+    properties:
+      context:
+        type: string
+      targetLocales:
+        items:
+          type: string
+        type: array
+    type: object
+  rest.translateResponse:
+    properties:
+      drafts:
+        items:
+          $ref: '#/definitions/rest.translateDraftResponse'
+        type: array
     type: object
   rest.typeRequest:
     properties:
@@ -316,8 +371,10 @@ paths:
   /api/refdata/{context}/{type}/{code}:
     get:
       description: 'Resolves a single item regardless of status (BR-D06: deprecated
-        items still resolve). ?locale= resolves a label via BR-D03''s fallback chain;
-        ?expand= inlines the item a named relation points to.'
+        items still resolve). ?locale= resolves a label via BR-D03''s fallback chain
+        (response includes "isFallback": true/false — false means the exact requested
+        locale matched, true means a default-locale substitution or code-echo); ?expand=
+        inlines the item a named relation points to.'
       parameters:
       - description: tenant/region context
         in: path
@@ -536,6 +593,50 @@ paths:
       summary: List dictionary types
       tags:
       - types
+  /api/refdata/admin/{type}/{code}/translate:
+    post:
+      consumes:
+      - application/json
+      description: Returns a candidate label/description per requested target locale
+        (BR-D07). Nothing is persisted — save an accepted draft via POST /api/refdata/admin/localizations
+        with source="ai". Returns 501 if ANTHROPIC_API_KEY is not configured.
+      parameters:
+      - description: type key
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: item code
+        in: path
+        name: code
+        required: true
+        type: string
+      - description: context, targetLocales
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/rest.translateRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.translateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Draft AI-assisted translations for an item
+      tags:
+      - localization
   /api/refdata/admin/items:
     post:
       consumes:
@@ -731,9 +832,9 @@ paths:
       consumes:
       - application/json
       description: Upserts an item's label/description for one locale. The item must
-        already exist.
+        already exist. source ("manual"|"ai", BR-D07) defaults to "manual" when omitted.
       parameters:
-      - description: typeKey, code, context, locale, label, description
+      - description: typeKey, code, context, locale, label, description, source
         in: body
         name: body
         required: true

@@ -322,7 +322,7 @@
         },
         "/api/refdata/admin/localizations": {
             "post": {
-                "description": "Upserts an item's label/description for one locale. The item must already exist.",
+                "description": "Upserts an item's label/description for one locale. The item must already exist. source (\"manual\"|\"ai\", BR-D07) defaults to \"manual\" when omitted.",
                 "consumes": [
                     "application/json"
                 ],
@@ -332,7 +332,7 @@
                 "summary": "Set an item's localization",
                 "parameters": [
                     {
-                        "description": "typeKey, code, context, locale, label, description",
+                        "description": "typeKey, code, context, locale, label, description, source",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -433,6 +433,69 @@
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/refdata/admin/{type}/{code}/translate": {
+            "post": {
+                "description": "Returns a candidate label/description per requested target locale (BR-D07). Nothing is persisted — save an accepted draft via POST /api/refdata/admin/localizations with source=\"ai\". Returns 501 if ANTHROPIC_API_KEY is not configured.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "localization"
+                ],
+                "summary": "Draft AI-assisted translations for an item",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "type key",
+                        "name": "type",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "item code",
+                        "name": "code",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "context, targetLocales",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/rest.translateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/rest.translateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
                         "schema": {
                             "$ref": "#/definitions/rest.errorResponse"
                         }
@@ -657,7 +720,7 @@
         },
         "/api/refdata/{context}/{type}/{code}": {
             "get": {
-                "description": "Resolves a single item regardless of status (BR-D06: deprecated items still resolve). ?locale= resolves a label via BR-D03's fallback chain; ?expand= inlines the item a named relation points to.",
+                "description": "Resolves a single item regardless of status (BR-D06: deprecated items still resolve). ?locale= resolves a label via BR-D03's fallback chain (response includes \"isFallback\": true/false — false means the exact requested locale matched, true means a default-locale substitution or code-echo); ?expand= inlines the item a named relation points to.",
                 "produces": [
                     "application/json"
                 ],
@@ -900,6 +963,10 @@
                 "description": {
                     "type": "string"
                 },
+                "isFallback": {
+                    "description": "IsFallback is only meaningful on a value returned from ResolveLabel\n(BR-D03): false when the requested locale (or its bare language)\nmatched exactly; true for either of the other two tiers — a\ndefault-locale substitution (nothing requested matched, but the\ncontext's default locale had real data) or the terminal code-echo\n(nothing matched at all, Label degraded to the code itself). Zero-value\n(false) on a Localization read any other way (e.g. from a repository\nlisting), since resolution never happened for those.",
+                    "type": "boolean"
+                },
                 "label": {
                     "type": "string"
                 },
@@ -907,7 +974,7 @@
                     "type": "string"
                 },
                 "source": {
-                    "description": "\"manual\" | \"ai\" (BR-D07 — not yet enforced)",
+                    "description": "\"manual\" | \"ai\" (BR-D07)",
                     "type": "string"
                 },
                 "typeKey": {
@@ -1068,6 +1135,10 @@
                 "locale": {
                     "type": "string"
                 },
+                "source": {
+                    "description": "Source is \"manual\" or \"ai\" (BR-D07); omitted/empty defaults to \"manual\".",
+                    "type": "string"
+                },
                 "typeKey": {
                     "type": "string"
                 }
@@ -1130,6 +1201,10 @@
                 "expanded": {
                     "$ref": "#/definitions/domain.DictionaryItem"
                 },
+                "isFallback": {
+                    "description": "IsFallback is nil when no ?locale= resolution was attempted at all (the\nplain item branch below) — a pointer so that case omits it entirely,\ndistinct from the zero-value \"false\" once resolution was attempted.\nWhen resolution was attempted (BR-D03): false means the requested\nlocale (or its bare language) matched exactly; true means either a\ndefault-locale substitution or the terminal code-echo.",
+                    "type": "boolean"
+                },
                 "item": {
                     "$ref": "#/definitions/domain.DictionaryItem"
                 },
@@ -1138,6 +1213,49 @@
                 },
                 "locale": {
                     "type": "string"
+                }
+            }
+        },
+        "rest.translateDraftResponse": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Error is set (and Label/Description empty) when drafting failed for\nthis locale specifically — other locales in the same request are\nunaffected.",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "locale": {
+                    "type": "string"
+                }
+            }
+        },
+        "rest.translateRequest": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "type": "string"
+                },
+                "targetLocales": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "rest.translateResponse": {
+            "type": "object",
+            "properties": {
+                "drafts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/rest.translateDraftResponse"
+                    }
                 }
             }
         },

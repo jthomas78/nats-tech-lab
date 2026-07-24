@@ -383,6 +383,220 @@ full data model, API surface, migration strategy, and open questions.
 | BR-021 (shipping) | A shipID can only be registered once |
 | BR-022 (shipping) | A shipID can be corrected to another valid, unused shipID |
 
+- [x] **12.10 (APPROVED 2026-07-24 — IMPLEMENTED 2026-07-24) — Dual-Transport RPC (`rpc.*`) + Admin UI Observability**
+
+  > **Full detail in
+  > [ARCHITECTURE-COMMUNICATIONS.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md)**
+  > (status now IMPLEMENTED; see its embedded diagram, page "PROPOSED — Dual-transport
+  > RPC (draft)" in
+  > [architecture-dictionary.drawio](../../obsidian/V3-Platform/Architecture/Dictionary-POC/architecture-dictionary.drawio)
+  > — diagram title kept as-is, only the doc's status line changed).
+
+  #### Goal
+
+  Add a narrow, internal-only NATS core request/reply transport (`rpc.*`) alongside
+  each service's existing REST/Swagger surface, for the specific synchronous
+  cross-service calls one service needs to make on another (e.g. shipping-service
+  looking up refdata-service) — not a full mirror of REST. Give the Admin UI a live,
+  non-persisted view of `rpc.*` traffic while it's open.
+
+  #### Key design decisions (carried over from the design doc, see §§1–6 there)
+
+  - `rpc.*` is Core NATS request/reply — no JetStream stream, no persistence, no
+    replay. Distinct from `evt.*` (JetStream facts) and `cmd.*` (not used in this
+    repo).
+  - Subject shape: `rpc.{context}.{service}.{entity}.{action}.v{n}` (parallel to the
+    `evt.*` grammar from 12.8), fixed `rpc` leading literal.
+  - Dual-adapter pattern: new `internal/natsrpc/` adapter per service, built on
+    `github.com/nats-io/nats.go/micro`, calling the **same**
+    `commands.*Handler`/`queries.*` methods as the existing `rest/` adapter — no
+    domain/application-layer changes required to add it.
+  - Only wire `rpc.*` for operations another service actually needs synchronously
+    (first concrete case: shipping-service → refdata-service item lookup), not every
+    REST endpoint.
+  - Runtime discovery via NATS Micro/Services (`$SRV.PING`/`INFO`/`STATS`); static
+    docs via AsyncAPI, keeping `operationId` (Swagger) / subject / Go method name
+    aligned.
+  - Admin UI observability is a **separate, best-effort side-channel**, not a
+    stream: each `natsrpc/` handler fire-and-forget publishes request and reply
+    (with a shared correlation ID, including on error) to `obs.rpc.*`; Admin UI
+    subscribes to `obs.rpc.>` only while the panel is open — no `RPCTRACE` stream,
+    no TTL/backlog (rejected as unneeded per the doc's §6 rationale).
+
+  #### Tasks
+
+  - [x] Confirm/finalize business rules for this sub-phase — confirmed as
+        transport/infrastructure rules, adopted as drafted: BR-D25 ("an `rpc.*`
+        operation must exist as a `commands`/`queries` method already exposed via
+        REST") and BR-D26 ("an `obs.rpc.*` publish must never block or fail the
+        real RPC reply"), both added to `BUSINESS_RULES-REFDATA.md` (with a
+        cross-reference note in `BUSINESS_RULES-SHIPPING.md` since
+        shipping-service only *consumes* the rpc.* transport, it doesn't define
+        new rules of its own).
+  - [x] `refdata-service`: `internal/natsrpc/adapter.go` — `micro.AddService` +
+        one `micro.AddEndpoint` (`item-get`) for `rpc.*.refdata.item.get.v1`,
+        wired to the existing `commands.LocalizationHandler.ResolveItem()`
+        method (the same one `GET /api/refdata/{context}/{type}/{code}` calls).
+        Wired into `cmd/main.go` via `Handlers.MountRPC(nc, log)` (a new method
+        on `composition.go`, parallel to `Mount`) — `natsrpc` is `internal/` so
+        `cmd/main.go` can't import it directly.
+  - [x] `shipping-service`: `internal/refdataconsumer`'s `fetchViaAPI` now tries
+        `rpc.{context}.refdata.item.get.v1` first when `WithNATS(nc)` is
+        configured (any error — no responder, timeout, malformed reply — falls
+        through to the existing, well-tested REST path unchanged); wired in
+        production via `dictionary/composition.go`'s
+        `refdataconsumer.New(kvRefdata, refdataServiceURL(), refdataconsumer.WithNATS(mono.NC()))`.
+        `monolith.Monolith` gained an `NC() *nats.Conn` accessor (previously only
+        `jetstream.JetStream` was threaded through). Existing REST-fallback tests
+        are unaffected (`WithNATS` is opt-in via a functional option).
+  - [x] `obs.rpc.*` publish helper — `natsrpc.Adapter.publishObs()`: fire-and-forget
+        `nc.Publish` (never `nc.Request`), correlation ID = the request's reply-to
+        inbox, fires on both request and reply (including error replies), panic-
+        recovered so a marshal/publish failure can never propagate to the caller.
+  - [x] Admin UI: new `RpcPanel.vue` (`frontend/admin`) — `EventSource` against a
+        new `GET /api/rpc-watch` SSE bridge (`dictionary/internal/rest/sse.go`'s
+        `watchRPCObs`, subscribing `obs.rpc.>` via `nc.ChanSubscribe`); pairs
+        request/reply rows by correlation ID in a reactive map (not an
+        index-based array, since prepending new rows would shift indices).
+        Verified live: a direct `nats request` to `rpc.emea-acme.refdata.item.get.v1`
+        appears in the panel with matched request/reply payloads, and a
+        not-found lookup renders as a red "error" row with the failure message.
+  - [x] Integration tests: `refdata/natsrpc_test.go` (embedded core-NATS server,
+        no JetStream needed) — BR-D25 (rpc.* and direct `ResolveItem()` return
+        identical results, including the not-found error case) and BR-D26 (the
+        real reply returns in <500ms with no `obs.rpc.>` subscriber, with a
+        deliberately slow one, and the reply-side obs event still carries the
+        error on failure). `internal/refdataconsumer/consumer_test.go` gained
+        `TestLookupUsesRPCWhenConfigured` / `TestLookupFallsBackToRESTWhenRPCHasNoResponder`.
+        97/97 refdata-service specs green; shipping-service `ginkgo ./...` green.
+  - [x] Updated `ARCHITECTURE-COMMUNICATIONS.md` status from "draft/proposed" to
+        "IMPLEMENTED (Phase 12.10, 2026-07-24)", naming the actual files/methods
+        built.
+
+- [x] **12.11 (APPROVED 2026-07-24 — IMPLEMENTED 2026-07-24) — `rpc.*` as the Sole Backend-to-Backend Transport (no REST fallback)**
+
+  > **Full detail in
+  > [ARCHITECTURE-COMMUNICATIONS.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md) § 7**
+  > and `BUSINESS_RULES-REFDATA.md`'s BR-D28 (both IMPLEMENTED). This design
+  > went through two earlier drafts (RPC-primary-with-REST-fallback, then
+  > RPC-primary-with-circuit-breaker) before landing here — see § 7's
+  > "superseded decisions" note.
+
+  #### Goal
+
+  Make `rpc.*` the **only** transport for backend-to-backend synchronous
+  calls between `shipping-service` and `refdata-service` — no REST fallback
+  in any form. Backend services should only be aware of NATS for
+  inter-service calls: no HTTP client, base URL, or hostname/port config
+  pointing at a peer backend service. On repeated `rpc.*` failure, return an
+  error to the caller; do not degrade to REST. Frontend-to-backend traffic
+  (REST/Swagger for `frontend/admin`, `frontend/refdata`,
+  `frontend/seafreight-app`) is explicitly out of scope and unaffected — REST
+  stays as each service's inbound surface for those callers.
+
+  #### Key design decisions (carried over from the design doc, see § 7 there)
+
+  - Audit finding (2026-07-24) that motivated this: only `Lookup`/`item.get`
+    has any `rpc.*` path, and even that is third-tier (KV hit, then RPC only
+    on a miss, then REST on any RPC error) — `ResolveType`, `LookupAtVersion`,
+    and `Locales` have no RPC path at all and always call REST.
+  - Extend `rpc.*` coverage to every `refdataconsumer` operation: `item.get`
+    (exists), new `type.list` (`ResolveType`), a versioned `item.get.v{n}`
+    (`LookupAtVersion`), and `locales.list` (`Locales`) — land all four
+    **before** removing REST, so no operation is ever left with zero working
+    transport mid-rollout.
+  - On a KV cache miss/stale entry, the consumer retries `rpc.*` a bounded
+    number of times (with backoff); on exhaustion, return an error — no
+    REST fallback, no circuit breaker that degrades to REST.
+  - **Location transparency is a hard invariant.** Delete
+    `REFDATA_SERVICE_URL`, `refdataServiceURL()` (and its hardcoded
+    `http://localhost:7201` default), `baseURL`/`httpc`, and every
+    REST-calling method (`fetchViaAPI`, `fetchTypeViaAPI`,
+    `fetchVersionedViaAPI`, REST-based `Locales`) from
+    `internal/refdataconsumer`. `Consumer` holds a `*nats.Conn` and nothing
+    else — wire it unconditionally in `dictionary/composition.go` (no
+    `WithNATS` opt-in).
+  - KV-first caching (BR-D08) and frontend/edge REST traffic are unaffected —
+    this only changes what happens on a cache miss/refetch.
+  - Resolved: `shipping-service`'s own callers (the Phase 11.3/11.6 demo REST
+    handlers) map a retry-exhausted error to HTTP 503 via a shared
+    `writeRefdataError()` helper — see the corresponding task below.
+
+  #### Tasks
+
+  - [x] Confirm/finalize business rules for this sub-phase — BR-D28 drafted
+        in `BUSINESS_RULES-REFDATA.md` (PROPOSED). Confirmed 2026-07-24
+        (final, after two reversed drafts): `rpc.*` is the sole
+        backend-to-backend transport — no REST fallback, no circuit
+        breaker. A bounded number of retries against `rpc.*`, then an error
+        to the caller. All REST-client coupling (`REFDATA_SERVICE_URL`,
+        `refdataServiceURL()`/`http://localhost:7201`, `baseURL`/`httpc`) is
+        removed from `internal/refdataconsumer`, not merely deprioritized.
+        REST/Swagger is unaffected as each service's inbound surface for
+        frontend/edge clients and human/test-suite debugging.
+  - [x] `refdata-service`: `internal/natsrpc/adapter.go` gained a `Deps`
+        struct (`Localizations`, `Items`, `VersionReader`, `Projector`,
+        `Log` — all nil-safe) replacing `New`'s old positional args, plus
+        three new endpoints wired to the same `commands`/`queries` methods
+        their REST counterparts already call (BR-D25 parity): `type-list`
+        (`rpc.*.refdata.type.list.v1`, reuses `ItemGetResponse` per item),
+        `item-get-versioned` (`rpc.*.refdata.item.get-versioned.v1`, corpus
+        version in the request body; response is `kvcache.VersionedEntry`
+        directly), `locales-list` (`rpc.*.refdata.locales.list.v1`). Every
+        error reply now also carries `notFound bool` (`isNotFoundErr()`,
+        mirroring REST's own not-found status-code switch), replacing the
+        old bare `error string` shape. `composition.go`'s `MountRPC` updated
+        to the `Deps` struct.
+  - [x] `shipping-service`: `internal/refdataconsumer/consumer.go` fully
+        rewritten — `fetchViaRPC` (existing), `fetchTypeViaRPC`,
+        `fetchVersionedViaRPC`, and `Locales` (all new) cover all four
+        operations. Deleted: `fetchViaAPI`, `fetchTypeViaAPI`,
+        `fetchVersionedViaAPI`, REST-based `Locales`, `baseURL`/`httpc` on
+        `Consumer`, `WithNATS` (NATS is now a required `New(kv, nc, ...)`
+        constructor argument), and `refdataServiceURL()` /
+        `REFDATA_SERVICE_URL` from `dictionary/composition.go` and
+        `docker-compose.yml`. `checkRPCError()` maps the new `notFound`
+        field to this package's `ErrNotFound`.
+  - [x] Implemented bounded retry with backoff in `requestRPC()`: default 1
+        initial attempt + 2 retries (3 total), linear backoff
+        (150ms × attempt), 3s per-attempt timeout — all overridable via
+        `WithRPCRetries`/`WithRPCBackoff`/`WithRPCTimeout`. Exhaustion
+        returns `ErrRPCUnavailable`, wrapping the last underlying NATS
+        error. Values recorded in `ARCHITECTURE-COMMUNICATIONS.md` § 7.
+  - [x] Decided and implemented: `dictionary/internal/rest/handlers.go`
+        gained a shared `writeRefdataError()` used by `getRefdataDemo`,
+        `listRefdataType`, and `listRefdataLocales` — maps
+        `refdataconsumer.ErrNotFound` → 404 (unchanged) and
+        `refdataconsumer.ErrRPCUnavailable` → 503 (new), distinct from the
+        generic 500. Judged to be REST-layer error handling for a Phase
+        11.3/11.6 demo endpoint, not a Ship/Container domain rule, so it's
+        documented in `ARCHITECTURE-COMMUNICATIONS.md` § 7 and BR-D28 rather
+        than as a new `BUSINESS_RULES-SHIPPING.md` entry.
+  - [x] Integration tests: `refdata/natsrpc_test.go` gained BR-D25 parity
+        Context blocks for `type.list` and `locales.list` (same
+        `NATS RPC Adapter` Describe, reusing its embedded core-NATS server)
+        plus a separate `item.get-versioned` Describe (needs its own
+        embedded JetStream server, seeded directly via
+        `kvcache.NewVersionMaterializer` — no Postgres needed, same
+        no-Postgres convention as the rest of the file), covering both the
+        success and not-found cases. `internal/refdataconsumer/consumer_test.go`
+        replaced `TestLookupFallsBackToRESTWhenRPCHasNoResponder` and
+        `TestLookupMissForwardsLocaleToAPI` with
+        `TestLookupReturnsErrRPCUnavailableWhenNoResponder`,
+        `TestLookupRetriesBeforeSucceeding` (proves retries actually loop,
+        not just fail once), `TestLookupMissForwardsLocaleToRPC`, and added
+        RPC-path coverage for `ResolveType`/`LookupAtVersion`/`Locales`
+        (`TestResolveTypeUsesRPCWhenBucketEmpty`,
+        `TestLookupAtVersionMissUsesRPC`, `TestLocalesUsesRPC`,
+        `TestLocalesReturnsErrRPCUnavailableWhenNoResponder`). New
+        `dictionary/internal/rest/refdata_demo_error_test.go` covers the
+        503 mapping for all three demo handlers. 106/106 refdata-service
+        specs green; shipping-service `ginkgo ./...` green (82 specs across
+        4 suites, plus all `go test` packages).
+  - [x] Updated `ARCHITECTURE-COMMUNICATIONS.md` § 7 and BR-D28 from
+        PROPOSED to IMPLEMENTED, recording the retry/backoff values and
+        endpoints actually built.
+
 ---
 
 ### Phase 13 (PROPOSED — awaiting approval) — Ship Container Capacity Limit

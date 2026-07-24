@@ -26,6 +26,7 @@
 //	GET    /api/jetstream/streams                      names of every stream registered on the NATS server
 //	GET    /api/jetstream/watch                       SSE stream of live JetStream messages (DeliverNew)
 //	GET    /api/jetstream/stream                      SSE stream of all JetStream messages (DeliverAll)
+//	GET    /api/rpc-watch                              SSE stream of obs.rpc.* dual-transport RPC traffic (Phase 12.10)
 package rest
 
 import (
@@ -43,6 +44,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/refdataconsumer"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -103,6 +105,7 @@ type Deps struct {
 	KVRefdata  *kvstore.Store            // refdata-service's Q5 cache (read-only; Phase 11.6 SSE watch)
 	Refdata    *refdataconsumer.Consumer // Phase 11.3 cross-service consumer demo
 	JS         jetstream.JetStream
+	NC         *nats.Conn // raw core-NATS conn (Phase 12.10 — obs.rpc.* SSE bridge)
 	Log        *slog.Logger
 }
 
@@ -143,6 +146,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/refdata/types/{type}", h.listRefdataType)
 	mux.HandleFunc("GET /api/refdata/locales", h.listRefdataLocales)
 	mux.HandleFunc("GET /api/refdata-watch", h.watchRefdata)
+	mux.HandleFunc("GET /api/rpc-watch", h.watchRPCObs)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -526,15 +530,28 @@ func (h *Handlers) getRefdataDemo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := h.deps.Refdata.Lookup(r.Context(), r.PathValue("context"), r.PathValue("type"), r.PathValue("code"), r.URL.Query().Get("locale"))
-	if errors.Is(err, refdataconsumer.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "item not found")
-		return
-	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeRefdataError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, refdataDemoResponse{Code: result.Code, Status: result.Status, Label: result.Label, Attrs: result.Attrs, Source: result.Source})
+}
+
+// writeRefdataError maps a refdataconsumer error to an HTTP response. Phase
+// 12.11 (BR-D28) made rpc.* the consumer's only transport — no REST fallback
+// inside refdataconsumer — so a sustained rpc.* outage on a cache miss now
+// surfaces as ErrRPCUnavailable rather than always eventually succeeding via
+// REST. That's a "the dependency is down, try again" condition, distinct
+// from a genuine internal fault, so it maps to 503, not the generic 500.
+func writeRefdataError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, refdataconsumer.ErrNotFound):
+		writeError(w, http.StatusNotFound, "item not found")
+	case errors.Is(err, refdataconsumer.ErrRPCUnavailable):
+		writeError(w, http.StatusServiceUnavailable, "reference data temporarily unavailable")
+	default:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	}
 }
 
 // refdataContext is the fixed tenant/region context the shipping backend
@@ -561,7 +578,7 @@ func (h *Handlers) listRefdataType(w http.ResponseWriter, r *http.Request) {
 	}
 	results, err := h.deps.Refdata.ResolveType(r.Context(), refdataContext, r.PathValue("type"), r.URL.Query().Get("locale"))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeRefdataError(w, err)
 		return
 	}
 	items := make([]refdataDemoResponse, 0, len(results))
@@ -587,7 +604,7 @@ func (h *Handlers) listRefdataLocales(w http.ResponseWriter, r *http.Request) {
 	}
 	locales, err := h.deps.Refdata.Locales(r.Context(), refdataContext)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeRefdataError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"locales": locales})

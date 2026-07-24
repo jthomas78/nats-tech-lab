@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "V3-Platform/System Design - V3 Logistics Platform.md",
+                "file": "Checklist.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "System Design - V3 Logistics Platform"
+              "title": "Checklist"
             }
           }
         ]
@@ -183,8 +183,10 @@
       "bases:Create new base": false
     }
   },
-  "active": "398f933131b9a7a9",
+  "active": "c50d6372ff085bfe",
   "lastOpenFiles": [
+    "V3-Platform/System Design - V3 Logistics Platform.md",
+    "Checklist.md",
     "V3-Platform/Architecture/Dictionary-POC/images/rpc-proposed-dual-transport.png",
     "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md",
     "V3-Platform/Architecture/Dictionary-POC/images/shipping-ui-dictionary-sequence.png",
@@ -202,7 +204,6 @@
     "POC-Dictionaries/Summary/Diagrams/dictionary-runtime-sequence.png",
     "POC-Dictionaries/Summary/Diagrams/dictionary-system-zoom.png",
     "POC-Dictionaries/Summary/Diagrams/dictionary-use-case.png",
-    "POC-Dictionaries/Summary/Diagrams/dictionary-cross-service-consumption.svg",
     "Event sourcing/4. Design - Event Sourcing + CQRS.md",
     "POC-Dictionaries/Summary/3. POC Design and Architecture.md",
     "POC-Dictionaries/Summary/2. Requirements and Constraints.md",
@@ -212,7 +213,6 @@
     "POC-Dictionaries/Summary/4. Outstanding POC Tasks.md",
     "POC-Dictionaries/Summary/5. Data Types.md",
     "POC-Dictionaries/3. Findings - Dictionary Service (Phase 11).md",
-    "V3-Platform/System Design - V3 Logistics Platform.md",
     "V3-Platform/System Design - V3 Logistics Platform.docx",
     "POC-Dictionaries/2. Research - Dictionary - Claude.md",
     "Event sourcing/Diagrams",

@@ -43,6 +43,7 @@ func run(log *slog.Logger) error {
 	databaseURL := envOr("DATABASE_URL", "postgres://dict:dict@localhost:5432/dictionary?sslmode=disable")
 	natsURL := envOr("NATS_URL", nats.DefaultURL)
 	httpAddr := envOr("HTTP_ADDR", ":8080")
+	anthropicAPIKey := envOr("ANTHROPIC_API_KEY", "")
 
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
@@ -68,10 +69,19 @@ func run(log *slog.Logger) error {
 	}
 	defer nc.Drain() //nolint:errcheck
 
-	h, err := refdata.Startup(ctx, db, js)
+	h, err := refdata.Startup(ctx, db, js, anthropicAPIKey)
 	if err != nil {
 		return err
 	}
+	if anthropicAPIKey == "" {
+		log.Info("ANTHROPIC_API_KEY not set — AI-assisted translation drafting (Phase 11.12) is disabled")
+	}
+
+	rpcAdapter, err := h.MountRPC(nc, log)
+	if err != nil {
+		return err
+	}
+	defer rpcAdapter.Stop() //nolint:errcheck
 
 	mux := http.NewServeMux()
 	h.Mount(mux, log)

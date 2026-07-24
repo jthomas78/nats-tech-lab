@@ -13,13 +13,16 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/anthropic"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvstore"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/natsrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/postgres"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/rest"
 )
@@ -46,13 +49,17 @@ type Handlers struct {
 	Contexts      *commands.ContextHandler
 	Corpus        *commands.CorpusHandler
 	VersionReader *kvcache.VersionReader
+	Translations  *commands.TranslationHandler
 }
 
 // Startup runs the schema migration, seeds reference-standard data, wires
 // the Postgres-backed handlers, and — when js is non-nil — the KV cache and
 // REFDATA change-event stream (Phase 11.3). js may be nil for tests that
 // only exercise the domain/Postgres layers; production always supplies it.
-func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream) (*Handlers, error) {
+// anthropicAPIKey wires the AI-assisted translation drafter (BR-D07, Phase
+// 11.12) when non-empty; Handlers.Translations stays nil otherwise, and the
+// REST layer reports the feature as unconfigured rather than failing.
+func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream, anthropicAPIKey string) (*Handlers, error) {
 	if err := postgres.Migrate(ctx, db); err != nil {
 		return nil, err
 	}
@@ -82,6 +89,11 @@ func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream) (*Handlers
 		versionReader = kvcache.NewVersionReader(kv)
 	}
 
+	var translations *commands.TranslationHandler
+	if anthropicAPIKey != "" {
+		translations = commands.NewTranslationHandler(items, locs, locales, anthropic.New(anthropicAPIKey))
+	}
+
 	h := &Handlers{
 		Types:         commands.NewTypeHandler(types),
 		Items:         commands.NewItemHandler(items, refs, notifier),
@@ -93,6 +105,7 @@ func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream) (*Handlers
 		Contexts:      commands.NewContextHandler(contexts),
 		Corpus:        commands.NewCorpusHandler(corpus, corpusNotifier),
 		VersionReader: versionReader,
+		Translations:  translations,
 	}
 
 	if err := Seed(ctx, h); err != nil {
@@ -115,6 +128,20 @@ func (h *Handlers) Mount(mux *http.ServeMux, log *slog.Logger) {
 		Contexts:      h.Contexts,
 		Corpus:        h.Corpus,
 		VersionReader: h.VersionReader,
+		Translations:  h.Translations,
 		Log:           log,
 	}).Mount(mux)
+}
+
+// MountRPC starts the rpc.* dual-transport adapter (Phase 12.10, extended
+// 12.11) — a second transport onto the same command handlers Mount's REST
+// routes call. Callers should Stop() the returned adapter on shutdown.
+func (h *Handlers) MountRPC(nc *nats.Conn, log *slog.Logger) (*natsrpc.Adapter, error) {
+	return natsrpc.New(nc, natsrpc.Deps{
+		Localizations: h.Localizations,
+		Items:         h.Items,
+		VersionReader: h.VersionReader,
+		Projector:     h.Projector,
+		Log:           log,
+	})
 }

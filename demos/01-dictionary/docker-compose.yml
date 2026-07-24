@@ -37,10 +37,6 @@ services:
       NATS_URL: nats://nats:4222
       DATABASE_URL: postgres://dict:dict@postgres:5432/dictionary?sslmode=disable
       HTTP_ADDR: ":8080"
-      # Phase 11.3 cross-service consumer demo (/api/refdata-demo/...) —
-      # only hit on a KV cache miss/stale entry; the compose-internal address,
-      # not the host-mapped 7201.
-      REFDATA_SERVICE_URL: http://refdata-service:8080
     ports:
       - "7200:8080"
     depends_on:

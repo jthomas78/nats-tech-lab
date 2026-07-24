@@ -8,6 +8,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -173,6 +174,70 @@ func (h *Handlers) watchBuckets(w http.ResponseWriter, r *http.Request, kvContex
 			return
 		case u := <-updates:
 			send(u.shape, u.entry)
+		case <-heartbeat.C:
+			_, _ = w.Write([]byte(": ping\n\n"))
+			flusher.Flush()
+		}
+	}
+}
+
+// watchRPCObs godoc
+//
+// @Summary      obs.rpc.* dual-transport RPC traffic stream (SSE, Phase 12.10)
+// @Description  Server-Sent Events stream of the refdata-service natsrpc adapter's best-effort obs.rpc.* observability side-channel — live only, no replay/backlog (core NATS subscribe while the request is open). Each event carries direction ("request"|"reply"), a correlationId pairing a request with its reply, the real rpc.* subject, and the payload. See ARCHITECTURE-COMMUNICATIONS.md §6.
+// @Tags         streams
+// @Produce      text/event-stream
+// @Success      200  {string}  string  "SSE stream — data: {obs.rpc.* JSON}"
+// @Failure      500  {object}  errorResponse
+// @Router       /api/rpc-watch [get]
+// watchRPCObs subscribes to obs.rpc.> on the shared NATS connection and
+// re-emits each message as an SSE event — a plain core-NATS subscribe
+// translated to SSE, the same shape as this file's KV-watch and JetStream
+// handlers. Nothing is buffered before the subscription starts: a tab opened
+// after a call completes simply doesn't see it (by design — see the "No
+// dedicated stream" rationale in ARCHITECTURE-COMMUNICATIONS.md §6).
+func (h *Handlers) watchRPCObs(w http.ResponseWriter, r *http.Request) {
+	if h.deps.NC == nil {
+		writeError(w, http.StatusInternalServerError, "NATS connection not configured")
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+	ctx := r.Context()
+
+	msgCh := make(chan *nats.Msg, 16)
+	sub, err := h.deps.NC.ChanSubscribe("obs.rpc.>", msgCh)
+	if err != nil {
+		h.deps.Log.Error("obs.rpc subscribe", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	defer func() { _ = sub.Unsubscribe() }()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-msgCh:
+			if !ok {
+				return
+			}
+			_, _ = w.Write([]byte("data: "))
+			_, _ = w.Write(msg.Data)
+			_, _ = w.Write([]byte("\n\n"))
+			flusher.Flush()
 		case <-heartbeat.C:
 			_, _ = w.Write([]byte(": ping\n\n"))
 			flusher.Flush()

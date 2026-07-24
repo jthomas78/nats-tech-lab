@@ -2,6 +2,26 @@
 
 > Split out of `BUSINESS_RULES.md` to keep per-domain reads small. See that
 > file's index for the Reference Data Service rules (BR-D*).
+>
+> Phase 12.10: shipping-service's NATS RPC client wrapper
+> (`internal/refdataconsumer`) is a *consumer* of the `rpc.*` transport rules
+> governed by [BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)'s
+> BR-D25/BR-D26 — no separate shipping-side rule is needed since the
+> constraints (RPC mirrors an existing REST-backed method; `obs.rpc.*` never
+> blocks/fails a reply) are enforced entirely on the `refdata-service` adapter
+> side.
+>
+> Phase 12.11 (IMPLEMENTED, 2026-07-24): BR-D28 adds a shipping-side
+> behavioral requirement — `refdataconsumer` calls `rpc.*` exclusively (no
+> REST fallback) on every cache miss/refetch across all four of its methods,
+> with a bounded number of retries before returning `ErrRPCUnavailable` — but
+> the rule itself is still recorded in `BUSINESS_RULES-REFDATA.md` (BR-D28)
+> since it governs the transport contract between the two services, not a
+> shipping-domain rule of its own. The one shipping-side consequence —
+> mapping `ErrRPCUnavailable` to HTTP 503 in the Phase 11.3/11.6 demo
+> endpoints — is REST-layer error handling, not a Ship/Container domain
+> invariant, so it's documented in `ARCHITECTURE-COMMUNICATIONS.md` § 7 and
+> BR-D28 rather than as a BR-0xx entry here.
 
 Domain rules enforced before any event is published to JetStream. A rule
 violation returns an error to the caller; no event is written.

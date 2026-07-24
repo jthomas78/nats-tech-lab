@@ -4,7 +4,6 @@ package dictionary
 
 import (
 	"context"
-	"os"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/queries"
@@ -52,7 +51,7 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 	kvContainers := kvstore.New(js, containerBucketPrefix)
 	kvMeta := kvstore.New(js, metaBucketPrefix)
 	kvRefdata := kvstore.New(js, refdataBucketPrefix)
-	refdata := refdataconsumer.New(kvRefdata, refdataServiceURL())
+	refdata := refdataconsumer.New(kvRefdata, mono.NC())
 	shipRepo := postgres.NewRepository(mono.DB())
 	containerRepo := postgres.NewContainerRepository(mono.DB())
 	portRepo := postgres.NewPortRepository(mono.DB())
@@ -86,15 +85,9 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 		KVRefdata:  kvRefdata,
 		Refdata:    refdata,
 		JS:         js,
+		NC:         mono.NC(),
 		Log:        log,
 	})
 	handlers.Mount(mono.Mux())
 	return nil
-}
-
-func refdataServiceURL() string {
-	if v := os.Getenv("REFDATA_SERVICE_URL"); v != "" {
-		return v
-	}
-	return "http://localhost:7201"
 }

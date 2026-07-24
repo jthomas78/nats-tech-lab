@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -15,6 +16,10 @@ import (
 type Monolith interface {
 	DB() *sql.DB
 	JS() jetstream.JetStream
+	// NC is the raw core-NATS connection — needed by adapters (e.g.
+	// natsrpc/, Phase 12.10) that can't work off jetstream.JetStream alone,
+	// such as micro.AddService or a plain Request/Reply client.
+	NC() *nats.Conn
 	Mux() *http.ServeMux
 	Logger() *slog.Logger
 }
