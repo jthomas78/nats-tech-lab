@@ -41,7 +41,10 @@ func NewLocalizationHandler(items domain.ItemRepository, locs domain.Localizatio
 }
 
 // SetLocalization upserts a label/description for an item in one locale.
-// The item must already exist.
+// The item must already exist. BR-D30: a non-default locale is rejected
+// until the item's default-locale localization exists — the default locale
+// must always be entered first, so a cached fallback label never has to
+// guess which locale to show.
 func (h *LocalizationHandler) SetLocalization(ctx context.Context, in LocalizationInput) error {
 	if err := domain.ValidateLocale(in.Locale); err != nil {
 		return err
@@ -55,6 +58,18 @@ func (h *LocalizationHandler) SetLocalization(ctx context.Context, in Localizati
 	}
 	if _, err := h.items.Get(ctx, in.TypeKey, in.Context, in.Code); err != nil {
 		return err
+	}
+	defaultLocale, err := h.DefaultLocale(ctx, in.Context)
+	if err != nil {
+		return err
+	}
+	if in.Locale != defaultLocale {
+		if _, err := h.locs.Get(ctx, in.TypeKey, in.Context, in.Code, defaultLocale); err != nil {
+			if errors.Is(err, domain.ErrLocalizationNotFound) {
+				return domain.ErrDefaultLocaleNotSet
+			}
+			return err
+		}
 	}
 	existing, err := h.locs.Get(ctx, in.TypeKey, in.Context, in.Code, in.Locale)
 	if err != nil && !errors.Is(err, domain.ErrLocalizationNotFound) {

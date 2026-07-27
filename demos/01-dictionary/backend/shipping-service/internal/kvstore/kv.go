@@ -12,16 +12,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// versionedBucketName mirrors refdata-service's Phase 12.5 versioned bucket
-// naming convention: {prefix}-{context}-v{version}. This service never
-// creates these buckets — refdata-service owns and eagerly materializes
-// them on publish/rollback — so this is read-only naming knowledge, the
-// same kind of cross-service convention refdataconsumer already relies on
-// for the unversioned {prefix}-{context} bucket.
-func versionedBucketName(prefix, kvContext string, version int) string {
-	return fmt.Sprintf("%s-%s-v%d", prefix, kvContext, version)
-}
-
 // Store manages a family of context-scoped KV buckets sharing one prefix.
 type Store struct {
 	js     jetstream.JetStream
@@ -114,40 +104,4 @@ func (s *Store) Watch(ctx context.Context, kvContext string) (jetstream.KeyWatch
 		return nil, err
 	}
 	return kv.WatchAll(ctx)
-}
-
-// PutVersioned writes a key into a specific corpus version's bucket,
-// creating the bucket if needed. Production code never calls this —
-// refdata-service alone owns and materializes versioned buckets — it exists
-// so tests can seed a versioned cache entry without duplicating the bucket
-// naming convention.
-func (s *Store) PutVersioned(ctx context.Context, kvContext string, version int, key string, value []byte) (uint64, error) {
-	kv, err := s.js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: versionedBucketName(s.prefix, kvContext, version)})
-	if err != nil {
-		return 0, err
-	}
-	return kv.Put(ctx, key, value)
-}
-
-// GetVersioned reads a key from a specific corpus version's bucket
-// (refdata-{context}-v{N}, Phase 12.5) — the version-pinning read path. It
-// gets the bucket handle without creating or reconfiguring it (a pinned
-// reader must never touch that bucket's TTL, which refdata-service alone
-// manages), then rewrites the same value back on a hit. That rewrite is
-// "rewrite-on-read": a Put resets the key's own TTL clock, keeping a
-// version this consumer is still pinned to from expiring out from under it,
-// mirroring refdata-service's own versioned-read behavior exactly.
-func (s *Store) GetVersioned(ctx context.Context, kvContext string, version int, key string) ([]byte, uint64, error) {
-	kv, err := s.js.KeyValue(ctx, versionedBucketName(s.prefix, kvContext, version))
-	if err != nil {
-		return nil, 0, err
-	}
-	entry, err := kv.Get(ctx, key)
-	if err != nil {
-		return nil, 0, err
-	}
-	if _, err := kv.Put(ctx, key, entry.Value()); err != nil {
-		return entry.Value(), entry.Revision(), err
-	}
-	return entry.Value(), entry.Revision(), nil
 }

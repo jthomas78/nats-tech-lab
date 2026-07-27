@@ -28,13 +28,16 @@ import (
 const SupersededVersionTTL = 30 * 24 * time.Hour
 
 // VersionedEntry is one materialized item within a specific published
-// corpus version's KV bucket (refdata-{context}-v{N}).
+// corpus version's KV bucket (refdata-{context}-v{N}). Like Entry,
+// localizations use the slim LocalizationValue and the item uses CacheItem
+// — no label/description on the item; BR-D30 guarantees the default
+// locale's localization is present in Localizations whenever any exist.
 type VersionedEntry struct {
-	Item          domain.DictionaryItem          `json:"item"`
-	Localizations map[string]domain.Localization `json:"localizations,omitempty"`
-	SourceContext string                         `json:"sourceContext"`
-	IsOverride    bool                           `json:"isOverride"`
-	Version       int                            `json:"version"`
+	Item          CacheItem                            `json:"item"`
+	Localizations map[string]domain.LocalizationValue  `json:"localizations,omitempty"`
+	SourceContext string                               `json:"sourceContext"`
+	IsOverride    bool                                 `json:"isOverride"`
+	Version       int                                  `json:"version"`
 }
 
 // VersionedMeta is the "_meta" key inside a version's own bucket.
@@ -46,10 +49,13 @@ type VersionedMeta struct {
 // VersionMaterializer writes a published corpus version's full flattened
 // content into its own versioned KV bucket, and manages that bucket's TTL
 // as the version transitions between active and superseded.
-type VersionMaterializer struct{ kv *kvstore.Store }
+type VersionMaterializer struct {
+	kv         *kvstore.Store
+	namespaces *TypeNamespaces
+}
 
-func NewVersionMaterializer(kv *kvstore.Store) *VersionMaterializer {
-	return &VersionMaterializer{kv: kv}
+func NewVersionMaterializer(kv *kvstore.Store, namespaces *TypeNamespaces) *VersionMaterializer {
+	return &VersionMaterializer{kv: kv, namespaces: namespaces}
 }
 
 // Materialize eagerly writes every item (with its localizations folded in)
@@ -57,13 +63,13 @@ func NewVersionMaterializer(kv *kvstore.Store) *VersionMaterializer {
 // ttl is 0 for the version currently being made active, and
 // SupersededVersionTTL for a version being marked superseded.
 func (m *VersionMaterializer) Materialize(ctx context.Context, contextKey string, version int, items []domain.CorpusItem, locs []domain.CorpusLocalization, ttl time.Duration) error {
-	byItem := map[string]map[string]domain.Localization{}
+	byItem := map[string]map[string]domain.LocalizationValue{}
 	for _, loc := range locs {
 		key := loc.TypeKey + "\x00" + loc.Code
 		if byItem[key] == nil {
-			byItem[key] = map[string]domain.Localization{}
+			byItem[key] = map[string]domain.LocalizationValue{}
 		}
-		byItem[key][loc.Locale] = loc.Localization
+		byItem[key][loc.Locale] = loc.Localization.ToValue()
 	}
 
 	bucket, err := m.kv.VersionedBucket(ctx, contextKey, version, ttl)
@@ -71,8 +77,12 @@ func (m *VersionMaterializer) Materialize(ctx context.Context, contextKey string
 		return err
 	}
 	for _, item := range items {
+		ci := CacheItem{
+			TypeKey: item.TypeKey, Code: item.Code, Context: item.Context,
+			Status: item.Status,
+		}
 		entry := VersionedEntry{
-			Item:          item.DictionaryItem,
+			Item:          ci,
 			Localizations: byItem[item.TypeKey+"\x00"+item.Code],
 			SourceContext: item.SourceContext,
 			IsOverride:    item.IsOverride,
@@ -82,7 +92,11 @@ func (m *VersionMaterializer) Materialize(ctx context.Context, contextKey string
 		if err != nil {
 			return err
 		}
-		if _, err := bucket.Put(ctx, item.TypeKey+"."+item.Code, data); err != nil {
+		namespace, err := m.namespaces.For(ctx, item.TypeKey)
+		if err != nil {
+			return err
+		}
+		if _, err := bucket.Put(ctx, ItemKey(namespace, item.TypeKey, item.Code), data); err != nil {
 			return err
 		}
 	}
@@ -112,8 +126,8 @@ type VersionNotifier struct {
 	corpus       domain.CorpusRepository
 }
 
-func NewVersionNotifier(kv *kvstore.Store, corpus domain.CorpusRepository) *VersionNotifier {
-	return &VersionNotifier{materializer: NewVersionMaterializer(kv), corpus: corpus}
+func NewVersionNotifier(kv *kvstore.Store, corpus domain.CorpusRepository, namespaces *TypeNamespaces) *VersionNotifier {
+	return &VersionNotifier{materializer: NewVersionMaterializer(kv, namespaces), corpus: corpus}
 }
 
 var _ domain.CorpusNotifier = (*VersionNotifier)(nil)
@@ -159,9 +173,14 @@ func (n *VersionNotifier) materializeAndSupersede(ctx context.Context, contextKe
 // rewrite-on-read — which resets that key's TTL clock for a version a
 // consumer is still actively pinned to. A no-op cost-wise for the active
 // version's bucket, since that bucket carries no TTL at all.
-type VersionReader struct{ kv *kvstore.Store }
+type VersionReader struct {
+	kv         *kvstore.Store
+	namespaces *TypeNamespaces
+}
 
-func NewVersionReader(kv *kvstore.Store) *VersionReader { return &VersionReader{kv: kv} }
+func NewVersionReader(kv *kvstore.Store, namespaces *TypeNamespaces) *VersionReader {
+	return &VersionReader{kv: kv, namespaces: namespaces}
+}
 
 var ErrVersionedKeyNotFound = errors.New("no such item at this corpus version")
 
@@ -170,7 +189,12 @@ func (r *VersionReader) Get(ctx context.Context, contextKey string, version int,
 	if err != nil {
 		return VersionedEntry{}, mapVersionedNotFound(err)
 	}
-	msg, err := bucket.Get(ctx, typeKey+"."+code)
+	namespace, err := r.namespaces.For(ctx, typeKey)
+	if err != nil {
+		return VersionedEntry{}, err
+	}
+	key := ItemKey(namespace, typeKey, code)
+	msg, err := bucket.Get(ctx, key)
 	if err != nil {
 		return VersionedEntry{}, mapVersionedNotFound(err)
 	}
@@ -178,7 +202,7 @@ func (r *VersionReader) Get(ctx context.Context, contextKey string, version int,
 	if err := json.Unmarshal(msg.Value(), &entry); err != nil {
 		return VersionedEntry{}, err
 	}
-	if _, err := bucket.Put(ctx, typeKey+"."+code, msg.Value()); err != nil {
+	if _, err := bucket.Put(ctx, key, msg.Value()); err != nil {
 		return entry, err
 	}
 	return entry, nil
@@ -196,7 +220,11 @@ func (r *VersionReader) List(ctx context.Context, contextKey string, version int
 	if err != nil {
 		return nil, err
 	}
-	prefix := typeKey + "."
+	namespace, err := r.namespaces.For(ctx, typeKey)
+	if err != nil {
+		return nil, err
+	}
+	prefix := TypeKeyPrefix(namespace, typeKey)
 	entries := []VersionedEntry{}
 	for _, key := range keys {
 		if key == "_meta" || !strings.HasPrefix(key, prefix) {

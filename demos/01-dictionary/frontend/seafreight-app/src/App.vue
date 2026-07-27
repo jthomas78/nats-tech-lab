@@ -16,14 +16,19 @@ import ShipsAtPortPanel from './components/ShipsAtPortPanel.vue'
 import TerminalPanel from './components/TerminalPanel.vue'
 import { CONTEXTS, usePortStore } from './stores/port'
 import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
-import { useUiCopy } from '@refdata/useUiCopy.js'
+import { useL10nCopy } from '@refdata/useL10nCopy.js'
 import { i18n } from './i18n.js'
 import AppShell from '@ui-shell/AppShell.vue'
 import NavList from '@ui-shell/NavList.vue'
 
 const store = usePortStore()
-const { selectedLocale, locales, connect: connectRefdata, disconnect: disconnectRefdata } = useRefdataLabels()
-const { usingFallback, partialFallback, switching, connect: connectUiCopy, disconnect: disconnectUiCopy } = useUiCopy()
+const {
+  selectedLocale,
+  localeOptions,
+  connect: connectRefdata,
+  disconnect: disconnectRefdata,
+} = useRefdataLabels()
+const { usingFallback, partialFallback, switching, connect: connectL10nCopy, disconnect: disconnectL10nCopy } = useL10nCopy()
 const { t } = useI18n()
 const toast = useToast()
 
@@ -73,12 +78,12 @@ async function submitNewPort() {
 onMounted(() => {
   store.connect()
   connectRefdata()
-  connectUiCopy(i18n)
+  connectL10nCopy(i18n)
 })
 onUnmounted(() => {
   store.disconnect()
   disconnectRefdata()
-  disconnectUiCopy()
+  disconnectL10nCopy()
 })
 </script>
 
@@ -106,11 +111,17 @@ onUnmounted(() => {
       <Select
         id="locale"
         v-model="selectedLocale"
-        :options="locales"
+        :options="localeOptions"
+        option-label="label"
+        option-value="value"
         :loading="switching"
         size="small"
         :placeholder="t('select.none')"
-      />
+      >
+        <template #value="{ value, placeholder }">
+          {{ value || placeholder }}
+        </template>
+      </Select>
       <Tag
         v-if="usingFallback || partialFallback"
         severity="warning"

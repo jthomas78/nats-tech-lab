@@ -38,6 +38,9 @@ var _ = Describe("Dictionary Localization Domain Rules", func() {
 	Context("BR-D03: locale resolution follows requested locale -> language -> default locale -> code", func() {
 		It("resolves the exact requested locale when present", func() {
 			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "en", Label: "Euro",
+			})).To(Succeed())
+			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
 				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "de-de", Label: "Euro (DE)",
 			})).To(Succeed())
 			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
@@ -51,6 +54,9 @@ var _ = Describe("Dictionary Localization Domain Rules", func() {
 		})
 
 		It("falls back to the bare language when the exact locale is missing", func() {
+			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "en", Label: "Euro",
+			})).To(Succeed())
 			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
 				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "de", Label: "Euro (de)",
 			})).To(Succeed())
@@ -123,6 +129,62 @@ var _ = Describe("Dictionary Localization Domain Rules", func() {
 			resolved, err := locH.ResolveItem(ctx, "currency", itemCtx, "EUR", "en")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resolved.Localization.Label).To(Equal("Euro"))
+		})
+	})
+
+	Context("BR-D30: the default locale's localization must be set before any other locale can be set for an item", func() {
+		It("rejects setting a non-default locale before the default locale exists for the item", func() {
+			err := locH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "de", Label: "Euro (de)",
+			})
+			Expect(err).To(MatchError(domain.ErrDefaultLocaleNotSet))
+		})
+
+		It("allows setting the default locale first, then a non-default locale", func() {
+			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "en", Label: "Euro",
+			})).To(Succeed())
+			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "de", Label: "Euro (de)",
+			})).To(Succeed())
+		})
+
+		It("always allows setting the default locale itself, regardless of what else exists", func() {
+			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "en", Label: "Euro",
+			})).To(Succeed())
+			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "en", Label: "Euro (updated)",
+			})).To(Succeed())
+		})
+
+		It("respects an explicitly marked default locale, not just the implicit en", func() {
+			Expect(locH.AddLocale(ctx, itemCtx, "fr", true)).To(Succeed())
+
+			err := locH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "en", Label: "Euro",
+			})
+			Expect(err).To(MatchError(domain.ErrDefaultLocaleNotSet), "en is no longer the default once fr is explicitly marked")
+
+			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "fr", Label: "Euro (fr)",
+			})).To(Succeed())
+			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "en", Label: "Euro",
+			})).To(Succeed())
+		})
+
+		It("gates each item independently — one item's default locale does not unlock another's", func() {
+			_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: "GBP", Context: itemCtx})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "en", Label: "Euro",
+			})).To(Succeed())
+
+			err = locH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "GBP", Context: itemCtx, Locale: "de", Label: "Pfund",
+			})
+			Expect(err).To(MatchError(domain.ErrDefaultLocaleNotSet))
 		})
 	})
 
@@ -212,6 +274,9 @@ var _ = Describe("Dictionary Localization Domain Rules", func() {
 		It("reports localization completeness for a locale", func() {
 			_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: "GBP", Context: itemCtx})
 			Expect(err).NotTo(HaveOccurred())
+			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "en", Label: "Euro",
+			})).To(Succeed())
 			Expect(locH.SetLocalization(ctx, commands.LocalizationInput{
 				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "de", Label: "Euro",
 			})).To(Succeed())

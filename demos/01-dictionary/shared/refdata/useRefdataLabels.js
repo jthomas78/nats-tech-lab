@@ -25,9 +25,11 @@
 // locale choice) — otherwise, on a reload into a persisted non-en locale,
 // statusLabel() would show the hardcoded English SHIP_STATUS_FALLBACK for
 // the length of the refetch, mismatching the locale shown as selected. See
-// useUiCopy.js's matching cache for the full rationale (same bug, same fix).
+// useL10nCopy.js's matching cache for the full rationale (same bug, same fix).
 
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+
+import { localeSelectOptions } from './locales.js'
 
 const TYPE_KEY = 'ship-status'
 const LOCALE_STORAGE_KEY = 'refdata.locale'
@@ -72,12 +74,13 @@ const SHIP_STATUS_FALLBACK = {
 const initialLocale = readStoredLocale()
 const labels = ref(readLabelsCache()[initialLocale] || {}) // code → label, resolved for selectedLocale
 const locales = ref([]) // locales registered in refdata (for the switcher)
+const defaultLocale = ref('') // the context's default locale (BR-D32: shown first, marked)
 const selectedLocale = ref(initialLocale) // '' would mean raw codes; defaults to the persisted choice, then English
 const connected = ref(false)
 
 let source = null
 let started = false
-// Other composables (useUiCopy) need the same "something in refdata
+// Other composables (useL10nCopy) need the same "something in refdata
 // changed" signal but must not open a second EventSource to
 // /api/refdata-watch — every persistent connection permanently occupies one
 // of the browser's ~6-per-origin slots, and this app already needs several
@@ -90,7 +93,7 @@ export function subscribeToChange(fn) {
   return () => changeListeners.delete(fn)
 }
 // Bumped on every refreshLabels() call — same out-of-order-response guard as
-// useUiCopy.js's refreshCatalog(): a switch triggers a new fetch while an
+// useL10nCopy.js's refreshCatalog(): a switch triggers a new fetch while an
 // earlier one (e.g. the initial connect() fetch) may still be in flight, and
 // responses aren't guaranteed to resolve in request order.
 let requestToken = 0
@@ -121,8 +124,10 @@ async function loadLocales() {
   try {
     const data = await fetchJSON('/api/refdata/locales')
     locales.value = data.locales || []
+    defaultLocale.value = data.defaultLocale || ''
   } catch {
     locales.value = []
+    defaultLocale.value = ''
   }
 }
 
@@ -183,5 +188,18 @@ function statusLabel(code, fallback) {
 }
 
 export function useRefdataLabels() {
-  return { labels, locales, selectedLocale, connected, connect, disconnect, statusLabel }
+  // localeOptions is the BR-D32-ordered/labelled option list every locale
+  // switcher binds to, so no app re-derives "default first, marked" itself.
+  const localeOptions = computed(() => localeSelectOptions(locales.value, defaultLocale.value))
+  return {
+    labels,
+    locales,
+    defaultLocale,
+    localeOptions,
+    selectedLocale,
+    connected,
+    connect,
+    disconnect,
+    statusLabel,
+  }
 }

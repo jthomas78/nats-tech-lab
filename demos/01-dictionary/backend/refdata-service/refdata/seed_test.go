@@ -80,19 +80,19 @@ var _ = Describe("Seed", func() {
 		Expect(localizations).To(ContainElement(And(HaveField("Locale", "af-za"), HaveField("Label", "Vasgemeer"))))
 	})
 
-	It("gives every seeded ui-copy key an en, an es, and an af-za label (BR-D16)", func() {
-		all, err := items.List(ctx, "ui-copy", refdata.DefaultContext)
+	It("gives every seeded string key an en, an es, and an af-za label (BR-D16)", func() {
+		all, err := items.List(ctx, "string", refdata.DefaultContext)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(len(all)).To(BeNumerically(">", 2), "expected the full Phase 11.10 ui-copy catalog, not just the Phase 11.7 proof-of-concept keys")
+		Expect(len(all)).To(BeNumerically(">", 2), "expected the full Phase 11.10 string catalog, not just the Phase 11.7 proof-of-concept keys")
 
 		for _, item := range all {
 			localizations, err := locs.ListForItem(ctx, item.TypeKey, item.Context, item.Code)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(localizations).To(ContainElement(HaveField("Locale", "en")), "missing en label for ui-copy key %q", item.Code)
-			Expect(localizations).To(ContainElement(HaveField("Locale", "es")), "missing es label for ui-copy key %q", item.Code)
-			Expect(localizations).To(ContainElement(HaveField("Locale", "af-za")), "missing af-za label for ui-copy key %q", item.Code)
+			Expect(localizations).To(ContainElement(HaveField("Locale", "en")), "missing en label for string key %q", item.Code)
+			Expect(localizations).To(ContainElement(HaveField("Locale", "es")), "missing es label for string key %q", item.Code)
+			Expect(localizations).To(ContainElement(HaveField("Locale", "af-za")), "missing af-za label for string key %q", item.Code)
 			for _, loc := range localizations {
-				Expect(loc.Label).NotTo(BeEmpty(), "ui-copy key %q has a blank %s label", item.Code, loc.Locale)
+				Expect(loc.Label).NotTo(BeEmpty(), "string key %q has a blank %s label", item.Code, loc.Locale)
 			}
 		}
 	})

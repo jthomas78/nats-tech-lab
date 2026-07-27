@@ -34,7 +34,7 @@ function goToPort(port) {
 }
 
 // Filter options — the docked/in-transit labels resolve from ship-status
-// refdata (domain-enum); "All" is UI chrome, resolved from the ui-copy
+// refdata (domain-enum); "All" is UI chrome, resolved from the l10n
 // refdata type (Phase 11.7) via the same locale switcher.
 const statusFilters = computed(() => [
   { label: t('filter.all'), value: 'all' },

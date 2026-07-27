@@ -81,7 +81,7 @@ definitions:
     enum:
     - standards
     - domain-enum
-    - ui-copy
+    - l10n
     - config
     type: string
     x-enum-comments:
@@ -94,7 +94,7 @@ definitions:
     x-enum-varnames:
     - CategoryStandards
     - CategoryDomainEnum
-    - CategoryUICopy
+    - CategoryDomainString
     - CategoryConfig
   rest.cacheStatusResponse:
     properties:
@@ -890,7 +890,7 @@ paths:
       - application/json
       description: Registers (or updates the name/description/category of) a dictionary
         type, e.g. "currency". Category (BR-D09) must be one of "standards", "domain-enum",
-        "ui-copy", "config".
+        "domain-string", "config".
       parameters:
       - description: typeKey, name, description, category
         in: body

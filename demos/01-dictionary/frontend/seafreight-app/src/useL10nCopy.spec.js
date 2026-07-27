@@ -1,7 +1,7 @@
 import { createI18n } from 'vue-i18n'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { useUiCopy } from '@refdata/useUiCopy.js'
+import { useL10nCopy } from '@refdata/useL10nCopy.js'
 import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
 
 // Regression test for the out-of-order-response race: switching locale while
@@ -28,13 +28,13 @@ function mockFetchReturning(deferredEntry) {
   return deferredEntry.promise.then((items) => ({ ok: true, json: () => Promise.resolve({ items }) }))
 }
 
-describe('useUiCopy request-ordering guard', () => {
+describe('useL10nCopy request-ordering guard', () => {
   beforeEach(() => {
     global.EventSource = FakeEventSource
   })
 
   afterEach(() => {
-    const { disconnect } = useUiCopy()
+    const { disconnect } = useL10nCopy()
     disconnect()
     useRefdataLabels().selectedLocale.value = 'en'
     // Inert, never-resolving-with-real-data stub — a stray leftover async
@@ -46,7 +46,7 @@ describe('useUiCopy request-ordering guard', () => {
 
   it('does not let a slow, stale fetch revert a locale the user has since switched to', async () => {
     const { selectedLocale } = useRefdataLabels()
-    const { switching, connect } = useUiCopy()
+    const { switching, connect } = useL10nCopy()
     selectedLocale.value = 'en'
 
     const enFetch = deferred()
@@ -82,14 +82,14 @@ describe('useUiCopy request-ordering guard', () => {
 // BR-D19 regression: cold paint must render the persisted locale's
 // last-known-good catalog immediately, not the bundled `en` default, while
 // the live refetch is still in flight.
-describe('useUiCopy BR-D19 catalog cache', () => {
+describe('useL10nCopy BR-D19 catalog cache', () => {
   beforeEach(() => {
     global.EventSource = FakeEventSource
     localStorage.clear()
   })
 
   afterEach(() => {
-    const { disconnect } = useUiCopy()
+    const { disconnect } = useL10nCopy()
     disconnect()
     useRefdataLabels().selectedLocale.value = 'en'
     localStorage.clear()
@@ -98,7 +98,7 @@ describe('useUiCopy BR-D19 catalog cache', () => {
 
   it('applies a cached catalog synchronously in connect(), ahead of the live fetch', async () => {
     localStorage.setItem(
-      'refdata.uiCopyCache',
+      'refdata.stringCache',
       JSON.stringify({ 'af-za': { messages: { 'app.title': 'SeaFreight Vloei (cached)' }, partialFallback: false } }),
     )
     const { selectedLocale } = useRefdataLabels()
@@ -108,7 +108,7 @@ describe('useUiCopy BR-D19 catalog cache', () => {
     global.fetch = vi.fn(() => mockFetchReturning(liveFetch))
 
     const i18n = createI18n({ legacy: false, locale: 'en', fallbackLocale: 'en', messages: { en: {} } })
-    const { connect } = useUiCopy()
+    const { connect } = useL10nCopy()
     connect(i18n)
 
     // Synchronous, before the live fetch has resolved (or even been awaited).
@@ -132,11 +132,11 @@ describe('useUiCopy BR-D19 catalog cache', () => {
     )
 
     const i18n = createI18n({ legacy: false, locale: 'en', fallbackLocale: 'en', messages: { en: {} } })
-    const { connect } = useUiCopy()
+    const { connect } = useL10nCopy()
     connect(i18n)
     await new Promise((r) => setTimeout(r, 0))
 
-    const cache = JSON.parse(localStorage.getItem('refdata.uiCopyCache'))
+    const cache = JSON.parse(localStorage.getItem('refdata.stringCache'))
     expect(cache['af-za'].messages['app.title']).toBe('SeaFreight Vloei')
   })
 })

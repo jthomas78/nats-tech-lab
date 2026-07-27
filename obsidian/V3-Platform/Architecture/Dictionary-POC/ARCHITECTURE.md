@@ -378,9 +378,12 @@ The Fleet dropdown sets `store.context`. Changing it calls `connect()`, which re
 ## Reference Data Service (`backend/refdata-service/`)
 
 Phase 11, [Dictionary-Service-Plan.md](../../../../.claude/plans/Dictionary-Service-Plan.md) — a
-**separate Go service and container**, not a module in the shipping backend's monolith. It shares
-the same Postgres instance as `shipping-service` but owns its own schema (`refdata`) and tables; it does
-not touch the `SHIPPING` stream, KV buckets, or Postgres tables the shipping backend uses.
+**separate Go service and container**, not a module in the shipping backend's monolith. It runs
+against its own Postgres instance (`refdata-postgres` in `docker-compose.yml`, own `refdata`
+role/database — tightened 2026-07-27 from a shared instance with a private schema to a fully
+separate database server); it does not touch the `SHIPPING` stream, KV buckets, or Postgres
+instance the shipping backend uses. NATS is the only infrastructure shared between the two
+services.
 
 **Why plain CRUD, not event-sourced.** Per the "Event Sourcing vs Plain CRUD" heuristic above:
 nothing in the platform ever needs to replay a dictionary item's history to reconstruct it — only

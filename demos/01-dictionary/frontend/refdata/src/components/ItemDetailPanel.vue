@@ -490,10 +490,13 @@ async function submitReference() {
                 No locales registered yet.
               </template>
               <Column
-                field="locale"
                 header="Locale"
                 style="width: 6rem; font-family: monospace"
-              />
+              >
+                <template #body="{ data }">
+                  {{ data.label }}
+                </template>
+              </Column>
               <Column
                 field="displayName"
                 header="Display name"

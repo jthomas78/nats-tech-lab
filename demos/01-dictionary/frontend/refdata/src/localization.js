@@ -1,6 +1,15 @@
 // Pure helpers for the per-item Translations table and the bulk Translation
 // Matrix (Phase 11.11) — kept dependency-free from Vue/PrimeVue so they're
 // unit-testable without mounting a component.
+//
+// Locale ordering and the "(default)" marker come from the shared
+// @refdata/locales.js helpers (BR-D32) so this app and the shipping apps
+// present locale lists identically; re-exported here because the components
+// in this app already import their locale helpers from this module.
+
+import { localeLabel, orderLocales } from '@refdata/locales.js'
+
+export { isDefaultLocale, localeLabel, localeSelectOptions, orderLocales } from '@refdata/locales.js'
 
 // `Intl.DisplayNames` throws on a locale tag it can't parse (e.g. malformed
 // input mid-typing in the "+ Add locale" field) — fall back to the raw code
@@ -20,14 +29,20 @@ export function localeDisplayName(locale) {
 //   override exists, mirroring the backend's BR-D03 fallback chain;
 // - any other locale is 'complete' once a localization row exists, else
 //   'missing'.
+//
+// Rows come back default-locale-first and the default row carries a marked
+// `label` (BR-D32) — ordering is done here rather than in the table so every
+// consumer of these rows inherits it.
 export function buildTranslationRows({ locales, defaultLocale, localizations, defaultLabel }) {
   const byLocale = new Map((localizations || []).map((l) => [l.locale, l]))
-  return (locales || []).map((locale) => {
+  return orderLocales(locales, defaultLocale).map((locale) => {
     const entry = byLocale.get(locale)
     const isDefault = locale === defaultLocale
     const status = isDefault ? 'default' : entry ? 'complete' : 'missing'
     return {
       locale,
+      label: localeLabel(locale, defaultLocale),
+      isDefault,
       displayName: localeDisplayName(locale),
       translation: entry?.label ?? (isDefault ? defaultLabel || '' : ''),
       description: entry?.description ?? '',

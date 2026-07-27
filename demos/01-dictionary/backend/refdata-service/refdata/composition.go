@@ -33,6 +33,15 @@ import (
 // SHIPPING stream.
 const ChangeStreamMaxAge = 48 * time.Hour
 
+// RPCTraceStreamName / RPCTraceMaxAge back the obs.rpc.* observability
+// side-channel (BR-D26) with a short JetStream-backed replay window (BR-D29)
+// so a reconnecting Admin UI tab can catch up on the last 10 minutes of
+// rpc.* traffic — see ARCHITECTURE-COMMUNICATIONS.md §6.
+const (
+	RPCTraceStreamName = "RPCTRACE"
+	RPCTraceMaxAge     = 10 * time.Minute
+)
+
 // KVBucketPrefix names the versioned-read cache buckets: refdata-{context}.
 const KVBucketPrefix = "refdata"
 
@@ -82,11 +91,15 @@ func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream, anthropicA
 		if _, err := jstream.CreateChangeStream(ctx, js, kvcache.ChangeStreamName, []string{kvcache.ChangeSubjectWildcard}, ChangeStreamMaxAge); err != nil {
 			return nil, err
 		}
+		if _, err := jstream.CreateChangeStream(ctx, js, RPCTraceStreamName, []string{natsrpc.ObsSubjectWildcard}, RPCTraceMaxAge); err != nil {
+			return nil, err
+		}
 		kv = kvstore.New(js, KVBucketPrefix)
-		projector = kvcache.NewProjector(kv, items, locs, refs, versions, jstream.NewPublisher(js))
+		namespaces := kvcache.NewTypeNamespaces(types)
+		projector = kvcache.NewProjector(kv, items, locs, refs, versions, namespaces, jstream.NewPublisher(js))
 		notifier = projector
-		corpusNotifier = kvcache.NewVersionNotifier(kv, corpus)
-		versionReader = kvcache.NewVersionReader(kv)
+		corpusNotifier = kvcache.NewVersionNotifier(kv, corpus, namespaces)
+		versionReader = kvcache.NewVersionReader(kv, namespaces)
 	}
 
 	var translations *commands.TranslationHandler
@@ -135,13 +148,16 @@ func (h *Handlers) Mount(mux *http.ServeMux, log *slog.Logger) {
 
 // MountRPC starts the rpc.* dual-transport adapter (Phase 12.10, extended
 // 12.11) — a second transport onto the same command handlers Mount's REST
-// routes call. Callers should Stop() the returned adapter on shutdown.
-func (h *Handlers) MountRPC(nc *nats.Conn, log *slog.Logger) (*natsrpc.Adapter, error) {
+// routes call. js may be nil (mirrors Startup's own nil-safety) — publishObs
+// then falls back to plain core-NATS publish with no RPCTRACE retention
+// (BR-D29). Callers should Stop() the returned adapter on shutdown.
+func (h *Handlers) MountRPC(nc *nats.Conn, js jetstream.JetStream, log *slog.Logger) (*natsrpc.Adapter, error) {
 	return natsrpc.New(nc, natsrpc.Deps{
 		Localizations: h.Localizations,
 		Items:         h.Items,
 		VersionReader: h.VersionReader,
 		Projector:     h.Projector,
+		JS:            js,
 		Log:           log,
 	})
 }

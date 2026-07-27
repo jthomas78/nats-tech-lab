@@ -10,13 +10,13 @@ const TYPE_ICON = {
   uom: 'pi-calculator',
   'hazard-class': 'pi-exclamation-triangle',
   'ship-status': 'pi-compass',
-  'ui-copy': 'pi-comment',
+  string: 'pi-comment',
 }
 
 const CATEGORY_ICON = {
   standards: 'pi-tag',
   'domain-enum': 'pi-list',
-  'ui-copy': 'pi-comment',
+  'domain-string': 'pi-comment',
   config: 'pi-cog',
 }
 

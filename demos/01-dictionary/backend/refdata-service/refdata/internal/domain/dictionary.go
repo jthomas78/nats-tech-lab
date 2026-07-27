@@ -20,10 +20,10 @@ const (
 type TypeCategory string
 
 const (
-	CategoryStandards  TypeCategory = "standards"
-	CategoryDomainEnum TypeCategory = "domain-enum"
-	CategoryUICopy     TypeCategory = "ui-copy"
-	CategoryConfig     TypeCategory = "config" // reserved, not seeded yet
+	CategoryStandards    TypeCategory = "standards"
+	CategoryDomainEnum   TypeCategory = "domain-enum"
+	CategoryDomainString TypeCategory = "domain-string"
+	CategoryConfig       TypeCategory = "config" // reserved, not seeded yet
 )
 
 // DictionaryType is a type-registry entry, e.g. "currency", "country".
@@ -90,11 +90,28 @@ var (
 	ErrCannotDeleteInheritedItem = errors.New("an inherited item cannot be deleted")
 )
 
+// EnumKeyNamespace is the KV key namespace domain-enum types live under
+// (BR-D31), trailing dot included so it composes directly onto a key.
+const EnumKeyNamespace = "enum."
+
+// KeyNamespace enforces BR-D31 — a domain-enum type's KV entries are keyed
+// under the "enum." namespace (enum.{typeKey}.{code}), every other category
+// keys unnamespaced ({typeKey}.{code}). NATS KV keys are subject tokens, so
+// this namespace is what makes "watch/authorize every enum in a context"
+// expressible as enum.> without splitting the bucket per type — see
+// ARCHITECTURE-DICTIONARY.md § "KV Key Layout".
+func KeyNamespace(c TypeCategory) string {
+	if c == CategoryDomainEnum {
+		return EnumKeyNamespace
+	}
+	return ""
+}
+
 // ValidateCategory enforces BR-D09 — a dictionary type's category must be
 // one of the small controlled vocabulary, not a free-form string.
 func ValidateCategory(c TypeCategory) error {
 	switch c {
-	case CategoryStandards, CategoryDomainEnum, CategoryUICopy, CategoryConfig:
+	case CategoryStandards, CategoryDomainEnum, CategoryDomainString, CategoryConfig:
 		return nil
 	default:
 		return ErrInvalidCategory

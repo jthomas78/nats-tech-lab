@@ -12,7 +12,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvstore"
@@ -43,18 +46,35 @@ func ChangeSubject(itemContext, typeKey string) string {
 	return fmt.Sprintf("evt.%s.%s.%s.changed", itemContext, Domain, typeKey)
 }
 
+// CacheItem is the item payload stored in a KV cache entry — a projection of
+// domain.DictionaryItem stripped of attrs (a Postgres/REST concern). No
+// label/description here: BR-D30 guarantees the default locale's
+// localization exists whenever an item has any localizations at all, so a
+// reader resolves the default-locale label from Entry.Localizations
+// directly instead of a duplicated, write-time-resolved item-level field.
+type CacheItem struct {
+	TypeKey string            `json:"typeKey"`
+	Code    string            `json:"code"`
+	Context string            `json:"context"`
+	Status  domain.ItemStatus `json:"status"`
+}
+
 // Entry is the KV cache's assembled read view of one item — the item plus
 // its localizations and outbound references, stamped with the type's set
-// version at write time (Q5).
+// version at write time (Q5). Localizations use LocalizationValue (not the
+// full domain.Localization) so the per-locale payload doesn't repeat
+// typeKey/code/context that the parent Item already carries.
 type Entry struct {
-	Item          domain.DictionaryItem                 `json:"item"`
-	Localizations map[string]domain.Localization        `json:"localizations,omitempty"`
+	Item          CacheItem                             `json:"item"`
+	Localizations map[string]domain.LocalizationValue   `json:"localizations,omitempty"`
 	References    map[string]domain.DictionaryReference `json:"references,omitempty"`
 	Version       int                                   `json:"version"`
 }
 
-// MetaEntry is the `{type}._meta` key — the whole set's current version and
-// size, used for the versioned-read protocol's mismatch check.
+// MetaEntry is the `{namespace}{type}._meta` key — the whole set's current
+// version and size, used for the versioned-read protocol's mismatch check.
+// It shares its type's BR-D31 namespace, so a type's entries and its stamp
+// live in one addressable subtree.
 type MetaEntry struct {
 	Version   int       `json:"version"`
 	ItemCount int       `json:"itemCount"`
@@ -77,16 +97,17 @@ type Publisher interface {
 // Projector rebuilds an item's KV cache entry and the type's _meta on every
 // change, bumps the set version, and publishes the change-event pointer.
 type Projector struct {
-	kv       *kvstore.Store
-	items    domain.ItemRepository
-	locs     domain.LocalizationRepository
-	refs     domain.ReferenceRepository
-	versions domain.VersionRepository
-	pub      Publisher
+	kv         *kvstore.Store
+	items      domain.ItemRepository
+	locs       domain.LocalizationRepository
+	refs       domain.ReferenceRepository
+	versions   domain.VersionRepository
+	namespaces *TypeNamespaces
+	pub        Publisher
 }
 
-func NewProjector(kv *kvstore.Store, items domain.ItemRepository, locs domain.LocalizationRepository, refs domain.ReferenceRepository, versions domain.VersionRepository, pub Publisher) *Projector {
-	return &Projector{kv: kv, items: items, locs: locs, refs: refs, versions: versions, pub: pub}
+func NewProjector(kv *kvstore.Store, items domain.ItemRepository, locs domain.LocalizationRepository, refs domain.ReferenceRepository, versions domain.VersionRepository, namespaces *TypeNamespaces, pub Publisher) *Projector {
+	return &Projector{kv: kv, items: items, locs: locs, refs: refs, versions: versions, namespaces: namespaces, pub: pub}
 }
 
 var _ domain.ChangeNotifier = (*Projector)(nil)
@@ -129,8 +150,129 @@ func (p *Projector) Backfill(ctx context.Context, itemContext, typeKey, code str
 	return p.rebuildMeta(ctx, itemContext, typeKey, version)
 }
 
+// ReadEntry is the read-side counterpart of rebuildEntry — it serves an
+// item's cache entry directly from KV without touching Postgres, for the
+// RPC handler's KV-first path (BR-D08). It returns (nil, nil) on a cache
+// miss or a stale entry (stamped version doesn't match the type's current
+// _meta version) so the caller can fall through to Postgres + Backfill,
+// exactly as a direct KV miss would have before this was internalized.
+func (p *Projector) ReadEntry(ctx context.Context, itemContext, typeKey, code string) (*Entry, error) {
+	namespace, err := p.namespaces.For(ctx, typeKey)
+	if err != nil {
+		return nil, err
+	}
+
+	entryRaw, _, err := p.kv.Get(ctx, itemContext, ItemKey(namespace, typeKey, code))
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var entry Entry
+	if err := json.Unmarshal(entryRaw, &entry); err != nil {
+		return nil, err
+	}
+
+	metaRaw, _, err := p.kv.Get(ctx, itemContext, MetaKey(namespace, typeKey))
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var meta MetaEntry
+	if err := json.Unmarshal(metaRaw, &meta); err != nil {
+		return nil, err
+	}
+
+	if meta.Version != entry.Version {
+		return nil, nil // stale — the set moved on since this entry was cached
+	}
+	return &entry, nil
+}
+
+// ReadMeta returns a type's cached _meta stamp, or (nil, nil) if the type
+// has no cache entry yet. Owning this here keeps the BR-D31 namespace out of
+// callers that only want to compare the cached version against Postgres's
+// (the cache-status endpoint).
+func (p *Projector) ReadMeta(ctx context.Context, itemContext, typeKey string) (*MetaEntry, error) {
+	namespace, err := p.namespaces.For(ctx, typeKey)
+	if err != nil {
+		return nil, err
+	}
+	raw, _, err := p.kv.Get(ctx, itemContext, MetaKey(namespace, typeKey))
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var meta MetaEntry
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return nil, err
+	}
+	return &meta, nil
+}
+
+// ReadType returns every fresh cache entry for typeKey, or (nil, false) if
+// the type's cache is missing, incomplete, or contains any stale entry — the
+// RPC handler's KV-first path for a type-list request (BR-D08). A
+// partial/stale cache falls through to Postgres wholesale rather than
+// patching just the missing/stale entries, keeping the read path as simple
+// as ReadEntry's whole-entry miss semantics.
+func (p *Projector) ReadType(ctx context.Context, itemContext, typeKey string) ([]Entry, bool) {
+	namespace, err := p.namespaces.For(ctx, typeKey)
+	if err != nil {
+		return nil, false
+	}
+
+	metaRaw, _, err := p.kv.Get(ctx, itemContext, MetaKey(namespace, typeKey))
+	if err != nil {
+		return nil, false
+	}
+	var meta MetaEntry
+	if err := json.Unmarshal(metaRaw, &meta); err != nil {
+		return nil, false
+	}
+
+	keys, err := p.kv.Keys(ctx, itemContext)
+	if err != nil {
+		return nil, false
+	}
+
+	prefix := TypeKeyPrefix(namespace, typeKey)
+	metaKey := MetaKey(namespace, typeKey)
+	entries := make([]Entry, 0, meta.ItemCount)
+	for _, k := range keys {
+		if k == metaKey || !strings.HasPrefix(k, prefix) {
+			continue
+		}
+		raw, _, err := p.kv.Get(ctx, itemContext, k)
+		if err != nil {
+			return nil, false
+		}
+		var entry Entry
+		if err := json.Unmarshal(raw, &entry); err != nil {
+			return nil, false
+		}
+		if entry.Version != meta.Version {
+			return nil, false
+		}
+		entries = append(entries, entry)
+	}
+	if len(entries) != meta.ItemCount {
+		return nil, false
+	}
+	return entries, true
+}
+
 func (p *Projector) rebuildEntry(ctx context.Context, itemContext, typeKey, code string, version int) error {
-	key := typeKey + "." + code
+	namespace, err := p.namespaces.For(ctx, typeKey)
+	if err != nil {
+		return err
+	}
+	key := ItemKey(namespace, typeKey, code)
 
 	item, err := p.items.Get(ctx, typeKey, itemContext, code)
 	if errors.Is(err, domain.ErrItemNotFound) {
@@ -144,9 +286,9 @@ func (p *Projector) rebuildEntry(ctx context.Context, itemContext, typeKey, code
 	if err != nil {
 		return err
 	}
-	locs := make(map[string]domain.Localization, len(locList))
+	locs := make(map[string]domain.LocalizationValue, len(locList))
 	for _, loc := range locList {
-		locs[loc.Locale] = loc
+		locs[loc.Locale] = loc.ToValue()
 	}
 
 	refList, err := p.refs.ListFrom(ctx, itemContext, typeKey, code)
@@ -158,7 +300,12 @@ func (p *Projector) rebuildEntry(ctx context.Context, itemContext, typeKey, code
 		refs[ref.Relation] = ref
 	}
 
-	entry, err := json.Marshal(Entry{Item: item, Localizations: locs, References: refs, Version: version})
+	cacheItem := CacheItem{
+		TypeKey: item.TypeKey, Code: item.Code, Context: item.Context,
+		Status: item.Status,
+	}
+
+	entry, err := json.Marshal(Entry{Item: cacheItem, Localizations: locs, References: refs, Version: version})
 	if err != nil {
 		return err
 	}
@@ -167,6 +314,10 @@ func (p *Projector) rebuildEntry(ctx context.Context, itemContext, typeKey, code
 }
 
 func (p *Projector) rebuildMeta(ctx context.Context, itemContext, typeKey string, version int) error {
+	namespace, err := p.namespaces.For(ctx, typeKey)
+	if err != nil {
+		return err
+	}
 	items, err := p.items.List(ctx, typeKey, itemContext)
 	if err != nil {
 		return err
@@ -175,6 +326,6 @@ func (p *Projector) rebuildMeta(ctx context.Context, itemContext, typeKey string
 	if err != nil {
 		return err
 	}
-	_, err = p.kv.Put(ctx, itemContext, typeKey+"._meta", meta)
+	_, err = p.kv.Put(ctx, itemContext, MetaKey(namespace, typeKey), meta)
 	return err
 }

@@ -22,6 +22,12 @@
 > 5. **Phase 11.12 — AI-assisted translation**, un-parking item 3 above — **approved and
 >    implemented 2026-07-24**. See the sub-phase entry for design/checklist.
 > 6. **Phase 11.13 — Countries (ISO 3166) as a second demo consumer — dropped**, not approved.
+>
+> **Q1 revisited 2026-07-27 — approved and implemented:** tightened from schema-per-service to
+> **database-per-service**. `refdata-service` now runs against its own Postgres instance
+> (`refdata-postgres` in `docker-compose.yml`, port `5433`, own `refdata` role/database) rather
+> than a private schema on `shipping-service`'s `postgres` instance — NATS is now the only
+> infrastructure the two services share.
 >    Investigation found the generic `{type}` REST endpoints already serve `country` with zero
 >    new code (`country` is already seeded and localized); the only real options were a thin
 >    tests-only deliverable or a much larger real-domain-field change. User chose to drop it
@@ -438,7 +444,7 @@ implementation, and lands in `BUSINESS_RULES.md` in the same commit.
 
 ### Phase 11.7 — UI copy via refdata + dictionary type categories (refdata-as-TMS)
 
-> **Category field, `ui-copy` type, and the Localization view are done (2026-07-14).**
+> **Category field, `l10n` type, and the Localization view are done (2026-07-14).**
 > **A UI-restructure pass (design review 2026-07-15) shipped as Phase 11.9.**
 > Extends Phase 11.6's pattern from *domain reference data* (ship statuses) to *UI
 > chrome* — the Port UI's status-filter "All" option and both apps' "Language" label are
@@ -450,18 +456,18 @@ implementation, and lands in `BUSINESS_RULES.md` in the same commit.
 talks to refdata-service directly:
 
 ```
-refdata-service (SoT) → KV cache → backend consumer → /api/refdata/types/ui-copy?locale=xx → vue-i18n
+refdata-service (SoT) → KV cache → backend consumer → /api/refdata/types/l10n?locale=xx → vue-i18n
 ```
 
-- [x] Register a `ui-copy` dictionary type, namespaced separately from domain types so UI
+- [x] Register an `l10n` dictionary type, namespaced separately from domain types so UI
       strings never leak into business queries. Codes are message keys (e.g. `filter.all`),
       labels are the copy; seeded `en`/`es` (`filter.all`, `nav.language` — BR-D10 covers the
       typed-reference/deprecation exemption).
-- [x] No new backend endpoint — a `ui-copy` fetch reuses the generic
+- [x] No new backend endpoint — an `l10n` fetch reuses the generic
       `/api/refdata/types/{type}?locale=` route + `ResolveType` and the `/api/refdata-watch`
-      SSE refresh built in Phase 11.6 (verified: works unchanged for `ui-copy`).
-- [x] Frontend i18n layer (vue-i18n) whose catalog loader (`shared/refdata/useUiCopy.js`)
-      fetches `ui-copy`, folds the `{code,label}[]` list into a message object, and calls
+      SSE refresh built in Phase 11.6 (verified: works unchanged for `l10n`).
+- [x] Frontend l10n layer (vue-i18n) whose catalog loader (`shared/refdata/useL10nCopy.js`)
+      fetches `l10n`, folds the `{code,label}[]` list into a message object, and calls
       `setLocaleMessage(locale, msgs)`. The shared `selectedLocale` (from `useRefdataLabels`)
       drives both refdata data labels and UI copy from one switcher.
 - [x] Live refresh: on the `/api/refdata-watch` change signal, re-fetch and re-set the
@@ -475,14 +481,14 @@ TMS tools (Phrase, Lokalise, Crowdin) centralize; if the org wants that workflow
 refdata-as-TMS is coherent. The trade-off: UI copy becomes runtime data — no code review,
 no compile-time key checking — so this is a deliberate platform choice, not a default.
 
-- [x] **Bundled fallback catalog (required).** Shipped as `shared/refdata/uiCopyFallback.en.js`,
+- [x] **Bundled fallback catalog (required).** Shipped as `shared/refdata/l10nFallback.en.js`,
       an override layer under the live refdata catalog. **Visible indicator done:** a warning
       `Tag` in both apps' topbars distinguishes total fallback (refdata unreachable) from
       partial fallback (a key resolved to its own code — BR-D11).
 
-**Type categories / namespaces (folded in — the `ui-copy` namespacing above is the first
+**Type categories / namespaces (folded in — the `l10n` namespacing above is the first
 concrete use).** As the registry grows (currency, country, incoterm, uom, hazard-class,
-ship-status, `ui-copy`) the types fall into categories with genuinely *different
+ship-status, `l10n`) the types fall into categories with genuinely *different
 governance*, not just different names. Formalize a `category` so the Dictionary UI can
 group them and category-specific rules are explicit.
 
@@ -490,10 +496,10 @@ group them and category-specific rules are explicit.
 
 - `standards` — cross-cutting, standards-based reference data (currency, country, incoterm, uom, hazard-class)
 - `domain-enum` — mirrors of a backend domain enum (ship-status)
-- `ui-copy` / `i18n` — UI chrome / application copy (the `ui-copy` type above)
+- `l10n` — UI chrome / application copy (the `l10n` type above)
 - `config` — *(future)* platform / tenant configuration values
 
-Names are provisional and the set is intentionally small. The functional line is `ui-copy`
+Names are provisional and the set is intentionally small. The functional line is `l10n`
 vs the rest — it is not reference data and must stay out of business queries; the
 `standards`-vs-`domain-enum` split is more informational but still worth surfacing:
 
@@ -501,15 +507,15 @@ vs the rest — it is not reference data and must stay out of business queries; 
 |---|---|---|---|---|
 | `standards` | currency, country, incoterm, uom, hazard-class | external standards (ISO, Incoterms, UNECE, UN) | data stewards | rarely change; adds safe |
 | `domain-enum` | ship-status | the backend domain (`ShipStatus` consts) | devs own codes; stewards translate | adding/removing a code is meaningless unless the domain emits it |
-| `ui-copy` | ui-copy (Phase 11.7) | the frontend | translators | keys owned by devs; only labels translatable |
+| `l10n` | l10n (Phase 11.7) | the frontend | translators | keys owned by devs; only labels translatable |
 
 - [x] Add a single `category` string to `DictionaryType` (controlled small vocabulary:
-      `standards` / `domain-enum` / `ui-copy`, `config` later) — one category per type, not
+      `standards` / `domain-enum` / `l10n`, `config` later) — one category per type, not
       tags. Backend: `dictionary_types.category` column (`migrate.go`), domain struct
       (`domain.ValidateCategory`, BR-D09), seed assigns each existing type its category, REST
       `typesResponse`/`typeRequest` carry it. Covered by `refdata/type_test.go`.
 - [x] Group the TypeNavigator by category in `frontend-dict` — non-selectable eyebrow headers
-      (Reference Data / Domain Enums / UI Copy) so `ui-copy` visibly sits apart from domain
+      (Reference Data / Domain Enums / UI Copy) so `l10n` visibly sits apart from domain
       reference data; every type stays one click away.
 - [ ] Surface a per-category governance hint in the UI — e.g. `domain-enum` types show a
       "codes owned by the backend — translate only" note, discouraging stewards from adding
@@ -583,7 +589,7 @@ proliferation, so resist until a real need appears. `category` is orthogonal to 
 
 > **Complete (2026-07-15, approved same day).** Second layout pass on `frontend-dict`,
 > agreed in review. Scope note: **display labels and layout only** — the BR-D09 category
-> vocabulary (`standards` / `domain-enum` / `ui-copy` / `config`) is unchanged in the
+> vocabulary (`standards` / `domain-enum` / `l10n` / `config`) is unchanged in the
 > domain, DB, and API, so no business-rule or backend changes are involved.
 
 Target shape:
@@ -659,16 +665,16 @@ own locale mechanism and no vue-i18n wiring — not in scope here.
   there (the only `toLocaleString`/date calls live in `frontend/`, out of scope).
 
 **Decision — where does UI copy live? Option D chosen (2026-07-15).** Today (Phase 11.7)
-every UI string routed through i18n is a `ui-copy` refdata item (en+es rows) *and* a
-bundled `uiCopyFallback.en.js` entry — BR-D11 requires the bundled `en` so chrome still
+every UI string routed through l10n is an `l10n` category refdata item (en+es rows) *and* a
+bundled `l10nFallback.en.js` entry — BR-D11 requires the bundled `en` so chrome still
 renders when refdata is unreachable. The options considered (kept below for the record):
 
-| Option | UI-copy home | Per-string cost | Trade-off |
+| Option | l10n home | Per-string cost | Trade-off |
 |---|---|---|---|
-| **A — all refdata** | every string a `ui-copy` item | ~3 artifacts (en+es seed rows + bundled `en` fallback) | Maximal TMS thesis. But BR-D11 still forces a bundled `en` for each string, so `en` is maintained *twice* (seed + fallback); weakest safety for strings coupled to code — a validation hint can silently drift from the regex it describes. |
+| **A — all refdata** | every string an `l10n` item | ~3 artifacts (en+es seed rows + bundled `en` fallback) | Maximal TMS thesis. But BR-D11 still forces a bundled `en` for each string, so `en` is maintained *twice* (seed + fallback); weakest safety for strings coupled to code — a validation hint can silently drift from the regex it describes. |
 | **B — all bundled** | vue-i18n catalog (en+es), dev-owned | 2 entries, one place | Simplest; code-reviewed; keys greppable. Abandons refdata-as-TMS for the Port UI (refdata keeps only domain *data* labels like ship-status) — contradicts Phase 11.7's direction. |
 | **C — split by editorial ownership** | domain-facing copy → refdata; implementation-coupled chrome → bundled | mixed | Demonstrates the *judgment* of where dictionary-as-a-service earns its keep; avoids double-maintaining `en` for chrome nobody edits live. Requires the boundary be encoded as a namespace convention (proposed BR-D17) so it isn't ad hoc. |
-| **D — all refdata, *generated* fallback** *(chosen)* | every string a `ui-copy` item; the bundled `en` is a build-time *snapshot of the seed*, not hand-written | 1 authored artifact (seed en+es) + generator + CI drift check | "Option A done right." Single source of truth (refdata), but the bundle is *compiled* from the seed like a lockfile — so no double-`en` maintenance and no drift; keeps first-paint correctness and offline degrade (BR-D11 stays). Cost is one-time tooling, not per-string effort. Pairs with a `<UiString code>` seam for call-site provenance. |
+| **D — all refdata, *generated* fallback** *(chosen)* | every string an `l10n` item; the bundled `en` is a build-time *snapshot of the seed*, not hand-written | 1 authored artifact (seed en+es) + generator + CI drift check | "Option A done right." Single source of truth (refdata), but the bundle is *compiled* from the seed like a lockfile — so no double-`en` maintenance and no drift; keeps first-paint correctness and offline degrade (BR-D11 stays). Cost is one-time tooling, not per-string effort. Pairs with a `<UiString code>` seam for call-site provenance. |
 
 Fault line for Option C, had it been chosen — **would a translator/steward ever edit this
 live, decoupled from a code change?** *Yes* → refdata (panel titles, section headers,
@@ -678,15 +684,15 @@ placeholders embedding format examples like `TCKU1234567`, aria-labels, error/di
 toasts like "Depart failed"). Kept here only as the discarded alternative's reasoning.
 
 **Option D — chosen (2026-07-15).** Keep *refdata as the sole authored source* (like A),
-but stop *hand-writing* the bundled fallback — **generate** it from `uiCopySeed` at build
-time and commit it (lockfile model): a generator emits `shared/refdata/uiCopyFallback.en.js`
+but stop *hand-writing* the bundled fallback — **generate** it from `l10nSeed` at build
+time and commit it (lockfile model): a generator emits `shared/refdata/l10nFallback.en.js`
 with a `GENERATED — do not edit` banner, a `prebuild` hook keeps it fresh, and a
 CI drift-check fails if regenerating yields a diff (this is what keeps the seed authoritative
 rather than silently forking). The generated catalog drops into the existing override-base
-slot (`useUiCopy.js:45`) unchanged — live refdata overlays it once the fetch lands — so
+slot (`useL10nCopy.js:45`) unchanged — live refdata overlays it once the fetch lands — so
 there is *no runtime change*, and the "frozen at seed values" concern is invisible because
 it is only the cold-paint base. This gives A's single-source purity **and** clean admin-UI
-provenance (every string is a `ui-copy` item, so all are visible/editable in the Dictionary
+provenance (every string is an `l10n` item, so all are visible/editable in the Dictionary
 UI) **without** A's double-maintenance. A no-bundle variant (copy as a hard runtime
 dependency, retiring BR-D11) was considered and rejected — it surrenders first-paint
 correctness for nothing the generated bundle doesn't already give. Because D routes every
@@ -700,7 +706,7 @@ apply** — that was only needed for Option C's dev-owned/refdata split.
       (every key lives in refdata regardless of prefix), not a routing boundary.
 - [x] Extract each literal → `t('key')` in templates and the composition `t` in
       `<script setup>` for toasts/JS across the 4 files.
-- [ ] Supply `en` + `es` for every key as a `ui-copy` seed row (`uiCopySeed` in
+- [ ] Supply `en` + `es` for every key as an `l10n` seed row (`l10nSeed` in
       `seed.go`) — the sole authored source under Option D; the bundled fallback is
       generated from it (see Build tooling below), never hand-written. **`es`
       is a deliverable, not auto-fill** — seeded; pending human/translator review before
@@ -729,9 +735,9 @@ apply** — that was only needed for Option C's dev-owned/refdata split.
 
 **Build tooling (required by Option D).**
 
-- [x] Node generator emits the bundled catalog from `refdata-service`'s `uiCopySeed`.
+- [x] Node generator emits the bundled catalog from `refdata-service`'s `l10nSeed`.
       Output is committed with a `GENERATED — do not edit` banner (lockfile model) and drops
-      into the existing `useUiCopy.js:45` override base, so no runtime change.
+      into the existing `useL10nCopy.js:45` override base, so no runtime change.
 - [x] `npm run gen:i18n` wired as a `prebuild` hook so `npm run build` can't ship a stale
       bundle.
 - [x] **CI drift check** — regenerate in CI and fail on any diff. The load-bearing piece:
@@ -773,7 +779,7 @@ apply** — that was only needed for Option C's dev-owned/refdata split.
 >   that syntax for asset resolution and rewrites it to a dev-server `/@fs/...` URL, which
 >   breaks a plain `readFileSync`; `dirname(fileURLToPath(import.meta.url))` sidesteps it.
 > - The seed-parsing regex/boundary logic was duplicated between `gen-i18n.mjs` and
->   `App.spec.js`. Extracted into `scripts/parseUiCopySeed.mjs`, imported by both, so a future
+>   `App.spec.js`. Extracted into `scripts/parseL10nSeed.mjs`, imported by both, so a future
 >   seed-format change only needs fixing in one place.
 > - The pluralization spec asserted `.manifest-count` nodes by DOM position
 >   (`[0,1,2]` order), which happened to match ship-insertion order but wasn't guaranteed by
@@ -790,12 +796,12 @@ apply** — that was only needed for Option C's dev-owned/refdata split.
       `vite.config.js` (Vitest reads the existing Vite config, so the `@refdata`/`@unifi-theme`
       aliases and the Vue plugin come for free — do not duplicate them).
 - [x] **Mount with a real i18n instance.** Build the test i18n from the *generated*
-      `shared/refdata/uiCopyFallback.en.js` for `en`, plus an `es` catalog. Prefer deriving
-      both locales from `refdata-service`'s `uiCopySeed` so the test can't silently drift from
+      `shared/refdata/l10nFallback.en.js` for `en`, plus an `es` catalog. Prefer deriving
+      both locales from `refdata-service`'s `l10nSeed` so the test can't silently drift from
       the authored source (mirror how `scripts/gen-i18n.mjs` parses `seed.go`); at minimum,
       seed the handful of keys the assertions below touch. Stub the network layer
-      (`useUiCopy`/`useRefdataLabels` refdata fetch) so tests are offline and deterministic —
-      the point is to prove the *i18n consumption path* renders, not to hit refdata.
+      (`useL10nCopy`/`useRefdataLabels` refdata fetch) so tests are offline and deterministic —
+      the point is to prove the *l10n consumption path* renders, not to hit refdata.
 - [x] **BR-D16 rendered-output specs** (the load-bearing tests):
       - Locale switch changes visible chrome: mount at `en`, assert the topbar title, nav
         labels ("Fleet Management" / "Port Management"), and view subtitle render their `en`
@@ -818,7 +824,7 @@ apply** — that was only needed for Option C's dev-owned/refdata split.
 
 **Quality (per CLAUDE.md — BR + test + docs in the same task).**
 
-- [x] **BR-D16:** all user-facing Port-UI copy resolves through the i18n layer —
+- [x] **BR-D16:** all user-facing Port-UI copy resolves through the l10n layer —
       no bare user-facing literals in `frontend-port` templates. *Static* side covered by
       `scripts/check-i18n.mjs`; *rendered* side (locale switch actually changes visible
       strings) covered by the Track 3 harness above — **the Vitest specs are the BR-D16
@@ -883,8 +889,8 @@ with copied attrs. The only missing piece is a `frontend-dict` `updateItem` wrap
 - [x] Translations tab: locale table with Default/Complete/Missing status, `Intl.DisplayNames`
       names, **Missing only** filter, **+ Add locale**, inline edit
 - [x] Bulk **Translation Matrix** view + `Values | Translation Matrix` toggle
-- [x] ~~All UI strings via `ui-copy` (BR-D16)~~ — dropped, N/A: `frontend-dict` has no
-      `vue-i18n`/`ui-copy` wiring (that's `frontend-port`-only per Phase 11.10's explicit scope);
+- [x] ~~All UI strings via `l10n` (BR-D16)~~ — dropped, N/A: `frontend-dict` has no
+      `vue-i18n`/`l10n` wiring (that's `frontend-port`-only per Phase 11.10's explicit scope);
       new strings follow the existing plain-hardcoded-English convention already used throughout
       `frontend-dict`.
 - [x] No new BR needed (reuses BR-D18). `frontend-dict` build green (`vite build`, `eslint`) +
@@ -1051,7 +1057,7 @@ and test independently post-move.
 - [x] `package.json` name fields renamed to match (`admin`, `refdata`, `seafreight-app`)
 - [x] Frontend relative-path fixes — `vite.config.js` aliases (`@unifi-theme`, `@refdata`,
       `server.fs.allow`) in all three apps, `seafreight-app`'s `gen-i18n.mjs` /
-      `parseUiCopySeed.mjs` / `App.spec.js` (these cross the backend/frontend split, so both
+      `parseL10nSeed.mjs` / `App.spec.js` (these cross the backend/frontend split, so both
       the extra frontend nesting level and refdata-service's own new nesting level apply)
 - [x] All three Dockerfiles updated (`shipping-service`'s and `refdata-service`'s own
       Dockerfiles needed zero edits — confirmed path-agnostic)

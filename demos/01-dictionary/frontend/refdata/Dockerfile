@@ -3,6 +3,7 @@
 FROM node:24-alpine AS build
 WORKDIR /repo
 COPY shared ./shared
+COPY demos/01-dictionary/shared ./demos/01-dictionary/shared
 COPY demos/01-dictionary/frontend/refdata ./demos/01-dictionary/frontend/refdata
 WORKDIR /repo/demos/01-dictionary/frontend/refdata
 RUN npm install && npm run build

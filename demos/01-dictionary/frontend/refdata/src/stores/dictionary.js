@@ -40,6 +40,19 @@ export const useDictionaryStore = defineStore('dictionary', {
     _source: null,
   }),
 
+  getters: {
+    // BR-D31: a domain-enum type's KV keys — items and _meta alike — live
+    // under the enum. namespace, so the SSE watch has to match the namespaced
+    // key for those types. Derived from the type's category rather than
+    // hardcoded per type, mirroring the backend's domain.KeyNamespace().
+    selectedTypeMetaKey(state) {
+      if (!state.selectedType) return ''
+      const type = state.types.find((t) => t.typeKey === state.selectedType)
+      const namespace = type?.category === 'domain-enum' ? 'enum.' : ''
+      return `${namespace}${state.selectedType}._meta`
+    },
+  },
+
   actions: {
     async connect() {
       this.disconnect()
@@ -56,7 +69,7 @@ export const useDictionaryStore = defineStore('dictionary', {
         try {
           const event = JSON.parse(msg.data)
           this.lastCacheEvent = { key: event.key, revision: event.revision, at: Date.now() }
-          if (event.key === `${this.selectedType}._meta`) this.refreshCacheStatus()
+          if (event.key === this.selectedTypeMetaKey) this.refreshCacheStatus()
         } catch {
           // ignore malformed/heartbeat frames
         }

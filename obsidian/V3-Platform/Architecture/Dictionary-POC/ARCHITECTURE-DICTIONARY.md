@@ -24,7 +24,7 @@ Seeded types, each a `DictionaryType` (`type_key`, `name`, `description`):
 | `uom` | UNECE Recommendation 20 unit codes (subset) | 12 |
 | `hazard-class` | UN dangerous goods hazard classes (complete) | 9 |
 | `ship-status` | AIS navigational status (mirrors backend `ShipStatus`) | 5 |
-| `ui-copy` | Port-UI chrome, actions, feedback, and accessibility copy | see `uiCopySeed` |
+| `string` | Port-UI chrome, actions, feedback, and accessibility copy | see `l10nSeed` |
 
 `ship-status` is the first Shipping-domain enum onboarded into refdata — its
 5 codes (`in-transit`, `docked`, `at-anchor`, `not-under-command`,
@@ -84,7 +84,7 @@ the reason to formalize categories.
 |---|---|---|---|---|
 | Standards-based reference data | currency, country, incoterm, uom, hazard-class | external standards (ISO 4217/3166, Incoterms, UNECE, UN) | data stewards | rarely change; adds are safe |
 | Domain enums | ship-status | the backend domain (`ShipStatus` consts) | developers own codes; stewards translate | ⚠️ adding/removing a code here is meaningless unless the domain emits it |
-| UI copy / i18n | ui-copy | the frontend | translators | keys owned by devs; only labels are translatable |
+| UI copy / domain-string | domain-string | the frontend | translators | keys owned by devs; only labels are translatable |
 
 The functionally critical line is **UI copy vs. everything else**: UI copy is
 not reference data at all, and must be namespaced so its keys never leak into
@@ -98,7 +98,7 @@ scopes *which data set*, category classifies *what kind of type* it is.
 ## Shipping UI Dictionary Map
 
 The Port UI uses the Dictionary service in two deliberately different ways:
-`ui-copy` owns all human-facing chrome, while `ship-status` owns the labels for
+`string` owns all human-facing chrome, while `ship-status` owns the labels for
 the one coded shipping enum the UI currently renders. The selected locale is
 shared across both paths. Free-form port names and client-derived container
 buckets are intentionally not Dictionary types.
@@ -114,7 +114,7 @@ Editable Draw.io source: [architecture-dictionary.drawio](architecture-dictionar
 ### Localized rendering lifecycle
 
 The generated fallback makes first paint deterministic. Once live data is
-available, `useUiCopy` and `useRefdataLabels` overlay the selected locale and
+available, `useL10nCopy` and `useRefdataLabels` overlay the selected locale and
 refresh after the KV-watch-backed SSE signal. The fallback is therefore a
 resilience layer, not a second editorial source.
 
@@ -180,13 +180,40 @@ backfill KV, then return. This is what `refdata` and most callers
 should use — it always resolves to something correct, and it's what keeps
 KV warm.
 
-**Path 3 — NATS KV directly.** Consumers embedded in another service (e.g.
-the shipping backend's `refdataconsumer.Lookup`) read the
-`refdata-{context}` bucket directly, keyed `{type_key}.{code}`, checking the
-entry's `version` against the type's `{type_key}._meta`. On a hit, no
-network call to refdata-service is needed at all — that's the point of the
-cache. On a miss or version mismatch, the consumer falls back to **Path 2**
-(REST), which also repairs the cache entry for the next reader.
+**Path 3 — NATS KV, refdata-service-internal only.** The `refdata-{context}`
+bucket is read cache-first inside the service's own handlers — both REST
+(Path 2) and `rpc.*` (see `ARCHITECTURE-COMMUNICATIONS.md` § 9) — checking a
+key's stamped `version` against its type's `_meta`, and backfilling from
+Postgres on a miss or mismatch. It is **not** a retrieval path for another
+service. Until Phase 12.12 the shipping backend's `refdataconsumer` read this
+bucket directly and fell back to REST; that was a bounded-context violation —
+one service reaching into another's internal datastore — and was removed
+(BR-D08/BR-D28). Cross-service reads go through `rpc.*` exclusively; the
+cache tier still serves them, but invisibly, from inside refdata-service.
+
+### KV Key Layout
+
+Keys are subject tokens, and the layout uses that (BR-D31):
+
+```
+{namespace}{type_key}.{code}    an item's cache entry
+{namespace}{type_key}._meta     the type's version/count stamp
+```
+
+`{namespace}` is `enum.` for a type whose category (BR-D09) is `domain-enum`,
+and empty for every other category — so `enum.ship-status.in-transit` and
+`enum.ship-status._meta`, but plain `currency.EUR` and `currency._meta`. A
+type's items and its stamp share one namespace, giving each type exactly one
+addressable subtree and each category one wildcard (`enum.>`) for watches and
+NATS permissions.
+
+The namespace is derived from the type's existing category via
+`kvcache.TypeNamespaces` (memoized, so a cache hit never costs a Postgres
+lookup) — items carry no namespace field of their own. This is deliberately
+key-prefix namespacing rather than bucket-per-type: a bucket is a JetStream
+stream, so per-type buckets would multiply to `contexts × types × versions`
+streams and make type registration a stream-admin operation, all to obtain
+filtering that prefixes already give. See BR-D31 for the full trade-off.
 
 **Not a retrieval path — the change stream.** The `REFDATA` JetStream stream
 carries only a pointer (`{context, type_key, code}` + the new version),
@@ -341,11 +368,14 @@ localizations are.
 
 ## Database Schema
 
-Own Postgres schema (`refdata`), same physical database (`dictionary`) as the
-shipping backend, no shared tables — `CREATE SCHEMA IF NOT EXISTS refdata`
-(`internal/postgres/migrate.go`). Postgres is the sole source of truth; NATS
-JetStream/KV are cache and change-notification only (see ARCHITECTURE.md §
-"Reference Data Service").
+Own Postgres schema (`refdata`) on its own Postgres *instance* — `refdata-postgres` in
+`docker-compose.yml`, a fully separate database server from the `postgres` container the shipping
+backend uses (tightened 2026-07-27; previously the same physical database, `dictionary`, with only
+schema-level separation). No shared tables, no shared instance — `CREATE SCHEMA IF NOT EXISTS
+refdata` (`internal/postgres/migrate.go`) runs against a database refdata-service exclusively owns.
+Postgres is the sole source of truth; NATS JetStream/KV are cache and change-notification only, and
+now the only infrastructure this service shares with the shipping backend at all (see
+ARCHITECTURE.md § "Reference Data Service").
 
 ```mermaid
 erDiagram

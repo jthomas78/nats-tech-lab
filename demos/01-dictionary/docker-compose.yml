@@ -1,17 +1,23 @@
+name: poc
+
 services:
   nats:
     image: nats:2.11-alpine
-    command: ["-js", "-sd", "/data", "-m", "8222"]
+    container_name: lb-nats
+    command: ["-c", "/etc/nats/nats.conf"]
     ports:
       - "4222:4222"
       - "8222:8222" # monitoring
+      - "9222:9222" # websocket (nats-ui, under review)
     networks:
       - backend
     volumes:
       - nats-data:/data
+      - ./nats/nats.conf:/etc/nats/nats.conf:ro
 
   postgres:
     image: postgres:16-alpine
+    container_name: lb-shipping-postgres
     environment:
       POSTGRES_USER: dict
       POSTGRES_PASSWORD: dict
@@ -28,8 +34,34 @@ services:
       timeout: 2s
       retries: 15
 
+  # refdata-service's own Postgres instance — deliberately separate from
+  # `postgres` above (not just a private schema on it) so refdata-service has
+  # no shared infrastructure with shipping-service beyond NATS, matching the
+  # database-per-service isolation level (BR-D28 already made backend-to-
+  # backend *calls* NATS-only; this closes the remaining shared-datastore gap
+  # — see Dictionary-Service-Plan.md Q1).
+  refdata-postgres:
+    image: postgres:16-alpine
+    container_name: lb-refdata-postgres
+    environment:
+      POSTGRES_USER: refdata
+      POSTGRES_PASSWORD: refdata
+      POSTGRES_DB: refdata
+    ports:
+      - "5433:5432"
+    networks:
+      - backend
+    volumes:
+      - pg-refdata-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U refdata -d refdata"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
   shipping-service:
     build: ./backend/shipping-service
+    container_name: lb-shipping-service
     networks:
       - backend
       - frontend
@@ -47,13 +79,16 @@ services:
 
   refdata-service:
     build: ./backend/refdata-service
+    container_name: lb-refdata-service
     networks:
       - backend
       - frontend
     environment:
-      # Same Postgres instance/database as `shipping-service`, own `refdata`
-      # schema — no shared tables (Phase 11, Dictionary-Service-Plan.md).
-      DATABASE_URL: postgres://dict:dict@postgres:5432/dictionary?sslmode=disable
+      # Own Postgres instance (`refdata-postgres`, not `postgres`) — no
+      # datastore of any kind is shared with `shipping-service` (Phase 11,
+      # Dictionary-Service-Plan.md; isolation tightened per the Q1 follow-up
+      # decision to go database-per-service rather than schema-per-service).
+      DATABASE_URL: postgres://refdata:refdata@refdata-postgres:5432/refdata?sslmode=disable
       # Same NATS server as `shipping-service` — used only for the KV cache
       # (refdata-{context}) and the bounded REFDATA change-event stream,
       # never as this service's source of truth (Q6).
@@ -64,15 +99,16 @@ services:
     depends_on:
       nats:
         condition: service_started
-      postgres:
+      refdata-postgres:
         condition: service_healthy
 
-  admin:
+  admin-frontend:
     build:
       # Context is the repo root so the build can copy the shared UniFi
       # theme preset (shared/unifi-theme) alongside the app source.
       context: ../..
       dockerfile: demos/01-dictionary/frontend/admin/Dockerfile
+    container_name: lb-admin-frontend
     ports:
       - "7100:80"
     networks:
@@ -80,10 +116,11 @@ services:
     depends_on:
       - shipping-service
 
-  seafreight-app:
+  shipping-frontend:
     build:
       context: ../..
       dockerfile: demos/01-dictionary/frontend/seafreight-app/Dockerfile
+    container_name: lb-shipping-frontend
     ports:
       - "7101:80"
     networks:
@@ -91,16 +128,84 @@ services:
     depends_on:
       - shipping-service
 
-  refdata:
+  refdata-frontend:
     build:
       context: ../..
       dockerfile: demos/01-dictionary/frontend/refdata/Dockerfile
+    container_name: lb-refdata-frontend
     ports:
       - "7102:80"
     networks:
       - frontend
     depends_on:
       - refdata-service
+
+  # Under review — third-party NATS monitoring UI, not part of the demo's
+  # own frontend set. Uses the published image directly: the upstream
+  # project's own compose file builds from local source (`context: ..`,
+  # `docker/Dockerfile`), which only resolves inside a checkout of that
+  # repo, not this one.
+  nats-ui:
+    image: ghcr.io/gastbob40/nats-ui:latest
+    container_name: nats-ui
+    ports:
+      - "7103:3000"
+    networks:
+      - backend
+    depends_on:
+      nats:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    environment:
+      - NODE_ENV=production
+
+  # Under review — alongside nats-ui above, for comparison. Unlike nats-ui
+  # (a browser-side app that connects to NATS directly over WebSocket from
+  # the client), NUI's server connects to NATS itself, so the connection
+  # (nats://nats:4222) is added from its UI, not an env var — it needs the
+  # `backend` network to reach that hostname.
+  nui:
+    image: ghcr.io/nats-nui/nui:latest
+    container_name: nui
+    ports:
+      - "7104:31311"
+    networks:
+      - backend
+    depends_on:
+      nats:
+        condition: service_started
+    restart: unless-stopped
+    volumes:
+      - nui-data:/db
+
+  # Under review — a third comparison alongside nats-ui/nui. Server-side
+  # app (Pocketbase/SQLite under the hood), so it needs the `backend`
+  # network to reach `nats:4222`; the connection itself is registered
+  # from its UI ("+ Add installation"), not an env var. Pinned to a
+  # semver tag per the project's own install docs, which warn against
+  # tracking `main`.
+  nats-tower:
+    image: ghcr.io/nats-tower/nats-tower:v0.6.0
+    # amd64-only image (no arm64 manifest as of v0.6.0) — force emulation
+    # on Apple Silicon. Fine for a review-only container.
+    platform: linux/amd64
+    container_name: nats-tower
+    command: ["serve", "--http", "0.0.0.0:8099"]
+    ports:
+      - "7105:8099"
+    networks:
+      - backend
+    depends_on:
+      nats:
+        condition: service_started
+    restart: unless-stopped
+    volumes:
+      - nats-tower-data:/pb_data
 
 networks:
   # Trust-tier split (not per-service-pair): anything needing NATS/Postgres
@@ -113,3 +218,6 @@ networks:
 volumes:
   nats-data:
   pg-data:
+  pg-refdata-data:
+  nui-data:
+  nats-tower-data:

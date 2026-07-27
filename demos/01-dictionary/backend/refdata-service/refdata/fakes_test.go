@@ -7,7 +7,20 @@ import (
 	"time"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
 )
+
+// newTestNamespaces builds a BR-D31 key-namespace resolver over a type
+// registry seeded with the given types. A type absent from the registry
+// resolves unnamespaced, so a suite that only exercises standards-category
+// types can pass none at all.
+func newTestNamespaces(types ...domain.DictionaryType) *kvcache.TypeNamespaces {
+	repo := newFakeTypeRepo()
+	for _, t := range types {
+		_ = repo.Register(context.Background(), t)
+	}
+	return kvcache.NewTypeNamespaces(repo)
+}
 
 type fakeItemRepo struct {
 	mu    sync.Mutex

@@ -3,15 +3,15 @@
 // specifiers relative to the importing file — a file outside the app root
 // can't resolve a second package the way @refdata's vue-only composables do.
 // Seeded with the bundled fallback catalog so chrome renders correctly
-// before useUiCopy's first fetch resolves; refdata then overlays the live
-// ui-copy catalog on top (passed into useUiCopy's connect()).
+// before useL10nCopy's first fetch resolves; refdata then overlays the live
+// l10n catalog on top (passed into useL10nCopy's connect()).
 import { createI18n } from 'vue-i18n'
 
-import { uiCopyFallbackEn } from '@refdata/uiCopyFallback.en.js'
+import { l10nFallbackEn } from '@refdata/l10nFallback.en.js'
 
 export const i18n = createI18n({
   legacy: false,
   locale: 'en',
   fallbackLocale: 'en',
-  messages: { en: { ...uiCopyFallbackEn } },
+  messages: { en: { ...l10nFallbackEn } },
 })

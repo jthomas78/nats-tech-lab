@@ -127,33 +127,33 @@ var _ = Describe("Dictionary Item Domain Rules", func() {
 	Context("BR-D18: an item's attrs can be replaced after creation", func() {
 		BeforeEach(func() {
 			_, err := h.RegisterItem(ctx, commands.ItemInput{
-				TypeKey: "ui-copy", Code: "app.title", Context: "emea-acme",
+				TypeKey: "l10n", Code: "app.title", Context: "emea-acme",
 				Attrs: map[string]any{"name": "Ship Management"},
 			})
 			Expect(err).NotTo(HaveOccurred())
 		})
 
 		It("replaces the entire attrs map, not a per-key merge", func() {
-			Expect(h.UpdateItemAttrs(ctx, "ui-copy", "emea-acme", "app.title",
+			Expect(h.UpdateItemAttrs(ctx, "l10n", "emea-acme", "app.title",
 				map[string]any{"name": "SeaFreight Flow"})).To(Succeed())
 
-			item, err := h.Get(ctx, "ui-copy", "emea-acme", "app.title")
+			item, err := h.Get(ctx, "l10n", "emea-acme", "app.title")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(item.Attrs).To(Equal(map[string]any{"name": "SeaFreight Flow"}))
 		})
 
 		It("returns ErrItemNotFound when updating attrs of an item that doesn't exist", func() {
-			err := h.UpdateItemAttrs(ctx, "ui-copy", "emea-acme", "does-not-exist", map[string]any{"name": "x"})
+			err := h.UpdateItemAttrs(ctx, "l10n", "emea-acme", "does-not-exist", map[string]any{"name": "x"})
 			Expect(errors.Is(err, domain.ErrItemNotFound)).To(BeTrue())
 		})
 
 		It("works on a deprecated item, mirroring BR-D06's read-regardless-of-status stance", func() {
-			Expect(h.DeprecateItem(ctx, "ui-copy", "emea-acme", "app.title")).To(Succeed())
+			Expect(h.DeprecateItem(ctx, "l10n", "emea-acme", "app.title")).To(Succeed())
 
-			Expect(h.UpdateItemAttrs(ctx, "ui-copy", "emea-acme", "app.title",
+			Expect(h.UpdateItemAttrs(ctx, "l10n", "emea-acme", "app.title",
 				map[string]any{"name": "SeaFreight Flow"})).To(Succeed())
 
-			item, err := h.Get(ctx, "ui-copy", "emea-acme", "app.title")
+			item, err := h.Get(ctx, "l10n", "emea-acme", "app.title")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(item.Status).To(Equal(domain.StatusDeprecated))
 			Expect(item.Attrs).To(Equal(map[string]any{"name": "SeaFreight Flow"}))
@@ -208,7 +208,7 @@ var _ = Describe("Dictionary Item Domain Rules", func() {
 		})
 
 		It("accepts a code containing '.' — KV-key charset, not a subject-token charset", func() {
-			_, err := h.RegisterItem(ctx, commands.ItemInput{TypeKey: "ui-copy", Code: "filter.none", Context: "emea-acme"})
+			_, err := h.RegisterItem(ctx, commands.ItemInput{TypeKey: "l10n", Code: "filter.none", Context: "emea-acme"})
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})

@@ -71,6 +71,25 @@ func (s *Store) Get(ctx context.Context, kvContext, key string) ([]byte, uint64,
 	return entry.Value(), entry.Revision(), nil
 }
 
+// Keys lists every key currently in the context's bucket — used by the
+// RPC handler's KV-first type-list path (BR-D08) to enumerate a type's
+// cached items without a Postgres round-trip.
+func (s *Store) Keys(ctx context.Context, kvContext string) ([]string, error) {
+	kv, err := s.Bucket(ctx, kvContext)
+	if err != nil {
+		return nil, err
+	}
+	lister, err := kv.ListKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var keys []string
+	for k := range lister.Keys() {
+		keys = append(keys, k)
+	}
+	return keys, nil
+}
+
 func (s *Store) Delete(ctx context.Context, kvContext, key string) error {
 	kv, err := s.Bucket(ctx, kvContext)
 	if err != nil {

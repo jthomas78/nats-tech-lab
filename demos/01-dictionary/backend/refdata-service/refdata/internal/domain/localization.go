@@ -11,6 +11,10 @@ var ErrInvalidLocaleFormat = errors.New("locale code must be lower case")
 // ErrInvalidSource — BR-D07: a localization's source must be "manual" or "ai".
 var ErrInvalidSource = errors.New(`source must be "manual" or "ai"`)
 
+// ErrDefaultLocaleNotSet — BR-D30: an item's default-locale localization
+// must be set before any other locale can be set for it.
+var ErrDefaultLocaleNotSet = errors.New("default locale must be set before any other locale for this item")
+
 // SourceManual and SourceAI are the only valid values of Localization.Source (BR-D07).
 const (
 	SourceManual = "manual"
@@ -59,6 +63,25 @@ type Localization struct {
 	// (false) on a Localization read any other way (e.g. from a repository
 	// listing), since resolution never happened for those.
 	IsFallback bool `json:"isFallback"`
+}
+
+// LocalizationValue is the per-locale payload stored in the KV cache entry,
+// stripped of the item-identifying fields (typeKey, code, context) that the
+// parent Entry.Item already carries, and of locale (already the map key) and
+// isFallback (only meaningful in ResolveLabel responses, never at rest).
+type LocalizationValue struct {
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	Source      string `json:"source"`
+}
+
+// ToValue strips the fields that are redundant inside an Entry's localizations map.
+func (l Localization) ToValue() LocalizationValue {
+	return LocalizationValue{
+		Label:       l.Label,
+		Description: l.Description,
+		Source:      l.Source,
+	}
 }
 
 // ImplicitDefaultLocale is the default locale a context falls back to when no

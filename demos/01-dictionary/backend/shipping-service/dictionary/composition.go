@@ -23,14 +23,15 @@ const (
 	//   dict-b    — Shape B ship cache
 	//   container — container projection (terminal queries read model)
 	//   meta      — cross-cutting lookup sets (known-containers)
-	//   refdata   — refdata-service's Q5 versioned-read cache (Phase 11.3
-	//               consumer demo; owned/written by refdata-service, this
-	//               module only reads it)
+	//
+	// There is deliberately no refdata-* entry here: refdata-service's KV
+	// cache is internal to that service (BR-D08) — this module reaches it
+	// only via rpc.* (refdataconsumer) and the REFDATA JetStream change-event
+	// stream (rest.watchRefdata), never the KV bucket directly.
 	shapeABucketPrefix    = "dict-a"
 	shapeBBucketPrefix    = "dict-b"
 	containerBucketPrefix = "container"
 	metaBucketPrefix      = "meta"
-	refdataBucketPrefix   = "refdata"
 )
 
 type Module struct{}
@@ -50,8 +51,7 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 	kvB := kvstore.New(js, shapeBBucketPrefix)
 	kvContainers := kvstore.New(js, containerBucketPrefix)
 	kvMeta := kvstore.New(js, metaBucketPrefix)
-	kvRefdata := kvstore.New(js, refdataBucketPrefix)
-	refdata := refdataconsumer.New(kvRefdata, mono.NC())
+	refdata := refdataconsumer.New(mono.NC())
 	shipRepo := postgres.NewRepository(mono.DB())
 	containerRepo := postgres.NewContainerRepository(mono.DB())
 	portRepo := postgres.NewPortRepository(mono.DB())
@@ -82,7 +82,6 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 		KVB:        kvB,
 		KVCont:     kvContainers,
 		KVMeta:     kvMeta,
-		KVRefdata:  kvRefdata,
 		Refdata:    refdata,
 		JS:         js,
 		NC:         mono.NC(),

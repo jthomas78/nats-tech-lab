@@ -11,6 +11,7 @@ import { computed, ref, watch } from 'vue'
 import { registerItem } from '../api'
 import { categoryLabel } from '../categories'
 import { codeFor, labelFor, statusFor } from '../itemFields'
+import { localeSelectOptions } from '../localization'
 import { useDictionaryStore } from '../stores/dictionary'
 import CacheSyncChip from './CacheSyncChip.vue'
 import ItemDetailPanel from './ItemDetailPanel.vue'
@@ -18,7 +19,11 @@ import ItemDetailPanel from './ItemDetailPanel.vue'
 const store = useDictionaryStore()
 const toast = useToast()
 
-const localeOptions = computed(() => ['', ...store.locales])
+// BR-D32: default locale first, marked. The blank "(code)" option isn't a
+// locale, so localeSelectOptions pins it above the list rather than sorting it.
+const localeOptions = computed(() =>
+  localeSelectOptions(store.locales, store.defaultLocale, { includeBlank: '(code)' }),
+)
 
 watch(() => store.showDeprecated, () => store.refreshItems())
 watch(() => store.selectedLocale, () => store.refreshItems())
@@ -104,10 +109,16 @@ async function submitAdd() {
             id="locale"
             v-model="store.selectedLocale"
             :options="localeOptions"
+            option-label="label"
+            option-value="value"
             size="small"
             placeholder="(code)"
             style="width: 7rem"
-          />
+          >
+            <template #value="{ value, placeholder }">
+              {{ value || placeholder }}
+            </template>
+          </Select>
           <label
             class="lab-muted"
             for="show-deprecated"

@@ -292,7 +292,7 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 			locs := newFakeLocalizationRepo()
 			locales := newFakeLocaleRepo()
 			versions := newFakeVersionRepo()
-			projector := kvcache.NewProjector(kv, items, locs, refs, versions, jstream.NewPublisher(js))
+			projector := kvcache.NewProjector(kv, items, locs, refs, versions, newTestNamespaces(domain.DictionaryType{TypeKey: "currency", Category: domain.CategoryStandards}), jstream.NewPublisher(js))
 
 			itemH := commands.NewItemHandler(items, refs, nil) // nil notifier: writes don't auto-project, so the cache starts cold
 			backfillLocH := commands.NewLocalizationHandler(items, locs, locales, nil)
@@ -319,6 +319,210 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 			var entry kvcache.Entry
 			Expect(json.Unmarshal(raw, &entry)).To(Succeed())
 			Expect(entry.Item.Code).To(Equal("EUR"))
+		})
+	})
+
+	Context("BR-D08: item.get and type.list serve from a warm KV cache without querying Postgres", func() {
+		It("resolves item.get from KV alone after the backing Postgres item has been deleted", func() {
+			// Same embedded-server / fake-repo convention as the BR-D27
+			// backfill test above — this needs a JetStream-backed KV bucket.
+			opts := &server.Options{JetStream: true, StoreDir: GinkgoT().TempDir(), Port: -1}
+			srv, err := server.NewServer(opts)
+			Expect(err).NotTo(HaveOccurred())
+			srv.Start()
+			DeferCleanup(srv.Shutdown)
+			Expect(srv.ReadyForConnections(10 * time.Second)).To(BeTrue())
+
+			jsNC, err := nats.Connect(srv.ClientURL(), nats.Name("refdata-service-natsrpc-kvfirst-test"))
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(jsNC.Close)
+
+			js, err := jetstream.New(jsNC)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = jstream.CreateChangeStream(ctx, js, kvcache.ChangeStreamName, []string{kvcache.ChangeSubjectWildcard}, time.Hour)
+			Expect(err).NotTo(HaveOccurred())
+
+			kv := kvstore.New(js, "refdata")
+			items := newFakeItemRepo()
+			refs := newFakeReferenceRepo()
+			locs := newFakeLocalizationRepo()
+			locales := newFakeLocaleRepo()
+			versions := newFakeVersionRepo()
+			projector := kvcache.NewProjector(kv, items, locs, refs, versions, newTestNamespaces(domain.DictionaryType{TypeKey: "currency", Category: domain.CategoryStandards}), jstream.NewPublisher(js))
+
+			kvFirstItemH := commands.NewItemHandler(items, refs, nil)
+			kvFirstLocH := commands.NewLocalizationHandler(items, locs, locales, nil)
+			_, err = kvFirstItemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: "EUR", Context: itemCtx})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(kvFirstLocH.SetLocalization(ctx, commands.LocalizationInput{
+				TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "en", Label: "Euro",
+			})).To(Succeed())
+
+			// Warm the cache from Postgres, then delete the item from
+			// Postgres entirely — if the RPC handler fell through to
+			// ResolveItem instead of reading the warm KV entry, this call
+			// would fail with ErrItemNotFound.
+			Expect(projector.Backfill(ctx, itemCtx, "currency", "EUR")).To(Succeed())
+			Expect(items.Delete(ctx, "currency", itemCtx, "EUR")).To(Succeed())
+			_, directErr := kvFirstLocH.ResolveItem(ctx, "currency", itemCtx, "EUR", "en")
+			Expect(directErr).To(HaveOccurred(), "sanity check: Postgres genuinely no longer has this item")
+
+			kvFirstAdapter, err := natsrpc.New(jsNC, natsrpc.Deps{Localizations: kvFirstLocH, Items: kvFirstItemH, Projector: projector})
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(kvFirstAdapter.Stop()).To(Succeed()) })
+
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "EUR", Locale: "en"})
+			Expect(err).NotTo(HaveOccurred())
+			msg, err := jsNC.Request(rpcSubject, reqBody, 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			var resp natsrpc.ItemGetResponse
+			Expect(json.Unmarshal(msg.Data, &resp)).To(Succeed())
+			Expect(resp.Item.Code).To(Equal("EUR"))
+			Expect(resp.Label).To(Equal("Euro"), "the label must come from the warm KV entry, not a (now-failing) Postgres read")
+		})
+
+		It("resolves type.list from a warm, complete KV cache without querying Postgres", func() {
+			opts := &server.Options{JetStream: true, StoreDir: GinkgoT().TempDir(), Port: -1}
+			srv, err := server.NewServer(opts)
+			Expect(err).NotTo(HaveOccurred())
+			srv.Start()
+			DeferCleanup(srv.Shutdown)
+			Expect(srv.ReadyForConnections(10 * time.Second)).To(BeTrue())
+
+			jsNC, err := nats.Connect(srv.ClientURL(), nats.Name("refdata-service-natsrpc-kvfirst-type-test"))
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(jsNC.Close)
+
+			js, err := jetstream.New(jsNC)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = jstream.CreateChangeStream(ctx, js, kvcache.ChangeStreamName, []string{kvcache.ChangeSubjectWildcard}, time.Hour)
+			Expect(err).NotTo(HaveOccurred())
+
+			kv := kvstore.New(js, "refdata")
+			items := newFakeItemRepo()
+			refs := newFakeReferenceRepo()
+			locs := newFakeLocalizationRepo()
+			locales := newFakeLocaleRepo()
+			versions := newFakeVersionRepo()
+			projector := kvcache.NewProjector(kv, items, locs, refs, versions, newTestNamespaces(domain.DictionaryType{TypeKey: "currency", Category: domain.CategoryStandards}), jstream.NewPublisher(js))
+
+			kvFirstItemH := commands.NewItemHandler(items, refs, nil)
+			kvFirstLocH := commands.NewLocalizationHandler(items, locs, locales, nil)
+			for code, label := range map[string]string{"EUR": "Euro", "GBP": "Pound Sterling"} {
+				_, err = kvFirstItemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: code, Context: itemCtx})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(kvFirstLocH.SetLocalization(ctx, commands.LocalizationInput{
+					TypeKey: "currency", Code: code, Context: itemCtx, Locale: "en", Label: label,
+				})).To(Succeed())
+				Expect(projector.Backfill(ctx, itemCtx, "currency", code)).To(Succeed())
+			}
+
+			// Delete both items from Postgres — a fall-through to
+			// ListAssignable would now return an empty list.
+			Expect(items.Delete(ctx, "currency", itemCtx, "EUR")).To(Succeed())
+			Expect(items.Delete(ctx, "currency", itemCtx, "GBP")).To(Succeed())
+			directItems, err := kvFirstItemH.ListAssignable(ctx, "currency", itemCtx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(directItems).To(BeEmpty(), "sanity check: Postgres genuinely has no items of this type left")
+
+			kvFirstAdapter, err := natsrpc.New(jsNC, natsrpc.Deps{Localizations: kvFirstLocH, Items: kvFirstItemH, Projector: projector})
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(kvFirstAdapter.Stop()).To(Succeed()) })
+
+			typeListSubject := "rpc." + itemCtx + ".refdata.type.list.v1"
+			reqBody, err := json.Marshal(natsrpc.TypeListRequest{TypeKey: "currency", Locale: "en"})
+			Expect(err).NotTo(HaveOccurred())
+			msg, err := jsNC.Request(typeListSubject, reqBody, 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			var resp natsrpc.TypeListResponse
+			Expect(json.Unmarshal(msg.Data, &resp)).To(Succeed())
+			labels := map[string]string{}
+			for _, item := range resp.Items {
+				labels[item.Item.Code] = item.Label
+			}
+			Expect(labels).To(Equal(map[string]string{"EUR": "Euro", "GBP": "Pound Sterling"}),
+				"both items' labels must come from the warm KV cache, not a (now-empty) Postgres list")
+		})
+	})
+
+	Context("BR-D29: obs.rpc.* is retained on RPCTRACE so a reconnecting Admin UI can catch up on the last 10 minutes", func() {
+		It("persists both the request and reply obs.rpc.* events, replayable after the RPC call completes, while still delivering them live", func() {
+			// This adapter needs its own JetStream-backed nc (unlike the
+			// plain core-NATS nc used by the rest of this file) — same
+			// embedded-server convention as the BR-D27 backfill test above.
+			opts := &server.Options{JetStream: true, StoreDir: GinkgoT().TempDir(), Port: -1}
+			srv, err := server.NewServer(opts)
+			Expect(err).NotTo(HaveOccurred())
+			srv.Start()
+			DeferCleanup(srv.Shutdown)
+			Expect(srv.ReadyForConnections(10 * time.Second)).To(BeTrue())
+
+			jsNC, err := nats.Connect(srv.ClientURL(), nats.Name("refdata-service-natsrpc-rpctrace-test"))
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(jsNC.Close)
+
+			js, err := jetstream.New(jsNC)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = jstream.CreateChangeStream(ctx, js, "RPCTRACE", []string{natsrpc.ObsSubjectWildcard}, time.Hour)
+			Expect(err).NotTo(HaveOccurred())
+
+			// A live core subscriber must still see both events — BR-D26's
+			// existing live-tail contract is unaffected by JetStream
+			// retention (a JetStream publish is still an ordinary NATS
+			// message on the wire).
+			liveMsgs := make(chan *nats.Msg, 8)
+			liveSub, err := jsNC.Subscribe(natsrpc.ObsSubjectWildcard, func(m *nats.Msg) { liveMsgs <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(liveSub.Unsubscribe()).To(Succeed()) })
+
+			rtAdapter, err := natsrpc.New(jsNC, natsrpc.Deps{Localizations: locH, Items: itemH, JS: js})
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(rtAdapter.Stop()).To(Succeed()) })
+
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "EUR", Locale: "en"})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = jsNC.Request(rpcSubject, reqBody, 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			for i := 0; i < 2; i++ {
+				select {
+				case <-liveMsgs:
+				case <-time.After(2 * time.Second):
+					Fail("timed out waiting for live obs.rpc.* events")
+				}
+			}
+
+			// The stream is what makes catch-up-on-reconnect possible: a
+			// fresh ordered consumer with DeliverAllPolicy, created well
+			// after the call completed (as a reconnecting tab would),
+			// must still see both events. PublishAsync's server ack isn't
+			// on the RPC reply's critical path, so this polls briefly
+			// rather than asserting synchronously.
+			Eventually(func() ([]string, error) {
+				consumer, err := js.OrderedConsumer(ctx, "RPCTRACE", jetstream.OrderedConsumerConfig{
+					DeliverPolicy: jetstream.DeliverAllPolicy,
+				})
+				if err != nil {
+					return nil, err
+				}
+				batch, err := consumer.FetchNoWait(10)
+				if err != nil {
+					return nil, err
+				}
+				var directions []string
+				for msg := range batch.Messages() {
+					var env struct {
+						Direction string `json:"direction"`
+					}
+					if err := json.Unmarshal(msg.Data(), &env); err != nil {
+						return nil, err
+					}
+					directions = append(directions, env.Direction)
+				}
+				return directions, batch.Error()
+			}, 2*time.Second, 20*time.Millisecond).Should(ConsistOf("request", "reply"))
 		})
 	})
 })
@@ -349,14 +553,14 @@ var _ = Describe("BR-D25/BR-D28: item.get-versioned is the rpc.* counterpart of 
 		Expect(err).NotTo(HaveOccurred())
 		kv := kvstore.New(js, "refdata")
 
-		materializer := kvcache.NewVersionMaterializer(kv)
+		materializer := kvcache.NewVersionMaterializer(kv, newTestNamespaces(domain.DictionaryType{TypeKey: "currency", Category: domain.CategoryStandards}))
 		Expect(materializer.Materialize(ctx, itemCtx, 1, []domain.CorpusItem{
 			{DictionaryItem: domain.DictionaryItem{TypeKey: "currency", Code: "EUR", Context: itemCtx, Status: domain.StatusActive}},
 		}, []domain.CorpusLocalization{
 			{Localization: domain.Localization{TypeKey: "currency", Code: "EUR", Context: itemCtx, Locale: "en", Label: "Euro"}},
 		}, 0)).To(Succeed())
 
-		versionReader := kvcache.NewVersionReader(kv)
+		versionReader := kvcache.NewVersionReader(kv, newTestNamespaces(domain.DictionaryType{TypeKey: "currency", Category: domain.CategoryStandards}))
 		adapter, err := natsrpc.New(nc, natsrpc.Deps{VersionReader: versionReader})
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(func() { Expect(adapter.Stop()).To(Succeed()) })
@@ -392,7 +596,7 @@ var _ = Describe("BR-D25/BR-D28: item.get-versioned is the rpc.* counterpart of 
 		js, err := jetstream.New(nc)
 		Expect(err).NotTo(HaveOccurred())
 		kv := kvstore.New(js, "refdata")
-		versionReader := kvcache.NewVersionReader(kv)
+		versionReader := kvcache.NewVersionReader(kv, newTestNamespaces(domain.DictionaryType{TypeKey: "currency", Category: domain.CategoryStandards}))
 
 		adapter, err := natsrpc.New(nc, natsrpc.Deps{VersionReader: versionReader})
 		Expect(err).NotTo(HaveOccurred())

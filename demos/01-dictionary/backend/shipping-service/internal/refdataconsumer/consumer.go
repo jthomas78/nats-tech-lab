@@ -1,27 +1,30 @@
-// Package refdataconsumer demonstrates the consuming side of the Q5
-// versioned-read protocol (Phase 11.3, Dictionary-Service-Plan.md): the
-// shipping backend reads the refdata-service's `refdata-{context}` KV cache
-// directly for the hot path, and on a miss/stale entry calls
-// refdata-service's rpc.* dual-transport adapter. This package has no
-// dependency on the refdata-service's Go code; it only agrees on the KV
-// bucket naming convention and NATS wire shapes, exactly as two independent
-// services would in the real platform.
+// Package refdataconsumer is the consuming side of refdata-service's rpc.*
+// dual-transport adapter (Phase 12.10/12.11) — this package has no
+// dependency on refdata-service's Go code; it only agrees on NATS wire
+// shapes, exactly as two independent services would in the real platform.
 //
-// Label resolution (Phase 11.6, BR-D08) is KV-first: the cached entry
-// already carries the per-locale localizations map, so the label is
-// resolved locally applying the BR-D03 fallback chain (requested locale →
-// bare language → default locale → code). Only a KV miss/stale entry calls
-// rpc.*, which resolves the label server-side via the authoritative
-// ResolveLabel. defaultLocale mirrors the locale refdata-service seeds as
-// the context default (see refdata-service Seed / BR-D03); this consumer is
+// Every read goes through rpc.* (BR-D08): refdata-service's own KV cache is
+// an internal read-through layer behind its RPC handler, not something a
+// consumer reaches into directly — reaching into another bounded context's
+// datastore couples this service to that store's shape (previously this
+// consumer read the `refdata-{context}` KV bucket directly, which meant a
+// refdata-service-internal cache shape change forced a coordinated update
+// here too). Label resolution for the plain (non-versioned) protocol is
+// resolved server-side by refdata-service's ResolveLabel and returned
+// pre-resolved in the RPC response. The versioned protocol
+// (LookupAtVersion) is the one exception: it always returns every locale
+// rather than a pre-resolved label, so this consumer still applies the
+// BR-D03 fallback chain locally against that response (resolveLabel below).
+// defaultLocale there mirrors the locale refdata-service seeds as the
+// context default (see refdata-service Seed / BR-D03); this consumer is
 // demo-scoped to that context.
 //
 // Phase 12.11 (BR-D28): this consumer is NATS-only. There is no REST
 // fallback and no REST-client coupling of any kind (no base URL, no
 // net/http client, no hostname/port config pointing at refdata-service) —
-// backend-to-backend calls in this repo go through rpc.* exclusively. On a
-// cache miss, a bounded number of retries (with backoff) is made against
-// rpc.*; if every retry fails, ErrRPCUnavailable is returned to the caller.
+// backend-to-backend calls in this repo go through rpc.* exclusively. A
+// bounded number of retries (with backoff) is made against rpc.* on every
+// call; if every retry fails, ErrRPCUnavailable is returned to the caller.
 // See obsidian/V3-Platform/Architecture/Dictionary-POC/
 // ARCHITECTURE-COMMUNICATIONS.md §7 for the full design.
 package refdataconsumer
@@ -35,8 +38,6 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
-
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 )
 
 var ErrNotFound = errors.New("refdata item not found")
@@ -51,36 +52,25 @@ var ErrRPCUnavailable = errors.New("refdata rpc: unavailable after retries")
 // locale refdata-service registers as the context default at seed time.
 const defaultLocale = "en"
 
-// localization is one locale's label, mirroring the fields this consumer
-// needs from refdata-service's domain.Localization.
+// localization is one locale's label/description, mirroring the fields this
+// consumer needs from refdata-service's domain.LocalizationValue.
 type localization struct {
-	Locale string `json:"locale"`
-	Label  string `json:"label"`
-}
-
-// cacheEntry mirrors refdata-service's kvcache.Entry — just the fields this
-// consumer needs. Localizations is keyed by locale (e.g. "en", "es").
-type cacheEntry struct {
-	Item struct {
-		Code   string         `json:"code"`
-		Status string         `json:"status"`
-		Attrs  map[string]any `json:"attrs"`
-	} `json:"item"`
-	Localizations map[string]localization `json:"localizations"`
-	Version       int                     `json:"version"`
+	Locale      string `json:"locale"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
 }
 
 // versionedCacheEntry mirrors refdata-service's kvcache.VersionedEntry
-// (Phase 12.5) — the per-corpus-version materialized item read from a
-// refdata-{context}-v{N} bucket when this consumer is pinned to a specific
-// version rather than always tracking the latest published one. It also
-// doubles as the wire shape for the rpc.* item.get-versioned response,
-// which returns this exact structure (Phase 12.11).
+// (Phase 12.5) — the wire shape of the rpc.* item.get-versioned response
+// (Phase 12.11), returned when this consumer is pinned to a specific corpus
+// version rather than always tracking the latest published one. No
+// Item.Label/Description — BR-D30 guarantees the default locale's entry
+// exists in Localizations whenever any exist, so this consumer resolves
+// both fields from there instead of a duplicated item-level field.
 type versionedCacheEntry struct {
 	Item struct {
-		Code   string         `json:"code"`
-		Status string         `json:"status"`
-		Attrs  map[string]any `json:"attrs"`
+		Code   string `json:"code"`
+		Status string `json:"status"`
 	} `json:"item"`
 	Localizations map[string]localization `json:"localizations"`
 	SourceContext string                  `json:"sourceContext"`
@@ -88,20 +78,21 @@ type versionedCacheEntry struct {
 	Version       int                     `json:"version"`
 }
 
-// metaEntry mirrors refdata-service's kvcache.MetaEntry.
-type metaEntry struct {
-	Version int `json:"version"`
+// Result is a resolved dictionary item. Source is always "rpc" — retained
+// as a field (rather than removed outright) so the REST demo layer that
+// surfaces it doesn't need a shape change; before this refactor it
+// distinguished a direct-KV-read hit from an rpc.* refetch, but every read
+// now goes through rpc.* (BR-D08).
+type Result struct {
+	Code        string
+	Status      string
+	Label       string
+	Description string
+	Source      string
 }
 
-// Result is a resolved dictionary item plus which path served it — the
-// consumer-side counterpart to Shape B's cache hit/miss demonstration.
-type Result struct {
-	Code   string
-	Status string
-	Label  string
-	Attrs  map[string]any
-	Source string // "kv-cache" | "rpc-refetch"
-}
+// rpcSource is the constant Source value every Result now carries.
+const rpcSource = "rpc"
 
 // Bounded retry defaults for rpc.* calls (Phase 12.11, BR-D28) — no REST
 // fallback exists, so these bound how long a caller waits before getting
@@ -113,13 +104,13 @@ const (
 	defaultRPCBackoff        = 150 * time.Millisecond
 )
 
-// Consumer reads dictionary items via the Q5 versioned-read protocol,
-// re-fetching from refdata-service over rpc.* on a cache miss/stale entry.
-// It holds a NATS connection and nothing else (BR-D28: backend services
-// should only be aware of NATS for inter-service calls) — no HTTP client,
-// no base URL, no hostname/port config pointing at refdata-service.
+// Consumer reads dictionary items exclusively via refdata-service's rpc.*
+// dual-transport adapter (BR-D08). It holds a NATS connection and nothing
+// else (BR-D28: backend services should only be aware of NATS for
+// inter-service calls) — no HTTP client, no base URL, no hostname/port
+// config pointing at refdata-service, and no direct dependency on
+// refdata-service's KV cache (that cache is internal to refdata-service).
 type Consumer struct {
-	kv *kvstore.Store // bucket prefix "refdata"
 	nc *nats.Conn
 
 	rpcRequestTimeout time.Duration
@@ -144,9 +135,8 @@ func WithRPCRetries(n int) Option { return func(c *Consumer) { c.rpcRetries = n 
 // (default 150ms, scaled linearly by attempt number).
 func WithRPCBackoff(d time.Duration) Option { return func(c *Consumer) { c.rpcBackoff = d } }
 
-func New(kv *kvstore.Store, nc *nats.Conn, opts ...Option) *Consumer {
+func New(nc *nats.Conn, opts ...Option) *Consumer {
 	c := &Consumer{
-		kv:                kv,
 		nc:                nc,
 		rpcRequestTimeout: defaultRPCRequestTimeout,
 		rpcRetries:        defaultRPCRetries,
@@ -158,82 +148,26 @@ func New(kv *kvstore.Store, nc *nats.Conn, opts ...Option) *Consumer {
 	return c
 }
 
-// Lookup resolves one item and its label for the requested locale. It reads
-// the KV cache entry and the type's _meta in the same call; if the entry's
-// stamped version doesn't match the set's current version (or either key is
-// missing), it re-fetches via rpc.* — the source of truth, which also
-// backfills the cache for the next reader (BR-D27). On a KV hit the label is
-// resolved locally from the cached localizations map (BR-D03 fallback); an
-// empty locale skips label resolution.
+// Lookup resolves one item and its label for the requested locale via
+// rpc.*.refdata.item.get.v1 — refdata-service resolves the label
+// server-side (BR-D08).
 func (c *Consumer) Lookup(ctx context.Context, itemContext, typeKey, code, locale string) (Result, error) {
-	if entry, ok := c.readCache(ctx, itemContext, typeKey, code); ok {
-		return Result{
-			Code:   entry.Item.Code,
-			Status: entry.Item.Status,
-			Label:  resolveLabel(entry.Localizations, locale, code),
-			Attrs:  entry.Item.Attrs,
-			Source: "kv-cache",
-		}, nil
-	}
 	return c.fetchViaRPC(ctx, itemContext, typeKey, code, locale)
 }
 
-// ResolveType resolves every item of a type for the requested locale. It
-// enumerates the bucket's keys (KV-first), resolving each item through
-// Lookup so per-item cache-hit/refetch semantics still apply. If the bucket
-// is absent or empty it falls back to the rpc.* type.list endpoint.
+// ResolveType resolves every item of a type for the requested locale via
+// rpc.*.refdata.type.list.v1.
 func (c *Consumer) ResolveType(ctx context.Context, itemContext, typeKey, locale string) ([]Result, error) {
-	keys, err := c.kv.Keys(ctx, itemContext)
-	if err == nil {
-		prefix := typeKey + "."
-		metaKey := typeKey + "._meta"
-		var results []Result
-		for _, k := range keys {
-			if k == metaKey || !strings.HasPrefix(k, prefix) {
-				continue
-			}
-			code := strings.TrimPrefix(k, prefix)
-			res, lookupErr := c.Lookup(ctx, itemContext, typeKey, code, locale)
-			if lookupErr != nil {
-				continue
-			}
-			results = append(results, res)
-		}
-		if len(results) > 0 {
-			return results, nil
-		}
-	}
 	return c.fetchTypeViaRPC(ctx, itemContext, typeKey, locale)
 }
 
-// LookupAtVersion resolves one item at a PINNED corpus version — the
-// version-pinning half of cross-service consumption (old and new corpus
-// versions coexist indefinitely; a consumer pinned to version N keeps
-// reading exactly that snapshot until it explicitly re-pins to a newer
-// one). KV-first against the refdata-{context}-v{N} bucket refdata-service
-// eagerly materializes on publish (Phase 12.5); a miss calls rpc.*'s
-// item.get-versioned endpoint, which also keeps the bucket warm via the
-// server's own rewrite-on-read.
+// LookupAtVersion resolves one item at a PINNED corpus version via
+// rpc.*.refdata.item.get-versioned.v1 — the version-pinning half of
+// cross-service consumption (old and new corpus versions coexist
+// indefinitely; a consumer pinned to version N keeps reading exactly that
+// snapshot until it explicitly re-pins to a newer one).
 func (c *Consumer) LookupAtVersion(ctx context.Context, itemContext string, version int, typeKey, code, locale string) (Result, error) {
-	if entry, ok := c.readVersionedCache(ctx, itemContext, version, typeKey, code); ok {
-		return Result{
-			Code:   entry.Item.Code,
-			Status: entry.Item.Status,
-			Label:  resolveLabel(entry.Localizations, locale, code),
-			Attrs:  entry.Item.Attrs,
-			Source: "kv-cache",
-		}, nil
-	}
 	return c.fetchVersionedViaRPC(ctx, itemContext, version, typeKey, code, locale)
-}
-
-func (c *Consumer) readVersionedCache(ctx context.Context, itemContext string, version int, typeKey, code string) (versionedCacheEntry, bool) {
-	var entry versionedCacheEntry
-	raw, _, err := c.kv.GetVersioned(ctx, itemContext, version, typeKey+"."+code)
-	if err != nil || json.Unmarshal(raw, &entry) != nil {
-		return versionedCacheEntry{}, false
-	}
-	return entry, true
 }
 
 // rpcItemGetVersionedRequest is the rpc.{context}.refdata.item.get-versioned.v1
@@ -267,12 +201,13 @@ func (c *Consumer) fetchVersionedViaRPC(ctx context.Context, itemContext string,
 	if err := json.Unmarshal(data, &entry); err != nil {
 		return Result{}, err
 	}
+	resolved := resolveLocalization(entry.Localizations, locale, entry.Item.Code)
 	return Result{
-		Code:   entry.Item.Code,
-		Status: entry.Item.Status,
-		Label:  resolveLabel(entry.Localizations, locale, entry.Item.Code),
-		Attrs:  entry.Item.Attrs,
-		Source: "rpc-refetch",
+		Code:        entry.Item.Code,
+		Status:      entry.Item.Status,
+		Label:       resolved.Label,
+		Description: resolved.Description,
+		Source:      rpcSource,
 	}, nil
 }
 
@@ -282,46 +217,63 @@ type rpcLocalesListResponse struct {
 	DefaultLocale string   `json:"defaultLocale"`
 }
 
+// LocalesResult is the context's locale registry as this service sees it. The
+// default locale is carried alongside the list, not dropped: BR-D32 requires
+// every UI locale list to sort the default first and mark it as the default,
+// which a bare []string can't express.
+type LocalesResult struct {
+	Locales       []string
+	DefaultLocale string
+}
+
 // Locales returns the locales registered for the context. Locales live in
 // refdata-service's Postgres (not the KV cache), so this always calls
 // rpc.*'s locales.list endpoint — it is config, not a hot-path lookup, and
 // has no KV-cache tier of its own.
-func (c *Consumer) Locales(ctx context.Context, itemContext string) ([]string, error) {
+func (c *Consumer) Locales(ctx context.Context, itemContext string) (LocalesResult, error) {
 	subject := fmt.Sprintf("rpc.%s.refdata.locales.list.v1", itemContext)
 	data, err := c.requestRPC(ctx, subject, nil)
 	if err != nil {
-		return nil, err
+		return LocalesResult{}, err
 	}
 	if err := checkRPCError(data); err != nil {
-		return nil, err
+		return LocalesResult{}, err
 	}
 	var resp rpcLocalesListResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, err
+		return LocalesResult{}, err
 	}
-	return resp.Locales, nil
+	return LocalesResult{Locales: resp.Locales, DefaultLocale: resp.DefaultLocale}, nil
 }
 
-// resolveLabel implements the BR-D03 fallback chain locally against a cached
-// localizations map: requested locale → bare language (es-ES → es) → default
-// locale → the code itself. It deliberately mirrors refdata-service's
-// ResolveLabel rather than importing it (the two services share only a wire
-// shape); BR-D08's test guards against divergence.
-func resolveLabel(locs map[string]localization, requested, code string) string {
+// resolvedLocalization is the label+description resolveLocalization returns
+// after applying the BR-D03 fallback chain.
+type resolvedLocalization struct {
+	Label       string
+	Description string
+}
+
+// resolveLocalization implements the BR-D03 fallback chain locally against a
+// cached localizations map: requested locale → bare language (es-ES → es) →
+// default locale → the code itself (with no description). It deliberately
+// mirrors refdata-service's ResolveLabel rather than importing it (the two
+// services share only a wire shape); BR-D08's test guards against
+// divergence.
+func resolveLocalization(locs map[string]localization, requested, code string) resolvedLocalization {
 	if requested != "" {
 		if l, ok := locs[requested]; ok && l.Label != "" {
-			return l.Label
+			return resolvedLocalization{Label: l.Label, Description: l.Description}
 		}
 		if lang := languageOf(requested); lang != requested {
 			if l, ok := locs[lang]; ok && l.Label != "" {
-				return l.Label
+				return resolvedLocalization{Label: l.Label, Description: l.Description}
 			}
 		}
 	}
 	if l, ok := locs[defaultLocale]; ok && l.Label != "" {
-		return l.Label
+		return resolvedLocalization{Label: l.Label, Description: l.Description}
 	}
-	return code
+	return resolvedLocalization{Label: code}
 }
 
 func languageOf(locale string) string {
@@ -329,28 +281,6 @@ func languageOf(locale string) string {
 		return locale[:i]
 	}
 	return locale
-}
-
-// readCache returns the cache entry only if it exists AND its stamped
-// version matches the type's current _meta version — a stale entry (the
-// versioned-read protocol's mismatch case) is treated the same as a miss.
-func (c *Consumer) readCache(ctx context.Context, itemContext, typeKey, code string) (cacheEntry, bool) {
-	var entry cacheEntry
-	entryRaw, _, err := c.kv.Get(ctx, itemContext, typeKey+"."+code)
-	if err != nil || json.Unmarshal(entryRaw, &entry) != nil {
-		return cacheEntry{}, false
-	}
-
-	var meta metaEntry
-	metaRaw, _, err := c.kv.Get(ctx, itemContext, typeKey+"._meta")
-	if err != nil || json.Unmarshal(metaRaw, &meta) != nil {
-		return cacheEntry{}, false
-	}
-
-	if meta.Version != entry.Version {
-		return cacheEntry{}, false // stale — the set moved on since this entry was cached
-	}
-	return entry, true
 }
 
 // rpcItemGetRequest/rpcItemGetResponse mirror refdata-service's
@@ -395,11 +325,11 @@ func (c *Consumer) fetchViaRPC(ctx context.Context, itemContext, typeKey, code, 
 		return Result{}, err
 	}
 	return Result{
-		Code:   resp.Item.Code,
-		Status: resp.Item.Status,
-		Label:  labelOrCode(resp.Label, resp.Item.Code),
-		Attrs:  resp.Item.Attrs,
-		Source: "rpc-refetch",
+		Code:        resp.Item.Code,
+		Status:      resp.Item.Status,
+		Label:       labelOrCode(resp.Label, resp.Item.Code),
+		Description: resp.Description,
+		Source:      rpcSource,
 	}, nil
 }
 
@@ -450,8 +380,7 @@ func (c *Consumer) fetchTypeViaRPC(ctx context.Context, itemContext, typeKey, lo
 			Code:   item.Item.Code,
 			Status: item.Item.Status,
 			Label:  labelOrCode(item.Label, item.Item.Code),
-			Attrs:  item.Item.Attrs,
-			Source: "rpc-refetch",
+			Source: rpcSource,
 		})
 	}
 	return results, nil

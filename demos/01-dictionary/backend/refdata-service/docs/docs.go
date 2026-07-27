@@ -411,7 +411,7 @@ const docTemplate = `{
         },
         "/api/refdata/admin/types": {
             "post": {
-                "description": "Registers (or updates the name/description/category of) a dictionary type, e.g. \"currency\". Category (BR-D09) must be one of \"standards\", \"domain-enum\", \"ui-copy\", \"config\".",
+                "description": "Registers (or updates the name/description/category of) a dictionary type, e.g. \"currency\". Category (BR-D09) must be one of \"standards\", \"domain-enum\", \"l10n\", \"config\".",
                 "consumes": [
                     "application/json"
                 ],
@@ -993,7 +993,7 @@ const docTemplate = `{
             "enum": [
                 "standards",
                 "domain-enum",
-                "ui-copy",
+                "domain-string",
                 "config"
             ],
             "x-enum-comments": {
@@ -1008,7 +1008,7 @@ const docTemplate = `{
             "x-enum-varnames": [
                 "CategoryStandards",
                 "CategoryDomainEnum",
-                "CategoryUICopy",
+                "CategoryDomainString",
                 "CategoryConfig"
             ]
         },

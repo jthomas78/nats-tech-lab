@@ -1,5 +1,5 @@
 // GENERATED from backend/refdata-service/refdata/seed.go by npm run gen:i18n. DO NOT EDIT.
-export const uiCopyFallbackEn = {
+export const l10nFallbackEn = {
   "filter.all": "All",
   "nav.language": "Language",
   "nav.fleetManagement": "Fleet Management",

@@ -21,6 +21,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/application/commands"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvstore"
@@ -71,7 +72,7 @@ var _ = Describe("KV cache + versioned-read protocol (Phase 11.3)", func() {
 		refs = newFakeReferenceRepo()
 		locs = newFakeLocalizationRepo()
 		versions = newFakeVersionRepo()
-		projector = kvcache.NewProjector(kv, items, locs, refs, versions, jstream.NewPublisher(js))
+		projector = kvcache.NewProjector(kv, items, locs, refs, versions, newTestNamespaces(domain.DictionaryType{TypeKey: "currency", Category: domain.CategoryStandards}), jstream.NewPublisher(js))
 		itemH = commands.NewItemHandler(items, refs, projector)
 	})
 
@@ -187,6 +188,120 @@ var _ = Describe("KV cache + versioned-read protocol (Phase 11.3)", func() {
 
 		_, _, err = kv.Get(ctx, itemCtx, "currency.EUR")
 		Expect(err).To(HaveOccurred())
+	})
+})
+
+var _ = Describe("BR-D31: a domain-enum type's KV entries are keyed under the enum. namespace", func() {
+	const itemCtx = "emea-acme"
+
+	var (
+		ctx       context.Context
+		kv        *kvstore.Store
+		items     *fakeItemRepo
+		projector *kvcache.Projector
+		itemH     *commands.ItemHandler
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		js := newRefdataJetStream()
+		kv = kvstore.New(js, "refdata")
+		items = newFakeItemRepo()
+		refs := newFakeReferenceRepo()
+		locs := newFakeLocalizationRepo()
+		versions := newFakeVersionRepo()
+		namespaces := newTestNamespaces(
+			domain.DictionaryType{TypeKey: "ship-status", Category: domain.CategoryDomainEnum},
+			domain.DictionaryType{TypeKey: "currency", Category: domain.CategoryStandards},
+		)
+		projector = kvcache.NewProjector(kv, items, locs, refs, versions, namespaces, jstream.NewPublisher(js))
+		itemH = commands.NewItemHandler(items, refs, projector)
+	})
+
+	It("writes an enum item's entry to enum.{type}.{code}, not {type}.{code}", func() {
+		_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "ship-status", Code: "in-transit", Context: itemCtx})
+		Expect(err).NotTo(HaveOccurred())
+
+		raw, _, err := kv.Get(ctx, itemCtx, "enum.ship-status.in-transit")
+		Expect(err).NotTo(HaveOccurred())
+		var entry kvcache.Entry
+		Expect(json.Unmarshal(raw, &entry)).To(Succeed())
+		Expect(entry.Item.Code).To(Equal("in-transit"))
+		Expect(entry.Item.TypeKey).To(Equal("ship-status"))
+
+		_, _, err = kv.Get(ctx, itemCtx, "ship-status.in-transit")
+		Expect(err).To(HaveOccurred(), "the unnamespaced key must not be written")
+	})
+
+	It("keeps an enum type's _meta stamp in the same namespace as its items", func() {
+		_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "ship-status", Code: "docked", Context: itemCtx})
+		Expect(err).NotTo(HaveOccurred())
+
+		raw, _, err := kv.Get(ctx, itemCtx, "enum.ship-status._meta")
+		Expect(err).NotTo(HaveOccurred())
+		var meta kvcache.MetaEntry
+		Expect(json.Unmarshal(raw, &meta)).To(Succeed())
+		Expect(meta.ItemCount).To(Equal(1))
+
+		_, _, err = kv.Get(ctx, itemCtx, "ship-status._meta")
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("puts the whole type under one enum.{type}.> subtree — nothing of it escapes the namespace", func() {
+		for _, code := range []string{"docked", "in-transit"} {
+			_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "ship-status", Code: code, Context: itemCtx})
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		keys, err := kv.Keys(ctx, itemCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(keys).To(ConsistOf(
+			"enum.ship-status.docked",
+			"enum.ship-status.in-transit",
+			"enum.ship-status._meta",
+		))
+	})
+
+	It("leaves a non-enum category unnamespaced", func() {
+		_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: "EUR", Context: itemCtx})
+		Expect(err).NotTo(HaveOccurred())
+
+		_, _, err = kv.Get(ctx, itemCtx, "currency.EUR")
+		Expect(err).NotTo(HaveOccurred())
+		_, _, err = kv.Get(ctx, itemCtx, "enum.currency.EUR")
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("reads an enum type back through the same namespace — ReadEntry and ReadType agree with the write path", func() {
+		_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "ship-status", Code: "in-transit", Context: itemCtx})
+		Expect(err).NotTo(HaveOccurred())
+
+		entry, err := projector.ReadEntry(ctx, itemCtx, "ship-status", "in-transit")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(entry).NotTo(BeNil(), "a namespaced entry must be found by the KV-first read path")
+		Expect(entry.Item.Code).To(Equal("in-transit"))
+
+		entries, ok := projector.ReadType(ctx, itemCtx, "ship-status")
+		Expect(ok).To(BeTrue())
+		Expect(entries).To(HaveLen(1))
+		Expect(entries[0].Item.Code).To(Equal("in-transit"))
+	})
+
+	It("removes the namespaced key when an enum item is deleted", func() {
+		_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "ship-status", Code: "docked", Context: itemCtx})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(itemH.DeleteItem(ctx, "ship-status", itemCtx, "docked")).To(Succeed())
+
+		_, _, err = kv.Get(ctx, itemCtx, "enum.ship-status.docked")
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("falls back to the unnamespaced key for a type that is not registered in the type registry", func() {
+		_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "unregistered", Code: "X", Context: itemCtx})
+		Expect(err).NotTo(HaveOccurred())
+
+		_, _, err = kv.Get(ctx, itemCtx, "unregistered.X")
+		Expect(err).NotTo(HaveOccurred())
 	})
 })
 

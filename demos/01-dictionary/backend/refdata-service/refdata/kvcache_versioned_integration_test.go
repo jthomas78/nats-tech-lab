@@ -58,8 +58,11 @@ var _ = Describe("Hybrid KV materialization for corpus versions (Phase 12.5, NAT
 		contexts = postgres.NewContextRepository(integrationDB)
 		corpus = postgres.NewCorpusRepository(integrationDB)
 		kv = kvstore.New(newEmbeddedJetStream(), "refdata-it")
-		notifier = kvcache.NewVersionNotifier(kv, corpus)
-		reader = kvcache.NewVersionReader(kv)
+		// One shared resolver: the write side (materializer) and read side
+		// (reader) must agree on each type's BR-D31 key namespace.
+		namespaces := newTestNamespaces(domain.DictionaryType{TypeKey: "currency", Category: domain.CategoryStandards})
+		notifier = kvcache.NewVersionNotifier(kv, corpus, namespaces)
+		reader = kvcache.NewVersionReader(kv, namespaces)
 	})
 
 	It("eagerly materializes a published version's flattened content, including inherited items and their localizations", func() {
@@ -83,7 +86,6 @@ var _ = Describe("Hybrid KV materialization for corpus versions (Phase 12.5, NAT
 
 		entry, err := reader.Get(context.Background(), child, childPublished.Version, "currency", "usd")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(entry.Item.Attrs["name"]).To(Equal("US Dollar"))
 		Expect(entry.SourceContext).To(Equal(parent))
 		Expect(entry.IsOverride).To(BeFalse())
 		Expect(entry.Localizations).To(HaveKey("en"))
@@ -99,6 +101,7 @@ var _ = Describe("Hybrid KV materialization for corpus versions (Phase 12.5, NAT
 		Expect(contexts.Register(context.Background(), domain.Context{Context: ctxName, Name: ctxName})).To(Succeed())
 
 		Expect(seedWorkingItem(integrationDB, ctxName, "currency", "usd", map[string]any{"name": "v1"})).To(Succeed())
+		Expect(seedWorkingLocalization(integrationDB, ctxName, "currency", "usd", "en", "v1")).To(Succeed())
 		_, err := corpus.CreateDraft(context.Background(), ctxName, "v1")
 		Expect(err).NotTo(HaveOccurred())
 		v1, err := corpus.Publish(context.Background(), ctxName)
@@ -112,6 +115,7 @@ var _ = Describe("Hybrid KV materialization for corpus versions (Phase 12.5, NAT
 		Expect(v1Status.TTL()).To(Equal(time.Duration(0)))
 
 		Expect(seedWorkingItem(integrationDB, ctxName, "currency", "usd", map[string]any{"name": "v2"})).To(Succeed())
+		Expect(seedWorkingLocalization(integrationDB, ctxName, "currency", "usd", "en", "v2")).To(Succeed())
 		_, err = corpus.CreateDraft(context.Background(), ctxName, "v2")
 		Expect(err).NotTo(HaveOccurred())
 		v2, err := corpus.Publish(context.Background(), ctxName)
@@ -135,11 +139,11 @@ var _ = Describe("Hybrid KV materialization for corpus versions (Phase 12.5, NAT
 		// expire out from under an active pin.
 		entry, err := reader.Get(context.Background(), ctxName, v1.Version, "currency", "usd")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(entry.Item.Attrs["name"]).To(Equal("v1"))
+		Expect(entry.Localizations["en"].Label).To(Equal("v1"))
 
 		entryV2, err := reader.Get(context.Background(), ctxName, v2.Version, "currency", "usd")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(entryV2.Item.Attrs["name"]).To(Equal("v2"))
+		Expect(entryV2.Localizations["en"].Label).To(Equal("v2"))
 	})
 
 	It("returns ErrVersionedKeyNotFound for an unknown version or item", func() {

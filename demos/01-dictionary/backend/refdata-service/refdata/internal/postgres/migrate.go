@@ -6,8 +6,8 @@ import (
 )
 
 // Migrate creates the refdata schema and its tables if they don't already
-// exist. Own schema, own tables — no changes to the shipping backend's
-// tables in the same Postgres instance.
+// exist. Own schema, own tables, own Postgres instance — no datastore of any
+// kind is shared with the shipping backend.
 func Migrate(ctx context.Context, db *sql.DB) error {
 	statements := []string{
 		`CREATE SCHEMA IF NOT EXISTS refdata`,

@@ -36,6 +36,13 @@ const singular = computed(() => {
 
 const selectedMeta = computed(() => store.types.find((t) => t.typeKey === store.selectedType))
 
+// The `domain-string` category is a single fixed type (there's no concept of
+// registering additional "string" groups the way enum types get registered) —
+// unlike `domain-enum`, which this same panel serves unchanged. Hide the
+// type-registration pane entirely for that category rather than adding a
+// second "no add" mode to it.
+const showTypeList = computed(() => store.selectedCategory !== 'domain-string')
+
 // Values vs bulk Translation Matrix (Phase 11.11). Reset to Values whenever
 // the selected type changes so switching enums doesn't strand the admin on a
 // half-loaded matrix for the previous type.
@@ -279,14 +286,21 @@ async function submitDuplicate() {
 
 <template>
   <div class="lab-panel category-view fill-height">
-    <div class="category-head">
+    <div
+      v-if="showTypeList"
+      class="category-head"
+    >
       <h3>{{ categoryLabel(store.selectedCategory) }}</h3>
       <span class="lab-muted type-count">{{ types.length }} {{ types.length === 1 ? 'type' : 'types' }}</span>
     </div>
 
-    <div class="master-detail">
-      <!-- Left: the scrollable list of types in this category. -->
-      <div class="type-pane">
+    <div :class="['master-detail', { 'single-pane': !showTypeList }]">
+      <!-- Left: the scrollable list of types in this category. Not shown for
+           domain-string — it's a single fixed type, nothing to register. -->
+      <div
+        v-if="showTypeList"
+        class="type-pane"
+      >
         <Button
           class="register-btn"
           icon="pi pi-plus"
@@ -718,6 +732,9 @@ async function submitDuplicate() {
   gap: 0.75rem;
   flex: 1;
   min-height: 0;
+}
+.master-detail.single-pane {
+  grid-template-columns: 1fr;
 }
 .category-view {
   min-height: 0;

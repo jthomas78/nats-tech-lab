@@ -3,7 +3,10 @@
 A standalone Go service providing shared reference/master data — currencies,
 countries, Incoterms, units of measure, hazard classes, and shipping-domain
 enums like `ship-status` — with per-locale labels, typed cross-references,
-and a versioned NATS-KV read cache in front of its own Postgres schema.
+and a versioned NATS-KV read cache in front of its own Postgres instance
+(`refdata-postgres` in `docker-compose.yml` — a separate database server from
+the one `shipping-service` uses, not just a private schema on a shared one).
+NATS is the only infrastructure this service shares with `shipping-service`.
 
 It is plain Postgres CRUD, not event-sourced: nothing here ever needs to
 replay a lookup value's history, only its current value. NATS JetStream/KV
@@ -36,7 +39,7 @@ service's data.
 `refdata/seed.go`) runs on every `refdata-service` boot and is per-item
 idempotent — it inserts new keys and leaves existing ones alone — but it
 only runs when the process actually starts. A long-running container from
-before a `seed.go` change (e.g. new `ui-copy` keys) keeps serving the old
+before a `seed.go` change (e.g. new `string` keys) keeps serving the old
 catalog indefinitely; `docker compose up` with no flags won't rebuild an
 image that already exists. After changing `seed.go`, rebuild and recreate
 the container, then restart `shipping-service` too so its KV cache/`refdataconsumer`
@@ -54,11 +57,13 @@ couple of strings (whatever was seeded when the container last started)
 and silently leaves the rest in English.
 
 **Standalone, outside Docker** (useful for hot-reload during development).
-Requires Postgres and NATS already running — the easiest way is via compose:
+Requires its own Postgres (`refdata-postgres`, port `5433` — not the
+`postgres` container `shipping-service` uses) and NATS already running — the
+easiest way is via compose:
 
 ```bash
 cd demos/01-dictionary
-docker compose up nats postgres
+docker compose up nats refdata-postgres
 ```
 
 Then, in a separate terminal:
@@ -66,7 +71,7 @@ Then, in a separate terminal:
 ```bash
 cd demos/01-dictionary/backend/refdata-service
 NATS_URL=nats://localhost:4222 \
-DATABASE_URL="postgres://dict:dict@localhost:5432/dictionary?sslmode=disable" \
+DATABASE_URL="postgres://refdata:refdata@localhost:5433/refdata?sslmode=disable" \
 go run ./cmd
 ```
 
@@ -77,7 +82,7 @@ give refdata-service a different port:
 ```bash
 cd demos/01-dictionary/backend/refdata-service
 NATS_URL=nats://localhost:4222 \
-DATABASE_URL="postgres://dict:dict@localhost:5432/dictionary?sslmode=disable" \
+DATABASE_URL="postgres://refdata:refdata@localhost:5433/refdata?sslmode=disable" \
 HTTP_ADDR=:8081 \
 go run ./cmd
 ```
@@ -97,7 +102,7 @@ layer backfills and that consumers like the shipping backend's
 
 ```bash
 cd demos/01-dictionary
-docker compose exec postgres psql -U dict -d dictionary
+docker compose exec refdata-postgres psql -U refdata -d refdata
 
 # then, inside psql:
 SELECT * FROM refdata.dictionary_types;
@@ -110,7 +115,7 @@ SELECT * FROM refdata.dictionary_set_versions;
 Or one-shot, without an interactive session:
 
 ```bash
-docker compose exec postgres psql -U dict -d dictionary -c \
+docker compose exec refdata-postgres psql -U refdata -d refdata -c \
   "SELECT code, locale, label FROM refdata.dictionary_localizations WHERE type_key='ship-status' ORDER BY code, locale;"
 ```
 
@@ -162,9 +167,11 @@ swag init --generalInfo cmd/main.go --dir . --output docs/ --parseDependency=fal
 ### NATS KV using NATS CLI
 
 Bucket naming is `refdata-{context}` (prefix `refdata`, see
-`internal/kvstore/kv.go`); keys are `{type_key}.{code}` for an item and
-`{type_key}._meta` for the type's version/count stamp (see
-`internal/kvcache/kvcache.go`). Requires the
+`internal/kvstore/kv.go`); keys are `{namespace}{type_key}.{code}` for an item
+and `{namespace}{type_key}._meta` for the type's version/count stamp (see
+`internal/kvcache/keys.go`). `{namespace}` is `enum.` for a `domain-enum`
+category type and empty for every other category (BR-D31) — so
+`enum.ship-status.docked`, but plain `currency.EUR`. Requires the
 [`nats` CLI](https://github.com/nats-io/natscli) pointed at the compose
 NATS port:
 
@@ -178,13 +185,17 @@ nats kv ls
 nats kv ls refdata-emea-acme
 
 # Get one item's cached entry (item + localizations + references + version)
-nats kv get refdata-emea-acme ship-status.docked
+# ship-status is a domain-enum type, hence the enum. namespace (BR-D31)
+nats kv get refdata-emea-acme enum.ship-status.docked
 
 # Get the type's _meta (current version, item count, last update)
-nats kv get refdata-emea-acme ship-status._meta
+nats kv get refdata-emea-acme enum.ship-status._meta
 
 # Watch the bucket live — e.g. while re-seeding or editing via refdata
 nats kv watch refdata-emea-acme
+
+# Watch only the enums, using the key namespace as a subject filter
+nats kv watch refdata-emea-acme "enum.>"
 ```
 
 When running with NATS wired (compose, or `go run ./cmd` with `NATS_URL`

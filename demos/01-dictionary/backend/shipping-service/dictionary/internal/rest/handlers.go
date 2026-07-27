@@ -77,11 +77,11 @@ type errorResponse struct {
 }
 
 type refdataDemoResponse struct {
-	Code   string         `json:"code"`
-	Status string         `json:"status"`
-	Label  string         `json:"label,omitempty"`
-	Attrs  map[string]any `json:"attrs"`
-	Source string         `json:"source"` // "kv-cache" | "api-refetch"
+	Code        string `json:"code"`
+	Status      string `json:"status"`
+	Label       string `json:"label,omitempty"`
+	Description string `json:"description,omitempty"`
+	Source      string `json:"source"` // "kv-cache" | "api-refetch"
 }
 
 type refdataItemsResponse struct {
@@ -102,8 +102,7 @@ type Deps struct {
 	KVB        *kvstore.Store            // Shape B ship cache
 	KVCont     *kvstore.Store            // container projection
 	KVMeta     *kvstore.Store            // meta.* lookup sets
-	KVRefdata  *kvstore.Store            // refdata-service's Q5 cache (read-only; Phase 11.6 SSE watch)
-	Refdata    *refdataconsumer.Consumer // Phase 11.3 cross-service consumer demo
+	Refdata    *refdataconsumer.Consumer // rpc.*-only cross-service consumer (BR-D08) — no KV dep
 	JS         jetstream.JetStream
 	NC         *nats.Conn // raw core-NATS conn (Phase 12.10 — obs.rpc.* SSE bridge)
 	Log        *slog.Logger
@@ -534,7 +533,7 @@ func (h *Handlers) getRefdataDemo(w http.ResponseWriter, r *http.Request) {
 		writeRefdataError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, refdataDemoResponse{Code: result.Code, Status: result.Status, Label: result.Label, Attrs: result.Attrs, Source: result.Source})
+	writeJSON(w, http.StatusOK, refdataDemoResponse{Code: result.Code, Status: result.Status, Label: result.Label, Description: result.Description, Source: result.Source})
 }
 
 // writeRefdataError maps a refdataconsumer error to an HTTP response. Phase
@@ -583,7 +582,7 @@ func (h *Handlers) listRefdataType(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]refdataDemoResponse, 0, len(results))
 	for _, res := range results {
-		items = append(items, refdataDemoResponse{Code: res.Code, Status: res.Status, Label: res.Label, Attrs: res.Attrs, Source: res.Source})
+		items = append(items, refdataDemoResponse{Code: res.Code, Status: res.Status, Label: res.Label, Description: res.Description, Source: res.Source})
 	}
 	writeJSON(w, http.StatusOK, refdataItemsResponse{Items: items})
 }
@@ -602,12 +601,18 @@ func (h *Handlers) listRefdataLocales(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "refdata consumer not configured")
 		return
 	}
-	locales, err := h.deps.Refdata.Locales(r.Context(), refdataContext)
+	result, err := h.deps.Refdata.Locales(r.Context(), refdataContext)
 	if err != nil {
 		writeRefdataError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"locales": locales})
+	// defaultLocale travels with the list — BR-D32: the frontend switcher has
+	// to show the default first and mark it, which it can't do without knowing
+	// which one is default.
+	writeJSON(w, http.StatusOK, map[string]any{
+		"locales":       result.Locales,
+		"defaultLocale": result.DefaultLocale,
+	})
 }
 
 // evictShipCache godoc

@@ -74,19 +74,113 @@ func (h *Handlers) watchTerminal(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// refdataChangeStreamName is the JetStream stream refdata-service publishes
+// change-event pointers on (kvcache.ChangeStreamName in that service — this
+// module has no Go dependency on refdata-service's code, so the literal is
+// duplicated here, agreeing only on the published stream name/subject
+// contract, same convention as refdataconsumer's rpc.* wire shapes).
+const refdataChangeStreamName = "REFDATA"
+
 // watchRefdata godoc
 //
-// @Summary      Refdata KV watch stream (SSE, Phase 11.6)
-// @Description  Server-Sent Events stream of NATS KV changes in the refdata-{emea-acme} cache bucket the shipping backend reads (owned by refdata-service). Drives live label refresh in the shipping UIs. Fixed refdata context — no fleet-context param.
+// @Summary      Refdata change-event stream (SSE, Phase 12.12)
+// @Description  Server-Sent Events stream of refdata-service's evt.{emea-acme}.refdata.*.changed change-event pointers (the REFDATA JetStream stream) — drives live label refresh in the shipping UIs. This subscribes to refdata-service's published event contract rather than watching its KV cache directly (BR-D08: that cache is internal to refdata-service). No historical replay — a client refetches its label map once via REST on connect, so this stream only needs to signal "something changed" going forward. Fixed refdata context — no fleet-context param.
 // @Tags         streams
 // @Produce      text/event-stream
 // @Success      200  {string}  string  "SSE stream — data: {watchEvent JSON}"
 // @Failure      500  {object}  errorResponse
 // @Router       /api/refdata-watch [get]
 func (h *Handlers) watchRefdata(w http.ResponseWriter, r *http.Request) {
-	h.watchBuckets(w, r, refdataContext, []watchSource{
-		{shape: "REFDATA", store: h.deps.KVRefdata},
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+	if h.deps.JS == nil {
+		writeError(w, http.StatusInternalServerError, "JetStream not configured")
+		return
+	}
+	ctx := r.Context()
+
+	var msgs jetstream.MessagesContext
+	consumer, err := h.deps.JS.OrderedConsumer(ctx, refdataChangeStreamName, jetstream.OrderedConsumerConfig{
+		FilterSubjects: []string{"evt." + refdataContext + ".refdata.>"},
+		DeliverPolicy:  jetstream.DeliverNewPolicy,
 	})
+	if err != nil && !errors.Is(err, jetstream.ErrStreamNotFound) {
+		h.deps.Log.Error("refdata change stream: create consumer", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if err == nil {
+		// REFDATA not existing yet (refdata-service hasn't published its
+		// first change) is a legitimate race, not a hard error — degrade to
+		// heartbeat-only below rather than failing the whole SSE connection.
+		if msgs, err = consumer.Messages(); err != nil {
+			h.deps.Log.Error("refdata change stream: consume messages", "err", err)
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		defer msgs.Stop()
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	msgCh := make(chan jetstream.Msg, 16)
+	if msgs != nil {
+		go func() {
+			for {
+				msg, err := msgs.Next()
+				if err != nil {
+					close(msgCh)
+					return
+				}
+				select {
+				case msgCh <- msg:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+
+	send := func(msg jetstream.Msg) {
+		var revision uint64
+		if meta, err := msg.Metadata(); err == nil {
+			revision = meta.Sequence.Stream
+		}
+		event := watchEvent{Shape: "REFDATA", Key: msg.Subject(), Op: "PUT", Revision: revision, Value: msg.Data()}
+		data, err := json.Marshal(event)
+		if err != nil {
+			return
+		}
+		_, _ = w.Write([]byte("data: "))
+		_, _ = w.Write(data)
+		_, _ = w.Write([]byte("\n\n"))
+		flusher.Flush()
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-msgCh:
+			if !ok {
+				return
+			}
+			send(msg)
+		case <-heartbeat.C:
+			_, _ = w.Write([]byte(": ping\n\n"))
+			flusher.Flush()
+		}
+	}
 }
 
 type watchSource struct {
@@ -184,18 +278,22 @@ func (h *Handlers) watchBuckets(w http.ResponseWriter, r *http.Request, kvContex
 // watchRPCObs godoc
 //
 // @Summary      obs.rpc.* dual-transport RPC traffic stream (SSE, Phase 12.10)
-// @Description  Server-Sent Events stream of the refdata-service natsrpc adapter's best-effort obs.rpc.* observability side-channel — live only, no replay/backlog (core NATS subscribe while the request is open). Each event carries direction ("request"|"reply"), a correlationId pairing a request with its reply, the real rpc.* subject, and the payload. See ARCHITECTURE-COMMUNICATIONS.md §6.
+// @Description  Server-Sent Events stream of the refdata-service natsrpc adapter's best-effort obs.rpc.* observability side-channel. Replays whatever the RPCTRACE stream currently retains (up to the last 10 minutes, BR-D29) first, then continues live via core NATS subscribe. Each event carries direction ("request"|"reply"), a correlationId pairing a request with its reply, the real rpc.* subject, and the payload. See ARCHITECTURE-COMMUNICATIONS.md §6.
 // @Tags         streams
 // @Produce      text/event-stream
 // @Success      200  {string}  string  "SSE stream — data: {obs.rpc.* JSON}"
 // @Failure      500  {object}  errorResponse
 // @Router       /api/rpc-watch [get]
-// watchRPCObs subscribes to obs.rpc.> on the shared NATS connection and
-// re-emits each message as an SSE event — a plain core-NATS subscribe
-// translated to SSE, the same shape as this file's KV-watch and JetStream
-// handlers. Nothing is buffered before the subscription starts: a tab opened
-// after a call completes simply doesn't see it (by design — see the "No
-// dedicated stream" rationale in ARCHITECTURE-COMMUNICATIONS.md §6).
+// watchRPCObs replays the RPCTRACE stream's current backlog (up to its 10m
+// MaxAge, BR-D29 — best-effort catch-up for a tab opened after a call
+// completes), then subscribes to obs.rpc.> on the shared NATS connection and
+// re-emits each live message as an SSE event. The live subscribe is
+// established before the replay is drained so nothing published during the
+// replay window is missed; a message published in the narrow gap before that
+// subscribe took effect can in principle appear twice, which is acceptable
+// for a best-effort debug trace feed. h.deps.JS is optional — when nil (or
+// RPCTRACE doesn't exist yet), this degrades to the original live-only
+// behavior.
 func (h *Handlers) watchRPCObs(w http.ResponseWriter, r *http.Request) {
 	if h.deps.NC == nil {
 		writeError(w, http.StatusInternalServerError, "NATS connection not configured")
@@ -208,7 +306,7 @@ func (h *Handlers) watchRPCObs(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 
-	msgCh := make(chan *nats.Msg, 16)
+	msgCh := make(chan *nats.Msg, 64)
 	sub, err := h.deps.NC.ChanSubscribe("obs.rpc.>", msgCh)
 	if err != nil {
 		h.deps.Log.Error("obs.rpc subscribe", "err", err)
@@ -223,6 +321,32 @@ func (h *Handlers) watchRPCObs(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
+	write := func(data []byte) {
+		_, _ = w.Write([]byte("data: "))
+		_, _ = w.Write(data)
+		_, _ = w.Write([]byte("\n\n"))
+		flusher.Flush()
+	}
+
+	if h.deps.JS != nil {
+		if consumer, err := h.deps.JS.OrderedConsumer(ctx, "RPCTRACE", jetstream.OrderedConsumerConfig{
+			DeliverPolicy: jetstream.DeliverAllPolicy,
+		}); err != nil {
+			if !errors.Is(err, jetstream.ErrStreamNotFound) {
+				h.deps.Log.Warn("rpctrace replay: create consumer", "err", err)
+			}
+		} else if batch, err := consumer.FetchNoWait(1000); err != nil {
+			h.deps.Log.Warn("rpctrace replay: fetch", "err", err)
+		} else {
+			for msg := range batch.Messages() {
+				write(msg.Data())
+			}
+			if err := batch.Error(); err != nil {
+				h.deps.Log.Warn("rpctrace replay: batch", "err", err)
+			}
+		}
+	}
+
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 
@@ -234,10 +358,7 @@ func (h *Handlers) watchRPCObs(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			_, _ = w.Write([]byte("data: "))
-			_, _ = w.Write(msg.Data)
-			_, _ = w.Write([]byte("\n\n"))
-			flusher.Flush()
+			write(msg.Data)
 		case <-heartbeat.C:
 			_, _ = w.Write([]byte(": ping\n\n"))
 			flusher.Flush()

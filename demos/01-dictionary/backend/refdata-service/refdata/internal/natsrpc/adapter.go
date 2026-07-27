@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nats.go/micro"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/application/commands"
@@ -45,6 +46,12 @@ const ItemGetVersionedSubject = "rpc.*.refdata.item.get-versioned.v1"
 // BR-D28).
 const LocalesListSubject = "rpc.*.refdata.locales.list.v1"
 
+// ObsSubjectWildcard is the subject filter for the obs.rpc.* observability
+// side-channel (BR-D26) — the RPCTRACE stream (BR-D29) is provisioned
+// against this same wildcard so every event publishObs emits is retained,
+// not just the ones a live subscriber happens to catch.
+const ObsSubjectWildcard = "obs.rpc.>"
+
 // Deps are Adapter's collaborators. Items and VersionReader are optional
 // (nil-safe): a deployment that never wires the corresponding REST routes
 // (e.g. VersionReader is nil until JetStream is configured) simply can't
@@ -55,7 +62,11 @@ type Deps struct {
 	Items         *commands.ItemHandler
 	VersionReader *kvcache.VersionReader
 	Projector     *kvcache.Projector
-	Log           *slog.Logger
+	// JS is optional (nil-safe, mirroring VersionReader/Projector): when
+	// configured, publishObs retains events on RPCTRACE (BR-D29) instead of
+	// just fire-and-forget core-NATS publishing.
+	JS  jetstream.JetStream
+	Log *slog.Logger
 }
 
 // Adapter is the natsrpc/ dual-transport adapter — a second transport onto
@@ -68,6 +79,7 @@ type Adapter struct {
 	items         *commands.ItemHandler
 	versionReader *kvcache.VersionReader
 	projector     *kvcache.Projector
+	js            jetstream.JetStream
 	log           *slog.Logger
 	svc           micro.Service
 }
@@ -169,6 +181,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		items:         deps.Items,
 		versionReader: deps.VersionReader,
 		projector:     deps.Projector,
+		js:            deps.JS,
 		log:           deps.Log,
 	}
 
@@ -225,30 +238,12 @@ func (a *Adapter) handleItemGet(req micro.Request) {
 		return
 	}
 
-	resolved, err := a.localizations.ResolveItem(context.Background(), in.TypeKey, itemContext, in.Code, in.Locale)
+	out, err := a.resolveItemKVFirst(context.Background(), itemContext, in.TypeKey, in.Code, in.Locale)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
 
-	// Best-effort cache backfill (Q5's miss path, BR-D08) — mirrors REST's
-	// getItem handler: an rpc.* consumer hitting a KV miss should find the
-	// cache warm next time too, regardless of which transport served the
-	// read that repaired it. Never fails the reply — Postgres already has
-	// the authoritative answer this response is built from.
-	if a.projector != nil {
-		if err := a.projector.Backfill(context.Background(), itemContext, in.TypeKey, in.Code); err != nil && a.log != nil {
-			a.log.Warn("natsrpc: cache backfill failed", "type", in.TypeKey, "code", in.Code, "err", err)
-		}
-	}
-
-	out := ItemGetResponse{
-		Item:        resolved.Item,
-		Locale:      resolved.Localization.Locale,
-		Label:       resolved.Localization.Label,
-		Description: resolved.Localization.Description,
-		IsFallback:  resolved.Localization.IsFallback,
-	}
 	data, err := json.Marshal(out)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
@@ -258,6 +253,91 @@ func (a *Adapter) handleItemGet(req micro.Request) {
 	if err := req.Respond(data); err != nil && a.log != nil {
 		a.log.Error("natsrpc: respond failed", "subject", subject, "err", err)
 	}
+}
+
+// entryItem converts a kvcache.CacheItem into the domain.DictionaryItem shape
+// the RPC response embeds. Attrs is left empty — the KV cache intentionally
+// omits attrs (a Postgres/REST-only concern, see kvcache.CacheItem) — so a
+// cache-served reply and a Postgres-served reply agree on every field except
+// this one. No rpc.* consumer currently reads Item.Attrs from this response.
+func entryItem(item kvcache.CacheItem) domain.DictionaryItem {
+	return domain.DictionaryItem{
+		TypeKey: item.TypeKey,
+		Code:    item.Code,
+		Context: item.Context,
+		Status:  item.Status,
+	}
+}
+
+// resolveEntryLabel applies BR-D03's fallback chain against a cache entry's
+// already-cached localizations map — the KV-hit counterpart of
+// LocalizationHandler.ResolveItem's Postgres-backed resolution.
+func resolveEntryLabel(entry kvcache.Entry, itemContext, requestedLocale, defaultLocale string) domain.Localization {
+	locs := make([]domain.Localization, 0, len(entry.Localizations))
+	for locale, v := range entry.Localizations {
+		locs = append(locs, domain.Localization{
+			TypeKey: entry.Item.TypeKey, Code: entry.Item.Code, Context: itemContext,
+			Locale: locale, Label: v.Label, Description: v.Description, Source: v.Source,
+		})
+	}
+	return domain.ResolveLabel(entry.Item.TypeKey, entry.Item.Code, itemContext, requestedLocale, defaultLocale, locs)
+}
+
+// entryResolvedResponse always resolves requestedLocale (even "") against a
+// cache entry — rpc.*.item.get.v1's contract always returns a resolved
+// label, unlike type.list's optional per-item resolution below.
+func (a *Adapter) entryResolvedResponse(ctx context.Context, itemContext string, entry kvcache.Entry, requestedLocale string) (ItemGetResponse, error) {
+	item := entryItem(entry.Item)
+	defaultLocale, err := a.localizations.DefaultLocale(ctx, itemContext)
+	if err != nil {
+		return ItemGetResponse{}, err
+	}
+	resolved := resolveEntryLabel(entry, itemContext, requestedLocale, defaultLocale)
+	return ItemGetResponse{
+		Item:        item,
+		Locale:      resolved.Locale,
+		Label:       resolved.Label,
+		Description: resolved.Description,
+		IsFallback:  resolved.IsFallback,
+	}, nil
+}
+
+// resolveItemKVFirst serves rpc.*.refdata.item.get.v1 from refdata-service's
+// internal KV cache when warm, falling through to Postgres (ResolveItem) on
+// a miss/stale entry (BR-D08) — the KV bucket is refdata-service's own
+// read-through cache, never something a caller reaches into directly. A
+// Postgres-served response also backfills the cache so the next call (KV or
+// Postgres) finds it warm.
+func (a *Adapter) resolveItemKVFirst(ctx context.Context, itemContext, typeKey, code, locale string) (ItemGetResponse, error) {
+	if a.projector != nil {
+		if entry, err := a.projector.ReadEntry(ctx, itemContext, typeKey, code); err == nil && entry != nil {
+			return a.entryResolvedResponse(ctx, itemContext, *entry, locale)
+		}
+	}
+
+	resolved, err := a.localizations.ResolveItem(ctx, typeKey, itemContext, code, locale)
+	if err != nil {
+		return ItemGetResponse{}, err
+	}
+
+	// Best-effort cache backfill (Q5's miss path, BR-D08) — mirrors REST's
+	// getItem handler: an rpc.* consumer hitting a cache miss should find it
+	// warm next time too, regardless of which transport served the read that
+	// repaired it. Never fails the reply — Postgres already has the
+	// authoritative answer this response is built from.
+	if a.projector != nil {
+		if err := a.projector.Backfill(ctx, itemContext, typeKey, code); err != nil && a.log != nil {
+			a.log.Warn("natsrpc: cache backfill failed", "type", typeKey, "code", code, "err", err)
+		}
+	}
+
+	return ItemGetResponse{
+		Item:        resolved.Item,
+		Locale:      resolved.Localization.Locale,
+		Label:       resolved.Localization.Label,
+		Description: resolved.Localization.Description,
+		IsFallback:  resolved.Localization.IsFallback,
+	}, nil
 }
 
 // handleTypeList is the rpc.* counterpart of REST's listItems — same
@@ -275,30 +355,10 @@ func (a *Adapter) handleTypeList(req micro.Request) {
 		return
 	}
 
-	items, err := a.items.ListAssignable(context.Background(), in.TypeKey, itemContext)
+	out, err := a.resolveTypeKVFirst(context.Background(), itemContext, in.TypeKey, in.Locale)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
-	}
-
-	out := TypeListResponse{Items: make([]ItemGetResponse, 0, len(items))}
-	for _, item := range items {
-		if in.Locale == "" || a.localizations == nil {
-			out.Items = append(out.Items, ItemGetResponse{Item: item})
-			continue
-		}
-		resolved, err := a.localizations.ResolveItem(context.Background(), in.TypeKey, itemContext, item.Code, in.Locale)
-		if err != nil {
-			a.respondError(req, subject, correlationID, err)
-			return
-		}
-		out.Items = append(out.Items, ItemGetResponse{
-			Item:        resolved.Item,
-			Locale:      resolved.Localization.Locale,
-			Label:       resolved.Localization.Label,
-			Description: resolved.Localization.Description,
-			IsFallback:  resolved.Localization.IsFallback,
-		})
 	}
 
 	data, err := json.Marshal(out)
@@ -310,6 +370,69 @@ func (a *Adapter) handleTypeList(req micro.Request) {
 	if err := req.Respond(data); err != nil && a.log != nil {
 		a.log.Error("natsrpc: respond failed", "subject", subject, "err", err)
 	}
+}
+
+// resolveTypeKVFirst serves rpc.*.refdata.type.list.v1 from the internal KV
+// cache when the whole type's cache is warm and complete (BR-D08), falling
+// through to Postgres (ListAssignable + per-item ResolveItem, same as REST's
+// listItems) otherwise. A Postgres-served response backfills every item's
+// cache entry so the type is warm for the next call.
+func (a *Adapter) resolveTypeKVFirst(ctx context.Context, itemContext, typeKey, locale string) (TypeListResponse, error) {
+	if a.projector != nil {
+		if entries, ok := a.projector.ReadType(ctx, itemContext, typeKey); ok {
+			out := TypeListResponse{Items: make([]ItemGetResponse, 0, len(entries))}
+			for _, entry := range entries {
+				if locale == "" || a.localizations == nil {
+					out.Items = append(out.Items, ItemGetResponse{Item: entryItem(entry.Item)})
+					continue
+				}
+				resp, err := a.entryResolvedResponse(ctx, itemContext, entry, locale)
+				if err != nil {
+					return TypeListResponse{}, err
+				}
+				out.Items = append(out.Items, resp)
+			}
+			return out, nil
+		}
+	}
+
+	items, err := a.items.ListAssignable(ctx, typeKey, itemContext)
+	if err != nil {
+		return TypeListResponse{}, err
+	}
+
+	out := TypeListResponse{Items: make([]ItemGetResponse, 0, len(items))}
+	for _, item := range items {
+		if locale == "" || a.localizations == nil {
+			out.Items = append(out.Items, ItemGetResponse{Item: item})
+			continue
+		}
+		resolved, err := a.localizations.ResolveItem(ctx, typeKey, itemContext, item.Code, locale)
+		if err != nil {
+			return TypeListResponse{}, err
+		}
+		out.Items = append(out.Items, ItemGetResponse{
+			Item:        resolved.Item,
+			Locale:      resolved.Localization.Locale,
+			Label:       resolved.Localization.Label,
+			Description: resolved.Localization.Description,
+			IsFallback:  resolved.Localization.IsFallback,
+		})
+	}
+
+	// Best-effort cache backfill per item (BR-D08) — mirrors
+	// resolveItemKVFirst's miss-path repair so a type.list Postgres fallback
+	// also warms the cache for the next call (KV or Postgres), not just
+	// item.get misses.
+	if a.projector != nil {
+		for _, item := range items {
+			if err := a.projector.Backfill(ctx, itemContext, typeKey, item.Code); err != nil && a.log != nil {
+				a.log.Warn("natsrpc: cache backfill failed", "type", typeKey, "code", item.Code, "err", err)
+			}
+		}
+	}
+
+	return out, nil
 }
 
 // handleItemGetVersioned is the rpc.* counterpart of REST's
@@ -398,6 +521,7 @@ var versionSuffix = regexp.MustCompile(`\.v\d+$`)
 // obsSubjectFor derives the observability subject from a real rpc.* subject
 // (e.g. rpc.emea-acme.refdata.item.get.v1 ->
 // obs.rpc.emea-acme.refdata.item.get), per ARCHITECTURE-COMMUNICATIONS.md §6.
+// Every derived subject falls under ObsSubjectWildcard.
 func obsSubjectFor(rpcSubject string) string {
 	return "obs." + versionSuffix.ReplaceAllString(rpcSubject, "")
 }
@@ -419,10 +543,17 @@ type obsEnvelope struct {
 }
 
 // publishObs fire-and-forget publishes an observability event (BR-D26) — it
-// must never block or fail the real RPC reply. nc.Publish is inherently
-// non-blocking core-NATS pub/sub (no ack, silently dropped with no
-// subscriber), and any marshal/publish error here is swallowed rather than
-// propagated to the caller.
+// must never block or fail the real RPC reply. Any marshal/publish error
+// here is swallowed rather than propagated to the caller.
+//
+// When a.js is configured, the event is published onto RPCTRACE via
+// PublishAsync (BR-D29) so a reconnecting Admin UI can catch up on the last
+// 10 minutes of traffic — PublishAsync only blocks for the send itself, not
+// for the server's ack, so this keeps the same non-blocking contract as the
+// plain nc.Publish fallback used when JetStream isn't configured (e.g. some
+// tests). Core NATS subscribers (the live tail) receive the message
+// identically either way — a JetStream publish is still an ordinary NATS
+// message on the wire.
 func (a *Adapter) publishObs(rpcSubject, correlationID, direction string, payload []byte, errMsg string) {
 	defer func() {
 		if r := recover(); r != nil && a.log != nil {
@@ -439,7 +570,14 @@ func (a *Adapter) publishObs(rpcSubject, correlationID, direction string, payloa
 	if err != nil {
 		return
 	}
-	if pubErr := a.nc.Publish(obsSubjectFor(rpcSubject), data); pubErr != nil && a.log != nil {
+	subject := obsSubjectFor(rpcSubject)
+	if a.js != nil {
+		if _, pubErr := a.js.PublishAsync(subject, data); pubErr != nil && a.log != nil {
+			a.log.Warn("natsrpc: obs publish failed", "err", pubErr)
+		}
+		return
+	}
+	if pubErr := a.nc.Publish(subject, data); pubErr != nil && a.log != nil {
 		a.log.Warn("natsrpc: obs publish failed", "err", pubErr)
 	}
 }

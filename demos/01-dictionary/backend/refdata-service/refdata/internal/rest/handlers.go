@@ -638,7 +638,7 @@ func (h *Handlers) listTypes(w http.ResponseWriter, r *http.Request) {
 }
 
 // @Summary      Register a dictionary type
-// @Description  Registers (or updates the name/description/category of) a dictionary type, e.g. "currency". Category (BR-D09) must be one of "standards", "domain-enum", "ui-copy", "config".
+// @Description  Registers (or updates the name/description/category of) a dictionary type, e.g. "currency". Category (BR-D09) must be one of "standards", "domain-enum", "domain-string", "config".
 // @Tags         types
 // @Accept       json
 // @Produce      json
@@ -855,13 +855,12 @@ func (h *Handlers) cacheStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := cacheStatusResponse{TypeKey: typeKey, PostgresVersion: pgVersion}
-	if h.deps.KV != nil {
-		if raw, _, err := h.deps.KV.Get(r.Context(), itemContext, typeKey+"._meta"); err == nil {
-			var meta kvcache.MetaEntry
-			if json.Unmarshal(raw, &meta) == nil {
-				resp.KVVersion = meta.Version
-				resp.KVItemCount = meta.ItemCount
-			}
+	// Via the projector, not a direct KV.Get: it owns the BR-D31 key
+	// namespace, so the enum types' _meta is found where it actually lives.
+	if h.deps.Projector != nil {
+		if meta, err := h.deps.Projector.ReadMeta(r.Context(), itemContext, typeKey); err == nil && meta != nil {
+			resp.KVVersion = meta.Version
+			resp.KVItemCount = meta.ItemCount
 		}
 	}
 	resp.InSync = resp.KVVersion == resp.PostgresVersion

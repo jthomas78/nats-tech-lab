@@ -55,7 +55,7 @@ func Seed(ctx context.Context, h *Handlers) error {
 		{"uom", "Unit of Measure", "UNECE Recommendation 20 unit codes (subset)", domain.CategoryStandards, uomSeed},
 		{"hazard-class", "Hazard Class", "UN dangerous goods hazard classes", domain.CategoryStandards, hazardClassSeed},
 		{"ship-status", "Ship Status", "AIS navigational status (mirrors backend ShipStatus)", domain.CategoryDomainEnum, shipStatusSeed},
-		{"ui-copy", "UI Copy", "Frontend UI chrome strings, sourced as reference data (Phase 11.7)", domain.CategoryUICopy, uiCopySeed},
+		{"string", "String", "Frontend UI chrome strings, sourced as reference data (Phase 11.7)", domain.CategoryDomainString, l10nSeed},
 	}
 
 	if err := h.Localizations.AddLocale(ctx, DefaultContext, "en", true); err != nil {
@@ -262,13 +262,13 @@ var shipStatusSeed = []seedItem{
 	{"restricted-manoeuvrability", "Restricted Manoeuvrability", "Maniobrabilidad restringida", "Beperkte Wendbaarheid"},
 }
 
-// uiCopySeed is the sole authored catalog for Port UI copy (Phase 11.10).
+// l10nSeed is the sole authored catalog for Port UI copy (Phase 11.10).
 // Codes are vue-i18n message keys, not domain codes. The generated bundled
 // English fallback is derived from this seed; do not edit it by hand.
 // frontend-port's vue-i18n wiring only consumes en/es (Phase 11.10's scope);
 // the af-za column exists in refdata/Postgres like every other seeded
 // locale, but isn't surfaced as a selectable UI locale in frontend-port yet.
-var uiCopySeed = []seedItem{
+var l10nSeed = []seedItem{
 	{"filter.all", "All", "Todos", "Alle"},
 	{"nav.language", "Language", "Idioma", "Taal"},
 	{"nav.fleetManagement", "Fleet Management", "Gestión de flota", "Vlootbestuur"},

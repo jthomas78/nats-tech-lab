@@ -14,19 +14,17 @@ import (
 
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/refdataconsumer"
 )
 
-// newTestKVAndNATS starts a single embedded in-process NATS server (with
-// JetStream for the KV store) and returns a Store bound to it plus the raw
-// *nats.Conn for refdataconsumer's rpc.* calls — same embedded-server
-// convention as internal/refdataconsumer/consumer_test.go.
-func newTestKVAndNATS(t *testing.T) (*kvstore.Store, *nats.Conn, func()) {
+// newTestNATS starts an embedded in-process NATS server for refdataconsumer's
+// rpc.* calls — same embedded-server convention as
+// internal/refdataconsumer/consumer_test.go. No JetStream/KV needed: the
+// RPC-only refactor (BR-D08) removed the consumer's KV dependency entirely.
+func newTestNATS(t *testing.T) (*nats.Conn, func()) {
 	t.Helper()
-	opts := &server.Options{JetStream: true, StoreDir: t.TempDir(), Port: -1}
+	opts := &server.Options{Port: -1}
 	srv, err := server.NewServer(opts)
 	if err != nil {
 		t.Fatal(err)
@@ -39,19 +37,15 @@ func newTestKVAndNATS(t *testing.T) (*kvstore.Store, *nats.Conn, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	js, err := jetstream.New(nc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return kvstore.New(js, "refdata"), nc, func() { nc.Close(); srv.Shutdown() }
+	return nc, func() { nc.Close(); srv.Shutdown() }
 }
 
 func TestGetRefdataDemoReturns503WhenRPCUnavailable(t *testing.T) {
-	kv, nc, cleanup := newTestKVAndNATS(t)
+	nc, cleanup := newTestNATS(t)
 	defer cleanup()
-	// No cache entry and no rpc.* responder — retries exhaust into
-	// ErrRPCUnavailable, not a real not-found or success.
-	consumer := refdataconsumer.New(kv, nc,
+	// No rpc.* responder — retries exhaust into ErrRPCUnavailable, not a
+	// real not-found or success.
+	consumer := refdataconsumer.New(nc,
 		refdataconsumer.WithRPCTimeout(100*time.Millisecond),
 		refdataconsumer.WithRPCRetries(1),
 		refdataconsumer.WithRPCBackoff(10*time.Millisecond))
@@ -71,9 +65,9 @@ func TestGetRefdataDemoReturns503WhenRPCUnavailable(t *testing.T) {
 }
 
 func TestListRefdataTypeReturns503WhenRPCUnavailable(t *testing.T) {
-	kv, nc, cleanup := newTestKVAndNATS(t)
+	nc, cleanup := newTestNATS(t)
 	defer cleanup()
-	consumer := refdataconsumer.New(kv, nc,
+	consumer := refdataconsumer.New(nc,
 		refdataconsumer.WithRPCTimeout(100*time.Millisecond),
 		refdataconsumer.WithRPCRetries(1),
 		refdataconsumer.WithRPCBackoff(10*time.Millisecond))
@@ -91,9 +85,9 @@ func TestListRefdataTypeReturns503WhenRPCUnavailable(t *testing.T) {
 }
 
 func TestListRefdataLocalesReturns503WhenRPCUnavailable(t *testing.T) {
-	kv, nc, cleanup := newTestKVAndNATS(t)
+	nc, cleanup := newTestNATS(t)
 	defer cleanup()
-	consumer := refdataconsumer.New(kv, nc,
+	consumer := refdataconsumer.New(nc,
 		refdataconsumer.WithRPCTimeout(100*time.Millisecond),
 		refdataconsumer.WithRPCRetries(1),
 		refdataconsumer.WithRPCBackoff(10*time.Millisecond))

@@ -97,26 +97,34 @@ docker compose down -v       # also drop NATS and Postgres data volumes
 | Admin UI              | http://localhost:7100                                        |
 | Port Management       | http://localhost:7101                                        |
 | Dictionary            | http://localhost:7102                                        |
+| NATS UI (under review)| http://localhost:7103                                        |
+| NUI (under review)    | http://localhost:7104                                        |
+| NATS Tower (under review) | http://localhost:7105                                    |
 | Swagger UI (backend)  | http://localhost:7200/swagger/                              |
 | Backend API           | http://localhost:7200                                       |
 | Swagger UI (refdata)  | http://localhost:7201/swagger/                              |
 | refdata-service API   | http://localhost:7201                                       |
 | NATS client           | nats://localhost:4222                                       |
 | NATS monitor          | http://localhost:8222                                       |
-| Postgres              | localhost:5432                                               |
+| Postgres (shipping-service) | localhost:5432                                         |
+| Postgres (refdata-service)  | localhost:5433                                         |
 
-**Postgres credentials:** host `localhost`, port `5432`, user `dict`, password `dict`, database `dictionary`
+**Postgres credentials (shipping-service):** host `localhost`, port `5432`, user `dict`, password `dict`, database `dictionary`
+
+**Postgres credentials (refdata-service):** host `localhost`, port `5433`, user `refdata`, password `refdata`, database `refdata` — its own instance, not a schema on the one above (see `backend/refdata-service/README.md`).
 
 ## Dev mode (outside Docker)
 
 Useful for backend hot-reload, or for Vue DevTools (the Docker build serves a
 production bundle, which DevTools can't inspect). Requires four terminals.
 
-**1. NATS + Postgres only** (still via Docker — no need to run these natively):
+**1. NATS + Postgres only** (still via Docker — no need to run these natively). `postgres` backs
+`shipping-service`; `refdata-postgres` is refdata-service's own separate instance (add it too if
+you're also running refdata-service in step 5):
 
 ```bash
 cd demos/01-dictionary
-docker compose up nats postgres
+docker compose up nats postgres refdata-postgres
 ```
 
 **2. Backend** — the code defaults to the *standard* ports (`localhost:4222`,
@@ -159,7 +167,7 @@ instead when both are up at once:
 ```bash
 cd demos/01-dictionary/backend/refdata-service
 NATS_URL=nats://localhost:4222 \
-DATABASE_URL="postgres://dict:dict@localhost:5432/dictionary?sslmode=disable" \
+DATABASE_URL="postgres://refdata:refdata@localhost:5433/refdata?sslmode=disable" \
 HTTP_ADDR=:8081 \
 go run ./cmd/main.go
 ```

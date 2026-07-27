@@ -47,6 +47,28 @@ deleted from `refdataconsumer` and from `docker-compose.yml`. Frontend/edge
 REST traffic is unaffected. See § 7 for the full design record and
 `BUSINESS_RULES-REFDATA.md`'s BR-D28 for the enforced rule and its tests.
 
+**Amendment status: IMPLEMENTED (Phase 12.12, 2026-07-27).** Phase 12.11 made
+`rpc.*` the sole *transport*, but `refdataconsumer` still read the
+`refdata-{context}` KV bucket directly as its hot-path *cache* — a bounded-
+context violation: that bucket is refdata-service's own internal projection,
+and a consumer coupled to its shape has to change in lockstep whenever the
+producer's cache shape changes (as happened when `kvcache.Entry`'s `Item`
+field was slimmed from `domain.DictionaryItem`/`attrs` to a leaner
+`CacheItem` with resolved `label`/`description` — a refdata-service-internal
+change that nonetheless forced a `refdataconsumer` mirror-struct update).
+**The KV-first cache-read tier now lives entirely inside refdata-service's
+own `natsrpc` handler** (`resolveItemKVFirst`/`resolveTypeKVFirst` call
+`kvcache.Projector.ReadEntry`/`ReadType` before falling through to Postgres),
+not in the consumer. `refdataconsumer.Consumer` holds only a `*nats.Conn` —
+no `*kvstore.Store`, no KV bucket naming knowledge at all — and every
+`Lookup`/`ResolveType`/`LookupAtVersion`/`Locales` call goes straight to
+`rpc.*`; the shipping backend's `/api/refdata-watch` SSE endpoint likewise
+now subscribes to refdata-service's published `evt.{context}.refdata.*.changed`
+change-event stream (the `REFDATA` JetStream stream, § 2's subject taxonomy
+and § 8's event-backbone note) instead of watching the KV bucket directly.
+See § 9 for the full design record and `BUSINESS_RULES-REFDATA.md`'s BR-D08
+for the enforced rule and its tests.
+
 ![Dual-transport RPC architecture](images/rpc-proposed-dual-transport.png)
 
 ---
@@ -64,11 +86,12 @@ Two transports serve different purposes and are not interchangeable:
 **Backend-to-backend vs. frontend-to-backend.** This transport split governs
 service-to-service calls only. Frontend clients (`frontend/admin`,
 `frontend/refdata`, `frontend/seafreight-app`) keep talking REST/Swagger (and
-SSE for live views) — nothing here changes their transport. It also doesn't
-change the KV-first cache-read pattern (BR-D08): a consumer that gets a cache
-hit never calls either transport. This requirement governs what happens next
-— the cache-miss/refetch call to the owning service — not the cache layer
-itself.
+SSE for live views) — nothing here changes their transport. Since Phase 12.12
+(BR-D08, § 9), the KV-first cache-read pattern lives entirely inside
+refdata-service's own `rpc.*` handler — a consumer's `rpc.*` call may still
+be served from a warm cache without a Postgres round-trip, but that cache
+tier is internal to refdata-service and invisible to the caller; no other
+service ever reads refdata-service's KV bucket directly.
 
 **Backend services should only be aware of NATS.** For inter-service calls, a
 backend service holds a NATS connection and nothing else — no HTTP client, no
@@ -200,13 +223,34 @@ requirement to see history from before the panel was opened. This is **not**
 a JetStream concern — it's a separate, best-effort side-channel off the
 `natsrpc/` adapter.
 
-**No dedicated stream.** A `RPCTRACE`-style JetStream stream (`LimitsPolicy`,
-short `MaxAge`) was considered as a way to give a reconnecting tab a few
-seconds of catch-up buffer, but was rejected as unnecessary: the stated
-requirement is "only show when the app is visible," which plain Core NATS
-pub/sub already satisfies for free — no stream to provision, retain, or
-monitor. Reach for a `RPCTRACE` stream later only if a genuine "catch up on
-reconnect" requirement emerges; don't build it speculatively.
+**No dedicated stream (original decision, since revised — see below).** A
+`RPCTRACE`-style JetStream stream (`LimitsPolicy`, short `MaxAge`) was
+considered as a way to give a reconnecting tab a few seconds of catch-up
+buffer, but was rejected as unnecessary: the stated requirement at the time
+was "only show when the app is visible," which plain Core NATS pub/sub
+already satisfies for free — no stream to provision, retain, or monitor. The
+explicit condition for revisiting this was: reach for a `RPCTRACE` stream
+only if a genuine "catch up on reconnect" requirement emerges; don't build it
+speculatively.
+
+**Revised (BR-D29): `RPCTRACE` added once the requirement became concrete.**
+The requirement narrowed from "live while visible" to "show whatever
+happened in the last 10 minutes, even if the tab wasn't open for it" — a
+genuine catch-up-on-reconnect need, exactly the condition above. `RPCTRACE`
+is a `LimitsPolicy` stream with subject filter `obs.rpc.>` and `MaxAge: 10m`,
+provisioned by `refdata-service`'s `composition.go` alongside the `REFDATA`
+change stream. `publishObs()` now publishes via `PublishAsync` when
+JetStream is configured (falling back to the original `nc.Publish` otherwise)
+— `PublishAsync` only blocks for the send, never the server's ack, so the
+"must never block the real RPC reply" invariant this section's design
+already establishes is unchanged. Because a JetStream publish is still an
+ordinary NATS message on the wire, the live-tail design below (`obs.rpc.*`
+fire-and-forget publish) is otherwise untouched: `shipping-service`'s
+`/api/rpc-watch` SSE handler now opens an ephemeral ordered consumer on
+`RPCTRACE` (`DeliverAllPolicy`) to drain the retained backlog *before*
+falling through to the same live core subscribe it always used, established
+first so nothing published during the drain is missed. See `BR-D29` in
+`BUSINESS_RULES-REFDATA.md` for the full rule.
 
 **Design: `obs.rpc.*` fire-and-forget publish, both directions.** Each
 `natsrpc/` Micro endpoint handler publishes two observability messages
@@ -317,14 +361,17 @@ PROPOSED).
   `fetchVersionedViaAPI` / REST-based `Locales` methods on `Consumer` are all
   deleted. `Consumer` holds a `*kvstore.Store` and a `*nats.Conn` and nothing
   else; `New(kv, nc, ...)` takes `nc` as a required constructor argument, not
-  the old `WithNATS` option.
+  the old `WithNATS` option. *(Superseded by Phase 12.12, § 9: `Consumer` no
+  longer holds a `*kvstore.Store` either — `New(nc, ...)` takes just the NATS
+  connection.)*
 - REST/Swagger continues to exist as `refdata-service`'s inbound surface for
   frontend/edge clients and for humans/test suites debugging directly (§5)
   — that is unaffected. What's removed is `shipping-service` (or any other
   backend service) acting as an HTTP *client* of it.
-- Frontend/edge REST traffic and the KV-first cache-read pattern (BR-D08)
-  are unaffected — see § 1's "Backend-to-backend vs. frontend-to-backend"
-  note.
+- Frontend/edge REST traffic is unaffected — see § 1's "Backend-to-backend
+  vs. frontend-to-backend" note. The KV-first cache-read pattern (BR-D08) was
+  still consumer-side direct-KV-read at this phase; § 9 moves it inside
+  refdata-service.
 
 **Product-behavior consequence, resolved:** before this change, a KV miss
 always eventually succeeded via REST — the consumer's only failure mode was
@@ -337,7 +384,7 @@ share a `writeRefdataError()` helper that maps `refdataconsumer.ErrNotFound`
 data temporarily unavailable, try again"), distinct from the generic 500 for
 a genuine internal fault — a "the dependency is down" signal rather than
 "something is broken." BR-D11's existing pattern (frontend falls back to a
-bundled UI-copy catalog when refdata is unreachable) remains the precedent
+bundled string catalog when refdata is unreachable) remains the precedent
 for the frontend-to-backend layer, unaffected by and unrelated to this
 backend-to-backend change. This 503 mapping is REST-layer error handling for
 a Phase 11.3/11.6 demo endpoint, not a Ship/Container domain invariant, so it
@@ -355,3 +402,131 @@ addition — a separate concern from the RPC layer described here. See
 [ARCHITECTURE.md](ARCHITECTURE.md) and CLAUDE.md's "Stream / subject design"
 section for the event-stream rules (`LimitsPolicy`, the fixed `evt` leading
 token, etc.).
+
+---
+
+## 9. refdata-service's KV cache becomes internal-only (Phase 12.12, IMPLEMENTED 2026-07-27)
+
+**Problem:** Phase 12.11 made `rpc.*` the sole *transport* for backend-to-
+backend calls, but `refdataconsumer` still read the `refdata-{context}` KV
+bucket *directly* as its hot-path cache, ahead of any `rpc.*` call. That
+bucket is refdata-service's own internal projection — Postgres is the source
+of truth, KV is a derived read cache rebuilt from Postgres on every mutation
+(see `ARCHITECTURE-DICTIONARY.md`'s Q5 versioned-read protocol). A consumer
+reading another service's internal cache bucket directly is the NATS-KV
+equivalent of one microservice querying another's database tables: it
+couples the two services to a storage shape neither transport (REST or
+`rpc.*`) was meant to expose. This was concretely demonstrated the same week:
+slimming `kvcache.Entry`'s `Item` field from `domain.DictionaryItem`
+(carrying an `attrs map[string]any`) to a leaner `CacheItem` with the
+default-locale `label`/`description` resolved inline — a refdata-service-
+internal storage optimization — required a coordinated mirror-struct update
+in `shipping-service`'s `refdataconsumer`, purely because that consumer had
+its own copy of the KV entry's JSON shape.
+
+**What changed:** the KV-first cache-read tier moved from the consumer into
+refdata-service's own `rpc.*` handler.
+
+- **`kvcache.Projector` gained two read-side methods**, the counterparts of
+  its existing write-side `rebuildEntry`/`rebuildMeta`: `ReadEntry(ctx,
+  itemContext, typeKey, code)` returns a type's cached `Entry` only if it
+  exists and its stamped version matches the type's current `_meta` version
+  (nil on a miss or stale entry, mirroring `rebuildEntry`'s own freshness
+  check); `ReadType(ctx, itemContext, typeKey)` returns every entry for a
+  type only if the cache is complete and every entry is fresh (a partial or
+  stale cache is treated as a miss for the whole type, not patched
+  entry-by-entry). `kvstore.Store` (refdata-service's copy) gained a
+  `Keys()` method — refdata-service's own equivalent of the enumeration
+  `refdataconsumer` used to do against the bucket it no longer touches.
+- **`natsrpc.Adapter`'s `handleItemGet`/`handleTypeList`** now call
+  `resolveItemKVFirst`/`resolveTypeKVFirst`, which try `ReadEntry`/`ReadType`
+  first and only fall through to Postgres (`ResolveItem`/`ListAssignable`)
+  on a miss — backfilling the cache afterward exactly as before (BR-D27).
+  Label resolution against a cache hit reconstructs a `[]domain.Localization`
+  from the entry's `map[string]domain.LocalizationValue` and calls the same
+  `domain.ResolveLabel` (BR-D03) the Postgres path uses, so a cache hit and a
+  cache miss resolve locale fallback identically. One known asymmetry: a
+  cache-hit response's embedded `Item.Attrs` is always empty (the KV cache
+  intentionally omits `attrs`, a Postgres/REST-only concern per the
+  `CacheItem` refactor above), while a Postgres-served response carries real
+  attrs — harmless today since no `rpc.*` consumer reads `Item.Attrs`, but
+  worth knowing if that ever changes.
+- **`refdataconsumer.Consumer` lost its `*kvstore.Store` field entirely.**
+  `New(nc, ...)` takes only the NATS connection.
+  `Lookup`/`ResolveType`/`LookupAtVersion` all call their `rpc.*` counterpart
+  unconditionally — there is no KV read, no `_meta` version check, and no
+  bucket-key enumeration left in this package. The one exception:
+  `LookupAtVersion`'s wire protocol (`item.get-versioned`) still returns
+  every locale rather than a pre-resolved label, so the consumer still
+  applies the BR-D03 fallback chain locally via `resolveLocalization()`
+  (renamed from `resolveLabel()` in Phase 12.13, § 10, once it also had to
+  resolve `Description`) against that RPC response — this was already true
+  before Phase 12.12 and is unchanged; what's gone is only the *KV-hit* path
+  that used to short-circuit this call entirely.
+- **The shipping backend's `/api/refdata-watch` SSE endpoint** no longer
+  watches the `refdata-{emea-acme}` KV bucket (`kvstore.Store.Watch`).
+  Instead it subscribes to refdata-service's `REFDATA` JetStream stream,
+  filtered to `evt.emea-acme.refdata.>` (the same change-event pointers
+  `kvcache.Projector.NotifyItemChanged` already publishes — § 2's subject
+  taxonomy, § 8's event-backbone note) via an ordered consumer with
+  `DeliverNewPolicy`. No historical replay: a client already does its own
+  initial REST fetch on connect (`useRefdataLabels.js`'s `connect()`), so
+  the stream only needs to signal "something changed" going forward, not
+  reconstruct state. This removes the last direct KV read from
+  `shipping-service` for the non-versioned refdata path; `KVRefdata` is
+  gone from `dictionary/composition.go` and `rest.Deps` entirely.
+- **`shipping-service`'s `internal/kvstore.Store` lost `GetVersioned`/
+  `PutVersioned`** (and the `versionedBucketName` helper) — these existed
+  solely to seed/read the `refdata-{context}-v{N}` bucket directly, which
+  nothing does anymore now that `LookupAtVersion` is `rpc.*`-only.
+
+**What did not change:** REST/Swagger's role for frontend/edge clients (§5);
+the `rpc.*` subject taxonomy and wire shapes (§2, §3); the bounded-retry/
+`ErrRPCUnavailable` behavior for a sustained `rpc.*` outage (BR-D28, § 7);
+Postgres as the single source of truth (`ARCHITECTURE-DICTIONARY.md`'s Q5
+protocol is unchanged — only *which side of the RPC boundary* reads the
+cache moved).
+
+See `BUSINESS_RULES-REFDATA.md`'s BR-D08 for the corresponding business rule
+and its tests.
+
+---
+
+## 10. `CacheItem` drops `Label`/`Description` — default locale becomes mandatory-first (Phase 12.13, IMPLEMENTED 2026-07-27)
+
+§9's `CacheItem` (and `VersionedEntry.Item`, which is the same type) still
+carried `Label`/`Description` fields — a "resolved fallback label" computed
+at write time by picking the default locale's localization, or, if that was
+absent, **whichever locale happened to be first** in the order the
+repository returned (`kvcache.go`'s `fallbackLoc()`, and an independent
+inlined duplicate of the same logic in `versioned.go`'s `Materialize`). That
+"first available" branch was an implicit, unenforced assumption: an item
+could end up with only a `fr` localization and have it silently become the
+item-level fallback, with nobody having decided `fr` should be the default.
+
+**BR-D30** closes this by making the assumption an explicit, enforced
+invariant instead: `LocalizationHandler.SetLocalization` now rejects setting
+any locale other than the context's effective default (BR-D15) until that
+default locale's localization already exists for the same item. Once that's
+true, the default locale's entry in `Entry.Localizations` /
+`VersionedEntry.Localizations` is a **guarantee**, not a hope, whenever an
+item has any localizations at all — so `CacheItem.Label`/`Description`
+become pure duplication and are removed entirely. A reader resolves the
+default-locale label straight from `Localizations[defaultLocale]`.
+
+This has a small ripple into `refdataconsumer`: `fetchVersionedViaRPC` used
+to read `Description` straight off `entry.Item.Description` (a shortcut that
+only worked because that field happened to hold the write-time-resolved
+fallback) while resolving `Label` per-locale via the BR-D03 chain. With
+`Item.Description` gone, `Description` is now resolved the same way `Label`
+is — the function doing so was renamed `resolveLabel` →
+`resolveLocalization` and returns both fields together.
+
+This is also a REST wire-format change:
+`GET /api/refdata/{context}/{type}/versions/{version}/items/{code}` (and its
+list variant) marshal `kvcache.VersionedEntry` straight to the response
+body, so `item.label`/`item.description` no longer appear there. No
+frontend reads those sub-fields today (confirmed, same search as § 9).
+
+See `BUSINESS_RULES-REFDATA.md`'s BR-D30 for the corresponding business rule
+and its tests.

@@ -7,12 +7,15 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import SubjectPath from './SubjectPath.vue'
 import { rpcWatchUrl } from '../api'
 
-// obs.rpc.* dual-transport RPC traffic (Phase 12.10) — live only, no replay
-// (ARCHITECTURE-COMMUNICATIONS.md §6: the requirement is "only show while
-// the app is open," which plain pub/sub already satisfies for free — no
-// stream to provision). Request and reply arrive as two separate obs.rpc.*
-// messages sharing a correlationId (the request's reply-to inbox); this
-// pairs them into one row per call instead of two unrelated list entries.
+// obs.rpc.* dual-transport RPC traffic (Phase 12.10). A connection replays
+// up to the last 10 minutes of retained traffic from RPCTRACE before
+// switching to live delivery (BR-D29, ARCHITECTURE-COMMUNICATIONS.md §6) —
+// the backend sends replayed and live events identically over the same SSE
+// stream, so this component doesn't distinguish them; rows just appear in
+// the order the server emitted them. Request and reply arrive as two
+// separate obs.rpc.* messages sharing a correlationId (the request's
+// reply-to inbox); this pairs them into one row per call instead of two
+// unrelated list entries.
 
 // Keyed by correlationId so a reply can update its request's row in place
 // without an index shifting under a prepend (order tracked separately).
@@ -100,7 +103,7 @@ function fullPayload(payload) {
   <div class="rpc-panel">
     <div class="rpc-toolbar">
       <Tag :severity="connected ? 'success' : 'danger'" :value="connected ? 'live' : 'disconnected'" />
-      <span class="lab-muted rpc-hint">Live only — no history before this panel opened.</span>
+      <span class="lab-muted rpc-hint">Shows up to the last 10 minutes of traffic on connect, then live.</span>
     </div>
     <DataTable
       :value="rows"

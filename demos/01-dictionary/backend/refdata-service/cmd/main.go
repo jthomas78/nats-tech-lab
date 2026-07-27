@@ -40,7 +40,7 @@ func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	databaseURL := envOr("DATABASE_URL", "postgres://dict:dict@localhost:5432/dictionary?sslmode=disable")
+	databaseURL := envOr("DATABASE_URL", "postgres://refdata:refdata@localhost:5433/refdata?sslmode=disable")
 	natsURL := envOr("NATS_URL", nats.DefaultURL)
 	httpAddr := envOr("HTTP_ADDR", ":8080")
 	anthropicAPIKey := envOr("ANTHROPIC_API_KEY", "")
@@ -77,7 +77,7 @@ func run(log *slog.Logger) error {
 		log.Info("ANTHROPIC_API_KEY not set — AI-assisted translation drafting (Phase 11.12) is disabled")
 	}
 
-	rpcAdapter, err := h.MountRPC(nc, log)
+	rpcAdapter, err := h.MountRPC(nc, js, log)
 	if err != nil {
 		return err
 	}

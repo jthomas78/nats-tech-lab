@@ -9,12 +9,18 @@ import RadioButton from 'primevue/radiobutton'
 import RadioButtonGroup from 'primevue/radiobuttongroup'
 import Tag from 'primevue/tag'
 import { useToast } from 'primevue/usetoast'
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import { getCompleteness } from '../api'
+import { localeLabel, orderLocales } from '../localization'
 import { useDictionaryStore } from '../stores/dictionary'
 
 const store = useDictionaryStore()
+
+// BR-D32: the default locale is shown first in every locale list, and marked
+// as the default where it's rendered as text.
+const orderedLocales = computed(() => orderLocales(store.locales, store.defaultLocale))
+const localeText = (locale) => localeLabel(locale, store.defaultLocale)
 const toast = useToast()
 
 // ── Locale registration — rare, context-level admin ──────────────────────────
@@ -120,7 +126,7 @@ function ratioSeverity(cell) {
         @update:model-value="makeDefault"
       >
         <DataTable
-          :value="store.locales.map((l) => ({ locale: l }))"
+          :value="orderedLocales.map((l) => ({ locale: l }))"
           size="small"
           data-key="locale"
           resizable-columns
@@ -129,10 +135,11 @@ function ratioSeverity(cell) {
           <template #empty>
             No locales registered for this context yet.
           </template>
-          <Column
-            field="locale"
-            header="Locale"
-          />
+          <Column header="Locale">
+            <template #body="{ data }">
+              {{ localeText(data.locale) }}
+            </template>
+          </Column>
           <Column header="Default">
             <template #body="{ data }">
               <RadioButton
@@ -211,9 +218,9 @@ function ratioSeverity(cell) {
           header="Type"
         />
         <Column
-          v-for="locale in store.locales"
+          v-for="locale in orderedLocales"
           :key="locale"
-          :header="locale"
+          :header="localeText(locale)"
         >
           <template #body="{ data }">
             <Tag

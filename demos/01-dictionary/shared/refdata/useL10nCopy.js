@@ -1,6 +1,6 @@
-// Shared UI-copy composable (Phase 11.7) — loads vue-i18n's message catalog
-// for the `ui-copy` dictionary type from refdata, live via the same
-// KV-cached pipeline as domain labels (/api/refdata/types/ui-copy, BR-D08),
+// Shared l10n composable (Phase 11.7) — loads vue-i18n's message catalog
+// for the `string` dictionary type from refdata, live via the same
+// KV-cached pipeline as domain labels (/api/refdata/types/string, BR-D08),
 // sharing `selectedLocale` with useRefdataLabels so one switcher drives both
 // domain labels and UI copy.
 //
@@ -37,11 +37,11 @@
 
 import { ref, watch } from 'vue'
 
-import { uiCopyFallbackEn } from './uiCopyFallback.en.js'
+import { l10nFallbackEn } from './l10nFallback.en.js'
 import { subscribeToChange, useRefdataLabels } from './useRefdataLabels.js'
 
-const TYPE_KEY = 'ui-copy'
-const CATALOG_CACHE_KEY = 'refdata.uiCopyCache'
+const TYPE_KEY = 'string'
+const CATALOG_CACHE_KEY = 'refdata.stringCache'
 const { selectedLocale } = useRefdataLabels()
 
 const usingFallback = ref(false)
@@ -90,7 +90,7 @@ async function refreshCatalog() {
   try {
     const data = await fetchJSON(`/api/refdata/types/${TYPE_KEY}?locale=${encodeURIComponent(locale)}`)
     if (myToken !== requestToken) return // a newer request has since started — discard this stale result
-    const messages = { ...uiCopyFallbackEn }
+    const messages = { ...l10nFallbackEn }
     let fellThrough = false
     for (const item of data.items || []) {
       if (item.label && item.label !== item.code) {
@@ -107,7 +107,7 @@ async function refreshCatalog() {
     if (myToken !== requestToken) return
     usingFallback.value = true
     partialFallback.value = false
-    i18n.global.setLocaleMessage(locale, { ...uiCopyFallbackEn })
+    i18n.global.setLocaleMessage(locale, { ...l10nFallbackEn })
   }
   i18n.global.locale.value = locale
   switching.value = false
@@ -155,6 +155,6 @@ watch(selectedLocale, () => {
   refreshCatalog()
 })
 
-export function useUiCopy() {
+export function useL10nCopy() {
   return { usingFallback, partialFallback, switching, connect, disconnect }
 }

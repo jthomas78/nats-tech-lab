@@ -43,9 +43,9 @@ var _ = Describe("Dictionary Type Domain Rules", func() {
 			})).To(Succeed())
 		})
 
-		It("registers a type with category ui-copy", func() {
+		It("registers a type with category domain-string", func() {
 			Expect(th.RegisterType(ctx, domain.DictionaryType{
-				TypeKey: "ui-copy", Name: "UI Copy", Category: domain.CategoryUICopy,
+				TypeKey: "l10n", Name: "UI Copy", Category: domain.CategoryDomainString,
 			})).To(Succeed())
 		})
 
@@ -72,27 +72,27 @@ var _ = Describe("Dictionary Type Domain Rules", func() {
 		})
 	})
 
-	Context("BR-D10: ui-copy items are exempt from typed-reference targeting", func() {
+	Context("BR-D10: l10n items are exempt from typed-reference targeting", func() {
 		BeforeEach(func() {
 			Expect(th.RegisterType(ctx, domain.DictionaryType{
-				TypeKey: "ui-copy", Name: "UI Copy", Category: domain.CategoryUICopy,
+				TypeKey: "l10n", Name: "UI Copy", Category: domain.CategoryDomainString,
 			})).To(Succeed())
-			_, err := ih.RegisterItem(ctx, commands.ItemInput{TypeKey: "ui-copy", Code: "filter.all", Context: "emea-acme"})
+			_, err := ih.RegisterItem(ctx, commands.ItemInput{TypeKey: "l10n", Code: "filter.all", Context: "emea-acme"})
 			Expect(err).NotTo(HaveOccurred())
 		})
 
-		It("hard-deletes an unreferenced ui-copy item like any other unreferenced item (BR-D02)", func() {
-			Expect(ih.DeleteItem(ctx, "ui-copy", "emea-acme", "filter.all")).To(Succeed())
-			_, err := ih.Get(ctx, "ui-copy", "emea-acme", "filter.all")
+		It("hard-deletes an unreferenced l10n item like any other unreferenced item (BR-D02)", func() {
+			Expect(ih.DeleteItem(ctx, "l10n", "emea-acme", "filter.all")).To(Succeed())
+			_, err := ih.Get(ctx, "l10n", "emea-acme", "filter.all")
 			Expect(errors.Is(err, domain.ErrItemNotFound)).To(BeTrue())
 		})
 
-		It("is never the target of a typed reference — no relation declares ui-copy as its target type", func() {
-			// If some future relation ever declared ui-copy as a target type, a
+		It("is never the target of a typed reference — no relation declares l10n as its target type", func() {
+			// If some future relation ever declared l10n as a target type, a
 			// reference to this item would incorrectly protect it from deletion
 			// (BR-D02) despite BR-D10 saying nothing should ever reference it.
 			// Guard the invariant directly: nothing references it today.
-			referenced, err := refs.IsReferenced(ctx, "ui-copy", "emea-acme", "filter.all")
+			referenced, err := refs.IsReferenced(ctx, "l10n", "emea-acme", "filter.all")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(referenced).To(BeFalse())
 		})

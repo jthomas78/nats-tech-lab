@@ -9,6 +9,7 @@ import { computed, reactive, ref, watch } from 'vue'
 
 import { draftTranslation, listItemLocalizations, listItems, setLocalization } from '../api'
 import { codeFor, labelFor } from '../itemFields'
+import { localeLabel, orderLocales } from '../localization'
 import { useDictionaryStore } from '../stores/dictionary'
 
 // Bulk translation editor for one type: enum values as rows, registered
@@ -25,6 +26,10 @@ const toast = useToast()
 const loading = ref(false)
 const rows = ref([])
 const filter = ref('')
+
+// BR-D32: the default locale is the first column and its header is marked.
+const orderedLocales = computed(() => orderLocales(store.locales, store.defaultLocale))
+const localeText = (locale) => localeLabel(locale, store.defaultLocale)
 
 async function load() {
   if (!props.typeKey) {
@@ -223,7 +228,7 @@ async function draftMissingForLocale(locale) {
         </template>
       </Column>
       <Column
-        v-for="locale in store.locales"
+        v-for="locale in orderedLocales"
         :key="locale"
         :field="(row) => cellText(row, locale)"
         sortable
@@ -231,7 +236,7 @@ async function draftMissingForLocale(locale) {
       >
         <template #header>
           <span class="locale-header">
-            {{ locale }}
+            {{ localeText(locale) }}
             <Button
               icon="pi pi-sparkles"
               text

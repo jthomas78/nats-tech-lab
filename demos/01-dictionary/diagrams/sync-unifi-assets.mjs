@@ -33,7 +33,7 @@ const iconCells = {
     ["map-fleet", "ui-lane", "ico-browser", 266, 120],
     ["map-ships", "ui-lane", "ico-browser", 458, 120],
     ["map-terminal", "ui-lane", "ico-browser", 266, 358],
-    ["map-uicopy", "service-lane", "ico-kv", 94, 122],
+    ["map-l10n", "service-lane", "ico-kv", 94, 122],
     ["map-status", "service-lane", "ico-kv", 334, 122],
     ["map-registry", "service-lane", "ico-db", 574, 122],
     ["map-fallback", "service-lane", "ico-cache", 94, 380],
@@ -79,7 +79,7 @@ const iconCells = {
 };
 
 const textCells = [
-  "app", "fleet", "ships", "terminal", "locale", "uicopy", "status", "registry", "fallback", "sse",
+  "app", "fleet", "ships", "terminal", "locale", "l10n", "status", "registry", "fallback", "sse",
   "seed-node", "build-node", "port-node", "client-node", "read-node",
   "port", "composable", "backend", "kv", "service", "postgres",
   "rest-adapter", "natsrpc-adapter", "commands-node", "domain-node", "store-node",

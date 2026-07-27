@@ -11,6 +11,9 @@ export default defineConfig({
       '@unifi-theme': fileURLToPath(new URL('../../../../shared/unifi-theme', import.meta.url)),
       // Shared AppShell.vue + app-shell.css (see .claude/plans/AppShell-Extraction-Plan.md).
       '@ui-shell': fileURLToPath(new URL('../../../../shared/ui-shell', import.meta.url)),
+      // Shared refdata helpers — BR-D32's locale ordering/labelling lives here
+      // so this app and the two shipping apps present locales identically.
+      '@refdata': fileURLToPath(new URL('../../shared/refdata', import.meta.url)),
     },
   },
   server: {

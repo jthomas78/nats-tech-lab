@@ -5,7 +5,7 @@
 - [Shipping domain overview](shipping_domain_overview.md) — Ship/Container aggregates on `SHIPPING` stream; hydrate/read-modify-write/422 conventions; **updated 2026-07-23**: subjects are now `evt.<tenant>.<domain>.<entity>.<id>.<event>`, Ship is now surrogate-UUID-keyed like Container (BR-020…BR-022)
 - [NATS volume legacy messages](nats_volume_legacy_messages.md) — stale-subject Nak loop after a domain rename; fix: `docker compose down -v`
 - [Container status model](container_status_model.md) — only `in-terminal`/`on-ship` exist; derive UI splits from `destPort` client-side
-- [frontend-port structure](frontend_port_structure.md) — now at `frontend/seafreight-app/`; Fleet/Port view split, refdata i18n, Vitest gotchas
+- [frontend-port structure](frontend_port_structure.md) — now at `frontend/seafreight-app/`; Fleet/Port view split, refdata l10n, Vitest gotchas
 - [Stale Select value bug pattern](stale_select_value_bug_pattern.md) — PrimeVue `Select` v-model doesn't auto-clear on option-list change
 - [swag regen diff noise](swag_regen_diff_noise.md) — `swag init` rewrites all `$ref` names repo-wide; hand-patch docs instead
 - [BR classification heuristic](br_classification_heuristic.md) — check `commands/*.go` for precedent before asking BR vs input-validation
@@ -15,3 +15,6 @@
 - [Locale switch race condition](locale_switch_race_condition.md) — overlapping fetches resolve out of order; fixed with a request-token guard
 - [Verify before resuming offloaded work](verify_before_resuming_offloaded_work.md) — check git log before trusting a resumed summary's "still open" claims
 - [Design discussion vs. implementation signal](design_discussion_vs_implementation_signal.md) — this user iterates/reverts design ideas before saying "let's plan" — don't implement early
+- [NATS Tower operator-mode tradeoff](nats_tower_operator_mode_tradeoff.md) — Tower needs JWT operator mode + resolver for real metrics; our `nats.conf` is auth-free; decision not yet made (leave as-is / isolated 2nd server / convert shared server)
+- [Tenant-service separation decision](tenant_service_separation_decision.md) — agreed: future hard-multi-tenancy tenant-service stays separate from refdata-service; only the Admin UI merges both
+- [refdata database-per-service](refdata_database_per_service.md) — refdata-service moved off shared `postgres` to its own `refdata-postgres` instance (port 5433); NATS is now the only shared infra

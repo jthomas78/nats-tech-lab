@@ -4,16 +4,16 @@
 // obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-DICTIONARY.md § "Type Categories & Governance": `standards` is
 // externally-owned reference data; the rest are owned by this platform's
 // domain/frontends ("Domain" in the sidebar).
-export const CATEGORY_ORDER = ['standards', 'domain-enum', 'ui-copy', 'config']
+export const CATEGORY_ORDER = ['standards', 'domain-enum', 'domain-string', 'config']
 
 export const CATEGORY_LABEL = {
   standards: 'Reference Data',
   'domain-enum': 'Enums',
-  'ui-copy': 'UI Strings',
+  'domain-string': 'Strings',
   config: 'Configuration',
 }
 
-export const DOMAIN_CATEGORIES = ['domain-enum', 'ui-copy', 'config']
+export const DOMAIN_CATEGORIES = ['domain-enum', 'domain-string', 'config']
 
 export function categoryLabel(key) {
   return CATEGORY_LABEL[key] || key

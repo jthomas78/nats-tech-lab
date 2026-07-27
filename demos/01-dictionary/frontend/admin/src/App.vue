@@ -21,14 +21,19 @@ import IconStreams from './components/icons/IconStreams.vue'
 import IconTables from './components/icons/IconTables.vue'
 import { CONTEXTS, useDictionaryStore } from './stores/dictionary'
 import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
-import { useUiCopy } from '@refdata/useUiCopy.js'
+import { useL10nCopy } from '@refdata/useL10nCopy.js'
 import { i18n } from './i18n.js'
 import AppShell from '@ui-shell/AppShell.vue'
 import NavList from '@ui-shell/NavList.vue'
 
 const store = useDictionaryStore()
-const { selectedLocale, locales, connect: connectRefdata, disconnect: disconnectRefdata } = useRefdataLabels()
-const { usingFallback, partialFallback, connect: connectUiCopy, disconnect: disconnectUiCopy } = useUiCopy()
+const {
+  selectedLocale,
+  localeOptions,
+  connect: connectRefdata,
+  disconnect: disconnectRefdata,
+} = useRefdataLabels()
+const { usingFallback, partialFallback, connect: connectL10nCopy, disconnect: disconnectL10nCopy } = useL10nCopy()
 const { t } = useI18n()
 
 // ── View selection (grouped activity bar) — one view rendered at a time, no
@@ -66,12 +71,12 @@ const subtitle = computed(() => SUBTITLES[activeView.value] ?? '')
 onMounted(() => {
   store.connect()
   connectRefdata()
-  connectUiCopy(i18n)
+  connectL10nCopy(i18n)
 })
 onUnmounted(() => {
   store.disconnect()
   disconnectRefdata()
-  disconnectUiCopy()
+  disconnectL10nCopy()
 })
 </script>
 
@@ -99,10 +104,16 @@ onUnmounted(() => {
       <Select
         id="locale"
         v-model="selectedLocale"
-        :options="locales"
+        :options="localeOptions"
+        option-label="label"
+        option-value="value"
         size="small"
         placeholder="—"
-      />
+      >
+        <template #value="{ value, placeholder }">
+          {{ value || placeholder }}
+        </template>
+      </Select>
       <Tag
         v-if="usingFallback || partialFallback"
         severity="warning"

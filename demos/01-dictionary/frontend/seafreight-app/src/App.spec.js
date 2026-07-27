@@ -12,8 +12,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App.vue'
 import { usePortStore } from './stores/port.js'
-import { parseUiCopySeed } from '../scripts/parseUiCopySeed.mjs'
-import { useUiCopy } from '@refdata/useUiCopy.js'
+import { parseL10nSeed } from '../scripts/parseL10nSeed.mjs'
+import { useL10nCopy } from '@refdata/useL10nCopy.js'
 
 vi.mock('@refdata/useRefdataLabels.js', () => {
   const selectedLocale = ref('en')
@@ -29,10 +29,10 @@ vi.mock('@refdata/useRefdataLabels.js', () => {
   }
 })
 
-vi.mock('@refdata/useUiCopy.js', () => {
+vi.mock('@refdata/useL10nCopy.js', () => {
   const switching = ref(false)
   return {
-    useUiCopy: () => ({
+    useL10nCopy: () => ({
       usingFallback: ref(false),
       partialFallback: ref(false),
       switching,
@@ -48,7 +48,7 @@ vi.mock('@refdata/useUiCopy.js', () => {
 function seedCatalogs() {
   const seedPath = resolvePath(dirname(fileURLToPath(import.meta.url)), '../../../backend/refdata-service/refdata/seed.go')
   const seed = readFileSync(seedPath, 'utf8')
-  return parseUiCopySeed(seed)
+  return parseL10nSeed(seed)
 }
 
 function mountApp({ ships = {}, containers = {}, port = 'Hamburg' } = {}) {
@@ -105,7 +105,7 @@ function manifestCountsByShipId(wrapper) {
 describe('BR-D16 Port UI localization', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useUiCopy().switching.value = false // the mock's `switching` ref is module-level and outlives each test
+    useL10nCopy().switching.value = false // the mock's `switching` ref is module-level and outlives each test
   })
 
   it('reactively switches visible chrome from English to Spanish', async () => {
@@ -209,7 +209,7 @@ describe('BR-D16 Port UI localization', () => {
 
   it('shows a loading spinner on the locale control while a switch is in flight', async () => {
     const { wrapper } = mountApp()
-    const { switching } = useUiCopy()
+    const { switching } = useL10nCopy()
 
     expect(wrapper.find('#locale [data-pc-section="loadingicon"]').exists()).toBe(false)
 
