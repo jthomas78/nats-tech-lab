@@ -426,7 +426,7 @@ Migration steps (in `migrate.go`):
 
 ## 9. Implementation Phases
 
-> **This is Phase 12 in the main plan** ([Dictionary-POC-Plan.md](Dictionary-POC-Plan.md)).
+> **This is Phase 12 in the main plan** ([Main-POC-Plan.md](Main-POC-Plan.md)).
 > Sub-phases 12.1–12.7 below. Previous Phase 12 (Ship Container Capacity Limit) has been
 > renumbered to Phase 13; all subsequent phases bumped by one.
 

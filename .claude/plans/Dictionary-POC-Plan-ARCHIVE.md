@@ -1,12 +1,12 @@
 # nats-tech-lab — Dictionary POC Plan Archive (Phases 0–11)
 
 Full verbatim detail for **completed** phases, moved out of the live plan
-(`Dictionary-POC-Plan.md`) to keep that file lean. This file is a reference —
+(`Main-POC-Plan.md`) to keep that file lean. This file is a reference —
 it is not meant to be read into context by default; open it only when you
 need the original rationale, checklist detail, or design notes for a
 specific completed phase.
 
-The live plan (`Dictionary-POC-Plan.md`) keeps a one-line status entry per
+The live plan (`Main-POC-Plan.md`) keeps a one-line status entry per
 phase below, linking back here.
 
 ---

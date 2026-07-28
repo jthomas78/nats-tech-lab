@@ -245,4 +245,4 @@ These skills are **not yet implemented**. The note is here to record the intent:
 
 ## Implementation Status
 
-See `.claude/plans/Dictionary-POC-Plan.md` for the full phased plan and checkbox tracking.
+See `.claude/plans/Main-POC-Plan.md` for the full phased plan and checkbox tracking.

@@ -3,7 +3,7 @@
 > **Status: APPROVED (2026-07-13).** This is now **Phase 11** of the main plan (sub-phases
 > 11.1–11.5 below); the former Phases 11–15 have renumbered to 12–16.
 >
-> Main plan: [Dictionary-POC-Plan.md](Dictionary-POC-Plan.md)
+> Main plan: [Main-POC-Plan.md](Main-POC-Plan.md)
 >
 > **Decisions made at approval:**
 > 1. **Q1 — Option B (separate service).** `refdata-service/` is its own Go service/container,

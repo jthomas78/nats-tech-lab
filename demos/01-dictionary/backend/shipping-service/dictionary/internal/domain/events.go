@@ -16,6 +16,16 @@ const (
 	// subject taxonomy — a fixed literal, not a wildcard.
 	Domain = "shipping"
 
+	// KV bucket prefixes ({prefix}-{context} outside an account boundary;
+	// just {prefix} inside one — Phase 18). Exported so both the composition
+	// root and rest.SwitchTenant (Phase 18b) can build a kvstore.Store for
+	// the currently active NATS account without an import cycle between
+	// them.
+	ShapeABucketPrefix    = "dict-a"    // Shape A ship read model
+	ShapeBBucketPrefix    = "dict-b"    // Shape B ship cache
+	ContainerBucketPrefix = "container" // container projection (terminal queries read model)
+	MetaBucketPrefix      = "meta"      // cross-cutting lookup sets (known-containers)
+
 	ShipRegisteredEvent      = "registered"
 	ShipArrivedEvent         = "arrived"
 	ShipDepartedEvent        = "departed"

@@ -19,7 +19,15 @@ type Monolith interface {
 	// NC is the raw core-NATS connection — needed by adapters (e.g.
 	// natsrpc/, Phase 12.10) that can't work off jetstream.JetStream alone,
 	// such as micro.AddService or a plain Request/Reply client.
+	//
+	// This is the permanent, unauthenticated (DEFAULT-account) connection —
+	// Phase 18b's tenant-scoped connection is a second, separate connection
+	// owned by rest.Handlers, reconnected on tenant switch. DB/JS/NC here
+	// never change after Startup.
 	NC() *nats.Conn
+	// NatsURL is needed by rest.Handlers.SwitchTenant (Phase 18b) to open a
+	// second, tenant-credentialed connection independent of NC() above.
+	NatsURL() string
 	Mux() *http.ServeMux
 	Logger() *slog.Logger
 }

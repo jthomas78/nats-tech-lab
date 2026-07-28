@@ -12,6 +12,8 @@ export const l10nFallbackEn = {
   "connection.watching": "watching",
   "connection.disconnected": "disconnected",
   "context.fleet": "Fleet",
+  "nav.tenant": "Tenant",
+  "tenant.switching": "switching…",
   "fallback.unreachable": "UI text: bundled (refdata unreachable)",
   "fallback.partial": "UI text: partially bundled",
   "a11y.lightMode": "Switch to light mode",

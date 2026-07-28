@@ -131,3 +131,16 @@ export function jetstreamStreamUrl(stream = 'SHIPPING') {
 export function rpcWatchUrl() {
   return '/api/rpc-watch'
 }
+
+// ── Tenant switch (Phase 18b) ─────────────────────────────────────────────────
+// Distinct from fleet context (getPorts/watchUrl above): this reconnects
+// shipping-service's NATS connection under a different account entirely, so
+// every ship/container endpoint's data changes, not just what a query filters.
+
+export function getTenant() {
+  return request('/api/tenant')
+}
+
+export function switchTenant(tenant) {
+  return request('/api/tenant/switch', { method: 'POST', body: JSON.stringify({ tenant }) })
+}

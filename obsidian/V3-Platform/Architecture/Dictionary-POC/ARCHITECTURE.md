@@ -495,3 +495,146 @@ Localizations tab only supports manual entry.
 type navigator counts, item grid CRUD, localization add + fallback-chain resolution, reference
 creation (`country.AE --defaultCurrency--> currency.AED`), locales panel, and the cache status
 widget correctly reporting `Postgres version == KV version, in sync` after a live mutation.
+
+## Multi-Tenancy Isolation Spike (Phase 18)
+
+Everywhere above, tenancy is a **string convention**: one unauthenticated `nats.Connect`
+per service, tenant scoping enforced only by the `{context}` token the application
+happens to put into subjects (`evt.{context}.shipping...`) and KV bucket names
+(`{prefix}-{context}`). Nothing stops a bug — or a compromised process — from reading
+or writing another tenant's data; the isolation is a naming convention the application
+chooses to honor, not something the transport enforces. Phase 18 was a two-step spike
+(18a narrow, 18b broad — `.claude/plans/Main-POC-Plan.md`) measuring whether NATS
+**accounts** are worth the cost of closing that gap, as a decision input before the real
+platform commits to either soft or hard isolation (System Design doc, DD-04, Section 12.B).
+
+### The invariant, demonstrated not assumed
+
+**A tenant's credentials must not read or write another tenant's events, streams, or KV
+buckets, and the server — not the application — enforces it.** This is a
+**deployment/infrastructure invariant, not a numbered business rule**: it has no domain
+error, no aggregate method that enforces it (the entire point is that the application
+*cannot*), and it spans both services, so it doesn't fit `BUSINESS_RULES-SHIPPING.md`'s
+format (every rule there names a domain `Error`, an `Enforced in` method, and a
+`Domain Rules / BR-0xx` test).
+
+Demonstrated twice, at two different layers:
+
+- **18a** (`shipping-service/internal/natsaccounts/isolation_test.go`) — loads the actual
+  shipped `nats/nats.conf` into an embedded server and proves it directly: `acme` and
+  `globex` credentials cannot see each other's core-NATS pub/sub (invisibility, not a
+  rejected call — matching the NATS docs' model of accounts as separate subject spaces,
+  not a shared one filtered by prefix), cannot see each other's JetStream streams or KV
+  buckets even when named identically, and wrong credentials are rejected outright.
+- **18b** (`dictionary/tenant_switch_test.go`) — proves it through the real application
+  path: register a ship as `acme`, switch the whole shipping-service to `globex` via
+  `POST /api/tenant/switch`, confirm the ship is unreachable through the same
+  `GET /api/shape-c/fleet` call `globex` would use — **and independently confirm, via a
+  raw connection, that `globex`'s own `SHIPPING` stream (created fresh by the switch) has
+  zero messages**, so the "unreachable" result is a server-side fact about a different
+  stream, not an application-level filter silently hiding rows. Switching back to `acme`
+  recovers the ship — its durable projector's stream position was never lost, because
+  NATS durables are server-side state that outlives the client that created them (the
+  switch stops the client-side `Consume()` loop; nothing is deleted or recreated
+  server-side).
+
+### Account-per-tenant vs shared-account-with-prefixes
+
+The decisive structural fact: **JetStream assets are per-account.** Two accounts means
+two independent `SHIPPING` streams and two independent sets of KV buckets, mutually
+invisible — not one stream with tenant-wildcarded subjects filtered by account. That
+collapses the taxonomy this POC built for soft isolation:
+
+| | Shared account (today) | Account per tenant |
+|---|---|---|
+| Event subject | `evt.{context}.shipping.ship.{id}.{event}` — `{context}` does the isolation work | `evt.{context}.shipping.ship.{id}.{event}` — `{context}` is **redundant**; the account is the boundary |
+| KV bucket | `{prefix}-{context}`, e.g. `dict-a-acme` — suffix does the isolation work | `{prefix}` alone, e.g. `dict-a` — suffix is **redundant** for the same reason |
+| Enforcement | convention; a bug can cross tenants silently | the NATS server itself; a bug *cannot* cross tenants |
+| `max_streams`/`max_consumers` | one shared ceiling across every tenant | one ceiling *per tenant*, independent of every other tenant |
+
+The `{context}` token surviving inside an account isn't wasted, though — see "Consumer
+partitioning" below, where a *shared* account still wants a tenant token, just on the
+consumer filter rather than doing the isolation work itself.
+
+### Consumer partitioning: three shapes, only one measured cost difference
+
+Researched against the NATS docs directly (not assumed): the documented way to
+partition a stream by tenant is **one durable consumer per tenant, filtered on the
+tenant token** — the consumers doc's own example is a stream on `factory-events.*.*`
+with a consumer filtered to `factory-events.A.*`. That is distinct from what this POC
+had built before Phase 18:
+
+1. **Pre-Phase-18 (this repo, until now)** — one durable per projector on a
+   tenant-agnostic wildcard (`evt.*.shipping.ship.>`), tenant resolved from the event
+   *payload* (`event.Context`) at write time. Convenient, and deliberate
+   (`events.go`: projectors are "intentionally tenant-agnostic") — but not an isolation
+   pattern, since nothing stops one projector instance from seeing every tenant's events.
+2. **Shared account, per-tenant durables** — the NATS docs' own pattern:
+   `FilterSubject: evt.acme.shipping.ship.>` instead of `evt.*.shipping.ship.>`, one such
+   durable per tenant per projector. The natural conclusion if a future decision is
+   "prefixes are enough, accounts aren't needed."
+3. **Account per tenant (Phase 18b's shape)** — durables are per-account by construction,
+   so the tenant token in the filter is redundant; always exactly 4 durables per account,
+   regardless of tenant count.
+
+The measured difference between shapes 2 and 3: `max_consumers` (like `max_streams`,
+`max_mem`, `max_file`) is a **per-account** limit. Shape 2 accumulates every tenant's 4
+durables against one account's ceiling (N tenants × 4, one shared budget); shape 3 is
+always 4 per account, independent of how many tenants exist. This is a concrete scaling
+argument for account-per-tenant, not just a philosophical one — **and it means that even
+if this POC's answer to "are accounts required" turns out to be no, shape 1 above (the
+current tenant-agnostic wildcard projector) should still change to shape 2** once real
+multi-tenant data volume matters, since it's the pattern the NATS docs themselves
+document for partitioning one stream by tenant.
+
+One more docs-grounded correction that shaped 18b's implementation: durables are
+designed to **outlive their client** — the docs state durables "remain even when there
+are periods of inactivity" and a client "resumes" by rebinding, while only *ephemeral*
+consumers are "automatically cleaned up... when no subscriptions are bound." So a tenant
+switch is stop-and-rebind on the client side, never delete-and-recreate — and Phase 18b's
+implementation (`rest/tenant.go`'s `SwitchTenant`) deliberately never sets
+`InactiveThreshold` on any projector consumer, since that would let the server reap a
+switched-away tenant's durable and lose its stream position — asserted directly in
+`tenant_switch_test.go`, not just left as an intention.
+
+### What Phase 18b actually rewired
+
+`shipping-service` only — see below for why refdata-service is excluded. The service now
+holds **two** long-lived NATS connections instead of one:
+
+- **The permanent `DEFAULT`-account connection** (today's original unauthenticated
+  `nats.Connect`, unchanged) — used only for refdata-service's `rpc.*` calls, its
+  `REFDATA` change-event stream, and the `obs.rpc.>` observability bridge. These were
+  already, quietly, DEFAULT-account concerns before Phase 18 existed (refdata-service
+  isn't tenant-scoped at all) — the accounts spike just made that fact visible enough to
+  require separating the field that carries it (`rest.Deps.DefaultJS`) from the one that
+  swaps (`rest.Deps.JS`).
+- **One tenant-scoped connection**, reconnected under a different account's credentials
+  on every `POST /api/tenant/switch`. Everything derived from it — the `SHIPPING` stream,
+  the four KV buckets, the four projector durables' client-side subscriptions, and the
+  ship/container command/query handlers — is rebuilt as one unit and swapped into the
+  REST layer atomically (`rest.Handlers.SetDeps`, backed by `atomic.Pointer[Deps]`), so no
+  in-flight request ever observes a mix of old and new tenant resources.
+
+**Why refdata-service is excluded, as a finding rather than a workaround:**
+refdata-service is inherently cross-tenant — it answers `rpc.*.refdata.*.v1` for every
+tenant, deriving the tenant from the *subject token* per request, not from which account
+it's connected to. Putting it inside one tenant's account would make it unreachable from
+every other tenant. Doing this properly needs a service **export** from a refdata account,
+**imported** by each tenant account — exactly the mechanism Phase 18's scope deliberately
+defers (see the accounts docs' `exports`/`imports` model). So: **any future hard-isolation
+design that includes a shared cross-tenant service needs exports/imports designed in from
+the start** — this is now a concrete requirement for that future work, not a hypothetical
+one, feeding directly into `.claude/memory/tenant_service_separation_decision.md`'s
+tenant-service/refdata-service split.
+
+### What this spike does not answer
+
+Per its own scope: operator/JWT mode (vs. the static server-config accounts used here —
+see `.claude/memory/nats_tower_operator_mode_tradeoff.md` for the still-separate,
+still-undecided question of converting the shared NATS server for NATS Tower), and any
+cross-tenant sharing mechanism (exports/imports) beyond noting that refdata-service would
+need one. The tenant credentials here are hardcoded, plaintext, spike-only fixtures
+(`composition.go`'s `tenantCredentials`, matching `nats.conf`) — real tenant onboarding
+would mint credentials, not hardcode them, and is itself a runtime-discovery question
+deferred past Phase 18b (see the plan's Phase 18b breadcrumb on `GET :8222/accountz`).

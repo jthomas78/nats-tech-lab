@@ -23,6 +23,11 @@ func RegisterContainers(
 	repo domain.ContainerRepository,
 	log *slog.Logger,
 ) (jetstream.ConsumeContext, error) {
+	// See handler.go's register() for why: the Consume callback below closes
+	// over this context for the projector's entire lifetime, so it must not
+	// be tied to whatever short-lived context the caller used to register it
+	// (e.g. an HTTP request context, Phase 18b's tenant switch).
+	msgCtx := context.WithoutCancel(ctx)
 	cons, err := js.CreateOrUpdateConsumer(ctx, domain.StreamName, jetstream.ConsumerConfig{
 		Durable:       "container-projector",
 		FilterSubject: domain.SubjectContainerWildcard,
@@ -46,11 +51,11 @@ func RegisterContainers(
 		}
 		event.ID = id
 
-		agg := currentContainerAgg(ctx, kv, event)
+		agg := currentContainerAgg(msgCtx, kv, event)
 		agg.Apply(msg.Subject(), event)
 		state := agg.State(event.Context)
 
-		persisted, err := repo.Upsert(ctx, state)
+		persisted, err := repo.Upsert(msgCtx, state)
 		if err != nil {
 			log.Error("container projection failed, will redeliver", "subject", msg.Subject(), "err", err)
 			_ = msg.Nak()
@@ -62,7 +67,7 @@ func RegisterContainers(
 			_ = msg.Nak()
 			return
 		}
-		if _, err := kv.Put(ctx, event.Context, state.KVKey(), data); err != nil {
+		if _, err := kv.Put(msgCtx, event.Context, state.KVKey(), data); err != nil {
 			log.Error("container kv write failed, will redeliver", "subject", msg.Subject(), "err", err)
 			_ = msg.Nak()
 			return

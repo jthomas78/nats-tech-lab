@@ -137,4 +137,4 @@ These skills are **not yet implemented**. The note is here to record the intent:
 
 ## Implementation Status
 
-See `.Codex/plans/Dictionary-POC-Plan.md` for the full phased plan and checkbox tracking. Current branch `poc/dictionary` is at Phase 0 (scaffolding not yet started).
+See `.Codex/plans/Main-POC-Plan.md` for the full phased plan and checkbox tracking. Current branch `poc/dictionary` is at Phase 0 (scaffolding not yet started).

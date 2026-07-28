@@ -281,6 +281,8 @@ var l10nSeed = []seedItem{
 	{"connection.watching", "watching", "observando", "kyk tans"},
 	{"connection.disconnected", "disconnected", "desconectado", "ontkoppel"},
 	{"context.fleet", "Fleet", "Flota", "Vloot"},
+	{"nav.tenant", "Tenant", "Inquilino", "Huurder"},
+	{"tenant.switching", "switching…", "cambiando…", "wissel tans…"},
 	{"fallback.unreachable", "UI text: bundled (refdata unreachable)", "Texto de interfaz: incluido (datos de referencia no disponibles)", "Koppelvlakteks: ingebou (verwysingsdata onbereikbaar)"},
 	{"fallback.partial", "UI text: partially bundled", "Texto de interfaz: parcialmente incluido", "Koppelvlakteks: gedeeltelik ingebou"},
 	{"a11y.lightMode", "Switch to light mode", "Cambiar a modo claro", "Wissel na ligte modus"},

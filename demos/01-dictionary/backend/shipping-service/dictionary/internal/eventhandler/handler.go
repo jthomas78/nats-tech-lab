@@ -101,6 +101,14 @@ func register(
 	log *slog.Logger,
 	project func(context.Context, string, domain.ShipEvent) error,
 ) (jetstream.ConsumeContext, error) {
+	// The Consume callback below closes over ctx for the projector's entire
+	// lifetime — every message it ever processes calls project(ctx, ...).
+	// ctx is only meant to bound the CreateOrUpdateConsumer call right below;
+	// stripping cancellation (keeping any values) means a caller whose ctx is
+	// canceled shortly after registering (e.g. an HTTP request context) can't
+	// leave every future event failing with "context canceled" and stuck
+	// redelivering forever.
+	msgCtx := context.WithoutCancel(ctx)
 	cons, err := js.CreateOrUpdateConsumer(ctx, domain.StreamName, jetstream.ConsumerConfig{
 		Durable: durable,
 		// Ship projectors only consume ship movement events; container.*
@@ -128,7 +136,7 @@ func register(
 			return
 		}
 		event.ID = id
-		if err := project(ctx, msg.Subject(), event); err != nil {
+		if err := project(msgCtx, msg.Subject(), event); err != nil {
 			log.Error("projection failed, will redeliver", "consumer", durable, "subject", msg.Subject(), "err", err)
 			_ = msg.Nak()
 			return

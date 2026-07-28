@@ -20,6 +20,7 @@ import IconShapes from './components/icons/IconShapes.vue'
 import IconStreams from './components/icons/IconStreams.vue'
 import IconTables from './components/icons/IconTables.vue'
 import { CONTEXTS, useDictionaryStore } from './stores/dictionary'
+import { useTenantStore } from './stores/tenant'
 import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
 import { useL10nCopy } from '@refdata/useL10nCopy.js'
 import { i18n } from './i18n.js'
@@ -27,6 +28,7 @@ import AppShell from '@ui-shell/AppShell.vue'
 import NavList from '@ui-shell/NavList.vue'
 
 const store = useDictionaryStore()
+const tenantStore = useTenantStore()
 const {
   selectedLocale,
   localeOptions,
@@ -72,6 +74,7 @@ onMounted(() => {
   store.connect()
   connectRefdata()
   connectL10nCopy(i18n)
+  tenantStore.refresh()
 })
 onUnmounted(() => {
   store.disconnect()
@@ -92,6 +95,20 @@ onUnmounted(() => {
     </template>
     <template #topbar-right>
       <Tag :severity="store.connected ? 'success' : 'danger'" :value="store.connected ? 'watching' : 'disconnected'" />
+      <!-- Phase 18b tenant selector — a different NATS account, not a fleet
+           filter (CLAUDE.md/plan: must stay visually + functionally distinct
+           from the Fleet selector below). "warning" severity is deliberate:
+           this is the one control in the topbar that reconnects the backend. -->
+      <label class="lab-muted" for="tenant">{{ t('nav.tenant') }}</label>
+      <Select
+        id="tenant"
+        :model-value="tenantStore.tenant"
+        :options="tenantStore.available"
+        :disabled="tenantStore.switching"
+        size="small"
+        @update:model-value="tenantStore.setTenant($event)"
+      />
+      <Tag v-if="tenantStore.switching" severity="warning" :value="t('tenant.switching')" />
       <label class="lab-muted" for="context">Fleet</label>
       <Select
         id="context"

@@ -392,7 +392,7 @@ is not tracked as a `BUSINESS_RULES-SHIPPING.md` BR entry — its tests are
 `dictionary/internal/rest/refdata_demo_error_test.go`.
 
 See `BUSINESS_RULES-REFDATA.md`'s BR-D28 for the corresponding business rule
-and its tests, and `.claude/plans/Dictionary-POC-Plan.md`'s Phase 12.11 for
+and its tests, and `.claude/plans/Main-POC-Plan.md`'s Phase 12.11 for
 the task checklist (all tasks complete).
 
 ## 8. Relationship to the existing event backbone

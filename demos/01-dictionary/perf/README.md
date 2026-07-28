@@ -2,7 +2,7 @@
 
 Load-testing harness for the Dictionary POC backend. Built in **Phase 10 —
 Performance Baseline (pull-forward)**; reused in **Phase 17** for the full
-suite. See `.claude/plans/Dictionary-POC-Plan.md` for scope.
+suite. See `.claude/plans/Main-POC-Plan.md` for scope.
 
 > **Measurement only.** These scenarios characterise degradation curves. They
 > do **not** implement mitigations (snapshotting, etc.) — those interact with

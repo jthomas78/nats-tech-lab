@@ -191,7 +191,7 @@ Registering a container with an origin or destination port that isn't in the por
 Every ship has a maximum container capacity, a fixed number set at registration (a ship's first `Arrive`, mirroring how `ShipName` is set-once at first arrival). Loading a container onto a ship whose current on-ship container count already equals its capacity is rejected — the ship must be under capacity, not merely docked (BR-012) and at the container's terminal port (BR-014).
 
 - **Error:** `ErrCapacityExceeded` — "ship is at container capacity"
-- **Enforced in:** `ContainerAggregate.Load()` — checked alongside the existing BR-012/BR-010/BR-014/BR-008 checks; requires the ship's current on-ship container count, resolved by the application layer before the domain check (mechanism — event-replay count vs. Shape A/B read-model query — to be decided during implementation; see Phase 13 of `Dictionary-POC-Plan.md`)
+- **Enforced in:** `ContainerAggregate.Load()` — checked alongside the existing BR-012/BR-010/BR-014/BR-008 checks; requires the ship's current on-ship container count, resolved by the application layer before the domain check (mechanism — event-replay count vs. Shape A/B read-model query — to be decided during implementation; see Phase 13 of `Main-POC-Plan.md`)
 - **Test:** `Container Domain Rules / BR-019` (not yet written — pending implementation)
 
 **Frontend:** `frontend/seafreight-app` ("SeaFreight Flow") gains a load-capacity indicator column (e.g. `12 / 50`, colored by how full the ship is) in both `FleetPanel.vue` and `ShipsAtPortPanel.vue`, pairing the new `capacity` field with the container count already computed via `store.manifestFor(shipID).length`.

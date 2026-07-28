@@ -781,7 +781,7 @@ The baseline harness, seed script, and the Shape C / single-ship / throughput sc
 
 ---
 
-### Phase 18 (optional) — NATS Accounts Tenancy Spike
+### Phase 18 (APPROACH AGREED 2026-07-27 — awaiting approval to implement) — NATS Accounts Tenancy Spike
 
 #### Goal
 
@@ -789,16 +789,304 @@ Today tenancy is a string convention: one unauthenticated `nats.Connect`, tenant
 
 #### Scope (spike, not production auth)
 
-- Two accounts in server config (e.g. `acme`, `globex`) with per-tenant credentials; backend connects per tenant.
+- Two accounts in server config (e.g. `acme`, `globex`) with per-tenant credentials.
 - Verify the server actually enforces isolation: tenant A's credentials cannot publish/subscribe/replay tenant B's subjects or KV buckets — including JetStream API access (streams/consumers are per-account resources).
 - Resolve the taxonomy interaction: inside an account, the `{tenant}` subject token is redundant — decide whether the token stays (portability across account-per-tenant vs shared-account deployments) or the account *is* the tenant boundary, and document the trade-off.
 - Note but don't implement: operator/JWT mode vs static server-config accounts; exports/imports for any cross-tenant sharing.
 
-#### Checklist
+#### Delivery: two steps, narrow then broad (agreed 2026-07-27)
 
-- [ ] Server config with two accounts + creds; docker-compose wiring
-- [ ] Isolation verified by test: cross-tenant publish/subscribe/JetStream access rejected by the server
-- [ ] Decision documented in `ARCHITECTURE.md`: account-per-tenant vs shared-account+prefixes, and what the `{tenant}` subject token means under each
+Split so the isolation question is answered by a cheap, additive change before any
+service's connection code is touched. **18a proves the server enforces isolation;
+18b proves the application can live inside it.** 18b is gated on 18a's result — if
+18a shows accounts don't buy anything the subject prefixes don't already give us,
+18b is cancelled rather than executed.
+
+Static server-config accounts only (an `accounts {}` block with `users`, per
+[the NATS accounts docs](https://docs.nats.io/running-a-nats-service/configuration/securing_nats/accounts)) —
+no operator/JWT mode. That keeps NATS Tower's operator-mode requirement (see
+`.claude/memory/nats_tower_operator_mode_tradeoff.md`) a separate, still-undecided
+question rather than dragging it into this spike.
+
+**The structural fact that shapes both steps:** JetStream assets are *per-account*.
+Two accounts therefore means **two separate `SHIPPING` streams** and two separate
+sets of KV buckets, mutually invisible — not one stream with tenant-wildcarded
+subjects. So the cross-context wildcards (`evt.*.shipping.ship.>`,
+`domain.StreamSubjects()`, events.go:43-45) and the `{context}` bucket suffix
+(`{prefix}-{context}`, kvstore/kv.go:41) both become redundant *inside* an account.
+That is the taxonomy trade-off this phase exists to document, and it is why 18b
+uses one tenant-scoped connection rather than a per-tenant connection map.
+
+#### What the NATS docs recommend for consumers + tenancy (researched 2026-07-27)
+
+Sources: [JetStream consumers](https://docs.nats.io/nats-concepts/jetstream/consumers),
+[JetStream resource management](https://docs.nats.io/running-a-nats-service/configuration/resource_management),
+[accounts](https://docs.nats.io/running-a-nats-service/configuration/securing_nats/accounts).
+
+- **Per-account JetStream isolation is explicit, not inferred**: *"A JetStream enabled
+  server supports creating fully isolated JetStream environments for different
+  accounts."* Streams, consumers and KV buckets are account-scoped resources.
+- **The documented way to partition one stream by tenant is one durable per tenant,
+  filtered on the tenant token.** The consumers page's own worked example is a stream
+  on `factory-events.*.*` with a consumer filtered to `factory-events.A.*`, plus
+  multi-filter consumers (`[factory-events.A.*, factory-events.B.*]`). Mapped onto our
+  taxonomy that is `FilterSubject: evt.acme.shipping.ship.>` — **not** today's
+  `evt.*.shipping.ship.>`.
+- Which leaves three distinct shapes, only two of which are documented patterns:
+  1. **Today** — one durable per projector on a tenant-agnostic wildcard, tenant
+     resolved from the *payload* (`event.Context`) at write time. Convenient and
+     deliberate (events.go:40-42), but it is not an isolation pattern: nothing stops a
+     projector seeing every tenant, because nothing is meant to.
+  2. **Shared account, per-tenant durables** — the docs' factory-events pattern; the
+     natural end state if 18a concludes "subject prefixes are enough". Costs
+     N tenants × 4 projector durables.
+  3. **Account per tenant** — durables are per-account by construction, so the tenant
+     token in the filter is redundant; always 4 durables per account.
+- **Durables are designed to outlive their client.** Durables *"remain even when there
+  are periods of inactivity"* and clients "resume" by rebinding; only ephemerals are
+  *"automatically cleaned up (deleted) after a period of inactivity, when no
+  subscriptions are bound."* Hence 18b's swap is stop-and-rebind, not delete-and-recreate.
+  Corollary: do **not** set `InactiveThreshold` on projector consumers.
+- **`max_consumers` is a per-account limit** (docs example: 100), alongside
+  `max_streams`, `max_mem`, `max_file`. This is a concrete scaling argument for shape 3
+  over shape 2: shape 2 accumulates every tenant's durables against a single account
+  ceiling, shape 3 does not. Record it as spike evidence.
+- **Pull consumers are the recommendation for new projects** — already satisfied: the
+  `jetstream` package's `Consume()` (eventhandler/handler.go:104-137) is pull-based with
+  automatic flow control. No change needed.
+
+##### 18a — Narrow: additive config + isolated proof
+
+Additive only. No existing service changes behaviour; nothing in `backend/` is edited.
+
+- `nats/nats.conf` (currently 18 lines, zero auth) gains an `accounts {}` block with
+  `acme` and `globex`, one user each, **no exports/imports between them**.
+- A default/`$G` no-auth account is preserved so `shipping-service` (cmd/main.go:74),
+  `refdata-service` (cmd/main.go:125), and all three frontends keep connecting
+  exactly as they do today — zero code changes, zero compose changes to those services.
+- Isolation is proven by a **standalone Go test** that dials the tenant creds
+  directly (its own package; not wired into either service) and asserts the *server*
+  rejects cross-tenant core pub/sub, KV access, and JetStream API calls
+  (stream/consumer create + read). Per CLAUDE.md this test also asserts
+  `nc.Opts.Name != ""` on every connection it opens.
+- Blast radius: one config file + one new test package.
+
+Checklist:
+
+- [x] **Business-rule question resolved (2026-07-27): this phase adds no numbered
+      business rule.** The invariant it enforces —
+      *a tenant's credentials must not read or write another tenant's events, streams,
+      or KV buckets, and the server rather than the application enforces this* —
+      is a **deployment/infrastructure invariant, not a domain rule**, and is recorded
+      in `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md` alongside
+      the account-vs-prefix decision (see "Findings to document" below). No `BR-` number
+      is assigned; **BR-023 remains unallocated.**
+
+      Why it fails the `BUSINESS_RULES-SHIPPING.md` format: every rule there
+      (BR-001…BR-022) names a domain **Error**, an **Enforced in** aggregate method or
+      handler that calls one, and a `Domain Rules / BR-0xx` **Test**. This invariant has
+      no domain error (the failure is a NATS permissions violation surfaced by the client
+      library), no aggregate method to enforce it in (the whole point is that the
+      application *cannot*), and could not live in `dictionary/internal/domain/` as
+      CLAUDE.md Quality Rule 3 requires, since that layer has no framework dependencies.
+      It also spans both services, so it is not a shipping-domain concern — refdata keeps
+      its own `BR-D*` series for the same reason. Closest analogue, BR-020 (a `context`
+      must be a valid subject/KV-bucket token), is still domain-enforced via
+      `ErrInvalidToken` and is about the *shape* of a tenant identifier, not isolation
+      between tenants.
+
+      The Ginkgo spec is still written (next checklist item) — it is an **infrastructure
+      spec asserting the server rejects cross-account access**, not a
+      `Domain Rules / BR-023` spec.
+- [x] `nats/nats.conf`: `accounts {}` with `acme` + `globex` + preserved `DEFAULT`
+      account via `no_auth_user: default`; creds/passwords are plaintext spike
+      fixtures, clearly marked non-production, not reused anywhere else
+- [x] Standalone isolation test —
+      `shipping-service/internal/natsaccounts/isolation_test.go`, loads the real
+      shipped `nats.conf` via `server.ProcessConfigFile` into an embedded server
+      (not a reimplementation): cross-tenant core pub/sub isolation (invisibility,
+      not a rejected call — confirmed against the NATS docs' actual model),
+      wrong-credentials rejection, and `nats.Name(...)` asserted on every connection
+- [x] Confirmed the two accounts get independent JetStream: identical stream name
+      (`SPIKE_ISO`) created in both `acme` and `globex` accounts without collision,
+      each seeing only its own messages; identical KV bucket name (`dict-a`) same
+      result — `globex` gets `ErrBucketNotFound` looking up `acme`'s bucket, then
+      creates its own independently. All 5 tests pass (`go test ./internal/natsaccounts/... -v`)
+- [x] `go build ./...` + `ginkgo ./...` green with the new config in place — 82
+      existing specs plus all other packages unaffected
+- [x] Verified against the real docker-compose stack, not just the embedded-server
+      test: `docker compose down -v && docker compose up -d --build` (down -v
+      required per the operational note below — **this destroyed all local
+      Postgres/NATS/nats-tower/nui demo data**, expected and low-cost since it's
+      lab data, flagging since it's the kind of action worth knowing about even when
+      expected), then confirmed `lb-shipping-service` and `lb-refdata-service` connect
+      with **zero credentials, zero code changes**, no auth errors in the NATS log,
+      and `GET /api/ports/global` returns real seeded data end-to-end
+- [x] 18a result: **isolation holds, cleanly, with no changes to any existing
+      service.** Go/no-go for 18b: **go** — proceed per the design already agreed
+
+##### 18b — Broad: one tenant-scoped connection, swapped from a tenant selector
+
+Gated on 18a. **`shipping-service` only** — see the refdata exclusion below.
+
+> **Deferred to after 18b (agreed 2026-07-27):** how the tenant dropdown's option
+> list is *populated* — e.g. the server's HTTP monitoring endpoint
+> `GET :8222/accountz` (confirmed working against this config: returns
+> `{"accounts": ["$G","GLOBEX","$SYS","DEFAULT","ACME"]}`, no NATS-level auth
+> required since HTTP monitoring isn't gated by client creds) vs. a static list in
+> app config vs. something else. For 18b itself, hardcode the two tenant options
+> (`acme`, `globex`) — don't build discovery yet. Revisit once 18b is implemented
+> and reviewed. Note for later: `/accountz` reflects the static config file at that
+> moment, not a live/dynamic registry — true runtime tenant onboarding is really an
+> operator/JWT-resolver question (see
+> `.claude/memory/nats_tower_operator_mode_tradeoff.md`), not something static
+> accounts give you for free.
+
+Rather than a `map[tenant]*nats.Conn` routed per request, the process holds **one**
+connection whose credentials are swapped when the operator changes a tenant
+selector. Under per-account JetStream assets this is the natural shape: the process
+simply *is* acme's process for that window, and `event.Context` / the `{context}`
+subject token stop carrying isolation weight. It also makes the isolation visible in
+the demo — switch tenant and the other tenant's ships vanish because the server
+refused, not because a query filtered.
+
+Accepted spike limitations, to be stated in the write-up rather than solved:
+
+- The active tenant becomes **process-global mutable state driven by one browser**.
+  Fine for a single-operator lab demo; a non-starter for production. This is a
+  deliberate spike simplification.
+- While switched to one tenant, the other tenant's projectors are not running. Its
+  durable consumers are per-account server-side state and survive, so backlog is
+  consumed on switch-back — worth demonstrating, not fixing.
+
+Three known costs, in descending order of work:
+
+1. **Projector *subscription* lifecycle does not exist today.** The four durables
+   (`ship-shape-a`, `ship-shape-b`, `container-projector`, `meta-projector`) are
+   started once in `Module.Startup` and never stopped — composition.go:59-70
+   discards each returned `jetstream.ConsumeContext` with `_`. They are bound to
+   cross-tenant wildcards *on purpose* (events.go:40-42: projectors are
+   "intentionally tenant-agnostic"). A tenant swap needs each `ConsumeContext`
+   captured and stopped, then re-established against the new account.
+   **This is client-side work only** — a durable is server-side state that the NATS
+   docs explicitly design to outlive its client (durables "remain even when there
+   are periods of inactivity"; clients "resume" by rebinding), so each account
+   retains its own four durable definitions *and their stream positions*
+   permanently. Nothing is deleted or recreated server-side, and no position is
+   lost across swaps. (An earlier draft of this plan called this "tearing down and
+   rebuilding the durables… the bulk of 18b" — that overstated it.)
+2. **The existing dropdown is the wrong dropdown.** It selects *fleets* —
+   `['global', 'atlantic-fleet', 'pacific-fleet']` (admin `stores/dictionary.js:10`,
+   seafreight-app `stores/port.js:10`) — and rest/handlers.go:557-560 deliberately
+   decouples fleet context from refdata context (`const refdataContext = "emea-acme"`).
+   18b adds a **separate tenant selector**; it must not overload the fleet selector,
+   or the distinction the code currently makes on purpose is lost.
+3. **`refdata-service` is excluded, and this is a finding, not a workaround.** It is
+   inherently cross-tenant: it serves reference data to every tenant via
+   `rpc.*.refdata.*.v1` wildcards, deriving the tenant from the subject token per
+   request (`natsrpc/adapter.go:529`, `contextFromSubject`). Placing it in one
+   tenant's account makes it unreachable from the other. Doing it properly needs a
+   service **export** from a refdata account **imported** by each tenant account —
+   exactly what this phase's scope defers. So refdata-service stays on the default
+   account for 18b, and "cross-tenant shared services require exports/imports" is
+   recorded as a Phase 18 conclusion feeding any future hard-isolation work (see
+   `.claude/memory/tenant_service_separation_decision.md`).
+
+Already in our favour (little or no work needed):
+
+- Every SSE endpoint creates its KV watcher / ordered consumer / core subscription
+  **per request**, bound to `r.Context()` (rest/sse.go:191-276) — nothing pooled
+  across a connection swap.
+- The frontends already reset all client state and reopen their EventSources on
+  context change (`stores/dictionary.js:42-61`, `stores/port.js:78-108`), which is
+  the exact reflex a tenant switch needs.
+- KV buckets are created lazily on first touch (`kvstore/kv.go:41-42`), so each
+  account's buckets materialise on their own.
+
+Checklist:
+
+- [x] Go/no-go confirmed from 18a — go
+- [x] Per-tenant creds available to `shipping-service` — hardcoded spike fixtures in
+      `composition.go`'s `tenantCredentials` map (matching nats.conf, same spike-only
+      framing as 18a); `nats.Name("shipping-service")` retained on every connection
+      (`rest/tenant.go`'s `SwitchTenant`)
+- [x] Projector subscription lifecycle — turned out to need **no `eventhandler` package
+      changes**: `RegisterShapeA/B/Containers/Meta` already returned
+      `jetstream.ConsumeContext` (composition.go previously discarded it with `_`).
+      `rest/tenant.go`'s `SwitchTenant` now captures all four, stops them on the next
+      switch, and rebuilds against the new account — server-side durables are untouched
+- [x] Confirmed no `InactiveThreshold` is set on any projector consumer — asserted in the
+      Ginkgo spec (`tenant_switch_test.go`) via `consumer.Info().Config.InactiveThreshold`,
+      not just a source read
+- [x] Connection swap path implemented in `rest/tenant.go`'s `SwitchTenant`: drains the
+      old `*nats.Conn`, connects with the new tenant's creds, rebuilds the JetStream
+      context, re-runs `CreateStream`, rebuilds the 4 projectors and KV stores — `kvstore.New`
+      always returns a fresh `Store` with an empty handle map, so no stale bucket handle
+      can survive a switch
+
+      **Bug found and fixed during frontend verification, not by the Ginkgo spec:**
+      `eventhandler.register()` (and `RegisterContainers`/`RegisterMeta`) close over their
+      *setup-time* `context.Context` for the **entire lifetime** of the projector — every
+      event it ever processes calls `project(ctx, ...)`. `SwitchTenant` was passing
+      `POST /api/tenant/switch`'s `r.Context()` straight through, which Go cancels the
+      instant that HTTP response is sent — so every event published *after* a
+      REST-triggered switch failed its projector with `"context canceled"` and
+      redelivered forever (confirmed directly in `docker logs`, an infinite NAK loop, not
+      a one-off). Fixed at the root in all three `Register*` call sites
+      (`context.WithoutCancel(ctx)`) rather than only at the `SwitchTenant` call site, so
+      any future caller with a short-lived context is protected too. The Ginkgo spec
+      hadn't caught this because it only read state after a switch, never published a
+      *new* event afterward — added that as an explicit regression assertion
+      (`tenant_switch_test.go`: arrive a ship post-switch, confirm it lands). Verified live
+      against the real stack afterward: arrive → switch (HTTP) → switch back (HTTP) →
+      arrive again → both ships present, zero errors in `docker logs`.
+- [x] `GET /api/tenant` + `POST /api/tenant/switch` added; admin frontend gained a
+      **separate** `stores/tenant.js` Pinia store + topbar `Select`, visually and
+      functionally distinct from the Fleet selector; label added via l10n (BR-D16) —
+      `nav.tenant` seeded in refdata-service's `seed.go` and regenerated into
+      `l10nFallbackEn` via `npm run gen:i18n`, not hardcoded in the component
+- [x] In-flight SSE reconnection — satisfied by the **client** closing and reopening its
+      own `EventSource` on tenant switch (`stores/tenant.js`'s `setTenant` calls
+      `useDictionaryStore().connect()`), which cancels the old request's `r.Context()`
+      and lets the existing SSE handler's cleanup path run — no server-side forced
+      termination was needed given there's one browser client
+- [x] Ginkgo spec `dictionary/tenant_switch_test.go`: registers a ship as acme, confirms
+      it's reachable; switches to globex, confirms unreachable via the same API AND
+      independently confirms (via a raw connection) globex's own SHIPPING stream has zero
+      messages — the server-side fact, not an application filter; switches back to acme,
+      confirms the ship reappears (durable position never lost)
+- [x] `go build ./...`, `ginkgo ./...` (83 specs), and `npm run build` (admin) all green.
+      Verified live against the real docker-compose stack too, both via `curl` and by
+      driving the actual admin UI in a browser: registered a ship under acme, switched to
+      globex (ship count → 0), switched back (ship reappeared with its original data)
+
+#### Findings to document (both steps)
+
+- [x] **The tenant-isolation invariant itself**, stated in
+      `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md` as a
+      deployment/infrastructure invariant (*not* a numbered business rule — see 18a's
+      first checklist item for why): a tenant's credentials must not read or write
+      another tenant's events, streams, or KV buckets, and the server rather than the
+      application enforces it. Written now that both 18a and 18b have actually
+      demonstrated it, not before
+- [x] Decision recorded in the same doc: account-per-tenant vs shared-account+prefixes,
+      and what the `{context}` subject token and `{prefix}-{context}` bucket suffix mean
+      under each (inside an account both are redundant — say so explicitly)
+- [x] Cross-tenant shared services (refdata) need exports/imports — captured as the
+      concrete blocker for hard isolation
+- [x] Which of the three consumer/tenancy shapes above the POC recommends, with the
+      `max_consumers`-per-account scaling evidence — and, if shape 2 (shared account +
+      per-tenant durables) wins, note that today's tenant-agnostic wildcard projectors
+      would need per-tenant `FilterSubject`s even *without* accounts
+- [ ] If the outcome changes the platform-level position, update **DD-04** and the
+      Section 12.B open issue "Multi-tenancy hard isolation (NATS Account per tenant)
+      — not yet evaluated" in `obsidian/V3-Platform/System Design - V3 Logistics Platform.md`
+
+#### Operational note
+
+Any `nats.conf` change needs `docker compose down -v`, not just `down` — a config
+change against a retained volume reproduces the stale-subject Nak loop already
+recorded in `.claude/memory/nats_volume_legacy_messages.md`.
 
 ---
 
@@ -863,7 +1151,7 @@ Cross-reference sweep (same commit):
 - [x] `demos/01-dictionary/perf/README.md` — deferred-scenario phase labels
 - [x] `ARCHITECTURE.md`, `BUSINESS_RULES.md` that cite Phases 13–17
 - [x] Go source comments (`events.go`, `container.go`, `commands/container.go`) — Phase 14→16
-- [ ] `.claude/memory/` notes citing phase numbers (none currently do)
+- [x] `.claude/memory/` notes citing phase numbers — `tenant_service_separation_decision.md` cites Phase 18, which kept its number through this renumbering; no correction needed
 
 ---
 

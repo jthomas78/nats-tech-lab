@@ -4,7 +4,7 @@
 captures the **pull-forward baselines** measurable on the current architecture
 (Phase 10) and lists the scenarios **deferred** to their gating phase. The full
 suite is finalised in Phase 17. See
-`.claude/plans/Dictionary-POC-Plan.md` and the harness in
+`.claude/plans/Main-POC-Plan.md` and the harness in
 [`perf/`](perf/README.md).
 
 > **Measurement only.** Baselines here document degradation curves; mitigations

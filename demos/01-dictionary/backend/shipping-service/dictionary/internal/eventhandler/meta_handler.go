@@ -30,6 +30,11 @@ type metaEvent struct {
 // sequentially, so the read-merge-write below has no concurrent writers.
 // (known-ports was retired — ports are now the Postgres reference table.)
 func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, log *slog.Logger) (jetstream.ConsumeContext, error) {
+	// See handler.go's register() for why: the Consume callback below closes
+	// over this context for the projector's entire lifetime, so it must not
+	// be tied to whatever short-lived context the caller used to register it
+	// (e.g. an HTTP request context, Phase 18b's tenant switch).
+	msgCtx := context.WithoutCancel(ctx)
 	cons, err := js.CreateOrUpdateConsumer(ctx, domain.StreamName, jetstream.ConsumerConfig{
 		Durable:       "meta-projector",
 		FilterSubject: domain.SubjectContainerWildcard,
@@ -50,7 +55,7 @@ func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store
 			_ = msg.Ack()
 			return
 		}
-		if err := mergeSet(ctx, kv, event.Context, queries.MetaKeyKnownContainers, event.ContainerID); err != nil {
+		if err := mergeSet(msgCtx, kv, event.Context, queries.MetaKeyKnownContainers, event.ContainerID); err != nil {
 			log.Error("meta projection failed, will redeliver", "subject", msg.Subject(), "err", err)
 			_ = msg.Nak()
 			return

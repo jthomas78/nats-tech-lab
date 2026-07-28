@@ -94,7 +94,7 @@ Decisions to make once requirements land:
 ## 4. Plan / Phases
 
 *(To be broken into phases once scope is confirmed — following the existing plan format in
-`Dictionary-POC-Plan.md`: phase → business rules confirmed → Ginkgo specs written → implementation
+`Main-POC-Plan.md`: phase → business rules confirmed → Ginkgo specs written → implementation
 → docs updated → tests green.)*
 
 - [ ] Phase 0 — Confirm requirements (topology driver, scope, consistency needs) with user

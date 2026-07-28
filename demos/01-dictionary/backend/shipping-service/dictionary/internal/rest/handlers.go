@@ -27,6 +27,8 @@
 //	GET    /api/jetstream/watch                       SSE stream of live JetStream messages (DeliverNew)
 //	GET    /api/jetstream/stream                      SSE stream of all JetStream messages (DeliverAll)
 //	GET    /api/rpc-watch                              SSE stream of obs.rpc.* dual-transport RPC traffic (Phase 12.10)
+//	GET    /api/tenant                                 active tenant + switchable tenant list (Phase 18b)
+//	POST   /api/tenant/switch                          reconnect under a different tenant's NATS account (Phase 18b)
 package rest
 
 import (
@@ -36,6 +38,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	httpSwagger "github.com/swaggo/http-swagger"
 
@@ -88,8 +91,24 @@ type refdataItemsResponse struct {
 	Items []refdataDemoResponse `json:"items"`
 }
 
+// TenantCredentials is one tenant's NATS account login (Phase 18b — static
+// server-config accounts, spike fixtures only; must match nats/nats.conf).
+type TenantCredentials struct {
+	User     string
+	Password string
+}
+
 // Deps bundles everything the HTTP layer needs; keeps NewHandlers readable as
 // the module grows.
+//
+// Phase 18b splits this into two lifetimes. Ports, Refdata, DefaultJS, NC,
+// ShipRepo, ContainerRepo, PortRepo, NatsURL, TenantCreds, and Log are set
+// once at Startup and never change. Ships, Containers, ShapeB, ShapeC,
+// Terminal, Meta, KVA, KVB, KVCont, KVMeta, JS, TenantNC, Projectors, and
+// Tenant are the tenant-scoped bundle: SwitchTenant rebuilds all of them
+// together against a freshly connected NATS account and replaces the whole
+// struct atomically via Handlers.SetDeps, so no request ever observes a
+// half-swapped mix of old and new tenant resources.
 type Deps struct {
 	Ships      *commands.ShipHandler
 	Containers *commands.ContainerHandler
@@ -103,17 +122,47 @@ type Deps struct {
 	KVCont     *kvstore.Store            // container projection
 	KVMeta     *kvstore.Store            // meta.* lookup sets
 	Refdata    *refdataconsumer.Consumer // rpc.*-only cross-service consumer (BR-D08) — no KV dep
-	JS         jetstream.JetStream
-	NC         *nats.Conn // raw core-NATS conn (Phase 12.10 — obs.rpc.* SSE bridge)
+	JS         jetstream.JetStream       // tenant-scoped: SHIPPING stream, ship/container KV, KV+JetStream inspector panels
+	DefaultJS  jetstream.JetStream       // permanent DEFAULT-account JS — only for watchRefdata's REFDATA-stream consumer
+	NC         *nats.Conn                // permanent DEFAULT-account conn (Phase 12.10 — obs.rpc.* SSE bridge)
 	Log        *slog.Logger
+
+	// Tenant-switch plumbing (Phase 18b) — shipping-service only; refdata-service
+	// stays on DEFAULT (see Main-POC-Plan.md Phase 18b, cost #3).
+	Tenant        string                       // currently active tenant account name
+	TenantNC      *nats.Conn                   // the live tenant-scoped connection; drained on next switch
+	Projectors    []jetstream.ConsumeContext   // the 4 durable projector subscriptions bound to TenantNC's JS
+	ShipRepo      domain.ShipRepository        // static: Postgres, not account-scoped
+	ContainerRepo domain.ContainerRepository   // static: Postgres, not account-scoped
+	PortRepo      domain.PortRepository        // static: Postgres, not account-scoped
+	NatsURL       string                       // static: dial target for SwitchTenant's reconnect
+	TenantCreds   map[string]TenantCredentials // static: known tenants and their creds
 }
 
 type Handlers struct {
-	deps Deps
+	depsPtr atomic.Pointer[Deps]
 }
 
 func NewHandlers(deps Deps) *Handlers {
-	return &Handlers{deps: deps}
+	h := &Handlers{}
+	h.depsPtr.Store(&deps)
+	return h
+}
+
+// deps returns a snapshot of the current dependency bundle. Called once per
+// field access from handler bodies (h.deps().X) — cheap, since it's a
+// pointer load plus a struct copy of pointers/interfaces, not a deep clone.
+func (h *Handlers) deps() Deps {
+	return *h.depsPtr.Load()
+}
+
+// SetDeps atomically replaces the entire dependency bundle. Phase 18b's
+// SwitchTenant is the only caller — it builds a full new Deps value (tenant
+// fields rebuilt, static fields carried over unchanged) and swaps it in with
+// one atomic store, so no in-flight request ever sees a mix of old and new
+// tenant resources.
+func (h *Handlers) SetDeps(deps Deps) {
+	h.depsPtr.Store(&deps)
 }
 
 func (h *Handlers) Mount(mux *http.ServeMux) {
@@ -146,6 +195,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/refdata/locales", h.listRefdataLocales)
 	mux.HandleFunc("GET /api/refdata-watch", h.watchRefdata)
 	mux.HandleFunc("GET /api/rpc-watch", h.watchRPCObs)
+	mux.HandleFunc("GET /api/tenant", h.getTenant)
+	mux.HandleFunc("POST /api/tenant/switch", h.switchTenant)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -174,7 +225,7 @@ func (h *Handlers) arrivePort(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	state, err := h.deps.Ships.ArrivePort(r.Context(), in)
+	state, err := h.deps().Ships.ArrivePort(r.Context(), in)
 	if err != nil {
 		h.writeCommandError(w, err)
 		return
@@ -200,7 +251,7 @@ func (h *Handlers) departPort(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	state, err := h.deps.Ships.DepartPort(r.Context(), in)
+	state, err := h.deps().Ships.DepartPort(r.Context(), in)
 	if err != nil {
 		h.writeCommandError(w, err)
 		return
@@ -226,7 +277,7 @@ func (h *Handlers) registerShip(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	state, err := h.deps.Ships.RegisterShip(r.Context(), in)
+	state, err := h.deps().Ships.RegisterShip(r.Context(), in)
 	if err != nil {
 		h.writeCommandError(w, err)
 		return
@@ -252,7 +303,7 @@ func (h *Handlers) correctShipID(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	state, err := h.deps.Ships.CorrectShipID(r.Context(), in)
+	state, err := h.deps().Ships.CorrectShipID(r.Context(), in)
 	if err != nil {
 		h.writeCommandError(w, err)
 		return
@@ -275,7 +326,7 @@ func (h *Handlers) correctShipID(w http.ResponseWriter, r *http.Request) {
 // @Failure      422   {object}  errorResponse  "Domain rule violation"
 // @Router       /api/containers/register [post]
 func (h *Handlers) registerContainer(w http.ResponseWriter, r *http.Request) {
-	h.containerCommand(w, r, h.deps.Containers.RegisterContainer)
+	h.containerCommand(w, r, h.deps().Containers.RegisterContainer)
 }
 
 // loadContainer godoc
@@ -292,7 +343,7 @@ func (h *Handlers) registerContainer(w http.ResponseWriter, r *http.Request) {
 // @Failure      422   {object}  errorResponse  "Domain rule violation"
 // @Router       /api/containers/load [post]
 func (h *Handlers) loadContainer(w http.ResponseWriter, r *http.Request) {
-	h.containerCommand(w, r, h.deps.Containers.LoadContainer)
+	h.containerCommand(w, r, h.deps().Containers.LoadContainer)
 }
 
 // unloadContainer godoc
@@ -309,7 +360,7 @@ func (h *Handlers) loadContainer(w http.ResponseWriter, r *http.Request) {
 // @Failure      422   {object}  errorResponse  "Domain rule violation"
 // @Router       /api/containers/unload [post]
 func (h *Handlers) unloadContainer(w http.ResponseWriter, r *http.Request) {
-	h.containerCommand(w, r, h.deps.Containers.UnloadContainer)
+	h.containerCommand(w, r, h.deps().Containers.UnloadContainer)
 }
 
 func (h *Handlers) containerCommand(
@@ -343,7 +394,7 @@ func (h *Handlers) containerCommand(
 // @Failure      500      {object}  errorResponse
 // @Router       /api/containers/{context} [get]
 func (h *Handlers) listContainers(w http.ResponseWriter, r *http.Request) {
-	containers, err := h.deps.Terminal.List(r.Context(), r.PathValue("context"))
+	containers, err := h.deps().Terminal.List(r.Context(), r.PathValue("context"))
 	if err != nil {
 		h.writeQueryError(w, err)
 		return
@@ -363,7 +414,7 @@ func (h *Handlers) listContainers(w http.ResponseWriter, r *http.Request) {
 // @Failure      500      {object}  errorResponse
 // @Router       /api/terminal/{context}/{port} [get]
 func (h *Handlers) terminalByPort(w http.ResponseWriter, r *http.Request) {
-	containers, err := h.deps.Terminal.ListByPort(r.Context(), r.PathValue("context"), r.PathValue("port"))
+	containers, err := h.deps().Terminal.ListByPort(r.Context(), r.PathValue("context"), r.PathValue("port"))
 	if err != nil {
 		h.writeQueryError(w, err)
 		return
@@ -383,7 +434,7 @@ func (h *Handlers) terminalByPort(w http.ResponseWriter, r *http.Request) {
 // @Failure      500      {object}  errorResponse
 // @Router       /api/manifest/{context}/{shipID} [get]
 func (h *Handlers) manifestByShip(w http.ResponseWriter, r *http.Request) {
-	containers, err := h.deps.Terminal.ListByShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
+	containers, err := h.deps().Terminal.ListByShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
 	if err != nil {
 		h.writeQueryError(w, err)
 		return
@@ -402,7 +453,7 @@ func (h *Handlers) manifestByShip(w http.ResponseWriter, r *http.Request) {
 // @Failure      500      {object}  errorResponse
 // @Router       /api/ports/{context} [get]
 func (h *Handlers) listPorts(w http.ResponseWriter, r *http.Request) {
-	ports, err := h.deps.Ports.List(r.Context(), r.PathValue("context"))
+	ports, err := h.deps().Ports.List(r.Context(), r.PathValue("context"))
 	if err != nil {
 		h.writeQueryError(w, err)
 		return
@@ -433,7 +484,7 @@ func (h *Handlers) registerPort(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if err := h.deps.Ports.Register(r.Context(), in.Context, in.Name); err != nil {
+	if err := h.deps().Ports.Register(r.Context(), in.Context, in.Name); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -456,7 +507,7 @@ type portsTableResponse struct {
 // @Failure      500      {object}  errorResponse
 // @Router       /api/admin/ports/{context} [get]
 func (h *Handlers) adminPortsTable(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.deps.Ports.ListRecords(r.Context(), r.PathValue("context"))
+	rows, err := h.deps().Ports.ListRecords(r.Context(), r.PathValue("context"))
 	if err != nil {
 		h.writeQueryError(w, err)
 		return
@@ -475,7 +526,7 @@ func (h *Handlers) adminPortsTable(w http.ResponseWriter, r *http.Request) {
 // @Failure      500      {object}  errorResponse
 // @Router       /api/meta/{context}/known-containers [get]
 func (h *Handlers) knownContainers(w http.ResponseWriter, r *http.Request) {
-	ids, err := h.deps.Meta.KnownContainers(r.Context(), r.PathValue("context"))
+	ids, err := h.deps().Meta.KnownContainers(r.Context(), r.PathValue("context"))
 	if err != nil {
 		h.writeQueryError(w, err)
 		return
@@ -498,7 +549,7 @@ func (h *Handlers) knownContainers(w http.ResponseWriter, r *http.Request) {
 // @Failure      500      {object}  errorResponse
 // @Router       /api/shape-b/ships/{context}/{shipID} [get]
 func (h *Handlers) getShipShapeB(w http.ResponseWriter, r *http.Request) {
-	state, cacheHit, err := h.deps.ShapeB.GetShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
+	state, cacheHit, err := h.deps().ShapeB.GetShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
 	if err != nil {
 		h.writeQueryError(w, err)
 		return
@@ -524,11 +575,11 @@ func (h *Handlers) getShipShapeB(w http.ResponseWriter, r *http.Request) {
 // @Failure      500      {object}  errorResponse
 // @Router       /api/refdata-demo/{context}/{type}/{code} [get]
 func (h *Handlers) getRefdataDemo(w http.ResponseWriter, r *http.Request) {
-	if h.deps.Refdata == nil {
+	if h.deps().Refdata == nil {
 		writeError(w, http.StatusInternalServerError, "refdata consumer not configured")
 		return
 	}
-	result, err := h.deps.Refdata.Lookup(r.Context(), r.PathValue("context"), r.PathValue("type"), r.PathValue("code"), r.URL.Query().Get("locale"))
+	result, err := h.deps().Refdata.Lookup(r.Context(), r.PathValue("context"), r.PathValue("type"), r.PathValue("code"), r.URL.Query().Get("locale"))
 	if err != nil {
 		writeRefdataError(w, err)
 		return
@@ -571,11 +622,11 @@ const refdataContext = "emea-acme"
 // @Failure      500     {object}  errorResponse
 // @Router       /api/refdata/types/{type} [get]
 func (h *Handlers) listRefdataType(w http.ResponseWriter, r *http.Request) {
-	if h.deps.Refdata == nil {
+	if h.deps().Refdata == nil {
 		writeError(w, http.StatusInternalServerError, "refdata consumer not configured")
 		return
 	}
-	results, err := h.deps.Refdata.ResolveType(r.Context(), refdataContext, r.PathValue("type"), r.URL.Query().Get("locale"))
+	results, err := h.deps().Refdata.ResolveType(r.Context(), refdataContext, r.PathValue("type"), r.URL.Query().Get("locale"))
 	if err != nil {
 		writeRefdataError(w, err)
 		return
@@ -597,11 +648,11 @@ func (h *Handlers) listRefdataType(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  errorResponse
 // @Router       /api/refdata/locales [get]
 func (h *Handlers) listRefdataLocales(w http.ResponseWriter, r *http.Request) {
-	if h.deps.Refdata == nil {
+	if h.deps().Refdata == nil {
 		writeError(w, http.StatusInternalServerError, "refdata consumer not configured")
 		return
 	}
-	result, err := h.deps.Refdata.Locales(r.Context(), refdataContext)
+	result, err := h.deps().Refdata.Locales(r.Context(), refdataContext)
 	if err != nil {
 		writeRefdataError(w, err)
 		return
@@ -627,7 +678,7 @@ func (h *Handlers) listRefdataLocales(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  errorResponse
 // @Router       /api/shape-b/cache/{context}/{shipID} [delete]
 func (h *Handlers) evictShipCache(w http.ResponseWriter, r *http.Request) {
-	err := h.deps.ShapeB.EvictCacheShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
+	err := h.deps().ShapeB.EvictCacheShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
 	if err != nil {
 		h.writeQueryError(w, err)
 		return
@@ -645,9 +696,9 @@ func (h *Handlers) evictShipCache(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  errorResponse
 // @Router       /api/shape-c/fleet [get]
 func (h *Handlers) getFleet(w http.ResponseWriter, r *http.Request) {
-	result, err := h.deps.ShapeC.ReconstructFleet(r.Context())
+	result, err := h.deps().ShapeC.ReconstructFleet(r.Context())
 	if err != nil {
-		h.deps.Log.Error("reconstruct fleet", "err", err)
+		h.deps().Log.Error("reconstruct fleet", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -666,7 +717,7 @@ func (h *Handlers) getFleet(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  errorResponse
 // @Router       /api/jetstream/streams [get]
 func (h *Handlers) listStreams(w http.ResponseWriter, r *http.Request) {
-	lister := h.deps.JS.StreamNames(r.Context())
+	lister := h.deps().JS.StreamNames(r.Context())
 	names := []string{}
 	for name := range lister.Name() {
 		if strings.HasPrefix(name, "KV_") {
@@ -675,7 +726,7 @@ func (h *Handlers) listStreams(w http.ResponseWriter, r *http.Request) {
 		names = append(names, name)
 	}
 	if err := lister.Err(); err != nil {
-		h.deps.Log.Error("list streams", "err", err)
+		h.deps().Log.Error("list streams", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -716,7 +767,7 @@ func (h *Handlers) writeQueryError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	h.deps.Log.Error("query failed", "err", err)
+	h.deps().Log.Error("query failed", "err", err)
 	writeError(w, http.StatusInternalServerError, "internal error")
 }
 

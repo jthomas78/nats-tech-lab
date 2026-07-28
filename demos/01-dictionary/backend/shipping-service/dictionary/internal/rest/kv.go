@@ -36,7 +36,7 @@ type kvBucketsResponse struct {
 // @Failure      500  {object}  errorResponse
 // @Router       /api/kv/buckets [get]
 func (h *Handlers) listKVBuckets(w http.ResponseWriter, r *http.Request) {
-	lister := h.deps.JS.KeyValueStores(r.Context())
+	lister := h.deps().JS.KeyValueStores(r.Context())
 	buckets := []kvBucket{}
 	for status := range lister.Status() {
 		buckets = append(buckets, kvBucket{
@@ -49,7 +49,7 @@ func (h *Handlers) listKVBuckets(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	if err := lister.Error(); err != nil {
-		h.deps.Log.Error("list kv buckets", "err", err)
+		h.deps().Log.Error("list kv buckets", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -91,20 +91,20 @@ func (h *Handlers) watchKVBucket(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 
-	kv, err := h.deps.JS.KeyValue(ctx, r.PathValue("bucket"))
+	kv, err := h.deps().JS.KeyValue(ctx, r.PathValue("bucket"))
 	if err != nil {
 		if errors.Is(err, jetstream.ErrBucketNotFound) {
 			writeError(w, http.StatusBadRequest, "unknown bucket: "+r.PathValue("bucket"))
 			return
 		}
-		h.deps.Log.Error("open kv bucket", "err", err)
+		h.deps().Log.Error("open kv bucket", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
 	watcher, err := kv.WatchAll(ctx)
 	if err != nil {
-		h.deps.Log.Error("kv watch all", "err", err)
+		h.deps().Log.Error("kv watch all", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}

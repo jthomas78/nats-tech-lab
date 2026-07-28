@@ -50,8 +50,8 @@ func opString(op jetstream.KeyValueOp) string {
 // KV watch → SSE → Pinia store pipeline.
 func (h *Handlers) watch(w http.ResponseWriter, r *http.Request) {
 	h.watchBuckets(w, r, r.PathValue("context"), []watchSource{
-		{shape: "A", store: h.deps.KVA},
-		{shape: "B", store: h.deps.KVB},
+		{shape: "A", store: h.deps().KVA},
+		{shape: "B", store: h.deps().KVB},
 	})
 }
 
@@ -69,8 +69,8 @@ func (h *Handlers) watch(w http.ResponseWriter, r *http.Request) {
 // meta.* lookup sets, consumed by the Port Management frontend.
 func (h *Handlers) watchTerminal(w http.ResponseWriter, r *http.Request) {
 	h.watchBuckets(w, r, r.PathValue("context"), []watchSource{
-		{shape: "CONTAINER", store: h.deps.KVCont},
-		{shape: "META", store: h.deps.KVMeta},
+		{shape: "CONTAINER", store: h.deps().KVCont},
+		{shape: "META", store: h.deps().KVMeta},
 	})
 }
 
@@ -96,19 +96,23 @@ func (h *Handlers) watchRefdata(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
-	if h.deps.JS == nil {
+	// REFDATA is refdata-service's own stream, on the permanent DEFAULT
+	// account — not the tenant-scoped h.deps().JS (Phase 18b: refdata-service
+	// is unreachable from any tenant account, see Main-POC-Plan.md
+	// Phase 18b, cost #3).
+	if h.deps().DefaultJS == nil {
 		writeError(w, http.StatusInternalServerError, "JetStream not configured")
 		return
 	}
 	ctx := r.Context()
 
 	var msgs jetstream.MessagesContext
-	consumer, err := h.deps.JS.OrderedConsumer(ctx, refdataChangeStreamName, jetstream.OrderedConsumerConfig{
+	consumer, err := h.deps().DefaultJS.OrderedConsumer(ctx, refdataChangeStreamName, jetstream.OrderedConsumerConfig{
 		FilterSubjects: []string{"evt." + refdataContext + ".refdata.>"},
 		DeliverPolicy:  jetstream.DeliverNewPolicy,
 	})
 	if err != nil && !errors.Is(err, jetstream.ErrStreamNotFound) {
-		h.deps.Log.Error("refdata change stream: create consumer", "err", err)
+		h.deps().Log.Error("refdata change stream: create consumer", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -117,7 +121,7 @@ func (h *Handlers) watchRefdata(w http.ResponseWriter, r *http.Request) {
 		// first change) is a legitimate race, not a hard error — degrade to
 		// heartbeat-only below rather than failing the whole SSE connection.
 		if msgs, err = consumer.Messages(); err != nil {
-			h.deps.Log.Error("refdata change stream: consume messages", "err", err)
+			h.deps().Log.Error("refdata change stream: consume messages", "err", err)
 			writeError(w, http.StatusInternalServerError, "internal error")
 			return
 		}
@@ -205,7 +209,7 @@ func (h *Handlers) watchBuckets(w http.ResponseWriter, r *http.Request, kvContex
 	for _, src := range sources {
 		watcher, err := src.store.Watch(ctx, kvContext)
 		if err != nil {
-			h.deps.Log.Error("kv watch", "shape", src.shape, "context", kvContext, "err", err)
+			h.deps().Log.Error("kv watch", "shape", src.shape, "context", kvContext, "err", err)
 			writeError(w, http.StatusInternalServerError, "internal error")
 			return
 		}
@@ -291,11 +295,11 @@ func (h *Handlers) watchBuckets(w http.ResponseWriter, r *http.Request, kvContex
 // established before the replay is drained so nothing published during the
 // replay window is missed; a message published in the narrow gap before that
 // subscribe took effect can in principle appear twice, which is acceptable
-// for a best-effort debug trace feed. h.deps.JS is optional — when nil (or
-// RPCTRACE doesn't exist yet), this degrades to the original live-only
-// behavior.
+// for a best-effort debug trace feed. h.deps().DefaultJS is optional — when
+// nil (or RPCTRACE doesn't exist yet), this degrades to the original
+// live-only behavior.
 func (h *Handlers) watchRPCObs(w http.ResponseWriter, r *http.Request) {
-	if h.deps.NC == nil {
+	if h.deps().NC == nil {
 		writeError(w, http.StatusInternalServerError, "NATS connection not configured")
 		return
 	}
@@ -307,9 +311,9 @@ func (h *Handlers) watchRPCObs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	msgCh := make(chan *nats.Msg, 64)
-	sub, err := h.deps.NC.ChanSubscribe("obs.rpc.>", msgCh)
+	sub, err := h.deps().NC.ChanSubscribe("obs.rpc.>", msgCh)
 	if err != nil {
-		h.deps.Log.Error("obs.rpc subscribe", "err", err)
+		h.deps().Log.Error("obs.rpc subscribe", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -328,21 +332,23 @@ func (h *Handlers) watchRPCObs(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
-	if h.deps.JS != nil {
-		if consumer, err := h.deps.JS.OrderedConsumer(ctx, "RPCTRACE", jetstream.OrderedConsumerConfig{
+	// RPCTRACE is refdata-service's own stream, on the permanent DEFAULT
+	// account, like REFDATA above — not the tenant-scoped h.deps().JS.
+	if h.deps().DefaultJS != nil {
+		if consumer, err := h.deps().DefaultJS.OrderedConsumer(ctx, "RPCTRACE", jetstream.OrderedConsumerConfig{
 			DeliverPolicy: jetstream.DeliverAllPolicy,
 		}); err != nil {
 			if !errors.Is(err, jetstream.ErrStreamNotFound) {
-				h.deps.Log.Warn("rpctrace replay: create consumer", "err", err)
+				h.deps().Log.Warn("rpctrace replay: create consumer", "err", err)
 			}
 		} else if batch, err := consumer.FetchNoWait(1000); err != nil {
-			h.deps.Log.Warn("rpctrace replay: fetch", "err", err)
+			h.deps().Log.Warn("rpctrace replay: fetch", "err", err)
 		} else {
 			for msg := range batch.Messages() {
 				write(msg.Data())
 			}
 			if err := batch.Error(); err != nil {
-				h.deps.Log.Warn("rpctrace replay: batch", "err", err)
+				h.deps().Log.Warn("rpctrace replay: batch", "err", err)
 			}
 		}
 	}
@@ -431,20 +437,20 @@ func (h *Handlers) streamJetStream(w http.ResponseWriter, r *http.Request, polic
 		cfg.FilterSubjects = domain.StreamSubjects()
 	}
 
-	consumer, err := h.deps.JS.OrderedConsumer(ctx, streamName, cfg)
+	consumer, err := h.deps().JS.OrderedConsumer(ctx, streamName, cfg)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrStreamNotFound) {
 			writeError(w, http.StatusBadRequest, "unknown stream: "+streamName)
 			return
 		}
-		h.deps.Log.Error("create ordered consumer", "err", err)
+		h.deps().Log.Error("create ordered consumer", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
 	msgs, err := consumer.Messages()
 	if err != nil {
-		h.deps.Log.Error("consume jetstream messages", "err", err)
+		h.deps().Log.Error("consume jetstream messages", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}

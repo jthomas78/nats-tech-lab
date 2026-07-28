@@ -15,6 +15,7 @@ import IconPort from './components/icons/IconPort.vue'
 import ShipsAtPortPanel from './components/ShipsAtPortPanel.vue'
 import TerminalPanel from './components/TerminalPanel.vue'
 import { CONTEXTS, usePortStore } from './stores/port'
+import { useTenantStore } from './stores/tenant'
 import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
 import { useL10nCopy } from '@refdata/useL10nCopy.js'
 import { i18n } from './i18n.js'
@@ -22,6 +23,7 @@ import AppShell from '@ui-shell/AppShell.vue'
 import NavList from '@ui-shell/NavList.vue'
 
 const store = usePortStore()
+const tenantStore = useTenantStore()
 const {
   selectedLocale,
   localeOptions,
@@ -79,6 +81,7 @@ onMounted(() => {
   store.connect()
   connectRefdata()
   connectL10nCopy(i18n)
+  tenantStore.refresh()
 })
 onUnmounted(() => {
   store.disconnect()
@@ -99,6 +102,18 @@ onUnmounted(() => {
     </template>
     <template #topbar-right>
       <Tag :severity="store.connected ? 'success' : 'danger'" :value="store.connected ? t('connection.watching') : t('connection.disconnected')" />
+      <!-- Phase 18b tenant selector — a different NATS account, not a fleet
+           filter; must stay visually + functionally distinct from Fleet below. -->
+      <label class="lab-muted" for="tenant">{{ t('nav.tenant') }}</label>
+      <Select
+        id="tenant"
+        :model-value="tenantStore.tenant"
+        :options="tenantStore.available"
+        :disabled="tenantStore.switching"
+        size="small"
+        @update:model-value="tenantStore.setTenant($event)"
+      />
+      <Tag v-if="tenantStore.switching" severity="warning" :value="t('tenant.switching')" />
       <label class="lab-muted" for="context">{{ t('context.fleet') }}</label>
       <Select
         id="context"

@@ -104,7 +104,7 @@ func TestWatchRPCObsReplaysBacklogBeforeLive(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := NewHandlers(Deps{JS: js, NC: nc, Log: slog.New(slog.DiscardHandler)})
+	h := NewHandlers(Deps{DefaultJS: js, NC: nc, Log: slog.New(slog.DiscardHandler)})
 
 	reqCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -145,10 +145,10 @@ func TestWatchRPCObsReplaysBacklogBeforeLive(t *testing.T) {
 	}
 }
 
-// TestWatchRPCObsDegradesToLiveOnlyWhenJSNil — when JS isn't configured
-// (mirrors production's own nil-safety for deployments without JetStream
-// wired to this handler), the handler must still work as a live-only feed
-// rather than failing.
+// TestWatchRPCObsDegradesToLiveOnlyWhenJSNil — when DefaultJS isn't
+// configured (mirrors production's own nil-safety for deployments without
+// JetStream wired to this handler), the handler must still work as a
+// live-only feed rather than failing.
 func TestWatchRPCObsDegradesToLiveOnlyWhenJSNil(t *testing.T) {
 	nc, _, cleanup := newTestNATSJS(t)
 	defer cleanup()

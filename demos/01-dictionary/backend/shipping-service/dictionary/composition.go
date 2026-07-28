@@ -6,87 +6,64 @@ import (
 	"context"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/queries"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/eventhandler"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/postgres"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/rest"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/jstream"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/monolith"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/refdataconsumer"
 )
 
-const (
-	// KV bucket prefixes, all context-scoped ({prefix}-{context}):
-	//   dict-a    — Shape A ship read model
-	//   dict-b    — Shape B ship cache
-	//   container — container projection (terminal queries read model)
-	//   meta      — cross-cutting lookup sets (known-containers)
-	//
-	// There is deliberately no refdata-* entry here: refdata-service's KV
-	// cache is internal to that service (BR-D08) — this module reaches it
-	// only via rpc.* (refdataconsumer) and the REFDATA JetStream change-event
-	// stream (rest.watchRefdata), never the KV bucket directly.
-	shapeABucketPrefix    = "dict-a"
-	shapeBBucketPrefix    = "dict-b"
-	containerBucketPrefix = "container"
-	metaBucketPrefix      = "meta"
-)
+// tenantCredentials are Phase 18a's static server-config account fixtures —
+// spike-only, plaintext, must match nats/nats.conf's accounts{} block. This
+// is a deliberate spike simplification (Main-POC-Plan.md Phase 18b):
+// real tenant onboarding would mint credentials, not hardcode them here.
+var tenantCredentials = map[string]rest.TenantCredentials{
+	"acme":   {User: "acme", Password: "acme-spike-pass"},
+	"globex": {User: "globex", Password: "globex-spike-pass"},
+}
+
+// initialTenant is which tenant account shipping-service connects as when
+// the process starts, before any operator has used the tenant selector.
+const initialTenant = "acme"
 
 type Module struct{}
 
 func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
-	js := mono.JS()
 	log := mono.Logger()
 
-	if _, err := jstream.CreateStream(ctx, js, domain.StreamName, domain.StreamSubjects()); err != nil {
-		return err
-	}
 	if err := postgres.Migrate(ctx, mono.DB()); err != nil {
 		return err
 	}
 
-	kvA := kvstore.New(js, shapeABucketPrefix)
-	kvB := kvstore.New(js, shapeBBucketPrefix)
-	kvContainers := kvstore.New(js, containerBucketPrefix)
-	kvMeta := kvstore.New(js, metaBucketPrefix)
+	// mono.JS()/mono.NC() are the permanent, unauthenticated DEFAULT-account
+	// connection (see monolith.Monolith doc comment) — used only for
+	// refdata-service's rpc.* calls, its REFDATA change stream, and the
+	// obs.rpc.> observability bridge. The SHIPPING stream is deliberately
+	// NOT created here anymore: Phase 18b moves it entirely into whichever
+	// tenant account is active, via Handlers.SwitchTenant below.
 	refdata := refdataconsumer.New(mono.NC())
 	shipRepo := postgres.NewRepository(mono.DB())
 	containerRepo := postgres.NewContainerRepository(mono.DB())
 	portRepo := postgres.NewPortRepository(mono.DB())
 
-	if _, err := eventhandler.RegisterShapeA(ctx, js, kvA, log); err != nil {
-		return err
-	}
-	if _, err := eventhandler.RegisterShapeB(ctx, js, kvB, shipRepo, log); err != nil {
-		return err
-	}
-	if _, err := eventhandler.RegisterContainers(ctx, js, kvContainers, containerRepo, log); err != nil {
-		return err
-	}
-	if _, err := eventhandler.RegisterMeta(ctx, js, kvMeta, log); err != nil {
+	handlers := rest.NewHandlers(rest.Deps{
+		Ports:         commands.NewPortHandler(portRepo),
+		Refdata:       refdata,
+		DefaultJS:     mono.JS(),
+		NC:            mono.NC(),
+		Log:           log,
+		ShipRepo:      shipRepo,
+		ContainerRepo: containerRepo,
+		PortRepo:      portRepo,
+		NatsURL:       mono.NatsURL(),
+		TenantCreds:   tenantCredentials,
+	})
+
+	// The initial tenant connect and every later switch are the same code
+	// path — see SwitchTenant's doc comment for why that's deliberate.
+	if err := handlers.SwitchTenant(ctx, initialTenant); err != nil {
 		return err
 	}
 
-	pub := jstream.NewPublisher(js)
-	handlers := rest.NewHandlers(rest.Deps{
-		Ships:      commands.NewShipHandler(pub, js, portRepo),
-		Containers: commands.NewContainerHandler(pub, js, portRepo),
-		Ports:      commands.NewPortHandler(portRepo),
-		ShapeB:     queries.NewShapeB(kvB, shipRepo),
-		ShapeC:     queries.NewShapeC(js),
-		Terminal:   queries.NewTerminal(kvContainers),
-		Meta:       queries.NewMeta(kvMeta),
-		KVA:        kvA,
-		KVB:        kvB,
-		KVCont:     kvContainers,
-		KVMeta:     kvMeta,
-		Refdata:    refdata,
-		JS:         js,
-		NC:         mono.NC(),
-		Log:        log,
-	})
 	handlers.Mount(mono.Mux())
 	return nil
 }

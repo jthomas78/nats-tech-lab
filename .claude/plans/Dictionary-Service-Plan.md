@@ -6,7 +6,7 @@
 > 13–17 (Phase 12 was inserted for refdata versioning/tenancy — see the "Renumbering" section
 > below).
 >
-> Main plan: [Dictionary-POC-Plan.md](Dictionary-POC-Plan.md)
+> Main plan: [Main-POC-Plan.md](Main-POC-Plan.md)
 >
 > **Decisions made at original approval (2026-07-13):**
 > 1. **Q1 — Option B (separate service).** `refdata-service/` is its own Go service/container,
@@ -33,7 +33,7 @@
 >    tests-only deliverable or a much larger real-domain-field change. User chose to drop it
 >    entirely rather than build either. See the sub-phase entry for the full rationale.
 > 7. **Q6 role 3 (NATS `micro` request-reply)** remains parked *for this plan* — it's superseded
->    by [Dictionary-POC-Plan.md § Phase 12.10](Dictionary-POC-Plan.md), which covers the same
+>    by [Main-POC-Plan.md § Phase 12.10](Main-POC-Plan.md), which covers the same
 >    NATS `micro` request-reply pattern generically. **12.10 is also approved (2026-07-24)**;
 >    see that phase's own entry for implementation status.
 > 8. **Both 11.12 and 12.10 followed the repo's AI Agent Workflow**: business rules confirmed
@@ -271,7 +271,7 @@ heuristic this service exists to demonstrate (nothing replays a lookup value to 
 |---|---|---|
 | **1. Cache distribution** | NATS KV (`refdata-{context}`) + KV watch — the Q5 protocol | **Yes — core of the design.** Note KV *is* a JetStream stream under the hood, so NATS streaming is already in the comms path. |
 | **2. Change-event feed** | Publish `refdata.changed` events to a small JetStream stream, e.g. subjects `{region}.refdata.{tenant}.{type}.changed` on a `REFDATA` stream, LimitsPolicy with a **bounded MaxAge** (e.g. 24–48h) | **Yes — recommended.** Gives services that don't watch KV (or that batch) a notification channel, and gives late/restarting consumers a short replayable window of *what changed* (type + new set version — a pointer, not the payload). Bounded age is the explicit signal that this is a change-feed, **not** an event store: truth is always re-fetchable from the API/KV. |
-| **3. Request-reply lookups** | NATS `micro` (services framework in nats.go): the dictionary answers `refdata.get.{type}.{code}` request-reply, with built-in discovery/stats/ping | **Optional spike — dropped from 11.3's scope at the 2026-07-13 approval, superseded by [Dictionary-POC-Plan.md § Phase 12.10](Dictionary-POC-Plan.md), APPROVED 2026-07-24 (not yet implemented).** Phase 12.10 is the actual vehicle for this: a general `rpc.*` dual-transport pattern (not dictionary-specific) whose first concrete case is exactly this — shipping-service calling refdata-service's item lookup over NATS `micro` instead of REST. Not re-scoped here to avoid building it twice — see 12.10 for the live design/checklist. |
+| **3. Request-reply lookups** | NATS `micro` (services framework in nats.go): the dictionary answers `refdata.get.{type}.{code}` request-reply, with built-in discovery/stats/ping | **Optional spike — dropped from 11.3's scope at the 2026-07-13 approval, superseded by [Main-POC-Plan.md § Phase 12.10](Main-POC-Plan.md), APPROVED 2026-07-24 (not yet implemented).** Phase 12.10 is the actual vehicle for this: a general `rpc.*` dual-transport pattern (not dictionary-specific) whose first concrete case is exactly this — shipping-service calling refdata-service's item lookup over NATS `micro` instead of REST. Not re-scoped here to avoid building it twice — see 12.10 for the live design/checklist. |
 
 What NATS should **not** do here:
 
@@ -843,7 +843,7 @@ fact is the expensive mistake this gate exists to prevent.
 
 ### Phase 11.11 — Enum value localization UX (IMPLEMENTED 2026-07-17)
 
-> Mirrors the detailed entry in [Dictionary-POC-Plan.md](Dictionary-POC-Plan.md) § Phase 11.11 —
+> Mirrors the detailed entry in [Main-POC-Plan.md](Main-POC-Plan.md) § Phase 11.11 —
 > that file is the source of truth for the full ASCII mockups; this is the tracking copy.
 
 **Goal.** Enum values (e.g. `Ship Status` → `at-anchor` = "At Anchor") can be viewed but not
@@ -1041,7 +1041,7 @@ and test independently post-move.
 - Docker Compose service names, container hostnames, and `package.json` name fields
   **renamed to match** (`shipping-service`, `admin`, `refdata`, `seafreight-app`).
   `refdata-service`'s own service name/hostname is unchanged.
-- Historical entries in this file, `Dictionary-POC-Plan.md`, and `.ai-archive/*.md` **left
+- Historical entries in this file, `Main-POC-Plan.md`, and `.ai-archive/*.md` **left
   untouched** — phase-by-phase build logs describing what existed at the time, not live docs.
 
 **Checklist.**
@@ -1094,7 +1094,7 @@ and test independently post-move.
    (tests-only, or a real new domain field) matched what "a second demo consumer phase" was
    meant to deliver, so it was dropped rather than built as either.
 3. **Q6 role 3 revisited** — stays parked for this plan; superseded by
-   [Dictionary-POC-Plan.md § Phase 12.10](Dictionary-POC-Plan.md), **approved and implemented
+   [Main-POC-Plan.md § Phase 12.10](Main-POC-Plan.md), **approved and implemented
    2026-07-24** (Dual-Transport RPC + Admin UI Observability) — see that phase's own tasks list.
 4. **Phase 18 → 12.11 renumber** — considered and **declined**; Phase 18 (NATS Accounts Tenancy
    Spike) stays where it is. 11.12/Phase 13 (Capacity Limit) also confirmed to stay at their
