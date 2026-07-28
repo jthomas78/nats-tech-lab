@@ -21,11 +21,11 @@ type Monolith interface {
 	// such as micro.AddService or a plain Request/Reply client.
 	//
 	// This is the permanent, unauthenticated (DEFAULT-account) connection —
-	// Phase 18b's tenant-scoped connection is a second, separate connection
+	// Phase 13b's tenant-scoped connection is a second, separate connection
 	// owned by rest.Handlers, reconnected on tenant switch. DB/JS/NC here
 	// never change after Startup.
 	NC() *nats.Conn
-	// NatsURL is needed by rest.Handlers.SwitchTenant (Phase 18b) to open a
+	// NatsURL is needed by rest.Handlers.SwitchTenant (Phase 13b) to open a
 	// second, tenant-credentialed connection independent of NC() above.
 	NatsURL() string
 	Mux() *http.ServeMux

@@ -1,8 +1,8 @@
 package dictionary
 
-// Phase 18b integration spec (Main-POC-Plan.md, Phase 18b): proves the
+// Phase 13b integration spec (Main-POC-Plan.md, Phase 13b): proves the
 // tenant switch through the actual application path — rest.Handlers.SwitchTenant
-// and real HTTP requests — not just a synthetic NATS-level check like 18a's.
+// and real HTTP requests — not just a synthetic NATS-level check like 13a's.
 // Loads the real shipping nats/nats.conf (accounts, no_auth_user) into an
 // embedded server, same as internal/natsaccounts/isolation_test.go, so this
 // exercises the shipped config rather than a re-description of it.
@@ -32,7 +32,7 @@ import (
 // internal/natsaccounts/), hence one fewer "..".
 const tenantSwitchNatsConfPath = "../../../nats/nats.conf"
 
-var _ = Describe("Phase 18b — tenant switch", func() {
+var _ = Describe("Phase 13b — tenant switch", func() {
 	var (
 		ctx      context.Context
 		srv      *server.Server

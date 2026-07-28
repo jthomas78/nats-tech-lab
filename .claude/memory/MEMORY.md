@@ -17,5 +17,5 @@
 - [Design discussion vs. implementation signal](design_discussion_vs_implementation_signal.md) — this user iterates/reverts design ideas before saying "let's plan" — don't implement early
 - [NATS Tower operator-mode tradeoff](nats_tower_operator_mode_tradeoff.md) — Tower needs JWT operator mode + resolver for real metrics; our `nats.conf` is auth-free; decision not yet made (leave as-is / isolated 2nd server / convert shared server)
 - [Tenant-service separation decision](tenant_service_separation_decision.md) — agreed: future hard-multi-tenancy tenant-service stays separate from refdata-service; only the Admin UI merges both
-- [Accounts service plan](accounts_service_plan.md) — confirmed 2026-07-28: decentralized JWTs (nsc/NKeys) for dynamic tenant provisioning, WorkOS for human auth, auth callout optional on top; see Phase 20
+- [Accounts service plan](accounts_service_plan.md) — confirmed 2026-07-28: decentralized JWTs (nsc/NKeys) for dynamic tenant provisioning, WorkOS for human auth, auth callout optional on top; see Phase 14 (renumbered from 20)
 - [refdata database-per-service](refdata_database_per_service.md) — refdata-service moved off shared `postgres` to its own `refdata-postgres` instance (port 5433); NATS is now the only shared infra

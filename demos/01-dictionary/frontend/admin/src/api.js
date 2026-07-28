@@ -132,7 +132,7 @@ export function rpcWatchUrl() {
   return '/api/rpc-watch'
 }
 
-// ── Tenant switch (Phase 18b) ─────────────────────────────────────────────────
+// ── Tenant switch (Phase 13b) ─────────────────────────────────────────────────
 // Distinct from fleet context (getPorts/watchUrl above): this reconnects
 // shipping-service's NATS connection under a different account entirely, so
 // every ship/container endpoint's data changes, not just what a query filters.

@@ -1,5 +1,5 @@
-// Package natsaccounts is Phase 18a's standalone isolation spike
-// (.claude/plans/Main-POC-Plan.md, Phase 18): it is never imported by
+// Package natsaccounts is Phase 13a's standalone isolation spike
+// (.claude/plans/Main-POC-Plan.md, Phase 13): it is never imported by
 // application code. It loads the repo's actual nats/nats.conf — the file
 // shipped in docker-compose, not a reimplementation — into an embedded
 // in-process server, so what's proven here is what the shipped config does.
@@ -49,7 +49,7 @@ func newSpikeServer(t *testing.T) (*server.Server, func()) {
 
 func connectAs(t *testing.T, srv *server.Server, user, password string) *nats.Conn {
 	t.Helper()
-	opts := []nats.Option{nats.Name("phase18a-isolation-test")}
+	opts := []nats.Option{nats.Name("phase13a-isolation-test")}
 	if user != "" {
 		opts = append(opts, nats.UserInfo(user, password))
 	}
@@ -178,7 +178,7 @@ func TestJetStreamStreamIsolation(t *testing.T) {
 // TestKVBucketIsolation mirrors the stream test for NATS KV — the demo's
 // actual bucket-naming convention ({prefix}-{context}) collapses to just
 // {prefix} once an account is the tenant boundary, which is exactly the
-// taxonomy trade-off Phase 18 exists to document.
+// taxonomy trade-off Phase 13 exists to document.
 func TestKVBucketIsolation(t *testing.T) {
 	g := NewWithT(t)
 	srv, shutdown := newSpikeServer(t)

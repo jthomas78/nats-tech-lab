@@ -30,7 +30,7 @@ import (
 // initial tenant before Mount) — there is no separate bootstrap case to keep
 // in sync.
 //
-// Per Main-POC-Plan.md Phase 18b: the four projector durables are
+// Per Main-POC-Plan.md Phase 13b: the four projector durables are
 // server-side state that outlives its client (NATS docs: durables "remain
 // even when there are periods of inactivity"), so this only stops the old
 // client-side Consume() loops — it never deletes or recreates a durable, and
@@ -185,7 +185,7 @@ type switchTenantRequest struct {
 	Tenant string `json:"tenant"`
 }
 
-// @Summary      Switch the active tenant (Phase 18b)
+// @Summary      Switch the active tenant (Phase 13b)
 // @Description  Reconnects shipping-service's tenant-scoped NATS connection under a different account and rebinds every ship/container resource to it. The previous tenant's data becomes unreachable because the server enforces the account boundary, not because of an application-level filter.
 // @Tags         tenant
 // @Accept       json

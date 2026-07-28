@@ -97,9 +97,9 @@ func (h *Handlers) watchRefdata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// REFDATA is refdata-service's own stream, on the permanent DEFAULT
-	// account — not the tenant-scoped h.deps().JS (Phase 18b: refdata-service
+	// account — not the tenant-scoped h.deps().JS (Phase 13b: refdata-service
 	// is unreachable from any tenant account, see Main-POC-Plan.md
-	// Phase 18b, cost #3).
+	// Phase 13b, cost #3).
 	if h.deps().DefaultJS == nil {
 		writeError(w, http.StatusInternalServerError, "JetStream not configured")
 		return

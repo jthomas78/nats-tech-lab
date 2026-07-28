@@ -32,7 +32,7 @@ and these ids are frozen once assigned.
 | Code | Meaning | Status |
 |---|---|---|
 | `FR` | full replay (seq `1…end` of the relevant scope) | implemented |
-| `S` | snapshot + tail replay | reserved (Phase 17) |
+| `S` | snapshot + tail replay | reserved (Phase 24) |
 | `KV` | KV projection (materialised read model in NATS KV) | implemented |
 | `PG` | Postgres canonical + KV write-through cache | implemented |
 | `CRUD` | plain Postgres, non-event-sourced | implemented (ports) |
@@ -49,7 +49,7 @@ and these ids are frozen once assigned.
 | Code | Meaning | Status |
 |---|---|---|
 | `AL1` | at-least-once, non-idempotent (redelivery on failure) | implemented |
-| `IDEM` | idempotent consumer / inbox dedup | reserved (Phase 15) |
+| `IDEM` | idempotent consumer / inbox dedup | reserved (Phase 22) |
 
 `FR` scope note: it means **whole-stream** replay on `Read.FR.AGG` (fleet) but
 **per-aggregate** (filtered) replay on `Write.FR` (hydration) — scope is a
@@ -135,7 +135,7 @@ CRUD" below.
 **`dictionary/internal/application/commands/container.go`**
 
 - `ContainerHandler` — `RegisterContainer()`, `LoadContainer()`, `UnloadContainer()`
-- `hydratePair()` — rebuilds **both** aggregates from **one atomic replay** of `SHIPPING`. Container identity is parsed from its subject; ship identity is resolved the same way `hydrateByNaturalKey` does (fold every ship event into a surrogate-keyed map, then match by current `shipID`) since the ship subject no longer carries the natural key. This keeps cross-aggregate rules strongly consistent until Phase 16 splits the stream.
+- `hydratePair()` — rebuilds **both** aggregates from **one atomic replay** of `SHIPPING`. Container identity is parsed from its subject; ship identity is resolved the same way `hydrateByNaturalKey` does (fold every ship event into a surrogate-keyed map, then match by current `shipID`) since the ship subject no longer carries the natural key. This keeps cross-aggregate rules strongly consistent until Phase 23 splits the stream.
 - `RegisterContainer()` — mints a fresh surrogate id (`newSurrogateID()`, a dependency-free UUID v4) after `hydrateByNaturalKey()` confirms the natural key is free (BR-015, resolved against the event stream — authoritative, not from a read projection)
 
 #### Container identity — surrogate key (Phase 8.3)
@@ -496,15 +496,15 @@ type navigator counts, item grid CRUD, localization add + fallback-chain resolut
 creation (`country.AE --defaultCurrency--> currency.AED`), locales panel, and the cache status
 widget correctly reporting `Postgres version == KV version, in sync` after a live mutation.
 
-## Multi-Tenancy Isolation Spike (Phase 18)
+## Multi-Tenancy Isolation Spike (Phase 13)
 
 Everywhere above, tenancy is a **string convention**: one unauthenticated `nats.Connect`
 per service, tenant scoping enforced only by the `{context}` token the application
 happens to put into subjects (`evt.{context}.shipping...`) and KV bucket names
 (`{prefix}-{context}`). Nothing stops a bug — or a compromised process — from reading
 or writing another tenant's data; the isolation is a naming convention the application
-chooses to honor, not something the transport enforces. Phase 18 was a two-step spike
-(18a narrow, 18b broad — `.claude/plans/Main-POC-Plan.md`) measuring whether NATS
+chooses to honor, not something the transport enforces. Phase 13 was a two-step spike
+(13a narrow, 13b broad — `.claude/plans/Main-POC-Plan.md`) measuring whether NATS
 **accounts** are worth the cost of closing that gap, as a decision input before the real
 platform commits to either soft or hard isolation (System Design doc, DD-04, Section 12.B).
 
@@ -520,13 +520,13 @@ format (every rule there names a domain `Error`, an `Enforced in` method, and a
 
 Demonstrated twice, at two different layers:
 
-- **18a** (`shipping-service/internal/natsaccounts/isolation_test.go`) — loads the actual
+- **13a** (`shipping-service/internal/natsaccounts/isolation_test.go`) — loads the actual
   shipped `nats/nats.conf` into an embedded server and proves it directly: `acme` and
   `globex` credentials cannot see each other's core-NATS pub/sub (invisibility, not a
   rejected call — matching the NATS docs' model of accounts as separate subject spaces,
   not a shared one filtered by prefix), cannot see each other's JetStream streams or KV
   buckets even when named identically, and wrong credentials are rejected outright.
-- **18b** (`dictionary/tenant_switch_test.go`) — proves it through the real application
+- **13b** (`dictionary/tenant_switch_test.go`) — proves it through the real application
   path: register a ship as `acme`, switch the whole shipping-service to `globex` via
   `POST /api/tenant/switch`, confirm the ship is unreachable through the same
   `GET /api/shape-c/fleet` call `globex` would use — **and independently confirm, via a
@@ -562,9 +562,9 @@ Researched against the NATS docs directly (not assumed): the documented way to
 partition a stream by tenant is **one durable consumer per tenant, filtered on the
 tenant token** — the consumers doc's own example is a stream on `factory-events.*.*`
 with a consumer filtered to `factory-events.A.*`. That is distinct from what this POC
-had built before Phase 18:
+had built before Phase 13:
 
-1. **Pre-Phase-18 (this repo, until now)** — one durable per projector on a
+1. **Pre-Phase-13 (this repo, until now)** — one durable per projector on a
    tenant-agnostic wildcard (`evt.*.shipping.ship.>`), tenant resolved from the event
    *payload* (`event.Context`) at write time. Convenient, and deliberate
    (`events.go`: projectors are "intentionally tenant-agnostic") — but not an isolation
@@ -573,7 +573,7 @@ had built before Phase 18:
    `FilterSubject: evt.acme.shipping.ship.>` instead of `evt.*.shipping.ship.>`, one such
    durable per tenant per projector. The natural conclusion if a future decision is
    "prefixes are enough, accounts aren't needed."
-3. **Account per tenant (Phase 18b's shape)** — durables are per-account by construction,
+3. **Account per tenant (Phase 13b's shape)** — durables are per-account by construction,
    so the tenant token in the filter is redundant; always exactly 4 durables per account,
    regardless of tenant count.
 
@@ -587,17 +587,17 @@ current tenant-agnostic wildcard projector) should still change to shape 2** onc
 multi-tenant data volume matters, since it's the pattern the NATS docs themselves
 document for partitioning one stream by tenant.
 
-One more docs-grounded correction that shaped 18b's implementation: durables are
+One more docs-grounded correction that shaped 13b's implementation: durables are
 designed to **outlive their client** — the docs state durables "remain even when there
 are periods of inactivity" and a client "resumes" by rebinding, while only *ephemeral*
 consumers are "automatically cleaned up... when no subscriptions are bound." So a tenant
-switch is stop-and-rebind on the client side, never delete-and-recreate — and Phase 18b's
+switch is stop-and-rebind on the client side, never delete-and-recreate — and Phase 13b's
 implementation (`rest/tenant.go`'s `SwitchTenant`) deliberately never sets
 `InactiveThreshold` on any projector consumer, since that would let the server reap a
 switched-away tenant's durable and lose its stream position — asserted directly in
 `tenant_switch_test.go`, not just left as an intention.
 
-### What Phase 18b actually rewired
+### What Phase 13b actually rewired
 
 `shipping-service` only — see below for why refdata-service is excluded. The service now
 holds **two** long-lived NATS connections instead of one:
@@ -605,7 +605,7 @@ holds **two** long-lived NATS connections instead of one:
 - **The permanent `DEFAULT`-account connection** (today's original unauthenticated
   `nats.Connect`, unchanged) — used only for refdata-service's `rpc.*` calls, its
   `REFDATA` change-event stream, and the `obs.rpc.>` observability bridge. These were
-  already, quietly, DEFAULT-account concerns before Phase 18 existed (refdata-service
+  already, quietly, DEFAULT-account concerns before Phase 13 existed (refdata-service
   isn't tenant-scoped at all) — the accounts spike just made that fact visible enough to
   require separating the field that carries it (`rest.Deps.DefaultJS`) from the one that
   swaps (`rest.Deps.JS`).
@@ -621,7 +621,7 @@ refdata-service is inherently cross-tenant — it answers `rpc.*.refdata.*.v1` f
 tenant, deriving the tenant from the *subject token* per request, not from which account
 it's connected to. Putting it inside one tenant's account would make it unreachable from
 every other tenant. Doing this properly needs a service **export** from a refdata account,
-**imported** by each tenant account — exactly the mechanism Phase 18's scope deliberately
+**imported** by each tenant account — exactly the mechanism Phase 13's scope deliberately
 defers (see the accounts docs' `exports`/`imports` model). So: **any future hard-isolation
 design that includes a shared cross-tenant service needs exports/imports designed in from
 the start** — this is now a concrete requirement for that future work, not a hypothetical
@@ -637,4 +637,4 @@ cross-tenant sharing mechanism (exports/imports) beyond noting that refdata-serv
 need one. The tenant credentials here are hardcoded, plaintext, spike-only fixtures
 (`composition.go`'s `tenantCredentials`, matching `nats.conf`) — real tenant onboarding
 would mint credentials, not hardcode them, and is itself a runtime-discovery question
-deferred past Phase 18b (see the plan's Phase 18b breadcrumb on `GET :8222/accountz`).
+deferred past Phase 13b (see the plan's Phase 13b breadcrumb on `GET :8222/accountz`).

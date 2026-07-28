@@ -7,7 +7,7 @@ import (
 
 // Both aggregates (Ship and Container) are co-located on the single SHIPPING
 // stream, partitioned by subject. This keeps every cross-aggregate rule
-// checkable from one atomic replay (Phase 8 baseline). Phase 16 extracts the
+// checkable from one atomic replay (Phase 8 baseline). Phase 23 extracts the
 // container subjects into a dedicated TERMINAL stream to expose the
 // distributed-consistency problem.
 const (
@@ -17,8 +17,8 @@ const (
 	Domain = "shipping"
 
 	// KV bucket prefixes ({prefix}-{context} outside an account boundary;
-	// just {prefix} inside one — Phase 18). Exported so both the composition
-	// root and rest.SwitchTenant (Phase 18b) can build a kvstore.Store for
+	// just {prefix} inside one — Phase 13). Exported so both the composition
+	// root and rest.SwitchTenant (Phase 13b) can build a kvstore.Store for
 	// the currently active NATS account without an import cycle between
 	// them.
 	ShapeABucketPrefix    = "dict-a"    // Shape A ship read model

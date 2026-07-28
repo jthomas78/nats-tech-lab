@@ -25,7 +25,7 @@ type ContainerInput struct {
 // the container's and the ship's state to enforce the cross-aggregate rules
 // (BR-008, BR-012, BR-014) — 	in Phase 8 both aggregates are co-located on the
 // single SHIPPING stream, so one atomic replay hydrates both and the checks
-// are strongly consistent. Phase 16 splits the streams and turns exactly this
+// are strongly consistent. Phase 23 splits the streams and turns exactly this
 // spot into the distributed-consistency problem.
 type ContainerHandler struct {
 	pub   Publisher

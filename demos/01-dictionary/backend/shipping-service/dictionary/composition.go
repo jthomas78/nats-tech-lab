@@ -12,9 +12,9 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/refdataconsumer"
 )
 
-// tenantCredentials are Phase 18a's static server-config account fixtures —
+// tenantCredentials are Phase 13a's static server-config account fixtures —
 // spike-only, plaintext, must match nats/nats.conf's accounts{} block. This
-// is a deliberate spike simplification (Main-POC-Plan.md Phase 18b):
+// is a deliberate spike simplification (Main-POC-Plan.md Phase 13b):
 // real tenant onboarding would mint credentials, not hardcode them here.
 var tenantCredentials = map[string]rest.TenantCredentials{
 	"acme":   {User: "acme", Password: "acme-spike-pass"},
@@ -38,7 +38,7 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 	// connection (see monolith.Monolith doc comment) — used only for
 	// refdata-service's rpc.* calls, its REFDATA change stream, and the
 	// obs.rpc.> observability bridge. The SHIPPING stream is deliberately
-	// NOT created here anymore: Phase 18b moves it entirely into whichever
+	// NOT created here anymore: Phase 13b moves it entirely into whichever
 	// tenant account is active, via Handlers.SwitchTenant below.
 	refdata := refdataconsumer.New(mono.NC())
 	shipRepo := postgres.NewRepository(mono.DB())

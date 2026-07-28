@@ -206,6 +206,7 @@ or checklist detail for a specific completed phase).
 
 **Verification status (2026-07-09):** full compose stack runs end to end (5 services), Swagger UI live, both frontend `/api` proxies working, live smoke test of full container lifecycle passing, `go build`/`go vet`/`ginkgo ./...` (22/22 at that point) and both frontend builds green. Full detail in the archive.
 
+
 ### Phase 12 (DONE, with known gaps noted below) — Refdata Versioning, Tenancy & Template Inheritance
 
 > **Full detail in separate design document: [Refdata-Versioning-Tenancy-Design.md](Refdata-Versioning-Tenancy-Design.md)** — sub-phases 12.1–12.7.
@@ -321,7 +322,7 @@ re-materialization on demand via rewrite-on-read).
       the KV bucket-name convention. Requires a local dev data reset
       (`docker compose down -v && up --build` — old-shape stream data is disposable lab data, no
       migration/dual-read compatibility). NATS Accounts-based hard tenant isolation remains out of
-      scope (Phase 18).
+      scope (Phase 13).
 
       **Same-day follow-up revision:** the shape above (`events.{context}.../refdata.{context}...`)
       shipped and was live-verified, then revised once more per a direct user request to unify both
@@ -599,189 +600,7 @@ full data model, API surface, migration strategy, and open questions.
 
 ---
 
-### Phase 13 (PROPOSED — awaiting approval) — Ship Container Capacity Limit
-
-#### Goal
-
-Ships currently have no maximum container capacity — a ship can be loaded with an unbounded number of containers. Add a fixed `Capacity` to the Ship aggregate and enforce it as a load-time domain rule (BR-019), plus surface a load-capacity indicator column in `frontend-port` ("SeaFreight Flow") so the constraint is visible, not just enforced.
-
-#### Design
-
-- **`Ship` domain model** (`dictionary/internal/domain/ship.go`): add `Capacity int` to `ShipState` (ship.go:46-53) and `ShipAggregate` (ship.go:65-70), threaded through `Apply()`/`State()`/`FromState()`.
-- **Setting capacity**: no "register ship" command exists — a ship's first `Arrive` is its registration (`ShipAggregate.Arrive()`, ship.go:124-144), which already set-once's `ShipName` when empty. `Capacity` follows the same set-once-at-first-arrival pattern: `ArrivePort` request gains an optional `capacity` field; if omitted on first arrival, a documented default is used (exact default — e.g. 20 — confirmed at implementation time, not fixed by this plan entry). There is still no update-ship command, so capacity is immutable after first arrival unless a follow-up phase adds one.
-- **Enforcing BR-019 on `Load`**: `ContainerAggregate.Load()` (container.go:196-219) gains a capacity check alongside its existing BR-012/BR-010/BR-014/BR-008 checks. This needs the ship's *current* on-ship container count at command time — `ContainerHandler.LoadContainer()` (application/commands/container.go:87-106) resolves this before calling `cont.Load(...)`. Two candidate mechanisms, to be decided during implementation:
-  1. Event-replay count (consistent with "JetStream is the source of truth" — Working Assumptions): count `.loaded`-without-subsequent-`.unloaded` container events for the ship's `shipID` at hydrate time.
-  2. Read-model query against the existing manifest join (Shape A/B projection) — faster, but reads an eventually-consistent projection to guard a write (same class of trade-off Phase 16 documents for BR-008/BR-012 read-model guards).
-- **Read model / API surface**: `ShipState`'s KV (Shape A/B) and Postgres projections need the new `Capacity` field so `GET` endpoints (fleet, shape-b ship, shape-c fleet) return it to the frontend.
-- **Frontend (`frontend-port`)**: `FleetPanel.vue` (columns at lines 112-131) and `ShipsAtPortPanel.vue` (columns at lines 150-163) each gain a load-capacity indicator column pairing the new `capacity` field with the container count already computed via `store.manifestFor(shipID).length` (e.g. `12 / 50`, colored by fullness). Route any new column label through `l10n` (BR-D16), not a hardcoded literal.
-
-#### Checklist
-
-- [ ] Confirm default capacity value and whether `capacity` is required or optional on `ArrivePort`
-- [ ] Decide event-replay vs read-model-guard mechanism for the current-count check (document the trade-off, mirroring Phase 16's treatment of BR-008/BR-012)
-- [ ] `ShipState`/`ShipAggregate`: add `Capacity`, thread through `Apply()`/`State()`/`FromState()`
-- [ ] `ArrivePort` command + REST handler: accept optional `capacity`, set-once on first arrival
-- [ ] `ContainerAggregate.Load()`: new `ErrCapacityExceeded` check (BR-019)
-- [ ] `ContainerHandler.LoadContainer()`: resolve current on-ship count before calling `Load()`
-- [ ] KV (Shape A/B) + Postgres ship projections: persist and return `Capacity`
-- [ ] Ginkgo specs written **before** implementation (red → green): `Container Domain Rules / BR-019` — load rejected at capacity, allowed under capacity, allowed exactly at capacity-minus-one
-- [ ] `frontend-port`: load-capacity column in `FleetPanel.vue` and `ShipsAtPortPanel.vue`, via `l10n`
-- [ ] `BUSINESS_RULES.md`: BR-019 updated from PROPOSED to enforced, with final error/enforcement/test references
-- [ ] `go build ./...` + `ginkgo ./...` green; frontend build green
-
----
-
-### Phase 14 — Write-Side Safety (Optimistic Concurrency + Publish Dedup)
-
-#### Goal
-
-Close the two producer-side correctness gaps that stand between "JetStream as event log" and "JetStream as trustworthy event store":
-
-1. **Blind publish → lost invariants under concurrency.** Command handlers hydrate-validate-publish with no guard between read and write. Two concurrent commands on the same aggregate both hydrate the same pre-state, both pass validation, both publish — producing events that are individually valid but jointly violate a business rule (e.g. the same container loaded onto two ships).
-2. **No publish dedup → client retries double-write the source of truth.** An HTTP client retrying a command after a timed-out response durably appends the business event twice. In transport-mode this would be caught downstream by Postgres constraints; in event-store mode the duplicate *is* the record.
-
-#### Design
-
-- **Optimistic concurrency**: `hydrate()` already walks the aggregate's events — it additionally returns the last stream sequence seen. Publish carries `Nats-Expected-Last-Subject-Sequence`; if another event landed in between, the server rejects the append (err 10071), and the handler re-hydrates, re-validates, and retries (bounded).
-  - ⚠️ **Verify against current NATS docs before implementing**: an aggregate's events span multiple subjects (`…{id}.arrived` vs `…{id}.departed`), and the plain header checks the last sequence *of the published subject only*. Newer servers support `Nats-Expected-Last-Subject-Sequence-Subject` to guard against a wildcard filter (`…{id}.>`). Confirm server + nats.go client support; if unavailable, fall back to a single per-aggregate subject with the event type in the payload/headers, and document the trade-off.
-- **Publish dedup**: every publish sets `Nats-Msg-Id` derived from a command idempotency key (client-supplied header, generated by the frontend per user action). Configure the stream's `Duplicates` window **explicitly** (don't rely on the 2-minute default silently).
-- The `Publisher` port grows an options parameter (expected sequence, message ID) — kept transport-agnostic in signature so the interface doesn't leak `jetstream` types into `application/`.
-
-#### Checklist
-
-- [ ] Verify `Nats-Expected-Last-Subject-Sequence[-Subject]` semantics and `Duplicates` window behavior against current NATS server / nats.go docs (features move between releases)
-- [ ] `hydrate()` / `hydratePair()` return the last relevant stream sequence
-- [ ] `Publisher` port + `jstream` adapter: publish options (expected last sequence, msg ID)
-- [ ] Command handlers: guard publishes, bounded retry-on-conflict (re-hydrate → re-validate → re-publish)
-- [ ] `Nats-Msg-Id` on every publish; explicit stream `Duplicates` window in `CreateStream`
-- [ ] REST: accept/generate a command idempotency key per request
-- [ ] Ginkgo specs: concurrent conflicting commands — exactly one wins, loser re-validates (double-load race rejected); duplicate publish with same msg ID appends once
-- [ ] `BUSINESS_RULES.md`: document the concurrency guarantee the event store now provides
-- [ ] `go build ./...` + `ginkgo ./...` green
-
----
-
-### Phase 15 — Projection Hardening (Consumer-Side Idempotency + Explicit Limits)
-
-#### Goal
-
-Make projections safe under redelivery and reordering **by engineering, not by accident**. Today's safety rests on "redelivering the same event re-applies the same upsert" — true only if delivery order is preserved, which depends on unexamined consumer defaults. Also make the stream's "never discard" property an explicit decision rather than an implicit absence of limits.
-
-#### Design
-
-- **KV writes**: replace naive `Put` with a guarded write — the stored value carries the source event's stream sequence; the projector skips any event older than what's stored, using `Update` with expected revision (CAS loop) so a stale redelivery can never clobber newer state.
-- **Postgres projection**: same guard — persist the last-applied stream sequence per row and skip older events in the upsert (`WHERE excluded.seq > current.seq` style).
-- **Consumer ordering**: verify `Consume()` callback concurrency and `MaxAckPending` defaults against current nats.go docs (do not assume); set `MaxAckPending` explicitly per projector and document the ordering guarantee relied upon.
-- **Explicit retention decision**: `CreateStream` currently sets no `MaxAge`/`MaxMsgs`/`MaxBytes` — "never discard" is true only implicitly. Make it explicit: document unbounded-is-deliberate in the config (or set `DiscardPolicy` intentionally), so the config can't be copied forward with the decision invisible.
-- **Poison messages**: current behavior (ack-on-unmarshal-failure to avoid redelivery loops) is documented; consider a dead-letter subject (`{region}.dlq.{tenant}.…`) instead of silently acking.
-
-#### Checklist
-
-- [ ] Verify `Consume()` ordering / `MaxAckPending` semantics against current nats.go docs
-- [ ] `kvstore.Store`: guarded write API (sequence-aware CAS); all projector call sites migrated off naive `Put`
-- [ ] Postgres projectors: last-applied-sequence guard in upserts
-- [ ] Explicit `MaxAckPending` on all projector consumers
-- [ ] `CreateStream`: retention/discard decision made explicit in code comment + config
-- [ ] Poison-message policy: dead-letter subject or documented ack-and-log, decided and implemented
-- [ ] Ginkgo specs: out-of-order redelivery does not clobber newer KV/Postgres state; duplicate redelivery is a no-op
-- [ ] `go build ./...` + `ginkgo ./...` green
-
----
-
-### Phase 16 — Stream Split + Cross-Aggregate Consistency
-
-#### Goal
-
-Extract container events from the shared `SHIPPING` stream into a dedicated `TERMINAL` stream, turning the two aggregates into two independent bounded contexts. This is a **single-variable change** on top of Phases 8–14: the aggregates, rules, and frontends are unchanged — only the stream topology moves. Post-Phase 9 this is even cleaner than originally planned: **the subjects themselves do not change** — a subject can belong to only one stream, so the split is purely moving the `…container.>` binding from `SHIPPING` to `TERMINAL`. The purpose is to make the **invariant-spanning-two-aggregates problem** concrete and demonstrate the solution options.
-
-#### The problem this phase exposes
-
-After the split, BR-008 (container destPort vs ship's current port) and BR-012 (ship must be docked) still need **both** aggregates' state — but the container command handler can no longer get the ship's state from the same replay. `ContainerAggregate` hydrates from `TERMINAL`; the ship's docked state lives in `SHIPPING`. There is no atomic cross-stream replay.
-
-| Stream | Subject binding | Bounded context |
-|---|---|---|
-| `SHIPPING` | `evt.{tenant}.shipping.ship.>` | Ship movements |
-| `TERMINAL` | `evt.{tenant}.shipping.container.>` | Container lifecycle |
-
-#### Solution options to implement and document
-
-The demo implements **option 1** as the default and documents the trade-offs of all three:
-
-1. **Read-model guard (default)** — the container handler reads the ship's KV projection (Shape A/B) to check docked state / current port. Fast and keeps the streams independent, but validates a write against an eventually-consistent read (stale-read window — which Phase 16 measures under load).
-2. **Hydrate both streams** — the container handler additionally replays `SHIPPING` for the ship. Strongly consistent, but the container context is no longer independent and every load/unload replays two streams.
-3. **Saga / compensating event** — accept the write optimistically and emit a compensating `container.load-rejected` event if the ship turns out not to be docked. The "correct" DDD answer for separate contexts; heaviest to implement.
-
-#### Checklist
-
-- [ ] `internal/jstream/stream.go` — add the `TERMINAL` stream binding `evt.{tenant}.shipping.container.>`; `SHIPPING` keeps only `…ship.>` (subjects themselves unchanged post-Phase 12.8)
-- [ ] `domain/events.go` — route container subject builders / stream-name references to `TERMINAL`
-- [ ] `application/commands/container.go` — hydrate containers from `TERMINAL`; replace the in-replay ship check with the **read-model guard** (option 1) for BR-008 / BR-012
-- [ ] `eventhandler/` — container projector consumes from `TERMINAL`; ship projector unchanged on `SHIPPING`
-- [ ] Ginkgo specs — BR-008 / BR-012 still green via the read-model guard; add a spec documenting the stale-read window (guard sees pre-departure state)
-- [ ] Frontend (`frontend/`): JetStream panel stream selector — add `TERMINAL` entry (`streamOptions`); backend `streamJetStream` switch — add `TERMINAL` case
-- [ ] Frontend (`frontend-port/`): add SSE watch on `TERMINAL.*`
-- [ ] `ARCHITECTURE.md` — document the two-stream topology, the cross-aggregate invariant problem, and the three solution options with the chosen default
-- [ ] `go build ./...` + `ginkgo ./...` green
-
----
-
-### Phase 17 — Performance & Load Testing (full suite)
-
-#### Goal
-
-Validate that the *final* architecture holds under realistic throughput and identify the bottlenecks before any production consideration, building on the baseline established in **Phase 10**. Runs after the write path (Phase 14) and stream split (Phase 16) are in place, so the scenarios those phases gate can finally be measured. The POC has two known scalability gaps — first characterised in Phase 10, re-measured here against the final architecture:
-
-1. **Shape C — full replay on every call.** `ReconstructFleet` replays from `seq=1` every time. Latency grows linearly with stream depth.
-2. **Write-side hydration — full replay per command.** `hydrate()` in `commands.go` replays all events for a ship on every command. A busy ship accumulates history and slows its own writes.
-
-Both are correct implementations of event sourcing fundamentals — the point is to *measure* the degradation curve and document where snapshots or other mitigations become necessary.
-
-> The baseline harness and the Shape C / single-ship / throughput scenarios are delivered in **Phase 10** (pull-forward baseline). This phase reuses that harness, adds the scenarios gated by Phases 14 and 16, and re-measures the Phase 10 baselines against the final architecture.
-
-#### Tool
-
-**k6** (`k6.io`) — scripted load testing in JavaScript, runs outside the Go stack, produces latency percentiles and throughput metrics. Alternatively `vegeta` for simpler HTTP load.
-
-#### Test scenarios
-
-| Scenario | What it measures | Status |
-|---|---|---|
-| High-frequency arrivals/departures — single ship | Write-side hydration degradation as event count grows | baseline in Phase 10; re-measure |
-| High-frequency arrivals/departures — many ships concurrently | Throughput ceiling of the command pipeline | baseline in Phase 10; re-measure |
-| Shape C fleet reconstruction under load | Replay latency vs stream depth; degradation curve | baseline in Phase 10; re-measure |
-| KV watch fan-out — many SSE clients | How many concurrent SSE connections the backend sustains before lag | this phase |
-| Container load/unload burst — terminal throughput | Cross-stream (`SHIPPING` + `TERMINAL`) consumer lag under write pressure | needs Phase 16 |
-| Projection lag — event published → KV updated | End-to-end latency of the Shape A/B projectors under load | this phase |
-| Optimistic-concurrency contention — concurrent commands, same aggregate | Retry rate and latency cost of the Phase 14 sequence guard under contention | needs Phase 14 |
-
-#### Baseline metrics to capture
-
-- p50 / p95 / p99 command latency (arrive, depart, load container, unload container)
-- Shape C reconstruction time at 100 / 1k / 10k events in stream
-- KV watch SSE lag (time from KV write to browser event) at 1 / 10 / 100 concurrent clients
-- Max sustained commands/sec before errors or queue buildup
-
-#### Expected findings to investigate
-
-- Shape C becomes unusable beyond a few thousand events without snapshotting
-- `hydrate()` degrades for ships with long histories — snapshot checkpoint needed
-- SSE fan-out has a practical client ceiling determined by goroutine count and NATS consumer throughput
-
-#### Checklist
-
-The baseline harness, seed script, and the Shape C / single-ship / throughput scenarios are delivered in **Phase 10**. This phase completes the remaining (gated) scenarios and finalises the report:
-
-- [ ] Scenario: optimistic-concurrency contention — retry rate and latency cost of the Phase 14 sequence guard *(needs Phase 14)*
-- [ ] Scenario: cross-stream burst — fire `SHIPPING` and `TERMINAL` events concurrently, measure projection consumer lag *(needs Phase 16)*
-- [ ] Scenario: SSE fan-out — open 1 / 10 / 50 / 100 concurrent SSE clients, measure KV watch lag
-- [ ] Scenario: projection lag — event published → KV updated, measured under load
-- [ ] Re-measure the Phase 10 baseline scenarios against the final architecture (with guard + split) and record the before/after delta
-- [ ] Finalise `demos/01-dictionary/PERFORMANCE.md` — full baseline numbers, degradation curves, identified thresholds
-- [ ] Document architectural mitigations for each bottleneck (snapshot strategy, consumer parallelism, SSE load balancing)
-
----
-
-### Phase 18 (APPROACH AGREED 2026-07-27 — awaiting approval to implement) — NATS Accounts Tenancy Spike
+### Phase 13 (APPROACH AGREED 2026-07-27 — IMPLEMENTED) — NATS Accounts Tenancy Spike
 
 #### Goal
 
@@ -797,10 +616,10 @@ Today tenancy is a string convention: one unauthenticated `nats.Connect`, tenant
 #### Delivery: two steps, narrow then broad (agreed 2026-07-27)
 
 Split so the isolation question is answered by a cheap, additive change before any
-service's connection code is touched. **18a proves the server enforces isolation;
-18b proves the application can live inside it.** 18b is gated on 18a's result — if
-18a shows accounts don't buy anything the subject prefixes don't already give us,
-18b is cancelled rather than executed.
+service's connection code is touched. **13a proves the server enforces isolation;
+13b proves the application can live inside it.** 13b is gated on 13a's result — if
+13a shows accounts don't buy anything the subject prefixes don't already give us,
+13b is cancelled rather than executed.
 
 Static server-config accounts only (an `accounts {}` block with `users`, per
 [the NATS accounts docs](https://docs.nats.io/running-a-nats-service/configuration/securing_nats/accounts)) —
@@ -814,7 +633,7 @@ sets of KV buckets, mutually invisible — not one stream with tenant-wildcarded
 subjects. So the cross-context wildcards (`evt.*.shipping.ship.>`,
 `domain.StreamSubjects()`, events.go:43-45) and the `{context}` bucket suffix
 (`{prefix}-{context}`, kvstore/kv.go:41) both become redundant *inside* an account.
-That is the taxonomy trade-off this phase exists to document, and it is why 18b
+That is the taxonomy trade-off this phase exists to document, and it is why 13b
 uses one tenant-scoped connection rather than a per-tenant connection map.
 
 #### What the NATS docs recommend for consumers + tenancy (researched 2026-07-27)
@@ -838,14 +657,14 @@ Sources: [JetStream consumers](https://docs.nats.io/nats-concepts/jetstream/cons
      deliberate (events.go:40-42), but it is not an isolation pattern: nothing stops a
      projector seeing every tenant, because nothing is meant to.
   2. **Shared account, per-tenant durables** — the docs' factory-events pattern; the
-     natural end state if 18a concludes "subject prefixes are enough". Costs
+     natural end state if 13a concludes "subject prefixes are enough". Costs
      N tenants × 4 projector durables.
   3. **Account per tenant** — durables are per-account by construction, so the tenant
      token in the filter is redundant; always 4 durables per account.
 - **Durables are designed to outlive their client.** Durables *"remain even when there
   are periods of inactivity"* and clients "resume" by rebinding; only ephemerals are
   *"automatically cleaned up (deleted) after a period of inactivity, when no
-  subscriptions are bound."* Hence 18b's swap is stop-and-rebind, not delete-and-recreate.
+  subscriptions are bound."* Hence 13b's swap is stop-and-rebind, not delete-and-recreate.
   Corollary: do **not** set `InactiveThreshold` on projector consumers.
 - **`max_consumers` is a per-account limit** (docs example: 100), alongside
   `max_streams`, `max_mem`, `max_file`. This is a concrete scaling argument for shape 3
@@ -855,7 +674,7 @@ Sources: [JetStream consumers](https://docs.nats.io/nats-concepts/jetstream/cons
   `jetstream` package's `Consume()` (eventhandler/handler.go:104-137) is pull-based with
   automatic flow control. No change needed.
 
-##### 18a — Narrow: additive config + isolated proof
+##### 13a — Narrow: additive config + isolated proof
 
 Additive only. No existing service changes behaviour; nothing in `backend/` is edited.
 
@@ -922,20 +741,20 @@ Checklist:
       expected), then confirmed `lb-shipping-service` and `lb-refdata-service` connect
       with **zero credentials, zero code changes**, no auth errors in the NATS log,
       and `GET /api/ports/global` returns real seeded data end-to-end
-- [x] 18a result: **isolation holds, cleanly, with no changes to any existing
-      service.** Go/no-go for 18b: **go** — proceed per the design already agreed
+- [x] 13a result: **isolation holds, cleanly, with no changes to any existing
+      service.** Go/no-go for 13b: **go** — proceed per the design already agreed
 
-##### 18b — Broad: one tenant-scoped connection, swapped from a tenant selector
+##### 13b — Broad: one tenant-scoped connection, swapped from a tenant selector
 
-Gated on 18a. **`shipping-service` only** — see the refdata exclusion below.
+Gated on 13a. **`shipping-service` only** — see the refdata exclusion below.
 
-> **Deferred to after 18b (agreed 2026-07-27):** how the tenant dropdown's option
+> **Deferred to after 13b (agreed 2026-07-27):** how the tenant dropdown's option
 > list is *populated* — e.g. the server's HTTP monitoring endpoint
 > `GET :8222/accountz` (confirmed working against this config: returns
 > `{"accounts": ["$G","GLOBEX","$SYS","DEFAULT","ACME"]}`, no NATS-level auth
 > required since HTTP monitoring isn't gated by client creds) vs. a static list in
-> app config vs. something else. For 18b itself, hardcode the two tenant options
-> (`acme`, `globex`) — don't build discovery yet. Revisit once 18b is implemented
+> app config vs. something else. For 13b itself, hardcode the two tenant options
+> (`acme`, `globex`) — don't build discovery yet. Revisit once 13b is implemented
 > and reviewed. Note for later: `/accountz` reflects the static config file at that
 > moment, not a live/dynamic registry — true runtime tenant onboarding is really an
 > operator/JWT-resolver question (see
@@ -974,12 +793,12 @@ Three known costs, in descending order of work:
    retains its own four durable definitions *and their stream positions*
    permanently. Nothing is deleted or recreated server-side, and no position is
    lost across swaps. (An earlier draft of this plan called this "tearing down and
-   rebuilding the durables… the bulk of 18b" — that overstated it.)
+   rebuilding the durables… the bulk of 13b" — that overstated it.)
 2. **The existing dropdown is the wrong dropdown.** It selects *fleets* —
    `['global', 'atlantic-fleet', 'pacific-fleet']` (admin `stores/dictionary.js:10`,
    seafreight-app `stores/port.js:10`) — and rest/handlers.go:557-560 deliberately
    decouples fleet context from refdata context (`const refdataContext = "emea-acme"`).
-   18b adds a **separate tenant selector**; it must not overload the fleet selector,
+   13b adds a **separate tenant selector**; it must not overload the fleet selector,
    or the distinction the code currently makes on purpose is lost.
 3. **`refdata-service` is excluded, and this is a finding, not a workaround.** It is
    inherently cross-tenant: it serves reference data to every tenant via
@@ -988,8 +807,8 @@ Three known costs, in descending order of work:
    tenant's account makes it unreachable from the other. Doing it properly needs a
    service **export** from a refdata account **imported** by each tenant account —
    exactly what this phase's scope defers. So refdata-service stays on the default
-   account for 18b, and "cross-tenant shared services require exports/imports" is
-   recorded as a Phase 18 conclusion feeding any future hard-isolation work (see
+   account for 13b, and "cross-tenant shared services require exports/imports" is
+   recorded as a Phase 13 conclusion feeding any future hard-isolation work (see
    `.claude/memory/tenant_service_separation_decision.md`).
 
 Already in our favour (little or no work needed):
@@ -1005,10 +824,10 @@ Already in our favour (little or no work needed):
 
 Checklist:
 
-- [x] Go/no-go confirmed from 18a — go
+- [x] Go/no-go confirmed from 13a — go
 - [x] Per-tenant creds available to `shipping-service` — hardcoded spike fixtures in
       `composition.go`'s `tenantCredentials` map (matching nats.conf, same spike-only
-      framing as 18a); `nats.Name("shipping-service")` retained on every connection
+      framing as 13a); `nats.Name("shipping-service")` retained on every connection
       (`rest/tenant.go`'s `SwitchTenant`)
 - [x] Projector subscription lifecycle — turned out to need **no `eventhandler` package
       changes**: `RegisterShapeA/B/Containers/Meta` already returned
@@ -1064,10 +883,10 @@ Checklist:
 
 - [x] **The tenant-isolation invariant itself**, stated in
       `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md` as a
-      deployment/infrastructure invariant (*not* a numbered business rule — see 18a's
+      deployment/infrastructure invariant (*not* a numbered business rule — see 13a's
       first checklist item for why): a tenant's credentials must not read or write
       another tenant's events, streams, or KV buckets, and the server rather than the
-      application enforces it. Written now that both 18a and 18b have actually
+      application enforces it. Written now that both 13a and 13b have actually
       demonstrated it, not before
 - [x] Decision recorded in the same doc: account-per-tenant vs shared-account+prefixes,
       and what the `{context}` subject token and `{prefix}-{context}` bucket suffix mean
@@ -1090,7 +909,429 @@ recorded in `.claude/memory/nats_volume_legacy_messages.md`.
 
 ---
 
-### Phase 19 (optional, PLACEHOLDER — not yet a formal requirement) — Per-Tenant Runtime Theme Spike
+### Phase 14 (PLAN APPROVED 2026-07-28 — awaiting go-ahead to implement) — Accounts Service & Decentralized JWT Tenancy
+
+#### Context
+
+Phase 13 proved NATS account isolation with a static `accounts{}` block in `nats.conf` and hardcoded user/password pairs. That mechanism was identified as too static and restrictive for N-tenant scaling. This phase replaces it entirely with NATS operator mode (decentralized JWTs, `resolver: full`), adds a new `accounts-service` for dynamic tenant provisioning, and surfaces it in the admin UI's sidebar.
+
+**Key decisions (confirmed 2026-07-28):**
+- All services convert to `.creds` files (including refdata-service); `no_auth_user` removed
+- Use `github.com/nats-io/jwt/v2` + `github.com/nats-io/nkeys` Go libraries for programmatic JWT minting (these are what `nsc` uses internally — importing `nsc` itself drags in CLI framework code for no benefit)
+- Basic auth middleware (shared secret) on accounts-service; WorkOS deferred to a later phase
+- Accounts-service is a separate backend from refdata-service (per `.claude/memory/tenant_service_separation_decision.md`); only the admin UI merges both
+
+**Overlaps checked:** Phase 25 (theme spike) is unrelated. No other phase touches auth/accounts/operator mode. `.claude/memory/nats_tower_operator_mode_tradeoff.md`'s previously undecided question is resolved by this phase committing to operator mode.
+
+---
+
+#### 14a — Convert to Operator Mode
+
+**Goal:** Replace `nats.conf`'s static `accounts{}` block with operator-mode JWTs and `.creds` files. Zero new features — all existing Ginkgo specs and the full docker-compose stack must work identically afterward.
+
+##### Bootstrap script: `nats/bootstrap-operator.sh`
+
+A one-shot idempotent shell script (run on the host, not in Docker) using the `nsc` CLI to produce seed artifacts checked into the repo:
+
+- **Operator** `lab-operator` with a signing key
+- **System account** `SYS` (required for `$SYS.REQ.CLAIMS.UPDATE` — how 14b pushes JWTs at runtime)
+- **Accounts** `DEFAULT` (1G/5G/20/100 — matching current config), `ACME` (256M/1G/10/20), `GLOBEX` (same)
+- One service user per account, each with a `.creds` file
+
+Outputs checked into the repo:
+```
+nats/
+  operator.jwt
+  resolver/           ← account JWTs for resolver: full
+  creds/              ← .creds files (default.creds, acme.creds, globex.creds, sys.creds)
+  keys/               ← operator signing key seed (most sensitive artifact; secrets manager in prod)
+```
+
+Idempotent: skips if outputs exist. `--force` flag regenerates everything.
+
+##### Rewrite `nats/nats.conf`
+
+Remove entire `accounts: { ... }` block + `no_auth_user: default`. Replace with:
+```
+operator: /etc/nats/operator.jwt
+system_account: <SYS public key>
+resolver: { type: full, dir: /data/jwt, allow_delete: true, interval: "2m" }
+resolver_preload: { <DEFAULT pubkey>: <jwt>, <ACME pubkey>: <jwt>, <GLOBEX pubkey>: <jwt> }
+```
+
+##### Docker Compose — NATS service
+
+Add volume mounts:
+- `./nats/operator.jwt:/etc/nats/operator.jwt:ro`
+- `./nats/resolver:/data/jwt` (read-write — the server accepts pushed JWTs at runtime, enabling 14b)
+
+##### Docker Compose — service creds
+
+**shipping-service:** mount `./nats/creds/` → `/etc/nats/creds/:ro`, add env `NATS_CREDS_DIR=/etc/nats/creds`
+**refdata-service:** mount `./nats/creds/default.creds` → `/etc/nats/creds/default.creds:ro`, add env `NATS_CREDS_PATH=/etc/nats/creds/default.creds`
+
+##### Service code changes
+
+**refdata-service `cmd/main.go`** (~2 lines): add `nats.UserCredentials(credsPath)` option when `NATS_CREDS_PATH` env var is set. Falls back to bare connect when empty (local dev without Docker).
+
+**shipping-service `cmd/main.go`**: same pattern for the DEFAULT connection; pass `credsDir` into the `app` struct so it reaches `composition.go`.
+
+**`rest/handlers.go`**: `TenantCredentials` changes from `{User, Password string}` to `{CredsPath string}`.
+
+**`rest/tenant.go`**: `nats.UserInfo(creds.User, creds.Password)` → `nats.UserCredentials(creds.CredsPath)`.
+
+**`composition.go`**: hardcoded `tenantCredentials` map built from `credsDir` instead of inline user/password pairs:
+```go
+tenantCredentials = map[string]rest.TenantCredentials{
+    "acme":   {CredsPath: filepath.Join(credsDir, "acme.creds")},
+    "globex": {CredsPath: filepath.Join(credsDir, "globex.creds")},
+}
+```
+
+##### Test infrastructure
+
+**`natsaccounts/isolation_test.go`**: `connectAs(user, password)` → `connectAs(credsPath)` using `nats.UserCredentials`. The embedded server setup adds the operator JWT via `opts`. Delete or rewrite the `TestNoAuthUserPreservesTodaysBehavior` test — `no_auth_user` no longer exists.
+
+**`tenant_switch_test.go`**: same — `TenantCredentials` values change from `{User, Password}` to `{CredsPath}`. Relative paths to `../../../nats/creds/*.creds` follow the existing depth convention.
+
+##### NATS Tower
+
+Should now work (it requires operator mode + SYS account). May need `nats/creds/sys.creds` mounted into the `nats-tower` compose service. Verify "Error loading data" messages are gone.
+
+##### 14a verification
+
+- [ ] All Ginkgo specs pass (`ginkgo ./...` in shipping-service, `go test ./...` in refdata-service)
+- [ ] `docker compose up` starts cleanly; all three frontends load; tenant selector works
+- [ ] `curl localhost:8222/varz` reports operator mode
+- [ ] `nats/creds/` and `nats/resolver/` directories contain expected files
+- [ ] NATS Tower shows real account data
+
+---
+
+#### 14b — Accounts Service
+
+**Goal:** New Go service that creates NATS accounts dynamically (mint JWTs, push to resolver, generate `.creds`) and persists account metadata in its own Postgres.
+
+##### Directory structure
+
+```
+backend/accounts-service/
+  cmd/main.go           ← refdata-service bootstrap pattern (no monolith abstraction)
+  go.mod / go.sum
+  Dockerfile            ← identical 2-stage pattern as refdata-service
+  accounts/
+    handler.go          ← REST handlers
+    store.go            ← Postgres repository + auto-migration
+    provisioner.go      ← jwt/v2 + nkeys wrapper (JWT minting + resolver push)
+    middleware.go       ← basic auth (shared secret from env var)
+    suite_test.go       ← Ginkgo suite
+    provisioner_test.go ← embedded nats-server in operator mode
+    handler_test.go     ← httptest end-to-end
+```
+
+##### Postgres schema (port 5434, `accounts-postgres`)
+
+```sql
+CREATE TABLE IF NOT EXISTS accounts (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name             TEXT NOT NULL UNIQUE,
+    public_key       TEXT NOT NULL UNIQUE,
+    signing_key_seed TEXT NOT NULL,  -- encrypted in prod; plaintext for spike
+    status           TEXT NOT NULL DEFAULT 'active',
+    js_max_mem       BIGINT NOT NULL DEFAULT 268435456,
+    js_max_file      BIGINT NOT NULL DEFAULT 1073741824,
+    js_max_streams   INT NOT NULL DEFAULT 10,
+    js_max_consumers INT NOT NULL DEFAULT 20,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+##### `provisioner.go` — core operations
+
+Holds the operator signing key (loaded from `OPERATOR_SIGNING_KEY_FILE`) and a SYS-account NATS connection.
+
+**`CreateAccount(name, limits)`**: `nkeys.CreateAccount()` → build `jwt.AccountClaims` → sign with operator key → push via `nc.Request("$SYS.REQ.CLAIMS.UPDATE", jwt, timeout)` → return public key + signing key seed.
+
+**`CreateUser(accountPubKey, accountSigningKeySeed)`**: `nkeys.CreateUser()` → build `jwt.UserClaims` → sign with account signing key → combine JWT + seed into `.creds` format → return creds bytes.
+
+**`DeleteAccount(accountPubKey)`**: push revocation via `$SYS.REQ.CLAIMS.DELETE`.
+
+##### REST API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/accounts` | Create account — returns account + one-time `.creds` content |
+| `GET` | `/api/accounts` | List all accounts (no creds) |
+| `GET` | `/api/accounts/{name}` | Get account details |
+| `DELETE` | `/api/accounts/{name}` | Suspend (soft delete + resolver revocation) |
+
+All routes gated by `BasicAuth(ACCOUNTS_AUTH_SECRET)` middleware.
+
+##### Seeding
+
+On startup, check for `DEFAULT`/`ACME`/`GLOBEX` in Postgres — if missing, insert them as pre-seeded records (with public keys from bootstrap artifacts) so the list is complete. Does NOT re-mint their JWTs.
+
+##### Shared creds volume
+
+New Docker named volume `nats-creds` mounted by both `accounts-service` (writes new `.creds` files on account creation) and `shipping-service` (reads them on tenant switch). Convention: `<account-name>.creds`. Bootstrap script seeds initial files.
+
+Shipping-service's `composition.go` changes from a static map to a directory-scanning function (`os.ReadDir` + filter `.creds` files). `getTenant` handler rescans on each call (directory is small).
+
+##### Docker Compose
+
+```yaml
+accounts-postgres:   # port 5434, postgres:16-alpine, pg-accounts-data volume
+accounts-service:    # port 7202:8080, mounts sys.creds + operator signing key
+```
+
+##### 14b verification
+
+- [ ] `go build ./...` + Ginkgo specs pass in accounts-service
+- [ ] `POST /api/accounts` with new tenant name → JWT pushed to resolver → `.creds` written → shipping-service can switch to new tenant
+- [ ] `GET /api/accounts` returns DEFAULT, ACME, GLOBEX + any newly created accounts
+- [ ] `DELETE /api/accounts/{name}` suspends and revokes → connection rejected
+
+---
+
+#### 14c — Accounts Page in Admin UI
+
+**Goal:** "Platform" sidebar section with an Accounts page for tenant CRUD, plus dynamic tenant selector population.
+
+##### New files
+
+- `frontend/admin/src/components/icons/IconAccounts.vue` — SVG icon (existing pattern)
+- `frontend/admin/src/components/AccountsPanel.vue` — page component
+
+##### `AccountsPanel.vue`
+
+- Header row: title + "Create Account" button
+- DataTable: Name, Status, Public Key (truncated), JetStream limits summary, Created At
+- Create dialog: form for name + JS limits → `POST /api/platform/accounts` → one-time `.creds` display
+
+##### API routing
+
+Admin frontend's nginx currently routes all `/api/` to shipping-service. Add a second location block:
+```nginx
+location /api/platform/ {
+    proxy_pass http://accounts-service:8080/api/accounts/;
+    proxy_set_header Authorization "Basic <base64 of admin:admin-spike-pass>";
+}
+```
+
+Vite dev proxy: `/api/platform` → `http://localhost:7202` with same rewrite.
+
+API client (`api.js`): `listAccounts()`, `createAccount(input)`, `getAccount(name)`, `deleteAccount(name)` — thin wrappers hitting `/api/platform/accounts`.
+
+##### `App.vue` changes
+
+- Import `AccountsPanel` + `IconAccounts`
+- Add `{ eyebrow: 'Platform', items: [{ key: 'accounts', label: 'Accounts', icon: IconAccounts }] }` to `sections`
+- Add `accounts:` entry to `SUBTITLES`
+- Add `v-else-if="activeView === 'accounts'"` rendering `<AccountsPanel />`
+
+##### Dynamic tenant selector
+
+The tenant store's `refresh()` currently hits shipping-service's `GET /api/tenant`. After 14c, the "available" list can be populated from `listAccounts()` (accounts-service) instead — or shipping-service's `getTenant` can rescan the shared creds directory. Either way, newly-created accounts appear in the dropdown without a restart.
+
+##### 14c verification
+
+- [ ] "Platform > Accounts" appears in sidebar, renders the accounts table
+- [ ] Create a new account → creds displayed → new tenant appears in tenant dropdown
+- [ ] Switch to the new tenant → shipping-service connects to its isolated NATS account
+- [ ] Suspend an account → it disappears from available tenants
+
+---
+
+#### Sequencing
+
+```
+14a (operator mode)  →  14b (accounts-service)  →  14c (admin UI)
+```
+
+Each sub-phase is independently mergeable and verifiable. 14b depends on 14a's resolver + operator signing key. 14c depends on 14b's REST API.
+
+Implementation has not started — awaiting explicit go-ahead per user instruction.
+
+---
+
+### Phase 20 (PROPOSED — awaiting approval) — Ship Container Capacity Limit
+
+#### Goal
+
+Ships currently have no maximum container capacity — a ship can be loaded with an unbounded number of containers. Add a fixed `Capacity` to the Ship aggregate and enforce it as a load-time domain rule (BR-019), plus surface a load-capacity indicator column in `frontend-port` ("SeaFreight Flow") so the constraint is visible, not just enforced.
+
+#### Design
+
+- **`Ship` domain model** (`dictionary/internal/domain/ship.go`): add `Capacity int` to `ShipState` (ship.go:46-53) and `ShipAggregate` (ship.go:65-70), threaded through `Apply()`/`State()`/`FromState()`.
+- **Setting capacity**: no "register ship" command exists — a ship's first `Arrive` is its registration (`ShipAggregate.Arrive()`, ship.go:124-144), which already set-once's `ShipName` when empty. `Capacity` follows the same set-once-at-first-arrival pattern: `ArrivePort` request gains an optional `capacity` field; if omitted on first arrival, a documented default is used (exact default — e.g. 20 — confirmed at implementation time, not fixed by this plan entry). There is still no update-ship command, so capacity is immutable after first arrival unless a follow-up phase adds one.
+- **Enforcing BR-019 on `Load`**: `ContainerAggregate.Load()` (container.go:196-219) gains a capacity check alongside its existing BR-012/BR-010/BR-014/BR-008 checks. This needs the ship's *current* on-ship container count at command time — `ContainerHandler.LoadContainer()` (application/commands/container.go:87-106) resolves this before calling `cont.Load(...)`. Two candidate mechanisms, to be decided during implementation:
+  1. Event-replay count (consistent with "JetStream is the source of truth" — Working Assumptions): count `.loaded`-without-subsequent-`.unloaded` container events for the ship's `shipID` at hydrate time.
+  2. Read-model query against the existing manifest join (Shape A/B projection) — faster, but reads an eventually-consistent projection to guard a write (same class of trade-off Phase 23 documents for BR-008/BR-012 read-model guards).
+- **Read model / API surface**: `ShipState`'s KV (Shape A/B) and Postgres projections need the new `Capacity` field so `GET` endpoints (fleet, shape-b ship, shape-c fleet) return it to the frontend.
+- **Frontend (`frontend-port`)**: `FleetPanel.vue` (columns at lines 112-131) and `ShipsAtPortPanel.vue` (columns at lines 150-163) each gain a load-capacity indicator column pairing the new `capacity` field with the container count already computed via `store.manifestFor(shipID).length` (e.g. `12 / 50`, colored by fullness). Route any new column label through `l10n` (BR-D16), not a hardcoded literal.
+
+#### Checklist
+
+- [ ] Confirm default capacity value and whether `capacity` is required or optional on `ArrivePort`
+- [ ] Decide event-replay vs read-model-guard mechanism for the current-count check (document the trade-off, mirroring Phase 23's treatment of BR-008/BR-012)
+- [ ] `ShipState`/`ShipAggregate`: add `Capacity`, thread through `Apply()`/`State()`/`FromState()`
+- [ ] `ArrivePort` command + REST handler: accept optional `capacity`, set-once on first arrival
+- [ ] `ContainerAggregate.Load()`: new `ErrCapacityExceeded` check (BR-019)
+- [ ] `ContainerHandler.LoadContainer()`: resolve current on-ship count before calling `Load()`
+- [ ] KV (Shape A/B) + Postgres ship projections: persist and return `Capacity`
+- [ ] Ginkgo specs written **before** implementation (red → green): `Container Domain Rules / BR-019` — load rejected at capacity, allowed under capacity, allowed exactly at capacity-minus-one
+- [ ] `frontend-port`: load-capacity column in `FleetPanel.vue` and `ShipsAtPortPanel.vue`, via `l10n`
+- [ ] `BUSINESS_RULES.md`: BR-019 updated from PROPOSED to enforced, with final error/enforcement/test references
+- [ ] `go build ./...` + `ginkgo ./...` green; frontend build green
+
+
+### Phase 21 — Write-Side Safety (Optimistic Concurrency + Publish Dedup)
+
+#### Goal
+
+Close the two producer-side correctness gaps that stand between "JetStream as event log" and "JetStream as trustworthy event store":
+
+1. **Blind publish → lost invariants under concurrency.** Command handlers hydrate-validate-publish with no guard between read and write. Two concurrent commands on the same aggregate both hydrate the same pre-state, both pass validation, both publish — producing events that are individually valid but jointly violate a business rule (e.g. the same container loaded onto two ships).
+2. **No publish dedup → client retries double-write the source of truth.** An HTTP client retrying a command after a timed-out response durably appends the business event twice. In transport-mode this would be caught downstream by Postgres constraints; in event-store mode the duplicate *is* the record.
+
+#### Design
+
+- **Optimistic concurrency**: `hydrate()` already walks the aggregate's events — it additionally returns the last stream sequence seen. Publish carries `Nats-Expected-Last-Subject-Sequence`; if another event landed in between, the server rejects the append (err 10071), and the handler re-hydrates, re-validates, and retries (bounded).
+  - ⚠️ **Verify against current NATS docs before implementing**: an aggregate's events span multiple subjects (`…{id}.arrived` vs `…{id}.departed`), and the plain header checks the last sequence *of the published subject only*. Newer servers support `Nats-Expected-Last-Subject-Sequence-Subject` to guard against a wildcard filter (`…{id}.>`). Confirm server + nats.go client support; if unavailable, fall back to a single per-aggregate subject with the event type in the payload/headers, and document the trade-off.
+- **Publish dedup**: every publish sets `Nats-Msg-Id` derived from a command idempotency key (client-supplied header, generated by the frontend per user action). Configure the stream's `Duplicates` window **explicitly** (don't rely on the 2-minute default silently).
+- The `Publisher` port grows an options parameter (expected sequence, message ID) — kept transport-agnostic in signature so the interface doesn't leak `jetstream` types into `application/`.
+
+#### Checklist
+
+- [ ] Verify `Nats-Expected-Last-Subject-Sequence[-Subject]` semantics and `Duplicates` window behavior against current NATS server / nats.go docs (features move between releases)
+- [ ] `hydrate()` / `hydratePair()` return the last relevant stream sequence
+- [ ] `Publisher` port + `jstream` adapter: publish options (expected last sequence, msg ID)
+- [ ] Command handlers: guard publishes, bounded retry-on-conflict (re-hydrate → re-validate → re-publish)
+- [ ] `Nats-Msg-Id` on every publish; explicit stream `Duplicates` window in `CreateStream`
+- [ ] REST: accept/generate a command idempotency key per request
+- [ ] Ginkgo specs: concurrent conflicting commands — exactly one wins, loser re-validates (double-load race rejected); duplicate publish with same msg ID appends once
+- [ ] `BUSINESS_RULES.md`: document the concurrency guarantee the event store now provides
+- [ ] `go build ./...` + `ginkgo ./...` green
+
+
+### Phase 22 — Projection Hardening (Consumer-Side Idempotency + Explicit Limits)
+
+#### Goal
+
+Make projections safe under redelivery and reordering **by engineering, not by accident**. Today's safety rests on "redelivering the same event re-applies the same upsert" — true only if delivery order is preserved, which depends on unexamined consumer defaults. Also make the stream's "never discard" property an explicit decision rather than an implicit absence of limits.
+
+#### Design
+
+- **KV writes**: replace naive `Put` with a guarded write — the stored value carries the source event's stream sequence; the projector skips any event older than what's stored, using `Update` with expected revision (CAS loop) so a stale redelivery can never clobber newer state.
+- **Postgres projection**: same guard — persist the last-applied stream sequence per row and skip older events in the upsert (`WHERE excluded.seq > current.seq` style).
+- **Consumer ordering**: verify `Consume()` callback concurrency and `MaxAckPending` defaults against current nats.go docs (do not assume); set `MaxAckPending` explicitly per projector and document the ordering guarantee relied upon.
+- **Explicit retention decision**: `CreateStream` currently sets no `MaxAge`/`MaxMsgs`/`MaxBytes` — "never discard" is true only implicitly. Make it explicit: document unbounded-is-deliberate in the config (or set `DiscardPolicy` intentionally), so the config can't be copied forward with the decision invisible.
+- **Poison messages**: current behavior (ack-on-unmarshal-failure to avoid redelivery loops) is documented; consider a dead-letter subject (`{region}.dlq.{tenant}.…`) instead of silently acking.
+
+#### Checklist
+
+- [ ] Verify `Consume()` ordering / `MaxAckPending` semantics against current nats.go docs
+- [ ] `kvstore.Store`: guarded write API (sequence-aware CAS); all projector call sites migrated off naive `Put`
+- [ ] Postgres projectors: last-applied-sequence guard in upserts
+- [ ] Explicit `MaxAckPending` on all projector consumers
+- [ ] `CreateStream`: retention/discard decision made explicit in code comment + config
+- [ ] Poison-message policy: dead-letter subject or documented ack-and-log, decided and implemented
+- [ ] Ginkgo specs: out-of-order redelivery does not clobber newer KV/Postgres state; duplicate redelivery is a no-op
+- [ ] `go build ./...` + `ginkgo ./...` green
+
+### Phase 23 — Stream Split + Cross-Aggregate Consistency
+
+#### Goal
+
+Extract container events from the shared `SHIPPING` stream into a dedicated `TERMINAL` stream, turning the two aggregates into two independent bounded contexts. This is a **single-variable change** on top of Phases 8–14: the aggregates, rules, and frontends are unchanged — only the stream topology moves. Post-Phase 9 this is even cleaner than originally planned: **the subjects themselves do not change** — a subject can belong to only one stream, so the split is purely moving the `…container.>` binding from `SHIPPING` to `TERMINAL`. The purpose is to make the **invariant-spanning-two-aggregates problem** concrete and demonstrate the solution options.
+
+#### The problem this phase exposes
+
+After the split, BR-008 (container destPort vs ship's current port) and BR-012 (ship must be docked) still need **both** aggregates' state — but the container command handler can no longer get the ship's state from the same replay. `ContainerAggregate` hydrates from `TERMINAL`; the ship's docked state lives in `SHIPPING`. There is no atomic cross-stream replay.
+
+| Stream | Subject binding | Bounded context |
+|---|---|---|
+| `SHIPPING` | `evt.{tenant}.shipping.ship.>` | Ship movements |
+| `TERMINAL` | `evt.{tenant}.shipping.container.>` | Container lifecycle |
+
+#### Solution options to implement and document
+
+The demo implements **option 1** as the default and documents the trade-offs of all three:
+
+1. **Read-model guard (default)** — the container handler reads the ship's KV projection (Shape A/B) to check docked state / current port. Fast and keeps the streams independent, but validates a write against an eventually-consistent read (stale-read window — which Phase 23 measures under load).
+2. **Hydrate both streams** — the container handler additionally replays `SHIPPING` for the ship. Strongly consistent, but the container context is no longer independent and every load/unload replays two streams.
+3. **Saga / compensating event** — accept the write optimistically and emit a compensating `container.load-rejected` event if the ship turns out not to be docked. The "correct" DDD answer for separate contexts; heaviest to implement.
+
+#### Checklist
+
+- [ ] `internal/jstream/stream.go` — add the `TERMINAL` stream binding `evt.{tenant}.shipping.container.>`; `SHIPPING` keeps only `…ship.>` (subjects themselves unchanged post-Phase 12.8)
+- [ ] `domain/events.go` — route container subject builders / stream-name references to `TERMINAL`
+- [ ] `application/commands/container.go` — hydrate containers from `TERMINAL`; replace the in-replay ship check with the **read-model guard** (option 1) for BR-008 / BR-012
+- [ ] `eventhandler/` — container projector consumes from `TERMINAL`; ship projector unchanged on `SHIPPING`
+- [ ] Ginkgo specs — BR-008 / BR-012 still green via the read-model guard; add a spec documenting the stale-read window (guard sees pre-departure state)
+- [ ] Frontend (`frontend/`): JetStream panel stream selector — add `TERMINAL` entry (`streamOptions`); backend `streamJetStream` switch — add `TERMINAL` case
+- [ ] Frontend (`frontend-port/`): add SSE watch on `TERMINAL.*`
+- [ ] `ARCHITECTURE.md` — document the two-stream topology, the cross-aggregate invariant problem, and the three solution options with the chosen default
+- [ ] `go build ./...` + `ginkgo ./...` green
+
+
+### Phase 24 — Performance & Load Testing (full suite)
+
+#### Goal
+
+Validate that the *final* architecture holds under realistic throughput and identify the bottlenecks before any production consideration, building on the baseline established in **Phase 10**. Runs after the write path (Phase 21) and stream split (Phase 23) are in place, so the scenarios those phases gate can finally be measured. The POC has two known scalability gaps — first characterised in Phase 10, re-measured here against the final architecture:
+
+1. **Shape C — full replay on every call.** `ReconstructFleet` replays from `seq=1` every time. Latency grows linearly with stream depth.
+2. **Write-side hydration — full replay per command.** `hydrate()` in `commands.go` replays all events for a ship on every command. A busy ship accumulates history and slows its own writes.
+
+Both are correct implementations of event sourcing fundamentals — the point is to *measure* the degradation curve and document where snapshots or other mitigations become necessary.
+
+> The baseline harness and the Shape C / single-ship / throughput scenarios are delivered in **Phase 10** (pull-forward baseline). This phase reuses that harness, adds the scenarios gated by Phases 14 and 16, and re-measures the Phase 10 baselines against the final architecture.
+
+#### Tool
+
+**k6** (`k6.io`) — scripted load testing in JavaScript, runs outside the Go stack, produces latency percentiles and throughput metrics. Alternatively `vegeta` for simpler HTTP load.
+
+#### Test scenarios
+
+| Scenario | What it measures | Status |
+|---|---|---|
+| High-frequency arrivals/departures — single ship | Write-side hydration degradation as event count grows | baseline in Phase 10; re-measure |
+| High-frequency arrivals/departures — many ships concurrently | Throughput ceiling of the command pipeline | baseline in Phase 10; re-measure |
+| Shape C fleet reconstruction under load | Replay latency vs stream depth; degradation curve | baseline in Phase 10; re-measure |
+| KV watch fan-out — many SSE clients | How many concurrent SSE connections the backend sustains before lag | this phase |
+| Container load/unload burst — terminal throughput | Cross-stream (`SHIPPING` + `TERMINAL`) consumer lag under write pressure | needs Phase 23 |
+| Projection lag — event published → KV updated | End-to-end latency of the Shape A/B projectors under load | this phase |
+| Optimistic-concurrency contention — concurrent commands, same aggregate | Retry rate and latency cost of the Phase 21 sequence guard under contention | needs Phase 21 |
+
+#### Baseline metrics to capture
+
+- p50 / p95 / p99 command latency (arrive, depart, load container, unload container)
+- Shape C reconstruction time at 100 / 1k / 10k events in stream
+- KV watch SSE lag (time from KV write to browser event) at 1 / 10 / 100 concurrent clients
+- Max sustained commands/sec before errors or queue buildup
+
+#### Expected findings to investigate
+
+- Shape C becomes unusable beyond a few thousand events without snapshotting
+- `hydrate()` degrades for ships with long histories — snapshot checkpoint needed
+- SSE fan-out has a practical client ceiling determined by goroutine count and NATS consumer throughput
+
+#### Checklist
+
+The baseline harness, seed script, and the Shape C / single-ship / throughput scenarios are delivered in **Phase 10**. This phase completes the remaining (gated) scenarios and finalises the report:
+
+- [ ] Scenario: optimistic-concurrency contention — retry rate and latency cost of the Phase 21 sequence guard *(needs Phase 21)*
+- [ ] Scenario: cross-stream burst — fire `SHIPPING` and `TERMINAL` events concurrently, measure projection consumer lag *(needs Phase 23)*
+- [ ] Scenario: SSE fan-out — open 1 / 10 / 50 / 100 concurrent SSE clients, measure KV watch lag
+- [ ] Scenario: projection lag — event published → KV updated, measured under load
+- [ ] Re-measure the Phase 10 baseline scenarios against the final architecture (with guard + split) and record the before/after delta
+- [ ] Finalise `demos/01-dictionary/PERFORMANCE.md` — full baseline numbers, degradation curves, identified thresholds
+- [ ] Document architectural mitigations for each bottleneck (snapshot strategy, consumer parallelism, SSE load balancing)
+
+
+### Phase 25 (optional, PLACEHOLDER — not yet a formal requirement) — Per-Tenant Runtime Theme Spike
 
 #### Goal
 
@@ -1152,6 +1393,44 @@ Cross-reference sweep (same commit):
 - [x] `ARCHITECTURE.md`, `BUSINESS_RULES.md` that cite Phases 13–17
 - [x] Go source comments (`events.go`, `container.go`, `commands/container.go`) — Phase 14→16
 - [x] `.claude/memory/` notes citing phase numbers — `tenant_service_separation_decision.md` cites Phase 18, which kept its number through this renumbering; no correction needed
+
+---
+
+## Renumbering (2026-07-28 — Phase 18/20 swap)
+
+**Why:** Phase 18 (NATS Accounts Tenancy Spike) completed and Phase 20 (Accounts Service &
+Decentralized JWT Tenancy — previously tracked only in a separate approved plan file, not yet
+in this document) both needed to sit immediately after Phase 12, ahead of the not-yet-built
+Phases 13–19. Renumbering makes room: 15–19 are now free for phases to be inserted between the
+new Phase 14 (accounts service) and the resumed sequence at Phase 20, without another cascade.
+
+| Was | Now |
+|---|---|
+| Phase 18 (18a/18b) — NATS Accounts Tenancy Spike | **Phase 13** (13a/13b) |
+| Phase 20 — Accounts Service & Decentralized JWT Tenancy (was only in `rippling-jumping-peacock.md`) | **Phase 14** (14a/14b/14c) — added to this document for the first time |
+| Phase 13 — Ship Container Capacity Limit | Phase 20 |
+| Phase 14 — Write-Side Safety | Phase 21 |
+| Phase 15 — Projection Hardening | Phase 22 |
+| Phase 16 — Stream Split | Phase 23 |
+| Phase 17 — Performance & Load Testing | Phase 24 |
+| Phase 19 — Theme Spike | Phase 25 |
+
+Cross-reference sweep (same commit):
+
+- [x] Main plan internal references (Phase 12's "scope (Phase 18)"→13, Phase 20's
+      "Phase 16"→23, Phase 21's "Phase 14/16"→21/23, Phase 24's "Phase 14/16"→21/23)
+- [x] `demos/01-dictionary/BUSINESS_RULES-SHIPPING.md` — Phase 16→23, Phase 13→20
+- [x] `demos/01-dictionary/PERFORMANCE.md` (and the `obsidian/POC-Dictionaries/` copy) and
+      `demos/01-dictionary/perf/README.md` — Phase 14→21, Phase 16→23, Phase 17→24
+- [x] `ARCHITECTURE.md` — Phase 15→22, Phase 16→23, Phase 17→24, Phase 18/18b→13/13b
+- [x] `System Design - V3 Logistics Platform.md` — Phase 18→13
+- [x] `nats/nats.conf`, all Go/Vue/JS source comments citing Phase 18a/18b/16 — 13a/13b/23
+- [x] `.claude/memory/` notes — `tenant_service_separation_decision.md`, `accounts_service_plan.md`,
+      `MEMORY.md` updated to Phase 13/14
+- [x] `AppShell-Extraction-Plan.md`'s "main plan's Phase 19 placeholder" → Phase 25
+- [x] Historical/archived docs left untouched on purpose: `Dictionary-POC-Plan-ARCHIVE.md`,
+      `Dictionary-Service-Plan.md`, `.ai-archive/*` document *past* renumbering events and are
+      frozen snapshots, not live cross-references
 
 ---
 

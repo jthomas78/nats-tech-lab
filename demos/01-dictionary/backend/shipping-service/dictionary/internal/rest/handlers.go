@@ -27,8 +27,8 @@
 //	GET    /api/jetstream/watch                       SSE stream of live JetStream messages (DeliverNew)
 //	GET    /api/jetstream/stream                      SSE stream of all JetStream messages (DeliverAll)
 //	GET    /api/rpc-watch                              SSE stream of obs.rpc.* dual-transport RPC traffic (Phase 12.10)
-//	GET    /api/tenant                                 active tenant + switchable tenant list (Phase 18b)
-//	POST   /api/tenant/switch                          reconnect under a different tenant's NATS account (Phase 18b)
+//	GET    /api/tenant                                 active tenant + switchable tenant list (Phase 13b)
+//	POST   /api/tenant/switch                          reconnect under a different tenant's NATS account (Phase 13b)
 package rest
 
 import (
@@ -91,7 +91,7 @@ type refdataItemsResponse struct {
 	Items []refdataDemoResponse `json:"items"`
 }
 
-// TenantCredentials is one tenant's NATS account login (Phase 18b — static
+// TenantCredentials is one tenant's NATS account login (Phase 13b — static
 // server-config accounts, spike fixtures only; must match nats/nats.conf).
 type TenantCredentials struct {
 	User     string
@@ -101,7 +101,7 @@ type TenantCredentials struct {
 // Deps bundles everything the HTTP layer needs; keeps NewHandlers readable as
 // the module grows.
 //
-// Phase 18b splits this into two lifetimes. Ports, Refdata, DefaultJS, NC,
+// Phase 13b splits this into two lifetimes. Ports, Refdata, DefaultJS, NC,
 // ShipRepo, ContainerRepo, PortRepo, NatsURL, TenantCreds, and Log are set
 // once at Startup and never change. Ships, Containers, ShapeB, ShapeC,
 // Terminal, Meta, KVA, KVB, KVCont, KVMeta, JS, TenantNC, Projectors, and
@@ -127,8 +127,8 @@ type Deps struct {
 	NC         *nats.Conn                // permanent DEFAULT-account conn (Phase 12.10 — obs.rpc.* SSE bridge)
 	Log        *slog.Logger
 
-	// Tenant-switch plumbing (Phase 18b) — shipping-service only; refdata-service
-	// stays on DEFAULT (see Main-POC-Plan.md Phase 18b, cost #3).
+	// Tenant-switch plumbing (Phase 13b) — shipping-service only; refdata-service
+	// stays on DEFAULT (see Main-POC-Plan.md Phase 13b, cost #3).
 	Tenant        string                       // currently active tenant account name
 	TenantNC      *nats.Conn                   // the live tenant-scoped connection; drained on next switch
 	Projectors    []jetstream.ConsumeContext   // the 4 durable projector subscriptions bound to TenantNC's JS
@@ -156,7 +156,7 @@ func (h *Handlers) deps() Deps {
 	return *h.depsPtr.Load()
 }
 
-// SetDeps atomically replaces the entire dependency bundle. Phase 18b's
+// SetDeps atomically replaces the entire dependency bundle. Phase 13b's
 // SwitchTenant is the only caller — it builds a full new Deps value (tenant
 // fields rebuilt, static fields carried over unchanged) and swaps it in with
 // one atomic store, so no in-flight request ever sees a mix of old and new

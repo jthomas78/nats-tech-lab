@@ -95,7 +95,7 @@ onUnmounted(() => {
     </template>
     <template #topbar-right>
       <Tag :severity="store.connected ? 'success' : 'danger'" :value="store.connected ? 'watching' : 'disconnected'" />
-      <!-- Phase 18b tenant selector — a different NATS account, not a fleet
+      <!-- Phase 13b tenant selector — a different NATS account, not a fleet
            filter (CLAUDE.md/plan: must stay visually + functionally distinct
            from the Fleet selector below). "warning" severity is deliberate:
            this is the one control in the topbar that reconnects the backend. -->

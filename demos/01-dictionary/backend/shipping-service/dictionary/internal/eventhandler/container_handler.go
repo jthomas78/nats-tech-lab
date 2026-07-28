@@ -26,7 +26,7 @@ func RegisterContainers(
 	// See handler.go's register() for why: the Consume callback below closes
 	// over this context for the projector's entire lifetime, so it must not
 	// be tied to whatever short-lived context the caller used to register it
-	// (e.g. an HTTP request context, Phase 18b's tenant switch).
+	// (e.g. an HTTP request context, Phase 13b's tenant switch).
 	msgCtx := context.WithoutCancel(ctx)
 	cons, err := js.CreateOrUpdateConsumer(ctx, domain.StreamName, jetstream.ConsumerConfig{
 		Durable:       "container-projector",

@@ -65,7 +65,7 @@ func (c ContainerState) KVKey() string { return "container." + c.ContainerID }
 // ContainerAggregate reconstructs container state by replaying events. It is
 // the single place where the container rules (BR-008 … BR-016) are enforced.
 // Cross-aggregate rules (BR-008, BR-012, BR-014) take the ship's identity and
-// current port as parameters — until Phase 16 both aggregates hydrate from one
+// current port as parameters — until Phase 23 both aggregates hydrate from one
 // atomic replay of the SHIPPING stream, so these checks are strongly
 // consistent.
 type ContainerAggregate struct {

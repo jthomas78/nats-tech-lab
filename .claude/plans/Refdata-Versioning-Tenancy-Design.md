@@ -427,8 +427,11 @@ Migration steps (in `migrate.go`):
 ## 9. Implementation Phases
 
 > **This is Phase 12 in the main plan** ([Main-POC-Plan.md](Main-POC-Plan.md)).
-> Sub-phases 12.1–12.7 below. Previous Phase 12 (Ship Container Capacity Limit) has been
-> renumbered to Phase 13; all subsequent phases bumped by one.
+> Sub-phases 12.1–12.7 below. Previous Phase 12 (Ship Container Capacity Limit) was
+> renumbered to Phase 13, then renumbered again to **Phase 20** on 2026-07-28 when
+> Phase 18 (NATS Accounts Tenancy Spike, completed) and the new accounts-service phase
+> moved to Phase 13/14 — see Main-POC-Plan.md's "Renumbering (2026-07-28 — Phase 18/20
+> swap)" log for the full mapping.
 
 ### Phase 12.1 — Context Hierarchy
 

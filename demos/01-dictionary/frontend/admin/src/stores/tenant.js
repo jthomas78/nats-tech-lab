@@ -1,9 +1,9 @@
-// Phase 18b's tenant selector. Deliberately its own store, not folded into
+// Phase 13b's tenant selector. Deliberately its own store, not folded into
 // useDictionaryStore's fleet `context` (CONTEXTS = global/atlantic-fleet/
 // pacific-fleet, see stores/dictionary.js) — a tenant switch reconnects
 // shipping-service's NATS connection under a different account entirely, so
 // every ship/container endpoint's data changes, not just what one query
-// filters by fleet. Backend: rest/tenant.go (Main-POC-Plan.md Phase 18b).
+// filters by fleet. Backend: rest/tenant.go (Main-POC-Plan.md Phase 13b).
 import { defineStore } from 'pinia'
 
 import { getTenant, switchTenant } from '../api'

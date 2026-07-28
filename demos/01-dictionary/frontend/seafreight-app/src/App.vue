@@ -102,7 +102,7 @@ onUnmounted(() => {
     </template>
     <template #topbar-right>
       <Tag :severity="store.connected ? 'success' : 'danger'" :value="store.connected ? t('connection.watching') : t('connection.disconnected')" />
-      <!-- Phase 18b tenant selector — a different NATS account, not a fleet
+      <!-- Phase 13b tenant selector — a different NATS account, not a fleet
            filter; must stay visually + functionally distinct from Fleet below. -->
       <label class="lab-muted" for="tenant">{{ t('nav.tenant') }}</label>
       <Select
