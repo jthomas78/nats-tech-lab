@@ -183,8 +183,10 @@
       "bases:Create new base": false
     }
   },
-  "active": "c50d6372ff085bfe",
+  "active": "398f933131b9a7a9",
   "lastOpenFiles": [
+    "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ACCOUNTS.md",
+    "V3-Platform/Architecture/Dictionary-POC/images/jwt-minting-sequence.png",
     "V3-Platform/System Design - V3 Logistics Platform.md",
     "Checklist.md",
     "V3-Platform/Architecture/Dictionary-POC/images/rpc-proposed-dual-transport.png",
@@ -203,7 +205,6 @@
     "POC-Dictionaries/Summary/Diagrams/dictionary-er-diagram.png",
     "POC-Dictionaries/Summary/Diagrams/dictionary-runtime-sequence.png",
     "POC-Dictionaries/Summary/Diagrams/dictionary-system-zoom.png",
-    "POC-Dictionaries/Summary/Diagrams/dictionary-use-case.png",
     "Event sourcing/4. Design - Event Sourcing + CQRS.md",
     "POC-Dictionaries/Summary/3. POC Design and Architecture.md",
     "POC-Dictionaries/Summary/2. Requirements and Constraints.md",

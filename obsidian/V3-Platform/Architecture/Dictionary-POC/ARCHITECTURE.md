@@ -638,3 +638,292 @@ need one. The tenant credentials here are hardcoded, plaintext, spike-only fixtu
 (`composition.go`'s `tenantCredentials`, matching `nats.conf`) — real tenant onboarding
 would mint credentials, not hardcode them, and is itself a runtime-discovery question
 deferred past Phase 13b (see the plan's Phase 13b breadcrumb on `GET :8222/accountz`).
+
+**Phase 14 resolves the open questions above**: operator mode, dynamic JWT minting, and
+runtime tenant discovery — see "Decentralized JWT Multi-Tenancy" directly below.
+
+## Decentralized JWT Multi-Tenancy (Phase 14)
+
+Phase 13's isolation invariant used static `accounts{}` blocks in `nats.conf` with
+hardcoded user/password pairs — adding a tenant required editing the config and
+restarting the server. Phase 14 replaces that entire mechanism with **NATS operator
+mode** (decentralized Ed25519 JWTs, `resolver: full`), adds a new **`accounts-service`**
+for dynamic tenant provisioning at runtime, and makes tenant discovery automatic.
+
+See the [JWT minting & connection sequence](images/jwt-minting-sequence.png) diagram
+for the visual overview of everything in this section.
+
+### The JWT trust hierarchy
+
+NATS operator mode uses a three-level Ed25519 signing hierarchy. Every entity is an
+NKey keypair (public key + private seed); trust flows downward via JWT signatures:
+
+```
+Operator (lab-operator)
+├── signs ──▶ Account JWT (DEFAULT)       ← 1G/5G/20/100 JetStream limits
+├── signs ──▶ Account JWT (ACME)          ← 256M/1G/10/20
+├── signs ──▶ Account JWT (GLOBEX)        ← 256M/1G/10/20
+├── signs ──▶ Account JWT (SYS)           ← system account ($SYS.REQ.CLAIMS.*)
+└── signs ──▶ Account JWT (<runtime>)     ← minted by accounts-service
+
+Account (each)
+└── signing key signs ──▶ User JWT        ← per-service connection credential
+    └── bundled with user NKey seed ──▶ .creds file
+```
+
+The **operator signing key** (not the root operator key — a separate NKey) signs
+account JWTs. Each **account's signing key** (also a separate NKey, distinct from the
+account's own identity key) signs user JWTs. This two-key indirection at each level
+means the identity key is never exposed for signing operations — it only appears as the
+`sub` (subject) field of its own JWT.
+
+A `.creds` file is the concatenation of a user JWT + the user NKey seed, formatted by
+`jwt.FormatUserConfig`. The NATS client library reads both from this single file to
+authenticate: it presents the JWT to prove its identity chain (user → account → operator),
+and uses the NKey seed to complete the challenge-response handshake the server requires.
+
+### How bootstrap-operator.sh seeds the hierarchy (Phase 14a)
+
+`nats/bootstrap-operator.sh` is a one-shot idempotent script that uses the `nsc` CLI to
+produce the seed artifacts checked into the repo:
+
+```
+nats/
+├── operator.jwt                    ← operator JWT (public, loaded by nats.conf)
+├── resolver/
+│   ├── SYS.jwt                     ← system account JWT
+│   ├── DEFAULT.jwt                 ← account JWTs for resolver_preload
+│   ├── ACME.jwt
+│   └── GLOBEX.jwt
+├── creds/
+│   ├── default.creds               ← one .creds file per account user
+│   ├── acme.creds
+│   ├── globex.creds
+│   └── sys.creds                   ← SYS user — accounts-service's $SYS connection
+└── keys/
+    └── operator-signing-key.nk     ← operator signing key seed (secrets-managed in prod)
+```
+
+The server loads `operator.jwt` at startup and resolves account JWTs from
+`resolver_preload` (inline in `nats.conf`) and from pushed updates (the `resolver: full`
+directory at `/data/jwt`). No `accounts{}` block, no `no_auth_user`, no plaintext
+passwords — see [nats.conf](../../../../demos/01-dictionary/nats/nats.conf) for the full
+config.
+
+### How accounts-service mints accounts at runtime (Phase 14b)
+
+`accounts-service` (`backend/accounts-service/`) holds the operator signing key and a
+SYS-account NATS connection. When a new tenant is created via `POST /api/accounts`:
+
+```mermaid
+sequenceDiagram
+    participant Admin as Admin UI
+    participant AS as accounts-service
+    participant NATS as NATS Server<br>(resolver: full)
+    participant FS as Shared creds volume
+    participant SS as shipping-service
+
+    Admin->>AS: POST /api/accounts<br>{name: "newco", jsMaxMem: 256M, ...}
+
+    Note over AS: 1. Generate account NKey pair<br>(identity + signing key)
+    Note over AS: 2. Build AccountClaims<br>(pub key, signing key, JS limits)
+    Note over AS: 3. Sign with operator signing key<br>→ account JWT
+
+    AS->>NATS: $SYS.REQ.CLAIMS.UPDATE<br>(account JWT payload)
+    NATS-->>AS: OK (resolver stores JWT)
+
+    Note over AS: 4. Generate user NKey pair
+    Note over AS: 5. Build UserClaims (signed by<br>account signing key, not operator)
+    Note over AS: 6. jwt.FormatUserConfig<br>→ .creds file bytes
+
+    AS->>FS: Write newco.creds to<br>shared /etc/nats/creds/ volume
+
+    Note over AS: 7. Persist to Postgres<br>(name, pub key, signing key seed,<br>JS limits, status)
+
+    AS-->>Admin: 201 Created<br>{account: {...}, creds: "..."}
+
+    Note over SS: Next GET /api/tenant or<br>POST /api/tenant/switch<br>rescans creds directory<br>→ "newco" appears as<br>switchable tenant
+```
+
+The minting sequence in `provisioner.go` is:
+
+1. **`nkeys.CreateAccount()`** — generates the account identity keypair (public key
+   becomes the JWT's `sub`).
+2. **`nkeys.CreateAccount()`** again — generates the account's signing key (a separate
+   keypair; its public key is added to `claims.SigningKeys`).
+3. **`newAccountClaims(accountPub, signingPub, limits)`** — builds the
+   `jwt.AccountClaims` with JetStream limits (mem, disk, streams, consumers).
+4. **`claims.Encode(operatorSigningKey)`** — signs the claims with the operator signing
+   key, producing the account JWT.
+5. **`$SYS.REQ.CLAIMS.UPDATE`** — pushes the JWT to the server's resolver. No restart
+   needed — the server accepts it immediately.
+6. **`CreateUser(accountPub, accountSigningKeySeed, userName)`** — generates a user
+   keypair, builds `jwt.UserClaims` with `IssuerAccount = accountPub` (because the
+   signing key, not the account identity key, signs the user JWT), encodes it, and
+   calls `jwt.FormatUserConfig(token, userSeed)` to produce the `.creds` file.
+
+### Account suspension and reactivation
+
+```mermaid
+sequenceDiagram
+    participant Admin as Admin UI
+    participant AS as accounts-service
+    participant NATS as NATS Server
+    participant FS as Shared creds volume
+
+    rect rgb(60, 20, 20)
+        Note over Admin,FS: Suspend (POST /api/accounts/{name}/suspend)
+        Admin->>AS: POST /api/accounts/acme/suspend
+        Note over AS: Build self-signed GenericClaims<br>with accounts: ["<acme-pub-key>"]
+        AS->>NATS: $SYS.REQ.CLAIMS.DELETE<br>(signed revocation)
+        NATS-->>AS: OK
+        Note over NATS: Account marked expired<br>in-memory — new connections<br>under this account are rejected
+        AS->>FS: Remove acme.creds<br>(best-effort)
+        AS-->>Admin: 200 {status: "suspended"}
+    end
+
+    rect rgb(20, 50, 20)
+        Note over Admin,FS: Reactivate (POST /api/accounts/{name}/reactivate)
+        Admin->>AS: POST /api/accounts/acme/reactivate
+        Note over AS: Rebuild AccountClaims from<br>stored pub key + signing key + limits
+        Note over AS: Add unique tag:<br>"reactivated-{nanoseconds}"<br>(defeats Ed25519 JWT determinism)
+        AS->>NATS: $SYS.REQ.CLAIMS.UPDATE<br>(new account JWT)
+        NATS-->>AS: OK
+        Note over NATS: Account's expired flag cleared<br>(JWT differs from revoked one<br>thanks to the unique tag)
+        Note over AS: Mint fresh user + .creds
+        AS->>FS: Write acme.creds
+        AS-->>Admin: 200 {account: {...}, creds: "..."}
+    end
+```
+
+**The Ed25519 determinism trap (BR-AC04):** NATS account JWTs sign deterministically —
+no nonce, no randomness. Claims rebuilt from identical inputs (same public key, signing
+key, limits) encode to byte-identical JWTs. The server's resolver treats a
+byte-identical update as a no-op ("same claims detected") and never re-runs the
+account-refresh logic that clears the in-memory expired flag set by
+`$SYS.REQ.CLAIMS.DELETE`. The `reactivated-<nanoseconds>` tag in the claims guarantees
+the re-signed JWT always differs from whatever the account had before, forcing the
+resolver to treat it as a genuine update.
+
+**Signing-key establishment on reactivation:** Seeded pre-existing accounts
+(`default`/`acme`/`globex`) start with no signing key seed in Postgres — `nsc` generated
+their keys, not this service. When one of these accounts is reactivated for the first
+time, the handler generates a fresh signing keypair on the fly, re-signs the account
+claims with it, persists the seed, and then mints a user — rather than restoring the
+account at the resolver level and leaving it with no way to ever produce working creds.
+This closed a real incident (2026-07-28) where `acme`/`globex` were cycled through
+suspend→reactivate and came back "active" but credless — see `BUSINESS_RULES-ACCOUNTS.md`
+BR-AC04.
+
+### How services connect with JWTs
+
+Each service authenticates to NATS using a `.creds` file — the same mechanism for
+bootstrap-seeded accounts and runtime-minted ones:
+
+| Service | Creds file | Account | Purpose |
+|---|---|---|---|
+| **shipping-service** | `default.creds` | DEFAULT | Permanent connection for cross-tenant concerns (refdata `rpc.*`, `REFDATA` stream, `obs.rpc.>` observability) |
+| **shipping-service** | `<tenant>.creds` | Per-tenant | Tenant-scoped connection, reconnected on `POST /api/tenant/switch` — all JetStream/KV for that tenant's `SHIPPING` stream, projectors, and KV buckets |
+| **refdata-service** | `default.creds` | DEFAULT | Single cross-tenant connection (BR-D08) — refdata is not tenant-scoped |
+| **accounts-service** | `sys.creds` | SYS | System account — the only way to reach `$SYS.REQ.CLAIMS.UPDATE`/`DELETE` for minting/revoking accounts |
+
+The `nats.UserCredentials(credsPath)` connect option handles the JWT presentation and
+NKey challenge-response automatically — the service code never touches raw JWTs or keys
+at the connection level.
+
+**Shared creds volume:** `accounts-service` and `shipping-service` both mount
+`./nats/creds/` — accounts-service writes new `.creds` files on create, removes them on
+suspend; shipping-service reads them on tenant switch. This is the dynamic tenant
+discovery mechanism: shipping-service's `discoverTenants` (`rest/tenant.go`) scans the
+directory for `*.creds` files, excluding `default.creds` and `sys.creds`
+(case-insensitively — BR-AC06), and offers the rest as switchable tenants.
+
+### Docker Compose topology (Phase 14)
+
+The docker-compose stack added `accounts-service` and `accounts-postgres` in Phase 14b.
+See the [docker-compose network topology](images/docker-compose-network.png) diagram for
+the full picture, or `demos/01-dictionary/docker-compose.yml` for the source.
+
+Key additions:
+- **accounts-postgres** (host port 5434) — third database-per-service instance, separate
+  from shipping-service's and refdata-service's Postgres
+- **accounts-service** (host port 7202) — bridges frontend and backend networks (like
+  shipping-service and refdata-service); mounts `sys.creds` (SYS account), the operator
+  signing key, the resolver directory (read-only, for seeding), and the shared creds
+  volume (read-write, for writing new `.creds` files)
+- **admin-frontend** nginx routes `/api/platform/` to accounts-service (alongside
+  existing `/api/` to shipping-service and `/api/refdata/` to refdata-service)
+
+### Testing JWT connections locally
+
+With the docker-compose stack running (`cd demos/01-dictionary && docker compose up`),
+you can verify NATS operator-mode connections from the terminal using the `nats` CLI
+(install: `brew install nats-io/nats-tools/nats`).
+
+**Connect as a tenant account:**
+
+```bash
+# Connect as the 'acme' tenant and check account info
+nats account info --creds nats/creds/acme.creds
+
+# Publish/subscribe as acme — isolated to acme's account
+nats pub --creds nats/creds/acme.creds "test.hello" "from acme"
+nats sub --creds nats/creds/acme.creds "test.>"
+```
+
+**Verify JetStream isolation between accounts:**
+
+```bash
+# List streams visible to acme vs globex — each sees only its own
+nats stream ls --creds nats/creds/acme.creds
+nats stream ls --creds nats/creds/globex.creds
+
+# List KV buckets per account
+nats kv ls --creds nats/creds/acme.creds
+nats kv ls --creds nats/creds/globex.creds
+```
+
+**Inspect the operator and accounts (SYS account required):**
+
+```bash
+# Server info — confirms operator mode
+nats server info --creds nats/creds/sys.creds
+
+# List all connections (who's connected, under which account)
+nats server list connections --creds nats/creds/sys.creds
+
+# Account info for a specific account (from SYS)
+nats server request accountz --creds nats/creds/sys.creds
+```
+
+**Verify a .creds file connects successfully (Go test helper):**
+
+```bash
+# From demos/01-dictionary/backend/shipping-service/
+# The isolation_test.go and tenant_switch_test.go specs both exercise
+# real .creds-based connections against an embedded operator-mode server.
+ginkgo -v ./internal/natsaccounts/...
+ginkgo -v ./dictionary/...
+```
+
+**Mint a new account via the API and test it immediately:**
+
+```bash
+# Create a new tenant (returns one-time .creds content)
+curl -s -u admin:accounts-spike-pass \
+  -X POST http://localhost:7202/api/accounts \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"testco","jsMaxMem":268435456,"jsMaxFile":1073741824,"jsMaxStreams":10,"jsMaxConsumers":20}' \
+  | jq -r .creds > nats/creds/testco.creds
+
+# Connect with the newly-minted creds
+nats account info --creds nats/creds/testco.creds
+
+# Confirm it's isolated — no streams from other accounts visible
+nats stream ls --creds nats/creds/testco.creds
+
+# Switch shipping-service to the new tenant
+curl -s -X POST http://localhost:7200/api/tenant/switch \
+  -H 'Content-Type: application/json' \
+  -d '{"tenant":"testco"}'
+```

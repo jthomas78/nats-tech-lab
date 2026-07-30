@@ -7,6 +7,9 @@ package natsaccounts
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 
@@ -16,20 +19,47 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-// natsConfPath is the shipped config, relative to this package's directory
-// (Go's test runner sets the working directory there).
-const natsConfPath = "../../../../nats/nats.conf"
+// natsDir is the shipped nats/ directory, relative to this package's
+// directory (Go's test runner sets the working directory there).
+const natsDir = "../../../../nats"
 
-// newSpikeServer loads nats/nats.conf into an embedded server, overriding
-// only what would otherwise collide with a real docker-compose stack
-// running on the same machine (fixed ports, the shared /data store dir).
-// Everything relevant to isolation — accounts, users, no_auth_user,
-// per-account jetstream — comes from the file unchanged.
+// credsPath resolves one of nats/creds/*.creds, minted by
+// bootstrap-operator.sh — these are checked into the repo (spike-only,
+// never production credentials; see that script's header).
+func credsPath(name string) string {
+	return filepath.Join(natsDir, "creds", name+".creds")
+}
+
+var resolverDirRE = regexp.MustCompile(`dir:\s*"[^"]*"`)
+
+// newSpikeServer loads the shipped nats/nats.conf into an embedded server —
+// the file docker-compose actually mounts, not a reimplementation — proving
+// what's tested here is what's shipped. Two absolute paths in the checked-in
+// file are docker-only (/etc/nats/operator.jwt, /data/jwt's resolver dir),
+// so this rewrites just those two before parsing; every account, JetStream
+// limit, and resolver_preload JWT comes from the file unchanged.
 func newSpikeServer(t *testing.T) (*server.Server, func()) {
 	t.Helper()
-	opts, err := server.ProcessConfigFile(natsConfPath)
+
+	raw, err := os.ReadFile(filepath.Join(natsDir, "nats.conf"))
 	if err != nil {
-		t.Fatalf("load %s: %v", natsConfPath, err)
+		t.Fatalf("read nats.conf: %v", err)
+	}
+	operatorPath, err := filepath.Abs(filepath.Join(natsDir, "operator.jwt"))
+	if err != nil {
+		t.Fatalf("resolve operator.jwt path: %v", err)
+	}
+	rewritten := regexp.MustCompile(`operator:\s*\S+`).ReplaceAll(raw, []byte("operator: "+operatorPath))
+	rewritten = resolverDirRE.ReplaceAll(rewritten, []byte(`dir: "`+t.TempDir()+`"`))
+
+	confPath := filepath.Join(t.TempDir(), "nats.conf")
+	if err := os.WriteFile(confPath, rewritten, 0o600); err != nil {
+		t.Fatalf("write rewritten nats.conf: %v", err)
+	}
+
+	opts, err := server.ProcessConfigFile(confPath)
+	if err != nil {
+		t.Fatalf("load rewritten nats.conf: %v", err)
 	}
 	opts.Port = -1
 	opts.HTTPPort = 0
@@ -47,30 +77,35 @@ func newSpikeServer(t *testing.T) (*server.Server, func()) {
 	return srv, srv.Shutdown
 }
 
-func connectAs(t *testing.T, srv *server.Server, user, password string) *nats.Conn {
+// connectAs dials srv authenticated by the named account's .creds file
+// (e.g. "acme", "globex", "default") — empty name dials with no credentials,
+// which operator mode always rejects (Phase 14a removed no_auth_user).
+func connectAs(t *testing.T, srv *server.Server, name string) *nats.Conn {
 	t.Helper()
 	opts := []nats.Option{nats.Name("phase13a-isolation-test")}
-	if user != "" {
-		opts = append(opts, nats.UserInfo(user, password))
+	if name != "" {
+		opts = append(opts, nats.UserCredentials(credsPath(name)))
 	}
 	nc, err := nats.Connect(srv.ClientURL(), opts...)
 	if err != nil {
-		t.Fatalf("connect as %q: %v", user, err)
+		t.Fatalf("connect as %q: %v", name, err)
 	}
 	t.Cleanup(nc.Close)
 	return nc
 }
 
-// TestNoAuthUserPreservesTodaysBehavior proves the additive claim: every
-// existing service and frontend connects with zero credentials today
-// (shipping-service/cmd/main.go:74, refdata-service/cmd/main.go:125), and
-// must keep working unchanged once accounts exist.
-func TestNoAuthUserPreservesTodaysBehavior(t *testing.T) {
+// TestDefaultCredsGetFullJetStreamAccess proves the DEFAULT account (Phase
+// 14a's replacement for Phase 13a's no_auth_user) still gets everything
+// shipping-service and refdata-service need for their permanent connection
+// (shipping-service/cmd/main.go, refdata-service/cmd/main.go) — full
+// JetStream access and plain core pub/sub — just authenticated by a .creds
+// file now instead of connecting with zero credentials.
+func TestDefaultCredsGetFullJetStreamAccess(t *testing.T) {
 	g := NewWithT(t)
 	srv, shutdown := newSpikeServer(t)
 	defer shutdown()
 
-	nc := connectAs(t, srv, "", "")
+	nc := connectAs(t, srv, "default")
 	g.Expect(nc.Opts.Name).NotTo(BeEmpty())
 
 	js, err := jetstream.New(nc)
@@ -82,7 +117,7 @@ func TestNoAuthUserPreservesTodaysBehavior(t *testing.T) {
 		Name:     "DEFAULT_SANITY",
 		Subjects: []string{"spike.default.>"},
 	})
-	g.Expect(err).NotTo(HaveOccurred(), "an unauthenticated connection must still get full JetStream access via no_auth_user")
+	g.Expect(err).NotTo(HaveOccurred(), "the DEFAULT account's creds must still get full JetStream access")
 
 	received := make(chan struct{}, 1)
 	sub, err := nc.Subscribe("spike.default.ping", func(*nats.Msg) { received <- struct{}{} })
@@ -93,15 +128,61 @@ func TestNoAuthUserPreservesTodaysBehavior(t *testing.T) {
 	g.Eventually(received).Should(Receive())
 }
 
+// TestUnauthenticatedConnectionRejected proves Phase 14a's no_auth_user
+// removal actually took effect: unlike Phase 13a, a connection presenting no
+// credentials at all must now be rejected — operator mode has no anonymous
+// account.
+func TestUnauthenticatedConnectionRejected(t *testing.T) {
+	g := NewWithT(t)
+	srv, shutdown := newSpikeServer(t)
+	defer shutdown()
+
+	_, err := nats.Connect(srv.ClientURL())
+	g.Expect(err).To(HaveOccurred(), "operator mode must reject a connection with no credentials — no_auth_user no longer exists")
+}
+
 // TestWrongCredentialsRejected is a sanity check that credentials are
-// actually enforced before trusting any isolation result below.
+// actually enforced before trusting any isolation result below. Takes a
+// real, valid .creds file and flips one character in its JWT so the
+// signature no longer verifies — the seed (and so the file's syntax) stays
+// valid, isolating the assertion to "the server rejects a bad JWT signature"
+// rather than "a malformed file fails to parse locally."
 func TestWrongCredentialsRejected(t *testing.T) {
 	g := NewWithT(t)
 	srv, shutdown := newSpikeServer(t)
 	defer shutdown()
 
-	_, err := nats.Connect(srv.ClientURL(), nats.UserInfo("acme", "not-the-real-password"))
+	real, err := os.ReadFile(credsPath("acme"))
+	g.Expect(err).NotTo(HaveOccurred())
+	tampered := tamperJWTSignature(t, real)
+	tmp := filepath.Join(t.TempDir(), "bad.creds")
+	g.Expect(os.WriteFile(tmp, tampered, 0o600)).To(Succeed())
+
+	_, err = nats.Connect(srv.ClientURL(), nats.UserCredentials(tmp))
 	g.Expect(err).To(HaveOccurred())
+}
+
+// tamperJWTSignature flips one base64 character well inside a .creds file's
+// JWT signature segment (10 characters before the end — clear of the final
+// character, which for a 64-byte ed25519 signature encodes only padding
+// bits base64 decoders discard, so flipping it wouldn't actually change the
+// decoded signature). Invalidates the signature without touching the seed
+// or the file's overall structure.
+func tamperJWTSignature(t *testing.T, creds []byte) []byte {
+	t.Helper()
+	s := string(creds)
+	lineEnd := regexp.MustCompile(`(?m)^eyJ[^\n]*$`).FindStringIndex(s)
+	if lineEnd == nil {
+		t.Fatal("could not locate JWT line in creds file")
+	}
+	line := s[lineEnd[0]:lineEnd[1]]
+	pos := len(line) - 10
+	swap := byte('A')
+	if line[pos] == 'A' {
+		swap = 'B'
+	}
+	tamperedLine := line[:pos] + string(swap) + line[pos+1:]
+	return []byte(s[:lineEnd[0]] + tamperedLine + s[lineEnd[1]:])
 }
 
 // TestCoreNATSCrossAccountIsolation proves account isolation for plain
@@ -112,8 +193,8 @@ func TestCoreNATSCrossAccountIsolation(t *testing.T) {
 	srv, shutdown := newSpikeServer(t)
 	defer shutdown()
 
-	ncAcme := connectAs(t, srv, "acme", "acme-spike-pass")
-	ncGlobex := connectAs(t, srv, "globex", "globex-spike-pass")
+	ncAcme := connectAs(t, srv, "acme")
+	ncGlobex := connectAs(t, srv, "globex")
 
 	received := make(chan *nats.Msg, 1)
 	sub, err := ncAcme.Subscribe("evt.shared-subject.shipping.ship.SHIP1.arrived", func(m *nats.Msg) { received <- m })
@@ -136,8 +217,8 @@ func TestJetStreamStreamIsolation(t *testing.T) {
 	srv, shutdown := newSpikeServer(t)
 	defer shutdown()
 
-	ncAcme := connectAs(t, srv, "acme", "acme-spike-pass")
-	ncGlobex := connectAs(t, srv, "globex", "globex-spike-pass")
+	ncAcme := connectAs(t, srv, "acme")
+	ncGlobex := connectAs(t, srv, "globex")
 	jsAcme, err := jetstream.New(ncAcme)
 	g.Expect(err).NotTo(HaveOccurred())
 	jsGlobex, err := jetstream.New(ncGlobex)
@@ -184,8 +265,8 @@ func TestKVBucketIsolation(t *testing.T) {
 	srv, shutdown := newSpikeServer(t)
 	defer shutdown()
 
-	ncAcme := connectAs(t, srv, "acme", "acme-spike-pass")
-	ncGlobex := connectAs(t, srv, "globex", "globex-spike-pass")
+	ncAcme := connectAs(t, srv, "acme")
+	ncGlobex := connectAs(t, srv, "globex")
 	jsAcme, err := jetstream.New(ncAcme)
 	g.Expect(err).NotTo(HaveOccurred())
 	jsGlobex, err := jetstream.New(ncGlobex)

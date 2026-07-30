@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -19,6 +22,45 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 )
 
+// nonTenantCredsFiles are the .creds stems (checked case-insensitively —
+// see below) in the shared creds directory that are never switchable
+// tenants — DEFAULT is the permanent connection (monolith.Monolith.NC/JS),
+// SYS is accounts-service's own credential (Phase 14b), neither is a
+// ship/container tenant account.
+var nonTenantCredsFiles = map[string]bool{"default": true, "sys": true}
+
+// discoverTenants scans credsDir (the shared volume accounts-service also
+// writes into, Phase 14b) for *.creds files and returns the known-tenant map
+// SwitchTenant and getTenant used to get from a static, hardcoded map
+// (Phase 13b/14a) — this is the only way a tenant minted by accounts-service
+// after this process started becomes visible without a shipping-service
+// restart. Re-scanned on every call rather than cached: the directory is
+// small, and correctness (seeing a just-minted or just-suspended tenant
+// immediately) matters more than avoiding a handful of stat calls.
+func discoverTenants(credsDir string) (map[string]TenantCredentials, error) {
+	entries, err := os.ReadDir(credsDir)
+	if err != nil {
+		return nil, fmt.Errorf("scan creds dir %q: %w", credsDir, err)
+	}
+	out := make(map[string]TenantCredentials)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".creds") {
+			continue
+		}
+		name := strings.TrimSuffix(e.Name(), ".creds")
+		// Checked case-insensitively — defense in depth against a
+		// differently-cased "Default"/"SYS"/etc. creds file ever reaching
+		// this directory (accounts-service's own reservedAccountNames check,
+		// accounts/handler.go, is meant to prevent that account from being
+		// mintable in the first place; this is the fallback if it isn't).
+		if nonTenantCredsFiles[strings.ToLower(name)] {
+			continue
+		}
+		out[name] = TenantCredentials{CredsPath: filepath.Join(credsDir, e.Name())}
+	}
+	return out, nil
+}
+
 // SwitchTenant connects a fresh, tenant-credentialed NATS connection and
 // rebuilds every tenant-scoped resource against it — JetStream context, the
 // four KV stores, the four durable projectors, and the ship/container
@@ -30,7 +72,8 @@ import (
 // initial tenant before Mount) — there is no separate bootstrap case to keep
 // in sync.
 //
-// Per Main-POC-Plan.md Phase 13b: the four projector durables are
+// Per Main-POC-Plan.md Phase 13b (creds mechanism updated in Phase 14a): the
+// four projector durables are
 // server-side state that outlives its client (NATS docs: durables "remain
 // even when there are periods of inactivity"), so this only stops the old
 // client-side Consume() loops — it never deletes or recreates a durable, and
@@ -40,7 +83,11 @@ import (
 // from the old account can never leak into the new one.
 func (h *Handlers) SwitchTenant(ctx context.Context, tenant string) error {
 	prev := h.deps()
-	creds, ok := prev.TenantCreds[tenant]
+	known, err := discoverTenants(prev.CredsDir)
+	if err != nil {
+		return err
+	}
+	creds, ok := known[tenant]
 	if !ok {
 		return fmt.Errorf("unknown tenant %q", tenant)
 	}
@@ -58,7 +105,7 @@ func (h *Handlers) SwitchTenant(ctx context.Context, tenant string) error {
 	// "context canceled" and stuck redelivering forever.
 	ctx = context.WithoutCancel(ctx)
 
-	nc, err := nats.Connect(prev.NatsURL, nats.Name("shipping-service"), nats.UserInfo(creds.User, creds.Password))
+	nc, err := nats.Connect(prev.NatsURL, nats.Name("shipping-service"), nats.UserCredentials(creds.CredsPath))
 	if err != nil {
 		return fmt.Errorf("connect as tenant %q: %w", tenant, err)
 	}
@@ -85,7 +132,7 @@ func (h *Handlers) SwitchTenant(ctx context.Context, tenant string) error {
 	}
 
 	pub := jstream.NewPublisher(js)
-	next := prev // copy: static fields (Ports, Refdata, DefaultJS, NC, repos, NatsURL, TenantCreds, Log) carry over unchanged
+	next := prev // copy: static fields (Ports, Refdata, DefaultJS, NC, repos, NatsURL, CredsDir, Log) carry over unchanged
 	next.Ships = commands.NewShipHandler(pub, js, prev.PortRepo)
 	next.Containers = commands.NewContainerHandler(pub, js, prev.PortRepo)
 	next.ShapeB = queries.NewShapeB(kvB, prev.ShipRepo)
@@ -173,8 +220,13 @@ type tenantResponse struct {
 // @Router       /api/tenant [get]
 func (h *Handlers) getTenant(w http.ResponseWriter, r *http.Request) {
 	deps := h.deps()
-	available := make([]string, 0, len(deps.TenantCreds))
-	for t := range deps.TenantCreds {
+	known, err := discoverTenants(deps.CredsDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	available := make([]string, 0, len(known))
+	for t := range known {
 		available = append(available, t)
 	}
 	sort.Strings(available)

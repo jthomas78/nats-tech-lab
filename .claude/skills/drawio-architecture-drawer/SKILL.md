@@ -29,6 +29,7 @@ The generated images are:
 `obsidian/V3-Platform/Architecture/Dictionary-POC/images/shipping-ui-dictionary-sequence.png`
 `obsidian/V3-Platform/Architecture/Dictionary-POC/images/docker-compose-network.png`
 `obsidian/V3-Platform/Architecture/Dictionary-POC/images/rpc-proposed-dual-transport.png`
+`obsidian/V3-Platform/Architecture/Dictionary-POC/images/jwt-minting-sequence.png`
 
 The generation scripts (`demos/01-dictionary/diagrams/sync-unifi-assets.mjs`,
 `demos/01-dictionary/diagrams/export-png.sh`) remain in the repo and resolve

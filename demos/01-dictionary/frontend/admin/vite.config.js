@@ -22,6 +22,15 @@ export default defineConfig({
       allow: [fileURLToPath(new URL('../../../..', import.meta.url))],
     },
     proxy: {
+      // Phase 14c — accounts-service, ahead of the general '/api' rule so
+      // Vite's longest-prefix match picks it first. rewrite drops only the
+      // '/api/platform' segment, mirroring nginx.conf's production rule.
+      '/api/platform/accounts': {
+        target: 'http://localhost:7202',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/platform/, '/api'),
+        headers: { Authorization: 'Basic YWRtaW46YWNjb3VudHMtc3Bpa2UtcGFzcw==' },
+      },
       '/api': {
         target: 'http://localhost:7200',
         changeOrigin: true,

@@ -144,3 +144,30 @@ export function getTenant() {
 export function switchTenant(tenant) {
   return request('/api/tenant/switch', { method: 'POST', body: JSON.stringify({ tenant }) })
 }
+
+// ── Accounts (Phase 14c) ───────────────────────────────────────────────────────
+// Dynamic tenant provisioning via accounts-service, proxied at /api/platform/
+// (nginx.conf / vite.config.js inject the shared basic-auth secret — the
+// browser never handles it). Distinct from getTenant/switchTenant above:
+// those talk to shipping-service about which account it's *currently*
+// connected as; these talk to accounts-service about which accounts *exist*.
+
+export function listAccounts() {
+  return request('/api/platform/accounts')
+}
+
+export function createAccount(input) {
+  return request('/api/platform/accounts', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function getAccount(name) {
+  return request(`/api/platform/accounts/${encodeURIComponent(name)}`)
+}
+
+export function suspendAccount(name) {
+  return request(`/api/platform/accounts/${encodeURIComponent(name)}/suspend`, { method: 'POST' })
+}
+
+export function reactivateAccount(name) {
+  return request(`/api/platform/accounts/${encodeURIComponent(name)}/reactivate`, { method: 'POST' })
+}

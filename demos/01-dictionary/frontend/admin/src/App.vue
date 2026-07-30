@@ -5,6 +5,7 @@ import Toast from 'primevue/toast'
 import { useI18n } from 'vue-i18n'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
+import AccountsPanel from './components/AccountsPanel.vue'
 import JetStreamPanel from './components/JetStreamPanel.vue'
 import KvInspector from './components/KvInspector.vue'
 import OverviewPanel from './components/OverviewPanel.vue'
@@ -13,6 +14,7 @@ import RpcPanel from './components/RpcPanel.vue'
 import ShapeCPanel from './components/ShapeCPanel.vue'
 import ShapePanel from './components/ShapePanel.vue'
 import TelemetryStrip from './components/TelemetryStrip.vue'
+import IconAccounts from './components/icons/IconAccounts.vue'
 import IconKv from './components/icons/IconKv.vue'
 import IconOverview from './components/icons/IconOverview.vue'
 import IconRpc from './components/icons/IconRpc.vue'
@@ -58,6 +60,10 @@ const sections = [
     eyebrow: 'Postgres',
     items: [{ key: 'tables', label: 'Tables', icon: IconTables }],
   },
+  {
+    eyebrow: 'Platform',
+    items: [{ key: 'accounts', label: 'Accounts', icon: IconAccounts }],
+  },
 ]
 
 const SUBTITLES = {
@@ -67,6 +73,7 @@ const SUBTITLES = {
   shapes: 'three CQRS read-model shapes, side by side',
   rpc: 'rpc.* dual-transport calls · live only, no replay',
   tables: 'canonical Postgres tables by schema',
+  accounts: 'dynamic tenant provisioning · decentralized JWTs',
 }
 const subtitle = computed(() => SUBTITLES[activeView.value] ?? '')
 
@@ -186,8 +193,13 @@ onUnmounted(() => {
     </section>
 
     <!-- Postgres — canonical tables by schema -->
-    <section v-else class="group" data-testid="tables-view">
+    <section v-else-if="activeView === 'tables'" class="group" data-testid="tables-view">
       <PostgresTablesPanel />
+    </section>
+
+    <!-- Platform — dynamic tenant provisioning (Phase 14c) -->
+    <section v-else class="group" data-testid="accounts-view">
+      <AccountsPanel />
     </section>
 
     <template #footer>

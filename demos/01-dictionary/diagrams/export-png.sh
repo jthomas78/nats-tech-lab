@@ -25,6 +25,7 @@ pages=(
   "shipping-ui-dictionary-sequence:3"
   "docker-compose-network:4"
   "rpc-proposed-dual-transport:5"
+  "jwt-minting-sequence:6"
 )
 
 for page in "${pages[@]}"; do

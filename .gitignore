@@ -2,3 +2,7 @@ node_modules/
 dist/
 *.log
 .DS_Store
+
+# nsc scratch store — bootstrap-operator.sh creates and deletes this itself;
+# only ignored as a backstop if the script is interrupted mid-run.
+demos/01-dictionary/nats/.nsc-store/

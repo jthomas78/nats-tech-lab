@@ -91,18 +91,20 @@ type refdataItemsResponse struct {
 	Items []refdataDemoResponse `json:"items"`
 }
 
-// TenantCredentials is one tenant's NATS account login (Phase 13b — static
-// server-config accounts, spike fixtures only; must match nats/nats.conf).
+// TenantCredentials is one tenant's NATS account login: a path to a .creds
+// file (Phase 14a — operator mode; must match a JWT/user minted into
+// nats/creds/ by nats/bootstrap-operator.sh). Replaces Phase 13b's bare
+// user/password pair now that nats.conf has no static accounts{} block to
+// match against.
 type TenantCredentials struct {
-	User     string
-	Password string
+	CredsPath string
 }
 
 // Deps bundles everything the HTTP layer needs; keeps NewHandlers readable as
 // the module grows.
 //
 // Phase 13b splits this into two lifetimes. Ports, Refdata, DefaultJS, NC,
-// ShipRepo, ContainerRepo, PortRepo, NatsURL, TenantCreds, and Log are set
+// ShipRepo, ContainerRepo, PortRepo, NatsURL, CredsDir, and Log are set
 // once at Startup and never change. Ships, Containers, ShapeB, ShapeC,
 // Terminal, Meta, KVA, KVB, KVCont, KVMeta, JS, TenantNC, Projectors, and
 // Tenant are the tenant-scoped bundle: SwitchTenant rebuilds all of them
@@ -133,10 +135,16 @@ type Deps struct {
 	TenantNC      *nats.Conn                   // the live tenant-scoped connection; drained on next switch
 	Projectors    []jetstream.ConsumeContext   // the 4 durable projector subscriptions bound to TenantNC's JS
 	ShipRepo      domain.ShipRepository        // static: Postgres, not account-scoped
-	ContainerRepo domain.ContainerRepository   // static: Postgres, not account-scoped
-	PortRepo      domain.PortRepository        // static: Postgres, not account-scoped
-	NatsURL       string                       // static: dial target for SwitchTenant's reconnect
-	TenantCreds   map[string]TenantCredentials // static: known tenants and their creds
+	ContainerRepo domain.ContainerRepository // static: Postgres, not account-scoped
+	PortRepo      domain.PortRepository      // static: Postgres, not account-scoped
+	NatsURL       string                     // static: dial target for SwitchTenant's reconnect
+	// CredsDir replaces Phase 13b's static TenantCreds map (Phase 14b): the
+	// shared nats-creds volume accounts-service also writes into. Scanned
+	// fresh on every GET /api/tenant and every switch (see tenant.go's
+	// discoverTenants) — small directory, and it's the only way a tenant
+	// minted by accounts-service after this process started ever becomes
+	// visible without a restart.
+	CredsDir string
 }
 
 type Handlers struct {

@@ -42,6 +42,10 @@ func run(log *slog.Logger) error {
 
 	databaseURL := envOr("DATABASE_URL", "postgres://refdata:refdata@localhost:5433/refdata?sslmode=disable")
 	natsURL := envOr("NATS_URL", nats.DefaultURL)
+	// Phase 14a — operator mode: refdata-service is cross-tenant (BR-D08),
+	// so it always connects as DEFAULT, never a per-tenant account. Empty
+	// when running locally outside Docker without operator mode configured.
+	natsCredsPath := envOr("NATS_CREDS_PATH", "")
 	httpAddr := envOr("HTTP_ADDR", ":8080")
 	anthropicAPIKey := envOr("ANTHROPIC_API_KEY", "")
 
@@ -59,7 +63,7 @@ func run(log *slog.Logger) error {
 
 	var js jetstream.JetStream
 	var nc *nats.Conn
-	if err := waitForNATS(startupCtx, natsURL, func(conn *nats.Conn) error {
+	if err := waitForNATS(startupCtx, natsURL, natsCredsPath, func(conn *nats.Conn) error {
 		nc = conn
 		var err error
 		js, err = jetstream.New(nc)
@@ -120,9 +124,13 @@ func waitForPostgres(ctx context.Context, db *sql.DB) error {
 	}
 }
 
-func waitForNATS(ctx context.Context, url string, connect func(*nats.Conn) error) error {
+func waitForNATS(ctx context.Context, url, credsPath string, connect func(*nats.Conn) error) error {
+	opts := []nats.Option{nats.Name("refdata-service")}
+	if credsPath != "" {
+		opts = append(opts, nats.UserCredentials(credsPath))
+	}
 	for {
-		conn, err := nats.Connect(url, nats.Name("refdata-service"))
+		conn, err := nats.Connect(url, opts...)
 		if err == nil {
 			return connect(conn)
 		}

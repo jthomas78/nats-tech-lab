@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -33,18 +34,20 @@ import (
 )
 
 type app struct {
-	db      *sql.DB
-	js      jetstream.JetStream
-	nc      *nats.Conn
-	natsURL string
-	mux     *http.ServeMux
-	logger  *slog.Logger
+	db       *sql.DB
+	js       jetstream.JetStream
+	nc       *nats.Conn
+	natsURL  string
+	credsDir string
+	mux      *http.ServeMux
+	logger   *slog.Logger
 }
 
 func (a *app) DB() *sql.DB             { return a.db }
 func (a *app) JS() jetstream.JetStream { return a.js }
 func (a *app) NC() *nats.Conn          { return a.nc }
 func (a *app) NatsURL() string         { return a.natsURL }
+func (a *app) CredsDir() string        { return a.credsDir }
 func (a *app) Mux() *http.ServeMux     { return a.mux }
 func (a *app) Logger() *slog.Logger    { return a.logger }
 
@@ -65,15 +68,26 @@ func run(log *slog.Logger) error {
 	natsURL := envOr("NATS_URL", nats.DefaultURL)
 	databaseURL := envOr("DATABASE_URL", "postgres://dict:dict@localhost:5432/dictionary?sslmode=disable")
 	httpAddr := envOr("HTTP_ADDR", ":8080")
+	// Phase 14a — operator mode: the directory rest.Handlers.SwitchTenant
+	// scans for <tenant>.creds files. Empty when running locally outside
+	// Docker without operator mode configured (DEFAULT connect below then
+	// falls back to no credentials, matching today's local-dev behavior).
+	credsDir := envOr("NATS_CREDS_DIR", "")
 
 	startupCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	// NATS
+	// NATS — permanent DEFAULT-account connection (monolith.Monolith.NC/JS).
+	// Phase 13b's tenant-scoped connection is separate, opened by
+	// rest.Handlers.SwitchTenant.
+	defaultOpts := []nats.Option{nats.Name("shipping-service")}
+	if credsDir != "" {
+		defaultOpts = append(defaultOpts, nats.UserCredentials(filepath.Join(credsDir, "default.creds")))
+	}
 	var nc *nats.Conn
 	err := waiter.Wait(startupCtx, "nats", log, func(context.Context) error {
 		var err error
-		nc, err = nats.Connect(natsURL, nats.Name("shipping-service"))
+		nc, err = nats.Connect(natsURL, defaultOpts...)
 		return err
 	})
 	if err != nil {
@@ -95,7 +109,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	a := &app{db: db, js: js, nc: nc, natsURL: natsURL, mux: http.NewServeMux(), logger: log}
+	a := &app{db: db, js: js, nc: nc, natsURL: natsURL, credsDir: credsDir, mux: http.NewServeMux(), logger: log}
 
 	modules := []monolith.Module{dictionary.Module{}}
 	for _, m := range modules {

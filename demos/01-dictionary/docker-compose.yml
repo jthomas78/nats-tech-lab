@@ -14,6 +14,7 @@ services:
     volumes:
       - nats-data:/data
       - ./nats/nats.conf:/etc/nats/nats.conf:ro
+      - ./nats/operator.jwt:/etc/nats/operator.jwt:ro
 
   postgres:
     image: postgres:16-alpine
@@ -59,6 +60,30 @@ services:
       timeout: 2s
       retries: 15
 
+  # accounts-service's own Postgres instance (Phase 14b) — same
+  # database-per-service isolation as refdata-postgres above; stores account
+  # metadata (name, public key, JetStream limits), never NATS credentials'
+  # private seeds for the three pre-existing accounts (those are seeded
+  # read-only from nats/resolver/*.jwt at startup, see cmd/main.go).
+  accounts-postgres:
+    image: postgres:16-alpine
+    container_name: lb-accounts-postgres
+    environment:
+      POSTGRES_USER: accounts
+      POSTGRES_PASSWORD: accounts
+      POSTGRES_DB: accounts
+    ports:
+      - "5434:5432"
+    networks:
+      - backend
+    volumes:
+      - pg-accounts-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U accounts -d accounts"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
   shipping-service:
     build: ./backend/shipping-service
     container_name: lb-shipping-service
@@ -67,10 +92,16 @@ services:
       - frontend
     environment:
       NATS_URL: nats://nats:4222
+      # Phase 14a — operator mode: every tenant account is now a .creds file,
+      # not a bare user/password. NATS_CREDS_DIR is the directory
+      # rest.Handlers.SwitchTenant scans for <tenant>.creds files.
+      NATS_CREDS_DIR: /etc/nats/creds
       DATABASE_URL: postgres://dict:dict@postgres:5432/dictionary?sslmode=disable
       HTTP_ADDR: ":8080"
     ports:
       - "7200:8080"
+    volumes:
+      - ./nats/creds:/etc/nats/creds:ro
     depends_on:
       nats:
         condition: service_started
@@ -93,13 +124,57 @@ services:
       # (refdata-{context}) and the bounded REFDATA change-event stream,
       # never as this service's source of truth (Q6).
       NATS_URL: nats://nats:4222
+      # Phase 14a — refdata-service is cross-tenant (BR-D08), so it always
+      # connects as DEFAULT, never a per-tenant account.
+      NATS_CREDS_PATH: /etc/nats/creds/default.creds
       HTTP_ADDR: ":8080"
     ports:
       - "7201:8080"
+    volumes:
+      - ./nats/creds/default.creds:/etc/nats/creds/default.creds:ro
     depends_on:
       nats:
         condition: service_started
       refdata-postgres:
+        condition: service_healthy
+
+  # Phase 14b — mints/revokes NATS accounts at runtime via decentralized
+  # JWTs (accounts/provisioner.go), replacing nats/bootstrap-operator.sh's
+  # one-shot nsc invocation with a live API. Shares the `./nats/creds` host
+  # directory with shipping-service (read-write here, read-only there) —
+  # newly-minted .creds files land in the same place bootstrap-operator.sh
+  # put the original default/acme/globex.creds, so shipping-service's
+  # directory scan sees new tenants without a restart.
+  accounts-service:
+    build: ./backend/accounts-service
+    container_name: lb-accounts-service
+    networks:
+      - backend
+      - frontend
+    environment:
+      DATABASE_URL: postgres://accounts:accounts@accounts-postgres:5432/accounts?sslmode=disable
+      NATS_URL: nats://nats:4222
+      # $SYS.REQ.CLAIMS.* (mint/revoke) is only reachable authenticated as
+      # the SYS account.
+      NATS_CREDS_PATH: /etc/nats/creds/sys.creds
+      OPERATOR_SIGNING_KEY_FILE: /etc/nats/keys/operator-signing-key.nk
+      NATS_CREDS_DIR: /etc/nats/creds
+      RESOLVER_SEED_DIR: /etc/nats/resolver
+      # Spike-only shared secret (see accounts/middleware.go) — same
+      # plaintext-fixture precedent as nats/creds/*.creds; WorkOS-backed
+      # human auth is a later phase (.claude/memory/accounts_service_plan.md).
+      ACCOUNTS_AUTH_SECRET: accounts-spike-pass
+      HTTP_ADDR: ":8080"
+    ports:
+      - "7202:8080"
+    volumes:
+      - ./nats/creds:/etc/nats/creds
+      - ./nats/keys/operator-signing-key.nk:/etc/nats/keys/operator-signing-key.nk:ro
+      - ./nats/resolver:/etc/nats/resolver:ro
+    depends_on:
+      nats:
+        condition: service_started
+      accounts-postgres:
         condition: service_healthy
 
   admin-frontend:
@@ -182,6 +257,7 @@ services:
     restart: unless-stopped
     volumes:
       - nui-data:/db
+      - ./nats/creds:/etc/nats/creds:ro
 
   # Under review — a third comparison alongside nats-ui/nui. Server-side
   # app (Pocketbase/SQLite under the hood), so it needs the `backend`
@@ -219,5 +295,6 @@ volumes:
   nats-data:
   pg-data:
   pg-refdata-data:
+  pg-accounts-data:
   nui-data:
   nats-tower-data:

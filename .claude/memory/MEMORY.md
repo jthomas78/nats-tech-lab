@@ -15,7 +15,9 @@
 - [Locale switch race condition](locale_switch_race_condition.md) — overlapping fetches resolve out of order; fixed with a request-token guard
 - [Verify before resuming offloaded work](verify_before_resuming_offloaded_work.md) — check git log before trusting a resumed summary's "still open" claims
 - [Design discussion vs. implementation signal](design_discussion_vs_implementation_signal.md) — this user iterates/reverts design ideas before saying "let's plan" — don't implement early
-- [NATS Tower operator-mode tradeoff](nats_tower_operator_mode_tradeoff.md) — Tower needs JWT operator mode + resolver for real metrics; our `nats.conf` is auth-free; decision not yet made (leave as-is / isolated 2nd server / convert shared server)
-- [Tenant-service separation decision](tenant_service_separation_decision.md) — agreed: future hard-multi-tenancy tenant-service stays separate from refdata-service; only the Admin UI merges both
-- [Accounts service plan](accounts_service_plan.md) — confirmed 2026-07-28: decentralized JWTs (nsc/NKeys) for dynamic tenant provisioning, WorkOS for human auth, auth callout optional on top; see Phase 14 (renumbered from 20)
+- [NATS Tower operator-mode tradeoff](nats_tower_operator_mode_tradeoff.md) — **resolved 2026-07-28**: Phase 14a converted the shared server to operator mode; Tower can now be pointed at `nats/creds/sys.creds` through its own UI (not yet done — manual follow-up)
+- [Tenant-service separation decision](tenant_service_separation_decision.md) — agreed and **implemented 2026-07-28**: `accounts-service` is its own service/Postgres, separate from `refdata-service`; only the Admin UI merges both
+- [Accounts service plan](accounts_service_plan.md) — Phase 14 implemented 2026-07-28: dynamic tenant provisioning via decentralized JWTs; full suspend/reactivate lifecycle; no hard-delete (decided 2026-07-29); WorkOS deferred
+- [$SYS.REQ.CLAIMS reference](nats_sys_claims_subjects.md) — `$SYS.REQ.CLAIMS.*` is core NATS request-reply (not JetStream) for runtime JWT resolver management in operator mode
 - [refdata database-per-service](refdata_database_per_service.md) — refdata-service moved off shared `postgres` to its own `refdata-postgres` instance (port 5433); NATS is now the only shared infra
+- [Admin UI realtime transport options](admin_ui_realtime_transport_options.md) — **undecided**: 4th-option discussion — single browser-side NATS WebSocket vs. per-panel SSE; awaiting more user comment

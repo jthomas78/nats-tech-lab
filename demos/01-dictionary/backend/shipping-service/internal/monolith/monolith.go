@@ -28,6 +28,11 @@ type Monolith interface {
 	// NatsURL is needed by rest.Handlers.SwitchTenant (Phase 13b) to open a
 	// second, tenant-credentialed connection independent of NC() above.
 	NatsURL() string
+	// CredsDir is the directory of <tenant>.creds files (Phase 14a —
+	// operator mode) that SwitchTenant scans to resolve a tenant name to its
+	// NATS credentials. Empty when running locally outside Docker without
+	// operator mode configured.
+	CredsDir() string
 	Mux() *http.ServeMux
 	Logger() *slog.Logger
 }
