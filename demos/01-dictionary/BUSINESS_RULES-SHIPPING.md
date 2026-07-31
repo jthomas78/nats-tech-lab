@@ -22,6 +22,14 @@
 > endpoints — is REST-layer error handling, not a Ship/Container domain
 > invariant, so it's documented in `ARCHITECTURE-COMMUNICATIONS.md` § 7 and
 > BR-D28 rather than as a BR-0xx entry here.
+>
+> Phase 15 (browser NATS WebSocket transport, Main-POC-Plan.md Phase 15)
+> reverses this: shipping-service now also *serves* `rpc.*` itself
+> (`dictionary/internal/natsrpc/`), the same role refdata-service's own
+> adapter plays for its domain, plus a new `notify.*` publish family with no
+> refdata-service equivalent. BR-023/BR-024 below are shipping-service's own
+> rules for these, following the same "one rule for the transport contract,
+> not one per subject" convention BR-D25/BR-D26 established.
 
 Domain rules enforced before any event is published to JetStream. A rule
 violation returns an error to the caller; no event is written.
@@ -223,6 +231,35 @@ Re-registering an existing shipID would silently reset its state. Mirrors BR-015
 - **Enforced in:** `ShipHandler.CorrectShipID()` — resolves both the source and any target-name collision via the same authoritative-replay resolution as BR-021, then calls `ShipAggregate.CorrectShipID()`.
 - **Test:** `Domain Rules / BR-022`
 - **Known limitation (verified live):** a container's `onShipID` snapshots the ship's natural key at load time and is not updated by a later correction. Renaming a ship while it carries a container leaves that container stuck — unload fails with **both** the new name (BR-013, `onShipID` still holds the old name) **and** the old name (BR-012, `hydrateByNaturalKey`/`hydratePair` resolve a ship by its *current* name, so a stale name no longer matches any ship and looks unregistered/undocked). The only way to unblock it is to `CorrectShipID` back to the exact pre-correction name, unload, then correct forward again if still wanted. Documented, not fixed, in this pass.
+
+---
+
+### BR-023 — Every `api.*` endpoint is a second transport onto an existing REST-backed method, scoped by subject, never by request body
+
+> ⚠️ **Rule text is the Phase 16b target state; the code still uses the
+> pre-16b names.** As shipped in Phase 15a the adapter is
+> `dictionary/internal/natsrpc/` serving `rpc.*` subjects with
+> `obs.rpc.*` observability. Phase 16b renames it to
+> `dictionary/internal/browserrpc/` serving `api.*` / `obs.api.*`, because
+> every caller of these subjects is the browser, and `rpc.*` is reserved for
+> service-to-service traffic (`ARCHITECTURE-COMMUNICATIONS.md` § 2.4). The
+> *behaviour* described below is unchanged by that rename and is already
+> enforced and tested. Remove this note when 16b lands.
+
+Mirrors BR-D25 (`BUSINESS_RULES-REFDATA.md`): `dictionary/internal/browserrpc/adapter.go`'s handlers call the exact same `commands.*Handler`/`queries.*` methods `dictionary/internal/rest/handlers.go` calls, so an operation behaves identically regardless of which transport reaches it. The `{context}` token in the subject (`api.{context}.shipping.{entity}.{action}.v1`) — the company / business-unit scope, the same axis as `evt.{context}...` and KV bucket names, and **not** the NATS tenant/account nor the region — is the *only* source of truth for which context a request is scoped to. Every handler overwrites the decoded request body's own `context` field (if any) with the subject-derived value before calling into the application layer, so a client cannot spoof or bypass context scoping via the body. Tenant isolation itself is enforced entirely by the NATS account boundary a connection authenticates into (Phase 13a/13b), not by anything in this subject pattern — see `auth-service/auth/token.go`'s `MintBrowserToken` doc comment and `ARCHITECTURE-COMMUNICATIONS.md` § 2.3 for the full reasoning.
+
+This is the **frontend-to-service** family. `rpc.*` is reserved for service-to-service calls and is a separate family with its own adapter and its own permission grant: a browser credential is never granted `rpc.>`, and backend code never calls `api.>` (`ARCHITECTURE-COMMUNICATIONS.md` § 2.4). An operation may be registered on both when both caller types genuinely need it, but each registration is independent.
+
+- **Enforced in:** `dictionary/internal/browserrpc/adapter.go` — `contextFromSubject()` plus every `handle*` method
+- **Test:** `Browser RPC Adapter (Phase 15a/16b) / BR parity` (`dictionary/browserrpc_test.go`)
+
+### BR-024 — Ship, container, and meta projections fire a best-effort `notify.*` event after every KV write; ports fire one from the rpc.* adapter itself
+After the Shape A ship projector, the container projector, or the meta projector successfully writes its KV bucket, it fire-and-forget publishes `notify.{context}.shipping.{entity}.changed` (entity: `ship`/`container`/`meta`) carrying the full updated entity (or, for meta, the full known-containers array — a bare JSON array, not a `{"values": [...]}` envelope) as JSON payload — letting a browser connected directly to NATS (Phase 15d) react without KV watch or SSE. Shape B does **not** also publish: the browser doesn't distinguish shapes, so a second notify per event would be a duplicate, not new information. Ports have no event-sourced projector to hang this off (`commands.PortHandler` writes straight to Postgres and is a single instance shared by every tenant), so `natsrpc.Adapter.handlePortRegister` publishes `notify.{context}.shipping.port.changed` itself, on its own tenant connection, after a successful registration — also a bare array, matching meta's convention rather than the `{"values": [...]}` envelope `rpc.*.shipping.port.list.v1`'s request/reply uses, so a subscriber never needs to know which entity's REPLY shape to unwrap.
+
+This is plain core NATS pub/sub — deliberately **no** JetStream retention (unlike `obs.rpc.*`/RPCTRACE, BR-D29): a notification missed during a brief browser disconnect is covered by a bootstrap `rpc.*.shipping.{entity}.list.v1` call on reconnect, so no replay mechanism is needed. A publish failure is logged, never returned — `notify.*` is a best-effort reactive-UI convenience, not a correctness requirement the projector's own success depends on.
+
+- **Enforced in:** `eventhandler.publishNotify()` (called from `RegisterShapeA`/`RegisterContainers`/`RegisterMeta`), `natsrpc.Adapter.publishPortsChanged()`
+- **Test:** `notify.* publishes (Phase 15b)` (`dictionary/notify_test.go`)
 
 ---
 

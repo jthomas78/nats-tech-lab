@@ -100,7 +100,7 @@ dictionary/
 - **Hexagonal layout** throughout the Go backend: domain has no framework deps; adapters (postgres, rest, eventhandler) live in their own packages and wire in via `composition.go`.
 - **Pinia stores** in the frontend are an intentional analogue to server-side materialized views — both are projected read models derived from an event source. This parallel should be preserved in UI and docs.
 - **LimitsPolicy** (not InterestPolicy) on JetStream streams — required to support event replay.
-- **Context-scoped KV keys**: every lookup includes a tenant/region/locale prefix — no global unscoped lookups.
+- **Context-scoped KV keys**: every lookup includes a context prefix — no global unscoped lookups. `{context}` is the **company / business-unit** scope; the tenant is the **NATS account** and the region is a **separate regional deployment**, and neither ever appears in a key or subject (Phase 16a — see `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md` § 2.3).
 - The demo frontend updates reactively via KV watch → SSE (or WebSocket) → frontend panels.
 
 ## Quality Rules

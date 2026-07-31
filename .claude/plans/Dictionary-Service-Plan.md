@@ -103,8 +103,9 @@ dictionary_localizations   item → locale → label, description           -- e
 dictionary_references      from_item → relation → to_item               -- typed, e.g. country ZA →defaultCurrency→ currency ZAR
 ```
 
-- **Identity** = `{type_key}.{code}` scoped by `{context}` (same tenant/region convention as the
-  rest of the lab). **Locale is a read-time parameter**, never part of identity.
+- **Identity** = `{type_key}.{code}` scoped by `{context}` (the same company / business-unit
+  convention as the rest of the lab — not tenant, not region; see `Main-POC-Plan.md` § Phase 16).
+  **Locale is a read-time parameter**, never part of identity.
 - **Locale fallback chain** on resolution: `de-DE → de → default locale → code itself`. The read
   API resolves the chain server-side so consumers never implement fallback logic.
 - **References are typed and validated**: a relation declares its target type
@@ -270,7 +271,7 @@ heuristic this service exists to demonstrate (nothing replays a lookup value to 
 | Role | Mechanism | Verdict |
 |---|---|---|
 | **1. Cache distribution** | NATS KV (`refdata-{context}`) + KV watch — the Q5 protocol | **Yes — core of the design.** Note KV *is* a JetStream stream under the hood, so NATS streaming is already in the comms path. |
-| **2. Change-event feed** | Publish `refdata.changed` events to a small JetStream stream, e.g. subjects `{region}.refdata.{tenant}.{type}.changed` on a `REFDATA` stream, LimitsPolicy with a **bounded MaxAge** (e.g. 24–48h) | **Yes — recommended.** Gives services that don't watch KV (or that batch) a notification channel, and gives late/restarting consumers a short replayable window of *what changed* (type + new set version — a pointer, not the payload). Bounded age is the explicit signal that this is a change-feed, **not** an event store: truth is always re-fetchable from the API/KV. |
+| **2. Change-event feed** | Publish `refdata.changed` events to a small JetStream stream, e.g. subjects `evt.{context}.refdata.{type}.changed` (as implemented; the original draft here read `{region}.refdata.{tenant}.{type}.changed` — superseded, neither region nor tenant belongs in a subject, see `Main-POC-Plan.md` § Phase 16) on a `REFDATA` stream, LimitsPolicy with a **bounded MaxAge** (e.g. 24–48h) | **Yes — recommended.** Gives services that don't watch KV (or that batch) a notification channel, and gives late/restarting consumers a short replayable window of *what changed* (type + new set version — a pointer, not the payload). Bounded age is the explicit signal that this is a change-feed, **not** an event store: truth is always re-fetchable from the API/KV. |
 | **3. Request-reply lookups** | NATS `micro` (services framework in nats.go): the dictionary answers `refdata.get.{type}.{code}` request-reply, with built-in discovery/stats/ping | **Optional spike — dropped from 11.3's scope at the 2026-07-13 approval, superseded by [Main-POC-Plan.md § Phase 12.10](Main-POC-Plan.md), APPROVED 2026-07-24 (not yet implemented).** Phase 12.10 is the actual vehicle for this: a general `rpc.*` dual-transport pattern (not dictionary-specific) whose first concrete case is exactly this — shipping-service calling refdata-service's item lookup over NATS `micro` instead of REST. Not re-scoped here to avoid building it twice — see 12.10 for the live design/checklist. |
 
 What NATS should **not** do here:
@@ -361,7 +362,7 @@ implementation, and lands in `BUSINESS_RULES.md` in the same commit.
       references, not just the raw row
 - [x] Miss path: API back-fills KV — `kvcache.Projector.Backfill()`, called from the REST `getItem`
       handler as a best-effort side effect
-- [x] `REFDATA` change-event stream (Q6 role 2): `{region}.refdata.{tenant}.{type}.changed`
+- [x] `REFDATA` change-event stream (Q6 role 2): `evt.{context}.refdata.{type}.changed` (as implemented; the original draft here read `{region}.refdata.{tenant}.{type}.changed` — superseded, neither region nor tenant belongs in a subject, see `Main-POC-Plan.md` § Phase 16)
       published after commit; LimitsPolicy + explicit bounded `MaxAge` (48h); payload = pointer
       (type + new set version), never state
 - [x] Consumer protocol documented + demonstrated: `backend/internal/refdataconsumer` consumes the
@@ -564,7 +565,8 @@ layout should encode that split. Target shape:
 **Cautions:** keep it light — a `category` field + grouped nav is right; a full relational
 category entity with its own CRUD is premature and the fuzzy categories will tempt
 proliferation, so resist until a real need appears. `category` is orthogonal to `context`
-(tenant/region, e.g. `emea-acme`) — don't conflate them.
+(the company / business-unit scope — not tenant, not region; see
+`Main-POC-Plan.md` § Phase 16) — don't conflate them.
 
 ### Phase 11.8 — Dictionary UI follow-ups (locale default, tree nav, un-deprecate)
 

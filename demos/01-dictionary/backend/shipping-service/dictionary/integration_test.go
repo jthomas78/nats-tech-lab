@@ -75,7 +75,7 @@ var _ = Describe("Shape A — KV as read model", func() {
 		js := newJetStream()
 		kvA = kvstore.New(js, "dict-a")
 		log := slog.New(slog.DiscardHandler)
-		consume, err := eventhandler.RegisterShapeA(ctx, js, kvA, log)
+		consume, err := eventhandler.RegisterShapeA(ctx, js, kvA, nil, log)
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(consume.Stop)
 		ship = commands.NewShipHandler(jstream.NewPublisher(js), js, newFakePortRepo())

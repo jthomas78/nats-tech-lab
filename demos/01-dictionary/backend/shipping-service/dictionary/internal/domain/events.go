@@ -12,8 +12,11 @@ import (
 // distributed-consistency problem.
 const (
 	StreamName = "SHIPPING"
-	// Domain identifies this service in the shared evt.<tenant>.<domain>...
-	// subject taxonomy — a fixed literal, not a wildcard.
+	// Domain identifies this service in the shared
+	// evt.{context}.{service}.{entity}.{id}.{event} subject taxonomy — a fixed
+	// literal, not a wildcard. Note {context} is the company/business-unit
+	// scope, NOT the tenant (tenant = NATS account) and NOT the region
+	// (separate regional deployment) — see ARCHITECTURE-COMMUNICATIONS.md § 2.3.
 	Domain = "shipping"
 
 	// KV bucket prefixes ({prefix}-{context} outside an account boundary;

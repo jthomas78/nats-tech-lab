@@ -1,13 +1,32 @@
-// Phase 13b's tenant selector. Deliberately its own store, not folded into
-// usePortStore's fleet `context` (CONTEXTS = global/atlantic-fleet/
-// pacific-fleet, see stores/port.js) — a tenant switch reconnects
-// shipping-service's NATS connection under a different account entirely, so
-// every ship/container endpoint's data changes, not just what one query
-// filters by fleet. Backend: rest/tenant.go (Main-POC-Plan.md Phase 13b).
+// Tenant selector (Phase 13b, rebuilt on NATS WebSocket transport in Phase
+// 15d). Deliberately its own store, not folded into usePortStore's fleet
+// `context` (CONTEXTS = global/atlantic-fleet/pacific-fleet, see
+// stores/port.js) — a tenant switch re-authenticates the browser's NATS
+// WebSocket connection into a different account entirely (auth-service's
+// GET /api/auth/connectInfo, Phase 15c), so every ship/container endpoint's
+// data changes, not just what one query filters by fleet.
+//
+// Unlike the pre-Phase-15 version, there is no server-side "active tenant"
+// for the browser to read (that concept — rest/tenant.go's SwitchTenant —
+// still exists, but only governs the Admin/Dictionary REST+SSE frontends,
+// which stay out of scope for this phase). The browser picks its own
+// tenant and authenticates directly into that NATS account.
 import { defineStore } from 'pinia'
 
-import { getTenant, switchTenant } from '../api'
+import { useNatsConnection } from '../nats/useNatsConnection'
 import { usePortStore } from './port'
+
+// Mirrors shipping-service composition.go's initialTenant — the tenant a
+// fresh browser session connects to before anyone has picked one
+// explicitly, if it's available.
+const DEFAULT_TENANT = 'acme'
+
+async function fetchAvailableTenants() {
+  const res = await fetch('/api/auth/tenants')
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
+  return body.tenants ?? []
+}
 
 export const useTenantStore = defineStore('tenant', {
   state: () => ({
@@ -17,22 +36,31 @@ export const useTenantStore = defineStore('tenant', {
   }),
 
   actions: {
-    async refresh() {
-      const res = await getTenant()
-      this.tenant = res?.tenant ?? null
-      this.available = res?.available ?? []
+    async loadAvailable() {
+      this.available = await fetchAvailableTenants()
+    },
+
+    // init() authenticates the browser's NATS connection for the first
+    // time this session — call once, before usePortStore().connect().
+    async init() {
+      await this.loadAvailable()
+      const initial = this.available.includes(DEFAULT_TENANT) ? DEFAULT_TENANT : this.available[0]
+      if (!initial) throw new Error('no tenants available')
+      await useNatsConnection().connect(initial)
+      this.tenant = initial
     },
 
     async setTenant(tenant) {
       if (tenant === this.tenant || this.switching) return
       this.switching = true
       try {
-        await switchTenant(tenant)
-        await this.refresh()
+        await useNatsConnection().switchTenant(tenant)
+        this.tenant = tenant
         // The active tenant is a different NATS account with its own
-        // SHIPPING stream and KV buckets — both SSE watches reconnect
-        // against it, exactly as a fleet-context switch does.
-        usePortStore().connect()
+        // SHIPPING stream and KV buckets — the port store's rpc.*/notify.*
+        // subscriptions reconnect against it, exactly as a fleet-context
+        // switch does.
+        await usePortStore().connect()
       } finally {
         this.switching = false
       }

@@ -174,7 +174,7 @@ stream subject filter with an unbounded wildcard in the first position can
 textually overlap "$SYS.>"/"$JS.API.>", and JetStream refuses to create such
 a stream without NoAck (which would break synchronous Publish/PubAck). The
 second token ("shipping") identifies the service in a shared
-evt.<tenant>.<domain>.<entity>.<entity-id>.<event> taxonomy — refdata-service
+evt.{context}.{service}.{entity}.{entity-id}.{event} taxonomy — refdata-service
 publishes under evt.{context}.refdata.{typeKey}.changed on its own REFDATA
 stream.
 
@@ -182,6 +182,34 @@ KV buckets: dict-a-{context}, dict-b-{context}, container-{context}, meta-{conte
 Key format: {entityType}.{id}   — NATS KV keys only allow [-/_=.a-zA-Z0-9]; ':' is illegal
 Value: JSON-encoded ShipState / ContainerState / metadata
 ```
+
+### Subject families and `{context}` (Phase 16a)
+
+Full rules:
+`obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md`
+§ 2. Summary:
+
+- **Core** — `evt.*` (event sourcing), `rpc.*` (service-to-service),
+  `api.*` (frontend-to-service), `notify.*` (service-side change
+  notification, replaces SSE). **Supportive** — `obs.rpc.*`/`obs.api.*`
+  (debugging side-channel; never on a business path). `cmd.*` is reserved
+  and unused.
+- **`{context}` is the company / business-unit scope. It is NOT the tenant
+  and NOT the region.** Tenancy is enforced strictly by the **NATS account**
+  boundary (hard, server-enforced, resource-limited); region is a separate
+  regional stack/NATS deployment. Neither ever appears in a subject token.
+  Never reintroduce a tenant name into `{context}` — that is the
+  pre-Phase-13 model Phase 13 deliberately replaced.
+- A business unit is **hyphenated into the one token** (`acme`,
+  `acme-northdiv`), never dot-separated — every subject family has fixed
+  arity and parsers read `{context}` by position. Treat the value as opaque;
+  don't split on `-`.
+- Context values starting with `_` are **reserved for platform use**
+  (`_platform`); `accounts-service` rejects `_`-prefixed company names.
+- `auth-service` and `accounts-service` subjects carry **no `{context}`**
+  (they administer the tenant axis itself). `refdata-service` does carry it.
+- A browser credential is never granted `rpc.>`; backend code never calls
+  `api.>`.
 
 ### Backend package layout
 
@@ -206,7 +234,7 @@ dictionary/
 - **Hexagonal layout** throughout the Go backend: domain has no framework deps; adapters (postgres, rest, eventhandler) live in their own packages and wire in via `composition.go`.
 - **Pinia stores** in the frontend are an intentional analogue to server-side materialized views — both are projected read models derived from an event source. This parallel should be preserved in UI and docs.
 - **LimitsPolicy** (not InterestPolicy) on JetStream streams — required to support event replay.
-- **Context-scoped KV keys**: every lookup includes a tenant/region/locale prefix — no global unscoped lookups.
+- **Context-scoped KV keys**: every lookup includes a context prefix — no global unscoped lookups. `{context}` is the **company / business-unit** scope; the tenant is the **NATS account** and the region is a **separate regional deployment**, and neither ever appears in a key or subject (Phase 16a — see "Subject families and `{context}`" above).
 - The demo frontend updates reactively via KV watch → SSE (or WebSocket) → frontend panels.
 - **Every `nats.Connect` call must set `nats.Name(...)`** with the service name (e.g. `"shipping-service"`, `"refdata-service"`) — anonymous connections are indistinguishable in `nats server list connections` / `/connz` when debugging a running stack. This is testable: assert `nc.Opts.Name != ""` (or equals the expected name) on the returned `*nats.Conn` in any test that calls `nats.Connect` directly.
 - **Event sourcing vs plain CRUD — the deciding question is "does anything need to replay this," not "does it change."** Event-source an entity when its *history* is itself a domain concern: something needs to reconstruct state from the log (Shape C), enforce rules against a point-in-time replay (Ship/Container cross-aggregate checks), or audit a sequence of transitions. Use plain Postgres CRUD when only *current state* matters and nothing ever reconstructs it from history — typically reference/master data with no state machine (lookup tables, config, enums). Don't let "is it reference data" be the whole test, though: some reference-looking data secretly needs history (a rate table where "what was in effect on date X" matters), and some lifecycle-looking entities are simple enough for plain CRUD if nothing ever replays them. See `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md` § "Event Sourcing vs Plain CRUD" for the worked example (Ship/Container vs the ports registry).

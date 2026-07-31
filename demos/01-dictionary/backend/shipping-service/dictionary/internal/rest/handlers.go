@@ -106,11 +106,16 @@ type TenantCredentials struct {
 // Phase 13b splits this into two lifetimes. Ports, Refdata, DefaultJS, NC,
 // ShipRepo, ContainerRepo, PortRepo, NatsURL, CredsDir, and Log are set
 // once at Startup and never change. Ships, Containers, ShapeB, ShapeC,
-// Terminal, Meta, KVA, KVB, KVCont, KVMeta, JS, TenantNC, Projectors, and
-// Tenant are the tenant-scoped bundle: SwitchTenant rebuilds all of them
-// together against a freshly connected NATS account and replaces the whole
-// struct atomically via Handlers.SetDeps, so no request ever observes a
-// half-swapped mix of old and new tenant resources.
+// Terminal, Meta, KVA, KVB, KVCont, KVMeta, JS, TenantNC, and Tenant mirror
+// whichever tenant is currently REST/SSE's active selection — SwitchTenant
+// points all of them at that tenant's persistent bundle (TenantResources,
+// Phase 15, see tenant.go's tenantResources doc comment) and replaces the
+// whole struct atomically via Handlers.SetDeps, so no request ever observes
+// a half-swapped mix of old and new tenant resources. Unlike before Phase
+// 15, switching away from a tenant no longer stops or discards anything —
+// every tenant's own bundle in TenantResources keeps running so its
+// rpc.*/notify.* traffic keeps working regardless of which tenant these
+// mirror fields currently point at.
 type Deps struct {
 	Ships      *commands.ShipHandler
 	Containers *commands.ContainerHandler
@@ -131,13 +136,21 @@ type Deps struct {
 
 	// Tenant-switch plumbing (Phase 13b) — shipping-service only; refdata-service
 	// stays on DEFAULT (see Main-POC-Plan.md Phase 13b, cost #3).
-	Tenant        string                       // currently active tenant account name
-	TenantNC      *nats.Conn                   // the live tenant-scoped connection; drained on next switch
-	Projectors    []jetstream.ConsumeContext   // the 4 durable projector subscriptions bound to TenantNC's JS
-	ShipRepo      domain.ShipRepository        // static: Postgres, not account-scoped
-	ContainerRepo domain.ContainerRepository // static: Postgres, not account-scoped
-	PortRepo      domain.PortRepository      // static: Postgres, not account-scoped
-	NatsURL       string                     // static: dial target for SwitchTenant's reconnect
+	Tenant   string     // currently active tenant account name (which TenantResources entry REST/SSE fields below mirror)
+	TenantNC *nats.Conn // the active tenant's connection — mirrors TenantResources[Tenant].nc, never drained (Phase 15, see tenant.go's tenantResources doc comment)
+	// TenantResources holds every tenant's persistent connection, JetStream
+	// context, KV stores, command/query handlers, durable projectors, and
+	// natsrpc.Adapter (Phase 15a) — keyed by tenant name, created once via
+	// tenant.go's ensureTenantResources and never torn down. SwitchTenant
+	// only changes which entry the Ships/Containers/ShapeB/.../JS/TenantNC
+	// fields above mirror; every other tenant's bundle keeps running so its
+	// browser-facing rpc.*/notify.* traffic keeps working regardless of
+	// which single tenant REST/SSE currently has active.
+	TenantResources map[string]*tenantResources
+	ShipRepo        domain.ShipRepository      // static: Postgres, not account-scoped
+	ContainerRepo   domain.ContainerRepository // static: Postgres, not account-scoped
+	PortRepo        domain.PortRepository      // static: Postgres, not account-scoped
+	NatsURL         string                     // static: dial target for SwitchTenant's reconnect
 	// CredsDir replaces Phase 13b's static TenantCreds map (Phase 14b): the
 	// shared nats-creds volume accounts-service also writes into. Scanned
 	// fresh on every GET /api/tenant and every switch (see tenant.go's

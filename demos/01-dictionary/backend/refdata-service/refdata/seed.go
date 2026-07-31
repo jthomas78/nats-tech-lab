@@ -297,6 +297,7 @@ var l10nSeed = []seedItem{
 	{"action.cancel", "Cancel", "Cancelar", "Kanselleer"},
 	{"action.add", "Add", "Añadir", "Voeg by"},
 	{"toast.portAddFailed", "Could not add port", "No se pudo añadir el puerto", "Kon nie hawe byvoeg nie"},
+	{"toast.connectFailed", "Connection failed", "Fallo de conexión", "Verbinding het misluk"},
 	{"fleet.title", "Fleet", "Flota", "Vloot"},
 	{"status.label", "Status", "Estado", "Status"},
 	{"a11y.registerShip", "Register a new ship", "Registrar un buque nuevo", "Registreer 'n nuwe skip"},

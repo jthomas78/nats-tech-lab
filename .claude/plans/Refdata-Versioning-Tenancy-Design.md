@@ -31,28 +31,73 @@ The refdata service currently serves reference data scoped by a single hardcoded
 
 ### 2.1 Data Model
 
-A **context** represents a node in the inheritance tree. The root is a base template with no
-parent; tenants are leaf (or intermediate) nodes.
+> **Amended Phase 16a (2026-07-31).** This section originally used `global` as
+> the root, treated **region** as an intermediate node, and called leaf nodes
+> "tenants". All three were superseded when the tenancy/subject taxonomy was
+> formalized — see `.claude/plans/Main-POC-Plan.md` § Phase 16 and
+> `ARCHITECTURE-COMMUNICATIONS.md` § 2.3. The corrected model is below; the
+> **inheritance mechanics in § 2.2–2.4 are unchanged**, including
+> arbitrary-depth resolution.
+
+A **context** represents a node in the inheritance tree, identifying a
+**company, or a business unit within a company**. The root is a reserved
+platform template with no parent.
+
+A context is **not** a tenant and **not** a region:
+
+- **Tenant** = the NATS account. That is the only tenancy boundary, and it
+  never appears in a context value.
+- **Region** = a separate stack deployment with its own NATS instance.
+  Region is therefore *never* a context node — a regional deployment implies
+  its region.
 
 ```
 refdata.contexts
-  context       TEXT PK        -- e.g. "global", "emea", "emea-acme"
+  context       TEXT PK        -- e.g. "_platform", "acme", "acme-northdiv"
   parent        TEXT FK → contexts(context)  -- NULL for root
+  tenant        TEXT           -- NEW (Phase 16d): owning tenant / NATS account
+                               -- name; NULL for "_"-reserved platform contexts
   name          TEXT NOT NULL
   description   TEXT NOT NULL DEFAULT ''
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 ```
 
+Naming rules (enforced): a context value must match `^[A-Za-z0-9_-]+$` (it is
+also a KV bucket-name component); a business unit is **hyphenated into the same
+token** rather than added as a new one, since every subject family has fixed
+arity; and `_`-prefixed values are reserved for platform use, with
+`accounts-service` rejecting `_`-prefixed company names.
+
 Example hierarchy:
 
 ```
-global                      (base template — standards, shared enums)
-├── emea                    (regional override — EU-specific regulatory data)
-│   ├── emea-acme           (tenant — Acme's overrides + additions)
-│   └── emea-globex         (tenant — Globex's overrides + additions)
-└── apac                    (regional override)
-    └── apac-orient         (tenant)
+_platform                     (reserved platform template — standards, shared enums)
+├── acme                    (company — Acme's overrides + additions)
+│   ├── acme-northdiv       (business unit — overrides within Acme)
+│   └── acme-southdiv       (business unit)
+└── globex                  (company)
+    └── globex-freight      (business unit)
 ```
+
+#### `tenant` link — governance metadata, not a security boundary
+
+The `tenant` column records which tenant owns a context, enabling ownership
+queries and scoping (e.g. "list the contexts belonging to `acme`", validated
+against the existing `Ancestors`/`Descendants` subtree helpers).
+
+It is **not** an access-control mechanism, and must not be documented or relied
+on as one. refdata-service runs on a **single shared NATS account** (its
+`default.creds` connection), so NATS supplies it with no caller identity — a
+caller simply asserts which context it wants, and refdata has nothing
+server-verified to check that assertion against.
+
+**Open item:** making the `tenant` link enforceable requires solving caller
+identity on a shared account. Candidates, none yet chosen:
+1. A signed claim/token presented with each call and verified by refdata.
+2. Moving refdata-service to per-tenant NATS accounts (conflicts with its
+   platform/cross-cutting service role, and would fragment `_platform`).
+3. Accepting it as metadata only — defensible while reference data remains
+   non-sensitive and shared by design, which is the current position.
 
 ### 2.2 Inheritance Resolution
 
@@ -419,6 +464,9 @@ Migration steps (in `migrate.go`):
 2. Create `refdata.corpus_versions` table.
 3. Create `refdata.corpus_items`, `corpus_localizations`, `corpus_references` tables.
 4. Insert a default `contexts` row for the existing `emea-acme` context (no parent — root).
+   **Superseded by Phase 16d** (see § 2.1 amendment): the root becomes the reserved
+   `_platform`, `emea-acme` is replaced by a region-free company context (`acme`), and a
+   `tenant` column is added. `emea-acme` remains the value actually seeded today.
 5. Optionally: snapshot current working-table state as corpus version 1 (published) so
    existing data is immediately available through the versioned API.
 

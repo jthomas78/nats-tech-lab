@@ -11,8 +11,18 @@ vs plain CRUD, KV bucket layout) see [ARCHITECTURE.md](ARCHITECTURE.md) §
 
 `backend/refdata-service/refdata/seed.go` runs once at service startup
 (`Startup` → `Seed`, `composition.go`), idempotently registering a
-demo-sized subset of standard reference data under the tenant/region context
-`emea-acme` (`DefaultContext`, matching the shipping backend's convention).
+demo-sized subset of standard reference data under the context `emea-acme`
+(`DefaultContext`).
+
+> **Phase 16 deviation (pending 16d).** `emea-acme` predates the Phase 16
+> formalization of `{context}` and is now non-conforming on two counts: it
+> encodes a **region** (`emea`), which is a deployment concern that must not
+> appear in a subject token, and it reads as a tenant name (`acme`), whereas
+> tenancy is enforced strictly by NATS account and never by this token. The
+> conforming value is a company / company-business-unit token (e.g. `acme`,
+> `acme-northdiv`). See
+> [ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) § 2.3 for
+> the rule and `.claude/plans/Main-POC-Plan.md` Phase 16 for the migration.
 
 Seeded types, each a `DictionaryType` (`type_key`, `name`, `description`):
 
@@ -92,8 +102,11 @@ business/reference-data queries. The standards-vs-domain-enum distinction is
 more informational, but still worth surfacing — e.g. a steward should not
 invent `ship-status` codes the shipping backend will never emit.
 
-`category` is orthogonal to `context` (tenant/region, e.g. `emea-acme`): context
-scopes *which data set*, category classifies *what kind of type* it is.
+`category` is orthogonal to `context` (the company / business-unit scope —
+**not** the tenant, which is the NATS account, and **not** the region, which is
+a deployment concern; see
+[ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) § 2.3):
+context scopes *which data set*, category classifies *what kind of type* it is.
 
 ## Shipping UI Dictionary Map
 

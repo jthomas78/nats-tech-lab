@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"log/slog"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
@@ -18,7 +19,17 @@ import (
 // directly into the context-scoped KV bucket, which IS the read model.
 // On each event the projector reads the current KV state, applies the event
 // delta via ShipAggregate, and writes the new ShipState back.
-func RegisterShapeA(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, log *slog.Logger) (jetstream.ConsumeContext, error) {
+//
+// nc is optional (nil-safe, Phase 15b): when set, a fire-and-forget
+// notify.{context}.shipping.ship.changed event carrying the full new
+// ShipState is published after every successful KV write, letting a browser
+// connected directly to this tenant's NATS account (Main-POC-Plan.md
+// Phase 15d) react without KV watch or SSE. Only Shape A publishes this —
+// Shape B projects the same events into its own cache but the browser
+// doesn't distinguish shapes, so a second notify per event would be a
+// duplicate, not new information. See notify_test.go for the payload
+// contract this relies on.
+func RegisterShapeA(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, nc *nats.Conn, log *slog.Logger) (jetstream.ConsumeContext, error) {
 	return register(ctx, js, "ship-shape-a", log, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
 		oldKey := shipKVKey(subject, event)
 		agg := currentAgg(msgCtx, kv, event.Context, oldKey)
@@ -33,8 +44,11 @@ func RegisterShapeA(ctx context.Context, js jetstream.JetStream, kv *kvstore.Sto
 				return err
 			}
 		}
-		_, err = kv.Put(msgCtx, event.Context, newKey, data)
-		return err
+		if _, err := kv.Put(msgCtx, event.Context, newKey, data); err != nil {
+			return err
+		}
+		publishNotify(nc, log, event.Context, "ship", data)
+		return nil
 	})
 }
 
@@ -143,4 +157,28 @@ func register(
 		}
 		_ = msg.Ack()
 	})
+}
+
+// publishNotify fire-and-forget publishes a notify.{kvContext}.shipping.
+// {entity}.changed event (Phase 15b) carrying payload (the full projected
+// entity, already-marshaled JSON) — plain core NATS pub/sub, no JetStream
+// retention: a missed notification during a brief browser disconnect is
+// covered by the bootstrap rpc.*.shipping.{entity}.list.v1 call on
+// reconnect (Main-POC-Plan.md Phase 15d), so no replay mechanism is needed
+// here, unlike obs.rpc.*/RPCTRACE (BR-D29).
+//
+// nc is nil-safe: every Register* caller in this package already passes nil
+// in contexts where no tenant connection is relevant (e.g. some tests), and
+// this must not fail or panic in that case — same nil-safe-Deps convention
+// used throughout this repo. A publish error is logged, never returned:
+// notify.* is a best-effort convenience for reactive UIs, not a correctness
+// requirement the projector's own success depends on.
+func publishNotify(nc *nats.Conn, log *slog.Logger, kvContext, entity string, payload []byte) {
+	if nc == nil {
+		return
+	}
+	subject := "notify." + kvContext + ".shipping." + entity + ".changed"
+	if err := nc.Publish(subject, payload); err != nil && log != nil {
+		log.Warn("notify publish failed", "subject", subject, "err", err)
+	}
 }

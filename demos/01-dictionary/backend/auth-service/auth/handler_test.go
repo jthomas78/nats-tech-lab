@@ -1,0 +1,125 @@
+package auth_test
+
+import (
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+
+	"github.com/nats-io/nkeys"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/auth-service/auth"
+)
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(GinkgoWriter, nil))
+}
+
+// signingSeedFor generates a fresh, valid account signing key seed — tests
+// need a real one so MintBrowserToken (called by connectInfo) can encode a
+// JWT with it, unlike the plain-string fixtures store_test.go uses for rows
+// that are never actually signed with.
+func signingSeedFor() string {
+	kp, err := nkeys.CreateAccount()
+	Expect(err).NotTo(HaveOccurred())
+	seed, err := kp.Seed()
+	Expect(err).NotTo(HaveOccurred())
+	return string(seed)
+}
+
+var _ = Describe("Handlers", func() {
+	var handlers *auth.Handlers
+	var mux *http.ServeMux
+
+	BeforeEach(func() {
+		if testUnavailable != "" {
+			Skip("docker unavailable for Postgres integration test: " + testUnavailable)
+		}
+		reader := auth.NewAccountReader(testDB)
+		handlers = auth.NewHandlers(reader, "ws://localhost:9222", discardLogger())
+		mux = http.NewServeMux()
+		handlers.Mount(mux)
+	})
+
+	Describe("GET /api/auth/connectInfo", func() {
+		It("mints connect info for an active tenant with a signing key on record", func() {
+			name := uniqueName("acme")
+			Expect(seedAccount(name, "A"+name, signingSeedFor(), "active")).To(Succeed())
+
+			req := httptest.NewRequest(http.MethodGet, "/api/auth/connectInfo?tenant="+name, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			Expect(rec.Code).To(Equal(http.StatusOK))
+			var info auth.ConnectInfo
+			Expect(json.Unmarshal(rec.Body.Bytes(), &info)).To(Succeed())
+			Expect(info.Tenant).To(Equal(name))
+			Expect(info.WSUrl).To(Equal("ws://localhost:9222"))
+			Expect(info.JWT).NotTo(BeEmpty())
+			Expect(info.NKeySeed).NotTo(BeEmpty())
+		})
+
+		It("returns 400 when tenant is missing", func() {
+			req := httptest.NewRequest(http.MethodGet, "/api/auth/connectInfo", nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			Expect(rec.Code).To(Equal(http.StatusBadRequest))
+		})
+
+		It("returns 404 for an unknown tenant", func() {
+			req := httptest.NewRequest(http.MethodGet, "/api/auth/connectInfo?tenant="+uniqueName("ghost"), nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			Expect(rec.Code).To(Equal(http.StatusNotFound))
+		})
+
+		It("returns 403 for a suspended tenant", func() {
+			name := uniqueName("suspended")
+			Expect(seedAccount(name, "A"+name, signingSeedFor(), "suspended")).To(Succeed())
+
+			req := httptest.NewRequest(http.MethodGet, "/api/auth/connectInfo?tenant="+name, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			Expect(rec.Code).To(Equal(http.StatusForbidden))
+		})
+
+		It("returns 409 for an active tenant with no signing key on record", func() {
+			name := uniqueName("nokey")
+			Expect(seedAccount(name, "A"+name, "", "active")).To(Succeed())
+
+			req := httptest.NewRequest(http.MethodGet, "/api/auth/connectInfo?tenant="+name, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			Expect(rec.Code).To(Equal(http.StatusConflict))
+		})
+	})
+
+	Describe("GET /api/auth/tenants", func() {
+		It("lists active tenant names", func() {
+			name := uniqueName("visible")
+			Expect(seedAccount(name, "A"+name, signingSeedFor(), "active")).To(Succeed())
+
+			req := httptest.NewRequest(http.MethodGet, "/api/auth/tenants", nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			Expect(rec.Code).To(Equal(http.StatusOK))
+			var body struct {
+				Tenants []string `json:"tenants"`
+			}
+			Expect(json.Unmarshal(rec.Body.Bytes(), &body)).To(Succeed())
+			Expect(body.Tenants).To(ContainElement(name))
+		})
+	})
+
+	Describe("POST /api/auth/login", func() {
+		It("returns 501 Not Implemented", func() {
+			req := httptest.NewRequest(http.MethodPost, "/api/auth/login", nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			Expect(rec.Code).To(Equal(http.StatusNotImplemented))
+		})
+	})
+})

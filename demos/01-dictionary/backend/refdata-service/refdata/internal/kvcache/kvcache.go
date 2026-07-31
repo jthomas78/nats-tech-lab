@@ -25,8 +25,11 @@ import (
 // pointers (Q6 role 2) — never the source of truth.
 const ChangeStreamName = "REFDATA"
 
-// Domain identifies this service in the shared evt.<tenant>.<domain>...
-// subject taxonomy — a fixed literal, not a wildcard.
+// Domain identifies this service in the shared
+// evt.{context}.{service}.{entity}.{id}.{event} subject taxonomy — a fixed
+// literal, not a wildcard. Note {context} is the company/business-unit scope,
+// NOT the tenant (tenant = NATS account) and NOT the region (separate regional
+// deployment) — see ARCHITECTURE-COMMUNICATIONS.md § 2.3.
 const Domain = "refdata"
 
 // ChangeSubjectWildcard is the stream's subject filter, any context/type.

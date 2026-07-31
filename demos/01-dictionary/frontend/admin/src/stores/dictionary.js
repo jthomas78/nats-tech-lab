@@ -5,8 +5,11 @@ import { defineStore } from 'pinia'
 
 import { getPorts, watchUrl } from '../api'
 
-// Fleet contexts scope the KV buckets, same as tenant/region in the dictionary
-// domain. Each context maps to dict-a-{context} and dict-b-{context} buckets.
+// Contexts scope the KV buckets: each maps to dict-a-{context} and
+// dict-b-{context}. A context is the company / business-unit scope — NOT the
+// tenant (that's the NATS account) and NOT the region (a separate regional
+// deployment); see ARCHITECTURE-COMMUNICATIONS.md § 2.3. The values below are
+// fleet-named because a fleet is this demo's business-unit instance.
 export const CONTEXTS = ['global', 'atlantic-fleet', 'pacific-fleet']
 
 export const useDictionaryStore = defineStore('dictionary', {

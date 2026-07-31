@@ -14,6 +14,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@nats-io/nats-core": "^3.4.0",
     "@primevue/themes": "^4",
     "pinia": "^3",
     "primeicons": "^7",

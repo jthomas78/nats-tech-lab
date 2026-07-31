@@ -76,7 +76,7 @@ nats-tech-lab/
 Dictionary/reference data (UI dropdowns, enums, locale config, tenant config, CQRS read-model lookup data) needs to be:
 
 - Derived from an event source
-- Returned based on application context (tenant, region, locale)
+- Returned based on application context (company/business unit; locale resolved at read time — see § Phase 16: tenant and region are separate axes, not part of `{context}`)
 - Available with low latency
 
 ### Two Shapes to Compare Side-by-Side
@@ -103,7 +103,7 @@ Borrow from Fizmath Plaza: jstream wrapper, waiter, monolith composition, hexago
 
 - Stream retention: `LimitsPolicy` (not `InterestPolicy`) — required for event replay
 - Add NATS KV store usage (Fizmath has none)
-- Context-aware key design (tenant/region/locale in key prefix)
+- Context-aware key design (context in key prefix; see § Phase 16 — context is company/business-unit, not tenant or region)
 - No gRPC-Gateway needed for this demo — plain HTTP REST is fine
 
 **Domain structure:**
@@ -198,7 +198,7 @@ or checklist detail for a specific completed phase).
 - [x] Phase 8 — Two-Aggregate Domain + Terminal + Port Frontend (single stream) — Container aggregate, BR-008–BR-016, `frontend-port`
 - [x] Phase 8.2 — Ship Management Split View, Fleet Panel, Yard Split, BR-016
 - [x] Phase 8.3 — Surrogate Key (UUID) for Container
-- [x] Phase 9 — Subject Taxonomy + Doc Realignment (`{region}.events.{tenant}.{aggregate}.{id}.{event}`)
+- [x] Phase 9 — Subject Taxonomy + Doc Realignment (as-built at the time: `{region}.events.{tenant}.{aggregate}.{id}.{event}` — since superseded twice, first by `evt.{context}.…` and then by § Phase 16, which removed tenant and region from subjects entirely)
 - [x] Phase 9.5 — Ports Reference Table (BR-017, BR-018)
 - [x] Phase 9.6 — Postgres Tables Admin Panel (Reference Data → Ports)
 - [x] Phase 10 — Performance Baseline (pull-forward, pre-Phase 11/15) — k6 harness, Shape C/hydration/throughput baselines
@@ -232,6 +232,187 @@ or checklist detail for a specific completed phase).
       in the admin UI. See [accounts_service_plan.md](../memory/accounts_service_plan.md) and
       [BUSINESS_RULES-ACCOUNTS.md](../../demos/01-dictionary/BUSINESS_RULES-ACCOUNTS.md) (BR-AC01–06)
       for the full lifecycle including later-added reactivation and the no-hard-delete decision.
+
+---
+
+### Phase 15 (15a/15b/15c/15d) — Browser NATS WebSocket Transport
+
+#### Goal
+
+The Admin UI's ~5 long-lived SSE connections per tab exhaust Chrome's 6-connection-per-origin
+HTTP/1.1 limit — a second tab to the same origin hangs indefinitely. Rather than work around the
+limit (HTTP/2, `visibilitychange`, `BroadcastChannel`), make the browser a first-class NATS
+client: one WebSocket connection (`ws://localhost:9222`, already exposed for `nats-ui`) replaces
+all SSE streams and REST calls for the **Sea Freight Flow** ("public") frontend. Admin/Dictionary
+("internal") frontends and cross-account imports (DEFAULT-account streams like RPCTRACE/REFDATA)
+are explicitly out of scope for this phase.
+
+Browser interaction model: `rpc.{ctx}.shipping.{entity}.{action}.v1` (request/reply, replaces
+REST) and `notify.{ctx}.shipping.{entity}.changed` (pub/sub with the full projected entity as
+payload, replaces SSE/KV-watch). See
+[admin_ui_realtime_transport_options.md](../memory/admin_ui_realtime_transport_options.md) for the
+design discussion that led here.
+
+#### Sub-phases
+
+- **15a — shipping-service natsrpc server**: new `dictionary/internal/natsrpc/` adapter (mirrors
+  refdata-service's `natsrpc/adapter.go` — Micro/Services framework, obs.rpc.* observability)
+  exposing ship/container/port commands plus new list queries (`ship.list.v1`,
+  `container.list.v1`, `meta.known-containers.v1`) as `rpc.*` subjects. Registered per-tenant
+  connection, kept alive independently of the single-active-tenant REST `SwitchTenant` pattern.
+  **Known gap (accepted):** unlike refdata-service's adapter (always on the DEFAULT account), this
+  adapter's obs.rpc.* events publish onto whichever TENANT account is active — isolated from the
+  DEFAULT-only Admin UI RPC panel. Publishing anyway so a future cross-account-imports phase makes
+  it visible with no code change; see the adapter's "KNOWN GAP" doc comment.
+- **15b — notify.\* publishes**: the four event-handler projectors
+  (`dictionary/internal/eventhandler/`) fire-and-forget publish the full projected entity to
+  `notify.{context}.shipping.{entity}.changed` after each KV write. Plain core NATS pub/sub, no
+  JetStream retention — a missed notification is covered by the bootstrap RPC call on reconnect.
+- **15c — auth-service**: new standalone Go service (modeled on accounts-service) that mints
+  short-lived (5 min TTL), permission-restricted browser user JWTs (`GET
+  /api/auth/connectInfo?tenant=X`) plus a tenant list for the browser (`GET /api/auth/tenants`).
+  Reads account signing keys from accounts-postgres (read-only). `POST /api/auth/login` is a 501
+  placeholder for the future WorkOS flow (BR-UA01).
+- **15d — Sea Freight Flow migration**: `nats.ws` client, new `shared/nats/useNatsConnection.js`
+  singleton composable, `api.js`/`stores/port.js`/`stores/tenant.js` rewritten to use
+  `rpc.*`/`notify.*` instead of REST/SSE. Refdata's shared composables
+  (`useRefdataLabels`/`useL10nCopy`) are unchanged — they stay on REST + SSE.
+
+Full implementation plan: see `.claude/plans/ancient-sauteeing-hartmanis.md` (this session's plan
+file) for file-level detail, or its contents once folded into this document on completion.
+
+---
+
+### Phase 16 (16a/16b/16c/16d) — Subject Taxonomy & Tenancy Formalization
+
+#### Goal
+
+Phase 15 introduced `notify.*` and put the browser on `rpc.*` without updating the taxonomy
+docs, which exposed a deeper inconsistency: `{context}` was documented as "tenant/region scope"
+(refdata-service, `ARCHITECTURE-COMMUNICATIONS.md` § 2, `emea-acme`) but implemented as a
+tenant-agnostic fleet qualifier in shipping-service, where Phase 13 had made the **NATS account**
+the real tenant boundary. Two services had quietly diverged on what the same token means, and no
+commit reconciled them. Phase 16 settles the model, documents it once, and migrates the code to
+match.
+
+#### Decision record (2026-07-31)
+
+1. **Tenancy is enforced strictly and only by NATS accounts.** Follows NATS's own guidance:
+   an account is an isolated tenant with its own subject space and an absolute boundary; accounts
+   additionally carry independent resource limits (connections, JetStream storage, streams,
+   consumers) that a naming convention cannot express. Subject-prefix/permission separation inside
+   one shared account is the pattern NATS documents as *legacy* and weaker, and is not used for
+   tenancy here. Already proven by `natsaccounts/isolation_test.go` and
+   `accounts/provisioner_test.go`.
+2. **`{context}` has no relation to tenant.** It is the **company / business-unit** scope — a soft
+   partition inside one tenant's own subject space, for addressing and routing, never a security
+   boundary. Context vocabulary is per-tenant, not shared.
+3. **Region is a deployment axis**, handled by separate regional stacks each with their own NATS
+   instance. It never appears in a context value or subject token. Full hierarchy:
+   `region → tenant (NATS account) → company/group → business unit ({context})`.
+4. **Business units are hyphenated into the single `{context}` token** (`acme`, `acme-northdiv`),
+   never dot-separated: every subject family has **fixed arity** and parsers read `{context}` by
+   position (`domain.SubjectDetails` rejects anything but exactly 6 tokens), so a variable-arity
+   context would make token 3 ambiguous between "business unit" and a shifted `{service}`.
+   Accepted trade-off: NATS wildcards match whole tokens, so `evt.acme-*.>` is invalid — there is
+   no subject-level "all business units of company X"; that grouping is answered by the KV/Postgres
+   lookup instead. The value is **opaque** — never split on `-` to recover the parts.
+5. **`_`-prefixed context values are reserved for platform use** (`_platform`), enforced by
+   `accounts-service` rejecting `_`-prefixed company names. Sigils like `$` are unusable: a context
+   is also a KV bucket-name component and must match `^[A-Za-z0-9_-]+$`.
+6. **No hard isolation between business units** in one tenant account — the separation is
+   organizational, enforced in the application layer. Two business units that must be mutually
+   opaque have to be modelled as **separate tenants** (separate accounts); `{context}` cannot
+   provide it.
+7. **Five subject families, two groups.** *Core:* `evt.*` (event sourcing), `rpc.*`
+   (service-to-service), `api.*` (frontend-to-service — **new**), `notify.*` (service-side change
+   notification, replaces SSE). *Supportive:* `obs.rpc.*` / `obs.api.*` (debugging side-channel,
+   deliberately off the business subjects so a slow/absent watcher can never add latency or
+   backpressure to a real call). `cmd.*` stays reserved and unused.
+8. **`rpc.*` / `api.*` separation rule.** An operation may be registered on both when a backend
+   *and* a browser genuinely need it, but each registration is independent (own adapter, own
+   permission grant). **A browser credential is never granted `rpc.>`; backend code never calls
+   `api.>`.** This closes a latent gap: browser JWTs currently grant `rpc.>`, so any future
+   backend-only `rpc.*` endpoint added inside a tenant account would have been browser-reachable
+   by accident.
+9. **`auth-service` and `accounts-service` carry no `{context}`** — they administer the tenant
+   axis itself, so scoping them by company is incoherent (creating the account is what brings the
+   company into existence). Not a blanket platform-service exemption: `refdata-service` is equally
+   a platform service but its *data* is company-scoped, so it keeps `{context}`.
+10. **refdata inheritance keeps arbitrary depth** as already implemented
+    (`context_repository.go`'s recursive ancestor CTE) — not restricted to a fixed number of hops.
+    Resolution stays **server-side**: a caller asks for one context and receives a resolved answer,
+    mirroring `domain.ResolveLabel`'s existing locale-fallback chain. Clients never walk the chain
+    or issue N calls. `rpc._platform.refdata.*` exists for stewards/tooling to read or administer the
+    global corpus directly, **not** as a fallback path ordinary callers invoke.
+11. **A "company group" may sit between tenant and company.** One tenant account can host more
+    than one company (the `company or company group` level of the hierarchy). This is what makes a
+    company qualifier inside `{context}` meaningful rather than a redundant echo of the account
+    name — for a single-company tenant it is a harmless degenerate case.
+12. **Both services use the fully-qualified context form** (`acme-atlantic-fleet`), not each
+    service's locally-minimal form. Rationale for the choice: `refdata-service` runs on a single
+    shared account and so has **no account boundary** to tell whose corpus a request concerns — the
+    company qualifier must be in the value. `shipping-service` does have that boundary and could
+    use the bare `atlantic-fleet`, but then the same logical scope would carry two different
+    canonical names depending on which service you asked, re-creating the divergence this phase
+    exists to eliminate (and forcing a composition rule at every crossing point). One vocabulary
+    everywhere was chosen over locally-minimal names: the cost is a redundant prefix inside
+    shipping's own account and a value migration (16e); the benefit is that a context value means
+    exactly one thing everywhere and crosses service boundaries unchanged.
+    - Consequence: shipping's company-wide context (formerly `global`) becomes just `acme`, so its
+      tree mirrors refdata's exactly (`_platform → acme → acme-atlantic-fleet`). Deliberately *not*
+      `acme-global`, which reads oddly for "all of Acme" — and which would also sit confusingly
+      close to the reserved root.
+    - The reserved root is `_platform`, **not** `_global`: shipping already has a user-space context
+      historically called `global`, and while the `_` prefix makes the two formally unambiguous, the
+      visual proximity in logs and subjects was judged not worth it. `_platform` also matches the
+      platform-services tier this corpus belongs to.
+13. **A context may be linked to a tenant** (new optional `tenant` column on `refdata.contexts`).
+    **Governance/ownership metadata and query scoping only — explicitly not a security boundary**:
+    refdata-service runs on a single shared NATS account and so has no server-supplied caller
+    identity to enforce it against. Making it enforceable is an open item (see
+    `Refdata-Versioning-Tenancy-Design.md` § 2.1).
+
+#### Sub-phases
+
+- **16a — documentation formalization (docs only, no code).** `ARCHITECTURE-COMMUNICATIONS.md`
+  § 1–2 rewritten (five families, Core/Supportive, full `{context}` rules, `rpc.*`/`api.*`
+  separation rule); `ARCHITECTURE-DICTIONARY.md` context definition corrected;
+  `CLAUDE.md`'s taxonomy block corrected (it described the token as `<tenant>`);
+  `BUSINESS_RULES-SHIPPING.md` BR-023 and `BUSINESS_RULES-REFDATA.md` amended;
+  `Refdata-Versioning-Tenancy-Design.md` § 2.1 reconciled (root `global` → `_platform`, region
+  removed as a node, `tenant` column added); `Multi-Region-Plan.md` § 0 added with the
+  region/tenancy answers and the Mirror-vs-gateway recommendation.
+- **16b — `api.*` migration.** `shipping-service`'s `dictionary/internal/natsrpc/` →
+  `dictionary/internal/browserrpc/`; `rpc.*` → `api.*`, `obs.rpc.*` → `obs.api.*`;
+  `auth-service`'s `MintBrowserToken` grants `api.>`/`notify.>` and **drops `rpc.>`**;
+  frontend subject builders updated; tests renamed/retargeted. Mechanical — no behaviour change.
+  A fresh `internal/natsrpc/` gets created only if/when shipping-service genuinely needs a
+  backend-to-backend endpoint (none exists today); no empty placeholder package is left behind.
+- **16c — reserved-name enforcement.** `accounts-service` rejects `_`-prefixed account/company
+  names at provisioning time, with a business rule and test, so decision 5 is enforced rather than
+  conventional.
+- **16d — refdata context tree.** Introduce the `_platform` reserved root, per-company/business-unit
+  contexts beneath it, and the `tenant` column (decision 11). Retire `emea-acme`. **Also seed data
+  that actually demonstrates inheritance:** refdata currently seeds exactly one context, registered
+  as root with no parent (`seed.go:39`), so the entire hierarchy implementation — recursive ancestor
+  CTE, override/addition/inherited semantics, BR-V06/V07/V08, corpus flattening — is built and
+  unit-tested but invisible in the running demo. Seed `_platform` with the `standards`-category
+  types plus at least one child override so BR-V07 is observable. Needs its own business rules.
+- **16e — shipping context value migration.** Adopt the fully-qualified form (decision 12):
+  `global` → `acme`, `atlantic-fleet` → `acme-atlantic-fleet`, per tenant. Two consequences that
+  make this more than a rename: context seeding becomes **tenant-aware** (`migrate.go:90` currently
+  seeds the same three literals into every tenant), and **KV bucket names change**
+  (`kvstore/kv.go:41` builds `{prefix}-{context}`, so `dict-a-atlantic-fleet` →
+  `dict-a-acme-atlantic-fleet`). Old buckets are not renamed by anything, so this **requires
+  `docker compose down -v`** or an explicit migration — a stale environment reads empty buckets
+  rather than erroring, which is a silent failure mode. Note `events.go`'s comment claiming buckets
+  are "just `{prefix}` inside an account boundary" was never implemented; the suffix is always present.
+- **16f — dynamic context list.** Backend endpoint/subject to list the calling tenant's contexts;
+  frontend `CONTEXTS` (currently a hardcoded literal array in `stores/port.js`) derived from it;
+  `refdataconsumer` passes the real context instead of the hardcoded `emea-acme` it uses today
+  (`consumer.go:19-20` — "demo-scoped to that context"). First time the frontend does not know its
+  contexts synchronously, so it needs a genuine loading/error path.
 
 ---
 
@@ -307,7 +488,7 @@ Make projections safe under redelivery and reordering **by engineering, not by a
 - **Postgres projection**: same guard — persist the last-applied stream sequence per row and skip older events in the upsert (`WHERE excluded.seq > current.seq` style).
 - **Consumer ordering**: verify `Consume()` callback concurrency and `MaxAckPending` defaults against current nats.go docs (do not assume); set `MaxAckPending` explicitly per projector and document the ordering guarantee relied upon.
 - **Explicit retention decision**: `CreateStream` currently sets no `MaxAge`/`MaxMsgs`/`MaxBytes` — "never discard" is true only implicitly. Make it explicit: document unbounded-is-deliberate in the config (or set `DiscardPolicy` intentionally), so the config can't be copied forward with the decision invisible.
-- **Poison messages**: current behavior (ack-on-unmarshal-failure to avoid redelivery loops) is documented; consider a dead-letter subject (`{region}.dlq.{tenant}.…`) instead of silently acking.
+- **Poison messages**: current behavior (ack-on-unmarshal-failure to avoid redelivery loops) is documented; consider a dead-letter subject instead of silently acking — shaped per the § Phase 16 taxonomy (a fixed literal family token first, `{context}` for company/business unit; **not** `{region}`/`{tenant}`, neither of which belongs in a subject).
 
 #### Checklist
 
@@ -332,8 +513,8 @@ After the split, BR-008 (container destPort vs ship's current port) and BR-012 (
 
 | Stream | Subject binding | Bounded context |
 |---|---|---|
-| `SHIPPING` | `evt.{tenant}.shipping.ship.>` | Ship movements |
-| `TERMINAL` | `evt.{tenant}.shipping.container.>` | Container lifecycle |
+| `SHIPPING` | `evt.{context}.shipping.ship.>` | Ship movements |
+| `TERMINAL` | `evt.{context}.shipping.container.>` | Container lifecycle |
 
 #### Solution options to implement and document
 
@@ -345,13 +526,13 @@ The demo implements **option 1** as the default and documents the trade-offs of 
 
 #### Checklist
 
-- [ ] `internal/jstream/stream.go` — add the `TERMINAL` stream binding `evt.{tenant}.shipping.container.>`; `SHIPPING` keeps only `…ship.>` (subjects themselves unchanged post-Phase 12.8)
+- [ ] `internal/jstream/stream.go` — add the `TERMINAL` stream binding `evt.{context}.shipping.container.>`; `SHIPPING` keeps only `…ship.>` (subjects themselves unchanged post-Phase 12.8)
 - [ ] `domain/events.go` — route container subject builders / stream-name references to `TERMINAL`
 - [ ] `application/commands/container.go` — hydrate containers from `TERMINAL`; replace the in-replay ship check with the **read-model guard** (option 1) for BR-008 / BR-012
 - [ ] `eventhandler/` — container projector consumes from `TERMINAL`; ship projector unchanged on `SHIPPING`
 - [ ] Ginkgo specs — BR-008 / BR-012 still green via the read-model guard; add a spec documenting the stale-read window (guard sees pre-departure state)
 - [ ] Frontend (`frontend/`): JetStream panel stream selector — add `TERMINAL` entry (`streamOptions`); backend `streamJetStream` switch — add `TERMINAL` case
-- [ ] Frontend (`frontend-port/`): add SSE watch on `TERMINAL.*`
+- [ ] Frontend (`frontend/seafreight-app/`): extend the existing `notify.*` NATS WebSocket subscriptions to cover the new `TERMINAL` stream's container events (this app no longer uses SSE — Phase 15d; the directory was also renamed from `frontend-port/`)
 - [ ] `ARCHITECTURE.md` — document the two-stream topology, the cross-aggregate invariant problem, and the three solution options with the chosen default
 - [ ] `go build ./...` + `ginkgo ./...` green
 
@@ -518,7 +699,12 @@ Cross-reference sweep (same commit):
 
 - JetStream is the source of truth: commands hydrate aggregates by replaying the stream, and Postgres (Shape B) and KV (Shapes A/B) are downstream projections populated only by event consumers — never written directly by the command path. (Superseded earlier assumption that Postgres was the source of truth for Shape B.)
 - NATS KV is appropriate for low-latency lookup and watch-based invalidation
-- Context key (tenant/region/locale) is always present in the KV key — no global/unscoped lookups
+- A context key is always present in the KV key — no global/unscoped lookups. **Amended Phase 16a:**
+  `{context}` is the **company / business-unit** scope only. Tenant is the **NATS account** (never in
+  the key or subject) and region is a **separate regional deployment** (also never in the key or
+  subject); the earlier "tenant/region/locale" phrasing conflated three separate axes. Locale
+  remains a distinct dimension resolved inside refdata-service. See § Phase 16 and
+  `ARCHITECTURE-COMMUNICATIONS.md` § 2.3.
 - Eventual consistency is acceptable for dictionary reads
 - No approval workflow, audit trail, or versioning needed for this POC
 - Demo data is seeded via the command API (no seed scripts needed)

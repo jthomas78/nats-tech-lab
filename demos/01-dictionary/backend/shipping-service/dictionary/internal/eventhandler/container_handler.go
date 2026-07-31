@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
@@ -16,10 +17,16 @@ import (
 // container-{context} KV bucket (the read model served by the terminal
 // queries). One durable consumer, positioned independently of the ship
 // projectors.
+//
+// nc is optional (nil-safe, Phase 15b) — see RegisterShapeA's doc comment;
+// after every successful KV write this fire-and-forget publishes
+// notify.{context}.shipping.container.changed carrying the full persisted
+// ContainerState.
 func RegisterContainers(
 	ctx context.Context,
 	js jetstream.JetStream,
 	kv *kvstore.Store,
+	nc *nats.Conn,
 	repo domain.ContainerRepository,
 	log *slog.Logger,
 ) (jetstream.ConsumeContext, error) {
@@ -72,6 +79,7 @@ func RegisterContainers(
 			_ = msg.Nak()
 			return
 		}
+		publishNotify(nc, log, event.Context, "container", data)
 		_ = msg.Ack()
 	})
 }

@@ -201,7 +201,7 @@ ship with its manifest (`ShipWithManifest`) plus every reconstructed container.
 - **Postgres `ships` + `containers` tables** (`postgres/`) — canonical projections; upserted via `INSERT … ON CONFLICT DO UPDATE` (containers conflict on the surrogate key `(context, id)`; `container_id` is `UNIQUE`)
 - **Postgres `ports` table** (`postgres/port_repository.go`) — plain reference data, not a projection: no JetStream event ever writes it. Written directly by `POST /api/ports`; read by `ShipHandler`/`ContainerHandler` (BR-017/BR-018), `GET /api/ports/{context}` (names, for dropdowns), and `GET /api/admin/ports/{context}` (raw rows — name + `createdAt` — for the admin Postgres Tables panel, below). See "Event Sourcing vs Plain CRUD" below.
 - **`ShipState` / `ContainerState` structs** (`domain/`) — shared projected value types stored in both KV and Postgres
-- **Pinia stores** (frontends) — client-side materialized views fed by `kvstore.Watch()` → SSE (`rest/sse.go`); the same projection-from-event-stream pattern one layer further out. The Port Management frontend even performs the manifest join (`onShipID == shipID`) client-side over its projected containers.
+- **Pinia stores** (frontends) — client-side materialized views; the same projection-from-event-stream pattern one layer further out. Fed by `kvstore.Watch()` → SSE (`rest/sse.go`) in `frontend/admin` and `frontend/refdata`, and by `notify.*` over a NATS WebSocket in `frontend/seafreight-app` since Phase 15d. The Port Management frontend also performs the manifest join (`onShipID == shipID`) client-side over its projected containers.
 
 ---
 
@@ -297,12 +297,22 @@ Sourcing vs Plain CRUD" above.
 
 There are two frontends, each with its own Pinia store — both are browser-side equivalents of server-side projections: materialized views that stay current by receiving pushed events rather than polling.
 
-| Frontend | Store | SSE channels |
+| Frontend | Store | Live-update transport |
 |---|---|---|
-| `frontend/admin/` (admin, :7100) | `stores/dictionary.js` | `/api/watch/{context}` (Shape A + B ship buckets) |
-| `frontend/seafreight-app/` (Port Management, :7101) | `stores/port.js` | `/api/watch/{context}` (ships) + `/api/watch-terminal/{context}` (containers + `meta.*`) |
+| `frontend/admin/` (admin, :7100) | `stores/dictionary.js` | SSE — `/api/watch/{context}` (Shape A + B ship buckets) |
+| `frontend/seafreight-app/` (Port Management, :7101) | `stores/port.js` | **NATS WebSocket** (Phase 15d) — `notify.{context}.shipping.{ship,container,meta,port}.changed`, bootstrapped by `api.*` list calls. **No SSE.** |
 
-The sections below describe the admin store; the port store follows the same pattern with two `EventSource` connections and client-side joins (`dockedShips`, `yardContainers`, `manifestFor`).
+> **Updated Phase 15d.** Sea Freight Flow no longer uses `EventSource` at all —
+> it holds one NATS WebSocket connection and subscribes to `notify.*` (see
+> [ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) § 2.1). This
+> replaced the ~5 SSE streams per tab that were exhausting the browser's
+> 6-connection-per-origin HTTP/1.1 limit. `frontend/admin` and
+> `frontend/refdata` remain on SSE.
+
+The sections below describe **the admin store**, which is still SSE-based. The
+port store no longer follows this pattern for transport — only for the
+client-side joins (`dockedShips`, `yardContainers`, `manifestFor`), which are
+unchanged.
 
 #### Connection lifecycle
 
@@ -349,7 +359,16 @@ applyWatchEvent(event) {
 
 #### EventSource vs WebSocket
 
-`EventSource` (SSE) is used here rather than WebSocket because the data flow is one-directional: the server pushes, the browser only reads. Commands (Arrive, Depart, Load, Unload) travel back to the server as separate `fetch` POST requests — they do not need the watch channel.
+> **Revised Phase 15d.** The reasoning below still explains why the **admin**
+> store uses SSE, but the conclusion no longer holds platform-wide: Sea Freight
+> Flow now uses a **NATS WebSocket** for both directions (`api.*`
+> request/reply for commands, `notify.*` subscriptions for pushes). The
+> deciding factor turned out not to be directionality but the browser's
+> **6-connections-per-origin HTTP/1.1 limit** — ~5 SSE streams per tab meant a
+> second tab hung indefinitely. One multiplexed WebSocket removes the ceiling
+> entirely. See `ARCHITECTURE-COMMUNICATIONS.md` § 2.1.
+
+For the admin store, `EventSource` (SSE) is used rather than WebSocket because that data flow is one-directional: the server pushes, the browser only reads. Its commands travel back as separate `fetch` POST requests — they do not need the watch channel.
 
 | | EventSource (SSE) | WebSocket |
 |---|---|---|
@@ -357,7 +376,8 @@ applyWatchEvent(event) {
 | Protocol | Plain HTTP | `ws://` upgrade |
 | Proxy/firewall support | Works without config | Requires explicit support |
 | Auto-reconnect | Built in | Must implement manually |
-| Used for | KV watch stream | Not used in this demo |
+| Used for | KV watch stream → `frontend/admin`, `frontend/refdata` | **NATS WebSocket → `frontend/seafreight-app`** (`api.*` + `notify.*`, Phase 15d) |
+| Connections per tab | One per watch channel — ~5 for Sea Freight Flow, which hit the browser's 6-per-origin HTTP/1.1 ceiling | One, multiplexing every subject — no ceiling |
 
 #### Context scoping
 
@@ -498,15 +518,29 @@ widget correctly reporting `Postgres version == KV version, in sync` after a liv
 
 ## Multi-Tenancy Isolation Spike (Phase 13)
 
-Everywhere above, tenancy is a **string convention**: one unauthenticated `nats.Connect`
-per service, tenant scoping enforced only by the `{context}` token the application
-happens to put into subjects (`evt.{context}.shipping...`) and KV bucket names
-(`{prefix}-{context}`). Nothing stops a bug — or a compromised process — from reading
-or writing another tenant's data; the isolation is a naming convention the application
-chooses to honor, not something the transport enforces. Phase 13 was a two-step spike
+> **Outcome (Phase 13/14b, terminology settled Phase 16).** The spike concluded
+> in favour of **hard isolation: one NATS account per tenant**, now implemented
+> (13a static accounts, 13b broad, 14b runtime provisioning via
+> `accounts-service`) and proven by `natsaccounts/isolation_test.go` and
+> `accounts/provisioner_test.go`. Consequently `{context}` is **no longer a
+> tenancy mechanism at all** — it is the company/business-unit scope, and the
+> tenant name never appears in a subject or KV bucket name. See DD-04a in
+> `System Design - V3 Logistics Platform.md` and
+> [ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) § 2.3. The
+> description below is the *pre-Phase-13 starting position* the spike set out
+> to fix, retained for context.
+
+Before Phase 13, tenancy was a **string convention**: one unauthenticated
+`nats.Connect` per service, tenant scoping enforced only by the `{context}`
+token the application happened to put into subjects (`evt.{context}.shipping...`)
+and KV bucket names (`{prefix}-{context}`). Nothing stopped a bug — or a
+compromised process — from reading or writing another tenant's data; the
+isolation was a naming convention the application chose to honor, not something
+the transport enforced. Phase 13 was a two-step spike
 (13a narrow, 13b broad — `.claude/plans/Main-POC-Plan.md`) measuring whether NATS
-**accounts** are worth the cost of closing that gap, as a decision input before the real
-platform commits to either soft or hard isolation (System Design doc, DD-04, Section 12.B).
+**accounts** are worth the cost of closing that gap. That decision has since been taken:
+the platform adopts **hard isolation** (System Design doc, DD-04a) — accounts, not subject
+prefixes, are the tenant boundary.
 
 ### The invariant, demonstrated not assumed
 
@@ -543,18 +577,24 @@ Demonstrated twice, at two different layers:
 The decisive structural fact: **JetStream assets are per-account.** Two accounts means
 two independent `SHIPPING` streams and two independent sets of KV buckets, mutually
 invisible — not one stream with tenant-wildcarded subjects filtered by account. That
-collapses the taxonomy this POC built for soft isolation:
+collapses the taxonomy this POC originally built for soft isolation:
 
-| | Shared account (today) | Account per tenant |
+> **Account per tenant is the chosen and implemented model** (Phase 13/14b) —
+> the right-hand column is "today", not a hypothetical. Note the sense in which
+> `{context}` becomes redundant below: redundant **as a tenancy mechanism**, not
+> redundant outright. It remains the company / business-unit partition
+> (`ARCHITECTURE-COMMUNICATIONS.md` § 2.3), which is why the token survives.
+
+| | Shared account (pre-Phase 13) | Account per tenant (**current**) |
 |---|---|---|
-| Event subject | `evt.{context}.shipping.ship.{id}.{event}` — `{context}` does the isolation work | `evt.{context}.shipping.ship.{id}.{event}` — `{context}` is **redundant**; the account is the boundary |
-| KV bucket | `{prefix}-{context}`, e.g. `dict-a-acme` — suffix does the isolation work | `{prefix}` alone, e.g. `dict-a` — suffix is **redundant** for the same reason |
+| Event subject | `evt.{context}.shipping.ship.{id}.{event}` — `{context}` does the isolation work | `evt.{context}.shipping.ship.{id}.{event}` — `{context}` is redundant *for tenancy*; the account is the boundary. It still scopes company/business unit. |
+| KV bucket | `{prefix}-{context}`, e.g. `dict-a-acme` where the suffix was the tenant — suffix does the isolation work | `{prefix}` alone, e.g. `dict-a`, where a tenant needs no suffix; a suffix reappears only to separate business units (`dict-a-northdiv`), never tenants |
 | Enforcement | convention; a bug can cross tenants silently | the NATS server itself; a bug *cannot* cross tenants |
 | `max_streams`/`max_consumers` | one shared ceiling across every tenant | one ceiling *per tenant*, independent of every other tenant |
 
-The `{context}` token surviving inside an account isn't wasted, though — see "Consumer
-partitioning" below, where a *shared* account still wants a tenant token, just on the
-consumer filter rather than doing the isolation work itself.
+The `{context}` token surviving inside an account isn't wasted, though — it scopes
+company/business unit, and it can still drive consumer filtering (see "Consumer
+partitioning" below), just without doing any isolation work.
 
 ### Consumer partitioning: three shapes, only one measured cost difference
 
@@ -564,18 +604,21 @@ tenant token** — the consumers doc's own example is a stream on `factory-event
 with a consumer filtered to `factory-events.A.*`. That is distinct from what this POC
 had built before Phase 13:
 
-1. **Pre-Phase-13 (this repo, until now)** — one durable per projector on a
-   tenant-agnostic wildcard (`evt.*.shipping.ship.>`), tenant resolved from the event
+1. **Pre-Phase-13 (this repo, until then)** — one durable per projector on a
+   context-agnostic wildcard (`evt.*.shipping.ship.>`), with the scope taken from the event
    *payload* (`event.Context`) at write time. Convenient, and deliberate
    (`events.go`: projectors are "intentionally tenant-agnostic") — but not an isolation
-   pattern, since nothing stops one projector instance from seeing every tenant's events.
-2. **Shared account, per-tenant durables** — the NATS docs' own pattern:
-   `FilterSubject: evt.acme.shipping.ship.>` instead of `evt.*.shipping.ship.>`, one such
-   durable per tenant per projector. The natural conclusion if a future decision is
-   "prefixes are enough, accounts aren't needed."
-3. **Account per tenant (Phase 13b's shape)** — durables are per-account by construction,
-   so the tenant token in the filter is redundant; always exactly 4 durables per account,
-   regardless of tenant count.
+   pattern, since nothing stopped one projector instance from seeing every tenant's events.
+2. **Shared account, per-scope durables** — the NATS docs' own pattern:
+   `FilterSubject: evt.acme-northdiv.shipping.ship.>` instead of `evt.*.shipping.ship.>`,
+   one such durable per context per projector. **Rejected as a tenancy mechanism** (DD-04a
+   — prefixes are *not* enough; accounts are the boundary), but this remains the right shape
+   for partitioning by **company/business unit** *within* one account. Note the filter token
+   is a `{context}` value, never a tenant name.
+3. **Account per tenant (Phase 13b's shape — current)** — durables are per-account by
+   construction, so tenancy needs no filter token at all; always exactly 4 durables per
+   account, regardless of tenant count. A `{context}` filter can still be layered on top to
+   partition business units within the account.
 
 The measured difference between shapes 2 and 3: `max_consumers` (like `max_streams`,
 `max_mem`, `max_file`) is a **per-account** limit. Shape 2 accumulates every tenant's 4

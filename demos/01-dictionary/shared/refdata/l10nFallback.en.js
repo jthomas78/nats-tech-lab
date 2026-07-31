@@ -28,6 +28,7 @@ export const l10nFallbackEn = {
   "action.cancel": "Cancel",
   "action.add": "Add",
   "toast.portAddFailed": "Could not add port",
+  "toast.connectFailed": "Connection failed",
   "fleet.title": "Fleet",
   "status.label": "Status",
   "a11y.registerShip": "Register a new ship",

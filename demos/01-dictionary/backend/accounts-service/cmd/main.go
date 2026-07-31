@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,6 +19,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nkeys"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
 )
@@ -89,7 +91,7 @@ func run(log *slog.Logger) error {
 
 	store := accounts.NewStore(db)
 	if resolverSeedDir != "" {
-		if err := seedPreexistingAccounts(ctx, store, resolverSeedDir, log); err != nil {
+		if err := seedPreexistingAccounts(ctx, store, provisioner, resolverSeedDir, log); err != nil {
 			return err
 		}
 	}
@@ -137,7 +139,7 @@ func run(log *slog.Logger) error {
 // Postgres's tenant-identity column), so RenameIfExists below migrates any
 // existing uppercase row to its lowercase identity before SeedIfMissing
 // runs. Both steps are safe to run on every startup.
-func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, resolverSeedDir string, log *slog.Logger) error {
+func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, provisioner *accounts.Provisioner, resolverSeedDir string, log *slog.Logger) error {
 	seeds := []struct {
 		Name       string
 		LegacyName string
@@ -173,7 +175,60 @@ func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, resolve
 		}); err != nil {
 			return err
 		}
+		if err := ensureSigningKey(ctx, store, provisioner, s.Name, s.Limits, log); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+// ensureSigningKey establishes a signing key for a seeded pre-existing
+// account (Phase 15c) if it doesn't already have one on record — needed
+// because auth-service's GET /api/auth/connectInfo mints browser user JWTs
+// by loading an account's SigningKeySeed from this service's own Postgres
+// table (see auth-service/auth/store.go's AccountReader doc comment), and
+// bootstrap-operator.sh's nsc-generated signing key for these accounts was
+// never exported anywhere this service can read (nsc's local keystore is
+// deleted at the end of that script — see its own header comment). Reuses
+// exactly the key-establishment logic accounts/handler.go's
+// reactivateAccount already uses for a suspended account with no signing
+// key on record, just triggered at startup instead of gated behind
+// suspension — Provisioner.ReactivateAccount itself doesn't check status,
+// only the REST handler does, so calling it here on an active account is
+// safe: it just re-pushes the account's claims with a signing key added,
+// which shipping-service's own already-working .creds files (signed
+// directly by the account's identity key, not this signing key) are
+// unaffected by.
+//
+// Runs at most once per account: a signing key, once established and
+// persisted, is never rotated on a later restart (the Postgres row already
+// has one, so this is a no-op) — rotating it would invalidate any browser
+// JWT minted against the previous key that's still within its TTL.
+func ensureSigningKey(ctx context.Context, store *accounts.Store, provisioner *accounts.Provisioner, name string, limits accounts.JSLimits, log *slog.Logger) error {
+	acc, err := store.Get(ctx, name)
+	if err != nil {
+		return fmt.Errorf("reload seeded account %q: %w", name, err)
+	}
+	if acc.SigningKeySeed != "" {
+		return nil
+	}
+
+	signingKP, err := nkeys.CreateAccount()
+	if err != nil {
+		return fmt.Errorf("generate signing key for %q: %w", name, err)
+	}
+	seed, err := signingKP.Seed()
+	if err != nil {
+		return fmt.Errorf("read generated signing key seed for %q: %w", name, err)
+	}
+
+	if err := provisioner.ReactivateAccount(ctx, acc.PublicKey, string(seed), limits); err != nil {
+		return fmt.Errorf("establish signing key for %q: %w", name, err)
+	}
+	if err := store.SetSigningKeySeed(ctx, name, string(seed)); err != nil {
+		return fmt.Errorf("persist signing key for %q: %w", name, err)
+	}
+	log.Info("established signing key for seeded account", "name", name)
 	return nil
 }
 

@@ -2,8 +2,10 @@
 
 Dictionary/reference data (dropdown options, enums, locale config, tenant
 config, CQRS read-model lookups) needs to be derived from an event source,
-scoped to an application context (tenant / region / locale), and served with
-low latency. This demo compares three shapes for doing that with NATS,
+scoped to an application context (the company / business-unit scope — the
+tenant is the NATS account and the region a separate regional deployment;
+neither appears in a context value, see `ARCHITECTURE-COMMUNICATIONS.md`
+§ 2.3), with locale resolved at read time, and served with low latency. This demo compares three shapes for doing that with NATS,
 side by side.
 
 ## Shape A — NATS KV as the read model
@@ -104,14 +106,20 @@ docker compose down -v       # also drop NATS and Postgres data volumes
 | Backend API           | http://localhost:7200                                       |
 | Swagger UI (refdata)  | http://localhost:7201/swagger/                              |
 | refdata-service API   | http://localhost:7201                                       |
+| accounts-service API  | http://localhost:7202                                       |
+| auth-service API      | http://localhost:7203                                       |
 | NATS client           | nats://localhost:4222                                       |
 | NATS monitor          | http://localhost:8222                                       |
+| NATS WebSocket        | ws://localhost:9222                                          |
 | Postgres (shipping-service) | localhost:5432                                         |
 | Postgres (refdata-service)  | localhost:5433                                         |
+| Postgres (accounts-service) | localhost:5434                                         |
 
 **Postgres credentials (shipping-service):** host `localhost`, port `5432`, user `dict`, password `dict`, database `dictionary`
 
 **Postgres credentials (refdata-service):** host `localhost`, port `5433`, user `refdata`, password `refdata`, database `refdata` — its own instance, not a schema on the one above (see `backend/refdata-service/README.md`).
+
+**Postgres credentials (accounts-service):** host `localhost`, port `5434`, user `accounts`, password `accounts`, database `accounts` — its own instance; `auth-service` (Phase 15c) reads this same instance read-only to mint browser NATS credentials (see `backend/auth-service/`).
 
 ## Dev mode (outside Docker)
 

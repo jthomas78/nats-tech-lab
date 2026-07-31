@@ -3,8 +3,11 @@
 Split by domain so a rule add/edit only requires reading its own file:
 
 - **[BUSINESS_RULES-SHIPPING.md](BUSINESS_RULES-SHIPPING.md)** — Ship + Container
-  aggregates on the `SHIPPING` stream (BR-001–BR-019), plus guards, AIS status,
-  and container status tables. Rules live in `dictionary/internal/domain/`.
+  aggregates on the `SHIPPING` stream (BR-001–BR-022), plus guards, AIS status,
+  container status tables, and the Phase 15 `rpc.*`/`notify.*` transport rules
+  (BR-023–BR-024). Rules live in `dictionary/internal/domain/` (BR-001–022) and
+  `dictionary/internal/natsrpc/` + `dictionary/internal/eventhandler/`
+  (BR-023–024).
 - **[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)** — Reference Data
   Service (BR-D01–BR-D28). Rules live in
   `backend/refdata-service/refdata/internal/domain/dictionary.go`.

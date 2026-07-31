@@ -18,6 +18,7 @@ import { CONTEXTS, usePortStore } from './stores/port'
 import { useTenantStore } from './stores/tenant'
 import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
 import { useL10nCopy } from '@refdata/useL10nCopy.js'
+import { useNatsConnection } from './nats/useNatsConnection'
 import { i18n } from './i18n.js'
 import AppShell from '@ui-shell/AppShell.vue'
 import NavList from '@ui-shell/NavList.vue'
@@ -31,6 +32,7 @@ const {
   disconnect: disconnectRefdata,
 } = useRefdataLabels()
 const { usingFallback, partialFallback, switching, connect: connectL10nCopy, disconnect: disconnectL10nCopy } = useL10nCopy()
+const { disconnect: disconnectNats } = useNatsConnection()
 const { t } = useI18n()
 const toast = useToast()
 
@@ -77,14 +79,24 @@ async function submitNewPort() {
   }
 }
 
-onMounted(() => {
-  store.connect()
+onMounted(async () => {
   connectRefdata()
   connectL10nCopy(i18n)
-  tenantStore.refresh()
+  try {
+    // Authenticates the browser's single NATS WebSocket connection (Phase
+    // 15c/15d) before the port store's rpc.*/notify.* bootstrap can run —
+    // unlike the pre-Phase-15 SSE stores, store.connect() now depends on a
+    // live NATS connection rather than being independently openable.
+    await tenantStore.init()
+    await store.connect()
+  } catch (err) {
+    console.error('NATS connect failed', err)
+    toast.add({ severity: 'error', summary: t('toast.connectFailed'), detail: err.message, life: 6000 })
+  }
 })
 onUnmounted(() => {
   store.disconnect()
+  disconnectNats()
   disconnectRefdata()
   disconnectL10nCopy()
 })

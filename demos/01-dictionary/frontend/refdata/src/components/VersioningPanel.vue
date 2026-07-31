@@ -408,7 +408,7 @@ const parentOptions = computed(() => flattenTree(store.contextTree))
         <InputText
           v-model="newContext.context"
           size="small"
-          placeholder="e.g. emea-globex"
+          placeholder="e.g. globex or globex-freight"
         />
         <label class="lab-muted">Parent (optional)</label>
         <Select

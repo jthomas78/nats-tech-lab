@@ -25,6 +25,13 @@ export default defineConfig({
       allow: [fileURLToPath(new URL('../../../..', import.meta.url))],
     },
     proxy: {
+      // More specific than '/api' below — must come first so Vite's
+      // prefix match picks this one for auth-service (Phase 15c) instead
+      // of falling through to shipping-service.
+      '/api/auth': {
+        target: 'http://localhost:7203',
+        changeOrigin: true,
+      },
       '/api': {
         target: 'http://localhost:7200',
         changeOrigin: true,

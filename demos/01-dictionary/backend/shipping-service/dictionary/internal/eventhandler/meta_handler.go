@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"sort"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/queries"
@@ -29,7 +30,12 @@ type metaEvent struct {
 // to accumulate it client-side. A single durable consumer processes events
 // sequentially, so the read-merge-write below has no concurrent writers.
 // (known-ports was retired — ports are now the Postgres reference table.)
-func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, log *slog.Logger) (jetstream.ConsumeContext, error) {
+//
+// nc is optional (nil-safe, Phase 15b) — see RegisterShapeA's doc comment;
+// after every KV write that actually changes the set, this fire-and-forget
+// publishes notify.{context}.shipping.meta.changed carrying the full,
+// updated known-containers array.
+func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, nc *nats.Conn, log *slog.Logger) (jetstream.ConsumeContext, error) {
 	// See handler.go's register() for why: the Consume callback below closes
 	// over this context for the projector's entire lifetime, so it must not
 	// be tied to whatever short-lived context the caller used to register it
@@ -55,18 +61,24 @@ func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store
 			_ = msg.Ack()
 			return
 		}
-		if err := mergeSet(msgCtx, kv, event.Context, queries.MetaKeyKnownContainers, event.ContainerID); err != nil {
+		data, err := mergeSet(msgCtx, kv, event.Context, queries.MetaKeyKnownContainers, event.ContainerID)
+		if err != nil {
 			log.Error("meta projection failed, will redeliver", "subject", msg.Subject(), "err", err)
 			_ = msg.Nak()
 			return
+		}
+		if data != nil {
+			publishNotify(nc, log, event.Context, "meta", data)
 		}
 		_ = msg.Ack()
 	})
 }
 
 // mergeSet reads the JSON string array at key, merges the values in, and
-// writes it back sorted. No-op when every value is already present.
-func mergeSet(ctx context.Context, kv *kvstore.Store, kvContext, key string, values ...string) error {
+// writes it back sorted. No-op when every value is already present: returns
+// a nil byte slice (not an error) so the caller can skip publishNotify
+// without an extra KV read for its payload.
+func mergeSet(ctx context.Context, kv *kvstore.Store, kvContext, key string, values ...string) ([]byte, error) {
 	existing := []string{}
 	if raw, _, err := kv.Get(ctx, kvContext, key); err == nil {
 		_ = json.Unmarshal(raw, &existing)
@@ -85,13 +97,15 @@ func mergeSet(ctx context.Context, kv *kvstore.Store, kvContext, key string, val
 		}
 	}
 	if !changed {
-		return nil
+		return nil, nil
 	}
 	sort.Strings(existing)
 	data, err := json.Marshal(existing)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = kv.Put(ctx, kvContext, key, data)
-	return err
+	if _, err := kv.Put(ctx, kvContext, key, data); err != nil {
+		return nil, err
+	}
+	return data, nil
 }

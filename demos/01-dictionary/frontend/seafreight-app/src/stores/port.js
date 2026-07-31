@@ -1,11 +1,22 @@
-// Pinia store = the browser-side projected read model, fed by two SSE
-// channels: /api/watch/{context} (ship states, Shape A bucket) and
-// /api/watch-terminal/{context} (container states + meta.* lookup sets).
-// The ship manifest is a client-side join: containers with onShipID == shipID
-// — the same join the backend terminal queries and Shape C perform.
+// Pinia store = the browser-side projected read model (Phase 15d). Bootstraps
+// via rpc.*.shipping.{entity}.list.v1 calls on connect, then stays fresh via
+// notify.*.shipping.{entity}.changed subscriptions over the single NATS
+// WebSocket connection (nats/useNatsConnection.js) — replacing the two
+// SSE channels (/api/watch/{context}, /api/watch-terminal/{context}) the
+// pre-Phase-15 store used. The ship manifest is still a client-side join:
+// containers with onShipID == shipID — the same join the backend terminal
+// queries and Shape C perform.
 import { defineStore } from 'pinia'
 
-import { getPorts, registerPort, watchTerminalUrl, watchUrl } from '../api'
+import {
+  getPorts,
+  knownContainers as fetchKnownContainers,
+  listContainers,
+  listShips,
+  notifySubject,
+  registerPort,
+} from '../api'
+import { useNatsConnection } from '../nats/useNatsConnection'
 
 export const CONTEXTS = ['global', 'atlantic-fleet', 'pacific-fleet']
 
@@ -17,15 +28,11 @@ export const usePortStore = defineStore('port', {
     knownContainers: [],
     ships: {},      // shipID → ShipState
     containers: {}, // containerID → ContainerState
-    shipsConnected: false,
-    terminalConnected: false,
-    _shipSource: null,
-    _terminalSource: null,
+    connected: false,
+    _unsubscribers: [],
   }),
 
   getters: {
-    connected: (state) => state.shipsConnected && state.terminalConnected,
-
     // Ships currently docked at the selected port.
     dockedShips: (state) =>
       Object.values(state.ships)
@@ -65,9 +72,9 @@ export const usePortStore = defineStore('port', {
     },
 
     // Registers a new port in the Postgres-backed ports registry (BR-017/
-    // BR-018) via POST /api/ports, then makes it active. Unlike ship/container
-    // commands this is a direct write, not an event — ports are reference
-    // data, not an event-sourced aggregate.
+    // BR-018) via rpc.*.shipping.port.register.v1, then makes it active.
+    // Unlike ship/container commands this is a direct write, not an event —
+    // ports are reference data, not an event-sourced aggregate.
     async addShippingPort(port) {
       const trimmed = port.trim()
       if (!trimmed) return
@@ -76,75 +83,80 @@ export const usePortStore = defineStore('port', {
       this.port = trimmed
     },
 
-    connect() {
+    // Bootstraps this context's state via rpc.*.list.v1 calls (replacing the
+    // SSE initial-snapshot the pre-Phase-15 store relied on), then subscribes
+    // to notify.* for live updates. Requires the NATS WebSocket connection
+    // to already be open (useTenantStore.init()/setTenant() — this only
+    // (re)scopes which fleet CONTEXT this store watches within whichever
+    // tenant is currently connected, same role setContext/a tenant switch
+    // always played).
+    async connect() {
       this.disconnect()
       this.ships = {}
       this.containers = {}
       this.knownPorts = []
       this.knownContainers = []
 
-      // Seed the port selector from the Postgres-backed ports registry
-      // before the SSE streams open; live META events keep it current
-      // afterwards (registering a port also merges it in immediately).
+      const { subscribe } = useNatsConnection()
+
+      // Live notify.* subscriptions first, then the bootstrap reads — so a
+      // change published in the narrow gap between the two isn't missed
+      // (same "subscribe before draining backlog" ordering the old SSE
+      // handlers used server-side).
+      this._unsubscribers = [
+        subscribe(notifySubject(this.context, 'ship'), (ship) => {
+          if (ship?.shipID) this.ships[ship.shipID] = ship
+        }),
+        subscribe(notifySubject(this.context, 'container'), (container) => {
+          if (container?.containerID) this.containers[container.containerID] = container
+        }),
+        subscribe(notifySubject(this.context, 'meta'), (values) => {
+          this.knownContainers = values ?? []
+        }),
+        subscribe(notifySubject(this.context, 'port'), (values) => {
+          this.mergeKnownPorts(values ?? [])
+        }),
+      ]
+
       getPorts(this.context)
-        .then((res) => {
-          this.mergeKnownPorts(res?.values ?? [])
+        .then((ports) => {
+          this.mergeKnownPorts(ports ?? [])
           if (!this.port && this.knownPorts.length > 0) {
             this.port = this.knownPorts[0]
           }
         })
         .catch(() => {})
 
-      const ships = new EventSource(watchUrl(this.context))
-      this._shipSource = ships
-      ships.onopen = () => { this.shipsConnected = true }
-      ships.onerror = () => { this.shipsConnected = false }
-      ships.onmessage = (msg) => { this.applyShipEvent(JSON.parse(msg.data)) }
+      listShips(this.context)
+        .then((ships) => {
+          for (const s of ships ?? []) this.ships[s.shipID] = s
+        })
+        .catch(() => {})
 
-      const terminal = new EventSource(watchTerminalUrl(this.context))
-      this._terminalSource = terminal
-      terminal.onopen = () => { this.terminalConnected = true }
-      terminal.onerror = () => { this.terminalConnected = false }
-      terminal.onmessage = (msg) => { this.applyTerminalEvent(JSON.parse(msg.data)) }
+      listContainers(this.context)
+        .then((containers) => {
+          for (const c of containers ?? []) this.containers[c.containerID] = c
+        })
+        .catch(() => {})
+
+      fetchKnownContainers(this.context)
+        .then((values) => {
+          this.knownContainers = values ?? []
+        })
+        .catch(() => {})
+
+      this.connected = true
     },
 
     disconnect() {
-      this._shipSource?.close()
-      this._shipSource = null
-      this._terminalSource?.close()
-      this._terminalSource = null
-      this.shipsConnected = false
-      this.terminalConnected = false
+      for (const unsubscribe of this._unsubscribers) unsubscribe()
+      this._unsubscribers = []
+      this.connected = false
     },
 
     mergeKnownPorts(ports) {
       const merged = new Set([...this.knownPorts, ...ports])
       this.knownPorts = [...merged].sort()
-    },
-
-    // /api/watch delivers both Shape A and Shape B bucket changes; the port
-    // view only needs one copy of each ship, so it follows Shape A.
-    applyShipEvent(event) {
-      if (event.shape !== 'A') return
-      if (event.op === 'PUT' && event.value?.shipID) {
-        this.ships[event.value.shipID] = event.value
-      } else if (event.key?.startsWith('ship.')) {
-        delete this.ships[event.key.slice('ship.'.length)]
-      }
-    },
-
-    applyTerminalEvent(event) {
-      if (event.shape === 'CONTAINER') {
-        if (event.op === 'PUT' && event.value?.containerID) {
-          this.containers[event.value.containerID] = event.value
-        } else if (event.key?.startsWith('container.')) {
-          delete this.containers[event.key.slice('container.'.length)]
-        }
-        return
-      }
-      if (event.shape === 'META' && event.op === 'PUT' && event.key === 'known-containers') {
-        this.knownContainers = event.value ?? []
-      }
     },
   },
 })

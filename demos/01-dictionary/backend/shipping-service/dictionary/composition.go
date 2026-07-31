@@ -55,6 +55,15 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 		return err
 	}
 
+	// Phase 15a: bring up every OTHER known tenant's persistent resources
+	// (rpc.* adapter, projectors) too, not just initialTenant's — a browser
+	// connecting straight to GLOBEX's account must work from the moment
+	// this process starts, without needing an operator to have switched
+	// REST to GLOBEX first. See EnsureAllTenants's doc comment.
+	if err := handlers.EnsureAllTenants(ctx); err != nil {
+		return err
+	}
+
 	handlers.Mount(mono.Mux())
 	return nil
 }

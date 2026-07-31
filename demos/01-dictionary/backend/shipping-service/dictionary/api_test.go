@@ -50,7 +50,7 @@ func newAPIServer() *apiServer {
 	repo := newFakeRepo()
 	portRepo := newFakePortRepo()
 
-	consumeA, err := eventhandler.RegisterShapeA(ctx, js, kvA, log)
+	consumeA, err := eventhandler.RegisterShapeA(ctx, js, kvA, nil, log)
 	Expect(err).NotTo(HaveOccurred())
 	DeferCleanup(consumeA.Stop)
 
@@ -58,11 +58,11 @@ func newAPIServer() *apiServer {
 	Expect(err).NotTo(HaveOccurred())
 	DeferCleanup(consumeB.Stop)
 
-	consumeC, err := eventhandler.RegisterContainers(ctx, js, kvContainers, newFakeContainerRepo(), log)
+	consumeC, err := eventhandler.RegisterContainers(ctx, js, kvContainers, nil, newFakeContainerRepo(), log)
 	Expect(err).NotTo(HaveOccurred())
 	DeferCleanup(consumeC.Stop)
 
-	consumeM, err := eventhandler.RegisterMeta(ctx, js, kvMeta, log)
+	consumeM, err := eventhandler.RegisterMeta(ctx, js, kvMeta, nil, log)
 	Expect(err).NotTo(HaveOccurred())
 	DeferCleanup(consumeM.Stop)
 

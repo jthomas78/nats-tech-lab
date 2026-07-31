@@ -360,11 +360,11 @@ var _ = Describe("Terminal read models", func() {
 		kvContainers := kvstore.New(js, "container")
 		kvMeta := kvstore.New(js, "meta")
 
-		consumeC, err := eventhandler.RegisterContainers(ctx, js, kvContainers, newFakeContainerRepo(), log)
+		consumeC, err := eventhandler.RegisterContainers(ctx, js, kvContainers, nil, newFakeContainerRepo(), log)
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(consumeC.Stop)
 
-		consumeM, err := eventhandler.RegisterMeta(ctx, js, kvMeta, log)
+		consumeM, err := eventhandler.RegisterMeta(ctx, js, kvMeta, nil, log)
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(consumeM.Stop)
 

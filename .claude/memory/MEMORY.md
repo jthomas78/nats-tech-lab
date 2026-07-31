@@ -2,7 +2,7 @@
 
 - [Project plan location](project_plan_location.md) — Plans live in `.claude/plans/`, not repo root
 - [Dev machine toolchain](dev_machine_toolchain.md) — Linux box has no Docker; Mac (Homebrew/Volta) does — check before assuming
-- [Shipping domain overview](shipping_domain_overview.md) — Ship/Container aggregates on `SHIPPING` stream; hydrate/read-modify-write/422 conventions; **updated 2026-07-23**: subjects are now `evt.<tenant>.<domain>.<entity>.<id>.<event>`, Ship is now surrogate-UUID-keyed like Container (BR-020…BR-022)
+- [Shipping domain overview](shipping_domain_overview.md) — Ship/Container aggregates on `SHIPPING` stream; hydrate/read-modify-write/422 conventions; **updated 2026-07-31**: subjects are `evt.{context}.{service}.{entity}.{id}.{event}` where `{context}` is company/business-unit — **not** tenant (tenant = NATS account; see Phase 16a); Ship is surrogate-UUID-keyed like Container (BR-020…BR-022)
 - [NATS volume legacy messages](nats_volume_legacy_messages.md) — stale-subject Nak loop after a domain rename; fix: `docker compose down -v`
 - [Container status model](container_status_model.md) — only `in-terminal`/`on-ship` exist; derive UI splits from `destPort` client-side
 - [frontend-port structure](frontend_port_structure.md) — now at `frontend/seafreight-app/`; Fleet/Port view split, refdata l10n, Vitest gotchas

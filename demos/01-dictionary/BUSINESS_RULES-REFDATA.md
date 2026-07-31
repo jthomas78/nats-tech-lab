@@ -15,6 +15,29 @@ Phase 12 is governed by the [Refdata Versioning, Tenancy & Template Inheritance 
 
 ### BR-V01–BR-V08 — Corpus versioning, tenancy, and template inheritance
 
+> **Phase 16 amendments (pending 16d).** The rules below are unchanged, but
+> three properties of the context hierarchy they operate on were re-decided in
+> Phase 16 (see `.claude/plans/Main-POC-Plan.md` § Phase 16 and
+> `ARCHITECTURE-COMMUNICATIONS.md` § 2.3):
+> 1. **Root renamed `global` → `_platform`.** All reserved/platform context names
+>    are `_`-prefixed, and `accounts-service` rejects `_`-prefixed company
+>    names so the reservation is enforced.
+> 2. **Region is removed as a context node.** The chain becomes
+>    company → business unit (e.g. `_platform → acme → acme-northdiv`), not
+>    `_platform → emea → emea-acme`. Region is a deployment concern (its own
+>    regional stack and NATS instance) and never appears in a context value or
+>    subject token.
+> 3. **A context may be linked to a tenant** (an optional `tenant` column on
+>    `refdata.contexts`, NULL for `_`-reserved contexts). This is **ownership /
+>    governance metadata and query scoping only — not a security boundary**:
+>    refdata-service runs on a single shared NATS account, so it has no
+>    server-supplied caller identity to enforce it against. Making it
+>    enforceable is an open item (see the design doc).
+>
+> Arbitrary-depth inheritance is **retained** as already implemented
+> (`context_repository.go`'s recursive ancestor CTE) — it is not restricted to
+> a fixed number of hops.
+
 - **BR-V01:** A context has at most one draft corpus version at a time.
 - **BR-V02:** Only a draft can be published.
 - **BR-V03:** Publishing atomically commits the version status and its complete snapshot, or neither.
@@ -117,7 +140,7 @@ On refdata-service's side, the RPC handler itself now serves warm reads from its
 ---
 
 ### BR-D09 — Dictionary types are categorized into a small controlled vocabulary
-Phase 11.7. Every `DictionaryType` carries a `category` — one of `standards`, `domain-enum`, `domain-string`, or (reserved for later) `config` — set at type-registration time. Registering a type with any other value is rejected. Category is orthogonal to `context` (tenant/region): it groups *types* by who owns and edits them (see obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-DICTIONARY.md § "Type Categories & Governance"), not by tenant.
+Phase 11.7. Every `DictionaryType` carries a `category` — one of `standards`, `domain-enum`, `domain-string`, or (reserved for later) `config` — set at type-registration time. Registering a type with any other value is rejected. Category is orthogonal to `context` (the company / business-unit scope — **not** the tenant, which is the NATS account, and **not** the region, which is a deployment concern; see obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md § 2.3): it groups *types* by who owns and edits them (see obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-DICTIONARY.md § "Type Categories & Governance"), not by context.
 
 - **Error:** `ErrInvalidCategory` — "dictionary type category is not a recognized category"
 - **Enforced in:** `domain.ValidateCategory()`, called from `commands.TypeHandler.RegisterType()`

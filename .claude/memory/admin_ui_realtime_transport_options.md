@@ -24,7 +24,9 @@ Three fixes were proposed first, in order of practicality:
 
 The user then asked about a **4th option**: replace all per-panel SSE with **one NATS WebSocket
 connection** from the browser directly to `nats.ws` (already exposed on port 9222 in this repo's
-`docker-compose.yml`), subscribing to subjects like `evt.acme.shipping.>` directly client-side —
+`docker-compose.yml`), subscribing to subjects like `evt.{context}.shipping.>` directly client-side (where
+`{context}` is the company/business-unit token — the tenant is the NATS account the
+browser authenticates into, never a subject token; see Phase 16) —
 sidestepping the connection-count problem entirely rather than working around Chrome's limit.
 
 Comparison surfaced in that discussion:
@@ -38,7 +40,7 @@ Comparison surfaced in that discussion:
 | Backend code | ~5 SSE handlers to maintain | Deleted entirely |
 | Auth | Inherits HTTP proxy's auth | Needs its own NATS creds/JWT — which account does the browser connect as? |
 | Subject filtering | Go handler decides what browser sees | Browser can subscribe to anything the account permits — relies on NATS account-level permissions |
-| Tenant scoping | Go handler injects current tenant context | Browser must know the tenant and build the right subject filter itself |
+| Tenant scoping | Go handler injects current tenant context | Browser authenticates into the tenant's own NATS account — tenancy is the account boundary, so the browser does **not** encode a tenant in any subject (it only needs the `{context}` company/business-unit token). See Phase 16. |
 
 **The real tradeoff is the trust boundary.** Today the Go backend is a gatekeeper: it holds NATS
 credentials, subscribes on the browser's behalf, and each SSE endpoint is scoped to show only what

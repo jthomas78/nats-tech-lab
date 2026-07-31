@@ -37,12 +37,34 @@ Dictionaries/
 
 ### Multi-Tenancy Subject Patterns
 
-For multi-tenant systems (identifier-first subjects):
+> **Superseded 2026-07-31 (Phase 16).** The original research finding proposed
+> `{tenant}.{region}.{bounded_context}.{event}` with a choice between
+> subject-prefix "soft" tenancy and per-account "hard" tenancy. The decision
+> below replaces it. Authority:
+> `V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md` § 2.
+
+Identifier-first subjects, with a fixed literal family token first:
 ```
-{tenant}.{region}.{bounded_context}.{event}
+evt.{context}.{service}.{entity}.{id}.{event}
 ```
 
-**Decision:** Use **subject-prefix isolation within one NATS Account** for soft tenancy (simpler operations), or **one NATS Account per tenant** for hard isolation (stronger security).
+**Decision:** **one NATS account per tenant — hard isolation only.** An account
+is an absolute, server-enforced subject-space boundary and carries per-tenant
+resource limits; subject-prefix separation inside one shared account is the
+pattern NATS documents as *legacy* and weaker, and is not used for tenancy.
+Implemented and tested (Phase 13 static accounts, Phase 14b runtime
+provisioning).
+
+Therefore **neither the tenant nor the region ever appears in a subject** —
+the tenant is implied by the authenticated account, the region by which
+regional deployment you are connected to. `{context}` is the **company /
+business-unit** scope only (`acme`, `acme-northdiv`; `_`-prefixed values
+reserved for platform contexts such as `_platform`).
+
+Subject families — Core: `evt.*` (event sourcing), `rpc.*`
+(service-to-service), `api.*` (frontend-to-service), `notify.*` (change
+notification, replaces SSE). Supportive: `obs.rpc.*`/`obs.api.*` (debugging
+side-channel).
 
 ### Dictionary Data Storage — Two Models
 

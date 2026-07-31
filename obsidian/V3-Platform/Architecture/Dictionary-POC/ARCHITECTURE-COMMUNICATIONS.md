@@ -1,8 +1,11 @@
 # Architecture — Inter-Service Communications
 
 Deep reference for how services in this demo talk to each other and to
-clients: REST/Swagger, NATS core request/reply (`rpc.*`), and how they relate
-to the existing JetStream event backbone. For the CQRS shape taxonomy see
+clients: REST/Swagger, NATS core request/reply (`rpc.*` service-to-service and
+`api.*` frontend-to-service), `notify.*` change notification, the
+`obs.rpc.*`/`obs.api.*` debugging side-channel, and how these relate to the
+JetStream `evt.*` event backbone. **§ 2 is the authoritative definition of the
+subject families and of `{context}`.** For the CQRS shape taxonomy see
 [ARCHITECTURE.md](ARCHITECTURE.md); for refdata-service's own seeding/schema
 design see
 [ARCHITECTURE-DICTIONARY.md](ARCHITECTURE-DICTIONARY.md).
@@ -81,12 +84,17 @@ Two transports serve different purposes and are not interchangeable:
 |---|---|---|
 | REST + Swagger | Frontend/edge clients (UIs, third parties), full CRUD surface. **Inbound only** — a service exposes REST for callers outside the backend, but never acts as an HTTP *client* to another backend service (see amendment below) | Existing `rest/` adapter per service |
 | NATS core request/reply (`rpc.*`) | **Sole transport for backend-to-backend synchronous calls** — no REST fallback (Phase 12.11, proposed) | `natsrpc/` adapter (Phase 12.10, extending to full coverage in 12.11) |
+| NATS core request/reply (`api.*`) | **Frontend-to-service** synchronous calls, reached over WebSocket — replaces REST for a NATS-native browser client (Phase 15/16) | `browserrpc/` adapter (`shipping-service`; Sea Freight Flow only so far) |
+| NATS core pub/sub (`notify.*`) | Service-side change notification carrying current state — replaces SSE for a NATS-native browser client (Phase 15b) | Published by projectors; see BR-024 |
 | JetStream (`cmd.*` / `evt.*`) | Durable async commands and immutable domain facts | Existing — see [ARCHITECTURE.md](ARCHITECTURE.md) and CLAUDE.md's stream/subject rules |
 
-**Backend-to-backend vs. frontend-to-backend.** This transport split governs
-service-to-service calls only. Frontend clients (`frontend/admin`,
-`frontend/refdata`, `frontend/seafreight-app`) keep talking REST/Swagger (and
-SSE for live views) — nothing here changes their transport. Since Phase 12.12
+**Backend-to-backend vs. frontend-to-backend.** These are separate families
+with separate rules — see § 2.4. `rpc.*` is service-to-service only; a
+frontend never calls it. Frontends reach the backend either over REST/Swagger
+(+ SSE for live views) — still the case for `frontend/admin` and
+`frontend/refdata` — or, since Phase 15d, over a single NATS WebSocket
+connection using `api.*` + `notify.*`, which is what `frontend/seafreight-app`
+now does. Since Phase 12.12
 (BR-D08, § 9), the KV-first cache-read pattern lives entirely inside
 refdata-service's own `rpc.*` handler — a consumer's `rpc.*` call may still
 be served from a warm cache without a Postgres round-trip, but that cache
@@ -111,33 +119,248 @@ service calls synchronously (e.g. admin-only writes) don't need one.
 
 ## 2. Subject taxonomy
 
-Parallel to the existing event subject grammar
-(`evt.{context}.{service}.{entity}.{id}.{event}`):
+**Formalized Phase 16a (2026-07-31).** This section is the single source of
+truth for subject families and for what `{context}` means. Earlier revisions
+described `{context}` as "tenant/region scope" and listed only three
+families; both were stale — see § 2.3 and the Phase 16 decision record in
+`.claude/plans/Main-POC-Plan.md`.
+
+### 2.1 Subject families
+
+Five families, grouped by role. **Core** families carry business traffic;
+**Supportive** families exist so diagnostics never share a subject with the
+operations they observe — a slow or absent debugging subscriber must never be
+able to add latency to, or apply backpressure against, a subject in the Core
+group.
+
+| Group | Family | Purpose | Transport |
+|---|---|---|---|
+| Core | `evt.*` | Immutable domain facts — the event-sourcing backbone | JetStream, `LimitsPolicy` (replayable) |
+| Core | `rpc.*` | **Service-to-service** synchronous calls (machine-to-machine) | NATS core request/reply (Micro) |
+| Core | `api.*` | **Frontend-to-service** synchronous calls | NATS core request/reply (Micro), reached over WebSocket |
+| Core | `notify.*` | Service-side change notification to interested subscribers | Core pub/sub, fire-and-forget |
+| Supportive | `obs.rpc.*` / `obs.api.*` | Debugging/observability side-channel for RPC and API traffic; consumed by Admin and technical tooling only | Core pub/sub (+ `RPCTRACE` retention, BR-D29) |
+
+`cmd.*` remains **reserved, not in use**: durable asynchronous intent —
+publish, then observe the result via events or a status/read model. Named
+here so it is not repurposed for something else.
+
+Hard distinctions:
+
+- `evt.*` is a record of fact, **not** an alternate API method. Never map
+  `evt.*` to a Swagger-shaped request/response contract.
+- `notify.*` is a *notification carrying current state*, not an event — it has
+  no retention, no ordering guarantee, and no replay. It is never a substitute
+  for `evt.*`, and a consumer must never treat a missed `notify.*` as data
+  loss: recovery is a fresh `api.*`/`rpc.*` read, not a replay.
+- `obs.*` is diagnostics only. Nothing in a business path may read it, and no
+  correctness property may depend on it being delivered.
+
+### 2.2 Grammar
 
 ```
+evt.{context}.{service}.{entity}.{id}.{event}
 rpc.{context}.{service}.{entity}.{action}.v{n}
+api.{context}.{service}.{entity}.{action}.v{n}
+notify.{context}.{service}.{entity}.changed
+obs.rpc.{context}.{service}.{entity}.{action}
+obs.api.{context}.{service}.{entity}.{action}
 ```
 
-- `rpc` — fixed literal, like `evt`; avoids the same wildcard-overlap issue
-  with `$SYS.>` / `$JS.API.>` / `$SRV.>`.
-- `{context}` — tenant/region scope, only included at the subject level if a
-  caller genuinely needs subject-level routing/authz by context; otherwise
-  carry it in the payload and drop it from the subject.
+- The leading token is always a **fixed literal**, never a wildcard — a stream
+  subject filter with an unbounded wildcard in first position can textually
+  overlap `$SYS.>` / `$JS.API.>` / `$SRV.>`, which JetStream refuses without
+  `NoAck` (and `NoAck` would break the synchronous Publish/PubAck flow every
+  command handler relies on).
 - `{service}` — the service that owns/answers the call.
 - `{entity}.{action}` — mirrors the `commands.XHandler` / `queries.X` method
   name 1:1, so Swagger `operationId`, subject, and Go method stay aligned.
 - `v{n}` — same versioning discipline as event subjects.
 
-Example: `rpc.acme.refdata.item.get.v1`.
+Examples: `rpc.acme-northdiv.refdata.item.get.v1` (service-to-service),
+`api.acme-northdiv.shipping.ship.arrive.v1` (browser),
+`notify.acme-northdiv.shipping.ship.changed`.
 
-Three subject families, not interchangeable:
+> A caution on reading examples: this repo's **tenants** are named `acme` /
+> `globex` / `default`, and a **company context** may legitimately carry the
+> same string (company `acme` → context `acme`). They are still different axes
+> — the context token in a subject is *never* interpreted as the tenant. Where
+> a doc needs to be unambiguous it uses the hyphenated business-unit form
+> (`acme-northdiv`), which can only be a context value.
 
-- `rpc.*` — query-like or synchronous operations that return a result now.
-- `cmd.*` — durable asynchronous intent; publish, then observe the result via
-  events or a status/read model. (Not yet used in this repo; noted for
-  completeness.)
-- `evt.*` — immutable facts, not an alternate API method. Never map `evt.*`
-  to a Swagger-shaped contract.
+### 2.3 `{context}` — company / business unit, never tenant, never region
+
+`{context}` identifies **which company, or which business unit within a
+company, the data belongs to**. It is a *soft partition inside a single
+tenant's own subject space* — an addressing and routing concern, not a
+security boundary.
+
+Three axes are deliberately separate and must not be conflated:
+
+| Axis | Mechanism | Appears in a subject? |
+|---|---|---|
+| **Region** | Separate stack deployment, its own NATS instance | **No** — implicit in which regional deployment you are connected to |
+| **Tenant** | **NATS account** (hard, server-enforced isolation + per-tenant resource limits) | **No** — implicit in which account the connection authenticated into |
+| **Company / business unit** | `{context}` subject token + KV bucket suffix | **Yes** |
+
+**Tenancy is enforced strictly and only by NATS accounts.** This follows
+NATS's own guidance: an account is an isolated tenant with its own subject
+space, and an account boundary is absolute — two accounts using an identical
+literal subject never see each other's traffic, with no cross-visibility
+absent an explicit export/import. Accounts additionally carry independent
+resource limits (connections, JetStream storage, streams, consumers) that a
+naming convention cannot express. Subject-prefix/permission-based separation
+inside one shared account is the pattern NATS documents as *legacy* and
+explicitly weaker; it is not used here for tenancy. Proven in
+`shipping-service/internal/natsaccounts/isolation_test.go` (identical
+subjects, identical stream names, and identical KV bucket names across two
+accounts, all mutually invisible) and again for runtime-minted accounts in
+`accounts-service/accounts/provisioner_test.go`.
+
+Consequently `{context}` **never contains the tenant name**. Encoding it
+there would be redundant (a connection on `acme`'s account can only ever
+reach `acme`'s subjects regardless of token text) and actively misleading —
+it implies the isolation lives in the subject string when it does not. This
+reverses the pre-Phase-13 model, where tenancy *was* only a string
+convention in this token; see `ARCHITECTURE.md` § "Multi-Tenancy Isolation
+Spike (Phase 13)".
+
+**Context vocabulary is per-tenant.** Because the account boundary already
+scopes it, two tenants could in principle use identical context strings without
+collision — but see the fully-qualified rule below, which means in practice they
+do not.
+
+#### One tenant may host a company *group*
+
+The hierarchy level is `company or company group`: a single tenant account can
+contain **more than one company**. This is why a company qualifier inside
+`{context}` is meaningful rather than a redundant echo of the account name —
+for a single-company tenant it is simply a harmless degenerate case.
+
+#### Contexts are fully qualified
+
+A context value carries its company, even where the account boundary already
+implies it:
+
+```
+acme                       # company-wide (all of Acme)
+acme-atlantic-fleet        # business unit within Acme
+```
+
+The reasoning is worth stating because the alternative looks cheaper.
+`refdata-service` runs on a **single shared account** and so has no boundary to
+tell it whose corpus a request concerns — the company qualifier *must* be in the
+value. `shipping-service` does have a per-tenant account and could use the bare
+`atlantic-fleet`. Allowing each service its locally-minimal form would mean the
+same logical scope has two different canonical names depending on which service
+you ask, and every cross-service call would need a composition rule to translate
+between them — which is a smaller copy of exactly the divergence § 2.3 exists to
+eliminate. So: **one vocabulary everywhere.** The cost is a prefix that is
+technically redundant inside shipping's own account; the benefit is that a
+context value means one thing everywhere and crosses a service boundary
+unchanged.
+
+#### Composite form and the wildcard trade-off
+
+A business unit is expressed by **hyphenating it into the single token**, not
+by adding a token:
+
+```
+acme                 # company, no business units
+acme-northdiv        # business unit within a company
+```
+
+This is mandatory, not stylistic. Every subject family above has **fixed
+arity**, and parsers depend on it — `domain.SubjectDetails` rejects anything
+that is not exactly 6 tokens, and the `browserrpc`/`natsrpc` adapters read
+`{context}` by fixed position. Dot-separating company from business unit
+would make arity vary (7 tokens with a business unit, 6 without) for the same
+subject family, so a parser could no longer tell whether token 3 is a
+business unit or a `{service}` that shifted position. Hyphenation keeps
+`{context}` exactly one opaque token whether or not a business unit exists.
+
+`{context}` must also satisfy `^[A-Za-z0-9_-]+$` (BR-020,
+`domain.ValidateContext`) — stricter than NATS subjects alone require,
+because the value is also a **KV bucket-name component** (`{prefix}-{context}`),
+and bucket names permit only `[A-Za-z0-9_-]`. This is why sigils such as `$`
+cannot be used in a context value: `dict-$global$` is an invalid bucket name.
+
+**Known limitation (accepted):** NATS wildcards match whole tokens, never a
+prefix within a token, so `evt.acme-*.shipping.>` is **not** valid and there
+is no way to subscribe to "every business unit of company `acme`" by subject
+matching. Where that grouping is needed it is answered by the KV/Postgres
+lookup that already resolves contexts, not by subject matching. Treat the
+hyphenated value as **opaque** — do not split on `-` to recover company vs.
+business unit; if that decomposition is needed, store the two parts as
+separate fields alongside the context, as `refdata.contexts` does.
+
+**No hard isolation between business units.** Two contexts inside one tenant
+account are mutually *visible* — the separation is organizational, enforced
+by application-layer scoping, not by NATS. If two business units ever need to
+be mutually opaque (e.g. regulatory separation between divisions of one
+company), that requires a **separate NATS account**, i.e. modelling them as
+distinct tenants. `{context}` cannot provide it, and no design should assume
+otherwise.
+
+#### Reserved contexts (`_` prefix)
+
+Context values beginning with `_` are **reserved for platform/system use** and
+may never be claimed by a company or business unit — `accounts-service`
+rejects `_`-prefixed names at provisioning time, so the reservation is
+enforced rather than merely conventional. The reserved namespace echoes NATS's
+own `_INBOX` convention.
+
+- `_platform` — the platform-wide root corpus (standards-based reference data,
+  shared templates). Root of refdata-service's context inheritance tree.
+
+#### Context-free services
+
+Platform services whose operations *administer the tenant/company axis
+itself* take **no `{context}` token at all**, because scoping them by company
+is not a coherent question — creating an account is what brings a company into
+existence:
+
+```
+rpc.accounts.account.create.v1
+rpc.auth.token.mint.v1
+```
+
+This is the rule for `auth-service` and `accounts-service`. It is not a
+blanket "platform services skip context" exemption: `refdata-service` is
+equally a platform service but its *data* is genuinely company-scoped, so it
+keeps `{context}`.
+
+### 2.4 `rpc.*` vs `api.*` — separation rule
+
+The two families never collide as subject strings, but the same *operation*
+may legitimately need to be reachable by both a backend service and a
+browser. Rule:
+
+> An operation may be registered on both `rpc.*` and `api.*` when both a
+> backend and a browser caller genuinely need it, but each registration is
+> **independent** — its own adapter and its own permission grant. A browser
+> credential must **never** be granted `rpc.>`, and backend code must
+> **never** call `api.>`.
+
+- Both registrations call the **same** `commands.*Handler` / `queries.*`
+  method (§ 3), so dual exposure costs adapter boilerplate, never duplicated
+  business logic.
+- The subject prefix declares *who an operation was designed for*;
+  **permissions** decide who may actually call it. The prefix is not itself an
+  enforcement mechanism. Concretely, `auth-service`'s browser JWTs grant only
+  `api.>` / `notify.>` — never `rpc.>` — so adding a backend-only `rpc.*`
+  endpoint inside a tenant account can never become browser-reachable by
+  accident.
+- If backend code appears to need `api.>`, that is a signal the operation
+  should also be registered on `rpc.*` for that caller — not a reason to call
+  through the browser family.
+- Contracts must not drift: if a browser genuinely needs a different shape
+  from the backend one (lighter, paginated), introduce an explicit
+  `api.*.v2`, never a silent divergence of a nominally shared `v1`.
+
+A useful side effect for tooling: because `obs.rpc.*` and `obs.api.*` are
+distinct, Admin/technical tooling can tell backend-originated from
+browser-originated traffic without inspecting payloads.
 
 ## 3. Dual-adapter pattern
 

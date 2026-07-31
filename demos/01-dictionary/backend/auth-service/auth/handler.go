@@ -1,0 +1,118 @@
+// Package auth implements Phase 15c: a service that mints short-lived,
+// permission-restricted NATS user JWTs so a browser can connect directly to
+// NATS over WebSocket (rpc.*/notify.* only — see token.go) instead of going
+// through REST + SSE for every read and write.
+//
+// Routes (no auth gate — see connectInfo's doc comment for why):
+//
+//	GET   /api/auth/connectInfo?tenant={name}   mint a browser NATS user JWT for tenant
+//	GET   /api/auth/tenants                     list switchable tenant names
+//	POST  /api/auth/login                       placeholder for the future WorkOS flow (BR-UA01) — 501
+package auth
+
+import (
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+)
+
+type errorResponse struct {
+	Error string `json:"error"`
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, errorResponse{Error: msg})
+}
+
+// Handlers wires the account reader and the NATS WebSocket URL the browser
+// should dial into the HTTP layer.
+type Handlers struct {
+	Accounts *AccountReader
+	WSUrl    string // e.g. "ws://localhost:9222" — returned verbatim in connectInfo
+	Log      *slog.Logger
+}
+
+func NewHandlers(accounts *AccountReader, wsURL string, log *slog.Logger) *Handlers {
+	return &Handlers{Accounts: accounts, WSUrl: wsURL, Log: log}
+}
+
+func (h *Handlers) Mount(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/auth/connectInfo", h.connectInfo)
+	mux.HandleFunc("GET /api/auth/tenants", h.tenants)
+	mux.HandleFunc("POST /api/auth/login", h.login)
+}
+
+// connectInfo mints and returns a fresh browser NATS credential for the
+// requested tenant. Deliberately ungated: this endpoint IS how the browser
+// obtains its first credential (there is nothing to authenticate against
+// yet), matching BR-UA01's JIT-provisioning intent minus the WorkOS login
+// step it's a placeholder for — see login below and Main-POC-Plan.md
+// Phase 15c's "known POC trade-offs" for why this is acceptable for a local
+// lab stack and what production would add in front of it.
+func (h *Handlers) connectInfo(w http.ResponseWriter, r *http.Request) {
+	tenant := r.URL.Query().Get("tenant")
+	if tenant == "" {
+		writeError(w, http.StatusBadRequest, "tenant is required")
+		return
+	}
+
+	acc, err := h.Accounts.Get(r.Context(), tenant)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "unknown tenant")
+		return
+	}
+	if err != nil {
+		h.Log.Error("look up tenant", "tenant", tenant, "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if acc.Status != statusActive {
+		writeError(w, http.StatusForbidden, "tenant is not active")
+		return
+	}
+	if acc.SigningKeySeed == "" {
+		// A seeded pre-existing account (DEFAULT/ACME/GLOBEX) that
+		// accounts-service has never minted a signing key for — see
+		// accounts/store.go's Account.SigningKeySeed doc comment. Without a
+		// signing key this service cannot sign a user JWT for it.
+		writeError(w, http.StatusConflict, "tenant has no signing key on record")
+		return
+	}
+
+	info, err := MintBrowserToken(acc.PublicKey, acc.SigningKeySeed, tenant, h.WSUrl)
+	if err != nil {
+		h.Log.Error("mint browser token", "tenant", tenant, "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to mint browser credential")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, info)
+}
+
+type tenantsResponse struct {
+	Tenants []string `json:"tenants"`
+}
+
+func (h *Handlers) tenants(w http.ResponseWriter, r *http.Request) {
+	names, err := h.Accounts.ListTenants(r.Context())
+	if err != nil {
+		h.Log.Error("list tenants", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, tenantsResponse{Tenants: names})
+}
+
+// login is a placeholder for BR-UA01's WorkOS-first JIT-provisioning flow —
+// out of scope for Phase 15c, which only needs connectInfo to let an
+// already-known tenant's browser connect directly to NATS.
+func (h *Handlers) login(w http.ResponseWriter, r *http.Request) {
+	writeError(w, http.StatusNotImplemented, "login is not yet implemented (BR-UA01)")
+}

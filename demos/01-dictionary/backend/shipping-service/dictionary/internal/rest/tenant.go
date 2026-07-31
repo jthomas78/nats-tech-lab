@@ -18,6 +18,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/queries"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/eventhandler"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/natsrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 )
@@ -61,26 +62,53 @@ func discoverTenants(credsDir string) (map[string]TenantCredentials, error) {
 	return out, nil
 }
 
-// SwitchTenant connects a fresh, tenant-credentialed NATS connection and
-// rebuilds every tenant-scoped resource against it — JetStream context, the
-// four KV stores, the four durable projectors, and the ship/container
-// command and query handlers — then swaps them all into Deps atomically via
-// SetDeps.
+// tenantResources bundles everything scoped to ONE tenant NATS account: its
+// own connection, JetStream context, the four KV stores, the ship/container
+// command handlers, the query handlers, the four durable projector
+// ConsumeContexts, and its natsrpc.Adapter (Phase 15a).
+//
+// Before Phase 15, this bundle (minus the Adapter) was rebuilt from scratch
+// on every SwitchTenant call — including switching BACK to a
+// previously-active tenant — and the old bundle's projectors were Stop()'d
+// on every switch-away. Phase 15's natsrpc adapters need to keep answering
+// rpc.* calls for EVERY known tenant regardless of which single tenant
+// REST's SwitchTenant currently has active (a browser connected directly to
+// ACME's account must keep working even while the Admin operator has
+// GLOBEX active) — and a browser command published into a tenant's own
+// SHIPPING stream needs that SAME tenant's projectors running to update its
+// KV read model and fire notify.* (Phase 15b), regardless of REST's active
+// selection. So every tenant's resources are now created ONCE, the first
+// time that tenant is seen (either at Startup, via EnsureAllTenants, or the
+// first time an operator switches to it), and then kept alive permanently —
+// see ensureTenantResources. SwitchTenant no longer stops or rebuilds
+// anything; it only changes which tenant's *already-running* bundle REST/
+// SSE's Deps fields point at.
+type tenantResources struct {
+	nc                             *nats.Conn
+	js                             jetstream.JetStream
+	kvA, kvB, kvContainers, kvMeta *kvstore.Store
+	ships                          *commands.ShipHandler
+	containers                     *commands.ContainerHandler
+	shapeB                         *queries.ShapeB
+	shapeC                         *queries.ShapeC
+	terminal                       *queries.Terminal
+	meta                           *queries.Meta
+	shapeA                         *queries.ShapeA
+	projectors                     []jetstream.ConsumeContext
+	rpcAdapter                     *natsrpc.Adapter
+}
+
+// SwitchTenant points REST/SSE's Deps fields at tenant's persistent resource
+// bundle, creating it first via ensureTenantResources if this is the first
+// time tenant has ever been seen. See tenantResources's doc comment for why
+// switching is no longer destructive — this never stops or rebuilds
+// anything that already exists, unlike the pre-Phase-15 version of this
+// function.
 //
 // This is deliberately the *same* code path used for the initial connect at
 // Startup and for every later switch (composition.go calls it once with the
 // initial tenant before Mount) — there is no separate bootstrap case to keep
 // in sync.
-//
-// Per Main-POC-Plan.md Phase 13b (creds mechanism updated in Phase 14a): the
-// four projector durables are
-// server-side state that outlives its client (NATS docs: durables "remain
-// even when there are periods of inactivity"), so this only stops the old
-// client-side Consume() loops — it never deletes or recreates a durable, and
-// no stream position is lost switching back to a previously active tenant.
-// The memoized kvstore.Store bucket handles are never reused across a
-// switch — kvstore.New always starts a fresh instance — so a cached handle
-// from the old account can never leak into the new one.
 func (h *Handlers) SwitchTenant(ctx context.Context, tenant string) error {
 	prev := h.deps()
 	known, err := discoverTenants(prev.CredsDir)
@@ -95,29 +123,66 @@ func (h *Handlers) SwitchTenant(ctx context.Context, tenant string) error {
 		return nil // already active; not an error, just a no-op
 	}
 
-	// eventhandler.register() closes over this ctx for the *entire lifetime*
-	// of each projector — every event it ever processes calls project(ctx, ...).
-	// Startup's ctx is already long-lived (canceled only on SIGINT/SIGTERM), but
-	// SwitchTenant is also called with an HTTP request's r.Context() from
-	// switchTenant below, which is canceled the instant that response is sent —
-	// stripping cancellation (keeping any values) is required so a
-	// REST-triggered switch doesn't leave every subsequent event failing with
-	// "context canceled" and stuck redelivering forever.
+	res, err := h.ensureTenantResources(ctx, tenant, creds.CredsPath)
+	if err != nil {
+		return err
+	}
+
+	// Re-read: ensureTenantResources may have just added tenant to the
+	// shared TenantResources map via its own SetDeps — start from that
+	// latest snapshot rather than the possibly-stale prev.
+	next := h.deps()
+	next.Ships = res.ships
+	next.Containers = res.containers
+	next.ShapeB = res.shapeB
+	next.ShapeC = res.shapeC
+	next.Terminal = res.terminal
+	next.Meta = res.meta
+	next.KVA, next.KVB, next.KVCont, next.KVMeta = res.kvA, res.kvB, res.kvContainers, res.kvMeta
+	next.JS = res.js
+	next.Tenant = tenant
+	next.TenantNC = res.nc
+
+	h.SetDeps(next)
+	return nil
+}
+
+// ensureTenantResources returns tenant's persistent resource bundle,
+// creating it on first sight. Idempotent: a tenant already present in
+// TenantResources is returned as-is — no reconnect, no re-registration, and
+// critically no Stop() of anything, since other tenants' browsers may be
+// actively relying on that bundle's rpc.* adapter and projectors right now.
+func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath string) (*tenantResources, error) {
+	prev := h.deps()
+	if res, ok := prev.TenantResources[tenant]; ok {
+		return res, nil
+	}
+
+	// eventhandler.register() and natsrpc's micro.AddService close over this
+	// ctx (or a derived one) for the *entire remaining lifetime of the
+	// process* now — not just until the next switch, since resources here
+	// are never torn down. Startup's ctx is already long-lived (canceled
+	// only on SIGINT/SIGTERM), but this is also reachable from an HTTP
+	// request's r.Context() via switchTenant below, which is canceled the
+	// instant that response is sent — stripping cancellation (keeping any
+	// values) is required so a REST-triggered first-sight of a tenant
+	// doesn't leave its projectors failing every event with "context
+	// canceled" and stuck redelivering forever.
 	ctx = context.WithoutCancel(ctx)
 
-	nc, err := nats.Connect(prev.NatsURL, nats.Name("shipping-service"), nats.UserCredentials(creds.CredsPath))
+	nc, err := nats.Connect(prev.NatsURL, nats.Name("shipping-service"), nats.UserCredentials(credsPath))
 	if err != nil {
-		return fmt.Errorf("connect as tenant %q: %w", tenant, err)
+		return nil, fmt.Errorf("connect as tenant %q: %w", tenant, err)
 	}
 
 	js, err := jetstream.New(nc)
 	if err != nil {
 		nc.Close()
-		return fmt.Errorf("jetstream context for tenant %q: %w", tenant, err)
+		return nil, fmt.Errorf("jetstream context for tenant %q: %w", tenant, err)
 	}
 	if _, err := jstream.CreateStream(ctx, js, domain.StreamName, domain.StreamSubjects()); err != nil {
 		nc.Close()
-		return fmt.Errorf("create stream for tenant %q: %w", tenant, err)
+		return nil, fmt.Errorf("create stream for tenant %q: %w", tenant, err)
 	}
 
 	kvA := kvstore.New(js, domain.ShapeABucketPrefix)
@@ -125,52 +190,118 @@ func (h *Handlers) SwitchTenant(ctx context.Context, tenant string) error {
 	kvContainers := kvstore.New(js, domain.ContainerBucketPrefix)
 	kvMeta := kvstore.New(js, domain.MetaBucketPrefix)
 
-	projectors, err := registerProjectors(ctx, js, kvA, kvB, kvContainers, kvMeta, prev.ShipRepo, prev.ContainerRepo, prev.Log)
+	projectors, err := registerProjectors(ctx, js, kvA, kvB, kvContainers, kvMeta, nc, prev.ShipRepo, prev.ContainerRepo, prev.Log)
 	if err != nil {
 		nc.Close()
-		return fmt.Errorf("register projectors for tenant %q: %w", tenant, err)
+		return nil, fmt.Errorf("register projectors for tenant %q: %w", tenant, err)
 	}
 
 	pub := jstream.NewPublisher(js)
-	next := prev // copy: static fields (Ports, Refdata, DefaultJS, NC, repos, NatsURL, CredsDir, Log) carry over unchanged
-	next.Ships = commands.NewShipHandler(pub, js, prev.PortRepo)
-	next.Containers = commands.NewContainerHandler(pub, js, prev.PortRepo)
-	next.ShapeB = queries.NewShapeB(kvB, prev.ShipRepo)
-	next.ShapeC = queries.NewShapeC(js)
-	next.Terminal = queries.NewTerminal(kvContainers)
-	next.Meta = queries.NewMeta(kvMeta)
-	next.KVA, next.KVB, next.KVCont, next.KVMeta = kvA, kvB, kvContainers, kvMeta
-	next.JS = js
-	next.Tenant = tenant
-	next.TenantNC = nc
-	next.Projectors = projectors
+	ships := commands.NewShipHandler(pub, js, prev.PortRepo)
+	containers := commands.NewContainerHandler(pub, js, prev.PortRepo)
+	terminal := queries.NewTerminal(kvContainers)
+	meta := queries.NewMeta(kvMeta)
+	shapeA := queries.NewShapeA(kvA)
 
-	h.SetDeps(next)
-
-	// Stop the OLD client-side subscriptions only — the durables themselves
-	// are server-side state and are left exactly as they are.
-	for _, cc := range prev.Projectors {
-		cc.Stop()
+	rpcAdapter, err := natsrpc.New(nc, natsrpc.Deps{
+		Ships:      ships,
+		Containers: containers,
+		Ports:      prev.Ports, // static: Postgres-backed, not account-scoped — shared across every tenant's adapter
+		Terminal:   terminal,
+		Meta:       meta,
+		ShapeA:     shapeA,
+		Log:        prev.Log,
+	})
+	if err != nil {
+		stopAll(projectors)
+		nc.Close()
+		return nil, fmt.Errorf("register rpc adapter for tenant %q: %w", tenant, err)
 	}
-	if prev.TenantNC != nil {
-		prev.TenantNC.Drain() //nolint:errcheck
+
+	res := &tenantResources{
+		nc:           nc,
+		js:           js,
+		kvA:          kvA,
+		kvB:          kvB,
+		kvContainers: kvContainers,
+		kvMeta:       kvMeta,
+		ships:        ships,
+		containers:   containers,
+		shapeB:       queries.NewShapeB(kvB, prev.ShipRepo),
+		shapeC:       queries.NewShapeC(js),
+		terminal:     terminal,
+		meta:         meta,
+		shapeA:       shapeA,
+		projectors:   projectors,
+		rpcAdapter:   rpcAdapter,
+	}
+
+	// Copy-on-write into the shared map, re-reading h.deps() rather than
+	// reusing prev — this call may race a sibling ensureTenantResources call
+	// for a DIFFERENT tenant (e.g. EnsureAllTenants looping over several at
+	// once); starting from the latest snapshot avoids one call's map update
+	// clobbering the other's. This is a lab/POC-scale race window (two
+	// tenants first-seen in the same instant), not a hot path.
+	latest := h.deps()
+	newMap := make(map[string]*tenantResources, len(latest.TenantResources)+1)
+	for k, v := range latest.TenantResources {
+		newMap[k] = v
+	}
+	newMap[tenant] = res
+	latest.TenantResources = newMap
+	h.SetDeps(latest)
+
+	return res, nil
+}
+
+// EnsureAllTenants creates persistent resources (see ensureTenantResources)
+// for every tenant currently discoverable in CredsDir that doesn't already
+// have them — called once at Startup so every tenant present at boot gets
+// working rpc.*/notify.* support immediately, not just the one REST starts
+// out active on. A tenant minted later by accounts-service is instead
+// picked up the first time any SwitchTenant call names it (an operator
+// switching REST to it, e.g.) — there is no background poll for newly
+// minted tenants nobody has referenced yet.
+//
+// Failures are logged and skipped per-tenant rather than aborting Startup:
+// one tenant's bad creds file (or a NATS hiccup while dialing it)
+// shouldn't prevent every other tenant, or the service itself, from coming
+// up.
+func (h *Handlers) EnsureAllTenants(ctx context.Context) error {
+	deps := h.deps()
+	known, err := discoverTenants(deps.CredsDir)
+	if err != nil {
+		return err
+	}
+	for tenant, creds := range known {
+		if _, err := h.ensureTenantResources(ctx, tenant, creds.CredsPath); err != nil {
+			h.deps().Log.Error("ensure tenant resources at startup", "tenant", tenant, "err", err)
+		}
 	}
 	return nil
 }
 
 // registerProjectors starts the four projector durables against js and
-// returns their ConsumeContexts so a future switch can stop them cleanly.
+// returns their ConsumeContexts. Unlike before Phase 15, the caller never
+// stops these — see tenantResources's doc comment.
+//
+// nc is this tenant's own connection, threaded through to RegisterShapeA/
+// RegisterContainers/RegisterMeta (Phase 15b) so their notify.* publishes
+// land on the SAME account a browser connected to this tenant is listening
+// on — never a shared/DEFAULT connection, which would publish into the
+// wrong (or an inaccessible) account entirely.
 func registerProjectors(
 	ctx context.Context,
 	js jetstream.JetStream,
 	kvA, kvB, kvContainers, kvMeta *kvstore.Store,
+	nc *nats.Conn,
 	shipRepo domain.ShipRepository,
 	containerRepo domain.ContainerRepository,
 	log *slog.Logger,
 ) ([]jetstream.ConsumeContext, error) {
 	var out []jetstream.ConsumeContext
 
-	ccA, err := eventhandler.RegisterShapeA(ctx, js, kvA, log)
+	ccA, err := eventhandler.RegisterShapeA(ctx, js, kvA, nc, log)
 	if err != nil {
 		return nil, err
 	}
@@ -183,14 +314,14 @@ func registerProjectors(
 	}
 	out = append(out, ccB)
 
-	ccCont, err := eventhandler.RegisterContainers(ctx, js, kvContainers, containerRepo, log)
+	ccCont, err := eventhandler.RegisterContainers(ctx, js, kvContainers, nc, containerRepo, log)
 	if err != nil {
 		stopAll(out)
 		return nil, err
 	}
 	out = append(out, ccCont)
 
-	ccMeta, err := eventhandler.RegisterMeta(ctx, js, kvMeta, log)
+	ccMeta, err := eventhandler.RegisterMeta(ctx, js, kvMeta, nc, log)
 	if err != nil {
 		stopAll(out)
 		return nil, err
