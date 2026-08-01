@@ -2,13 +2,21 @@ package domain
 
 import "errors"
 
-// Context is a tenant or reusable template in the reference-data hierarchy.
-// Parent is empty for a root template.
+// Context is a company/business-unit scope or reusable template in the
+// reference-data hierarchy — see ARCHITECTURE-COMMUNICATIONS.md § 2.3 for
+// what this token means and does not mean (never the tenant, never the
+// region). Parent is empty for a root template.
 type Context struct {
 	Context     string `json:"context"`
 	Parent      string `json:"parent,omitempty"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	// Tenant is governance/ownership metadata only (Phase 16d, BR-D34) — the
+	// NATS account name this context belongs to, empty for "_"-reserved
+	// platform contexts which no tenant owns. NOT enforced: refdata-service
+	// has no caller identity on its single shared NATS account to check this
+	// against. See Refdata-Versioning-Tenancy-Design.md § 2.1.
+	Tenant string `json:"tenant,omitempty"`
 }
 
 var (

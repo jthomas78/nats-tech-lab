@@ -102,8 +102,22 @@ via decentralized JWTs (`github.com/nats-io/jwt/v2` + `nkeys`), replacing
   to compare case-insensitively as defense in depth, in case a reserved-named
   `.creds` file ever reaches that directory some other way (e.g. hand-placed
   outside this API).
+- **BR-AC07 (Phase 16c):** An account name beginning with `_` is rejected
+  (`400 Bad Request`) — that prefix is reserved for platform/system use
+  across the whole subject/context taxonomy (`ARCHITECTURE-COMMUNICATIONS.md`
+  § 2.3), not a concept this service owns itself. It matters here because, in
+  the common case where a tenant has no company-group split (Main-POC-Plan.md
+  Phase 16 decision 11), a tenant's own name doubles as its company
+  `{context}` value — so an account named e.g. `_ops` would let that reuse
+  silently claim the reserved `_platform` namespace the moment it's used as a
+  context. refdata-service's own `ValidateContextName` (BR-D33,
+  `BUSINESS_RULES-REFDATA.md`) is the primary enforcement point for context
+  values specifically, since a context can be registered independently of any
+  account; this rule closes the same gap one level up, where a tenant
+  identity is minted in the first place. Only a *leading* underscore is
+  rejected — `acme_northdiv` is unaffected.
 
-The lifecycle rules (BR-AC01, BR-AC03, BR-AC04, BR-AC06) are enforced in
+The lifecycle rules (BR-AC01, BR-AC03, BR-AC04, BR-AC06, BR-AC07) are enforced in
 `accounts/handler.go`'s `createAccount`/`suspendAccount`/`reactivateAccount`;
 the JWT mechanics behind BR-AC02/BR-AC03/BR-AC04 are in
 `accounts/provisioner.go`'s `CreateAccount`/`DeleteAccount`/

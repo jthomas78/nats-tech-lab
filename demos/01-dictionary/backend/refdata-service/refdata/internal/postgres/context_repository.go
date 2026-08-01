@@ -30,25 +30,27 @@ func (r *ContextRepository) Register(ctx context.Context, value domain.Context) 
 		}
 	}
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO refdata.contexts (context, parent, name, description)
-		VALUES ($1, NULLIF($2, ''), $3, $4)
-		ON CONFLICT (context) DO UPDATE SET parent = EXCLUDED.parent, name = EXCLUDED.name, description = EXCLUDED.description`,
-		value.Context, value.Parent, value.Name, value.Description)
+		INSERT INTO refdata.contexts (context, parent, name, description, tenant)
+		VALUES ($1, NULLIF($2, ''), $3, $4, NULLIF($5, ''))
+		ON CONFLICT (context) DO UPDATE SET parent = EXCLUDED.parent, name = EXCLUDED.name, description = EXCLUDED.description, tenant = EXCLUDED.tenant`,
+		value.Context, value.Parent, value.Name, value.Description, value.Tenant)
 	return err
 }
 
 func (r *ContextRepository) Get(ctx context.Context, key string) (domain.Context, error) {
 	var value domain.Context
-	err := r.db.QueryRowContext(ctx, `SELECT context, COALESCE(parent, ''), name, description FROM refdata.contexts WHERE context = $1`, key).
-		Scan(&value.Context, &value.Parent, &value.Name, &value.Description)
+	var tenant sql.NullString
+	err := r.db.QueryRowContext(ctx, `SELECT context, COALESCE(parent, ''), name, description, tenant FROM refdata.contexts WHERE context = $1`, key).
+		Scan(&value.Context, &value.Parent, &value.Name, &value.Description, &tenant)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Context{}, domain.ErrContextNotFound
 	}
+	value.Tenant = tenant.String
 	return value, err
 }
 
 func (r *ContextRepository) List(ctx context.Context) ([]domain.Context, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT context, COALESCE(parent, ''), name, description FROM refdata.contexts ORDER BY context`)
+	rows, err := r.db.QueryContext(ctx, `SELECT context, COALESCE(parent, ''), name, description, tenant FROM refdata.contexts ORDER BY context`)
 	if err != nil {
 		return nil, err
 	}
@@ -56,9 +58,35 @@ func (r *ContextRepository) List(ctx context.Context) ([]domain.Context, error) 
 	values := []domain.Context{}
 	for rows.Next() {
 		var value domain.Context
-		if err := rows.Scan(&value.Context, &value.Parent, &value.Name, &value.Description); err != nil {
+		var tenant sql.NullString
+		if err := rows.Scan(&value.Context, &value.Parent, &value.Name, &value.Description, &tenant); err != nil {
 			return nil, err
 		}
+		value.Tenant = tenant.String
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
+// ListByTenant returns every context whose tenant column equals tenant, plus
+// every context with no tenant link at all (Phase 16f) — see the domain
+// interface doc comment for why the platform roots are always included.
+func (r *ContextRepository) ListByTenant(ctx context.Context, tenant string) ([]domain.Context, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT context, COALESCE(parent, ''), name, description, tenant
+		FROM refdata.contexts WHERE tenant = $1 OR tenant IS NULL ORDER BY context`, tenant)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := []domain.Context{}
+	for rows.Next() {
+		var value domain.Context
+		var tenantCol sql.NullString
+		if err := rows.Scan(&value.Context, &value.Parent, &value.Name, &value.Description, &tenantCol); err != nil {
+			return nil, err
+		}
+		value.Tenant = tenantCol.String
 		values = append(values, value)
 	}
 	return values, rows.Err()
@@ -67,12 +95,12 @@ func (r *ContextRepository) List(ctx context.Context) ([]domain.Context, error) 
 func (r *ContextRepository) Ancestors(ctx context.Context, key string) ([]domain.Context, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		WITH RECURSIVE tree AS (
-			SELECT context, parent, name, description, 0 AS depth FROM refdata.contexts WHERE context = $1
+			SELECT context, parent, name, description, tenant, 0 AS depth FROM refdata.contexts WHERE context = $1
 			UNION ALL
-			SELECT c.context, c.parent, c.name, c.description, tree.depth + 1
+			SELECT c.context, c.parent, c.name, c.description, c.tenant, tree.depth + 1
 			FROM refdata.contexts c JOIN tree ON c.context = tree.parent
 			WHERE tree.depth < 100
-		) SELECT context, COALESCE(parent, ''), name, description FROM tree ORDER BY depth`, key)
+		) SELECT context, COALESCE(parent, ''), name, description, tenant FROM tree ORDER BY depth`, key)
 	if err != nil {
 		return nil, err
 	}
@@ -80,9 +108,11 @@ func (r *ContextRepository) Ancestors(ctx context.Context, key string) ([]domain
 	values := []domain.Context{}
 	for rows.Next() {
 		var value domain.Context
-		if err := rows.Scan(&value.Context, &value.Parent, &value.Name, &value.Description); err != nil {
+		var tenant sql.NullString
+		if err := rows.Scan(&value.Context, &value.Parent, &value.Name, &value.Description, &tenant); err != nil {
 			return nil, err
 		}
+		value.Tenant = tenant.String
 		values = append(values, value)
 	}
 	if len(values) == 0 {
@@ -94,12 +124,12 @@ func (r *ContextRepository) Ancestors(ctx context.Context, key string) ([]domain
 func (r *ContextRepository) Descendants(ctx context.Context, key string) ([]domain.Context, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		WITH RECURSIVE tree AS (
-			SELECT context, parent, name, description, 0 AS depth FROM refdata.contexts WHERE context = $1
+			SELECT context, parent, name, description, tenant, 0 AS depth FROM refdata.contexts WHERE context = $1
 			UNION ALL
-			SELECT c.context, c.parent, c.name, c.description, tree.depth + 1
+			SELECT c.context, c.parent, c.name, c.description, c.tenant, tree.depth + 1
 			FROM refdata.contexts c JOIN tree ON c.parent = tree.context
 			WHERE tree.depth < 100
-		) SELECT context, COALESCE(parent, ''), name, description FROM tree ORDER BY depth, context`, key)
+		) SELECT context, COALESCE(parent, ''), name, description, tenant FROM tree ORDER BY depth, context`, key)
 	if err != nil {
 		return nil, err
 	}
@@ -107,9 +137,11 @@ func (r *ContextRepository) Descendants(ctx context.Context, key string) ([]doma
 	values := []domain.Context{}
 	for rows.Next() {
 		var value domain.Context
-		if err := rows.Scan(&value.Context, &value.Parent, &value.Name, &value.Description); err != nil {
+		var tenant sql.NullString
+		if err := rows.Scan(&value.Context, &value.Parent, &value.Name, &value.Description, &tenant); err != nil {
 			return nil, err
 		}
+		value.Tenant = tenant.String
 		values = append(values, value)
 	}
 	if len(values) == 0 {

@@ -52,4 +52,34 @@ var _ = Describe("Context Domain Rules", func() {
 			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
 		})
 	})
+
+	Context("BR-D33: a context beginning with '_' is reserved for platform use", func() {
+		It("rejects a company context that starts with an underscore", func() {
+			err := ch.Register(ctx, domain.Context{Context: "_acme", Name: "Sneaky"})
+			Expect(errors.Is(err, domain.ErrReservedContextPrefix)).To(BeTrue())
+		})
+
+		It("rejects the exact reserved platform root name too — this endpoint is not how it gets created", func() {
+			err := ch.Register(ctx, domain.Context{Context: "_platform", Name: "Platform"})
+			Expect(errors.Is(err, domain.ErrReservedContextPrefix)).To(BeTrue())
+		})
+
+		It("still allows a hyphenated business-unit context that merely contains an underscore mid-string", func() {
+			Expect(ch.Register(ctx, domain.Context{Context: "acme_northdiv", Name: "Acme North Division"})).To(Succeed())
+		})
+	})
+
+	Context("Phase 16d: RegisterPlatformRoot is the one sanctioned exception to BR-D33", func() {
+		It("registers the reserved platform root, unlike Register above", func() {
+			Expect(ch.RegisterPlatformRoot(ctx, domain.Context{Context: "_platform", Name: "Platform"})).To(Succeed())
+			got, err := ch.Get(ctx, "_platform")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(got.Name).To(Equal("Platform"))
+		})
+
+		It("still applies the base charset check — a malformed value is not exempted", func() {
+			err := ch.RegisterPlatformRoot(ctx, domain.Context{Context: "_plat form", Name: "Platform"})
+			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
+		})
+	})
 })

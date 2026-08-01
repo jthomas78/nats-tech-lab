@@ -75,6 +75,13 @@ type ContextRepository interface {
 	Register(ctx context.Context, value Context) error
 	Get(ctx context.Context, contextKey string) (Context, error)
 	List(ctx context.Context) ([]Context, error)
+	// ListByTenant returns every context linked to tenant (BR-D34's optional
+	// governance column) plus every context with no tenant link at all (the
+	// "_"-reserved platform roots, which every tenant inherits from and none
+	// owns) — Phase 16f. Unlike List, this is what a specific tenant's own
+	// caller should see: its own contexts plus the shared platform ones, not
+	// every other tenant's contexts too.
+	ListByTenant(ctx context.Context, tenant string) ([]Context, error)
 	Ancestors(ctx context.Context, contextKey string) ([]Context, error)
 	Descendants(ctx context.Context, contextKey string) ([]Context, error)
 }

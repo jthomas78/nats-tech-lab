@@ -89,6 +89,13 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
 			CHECK (parent IS NULL OR parent <> context)
 		)`,
+		// Phase 16d (decision 13): governance/ownership metadata and query
+		// scoping only — NOT a security boundary. refdata-service runs on a
+		// single shared NATS account, so it has no server-supplied caller
+		// identity to enforce this against; see BUSINESS_RULES-REFDATA.md's
+		// BR-D34 and Refdata-Versioning-Tenancy-Design.md § 2.1. NULL for
+		// "_"-reserved platform contexts, which no tenant owns.
+		`ALTER TABLE refdata.contexts ADD COLUMN IF NOT EXISTS tenant TEXT`,
 
 		`CREATE TABLE IF NOT EXISTS refdata.corpus_versions (
 			context              TEXT NOT NULL REFERENCES refdata.contexts(context),

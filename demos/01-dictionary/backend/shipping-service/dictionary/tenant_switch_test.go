@@ -114,7 +114,7 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 
 	arriveShip := func(shipID, port string) {
 		GinkgoHelper()
-		body := `{"context":"global","shipID":"` + shipID + `","shipName":"Tenant Spike","port":"` + port + `"}`
+		body := `{"context":"acme","shipID":"` + shipID + `","shipName":"Tenant Spike","port":"` + port + `"}`
 		resp, err := client.Client().Post(client.URL+"/api/ships/arrive", "application/json", strings.NewReader(body))
 		Expect(err).NotTo(HaveOccurred())
 		defer resp.Body.Close()

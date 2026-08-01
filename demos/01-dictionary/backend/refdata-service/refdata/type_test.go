@@ -77,13 +77,13 @@ var _ = Describe("Dictionary Type Domain Rules", func() {
 			Expect(th.RegisterType(ctx, domain.DictionaryType{
 				TypeKey: "l10n", Name: "UI Copy", Category: domain.CategoryDomainString,
 			})).To(Succeed())
-			_, err := ih.RegisterItem(ctx, commands.ItemInput{TypeKey: "l10n", Code: "filter.all", Context: "emea-acme"})
+			_, err := ih.RegisterItem(ctx, commands.ItemInput{TypeKey: "l10n", Code: "filter.all", Context: "acme-test"})
 			Expect(err).NotTo(HaveOccurred())
 		})
 
 		It("hard-deletes an unreferenced l10n item like any other unreferenced item (BR-D02)", func() {
-			Expect(ih.DeleteItem(ctx, "l10n", "emea-acme", "filter.all")).To(Succeed())
-			_, err := ih.Get(ctx, "l10n", "emea-acme", "filter.all")
+			Expect(ih.DeleteItem(ctx, "l10n", "acme-test", "filter.all")).To(Succeed())
+			_, err := ih.Get(ctx, "l10n", "acme-test", "filter.all")
 			Expect(errors.Is(err, domain.ErrItemNotFound)).To(BeTrue())
 		})
 
@@ -92,7 +92,7 @@ var _ = Describe("Dictionary Type Domain Rules", func() {
 			// reference to this item would incorrectly protect it from deletion
 			// (BR-D02) despite BR-D10 saying nothing should ever reference it.
 			// Guard the invariant directly: nothing references it today.
-			referenced, err := refs.IsReferenced(ctx, "l10n", "emea-acme", "filter.all")
+			referenced, err := refs.IsReferenced(ctx, "l10n", "acme-test", "filter.all")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(referenced).To(BeFalse())
 		})

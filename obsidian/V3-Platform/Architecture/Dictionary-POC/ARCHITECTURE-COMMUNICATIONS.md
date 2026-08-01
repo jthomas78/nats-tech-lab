@@ -305,10 +305,16 @@ otherwise.
 #### Reserved contexts (`_` prefix)
 
 Context values beginning with `_` are **reserved for platform/system use** and
-may never be claimed by a company or business unit — `accounts-service`
-rejects `_`-prefixed names at provisioning time, so the reservation is
-enforced rather than merely conventional. The reserved namespace echoes NATS's
-own `_INBOX` convention.
+may never be claimed by a company or business unit — enforced (Phase 16c),
+not merely conventional, at **both** points where such a value could
+originate: `refdata-service`'s `ValidateContextName` (BR-D33) is the primary
+enforcement point, since a context is its own resource, registrable
+independently of any NATS account; `accounts-service` (BR-AC07) additionally
+rejects `_`-prefixed account names at provisioning time, because in the
+common case (no company-group split — § 2.3 above) a tenant's own name
+doubles as its company context, so an unguarded account name could smuggle a
+`_`-prefixed value in through that reuse. The reserved namespace echoes
+NATS's own `_INBOX` convention.
 
 - `_platform` — the platform-wide root corpus (standards-based reference data,
   shared templates). Root of refdata-service's context inheritance tree.
@@ -687,9 +693,9 @@ refdata-service's own `rpc.*` handler.
   before Phase 12.12 and is unchanged; what's gone is only the *KV-hit* path
   that used to short-circuit this call entirely.
 - **The shipping backend's `/api/refdata-watch` SSE endpoint** no longer
-  watches the `refdata-{emea-acme}` KV bucket (`kvstore.Store.Watch`).
+  watches the `refdata-{acme}` KV bucket (`kvstore.Store.Watch`).
   Instead it subscribes to refdata-service's `REFDATA` JetStream stream,
-  filtered to `evt.emea-acme.refdata.>` (the same change-event pointers
+  filtered to `evt.acme.refdata.>` (the same change-event pointers
   `kvcache.Projector.NotifyItemChanged` already publishes — § 2's subject
   taxonomy, § 8's event-backbone note) via an ordered consumer with
   `DeliverNewPolicy`. No historical replay: a client already does its own

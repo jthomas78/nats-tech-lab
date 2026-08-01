@@ -207,7 +207,7 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Fleet context (e.g. global)",
+                        "description": "Fleet context (e.g. acme)",
                         "name": "context",
                         "in": "path",
                         "required": true
@@ -374,7 +374,7 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "KV bucket name (e.g. dict-a-global, refdata-emea-acme)",
+                        "description": "KV bucket name (e.g. dict-a-acme, refdata-acme)",
                         "name": "bucket",
                         "in": "path",
                         "required": true
@@ -567,7 +567,7 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "tenant/region context (e.g. emea-acme)",
+                        "description": "company/business-unit context (e.g. acme)",
                         "name": "context",
                         "in": "path",
                         "required": true
@@ -611,14 +611,14 @@
         },
         "/api/refdata-watch": {
             "get": {
-                "description": "Server-Sent Events stream of NATS KV changes in the refdata-{emea-acme} cache bucket the shipping backend reads (owned by refdata-service). Drives live label refresh in the shipping UIs. Fixed refdata context — no fleet-context param.",
+                "description": "Server-Sent Events stream of refdata-service's evt.acme.refdata.*.changed change-event pointers (the REFDATA JetStream stream) — drives live label refresh in the shipping UIs. This subscribes to refdata-service's published event contract rather than watching its KV cache directly (BR-D08: that cache is internal to refdata-service). No historical replay — a client refetches its label map once via REST on connect, so this stream only needs to signal \"something changed\" going forward. Fixed refdata context — no fleet-context param.",
                 "produces": [
                     "text/event-stream"
                 ],
                 "tags": [
                     "streams"
                 ],
-                "summary": "Refdata KV watch stream (SSE, Phase 11.6)",
+                "summary": "Refdata change-event stream (SSE, Phase 12.12)",
                 "responses": {
                     "200": {
                         "description": "SSE stream — data: {watchEvent JSON}",
@@ -704,7 +704,7 @@
         },
         "/api/rpc-watch": {
             "get": {
-                "description": "Server-Sent Events stream of the refdata-service natsrpc adapter's best-effort obs.rpc.* observability side-channel — live only, no replay/backlog (core NATS subscribe while the request is open). Each event carries direction (\"request\"|\"reply\"), a correlationId pairing a request with its reply, the real rpc.* subject, and the payload. See ARCHITECTURE-COMMUNICATIONS.md §6.",
+                "description": "Server-Sent Events stream of the refdata-service natsrpc adapter's best-effort obs.rpc.* observability side-channel. Replays whatever the RPCTRACE stream currently retains (up to the last 10 minutes, BR-D29) first, then continues live via core NATS subscribe. Each event carries direction (\"request\"|\"reply\"), a correlationId pairing a request with its reply, the real rpc.* subject, and the payload. See ARCHITECTURE-COMMUNICATIONS.md §6.",
                 "produces": [
                     "text/event-stream"
                 ],
@@ -783,7 +783,7 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Fleet context (e.g. global, atlantic-fleet)",
+                        "description": "Fleet context (e.g. acme, acme-atlantic-fleet)",
                         "name": "context",
                         "in": "path",
                         "required": true
@@ -1028,6 +1028,71 @@
                 }
             }
         },
+        "/api/tenant": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Active tenant + switchable tenant list",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/rest.tenantResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tenant/switch": {
+            "post": {
+                "description": "Reconnects shipping-service's tenant-scoped NATS connection under a different account and rebinds every ship/container resource to it. The previous tenant's data becomes unreachable because the server enforces the account boundary, not because of an application-level filter.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tenant"
+                ],
+                "summary": "Switch the active tenant (Phase 13b)",
+                "parameters": [
+                    {
+                        "description": "target tenant",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/rest.switchTenantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/rest.tenantResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/terminal/{context}/{port}": {
             "get": {
                 "description": "Returns the containers currently in-terminal at the given port (terminalPort match — no status branching).",
@@ -1083,7 +1148,7 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Fleet context (e.g. global)",
+                        "description": "Fleet context (e.g. acme)",
                         "name": "context",
                         "in": "path",
                         "required": true
@@ -1118,7 +1183,7 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Fleet context (e.g. global, atlantic-fleet)",
+                        "description": "Fleet context (e.g. acme, acme-atlantic-fleet)",
                         "name": "context",
                         "in": "path",
                         "required": true
@@ -1485,11 +1550,10 @@
         "rest.refdataDemoResponse": {
             "type": "object",
             "properties": {
-                "attrs": {
-                    "type": "object",
-                    "additionalProperties": {}
-                },
                 "code": {
+                    "type": "string"
+                },
+                "description": {
                     "type": "string"
                 },
                 "label": {
@@ -1546,6 +1610,28 @@
             "properties": {
                 "ship": {
                     "$ref": "#/definitions/domain.ShipState"
+                }
+            }
+        },
+        "rest.switchTenantRequest": {
+            "type": "object",
+            "properties": {
+                "tenant": {
+                    "type": "string"
+                }
+            }
+        },
+        "rest.tenantResponse": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "tenant": {
+                    "type": "string"
                 }
             }
         }

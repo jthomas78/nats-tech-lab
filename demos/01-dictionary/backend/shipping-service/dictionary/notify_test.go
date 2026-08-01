@@ -1,10 +1,11 @@
 package dictionary
 
 // Tests for Phase 15b's notify.* fire-and-forget publishes — the projector
-// side of the browser reactive-update story (rpc.* commands are natsrpc_test.go's
-// concern; this file is purely "does a KV-changing event also notify
-// correctly"). Uses newNatsConnAndJS() (natsrpc_test.go) since these
-// publishes need a real *nats.Conn, not just a jetstream.JetStream.
+// side of the browser reactive-update story (api.* commands are
+// browserrpc_test.go's concern; this file is purely "does a KV-changing
+// event also notify correctly"). Uses newNatsConnAndJS() (browserrpc_test.go)
+// since these publishes need a real *nats.Conn, not just a
+// jetstream.JetStream.
 
 import (
 	"context"
@@ -19,9 +20,9 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/eventhandler"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/natsrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 )
@@ -59,7 +60,7 @@ func waitForNotify(ch chan []byte, match func([]byte) bool) []byte {
 }
 
 var _ = Describe("notify.* publishes (Phase 15b)", func() {
-	const fleetCtx = "global"
+	const fleetCtx = "acme"
 
 	var (
 		ctx context.Context
@@ -158,10 +159,10 @@ var _ = Describe("notify.* publishes (Phase 15b)", func() {
 		}).NotTo(Panic())
 	})
 
-	It("publishes notify.{context}.shipping.port.changed from the natsrpc adapter after port.register.v1", func() {
+	It("publishes notify.{context}.shipping.port.changed from the browserrpc adapter after port.register.v1", func() {
 		portRepo := newFakePortRepo()
 		ports := commands.NewPortHandler(portRepo)
-		adapter, err := natsrpc.New(nc, natsrpc.Deps{Ports: ports, Log: log})
+		adapter, err := browserrpc.New(nc, browserrpc.Deps{Ports: ports, Log: log})
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(func() { Expect(adapter.Stop()).To(Succeed()) })
 
@@ -169,13 +170,13 @@ var _ = Describe("notify.* publishes (Phase 15b)", func() {
 
 		reqBody, err := json.Marshal(map[string]string{"name": "Singapore"})
 		Expect(err).NotTo(HaveOccurred())
-		_, err = nc.Request("rpc."+fleetCtx+".shipping.port.register.v1", reqBody, 2*time.Second)
+		_, err = nc.Request("api."+fleetCtx+".shipping.port.register.v1", reqBody, 2*time.Second)
 		Expect(err).NotTo(HaveOccurred())
 
 		var payload []byte
 		Eventually(notifyCh, 3*time.Second).Should(Receive(&payload))
 		// Bare array — same wire shape as notify.*.shipping.meta.changed, not
-		// the {"values": [...]} envelope rpc.*.shipping.port.list.v1 uses (see
+		// the {"values": [...]} envelope api.*.shipping.port.list.v1 uses (see
 		// publishPortsChanged's doc comment).
 		var values []string
 		Expect(json.Unmarshal(payload, &values)).To(Succeed())

@@ -127,25 +127,25 @@ stack's port table):
 
 ```bash
 # List registered types
-curl -s http://localhost:8081/api/refdata/emea-acme/types | jq
+curl -s http://localhost:8081/api/refdata/acme/types | jq
 
 # List items of a type
-curl -s http://localhost:8081/api/refdata/emea-acme/ship-status | jq
+curl -s http://localhost:8081/api/refdata/acme/ship-status | jq
 
 # Get one item, optionally resolved to a locale
-curl -s "http://localhost:8081/api/refdata/emea-acme/ship-status/docked?locale=es" | jq
+curl -s "http://localhost:8081/api/refdata/acme/ship-status/docked?locale=es" | jq
 
 # All localizations recorded for an item
-curl -s http://localhost:8081/api/refdata/emea-acme/ship-status/docked/localizations | jq
+curl -s http://localhost:8081/api/refdata/acme/ship-status/docked/localizations | jq
 
 # Locales known to this context
-curl -s http://localhost:8081/api/refdata/emea-acme/locales | jq
+curl -s http://localhost:8081/api/refdata/acme/locales | jq
 
 # Localization completeness for a locale
-curl -s "http://localhost:8081/api/refdata/emea-acme/ship-status/completeness?locale=es" | jq
+curl -s "http://localhost:8081/api/refdata/acme/ship-status/completeness?locale=es" | jq
 
 # Postgres set version vs KV _meta version
-curl -s http://localhost:8081/api/refdata/emea-acme/ship-status/cache-status | jq
+curl -s http://localhost:8081/api/refdata/acme/ship-status/cache-status | jq
 ```
 
 Full route list is documented at the top of
@@ -182,20 +182,20 @@ export NATS_URL=nats://localhost:4222
 nats kv ls
 
 # List keys in the context's bucket
-nats kv ls refdata-emea-acme
+nats kv ls refdata-acme
 
 # Get one item's cached entry (item + localizations + references + version)
 # ship-status is a domain-enum type, hence the enum. namespace (BR-D31)
-nats kv get refdata-emea-acme enum.ship-status.docked
+nats kv get refdata-acme enum.ship-status.docked
 
 # Get the type's _meta (current version, item count, last update)
-nats kv get refdata-emea-acme enum.ship-status._meta
+nats kv get refdata-acme enum.ship-status._meta
 
 # Watch the bucket live — e.g. while re-seeding or editing via refdata
-nats kv watch refdata-emea-acme
+nats kv watch refdata-acme
 
 # Watch only the enums, using the key namespace as a subject filter
-nats kv watch refdata-emea-acme "enum.>"
+nats kv watch refdata-acme "enum.>"
 ```
 
 When running with NATS wired (compose, or `go run ./cmd` with `NATS_URL`

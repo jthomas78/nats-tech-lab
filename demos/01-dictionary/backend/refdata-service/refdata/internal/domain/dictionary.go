@@ -35,7 +35,8 @@ type DictionaryType struct {
 }
 
 // DictionaryItem is one lookup value within a type, scoped to a context
-// (tenant/region), e.g. (currency, EUR, emea-acme). Versioning is a property
+// (the company/business-unit scope — see ARCHITECTURE-COMMUNICATIONS.md
+// § 2.3), e.g. (currency, EUR, acme). Versioning is a property
 // of the type's whole set (BR-D04, kvcache.Entry.Version), not of one item,
 // so there is no per-item version field here.
 type DictionaryItem struct {

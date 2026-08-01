@@ -163,9 +163,9 @@ func register(
 // {entity}.changed event (Phase 15b) carrying payload (the full projected
 // entity, already-marshaled JSON) — plain core NATS pub/sub, no JetStream
 // retention: a missed notification during a brief browser disconnect is
-// covered by the bootstrap rpc.*.shipping.{entity}.list.v1 call on
+// covered by the bootstrap api.*.shipping.{entity}.list.v1 call on
 // reconnect (Main-POC-Plan.md Phase 15d), so no replay mechanism is needed
-// here, unlike obs.rpc.*/RPCTRACE (BR-D29).
+// here, unlike refdata-service's obs.rpc.*/RPCTRACE (BR-D29).
 //
 // nc is nil-safe: every Register* caller in this package already passes nil
 // in contexts where no tenant connection is relevant (e.g. some tests), and

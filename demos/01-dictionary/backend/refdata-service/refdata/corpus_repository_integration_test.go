@@ -186,6 +186,31 @@ var _ = Describe("Corpus and context repositories (Postgres integration)", func(
 		Expect(namesOf(descendants)).To(Equal([]string{root, mid, leaf}))
 	})
 
+	It("scopes ListByTenant to the requested tenant plus every untenanted (platform) context (Phase 16f)", func() {
+		platformRoot := uniqueContext("platform")
+		Expect(contexts.Register(context.Background(), domain.Context{Context: platformRoot, Name: platformRoot})).To(Succeed())
+
+		acmeCo, acmeUnit := uniqueContext("acme-co"), uniqueContext("acme-unit")
+		Expect(contexts.Register(context.Background(), domain.Context{Context: acmeCo, Parent: platformRoot, Name: acmeCo, Tenant: "acme"})).To(Succeed())
+		Expect(contexts.Register(context.Background(), domain.Context{Context: acmeUnit, Parent: acmeCo, Name: acmeUnit, Tenant: "acme"})).To(Succeed())
+
+		globexCo := uniqueContext("globex-co")
+		Expect(contexts.Register(context.Background(), domain.Context{Context: globexCo, Parent: platformRoot, Name: globexCo, Tenant: "globex"})).To(Succeed())
+
+		acmeView, err := contexts.ListByTenant(context.Background(), "acme")
+		Expect(err).NotTo(HaveOccurred())
+		acmeNames := namesOf(acmeView)
+		Expect(acmeNames).To(ContainElements(platformRoot, acmeCo, acmeUnit))
+		Expect(acmeNames).NotTo(ContainElement(globexCo))
+
+		globexView, err := contexts.ListByTenant(context.Background(), "globex")
+		Expect(err).NotTo(HaveOccurred())
+		globexNames := namesOf(globexView)
+		Expect(globexNames).To(ContainElements(platformRoot, globexCo))
+		Expect(globexNames).NotTo(ContainElement(acmeCo))
+		Expect(globexNames).NotTo(ContainElement(acmeUnit))
+	})
+
 	It("flattens a child's draft from its parent's latest published corpus, applying overrides without ever dropping an inherited item (BR-V06/V07)", func() {
 		parent, child := uniqueContext("parent"), uniqueContext("child")
 		registerChain(parent, child)

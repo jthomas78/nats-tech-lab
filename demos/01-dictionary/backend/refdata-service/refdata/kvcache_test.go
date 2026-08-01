@@ -50,7 +50,7 @@ func newRefdataJetStream() jetstream.JetStream {
 }
 
 var _ = Describe("KV cache + versioned-read protocol (Phase 11.3)", func() {
-	const itemCtx = "emea-acme"
+	const itemCtx = "acme-test"
 
 	var (
 		ctx       context.Context
@@ -192,7 +192,7 @@ var _ = Describe("KV cache + versioned-read protocol (Phase 11.3)", func() {
 })
 
 var _ = Describe("BR-D31: a domain-enum type's KV entries are keyed under the enum. namespace", func() {
-	const itemCtx = "emea-acme"
+	const itemCtx = "acme-test"
 
 	var (
 		ctx       context.Context

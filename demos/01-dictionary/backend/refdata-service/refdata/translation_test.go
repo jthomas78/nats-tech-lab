@@ -24,7 +24,7 @@ var _ = Describe("Dictionary Translation Domain Rules", func() {
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		itemCtx = "emea-acme"
+		itemCtx = "acme-test"
 		items := newFakeItemRepo()
 		refs := newFakeReferenceRepo()
 		locs := newFakeLocalizationRepo()

@@ -21,7 +21,7 @@ import IconRpc from './components/icons/IconRpc.vue'
 import IconShapes from './components/icons/IconShapes.vue'
 import IconStreams from './components/icons/IconStreams.vue'
 import IconTables from './components/icons/IconTables.vue'
-import { CONTEXTS, useDictionaryStore } from './stores/dictionary'
+import { useDictionaryStore } from './stores/dictionary'
 import { useTenantStore } from './stores/tenant'
 import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
 import { useL10nCopy } from '@refdata/useL10nCopy.js'
@@ -79,6 +79,7 @@ const subtitle = computed(() => SUBTITLES[activeView.value] ?? '')
 
 onMounted(() => {
   store.connect()
+  store.loadContexts()
   connectRefdata()
   connectL10nCopy(i18n)
   tenantStore.refresh()
@@ -120,7 +121,7 @@ onUnmounted(() => {
       <Select
         id="context"
         :model-value="store.context"
-        :options="CONTEXTS"
+        :options="store.availableContexts"
         size="small"
         @update:model-value="store.setContext($event)"
       />

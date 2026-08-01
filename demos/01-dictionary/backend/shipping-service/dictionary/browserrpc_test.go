@@ -1,13 +1,14 @@
 package dictionary
 
-// Integration tests for shipping-service's rpc.* dual-transport adapter
-// (Phase 15a) against an embedded in-process NATS server (real JetStream,
-// real KV) — same embedded-server convention as integration_test.go's
-// newJetStream(), extended here to also expose the *nats.Conn a
-// natsrpc.Adapter needs. Mirrors refdata-service's own
-// natsrpc_test.go (BR-D25: an rpc.* operation must exist as a commands/
-// queries method already exposed via REST) adapted to shipping-service's
-// commands/queries and subject taxonomy.
+// Integration tests for shipping-service's api.* frontend-to-service
+// adapter (Phase 15a, renamed from rpc.*/natsrpc in Phase 16b) against an
+// embedded in-process NATS server (real JetStream, real KV) — same
+// embedded-server convention as integration_test.go's newJetStream(),
+// extended here to also expose the *nats.Conn a browserrpc.Adapter needs.
+// Mirrors the parity discipline of refdata-service's own natsrpc_test.go
+// (BR-D25: an exposed operation must run the identical commands/queries
+// method REST already calls) adapted to shipping-service's commands/queries
+// and subject taxonomy.
 
 import (
 	"context"
@@ -25,17 +26,17 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/queries"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/eventhandler"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/natsrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 )
 
 // newNatsConnAndJS mirrors newJetStream() (integration_test.go) but also
-// returns the *nats.Conn — natsrpc.New needs the connection itself (to
+// returns the *nats.Conn — browserrpc.New needs the connection itself (to
 // register a NATS Micro/Services instance and to fall back to plain
-// nc.Publish for obs.rpc.* when JS isn't configured), not just a
+// nc.Publish for obs.api.* when JS isn't configured), not just a
 // jetstream.JetStream context.
 func newNatsConnAndJS() (*nats.Conn, jetstream.JetStream) {
 	GinkgoHelper()
@@ -46,7 +47,7 @@ func newNatsConnAndJS() (*nats.Conn, jetstream.JetStream) {
 	DeferCleanup(srv.Shutdown)
 	Expect(srv.ReadyForConnections(10 * time.Second)).To(BeTrue())
 
-	nc, err := nats.Connect(srv.ClientURL(), nats.Name("shipping-service-natsrpc-test"))
+	nc, err := nats.Connect(srv.ClientURL(), nats.Name("shipping-service-browserrpc-test"))
 	Expect(err).NotTo(HaveOccurred())
 	DeferCleanup(nc.Close)
 	Expect(nc.Opts.Name).NotTo(BeEmpty(), "nats connection must be named")
@@ -58,8 +59,8 @@ func newNatsConnAndJS() (*nats.Conn, jetstream.JetStream) {
 	return nc, js
 }
 
-var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
-	const fleetCtx = "global"
+var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
+	const fleetCtx = "acme"
 
 	var (
 		ctx        context.Context
@@ -69,7 +70,7 @@ var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
 		ports      *commands.PortHandler
 		portRepo   *fakePortRepo
 		kvA        *kvstore.Store
-		adapter    *natsrpc.Adapter
+		adapter    *browserrpc.Adapter
 	)
 
 	BeforeEach(func() {
@@ -100,7 +101,7 @@ var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
 		containers = commands.NewContainerHandler(pub, js, portRepo)
 		ports = commands.NewPortHandler(portRepo)
 
-		adapter, err = natsrpc.New(nc, natsrpc.Deps{
+		adapter, err = browserrpc.New(nc, browserrpc.Deps{
 			Ships:      ships,
 			Containers: containers,
 			Ports:      ports,
@@ -122,9 +123,9 @@ var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
 		return msg
 	}
 
-	Context("BR parity: rpc.* commands run the identical application-layer methods REST already calls", func() {
-		It("arrives a ship via rpc.* identically to ArrivePort called directly, deriving context from the subject, not the body", func() {
-			subject := "rpc." + fleetCtx + ".shipping.ship.arrive.v1"
+	Context("BR parity: api.* commands run the identical application-layer methods REST already calls", func() {
+		It("arrives a ship via api.* identically to ArrivePort called directly, deriving context from the subject, not the body", func() {
+			subject := "api." + fleetCtx + ".shipping.ship.arrive.v1"
 			// The body's Context is deliberately a different, otherwise-valid
 			// token — proving contextFromSubject wins, not a client-supplied
 			// field (see adapter.go's contextFromSubject doc comment: this is
@@ -141,7 +142,7 @@ var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
 			Expect(resp.Ship.CurrentPort).To(Equal("Hamburg"))
 			Expect(resp.Ship.Context).To(Equal(fleetCtx))
 
-			// The rpc.* reply returns once the event is published, not once
+			// The api.* reply returns once the event is published, not once
 			// the Shape A projector has consumed it and written KV — same
 			// publish/project race the bootstrap-query tests below guard
 			// against with eventually().
@@ -157,12 +158,12 @@ var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
 				}
 				return nil
 			})
-			Expect(direct[0].ShipID).To(Equal("orient-express"), "the rpc.* call's projected event must land in the SAME KV bucket a direct call would use")
+			Expect(direct[0].ShipID).To(Equal("orient-express"), "the api.* call's projected event must land in the SAME KV bucket a direct call would use")
 		})
 
-		It("departs a docked ship via rpc.*", func() {
-			request("rpc."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg"})
-			msg := request("rpc."+fleetCtx+".shipping.ship.depart.v1", commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", Port: "Hamburg"})
+		It("departs a docked ship via api.*", func() {
+			request("api."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg"})
+			msg := request("api."+fleetCtx+".shipping.ship.depart.v1", commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", Port: "Hamburg"})
 
 			var resp struct {
 				Ship domain.ShipState `json:"ship"`
@@ -171,10 +172,10 @@ var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
 			Expect(resp.Ship.CurrentPort).To(BeEmpty(), "a departed ship has no current port")
 		})
 
-		It("registers, loads, and unloads a container via rpc.*, matching the REST lifecycle", func() {
-			request("rpc."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg"})
+		It("registers, loads, and unloads a container via api.*, matching the REST lifecycle", func() {
+			request("api."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg"})
 
-			registerMsg := request("rpc."+fleetCtx+".shipping.container.register.v1", commands.ContainerInput{
+			registerMsg := request("api."+fleetCtx+".shipping.container.register.v1", commands.ContainerInput{
 				Context: fleetCtx, ContainerID: "TCKU1234567", Cargo: "steel", OriginPort: "Hamburg", DestPort: "Rotterdam",
 			})
 			var registerResp struct {
@@ -184,7 +185,7 @@ var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
 			Expect(registerResp.Container.TerminalPort).NotTo(BeNil())
 			Expect(*registerResp.Container.TerminalPort).To(Equal("Hamburg"))
 
-			loadMsg := request("rpc."+fleetCtx+".shipping.container.load.v1", commands.ContainerInput{
+			loadMsg := request("api."+fleetCtx+".shipping.container.load.v1", commands.ContainerInput{
 				Context: fleetCtx, ContainerID: "TCKU1234567", ShipID: "orient-express",
 			})
 			var loadResp struct {
@@ -194,10 +195,10 @@ var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
 			Expect(loadResp.Container.OnShipID).NotTo(BeNil())
 			Expect(*loadResp.Container.OnShipID).To(Equal("orient-express"))
 
-			request("rpc."+fleetCtx+".shipping.ship.depart.v1", commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", Port: "Hamburg"})
-			request("rpc."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", Port: "Rotterdam"})
+			request("api."+fleetCtx+".shipping.ship.depart.v1", commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", Port: "Hamburg"})
+			request("api."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", Port: "Rotterdam"})
 
-			unloadMsg := request("rpc."+fleetCtx+".shipping.container.unload.v1", commands.ContainerInput{
+			unloadMsg := request("api."+fleetCtx+".shipping.container.unload.v1", commands.ContainerInput{
 				Context: fleetCtx, ContainerID: "TCKU1234567", ShipID: "orient-express",
 			})
 			var unloadResp struct {
@@ -208,15 +209,15 @@ var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
 			Expect(*unloadResp.Container.TerminalPort).To(Equal("Rotterdam"))
 		})
 
-		It("registers and lists ports via rpc.*, matching PortHandler.Register/List called directly", func() {
-			registerMsg := request("rpc."+fleetCtx+".shipping.port.register.v1", map[string]string{"name": "Singapore"})
+		It("registers and lists ports via api.*, matching PortHandler.Register/List called directly", func() {
+			registerMsg := request("api."+fleetCtx+".shipping.port.register.v1", map[string]string{"name": "Singapore"})
 			var registerResp struct {
 				Port string `json:"port"`
 			}
 			Expect(json.Unmarshal(registerMsg.Data, &registerResp)).To(Succeed())
 			Expect(registerResp.Port).To(Equal("Singapore"))
 
-			listMsg := request("rpc."+fleetCtx+".shipping.port.list.v1", map[string]any{})
+			listMsg := request("api."+fleetCtx+".shipping.port.list.v1", map[string]any{})
 			var listResp struct {
 				Values []string `json:"values"`
 			}
@@ -229,12 +230,12 @@ var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
 		})
 	})
 
-	Context("BR parity: rpc.* bootstrap queries back the browser's reconnect flow (Phase 15d)", func() {
+	Context("BR parity: api.* bootstrap queries back the browser's reconnect flow (Phase 15d)", func() {
 		It("ship.list.v1 returns every ship in the context, identical to queries.ShapeA.ListShips called directly", func() {
-			request("rpc."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg"})
-			request("rpc."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "north-star", ShipName: "North Star", Port: "Rotterdam"})
+			request("api."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg"})
+			request("api."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "north-star", ShipName: "North Star", Port: "Rotterdam"})
 
-			// The rpc.* reply returns once the event is published, not once
+			// The api.* reply returns once the event is published, not once
 			// the Shape A projector has consumed it and written KV — same
 			// publish/project race integration_test.go's eventually() helper
 			// guards against.
@@ -242,7 +243,7 @@ var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
 				Ships []domain.ShipState `json:"ships"`
 			}
 			eventually(func() error {
-				msg := request("rpc."+fleetCtx+".shipping.ship.list.v1", map[string]any{})
+				msg := request("api."+fleetCtx+".shipping.ship.list.v1", map[string]any{})
 				if err := json.Unmarshal(msg.Data, &resp); err != nil {
 					return err
 				}
@@ -258,8 +259,8 @@ var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
 		})
 
 		It("container.list.v1 and meta.known-containers.v1 match queries.Terminal.List/Meta.KnownContainers called directly", func() {
-			request("rpc."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg"})
-			request("rpc."+fleetCtx+".shipping.container.register.v1", commands.ContainerInput{
+			request("api."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg"})
+			request("api."+fleetCtx+".shipping.container.register.v1", commands.ContainerInput{
 				Context: fleetCtx, ContainerID: "TCKU7654321", Cargo: "grain", OriginPort: "Hamburg", DestPort: "Rotterdam",
 			})
 
@@ -267,7 +268,7 @@ var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
 				Containers []domain.ContainerState `json:"containers"`
 			}
 			eventually(func() error {
-				containerMsg := request("rpc."+fleetCtx+".shipping.container.list.v1", map[string]any{})
+				containerMsg := request("api."+fleetCtx+".shipping.container.list.v1", map[string]any{})
 				if err := json.Unmarshal(containerMsg.Data, &containerResp); err != nil {
 					return err
 				}
@@ -282,7 +283,7 @@ var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
 				Values []string `json:"values"`
 			}
 			eventually(func() error {
-				metaMsg := request("rpc."+fleetCtx+".shipping.meta.known-containers.v1", map[string]any{})
+				metaMsg := request("api."+fleetCtx+".shipping.meta.known-containers.v1", map[string]any{})
 				if err := json.Unmarshal(metaMsg.Data, &metaResp); err != nil {
 					return err
 				}
@@ -295,9 +296,9 @@ var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
 		})
 	})
 
-	Context("BR parity: rpc.* errors surface the same domain error as REST, plus a notFound flag", func() {
+	Context("BR parity: api.* errors surface the same domain error as REST, plus a notFound flag", func() {
 		It("returns notFound for a container.load call on an unregistered container", func() {
-			msg := request("rpc."+fleetCtx+".shipping.container.load.v1", commands.ContainerInput{
+			msg := request("api."+fleetCtx+".shipping.container.load.v1", commands.ContainerInput{
 				Context: fleetCtx, ContainerID: "TCKU0000000", ShipID: "no-such-ship",
 			})
 
@@ -315,10 +316,10 @@ var _ = Describe("NATS RPC Adapter (Phase 15a)", func() {
 		})
 	})
 
-	Context("BR-D26 parity: an obs.rpc.* publish must never block or fail the real RPC reply", func() {
-		It("still returns the real reply promptly with no obs.rpc.> subscriber at all", func() {
+	Context("BR-D26 parity: an obs.api.* publish must never block or fail the real RPC reply", func() {
+		It("still returns the real reply promptly with no obs.api.> subscriber at all", func() {
 			start := time.Now()
-			msg := request("rpc."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{
+			msg := request("api."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{
 				Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg",
 			})
 			Expect(time.Since(start)).To(BeNumerically("<", 500*time.Millisecond))

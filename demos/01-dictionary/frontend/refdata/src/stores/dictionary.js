@@ -7,7 +7,12 @@ import { defineStore } from 'pinia'
 
 import { addLocale, getCacheStatus, getItem, listItems, listLocales, listTypes, watchUrl } from '../api'
 
-export const CONTEXTS = ['emea-acme']
+// Phase 16d: the real context tree (_platform reserved root, acme company,
+// acme-atlantic-fleet business unit) — replaces the single flat "emea-acme"
+// context, so this selector can actually demonstrate inheritance (browse
+// _platform's shared standards, then acme's override, then the business
+// unit's addition).
+export const CONTEXTS = ['_platform', 'acme', 'acme-atlantic-fleet']
 
 export const useDictionaryStore = defineStore('dictionary', {
   state: () => ({

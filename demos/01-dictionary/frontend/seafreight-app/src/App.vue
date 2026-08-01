@@ -14,7 +14,7 @@ import IconFleet from './components/icons/IconFleet.vue'
 import IconPort from './components/icons/IconPort.vue'
 import ShipsAtPortPanel from './components/ShipsAtPortPanel.vue'
 import TerminalPanel from './components/TerminalPanel.vue'
-import { CONTEXTS, usePortStore } from './stores/port'
+import { usePortStore } from './stores/port'
 import { useTenantStore } from './stores/tenant'
 import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
 import { useL10nCopy } from '@refdata/useL10nCopy.js'
@@ -84,7 +84,7 @@ onMounted(async () => {
   connectL10nCopy(i18n)
   try {
     // Authenticates the browser's single NATS WebSocket connection (Phase
-    // 15c/15d) before the port store's rpc.*/notify.* bootstrap can run —
+    // 15c/15d) before the port store's api.*/notify.* bootstrap can run —
     // unlike the pre-Phase-15 SSE stores, store.connect() now depends on a
     // live NATS connection rather than being independently openable.
     await tenantStore.init()
@@ -130,7 +130,7 @@ onUnmounted(() => {
       <Select
         id="context"
         :model-value="store.context"
-        :options="CONTEXTS"
+        :options="store.availableContexts"
         size="small"
         @update:model-value="store.setContext($event)"
       />

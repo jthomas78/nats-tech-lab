@@ -54,6 +54,9 @@ type contextRequest struct {
 	Parent      string `json:"parent"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	// Tenant is optional governance/ownership metadata (Phase 16d, BR-D34) —
+	// not enforced, see domain.Context's doc comment.
+	Tenant string `json:"tenant"`
 }
 
 type contextsResponse struct {
@@ -573,19 +576,30 @@ func (h *Handlers) registerContext(w http.ResponseWriter, r *http.Request) {
 		h.writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid request body"})
 		return
 	}
-	if err := h.deps.Contexts.Register(r.Context(), domain.Context{Context: req.Context, Parent: req.Parent, Name: req.Name, Description: req.Description}); err != nil {
+	if err := h.deps.Contexts.Register(r.Context(), domain.Context{Context: req.Context, Parent: req.Parent, Name: req.Name, Description: req.Description, Tenant: req.Tenant}); err != nil {
 		h.writeError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
 }
 
+// listContexts returns the whole corpus by default (unfiltered — the
+// existing admin-UI behavior). An optional ?tenant= query param (Phase 16f)
+// switches to ListByTenant, scoping the result to that tenant's own
+// contexts plus the shared "_"-reserved platform roots — see
+// domain.ContextRepository.ListByTenant.
 func (h *Handlers) listContexts(w http.ResponseWriter, r *http.Request) {
 	if h.deps.Contexts == nil {
 		h.writeJSON(w, http.StatusOK, contextsResponse{Contexts: []domain.Context{}})
 		return
 	}
-	contexts, err := h.deps.Contexts.List(r.Context())
+	var contexts []domain.Context
+	var err error
+	if tenant := r.URL.Query().Get("tenant"); tenant != "" {
+		contexts, err = h.deps.Contexts.ListByTenant(r.Context(), tenant)
+	} else {
+		contexts, err = h.deps.Contexts.List(r.Context())
+	}
 	if err != nil {
 		h.writeError(w, err)
 		return

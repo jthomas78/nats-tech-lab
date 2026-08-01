@@ -29,7 +29,7 @@ var _ = Describe("MintBrowserToken", func() {
 		accountSigningSeed = string(seed)
 	})
 
-	It("mints a JWT signed by the account's signing key, scoped to rpc.>/notify.> unparameterized by tenant", func() {
+	It("mints a JWT signed by the account's signing key, scoped to api.>/notify.> unparameterized by tenant", func() {
 		info, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "acme", "ws://localhost:9222")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(info.WSUrl).To(Equal("ws://localhost:9222"))
@@ -41,14 +41,16 @@ var _ = Describe("MintBrowserToken", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(claims.IssuerAccount).To(Equal(accountPub))
 
-		// Not "rpc.acme.shipping.>": the {context} token in a real subject
-		// (rpc.{fleetContext}.shipping...) is the fleet qualifier
-		// (global/atlantic-fleet/pacific-fleet), never the tenant name — see
-		// MintBrowserToken's doc comment. "acme" would never match a real
-		// subject, silently breaking every browser call.
-		Expect(claims.Permissions.Pub.Allow).To(ConsistOf("rpc.>", "_INBOX.>"))
-		Expect(claims.Permissions.Sub.Allow).To(ConsistOf("rpc.>", "notify.>", "_INBOX.>"))
+		// Not "api.acme.shipping.>": the {context} token in a real subject
+		// (api.{context}.shipping...) is the company/business-unit scope
+		// (this demo's values are fleet-named: global/atlantic-fleet/
+		// pacific-fleet), never the tenant name — see MintBrowserToken's doc
+		// comment. "acme" would never match a real subject, silently
+		// breaking every browser call.
+		Expect(claims.Permissions.Pub.Allow).To(ConsistOf("api.>", "_INBOX.>"))
+		Expect(claims.Permissions.Sub.Allow).To(ConsistOf("api.>", "notify.>", "_INBOX.>"))
 		Expect(claims.Permissions.Pub.Allow).NotTo(ContainElement(ContainSubstring("evt.")))
+		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("rpc.")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("$KV")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("$JS.API")))
 	})
@@ -79,7 +81,7 @@ var _ = Describe("MintBrowserToken", func() {
 		Expect(claims.Subject).To(Equal(userPub), "JWT subject must be the same user identity as the returned seed")
 	})
 
-	It("gives every tenant the identical rpc.>/notify.> subject permissions — isolation comes from the account, not the subject", func() {
+	It("gives every tenant the identical api.>/notify.> subject permissions — isolation comes from the account, not the subject", func() {
 		infoAcme, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "acme", "ws://localhost:9222")
 		Expect(err).NotTo(HaveOccurred())
 		infoGlobex, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "globex", "ws://localhost:9222")

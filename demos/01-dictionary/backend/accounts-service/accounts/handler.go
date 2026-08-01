@@ -121,6 +121,22 @@ var defaultJSLimits = JSLimits{MaxMem: 256 << 20, MaxFile: 1 << 30, MaxStreams: 
 // on the other side.
 var reservedAccountNames = map[string]bool{"DEFAULT": true, "SYS": true}
 
+// reservedNamePrefix implements BR-AC07 (see BUSINESS_RULES-ACCOUNTS.md):
+// account names beginning with "_" are reserved for platform/system use
+// across the whole taxonomy — not this service's own concept, but the
+// enforcement point for it that also happens to matter here, since in the
+// common case (no company-group split — see Main-POC-Plan.md Phase 16
+// decision 11) a tenant's own name doubles as its company `{context}` value
+// (ARCHITECTURE-COMMUNICATIONS.md § 2.3). A tenant literally named e.g.
+// "_ops" would let that reuse silently claim the reserved `_`-prefixed
+// context namespace (`_platform`, Phase 16d) the moment its account name is
+// used as a context. refdata-service's own `ValidateContextName` (BR-D33)
+// is the primary enforcement point for context values specifically, since a
+// context can be registered independently of any account — this check
+// closes the same gap one level up, at the point a tenant identity is
+// minted in the first place.
+const reservedNamePrefix = "_"
+
 func (h *Handlers) createAccount(w http.ResponseWriter, r *http.Request) {
 	var in createAccountRequest
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Name == "" {
@@ -129,6 +145,10 @@ func (h *Handlers) createAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if reservedAccountNames[strings.ToUpper(in.Name)] {
 		writeError(w, http.StatusConflict, "account name is reserved")
+		return
+	}
+	if strings.HasPrefix(in.Name, reservedNamePrefix) {
+		writeError(w, http.StatusBadRequest, "account name may not start with '_' — that prefix is reserved for platform/system use")
 		return
 	}
 

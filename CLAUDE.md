@@ -205,7 +205,10 @@ Full rules:
   arity and parsers read `{context}` by position. Treat the value as opaque;
   don't split on `-`.
 - Context values starting with `_` are **reserved for platform use**
-  (`_platform`); `accounts-service` rejects `_`-prefixed company names.
+  (`_platform`); enforced in both `refdata-service` (`ValidateContextName`,
+  BR-D33 — the primary point, since context is its own resource) and
+  `accounts-service` (BR-AC07 — a tenant name can double as its context in
+  the common no-company-group case).
 - `auth-service` and `accounts-service` subjects carry **no `{context}`**
   (they administer the tenant axis itself). `refdata-service` does carry it.
 - A browser credential is never granted `rpc.>`; backend code never calls

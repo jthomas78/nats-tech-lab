@@ -157,6 +157,7 @@ func (h *Handlers) MountRPC(nc *nats.Conn, js jetstream.JetStream, log *slog.Log
 		Items:         h.Items,
 		VersionReader: h.VersionReader,
 		Projector:     h.Projector,
+		Contexts:      h.Contexts,
 		JS:            js,
 		Log:           log,
 	})

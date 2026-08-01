@@ -15,28 +15,36 @@ Phase 12 is governed by the [Refdata Versioning, Tenancy & Template Inheritance 
 
 ### BR-V01–BR-V08 — Corpus versioning, tenancy, and template inheritance
 
-> **Phase 16 amendments (pending 16d).** The rules below are unchanged, but
-> three properties of the context hierarchy they operate on were re-decided in
-> Phase 16 (see `.claude/plans/Main-POC-Plan.md` § Phase 16 and
-> `ARCHITECTURE-COMMUNICATIONS.md` § 2.3):
-> 1. **Root renamed `global` → `_platform`.** All reserved/platform context names
->    are `_`-prefixed, and `accounts-service` rejects `_`-prefixed company
->    names so the reservation is enforced.
-> 2. **Region is removed as a context node.** The chain becomes
->    company → business unit (e.g. `_platform → acme → acme-northdiv`), not
->    `_platform → emea → emea-acme`. Region is a deployment concern (its own
->    regional stack and NATS instance) and never appears in a context value or
->    subject token.
-> 3. **A context may be linked to a tenant** (an optional `tenant` column on
->    `refdata.contexts`, NULL for `_`-reserved contexts). This is **ownership /
->    governance metadata and query scoping only — not a security boundary**:
->    refdata-service runs on a single shared NATS account, so it has no
->    server-supplied caller identity to enforce it against. Making it
->    enforceable is an open item (see the design doc).
+> **Phase 16 amendments (DONE 2026-07-31, Phase 16d).** The rules below are
+> unchanged, but three properties of the context hierarchy they operate on
+> were re-decided in Phase 16 (see `.claude/plans/Main-POC-Plan.md` § Phase 16
+> and `ARCHITECTURE-COMMUNICATIONS.md` § 2.3) and are now live:
+> 1. **Root renamed `global` → `_platform`** (BR-D33/BR-AC07 enforce the
+>    reservation — see below). Seeded via `ContextHandler.RegisterPlatformRoot`,
+>    the one sanctioned exception to BR-D33.
+> 2. **Region is removed as a context node.** The real tree is
+>    `_platform → acme → acme-atlantic-fleet` (company → business unit),
+>    replacing the retired `_platform → emea → emea-acme` shape. Region is a
+>    deployment concern (its own regional stack and NATS instance) and never
+>    appears in a context value or subject token.
+> 3. **A context may be linked to a tenant** — `refdata.contexts.tenant`
+>    (nullable, added by `migrate.go`'s `ALTER TABLE`). `acme` and
+>    `acme-atlantic-fleet` are both seeded with `tenant: "acme"`; `_platform`
+>    has none. This is **ownership/governance metadata and query scoping
+>    only — not a security boundary**: refdata-service runs on a single
+>    shared NATS account, so it has no server-supplied caller identity to
+>    enforce it against. Making it enforceable remains an open item (see the
+>    design doc) — only the metadata field itself is implemented.
 >
 > Arbitrary-depth inheritance is **retained** as already implemented
 > (`context_repository.go`'s recursive ancestor CTE) — it is not restricted to
-> a fixed number of hops.
+> a fixed number of hops. **Also now demonstrated by real seed data**, not
+> just unit-tested in isolation: `hazard-class` code `3` is overridden at
+> `acme` (BR-V07) and code `X1` is an addition that exists only at
+> `acme-atlantic-fleet` (BR-V06) — see BR-D34 below and `seed.go`'s
+> `publishInitialCorpus`, which idempotently drafts and publishes an initial
+> corpus version per context, parent-first, so the chain actually has
+> something to inherit.
 
 - **BR-V01:** A context has at most one draft corpus version at a time.
 - **BR-V02:** Only a draft can be published.
@@ -403,3 +411,34 @@ Ordering and labelling live in one shared, dependency-free module (`demos/01-dic
 - **Required a backend change to be expressible at all:** `shipping-service`'s `refdataconsumer.Locales()` was unmarshalling refdata-service's `{locales, defaultLocale}` RPC reply and then returning only `resp.Locales`, so `GET /api/refdata/locales` served `{"locales": [...]}` and the two shipping frontends had no way to know which locale was default. `Locales()` now returns a `LocalesResult{Locales, DefaultLocale}` and the handler serializes both. refdata-service's own REST `GET /api/refdata/{context}/locales` already carried `defaultLocale`, which is why the refdata admin UI needed no API change.
 - **Enforced in:** `shared/refdata/locales.js` (`orderLocales`, `localeLabel`, `isDefaultLocale`, `localeSelectOptions`, `DEFAULT_SUFFIX`), consumed by — `shared/refdata/useRefdataLabels.js` (exposes a ready-made `localeOptions` for the shipping apps' topbar switchers), `frontend/refdata/src/localization.js` (`buildTranslationRows` returns default-first rows carrying a marked `label`), `frontend/refdata/src/components/LocalizationView.vue` (locale registry table + completeness matrix columns), `TranslationMatrix.vue` (matrix columns), `ItemDetailPanel.vue` (per-item translations table), `ItemGrid.vue` (locale filter), `frontend/admin/src/App.vue` and `frontend/seafreight-app/src/App.vue` (topbar locale switchers)
 - **Test:** `frontend/refdata/src/localization.spec.js` — `orderLocales (BR-D32)` (default moved to front, order of the rest preserved, no-op when already first / no default / unregistered default, non-mutating), `localeLabel (BR-D32)`, `localeSelectOptions (BR-D32)` (ordered+marked options; blank option pinned above the default), `buildTranslationRows ordering (BR-D32)`; `backend/shipping-service/internal/refdataconsumer` — `TestLocalesUsesRPC` asserts `DefaultLocale` survives the RPC hop
+
+### BR-D33 (Phase 16c) — A context name beginning with `_` is reserved for platform use
+
+A context value starting with `_` is rejected at registration (`ValidateContextName`, `domain.ErrReservedContextPrefix`) — that prefix is reserved for the platform inheritance root (`_platform`, Phase 16d) and may never be claimed by a company or business-unit context registered through the ordinary path (`POST /api/refdata/admin/contexts`). Only a *leading* underscore is rejected; `acme_northdiv` is unaffected.
+
+This is the primary enforcement point for the `_`-reserved namespace defined in `ARCHITECTURE-COMMUNICATIONS.md` § 2.3, since a context can be registered independently of any NATS account — `accounts-service`'s own BR-AC07 (`BUSINESS_RULES-ACCOUNTS.md`) closes the same gap one level up, at tenant-identity minting, but only refdata-service can guarantee the invariant for context values themselves, because contexts are its own resource.
+
+**Resolved (Phase 16d):** `Register` still unconditionally rejects any `_`-prefixed value, including the literal `"_platform"` — the public endpoint has no exception. The platform root is instead seeded via `ContextHandler.RegisterPlatformRoot`, a separate method that applies only `ValidateSubjectToken` (the charset check, BR-D22) and skips the reserved-prefix rejection — deliberately not exposed to any REST route, so nothing outside `seed.go` can create or overwrite the reserved root.
+
+- **Enforced in:** `internal/domain/validation.go`'s `ValidateContextName`, called from `commands.ContextHandler.Register`; the sanctioned exception is `RegisterPlatformRoot`, called only by `seed.go`
+- **Test:** `Context Domain Rules / BR-D33` and `.../Phase 16d: RegisterPlatformRoot is the one sanctioned exception to BR-D33` (`refdata/context_test.go`)
+
+### BR-D34 (Phase 16d) — A context may record which tenant owns it, as governance metadata only
+
+`refdata.contexts.tenant` (nullable) records which NATS-account tenant owns a context — `acme` and `acme-atlantic-fleet` are both seeded with `tenant: "acme"`; the reserved `_platform` root has none, since no tenant owns platform-wide standards data. This enables ownership queries and scoping (e.g. "list the contexts belonging to acme" — now a real server-side query, `ListByTenant`, not just a client-side filter over `List`; see BR-D35), or `Ancestors`/`Descendants` for a specific subtree.
+
+**This is explicitly not a security boundary and must never be documented or relied on as one.** refdata-service runs on a single shared NATS account (its `default.creds` connection) — NATS supplies it with no caller identity, so a caller simply asserts which context it wants and there is nothing server-verified to check that assertion's tenant against. Making the link enforceable is a genuinely open item, not a gap to silently paper over — see `.claude/plans/Refdata-Versioning-Tenancy-Design.md` § 2.1 for the candidates (a signed claim per call, moving refdata-service to per-tenant accounts, or accepting metadata-only as the permanent answer while reference data stays non-sensitive and shared by design).
+
+- **Enforced in:** `internal/postgres/migrate.go` (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS tenant`), `domain.Context.Tenant`, `internal/postgres/context_repository.go` (all five methods thread it through), `internal/rest/handlers.go`'s `contextRequest.Tenant`
+- **Test:** `Seed / registers acme as a child of _platform, owned by the acme tenant` and `.../registers acme-atlantic-fleet ...` (`refdata/seed_test.go`) — no dedicated domain-rule test beyond that, since there is no rule to enforce yet, only a field to persist and thread through
+
+### BR-D35 (Phase 16f) — Listing contexts can be scoped to a tenant, returning its own contexts plus the shared platform roots
+
+`ContextRepository.ListByTenant(ctx, tenant)` returns every context whose `tenant` column equals the given value, **plus** every context with no tenant link at all (i.e. the `_`-reserved platform roots, BR-D33) — a tenant sees its own contexts and the shared standards it inherits from, never another tenant's. `List` (unfiltered, the pre-existing admin-UI behavior) is unchanged and still the default when no tenant is given.
+
+Exposed on both transports, mirroring every other refdata-service capability (BR-D25): `GET /api/refdata/admin/contexts?tenant=` (REST, optional query param) and `rpc._platform.refdata.context.list.v1` (natsrpc, `ContextListRequest.Tenant` in the body). The natsrpc subject's `{context}` token is the fixed literal `_platform`, not a wildcard resolved per-request like every other `rpc.*.refdata.*` endpoint — "list the contexts I can see" has no single company context to route on, so this reuses the same `rpc._platform.refdata.*` precedent already established for steward/tooling-style, corpus-wide operations (see `ARCHITECTURE-COMMUNICATIONS.md` § 2.3's fully-qualified-context discussion). The tenant to filter by travels in the request body, not the subject, since refdata-service has no server-supplied caller identity to read it from otherwise (BR-D34).
+
+This is what backs `shipping-service`'s dynamic context list (`BUSINESS_RULES-SHIPPING.md`'s new context-listing rule, Phase 16f) — replacing that service's previously hardcoded fleet-context and refdata-company-context literals.
+
+- **Enforced in:** `internal/postgres/context_repository.go`'s `ListByTenant`, `commands.ContextHandler.ListByTenant`, `internal/rest/handlers.go`'s `listContexts` (`?tenant=` branch), `internal/natsrpc/adapter.go`'s `handleContextList`/`ContextListSubject`
+- **Test:** `Corpus and context repositories (Postgres integration) / scopes ListByTenant to the requested tenant plus every untenanted (platform) context` (`refdata/corpus_repository_integration_test.go`); `BR-D25/BR-D28: context.list is the rpc.* counterpart of listContexts` (`refdata/natsrpc_test.go`)

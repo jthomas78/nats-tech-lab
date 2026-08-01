@@ -463,10 +463,12 @@ Migration steps (in `migrate.go`):
 1. Create `refdata.contexts` table.
 2. Create `refdata.corpus_versions` table.
 3. Create `refdata.corpus_items`, `corpus_localizations`, `corpus_references` tables.
-4. Insert a default `contexts` row for the existing `emea-acme` context (no parent — root).
-   **Superseded by Phase 16d** (see § 2.1 amendment): the root becomes the reserved
-   `_platform`, `emea-acme` is replaced by a region-free company context (`acme`), and a
-   `tenant` column is added. `emea-acme` remains the value actually seeded today.
+4. ~~Insert a default `contexts` row for the existing `emea-acme` context (no parent — root).~~
+   **Superseded and DONE (Phase 16d, 2026-07-31)**: `emea-acme` is retired. `seed.go` now
+   registers `_platform` (reserved root, via `ContextHandler.RegisterPlatformRoot`) → `acme`
+   (company, `tenant: "acme"`) → `acme-atlantic-fleet` (business unit). The `tenant` column
+   is live (`migrate.go`'s `ALTER TABLE`, nullable, NULL for `_platform`). See
+   `BUSINESS_RULES-REFDATA.md`'s BR-D33/BR-D34.
 5. Optionally: snapshot current working-table state as corpus version 1 (published) so
    existing data is immediately available through the versioned API.
 
@@ -494,7 +496,7 @@ scaffolding.
 - [ ] `postgres/context_repository.go` — implementation
 - [ ] `application/commands/context.go` — `ContextHandler` (register, list, get with ancestors)
 - [ ] `rest/handlers.go` — context admin endpoints
-- [ ] Seed: register `emea-acme` as root context in `seed.go`
+- [x] Seed: register the context tree in `seed.go` — done as `_platform` (root) → `acme` → `acme-atlantic-fleet` (Phase 16d, DONE 2026-07-31), not the originally-planned single `emea-acme` root
 - [ ] Ginkgo specs for hierarchy traversal (ancestor chain, multiple levels)
 - [ ] `go build ./...` + `ginkgo ./...` green
 

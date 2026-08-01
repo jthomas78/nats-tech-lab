@@ -16,14 +16,16 @@
 //
 // Credentials come from auth-service's GET /api/auth/connectInfo (Phase
 // 15c) — a short-lived (5 min), permission-restricted NATS user JWT scoped
-// to exactly rpc.>/notify.> within whichever tenant account the caller
-// asked for (auth-service's MintBrowserToken doc comment has the full
-// reasoning on why the subject pattern is NOT parameterized by tenant —
-// tenant isolation is the NATS account boundary itself).
+// to exactly api.>/notify.> (rpc.> as of Phase 15c/15d, narrowed to api.>
+// in Phase 16b once shipping-service's browser-facing subjects moved off
+// rpc.*, which is now service-to-service only) within whichever tenant
+// account the caller asked for (auth-service's MintBrowserToken doc comment
+// has the full reasoning on why the subject pattern is NOT parameterized by
+// tenant — tenant isolation is the NATS account boundary itself).
 //
 // request()/subscribe() below are the browser's only two verbs, matching
 // Main-POC-Plan.md Phase 15's interaction model:
-//   - request(subject, payload)  -> rpc.{ctx}.shipping.{entity}.{action}.v1  (commands/queries)
+//   - request(subject, payload)  -> api.{ctx}.shipping.{entity}.{action}.v1  (commands/queries)
 //   - subscribe(subject, cb)     -> notify.{ctx}.shipping.{entity}.changed  (reactive updates)
 
 import { ref } from 'vue'
@@ -111,10 +113,11 @@ export async function switchTenant(newTenant) {
   await connect(newTenant)
 }
 
-// request performs one rpc.* call: JSON-encodes payload, sends it, decodes
+// request performs one api.* call: JSON-encodes payload, sends it, decodes
 // the JSON response. Throws if the server replied with an {error} envelope
-// (natsrpc.errorResponse, shipping-service's dictionary/internal/natsrpc/adapter.go)
-// so callers can use ordinary try/catch instead of checking a field.
+// (browserrpc.errorResponse, shipping-service's
+// dictionary/internal/browserrpc/adapter.go) so callers can use ordinary
+// try/catch instead of checking a field.
 export async function request(subject, payload) {
   if (!nc) throw new Error('not connected')
   const msg = await nc.request(subject, encoder.encode(JSON.stringify(payload ?? {})), {
@@ -128,7 +131,7 @@ export async function request(subject, payload) {
 // subscribe listens on a notify.* subject, JSON-decoding each message and
 // invoking callback(payload). Returns an unsubscribe function. Fire-and-
 // forget by design (Phase 15b/BR-024) — a missed message during a brief
-// disconnect is covered by the caller re-running its rpc.*.list.v1
+// disconnect is covered by the caller re-running its api.*.list.v1
 // bootstrap query on reconnect, not by anything this function does.
 export function subscribe(subject, callback) {
   if (!nc) throw new Error('not connected')

@@ -50,6 +50,15 @@ func (r *fakeContextRepo) List(_ context.Context) ([]domain.Context, error) {
 	}
 	return out, nil
 }
+func (r *fakeContextRepo) ListByTenant(_ context.Context, tenant string) ([]domain.Context, error) {
+	out := make([]domain.Context, 0, len(r.contexts))
+	for _, value := range r.contexts {
+		if value.Tenant == tenant || value.Tenant == "" {
+			out = append(out, value)
+		}
+	}
+	return out, nil
+}
 func (r *fakeContextRepo) Ancestors(_ context.Context, key string) ([]domain.Context, error) {
 	value, err := r.Get(context.Background(), key)
 	if err != nil {

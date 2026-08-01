@@ -82,7 +82,7 @@ var _ = Describe("Shape A — KV as read model", func() {
 	})
 
 	It("projects ship state into KV after arrive / depart", func() {
-		const fleetCtx = "global"
+		const fleetCtx = "acme"
 
 		By("arriving at Hamburg")
 		_, err := ship.ArrivePort(ctx, commands.ShipInput{
@@ -155,7 +155,7 @@ var _ = Describe("Shape B — KV cache in front of Postgres", func() {
 	})
 
 	It("warms the cache on arrive and falls through to Postgres on eviction", func() {
-		const fleetCtx = "global"
+		const fleetCtx = "acme"
 
 		_, err := ship.ArrivePort(ctx, commands.ShipInput{
 			Context: fleetCtx, ShipID: "pacific-star", ShipName: "Pacific Star", Port: "Singapore",
@@ -214,7 +214,7 @@ var _ = Describe("Shape C — pure event sourcing reconstruction", func() {
 		portRepo := newFakePortRepo()
 		ships := commands.NewShipHandler(pub, js, portRepo)
 		containers := commands.NewContainerHandler(pub, js, portRepo)
-		const fleetCtx = "global"
+		const fleetCtx = "acme"
 
 		steps := []func() error{
 			func() error {
@@ -301,7 +301,7 @@ var _ = Describe("Domain Rules", func() {
 		ship = commands.NewShipHandler(jstream.NewPublisher(js), js, newFakePortRepo())
 	})
 
-	const fleetCtx = "global"
+	const fleetCtx = "acme"
 
 	Context("BR-001: cannot arrive at port already docked at", func() {
 		It("returns ErrAlreadyDocked", func() {
@@ -615,7 +615,7 @@ func (r *fakeRepo) List(_ context.Context, kvContext string) ([]domain.ShipState
 // package) so existing scenarios keep working under BR-017/BR-018 without
 // every test explicitly registering a port first.
 var defaultTestPorts = []string{"Hamburg", "Rotterdam", "Singapore", "New York", "Shanghai", "Sydney"}
-var defaultTestContexts = []string{"global", "atlantic-fleet", "pacific-fleet"}
+var defaultTestContexts = []string{"acme", "acme-atlantic-fleet", "acme-pacific-fleet"}
 
 type fakePortRepo struct {
 	mu      sync.Mutex

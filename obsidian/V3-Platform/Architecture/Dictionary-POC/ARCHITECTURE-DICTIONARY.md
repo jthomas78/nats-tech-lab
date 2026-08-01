@@ -11,18 +11,39 @@ vs plain CRUD, KV bucket layout) see [ARCHITECTURE.md](ARCHITECTURE.md) §
 
 `backend/refdata-service/refdata/seed.go` runs once at service startup
 (`Startup` → `Seed`, `composition.go`), idempotently registering a
-demo-sized subset of standard reference data under the context `emea-acme`
-(`DefaultContext`).
+demo-sized subset of standard reference data across a real, three-level
+context tree (Phase 16d — replacing the single flat `emea-acme` context,
+which predated the Phase 16 formalization of `{context}` and read as a
+tenant/region name):
 
-> **Phase 16 deviation (pending 16d).** `emea-acme` predates the Phase 16
-> formalization of `{context}` and is now non-conforming on two counts: it
-> encodes a **region** (`emea`), which is a deployment concern that must not
-> appear in a subject token, and it reads as a tenant name (`acme`), whereas
-> tenancy is enforced strictly by NATS account and never by this token. The
-> conforming value is a company / company-business-unit token (e.g. `acme`,
-> `acme-northdiv`). See
-> [ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) § 2.3 for
-> the rule and `.claude/plans/Main-POC-Plan.md` Phase 16 for the migration.
+```
+_platform                     (reserved root, no tenant — PlatformContext)
+  └── acme                    (company, tenant "acme" — CompanyContext)
+        └── acme-atlantic-fleet  (business unit — BusinessUnitContext)
+```
+
+`_platform` is seeded via `ContextHandler.RegisterPlatformRoot`, the one
+sanctioned exception to `ValidateContextName`'s rejection of a leading `_`
+(BR-D33) — the public `POST /api/refdata/admin/contexts` endpoint always
+rejects it; only `seed.go` calls `RegisterPlatformRoot`. See
+[ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) § 2.3 for
+the `{context}` rule and `.claude/plans/Main-POC-Plan.md` Phase 16 decisions
+11–13 for the fully-qualified-naming rationale.
+
+**The seed data itself demonstrates inheritance**, not just registers a
+tree: standards-based types (currency, country, incoterm, uom, hazard-class)
+are seeded once under `_platform`; domain types (ship-status, UI-copy
+strings) are seeded under `acme`. `hazard-class` additionally carries all
+three inheritance states from BR-V06/BR-V07 at once — codes `1`/`2`/`4`–`9`
+are plain **inherited** from `_platform`, code `3` is **overridden** at
+`acme` with an Acme-specific advisory label, and code `X1` is an **addition**
+that exists only at `acme-atlantic-fleet`. `Seed` also idempotently drafts
+and publishes an initial corpus version for each context, parent-first —
+required for the chain to actually inherit anything at all (a child's draft
+silently sees nothing from an ancestor that has never published, see
+`publishInitialCorpus`'s doc comment) — so this is genuinely observable via
+`GET /api/refdata/v/{version}/{context}/...`, not just present in the
+working tables.
 
 Seeded types, each a `DictionaryType` (`type_key`, `name`, `description`):
 
@@ -59,14 +80,13 @@ For each type, `Seed` walks a `[]seedItem{code, name, nameEs}` list and:
    (`ResolveLabel`, BR-D03) rather than only available via the raw
    `Attrs["name"]`.
 
-Before the per-type loop, `Seed` registers two locales for `emea-acme`:
-`AddLocale(ctx, DefaultContext, "en", true)` — `en` as the **default**
-locale, so `ResolveLabel` has a fallback to land on when a caller requests a
-locale that hasn't been localized (e.g. `fr-FR` with no French translations
-entered) — and `AddLocale(ctx, DefaultContext, "es", false)`, a second,
-non-default locale seeded purely so the locale switcher and completeness
-tooling in the dictionary UI (`refdata`) have more than one populated
-locale to exercise.
+Before the per-type loop, `Seed` registers three locales — `en` (**default**),
+`es`, and `af-za` — for *each* context in the tree (`_platform`, `acme`,
+`acme-atlantic-fleet`). `en` as default gives `ResolveLabel` a fallback to
+land on when a caller requests a locale that hasn't been localized (e.g.
+`fr-FR` with no French translations entered); the non-default locales exist
+purely so the locale switcher and completeness tooling in the dictionary UI
+(`refdata`) have more than one populated locale to exercise.
 
 Net effect: every seeded item has an English `Attrs["name"]` plus proper
 `en` and `es` localization rows (the fields the locale-resolution protocol
@@ -314,8 +334,12 @@ unversioned `refdata-{context}` bucket and REST paths are unchanged and
 keep serving "current working-table state" exactly as before; everything
 below is additive.
 
-**Contexts form a tree**, not a flat namespace: `global → emea → emea-acme`,
-registered via `POST /api/refdata/admin/contexts`. A context inherits every
+**Contexts form a tree**, not a flat namespace: `_platform → acme →
+acme-atlantic-fleet` is the real demo tree (Phase 16d), registered via
+`POST /api/refdata/admin/contexts` for ordinary company/business-unit
+contexts, or `ContextHandler.RegisterPlatformRoot` for the reserved
+`_platform` root (the one case that endpoint always rejects — BR-D33). A
+context inherits every
 item its ancestors registered; it may add its own items or override an
 inherited one, but it can never delete an inherited item (BR-V06) — an
 override only ever wins for that item, never removes it from view.

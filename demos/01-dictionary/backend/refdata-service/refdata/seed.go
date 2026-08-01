@@ -8,9 +8,25 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 )
 
-// DefaultContext is the tenant/region context seed data is registered under,
-// matching the shipping demo's region.tenant convention (emea/acme).
-const DefaultContext = "emea-acme"
+// Phase 16d context tree — retires the single flat "emea-acme" context in
+// favor of a real, demonstrable inheritance chain:
+//
+//	_platform (reserved root, no tenant)   — standards-based reference data
+//	  └── acme (tenant: acme)              — this demo's company; domain
+//	      │                                  data (ship-status, UI copy) plus
+//	      │                                  one override of a _platform item
+//	      └── acme-atlantic-fleet          — business unit; one addition
+//	          (tenant: acme)                 item only it has
+//
+// PlatformContext is seeded via ContextHandler.RegisterPlatformRoot, the one
+// sanctioned exception to BR-D33's rejection of a leading "_" (see that
+// method's doc comment) — never through the public
+// POST /api/refdata/admin/contexts endpoint, which always rejects it.
+const (
+	PlatformContext     = "_platform"
+	CompanyContext      = "acme"
+	BusinessUnitContext = "acme-atlantic-fleet"
+)
 
 type seedItem struct {
 	code   string
@@ -30,14 +46,42 @@ type seedItem struct {
 // Like es, the af-za labels are a machine-drafted first pass, not a
 // human/translator-reviewed deliverable. Locale codes are lower case
 // throughout (BR-D20) — af-za, not the BCP-47-conventional af-ZA.
+//
+// Phase 16d also publishes an initial corpus version for each context in
+// the tree, parent-first — see publishInitialCorpus's doc comment for why
+// that ordering is required, not just tidy. Without it, the inheritance
+// tree exists but the flattening machinery it exists to demonstrate
+// (BR-V06/BR-V07, corpus_repository.go's ancestor-chain logic) stays exactly
+// as invisible as it was with one flat context.
 func Seed(ctx context.Context, h *Handlers) error {
-	// Phase 12 migration creates contexts before the corpus tables. Seed the
-	// original single context as a root template so existing demo data remains
-	// valid while new tenants can inherit from it.
 	if h.Contexts != nil {
-		if err := h.Contexts.Register(ctx, domain.Context{
-			Context: DefaultContext, Name: "EMEA Acme", Description: "Seed tenant and root reference-data context",
+		if err := h.Contexts.RegisterPlatformRoot(ctx, domain.Context{
+			Context: PlatformContext, Name: "Platform", Description: "Reserved root — standards-based reference data shared by every tenant",
 		}); err != nil {
+			return err
+		}
+		if err := h.Contexts.Register(ctx, domain.Context{
+			Context: CompanyContext, Parent: PlatformContext, Tenant: "acme",
+			Name: "Acme", Description: "Acme's own domain reference data, inheriting standards from " + PlatformContext,
+		}); err != nil {
+			return err
+		}
+		if err := h.Contexts.Register(ctx, domain.Context{
+			Context: BusinessUnitContext, Parent: CompanyContext, Tenant: "acme",
+			Name: "Acme — Atlantic Fleet", Description: "Business unit within Acme, inheriting through " + CompanyContext,
+		}); err != nil {
+			return err
+		}
+	}
+
+	for _, c := range []string{PlatformContext, CompanyContext, BusinessUnitContext} {
+		if err := h.Localizations.AddLocale(ctx, c, "en", true); err != nil {
+			return err
+		}
+		if err := h.Localizations.AddLocale(ctx, c, "es", false); err != nil {
+			return err
+		}
+		if err := h.Localizations.AddLocale(ctx, c, "af-za", false); err != nil {
 			return err
 		}
 	}
@@ -47,25 +91,16 @@ func Seed(ctx context.Context, h *Handlers) error {
 		name        string
 		description string
 		category    domain.TypeCategory
+		context     string
 		items       []seedItem
 	}{
-		{"currency", "Currency", "ISO 4217 currency codes (subset)", domain.CategoryStandards, currencySeed},
-		{"country", "Country", "ISO 3166-1 alpha-2 country codes (subset)", domain.CategoryStandards, countrySeed},
-		{"incoterm", "Incoterm", "Incoterms 2020 delivery terms", domain.CategoryStandards, incotermSeed},
-		{"uom", "Unit of Measure", "UNECE Recommendation 20 unit codes (subset)", domain.CategoryStandards, uomSeed},
-		{"hazard-class", "Hazard Class", "UN dangerous goods hazard classes", domain.CategoryStandards, hazardClassSeed},
-		{"ship-status", "Ship Status", "AIS navigational status (mirrors backend ShipStatus)", domain.CategoryDomainEnum, shipStatusSeed},
-		{"string", "String", "Frontend UI chrome strings, sourced as reference data (Phase 11.7)", domain.CategoryDomainString, l10nSeed},
-	}
-
-	if err := h.Localizations.AddLocale(ctx, DefaultContext, "en", true); err != nil {
-		return err
-	}
-	if err := h.Localizations.AddLocale(ctx, DefaultContext, "es", false); err != nil {
-		return err
-	}
-	if err := h.Localizations.AddLocale(ctx, DefaultContext, "af-za", false); err != nil {
-		return err
+		{"currency", "Currency", "ISO 4217 currency codes (subset)", domain.CategoryStandards, PlatformContext, currencySeed},
+		{"country", "Country", "ISO 3166-1 alpha-2 country codes (subset)", domain.CategoryStandards, PlatformContext, countrySeed},
+		{"incoterm", "Incoterm", "Incoterms 2020 delivery terms", domain.CategoryStandards, PlatformContext, incotermSeed},
+		{"uom", "Unit of Measure", "UNECE Recommendation 20 unit codes (subset)", domain.CategoryStandards, PlatformContext, uomSeed},
+		{"hazard-class", "Hazard Class", "UN dangerous goods hazard classes", domain.CategoryStandards, PlatformContext, hazardClassSeed},
+		{"ship-status", "Ship Status", "AIS navigational status (mirrors backend ShipStatus)", domain.CategoryDomainEnum, CompanyContext, shipStatusSeed},
+		{"string", "String", "Frontend UI chrome strings, sourced as reference data (Phase 11.7)", domain.CategoryDomainString, CompanyContext, l10nSeed},
 	}
 
 	for _, s := range seeds {
@@ -75,45 +110,94 @@ func Seed(ctx context.Context, h *Handlers) error {
 			return err
 		}
 		for _, item := range s.items {
-			_, err := h.Items.RegisterItem(ctx, commands.ItemInput{
-				TypeKey: s.typeKey,
-				Code:    item.code,
-				Context: DefaultContext,
-				Attrs:   map[string]any{"name": item.name},
-			})
-			if err != nil && !errors.Is(err, domain.ErrDuplicateItemCode) {
-				return err
-			}
-			if err := h.Localizations.SetLocalization(ctx, commands.LocalizationInput{
-				TypeKey: s.typeKey,
-				Code:    item.code,
-				Context: DefaultContext,
-				Locale:  "en",
-				Label:   item.name,
-			}); err != nil {
-				return err
-			}
-			if err := h.Localizations.SetLocalization(ctx, commands.LocalizationInput{
-				TypeKey: s.typeKey,
-				Code:    item.code,
-				Context: DefaultContext,
-				Locale:  "es",
-				Label:   item.nameEs,
-			}); err != nil {
-				return err
-			}
-			if err := h.Localizations.SetLocalization(ctx, commands.LocalizationInput{
-				TypeKey: s.typeKey,
-				Code:    item.code,
-				Context: DefaultContext,
-				Locale:  "af-za",
-				Label:   item.nameAf,
-			}); err != nil {
+			if err := registerLocalizedItem(ctx, h, s.typeKey, s.context, item); err != nil {
 				return err
 			}
 		}
 	}
+
+	// Phase 16d — demonstrate inheritance concretely (BR-V06/BR-V07), which
+	// was otherwise "built and unit-tested but invisible in the running
+	// demo" with only one flat context to ever draft. hazard-class now
+	// carries all three inheritance states at once: codes 1/2/4-9 are pure
+	// INHERITED from _platform (nothing below overrides them), code "3" is
+	// OVERRIDDEN at the company level, and code "X1" is an ADDITION that
+	// exists only at the business-unit level.
+	override := seedItem{"3", "Flammable Liquids (Acme Handling Advisory)", "Líquidos inflamables (aviso de manejo de Acme)", "Ontvlambare Vloeistowwe (Acme Hanteringsadvies)"}
+	if err := registerLocalizedItem(ctx, h, "hazard-class", CompanyContext, override); err != nil {
+		return err
+	}
+	addition := seedItem{"X1", "Fleet-Specific Handling Category", "Categoría de manejo específica de la flota", "Vlootspesifieke Hanteringskategorie"}
+	if err := registerLocalizedItem(ctx, h, "hazard-class", BusinessUnitContext, addition); err != nil {
+		return err
+	}
+
+	if h.Corpus != nil {
+		for _, publishCtx := range []string{PlatformContext, CompanyContext, BusinessUnitContext} {
+			if err := publishInitialCorpus(ctx, h.Corpus, publishCtx); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
+}
+
+// registerLocalizedItem registers one item plus its en/es/af-za
+// localizations under itemContext — the shared four-call sequence used by
+// every seed row, the BR-V07 override, and the BR-V06 addition alike.
+func registerLocalizedItem(ctx context.Context, h *Handlers, typeKey, itemContext string, item seedItem) error {
+	_, err := h.Items.RegisterItem(ctx, commands.ItemInput{
+		TypeKey: typeKey,
+		Code:    item.code,
+		Context: itemContext,
+		Attrs:   map[string]any{"name": item.name},
+	})
+	if err != nil && !errors.Is(err, domain.ErrDuplicateItemCode) {
+		return err
+	}
+	locales := []struct{ locale, label string }{
+		{"en", item.name}, {"es", item.nameEs}, {"af-za", item.nameAf},
+	}
+	for _, l := range locales {
+		if err := h.Localizations.SetLocalization(ctx, commands.LocalizationInput{
+			TypeKey: typeKey,
+			Code:    item.code,
+			Context: itemContext,
+			Locale:  l.locale,
+			Label:   l.label,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// publishInitialCorpus idempotently drafts and publishes contextKey's first
+// corpus version. Ordering matters here and callers must publish parents
+// before children: CreateDraft silently skips (not errors) any ancestor
+// that has never published a version (corpus_repository.go — "ancestor has
+// never published a corpus; nothing to inherit from it yet"), so a child
+// drafted before its parent has published would flatten to its own items
+// only, no inheritance at all — exactly the kind of silent, hard-to-notice
+// gap this seed data exists to avoid.
+//
+// Idempotent across restarts: skipped once Versions reports any version at
+// all for this context, so re-running Seed() on every startup does not pile
+// up a new published version every time.
+func publishInitialCorpus(ctx context.Context, corpus *commands.CorpusHandler, contextKey string) error {
+	versions, err := corpus.Versions(ctx, contextKey)
+	if err != nil {
+		return err
+	}
+	if len(versions) > 0 {
+		return nil
+	}
+	if _, err := corpus.CreateDraft(ctx, contextKey, "Phase 16d seed: initial published corpus"); err != nil {
+		return err
+	}
+	_, err = corpus.Publish(ctx, contextKey)
+	return err
 }
 
 var currencySeed = []seedItem{

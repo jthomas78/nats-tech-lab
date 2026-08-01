@@ -246,6 +246,57 @@ func (c *Consumer) Locales(ctx context.Context, itemContext string) (LocalesResu
 	return LocalesResult{Locales: resp.Locales, DefaultLocale: resp.DefaultLocale}, nil
 }
 
+// contextListSubject is fixed, not templated by a company context, unlike
+// every other rpc.* call this consumer makes — "list the contexts I (a
+// tenant) can see" has no single company context to route on. This mirrors
+// refdata-service's own rpc._platform.refdata.* precedent for
+// steward/tooling-style, corpus-wide operations (Main-POC-Plan.md § Phase
+// 16, decision 10; Phase 16f).
+const contextListSubject = "rpc._platform.refdata.context.list.v1"
+
+// rpcContextListRequest/rpcContext/rpcContextListResponse mirror
+// refdata-service's natsrpc.ContextListRequest/ContextListResponse wire
+// shape (Phase 16f).
+type rpcContextListRequest struct {
+	Tenant string `json:"tenant"`
+}
+
+type rpcContext struct {
+	Context string `json:"context"`
+}
+
+type rpcContextListResponse struct {
+	Contexts []rpcContext `json:"contexts"`
+}
+
+// ListContexts returns the context values visible to tenant — its own
+// registered contexts plus the shared "_"-reserved platform roots every
+// tenant inherits from (Phase 16f). Calls
+// rpc._platform.refdata.context.list.v1, the natsrpc counterpart of
+// refdata-service's REST GET /api/refdata/admin/contexts?tenant=.
+func (c *Consumer) ListContexts(ctx context.Context, tenant string) ([]string, error) {
+	reqBody, err := json.Marshal(rpcContextListRequest{Tenant: tenant})
+	if err != nil {
+		return nil, err
+	}
+	data, err := c.requestRPC(ctx, contextListSubject, reqBody)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkRPCError(data); err != nil {
+		return nil, err
+	}
+	var resp rpcContextListResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	out := make([]string, len(resp.Contexts))
+	for i, rc := range resp.Contexts {
+		out[i] = rc.Context
+	}
+	return out, nil
+}
+
 // resolvedLocalization is the label+description resolveLocalization returns
 // after applying the BR-D03 fallback chain.
 type resolvedLocalization struct {

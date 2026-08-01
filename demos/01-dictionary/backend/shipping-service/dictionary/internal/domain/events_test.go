@@ -7,12 +7,12 @@ import (
 )
 
 func TestSubjectTaxonomy(t *testing.T) {
-	ship := ShipSubject("global", "SH-001", ShipArrivedEvent)
-	if ship != "evt.global.shipping.ship.SH-001.arrived" {
+	ship := ShipSubject("acme", "SH-001", ShipArrivedEvent)
+	if ship != "evt.acme.shipping.ship.SH-001.arrived" {
 		t.Fatalf("unexpected ship subject: %s", ship)
 	}
-	container := ContainerSubject("global", "9f3c-uuid", ContainerLoadedEvent)
-	if container != "evt.global.shipping.container.9f3c-uuid.loaded" {
+	container := ContainerSubject("acme", "9f3c-uuid", ContainerLoadedEvent)
+	if container != "evt.acme.shipping.container.9f3c-uuid.loaded" {
 		t.Fatalf("unexpected container subject: %s", container)
 	}
 	aggregate, id, event, ok := SubjectDetails(container)
@@ -22,8 +22,8 @@ func TestSubjectTaxonomy(t *testing.T) {
 	if SubjectShipWildcard != "evt.*.shipping.ship.>" || SubjectContainerWildcard != "evt.*.shipping.container.>" {
 		t.Fatalf("unexpected stream wildcards: %v", StreamSubjects())
 	}
-	// Different tenants sharing a shipID/id must not collide on subject.
-	if ShipSubject("emea-acme", "SH-001", ShipArrivedEvent) == ShipSubject("apac-globex", "SH-001", ShipArrivedEvent) {
+	// Different contexts sharing a shipID/id must not collide on subject.
+	if ShipSubject("acme-atlantic-fleet", "SH-001", ShipArrivedEvent) == ShipSubject("acme-pacific-fleet", "SH-001", ShipArrivedEvent) {
 		t.Fatal("ship subjects for different contexts must not collide")
 	}
 }

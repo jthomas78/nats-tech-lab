@@ -3,18 +3,22 @@
 // stream (here: KV watch → SSE), one layer further out. See CLAUDE.md.
 import { defineStore } from 'pinia'
 
-import { getPorts, watchUrl } from '../api'
+import { getPorts, getRefdataContexts, watchUrl } from '../api'
 
 // Contexts scope the KV buckets: each maps to dict-a-{context} and
 // dict-b-{context}. A context is the company / business-unit scope — NOT the
 // tenant (that's the NATS account) and NOT the region (a separate regional
 // deployment); see ARCHITECTURE-COMMUNICATIONS.md § 2.3. The values below are
-// fleet-named because a fleet is this demo's business-unit instance.
-export const CONTEXTS = ['global', 'atlantic-fleet', 'pacific-fleet']
+// now only the offline/error fallback (Phase 16f) — the real, tenant-scoped
+// list is fetched via loadContexts()/GET /api/refdata/contexts, kept as a
+// literal (not deleted) so the dropdown still shows something sensible if
+// that fetch never succeeds.
+export const CONTEXTS = ['acme', 'acme-atlantic-fleet', 'acme-pacific-fleet']
 
 export const useDictionaryStore = defineStore('dictionary', {
   state: () => ({
     context: CONTEXTS[0],
+    availableContexts: [...CONTEXTS], // Phase 16f: replaced by loadContexts() once the tenant is known
     // key (ship.{shipID}) → { state: ShipState, revision } per shape
     shapeA: {},
     shapeB: {},
@@ -40,6 +44,34 @@ export const useDictionaryStore = defineStore('dictionary', {
       if (context === this.context) return
       this.context = context
       this.connect()
+    },
+
+    // Fetches this tenant's real context list (Phase 16f), replacing the
+    // static CONTEXTS fallback. Called from stores/tenant.js on tenant
+    // switch — not from connect() below, so a plain fleet-context change
+    // doesn't needlessly refetch the very list it's picking from. Falls
+    // back to the existing (initially CONTEXTS) list on error — this is a
+    // convenience list for a dropdown, not a required resource.
+    //
+    // Filters out "_"-reserved contexts (e.g. "_platform"): the fetched list
+    // is refdata-service's context tree, which includes the shared platform
+    // root every tenant inherits standards from — meaningful for reference-
+    // data reads, but no ship or container ever belongs to it. Offering it
+    // as a fleet-context choice here would let a click spin up real (if
+    // empty) KV buckets for a context with no shipping domain meaning,
+    // burning the tenant's limited JetStream stream quota for nothing.
+    async loadContexts() {
+      try {
+        const contexts = (await getRefdataContexts()).filter((c) => !c.startsWith('_'))
+        if (contexts.length > 0) {
+          this.availableContexts = contexts
+          if (!this.availableContexts.includes(this.context)) {
+            this.context = this.availableContexts[0]
+          }
+        }
+      } catch {
+        // keep whatever availableContexts already held (CONTEXTS on first load)
+      }
     },
 
     connect() {

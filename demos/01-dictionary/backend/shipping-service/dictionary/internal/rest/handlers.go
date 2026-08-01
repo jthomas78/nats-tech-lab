@@ -114,7 +114,7 @@ type TenantCredentials struct {
 // a half-swapped mix of old and new tenant resources. Unlike before Phase
 // 15, switching away from a tenant no longer stops or discards anything —
 // every tenant's own bundle in TenantResources keeps running so its
-// rpc.*/notify.* traffic keeps working regardless of which tenant these
+// api.*/notify.* traffic keeps working regardless of which tenant these
 // mirror fields currently point at.
 type Deps struct {
 	Ships      *commands.ShipHandler
@@ -140,11 +140,12 @@ type Deps struct {
 	TenantNC *nats.Conn // the active tenant's connection — mirrors TenantResources[Tenant].nc, never drained (Phase 15, see tenant.go's tenantResources doc comment)
 	// TenantResources holds every tenant's persistent connection, JetStream
 	// context, KV stores, command/query handlers, durable projectors, and
-	// natsrpc.Adapter (Phase 15a) — keyed by tenant name, created once via
-	// tenant.go's ensureTenantResources and never torn down. SwitchTenant
-	// only changes which entry the Ships/Containers/ShapeB/.../JS/TenantNC
-	// fields above mirror; every other tenant's bundle keeps running so its
-	// browser-facing rpc.*/notify.* traffic keeps working regardless of
+	// browserrpc.Adapter (Phase 15a, renamed from natsrpc in Phase 16b) —
+	// keyed by tenant name, created once via tenant.go's
+	// ensureTenantResources and never torn down. SwitchTenant only changes
+	// which entry the Ships/Containers/ShapeB/.../JS/TenantNC fields above
+	// mirror; every other tenant's bundle keeps running so its
+	// browser-facing api.*/notify.* traffic keeps working regardless of
 	// which single tenant REST/SSE currently has active.
 	TenantResources map[string]*tenantResources
 	ShipRepo        domain.ShipRepository      // static: Postgres, not account-scoped
@@ -214,6 +215,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/refdata-demo/{context}/{type}/{code}", h.getRefdataDemo)
 	mux.HandleFunc("GET /api/refdata/types/{type}", h.listRefdataType)
 	mux.HandleFunc("GET /api/refdata/locales", h.listRefdataLocales)
+	mux.HandleFunc("GET /api/refdata/contexts", h.listRefdataContexts)
 	mux.HandleFunc("GET /api/refdata-watch", h.watchRefdata)
 	mux.HandleFunc("GET /api/rpc-watch", h.watchRPCObs)
 	mux.HandleFunc("GET /api/tenant", h.getTenant)
@@ -410,7 +412,7 @@ func (h *Handlers) containerCommand(
 // @Description  Returns every container state in the context's KV projection.
 // @Tags         terminal
 // @Produce      json
-// @Param        context  path      string  true  "Fleet context (e.g. global)"
+// @Param        context  path      string  true  "Fleet context (e.g. acme)"
 // @Success      200      {object}  containersResponse
 // @Failure      500      {object}  errorResponse
 // @Router       /api/containers/{context} [get]
@@ -563,7 +565,7 @@ func (h *Handlers) knownContainers(w http.ResponseWriter, r *http.Request) {
 // @Description  Returns current ship state from the Shape B read model: checks KV cache first, falls through to Postgres on a miss and backfills the cache.
 // @Tags         shape-b
 // @Produce      json
-// @Param        context  path      string  true  "Fleet context (e.g. global, atlantic-fleet)"
+// @Param        context  path      string  true  "Fleet context (e.g. acme, acme-atlantic-fleet)"
 // @Param        shipID   path      string  true  "Ship identifier (e.g. orient-express)"
 // @Success      200      {object}  shipBResponse
 // @Failure      404      {object}  errorResponse
@@ -588,7 +590,7 @@ func (h *Handlers) getShipShapeB(w http.ResponseWriter, r *http.Request) {
 // @Description  Demonstrates the Q5 versioned-read protocol from the consuming side: reads the refdata-service's KV cache directly, falling through to its REST API (which also backfills the cache) on a miss or a stale entry.
 // @Tags         refdata-demo
 // @Produce      json
-// @Param        context  path      string  true  "tenant/region context (e.g. emea-acme)"
+// @Param        context  path      string  true  "company/business-unit context (e.g. acme)"
 // @Param        type     path      string  true  "dictionary type key (e.g. hazard-class)"
 // @Param        code     path      string  true  "item code"
 // @Success      200      {object}  refdataDemoResponse
@@ -625,16 +627,43 @@ func writeRefdataError(w http.ResponseWriter, err error) {
 	}
 }
 
-// refdataContext is the fixed tenant/region context the shipping backend
-// reads reference data under — it matches refdata-service's seed DefaultContext
-// and is deliberately independent of the fleet context selector (global,
-// atlantic-fleet, …), which scopes ship/container data, not reference data.
-const refdataContext = "emea-acme"
+// refdataCompanyContext returns the refdata-service company context this
+// tenant's reference-data reads (types/locales/contexts) resolve against —
+// deliberately independent of the fleet context selector (acme,
+// acme-atlantic-fleet, …), which scopes ship/container data, not reference
+// data. Phase 16f: derived from the active tenant rather than hardcoded (as
+// it was pending in Phase 16d) — per Main-POC-Plan.md § Phase 16 decision
+// 11, "in the common no-company-group case a tenant's own name doubles as
+// its company {context} value" (the same mapping BR-AC07 already relies
+// on). This is a deliberate degenerate-case simplification: a tenant that
+// later hosts more than one company (decision 11's "company group" case)
+// would need a real mapping here instead of this 1:1 assumption.
+//
+// KNOWN GAP: "the active tenant" here means Deps.Tenant — REST/SSE's Phase
+// 13b SwitchTenant selection, shared by the Admin/Dictionary frontends. Sea
+// Freight Flow (Phase 15d) no longer drives that selection at all; it
+// authenticates directly into its own NATS account and never calls
+// SwitchTenant. In the common case both happen to point at the same tenant
+// (the demo's default "acme"), so these three endpoints read correctly for
+// Sea Freight Flow too — but if the Admin UI's tenant selection and Sea
+// Freight Flow's own NATS tenant were ever switched to different tenants
+// concurrently, these reads would silently reflect the Admin UI's
+// selection, not the browser's actual tenant. Fixing this for real would
+// mean threading an explicit tenant through the *shared* useRefdataLabels/
+// useL10nCopy composables (used by both frontends) instead of relying on
+// server-side state — out of scope for Phase 16f, which only added the
+// tenant-derivation itself, not a fix for this pre-existing Phase 15
+// scope-boundary seam (see Main-POC-Plan.md § Phase 15's Context section:
+// refdata-service's cross-tenant DEFAULT-account model was already flagged
+// out of scope there).
+func refdataCompanyContext(tenant string) string {
+	return tenant
+}
 
 // listRefdataType godoc
 //
 // @Summary      Resolve all items of a reference-data type (Phase 11.6)
-// @Description  Returns every item of a dictionary type under the fixed refdata context, each with its label resolved for the requested locale (BR-D03 fallback). Read KV-first via the Q5 protocol; per-item source is "kv-cache" or "api-refetch".
+// @Description  Returns every item of a dictionary type under the active tenant's refdata company context (Phase 16f), each with its label resolved for the requested locale (BR-D03 fallback). Read KV-first via the Q5 protocol; per-item source is "kv-cache" or "api-refetch".
 // @Tags         refdata
 // @Produce      json
 // @Param        type    path   string  true   "dictionary type key (e.g. ship-status)"
@@ -643,11 +672,12 @@ const refdataContext = "emea-acme"
 // @Failure      500     {object}  errorResponse
 // @Router       /api/refdata/types/{type} [get]
 func (h *Handlers) listRefdataType(w http.ResponseWriter, r *http.Request) {
-	if h.deps().Refdata == nil {
+	deps := h.deps()
+	if deps.Refdata == nil {
 		writeError(w, http.StatusInternalServerError, "refdata consumer not configured")
 		return
 	}
-	results, err := h.deps().Refdata.ResolveType(r.Context(), refdataContext, r.PathValue("type"), r.URL.Query().Get("locale"))
+	results, err := deps.Refdata.ResolveType(r.Context(), refdataCompanyContext(deps.Tenant), r.PathValue("type"), r.URL.Query().Get("locale"))
 	if err != nil {
 		writeRefdataError(w, err)
 		return
@@ -662,18 +692,19 @@ func (h *Handlers) listRefdataType(w http.ResponseWriter, r *http.Request) {
 // listRefdataLocales godoc
 //
 // @Summary      List reference-data locales (Phase 11.6)
-// @Description  Returns the locales registered for the fixed refdata context, for the frontend locale switcher.
+// @Description  Returns the locales registered for the active tenant's refdata company context (Phase 16f), for the frontend locale switcher.
 // @Tags         refdata
 // @Produce      json
 // @Success      200  {object}  metaValuesResponse
 // @Failure      500  {object}  errorResponse
 // @Router       /api/refdata/locales [get]
 func (h *Handlers) listRefdataLocales(w http.ResponseWriter, r *http.Request) {
-	if h.deps().Refdata == nil {
+	deps := h.deps()
+	if deps.Refdata == nil {
 		writeError(w, http.StatusInternalServerError, "refdata consumer not configured")
 		return
 	}
-	result, err := h.deps().Refdata.Locales(r.Context(), refdataContext)
+	result, err := deps.Refdata.Locales(r.Context(), refdataCompanyContext(deps.Tenant))
 	if err != nil {
 		writeRefdataError(w, err)
 		return
@@ -685,6 +716,29 @@ func (h *Handlers) listRefdataLocales(w http.ResponseWriter, r *http.Request) {
 		"locales":       result.Locales,
 		"defaultLocale": result.DefaultLocale,
 	})
+}
+
+// listRefdataContexts godoc
+//
+// @Summary      List this tenant's reference-data contexts (Phase 16f)
+// @Description  Returns the context values visible to the currently active tenant — its own contexts plus the shared "_"-reserved platform roots — replacing the frontend's previously hardcoded context list.
+// @Tags         refdata
+// @Produce      json
+// @Success      200  {object}  metaValuesResponse
+// @Failure      500  {object}  errorResponse
+// @Router       /api/refdata/contexts [get]
+func (h *Handlers) listRefdataContexts(w http.ResponseWriter, r *http.Request) {
+	deps := h.deps()
+	if deps.Refdata == nil {
+		writeError(w, http.StatusInternalServerError, "refdata consumer not configured")
+		return
+	}
+	contexts, err := deps.Refdata.ListContexts(r.Context(), deps.Tenant)
+	if err != nil {
+		writeRefdataError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, metaValuesResponse{Values: contexts})
 }
 
 // evictShipCache godoc

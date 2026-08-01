@@ -145,6 +145,14 @@ export function switchTenant(tenant) {
   return request('/api/tenant/switch', { method: 'POST', body: JSON.stringify({ tenant }) })
 }
 
+// ── Refdata contexts (Phase 16f) ───────────────────────────────────────────────
+// Replaces the previously hardcoded CONTEXTS array in stores/dictionary.js —
+// scoped to whichever tenant switchTenant above last selected.
+
+export function getRefdataContexts() {
+  return request('/api/refdata/contexts').then((body) => body.values ?? [])
+}
+
 // ── Accounts (Phase 14c) ───────────────────────────────────────────────────────
 // Dynamic tenant provisioning via accounts-service, proxied at /api/platform/
 // (nginx.conf / vite.config.js inject the shared basic-auth secret — the

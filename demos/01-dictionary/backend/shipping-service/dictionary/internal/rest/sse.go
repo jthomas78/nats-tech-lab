@@ -40,7 +40,7 @@ func opString(op jetstream.KeyValueOp) string {
 // @Description  Server-Sent Events stream of NATS KV changes for both the Shape A and Shape B ship buckets in the given context. Replays current bucket state first (snapshot), then delivers live updates. Each event is a JSON-encoded watchEvent object.
 // @Tags         streams
 // @Produce      text/event-stream
-// @Param        context  path      string  true  "Fleet context (e.g. global, atlantic-fleet)"
+// @Param        context  path      string  true  "Fleet context (e.g. acme, acme-atlantic-fleet)"
 // @Success      200      {string}  string  "SSE stream — data: {watchEvent JSON}"
 // @Failure      500      {object}  errorResponse
 // @Router       /api/watch/{context} [get]
@@ -61,7 +61,7 @@ func (h *Handlers) watch(w http.ResponseWriter, r *http.Request) {
 // @Description  Server-Sent Events stream of NATS KV changes for the container projection bucket and the meta.* lookup bucket in the given context. Replays current state first, then delivers live updates. Shape is "CONTAINER" or "META".
 // @Tags         streams
 // @Produce      text/event-stream
-// @Param        context  path      string  true  "Fleet context (e.g. global)"
+// @Param        context  path      string  true  "Fleet context (e.g. acme)"
 // @Success      200      {string}  string  "SSE stream — data: {watchEvent JSON}"
 // @Failure      500      {object}  errorResponse
 // @Router       /api/watch-terminal/{context} [get]
@@ -84,7 +84,7 @@ const refdataChangeStreamName = "REFDATA"
 // watchRefdata godoc
 //
 // @Summary      Refdata change-event stream (SSE, Phase 12.12)
-// @Description  Server-Sent Events stream of refdata-service's evt.{emea-acme}.refdata.*.changed change-event pointers (the REFDATA JetStream stream) — drives live label refresh in the shipping UIs. This subscribes to refdata-service's published event contract rather than watching its KV cache directly (BR-D08: that cache is internal to refdata-service). No historical replay — a client refetches its label map once via REST on connect, so this stream only needs to signal "something changed" going forward. Fixed refdata context — no fleet-context param.
+// @Description  Server-Sent Events stream of refdata-service's evt.{tenant}.refdata.*.changed change-event pointers (the REFDATA JetStream stream) — drives live label refresh in the shipping UIs. This subscribes to refdata-service's published event contract rather than watching its KV cache directly (BR-D08: that cache is internal to refdata-service). No historical replay — a client refetches its label map once via REST on connect, so this stream only needs to signal "something changed" going forward. No fleet-context param — the refdata company context is derived from the active tenant (Phase 16f, refdataCompanyContext), not a path param.
 // @Tags         streams
 // @Produce      text/event-stream
 // @Success      200  {string}  string  "SSE stream — data: {watchEvent JSON}"
@@ -108,7 +108,7 @@ func (h *Handlers) watchRefdata(w http.ResponseWriter, r *http.Request) {
 
 	var msgs jetstream.MessagesContext
 	consumer, err := h.deps().DefaultJS.OrderedConsumer(ctx, refdataChangeStreamName, jetstream.OrderedConsumerConfig{
-		FilterSubjects: []string{"evt." + refdataContext + ".refdata.>"},
+		FilterSubjects: []string{"evt." + refdataCompanyContext(h.deps().Tenant) + ".refdata.>"},
 		DeliverPolicy:  jetstream.DeliverNewPolicy,
 	})
 	if err != nil && !errors.Is(err, jetstream.ErrStreamNotFound) {

@@ -25,17 +25,17 @@ var _ = Describe("Dictionary Reference Domain Rules", func() {
 		itemH = commands.NewItemHandler(items, refs, nil)
 		refH = commands.NewReferenceHandler(items, refs, nil)
 
-		_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "country", Code: "ZA", Context: "emea-acme"})
+		_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "country", Code: "ZA", Context: "acme-test"})
 		Expect(err).NotTo(HaveOccurred())
 	})
 
 	Context("BR-D05: a reference must target an active item of the relation's declared type", func() {
 		It("creates the reference when the target exists, is active, and matches the declared type", func() {
-			_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: "ZAR", Context: "emea-acme"})
+			_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: "ZAR", Context: "acme-test"})
 			Expect(err).NotTo(HaveOccurred())
 
 			err = refH.CreateReference(ctx, commands.ReferenceInput{
-				Context: "emea-acme", FromTypeKey: "country", FromCode: "ZA",
+				Context: "acme-test", FromTypeKey: "country", FromCode: "ZA",
 				Relation: "defaultCurrency", DeclaredTargetType: "currency",
 				ToTypeKey: "currency", ToCode: "ZAR",
 			})
@@ -43,11 +43,11 @@ var _ = Describe("Dictionary Reference Domain Rules", func() {
 		})
 
 		It("returns ErrReferenceTargetWrongType when ToTypeKey doesn't match the relation's declared type", func() {
-			_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "uom", Code: "KG", Context: "emea-acme"})
+			_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "uom", Code: "KG", Context: "acme-test"})
 			Expect(err).NotTo(HaveOccurred())
 
 			err = refH.CreateReference(ctx, commands.ReferenceInput{
-				Context: "emea-acme", FromTypeKey: "country", FromCode: "ZA",
+				Context: "acme-test", FromTypeKey: "country", FromCode: "ZA",
 				Relation: "defaultCurrency", DeclaredTargetType: "currency",
 				ToTypeKey: "uom", ToCode: "KG",
 			})
@@ -56,7 +56,7 @@ var _ = Describe("Dictionary Reference Domain Rules", func() {
 
 		It("returns ErrReferenceTargetNotFound when the target item doesn't exist", func() {
 			err := refH.CreateReference(ctx, commands.ReferenceInput{
-				Context: "emea-acme", FromTypeKey: "country", FromCode: "ZA",
+				Context: "acme-test", FromTypeKey: "country", FromCode: "ZA",
 				Relation: "defaultCurrency", DeclaredTargetType: "currency",
 				ToTypeKey: "currency", ToCode: "ZAR",
 			})
@@ -64,12 +64,12 @@ var _ = Describe("Dictionary Reference Domain Rules", func() {
 		})
 
 		It("returns ErrReferenceTargetNotActive when the target item is deprecated", func() {
-			_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: "ZAR", Context: "emea-acme"})
+			_, err := itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: "ZAR", Context: "acme-test"})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(itemH.DeprecateItem(ctx, "currency", "emea-acme", "ZAR")).To(Succeed())
+			Expect(itemH.DeprecateItem(ctx, "currency", "acme-test", "ZAR")).To(Succeed())
 
 			err = refH.CreateReference(ctx, commands.ReferenceInput{
-				Context: "emea-acme", FromTypeKey: "country", FromCode: "ZA",
+				Context: "acme-test", FromTypeKey: "country", FromCode: "ZA",
 				Relation: "defaultCurrency", DeclaredTargetType: "currency",
 				ToTypeKey: "currency", ToCode: "ZAR",
 			})

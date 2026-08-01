@@ -1,6 +1,7 @@
 // Phase 13b's tenant selector. Deliberately its own store, not folded into
-// useDictionaryStore's fleet `context` (CONTEXTS = global/atlantic-fleet/
-// pacific-fleet, see stores/dictionary.js) — a tenant switch reconnects
+// useDictionaryStore's fleet `context` (CONTEXTS =
+// acme/acme-atlantic-fleet/acme-pacific-fleet, Phase 16e — see
+// stores/dictionary.js) — a tenant switch reconnects
 // shipping-service's NATS connection under a different account entirely, so
 // every ship/container endpoint's data changes, not just what one query
 // filters by fleet. Backend: rest/tenant.go (Main-POC-Plan.md Phase 13b).
@@ -29,6 +30,11 @@ export const useTenantStore = defineStore('tenant', {
       try {
         await switchTenant(tenant)
         await this.refresh()
+        // Phase 16f: the fleet-context dropdown is tenant-scoped, so refresh
+        // it here rather than in useDictionaryStore().connect() (which also
+        // runs on a plain fleet-context change, where refetching the same
+        // list would be pure waste).
+        await useDictionaryStore().loadContexts()
         // The active tenant is a different NATS account with its own
         // SHIPPING stream and KV buckets — every ship/container watch
         // reconnects against it, exactly as a fleet-context switch does.

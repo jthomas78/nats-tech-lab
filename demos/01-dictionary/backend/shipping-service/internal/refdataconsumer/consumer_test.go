@@ -78,10 +78,10 @@ func TestLookupUsesRPC(t *testing.T) {
 	nc, cleanupNC := newTestNATS(t)
 	defer cleanupNC()
 
-	respondItemGet(t, nc, "emea-acme", "3", "Flammable Liquids")
+	respondItemGet(t, nc, "acme-test", "3", "Flammable Liquids")
 
 	c := New(nc)
-	result, err := c.Lookup(context.Background(), "emea-acme", "hazard-class", "3", "")
+	result, err := c.Lookup(context.Background(), "acme-test", "hazard-class", "3", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,10 +100,10 @@ func TestLookupNotFound(t *testing.T) {
 	nc, cleanupNC := newTestNATS(t)
 	defer cleanupNC()
 
-	respondItemGetError(t, nc, "emea-acme", true, "dictionary item not found")
+	respondItemGetError(t, nc, "acme-test", true, "dictionary item not found")
 
 	c := New(nc)
-	_, err := c.Lookup(context.Background(), "emea-acme", "hazard-class", "unknown", "")
+	_, err := c.Lookup(context.Background(), "acme-test", "hazard-class", "unknown", "")
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
@@ -117,7 +117,7 @@ func TestLookupForwardsLocaleToRPC(t *testing.T) {
 	defer cleanupNC()
 
 	var gotLocale string
-	sub, err := nc.Subscribe("rpc.emea-acme.refdata.item.get.v1", func(msg *nats.Msg) {
+	sub, err := nc.Subscribe("rpc.acme-test.refdata.item.get.v1", func(msg *nats.Msg) {
 		var req rpcItemGetRequest
 		if err := json.Unmarshal(msg.Data, &req); err != nil {
 			t.Errorf("rpc responder: bad request: %v", err)
@@ -137,7 +137,7 @@ func TestLookupForwardsLocaleToRPC(t *testing.T) {
 	defer sub.Unsubscribe() //nolint:errcheck
 
 	c := New(nc)
-	result, err := c.Lookup(context.Background(), "emea-acme", "ship-status", "docked", "es")
+	result, err := c.Lookup(context.Background(), "acme-test", "ship-status", "docked", "es")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestLookupReturnsErrRPCUnavailableWhenNoResponder(t *testing.T) {
 	// Deliberately no subscriber on the rpc.* subject.
 
 	c := New(nc, WithRPCTimeout(100*time.Millisecond), WithRPCRetries(1), WithRPCBackoff(10*time.Millisecond))
-	_, err := c.Lookup(context.Background(), "emea-acme", "hazard-class", "3", "")
+	_, err := c.Lookup(context.Background(), "acme-test", "hazard-class", "3", "")
 	if !errors.Is(err, ErrRPCUnavailable) {
 		t.Fatalf("expected ErrRPCUnavailable, got %v", err)
 	}
@@ -172,7 +172,7 @@ func TestLookupRetriesBeforeSucceeding(t *testing.T) {
 	defer cleanupNC()
 
 	var attempts atomic.Int32
-	sub, err := nc.Subscribe("rpc.emea-acme.refdata.item.get.v1", func(msg *nats.Msg) {
+	sub, err := nc.Subscribe("rpc.acme-test.refdata.item.get.v1", func(msg *nats.Msg) {
 		n := attempts.Add(1)
 		if n < 3 {
 			return // deliberately don't respond — simulates a dropped/slow attempt
@@ -190,7 +190,7 @@ func TestLookupRetriesBeforeSucceeding(t *testing.T) {
 	defer sub.Unsubscribe() //nolint:errcheck
 
 	c := New(nc, WithRPCTimeout(150*time.Millisecond), WithRPCRetries(2), WithRPCBackoff(10*time.Millisecond))
-	result, err := c.Lookup(context.Background(), "emea-acme", "hazard-class", "3", "")
+	result, err := c.Lookup(context.Background(), "acme-test", "hazard-class", "3", "")
 	if err != nil {
 		t.Fatalf("expected the third attempt to succeed, got err: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestResolveTypeUsesRPC(t *testing.T) {
 	nc, cleanupNC := newTestNATS(t)
 	defer cleanupNC()
 
-	sub, err := nc.Subscribe("rpc.emea-acme.refdata.type.list.v1", func(msg *nats.Msg) {
+	sub, err := nc.Subscribe("rpc.acme-test.refdata.type.list.v1", func(msg *nats.Msg) {
 		docked := rpcTypeListItem{Label: "Atracado"}
 		docked.Item.Code = "docked"
 		docked.Item.Status = "active"
@@ -225,7 +225,7 @@ func TestResolveTypeUsesRPC(t *testing.T) {
 	defer sub.Unsubscribe() //nolint:errcheck
 
 	c := New(nc)
-	results, err := c.ResolveType(context.Background(), "emea-acme", "ship-status", "es")
+	results, err := c.ResolveType(context.Background(), "acme-test", "ship-status", "es")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,12 +279,12 @@ func TestLookupAtVersionUsesRPC(t *testing.T) {
 	nc, cleanupNC := newTestNATS(t)
 	defer cleanupNC()
 
-	gotVersion := respondItemGetVersioned(t, nc, "rpc.emea-acme.refdata.item.get-versioned.v1", map[string]localization{
+	gotVersion := respondItemGetVersioned(t, nc, "rpc.acme-test.refdata.item.get-versioned.v1", map[string]localization{
 		"en": {Locale: "en", Label: "US Dollar"},
 	})
 
 	c := New(nc)
-	result, err := c.LookupAtVersion(context.Background(), "emea-acme", 3, "currency", "usd", "en")
+	result, err := c.LookupAtVersion(context.Background(), "acme-test", 3, "currency", "usd", "en")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,13 +307,13 @@ func TestLookupAtVersionResolvesDescriptionPerLocale(t *testing.T) {
 	nc, cleanupNC := newTestNATS(t)
 	defer cleanupNC()
 
-	respondItemGetVersioned(t, nc, "rpc.emea-acme.refdata.item.get-versioned.v1", map[string]localization{
+	respondItemGetVersioned(t, nc, "rpc.acme-test.refdata.item.get-versioned.v1", map[string]localization{
 		"en": {Locale: "en", Label: "US Dollar", Description: "The US Dollar"},
 		"es": {Locale: "es", Label: "Dólar estadounidense", Description: "El dólar estadounidense"},
 	})
 
 	c := New(nc)
-	result, err := c.LookupAtVersion(context.Background(), "emea-acme", 1, "currency", "usd", "es")
+	result, err := c.LookupAtVersion(context.Background(), "acme-test", 1, "currency", "usd", "es")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +330,7 @@ func TestLookupAtVersionDifferentVersionsCoexist(t *testing.T) {
 	nc, cleanupNC := newTestNATS(t)
 	defer cleanupNC()
 
-	sub, err := nc.Subscribe("rpc.emea-acme.refdata.item.get-versioned.v1", func(msg *nats.Msg) {
+	sub, err := nc.Subscribe("rpc.acme-test.refdata.item.get-versioned.v1", func(msg *nats.Msg) {
 		var req rpcItemGetVersionedRequest
 		if err := json.Unmarshal(msg.Data, &req); err != nil {
 			t.Errorf("rpc responder: bad request: %v", err)
@@ -353,11 +353,11 @@ func TestLookupAtVersionDifferentVersionsCoexist(t *testing.T) {
 	defer sub.Unsubscribe() //nolint:errcheck
 
 	c := New(nc)
-	v1, err := c.LookupAtVersion(context.Background(), "emea-acme", 1, "currency", "usd", "en")
+	v1, err := c.LookupAtVersion(context.Background(), "acme-test", 1, "currency", "usd", "en")
 	if err != nil {
 		t.Fatal(err)
 	}
-	v2, err := c.LookupAtVersion(context.Background(), "emea-acme", 2, "currency", "usd", "en")
+	v2, err := c.LookupAtVersion(context.Background(), "acme-test", 2, "currency", "usd", "en")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,13 +373,13 @@ func TestLookupAtVersionLabelFallsBackToBareLanguage(t *testing.T) {
 	nc, cleanupNC := newTestNATS(t)
 	defer cleanupNC()
 
-	respondItemGetVersioned(t, nc, "rpc.emea-acme.refdata.item.get-versioned.v1", map[string]localization{
+	respondItemGetVersioned(t, nc, "rpc.acme-test.refdata.item.get-versioned.v1", map[string]localization{
 		"en": {Locale: "en", Label: "Docked"},
 		"es": {Locale: "es", Label: "Atracado"},
 	})
 
 	c := New(nc)
-	result, err := c.LookupAtVersion(context.Background(), "emea-acme", 1, "ship-status", "docked", "es-ES")
+	result, err := c.LookupAtVersion(context.Background(), "acme-test", 1, "ship-status", "docked", "es-ES")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,12 +395,12 @@ func TestLookupAtVersionLabelFallsBackToDefaultThenCode(t *testing.T) {
 	nc, cleanupNC := newTestNATS(t)
 	defer cleanupNC()
 
-	respondItemGetVersioned(t, nc, "rpc.emea-acme.refdata.item.get-versioned.v1", map[string]localization{
+	respondItemGetVersioned(t, nc, "rpc.acme-test.refdata.item.get-versioned.v1", map[string]localization{
 		"en": {Locale: "en", Label: "Docked"},
 	})
 
 	c := New(nc)
-	docked, err := c.LookupAtVersion(context.Background(), "emea-acme", 1, "ship-status", "docked", "ja-JP")
+	docked, err := c.LookupAtVersion(context.Background(), "acme-test", 1, "ship-status", "docked", "ja-JP")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,10 +413,10 @@ func TestLookupAtVersionLabelFallsBackToCodeWhenNoLocalizations(t *testing.T) {
 	nc, cleanupNC := newTestNATS(t)
 	defer cleanupNC()
 
-	respondItemGetVersioned(t, nc, "rpc.emea-acme.refdata.item.get-versioned.v1", nil) // no localizations at all
+	respondItemGetVersioned(t, nc, "rpc.acme-test.refdata.item.get-versioned.v1", nil) // no localizations at all
 
 	c := New(nc)
-	anchor, err := c.LookupAtVersion(context.Background(), "emea-acme", 1, "ship-status", "at-anchor", "ja-JP")
+	anchor, err := c.LookupAtVersion(context.Background(), "acme-test", 1, "ship-status", "at-anchor", "ja-JP")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,7 +431,7 @@ func TestLocalesUsesRPC(t *testing.T) {
 	nc, cleanupNC := newTestNATS(t)
 	defer cleanupNC()
 
-	sub, err := nc.Subscribe("rpc.emea-acme.refdata.locales.list.v1", func(msg *nats.Msg) {
+	sub, err := nc.Subscribe("rpc.acme-test.refdata.locales.list.v1", func(msg *nats.Msg) {
 		data, _ := json.Marshal(rpcLocalesListResponse{Locales: []string{"en", "fr"}, DefaultLocale: "en"})
 		_ = msg.Respond(data)
 	})
@@ -441,7 +441,7 @@ func TestLocalesUsesRPC(t *testing.T) {
 	defer sub.Unsubscribe() //nolint:errcheck
 
 	c := New(nc)
-	result, err := c.Locales(context.Background(), "emea-acme")
+	result, err := c.Locales(context.Background(), "acme-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +461,59 @@ func TestLocalesReturnsErrRPCUnavailableWhenNoResponder(t *testing.T) {
 	// Deliberately no subscriber on the rpc.* subject.
 
 	c := New(nc, WithRPCTimeout(100*time.Millisecond), WithRPCRetries(1), WithRPCBackoff(10*time.Millisecond))
-	_, err := c.Locales(context.Background(), "emea-acme")
+	_, err := c.Locales(context.Background(), "acme-test")
+	if !errors.Is(err, ErrRPCUnavailable) {
+		t.Fatalf("expected ErrRPCUnavailable, got %v", err)
+	}
+}
+
+// ─── ListContexts: rpc._platform.refdata.context.list.v1 (Phase 16f) ──────
+
+func TestListContextsUsesRPCAndForwardsTenant(t *testing.T) {
+	nc, cleanupNC := newTestNATS(t)
+	defer cleanupNC()
+
+	var gotReq rpcContextListRequest
+	sub, err := nc.Subscribe(contextListSubject, func(msg *nats.Msg) {
+		if unmarshalErr := json.Unmarshal(msg.Data, &gotReq); unmarshalErr != nil {
+			t.Error(unmarshalErr)
+		}
+		data, _ := json.Marshal(rpcContextListResponse{Contexts: []rpcContext{
+			{Context: "_platform"}, {Context: "acme"}, {Context: "acme-atlantic-fleet"},
+		}})
+		_ = msg.Respond(data)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Unsubscribe() //nolint:errcheck
+
+	c := New(nc)
+	contexts, err := c.ListContexts(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotReq.Tenant != "acme" {
+		t.Fatalf("expected tenant %q forwarded in request, got %q", "acme", gotReq.Tenant)
+	}
+	want := []string{"_platform", "acme", "acme-atlantic-fleet"}
+	if len(contexts) != len(want) {
+		t.Fatalf("expected %v, got %v", want, contexts)
+	}
+	for i, wantCtx := range want {
+		if contexts[i] != wantCtx {
+			t.Fatalf("expected %v, got %v", want, contexts)
+		}
+	}
+}
+
+func TestListContextsReturnsErrRPCUnavailableWhenNoResponder(t *testing.T) {
+	nc, cleanupNC := newTestNATS(t)
+	defer cleanupNC()
+	// Deliberately no subscriber on the rpc.* subject.
+
+	c := New(nc, WithRPCTimeout(100*time.Millisecond), WithRPCRetries(1), WithRPCBackoff(10*time.Millisecond))
+	_, err := c.ListContexts(context.Background(), "acme")
 	if !errors.Is(err, ErrRPCUnavailable) {
 		t.Fatalf("expected ErrRPCUnavailable, got %v", err)
 	}

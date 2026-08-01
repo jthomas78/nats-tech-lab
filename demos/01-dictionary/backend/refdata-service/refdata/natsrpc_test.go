@@ -41,7 +41,7 @@ func newTestNATSConn() *nats.Conn {
 }
 
 var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
-	const itemCtx = "emea-acme"
+	const itemCtx = "acme-test"
 
 	var (
 		ctx     context.Context
@@ -534,7 +534,7 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 // above. It seeds the versioned bucket directly via VersionMaterializer, so
 // (like the rest of this file) it needs no real Postgres.
 var _ = Describe("BR-D25/BR-D28: item.get-versioned is the rpc.* counterpart of getVersionedItem (Phase 12.11)", func() {
-	const itemCtx = "emea-acme"
+	const itemCtx = "acme-test"
 
 	It("resolves a pinned corpus version via rpc.* identically to VersionReader.Get called directly", func() {
 		ctx := context.Background()
@@ -617,5 +617,74 @@ var _ = Describe("BR-D25/BR-D28: item.get-versioned is the rpc.* counterpart of 
 		_, directErr := versionReader.Get(ctx, itemCtx, 999, "currency", "EUR")
 		Expect(directErr).To(HaveOccurred())
 		Expect(errResp.Error).To(Equal(directErr.Error()))
+	})
+})
+
+var _ = Describe("BR-D25/BR-D28: context.list is the rpc.* counterpart of listContexts (Phase 16f)", func() {
+	var (
+		ctx       context.Context
+		contextsH *commands.ContextHandler
+		nc        *nats.Conn
+		adapter   *natsrpc.Adapter
+		platform  string
+		acmeCo    string
+		acmeUnit  string
+		globexCo  string
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		repo := newFakeContextRepo()
+		contextsH = commands.NewContextHandler(repo)
+
+		platform, acmeCo, acmeUnit, globexCo = "_platform", "acme", "acme-atlantic-fleet", "globex"
+		Expect(contextsH.RegisterPlatformRoot(ctx, domain.Context{Context: platform, Name: platform})).To(Succeed())
+		Expect(contextsH.Register(ctx, domain.Context{Context: acmeCo, Parent: platform, Name: acmeCo, Tenant: "acme"})).To(Succeed())
+		Expect(contextsH.Register(ctx, domain.Context{Context: acmeUnit, Parent: acmeCo, Name: acmeUnit, Tenant: "acme"})).To(Succeed())
+		Expect(contextsH.Register(ctx, domain.Context{Context: globexCo, Parent: platform, Name: globexCo, Tenant: "globex"})).To(Succeed())
+
+		nc = newTestNATSConn()
+		var err error
+		adapter, err = natsrpc.New(nc, natsrpc.Deps{Contexts: contextsH})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() { Expect(adapter.Stop()).To(Succeed()) })
+	})
+
+	names := func(contexts []domain.Context) []string {
+		out := make([]string, len(contexts))
+		for i, c := range contexts {
+			out[i] = c.Context
+		}
+		return out
+	}
+
+	It("returns every context when no tenant is given, identically to ContextHandler.List called directly", func() {
+		reqBody, err := json.Marshal(natsrpc.ContextListRequest{})
+		Expect(err).NotTo(HaveOccurred())
+		msg, err := nc.Request(natsrpc.ContextListSubject, reqBody, 2*time.Second)
+		Expect(err).NotTo(HaveOccurred())
+
+		var resp natsrpc.ContextListResponse
+		Expect(json.Unmarshal(msg.Data, &resp)).To(Succeed())
+
+		direct, err := contextsH.List(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(names(resp.Contexts)).To(ConsistOf(names(direct)))
+	})
+
+	It("scopes the result to one tenant plus the shared platform roots when Tenant is set, identically to ListByTenant called directly", func() {
+		reqBody, err := json.Marshal(natsrpc.ContextListRequest{Tenant: "acme"})
+		Expect(err).NotTo(HaveOccurred())
+		msg, err := nc.Request(natsrpc.ContextListSubject, reqBody, 2*time.Second)
+		Expect(err).NotTo(HaveOccurred())
+
+		var resp natsrpc.ContextListResponse
+		Expect(json.Unmarshal(msg.Data, &resp)).To(Succeed())
+
+		direct, err := contextsH.ListByTenant(ctx, "acme")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(names(resp.Contexts)).To(ConsistOf(names(direct)))
+		Expect(names(resp.Contexts)).To(ContainElements(platform, acmeCo, acmeUnit))
+		Expect(names(resp.Contexts)).NotTo(ContainElement(globexCo))
 	})
 })

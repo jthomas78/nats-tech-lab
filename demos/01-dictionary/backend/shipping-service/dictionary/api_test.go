@@ -151,7 +151,7 @@ func (a *apiServer) fire(path string, body any) {
 
 var _ = Describe("HTTP API", func() {
 	var api *apiServer
-	const ctx = "global"
+	const ctx = "acme"
 
 	BeforeEach(func() {
 		api = newAPIServer()

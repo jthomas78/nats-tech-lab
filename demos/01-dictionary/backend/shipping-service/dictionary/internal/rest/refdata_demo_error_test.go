@@ -7,6 +7,7 @@ package rest
 // 503 (retry later) rather than the generic 500 (unexpected/internal fault).
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -51,8 +52,8 @@ func TestGetRefdataDemoReturns503WhenRPCUnavailable(t *testing.T) {
 		refdataconsumer.WithRPCBackoff(10*time.Millisecond))
 	h := NewHandlers(Deps{Refdata: consumer})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/refdata-demo/emea-acme/hazard-class/3", nil)
-	req.SetPathValue("context", "emea-acme")
+	req := httptest.NewRequest(http.MethodGet, "/api/refdata-demo/acme-test/hazard-class/3", nil)
+	req.SetPathValue("context", "acme-test")
 	req.SetPathValue("type", "hazard-class")
 	req.SetPathValue("code", "3")
 	w := httptest.NewRecorder()
@@ -100,5 +101,78 @@ func TestListRefdataLocalesReturns503WhenRPCUnavailable(t *testing.T) {
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestListRefdataContextsReturns503WhenRPCUnavailable is the same BR-D28
+// pattern as the two tests above, applied to the Phase 16f context-list
+// endpoint.
+func TestListRefdataContextsReturns503WhenRPCUnavailable(t *testing.T) {
+	nc, cleanup := newTestNATS(t)
+	defer cleanup()
+	consumer := refdataconsumer.New(nc,
+		refdataconsumer.WithRPCTimeout(100*time.Millisecond),
+		refdataconsumer.WithRPCRetries(1),
+		refdataconsumer.WithRPCBackoff(10*time.Millisecond))
+	h := NewHandlers(Deps{Refdata: consumer, Tenant: "acme"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/refdata/contexts", nil)
+	w := httptest.NewRecorder()
+
+	h.listRefdataContexts(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestListRefdataContextsForwardsActiveTenant proves the Phase 16f wiring
+// end to end: the currently active Deps.Tenant (not a hardcoded literal)
+// is what travels in the rpc._platform.refdata.context.list.v1 request.
+func TestListRefdataContextsForwardsActiveTenant(t *testing.T) {
+	nc, cleanup := newTestNATS(t)
+	defer cleanup()
+
+	var gotTenant string
+	sub, err := nc.Subscribe("rpc._platform.refdata.context.list.v1", func(msg *nats.Msg) {
+		var req struct {
+			Tenant string `json:"tenant"`
+		}
+		_ = json.Unmarshal(msg.Data, &req)
+		gotTenant = req.Tenant
+		data, _ := json.Marshal(struct {
+			Contexts []struct {
+				Context string `json:"context"`
+			} `json:"contexts"`
+		}{Contexts: []struct {
+			Context string `json:"context"`
+		}{{Context: "_platform"}, {Context: "acme"}}})
+		_ = msg.Respond(data)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Unsubscribe() //nolint:errcheck
+
+	consumer := refdataconsumer.New(nc)
+	h := NewHandlers(Deps{Refdata: consumer, Tenant: "acme"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/refdata/contexts", nil)
+	w := httptest.NewRecorder()
+
+	h.listRefdataContexts(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if gotTenant != "acme" {
+		t.Fatalf("expected tenant %q forwarded, got %q", "acme", gotTenant)
+	}
+	var resp metaValuesResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Values) != 2 {
+		t.Fatalf("expected 2 contexts, got %v", resp.Values)
 	}
 }

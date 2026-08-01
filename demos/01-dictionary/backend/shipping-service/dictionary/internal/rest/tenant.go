@@ -16,9 +16,9 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/queries"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/eventhandler"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/natsrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 )
@@ -65,15 +65,16 @@ func discoverTenants(credsDir string) (map[string]TenantCredentials, error) {
 // tenantResources bundles everything scoped to ONE tenant NATS account: its
 // own connection, JetStream context, the four KV stores, the ship/container
 // command handlers, the query handlers, the four durable projector
-// ConsumeContexts, and its natsrpc.Adapter (Phase 15a).
+// ConsumeContexts, and its browserrpc.Adapter (Phase 15a, renamed from
+// natsrpc in Phase 16b).
 //
 // Before Phase 15, this bundle (minus the Adapter) was rebuilt from scratch
 // on every SwitchTenant call — including switching BACK to a
 // previously-active tenant — and the old bundle's projectors were Stop()'d
-// on every switch-away. Phase 15's natsrpc adapters need to keep answering
-// rpc.* calls for EVERY known tenant regardless of which single tenant
-// REST's SwitchTenant currently has active (a browser connected directly to
-// ACME's account must keep working even while the Admin operator has
+// on every switch-away. Phase 15's browserrpc adapters need to keep
+// answering api.* calls for EVERY known tenant regardless of which single
+// tenant REST's SwitchTenant currently has active (a browser connected
+// directly to ACME's account must keep working even while the Admin operator has
 // GLOBEX active) — and a browser command published into a tenant's own
 // SHIPPING stream needs that SAME tenant's projectors running to update its
 // KV read model and fire notify.* (Phase 15b), regardless of REST's active
@@ -95,7 +96,7 @@ type tenantResources struct {
 	meta                           *queries.Meta
 	shapeA                         *queries.ShapeA
 	projectors                     []jetstream.ConsumeContext
-	rpcAdapter                     *natsrpc.Adapter
+	rpcAdapter                     *browserrpc.Adapter
 }
 
 // SwitchTenant points REST/SSE's Deps fields at tenant's persistent resource
@@ -151,14 +152,14 @@ func (h *Handlers) SwitchTenant(ctx context.Context, tenant string) error {
 // creating it on first sight. Idempotent: a tenant already present in
 // TenantResources is returned as-is — no reconnect, no re-registration, and
 // critically no Stop() of anything, since other tenants' browsers may be
-// actively relying on that bundle's rpc.* adapter and projectors right now.
+// actively relying on that bundle's api.* adapter and projectors right now.
 func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath string) (*tenantResources, error) {
 	prev := h.deps()
 	if res, ok := prev.TenantResources[tenant]; ok {
 		return res, nil
 	}
 
-	// eventhandler.register() and natsrpc's micro.AddService close over this
+	// eventhandler.register() and browserrpc's micro.AddService close over this
 	// ctx (or a derived one) for the *entire remaining lifetime of the
 	// process* now — not just until the next switch, since resources here
 	// are never torn down. Startup's ctx is already long-lived (canceled
@@ -203,7 +204,7 @@ func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath 
 	meta := queries.NewMeta(kvMeta)
 	shapeA := queries.NewShapeA(kvA)
 
-	rpcAdapter, err := natsrpc.New(nc, natsrpc.Deps{
+	rpcAdapter, err := browserrpc.New(nc, browserrpc.Deps{
 		Ships:      ships,
 		Containers: containers,
 		Ports:      prev.Ports, // static: Postgres-backed, not account-scoped — shared across every tenant's adapter

@@ -283,7 +283,7 @@ file) for file-level detail, or its contents once folded into this document on c
 
 ---
 
-### Phase 16 (16a/16b/16c/16d) — Subject Taxonomy & Tenancy Formalization
+### Phase 16 (16a–16f) — Subject Taxonomy & Tenancy Formalization
 
 #### Goal
 
@@ -375,7 +375,7 @@ match.
 
 #### Sub-phases
 
-- **16a — documentation formalization (docs only, no code).** `ARCHITECTURE-COMMUNICATIONS.md`
+- **16a — documentation formalization (DONE 2026-07-31, docs only, no code).** `ARCHITECTURE-COMMUNICATIONS.md`
   § 1–2 rewritten (five families, Core/Supportive, full `{context}` rules, `rpc.*`/`api.*`
   separation rule); `ARCHITECTURE-DICTIONARY.md` context definition corrected;
   `CLAUDE.md`'s taxonomy block corrected (it described the token as `<tenant>`);
@@ -383,33 +383,96 @@ match.
   `Refdata-Versioning-Tenancy-Design.md` § 2.1 reconciled (root `global` → `_platform`, region
   removed as a node, `tenant` column added); `Multi-Region-Plan.md` § 0 added with the
   region/tenancy answers and the Mirror-vs-gateway recommendation.
-- **16b — `api.*` migration.** `shipping-service`'s `dictionary/internal/natsrpc/` →
+- **16b — `api.*` migration (DONE 2026-07-31).** `shipping-service`'s `dictionary/internal/natsrpc/` →
   `dictionary/internal/browserrpc/`; `rpc.*` → `api.*`, `obs.rpc.*` → `obs.api.*`;
   `auth-service`'s `MintBrowserToken` grants `api.>`/`notify.>` and **drops `rpc.>`**;
   frontend subject builders updated; tests renamed/retargeted. Mechanical — no behaviour change.
   A fresh `internal/natsrpc/` gets created only if/when shipping-service genuinely needs a
   backend-to-backend endpoint (none exists today); no empty placeholder package is left behind.
-- **16c — reserved-name enforcement.** `accounts-service` rejects `_`-prefixed account/company
-  names at provisioning time, with a business rule and test, so decision 5 is enforced rather than
-  conventional.
-- **16d — refdata context tree.** Introduce the `_platform` reserved root, per-company/business-unit
-  contexts beneath it, and the `tenant` column (decision 11). Retire `emea-acme`. **Also seed data
-  that actually demonstrates inheritance:** refdata currently seeds exactly one context, registered
-  as root with no parent (`seed.go:39`), so the entire hierarchy implementation — recursive ancestor
-  CTE, override/addition/inherited semantics, BR-V06/V07/V08, corpus flattening — is built and
-  unit-tested but invisible in the running demo. Seed `_platform` with the `standards`-category
-  types plus at least one child override so BR-V07 is observable. Needs its own business rules.
-- **16e — shipping context value migration.** Adopt the fully-qualified form (decision 12):
-  `global` → `acme`, `atlantic-fleet` → `acme-atlantic-fleet`, per tenant. Two consequences that
-  make this more than a rename: context seeding becomes **tenant-aware** (`migrate.go:90` currently
-  seeds the same three literals into every tenant), and **KV bucket names change**
-  (`kvstore/kv.go:41` builds `{prefix}-{context}`, so `dict-a-atlantic-fleet` →
-  `dict-a-acme-atlantic-fleet`). Old buckets are not renamed by anything, so this **requires
-  `docker compose down -v`** or an explicit migration — a stale environment reads empty buckets
-  rather than erroring, which is a silent failure mode. Note `events.go`'s comment claiming buckets
-  are "just `{prefix}` inside an account boundary" was never implemented; the suffix is always present.
-- **16f — dynamic context list.** Backend endpoint/subject to list the calling tenant's contexts;
-  frontend `CONTEXTS` (currently a hardcoded literal array in `stores/port.js`) derived from it;
+- **16c — reserved-name enforcement (DONE 2026-07-31).** Enforced in **both** services, not just
+  accounts-service as first scoped — discovered while implementing that `{context}` is
+  refdata-service's own resource (`refdata.contexts`), registrable independently of any NATS
+  account via `POST /api/refdata/admin/contexts`, so accounts-service alone couldn't guarantee the
+  invariant. `accounts-service` (BR-AC07) rejects `_`-prefixed account names at `POST /api/accounts`
+  (`400`, distinct from BR-AC06's `409` for an exact reserved-name match) — needed because in the
+  common no-company-group case (decision 11) a tenant's own name doubles as its company context, so
+  an unguarded account name could smuggle a `_`-prefixed value into the context namespace.
+  `refdata-service` (BR-D33) rejects `_`-prefixed context names in `ValidateContextName` — the
+  primary enforcement point, since it's the one that can't be bypassed by skipping account creation
+  entirely. Both raise a typed error (`ErrReservedContextPrefix`/inline), both tested, both allow a
+  mid-string underscore (`acme_northdiv`). Known pending item folded into 16d: `ValidateContextName`
+  as written also rejects the platform root's own future registration — 16d's seeding must
+  special-case it.
+- **16d — refdata context tree (DONE 2026-07-31).** `_platform` (reserved root) → `acme`
+  (company, `tenant: "acme"`) → `acme-atlantic-fleet` (business unit); `emea-acme` retired.
+  `refdata.contexts.tenant` added (`ALTER TABLE`, nullable — BR-D34, governance metadata only,
+  not enforced, per decision 13). `_platform` is seeded via a new `ContextHandler.RegisterPlatformRoot`,
+  the one sanctioned exception to BR-D33's blanket `_`-prefix rejection — the public REST endpoint
+  still rejects `_platform` unconditionally; only `seed.go` calls the bypass.
+  **Seed data now actually demonstrates inheritance**, not just registers a tree: standards types
+  (currency/country/incoterm/uom/hazard-class) moved to `_platform`; domain types (ship-status,
+  UI-copy strings) moved to `acme`. `hazard-class` alone carries all three inheritance states —
+  codes 1/2/4-9 inherited, code 3 overridden at `acme` (BR-V07), code `X1` an addition only at
+  `acme-atlantic-fleet` (BR-V06). Critically, `Seed` also idempotently drafts+publishes an initial
+  corpus version per context, **parent-first** — required because `CreateDraft` silently skips
+  (not errors) an ancestor that has never published, so without this the tree would exist but
+  inherit nothing, exactly as invisible as the one-context state it replaces.
+  Two live consumers hardcoded `"emea-acme"` and would have broken on retirement, found and fixed
+  in the same pass: `shipping-service`'s `refdataContext` const (→ `"acme"`) and
+  `frontend/refdata`'s `CONTEXTS` array (→ all three contexts, so the admin UI can browse the
+  whole chain). `internal/domain/validation.go` also gained a shared `ValidateSubjectToken`
+  (charset-only) that both `ValidateContextName` and `RegisterPlatformRoot` build on.
+- **16e — shipping context value migration (DONE 2026-07-31).** Adopted the fully-qualified form
+  (decision 12) throughout shipping-service: `global` → `acme`, `atlantic-fleet` →
+  `acme-atlantic-fleet`, `pacific-fleet` → `acme-pacific-fleet` (the third literal wasn't named in
+  this entry's original text but was migrated identically for consistency). Renamed every literal
+  occurrence — `postgres/migrate.go`'s `seedDefaultPorts`, 8 Go test files' fixture consts,
+  Swagger/doc-comment examples in `rest/handlers.go`/`sse.go`/`kv.go`/`browserrpc/adapter.go`,
+  `auth-service/auth/token.go`'s doc comment, and both frontends' `CONTEXTS` arrays
+  (`seafreight-app/stores/port.js`, `admin/stores/dictionary.js`) — then regenerated Swagger docs.
+  **Investigated but deliberately NOT built**, because it turned out to have no structural basis:
+  the plan's "context seeding becomes tenant-aware" goal. `seedDefaultPorts` runs once at startup
+  before any tenant connection exists, and shipping-service's Postgres schema (`ports`/`ships`/
+  `containers`) has **no tenant column at all** — every tenant sharing this Postgres instance reads
+  the same rows, scoped only by `context`. Tenant isolation for this data lives entirely in which
+  NATS account a request authenticates into, not in a Postgres row; making per-tenant context
+  seeding real would mean adding a tenant dimension to this schema, which is a materially bigger
+  change than a value rename and was out of this phase's scope. Documented in `migrate.go`'s
+  `seedDefaultPorts` doc comment so this isn't mistaken for an oversight later.
+  **KV bucket rename**: confirmed no rename/migration mechanism exists anywhere in
+  `internal/kvstore` — `Bucket()`'s `{prefix}-{context}` naming (`kv.go`) only creates-or-updates
+  the new name; a `docker compose down -v` was required (and run) to get a clean environment
+  rather than leaving stale old-named buckets silently reading empty.
+- **16f — dynamic context list (DONE 2026-07-31).** Backend: `refdata-service` gained
+  `ContextRepository.ListByTenant`/`ContextHandler.ListByTenant` (BR-D35, `BUSINESS_RULES-REFDATA.md`)
+  — returns a tenant's own contexts plus the shared `_`-reserved platform roots — exposed on both
+  transports (`GET /api/refdata/admin/contexts?tenant=`, `rpc._platform.refdata.context.list.v1`).
+  `shipping-service` added `refdataconsumer.ListContexts` (calling that new rpc.* endpoint, BR-D28
+  NATS-only) and a new `GET /api/refdata/contexts` REST endpoint (`listRefdataContexts`, BR-025)
+  that resolves the caller's tenant via `refdataCompanyContext(deps.Tenant)`.
+  **Extended scope beyond the plan's original wording**: the plan also flagged
+  `refdataconsumer` passing a hardcoded `"acme"` company-context constant as itself "pending Phase
+  16f" — fixed by deriving it from the active tenant (decision 11's "tenant name doubles as company
+  context in the no-company-group case," the same mapping BR-AC07 relies on) instead of leaving it
+  hardcoded, applied consistently across `listRefdataType`/`listRefdataLocales`/`listRefdataContexts`
+  and the `watchRefdata` SSE subject filter.
+  Frontend: `CONTEXTS` (previously hardcoded, just renamed in 16e) is now the offline/error
+  fallback only — both `seafreight-app/stores/port.js` and `admin/stores/dictionary.js` gained an
+  `availableContexts` reactive field and a `loadContexts()` action, fetched on tenant init/switch
+  (not on a plain fleet-context change, to avoid refetching the same list a context switch is
+  picking from) — both apps' `<Select>` dropdowns bind to the live list.
+  **Known gap, explicitly documented rather than silently left implicit** (BR-025's "Known gap"
+  paragraph): Sea Freight Flow (Phase 15d) no longer drives shipping-service's REST-side
+  `Deps.Tenant`/`SwitchTenant` at all — it authenticates directly into its own NATS account. These
+  refdata REST reads resolve tenant from `Deps.Tenant`, which the Admin/Dictionary frontend does
+  control. Both happen to default to the same tenant (`acme`) today, so this reads correctly in the
+  common case, but the two are not actually the same signal — if the Admin UI's tenant selection and
+  Sea Freight Flow's own NATS tenant ever diverged, these three endpoints would reflect the Admin
+  UI's selection. A real fix needs an explicit tenant threaded through the *shared*
+  `useRefdataLabels`/`useL10nCopy` composables rather than server-side state; left as a documented
+  seam, not fixed, since it's a pre-existing Phase 15 scope boundary (that phase already flagged
+  refdata-service's cross-tenant DEFAULT-account model as out of scope), not something 16f
+  introduced or was asked to resolve.
   `refdataconsumer` passes the real context instead of the hardcoded `emea-acme` it uses today
   (`consumer.go:19-20` — "demo-scoped to that context"). First time the frontend does not know its
   contexts synchronously, so it needs a genuine loading/error path.

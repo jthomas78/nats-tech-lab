@@ -46,6 +46,19 @@ const ItemGetVersionedSubject = "rpc.*.refdata.item.get-versioned.v1"
 // BR-D28).
 const LocalesListSubject = "rpc.*.refdata.locales.list.v1"
 
+// ContextListSubject serves ContextHandler.List/ListByTenant — the rpc.*
+// counterpart of REST's listContexts (Phase 16f). Unlike the other
+// endpoints above, its {context} token is the fixed literal "_platform"
+// rather than a wildcard: "list the contexts I (a tenant) can see" has no
+// single company context to route on — it's the same precedent as
+// rpc._platform.refdata.* being the subject family for
+// steward/tooling-style corpus-wide operations (Main-POC-Plan.md § Phase
+// 16, decision 10). The tenant to filter by travels in the request body
+// (ContextListRequest), not the subject — refdata-service runs on one
+// shared NATS account and has no server-supplied caller identity to read
+// it from otherwise (decision 13).
+const ContextListSubject = "rpc._platform.refdata.context.list.v1"
+
 // ObsSubjectWildcard is the subject filter for the obs.rpc.* observability
 // side-channel (BR-D26) — the RPCTRACE stream (BR-D29) is provisioned
 // against this same wildcard so every event publishObs emits is retained,
@@ -62,6 +75,10 @@ type Deps struct {
 	Items         *commands.ItemHandler
 	VersionReader *kvcache.VersionReader
 	Projector     *kvcache.Projector
+	// Contexts is optional (nil-safe, Phase 16f) — a deployment that never
+	// wires the REST context routes (h.deps.Contexts == nil there too)
+	// simply can't serve context.list.v1 either.
+	Contexts *commands.ContextHandler
 	// JS is optional (nil-safe, mirroring VersionReader/Projector): when
 	// configured, publishObs retains events on RPCTRACE (BR-D29) instead of
 	// just fire-and-forget core-NATS publishing.
@@ -79,6 +96,7 @@ type Adapter struct {
 	items         *commands.ItemHandler
 	versionReader *kvcache.VersionReader
 	projector     *kvcache.Projector
+	contexts      *commands.ContextHandler
 	js            jetstream.JetStream
 	log           *slog.Logger
 	svc           micro.Service
@@ -167,6 +185,9 @@ type LocalesListResponse struct {
 
 var errVersionedReadsNotConfigured = errors.New("versioned reads are not configured")
 
+// errContextsNotConfigured mirrors REST's own nil-Contexts guard (Phase 16f).
+var errContextsNotConfigured = errors.New("context hierarchy is not configured")
+
 // New starts the natsrpc microservice and registers its endpoints.
 // deps.Projector may be nil (e.g. in tests, or when JetStream/KV isn't
 // wired) — the cache backfill in handleItemGet/handleTypeList is then simply
@@ -181,6 +202,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		items:         deps.Items,
 		versionReader: deps.VersionReader,
 		projector:     deps.Projector,
+		contexts:      deps.Contexts,
 		js:            deps.JS,
 		log:           deps.Log,
 	}
@@ -204,6 +226,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"type-list", a.handleTypeList, TypeListSubject},
 		{"item-get-versioned", a.handleItemGetVersioned, ItemGetVersionedSubject},
 		{"locales-list", a.handleLocalesList, LocalesListSubject},
+		{"context-list", a.handleContextList, ContextListSubject},
 	}
 	for _, ep := range endpoints {
 		if err := svc.AddEndpoint(ep.name, ep.handler, micro.WithEndpointSubject(ep.subject)); err != nil {
@@ -506,6 +529,63 @@ func (a *Adapter) handleLocalesList(req micro.Request) {
 	}
 }
 
+// ContextListRequest is the rpc._platform.refdata.context.list.v1 request
+// payload — Tenant is optional; empty means "every context" (mirrors REST's
+// listContexts with no ?tenant= param).
+type ContextListRequest struct {
+	Tenant string `json:"tenant"`
+}
+
+// ContextListResponse mirrors REST's contextsResponse shape.
+type ContextListResponse struct {
+	Contexts []domain.Context `json:"contexts"`
+}
+
+// handleContextList is the rpc.* counterpart of REST's listContexts
+// (Phase 16f) — same ContextHandler.List/ListByTenant calls, over NATS
+// instead of HTTP so a backend caller (e.g. shipping-service, BR-D28) never
+// needs a REST client to reach it.
+func (a *Adapter) handleContextList(req micro.Request) {
+	subject := req.Subject()
+	correlationID := req.Reply()
+	a.publishObs(subject, correlationID, "request", req.Data(), "")
+
+	if a.contexts == nil {
+		a.respondError(req, subject, correlationID, errContextsNotConfigured)
+		return
+	}
+
+	var in ContextListRequest
+	if len(req.Data()) > 0 {
+		if err := json.Unmarshal(req.Data(), &in); err != nil {
+			a.respondError(req, subject, correlationID, err)
+			return
+		}
+	}
+
+	var contexts []domain.Context
+	var err error
+	if in.Tenant != "" {
+		contexts, err = a.contexts.ListByTenant(context.Background(), in.Tenant)
+	} else {
+		contexts, err = a.contexts.List(context.Background())
+	}
+	if err != nil {
+		a.respondError(req, subject, correlationID, err)
+		return
+	}
+
+	data, err := json.Marshal(ContextListResponse{Contexts: contexts})
+	if err != nil {
+		a.respondError(req, subject, correlationID, err)
+		return
+	}
+	a.publishObs(subject, correlationID, "reply", data, "")
+	if err := req.Respond(data); err != nil && a.log != nil {
+		a.log.Error("natsrpc: respond failed", "subject", subject, "err", err)
+	}
+}
+
 // respondError also fires the reply-side obs.rpc.* event on failure (BR-D26
 // — a failed call must still be visible in the observability view).
 func (a *Adapter) respondError(req micro.Request, subject, correlationID string, err error) {
@@ -519,8 +599,8 @@ func (a *Adapter) respondError(req micro.Request, subject, correlationID string,
 var versionSuffix = regexp.MustCompile(`\.v\d+$`)
 
 // obsSubjectFor derives the observability subject from a real rpc.* subject
-// (e.g. rpc.emea-acme.refdata.item.get.v1 ->
-// obs.rpc.emea-acme.refdata.item.get), per ARCHITECTURE-COMMUNICATIONS.md §6.
+// (e.g. rpc.acme.refdata.item.get.v1 ->
+// obs.rpc.acme.refdata.item.get), per ARCHITECTURE-COMMUNICATIONS.md §6.
 // Every derived subject falls under ObsSubjectWildcard.
 func obsSubjectFor(rpcSubject string) string {
 	return "obs." + versionSuffix.ReplaceAllString(rpcSubject, "")

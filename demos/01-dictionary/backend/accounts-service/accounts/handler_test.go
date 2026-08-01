@@ -241,6 +241,28 @@ var _ = Describe("Handlers", func() {
 		Entry("SYS", "SYS"),
 		Entry("sys", "sys"),
 	)
+
+	// BR-AC07 (BUSINESS_RULES-ACCOUNTS.md): a leading "_" is reserved for
+	// platform/system use across the whole subject taxonomy, not just this
+	// service's own concept — see reservedNamePrefix's doc comment. Rejected
+	// as 400 Bad Request (a naming-rule violation), not 409 Conflict (which
+	// BR-AC06 above uses for "already claimed by a specific reserved name").
+	DescribeTable("rejects account names beginning with '_'",
+		func(name string) {
+			resp := doRequest(http.MethodPost, "/api/accounts", map[string]any{"name": name}, accounts.BasicAuthUser, authSecret)
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		},
+		Entry("_platform", "_platform"),
+		Entry("_ops", "_ops"),
+		Entry("_", "_"),
+	)
+
+	It("still allows an account name that merely contains an underscore mid-string", func() {
+		resp := doRequest(http.MethodPost, "/api/accounts", map[string]any{"name": "acme_northdiv"}, accounts.BasicAuthUser, authSecret)
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+	})
 })
 
 func readAll(resp *http.Response) (string, error) {

@@ -78,7 +78,7 @@ type kvChange struct {
 // @Description  Server-Sent Events stream for one KV bucket by full name. Replays the bucket's current entries first (Live=false), sends an INIT_DONE control event, then streams live changes (Live=true). One connection drives both the contents snapshot and the live update feed — the same WatchAll semantics the NATS KV watch model is built on.
 // @Tags         kv
 // @Produce      text/event-stream
-// @Param        bucket  path  string  true  "KV bucket name (e.g. dict-a-global, refdata-emea-acme)"
+// @Param        bucket  path  string  true  "KV bucket name (e.g. dict-a-acme, refdata-acme)"
 // @Success      200  {string}  string  "SSE stream — data: {kvChange JSON}"
 // @Failure      400  {object}  errorResponse  "Unknown bucket"
 // @Failure      500  {object}  errorResponse

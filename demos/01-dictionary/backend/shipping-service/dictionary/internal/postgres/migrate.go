@@ -86,8 +86,19 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 // hardcoded as BASE_PORTS in ShippingForm.vue) for every fleet context the
 // frontends offer, so a fresh install still has a working set of ports without
 // a manual registration step. Idempotent — ON CONFLICT DO NOTHING.
+//
+// Phase 16e: these are the fully-qualified context values (acme,
+// acme-atlantic-fleet, acme-pacific-fleet — formerly global, atlantic-fleet,
+// pacific-fleet), mirroring refdata-service's real context tree. This list is
+// NOT tenant-scoped: shipping-service's Postgres schema has no tenant column
+// at all today (ports/ships/containers are one shared table set for every
+// tenant, keyed only by context; see Main-POC-Plan.md § Phase 16e) — tenant
+// isolation for this data lives entirely in which NATS account a request
+// authenticates into, not in a Postgres row. Making per-tenant context
+// seeding real would require adding a tenant dimension to this schema, which
+// is out of scope here.
 func seedDefaultPorts(ctx context.Context, db *sql.DB) error {
-	contexts := []string{"global", "atlantic-fleet", "pacific-fleet"}
+	contexts := []string{"acme", "acme-atlantic-fleet", "acme-pacific-fleet"}
 	defaults := []string{"Hamburg", "Rotterdam", "Singapore", "New York", "Shanghai", "Sydney"}
 	for _, kvContext := range contexts {
 		for _, name := range defaults {

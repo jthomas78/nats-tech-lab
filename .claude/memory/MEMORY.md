@@ -20,4 +20,5 @@
 - [Accounts service plan](accounts_service_plan.md) — Phase 14 implemented 2026-07-28: dynamic tenant provisioning via decentralized JWTs; full suspend/reactivate lifecycle; no hard-delete (decided 2026-07-29); WorkOS deferred
 - [$SYS.REQ.CLAIMS reference](nats_sys_claims_subjects.md) — `$SYS.REQ.CLAIMS.*` is core NATS request-reply (not JetStream) for runtime JWT resolver management in operator mode
 - [refdata database-per-service](refdata_database_per_service.md) — refdata-service moved off shared `postgres` to its own `refdata-postgres` instance (port 5433); NATS is now the only shared infra
-- [Admin UI realtime transport options](admin_ui_realtime_transport_options.md) — **undecided**: 4th-option discussion — single browser-side NATS WebSocket vs. per-panel SSE; awaiting more user comment
+- [Admin UI realtime transport options](admin_ui_realtime_transport_options.md) — **resolved for seafreight-app** (Phase 15, single NATS WebSocket); Admin/Dictionary UIs still on SSE
+- [Phase 16 tenancy/taxonomy](phase16_tenancy_taxonomy.md) — 13-point decision record + a-f status: **all of 16a-16f DONE 2026-07-31**; known gap: refdata reads' tenant resolution doesn't track Sea Freight Flow's own NATS tenant

@@ -1,9 +1,21 @@
 ---
 name: admin-ui-realtime-transport-options
-description: Design discussion (undecided) — replacing per-panel SSE connections in the Admin UI with a single browser-side NATS WebSocket connection
+description: Design discussion that led to Phase 15 — replacing per-panel SSE with a single browser-side NATS WebSocket connection; **resolved for Sea Freight Flow only**, Admin/Dictionary UIs still on SSE
 metadata:
   type: project
 ---
+
+**Resolution (Phase 15, DONE 2026-07-31 — scope: `frontend/seafreight-app` only):** option 4 below
+was built, not just discussed. `useNatsConnection.js` holds one `nats.ws` WebSocket per tab;
+`auth-service` (Phase 15c) mints short-lived, permission-restricted browser JWTs
+(`api.>`/`notify.>`, never `rpc.>` — see [[phase16_tenancy_taxonomy]] point 8); shipping-service
+exposes commands/queries over `api.*` request/reply (Phase 15a/16b, `browserrpc/` adapter) and
+publishes projected-entity changes on `notify.*` after each projection write (Phase 15b). REST +
+SSE were fully removed from `seafreight-app`'s command/query/live-update path. **`frontend/admin`
+and `frontend/refdata` deliberately did NOT get this treatment** — they remain on REST + SSE; the
+multi-tab connection-exhaustion problem this note originally describes is unresolved for those two
+apps. If it resurfaces there, this note plus the trade-off table below is the starting context —
+but confirm with the user before assuming the same NATS-WebSocket approach should extend to them.
 
 **Original symptom (external chat, not this session):** opening a 2nd browser tab to
 `http://localhost:7101/` (the Admin UI) leaves both tabs stuck in a "busy"/spinner state and
@@ -49,13 +61,16 @@ credentials directly and is trusted to subscribe only to the right subjects — 
 POC/lab, but in production this would need a read-only, tightly-scoped-per-tenant JWT rather than
 a shared credential.
 
-**Status:** This is a raw discussion note pasted in from elsewhere (two messages: the original
-symptom + first 3 options, then the 4th-option follow-up) — not evaluated against this repo's
-current architecture, not agreed to, and no implementation should start from this alone. Per
-[[design-discussion-vs-implementation-signal]], treat this as the opening round of a multi-round
-design conversation; wait for further comments/iteration before proposing a plan.
+**Historical status (pre-Phase-15):** the sections above this point are the original raw discussion
+note (symptom + 3 SSE-side fixes + the 4th NATS-WebSocket option), kept as-is for the reasoning
+trail. Superseded by the Resolution note at the top for `seafreight-app`'s scope — still accurate
+background if the same question comes up for `frontend/admin`/`frontend/refdata`.
 
-**Relevant existing context if this resurfaces:** the Admin UI's RPC panel already replays
-`obs.rpc.*` traffic via JetStream + SSE (BR-D29/RPCTRACE) — see the `RpcPanel.vue` /
-`watchRPCObs` work. Any NATS-WebSocket redesign would need to account for that stream's existing
-JetStream-backed replay-then-live semantics, not just simple live pub-sub.
+**Relevant existing context if this resurfaces for Admin/Dictionary UIs:** the Admin UI's RPC panel
+already replays `obs.rpc.*` traffic via JetStream + SSE (BR-D29/RPCTRACE) — see the `RpcPanel.vue`
+/ `watchRPCObs` work. Any NATS-WebSocket redesign would need to account for that stream's existing
+JetStream-backed replay-then-live semantics, not just simple live pub-sub. Note also that Phase 15
+deliberately left cross-account imports (DEFAULT-account streams like RPCTRACE/REFDATA) out of
+scope — a browser JWT scoped to one tenant account can't see them, so the RPC panel's own
+DEFAULT-account SSE watch would still be needed even after a WebSocket migration, not replaced by
+one.

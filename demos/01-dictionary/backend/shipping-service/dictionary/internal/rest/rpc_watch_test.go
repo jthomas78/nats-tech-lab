@@ -99,8 +99,8 @@ func TestWatchRPCObsReplaysBacklogBeforeLive(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	backlog := `{"direction":"request","correlationId":"backlog-1","subject":"rpc.emea-acme.refdata.item.get.v1"}`
-	if _, err := js.Publish(ctx, "obs.rpc.emea-acme.refdata.item.get.v1", []byte(backlog)); err != nil {
+	backlog := `{"direction":"request","correlationId":"backlog-1","subject":"rpc.acme-test.refdata.item.get.v1"}`
+	if _, err := js.Publish(ctx, "obs.rpc.acme-test.refdata.item.get.v1", []byte(backlog)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -121,8 +121,8 @@ func TestWatchRPCObsReplaysBacklogBeforeLive(t *testing.T) {
 	// so the assertion below is actually testing ordering, not just presence.
 	waitForBody(t, rec, "backlog-1")
 
-	live := `{"direction":"request","correlationId":"live-1","subject":"rpc.emea-acme.refdata.item.get.v1"}`
-	if err := nc.Publish("obs.rpc.emea-acme.refdata.item.get.v1", []byte(live)); err != nil {
+	live := `{"direction":"request","correlationId":"live-1","subject":"rpc.acme-test.refdata.item.get.v1"}`
+	if err := nc.Publish("obs.rpc.acme-test.refdata.item.get.v1", []byte(live)); err != nil {
 		t.Fatal(err)
 	}
 	waitForBody(t, rec, "live-1")
@@ -166,12 +166,12 @@ func TestWatchRPCObsDegradesToLiveOnlyWhenJSNil(t *testing.T) {
 		close(done)
 	}()
 
-	live := `{"direction":"request","correlationId":"live-only-1","subject":"rpc.emea-acme.refdata.item.get.v1"}`
+	live := `{"direction":"request","correlationId":"live-only-1","subject":"rpc.acme-test.refdata.item.get.v1"}`
 	// No backlog to wait for here (JS is nil) — poll until the subscribe has
 	// definitely taken effect by retrying the publish until it's observed.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if err := nc.Publish("obs.rpc.emea-acme.refdata.item.get.v1", []byte(live)); err != nil {
+		if err := nc.Publish("obs.rpc.acme-test.refdata.item.get.v1", []byte(live)); err != nil {
 			t.Fatal(err)
 		}
 		if strings.Contains(rec.String(), "live-only-1") {

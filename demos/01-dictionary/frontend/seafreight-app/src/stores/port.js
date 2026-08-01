@@ -1,5 +1,5 @@
 // Pinia store = the browser-side projected read model (Phase 15d). Bootstraps
-// via rpc.*.shipping.{entity}.list.v1 calls on connect, then stays fresh via
+// via api.*.shipping.{entity}.list.v1 calls on connect, then stays fresh via
 // notify.*.shipping.{entity}.changed subscriptions over the single NATS
 // WebSocket connection (nats/useNatsConnection.js) — replacing the two
 // SSE channels (/api/watch/{context}, /api/watch-terminal/{context}) the
@@ -10,6 +10,7 @@ import { defineStore } from 'pinia'
 
 import {
   getPorts,
+  getRefdataContexts,
   knownContainers as fetchKnownContainers,
   listContainers,
   listShips,
@@ -18,11 +19,18 @@ import {
 } from '../api'
 import { useNatsConnection } from '../nats/useNatsConnection'
 
-export const CONTEXTS = ['global', 'atlantic-fleet', 'pacific-fleet']
+// CONTEXTS is now only the offline/error fallback (Phase 16f) — the real
+// list is fetched per-tenant via loadContexts()/GET /api/refdata/contexts.
+// Kept as a literal, not deleted, so the fleet-context dropdown still shows
+// something sensible if that fetch never succeeds (e.g. refdata-service is
+// down): a demo shouldn't show an empty dropdown just because a read-only
+// convenience list failed.
+export const CONTEXTS = ['acme', 'acme-atlantic-fleet', 'acme-pacific-fleet']
 
 export const usePortStore = defineStore('port', {
   state: () => ({
     context: CONTEXTS[0],
+    availableContexts: [...CONTEXTS], // Phase 16f: replaced by loadContexts() once the tenant is known
     port: '', // selected port — scopes every panel
     knownPorts: [],
     knownContainers: [],
@@ -67,12 +75,40 @@ export const usePortStore = defineStore('port', {
       this.connect()
     },
 
+    // Fetches this tenant's real context list (Phase 16f), replacing the
+    // static CONTEXTS fallback. Called from stores/tenant.js on init/switch
+    // — not from connect() below, so a plain fleet-context change doesn't
+    // needlessly refetch the very list it's picking from. Falls back to the
+    // existing (initially CONTEXTS) list on error rather than throwing —
+    // this is a convenience list for a dropdown, not a required resource.
+    //
+    // Filters out "_"-reserved contexts (e.g. "_platform"): the fetched list
+    // is refdata-service's context tree, which includes the shared platform
+    // root every tenant inherits standards from — meaningful for reference-
+    // data reads, but no ship or container ever belongs to it. Offering it
+    // as a fleet-context choice here would let a click spin up real (if
+    // empty) KV buckets for a context with no shipping domain meaning,
+    // burning the tenant's limited JetStream stream quota for nothing.
+    async loadContexts() {
+      try {
+        const contexts = (await getRefdataContexts()).filter((c) => !c.startsWith('_'))
+        if (contexts.length > 0) {
+          this.availableContexts = contexts
+          if (!this.availableContexts.includes(this.context)) {
+            this.context = this.availableContexts[0]
+          }
+        }
+      } catch {
+        // keep whatever availableContexts already held (CONTEXTS on first load)
+      }
+    },
+
     setPort(port) {
       this.port = port
     },
 
     // Registers a new port in the Postgres-backed ports registry (BR-017/
-    // BR-018) via rpc.*.shipping.port.register.v1, then makes it active.
+    // BR-018) via api.*.shipping.port.register.v1, then makes it active.
     // Unlike ship/container commands this is a direct write, not an event —
     // ports are reference data, not an event-sourced aggregate.
     async addShippingPort(port) {
@@ -83,7 +119,7 @@ export const usePortStore = defineStore('port', {
       this.port = trimmed
     },
 
-    // Bootstraps this context's state via rpc.*.list.v1 calls (replacing the
+    // Bootstraps this context's state via api.*.list.v1 calls (replacing the
     // SSE initial-snapshot the pre-Phase-15 store relied on), then subscribes
     // to notify.* for live updates. Requires the NATS WebSocket connection
     // to already be open (useTenantStore.init()/setTenant() — this only

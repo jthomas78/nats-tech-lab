@@ -17,8 +17,10 @@ type Monolith interface {
 	DB() *sql.DB
 	JS() jetstream.JetStream
 	// NC is the raw core-NATS connection — needed by adapters (e.g.
-	// natsrpc/, Phase 12.10) that can't work off jetstream.JetStream alone,
-	// such as micro.AddService or a plain Request/Reply client.
+	// refdata-service's natsrpc/, Phase 12.10, or this service's own
+	// dictionary/internal/browserrpc/, Phase 15a) that can't work off
+	// jetstream.JetStream alone, such as micro.AddService or a plain
+	// Request/Reply client.
 	//
 	// This is the permanent, unauthenticated (DEFAULT-account) connection —
 	// Phase 13b's tenant-scoped connection is a second, separate connection

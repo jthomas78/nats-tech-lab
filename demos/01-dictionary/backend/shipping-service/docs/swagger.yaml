@@ -235,10 +235,9 @@ definitions:
     type: object
   rest.refdataDemoResponse:
     properties:
-      attrs:
-        additionalProperties: {}
-        type: object
       code:
+        type: string
+      description:
         type: string
       label:
         type: string
@@ -276,6 +275,20 @@ definitions:
     properties:
       ship:
         $ref: '#/definitions/domain.ShipState'
+    type: object
+  rest.switchTenantRequest:
+    properties:
+      tenant:
+        type: string
+    type: object
+  rest.tenantResponse:
+    properties:
+      available:
+        items:
+          type: string
+        type: array
+      tenant:
+        type: string
     type: object
 host: localhost:7200
 info:
@@ -315,7 +328,7 @@ paths:
     get:
       description: Returns every container state in the context's KV projection.
       parameters:
-      - description: Fleet context (e.g. global)
+      - description: Fleet context (e.g. acme)
         in: path
         name: context
         required: true
@@ -542,7 +555,7 @@ paths:
         contents snapshot and the live update feed — the same WatchAll semantics the
         NATS KV watch model is built on.
       parameters:
-      - description: KV bucket name (e.g. dict-a-global, refdata-emea-acme)
+      - description: KV bucket name (e.g. dict-a-acme, refdata-acme)
         in: path
         name: bucket
         required: true
@@ -676,7 +689,7 @@ paths:
         side: reads the refdata-service''s KV cache directly, falling through to its
         REST API (which also backfills the cache) on a miss or a stale entry.'
       parameters:
-      - description: tenant/region context (e.g. emea-acme)
+      - description: company/business-unit context (e.g. acme)
         in: path
         name: context
         required: true
@@ -711,10 +724,13 @@ paths:
       - refdata-demo
   /api/refdata-watch:
     get:
-      description: Server-Sent Events stream of NATS KV changes in the refdata-{emea-acme}
-        cache bucket the shipping backend reads (owned by refdata-service). Drives
-        live label refresh in the shipping UIs. Fixed refdata context — no fleet-context
-        param.
+      description: 'Server-Sent Events stream of refdata-service''s evt.acme.refdata.*.changed
+        change-event pointers (the REFDATA JetStream stream) — drives live label refresh
+        in the shipping UIs. This subscribes to refdata-service''s published event
+        contract rather than watching its KV cache directly (BR-D08: that cache is
+        internal to refdata-service). No historical replay — a client refetches its
+        label map once via REST on connect, so this stream only needs to signal "something
+        changed" going forward. Fixed refdata context — no fleet-context param.'
       produces:
       - text/event-stream
       responses:
@@ -726,7 +742,7 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/rest.errorResponse'
-      summary: Refdata KV watch stream (SSE, Phase 11.6)
+      summary: Refdata change-event stream (SSE, Phase 12.12)
       tags:
       - streams
   /api/refdata/locales:
@@ -779,10 +795,11 @@ paths:
   /api/rpc-watch:
     get:
       description: Server-Sent Events stream of the refdata-service natsrpc adapter's
-        best-effort obs.rpc.* observability side-channel — live only, no replay/backlog
-        (core NATS subscribe while the request is open). Each event carries direction
-        ("request"|"reply"), a correlationId pairing a request with its reply, the
-        real rpc.* subject, and the payload. See ARCHITECTURE-COMMUNICATIONS.md §6.
+        best-effort obs.rpc.* observability side-channel. Replays whatever the RPCTRACE
+        stream currently retains (up to the last 10 minutes, BR-D29) first, then continues
+        live via core NATS subscribe. Each event carries direction ("request"|"reply"),
+        a correlationId pairing a request with its reply, the real rpc.* subject,
+        and the payload. See ARCHITECTURE-COMMUNICATIONS.md §6.
       produces:
       - text/event-stream
       responses:
@@ -832,7 +849,7 @@ paths:
       description: 'Returns current ship state from the Shape B read model: checks
         KV cache first, falls through to Postgres on a miss and backfills the cache.'
       parameters:
-      - description: Fleet context (e.g. global, atlantic-fleet)
+      - description: Fleet context (e.g. acme, acme-atlantic-fleet)
         in: path
         name: context
         required: true
@@ -1006,6 +1023,51 @@ paths:
       summary: Register ship
       tags:
       - ships
+  /api/tenant:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.tenantResponse'
+      summary: Active tenant + switchable tenant list
+      tags:
+      - tenant
+  /api/tenant/switch:
+    post:
+      consumes:
+      - application/json
+      description: Reconnects shipping-service's tenant-scoped NATS connection under
+        a different account and rebinds every ship/container resource to it. The previous
+        tenant's data becomes unreachable because the server enforces the account
+        boundary, not because of an application-level filter.
+      parameters:
+      - description: target tenant
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/rest.switchTenantRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.tenantResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Switch the active tenant (Phase 13b)
+      tags:
+      - tenant
   /api/terminal/{context}/{port}:
     get:
       description: Returns the containers currently in-terminal at the given port
@@ -1041,7 +1103,7 @@ paths:
         projection bucket and the meta.* lookup bucket in the given context. Replays
         current state first, then delivers live updates. Shape is "CONTAINER" or "META".
       parameters:
-      - description: Fleet context (e.g. global)
+      - description: Fleet context (e.g. acme)
         in: path
         name: context
         required: true
@@ -1067,7 +1129,7 @@ paths:
         first (snapshot), then delivers live updates. Each event is a JSON-encoded
         watchEvent object.
       parameters:
-      - description: Fleet context (e.g. global, atlantic-fleet)
+      - description: Fleet context (e.g. acme, acme-atlantic-fleet)
         in: path
         name: context
         required: true

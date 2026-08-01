@@ -1,7 +1,7 @@
 // Tenant selector (Phase 13b, rebuilt on NATS WebSocket transport in Phase
 // 15d). Deliberately its own store, not folded into usePortStore's fleet
-// `context` (CONTEXTS = global/atlantic-fleet/pacific-fleet, see
-// stores/port.js) — a tenant switch re-authenticates the browser's NATS
+// `context` (CONTEXTS = acme/acme-atlantic-fleet/acme-pacific-fleet, Phase
+// 16e — see stores/port.js) — a tenant switch re-authenticates the browser's NATS
 // WebSocket connection into a different account entirely (auth-service's
 // GET /api/auth/connectInfo, Phase 15c), so every ship/container endpoint's
 // data changes, not just what one query filters by fleet.
@@ -48,6 +48,11 @@ export const useTenantStore = defineStore('tenant', {
       if (!initial) throw new Error('no tenants available')
       await useNatsConnection().connect(initial)
       this.tenant = initial
+      // Phase 16f: the fleet-context dropdown is tenant-scoped, so refresh
+      // it here rather than in usePortStore().connect() (which also runs on
+      // a plain fleet-context change, where refetching the same list would
+      // be pure waste).
+      await usePortStore().loadContexts()
     },
 
     async setTenant(tenant) {
@@ -56,8 +61,9 @@ export const useTenantStore = defineStore('tenant', {
       try {
         await useNatsConnection().switchTenant(tenant)
         this.tenant = tenant
+        await usePortStore().loadContexts()
         // The active tenant is a different NATS account with its own
-        // SHIPPING stream and KV buckets — the port store's rpc.*/notify.*
+        // SHIPPING stream and KV buckets — the port store's api.*/notify.*
         // subscriptions reconnect against it, exactly as a fleet-context
         // switch does.
         await usePortStore().connect()
