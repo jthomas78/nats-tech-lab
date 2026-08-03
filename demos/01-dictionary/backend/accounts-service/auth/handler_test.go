@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -10,7 +11,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/auth-service/auth"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/auth"
 )
 
 func discardLogger() *slog.Logger {
@@ -19,8 +21,8 @@ func discardLogger() *slog.Logger {
 
 // signingSeedFor generates a fresh, valid account signing key seed — tests
 // need a real one so MintBrowserToken (called by connectInfo) can encode a
-// JWT with it, unlike the plain-string fixtures store_test.go uses for rows
-// that are never actually signed with.
+// JWT with it, unlike a plain-string fixture that's never actually signed
+// with.
 func signingSeedFor() string {
 	kp, err := nkeys.CreateAccount()
 	Expect(err).NotTo(HaveOccurred())
@@ -32,16 +34,23 @@ func signingSeedFor() string {
 var _ = Describe("Handlers", func() {
 	var handlers *auth.Handlers
 	var mux *http.ServeMux
+	var store *accounts.Store
 
 	BeforeEach(func() {
 		if testUnavailable != "" {
 			Skip("docker unavailable for Postgres integration test: " + testUnavailable)
 		}
-		reader := auth.NewAccountReader(testDB)
-		handlers = auth.NewHandlers(reader, "ws://localhost:9222", discardLogger())
+		store = accounts.NewStore(testDB)
+		handlers = auth.NewHandlers(store, "ws://localhost:9222", discardLogger())
 		mux = http.NewServeMux()
 		handlers.Mount(mux)
 	})
+
+	seedAccount := func(name, publicKey, signingKeySeed, status string) error {
+		return store.Insert(context.Background(), accounts.Account{
+			Name: name, PublicKey: publicKey, SigningKeySeed: signingKeySeed, Status: status,
+		})
+	}
 
 	Describe("GET /api/auth/connectInfo", func() {
 		It("mints connect info for an active tenant with a signing key on record", func() {

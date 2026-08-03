@@ -32,7 +32,16 @@ const {
   disconnect: disconnectRefdata,
 } = useRefdataLabels()
 const { usingFallback, partialFallback, switching, connect: connectL10nCopy, disconnect: disconnectL10nCopy } = useL10nCopy()
-const { lastError, disconnect: disconnectNats } = useNatsConnection()
+const { connected: natsConnected, lastError, disconnect: disconnectNats } = useNatsConnection()
+
+// "Watching" requires BOTH the NATS connection to be live and the port store
+// to have subscribed — they are independent flags and only the former reacts
+// to the connection dropping. usePortStore().connected is cleared solely by
+// its own disconnect(), which nothing calls when NATS evicts us (a suspended
+// tenant, ARCHITECTURE-ACCOUNTS.md § 2t-a), so reading it alone left the
+// topbar showing a green "watching" beside the red "connection error" — the
+// app claiming to be live and broken at the same time.
+const watching = computed(() => natsConnected.value && store.connected)
 const { t } = useI18n()
 const toast = useToast()
 
@@ -113,7 +122,7 @@ onUnmounted(() => {
       <span class="lab-muted">{{ subtitle }}</span>
     </template>
     <template #topbar-right>
-      <Tag :severity="store.connected ? 'success' : 'danger'" :value="store.connected ? t('connection.watching') : t('connection.disconnected')" />
+      <Tag data-testid="connection-status" :severity="watching ? 'success' : 'danger'" :value="watching ? t('connection.watching') : t('connection.disconnected')" />
       <!-- Phase 13b tenant selector — a different NATS account, not a fleet
            filter; must stay visually + functionally distinct from Fleet below. -->
       <label class="lab-muted" for="tenant">{{ t('nav.tenant') }}</label>

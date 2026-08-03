@@ -59,7 +59,7 @@ import (
 // which tenant NATS *account* the Adapter is registered on (see tenant.go)
 // — every context value exists identically inside every tenant's account.
 // Tenant isolation comes entirely from the account boundary itself, not
-// from anything in this subject pattern (see auth-service's
+// from anything in this subject pattern (see accounts-service/auth's
 // MintBrowserToken doc comment for the full reasoning).
 const (
 	ShipArriveSubject          = "api.*.shipping.ship.arrive.v1"

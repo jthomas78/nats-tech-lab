@@ -14,14 +14,16 @@
 // Phase 15 (Admin/Dictionary are explicitly out of scope), so there's no
 // present need to solve that constraint for this module.
 //
-// Credentials come from auth-service's GET /api/auth/connectInfo (Phase
-// 15c) — a short-lived (5 min), permission-restricted NATS user JWT scoped
-// to exactly api.>/notify.> (rpc.> as of Phase 15c/15d, narrowed to api.>
-// in Phase 16b once shipping-service's browser-facing subjects moved off
-// rpc.*, which is now service-to-service only) within whichever tenant
-// account the caller asked for (auth-service's MintBrowserToken doc comment
-// has the full reasoning on why the subject pattern is NOT parameterized by
-// tenant — tenant isolation is the NATS account boundary itself).
+// Credentials come from GET /api/auth/connectInfo (Phase 15c — originally
+// a standalone auth-service, folded into accounts-service as its `auth`
+// sub-package in Phase 19, see BUSINESS_RULES-ACCOUNTS.md) — a short-lived
+// (5 min), permission-restricted NATS user JWT scoped to exactly
+// api.>/notify.> (rpc.> as of Phase 15c/15d, narrowed to api.> in Phase 16b
+// once shipping-service's browser-facing subjects moved off rpc.*, which is
+// now service-to-service only) within whichever tenant account the caller
+// asked for (accounts-service/auth's MintBrowserToken doc comment has the
+// full reasoning on why the subject pattern is NOT parameterized by tenant
+// — tenant isolation is the NATS account boundary itself).
 //
 // request()/subscribe() below are the browser's only two verbs, matching
 // Main-POC-Plan.md Phase 15's interaction model:
@@ -60,6 +62,27 @@ let connectSeq = 0 // guards against a stale in-flight connect() resolving after
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
+// errorMessage unwraps an Error to its bare message — String(err) would
+// prefix it with "Error: ", which is noise once this reaches an operator (it
+// lands in the topbar's connection-error tooltip and, via notConnectedError
+// below, in command-failure toasts).
+function errorMessage(err) {
+  return err instanceof Error ? err.message : String(err)
+}
+
+// notConnectedError is what request()/subscribe() throw when there is no live
+// connection. It prefers lastError over the bare "not connected" whenever one
+// is known: a suspended tenant (ARCHITECTURE-ACCOUNTS.md § 2t-a) leaves nc
+// null with lastError holding the connectInfo endpoint's actual refusal
+// ("tenant is not active"), and surfacing *that* in the resulting "Depart
+// failed" toast tells the operator what happened, where "not connected" only
+// names the transport symptom. Centralised here rather than in each panel's
+// catch block so every command — arrive, depart, register, load, unload —
+// gets it at once.
+function notConnectedError() {
+  return new Error(lastError.value || 'not connected')
+}
+
 async function fetchConnectInfo(forTenant) {
   const res = await fetch(`/api/auth/connectInfo?tenant=${encodeURIComponent(forTenant)}`)
   const body = await res.json().catch(() => ({}))
@@ -97,8 +120,8 @@ export async function connect(forTenant) {
   connected.value = true
   lastError.value = ''
 
-  // Best-effort auto-recovery: the JWT is short-lived (auth-service's
-  // MintBrowserToken doc comment, 5 min TTL, no refresh flow yet), so a tab
+  // Best-effort auto-recovery: the JWT is short-lived (accounts-service/
+  // auth's MintBrowserToken doc comment, 5 min TTL, no refresh flow yet), so a tab
   // left open past expiry eventually exhausts the client's own internal
   // reconnect attempts (same stale credentials every retry) and nc.closed()
   // resolves. Re-authenticating from scratch (a fresh connectInfo call gets
@@ -106,9 +129,9 @@ export async function connect(forTenant) {
   conn.closed().then((err) => {
     if (nc !== conn) return // already superseded by a later connect()/disconnect()
     connected.value = false
-    if (err) lastError.value = String(err)
+    if (err) lastError.value = errorMessage(err)
     connect(forTenant).catch((reconnectErr) => {
-      lastError.value = String(reconnectErr)
+      lastError.value = errorMessage(reconnectErr)
     })
   })
 }
@@ -136,7 +159,7 @@ export async function switchTenant(newTenant) {
 // dictionary/internal/browserrpc/adapter.go) so callers can use ordinary
 // try/catch instead of checking a field.
 export async function request(subject, payload) {
-  if (!nc) throw new Error('not connected')
+  if (!nc) throw notConnectedError()
   const h = headers()
   h.set(REQUESTOR_HEADER, REQUESTOR_ID)
   const msg = await nc.request(subject, encoder.encode(JSON.stringify(payload ?? {})), {
@@ -154,7 +177,7 @@ export async function request(subject, payload) {
 // disconnect is covered by the caller re-running its api.*.list.v1
 // bootstrap query on reconnect, not by anything this function does.
 export function subscribe(subject, callback) {
-  if (!nc) throw new Error('not connected')
+  if (!nc) throw notConnectedError()
   const sub = nc.subscribe(subject)
   ;(async () => {
     for await (const msg of sub) {

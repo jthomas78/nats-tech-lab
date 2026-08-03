@@ -331,8 +331,10 @@ rpc.accounts.account.create.v1
 rpc.auth.token.mint.v1
 ```
 
-This is the rule for `auth-service` and `accounts-service`. It is not a
-blanket "platform services skip context" exemption: `refdata-service` is
+This is the rule for `accounts-service` (whose `auth` sub-package owns the
+`rpc.auth.*` example above — folded in from the former `auth-service` in
+Phase 19, see `BUSINESS_RULES-ACCOUNTS.md`). It is not a blanket "platform
+services skip context" exemption: `refdata-service` is
 equally a platform service but its *data* is genuinely company-scoped, so it
 keeps `{context}`.
 
@@ -353,10 +355,10 @@ browser. Rule:
   business logic.
 - The subject prefix declares *who an operation was designed for*;
   **permissions** decide who may actually call it. The prefix is not itself an
-  enforcement mechanism. Concretely, `auth-service`'s browser JWTs grant only
-  `api.>` / `notify.>` — never `rpc.>` — so adding a backend-only `rpc.*`
-  endpoint inside a tenant account can never become browser-reachable by
-  accident.
+  enforcement mechanism. Concretely, `accounts-service/auth`'s
+  `MintBrowserToken` grants only `api.>` / `notify.>` — never `rpc.>` — so
+  adding a backend-only `rpc.*` endpoint inside a tenant account can never
+  become browser-reachable by accident.
 - If backend code appears to need `api.>`, that is a signal the operation
   should also be registered on `rpc.*` for that caller — not a reason to call
   through the browser family.

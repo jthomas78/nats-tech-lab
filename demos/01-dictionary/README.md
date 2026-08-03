@@ -107,7 +107,6 @@ docker compose down -v       # also drop NATS and Postgres data volumes
 | Swagger UI (refdata)  | http://localhost:7201/swagger/                              |
 | refdata-service API   | http://localhost:7201                                       |
 | accounts-service API  | http://localhost:7202                                       |
-| auth-service API      | http://localhost:7203                                       |
 | NATS client           | nats://localhost:4222                                       |
 | NATS monitor          | http://localhost:8222                                       |
 | NATS WebSocket        | ws://localhost:9222                                          |
@@ -119,7 +118,7 @@ docker compose down -v       # also drop NATS and Postgres data volumes
 
 **Postgres credentials (refdata-service):** host `localhost`, port `5433`, user `refdata`, password `refdata`, database `refdata` — its own instance, not a schema on the one above (see `backend/refdata-service/README.md`).
 
-**Postgres credentials (accounts-service):** host `localhost`, port `5434`, user `accounts`, password `accounts`, database `accounts` — its own instance; `auth-service` (Phase 15c) reads this same instance read-only to mint browser NATS credentials (see `backend/auth-service/`).
+**Postgres credentials (accounts-service):** host `localhost`, port `5434`, user `accounts`, password `accounts`, database `accounts` — its own instance. Browser NATS credential minting (Phase 15c, folded into this service as its `auth` package in Phase 19 — see `backend/accounts-service/auth/`) reads the same instance in-process, no longer a separate service.
 
 ## Dev mode (outside Docker)
 

@@ -1,7 +1,11 @@
-// Package auth implements Phase 15c: a service that mints short-lived,
-// permission-restricted NATS user JWTs so a browser can connect directly to
-// NATS over WebSocket (rpc.*/notify.* only — see token.go) instead of going
-// through REST + SSE for every read and write.
+// Package auth implements Phase 15c (folded into accounts-service in Phase
+// 19 — see Main-POC-Plan.md): minting short-lived, permission-restricted
+// NATS user JWTs so a browser can connect directly to NATS over WebSocket
+// (api.*/notify.* only — see token.go) instead of going through REST + SSE
+// for every read and write. Reads accounts-service's own Store directly
+// (Phase 19 replaced the cross-service Postgres read this package used to
+// do as a separate binary — see accounts.Store.ListActiveTenantNames' doc
+// comment).
 //
 // Routes (no auth gate — see connectInfo's doc comment for why):
 //
@@ -15,6 +19,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
 )
 
 type errorResponse struct {
@@ -31,16 +37,16 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, errorResponse{Error: msg})
 }
 
-// Handlers wires the account reader and the NATS WebSocket URL the browser
-// should dial into the HTTP layer.
+// Handlers wires accounts-service's own Store and the NATS WebSocket URL
+// the browser should dial into the HTTP layer.
 type Handlers struct {
-	Accounts *AccountReader
-	WSUrl    string // e.g. "ws://localhost:9222" — returned verbatim in connectInfo
-	Log      *slog.Logger
+	Store *accounts.Store
+	WSUrl string // e.g. "ws://localhost:9222" — returned verbatim in connectInfo
+	Log   *slog.Logger
 }
 
-func NewHandlers(accounts *AccountReader, wsURL string, log *slog.Logger) *Handlers {
-	return &Handlers{Accounts: accounts, WSUrl: wsURL, Log: log}
+func NewHandlers(store *accounts.Store, wsURL string, log *slog.Logger) *Handlers {
+	return &Handlers{Store: store, WSUrl: wsURL, Log: log}
 }
 
 func (h *Handlers) Mount(mux *http.ServeMux) {
@@ -63,8 +69,8 @@ func (h *Handlers) connectInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	acc, err := h.Accounts.Get(r.Context(), tenant)
-	if errors.Is(err, ErrNotFound) {
+	acc, err := h.Store.Get(r.Context(), tenant)
+	if errors.Is(err, accounts.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "unknown tenant")
 		return
 	}
@@ -73,7 +79,7 @@ func (h *Handlers) connectInfo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	if acc.Status != statusActive {
+	if acc.Status != accounts.StatusActive {
 		writeError(w, http.StatusForbidden, "tenant is not active")
 		return
 	}
@@ -101,7 +107,7 @@ type tenantsResponse struct {
 }
 
 func (h *Handlers) tenants(w http.ResponseWriter, r *http.Request) {
-	names, err := h.Accounts.ListTenants(r.Context())
+	names, err := h.Store.ListActiveTenantNames(r.Context())
 	if err != nil {
 		h.Log.Error("list tenants", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")

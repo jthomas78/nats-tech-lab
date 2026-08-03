@@ -15,24 +15,35 @@ Split by domain so a rule add/edit only requires reading its own file:
   file, for the publishing side), and the Phase 16i reactive-teardown rule
   (BR-031 — a tenant suspended by accounts-service stops holding
   shipping-service resources open instead of reconnect-looping forever; see
-  BR-AC09, ACCOUNTS file, for the publishing side).
+  BR-AC09, ACCOUNTS file, for the publishing side), and the Phase 16j
+  reactive-restore rule (BR-032 — a reactivated tenant becomes usable again
+  immediately, closing the created/suspended/reactivated lifecycle triple;
+  see BR-AC10, ACCOUNTS file), and the Phase 16k connection-honesty rule
+  (BR-033 — the status badge reflects the NATS connection, and command
+  failures name the cause rather than the transport symptom).
   Rules live in `dictionary/internal/domain/` (BR-001–022),
   `dictionary/internal/browserrpc/` + `dictionary/internal/eventhandler/`
   (BR-023–024, 026–028), `internal/refdataconsumer/` (BR-025, 027),
   `frontend/seafreight-app/src/stores/port.js` (BR-029),
   `dictionary/internal/rest/tenant.go` + `dictionary/composition.go`
-  (BR-030–031), and `frontend/seafreight-app/src/App.vue` (BR-031).
+  (BR-030–032), and `frontend/seafreight-app/src/App.vue` +
+  `src/nats/useNatsConnection.js` (BR-031, BR-033).
 - **[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)** — Reference Data
   Service (BR-D01–BR-D28). Rules live in
   `backend/refdata-service/refdata/internal/domain/dictionary.go`.
 - **[BUSINESS_RULES-ACCOUNTS.md](BUSINESS_RULES-ACCOUNTS.md)** — Accounts
-  Service (BR-AC01–BR-AC09): NATS account provisioning, suspension,
+  Service (BR-AC01–BR-AC11): NATS account provisioning, suspension,
   reactivation, reserved-name protection via decentralized JWTs, (BR-AC08)
   publishing `notify.accounts.account.created` so shipping-service can react
   to a newly-minted tenant immediately (see BR-030, SHIPPING file, for the
   consumer side), and (BR-AC09) the mirrored `notify.accounts.account.suspended`
-  for a suspended tenant (see BR-031, SHIPPING file). Rules live in
-  `backend/accounts-service/accounts/handler.go` and `provisioner.go`.
+  for a suspended tenant (see BR-031, SHIPPING file) and
+  `notify.accounts.account.reactivated` (BR-AC10, see BR-032) completing the
+  lifecycle triple, and (BR-AC11) an append-only Postgres audit trail
+  (`accounts.audit_events`) recording actor/outcome/metadata for every
+  lifecycle action. Rules live in
+  `backend/accounts-service/accounts/handler.go`, `provisioner.go`, and
+  `audit.go`.
 
 When CLAUDE.md's Quality Rule #4 says "update `BUSINESS_RULES.md`," it means:
 add/edit the rule in whichever of the three files above matches the domain

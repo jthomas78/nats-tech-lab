@@ -283,7 +283,7 @@ file) for file-level detail, or its contents once folded into this document on c
 
 ---
 
-### Phase 16 (16a–16i) — Subject Taxonomy & Tenancy Formalization
+### Phase 16 (16a–16k) — Subject Taxonomy & Tenancy Formalization
 
 #### Goal
 
@@ -428,7 +428,7 @@ match.
   this entry's original text but was migrated identically for consistency). Renamed every literal
   occurrence — `postgres/migrate.go`'s `seedDefaultPorts`, 8 Go test files' fixture consts,
   Swagger/doc-comment examples in `rest/handlers.go`/`sse.go`/`kv.go`/`browserrpc/adapter.go`,
-  `auth-service/auth/token.go`'s doc comment, and both frontends' `CONTEXTS` arrays
+  `auth-service/auth/token.go`'s doc comment (now `accounts-service/auth/token.go` post-Phase-19), and both frontends' `CONTEXTS` arrays
   (`seafreight-app/stores/port.js`, `admin/stores/dictionary.js`) — then regenerated Swagger docs.
   **Investigated but deliberately NOT built**, because it turned out to have no structural basis:
   the plan's "context seeding becomes tenant-aware" goal. `seedDefaultPorts` runs once at startup
@@ -618,6 +618,63 @@ match.
   - [x] Live-verified the underlying eviction/loop behavior on the running stack before implementing
         anything: a throwaway tenant's live `nats sub` connection dropped within ~3s of suspension, and
         shipping-service logged the ENOENT reconnect loop against its deleted `.creds` file.
+- **16j — reactive tenant restore (DONE 2026-08-03, BR-032/BR-AC10).** Closes the lifecycle triple, and
+  fixes a regression 16i itself introduced — found immediately afterward during a requested architecture
+  review of the accounts area rather than by a user report. 16i's teardown is correct but was a **one-way
+  door**: `EnsureAllTenants` runs only at startup and Sea Freight Flow never calls `SwitchTenant`
+  (Phase 15d), so nothing rebuilt a tenant that came back, leaving a suspend→reactivate cycle dark until
+  a restart. Ironically 16i made this worse than before — the pre-16i reconnect loop was ugly but would
+  have self-healed once creds returned; a clean teardown made the missing counterpart load-bearing.
+  Fix: `accounts-service`'s `reactivateAccount` publishes `notify.accounts.account.reactivated` after the
+  whole reactivation commits — deliberately *after* the fresh `.creds` write, since the consumer resolves
+  tenants by scanning that directory (asserted in the spec, not just commented). `shipping-service`
+  subscribes and calls the existing `EnsureTenantByName` **unchanged** — 16i's teardown removed the tenant
+  from `TenantResources`, so the ordinary first-sight path rebuilds it against the new credentials. No new
+  provisioning code, just a third trigger for the same idempotent path. The three publishers were also
+  de-triplicated behind one nil-safe `publishAccountEvent` helper, keeping each event's own doc comment.
+  - [x] `backend/accounts-service/accounts/handler.go` — `publishAccountReactivated` + shared
+        `publishAccountEvent` helper; called from `reactivateAccount` after `SetStatus(active)`
+  - [x] `backend/shipping-service/dictionary/composition.go` — `notify.accounts.account.reactivated`
+        subscription
+  - [x] `BUSINESS_RULES-ACCOUNTS.md` — BR-AC10; `BUSINESS_RULES-SHIPPING.md` — BR-032;
+        `ARCHITECTURE-ACCOUNTS.md` § 2t-a — reactivation asymmetry marked resolved, lifecycle table added
+  - [x] Tests: accounts-service `handler_test.go` (a failed reactivation publishes nothing; a successful
+        one publishes the name **and** has already written the creds file by the time the event is
+        observable; nil `NotifyNC` still succeeds) — 33/33. shipping-service `tenant_switch_test.go` —
+        full round trip (answering → dark → answering again, `SwitchTenant` never called), then a ship
+        arrival driven through `api.*` and awaited in the read model to prove the *projectors* came back
+        too, not just the adapter — 108 specs green.
+  - [x] Fixed a pre-existing ~1-in-4 flake in BR-030's spec while here: `micro.AddService` doesn't flush
+        its subscriptions before returning, so a request issued in the same instant can get
+        `no responders`. BR-030/031/032 specs now poll with `Eventually`; verified 10/10 clean full-suite
+        runs (previously reproducible within 4). Documented as a note under BR-032 so it isn't
+        re-introduced.
+- **16k — connection honesty in Sea Freight Flow (DONE 2026-08-03, BR-033).** Follow-on from 16i, prompted
+  by a user question rather than a report: is `Depart failed / not connected` expected on a suspended
+  account? Functionally yes (fail-closed is correct), but tracing it found the app communicating badly in
+  two ways, one of which was a genuine bug.
+  (a) **The status badge lied.** Two independent `connected` flags exist — `useNatsConnection`'s (clears
+  correctly on eviction) and `usePortStore().connected` (cleared only by the store's own `disconnect()`,
+  which nothing calls on eviction). The topbar read the latter alone, so after a suspension it showed a
+  green "watching" badge directly beside 16i's red "connection error" badge — visible in this session's own
+  verification screenshot and initially missed. Fixed with a `watching = natsConnected && store.connected`
+  computed.
+  (b) **Command failures named the symptom, not the cause.** `request()` threw a bare `not connected`
+  whenever `nc` was null; the real reason (auth-service's `tenant is not active`) was already in
+  `lastError` but only reachable via a tooltip. Fixed centrally in `notConnectedError()` so every command
+  — arrive, depart, register, load, unload — inherits it, rather than patching each panel's catch block.
+  `lastError` now stores `err.message`, not `String(err)`, dropping the `Error: ` prefix from
+  operator-facing text.
+  Deliberately deferred: disabling action controls while disconnected (a broader interaction change across
+  every panel; these two were the correctness bugs).
+  - [x] `frontend/seafreight-app/src/App.vue` — `watching` computed, `data-testid="connection-status"`
+  - [x] `frontend/seafreight-app/src/nats/useNatsConnection.js` — `notConnectedError()`, `errorMessage()`
+  - [x] `BUSINESS_RULES-SHIPPING.md` — BR-033
+  - [x] Tests: `App.spec.js` (drives the exact contradictory state — NATS down, port store still
+        "connected" — and asserts the badge reads `disconnected`); new `src/nats/useNatsConnection.spec.js`
+        (3 specs: bare fallback, auth-service's refusal surfacing in its place with the transport symptom
+        gone from the message, and the same for `subscribe()`) — 18 passing across the three touched files,
+        up from 14
 
 ---
 
@@ -794,8 +851,12 @@ fields), so old retained RPCTRACE events still parse — no migration.
       deduped by `(name, instance ID)`
 - [x] accounts-service: `micro.AddService` registration (no endpoints) on
       its existing SYS-account connection
-- [ ] auth-service: `micro.AddService` — **deferred**, needs a NATS
-      connection added first (not yet a formal requirement)
+- [x] auth-service: `micro.AddService` — **superseded by Phase 19**, not
+      built as originally scoped here. auth-service's routes now run inside
+      accounts-service's own process (which already registers on its
+      SYS-account connection), so the "needs a NATS connection added first"
+      blocker no longer applies — there's no separate binary left to
+      register.
 - [x] `nats_ops_test.go`: connz reshape/sort + 502 error paths (mocked);
       `$SRV.STATS` fan-in against a real embedded NATS server + real
       `micro.AddService` instance (request/error counters, cross-connection
@@ -1020,6 +1081,64 @@ established for real, wire-carried headers rather than observability-only ones.
 - [x] `go build`/`ginkgo` (both services), admin/seafreight-app `npm run build` all green
 - [x] Live verification: both headers observed on the real wire (`nats` CLI + Admin panel)
       for `rpc.*` and `api.*`, both success and error replies
+
+---
+
+### Phase 19 (DONE 2026-08-03) — Merge auth-service into accounts-service
+
+#### Goal
+
+`auth-service` (Phase 15c) and `accounts-service` (Phase 14b) were reviewed
+for whether the split still earned its keep. auth-service's only real job —
+minting browser NATS credentials — read `accounts-service`'s own
+`accounts.accounts` Postgres table over a second connection to the same
+instance; it had no NATS connection, no independent lifecycle, and no state
+of its own beyond what `accounts.Store` already held. That's a fake service
+boundary, not a real one — merge them.
+
+#### What changed
+
+- `auth-service/auth/{handler.go,token.go}` moved to
+  `accounts-service/auth/`, now importing `accounts.Store` directly instead
+  of a duplicate read-only `AccountReader` over a second Postgres
+  connection.
+- `accounts-service/accounts/store.go` gained `ListActiveTenantNames`
+  (active accounts minus `default`/`sys`, reusing `handler.go`'s
+  `reservedAccountNames` map) — replaces auth-service's own `ListTenants`
+  query.
+- `accounts-service/cmd/main.go` wires one `*accounts.Store` into both
+  `accounts.Handlers` (BasicAuth-gated `/api/accounts/*`) and
+  `auth.Handlers` (ungated `/api/auth/*`), mounted on the same
+  `http.ServeMux`. New `NATS_WS_URL` env var (default
+  `ws://localhost:9222`) replaces auth-service's own copy of the same
+  setting.
+- `auth-service`'s Go module, Dockerfile, and `docker-compose.yml` service
+  entry are gone. `accounts-service` now serves both route families on port
+  7202; `vite.config.js`'s `/api/auth` proxy target moved from 7203 to
+  7202.
+- Test infrastructure for the `auth` package now calls `accounts.Migrate`
+  for schema setup instead of hand-duplicating its `CREATE TABLE`
+  statements — only possible now that both packages share one Go module.
+- See `BUSINESS_RULES-ACCOUNTS.md`'s "Phase 19 — auth-service merged in"
+  note for the full before/after.
+
+#### Checklist
+
+- [x] `accounts-service/auth/` package created (`handler.go`, `token.go`,
+      tests), reading `accounts.Store` directly
+- [x] `accounts.Store.ListActiveTenantNames` added + unit test
+      (`accounts/store_test.go`)
+- [x] `cmd/main.go` mounts both handler sets on one mux; `NATS_WS_URL` env
+      var added
+- [x] `auth-service/` directory deleted (module, Dockerfile, `cmd/`)
+- [x] `docker-compose.yml`: `auth-service` entry removed, `accounts-service`
+      gains `NATS_WS_URL`, `shipping-frontend`'s `depends_on` updated
+- [x] `vite.config.js`'s `/api/auth` proxy retargeted to port 7202
+- [x] `README.md` service table + Postgres credentials note updated
+- [x] Stray `auth-service` path references fixed
+      (`browserrpc/adapter.go`, `BUSINESS_RULES-SHIPPING.md`)
+- [x] `go build`/`ginkgo ./...` green in `accounts-service` (48 specs: 36
+      accounts + 12 auth)
 
 ---
 

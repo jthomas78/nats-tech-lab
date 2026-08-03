@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -60,6 +61,21 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
 			updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
+		// BR-AC11 — append-only audit trail for the three lifecycle actions.
+		// No foreign key to accounts.accounts: a failed create/suspend/
+		// reactivate may still need an audit row for an account name that
+		// never ends up with (or has already lost) a corresponding row.
+		`CREATE TABLE IF NOT EXISTS accounts.audit_events (
+			id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			account    TEXT NOT NULL,
+			action     TEXT NOT NULL,
+			actor      TEXT NOT NULL DEFAULT '',
+			source_ip  TEXT NOT NULL DEFAULT '',
+			outcome    TEXT NOT NULL DEFAULT 'success',
+			metadata   JSONB NOT NULL DEFAULT '{}',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE INDEX IF NOT EXISTS audit_events_account_idx ON accounts.audit_events (account, created_at DESC)`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
@@ -171,6 +187,35 @@ func (s *Store) SetStatus(ctx context.Context, name, status string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// ListActiveTenantNames returns every active account name except the
+// reserved ones (default/sys, checked case-insensitively against the same
+// reservedAccountNames map handler.go's createAccount enforces on write),
+// sorted for a stable dropdown order. This is the browser's replacement for
+// shipping-service's discoverTenants() creds-directory scan (Phase 13b/14b)
+// — used by auth/handler.go's GET /api/auth/tenants, sourced from this same
+// Postgres table rather than a second directory scan.
+func (s *Store) ListActiveTenantNames(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT name FROM accounts.accounts WHERE status = $1 ORDER BY name`, StatusActive)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		if reservedAccountNames[strings.ToUpper(name)] {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out, rows.Err()
 }
 
 // SetSigningKeySeed persists a signing key seed established for an account

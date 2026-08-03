@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/auth-service/auth"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/auth"
 )
 
 var _ = Describe("MintBrowserToken", func() {

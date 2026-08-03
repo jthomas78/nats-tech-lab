@@ -1,14 +1,12 @@
 package auth_test
 
-// Disposable-Postgres test helper — mirrors accounts-service's
-// accounts/store_test.go (accounts-service/accounts/store_test.go)
-// startStoreTestPostgres helper, since auth-service is its own Go module
-// and cannot import that one directly. auth-service never migrates this
-// table itself (auth/store.go's AccountReader is read-only — see its doc
-// comment), so this test double schema mirrors accounts-service's
-// accounts.accounts table (accounts-service/accounts/store.go's Migrate)
-// exactly, keeping only the columns AccountReader actually reads plus
-// "name" to look rows up by.
+// Disposable-Postgres test helper, mirroring accounts/store_test.go's own
+// startStoreTestPostgres. Kept as a separate container/suite from the
+// accounts package's tests (Go test binaries are per-package) but — since
+// Phase 19 folded auth-service into this module — schema setup now calls
+// accounts.Migrate directly instead of hand-duplicating its CREATE TABLE
+// statements, the way this file did back when auth-service was a separate
+// Go module that couldn't import accounts-service's own package.
 
 import (
 	"context"
@@ -20,6 +18,8 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
 )
 
 func startTestPostgres() (*sql.DB, string, error) {
@@ -57,36 +57,11 @@ func startTestPostgres() (*sql.DB, string, error) {
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	if err := migrateTestSchema(db); err != nil {
+	if err := accounts.Migrate(context.Background(), db); err != nil {
 		_ = exec.Command("docker", "rm", "-f", containerID).Run()
 		return nil, "", fmt.Errorf("migrate: %w", err)
 	}
 	return db, containerID, nil
-}
-
-func migrateTestSchema(db *sql.DB) error {
-	statements := []string{
-		`CREATE SCHEMA IF NOT EXISTS accounts`,
-		`CREATE TABLE IF NOT EXISTS accounts.accounts (
-			id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			name             TEXT NOT NULL UNIQUE,
-			public_key       TEXT NOT NULL UNIQUE,
-			signing_key_seed TEXT NOT NULL DEFAULT '',
-			status           TEXT NOT NULL DEFAULT 'active',
-			js_max_mem       BIGINT NOT NULL DEFAULT 0,
-			js_max_file      BIGINT NOT NULL DEFAULT 0,
-			js_max_streams   BIGINT NOT NULL DEFAULT 0,
-			js_max_consumers BIGINT NOT NULL DEFAULT 0,
-			created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-			updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
-		)`,
-	}
-	for _, stmt := range statements {
-		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 var testNameCounter int64

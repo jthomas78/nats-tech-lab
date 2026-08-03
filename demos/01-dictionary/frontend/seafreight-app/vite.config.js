@@ -26,10 +26,11 @@ export default defineConfig({
     },
     proxy: {
       // More specific than '/api' below — must come first so Vite's
-      // prefix match picks this one for auth-service (Phase 15c) instead
-      // of falling through to shipping-service.
+      // prefix match picks this one for the auth routes (Phase 15c, folded
+      // into accounts-service in Phase 19) instead of falling through to
+      // shipping-service.
       '/api/auth': {
-        target: 'http://localhost:7203',
+        target: 'http://localhost:7202',
         changeOrigin: true,
       },
       '/api': {

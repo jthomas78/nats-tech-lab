@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Checklist.md",
-                "mode": "source",
+                "file": "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ACCOUNTS.md",
+                "mode": "preview",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Checklist"
+              "title": "ARCHITECTURE-ACCOUNTS"
             }
           }
         ]
@@ -41,7 +41,9 @@
               "type": "file-explorer",
               "state": {
                 "sortOrder": "alphabetical",
-                "autoReveal": false
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
               },
               "icon": "lucide-folder-closed",
               "title": "Files"
@@ -78,7 +80,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 425.5086555480957
+    "width": 330.5086555480957
   },
   "right": {
     "id": "0e936b3f4ebbe464",
@@ -183,14 +185,14 @@
       "bases:Create new base": false
     }
   },
-  "active": "398f933131b9a7a9",
+  "active": "c50d6372ff085bfe",
   "lastOpenFiles": [
+    "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md",
     "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ACCOUNTS.md",
+    "Checklist.md",
     "V3-Platform/Architecture/Dictionary-POC/images/jwt-minting-sequence.png",
     "V3-Platform/System Design - V3 Logistics Platform.md",
-    "Checklist.md",
     "V3-Platform/Architecture/Dictionary-POC/images/rpc-proposed-dual-transport.png",
-    "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md",
     "V3-Platform/Architecture/Dictionary-POC/images/shipping-ui-dictionary-sequence.png",
     "V3-Platform/Architecture/Dictionary-POC/images/shipping-ui-dictionary-map.png",
     "V3-Platform/Architecture/Dictionary-POC/images/localized-rendering-lifecycle.png",

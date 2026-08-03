@@ -22,6 +22,7 @@ import (
 	"github.com/nats-io/nkeys"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/auth"
 )
 
 func main() {
@@ -44,6 +45,12 @@ func run(log *slog.Logger) error {
 	credsDir := envOr("NATS_CREDS_DIR", "") // shared volume shipping-service also mounts
 	resolverSeedDir := envOr("RESOLVER_SEED_DIR", "")
 	authSecret := envOr("ACCOUNTS_AUTH_SECRET", "")
+	// Phase 19 — folded in from auth-service: the address the browser
+	// itself should dial for its NATS WebSocket connection, returned
+	// verbatim in connectInfo. Not the in-cluster `nats:9222` hostname,
+	// since the browser resolves DNS from the host, not the backend
+	// network.
+	natsWSUrl := envOr("NATS_WS_URL", "ws://localhost:9222")
 	httpAddr := envOr("HTTP_ADDR", ":8080")
 
 	if operatorSigningKeyFile == "" {
@@ -129,9 +136,17 @@ func run(log *slog.Logger) error {
 		}
 	}
 
-	handlers := accounts.NewHandlers(store, provisioner, credsDir, log, defaultNC)
+	auditLog := accounts.NewAuditLog(db)
+	handlers := accounts.NewHandlers(store, provisioner, credsDir, log, defaultNC, auditLog)
 	mux := http.NewServeMux()
 	handlers.Mount(mux, authSecret)
+
+	// Phase 19 — auth-service folded into this binary: same Store, same
+	// Postgres pool, no more cross-service read. Routes are ungated (see
+	// auth.Handlers.connectInfo's doc comment for why) and registered on
+	// the same mux the accounts routes above already gate with BasicAuth.
+	authHandlers := auth.NewHandlers(store, natsWSUrl, log)
+	authHandlers.Mount(mux)
 
 	server := &http.Server{Addr: httpAddr, Handler: mux}
 	errCh := make(chan error, 1)
@@ -217,9 +232,10 @@ func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, provisi
 
 // ensureSigningKey establishes a signing key for a seeded pre-existing
 // account (Phase 15c) if it doesn't already have one on record — needed
-// because auth-service's GET /api/auth/connectInfo mints browser user JWTs
-// by loading an account's SigningKeySeed from this service's own Postgres
-// table (see auth-service/auth/store.go's AccountReader doc comment), and
+// because GET /api/auth/connectInfo (auth/handler.go, folded into this
+// service in Phase 19) mints browser user JWTs by loading an account's
+// SigningKeySeed from this same service's own Store (see
+// accounts/store.go's Account.SigningKeySeed doc comment), and
 // bootstrap-operator.sh's nsc-generated signing key for these accounts was
 // never exported anywhere this service can read (nsc's local keystore is
 // deleted at the end of that script — see its own header comment). Reuses

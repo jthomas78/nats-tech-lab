@@ -16,7 +16,26 @@ via decentralized JWTs (`github.com/nats-io/jwt/v2` + `nkeys`), replacing
 `accounts/handler.go`, with the JWT-minting mechanics themselves in
 `accounts/provisioner.go`.
 
-### BR-AC01–BR-AC09 — Account lifecycle
+**Phase 19 — auth-service merged in.** Phase 15c's `auth-service` (browser
+NATS credential minting, BR-UA01–UA09 below) started as its own Go module
+and container because it predates the account-lifecycle work above; by the
+time BR-AC01–BR-AC11 existed, its only real job was reading this service's
+own `accounts.accounts` Postgres table over a second connection to the same
+instance — a cross-service coupling with no independent lifecycle, no NATS
+connection of its own, and no state beyond what `accounts.Store` already
+holds. Phase 19 folded it into this binary as the sibling `accounts-service/auth/`
+package: same `cmd/main.go`, same HTTP mux, same `accounts.Store` passed in
+directly instead of read through a duplicate Postgres connection. Its three
+routes (`GET /api/auth/connectInfo`, `GET /api/auth/tenants`,
+`POST /api/auth/login`) stay ungated exactly as before — see
+`auth/handler.go`'s `connectInfo` doc comment for why — while the
+`/api/accounts/*` routes above stay `BasicAuth`-gated; `cmd/main.go` mounts
+both handler sets on the one `http.ServeMux`. The `auth` package's own
+tests migrated with it (`accounts-service/auth/*_test.go`), now reusing
+`accounts.Migrate` for test schema setup instead of hand-duplicating its
+`CREATE TABLE` statements the way a separate module had to.
+
+### BR-AC01–BR-AC11 — Account lifecycle
 
 - **BR-AC01:** An account name is unique; creating an account with a name
   that already exists is rejected (`409 Conflict`).
@@ -154,6 +173,45 @@ via decentralized JWTs (`github.com/nats-io/jwt/v2` + `nkeys`), replacing
   doesn't fail the suspend request, since the revoke — the actual security
   boundary — has already happened by that point. A rejected/failed suspend
   (unknown account name) never publishes anything.
+- **BR-AC10 (Phase 16j):** After a reactivate fully succeeds (resolver JWT
+  re-pushed, signing key persisted, fresh `.creds` written, status back to
+  `active`), this service publishes `notify.accounts.account.reactivated` —
+  completing the lifecycle triple with BR-AC08/BR-AC09, same subject family
+  and `Handlers.NotifyNC` connection. Without it, BR-AC09's teardown is a
+  **one-way door**: `shipping-service` drops a suspended tenant's resources
+  and nothing ever rebuilds them, so a reactivated tenant stays unusable
+  until that process restarts or an operator manually switches the Admin UI
+  to it (see `BUSINESS_RULES-SHIPPING.md`'s BR-032, the consumer side). The
+  ordering matters and is asserted: the event must not fire until the fresh
+  `.creds` file exists, because the consumer resolves the tenant by scanning
+  that directory. Same best-effort/nil-safe contract as BR-AC08/BR-AC09; a
+  rejected reactivation (unknown name, or an account that isn't suspended)
+  never publishes anything.
+- **BR-AC11 (2026-08-03):** Every lifecycle state change — create, suspend,
+  reactivate — records an immutable row in `accounts.audit_events`: action,
+  account name, actor, source IP, an outcome of `success`/`failed`, and a
+  JSONB metadata payload. The table is append-only (no `UPDATE`, no
+  `DELETE`), closing the gap the 2026-08-03 accounts architecture review
+  flagged — previously the only trace of a lifecycle change was
+  `accounts.updated_at`, which is in tension with BR-AC03's own
+  regulatory-retention rationale for disallowing hard deletes. Actor is a
+  placeholder until WorkOS-backed human auth lands: the shared basic-auth
+  username (`admin`, see `BasicAuthUser`), overridable per request via an
+  `X-Actor` header so a caller can self-identify in the interim — neither is
+  authenticated identity, but both are strictly better than nothing and
+  become real once WorkOS supplies an actual principal, behind the same
+  column. Audit writes are best-effort: a failed insert is logged but never
+  blocks or rolls back the lifecycle operation it's describing, and a
+  request that fails validation before any resolver/Postgres mutation is
+  attempted (bad name, reserved name, duplicate, "not suspended", etc.)
+  writes nothing — there is no partial state yet worth recording. Once a
+  handler has started mutating external state (minting at the resolver,
+  writing a `.creds` file, a `Store` write), every further error on that
+  request writes a `failed` row with the failing step and error message in
+  `metadata`, directly documenting the partial-failure inconsistencies gap
+  (open gap #4 from the same review) as it happens rather than only in a log
+  line. See `ARCHITECTURE-ACCOUNTS.md` § "Audit trail" for the full sequence
+  diagrams.
 
 The lifecycle rules (BR-AC01, BR-AC03, BR-AC04, BR-AC06, BR-AC07) are enforced in
 `accounts/handler.go`'s `createAccount`/`suspendAccount`/`reactivateAccount`;
@@ -161,8 +219,13 @@ the JWT mechanics behind BR-AC02/BR-AC03/BR-AC04 are in
 `accounts/provisioner.go`'s `CreateAccount`/`DeleteAccount`/
 `ReactivateAccount`; BR-AC08 is `accounts/handler.go`'s
 `publishAccountCreated`, called from `createAccount`; BR-AC09 is the same
-file's `publishAccountSuspended`, called from `suspendAccount`. Ginkgo
-coverage:
+file's `publishAccountSuspended`, called from `suspendAccount`; BR-AC10 is
+`publishAccountReactivated`, called from `reactivateAccount`. All three share
+one nil-safe `publishAccountEvent` helper. BR-AC11 is `accounts/audit.go`'s
+`AuditLog` type (`Record`/`ListByAccount`, backed by the
+`accounts.audit_events` table created in `store.go`'s `Migrate`), called from
+all three handlers via the shared `recordAudit`/`auditActor` helpers in
+`handler.go`. Ginkgo coverage:
 `provisioner_test.go` exercises the JWT
 round trip directly against an embedded operator-mode NATS server (mint →
 connect → revoke → reject → reactivate → connect again, with JetStream
@@ -179,7 +242,16 @@ specs (a rejected create publishes nothing; a successful create publishes
 the tenant's name, and a create with a nil `NotifyNC` still succeeds) and
 BR-AC09's mirrored two specs (a suspend of an unknown account publishes
 nothing; a successful suspend publishes the tenant's name, and a suspend
-with a nil `NotifyNC` still succeeds). The
+with a nil `NotifyNC` still succeeds), plus BR-AC10's two (a failed
+reactivation publishes nothing; a successful one publishes the tenant's name
+**and** has already written the fresh `.creds` file by the time the event is
+observable — the ordering its consumer depends on; and a reactivation with a
+nil `NotifyNC` still succeeds), plus BR-AC11's two (a create → suspend →
+reactivate sequence with a caller-supplied `X-Actor` header writes three
+rows — one per action, newest first, each `success`, each carrying that
+actor and a non-empty source IP; and severing the provisioner's NATS
+connection mid-suspend writes a `failed` row naming `"revoke account"` as
+the step, alongside the earlier successful create's own row). The
 `shipping-service`-side defense in depth is covered separately by
 `dictionary/internal/rest/tenant_discovery_test.go`'s
 `TestDiscoverTenantsExcludesReservedNamesCaseInsensitively`, a plain Go test

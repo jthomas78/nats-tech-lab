@@ -158,10 +158,10 @@ throwaway tenant was minted, connected to, suspended, and observed via
 ```mermaid
 sequenceDiagram
     participant Browser as Sea Freight Flow (browser)
-    participant Auth as auth-service
+    participant Auth as accounts-service (auth routes)
     participant NATS as NATS Server
     participant Shipping as shipping-service
-    participant Accounts as accounts-service
+    participant Accounts as accounts-service (lifecycle routes)
 
     Note over Browser,Shipping: Normal operation — browser connected on the tenant's account
     Browser->>NATS: api.{context}.shipping.container.list.v1
@@ -187,6 +187,14 @@ sequenceDiagram
     end
 ```
 
+> **Diagram note (Phase 19):** `Auth` and `Accounts` are drawn as separate
+> participants because they're separate HTTP route groups with separate
+> gating (ungated `/api/auth/*` vs `BasicAuth`-gated `/api/accounts/*`) —
+> not because they're separate processes. Since Phase 19 folded
+> auth-service into accounts-service, both boxes are the same container and
+> the same Postgres connection; see `BUSINESS_RULES-ACCOUNTS.md`'s "Phase
+> 19 — auth-service merged in" note.
+
 Three things worth drawing out:
 
 - **An `api.*` request on a suspended account is usually never sent at all** —
@@ -206,10 +214,10 @@ Three things worth drawing out:
   a tenant appearing, and none for a tenant going away.
 
 There is also a narrow window between the `$SYS.REQ.CLAIMS.DELETE` and the
-Postgres status update in which `auth-service` still reports the tenant active
-and will mint a browser JWT for an account that no longer resolves. It fails
-closed — the connection is simply refused — so it is a confusing error rather
-than a security hole.
+Postgres status update in which the auth routes still report the tenant
+active and will mint a browser JWT for an account that no longer resolves.
+It fails closed — the connection is simply refused — so it is a confusing
+error rather than a security hole.
 
 #### Proposed — not implemented
 
@@ -219,10 +227,10 @@ section exists in the code as of 2026-08-03.
 ```mermaid
 sequenceDiagram
     participant Browser as Sea Freight Flow (browser)
-    participant Auth as auth-service
+    participant Auth as accounts-service (auth routes)
     participant NATS as NATS Server
     participant Shipping as shipping-service
-    participant Accounts as accounts-service
+    participant Accounts as accounts-service (lifecycle routes)
 
     Note over Accounts: Operator suspends the tenant (BR-AC03)
     Accounts->>NATS: $SYS.REQ.CLAIMS.DELETE (account JWT removed from resolver)
@@ -266,10 +274,26 @@ Design notes on the sketch:
   actively misleading here — account-not-found after a revoke is permanent, and
   treating it as transient is precisely the bug above.
 
-Reactivation (3t) is asymmetric with all of this and has not been verified:
-it re-mints the JWT and `.creds`, so a *new* connection succeeds, but nothing
-currently tells `shipping-service` to re-provision the tenant it tore down or
-gave up on.
+**Reactivation — resolved 2026-08-03 (BR-AC10/BR-032).** This section
+originally flagged reactivation as an unverified asymmetry, and it turned out
+to be a real one: the teardown above was a one-way door. `EnsureAllTenants`
+only runs at process startup and Sea Freight Flow never calls `SwitchTenant`,
+so a suspend→reactivate cycle left the tenant dark until `shipping-service`
+restarted. `accounts-service` now publishes
+`notify.accounts.account.reactivated` once the whole reactivation commits —
+crucially *after* the fresh `.creds` file is written, since the consumer
+resolves tenants by scanning that directory — and `shipping-service` calls the
+existing `EnsureTenantByName` unchanged, rebuilding from scratch because the
+teardown had removed the tenant from `TenantResources`.
+
+The three subjects now form a closed lifecycle, all on the same context-free
+family over `accounts-service`'s DEFAULT connection:
+
+| Event | Consumer action | Rules |
+|---|---|---|
+| `notify.accounts.account.created` | provision resources | BR-AC08 / BR-030 |
+| `notify.accounts.account.suspended` | tear resources down | BR-AC09 / BR-031 |
+| `notify.accounts.account.reactivated` | provision again | BR-AC10 / BR-032 |
 
 ### 3t. Tenant account reactivation
 
@@ -351,7 +375,7 @@ sequenceDiagram
     Backend->>DB: INSERT domain user (WorkOS ID, tenant, role, status=active)
     Backend->>NATS: Mint NATS user JWT + NKey (signed with tenant's account signing key)
     Backend-->>User: Short-lived NATS JWT + refresh token
-    Note over User: Browser stores JWT + refresh token only; NKey seed stays server-side (BR-UA05)
+    Note over User: Browser stores JWT + refresh token only — NKey seed stays server-side (BR-UA05)
 ```
 
 ### 2. Subsequent login
@@ -504,3 +528,130 @@ WorkOS session ─────────────────────�
 | Admin revokes | Revoked server-side | Runs out naturally | Locked out within JWT TTL window |
 | IdP removes | Revoked server-side | Runs out naturally | Same as admin revocation |
 | User logs out | Revoked + cleared | Runs out naturally | Session ended; blast radius = JWT TTL |
+
+---
+
+## Audit trail
+
+BR-AC11. Closes gap #3 from the 2026-08-03 accounts architecture review:
+tenant lifecycle changes had no trace beyond `accounts.updated_at` — no
+actor, no event log — in tension with BR-AC03's own regulatory-retention
+rationale for disallowing hard deletes. Every create/suspend/reactivate now
+writes an immutable row to `accounts.audit_events` (same Postgres instance
+and schema as `accounts.accounts`, own table) after its state change
+succeeds, and best-effort on any failure once a real side effect has been
+attempted.
+
+**Table shape:**
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `account` | TEXT | account name — no FK to `accounts.accounts`, since a failed create may need a row for a name that never gets a corresponding account |
+| `action` | TEXT | `created` \| `suspended` \| `reactivated` |
+| `actor` | TEXT | see "Actor identity" below |
+| `source_ip` | TEXT | `r.RemoteAddr` |
+| `outcome` | TEXT | `success` \| `failed` |
+| `metadata` | JSONB | `{"step": "...", "error": "..."}` on failure; `{"publicKey": "..."}` on a successful create |
+| `created_at` | TIMESTAMPTZ | append-only — no `UPDATE`, no `DELETE` |
+
+**Actor identity (placeholder until WorkOS):** this service currently sits
+behind one shared HTTP Basic Auth secret (see `accounts_service_plan.md`),
+so there is no real per-caller identity yet. `actor` defaults to the shared
+username (`admin`), overridable per request via an `X-Actor` header a caller
+can set to self-identify. Neither is authenticated, but both are strictly
+better than nothing, and become genuinely meaningful once WorkOS-backed
+human auth supplies a real principal — same column, no schema change.
+
+**Failure scope:** a request rejected by validation before any resolver or
+Postgres mutation is attempted (bad name, reserved name/prefix, duplicate,
+"account is not suspended", unknown name) writes nothing — there is no
+partial state yet worth recording. Once a handler starts mutating external
+state, every further error on that request writes a `failed` row naming the
+step and the error, directly surfacing the partial-failure inconsistencies
+already called out in gap #4 of the same review (e.g. resolver revoked but
+`Store.SetStatus` failed, leaving the resolver and Postgres disagreeing).
+
+### Create
+
+```mermaid
+sequenceDiagram
+    participant Admin as Admin (UI)
+    participant Handler as accounts-service
+    participant Provisioner
+    participant DB as Accounts Postgres
+    participant Audit as accounts.audit_events
+    participant NATS as NATS Server
+
+    Admin->>Handler: POST /api/accounts {name, jsLimits}
+    Handler->>DB: Store.Get (check name uniqueness)
+    Handler->>Provisioner: CreateAccount(limits)
+    Provisioner->>NATS: $SYS.REQ.CLAIMS.UPDATE (push account JWT)
+    Provisioner->>Provisioner: CreateUser → mint .creds bytes
+    Handler->>Handler: write <name>.creds to shared volume
+    Handler->>DB: Store.Insert (status=active)
+    Handler->>Audit: Record(created, success)
+    Handler->>NATS: publish notify.accounts.account.created
+    Handler->>DB: Store.Get (reload for response)
+    Handler-->>Admin: 201 Created {account, creds}
+
+    Note over Handler,Audit: A failure from CreateAccount onward also writes<br/>Record(created, failed, step=<where>) before the error response
+```
+
+### Suspend
+
+```mermaid
+sequenceDiagram
+    participant Admin as Admin (UI)
+    participant Handler as accounts-service
+    participant Provisioner
+    participant DB as Accounts Postgres
+    participant Audit as accounts.audit_events
+    participant NATS as NATS Server
+
+    Admin->>Handler: POST /api/accounts/{name}/suspend
+    Handler->>DB: Store.Get (load account)
+    Handler->>Provisioner: DeleteAccount(publicKey)
+    Provisioner->>NATS: $SYS.REQ.CLAIMS.DELETE (revoke + evict connections)
+    Handler->>DB: Store.SetStatus(suspended)
+    Handler->>Audit: Record(suspended, success)
+    Handler->>NATS: publish notify.accounts.account.suspended
+    Handler->>Handler: best-effort remove <name>.creds
+    Handler-->>Admin: 200 OK
+
+    Note over Handler,Audit: A failure from DeleteAccount onward also writes<br/>Record(suspended, failed, step=<where>) before the error response
+```
+
+### Reactivate
+
+```mermaid
+sequenceDiagram
+    participant Admin as Admin (UI)
+    participant Handler as accounts-service
+    participant Provisioner
+    participant DB as Accounts Postgres
+    participant Audit as accounts.audit_events
+    participant NATS as NATS Server
+
+    Admin->>Handler: POST /api/accounts/{name}/reactivate
+    Handler->>DB: Store.Get (reject if not suspended)
+    Handler->>Provisioner: ReactivateAccount(publicKey, signingKeySeed, limits)
+    Provisioner->>NATS: $SYS.REQ.CLAIMS.UPDATE (re-push account JWT)
+    opt signing key was newly established
+        Handler->>DB: Store.SetSigningKeySeed
+    end
+    Handler->>Provisioner: CreateUser → mint fresh .creds
+    Handler->>Handler: write <name>.creds to shared volume
+    Handler->>DB: Store.SetStatus(active)
+    Handler->>Audit: Record(reactivated, success)
+    Handler->>NATS: publish notify.accounts.account.reactivated
+    Handler->>DB: Store.Get (reload for response)
+    Handler-->>Admin: 200 OK {account, creds}
+
+    Note over Handler,Audit: A failure from ReactivateAccount onward also writes<br/>Record(reactivated, failed, step=<where>) before the error response
+```
+
+**Not yet built** (deferred, see `accounts_service_plan.md`'s remaining open
+gaps): a REST endpoint over `AuditLog.ListByAccount` for the Admin UI to
+display a tenant's history, and any retention/export policy beyond "keep
+forever."

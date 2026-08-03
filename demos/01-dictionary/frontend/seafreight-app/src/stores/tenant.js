@@ -2,9 +2,10 @@
 // 15d). Deliberately its own store, not folded into usePortStore's fleet
 // `context` (CONTEXTS = acme/acme-atlantic-fleet/acme-pacific-fleet, Phase
 // 16e — see stores/port.js) — a tenant switch re-authenticates the browser's NATS
-// WebSocket connection into a different account entirely (auth-service's
-// GET /api/auth/connectInfo, Phase 15c), so every ship/container endpoint's
-// data changes, not just what one query filters by fleet.
+// WebSocket connection into a different account entirely (GET
+// /api/auth/connectInfo, Phase 15c — served by accounts-service's `auth`
+// sub-package since Phase 19), so every ship/container endpoint's data
+// changes, not just what one query filters by fleet.
 //
 // Unlike the pre-Phase-15 version, there is no server-side "active tenant"
 // for the browser to read (that concept — rest/tenant.go's SwitchTenant —

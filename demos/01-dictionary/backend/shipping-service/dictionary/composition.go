@@ -109,6 +109,28 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 		return err
 	}
 
+	// BR-032: completes the lifecycle triple. Without this, BR-031's teardown
+	// is a one-way door — a reactivated tenant would stay unusable until this
+	// process restarted or an operator switched the Admin UI to it. Reuses
+	// EnsureTenantByName unchanged: the teardown removed the tenant from
+	// TenantResources, so this rebuilds it from scratch against the fresh
+	// .creds file reactivation just wrote (BR-AC04/BR-AC10 — the old creds are
+	// deleted on suspend and never reused).
+	if _, err := mono.NC().Subscribe("notify.accounts.account.reactivated", func(msg *nats.Msg) {
+		var evt struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(msg.Data, &evt); err != nil || evt.Name == "" {
+			log.Error("decode notify.accounts.account.reactivated", "err", err)
+			return
+		}
+		if err := handlers.EnsureTenantByName(ctx, evt.Name); err != nil {
+			log.Error("ensure tenant resources on reactivation event", "tenant", evt.Name, "err", err)
+		}
+	}); err != nil {
+		return err
+	}
+
 	handlers.Mount(mono.Mux())
 	return nil
 }

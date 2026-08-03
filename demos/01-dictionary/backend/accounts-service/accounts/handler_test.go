@@ -7,8 +7,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -23,6 +25,8 @@ var _ = Describe("Handlers", func() {
 		client      *httptest.Server
 		store       *accounts.Store
 		provisioner *accounts.Provisioner
+		auditLog    *accounts.AuditLog
+		sysNC       *nats.Conn
 	)
 
 	BeforeEach(func() {
@@ -32,16 +36,17 @@ var _ = Describe("Handlers", func() {
 
 		ots = newOperatorTestServer(GinkgoT())
 		DeferCleanup(ots.Shutdown)
-		nc := ots.ConnectSys(GinkgoT())
-		DeferCleanup(nc.Close)
+		sysNC = ots.ConnectSys(GinkgoT())
+		DeferCleanup(sysNC.Close)
 
 		var err error
-		provisioner, err = accounts.NewProvisioner(ots.OperatorSigningKeySeed, nc)
+		provisioner, err = accounts.NewProvisioner(ots.OperatorSigningKeySeed, sysNC)
 		Expect(err).NotTo(HaveOccurred())
 
 		store = accounts.NewStore(storeTestDB)
+		auditLog = accounts.NewAuditLog(storeTestDB)
 		credsDir := GinkgoT().TempDir()
-		handlers := accounts.NewHandlers(store, provisioner, credsDir, slog.New(slog.DiscardHandler), nil)
+		handlers := accounts.NewHandlers(store, provisioner, credsDir, slog.New(slog.DiscardHandler), nil, auditLog)
 
 		mux := http.NewServeMux()
 		handlers.Mount(mux, authSecret)
@@ -243,7 +248,7 @@ var _ = Describe("Handlers", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer sub.Unsubscribe() //nolint:errcheck
 
-		notifyHandlers := accounts.NewHandlers(store, provisioner, GinkgoT().TempDir(), slog.New(slog.DiscardHandler), notifyNC)
+		notifyHandlers := accounts.NewHandlers(store, provisioner, GinkgoT().TempDir(), slog.New(slog.DiscardHandler), notifyNC, auditLog)
 		mux := http.NewServeMux()
 		notifyHandlers.Mount(mux, authSecret)
 		notifyServer := httptest.NewServer(mux)
@@ -302,7 +307,7 @@ var _ = Describe("Handlers", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer sub.Unsubscribe() //nolint:errcheck
 
-		notifyHandlers := accounts.NewHandlers(store, provisioner, GinkgoT().TempDir(), slog.New(slog.DiscardHandler), notifyNC)
+		notifyHandlers := accounts.NewHandlers(store, provisioner, GinkgoT().TempDir(), slog.New(slog.DiscardHandler), notifyNC, auditLog)
 		mux := http.NewServeMux()
 		notifyHandlers.Mount(mux, authSecret)
 		notifyServer := httptest.NewServer(mux)
@@ -349,6 +354,95 @@ var _ = Describe("Handlers", func() {
 		}
 		Expect(json.Unmarshal(msg.Data, &evt)).To(Succeed())
 		Expect(evt.Name).To(Equal("suspend-notify-tenant"))
+	})
+
+	// BR-AC10 (BUSINESS_RULES-ACCOUNTS.md): completes the lifecycle triple.
+	// Without this event, BR-AC09's teardown is a one-way door —
+	// shipping-service drops a suspended tenant's resources and nothing ever
+	// rebuilds them, leaving a reactivated tenant unusable until a restart
+	// (see BUSINESS_RULES-SHIPPING.md's BR-032, the consumer side). Also
+	// asserts the ordering that matters to that consumer: the event must not
+	// fire until the fresh .creds file exists, since the consumer resolves the
+	// tenant by scanning that directory.
+	It("BR-AC10: publishes notify.accounts.account.reactivated only after a reactivate fully succeeds, with its creds file already written", func() {
+		notifyNC := ots.ConnectSys(GinkgoT())
+		defer notifyNC.Close()
+		sub, err := notifyNC.SubscribeSync("notify.accounts.account.reactivated")
+		Expect(err).NotTo(HaveOccurred())
+		defer sub.Unsubscribe() //nolint:errcheck
+
+		credsDir := GinkgoT().TempDir()
+		notifyHandlers := accounts.NewHandlers(store, provisioner, credsDir, slog.New(slog.DiscardHandler), notifyNC, auditLog)
+		mux := http.NewServeMux()
+		notifyHandlers.Mount(mux, authSecret)
+		notifyServer := httptest.NewServer(mux)
+		defer notifyServer.Close()
+
+		post := func(path string, body []byte) *http.Response {
+			GinkgoHelper()
+			var rdr *bytes.Reader
+			if body != nil {
+				rdr = bytes.NewReader(body)
+			} else {
+				rdr = bytes.NewReader(nil)
+			}
+			req, err := http.NewRequest(http.MethodPost, notifyServer.URL+path, rdr)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.SetBasicAuth(accounts.BasicAuthUser, authSecret)
+			resp, err := notifyServer.Client().Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			return resp
+		}
+
+		By("creating then suspending the tenant, so it is eligible for reactivation")
+		createResp := post("/api/accounts", []byte(`{"name":"reactivate-notify-tenant"}`))
+		defer createResp.Body.Close()
+		Expect(createResp.StatusCode).To(Equal(http.StatusCreated))
+		suspendResp := post("/api/accounts/reactivate-notify-tenant/suspend", nil)
+		defer suspendResp.Body.Close()
+		Expect(suspendResp.StatusCode).To(Equal(http.StatusOK))
+
+		By("neither the create nor the suspend published on this subject")
+		_, err = sub.NextMsg(200 * time.Millisecond)
+		Expect(err).To(HaveOccurred(), "BR-AC08/BR-AC09 events are different subjects, not this one")
+
+		By("reactivating a tenant that is not suspended publishes nothing")
+		conflictResp := post("/api/accounts/acme-not-suspended-anywhere/reactivate", nil)
+		defer conflictResp.Body.Close()
+		Expect(conflictResp.StatusCode).To(Equal(http.StatusNotFound))
+		_, err = sub.NextMsg(200 * time.Millisecond)
+		Expect(err).To(HaveOccurred(), "no event for a reactivation that never succeeded")
+
+		By("a successful reactivate publishes the tenant's name")
+		reactivateResp := post("/api/accounts/reactivate-notify-tenant/reactivate", nil)
+		defer reactivateResp.Body.Close()
+		Expect(reactivateResp.StatusCode).To(Equal(http.StatusOK))
+
+		msg, err := sub.NextMsg(2 * time.Second)
+		Expect(err).NotTo(HaveOccurred(), "shipping-service's subscriber must receive this event to rebuild the tenant's resources")
+		var evt struct {
+			Name string `json:"name"`
+		}
+		Expect(json.Unmarshal(msg.Data, &evt)).To(Succeed())
+		Expect(evt.Name).To(Equal("reactivate-notify-tenant"))
+
+		By("the fresh creds file already exists by the time the event is observable — the consumer resolves the tenant by scanning that directory")
+		Expect(filepath.Join(credsDir, "reactivate-notify-tenant.creds")).To(BeAnExistingFile())
+	})
+
+	It("does not fail account reactivation when NotifyNC is unset", func() {
+		createResp := doRequest(http.MethodPost, "/api/accounts", map[string]any{"name": "no-notify-reactivate-tenant"}, accounts.BasicAuthUser, authSecret)
+		defer createResp.Body.Close()
+		Expect(createResp.StatusCode).To(Equal(http.StatusCreated))
+
+		suspendResp := doRequest(http.MethodPost, "/api/accounts/no-notify-reactivate-tenant/suspend", nil, accounts.BasicAuthUser, authSecret)
+		defer suspendResp.Body.Close()
+		Expect(suspendResp.StatusCode).To(Equal(http.StatusOK))
+
+		resp := doRequest(http.MethodPost, "/api/accounts/no-notify-reactivate-tenant/reactivate", nil, accounts.BasicAuthUser, authSecret)
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK), "the outer BeforeEach's handlers has a nil NotifyNC — reactivation must still succeed")
 	})
 
 	It("does not fail account suspension when NotifyNC is unset", func() {
@@ -399,6 +493,82 @@ var _ = Describe("Handlers", func() {
 		resp := doRequest(http.MethodPost, "/api/accounts", map[string]any{"name": "acme_northdiv"}, accounts.BasicAuthUser, authSecret)
 		defer resp.Body.Close()
 		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+	})
+
+	// BR-AC11 (BUSINESS_RULES-ACCOUNTS.md): every lifecycle success writes an
+	// immutable audit row — action, account, actor (from X-Actor when
+	// supplied, overriding the shared basic-auth username), source IP, and a
+	// success outcome — closing the audit-trail gap the 2026-08-03
+	// architecture review flagged (no way to answer "who did what, when"
+	// beyond a bare updated_at).
+	It("BR-AC11: records an audit row with actor and outcome for each lifecycle success", func() {
+		post := func(path string) *http.Response {
+			GinkgoHelper()
+			req, err := http.NewRequest(http.MethodPost, client.URL+path, bytes.NewReader([]byte(`{"name":"audit-tenant"}`)))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Actor", "qa-operator")
+			req.SetBasicAuth(accounts.BasicAuthUser, authSecret)
+			resp, err := client.Client().Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			return resp
+		}
+
+		createResp := post("/api/accounts")
+		defer createResp.Body.Close()
+		Expect(createResp.StatusCode).To(Equal(http.StatusCreated))
+
+		suspendResp := post("/api/accounts/audit-tenant/suspend")
+		defer suspendResp.Body.Close()
+		Expect(suspendResp.StatusCode).To(Equal(http.StatusOK))
+
+		reactivateResp := post("/api/accounts/audit-tenant/reactivate")
+		defer reactivateResp.Body.Close()
+		Expect(reactivateResp.StatusCode).To(Equal(http.StatusOK))
+
+		entries, err := auditLog.ListByAccount(context.Background(), "audit-tenant")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(entries).To(HaveLen(3), "one row per lifecycle action")
+
+		// ListByAccount orders newest first.
+		Expect(entries[0].Action).To(Equal(accounts.AuditActionReactivated))
+		Expect(entries[1].Action).To(Equal(accounts.AuditActionSuspended))
+		Expect(entries[2].Action).To(Equal(accounts.AuditActionCreated))
+		for _, e := range entries {
+			Expect(e.Outcome).To(Equal(accounts.AuditOutcomeSuccess))
+			Expect(e.Actor).To(Equal("qa-operator"), "X-Actor header must override the shared basic-auth username")
+			Expect(e.SourceIP).NotTo(BeEmpty())
+		}
+	})
+
+	// BR-AC11 failure case: a partial failure (the resolver revoke fails
+	// independently of the Postgres status flip) still leaves a row behind,
+	// with the failing step and error captured in metadata — the audit
+	// trail's whole point is to surface exactly this kind of partial-failure
+	// gap (open gap #4 from the 2026-08-03 review), not just the happy path.
+	It("BR-AC11: records a failed outcome when a lifecycle action fails partway", func() {
+		createResp := doRequest(http.MethodPost, "/api/accounts", map[string]any{"name": "audit-fail-tenant"}, accounts.BasicAuthUser, authSecret)
+		defer createResp.Body.Close()
+		Expect(createResp.StatusCode).To(Equal(http.StatusCreated))
+
+		// Force the resolver revoke call to fail deterministically by
+		// severing the sys connection the shared provisioner depends on for
+		// $SYS.REQ.CLAIMS.DELETE — this test is the last thing that runs in
+		// this It block, so leaving the connection closed doesn't affect
+		// anything else.
+		sysNC.Close()
+
+		suspendResp := doRequest(http.MethodPost, "/api/accounts/audit-fail-tenant/suspend", nil, accounts.BasicAuthUser, authSecret)
+		defer suspendResp.Body.Close()
+		Expect(suspendResp.StatusCode).To(Equal(http.StatusInternalServerError))
+
+		entries, err := auditLog.ListByAccount(context.Background(), "audit-fail-tenant")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(entries).To(HaveLen(2), "the successful create plus the failed suspend attempt")
+		Expect(entries[0].Action).To(Equal(accounts.AuditActionSuspended))
+		Expect(entries[0].Outcome).To(Equal(accounts.AuditOutcomeFailed))
+		Expect(entries[0].Metadata["step"]).To(Equal("revoke account"))
+		Expect(entries[0].Metadata["error"]).NotTo(BeEmpty())
 	})
 })
 

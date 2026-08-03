@@ -17,7 +17,7 @@
 - [Design discussion vs. implementation signal](design_discussion_vs_implementation_signal.md) — this user iterates/reverts design ideas before saying "let's plan" — don't implement early
 - [NATS Tower operator-mode tradeoff](nats_tower_operator_mode_tradeoff.md) — **resolved 2026-07-28**: Phase 14a converted the shared server to operator mode; Tower can now be pointed at `nats/creds/sys.creds` through its own UI (not yet done — manual follow-up)
 - [Tenant-service separation decision](tenant_service_separation_decision.md) — agreed and **implemented 2026-07-28**: `accounts-service` is its own service/Postgres, separate from `refdata-service`; only the Admin UI merges both
-- [Accounts service plan](accounts_service_plan.md) — Phase 14 implemented 2026-07-28: dynamic tenant provisioning via decentralized JWTs; full suspend/reactivate lifecycle; no hard-delete (decided 2026-07-29); WorkOS deferred
+- [Accounts service plan](accounts_service_plan.md) — Phase 14 (2026-07-28) dynamic tenant provisioning; **2026-08-03**: BR-032/BR-033 closed the reactivation-regression + UI-truthfulness bugs; 6 open gaps recorded (unrestricted/non-expiring service creds is top)
 - [$SYS.REQ.CLAIMS reference](nats_sys_claims_subjects.md) — `$SYS.REQ.CLAIMS.*` is core NATS request-reply (not JetStream) for runtime JWT resolver management in operator mode
 - [refdata database-per-service](refdata_database_per_service.md) — refdata-service moved off shared `postgres` to its own `refdata-postgres` instance (port 5433); NATS is now the only shared infra
 - [Admin UI realtime transport options](admin_ui_realtime_transport_options.md) — **resolved for seafreight-app** (Phase 15, single NATS WebSocket); Admin/Dictionary UIs still on SSE

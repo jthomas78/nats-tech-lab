@@ -108,6 +108,7 @@ describe('BR-D16 Port UI localization', () => {
     vi.clearAllMocks()
     useL10nCopy().switching.value = false // the mock's `switching` ref is module-level and outlives each test
     useNatsConnection().lastError.value = '' // also module-level (real, unmocked, singleton) — same reason
+    useNatsConnection().connected.value = false // ditto
   })
 
   it('reactively switches visible chrome from English to Spanish', async () => {
@@ -299,9 +300,9 @@ describe('BR-D16 Port UI localization', () => {
     expect(wrapper.find('#locale [data-pc-section="loadingicon"]').exists()).toBe(false)
   })
 
-  // Regression: useNatsConnection's lastError (e.g. auth-service's 403
-  // "tenant is not active" after a suspended tenant's connection is
-  // force-evicted, ARCHITECTURE-ACCOUNTS.md § 2t-a) was previously set but
+  // Regression: useNatsConnection's lastError (e.g. the connectInfo
+  // endpoint's 403 "tenant is not active" after a suspended tenant's
+  // connection is force-evicted, ARCHITECTURE-ACCOUNTS.md § 2t-a) was previously set but
   // never rendered anywhere — panels just stopped updating with no
   // explanation. `lastError` is a module-level singleton (not a Pinia
   // store), shared across the whole file, so it must be reset afterward.
@@ -321,6 +322,30 @@ describe('BR-D16 Port UI localization', () => {
     lastError.value = ''
     await nextTick()
     expect(wrapper.find('[data-testid="connection-error"]').exists()).toBe(false)
+  })
+
+  // BR-033: the topbar status must reflect the NATS connection, not just the
+  // port store's own flag. usePortStore().connected is cleared solely by its
+  // own disconnect(), which nothing calls when NATS evicts the connection (a
+  // tenant suspended mid-session) — so reading it alone showed a green
+  // "watching" beside the red "connection error", the app claiming to be live
+  // and broken simultaneously.
+  it('shows disconnected when the NATS connection drops, even while the port store still believes it is connected', async () => {
+    const { wrapper, store } = mountApp()
+    const { connected: natsConnected } = useNatsConnection()
+
+    store.$patch({ connected: true })
+    natsConnected.value = true
+    await nextTick()
+    expect(wrapper.get('[data-testid="connection-status"]').text()).toBe('watching')
+
+    natsConnected.value = false
+    await nextTick()
+    // Precondition for this test to mean anything: the port store must still
+    // believe it is connected, which is exactly the state that used to show a
+    // misleading green "watching".
+    expect(store.connected).toBe(true)
+    expect(wrapper.get('[data-testid="connection-status"]').text()).toBe('disconnected')
   })
 
   it('BR-D21: clicking a docked ship\'s port in Fleet Management jumps to Port Management scoped to that port', async () => {

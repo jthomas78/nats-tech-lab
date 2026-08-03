@@ -13,6 +13,7 @@
 package accounts
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -85,10 +86,46 @@ type Handlers struct {
 	// never crosses an account boundary, so publishing from sysNC would
 	// never reach it.
 	NotifyNC *nats.Conn
+	// AuditLog is the append-only Postgres audit trail (BR-AC11) — nil-safe
+	// (recordAudit skips silently), same contract as NotifyNC, so this
+	// service still runs (just without an audit trail) if unset.
+	AuditLog *AuditLog
 }
 
-func NewHandlers(store *Store, provisioner *Provisioner, credsDir string, log *slog.Logger, notifyNC *nats.Conn) *Handlers {
-	return &Handlers{Store: store, Provisioner: provisioner, CredsDir: credsDir, Log: log, NotifyNC: notifyNC}
+func NewHandlers(store *Store, provisioner *Provisioner, credsDir string, log *slog.Logger, notifyNC *nats.Conn, auditLog *AuditLog) *Handlers {
+	return &Handlers{Store: store, Provisioner: provisioner, CredsDir: credsDir, Log: log, NotifyNC: notifyNC, AuditLog: auditLog}
+}
+
+// auditActor extracts a best-effort actor identity for an audit row
+// (BR-AC11): the basic-auth username (always "admin" today, see
+// BasicAuthUser — this service has one shared secret) overridden by an
+// optional caller-supplied X-Actor header, plus the request's source
+// address. Neither is authenticated identity; both are placeholders until
+// WorkOS-backed human auth (see accounts_service_plan.md) provides a real
+// principal — at that point this becomes strictly better data behind the
+// same column, not a schema change.
+func auditActor(r *http.Request) (actor, sourceIP string) {
+	actor = "admin"
+	if user, _, ok := r.BasicAuth(); ok && user != "" {
+		actor = user
+	}
+	if xa := r.Header.Get("X-Actor"); xa != "" {
+		actor = xa
+	}
+	return actor, r.RemoteAddr
+}
+
+// recordAudit is the shared best-effort call behind every audit write in
+// this file (BR-AC11): a failed audit insert is logged but never
+// propagated to the caller — the lifecycle action it's describing has
+// already succeeded or failed on its own terms by the time this runs.
+func (h *Handlers) recordAudit(ctx context.Context, entry AuditEntry) {
+	if h.AuditLog == nil {
+		return
+	}
+	if err := h.AuditLog.Record(ctx, entry); err != nil {
+		h.Log.Error("record audit event", "account", entry.Account, "action", entry.Action, "err", err)
+	}
 }
 
 // publishAccountCreated fire-and-forget notifies shipping-service (or any
@@ -103,6 +140,15 @@ func NewHandlers(store *Store, provisioner *Provisioner, credsDir string, log *s
 // this is called; EnsureAllTenants' startup scan or a later Admin UI
 // SwitchTenant remain fallback paths if this specific event is ever missed.
 func (h *Handlers) publishAccountCreated(name string) {
+	h.publishAccountEvent("notify.accounts.account.created", "account-created", name)
+}
+
+// publishAccountEvent is the shared mechanics behind the three lifecycle
+// publishers above and below — same payload shape, same nil-safe best-effort
+// contract, same context-free subject family. Each caller keeps its own named
+// method because the *reason* each event exists differs (and is documented on
+// each); only the plumbing is shared.
+func (h *Handlers) publishAccountEvent(subject, label, name string) {
 	if h.NotifyNC == nil {
 		return
 	}
@@ -110,11 +156,11 @@ func (h *Handlers) publishAccountCreated(name string) {
 		Name string `json:"name"`
 	}{Name: name})
 	if err != nil {
-		h.Log.Error("marshal account-created event", "name", name, "err", err)
+		h.Log.Error("marshal "+label+" event", "name", name, "err", err)
 		return
 	}
-	if err := h.NotifyNC.Publish("notify.accounts.account.created", payload); err != nil {
-		h.Log.Error("publish account-created event", "name", name, "err", err)
+	if err := h.NotifyNC.Publish(subject, payload); err != nil {
+		h.Log.Error("publish "+label+" event", "name", name, "err", err)
 	}
 }
 
@@ -132,19 +178,23 @@ func (h *Handlers) publishAccountCreated(name string) {
 // actual security boundary, this is only what makes shipping-service notice
 // promptly rather than eventually.
 func (h *Handlers) publishAccountSuspended(name string) {
-	if h.NotifyNC == nil {
-		return
-	}
-	payload, err := json.Marshal(struct {
-		Name string `json:"name"`
-	}{Name: name})
-	if err != nil {
-		h.Log.Error("marshal account-suspended event", "name", name, "err", err)
-		return
-	}
-	if err := h.NotifyNC.Publish("notify.accounts.account.suspended", payload); err != nil {
-		h.Log.Error("publish account-suspended event", "name", name, "err", err)
-	}
+	h.publishAccountEvent("notify.accounts.account.suspended", "account-suspended", name)
+}
+
+// publishAccountReactivated completes the lifecycle triple (BR-AC10). Without
+// it, BR-AC09's teardown is a one-way door: shipping-service drops a suspended
+// tenant's resources and — since `EnsureAllTenants` only runs at startup and
+// Sea Freight Flow never calls SwitchTenant (Phase 15d) — nothing ever rebuilds
+// them when the tenant comes back, leaving a reactivated tenant unusable until
+// a restart or an operator manually switching the Admin UI to it. That is the
+// same gap BR-030 closed for newly-minted tenants, in a third position.
+//
+// Published after the *whole* reactivation commits (resolver JWT re-pushed,
+// signing key persisted, fresh .creds written, status back to active) — the
+// creds file in particular must already exist, since shipping-service's
+// consumer resolves the tenant by scanning that directory (BR-032).
+func (h *Handlers) publishAccountReactivated(name string) {
+	h.publishAccountEvent("notify.accounts.account.reactivated", "account-reactivated", name)
 }
 
 func (h *Handlers) Mount(mux *http.ServeMux, authSecret string) {
@@ -233,9 +283,13 @@ func (h *Handlers) createAccount(w http.ResponseWriter, r *http.Request) {
 		limits = defaultJSLimits
 	}
 
+	actor, sourceIP := auditActor(r)
+
 	minted, err := h.Provisioner.CreateAccount(r.Context(), limits)
 	if err != nil {
 		h.Log.Error("mint account", "name", in.Name, "err", err)
+		h.recordAudit(r.Context(), AuditEntry{Account: in.Name, Action: AuditActionCreated, Actor: actor, SourceIP: sourceIP,
+			Outcome: AuditOutcomeFailed, Metadata: map[string]any{"step": "mint account", "error": err.Error()}})
 		writeError(w, http.StatusInternalServerError, "failed to mint account")
 		return
 	}
@@ -243,6 +297,8 @@ func (h *Handlers) createAccount(w http.ResponseWriter, r *http.Request) {
 	credsBytes, err := h.Provisioner.CreateUser(minted.PublicKey, minted.SigningKeySeed, in.Name)
 	if err != nil {
 		h.Log.Error("mint user", "name", in.Name, "err", err)
+		h.recordAudit(r.Context(), AuditEntry{Account: in.Name, Action: AuditActionCreated, Actor: actor, SourceIP: sourceIP,
+			Outcome: AuditOutcomeFailed, Metadata: map[string]any{"step": "mint user", "error": err.Error()}})
 		writeError(w, http.StatusInternalServerError, "failed to mint user")
 		return
 	}
@@ -251,6 +307,8 @@ func (h *Handlers) createAccount(w http.ResponseWriter, r *http.Request) {
 		credsPath := filepath.Join(h.CredsDir, in.Name+".creds")
 		if err := os.WriteFile(credsPath, credsBytes, 0o600); err != nil {
 			h.Log.Error("write creds file", "path", credsPath, "err", err)
+			h.recordAudit(r.Context(), AuditEntry{Account: in.Name, Action: AuditActionCreated, Actor: actor, SourceIP: sourceIP,
+				Outcome: AuditOutcomeFailed, Metadata: map[string]any{"step": "write creds file", "error": err.Error()}})
 			writeError(w, http.StatusInternalServerError, "account minted but failed to write creds file")
 			return
 		}
@@ -268,9 +326,13 @@ func (h *Handlers) createAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.Store.Insert(r.Context(), acc); err != nil {
 		h.Log.Error("persist account", "name", in.Name, "err", err)
+		h.recordAudit(r.Context(), AuditEntry{Account: in.Name, Action: AuditActionCreated, Actor: actor, SourceIP: sourceIP,
+			Outcome: AuditOutcomeFailed, Metadata: map[string]any{"step": "persist account", "error": err.Error()}})
 		writeError(w, http.StatusInternalServerError, "account minted but failed to persist — resolver and Postgres are now inconsistent")
 		return
 	}
+	h.recordAudit(r.Context(), AuditEntry{Account: in.Name, Action: AuditActionCreated, Actor: actor, SourceIP: sourceIP,
+		Outcome: AuditOutcomeSuccess, Metadata: map[string]any{"publicKey": minted.PublicKey}})
 	// Published only once the account is fully committed (resolver JWT,
 	// creds file, and this Postgres row) — a subscriber reacting to it
 	// should never see a half-provisioned tenant.
@@ -331,16 +393,23 @@ func (h *Handlers) suspendAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	actor, sourceIP := auditActor(r)
+
 	if err := h.Provisioner.DeleteAccount(r.Context(), acc.PublicKey); err != nil {
 		h.Log.Error("revoke account", "name", name, "err", err)
+		h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionSuspended, Actor: actor, SourceIP: sourceIP,
+			Outcome: AuditOutcomeFailed, Metadata: map[string]any{"step": "revoke account", "error": err.Error()}})
 		writeError(w, http.StatusInternalServerError, "failed to revoke account")
 		return
 	}
 	if err := h.Store.SetStatus(r.Context(), name, StatusSuspended); err != nil {
 		h.Log.Error("mark account suspended", "name", name, "err", err)
+		h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionSuspended, Actor: actor, SourceIP: sourceIP,
+			Outcome: AuditOutcomeFailed, Metadata: map[string]any{"step": "mark suspended", "error": err.Error()}})
 		writeError(w, http.StatusInternalServerError, "account revoked but failed to update status")
 		return
 	}
+	h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionSuspended, Actor: actor, SourceIP: sourceIP, Outcome: AuditOutcomeSuccess})
 	h.publishAccountSuspended(name)
 
 	if h.CredsDir != "" {
@@ -402,9 +471,13 @@ func (h *Handlers) reactivateAccount(w http.ResponseWriter, r *http.Request) {
 		signingKeySeed = string(seed)
 	}
 
+	actor, sourceIP := auditActor(r)
+
 	limits := JSLimits{MaxMem: acc.JSMaxMem, MaxFile: acc.JSMaxFile, MaxStreams: acc.JSMaxStreams, MaxConsumers: acc.JSMaxConsumers}
 	if err := h.Provisioner.ReactivateAccount(r.Context(), acc.PublicKey, signingKeySeed, limits); err != nil {
 		h.Log.Error("reactivate account", "name", name, "err", err)
+		h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionReactivated, Actor: actor, SourceIP: sourceIP,
+			Outcome: AuditOutcomeFailed, Metadata: map[string]any{"step": "reactivate account", "error": err.Error()}})
 		writeError(w, http.StatusInternalServerError, "failed to reactivate account")
 		return
 	}
@@ -416,6 +489,8 @@ func (h *Handlers) reactivateAccount(w http.ResponseWriter, r *http.Request) {
 		// account is already active at the resolver at this point regardless).
 		if err := h.Store.SetSigningKeySeed(r.Context(), name, signingKeySeed); err != nil {
 			h.Log.Error("persist established signing key", "name", name, "err", err)
+			h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionReactivated, Actor: actor, SourceIP: sourceIP,
+				Outcome: AuditOutcomeFailed, Metadata: map[string]any{"step": "persist signing key", "error": err.Error()}})
 			writeError(w, http.StatusInternalServerError, "account reactivated but failed to persist its new signing key")
 			return
 		}
@@ -424,6 +499,8 @@ func (h *Handlers) reactivateAccount(w http.ResponseWriter, r *http.Request) {
 	credsBytes, err := h.Provisioner.CreateUser(acc.PublicKey, signingKeySeed, acc.Name)
 	if err != nil {
 		h.Log.Error("mint user after reactivate", "name", name, "err", err)
+		h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionReactivated, Actor: actor, SourceIP: sourceIP,
+			Outcome: AuditOutcomeFailed, Metadata: map[string]any{"step": "mint user", "error": err.Error()}})
 		writeError(w, http.StatusInternalServerError, "account reactivated but failed to mint new creds")
 		return
 	}
@@ -431,6 +508,8 @@ func (h *Handlers) reactivateAccount(w http.ResponseWriter, r *http.Request) {
 		credsPath := filepath.Join(h.CredsDir, acc.Name+".creds")
 		if err := os.WriteFile(credsPath, credsBytes, 0o600); err != nil {
 			h.Log.Error("write creds file", "path", credsPath, "err", err)
+			h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionReactivated, Actor: actor, SourceIP: sourceIP,
+				Outcome: AuditOutcomeFailed, Metadata: map[string]any{"step": "write creds file", "error": err.Error()}})
 			writeError(w, http.StatusInternalServerError, "account reactivated but failed to write creds file")
 			return
 		}
@@ -438,9 +517,13 @@ func (h *Handlers) reactivateAccount(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.Store.SetStatus(r.Context(), name, StatusActive); err != nil {
 		h.Log.Error("mark account active", "name", name, "err", err)
+		h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionReactivated, Actor: actor, SourceIP: sourceIP,
+			Outcome: AuditOutcomeFailed, Metadata: map[string]any{"step": "mark active", "error": err.Error()}})
 		writeError(w, http.StatusInternalServerError, "account reactivated but failed to update status")
 		return
 	}
+	h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionReactivated, Actor: actor, SourceIP: sourceIP, Outcome: AuditOutcomeSuccess})
+	h.publishAccountReactivated(name)
 
 	stored, err := h.Store.Get(r.Context(), name)
 	if err != nil {

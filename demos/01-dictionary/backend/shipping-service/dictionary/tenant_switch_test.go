@@ -204,8 +204,18 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 		By("EnsureTenantByName provisions it reactively")
 		Expect(handlers.EnsureTenantByName(ctx, "globex")).To(Succeed())
 
-		reply, err := globexNC.Request("api.acme.shipping.ship.list.v1", []byte(`{}`), 2*time.Second)
-		Expect(err).NotTo(HaveOccurred(), "globex's adapter must now answer, without SwitchTenant(\"globex\") ever having been called")
+		// Eventually, not a single shot: micro.AddService does not flush its
+		// subscriptions before returning, so a request issued in the same
+		// instant can still get "no responders" — a test-only race (production
+		// drives this from an async notify.* delivery, never from a caller
+		// racing it) that made this spec fail roughly one run in four.
+		var reply *nats.Msg
+		Eventually(func() error {
+			var err error
+			reply, err = globexNC.Request("api.acme.shipping.ship.list.v1", []byte(`{}`), time.Second)
+			return err
+		}, 3*time.Second, 25*time.Millisecond).Should(Succeed(),
+			"globex's adapter must now answer, without SwitchTenant(\"globex\") ever having been called")
 		var body struct {
 			Ships []any `json:"ships"`
 		}
@@ -234,14 +244,17 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 		Expect(handlers.EnsureTenantByName(ctx, "globex")).To(Succeed())
 
 		globexNC, _ := connectAs("globex")
-		_, err := globexNC.Request("api.acme.shipping.ship.list.v1", []byte(`{}`), 2*time.Second)
-		Expect(err).NotTo(HaveOccurred(), "globex's adapter must be answering before teardown")
+		Eventually(func() error {
+			_, err := globexNC.Request("api.acme.shipping.ship.list.v1", []byte(`{}`), time.Second)
+			return err
+		}, 3*time.Second, 25*time.Millisecond).Should(Succeed(),
+			"globex's adapter must be answering before teardown") // see BR-030's spec above on why this polls
 
 		By("tearing globex down")
 		Expect(handlers.TeardownTenantByName(ctx, "globex")).To(Succeed())
 
 		By("globex's adapter no longer answers — shipping-service's own connection to that account was closed, not just its handlers stopped locally")
-		_, err = globexNC.Request("api.acme.shipping.ship.list.v1", []byte(`{}`), 300*time.Millisecond)
+		_, err := globexNC.Request("api.acme.shipping.ship.list.v1", []byte(`{}`), 300*time.Millisecond)
 		Expect(err).To(HaveOccurred(), "no responder should remain on globex's account after teardown")
 
 		By("calling it again for an already-torn-down tenant is a harmless no-op, not an error")
@@ -250,5 +263,62 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 
 	It("TeardownTenantByName is a no-op, not an error, for a tenant that was never provisioned", func() {
 		Expect(handlers.TeardownTenantByName(ctx, "globex")).To(Succeed())
+	})
+
+	// BR-032 (BUSINESS_RULES-SHIPPING.md): the third leg of the lifecycle.
+	// BR-031's teardown is a one-way door on its own — this proves the round
+	// trip actually closes, i.e. that a tenant torn down on suspension can be
+	// brought back by the same reactive path BR-030 uses, with no restart and
+	// without SwitchTenant ever being called. Regression guard: before BR-032,
+	// accounts-service published nothing on reactivation, so a suspended-then-
+	// reactivated tenant stayed permanently dark to Sea Freight Flow.
+	It("a torn-down tenant is fully restored by EnsureTenantByName, closing the suspend/reactivate round trip", func() {
+		globexNC, _ := connectAs("globex")
+
+		By("provisioned, then torn down as BR-031's suspension handler would")
+		Expect(handlers.EnsureTenantByName(ctx, "globex")).To(Succeed())
+		Eventually(func() error {
+			_, err := globexNC.Request("api.acme.shipping.ship.list.v1", []byte(`{}`), time.Second)
+			return err
+		}, 3*time.Second, 25*time.Millisecond).Should(Succeed(), "precondition: the tenant must be answering before we tear it down")
+		Expect(handlers.TeardownTenantByName(ctx, "globex")).To(Succeed())
+		_, err := globexNC.Request("api.acme.shipping.ship.list.v1", []byte(`{}`), 300*time.Millisecond)
+		Expect(err).To(HaveOccurred(), "precondition: the tenant must genuinely be dark after teardown")
+
+		By("reactivation's event handler rebuilds it from scratch")
+		Expect(handlers.EnsureTenantByName(ctx, "globex")).To(Succeed())
+
+		// Eventually, not a single shot: micro.AddService's subscriptions are
+		// not flushed to the server before it returns, so a request issued in
+		// the same instant can still get "no responders". Production never sees
+		// this — the rebuild is driven by an async notify.* delivery, not by a
+		// caller racing it — so polling here tests the real invariant (the
+		// adapter comes back) without encoding a startup race as a hard timing
+		// requirement.
+		Eventually(func() error {
+			_, err := globexNC.Request("api.acme.shipping.ship.list.v1", []byte(`{}`), time.Second)
+			return err
+		}, 3*time.Second, 25*time.Millisecond).Should(Succeed(),
+			"a reactivated tenant must answer again without a restart or any SwitchTenant call")
+
+		By("and the rebuilt tenant is fully functional, not just answering — a command it accepts must reach its projectors and land in its read model")
+		arriveBody := `{"context":"acme","shipID":"globex-reactivated-ship","shipName":"Reactivated","port":"Hamburg"}`
+		_, err = globexNC.Request("api.acme.shipping.ship.arrive.v1", []byte(arriveBody), 2*time.Second)
+		Expect(err).NotTo(HaveOccurred())
+
+		Eventually(func() []any {
+			reply, err := globexNC.Request("api.acme.shipping.ship.list.v1", []byte(`{}`), 2*time.Second)
+			if err != nil {
+				return nil
+			}
+			var out struct {
+				Ships []any `json:"ships"`
+			}
+			if json.Unmarshal(reply.Data, &out) != nil {
+				return nil
+			}
+			return out.Ships
+		}, 3*time.Second, 50*time.Millisecond).Should(HaveLen(1),
+			"the rebuilt tenant's projectors must be running too, not just its api.* adapter")
 	})
 })

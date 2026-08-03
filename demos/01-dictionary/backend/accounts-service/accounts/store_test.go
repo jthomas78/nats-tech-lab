@@ -199,4 +199,19 @@ var _ = Describe("Store", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got2.PublicKey).To(Equal("A" + oldName))
 	})
+
+	It("ListActiveTenantNames excludes DEFAULT and SYS (case-insensitively) and suspended accounts", func() {
+		base := uniqueAccountName("list-active")
+		Expect(store.Insert(context.Background(), accounts.Account{Name: base + "-acme", PublicKey: "A" + base, Status: accounts.StatusActive})).To(Succeed())
+		Expect(store.Insert(context.Background(), accounts.Account{Name: base + "-suspended", PublicKey: "B" + base, Status: accounts.StatusSuspended})).To(Succeed())
+		Expect(store.Insert(context.Background(), accounts.Account{Name: "default", PublicKey: "C" + base, Status: accounts.StatusActive})).To(Succeed())
+		Expect(store.Insert(context.Background(), accounts.Account{Name: "SYS", PublicKey: "D" + base, Status: accounts.StatusActive})).To(Succeed())
+
+		tenants, err := store.ListActiveTenantNames(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tenants).To(ContainElement(base + "-acme"))
+		Expect(tenants).NotTo(ContainElement(base + "-suspended"))
+		Expect(tenants).NotTo(ContainElement("default"))
+		Expect(tenants).NotTo(ContainElement("SYS"))
+	})
 })
