@@ -42,7 +42,7 @@ func TestListNatsConnectionsReshapesAndSortsConnz(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(connzResponse{Connections: []connzConnection{
 			{CID: 2, Type: "websocket", Name: "", Lang: "nats.ws", Version: "3.4.0", Account: "ACME", RTT: "1ms", Uptime: "1m", Idle: "1m"},
-			{CID: 1, Type: "nats", Name: "refdata-service", Lang: "go", Version: "1.52.0", Account: "DEFAULT", RTT: "300µs", Uptime: "56m", Idle: "10s", InMsgs: 208, OutMsgs: 560, Subscriptions: 16, SubscriptionsList: []string{"rpc.*.refdata.type.list.v1"}},
+			{CID: 1, Type: "nats", Name: "refdata-service", Lang: "go", Version: "1.52.0", Account: "PLATFORM", RTT: "300µs", Uptime: "56m", Idle: "10s", InMsgs: 208, OutMsgs: 560, Subscriptions: 16, SubscriptionsList: []string{"rpc.*.refdata.type.list.v1"}},
 		}})
 	}))
 	defer mock.Close()
@@ -68,7 +68,7 @@ func TestListNatsConnectionsReshapesAndSortsConnz(t *testing.T) {
 		t.Fatalf("expected connections sorted by cid [1,2], got [%d,%d]", body.Connections[0].CID, body.Connections[1].CID)
 	}
 	refdata := body.Connections[0]
-	if refdata.Name != "refdata-service" || refdata.Type != "nats" || refdata.Account != "DEFAULT" {
+	if refdata.Name != "refdata-service" || refdata.Type != "nats" || refdata.Account != "PLATFORM" {
 		t.Fatalf("unexpected reshaping of refdata-service connection: %+v", refdata)
 	}
 	if refdata.InMsgs != 208 || refdata.Subscriptions != 16 || len(refdata.SubscriptionsList) != 1 {
@@ -84,11 +84,11 @@ func TestListNatsConnectionsReshapesAndSortsConnz(t *testing.T) {
 // tenantLabelsByAccount is two stages, not one: it opens two REAL
 // connections (so LocalAddr() is a real ephemeral port, not a fabricated
 // value) and has the mocked /connz report those exact addresses back to
-// establish "this account NKey means DEFAULT / means acme" — then proves
+// establish "this account NKey means PLATFORM / means acme" — then proves
 // that mapping is applied by ACCOUNT to a fourth connz row (simulating
-// refdata-service: same DEFAULT account, but an address this process never
+// refdata-service: same PLATFORM account, but an address this process never
 // held, i.e. a connection it doesn't own) — the whole point being that
-// refdata-service and the nats CLI, sharing DEFAULT with shipping-service's
+// refdata-service and the nats CLI, sharing PLATFORM with shipping-service's
 // own connection, get labeled too. A fifth, truly unrelated account proves
 // connections on a genuinely unknown account (accounts-service's SYS
 // account) are still left unlabeled rather than mismatched.
@@ -116,9 +116,9 @@ func TestListNatsConnectionsLabelsAnyConnectionSharingAKnownAccount(t *testing.T
 
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(connzResponse{Connections: []connzConnection{
-			{CID: 1, Type: "nats", Name: "shipping-service", IP: defaultIP, Port: defaultPort, Account: "AAADEFAULT"},
+			{CID: 1, Type: "nats", Name: "shipping-service", IP: defaultIP, Port: defaultPort, Account: "AAAPLATFORM"},
 			{CID: 2, Type: "nats", Name: "shipping-service", IP: tenantIP, Port: tenantPort, Account: "AAAACME"},
-			{CID: 3, Type: "nats", Name: "refdata-service", IP: "10.0.0.9", Port: 9999, Account: "AAADEFAULT"},
+			{CID: 3, Type: "nats", Name: "refdata-service", IP: "10.0.0.9", Port: 9999, Account: "AAAPLATFORM"},
 			{CID: 4, Type: "nats", Name: "accounts-service", IP: "10.0.0.8", Port: 8888, Account: "AAASYS"},
 		}})
 	}))
@@ -143,14 +143,14 @@ func TestListNatsConnectionsLabelsAnyConnectionSharingAKnownAccount(t *testing.T
 	for _, c := range body.Connections {
 		byCID[c.CID] = c
 	}
-	if got := byCID[1].TenantLabel; got != "DEFAULT" {
-		t.Fatalf("expected cid 1 (deps.NC) labeled DEFAULT, got %q", got)
+	if got := byCID[1].TenantLabel; got != "PLATFORM" {
+		t.Fatalf("expected cid 1 (deps.NC) labeled PLATFORM, got %q", got)
 	}
 	if got := byCID[2].TenantLabel; got != "acme" {
 		t.Fatalf("expected cid 2 (tenant connection) labeled acme, got %q", got)
 	}
-	if got := byCID[3].TenantLabel; got != "DEFAULT" {
-		t.Fatalf("expected cid 3 (refdata-service, sharing the DEFAULT account but not our connection) labeled DEFAULT via account fan-out, got %q", got)
+	if got := byCID[3].TenantLabel; got != "PLATFORM" {
+		t.Fatalf("expected cid 3 (refdata-service, sharing the PLATFORM account but not our connection) labeled PLATFORM via account fan-out, got %q", got)
 	}
 	if got := byCID[4].TenantLabel; got != "" {
 		t.Fatalf("expected cid 4 (accounts-service, on the unrelated SYS account) to have no label, got %q", got)
@@ -279,7 +279,7 @@ func TestListNatsServicesDedupsSameInstanceSeenOnBothConnections(t *testing.T) {
 	defer svc.Stop() //nolint:errcheck
 
 	// A second connection to the very same embedded server/account. In
-	// production NC (DEFAULT) and TenantNC (a tenant account) are different
+	// production NC (PLATFORM) and TenantNC (a tenant account) are different
 	// accounts, so a real service is only ever discoverable on one of them —
 	// but this embedded test server has no account separation, so both
 	// connections legitimately see the same registered instance. The

@@ -27,7 +27,7 @@
 // as an empty placeholder in the meantime.
 //
 // Unlike refdata-service's adapter, which always runs on the single
-// permanent DEFAULT-account connection, an Adapter here is registered once
+// permanent PLATFORM-account connection, an Adapter here is registered once
 // per TENANT connection (see tenant.go's registerRPCAdapter) — a browser
 // authenticated into ACME's account must reach ACME's handlers regardless
 // of which tenant shipping-service's REST layer currently has active.
@@ -96,14 +96,14 @@ const ObsSubjectWildcard = "obs.api.>"
 //
 // KNOWN GAP (narrowed Phase 16, originally Main-POC-Plan.md Phase 15a):
 // unlike refdata-service's adapter, which always runs on the single
-// permanent DEFAULT-account connection, THIS adapter's obs.api.* events
+// permanent PLATFORM-account connection, THIS adapter's obs.api.* events
 // publish onto whichever TENANT account the Adapter is registered on (see
 // New's doc comment) — a fully separate NATS account with no
 // exports/imports configured. The Admin UI's Request/Reply panel
 // (watchRPCObs, rest/sse.go) now also subscribes obs.api.> on the ACTIVE
 // tenant's connection, so that one tenant's traffic is visible live; what
 // remains invisible is (a) every non-active tenant's obs.api.* traffic and
-// (b) any replay — RPCTRACE lives on the DEFAULT account and cannot retain
+// (b) any replay — RPCTRACE lives on the PLATFORM account and cannot retain
 // tenant-account events. Publishing them anyway is a deliberate choice so a
 // later cross-account-imports phase (explicitly out of scope for Phase 15)
 // closes the rest with zero changes to this adapter.
@@ -213,7 +213,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 
 	svc, err := micro.AddService(nc, micro.Config{
 		// Matches this connection's own nats.Name("shipping-service") (both the
-		// DEFAULT-account monolith.go connection and every per-tenant
+		// PLATFORM-account monolith.go connection and every per-tenant
 		// rest/tenant.go connection use that same name) rather than a
 		// family-derived name like "shipping-api" — Nats-Responder
 		// (responderIdentity below) and Nats-Requestor (useNatsConnection.js's

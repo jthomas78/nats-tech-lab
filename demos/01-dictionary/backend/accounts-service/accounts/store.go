@@ -13,7 +13,7 @@ var ErrNotFound = errors.New("account not found")
 
 // Account is one NATS account this service knows about — both the ones it
 // minted itself (Phase 14b) and the three pre-existing accounts from Phase
-// 13a/14a's bootstrap (DEFAULT/ACME/GLOBEX), seeded at startup so the list
+// 13a/14a's bootstrap (PLATFORM/ACME/GLOBEX), seeded at startup so the list
 // is complete.
 //
 // SigningKeySeed is plaintext (spike-only, matching the plaintext-fixture
@@ -96,7 +96,7 @@ func NewStore(db *sql.DB) *Store {
 
 // RenameIfExists renames an account row from oldName to newName — a no-op
 // if oldName doesn't exist. Used once by cmd/main.go's seeding step to move
-// DEFAULT/ACME/GLOBEX's Postgres row from their legacy uppercase nsc account
+// PLATFORM/ACME/GLOBEX's Postgres row from their legacy uppercase nsc account
 // name to their actual lowercase tenant identity (matching the .creds
 // filename/subject/KV-bucket convention every other account already uses),
 // without disturbing anything else on the row (public key, status,
@@ -109,7 +109,7 @@ func (s *Store) RenameIfExists(ctx context.Context, oldName, newName string) err
 }
 
 // SeedIfMissing inserts acc only if no account with that name exists yet —
-// used at startup to register the pre-existing DEFAULT/ACME/GLOBEX accounts
+// used at startup to register the pre-existing PLATFORM/ACME/GLOBEX accounts
 // (see cmd/main.go) without re-minting or overwriting anything if this has
 // already run.
 func (s *Store) SeedIfMissing(ctx context.Context, acc Account) error {
@@ -190,7 +190,7 @@ func (s *Store) SetStatus(ctx context.Context, name, status string) error {
 }
 
 // ListActiveTenantNames returns every active account name except the
-// reserved ones (default/sys, checked case-insensitively against the same
+// reserved ones (platform/sys, checked case-insensitively against the same
 // reservedAccountNames map handler.go's createAccount enforces on write),
 // sorted for a stable dropdown order. This is the browser's replacement for
 // shipping-service's discoverTenants() creds-directory scan (Phase 13b/14b)

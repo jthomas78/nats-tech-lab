@@ -77,13 +77,13 @@ type Handlers struct {
 	Provisioner *Provisioner
 	CredsDir    string // shared nats-creds volume; new <name>.creds files are written here
 	Log         *slog.Logger
-	// NotifyNC is a DEFAULT-account connection (Phase 16h/BR-AC08) used only
+	// NotifyNC is a PLATFORM-account connection (Phase 16h/BR-AC08) used only
 	// to publish notify.accounts.account.created after a successful create —
 	// nil-safe (publish is skipped) so this service still runs if that
 	// connection isn't configured. Deliberately a separate connection from
 	// Provisioner's sysNC: $SYS.REQ.CLAIMS.* and this notify event are
 	// unrelated concerns, and shipping-service's subscriber (composition.go)
-	// listens on its own DEFAULT-account connection — core NATS pub/sub
+	// listens on its own PLATFORM-account connection — core NATS pub/sub
 	// never crosses an account boundary, so publishing from sysNC would
 	// never reach it.
 	NotifyNC *nats.Conn
@@ -253,18 +253,18 @@ type createAccountResponse struct {
 var defaultJSLimits = JSLimits{MaxMem: 256 << 20, MaxFile: 1 << 30, MaxStreams: 10, MaxConsumers: 20}
 
 // reservedAccountNames implements BR-AC06 (see BUSINESS_RULES-ACCOUNTS.md):
-// DEFAULT and SYS are never mintable through this API, checked
-// case-insensitively. DEFAULT is shipping-service's permanent connection and
+// PLATFORM and SYS are never mintable through this API, checked
+// case-insensitively. PLATFORM is shipping-service's permanent connection and
 // SYS is this service's own $SYS.REQ.CLAIMS.* credential — neither is a
 // tenant, and shipping-service's discoverTenants (dictionary/internal/rest/
 // tenant.go) relies on both being excludable from the switchable tenant
 // list. That exclusion is itself just a case-sensitive filename match
 // against the shared creds directory, so it only reliably holds if this
 // service refuses to ever produce a same-named-but-differently-cased
-// account (e.g. "Default", "sys") in the first place — see that file's
+// account (e.g. "Platform", "sys") in the first place — see that file's
 // nonTenantCredsFiles doc comment for the matching case-insensitive check
 // on the other side.
-var reservedAccountNames = map[string]bool{"DEFAULT": true, "SYS": true}
+var reservedAccountNames = map[string]bool{"PLATFORM": true, "SYS": true}
 
 // reservedNamePrefix implements BR-AC07 (see BUSINESS_RULES-ACCOUNTS.md):
 // account names beginning with "_" are reserved for platform/system use
@@ -408,8 +408,23 @@ func (h *Handlers) getAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toResponse(acc))
 }
 
+// BR-AC13 (see BUSINESS_RULES-ACCOUNTS.md): the PLATFORM account is mandatory
+// on every deployment and can never be suspended — unlike suspending a
+// tenant account, which only takes that one tenant offline, suspending
+// PLATFORM would revoke the resolver JWT that shipping-service's and
+// refdata-service's permanent connections (nats.Connect with platform.creds)
+// depend on, severing cross-tenant infrastructure (refdata rpc.*, the
+// REFDATA change stream, the obs.rpc.> observability bridge) for every
+// tenant at once. Reuses reservedAccountNames (BR-AC06) rather than a
+// PLATFORM-only literal, since SYS is equally infrastructure-critical
+// (though it never has a Postgres row to suspend in the first place — see
+// seedPreexistingAccounts).
 func (h *Handlers) suspendAccount(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	if reservedAccountNames[strings.ToUpper(name)] {
+		writeError(w, http.StatusConflict, "account is reserved and can never be suspended")
+		return
+	}
 	acc, err := h.Store.Get(r.Context(), name)
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "account not found")

@@ -2,12 +2,8 @@
 import Tag from 'primevue/tag'
 import { computed } from 'vue'
 
-import ShippingForm from './ShippingForm.vue'
 import { useDictionaryStore } from '../stores/dictionary'
 
-// Overview = the glance layer (pipeline health) plus the dispatch form, so an
-// operator can emit a test command and immediately see the projections react
-// in the other views.
 const store = useDictionaryStore()
 
 const kvRev = computed(() => {
@@ -18,10 +14,10 @@ const kvRev = computed(() => {
 })
 
 const stats = computed(() => [
-  { k: 'Ships tracked', v: store.shapeARows.length, m: `context ${store.context}` },
+  { k: 'Shape A entries', v: store.shapeARows.length, m: `KV read model · context ${store.context}` },
   { k: 'KV rev', v: kvRev.value, m: store.events[0] ? `last write ${store.events[0].at}` : 'no writes yet' },
   { k: 'Watch buffer', v: store.events.length, m: 'recent KV changes held' },
-  { k: 'Shape B cached', v: store.shapeBRows.length, m: 'entries in dict-b cache' },
+  { k: 'Shape B entries', v: store.shapeBRows.length, m: 'KV cache (dict-b) entries' },
 ])
 </script>
 
@@ -30,7 +26,7 @@ const stats = computed(() => [
     <div class="head">
       <div>
         <h2 class="panel-title">Pipeline health</h2>
-        <p class="lab-muted sub">Live from the SHIPPING stream · {{ store.context }}</p>
+        <p class="lab-muted sub">Live from the event stream · {{ store.context }}</p>
       </div>
       <Tag
         :severity="store.connected ? 'success' : 'danger'"
@@ -46,7 +42,7 @@ const stats = computed(() => [
     </div>
   </section>
 
-  <ShippingForm />
+
 </template>
 
 <style scoped>

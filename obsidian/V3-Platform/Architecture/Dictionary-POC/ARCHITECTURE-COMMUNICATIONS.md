@@ -480,7 +480,7 @@ a JetStream concern — it's a separate, best-effort side-channel off the
 > carries `api.*` request/reply traffic via `obs.api.>` — shipping-service's
 > `browserrpc/` adapter publishes the identical two-message pattern, but on
 > the **tenant** account its adapter is registered on. `/api/rpc-watch`
-> therefore subscribes `obs.rpc.>` on the DEFAULT-account connection (with
+> therefore subscribes `obs.rpc.>` on the PLATFORM-account connection (with
 > the `RPCTRACE` replay below) *and* `obs.api.>` on the **active tenant's**
 > connection — the `obs.api.*` half is live-only (no `RPCTRACE` retention
 > exists inside tenant accounts) and pinned to the tenant active when the

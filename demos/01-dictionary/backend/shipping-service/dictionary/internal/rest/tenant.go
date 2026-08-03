@@ -25,10 +25,10 @@ import (
 
 // nonTenantCredsFiles are the .creds stems (checked case-insensitively —
 // see below) in the shared creds directory that are never switchable
-// tenants — DEFAULT is the permanent connection (monolith.Monolith.NC/JS),
+// tenants — PLATFORM is the permanent connection (monolith.Monolith.NC/JS),
 // SYS is accounts-service's own credential (Phase 14b), neither is a
 // ship/container tenant account.
-var nonTenantCredsFiles = map[string]bool{"default": true, "sys": true}
+var nonTenantCredsFiles = map[string]bool{"platform": true, "sys": true}
 
 // discoverTenants scans credsDir (the shared volume accounts-service also
 // writes into, Phase 14b) for *.creds files and returns the known-tenant map
@@ -380,7 +380,7 @@ func (h *Handlers) TeardownTenantByName(_ context.Context, tenant string) error 
 // nc is this tenant's own connection, threaded through to RegisterShapeA/
 // RegisterContainers/RegisterMeta (Phase 15b) so their notify.* publishes
 // land on the SAME account a browser connected to this tenant is listening
-// on — never a shared/DEFAULT connection, which would publish into the
+// on — never a shared/PLATFORM connection, which would publish into the
 // wrong (or an inaccessible) account entirely.
 func registerProjectors(
 	ctx context.Context,

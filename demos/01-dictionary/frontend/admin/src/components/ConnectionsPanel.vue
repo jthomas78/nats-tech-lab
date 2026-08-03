@@ -85,7 +85,7 @@ function formatTime(iso) {
 // resolve a friendly tenantLabel for this connection (rendered as a colored
 // tag instead — the two need different markup, not just different text, so
 // there's no single "accountLabel" string helper). tenantLabel
-// (backend-resolved — "DEFAULT" or a friendly tenant name like "acme") is
+// (backend-resolved — "PLATFORM" or a friendly tenant name like "acme") is
 // resolved for any connection sharing a known account (nats_ops.go's
 // tenantLabelsByAccount) — not just connections shipping-service holds
 // itself. Truncated the way most NATS admin tooling displays account

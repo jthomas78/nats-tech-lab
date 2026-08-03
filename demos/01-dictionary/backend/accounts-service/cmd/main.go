@@ -40,7 +40,7 @@ func run(log *slog.Logger) error {
 	databaseURL := envOr("DATABASE_URL", "postgres://accounts:accounts@localhost:5434/accounts?sslmode=disable")
 	natsURL := envOr("NATS_URL", nats.DefaultURL)
 	natsCredsPath := envOr("NATS_CREDS_PATH", "")                // sys.creds — $SYS.REQ.CLAIMS.* is only reachable authenticated as SYS
-	natsDefaultCredsPath := envOr("NATS_DEFAULT_CREDS_PATH", "") // default.creds — Phase 16h: publishes notify.accounts.account.created for shipping-service's DEFAULT-account subscriber (BR-030); optional, publish is skipped if unset
+	natsPlatformCredsPath := envOr("NATS_PLATFORM_CREDS_PATH", "") // platform.creds — Phase 16h: publishes notify.accounts.account.created for shipping-service's PLATFORM-account subscriber (BR-030); optional, publish is skipped if unset
 	operatorSigningKeyFile := envOr("OPERATOR_SIGNING_KEY_FILE", "")
 	credsDir := envOr("NATS_CREDS_DIR", "") // shared volume shipping-service also mounts
 	resolverSeedDir := envOr("RESOLVER_SEED_DIR", "")
@@ -89,27 +89,27 @@ func run(log *slog.Logger) error {
 	}
 	defer sysNC.Drain() //nolint:errcheck
 
-	// Phase 16h — a second connection, on the DEFAULT account, used only to
+	// Phase 16h — a second connection, on the PLATFORM account, used only to
 	// publish notify.accounts.account.created (accounts.Handlers.NotifyNC) —
 	// deliberately not sysNC, since shipping-service's subscriber
-	// (composition.go) listens on its own DEFAULT-account connection and
+	// (composition.go) listens on its own PLATFORM-account connection and
 	// core NATS pub/sub never crosses an account boundary. Optional: if
 	// unset, accounts-service still runs, it just can't notify shipping-service
 	// reactively (EnsureAllTenants at startup / an Admin UI SwitchTenant
 	// remain the fallback paths — see EnsureTenantByName's doc comment).
-	var defaultNC *nats.Conn
-	if natsDefaultCredsPath != "" {
-		defaultOpts := []nats.Option{nats.Name("accounts-service-default")}
-		defaultOpts = append(defaultOpts, nats.UserCredentials(natsDefaultCredsPath))
-		if err := waitForNATS(startupCtx, natsURL, defaultOpts, func(conn *nats.Conn) error {
-			defaultNC = conn
+	var platformNC *nats.Conn
+	if natsPlatformCredsPath != "" {
+		platformOpts := []nats.Option{nats.Name("accounts-service-platform")}
+		platformOpts = append(platformOpts, nats.UserCredentials(natsPlatformCredsPath))
+		if err := waitForNATS(startupCtx, natsURL, platformOpts, func(conn *nats.Conn) error {
+			platformNC = conn
 			return nil
 		}); err != nil {
 			return err
 		}
-		defer defaultNC.Drain() //nolint:errcheck
+		defer platformNC.Drain() //nolint:errcheck
 	} else {
-		log.Warn("NATS_DEFAULT_CREDS_PATH not set — accounts-service cannot notify shipping-service when a tenant is created; EnsureAllTenants/SwitchTenant remain the only ways a new tenant's resources get provisioned")
+		log.Warn("NATS_PLATFORM_CREDS_PATH not set — accounts-service cannot notify shipping-service when a tenant is created; EnsureAllTenants/SwitchTenant remain the only ways a new tenant's resources get provisioned")
 	}
 
 	// Phase 17c — see accounts.RegisterMicroService's doc comment for why
@@ -138,7 +138,7 @@ func run(log *slog.Logger) error {
 	}
 
 	auditLog := accounts.NewAuditLog(db)
-	handlers := accounts.NewHandlers(store, provisioner, credsDir, log, defaultNC, auditLog)
+	handlers := accounts.NewHandlers(store, provisioner, credsDir, log, platformNC, auditLog)
 	if natsMonitorURL != "" {
 		handlers.UsageFetcher = accounts.NewUsageFetcher(natsMonitorURL, store)
 	}
@@ -198,7 +198,7 @@ func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, provisi
 		File       string
 		Limits     accounts.JSLimits
 	}{
-		{"default", "DEFAULT", "DEFAULT.jwt", accounts.JSLimits{MaxMem: 1 << 30, MaxFile: 5 << 30, MaxStreams: 20, MaxConsumers: 100}},
+		{"platform", "PLATFORM", "PLATFORM.jwt", accounts.JSLimits{MaxMem: 1 << 30, MaxFile: 5 << 30, MaxStreams: 20, MaxConsumers: 100}},
 		{"acme", "ACME", "ACME.jwt", accounts.JSLimits{MaxMem: 256 << 20, MaxFile: 1 << 30, MaxStreams: 10, MaxConsumers: 20}},
 		{"globex", "GLOBEX", "GLOBEX.jwt", accounts.JSLimits{MaxMem: 256 << 20, MaxFile: 1 << 30, MaxStreams: 10, MaxConsumers: 20}},
 	}

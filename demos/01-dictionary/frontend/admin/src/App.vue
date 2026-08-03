@@ -60,15 +60,12 @@ const sections = [
       { key: 'streams', label: 'Streams', icon: IconStreams },
       { key: 'kv', label: 'KV Buckets', icon: IconKv },
       { key: 'shapes', label: 'CQRS Shapes', icon: IconShapes, badge: 3 },
+      { key: 'accounts', label: 'Accounts', icon: IconAccounts },
     ],
   },
   {
     eyebrow: 'Postgres',
     items: [{ key: 'tables', label: 'Tables', icon: IconTables }],
-  },
-  {
-    eyebrow: 'Platform',
-    items: [{ key: 'accounts', label: 'Accounts', icon: IconAccounts }],
   },
 ]
 

@@ -13,7 +13,7 @@ package rest
 //     control protocol — see ARCHITECTURE-COMMUNICATIONS.md §4) and collects
 //     every reply within a short window, the same mechanism `nats micro
 //     stats` uses. $SRV subjects don't cross NATS account boundaries, so
-//     this only discovers services reachable on deps.NC (DEFAULT — where
+//     this only discovers services reachable on deps.NC (PLATFORM — where
 //     refdata-service registers) and deps.TenantNC (the active tenant —
 //     where shipping-service's browserrpc adapter registers). A service
 //     registered on a different account (accounts-service registers on the
@@ -61,7 +61,7 @@ type natsConnection struct {
 	SubscriptionsList []string  `json:"subscriptionsList,omitempty"`
 	// TenantLabel is set when this connection is one shipping-service holds
 	// itself (matched by local socket address — see tenantLabelsByLocalAddr)
-	// — "DEFAULT" for deps.NC, or the friendly tenant name (e.g. "acme") for
+	// — "PLATFORM" for deps.NC, or the friendly tenant name (e.g. "acme") for
 	// a TenantResources entry. Empty for every connection this process
 	// doesn't own (browser tabs, the nats CLI, refdata-service, ...): the
 	// raw Account NKey above is all that's available for those.
@@ -151,7 +151,7 @@ func (h *Handlers) listNatsConnections(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, natsConnectionsResponse{Connections: out})
 }
 
-// tenantLabelsByAccount resolves a friendly label ("DEFAULT", or a tenant
+// tenantLabelsByAccount resolves a friendly label ("PLATFORM", or a tenant
 // name like "acme") for every /connz row that shares an account with a
 // connection shipping-service itself holds — not just the rows that ARE
 // shipping-service's own connections. Two stages:
@@ -163,12 +163,12 @@ func (h *Handlers) listNatsConnections(w http.ResponseWriter, r *http.Request) {
 //     doesn't expose it, and decoding it out of the credentials JWT is
 //     avoidable.
 //  2. Read THOSE rows' Account field — now we know "this NKey means
-//     DEFAULT" / "this NKey means acme" — and apply that mapping to every
+//     PLATFORM" / "this NKey means acme" — and apply that mapping to every
 //     row in the full list, not just our own.
 //
 // That second stage is what makes refdata-service and the nats CLI (both on
-// DEFAULT, same as shipping-service's own DEFAULT connection) resolve to
-// "DEFAULT" too, and would resolve a browser tab authenticated against a
+// PLATFORM, same as shipping-service's own PLATFORM connection) resolve to
+// "PLATFORM" too, and would resolve a browser tab authenticated against a
 // known tenant account the same way. accounts-service is the one connection
 // nothing here can label: it authenticates on the SYS account, which
 // shipping-service holds no connection on — same account-boundary gap
@@ -178,7 +178,7 @@ func (h *Handlers) listNatsConnections(w http.ResponseWriter, r *http.Request) {
 func tenantLabelsByAccount(deps Deps, connz []connzConnection) map[string]string {
 	ownAddr := map[string]string{} // local socket address -> friendly label
 	if deps.NC != nil {
-		ownAddr[deps.NC.LocalAddr()] = "DEFAULT"
+		ownAddr[deps.NC.LocalAddr()] = "PLATFORM"
 	}
 	for name, tr := range deps.TenantResources {
 		if tr != nil && tr.nc != nil {
@@ -237,7 +237,7 @@ type natsServicesResponse struct {
 // listNatsServices godoc
 //
 // @Summary      List NATS micro services
-// @Description  Every service registered via nats.go/micro (see ARCHITECTURE-COMMUNICATIONS.md §4), discovered by broadcasting $SRV.STATS and collecting replies for a short window — the same protocol `nats micro stats` uses. Queried on both the DEFAULT account (deps.NC, where refdata-service registers) and the active tenant's account (deps.TenantNC, where shipping-service's browserrpc adapter registers); $SRV subjects don't cross account boundaries, so a service registered on a different account (e.g. accounts-service, which registers on the SYS account) will not appear.
+// @Description  Every service registered via nats.go/micro (see ARCHITECTURE-COMMUNICATIONS.md §4), discovered by broadcasting $SRV.STATS and collecting replies for a short window — the same protocol `nats micro stats` uses. Queried on both the PLATFORM account (deps.NC, where refdata-service registers) and the active tenant's account (deps.TenantNC, where shipping-service's browserrpc adapter registers); $SRV subjects don't cross account boundaries, so a service registered on a different account (e.g. accounts-service, which registers on the SYS account) will not appear.
 // @Tags         nats
 // @Produce      json
 // @Success      200  {object}  natsServicesResponse
@@ -254,7 +254,7 @@ func (h *Handlers) listNatsServices(w http.ResponseWriter, r *http.Request) {
 	// it can't return early even once every instance has already answered.
 	// Querying every connection sequentially would cost
 	// len(conns)*srvDiscoveryWindow (visibly slow with 2 connections); run
-	// them concurrently instead — DEFAULT and the active tenant are
+	// them concurrently instead — PLATFORM and the active tenant are
 	// independent accounts with no ordering dependency between them, so
 	// the wall-clock cost stays a single srvDiscoveryWindow regardless of
 	// how many connections are queried.

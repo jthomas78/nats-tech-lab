@@ -8,7 +8,7 @@
 // dictionary/internal/browserrpc/adapter.go for the server side.
 //
 // Refdata calls (below) are the one exception — they stay on REST + SSE,
-// unchanged: refdata-service runs cross-tenant on the DEFAULT NATS account
+// unchanged: refdata-service runs cross-tenant on the PLATFORM NATS account
 // (BR-D08), which is out of scope for this phase (see Main-POC-Plan.md
 // Phase 15's Context section).
 

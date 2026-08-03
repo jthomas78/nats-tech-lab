@@ -32,7 +32,7 @@ Split by domain so a rule add/edit only requires reading its own file:
   Service (BR-D01–BR-D28). Rules live in
   `backend/refdata-service/refdata/internal/domain/dictionary.go`.
 - **[BUSINESS_RULES-ACCOUNTS.md](BUSINESS_RULES-ACCOUNTS.md)** — Accounts
-  Service (BR-AC01–BR-AC12): NATS account provisioning, suspension,
+  Service (BR-AC01–BR-AC13): NATS account provisioning, suspension,
   reactivation, reserved-name protection via decentralized JWTs, (BR-AC08)
   publishing `notify.accounts.account.created` so shipping-service can react
   to a newly-minted tenant immediately (see BR-030, SHIPPING file, for the

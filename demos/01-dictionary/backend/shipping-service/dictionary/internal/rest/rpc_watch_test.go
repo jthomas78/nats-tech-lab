@@ -104,7 +104,7 @@ func TestWatchRPCObsReplaysBacklogBeforeLive(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := NewHandlers(Deps{DefaultJS: js, NC: nc, Log: slog.New(slog.DiscardHandler)})
+	h := NewHandlers(Deps{PlatformJS: js, NC: nc, Log: slog.New(slog.DiscardHandler)})
 
 	reqCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -145,7 +145,7 @@ func TestWatchRPCObsReplaysBacklogBeforeLive(t *testing.T) {
 	}
 }
 
-// TestWatchRPCObsDegradesToLiveOnlyWhenJSNil — when DefaultJS isn't
+// TestWatchRPCObsDegradesToLiveOnlyWhenJSNil — when PlatformJS isn't
 // configured (mirrors production's own nil-safety for deployments without
 // JetStream wired to this handler), the handler must still work as a
 // live-only feed rather than failing.
@@ -191,7 +191,7 @@ func TestWatchRPCObsDegradesToLiveOnlyWhenJSNil(t *testing.T) {
 
 // TestWatchRPCObsDeliversTenantAPITraffic — Phase 16: the Request/Reply feed
 // must also carry obs.api.* events, which browserrpc's adapter publishes on
-// the ACTIVE tenant's connection (Deps.TenantNC), not the DEFAULT-account
+// the ACTIVE tenant's connection (Deps.TenantNC), not the PLATFORM-account
 // connection the obs.rpc.> subscribe uses. This test wires two separate
 // connections (standing in for the two accounts), publishes one family on
 // each, and asserts both interleave into the same SSE body — proving the

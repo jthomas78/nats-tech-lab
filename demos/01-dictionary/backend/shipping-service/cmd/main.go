@@ -72,7 +72,7 @@ func run(log *slog.Logger) error {
 	httpAddr := envOr("HTTP_ADDR", ":8080")
 	// Phase 14a — operator mode: the directory rest.Handlers.SwitchTenant
 	// scans for <tenant>.creds files. Empty when running locally outside
-	// Docker without operator mode configured (DEFAULT connect below then
+	// Docker without operator mode configured (PLATFORM connect below then
 	// falls back to no credentials, matching today's local-dev behavior).
 	credsDir := envOr("NATS_CREDS_DIR", "")
 	// Phase 17c — Connections panel proxies the NATS server's HTTP
@@ -82,17 +82,17 @@ func run(log *slog.Logger) error {
 	startupCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	// NATS — permanent DEFAULT-account connection (monolith.Monolith.NC/JS).
+	// NATS — permanent PLATFORM-account connection (monolith.Monolith.NC/JS).
 	// Phase 13b's tenant-scoped connection is separate, opened by
 	// rest.Handlers.SwitchTenant.
-	defaultOpts := []nats.Option{nats.Name("shipping-service")}
+	platformOpts := []nats.Option{nats.Name("shipping-service")}
 	if credsDir != "" {
-		defaultOpts = append(defaultOpts, nats.UserCredentials(filepath.Join(credsDir, "default.creds")))
+		platformOpts = append(platformOpts, nats.UserCredentials(filepath.Join(credsDir, "platform.creds")))
 	}
 	var nc *nats.Conn
 	err := waiter.Wait(startupCtx, "nats", log, func(context.Context) error {
 		var err error
-		nc, err = nats.Connect(natsURL, defaultOpts...)
+		nc, err = nats.Connect(natsURL, platformOpts...)
 		return err
 	})
 	if err != nil {

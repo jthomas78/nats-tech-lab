@@ -35,7 +35,7 @@ tests migrated with it (`accounts-service/auth/*_test.go`), now reusing
 `accounts.Migrate` for test schema setup instead of hand-duplicating its
 `CREATE TABLE` statements the way a separate module had to.
 
-### BR-AC01–BR-AC12 — Account lifecycle
+### BR-AC01–BR-AC13 — Account lifecycle
 
 - **BR-AC01:** An account name is unique; creating an account with a name
   that already exists is rejected (`409 Conflict`).
@@ -89,13 +89,13 @@ tests migrated with it (`accounts-service/auth/*_test.go`), now reusing
   even though the JWT is valid again on disk.
 - **BR-AC05:** At startup, the three accounts pre-existing from
   `nats/bootstrap-operator.sh` are seeded into this service's Postgres under
-  their **lowercase tenant identity** — `default`/`acme`/`globex` — if not
+  their **lowercase tenant identity** — `platform`/`acme`/`globex` — if not
   already present, so the account list is complete without re-minting or
   overwriting their JWTs. Seeded rows have no signing key seed on record
   (this service never minted them) until the first time BR-AC04's
   reactivation establishes one for them.
   **Naming note (2026-07-28):** `bootstrap-operator.sh` names these
-  accounts uppercase at the `nsc`/JWT level (`DEFAULT`/`ACME`/`GLOBEX` — that
+  accounts uppercase at the `nsc`/JWT level (`PLATFORM`/`ACME`/`GLOBEX` — that
   is what the resolver JWT filenames and the account claims' own `Name`
   field say), but every other place a tenant is identified —
   `shipping-service`'s `.creds` filenames, NATS subjects, KV bucket
@@ -110,14 +110,14 @@ tests migrated with it (`accounts-service/auth/*_test.go`), now reusing
   in place (preserving its public key, status, and history) — safe to call
   every startup, since after the first successful rename the uppercase name
   no longer exists and it's a no-op.
-- **BR-AC06:** The account names `DEFAULT` and `SYS` are reserved and can
+- **BR-AC06:** The account names `PLATFORM` and `SYS` are reserved and can
   never be minted through `POST /api/accounts`, checked
-  **case-insensitively** (`Default`, `sys`, `SYS`, etc. are all rejected,
+  **case-insensitively** (`Platform`, `sys`, `SYS`, etc. are all rejected,
   `409 Conflict`) — not just the exact literal seeded at bootstrap. This
   matters because `shipping-service`'s tenant selector
   (`dictionary/internal/rest/tenant.go`) excludes switchable-tenant
   candidates by an exact match on the shared creds directory's `.creds`
-  filename stems (`default`, `sys`); a same-named account minted with
+  filename stems (`platform`, `sys`); a same-named account minted with
   different casing would produce a differently-cased `.creds` file that
   exact-match filter would miss, letting a reserved name masquerade as a
   switchable tenant. This rule is the primary enforcement point (refusing to
@@ -144,7 +144,7 @@ tests migrated with it (`accounts-service/auth/*_test.go`), now reusing
   publishes `notify.accounts.account.created` — a context-free subject
   (this service has no `{context}` of its own; see
   `ARCHITECTURE-COMMUNICATIONS.md` § "Context-free services") — with the new
-  tenant's name, over a second, DEFAULT-account NATS connection
+  tenant's name, over a second, PLATFORM-account NATS connection
   (`Handlers.NotifyNC`) dedicated to this one purpose. Exists so
   `shipping-service` can provision that tenant's resources reactively the
   instant it's minted, instead of only at its own next startup or the first
@@ -152,11 +152,11 @@ tests migrated with it (`accounts-service/auth/*_test.go`), now reusing
   `BUSINESS_RULES-SHIPPING.md`'s BR-030, the consumer side. Deliberately not
   published from the existing SYS-account connection (`Provisioner`'s own):
   core NATS pub/sub never crosses an account boundary, and
-  shipping-service's subscriber listens on its own DEFAULT account.
+  shipping-service's subscriber listens on its own PLATFORM account.
   Best-effort — a publish failure doesn't fail the create request (the
   account is already fully committed by that point); `NotifyNC` is nil-safe,
   so this service still runs with the event simply never sent if
-  `NATS_DEFAULT_CREDS_PATH` isn't configured. A rejected/failed create
+  `NATS_PLATFORM_CREDS_PATH` isn't configured. A rejected/failed create
   (duplicate name, minting error, etc.) never publishes anything — only a
   fully-committed account does.
 - **BR-AC09 (Phase 16i):** After a suspend fully succeeds (resolver JWT
@@ -236,7 +236,17 @@ tests migrated with it (`accounts-service/auth/*_test.go`), now reusing
   `js_max_streams=10` ceiling after two contexts were provisioned (each
   context requiring 4 KV-bucket streams).
 
-The lifecycle rules (BR-AC01, BR-AC03, BR-AC04, BR-AC06, BR-AC07) are enforced in
+- **BR-AC13 (2026-08-03):** Reserved accounts (`PLATFORM`, `SYS`, matched
+  case-insensitively) can never be suspended. `POST /api/accounts/{name}/suspend`
+  returns `409 Conflict` immediately — before any revocation or status update —
+  when `name` matches a reserved account name. This applies regardless of whether
+  a database row for that name exists; the guard fires on the name alone.
+  Motivation: suspending `PLATFORM` would sever shipping-service's permanent
+  JetStream connection and all cross-tenant infrastructure, leaving every tenant
+  unreachable. Enforced in `accounts/handler.go`'s `suspendAccount` via the
+  same `reservedAccountNames` map used by BR-AC06.
+
+The lifecycle rules (BR-AC01, BR-AC03, BR-AC04, BR-AC06, BR-AC07, BR-AC13) are enforced in
 `accounts/handler.go`'s `createAccount`/`suspendAccount`/`reactivateAccount`;
 the JWT mechanics behind BR-AC02/BR-AC03/BR-AC04 are in
 `accounts/provisioner.go`'s `CreateAccount`/`DeleteAccount`/
@@ -279,7 +289,9 @@ connection mid-suspend writes a `failed` row naming `"revoke account"` as
 the step, alongside the earlier successful create's own row), plus BR-AC12's
 five (successful update reflected in GET response; negative-value rejection;
 404 for unknown account; notify event fired with the tenant's name; audit row
-written with `previous`/`requested` metadata and `AuditActionJSLimitsUpdated`). The
+written with `previous`/`requested` metadata and `AuditActionJSLimitsUpdated`),
+plus BR-AC13's four (PLATFORM/platform/Platform all return 409; a real seeded
+`platform` row's status is unchanged after the rejected request). The
 `shipping-service`-side defense in depth is covered separately by
 `dictionary/internal/rest/tenant_discovery_test.go`'s
 `TestDiscoverTenantsExcludesReservedNamesCaseInsensitively`, a plain Go test

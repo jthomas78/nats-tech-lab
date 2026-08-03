@@ -43,7 +43,7 @@ func run(log *slog.Logger) error {
 	databaseURL := envOr("DATABASE_URL", "postgres://refdata:refdata@localhost:5433/refdata?sslmode=disable")
 	natsURL := envOr("NATS_URL", nats.DefaultURL)
 	// Phase 14a — operator mode: refdata-service is cross-tenant (BR-D08),
-	// so it always connects as DEFAULT, never a per-tenant account. Empty
+	// so it always connects as PLATFORM, never a per-tenant account. Empty
 	// when running locally outside Docker without operator mode configured.
 	natsCredsPath := envOr("NATS_CREDS_PATH", "")
 	httpAddr := envOr("HTTP_ADDR", ":8080")

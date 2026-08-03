@@ -158,6 +158,15 @@ async function submitEdit() {
   }
 }
 
+// Mirrors accounts-service's reservedAccountNames (BR-AC06,
+// BUSINESS_RULES-ACCOUNTS.md) — PLATFORM/SYS can never be minted through
+// POST /api/accounts and are never switchable tenants, so the table marks
+// them distinctly rather than presenting them as an ordinary customer row.
+const RESERVED_NAMES = new Set(['platform', 'sys'])
+function isReserved(name) {
+  return RESERVED_NAMES.has(name?.toLowerCase())
+}
+
 function streamsLabel(name) {
   const u = usage.value[name]
   if (!u) return '–'
@@ -214,7 +223,20 @@ onMounted(load)
       <template #empty>
         <span class="lab-muted">No accounts yet.</span>
       </template>
-      <Column field="name" header="Name" />
+      <Column header="Name">
+        <template #body="{ data }">
+          <span class="name-cell">
+            {{ data.name }}
+            <Tag
+              v-if="isReserved(data.name)"
+              severity="secondary"
+              value="reserved"
+              icon="pi pi-lock"
+              title="Reserved for platform/system use — never mintable as a tenant name (BR-AC06)"
+            />
+          </span>
+        </template>
+      </Column>
       <Column header="Status">
         <template #body="{ data }">
           <Tag :severity="data.status === 'active' ? 'success' : 'danger'" :value="data.status" />
@@ -252,7 +274,7 @@ onMounted(load)
               @click="openEdit(data)"
             />
             <Button
-              v-if="data.status === 'active'"
+              v-if="data.status === 'active' && !isReserved(data.name)"
               label="Suspend"
               severity="danger"
               text
@@ -381,6 +403,11 @@ onMounted(load)
 }
 .pubkey {
   font-size: 0.8rem;
+}
+.name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 .form-field {
   display: flex;

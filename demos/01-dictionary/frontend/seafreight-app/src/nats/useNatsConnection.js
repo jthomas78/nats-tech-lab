@@ -106,7 +106,7 @@ export async function connect(forTenant) {
   const info = await fetchConnectInfo(forTenant)
   const authenticator = jwtAuthenticator(info.jwt, encoder.encode(info.nkeySeed))
 
-  const conn = await wsconnect({ servers: info.wsUrl, authenticator })
+  const conn = await wsconnect({ servers: info.wsUrl, authenticator, name: REQUESTOR_ID })
   if (mySeq !== connectSeq) {
     // A newer connect() call started (e.g. a rapid tenant switch) while this
     // one was still authenticating/dialing — this connection lost the race,

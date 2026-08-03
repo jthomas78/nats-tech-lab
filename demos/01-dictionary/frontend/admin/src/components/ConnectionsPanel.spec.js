@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ConnectionsPanel from './ConnectionsPanel.vue'
 
 // BR-028 (Main-POC-Plan.md Phase 17c) — in the Admin UI, a connection's
-// account should resolve to a friendly name (its tenant, or "DEFAULT")
+// account should resolve to a friendly name (its tenant, or "PLATFORM")
 // wherever the backend could determine one, falling back to the raw account
 // NKey otherwise. The backend's resolution logic (nats_ops.go's
 // tenantLabelsByAccount) already has its own Go test coverage; this file
@@ -29,7 +29,7 @@ const CONNECTIONS = [
     ip: '172.19.0.11',
     port: 48046,
     account: 'AA57B6BPPV3JQPCHSSCEALTMKL7YXGTT4WZI4CVVAHSO2TDQK6PYK2H6',
-    tenantLabel: 'DEFAULT',
+    tenantLabel: 'PLATFORM',
     rtt: '779µs',
     uptime: '1h56m',
     idle: '16s',
@@ -93,7 +93,7 @@ describe('ConnectionsPanel', () => {
     await flushPromises()
 
     const labels = wrapper.findAll('.tenant-label').map((el) => el.text())
-    expect(labels).toEqual(expect.arrayContaining(['DEFAULT', 'acme']))
+    expect(labels).toEqual(expect.arrayContaining(['PLATFORM', 'acme']))
   })
 
   it('BR-028: falls back to a truncated raw account NKey when no tenantLabel was resolved', async () => {
@@ -165,7 +165,7 @@ describe('ConnectionsPanel', () => {
 
     const detail = wrapper.find('.detail')
     expect(detail.exists()).toBe(true)
-    expect(detail.text()).toContain('DEFAULT')
+    expect(detail.text()).toContain('PLATFORM')
     expect(detail.text()).toContain('refdata-service')
     expect(detail.findAll('.sub-item').map((el) => el.text())).toContain('rpc.*.refdata.type.list.v1')
 

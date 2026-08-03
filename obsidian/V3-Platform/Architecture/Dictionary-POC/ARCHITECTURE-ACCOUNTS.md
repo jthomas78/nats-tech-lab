@@ -44,6 +44,30 @@ Tenant accounts are NATS accounts — server-enforced isolation boundaries
 with their own JetStream streams, KV buckets, and connection credentials.
 Managed via NATS operator mode (decentralized JWTs). See BR-AC01–AC06.
 
+### Scaling note — per-tenant connections
+
+`shipping-service` currently opens **one `nats.Connect` per provisioned tenant
+account** (visible in the NATS connections panel as one `shipping-service` row
+per account — `acme`, `globex`, etc.). This is necessary because JetStream
+streams and KV buckets are per-account resources: to subscribe to `acme`'s
+`SHIPPING` stream or write to its KV buckets the connection must authenticate
+*as* `acme`. A PLATFORM-account connection cannot reach into another account's
+JetStream namespace directly.
+
+This is acceptable for a POC with a small, known tenant set. At production
+scale (hundreds of tenants) it becomes a connection-count and credential-
+management burden.
+
+**Production-scale fix — NATS stream/KV exports + imports.**
+Each tenant account exports its `SHIPPING` stream and KV buckets; the
+shipping-service's own account imports them as stream mirrors. One connection
+then sees all tenant data without per-account auth. The exports/imports must be
+declared at account-mint time in `accounts/provisioner.go` (added to the
+account JWT claims) and echoed in `nats.conf`'s import stanzas.
+
+Reference: [NATS stream import/export](https://docs.nats.io/nats-concepts/jetstream/streams#import-and-export)
+and the multi-tenant JetStream pattern in the [Synadia per-tenant FIFO blog post](https://www.synadia.com/blog/nats-jetstream-per-tenant-fifo-processing).
+
 ### NATS operator-mode trust chain
 
 ```
@@ -234,13 +258,13 @@ sequenceDiagram
 
     Note over Accounts: Operator suspends the tenant (BR-AC03)
     Accounts->>NATS: $SYS.REQ.CLAIMS.DELETE (account JWT removed from resolver)
-    Accounts->>NATS: NEW — publish notify.accounts.account.suspended (DEFAULT account)
+    Accounts->>NATS: NEW — publish notify.accounts.account.suspended (PLATFORM account)
 
     Note over NATS: Eviction is unchanged — it is the security boundary working
     NATS-xBrowser: disconnect
     NATS-xShipping: disconnect
 
-    NATS->>Shipping: notify.accounts.account.suspended (on mono.NC(), DEFAULT)
+    NATS->>Shipping: notify.accounts.account.suspended (on mono.NC(), PLATFORM)
     Note over Shipping: NEW — tear down that tenant's resources
     Shipping->>Shipping: stop browserrpc adapter + projectors, close conn, no reconnect
 
@@ -253,7 +277,7 @@ Design notes on the sketch:
 
 - **Eviction stays.** The fix is not to soften the revoke; it is to react to
   it. The red path in the current diagram is correct behaviour.
-- **The event mirrors BR-AC08 exactly** — same DEFAULT-account connection
+- **The event mirrors BR-AC08 exactly** — same PLATFORM-account connection
   `accounts-service` already opens to publish `notify.accounts.account.created`,
   same context-free subject family, consumed by `shipping-service` on the same
   `mono.NC()` that already handles the created event.
@@ -287,7 +311,7 @@ existing `EnsureTenantByName` unchanged, rebuilding from scratch because the
 teardown had removed the tenant from `TenantResources`.
 
 The three subjects now form a closed lifecycle, all on the same context-free
-family over `accounts-service`'s DEFAULT connection:
+family over `accounts-service`'s PLATFORM connection:
 
 | Event | Consumer action | Rules |
 |---|---|---|

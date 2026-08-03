@@ -128,13 +128,13 @@ services:
       # never as this service's source of truth (Q6).
       NATS_URL: nats://nats:4222
       # Phase 14a — refdata-service is cross-tenant (BR-D08), so it always
-      # connects as DEFAULT, never a per-tenant account.
-      NATS_CREDS_PATH: /etc/nats/creds/default.creds
+      # connects as PLATFORM, never a per-tenant account.
+      NATS_CREDS_PATH: /etc/nats/creds/platform.creds
       HTTP_ADDR: ":8080"
     ports:
       - "7201:8080"
     volumes:
-      - ./nats/creds/default.creds:/etc/nats/creds/default.creds:ro
+      - ./nats/creds/platform.creds:/etc/nats/creds/platform.creds:ro
     depends_on:
       nats:
         condition: service_started
@@ -146,7 +146,7 @@ services:
   # one-shot nsc invocation with a live API. Shares the `./nats/creds` host
   # directory with shipping-service (read-write here, read-only there) —
   # newly-minted .creds files land in the same place bootstrap-operator.sh
-  # put the original default/acme/globex.creds, so shipping-service's
+  # put the original platform/acme/globex.creds, so shipping-service's
   # directory scan sees new tenants without a restart.
   #
   # Phase 19 folded the former auth-service (Phase 15c) into this same
@@ -170,13 +170,13 @@ services:
       # $SYS.REQ.CLAIMS.* (mint/revoke) is only reachable authenticated as
       # the SYS account.
       NATS_CREDS_PATH: /etc/nats/creds/sys.creds
-      # Phase 16h/BR-AC08 — a second, DEFAULT-account connection used only to
+      # Phase 16h/BR-AC08 — a second, PLATFORM-account connection used only to
       # publish notify.accounts.account.created, so shipping-service can
       # provision a newly-minted tenant's resources immediately (BR-030)
       # instead of waiting for an operator to switch the Admin UI to it.
       # Already readable here: ./nats/creds below mounts the whole shared
-      # directory, default.creds included.
-      NATS_DEFAULT_CREDS_PATH: /etc/nats/creds/default.creds
+      # directory, platform.creds included.
+      NATS_PLATFORM_CREDS_PATH: /etc/nats/creds/platform.creds
       OPERATOR_SIGNING_KEY_FILE: /etc/nats/keys/operator-signing-key.nk
       NATS_CREDS_DIR: /etc/nats/creds
       RESOLVER_SEED_DIR: /etc/nats/resolver

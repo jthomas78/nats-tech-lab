@@ -66,12 +66,12 @@ nsc add operator lab-operator --sys >/dev/null
 nsc edit operator --sk generate >/dev/null # operator signing key: accounts-service (14b) mints new accounts with this, never the root operator key
 
 declare -A JS_LIMITS=(
-  [DEFAULT]="1G 5G 20 100"
+  [PLATFORM]="1G 5G 20 100"
   [ACME]="256M 1G 10 20"
   [GLOBEX]="256M 1G 10 20"
 )
 
-for account in DEFAULT ACME GLOBEX; do
+for account in PLATFORM ACME GLOBEX; do
   read -r mem file streams consumers <<<"${JS_LIMITS[$account]}"
   echo "==> account $account (mem=$mem file=$file streams=$streams consumers=$consumers)"
   nsc add account "$account" >/dev/null
@@ -91,7 +91,7 @@ nsc generate creds --account SYS --name sys >"$NATS_DIR/creds/sys.creds"
 
 echo "==> exporting operator + account JWTs"
 nsc describe operator --raw >"$NATS_DIR/operator.jwt"
-for account in SYS DEFAULT ACME GLOBEX; do
+for account in SYS PLATFORM ACME GLOBEX; do
   nsc describe account "$account" --raw >"$NATS_DIR/resolver/$account.jwt"
 done
 
@@ -110,7 +110,7 @@ echo "==> writing nats.conf's resolver_preload / system_account snippet"
   echo "# consumed directly; copy into nats.conf's operator{} block by hand so"
   echo "# nats.conf stays a single reviewable file."
   echo "system_account: $(nsc describe operator --json | jq -r '.nats.system_account')"
-  for account in SYS DEFAULT ACME GLOBEX; do
+  for account in SYS PLATFORM ACME GLOBEX; do
     pubkey="$(nsc describe account "$account" --json | jq -r '.sub')"
     echo "resolver_preload.$account: $pubkey"
   done

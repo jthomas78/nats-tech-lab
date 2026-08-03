@@ -105,7 +105,7 @@ type TenantCredentials struct {
 // Deps bundles everything the HTTP layer needs; keeps NewHandlers readable as
 // the module grows.
 //
-// Phase 13b splits this into two lifetimes. Ports, Refdata, DefaultJS, NC,
+// Phase 13b splits this into two lifetimes. Ports, Refdata, PlatformJS, NC,
 // ShipRepo, ContainerRepo, PortRepo, NatsURL, CredsDir, and Log are set
 // once at Startup and never change. Ships, Containers, ShapeB, ShapeC,
 // Terminal, Meta, KVA, KVB, KVCont, KVMeta, JS, TenantNC, and Tenant mirror
@@ -132,12 +132,12 @@ type Deps struct {
 	KVMeta     *kvstore.Store            // meta.* lookup sets
 	Refdata    *refdataconsumer.Consumer // rpc.*-only cross-service consumer (BR-D08) — no KV dep
 	JS         jetstream.JetStream       // tenant-scoped: SHIPPING stream, ship/container KV, KV+JetStream inspector panels
-	DefaultJS  jetstream.JetStream       // permanent DEFAULT-account JS — only for watchRefdata's REFDATA-stream consumer
-	NC         *nats.Conn                // permanent DEFAULT-account conn (Phase 12.10 — obs.rpc.* SSE bridge)
+	PlatformJS jetstream.JetStream       // permanent PLATFORM-account JS — only for watchRefdata's REFDATA-stream consumer
+	NC         *nats.Conn                // permanent PLATFORM-account conn (Phase 12.10 — obs.rpc.* SSE bridge)
 	Log        *slog.Logger
 
 	// Tenant-switch plumbing (Phase 13b) — shipping-service only; refdata-service
-	// stays on DEFAULT (see Main-POC-Plan.md Phase 13b, cost #3).
+	// stays on PLATFORM (see Main-POC-Plan.md Phase 13b, cost #3).
 	Tenant   string     // currently active tenant account name (which TenantResources entry REST/SSE fields below mirror)
 	TenantNC *nats.Conn // the active tenant's connection — mirrors TenantResources[Tenant].nc, never drained (Phase 15, see tenant.go's tenantResources doc comment)
 	// TenantResources holds every tenant's persistent connection, JetStream
@@ -661,7 +661,7 @@ func writeRefdataError(w http.ResponseWriter, err error) {
 // server-side state — out of scope for Phase 16f, which only added the
 // tenant-derivation itself, not a fix for this pre-existing Phase 15
 // scope-boundary seam (see Main-POC-Plan.md § Phase 15's Context section:
-// refdata-service's cross-tenant DEFAULT-account model was already flagged
+// refdata-service's cross-tenant PLATFORM-account model was already flagged
 // out of scope there).
 func refdataCompanyContext(tenant string) string {
 	return tenant

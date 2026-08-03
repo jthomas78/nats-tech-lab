@@ -78,7 +78,7 @@ func newSpikeServer(t *testing.T) (*server.Server, func()) {
 }
 
 // connectAs dials srv authenticated by the named account's .creds file
-// (e.g. "acme", "globex", "default") — empty name dials with no credentials,
+// (e.g. "acme", "globex", "platform") — empty name dials with no credentials,
 // which operator mode always rejects (Phase 14a removed no_auth_user).
 func connectAs(t *testing.T, srv *server.Server, name string) *nats.Conn {
 	t.Helper()
@@ -94,18 +94,18 @@ func connectAs(t *testing.T, srv *server.Server, name string) *nats.Conn {
 	return nc
 }
 
-// TestDefaultCredsGetFullJetStreamAccess proves the DEFAULT account (Phase
+// TestPlatformCredsGetFullJetStreamAccess proves the PLATFORM account (Phase
 // 14a's replacement for Phase 13a's no_auth_user) still gets everything
 // shipping-service and refdata-service need for their permanent connection
 // (shipping-service/cmd/main.go, refdata-service/cmd/main.go) — full
 // JetStream access and plain core pub/sub — just authenticated by a .creds
 // file now instead of connecting with zero credentials.
-func TestDefaultCredsGetFullJetStreamAccess(t *testing.T) {
+func TestPlatformCredsGetFullJetStreamAccess(t *testing.T) {
 	g := NewWithT(t)
 	srv, shutdown := newSpikeServer(t)
 	defer shutdown()
 
-	nc := connectAs(t, srv, "default")
+	nc := connectAs(t, srv, "platform")
 	g.Expect(nc.Opts.Name).NotTo(BeEmpty())
 
 	js, err := jetstream.New(nc)
@@ -114,17 +114,17 @@ func TestDefaultCredsGetFullJetStreamAccess(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_, err = js.CreateStream(ctx, jetstream.StreamConfig{
-		Name:     "DEFAULT_SANITY",
-		Subjects: []string{"spike.default.>"},
+		Name:     "PLATFORM_SANITY",
+		Subjects: []string{"spike.platform.>"},
 	})
-	g.Expect(err).NotTo(HaveOccurred(), "the DEFAULT account's creds must still get full JetStream access")
+	g.Expect(err).NotTo(HaveOccurred(), "the PLATFORM account's creds must still get full JetStream access")
 
 	received := make(chan struct{}, 1)
-	sub, err := nc.Subscribe("spike.default.ping", func(*nats.Msg) { received <- struct{}{} })
+	sub, err := nc.Subscribe("spike.platform.ping", func(*nats.Msg) { received <- struct{}{} })
 	g.Expect(err).NotTo(HaveOccurred())
 	defer sub.Unsubscribe()
 
-	g.Expect(nc.Publish("spike.default.ping", []byte("hi"))).To(Succeed())
+	g.Expect(nc.Publish("spike.platform.ping", []byte("hi"))).To(Succeed())
 	g.Eventually(received).Should(Receive())
 }
 

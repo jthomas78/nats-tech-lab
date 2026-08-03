@@ -645,12 +645,12 @@ switched-away tenant's durable and lose its stream position — asserted directl
 `shipping-service` only — see below for why refdata-service is excluded. The service now
 holds **two** long-lived NATS connections instead of one:
 
-- **The permanent `DEFAULT`-account connection** (today's original unauthenticated
+- **The permanent `PLATFORM`-account connection** (today's original unauthenticated
   `nats.Connect`, unchanged) — used only for refdata-service's `rpc.*` calls, its
   `REFDATA` change-event stream, and the `obs.rpc.>` observability bridge. These were
-  already, quietly, DEFAULT-account concerns before Phase 13 existed (refdata-service
+  already, quietly, PLATFORM-account concerns before Phase 13 existed (refdata-service
   isn't tenant-scoped at all) — the accounts spike just made that fact visible enough to
-  require separating the field that carries it (`rest.Deps.DefaultJS`) from the one that
+  require separating the field that carries it (`rest.Deps.PlatformJS`) from the one that
   swaps (`rest.Deps.JS`).
 - **One tenant-scoped connection**, reconnected under a different account's credentials
   on every `POST /api/tenant/switch`. Everything derived from it — the `SHIPPING` stream,
@@ -703,7 +703,7 @@ NKey keypair (public key + private seed); trust flows downward via JWT signature
 
 ```
 Operator (lab-operator)
-├── signs ──▶ Account JWT (DEFAULT)       ← 1G/5G/20/100 JetStream limits
+├── signs ──▶ Account JWT (PLATFORM)      ← 1G/5G/20/100 JetStream limits
 ├── signs ──▶ Account JWT (ACME)          ← 256M/1G/10/20
 ├── signs ──▶ Account JWT (GLOBEX)        ← 256M/1G/10/20
 ├── signs ──▶ Account JWT (SYS)           ← system account ($SYS.REQ.CLAIMS.*)
@@ -735,11 +735,11 @@ nats/
 ├── operator.jwt                    ← operator JWT (public, loaded by nats.conf)
 ├── resolver/
 │   ├── SYS.jwt                     ← system account JWT
-│   ├── DEFAULT.jwt                 ← account JWTs for resolver_preload
+│   ├── PLATFORM.jwt                 ← account JWTs for resolver_preload
 │   ├── ACME.jwt
 │   └── GLOBEX.jwt
 ├── creds/
-│   ├── default.creds               ← one .creds file per account user
+│   ├── platform.creds               ← one .creds file per account user
 │   ├── acme.creds
 │   ├── globex.creds
 │   └── sys.creds                   ← SYS user — accounts-service's $SYS connection
@@ -865,9 +865,9 @@ bootstrap-seeded accounts and runtime-minted ones:
 
 | Service | Creds file | Account | Purpose |
 |---|---|---|---|
-| **shipping-service** | `default.creds` | DEFAULT | Permanent connection for cross-tenant concerns (refdata `rpc.*`, `REFDATA` stream, `obs.rpc.>` observability) |
+| **shipping-service** | `platform.creds` | PLATFORM | Permanent connection for cross-tenant concerns (refdata `rpc.*`, `REFDATA` stream, `obs.rpc.>` observability) |
 | **shipping-service** | `<tenant>.creds` | Per-tenant | Tenant-scoped connection, reconnected on `POST /api/tenant/switch` — all JetStream/KV for that tenant's `SHIPPING` stream, projectors, and KV buckets |
-| **refdata-service** | `default.creds` | DEFAULT | Single cross-tenant connection (BR-D08) — refdata is not tenant-scoped |
+| **refdata-service** | `platform.creds` | PLATFORM | Single cross-tenant connection (BR-D08) — refdata is not tenant-scoped |
 | **accounts-service** | `sys.creds` | SYS | System account — the only way to reach `$SYS.REQ.CLAIMS.UPDATE`/`DELETE` for minting/revoking accounts |
 
 The `nats.UserCredentials(credsPath)` connect option handles the JWT presentation and
@@ -878,7 +878,7 @@ at the connection level.
 `./nats/creds/` — accounts-service writes new `.creds` files on create, removes them on
 suspend; shipping-service reads them on tenant switch. This is the dynamic tenant
 discovery mechanism: shipping-service's `discoverTenants` (`rest/tenant.go`) scans the
-directory for `*.creds` files, excluding `default.creds` and `sys.creds`
+directory for `*.creds` files, excluding `platform.creds` and `sys.creds`
 (case-insensitively — BR-AC06), and offers the rest as switchable tenants.
 
 ### Docker Compose topology (Phase 14)

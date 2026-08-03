@@ -12,7 +12,7 @@ import { getNatsServices } from '../api'
 //
 // Known gap (not a bug): accounts-service registers on the SYS account it
 // already holds for JWT operations, which this panel's query connections
-// (DEFAULT + the active tenant) can't see across the account boundary — see
+// (PLATFORM + the active tenant) can't see across the account boundary — see
 // the backend's nats_ops.go package doc and Main-POC-Plan.md Phase 17c.
 const REFRESH_MS = 10000
 
@@ -113,7 +113,7 @@ function volumePct(e, instance) {
     </p>
     <p v-else-if="errorMsg" class="err-line">{{ errorMsg }}</p>
     <p v-else-if="!services.length" class="lab-muted empty-line">
-      No micro-registered services discovered on the DEFAULT or active-tenant account.
+      No micro-registered services discovered on the PLATFORM or active-tenant account.
     </p>
 
     <div class="svc-scroll">

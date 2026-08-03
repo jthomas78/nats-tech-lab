@@ -226,6 +226,116 @@ definitions:
           type: string
         type: array
     type: object
+  rest.natsConnection:
+    properties:
+      account:
+        type: string
+      cid:
+        type: integer
+      idle:
+        type: string
+      inBytes:
+        type: integer
+      inMsgs:
+        type: integer
+      ip:
+        type: string
+      lang:
+        type: string
+      lastActivity:
+        type: string
+      name:
+        type: string
+      outBytes:
+        type: integer
+      outMsgs:
+        type: integer
+      port:
+        type: integer
+      rtt:
+        type: string
+      start:
+        type: string
+      subscriptions:
+        type: integer
+      subscriptionsList:
+        items:
+          type: string
+        type: array
+      tenantLabel:
+        description: |-
+          TenantLabel is set when this connection is one shipping-service holds
+          itself (matched by local socket address — see tenantLabelsByLocalAddr)
+          — "PLATFORM" for deps.NC, or the friendly tenant name (e.g. "acme") for
+          a TenantResources entry. Empty for every connection this process
+          doesn't own (browser tabs, the nats CLI, refdata-service, ...): the
+          raw Account NKey above is all that's available for those.
+        type: string
+      type:
+        description: '"nats" | "websocket"'
+        type: string
+      uptime:
+        type: string
+      version:
+        type: string
+    type: object
+  rest.natsConnectionsResponse:
+    properties:
+      connections:
+        items:
+          $ref: '#/definitions/rest.natsConnection'
+        type: array
+    type: object
+  rest.natsEndpoint:
+    properties:
+      averageProcessingTimeMs:
+        type: integer
+      lastError:
+        type: string
+      name:
+        type: string
+      numErrors:
+        type: integer
+      numRequests:
+        type: integer
+      queueGroup:
+        type: string
+      subject:
+        type: string
+    type: object
+  rest.natsService:
+    properties:
+      instances:
+        items:
+          $ref: '#/definitions/rest.natsServiceInstance'
+        type: array
+      name:
+        type: string
+      version:
+        type: string
+    type: object
+  rest.natsServiceInstance:
+    properties:
+      endpoints:
+        items:
+          $ref: '#/definitions/rest.natsEndpoint'
+        type: array
+      id:
+        type: string
+      metadata:
+        additionalProperties:
+          type: string
+        type: object
+      started:
+        type: string
+    type: object
+  rest.natsServicesResponse:
+    properties:
+      services:
+        items:
+          $ref: '#/definitions/rest.natsService'
+        type: array
+    type: object
   rest.portsTableResponse:
     properties:
       rows:
@@ -529,10 +639,12 @@ paths:
       - streams
   /api/kv/buckets:
     get:
-      description: Every Key-Value bucket registered on the NATS server, with run-time
+      description: 'Every Key-Value bucket registered on the NATS server, with run-time
         status (value count, history depth, size, TTL, backing store). Backs the KV
-        inspector's bucket rail — the raw NATS KV stores this lab provisions (dict-a/dict-b/container/meta
-        per fleet context, plus refdata-service's cache).
+        inspector''s bucket rail — the raw NATS KV stores this lab provisions (one
+        per role per tenant: dict-a, dict-b, container, meta; plus refdata-service''s
+        cache). Each bucket holds keys for all business-unit contexts, prefixed as
+        {context}.{entityType}.{id}.'
       produces:
       - application/json
       responses:
@@ -555,7 +667,7 @@ paths:
         contents snapshot and the live update feed — the same WatchAll semantics the
         NATS KV watch model is built on.
       parameters:
-      - description: KV bucket name (e.g. dict-a-acme, refdata-acme)
+      - description: KV bucket name (e.g. dict-a, dict-b, container, meta, refdata-acme)
         in: path
         name: bucket
         required: true
@@ -631,6 +743,47 @@ paths:
       summary: Known container IDs
       tags:
       - meta
+  /api/nats/connections:
+    get:
+      description: 'Every active connection on the NATS server, across all accounts
+        — proxies the server''s own /connz monitoring endpoint (subs=true&auth=true),
+        reshaped to camelCase. Independent of the active tenant: this is server-wide,
+        not fleet-context-scoped.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.natsConnectionsResponse'
+        "502":
+          description: NATS monitoring endpoint unreachable or returned an unexpected
+            body
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: List NATS connections
+      tags:
+      - nats
+  /api/nats/services:
+    get:
+      description: Every service registered via nats.go/micro (see ARCHITECTURE-COMMUNICATIONS.md
+        §4), discovered by broadcasting $SRV.STATS and collecting replies for a short
+        window — the same protocol `nats micro stats` uses. Queried on both the PLATFORM
+        account (deps.NC, where refdata-service registers) and the active tenant's
+        account (deps.TenantNC, where shipping-service's browserrpc adapter registers);
+        $SRV subjects don't cross account boundaries, so a service registered on a
+        different account (e.g. accounts-service, which registers on the SYS account)
+        will not appear.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.natsServicesResponse'
+      summary: List NATS micro services
+      tags:
+      - nats
   /api/ports:
     post:
       consumes:
@@ -724,13 +877,15 @@ paths:
       - refdata-demo
   /api/refdata-watch:
     get:
-      description: 'Server-Sent Events stream of refdata-service''s evt.acme.refdata.*.changed
+      description: 'Server-Sent Events stream of refdata-service''s evt.{tenant}.refdata.*.changed
         change-event pointers (the REFDATA JetStream stream) — drives live label refresh
         in the shipping UIs. This subscribes to refdata-service''s published event
         contract rather than watching its KV cache directly (BR-D08: that cache is
         internal to refdata-service). No historical replay — a client refetches its
         label map once via REST on connect, so this stream only needs to signal "something
-        changed" going forward. Fixed refdata context — no fleet-context param.'
+        changed" going forward. No fleet-context param — the refdata company context
+        is derived from the active tenant (Phase 16f, refdataCompanyContext), not
+        a path param.'
       produces:
       - text/event-stream
       responses:
@@ -745,10 +900,29 @@ paths:
       summary: Refdata change-event stream (SSE, Phase 12.12)
       tags:
       - streams
+  /api/refdata/contexts:
+    get:
+      description: Returns the context values visible to the currently active tenant
+        — its own contexts plus the shared "_"-reserved platform roots — replacing
+        the frontend's previously hardcoded context list.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.metaValuesResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: List this tenant's reference-data contexts (Phase 16f)
+      tags:
+      - refdata
   /api/refdata/locales:
     get:
-      description: Returns the locales registered for the fixed refdata context, for
-        the frontend locale switcher.
+      description: Returns the locales registered for the active tenant's refdata
+        company context (Phase 16f), for the frontend locale switcher.
       produces:
       - application/json
       responses:
@@ -765,9 +939,10 @@ paths:
       - refdata
   /api/refdata/types/{type}:
     get:
-      description: Returns every item of a dictionary type under the fixed refdata
-        context, each with its label resolved for the requested locale (BR-D03 fallback).
-        Read KV-first via the Q5 protocol; per-item source is "kv-cache" or "api-refetch".
+      description: Returns every item of a dictionary type under the active tenant's
+        refdata company context (Phase 16f), each with its label resolved for the
+        requested locale (BR-D03 fallback). Read KV-first via the Q5 protocol; per-item
+        source is "kv-cache" or "api-refetch".
       parameters:
       - description: dictionary type key (e.g. ship-status)
         in: path
@@ -794,16 +969,16 @@ paths:
       - refdata
   /api/rpc-watch:
     get:
-      description: Server-Sent Events stream of the best-effort request/reply observability
-        side-channels: refdata-service's obs.rpc.* (backend-to-backend, DEFAULT account)
-        and shipping-service's obs.api.* (browser-to-service, the ACTIVE tenant's
-        account only). Replays whatever the RPCTRACE stream currently retains for
-        obs.rpc.* (up to the last 10 minutes, BR-D29) first, then continues live
-        via core NATS subscribe; obs.api.* is live-only — RPCTRACE lives on the
-        DEFAULT account and does not capture tenant-account traffic. Each event
-        carries direction ("request"|"reply"), a correlationId pairing a request
-        with its reply, the real rpc.*/api.* subject, and the payload. See ARCHITECTURE-COMMUNICATIONS.md
-        §6.
+      description: 'Server-Sent Events stream of the best-effort request/reply observability
+        side-channels: refdata-service''s obs.rpc.* (backend-to-backend, PLATFORM
+        account) and shipping-service''s obs.api.* (browser-to-service, the ACTIVE
+        tenant''s account only). Replays whatever the RPCTRACE stream currently retains
+        for obs.rpc.* (up to the last 10 minutes, BR-D29) first, then continues live
+        via core NATS subscribe; obs.api.* is live-only — RPCTRACE lives on the PLATFORM
+        account and does not capture tenant-account traffic. Each event carries direction
+        ("request"|"reply"), a correlationId pairing a request with its reply, the
+        real rpc.*/api.* subject, and the payload. See ARCHITECTURE-COMMUNICATIONS.md
+        §6.'
       produces:
       - text/event-stream
       responses:

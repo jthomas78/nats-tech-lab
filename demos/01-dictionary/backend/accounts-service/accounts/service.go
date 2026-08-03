@@ -15,7 +15,7 @@ import (
 // $SYS.REQ.CLAIMS.* operations) — not a new connection. $SRV subjects don't
 // cross NATS account boundaries, so this is only discoverable by a query
 // connection on that same SYS account; a query from shipping-service's
-// DEFAULT/tenant connections (nats_ops.go's listNatsServices) won't see it
+// PLATFORM/tenant connections (nats_ops.go's listNatsServices) won't see it
 // — a known, accepted gap, not a bug (Main-POC-Plan.md Phase 17c).
 //
 // Extracted out of cmd/main.go into this testable function deliberately:

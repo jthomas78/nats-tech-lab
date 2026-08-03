@@ -193,7 +193,7 @@ var _ = Describe("Handlers", func() {
 		minted, err := provisioner.CreateAccount(context.Background(), accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5})
 		Expect(err).NotTo(HaveOccurred())
 
-		// Simulate a seeded account (like DEFAULT/ACME/GLOBEX): a real,
+		// Simulate a seeded account (like PLATFORM/ACME/GLOBEX): a real,
 		// resolver-known account whose signing key was never persisted, and
 		// which is currently suspended.
 		Expect(store.Insert(context.Background(), accounts.Account{
@@ -239,7 +239,7 @@ var _ = Describe("Handlers", func() {
 	// published, on the right subject, with the right payload, only after
 	// the account is fully committed. It deliberately reuses the SYS
 	// connection for both publish and subscribe (this synthetic test
-	// operator has no DEFAULT account) — the cross-account delivery guarantee
+	// operator has no PLATFORM account) — the cross-account delivery guarantee
 	// itself is core NATS behavior, not something this test needs to reprove.
 	It("BR-AC08: publishes notify.accounts.account.created only after a create fully succeeds", func() {
 		notifyNC := ots.ConnectSys(GinkgoT())
@@ -455,7 +455,7 @@ var _ = Describe("Handlers", func() {
 		Expect(resp.StatusCode).To(Equal(http.StatusOK), "the outer BeforeEach's handlers has a nil NotifyNC — suspension must still succeed")
 	})
 
-	// BR-AC06 (BUSINESS_RULES-ACCOUNTS.md): DEFAULT/SYS are reserved,
+	// BR-AC06 (BUSINESS_RULES-ACCOUNTS.md): PLATFORM/SYS are reserved,
 	// case-insensitively — a differently-cased variant must be rejected
 	// exactly like the canonical name, since it's the casing mismatch
 	// itself (not just the exact literal) that let a reserved name slip
@@ -466,9 +466,9 @@ var _ = Describe("Handlers", func() {
 			defer resp.Body.Close()
 			Expect(resp.StatusCode).To(Equal(http.StatusConflict))
 		},
-		Entry("DEFAULT", "DEFAULT"),
-		Entry("default", "default"),
-		Entry("Default", "Default"),
+		Entry("PLATFORM", "PLATFORM"),
+		Entry("platform", "platform"),
+		Entry("Platform", "Platform"),
 		Entry("SYS", "SYS"),
 		Entry("sys", "sys"),
 	)
@@ -493,6 +493,47 @@ var _ = Describe("Handlers", func() {
 		resp := doRequest(http.MethodPost, "/api/accounts", map[string]any{"name": "acme_northdiv"}, accounts.BasicAuthUser, authSecret)
 		defer resp.Body.Close()
 		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+	})
+
+	// BR-AC13 (BUSINESS_RULES-ACCOUNTS.md): PLATFORM is mandatory on every
+	// deployment and can never be suspended, case-insensitively — unlike
+	// suspending a tenant, which only takes that one tenant offline,
+	// suspending PLATFORM would sever shipping-service's and
+	// refdata-service's permanent connections for every tenant at once. The
+	// check runs before the account is even looked up in Postgres, so this
+	// rejects "PLATFORM" as reserved regardless of whether a row happens to
+	// exist for it.
+	DescribeTable("rejects suspending the reserved PLATFORM account, case-insensitively",
+		func(name string) {
+			resp := doRequest(http.MethodPost, "/api/accounts/"+name+"/suspend", nil, accounts.BasicAuthUser, authSecret)
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusConflict))
+		},
+		Entry("PLATFORM", "PLATFORM"),
+		Entry("platform", "platform"),
+		Entry("Platform", "Platform"),
+	)
+
+	It("BR-AC13: a real seeded platform account is still rejected for suspend, not silently 404'd", func() {
+		// SeedIfMissing (not Insert): this shared Postgres test database may
+		// already carry a "platform" row from another spec/run, and this test
+		// only needs SOME row to exist under that name, not to own its
+		// creation — asserting on status-before-vs-after (below) rather than
+		// a hardcoded "active" is what actually matters for BR-AC13.
+		Expect(store.SeedIfMissing(context.Background(), accounts.Account{
+			Name: "platform", PublicKey: "A-real-platform-key",
+			Status: accounts.StatusActive, JSMaxMem: 1 << 30, JSMaxFile: 5 << 30, JSMaxStreams: 20, JSMaxConsumers: 100,
+		})).To(Succeed())
+		before, err := store.Get(context.Background(), "platform")
+		Expect(err).NotTo(HaveOccurred())
+
+		resp := doRequest(http.MethodPost, "/api/accounts/platform/suspend", nil, accounts.BasicAuthUser, authSecret)
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusConflict))
+
+		after, err := store.Get(context.Background(), "platform")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(after.Status).To(Equal(before.Status), "the reserved account's status must be unchanged — the rejection must happen before any suspend side effect")
 	})
 
 	// BR-AC11 (BUSINESS_RULES-ACCOUNTS.md): every lifecycle success writes an

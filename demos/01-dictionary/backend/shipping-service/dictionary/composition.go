@@ -28,7 +28,7 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 		return err
 	}
 
-	// mono.JS()/mono.NC() are the permanent DEFAULT-account connection (see
+	// mono.JS()/mono.NC() are the permanent PLATFORM-account connection (see
 	// monolith.Monolith doc comment) — used only for
 	// refdata-service's rpc.* calls, its REFDATA change stream, and the
 	// obs.rpc.> observability bridge. The SHIPPING stream is deliberately
@@ -42,7 +42,7 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 	handlers := rest.NewHandlers(rest.Deps{
 		Ports:          commands.NewPortHandler(portRepo),
 		Refdata:        refdata,
-		DefaultJS:      mono.JS(),
+		PlatformJS:     mono.JS(),
 		NC:             mono.NC(),
 		Log:            log,
 		ShipRepo:       shipRepo,

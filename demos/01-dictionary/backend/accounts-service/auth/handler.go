@@ -84,7 +84,7 @@ func (h *Handlers) connectInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if acc.SigningKeySeed == "" {
-		// A seeded pre-existing account (DEFAULT/ACME/GLOBEX) that
+		// A seeded pre-existing account (PLATFORM/ACME/GLOBEX) that
 		// accounts-service has never minted a signing key for — see
 		// accounts/store.go's Account.SigningKeySeed doc comment. Without a
 		// signing key this service cannot sign a user JWT for it.

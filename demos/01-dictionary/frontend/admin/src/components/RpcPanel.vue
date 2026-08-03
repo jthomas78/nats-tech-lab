@@ -15,7 +15,7 @@ import { useTenantStore } from '../stores/tenant'
 // minutes of retained obs.rpc.* traffic from RPCTRACE before switching to
 // live delivery (BR-D29, ARCHITECTURE-COMMUNICATIONS.md §6); obs.api.* is
 // live-only — it publishes inside the active tenant's NATS account, which
-// RPCTRACE (DEFAULT account) doesn't capture. The backend sends replayed
+// RPCTRACE (PLATFORM account) doesn't capture. The backend sends replayed
 // and live events identically over the same SSE stream, so this component
 // doesn't distinguish them; rows just appear in the order the server
 // emitted them. Request and reply arrive as two separate obs.rpc.*/

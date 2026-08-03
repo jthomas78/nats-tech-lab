@@ -22,7 +22,7 @@ type Monolith interface {
 	// jetstream.JetStream alone, such as micro.AddService or a plain
 	// Request/Reply client.
 	//
-	// This is the permanent, unauthenticated (DEFAULT-account) connection —
+	// This is the permanent, unauthenticated (PLATFORM-account) connection —
 	// Phase 13b's tenant-scoped connection is a second, separate connection
 	// owned by rest.Handlers, reconnected on tenant switch. DB/JS/NC here
 	// never change after Startup.

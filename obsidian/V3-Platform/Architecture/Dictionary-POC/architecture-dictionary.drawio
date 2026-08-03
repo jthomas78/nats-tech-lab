@@ -788,7 +788,7 @@
         <mxCell id="jwt-sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="SYS Account&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;$SYS.REQ.CLAIMS.*&lt;/font&gt;" vertex="1">
           <mxGeometry height="70" width="140" x="90" y="310" as="geometry" />
         </mxCell>
-        <mxCell id="jwt-default" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="DEFAULT&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;1G/5G/20/100&lt;/font&gt;" vertex="1">
+        <mxCell id="jwt-default" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="PLATFORM&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;1G/5G/20/100&lt;/font&gt;" vertex="1">
           <mxGeometry height="70" width="140" x="270" y="310" as="geometry" />
         </mxCell>
         <mxCell id="jwt-acme" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="ACME&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;256M/1G/10/20&lt;/font&gt;" vertex="1">
@@ -800,7 +800,7 @@
         <mxCell id="jwt-runtime" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#9A7B1E;dashed=1;fontColor=#DEE0E3;fontSize=14;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="&lt;runtime&gt;&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:12px&#39;&gt;minted by accounts-svc&lt;/font&gt;" vertex="1">
           <mxGeometry height="70" width="160" x="420" y="310" as="geometry" />
         </mxCell>
-        <mxCell id="jwt-user-default" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=13;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="User JWT&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:11px&#39;&gt;→ default.creds&lt;/font&gt;" vertex="1">
+        <mxCell id="jwt-user-default" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=13;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="User JWT&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:11px&#39;&gt;→ platform.creds&lt;/font&gt;" vertex="1">
           <mxGeometry height="56" width="120" x="280" y="466" as="geometry" />
         </mxCell>
         <mxCell id="jwt-user-tenant" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=13;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;" value="User JWT&lt;br&gt;&lt;font color=&#39;#B7BCC2&#39; style=&#39;font-size:11px&#39;&gt;→ &amp;lt;tenant&amp;gt;.creds&lt;/font&gt;" vertex="1">
