@@ -45,6 +45,7 @@ func run(log *slog.Logger) error {
 	credsDir := envOr("NATS_CREDS_DIR", "") // shared volume shipping-service also mounts
 	resolverSeedDir := envOr("RESOLVER_SEED_DIR", "")
 	authSecret := envOr("ACCOUNTS_AUTH_SECRET", "")
+	natsMonitorURL := envOr("NATS_MONITOR_URL", "")
 	// Phase 19 — folded in from auth-service: the address the browser
 	// itself should dial for its NATS WebSocket connection, returned
 	// verbatim in connectInfo. Not the in-cluster `nats:9222` hostname,
@@ -138,6 +139,9 @@ func run(log *slog.Logger) error {
 
 	auditLog := accounts.NewAuditLog(db)
 	handlers := accounts.NewHandlers(store, provisioner, credsDir, log, defaultNC, auditLog)
+	if natsMonitorURL != "" {
+		handlers.UsageFetcher = accounts.NewUsageFetcher(natsMonitorURL, store)
+	}
 	mux := http.NewServeMux()
 	handlers.Mount(mux, authSecret)
 

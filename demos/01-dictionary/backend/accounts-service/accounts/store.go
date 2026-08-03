@@ -218,6 +218,26 @@ func (s *Store) ListActiveTenantNames(ctx context.Context) ([]string, error) {
 	return out, rows.Err()
 }
 
+// SetJSLimits updates the four JetStream limit columns for an existing
+// account. Returns ErrNotFound if no account has that name.
+func (s *Store) SetJSLimits(ctx context.Context, name string, limits JSLimits) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE accounts.accounts
+		SET js_max_mem = $2, js_max_file = $3, js_max_streams = $4, js_max_consumers = $5, updated_at = now()
+		WHERE name = $1`, name, limits.MaxMem, limits.MaxFile, limits.MaxStreams, limits.MaxConsumers)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // SetSigningKeySeed persists a signing key seed established for an account
 // that didn't have one on record — a seeded pre-existing account (see
 // Account.SigningKeySeed's doc comment) reactivated for the first time, per

@@ -29,7 +29,7 @@ type kvBucketsResponse struct {
 // listKVBuckets godoc
 //
 // @Summary      List KV buckets
-// @Description  Every Key-Value bucket registered on the NATS server, with run-time status (value count, history depth, size, TTL, backing store). Backs the KV inspector's bucket rail — the raw NATS KV stores this lab provisions (dict-a/dict-b/container/meta per fleet context, plus refdata-service's cache).
+// @Description  Every Key-Value bucket registered on the NATS server, with run-time status (value count, history depth, size, TTL, backing store). Backs the KV inspector's bucket rail — the raw NATS KV stores this lab provisions (one per role per tenant: dict-a, dict-b, container, meta; plus refdata-service's cache). Each bucket holds keys for all business-unit contexts, prefixed as {context}.{entityType}.{id}.
 // @Tags         kv
 // @Produce      json
 // @Success      200  {object}  kvBucketsResponse
@@ -78,7 +78,7 @@ type kvChange struct {
 // @Description  Server-Sent Events stream for one KV bucket by full name. Replays the bucket's current entries first (Live=false), sends an INIT_DONE control event, then streams live changes (Live=true). One connection drives both the contents snapshot and the live update feed — the same WatchAll semantics the NATS KV watch model is built on.
 // @Tags         kv
 // @Produce      text/event-stream
-// @Param        bucket  path  string  true  "KV bucket name (e.g. dict-a-acme, refdata-acme)"
+// @Param        bucket  path  string  true  "KV bucket name (e.g. dict-a, dict-b, container, meta, refdata-acme)"
 // @Success      200  {string}  string  "SSE stream — data: {kvChange JSON}"
 // @Failure      400  {object}  errorResponse  "Unknown bucket"
 // @Failure      500  {object}  errorResponse

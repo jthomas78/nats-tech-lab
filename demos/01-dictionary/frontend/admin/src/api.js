@@ -182,6 +182,14 @@ export function reactivateAccount(name) {
   return request(`/api/platform/accounts/${encodeURIComponent(name)}/reactivate`, { method: 'POST' })
 }
 
+export function updateAccountLimits(name, limits) {
+  return request(`/api/platform/accounts/${encodeURIComponent(name)}/jslimits`, { method: 'POST', body: JSON.stringify(limits) })
+}
+
+export function getAccountsUsage() {
+  return request('/api/platform/accounts/usage')
+}
+
 // ── NATS Connections + Services (Phase 17c) ──────────────────────────────────
 // Both are snapshot reads, not SSE — /connz and $SRV.STATS are inherently
 // poll-based (a single request/reply round-trip), unlike the KV/JetStream

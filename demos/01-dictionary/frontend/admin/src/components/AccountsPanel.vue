@@ -10,7 +10,7 @@ import Textarea from 'primevue/textarea'
 import { useToast } from 'primevue/usetoast'
 import { onMounted, reactive, ref } from 'vue'
 
-import { createAccount, listAccounts, reactivateAccount, suspendAccount } from '../api'
+import { createAccount, getAccountsUsage, listAccounts, reactivateAccount, suspendAccount, updateAccountLimits } from '../api'
 import { useTenantStore } from '../stores/tenant'
 
 // Phase 14c — dynamic tenant provisioning via accounts-service. Distinct
@@ -40,11 +40,26 @@ const credsOpen = ref(false)
 const mintedCreds = ref('')
 const mintedName = ref('')
 
+const usage = ref({}) // keyed by account name — JSUsage from GET /api/accounts/usage
+
+const editOpen = ref(false)
+const editSaving = ref(false)
+const editError = ref('')
+const editAccount = ref(null)
+const editForm = reactive({ jsMaxMem: 0, jsMaxFile: 0, jsMaxStreams: 0, jsMaxConsumers: 0 })
+
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    accounts.value = await listAccounts()
+    const [accs, usageList] = await Promise.all([
+      listAccounts(),
+      getAccountsUsage().catch(() => []),
+    ])
+    accounts.value = accs
+    const map = {}
+    for (const u of usageList) map[u.name] = u
+    usage.value = map
   } catch (e) {
     error.value = e.message
   } finally {
@@ -118,6 +133,46 @@ async function reactivate(name) {
   }
 }
 
+function openEdit(acc) {
+  editAccount.value = acc
+  editForm.jsMaxMem = acc.jsMaxMem
+  editForm.jsMaxFile = acc.jsMaxFile
+  editForm.jsMaxStreams = acc.jsMaxStreams
+  editForm.jsMaxConsumers = acc.jsMaxConsumers
+  editError.value = ''
+  editOpen.value = true
+}
+
+async function submitEdit() {
+  editSaving.value = true
+  editError.value = ''
+  try {
+    await updateAccountLimits(editAccount.value.name, { ...editForm })
+    editOpen.value = false
+    await load()
+    toast.add({ severity: 'success', summary: 'Limits updated', detail: editAccount.value.name, life: 3000 })
+  } catch (e) {
+    editError.value = e.message
+  } finally {
+    editSaving.value = false
+  }
+}
+
+function streamsLabel(name) {
+  const u = usage.value[name]
+  if (!u) return '–'
+  return `${u.streams.used} / ${u.streams.limit}`
+}
+
+function streamsClass(name) {
+  const u = usage.value[name]
+  if (!u) return 'usage-na'
+  const ratio = u.streams.used / u.streams.limit
+  if (ratio >= 1) return 'usage-crit'
+  if (ratio >= 0.8) return 'usage-warn'
+  return 'usage-ok'
+}
+
 function formatBytes(n) {
   if (!n) return '0'
   const units = ['B', 'KB', 'MB', 'GB']
@@ -176,27 +231,43 @@ onMounted(load)
           {{ data.jsMaxStreams }} streams · {{ data.jsMaxConsumers }} consumers
         </template>
       </Column>
+      <Column header="Streams">
+        <template #body="{ data }">
+          <span :class="streamsClass(data.name)" class="streams-usage">
+            {{ streamsLabel(data.name) }}
+          </span>
+        </template>
+      </Column>
       <Column header="Created At">
         <template #body="{ data }">{{ formatDate(data.createdAt) }}</template>
       </Column>
       <Column header="">
         <template #body="{ data }">
-          <Button
-            v-if="data.status === 'active'"
-            label="Suspend"
-            severity="danger"
-            text
-            size="small"
-            @click="suspend(data.name)"
-          />
-          <Button
-            v-else-if="data.status === 'suspended'"
-            label="Reactivate"
-            severity="success"
-            text
-            size="small"
-            @click="reactivate(data.name)"
-          />
+          <div class="row-actions">
+            <Button
+              label="Edit Limits"
+              icon="pi pi-sliders-h"
+              text
+              size="small"
+              @click="openEdit(data)"
+            />
+            <Button
+              v-if="data.status === 'active'"
+              label="Suspend"
+              severity="danger"
+              text
+              size="small"
+              @click="suspend(data.name)"
+            />
+            <Button
+              v-else-if="data.status === 'suspended'"
+              label="Reactivate"
+              severity="success"
+              text
+              size="small"
+              @click="reactivate(data.name)"
+            />
+          </div>
         </template>
       </Column>
     </DataTable>
@@ -240,6 +311,37 @@ onMounted(load)
       <Textarea :model-value="mintedCreds" readonly rows="12" class="creds-text" />
       <template #footer>
         <Button label="Close" @click="credsOpen = false" />
+      </template>
+    </Dialog>
+
+    <Dialog
+      v-model:visible="editOpen"
+      :header="editAccount ? `Edit Limits — ${editAccount.name}` : 'Edit Limits'"
+      modal
+      :style="{ width: '28rem' }"
+    >
+      <div class="form-grid">
+        <div class="form-field">
+          <label for="edit-mem">Max Memory (bytes)</label>
+          <InputNumber id="edit-mem" v-model="editForm.jsMaxMem" :use-grouping="false" />
+        </div>
+        <div class="form-field">
+          <label for="edit-file">Max Disk (bytes)</label>
+          <InputNumber id="edit-file" v-model="editForm.jsMaxFile" :use-grouping="false" />
+        </div>
+        <div class="form-field">
+          <label for="edit-streams">Max Streams</label>
+          <InputNumber id="edit-streams" v-model="editForm.jsMaxStreams" :use-grouping="false" />
+        </div>
+        <div class="form-field">
+          <label for="edit-consumers">Max Consumers</label>
+          <InputNumber id="edit-consumers" v-model="editForm.jsMaxConsumers" :use-grouping="false" />
+        </div>
+      </div>
+      <p v-if="editError" class="error-text">{{ editError }}</p>
+      <template #footer>
+        <Button label="Cancel" text @click="editOpen = false" />
+        <Button label="Update" :loading="editSaving" @click="submitEdit" />
       </template>
     </Dialog>
   </div>
@@ -295,5 +397,29 @@ onMounted(load)
   width: 100%;
   font-family: monospace;
   font-size: 0.75rem;
+}
+.streams-usage {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+}
+.usage-ok {
+  color: var(--p-green-500, #22c55e);
+}
+.usage-warn {
+  color: var(--p-amber-400, #fbbf24);
+  font-weight: 600;
+}
+.usage-crit {
+  color: var(--p-red-400, #f87171);
+  font-weight: 600;
+}
+.usage-na {
+  color: var(--p-surface-400, #94a3b8);
+}
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  flex-wrap: nowrap;
 }
 </style>

@@ -541,6 +541,146 @@ var _ = Describe("Handlers", func() {
 		}
 	})
 
+	// BR-AC12 (BUSINESS_RULES-ACCOUNTS.md): JetStream limits can be updated
+	// on an existing account — the resolver JWT is re-minted with the new
+	// values, Postgres is persisted, an audit row is written, and a notify
+	// event fires.
+	It("BR-AC12: updates an account's JetStream limits and reflects them in GET and at the resolver", func() {
+		By("creating a tenant with initial limits")
+		createResp := doRequest(http.MethodPost, "/api/accounts", map[string]any{
+			"name": "jslimits-tenant", "jsMaxMem": 64 << 20, "jsMaxFile": 128 << 20, "jsMaxStreams": 5, "jsMaxConsumers": 10,
+		}, accounts.BasicAuthUser, authSecret)
+		defer createResp.Body.Close()
+		Expect(createResp.StatusCode).To(Equal(http.StatusCreated))
+
+		By("updating limits to higher values")
+		updateResp := doRequest(http.MethodPost, "/api/accounts/jslimits-tenant/jslimits", map[string]any{
+			"jsMaxMem": 256 << 20, "jsMaxFile": 512 << 20, "jsMaxStreams": 20, "jsMaxConsumers": 40,
+		}, accounts.BasicAuthUser, authSecret)
+		defer updateResp.Body.Close()
+		Expect(updateResp.StatusCode).To(Equal(http.StatusOK))
+
+		var updated struct {
+			JSMaxMem       int64 `json:"jsMaxMem"`
+			JSMaxFile      int64 `json:"jsMaxFile"`
+			JSMaxStreams   int64 `json:"jsMaxStreams"`
+			JSMaxConsumers int64 `json:"jsMaxConsumers"`
+		}
+		Expect(json.NewDecoder(updateResp.Body).Decode(&updated)).To(Succeed())
+		Expect(updated.JSMaxStreams).To(Equal(int64(20)))
+		Expect(updated.JSMaxConsumers).To(Equal(int64(40)))
+
+		By("GET reflects the new limits")
+		getResp := doRequest(http.MethodGet, "/api/accounts/jslimits-tenant", nil, accounts.BasicAuthUser, authSecret)
+		defer getResp.Body.Close()
+		var fetched struct {
+			JSMaxStreams   int64 `json:"jsMaxStreams"`
+			JSMaxConsumers int64 `json:"jsMaxConsumers"`
+		}
+		Expect(json.NewDecoder(getResp.Body).Decode(&fetched)).To(Succeed())
+		Expect(fetched.JSMaxStreams).To(Equal(int64(20)))
+		Expect(fetched.JSMaxConsumers).To(Equal(int64(40)))
+	})
+
+	It("BR-AC12: rejects negative JetStream limit values", func() {
+		createResp := doRequest(http.MethodPost, "/api/accounts", map[string]any{
+			"name": "jslimits-neg-tenant",
+		}, accounts.BasicAuthUser, authSecret)
+		defer createResp.Body.Close()
+		Expect(createResp.StatusCode).To(Equal(http.StatusCreated))
+
+		resp := doRequest(http.MethodPost, "/api/accounts/jslimits-neg-tenant/jslimits", map[string]any{
+			"jsMaxMem": -1, "jsMaxFile": 128 << 20, "jsMaxStreams": 10, "jsMaxConsumers": 20,
+		}, accounts.BasicAuthUser, authSecret)
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+	})
+
+	It("BR-AC12: returns 404 for an unknown account", func() {
+		resp := doRequest(http.MethodPost, "/api/accounts/does-not-exist/jslimits", map[string]any{
+			"jsMaxMem": 64 << 20, "jsMaxFile": 128 << 20, "jsMaxStreams": 10, "jsMaxConsumers": 20,
+		}, accounts.BasicAuthUser, authSecret)
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+	})
+
+	It("BR-AC12: publishes notify.accounts.account.jslimits_updated after a successful update", func() {
+		notifyNC := ots.ConnectSys(GinkgoT())
+		defer notifyNC.Close()
+		sub, err := notifyNC.SubscribeSync("notify.accounts.account.jslimits_updated")
+		Expect(err).NotTo(HaveOccurred())
+		defer sub.Unsubscribe() //nolint:errcheck
+
+		notifyHandlers := accounts.NewHandlers(store, provisioner, GinkgoT().TempDir(), slog.New(slog.DiscardHandler), notifyNC, auditLog)
+		mux := http.NewServeMux()
+		notifyHandlers.Mount(mux, authSecret)
+		notifyServer := httptest.NewServer(mux)
+		defer notifyServer.Close()
+
+		doNotifyReq := func(method, path string, body any) *http.Response {
+			GinkgoHelper()
+			b, err := json.Marshal(body)
+			Expect(err).NotTo(HaveOccurred())
+			req, err := http.NewRequest(method, notifyServer.URL+path, bytes.NewReader(b))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.SetBasicAuth(accounts.BasicAuthUser, authSecret)
+			resp, err := notifyServer.Client().Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			return resp
+		}
+
+		createResp := doNotifyReq(http.MethodPost, "/api/accounts", map[string]any{"name": "jslimits-notify-tenant"})
+		defer createResp.Body.Close()
+		Expect(createResp.StatusCode).To(Equal(http.StatusCreated))
+
+		updateResp := doNotifyReq(http.MethodPost, "/api/accounts/jslimits-notify-tenant/jslimits", map[string]any{
+			"jsMaxMem": 256 << 20, "jsMaxFile": 512 << 20, "jsMaxStreams": 20, "jsMaxConsumers": 40,
+		})
+		defer updateResp.Body.Close()
+		Expect(updateResp.StatusCode).To(Equal(http.StatusOK))
+
+		msg, err := sub.NextMsg(2 * time.Second)
+		Expect(err).NotTo(HaveOccurred())
+		var evt struct {
+			Name string `json:"name"`
+		}
+		Expect(json.Unmarshal(msg.Data, &evt)).To(Succeed())
+		Expect(evt.Name).To(Equal("jslimits-notify-tenant"))
+	})
+
+	It("BR-AC12: records an audit row with previous and requested limits in metadata", func() {
+		req, err := http.NewRequest(http.MethodPost, client.URL+"/api/accounts", bytes.NewReader([]byte(`{"name":"jslimits-audit-tenant","jsMaxStreams":5,"jsMaxConsumers":10}`)))
+		Expect(err).NotTo(HaveOccurred())
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Actor", "limit-admin")
+		req.SetBasicAuth(accounts.BasicAuthUser, authSecret)
+		createResp, err := client.Client().Do(req)
+		Expect(err).NotTo(HaveOccurred())
+		defer createResp.Body.Close()
+		Expect(createResp.StatusCode).To(Equal(http.StatusCreated))
+
+		updateReq, err := http.NewRequest(http.MethodPost, client.URL+"/api/accounts/jslimits-audit-tenant/jslimits",
+			bytes.NewReader([]byte(`{"jsMaxMem":268435456,"jsMaxFile":536870912,"jsMaxStreams":20,"jsMaxConsumers":40}`)))
+		Expect(err).NotTo(HaveOccurred())
+		updateReq.Header.Set("Content-Type", "application/json")
+		updateReq.Header.Set("X-Actor", "limit-admin")
+		updateReq.SetBasicAuth(accounts.BasicAuthUser, authSecret)
+		updateResp, err := client.Client().Do(updateReq)
+		Expect(err).NotTo(HaveOccurred())
+		defer updateResp.Body.Close()
+		Expect(updateResp.StatusCode).To(Equal(http.StatusOK))
+
+		entries, err := auditLog.ListByAccount(context.Background(), "jslimits-audit-tenant")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(entries).To(HaveLen(2), "one create + one jslimits_updated")
+		Expect(entries[0].Action).To(Equal(accounts.AuditActionJSLimitsUpdated))
+		Expect(entries[0].Outcome).To(Equal(accounts.AuditOutcomeSuccess))
+		Expect(entries[0].Actor).To(Equal("limit-admin"))
+		Expect(entries[0].Metadata).To(HaveKey("previous"))
+		Expect(entries[0].Metadata).To(HaveKey("requested"))
+	})
+
 	// BR-AC11 failure case: a partial failure (the resolver revoke fails
 	// independently of the Postgres status flip) still leaves a row behind,
 	// with the failing step and error captured in metadata — the audit

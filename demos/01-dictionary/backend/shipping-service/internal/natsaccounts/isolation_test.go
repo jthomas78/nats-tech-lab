@@ -256,10 +256,13 @@ func TestJetStreamStreamIsolation(t *testing.T) {
 	g.Expect(globexInfo.State.Msgs).To(BeEquivalentTo(0), "globex's identically-named stream must not contain acme's message")
 }
 
-// TestKVBucketIsolation mirrors the stream test for NATS KV — the demo's
-// actual bucket-naming convention ({prefix}-{context}) collapses to just
-// {prefix} once an account is the tenant boundary, which is exactly the
-// taxonomy trade-off Phase 13 exists to document.
+// TestKVBucketIsolation mirrors the stream test for NATS KV. The demo's
+// shipped bucket-naming convention — one bucket per role per tenant (e.g.
+// "dict-a", not "dict-a-{context}") — is what Phase 13 argued for, and it is
+// now the actual implementation: kvstore.Store holds one bucket per prefix,
+// and context is a key prefix inside that bucket ({context}.{entityType}.{id}).
+// This test proves the NATS account boundary makes that design safe: two
+// tenants with identical bucket names cannot see each other's data.
 func TestKVBucketIsolation(t *testing.T) {
 	g := NewWithT(t)
 	srv, shutdown := newSpikeServer(t)
@@ -275,7 +278,7 @@ func TestKVBucketIsolation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	const bucket = "dict-a" // no {context} suffix needed: the account is the boundary
+	const bucket = "dict-a" // tenant-scoped: account boundary is the isolation layer
 
 	kvAcme, err := jsAcme.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: bucket})
 	g.Expect(err).NotTo(HaveOccurred())

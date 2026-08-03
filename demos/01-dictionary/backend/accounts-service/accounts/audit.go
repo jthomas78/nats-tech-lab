@@ -7,12 +7,13 @@ import (
 	"time"
 )
 
-// Audit actions recorded by the three lifecycle handlers (BR-AC11) — one per
-// handler in accounts/handler.go.
+// Audit actions recorded by the lifecycle handlers (BR-AC11/BR-AC12) — one
+// per handler in accounts/handler.go.
 const (
-	AuditActionCreated     = "created"
-	AuditActionSuspended   = "suspended"
-	AuditActionReactivated = "reactivated"
+	AuditActionCreated         = "created"
+	AuditActionSuspended       = "suspended"
+	AuditActionReactivated     = "reactivated"
+	AuditActionJSLimitsUpdated = "jslimits_updated"
 )
 
 const (

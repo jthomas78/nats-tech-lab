@@ -169,6 +169,34 @@ func (p *Provisioner) ReactivateAccount(ctx context.Context, accountPub, signing
 	return p.pushClaimsUpdate(ctx, token)
 }
 
+// UpdateAccountLimits re-mints and re-pushes the account JWT with new
+// JetStream limits, leaving everything else (public key, signing key,
+// identity) unchanged. Status-agnostic — the handler decides whether to
+// gate on active/suspended.
+func (p *Provisioner) UpdateAccountLimits(ctx context.Context, accountPub, signingKeySeed string, limits JSLimits) error {
+	var signingPub string
+	if signingKeySeed != "" {
+		signingKP, err := nkeys.FromSeed([]byte(signingKeySeed))
+		if err != nil {
+			return fmt.Errorf("load account signing key: %w", err)
+		}
+		signingPub, err = signingKP.PublicKey()
+		if err != nil {
+			return fmt.Errorf("account signing key public key: %w", err)
+		}
+	}
+
+	claims := newAccountClaims(accountPub, signingPub, limits)
+	claims.Tags.Add(fmt.Sprintf("jslimits-%d", time.Now().UnixNano()))
+
+	token, err := claims.Encode(p.operatorSigningKey)
+	if err != nil {
+		return fmt.Errorf("encode account jwt: %w", err)
+	}
+
+	return p.pushClaimsUpdate(ctx, token)
+}
+
 // pushClaimsUpdate requests $SYS.REQ.CLAIMS.UPDATE with the raw account JWT
 // as payload — the exact mechanism nats.conf's resolver comment names, and
 // the only thing the resolver's Fetch/Store methods there won't do for us:

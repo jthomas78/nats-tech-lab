@@ -32,7 +32,7 @@ Split by domain so a rule add/edit only requires reading its own file:
   Service (BR-D01–BR-D28). Rules live in
   `backend/refdata-service/refdata/internal/domain/dictionary.go`.
 - **[BUSINESS_RULES-ACCOUNTS.md](BUSINESS_RULES-ACCOUNTS.md)** — Accounts
-  Service (BR-AC01–BR-AC11): NATS account provisioning, suspension,
+  Service (BR-AC01–BR-AC12): NATS account provisioning, suspension,
   reactivation, reserved-name protection via decentralized JWTs, (BR-AC08)
   publishing `notify.accounts.account.created` so shipping-service can react
   to a newly-minted tenant immediately (see BR-030, SHIPPING file, for the
@@ -41,9 +41,11 @@ Split by domain so a rule add/edit only requires reading its own file:
   `notify.accounts.account.reactivated` (BR-AC10, see BR-032) completing the
   lifecycle triple, and (BR-AC11) an append-only Postgres audit trail
   (`accounts.audit_events`) recording actor/outcome/metadata for every
-  lifecycle action. Rules live in
-  `backend/accounts-service/accounts/handler.go`, `provisioner.go`, and
-  `audit.go`.
+  lifecycle action, and (BR-AC12) runtime update of a tenant's JetStream
+  resource limits via `POST /api/accounts/{name}/jslimits`, re-minting the
+  account JWT via `$SYS.REQ.CLAIMS.UPDATE` and persisting to Postgres. Rules
+  live in `backend/accounts-service/accounts/handler.go`, `provisioner.go`,
+  `store.go`, and `audit.go`.
 
 When CLAUDE.md's Quality Rule #4 says "update `BUSINESS_RULES.md`," it means:
 add/edit the rule in whichever of the three files above matches the domain

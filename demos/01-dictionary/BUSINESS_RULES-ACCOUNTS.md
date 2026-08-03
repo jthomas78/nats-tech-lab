@@ -35,7 +35,7 @@ tests migrated with it (`accounts-service/auth/*_test.go`), now reusing
 `accounts.Migrate` for test schema setup instead of hand-duplicating its
 `CREATE TABLE` statements the way a separate module had to.
 
-### BR-AC01–BR-AC11 — Account lifecycle
+### BR-AC01–BR-AC12 — Account lifecycle
 
 - **BR-AC01:** An account name is unique; creating an account with a name
   that already exists is rejected (`409 Conflict`).
@@ -212,6 +212,29 @@ tests migrated with it (`accounts-service/auth/*_test.go`), now reusing
   (open gap #4 from the same review) as it happens rather than only in a log
   line. See `ARCHITECTURE-ACCOUNTS.md` § "Audit trail" for the full sequence
   diagrams.
+- **BR-AC12 (2026-08-03):** A tenant's JetStream resource limits may be
+  updated at runtime via `POST /api/accounts/{name}/jslimits` with a body of
+  `{jsMaxMem, jsMaxFile, jsMaxStreams, jsMaxConsumers}`. All four fields are
+  required; all must be non-negative (negative values are rejected with
+  `400 Bad Request`). An unknown account name is rejected with `404 Not Found`.
+  No status gate — limits may be updated whether the account is `active` or
+  `suspended`. The handler re-mints the account JWT with the new limits (via
+  `Provisioner.UpdateAccountLimits`, which uses `newAccountClaims` + a unique
+  `jslimits-<nanoseconds>` tag to defeat the resolver's deterministic-JWT
+  no-op detection, + `$SYS.REQ.CLAIMS.UPDATE`), then persists the new values
+  to Postgres via `Store.SetJSLimits`. If the account has no signing key on
+  record (a never-reactivated seeded account), one is established on the fly
+  exactly as BR-AC04 does. After both the resolver push and the Postgres
+  persist succeed, this service publishes
+  `notify.accounts.account.jslimits_updated` (same context-free subject
+  family and `Handlers.NotifyNC` best-effort/nil-safe contract as
+  BR-AC08–AC10). An audit row is written (BR-AC11 mechanic, `AuditActionJSLimitsUpdated`)
+  with `metadata` carrying both `previous` and `requested` limits on success,
+  or the failing step and error on failure. This rule closes gap #5 from the
+  2026-08-03 accounts architecture review — limits set at mint time with no
+  update path — directly motivated by the `acme` account exhausting its
+  `js_max_streams=10` ceiling after two contexts were provisioned (each
+  context requiring 4 KV-bucket streams).
 
 The lifecycle rules (BR-AC01, BR-AC03, BR-AC04, BR-AC06, BR-AC07) are enforced in
 `accounts/handler.go`'s `createAccount`/`suspendAccount`/`reactivateAccount`;
@@ -220,11 +243,13 @@ the JWT mechanics behind BR-AC02/BR-AC03/BR-AC04 are in
 `ReactivateAccount`; BR-AC08 is `accounts/handler.go`'s
 `publishAccountCreated`, called from `createAccount`; BR-AC09 is the same
 file's `publishAccountSuspended`, called from `suspendAccount`; BR-AC10 is
-`publishAccountReactivated`, called from `reactivateAccount`. All three share
-one nil-safe `publishAccountEvent` helper. BR-AC11 is `accounts/audit.go`'s
+`publishAccountReactivated`, called from `reactivateAccount`; BR-AC12 is
+`updateJSLimits` and `publishAccountJSLimitsUpdated`, with `Provisioner.UpdateAccountLimits`
+and `Store.SetJSLimits`. All four notify publishers share one nil-safe
+`publishAccountEvent` helper. BR-AC11 is `accounts/audit.go`'s
 `AuditLog` type (`Record`/`ListByAccount`, backed by the
 `accounts.audit_events` table created in `store.go`'s `Migrate`), called from
-all three handlers via the shared `recordAudit`/`auditActor` helpers in
+all handlers via the shared `recordAudit`/`auditActor` helpers in
 `handler.go`. Ginkgo coverage:
 `provisioner_test.go` exercises the JWT
 round trip directly against an embedded operator-mode NATS server (mint →
@@ -251,7 +276,10 @@ reactivate sequence with a caller-supplied `X-Actor` header writes three
 rows — one per action, newest first, each `success`, each carrying that
 actor and a non-empty source IP; and severing the provisioner's NATS
 connection mid-suspend writes a `failed` row naming `"revoke account"` as
-the step, alongside the earlier successful create's own row). The
+the step, alongside the earlier successful create's own row), plus BR-AC12's
+five (successful update reflected in GET response; negative-value rejection;
+404 for unknown account; notify event fired with the tenant's name; audit row
+written with `previous`/`requested` metadata and `AuditActionJSLimitsUpdated`). The
 `shipping-service`-side defense in depth is covered separately by
 `dictionary/internal/rest/tenant_discovery_test.go`'s
 `TestDiscoverTenantsExcludesReservedNamesCaseInsensitively`, a plain Go test

@@ -189,6 +189,10 @@ services:
       # in-cluster `nats:9222` hostname, since the browser resolves DNS from
       # the host, not the backend network.
       NATS_WS_URL: ws://localhost:9222
+      # Phase 2 / BR-AC12 — proxies the NATS server's /jsz monitoring endpoint
+      # (same pattern as shipping-service's NATS_MONITOR_URL) to serve the
+      # GET /api/accounts/usage endpoint used by the Admin UI's usage column.
+      NATS_MONITOR_URL: http://nats:8222
       HTTP_ADDR: ":8080"
     ports:
       - "7202:8080"

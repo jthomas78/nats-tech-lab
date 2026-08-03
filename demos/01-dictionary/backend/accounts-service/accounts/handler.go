@@ -10,6 +10,7 @@
 //	GET    /api/accounts/{name}             one account's details (no creds, no signing key)
 //	POST   /api/accounts/{name}/suspend     suspend an account — revokes its resolver JWT via $SYS.REQ.CLAIMS.DELETE
 //	POST   /api/accounts/{name}/reactivate  reactivate a suspended account — re-mints its resolver JWT via $SYS.REQ.CLAIMS.UPDATE and, when possible, a fresh one-time .creds
+//	POST   /api/accounts/{name}/jslimits    update an account's JetStream resource limits — re-mints its resolver JWT with the new limits
 package accounts
 
 import (
@@ -90,6 +91,9 @@ type Handlers struct {
 	// (recordAudit skips silently), same contract as NotifyNC, so this
 	// service still runs (just without an audit trail) if unset.
 	AuditLog *AuditLog
+	// UsageFetcher joins live /jsz stats with Postgres limits for the usage
+	// endpoint — nil-safe (GET /api/accounts/usage returns 503 when unset).
+	UsageFetcher *UsageFetcher
 }
 
 func NewHandlers(store *Store, provisioner *Provisioner, credsDir string, log *slog.Logger, notifyNC *nats.Conn, auditLog *AuditLog) *Handlers {
@@ -197,12 +201,36 @@ func (h *Handlers) publishAccountReactivated(name string) {
 	h.publishAccountEvent("notify.accounts.account.reactivated", "account-reactivated", name)
 }
 
+// publishAccountJSLimitsUpdated notifies interested services that an
+// account's JetStream resource limits have been changed (BR-AC12). Same
+// context-free subject family and best-effort contract as the other three
+// lifecycle publishers.
+func (h *Handlers) publishAccountJSLimitsUpdated(name string) {
+	h.publishAccountEvent("notify.accounts.account.jslimits_updated", "account-jslimits-updated", name)
+}
+
 func (h *Handlers) Mount(mux *http.ServeMux, authSecret string) {
 	mux.Handle("POST /api/accounts", BasicAuth(authSecret, http.HandlerFunc(h.createAccount)))
 	mux.Handle("GET /api/accounts", BasicAuth(authSecret, http.HandlerFunc(h.listAccounts)))
+	mux.Handle("GET /api/accounts/usage", BasicAuth(authSecret, http.HandlerFunc(h.listJSUsage)))
 	mux.Handle("GET /api/accounts/{name}", BasicAuth(authSecret, http.HandlerFunc(h.getAccount)))
 	mux.Handle("POST /api/accounts/{name}/suspend", BasicAuth(authSecret, http.HandlerFunc(h.suspendAccount)))
 	mux.Handle("POST /api/accounts/{name}/reactivate", BasicAuth(authSecret, http.HandlerFunc(h.reactivateAccount)))
+	mux.Handle("POST /api/accounts/{name}/jslimits", BasicAuth(authSecret, http.HandlerFunc(h.updateJSLimits)))
+}
+
+func (h *Handlers) listJSUsage(w http.ResponseWriter, r *http.Request) {
+	if h.UsageFetcher == nil {
+		writeError(w, http.StatusServiceUnavailable, "JetStream usage monitoring is not configured (NATS_MONITOR_URL not set)")
+		return
+	}
+	usage, err := h.UsageFetcher.FetchAll(r.Context())
+	if err != nil {
+		h.Log.Error("fetch js usage", "err", err)
+		writeError(w, http.StatusBadGateway, "failed to fetch JetStream usage from NATS monitoring endpoint")
+		return
+	}
+	writeJSON(w, http.StatusOK, usage)
 }
 
 type createAccountRequest struct {
@@ -536,4 +564,105 @@ func (h *Handlers) reactivateAccount(w http.ResponseWriter, r *http.Request) {
 		Account: toResponse(stored),
 		Creds:   string(credsBytes),
 	})
+}
+
+type updateJSLimitsRequest struct {
+	JSMaxMem       int64 `json:"jsMaxMem"`
+	JSMaxFile      int64 `json:"jsMaxFile"`
+	JSMaxStreams   int64 `json:"jsMaxStreams"`
+	JSMaxConsumers int64 `json:"jsMaxConsumers"`
+}
+
+// updateJSLimits implements BR-AC12: re-mint the account JWT with new
+// JetStream limits and push it to the resolver, then persist the new limits
+// to Postgres. No status gate — works whether active or suspended.
+func (h *Handlers) updateJSLimits(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	acc, err := h.Store.Get(r.Context(), name)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "account not found")
+		return
+	}
+	if err != nil {
+		h.Log.Error("get account", "name", name, "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	var in updateJSLimitsRequest
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if in.JSMaxMem < 0 || in.JSMaxFile < 0 || in.JSMaxStreams < 0 || in.JSMaxConsumers < 0 {
+		writeError(w, http.StatusBadRequest, "JetStream limits must not be negative")
+		return
+	}
+
+	signingKeySeed := acc.SigningKeySeed
+	if signingKeySeed == "" {
+		signingKP, err := nkeys.CreateAccount()
+		if err != nil {
+			h.Log.Error("generate signing key for jslimits update", "name", name, "err", err)
+			writeError(w, http.StatusInternalServerError, "failed to update limits")
+			return
+		}
+		seed, err := signingKP.Seed()
+		if err != nil {
+			h.Log.Error("read generated signing key seed", "name", name, "err", err)
+			writeError(w, http.StatusInternalServerError, "failed to update limits")
+			return
+		}
+		signingKeySeed = string(seed)
+	}
+
+	actor, sourceIP := auditActor(r)
+	previous := map[string]any{
+		"jsMaxMem": acc.JSMaxMem, "jsMaxFile": acc.JSMaxFile,
+		"jsMaxStreams": acc.JSMaxStreams, "jsMaxConsumers": acc.JSMaxConsumers,
+	}
+
+	newLimits := JSLimits{MaxMem: in.JSMaxMem, MaxFile: in.JSMaxFile, MaxStreams: in.JSMaxStreams, MaxConsumers: in.JSMaxConsumers}
+	if err := h.Provisioner.UpdateAccountLimits(r.Context(), acc.PublicKey, signingKeySeed, newLimits); err != nil {
+		h.Log.Error("update account limits", "name", name, "err", err)
+		h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionJSLimitsUpdated, Actor: actor, SourceIP: sourceIP,
+			Outcome: AuditOutcomeFailed, Metadata: map[string]any{"step": "update js limits", "error": err.Error(), "previous": previous}})
+		writeError(w, http.StatusInternalServerError, "failed to update account limits")
+		return
+	}
+
+	if signingKeySeed != acc.SigningKeySeed {
+		if err := h.Store.SetSigningKeySeed(r.Context(), name, signingKeySeed); err != nil {
+			h.Log.Error("persist established signing key", "name", name, "err", err)
+			h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionJSLimitsUpdated, Actor: actor, SourceIP: sourceIP,
+				Outcome: AuditOutcomeFailed, Metadata: map[string]any{"step": "persist signing key", "error": err.Error(), "previous": previous}})
+			writeError(w, http.StatusInternalServerError, "limits pushed to resolver but failed to persist signing key")
+			return
+		}
+	}
+
+	if err := h.Store.SetJSLimits(r.Context(), name, newLimits); err != nil {
+		h.Log.Error("persist js limits", "name", name, "err", err)
+		h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionJSLimitsUpdated, Actor: actor, SourceIP: sourceIP,
+			Outcome: AuditOutcomeFailed, Metadata: map[string]any{"step": "persist limits", "error": err.Error(), "previous": previous}})
+		writeError(w, http.StatusInternalServerError, "limits pushed to resolver but failed to persist — resolver and Postgres are now inconsistent")
+		return
+	}
+
+	requested := map[string]any{
+		"jsMaxMem": in.JSMaxMem, "jsMaxFile": in.JSMaxFile,
+		"jsMaxStreams": in.JSMaxStreams, "jsMaxConsumers": in.JSMaxConsumers,
+	}
+	h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionJSLimitsUpdated, Actor: actor, SourceIP: sourceIP,
+		Outcome: AuditOutcomeSuccess, Metadata: map[string]any{"previous": previous, "requested": requested}})
+	h.publishAccountJSLimitsUpdated(name)
+
+	stored, err := h.Store.Get(r.Context(), name)
+	if err != nil {
+		h.Log.Error("reload account after jslimits update", "name", name, "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, toResponse(stored))
 }
