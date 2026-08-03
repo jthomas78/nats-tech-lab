@@ -7,7 +7,16 @@ import { computed } from 'vue'
 // segment before it is the entity id. Everything else is routing context.
 const props = defineProps({
   subject: { type: String, default: '' },
+  // When true, each segment is clickable and emits 'token-click' with its
+  // position (Phase 17b) — used by RpcPanel to build positional facet
+  // filters from api.*/rpc.* subjects (fixed 6-token arity: family, context,
+  // service, entity, action, version; see ARCHITECTURE-COMMUNICATIONS.md §2
+  // decision 4). Off by default so StreamView's plain evt.* display, which
+  // doesn't share that fixed arity, is unaffected.
+  clickable: { type: Boolean, default: false },
 })
+
+const emit = defineEmits(['token-click'])
 
 const segments = computed(() => {
   if (!props.subject) return []
@@ -18,13 +27,23 @@ const segments = computed(() => {
     id: i === parts.length - 2 && parts.length >= 2,
   }))
 })
+
+function onTokenClick(seg, i, evt) {
+  if (!props.clickable) return
+  evt.stopPropagation() // don't also trigger a parent row's own click (e.g. row selection)
+  emit('token-click', { index: i, text: seg.text })
+}
 </script>
 
 <template>
   <span class="subject" :title="subject">
     <template v-for="(seg, i) in segments" :key="i">
       <span class="sep" v-if="i > 0">.</span>
-      <span class="seg" :class="{ verb: seg.verb, id: seg.id }">{{ seg.text }}</span>
+      <span
+        class="seg"
+        :class="{ verb: seg.verb, id: seg.id, clickable: props.clickable }"
+        @click="onTokenClick(seg, i, $event)"
+      >{{ seg.text }}</span>
     </template>
   </span>
 </template>
@@ -56,5 +75,14 @@ const segments = computed(() => {
 .sep {
   color: var(--p-text-disabled-color);
   padding: 0 1px;
+}
+.seg.clickable {
+  border-radius: 3px;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.seg.clickable:hover {
+  background: rgba(0, 111, 255, 0.18);
+  color: var(--p-text-color);
 }
 </style>

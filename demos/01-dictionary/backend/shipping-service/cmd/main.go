@@ -34,13 +34,14 @@ import (
 )
 
 type app struct {
-	db       *sql.DB
-	js       jetstream.JetStream
-	nc       *nats.Conn
-	natsURL  string
-	credsDir string
-	mux      *http.ServeMux
-	logger   *slog.Logger
+	db             *sql.DB
+	js             jetstream.JetStream
+	nc             *nats.Conn
+	natsURL        string
+	credsDir       string
+	natsMonitorURL string
+	mux            *http.ServeMux
+	logger         *slog.Logger
 }
 
 func (a *app) DB() *sql.DB             { return a.db }
@@ -48,6 +49,7 @@ func (a *app) JS() jetstream.JetStream { return a.js }
 func (a *app) NC() *nats.Conn          { return a.nc }
 func (a *app) NatsURL() string         { return a.natsURL }
 func (a *app) CredsDir() string        { return a.credsDir }
+func (a *app) NatsMonitorURL() string  { return a.natsMonitorURL }
 func (a *app) Mux() *http.ServeMux     { return a.mux }
 func (a *app) Logger() *slog.Logger    { return a.logger }
 
@@ -73,6 +75,9 @@ func run(log *slog.Logger) error {
 	// Docker without operator mode configured (DEFAULT connect below then
 	// falls back to no credentials, matching today's local-dev behavior).
 	credsDir := envOr("NATS_CREDS_DIR", "")
+	// Phase 17c — Connections panel proxies the NATS server's HTTP
+	// monitoring port (distinct from natsURL's client port 4222).
+	natsMonitorURL := envOr("NATS_MONITOR_URL", "http://localhost:8222")
 
 	startupCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -109,7 +114,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	a := &app{db: db, js: js, nc: nc, natsURL: natsURL, credsDir: credsDir, mux: http.NewServeMux(), logger: log}
+	a := &app{db: db, js: js, nc: nc, natsURL: natsURL, credsDir: credsDir, natsMonitorURL: natsMonitorURL, mux: http.NewServeMux(), logger: log}
 
 	modules := []monolith.Module{dictionary.Module{}}
 	for _, m := range modules {

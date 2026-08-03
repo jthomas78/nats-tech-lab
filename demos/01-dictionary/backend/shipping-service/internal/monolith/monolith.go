@@ -35,6 +35,10 @@ type Monolith interface {
 	// NATS credentials. Empty when running locally outside Docker without
 	// operator mode configured.
 	CredsDir() string
+	// NatsMonitorURL is the NATS server's HTTP monitoring endpoint (default
+	// port 8222) — used by the admin Connections panel (Phase 17c) to proxy
+	// GET /connz. Distinct from NatsURL, which is the client (4222) port.
+	NatsMonitorURL() string
 	Mux() *http.ServeMux
 	Logger() *slog.Logger
 }

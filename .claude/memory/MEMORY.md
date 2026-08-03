@@ -22,3 +22,5 @@
 - [refdata database-per-service](refdata_database_per_service.md) — refdata-service moved off shared `postgres` to its own `refdata-postgres` instance (port 5433); NATS is now the only shared infra
 - [Admin UI realtime transport options](admin_ui_realtime_transport_options.md) — **resolved for seafreight-app** (Phase 15, single NATS WebSocket); Admin/Dictionary UIs still on SSE
 - [Phase 16 tenancy/taxonomy](phase16_tenancy_taxonomy.md) — 13-point decision record + a-f status: **all of 16a-16f DONE 2026-07-31**; known gap: refdata reads' tenant resolution doesn't track Sea Freight Flow's own NATS tenant
+- [Phase 17 Request/Reply panel](phase17_request_reply_panel.md) — DONE 2026-08-01 (BR-D36/BR-026 obs envelope + RpcPanel.vue rebuild); admin frontend has no Vitest infra
+- [Phase 18 Requestor/Responder headers](phase18_requestor_responder_headers.md) — DONE 2026-08-01 (BR-D37/BR-027); also fixed micro.Config.Name vs nats.Name mismatch (refdata-rpc/shipping-api → refdata-service/shipping-service)

@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nuid"
 )
 
 var ErrNotFound = errors.New("refdata item not found")
@@ -113,6 +114,11 @@ const (
 type Consumer struct {
 	nc *nats.Conn
 
+	// requestorID is this Consumer's Nats-Requestor value,
+	// "<nats.Name>/<NUID>" — fixed at construction so every call from this
+	// process carries the same instance identity (see requestorHeader).
+	requestorID string
+
 	rpcRequestTimeout time.Duration
 	rpcRetries        int
 	rpcBackoff        time.Duration
@@ -138,6 +144,7 @@ func WithRPCBackoff(d time.Duration) Option { return func(c *Consumer) { c.rpcBa
 func New(nc *nats.Conn, opts ...Option) *Consumer {
 	c := &Consumer{
 		nc:                nc,
+		requestorID:       fmt.Sprintf("%s/%s", nc.Opts.Name, nuid.Next()),
 		rpcRequestTimeout: defaultRPCRequestTimeout,
 		rpcRetries:        defaultRPCRetries,
 		rpcBackoff:        defaultRPCBackoff,
@@ -469,12 +476,29 @@ func checkRPCError(data []byte) error {
 	return nil
 }
 
+// requestorHeader carries the calling service's identity on every rpc.*
+// request — NATS auth identity lives at the connection level and never
+// reaches the handler's Msg, so without this header a handler (and the
+// Admin UI's Request/Reply panel) has no way to tell who called it. The
+// value is "<nats.Name>/<instance ID>", symmetric with Nats-Responder's
+// format: the name half reuses the connection's own nats.Name(...) (the
+// existing per-service identity) and the instance half is a NUID generated
+// once per Consumer, so replicas of the same service stay distinguishable —
+// the same service.name/service.instance.id split OpenTelemetry's resource
+// conventions use.
+const requestorHeader = "Nats-Requestor"
+
 // requestRPC makes a bounded number of attempts against subject (1 +
 // rpcRetries total), waiting rpcBackoff*attempt between them, and returns
 // ErrRPCUnavailable (wrapping the last underlying error) if every attempt
 // fails. There is no REST fallback to fall through to (BR-D28) — this is
 // the only transport this consumer has.
 func (c *Consumer) requestRPC(ctx context.Context, subject string, body []byte) ([]byte, error) {
+	msg := &nats.Msg{
+		Subject: subject,
+		Data:    body,
+		Header:  nats.Header{requestorHeader: []string{c.requestorID}},
+	}
 	var lastErr error
 	for attempt := 0; attempt <= c.rpcRetries; attempt++ {
 		if attempt > 0 {
@@ -485,10 +509,10 @@ func (c *Consumer) requestRPC(ctx context.Context, subject string, body []byte) 
 			}
 		}
 		rctx, cancel := context.WithTimeout(ctx, c.rpcRequestTimeout)
-		msg, err := c.nc.RequestWithContext(rctx, subject, body)
+		reply, err := c.nc.RequestMsgWithContext(rctx, msg)
 		cancel()
 		if err == nil {
-			return msg.Data, nil
+			return reply.Data, nil
 		}
 		lastErr = err
 	}

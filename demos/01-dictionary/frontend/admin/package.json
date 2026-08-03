@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@primevue/themes": "^4",
@@ -18,8 +20,11 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6",
+    "@vue/test-utils": "^2.4.11",
     "eslint": "^10.6.0",
     "eslint-plugin-vue": "^10.9.2",
-    "vite": "^7"
+    "happy-dom": "^20.10.6",
+    "vite": "^7",
+    "vitest": "^4.1.10"
   }
 }

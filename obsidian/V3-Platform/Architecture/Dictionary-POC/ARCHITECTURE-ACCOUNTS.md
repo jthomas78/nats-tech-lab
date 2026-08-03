@@ -127,20 +127,156 @@ sequenceDiagram
     NATS-->>Backend: OK (account JWT removed from resolver)
 
     Note over Backend: Cleanup
-    Backend->>Backend: Remove {name}.creds from shared creds directory (best-effort)
     Backend->>DB: UPDATE account SET status=suspended
+    Backend->>Backend: Remove {name}.creds from shared creds directory (best-effort)
     Backend-->>Admin: 200 OK
 
-    Note over Shipping,NATS: Existing connections under this account continue
-    Note over Shipping,NATS: but no NEW connections can authenticate
+    Note over Shipping,NATS: NATS evicts every existing connection on the revoked account
+    Note over Shipping,NATS: and no new connection can authenticate
     Note over Shipping: Tenant selector no longer lists this account (.creds gone)
 ```
+
+> **Corrected 2026-08-03.** This diagram previously stated that existing
+> connections under the account *continue* after the revoke, mirroring the
+> (also incorrect) doc comment on `Provisioner.DeleteAccount`. Verified
+> against NATS 2.11 on the running stack: connections **are** force-evicted,
+> within a couple of seconds, and the server logs
+> `account authentication expired` to each affected client. The revoke is a
+> hard boundary, not a lazy one. See 2t-a below for what that eviction does
+> to clients that were connected at the time.
+
+### 2t-a. Suspension — runtime effect on connected clients
+
+2t above covers what `accounts-service` *does*. This covers what happens to
+everyone who was connected when it did it — the cross-service consequence,
+which is where the current gaps are.
+
+Verified end to end against the running Docker stack on 2026-08-03 (a
+throwaway tenant was minted, connected to, suspended, and observed via
+`/connz`, `nats sub`, and `docker logs`), not derived from reading the code.
+
+```mermaid
+sequenceDiagram
+    participant Browser as Sea Freight Flow (browser)
+    participant Auth as auth-service
+    participant NATS as NATS Server
+    participant Shipping as shipping-service
+    participant Accounts as accounts-service
+
+    Note over Browser,Shipping: Normal operation — browser connected on the tenant's account
+    Browser->>NATS: api.{context}.shipping.container.list.v1
+    NATS->>Shipping: routed to that tenant's browserrpc adapter
+    Shipping-->>NATS: reply
+    NATS-->>Browser: {"containers":[...]}
+
+    Note over Accounts: Operator suspends the tenant (BR-AC03)
+    Accounts->>NATS: $SYS.REQ.CLAIMS.DELETE (account JWT removed from resolver)
+    Accounts->>Accounts: SetStatus(suspended), then remove {name}.creds
+
+    Note over NATS: Server evicts every connection on the revoked account
+    NATS-xBrowser: disconnect
+    NATS-xShipping: disconnect — "account authentication expired"
+
+    Note over Browser: nc.closed() fires, connected = false, re-authenticate from scratch
+    Browser->>Auth: GET /api/auth/connectInfo?tenant={name}
+    Auth-->>Browser: 403 "tenant is not active"
+    Note over Browser: GAP — lastError is set but no component renders it
+
+    loop forever, until the process restarts
+        Shipping->>Shipping: reconnect, open {name}.creds, ENOENT
+    end
+```
+
+Three things worth drawing out:
+
+- **An `api.*` request on a suspended account is usually never sent at all** —
+  the connection is already gone. A request genuinely in flight at the moment
+  of eviction simply never gets a reply and hits the browser's 5s
+  `REQUEST_TIMEOUT_MS`.
+- **The browser path is correct, close to by accident.** The re-authenticate
+  logic in `useNatsConnection.js` exists for the 5-minute browser JWT expiry;
+  it handles suspension properly only because `connectInfo` re-checks status
+  and refuses. Its one flaw is that `lastError` is never rendered, so the
+  operator sees panels quietly stop updating with no explanation.
+- **The `shipping-service` path is broken.** Its per-tenant connection is
+  evicted like any other, but nothing classifies that as terminal, so
+  `nats.go` retries forever against a `.creds` file suspension has already
+  deleted. One permanent loop accumulates per suspension, cleared only by a
+  restart. This is the exact mirror of BR-030: there is reactive handling for
+  a tenant appearing, and none for a tenant going away.
+
+There is also a narrow window between the `$SYS.REQ.CLAIMS.DELETE` and the
+Postgres status update in which `auth-service` still reports the tenant active
+and will mint a browser JWT for an account that no longer resolves. It fails
+closed — the connection is simply refused — so it is a confusing error rather
+than a security hole.
+
+#### Proposed — not implemented
+
+Everything below is a design sketch, not current behaviour. Nothing in this
+section exists in the code as of 2026-08-03.
+
+```mermaid
+sequenceDiagram
+    participant Browser as Sea Freight Flow (browser)
+    participant Auth as auth-service
+    participant NATS as NATS Server
+    participant Shipping as shipping-service
+    participant Accounts as accounts-service
+
+    Note over Accounts: Operator suspends the tenant (BR-AC03)
+    Accounts->>NATS: $SYS.REQ.CLAIMS.DELETE (account JWT removed from resolver)
+    Accounts->>NATS: NEW — publish notify.accounts.account.suspended (DEFAULT account)
+
+    Note over NATS: Eviction is unchanged — it is the security boundary working
+    NATS-xBrowser: disconnect
+    NATS-xShipping: disconnect
+
+    NATS->>Shipping: notify.accounts.account.suspended (on mono.NC(), DEFAULT)
+    Note over Shipping: NEW — tear down that tenant's resources
+    Shipping->>Shipping: stop browserrpc adapter + projectors, close conn, no reconnect
+
+    Browser->>Auth: GET /api/auth/connectInfo?tenant={name}
+    Auth-->>Browser: 403 "tenant is not active"
+    Note over Browser: NEW — surface lastError as "tenant suspended"
+```
+
+Design notes on the sketch:
+
+- **Eviction stays.** The fix is not to soften the revoke; it is to react to
+  it. The red path in the current diagram is correct behaviour.
+- **The event mirrors BR-AC08 exactly** — same DEFAULT-account connection
+  `accounts-service` already opens to publish `notify.accounts.account.created`,
+  same context-free subject family, consumed by `shipping-service` on the same
+  `mono.NC()` that already handles the created event.
+- **Publish after the revoke succeeds**, keeping BR-AC08's "only announce what
+  actually happened" rule. The cost is that `shipping-service` is evicted a few
+  milliseconds before the event arrives, so it may spin through one or two
+  failed reconnects before teardown lands — bounded, versus unbounded today.
+  Publishing *before* the revoke would be fully graceful but risks announcing a
+  suspension that then fails.
+- **An error-classification backstop belongs alongside the event**, not instead
+  of it. `notify.*` is core NATS with no persistence, so a service that is down
+  when the event fires misses it permanently, and an account removed outside
+  `accounts-service` (an operator running `nsc`, a resolver purge) never
+  produces one at all. Classifying connection and JetStream errors as terminal
+  (account gone, creds missing, `JSNoAccountErr` 10035, `JSNotEnabledForAccountErr`
+  10039) versus transient (network, server restart) makes teardown self-healing.
+  Note that 10035's advisory `503` maps to "retryable" in HTTP terms and is
+  actively misleading here — account-not-found after a revoke is permanent, and
+  treating it as transient is precisely the bug above.
+
+Reactivation (3t) is asymmetric with all of this and has not been verified:
+it re-mints the JWT and `.creds`, so a *new* connection succeeds, but nothing
+currently tells `shipping-service` to re-provision the tenant it tore down or
+gave up on.
 
 ### 3t. Tenant account reactivation
 
 BR-AC04 — re-sign and re-push account JWT, mint fresh `.creds`.
 
 ```mermaid
+
 sequenceDiagram
     participant Admin as Admin (UI)
     participant Backend as accounts-service

@@ -132,47 +132,53 @@ async function submitLoad(containerID, shipID) {
         @click="openRegister"
       />
     </div>
-    <DataTable :value="outboundContainers" size="small" data-key="containerID" resizableColumns columnResizeMode="expand">
-      <template #empty>
-        <span class="lab-muted">{{ t('terminal.outboundEmpty') }}</span>
-      </template>
-      <Column field="containerID" :header="t('table.container')" style="font-family:monospace;font-size:12px" />
-      <Column field="cargo" :header="t('table.cargo')" />
-      <Column field="originPort" :header="t('table.origin')" style="width:110px" />
-      <Column :header="t('table.destination')" style="width:130px">
-        <template #body="{ data }">
-          <Tag severity="info" :value="data.destPort" />
+    <p v-if="store.loading" class="lab-muted loading-line">
+      <span class="spinner" aria-hidden="true" />
+      {{ t('terminal.loading') }}
+    </p>
+    <template v-else>
+      <DataTable :value="outboundContainers" size="small" data-key="containerID" resizableColumns columnResizeMode="expand">
+        <template #empty>
+          <span class="lab-muted">{{ t('terminal.outboundEmpty') }}</span>
         </template>
-      </Column>
-      <Column header="" style="width:100px">
-        <template #body="{ data: container }">
-          <Button
-            :label="t('action.load')"
-            size="small"
-            :disabled="store.dockedShips.length === 0 || loadBusyID === container.containerID"
-            :loading="loadBusyID === container.containerID"
-            :title="store.dockedShips.length === 0 ? t('terminal.noDockedShips') : ''"
-            @click="openShipMenu($event, container.containerID)"
-          />
-        </template>
-      </Column>
-    </DataTable>
-    <Menu ref="shipMenu" :model="shipMenuItems" popup />
+        <Column field="containerID" :header="t('table.container')" style="font-family:monospace;font-size:12px" />
+        <Column field="cargo" :header="t('table.cargo')" />
+        <Column field="originPort" :header="t('table.origin')" style="width:110px" />
+        <Column :header="t('table.destination')" style="width:130px">
+          <template #body="{ data }">
+            <Tag severity="info" :value="data.destPort" />
+          </template>
+        </Column>
+        <Column header="" style="width:100px">
+          <template #body="{ data: container }">
+            <Button
+              :label="t('action.load')"
+              size="small"
+              :disabled="store.dockedShips.length === 0 || loadBusyID === container.containerID"
+              :loading="loadBusyID === container.containerID"
+              :title="store.dockedShips.length === 0 ? t('terminal.noDockedShips') : ''"
+              @click="openShipMenu($event, container.containerID)"
+            />
+          </template>
+        </Column>
+      </DataTable>
+      <Menu ref="shipMenu" :model="shipMenuItems" popup />
 
-    <h4>{{ t('terminal.arrived') }}</h4>
-    <DataTable :value="arrivedContainers" size="small" data-key="containerID" resizableColumns columnResizeMode="expand">
-      <template #empty>
-        <span class="lab-muted">{{ t('terminal.arrivedEmpty') }}</span>
-      </template>
-      <Column field="containerID" :header="t('table.container')" style="font-family:monospace;font-size:12px" />
-      <Column field="cargo" :header="t('table.cargo')" />
-      <Column field="originPort" :header="t('table.origin')" style="width:110px" />
-      <Column :header="t('table.destination')" style="width:130px">
-        <template #body="{ data }">
-          <Tag severity="success" :value="data.destPort" />
+      <h4>{{ t('terminal.arrived') }}</h4>
+      <DataTable :value="arrivedContainers" size="small" data-key="containerID" resizableColumns columnResizeMode="expand">
+        <template #empty>
+          <span class="lab-muted">{{ t('terminal.arrivedEmpty') }}</span>
         </template>
-      </Column>
-    </DataTable>
+        <Column field="containerID" :header="t('table.container')" style="font-family:monospace;font-size:12px" />
+        <Column field="cargo" :header="t('table.cargo')" />
+        <Column field="originPort" :header="t('table.origin')" style="width:110px" />
+        <Column :header="t('table.destination')" style="width:130px">
+          <template #body="{ data }">
+            <Tag severity="success" :value="data.destPort" />
+          </template>
+        </Column>
+      </DataTable>
+    </template>
 
     <Dialog v-model:visible="registerVisible" :header="t('terminal.registerContainer')" modal style="width:26rem">
       <div class="dialog-fields">
@@ -218,6 +224,32 @@ async function submitLoad(containerID, shipID) {
 .no-port {
   margin-bottom: 0.75rem;
   font-size: 0.85rem;
+}
+.loading-line {
+  margin: 0 0 0.75rem;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.spinner {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--lab-panel-border);
+  border-top-color: var(--lab-accent);
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
 }
 .op-row {
   display: flex;

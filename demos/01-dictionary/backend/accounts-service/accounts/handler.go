@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 )
 
@@ -74,10 +75,76 @@ type Handlers struct {
 	Provisioner *Provisioner
 	CredsDir    string // shared nats-creds volume; new <name>.creds files are written here
 	Log         *slog.Logger
+	// NotifyNC is a DEFAULT-account connection (Phase 16h/BR-AC08) used only
+	// to publish notify.accounts.account.created after a successful create —
+	// nil-safe (publish is skipped) so this service still runs if that
+	// connection isn't configured. Deliberately a separate connection from
+	// Provisioner's sysNC: $SYS.REQ.CLAIMS.* and this notify event are
+	// unrelated concerns, and shipping-service's subscriber (composition.go)
+	// listens on its own DEFAULT-account connection — core NATS pub/sub
+	// never crosses an account boundary, so publishing from sysNC would
+	// never reach it.
+	NotifyNC *nats.Conn
 }
 
-func NewHandlers(store *Store, provisioner *Provisioner, credsDir string, log *slog.Logger) *Handlers {
-	return &Handlers{Store: store, Provisioner: provisioner, CredsDir: credsDir, Log: log}
+func NewHandlers(store *Store, provisioner *Provisioner, credsDir string, log *slog.Logger, notifyNC *nats.Conn) *Handlers {
+	return &Handlers{Store: store, Provisioner: provisioner, CredsDir: credsDir, Log: log, NotifyNC: notifyNC}
+}
+
+// publishAccountCreated fire-and-forget notifies shipping-service (or any
+// other interested service) that a new tenant now exists, so it can
+// provision that tenant's resources immediately instead of waiting for a
+// human to switch to it first (BR-AC08; shipping-service's
+// Handlers.EnsureTenantByName, BR-030, is the consumer). Context-free
+// subject — accounts-service has no {context} of its own, matching this
+// service's other subjects (ARCHITECTURE-COMMUNICATIONS.md § "Context-free
+// services"). Best-effort: a delivery failure here doesn't fail the create
+// request — the account is already fully minted and persisted by the time
+// this is called; EnsureAllTenants' startup scan or a later Admin UI
+// SwitchTenant remain fallback paths if this specific event is ever missed.
+func (h *Handlers) publishAccountCreated(name string) {
+	if h.NotifyNC == nil {
+		return
+	}
+	payload, err := json.Marshal(struct {
+		Name string `json:"name"`
+	}{Name: name})
+	if err != nil {
+		h.Log.Error("marshal account-created event", "name", name, "err", err)
+		return
+	}
+	if err := h.NotifyNC.Publish("notify.accounts.account.created", payload); err != nil {
+		h.Log.Error("publish account-created event", "name", name, "err", err)
+	}
+}
+
+// publishAccountSuspended is the mirror of publishAccountCreated (BR-AC09):
+// fire-and-forget notifies shipping-service that a tenant it may be holding
+// a live connection for has just been revoked, so it can tear that
+// connection down explicitly instead of letting nats.go's default reconnect
+// logic retry forever against a .creds file suspendAccount has already
+// deleted (shipping-service's Handlers.TeardownTenantByName, BR-031, is the
+// consumer — see ARCHITECTURE-ACCOUNTS.md § 2t-a for the runtime behavior
+// this closes). Same context-free subject family and same best-effort
+// contract as publishAccountCreated: a delivery failure here doesn't fail
+// the suspend request, since $SYS.REQ.CLAIMS.DELETE has already revoked the
+// account at the resolver by the time this is called — that revoke is the
+// actual security boundary, this is only what makes shipping-service notice
+// promptly rather than eventually.
+func (h *Handlers) publishAccountSuspended(name string) {
+	if h.NotifyNC == nil {
+		return
+	}
+	payload, err := json.Marshal(struct {
+		Name string `json:"name"`
+	}{Name: name})
+	if err != nil {
+		h.Log.Error("marshal account-suspended event", "name", name, "err", err)
+		return
+	}
+	if err := h.NotifyNC.Publish("notify.accounts.account.suspended", payload); err != nil {
+		h.Log.Error("publish account-suspended event", "name", name, "err", err)
+	}
 }
 
 func (h *Handlers) Mount(mux *http.ServeMux, authSecret string) {
@@ -204,6 +271,10 @@ func (h *Handlers) createAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "account minted but failed to persist — resolver and Postgres are now inconsistent")
 		return
 	}
+	// Published only once the account is fully committed (resolver JWT,
+	// creds file, and this Postgres row) — a subscriber reacting to it
+	// should never see a half-provisioned tenant.
+	h.publishAccountCreated(in.Name)
 
 	stored, err := h.Store.Get(r.Context(), in.Name)
 	if err != nil {
@@ -270,6 +341,7 @@ func (h *Handlers) suspendAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "account revoked but failed to update status")
 		return
 	}
+	h.publishAccountSuspended(name)
 
 	if h.CredsDir != "" {
 		// Best-effort: remove the shared .creds file so shipping-service's

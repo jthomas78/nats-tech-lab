@@ -1,0 +1,369 @@
+<!doctype html>
+<!--
+  Approved static visual reference for the Request/Reply panel rebuild
+  (Main-POC-Plan.md Phase 17, approved 2026-08-01). Same convention as
+  shared/unifi-theme/app-shell-reference.html: RpcPanel.vue's Phase 17b
+  implementation should match this file, not re-derive the design.
+  Layout: bottom detail split with paired Request | Reply panes + subject
+  token-facet filtering. CSS tokens are copied from shared/unifi-theme/
+  unifi.css so the file stands alone; the real implementation imports the
+  theme instead. Data shown is illustrative but structurally honest —
+  headers/latency/sizes require the Phase 17a obs-envelope extension.
+-->
+<html class="p-dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Request/Reply — Phase 17 reference (paired panes + token filters)</title>
+<style>
+/* ── UniFi theme tokens (copied from shared/unifi-theme/unifi.css) ── */
+:root {
+  --p-text-color: #dee0e3;
+  --p-text-muted-color: #b7bcc2;
+  --p-text-disabled-color: #737c87;
+  --lab-bg: #14171b;
+  --lab-panel-bg: #1a1e23;
+  --lab-panel-border: #2c3138;
+  --lab-accent: #006fff;
+  --ok: #2fbf71;
+  --err: #e5484d;
+  --warn: #d9a514;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--lab-bg); color: var(--p-text-color);
+  font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  height: 100%;
+}
+body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+/* ── app shell approximation ── */
+.topbar {
+  display: flex; align-items: center; gap: 10px;
+  height: 34px; padding: 0 12px; flex: none;
+  background: var(--lab-panel-bg); border-bottom: 1px solid var(--lab-panel-border);
+}
+.topbar .logo { width: 16px; height: 16px; border-radius: 3px; background: var(--lab-accent);
+  display:inline-flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:#fff; }
+.topbar b { font-size: 12px; }
+.topbar .sub { color: var(--p-text-muted-color); font-size: 11px; }
+.shell { display: flex; flex: 1; min-height: 0; }
+.sidebar {
+  width: 138px; flex: none; padding: 8px 6px;
+  background: var(--lab-panel-bg); border-right: 1px solid var(--lab-panel-border);
+  font-size: 12px;
+}
+.sidebar .eyebrow { font-size: 9px; letter-spacing: .08em; color: var(--p-text-disabled-color);
+  text-transform: uppercase; margin: 10px 6px 3px; }
+.sidebar .item { padding: 3px 8px; border-radius: 3px; color: var(--p-text-muted-color); cursor: default; }
+.sidebar .item.active { background: rgba(0,111,255,.14); color: var(--p-text-color);
+  border-left: 2px solid var(--lab-accent); padding-left: 6px; }
+
+/* ── main column ── */
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 10px; gap: 8px; }
+
+/* ── filter bar ── */
+.filterbar {
+  flex: none; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  background: var(--lab-panel-bg); border: 1px solid var(--lab-panel-border);
+  border-radius: 4px; padding: 5px 8px;
+}
+.live-dot { display:inline-flex; align-items:center; gap:5px; font-size:11px; color: var(--ok); font-weight:600; }
+.live-dot i { width:7px; height:7px; border-radius:50%; background: var(--ok); animation: pulse 2s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+.searchbox {
+  flex: 1; min-width: 160px; display: flex; align-items: center; gap: 6px;
+  background: var(--lab-bg); border: 1px solid var(--lab-panel-border); border-radius: 3px;
+  padding: 2px 8px; font-family: var(--mono); font-size: 11px; color: var(--p-text-muted-color);
+}
+.searchbox input { flex:1; background: none; border: none; outline: none; color: var(--p-text-color);
+  font-family: var(--mono); font-size: 11px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; line-height: 16px; padding: 1px 8px; border-radius: 3px;
+  border: 1px solid var(--lab-panel-border); color: var(--p-text-muted-color);
+  cursor: pointer; user-select: none; background: transparent;
+}
+.chip.on { border-color: var(--lab-accent); color: var(--lab-accent); background: rgba(0,111,255,.10); }
+.chip.err.on { border-color: var(--err); color: var(--err); background: rgba(229,72,77,.10); }
+.chip.facet {
+  border-color: rgba(0,111,255,.45); color: var(--p-text-color); background: rgba(0,111,255,.10);
+  font-family: var(--mono);
+}
+.chip.facet .k { color: var(--p-text-disabled-color); }
+.chip.facet .x { color: var(--p-text-disabled-color); margin-left: 2px; font-style: normal; }
+.chip.facet .x:hover { color: var(--err); }
+.pausebtn {
+  border: 1px solid var(--lab-panel-border); background: transparent; color: var(--p-text-muted-color);
+  border-radius: 3px; font-size: 11px; padding: 1px 9px; cursor: pointer;
+}
+.pausebtn:hover { color: var(--p-text-color); border-color: var(--p-text-disabled-color); }
+
+/* ── table ── */
+.tablewrap {
+  flex: 1; min-height: 0; overflow: auto;
+  background: var(--lab-panel-bg); border: 1px solid var(--lab-panel-border); border-radius: 4px;
+}
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+thead th {
+  position: sticky; top: 0; z-index: 1;
+  text-align: left; font-size: 10px; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--p-text-disabled-color);
+  background: var(--lab-panel-bg); border-bottom: 1px solid var(--lab-panel-border);
+  padding: 4px 8px; white-space: nowrap;
+}
+tbody td { padding: 2px 8px; border-bottom: 1px solid rgba(44,49,56,.5); white-space: nowrap; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: rgba(255,255,255,.025); }
+tbody tr.sel { background: rgba(0,111,255,.12); box-shadow: inset 2px 0 0 var(--lab-accent); }
+.num { font-variant-numeric: tabular-nums; text-align: right; color: var(--p-text-muted-color); }
+.t-status { width: 54px; } .t-fam { width: 44px; } .t-time { width: 78px; }
+.t-lat { width: 60px; } .t-size { width: 66px; }
+
+.badge {
+  display: inline-block; font-size: 10px; font-weight: 700; line-height: 15px;
+  border-radius: 3px; padding: 0 6px; letter-spacing: .03em;
+}
+.badge.ok    { color: var(--ok);   background: rgba(47,191,113,.12); }
+.badge.error { color: var(--err);  background: rgba(229,72,77,.14); }
+.badge.pend  { color: var(--warn); background: rgba(217,165,20,.13); }
+.fam { font-family: var(--mono); font-size: 10px; font-weight: 700; border-radius: 3px; padding: 0 5px; line-height: 15px; display:inline-block; }
+.fam.rpc { color: #b18cff; background: rgba(148,101,255,.13); }
+.fam.api { color: #4cc2ff; background: rgba(56,178,255,.12); }
+
+/* subject tokens — click to filter */
+.subj { font-family: var(--mono); font-size: 11px; }
+.subj .sep { color: var(--p-text-disabled-color); padding: 0 1px; }
+.subj .tok { color: var(--p-text-muted-color); border-radius: 3px; padding: 0 2px; }
+.subj .tok:hover { background: rgba(0,111,255,.18); color: var(--p-text-color); cursor: pointer; }
+.subj .tok.verb { color: var(--lab-accent); font-weight: 600; }
+.subj .tok.ver { color: var(--p-text-disabled-color); }
+
+/* ── detail split (Option B) ── */
+.detail {
+  flex: none; height: 46%; min-height: 220px; display: flex; flex-direction: column;
+  background: var(--lab-panel-bg); border: 1px solid var(--lab-panel-border); border-radius: 4px;
+}
+.detail-head {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 5px 10px; border-bottom: 1px solid var(--lab-panel-border);
+}
+.detail-head .subj { font-size: 12px; }
+.meta { display: inline-flex; gap: 10px; font-size: 11px; color: var(--p-text-muted-color);
+  font-variant-numeric: tabular-nums; }
+.meta b { color: var(--p-text-color); font-weight: 600; }
+.detail-head .close { margin-left: auto; color: var(--p-text-disabled-color); cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 2px 4px; border-radius: 3px; }
+.detail-head .close:hover { color: var(--p-text-color); background: rgba(255,255,255,.05); }
+
+.panes { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; }
+.pane { min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.pane + .pane { border-left: 1px solid var(--lab-panel-border); }
+.pane-title {
+  flex: none; display:flex; align-items:center; gap: 8px;
+  font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--p-text-disabled-color); padding: 5px 10px 3px;
+}
+.pane-title .dir { width: 14px; height: 14px; border-radius: 3px; display: inline-flex;
+  align-items: center; justify-content: center; font-size: 9px; }
+.dir.req { background: rgba(56,178,255,.15); color: #4cc2ff; }
+.dir.rep { background: rgba(47,191,113,.14); color: var(--ok); }
+.pane-body { flex: 1; min-height: 0; overflow: auto; padding: 0 10px 8px; }
+
+.sect { margin-top: 6px; }
+.sect > .sect-label {
+  font-size: 10px; font-weight: 600; color: var(--p-text-muted-color);
+  letter-spacing: .04em; margin-bottom: 2px; display: flex; align-items: center; gap: 6px;
+}
+.sect > .sect-label .count { color: var(--p-text-disabled-color); font-weight: 400; }
+.copy { margin-left:auto; font-size: 10px; color: var(--p-text-disabled-color); cursor: pointer;
+  border: 1px solid transparent; border-radius: 3px; padding: 0 5px; }
+.copy:hover { color: var(--p-text-color); border-color: var(--lab-panel-border); }
+
+.kv { font-family: var(--mono); font-size: 11px; border: 1px solid var(--lab-panel-border);
+  border-radius: 3px; overflow: hidden; }
+.kv .row { display: grid; grid-template-columns: 170px 1fr; }
+.kv .row:nth-child(odd) { background: rgba(255,255,255,.02); }
+.kv .k { color: var(--p-text-muted-color); padding: 1px 8px; border-right: 1px solid rgba(44,49,56,.6); }
+.kv .v { color: var(--p-text-color); padding: 1px 8px; overflow-wrap: anywhere; white-space: normal; }
+.kv .v.errv { color: var(--err); }
+
+pre.json {
+  margin: 0; font-family: var(--mono); font-size: 11px; line-height: 17px;
+  background: var(--lab-bg); border: 1px solid var(--lab-panel-border); border-radius: 3px;
+  padding: 6px 8px; overflow: auto; white-space: pre;
+}
+.jk { color: #7fb3ff; } .js { color: #7fd8a4; } .jn { color: #e2b86b; } .jp { color: var(--p-text-disabled-color); }
+
+.errbanner b { white-space: nowrap; }
+.errbanner {
+  margin-top: 6px; display: flex; gap: 8px; align-items: baseline;
+  border: 1px solid rgba(229,72,77,.4); background: rgba(229,72,77,.08);
+  border-radius: 3px; padding: 4px 8px; font-size: 11px; color: var(--err);
+  font-family: var(--mono);
+}
+.hint { font-size: 11px; color: var(--p-text-disabled-color); padding: 20px 10px; text-align: center; }
+
+.footnote { flex:none; font-size: 10px; color: var(--p-text-disabled-color); padding: 0 2px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="logo">A</span><b>Tech Lab Admin</b>
+  <span class="sub">rpc.* + api.* request/reply traffic · rpc.* replays last 10 min, api.* live only</span>
+</div>
+
+<div class="shell">
+  <nav class="sidebar">
+    <div class="item">Overview</div>
+    <div class="eyebrow">JetStream</div>
+    <div class="item">Streams</div>
+    <div class="item">KV Buckets</div>
+    <div class="item">CQRS Shapes</div>
+    <div class="item active">Request/Reply</div>
+    <div class="eyebrow">Postgres</div>
+    <div class="item">Tables</div>
+    <div class="eyebrow">Platform</div>
+    <div class="item">Accounts</div>
+  </nav>
+
+  <main class="main">
+
+    <!-- filter bar: free text + family/status toggles + token facet chips + pause -->
+    <div class="filterbar">
+      <span class="live-dot"><i></i>live</span>
+      <span class="searchbox">⌕ <input placeholder="filter subjects — or click any subject token below" value=""></span>
+      <span class="chip on" title="toggle family">rpc</span>
+      <span class="chip on" title="toggle family">api</span>
+      <span class="chip on">ok</span>
+      <span class="chip err on">error</span>
+      <span class="chip">pending</span>
+      <span class="chip facet"><span class="k">entity:</span>ship<i class="x">✕</i></span>
+      <button class="pausebtn">⏸ pause</button>
+    </div>
+
+    <!-- full-width table -->
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="t-status">Status</th>
+            <th class="t-fam">Fam</th>
+            <th>Subject</th>
+            <th class="t-time">Time</th>
+            <th class="t-lat num">Latency</th>
+            <th class="t-size num">Size ⇅</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="badge ok">ok</span></td>
+            <td><span class="fam api">api</span></td>
+            <td><span class="subj"><span class="tok">api</span><span class="sep">.</span><span class="tok">acme</span><span class="sep">.</span><span class="tok">shipping</span><span class="sep">.</span><span class="tok">ship</span><span class="sep">.</span><span class="tok verb">list</span><span class="sep">.</span><span class="tok ver">v1</span></span></td>
+            <td class="num">09:41:22.310</td><td class="num">6 ms</td><td class="num">2 B ⁄ 1.4 KB</td>
+          </tr>
+          <tr class="sel">
+            <td><span class="badge error">error</span></td>
+            <td><span class="fam api">api</span></td>
+            <td><span class="subj"><span class="tok">api</span><span class="sep">.</span><span class="tok">acme</span><span class="sep">.</span><span class="tok">shipping</span><span class="sep">.</span><span class="tok">ship</span><span class="sep">.</span><span class="tok verb">arrive</span><span class="sep">.</span><span class="tok ver">v1</span></span></td>
+            <td class="num">09:41:20.892</td><td class="num">14 ms</td><td class="num">96 B ⁄ 118 B</td>
+          </tr>
+          <tr>
+            <td><span class="badge ok">ok</span></td>
+            <td><span class="fam api">api</span></td>
+            <td><span class="subj"><span class="tok">api</span><span class="sep">.</span><span class="tok">acme</span><span class="sep">.</span><span class="tok">shipping</span><span class="sep">.</span><span class="tok">ship</span><span class="sep">.</span><span class="tok verb">register</span><span class="sep">.</span><span class="tok ver">v1</span></span></td>
+            <td class="num">09:40:58.104</td><td class="num">21 ms</td><td class="num">118 B ⁄ 310 B</td>
+          </tr>
+          <tr>
+            <td><span class="badge pend">pending</span></td>
+            <td><span class="fam api">api</span></td>
+            <td><span class="subj"><span class="tok">api</span><span class="sep">.</span><span class="tok">acme</span><span class="sep">.</span><span class="tok">shipping</span><span class="sep">.</span><span class="tok">ship</span><span class="sep">.</span><span class="tok verb">depart</span><span class="sep">.</span><span class="tok ver">v1</span></span></td>
+            <td class="num">09:40:41.771</td><td class="num">—</td><td class="num">84 B ⁄ —</td>
+          </tr>
+          <tr>
+            <td><span class="badge ok">ok</span></td>
+            <td><span class="fam rpc">rpc</span></td>
+            <td><span class="subj"><span class="tok">rpc</span><span class="sep">.</span><span class="tok">acme</span><span class="sep">.</span><span class="tok">refdata</span><span class="sep">.</span><span class="tok">ship-status</span><span class="sep">.</span><span class="tok verb">list</span><span class="sep">.</span><span class="tok ver">v1</span></span></td>
+            <td class="num">09:40:12.055</td><td class="num">3 ms</td><td class="num">44 B ⁄ 2.1 KB</td>
+          </tr>
+          <tr>
+            <td><span class="badge ok">ok</span></td>
+            <td><span class="fam rpc">rpc</span></td>
+            <td><span class="subj"><span class="tok">rpc</span><span class="sep">.</span><span class="tok">_platform</span><span class="sep">.</span><span class="tok">refdata</span><span class="sep">.</span><span class="tok">context</span><span class="sep">.</span><span class="tok verb">list</span><span class="sep">.</span><span class="tok ver">v1</span></span></td>
+            <td class="num">09:40:11.910</td><td class="num">2 ms</td><td class="num">18 B ⁄ 664 B</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- detail: paired request / reply panes -->
+    <section class="detail">
+      <div class="detail-head">
+        <span class="subj"><span class="tok">api</span><span class="sep">.</span><span class="tok">acme</span><span class="sep">.</span><span class="tok">shipping</span><span class="sep">.</span><span class="tok">ship</span><span class="sep">.</span><span class="tok verb">arrive</span><span class="sep">.</span><span class="tok ver">v1</span></span>
+        <span class="meta">
+          <span><b class="badge error">error</b></span>
+          <span>latency <b>14 ms</b></span>
+          <span>corr <b>_INBOX.h3Kd92…f4</b></span>
+          <span>tenant <b>acme</b></span>
+          <span>source <b>live</b></span>
+        </span>
+        <span class="close" title="close">✕</span>
+      </div>
+      <div class="panes">
+        <div class="pane">
+          <div class="pane-title"><span class="dir req">→</span> Request <span class="lab-muted" style="text-transform:none;font-weight:400">96 B · 09:41:20.892</span></div>
+          <div class="pane-body">
+            <div class="sect">
+              <div class="sect-label">Headers <span class="count">(3)</span> <span class="copy">copy</span></div>
+              <div class="kv">
+                <div class="row"><span class="k">Content-Type</span><span class="v">application/json</span></div>
+                <div class="row"><span class="k">Nats-Msg-Id</span><span class="v">seafreight-4f2a09c1</span></div>
+                <div class="row"><span class="k">X-Client</span><span class="v">seafreight-app/0.16.0</span></div>
+              </div>
+            </div>
+            <div class="sect">
+              <div class="sect-label">Body <span class="copy">copy</span></div>
+              <pre class="json"><span class="jp">{</span>
+  <span class="jk">"shipID"</span><span class="jp">:</span> <span class="js">"MV-AURELIA"</span><span class="jp">,</span>
+  <span class="jk">"port"</span><span class="jp">:</span> <span class="js">"Rotterdam"</span><span class="jp">,</span>
+  <span class="jk">"orientation"</span><span class="jp">:</span> <span class="js">"starboard"</span>
+<span class="jp">}</span></pre>
+            </div>
+          </div>
+        </div>
+        <div class="pane">
+          <div class="pane-title"><span class="dir rep">←</span> Reply <span class="lab-muted" style="text-transform:none;font-weight:400">118 B · 09:41:20.906</span></div>
+          <div class="pane-body">
+            <div class="errbanner"><b>BR-004</b> ship MV-AURELIA is already docked at Rotterdam — arrive is not a valid transition</div>
+            <div class="sect">
+              <div class="sect-label">Headers <span class="count">(2)</span> <span class="copy">copy</span></div>
+              <div class="kv">
+                <div class="row"><span class="k">Nats-Service-Error</span><span class="v errv">ship MV-AURELIA is already docked at Rotterdam</span></div>
+                <div class="row"><span class="k">Nats-Service-Error-Code</span><span class="v errv">422</span></div>
+              </div>
+            </div>
+            <div class="sect">
+              <div class="sect-label">Body <span class="copy">copy</span></div>
+              <pre class="json"><span class="jp">{</span>
+  <span class="jk">"error"</span><span class="jp">:</span> <span class="js">"ship MV-AURELIA is already docked at Rotterdam"</span><span class="jp">,</span>
+  <span class="jk">"code"</span><span class="jp">:</span> <span class="jn">422</span>
+<span class="jp">}</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="footnote">
+      mock — clicking a subject token adds it as a facet chip (see <code>entity:ship</code> above) · table keeps streaming while the detail pane is open · ⏸ pause freezes the list, not the SSE
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

@@ -23,6 +23,7 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/nats-io/nats.go/micro"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/queries"
@@ -109,6 +110,7 @@ var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
 			Meta:       queries.NewMeta(kvMeta),
 			ShapeA:     queries.NewShapeA(kvA),
 			Log:        log,
+			Tenant:     fleetCtx,
 		})
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(func() { Expect(adapter.Stop()).To(Succeed()) })
@@ -329,6 +331,183 @@ var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
 			}
 			Expect(json.Unmarshal(msg.Data, &resp)).To(Succeed())
 			Expect(resp.Ship.ShipID).To(Equal("orient-express"))
+		})
+	})
+
+	Context("BR-026: every obs.api.* event carries its headers, a publisher-side timestamp, and its payload size", func() {
+		type obsEnvelope struct {
+			Direction     string              `json:"direction"`
+			Error         string              `json:"error,omitempty"`
+			Headers       map[string][]string `json:"headers,omitempty"`
+			Timestamp     time.Time           `json:"timestamp"`
+			PayloadBytes  int                 `json:"payloadBytes"`
+			CorrelationID string              `json:"correlationId"`
+		}
+
+		It("stamps the request-side event with the caller's real headers, a non-zero timestamp, and the true payload size", func() {
+			obsMsgs := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.api.>", func(m *nats.Msg) { obsMsgs <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
+
+			reqBody, err := json.Marshal(commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg"})
+			Expect(err).NotTo(HaveOccurred())
+
+			msg := nats.NewMsg("api." + fleetCtx + ".shipping.ship.arrive.v1")
+			msg.Data = reqBody
+			msg.Header = nats.Header{"X-Client": []string{"seafreight-app-test"}}
+			before := time.Now()
+			reply, err := nc.RequestMsg(msg, 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(reply).NotTo(BeNil())
+
+			var reqEnv obsEnvelope
+			Eventually(func() bool {
+				select {
+				case m := <-obsMsgs:
+					Expect(json.Unmarshal(m.Data, &reqEnv)).To(Succeed())
+					return reqEnv.Direction == "request"
+				default:
+					return false
+				}
+			}, 2*time.Second).Should(BeTrue(), "expected a request-side obs.api.* event")
+
+			Expect(reqEnv.Headers).To(HaveKeyWithValue("X-Client", []string{"seafreight-app-test"}))
+			Expect(reqEnv.Timestamp).To(BeTemporally(">=", before))
+			Expect(reqEnv.PayloadBytes).To(Equal(len(reqBody)))
+		})
+
+		It("attaches real Nats-Service-Error/-Code headers to a failed reply, on both the obs event and the actual wire reply", func() {
+			obsMsgs := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.api.>", func(m *nats.Msg) { obsMsgs <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
+
+			reqBody, err := json.Marshal(commands.ContainerInput{Context: fleetCtx, ContainerID: "TCKU0000000", ShipID: "no-such-ship"})
+			Expect(err).NotTo(HaveOccurred())
+			reply, err := nc.Request("api."+fleetCtx+".shipping.container.load.v1", reqBody, 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(reply.Header.Get("Nats-Service-Error")).NotTo(BeEmpty(), "the real wire reply must carry the error header, not just the obs event")
+			Expect(reply.Header.Get("Nats-Service-Error-Code")).To(Equal("404"))
+
+			var sawErrorHeaders bool
+			for i := 0; i < 2; i++ {
+				select {
+				case m := <-obsMsgs:
+					var env obsEnvelope
+					Expect(json.Unmarshal(m.Data, &env)).To(Succeed())
+					if env.Direction == "reply" {
+						Expect(env.Headers).To(HaveKeyWithValue("Nats-Service-Error-Code", []string{"404"}))
+						sawErrorHeaders = true
+					}
+				case <-time.After(2 * time.Second):
+					Fail("timed out waiting for obs.api.* events")
+				}
+			}
+			Expect(sawErrorHeaders).To(BeTrue())
+		})
+
+		It("still decodes an old-shape obs event with no headers/timestamp/payloadBytes fields at all", func() {
+			var env obsEnvelope
+			old := []byte(`{"direction":"reply","correlationId":"legacy-1","subject":"api.acme.shipping.ship.arrive.v1","payload":{"ship":{}}}`)
+			Expect(json.Unmarshal(old, &env)).To(Succeed())
+			Expect(env.Direction).To(Equal("reply"))
+			Expect(env.Headers).To(BeNil())
+			Expect(env.Timestamp).To(BeZero())
+		})
+	})
+
+	Context("BR-027: every api.* request carries a Nats-Requestor header identifying its caller, and every reply a Nats-Responder header identifying the answering service instance", func() {
+		type obsEnvelope struct {
+			Direction     string              `json:"direction"`
+			Error         string              `json:"error,omitempty"`
+			Headers       map[string][]string `json:"headers,omitempty"`
+			Timestamp     time.Time           `json:"timestamp"`
+			PayloadBytes  int                 `json:"payloadBytes"`
+			CorrelationID string              `json:"correlationId"`
+		}
+
+		It("forwards the caller's Nats-Requestor header into the obs.api.* request event, same as any other caller-supplied header", func() {
+			obsMsgs := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.api.>", func(m *nats.Msg) { obsMsgs <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
+
+			reqBody, err := json.Marshal(commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg"})
+			Expect(err).NotTo(HaveOccurred())
+
+			msg := nats.NewMsg("api." + fleetCtx + ".shipping.ship.arrive.v1")
+			msg.Data = reqBody
+			// Instance-qualified "<app>/<instance ID>" — the same
+			// name/instance split Nats-Responder uses (BR-027); the browser
+			// generates the instance half once per tab (useNatsConnection.js).
+			msg.Header = nats.Header{"Nats-Requestor": []string{"seafreight-app/test-tab-1"}}
+			reply, err := nc.RequestMsg(msg, 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(reply).NotTo(BeNil())
+
+			var reqEnv obsEnvelope
+			Eventually(func() bool {
+				select {
+				case m := <-obsMsgs:
+					Expect(json.Unmarshal(m.Data, &reqEnv)).To(Succeed())
+					return reqEnv.Direction == "request"
+				default:
+					return false
+				}
+			}, 2*time.Second).Should(BeTrue(), "expected a request-side obs.api.* event")
+
+			Expect(reqEnv.Headers).To(HaveKeyWithValue("Nats-Requestor", []string{"seafreight-app/test-tab-1"}))
+		})
+
+		It("attaches a Nats-Responder header (service name/instance ID) to a successful reply, on both the real wire reply and the obs.api.* event", func() {
+			obsMsgs := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.api.>", func(m *nats.Msg) { obsMsgs <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
+
+			reqBody, err := json.Marshal(commands.ShipInput{Context: fleetCtx, ShipID: "orient-express-2", ShipName: "Orient Express 2", Port: "Hamburg"})
+			Expect(err).NotTo(HaveOccurred())
+			reply, err := nc.Request("api."+fleetCtx+".shipping.ship.arrive.v1", reqBody, 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			responder := reply.Header.Get("Nats-Responder")
+			Expect(responder).To(HavePrefix("shipping-service/"), "the real wire reply must carry the responder header, not just the obs event")
+
+			var replyEnv obsEnvelope
+			Eventually(func() bool {
+				select {
+				case m := <-obsMsgs:
+					Expect(json.Unmarshal(m.Data, &replyEnv)).To(Succeed())
+					return replyEnv.Direction == "reply"
+				default:
+					return false
+				}
+			}, 2*time.Second).Should(BeTrue(), "expected a reply-side obs.api.* event")
+			Expect(replyEnv.Headers).To(HaveKeyWithValue("Nats-Responder", []string{responder}))
+		})
+
+		It("attaches a Nats-Responder header to a failed reply too", func() {
+			reqBody, err := json.Marshal(commands.ContainerInput{Context: fleetCtx, ContainerID: "TCKU0000001", ShipID: "no-such-ship"})
+			Expect(err).NotTo(HaveOccurred())
+			reply, err := nc.Request("api."+fleetCtx+".shipping.container.load.v1", reqBody, 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(reply.Header.Get("Nats-Responder")).To(HavePrefix("shipping-service/"))
+		})
+	})
+
+	Context("BR-028: in the Admin UI, a service/connection's account resolves to a friendly name where possible — this connection's micro registration is tagged with its tenant", func() {
+		It("responds to $SRV.PING with metadata.tenant equal to the connection's fleet context", func() {
+			subject, err := micro.ControlSubject(micro.PingVerb, "", "")
+			Expect(err).NotTo(HaveOccurred())
+			reply, err := nc.Request(subject, nil, 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			var ping micro.Ping
+			Expect(json.Unmarshal(reply.Data, &ping)).To(Succeed())
+			Expect(ping.Metadata).To(HaveKeyWithValue("tenant", fleetCtx))
 		})
 	})
 })

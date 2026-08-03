@@ -114,7 +114,11 @@ async function submitRegister() {
       </div>
     </div>
 
-    <DataTable :value="filteredShips" size="small" data-key="shipID">
+    <p v-if="store.loading" class="lab-muted loading-line">
+      <span class="spinner" aria-hidden="true" />
+      {{ t('fleet.loading') }}
+    </p>
+    <DataTable v-else :value="filteredShips" size="small" data-key="shipID">
       <template #empty>
         <span class="lab-muted">{{ t('fleet.empty') }}</span>
       </template>
@@ -185,6 +189,32 @@ async function submitRegister() {
 }
 .manifest-count {
   font-size: 12px;
+}
+.loading-line {
+  margin: 0;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.spinner {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--lab-panel-border);
+  border-top-color: var(--lab-accent);
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
 }
 .port-link {
   cursor: pointer;

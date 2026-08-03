@@ -184,4 +184,71 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 		Eventually(fleetShipIDs, 3*time.Second, 50*time.Millisecond).Should(ContainElement("acme-post-switch-ship"),
 			"an event published after a REST-triggered switch must still reach its projector and land in the read model")
 	})
+
+	// BR-030 (BUSINESS_RULES-SHIPPING.md): a browser (Sea Freight Flow, Phase
+	// 15d) connects directly to a tenant's account and never calls
+	// SwitchTenant — before this, a tenant minted by accounts-service after
+	// this process started had NO working api.* adapter until an operator
+	// happened to switch the Admin UI to it (EnsureAllTenants only covers
+	// tenants known at startup). EnsureTenantByName is what
+	// composition.go's notify.accounts.account.created subscriber calls
+	// reactively; this proves the piece that matters — that calling it makes
+	// a tenant's adapter answer, without ever touching SwitchTenant.
+	It("EnsureTenantByName provisions globex's api.* adapter without ever calling SwitchTenant for it", func() {
+		globexNC, _ := connectAs("globex")
+
+		By("before EnsureTenantByName, nothing is listening on globex's account — this process has never touched that tenant")
+		_, err := globexNC.Request("api.acme.shipping.ship.list.v1", []byte(`{}`), 300*time.Millisecond)
+		Expect(err).To(HaveOccurred(), "no reply should come back on globex's account before it's ever been ensured")
+
+		By("EnsureTenantByName provisions it reactively")
+		Expect(handlers.EnsureTenantByName(ctx, "globex")).To(Succeed())
+
+		reply, err := globexNC.Request("api.acme.shipping.ship.list.v1", []byte(`{}`), 2*time.Second)
+		Expect(err).NotTo(HaveOccurred(), "globex's adapter must now answer, without SwitchTenant(\"globex\") ever having been called")
+		var body struct {
+			Ships []any `json:"ships"`
+		}
+		Expect(json.Unmarshal(reply.Data, &body)).To(Succeed())
+		Expect(body.Ships).To(BeEmpty(), "a freshly-ensured tenant starts with no ships")
+
+		By("calling it again for an already-ensured tenant is a harmless no-op")
+		Expect(handlers.EnsureTenantByName(ctx, "acme")).To(Succeed())
+	})
+
+	It("EnsureTenantByName is a no-op, not an error, for a name with no creds file", func() {
+		Expect(handlers.EnsureTenantByName(ctx, "no-such-tenant")).To(Succeed())
+	})
+
+	// BR-031 (BUSINESS_RULES-SHIPPING.md): the mirror of BR-030 — when
+	// accounts-service suspends a tenant, its notify.accounts.account.suspended
+	// subscriber (composition.go) calls TeardownTenantByName so this process
+	// stops holding that tenant's connection open (and, left unhandled,
+	// reconnect-looping against a .creds file the suspend has already
+	// deleted — see ARCHITECTURE-ACCOUNTS.md § 2t-a). This proves the piece
+	// that matters: calling it makes a previously-answering tenant adapter
+	// go silent, by actually closing shipping-service's own connection to
+	// that tenant's account rather than merely forgetting about it.
+	It("TeardownTenantByName stops globex's api.* adapter by closing shipping-service's own connection to it", func() {
+		By("ensuring globex has resources to tear down")
+		Expect(handlers.EnsureTenantByName(ctx, "globex")).To(Succeed())
+
+		globexNC, _ := connectAs("globex")
+		_, err := globexNC.Request("api.acme.shipping.ship.list.v1", []byte(`{}`), 2*time.Second)
+		Expect(err).NotTo(HaveOccurred(), "globex's adapter must be answering before teardown")
+
+		By("tearing globex down")
+		Expect(handlers.TeardownTenantByName(ctx, "globex")).To(Succeed())
+
+		By("globex's adapter no longer answers — shipping-service's own connection to that account was closed, not just its handlers stopped locally")
+		_, err = globexNC.Request("api.acme.shipping.ship.list.v1", []byte(`{}`), 300*time.Millisecond)
+		Expect(err).To(HaveOccurred(), "no responder should remain on globex's account after teardown")
+
+		By("calling it again for an already-torn-down tenant is a harmless no-op, not an error")
+		Expect(handlers.TeardownTenantByName(ctx, "globex")).To(Succeed())
+	})
+
+	It("TeardownTenantByName is a no-op, not an error, for a tenant that was never provisioned", func() {
+		Expect(handlers.TeardownTenantByName(ctx, "globex")).To(Succeed())
+	})
 })

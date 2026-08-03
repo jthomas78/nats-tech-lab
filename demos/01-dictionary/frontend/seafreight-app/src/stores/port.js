@@ -37,6 +37,7 @@ export const usePortStore = defineStore('port', {
     ships: {},      // shipID → ShipState
     containers: {}, // containerID → ContainerState
     connected: false,
+    loading: false, // true from connect() until its bootstrap reads land — lets a panel show a loading state instead of misreading the ships={}/containers={} reset below as "this tenant/context truly has none"
     _unsubscribers: [],
   }),
 
@@ -128,6 +129,7 @@ export const usePortStore = defineStore('port', {
     // always played).
     async connect() {
       this.disconnect()
+      this.loading = true
       this.ships = {}
       this.containers = {}
       this.knownPorts = []
@@ -154,34 +156,44 @@ export const usePortStore = defineStore('port', {
         }),
       ]
 
-      getPorts(this.context)
-        .then((ports) => {
-          this.mergeKnownPorts(ports ?? [])
-          if (!this.port && this.knownPorts.length > 0) {
-            this.port = this.knownPorts[0]
-          }
-        })
-        .catch(() => {})
+      const bootstrap = Promise.allSettled([
+        getPorts(this.context)
+          .then((ports) => {
+            this.mergeKnownPorts(ports ?? [])
+            if (!this.port && this.knownPorts.length > 0) {
+              this.port = this.knownPorts[0]
+            }
+          })
+          .catch(() => {}),
 
-      listShips(this.context)
-        .then((ships) => {
-          for (const s of ships ?? []) this.ships[s.shipID] = s
-        })
-        .catch(() => {})
+        listShips(this.context)
+          .then((ships) => {
+            for (const s of ships ?? []) this.ships[s.shipID] = s
+          })
+          .catch(() => {}),
 
-      listContainers(this.context)
-        .then((containers) => {
-          for (const c of containers ?? []) this.containers[c.containerID] = c
-        })
-        .catch(() => {})
+        listContainers(this.context)
+          .then((containers) => {
+            for (const c of containers ?? []) this.containers[c.containerID] = c
+          })
+          .catch(() => {}),
 
-      fetchKnownContainers(this.context)
-        .then((values) => {
-          this.knownContainers = values ?? []
-        })
-        .catch(() => {})
+        fetchKnownContainers(this.context)
+          .then((values) => {
+            this.knownContainers = values ?? []
+          })
+          .catch(() => {}),
+      ])
 
       this.connected = true
+      // Not awaited above (connect() returns as soon as the bootstrap reads
+      // are in flight, same as before) — this just closes the loading
+      // window a panel can key off of once they land, covering the empty
+      // ships={}/containers={} reset above so a tenant/context switch reads
+      // as "loading", not "empty".
+      bootstrap.finally(() => {
+        this.loading = false
+      })
     },
 
     disconnect() {

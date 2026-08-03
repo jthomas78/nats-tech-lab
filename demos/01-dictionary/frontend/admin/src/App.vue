@@ -6,18 +6,22 @@ import { useI18n } from 'vue-i18n'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import AccountsPanel from './components/AccountsPanel.vue'
+import ConnectionsPanel from './components/ConnectionsPanel.vue'
 import JetStreamPanel from './components/JetStreamPanel.vue'
 import KvInspector from './components/KvInspector.vue'
 import OverviewPanel from './components/OverviewPanel.vue'
 import PostgresTablesPanel from './components/PostgresTablesPanel.vue'
 import RpcPanel from './components/RpcPanel.vue'
+import ServicesPanel from './components/ServicesPanel.vue'
 import ShapeCPanel from './components/ShapeCPanel.vue'
 import ShapePanel from './components/ShapePanel.vue'
 import TelemetryStrip from './components/TelemetryStrip.vue'
 import IconAccounts from './components/icons/IconAccounts.vue'
+import IconConnections from './components/icons/IconConnections.vue'
 import IconKv from './components/icons/IconKv.vue'
 import IconOverview from './components/icons/IconOverview.vue'
 import IconRpc from './components/icons/IconRpc.vue'
+import IconServices from './components/icons/IconServices.vue'
 import IconShapes from './components/icons/IconShapes.vue'
 import IconStreams from './components/icons/IconStreams.vue'
 import IconTables from './components/icons/IconTables.vue'
@@ -41,19 +45,21 @@ const { usingFallback, partialFallback, connect: connectL10nCopy, disconnect: di
 const { t } = useI18n()
 
 // ── View selection (grouped activity bar) — one view rendered at a time, no
-// router. The JetStream group holds the three NATS surfaces (streams, KV, the
-// shape read models); Postgres holds the canonical tables. Extend by pushing
-// onto a section's items.
+// router. The NATS group holds the four NATS surfaces (request/reply,
+// streams, KV, the shape read models); Postgres holds the canonical tables.
+// Extend by pushing onto a section's items.
 const activeView = ref('overview')
 const sections = [
   { items: [{ key: 'overview', label: 'Overview', icon: IconOverview }] },
   {
-    eyebrow: 'JetStream',
+    eyebrow: 'NATS',
     items: [
+      { key: 'connections', label: 'Connections', icon: IconConnections },
+      { key: 'services', label: 'Services', icon: IconServices },
+      { key: 'rpc', label: 'Request/Reply', icon: IconRpc },
       { key: 'streams', label: 'Streams', icon: IconStreams },
       { key: 'kv', label: 'KV Buckets', icon: IconKv },
       { key: 'shapes', label: 'CQRS Shapes', icon: IconShapes, badge: 3 },
-      { key: 'rpc', label: 'RPC Traffic', icon: IconRpc },
     ],
   },
   {
@@ -71,7 +77,9 @@ const SUBTITLES = {
   streams: 'raw NATS messages · live tail and full replay',
   kv: 'every registered bucket · contents and live changes',
   shapes: 'three CQRS read-model shapes, side by side',
-  rpc: 'rpc.* dual-transport calls · live only, no replay',
+  rpc: 'rpc.* + api.* request/reply traffic · rpc.* replays last 10 min, api.* live only',
+  connections: 'nats connections · all accounts',
+  services: 'nats micro services · $SRV.* discovery',
   tables: 'canonical Postgres tables by schema',
   accounts: 'dynamic tenant provisioning · decentralized JWTs',
 }
@@ -186,10 +194,25 @@ onUnmounted(() => {
       <ShapeCPanel />
     </section>
 
-    <!-- RPC Traffic — obs.rpc.* dual-transport calls (Phase 12.10), live only -->
+    <!-- Request/Reply — obs.rpc.* + obs.api.* request/reply traffic (Phase 12.10; api.* added Phase 16) -->
     <section v-else-if="activeView === 'rpc'" class="group group--flush" data-testid="rpc-view">
       <div class="lab-panel streams-panel">
         <RpcPanel />
+      </div>
+    </section>
+
+    <!-- Connections — every active NATS connection, server-wide (Phase 17c).
+         Manages its own internal scroll regions, so the section is flush. -->
+    <section v-else-if="activeView === 'connections'" class="group group--flush" data-testid="connections-view">
+      <div class="lab-panel streams-panel">
+        <ConnectionsPanel />
+      </div>
+    </section>
+
+    <!-- Services — micro-registered services via $SRV.* discovery (Phase 17c) -->
+    <section v-else-if="activeView === 'services'" class="group group--flush" data-testid="services-view">
+      <div class="lab-panel streams-panel">
+        <ServicesPanel />
       </div>
     </section>
 

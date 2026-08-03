@@ -398,13 +398,35 @@ refdata-service example.
 
 ## 4. Discovery & documentation
 
-- **Runtime discovery** — building `natsrpc/` on the NATS Micro/Services
-  framework (`github.com/nats-io/nats.go/micro`) gives free discovery via
-  `$SRV.PING` / `$SRV.PING.<name>` (who's alive), `$SRV.INFO.<name>`
-  (declared endpoints/subjects), and `$SRV.STATS.<name>` (call counts,
-  errors, latency) — queryable via `nats micro list` / `nats micro info
-  <name>`. Each service self-declares its endpoints at startup; no separate
-  registry to keep in sync.
+### What `nats.go/micro` provides
+
+Both `rpc.*` and `api.*` handlers (`natsrpc/adapter.go` in refdata-service,
+`browserrpc/adapter.go` in shipping-service) are built on the official **NATS
+Micro/Services framework**, `github.com/nats-io/nats.go/micro`
+(docs: <https://docs.nats.io/using-nats/developer/services>, API reference:
+<https://pkg.go.dev/github.com/nats-io/nats.go/micro>). It's a thin layer over
+plain core-NATS request/reply, not a replacement for JetStream — no
+persistence or streams involved, purely a request/reply convenience +
+discovery layer. It gives:
+
+- **Structured services/endpoints** — `micro.AddService(nc, config)` then
+  `svc.AddEndpoint(...)`, instead of hand-rolling `nc.Subscribe` plus reply
+  logic per handler.
+- **Free runtime discovery** — every service automatically answers
+  `$SRV.PING`/`$SRV.PING.<name>` (who's alive), `$SRV.INFO.<name>` (declared
+  endpoints/subjects), and `$SRV.STATS.<name>` (call counts, errors,
+  latency) control-subject queries — queryable via `nats micro list` /
+  `nats micro info <name>`. Each service self-declares its endpoints at
+  startup; zero separate registry to keep in sync.
+- **A standard error convention** — `req.Error(code, description, data)` sets
+  the `Nats-Service-Error`/`Nats-Service-Error-Code` headers on the reply
+  automatically; this is the mechanism BR-D36/BR-026 build on top of for the
+  Admin UI's Request/Reply panel.
+- **Grouping/versioning helpers** — endpoints can be organized under
+  subject groups, which is what lets this repo's fixed
+  `family.context.service.entity.action.version` subject arity (§ 2 decision
+  4) stay declarative rather than hand-parsed per handler.
+
 - **Static documentation** — Swagger/OpenAPI (already generated from
   `@Summary`/`@Param`/`@Router` annotations, served at `/swagger/` in both
   services) documents REST. `rpc.*` and `evt.*` should be documented in
@@ -451,6 +473,71 @@ The Admin UI wants to show `rpc.*` calls and replies as they happen, with no
 requirement to see history from before the panel was opened. This is **not**
 a JetStream concern — it's a separate, best-effort side-channel off the
 `natsrpc/` adapter.
+
+> **Extended (Phase 16, "Request/Reply" panel):** the same panel now also
+> carries `api.*` request/reply traffic via `obs.api.>` — shipping-service's
+> `browserrpc/` adapter publishes the identical two-message pattern, but on
+> the **tenant** account its adapter is registered on. `/api/rpc-watch`
+> therefore subscribes `obs.rpc.>` on the DEFAULT-account connection (with
+> the `RPCTRACE` replay below) *and* `obs.api.>` on the **active tenant's**
+> connection — the `obs.api.*` half is live-only (no `RPCTRACE` retention
+> exists inside tenant accounts) and pinned to the tenant active when the
+> SSE connection opened (the Admin UI reconnects on tenant switch).
+> Non-active tenants' `obs.api.*` traffic remains invisible until a
+> cross-account-imports phase — see the KNOWN GAP doc comment in
+> `browserrpc/adapter.go`. Everything below describes the original
+> `obs.rpc.*` design, which is unchanged.
+>
+> **Extended again (Phase 17a) — headers, timestamp, payload size
+> (BR-D36/BR-026):** the `obsEnvelope` gained three fields on both the
+> request-side and reply-side event: `headers` (the message's real NATS
+> headers — the reply side includes any error headers the framework
+> attaches), `timestamp` (set by the publishing adapter at publish time, not
+> inferred from SSE arrival time — the only way to get a truthful ordering
+> when `RPCTRACE` replay and live delivery interleave), and `payloadBytes`.
+> All three are additive/optional, so events retained before this change
+> still decode. `respondError` in both adapters now attaches real
+> `Nats-Service-Error`/`Nats-Service-Error-Code` headers to the actual wire
+> reply too (via `micro.WithHeaders`), not just the observability copy — the
+> Admin UI's Request/Reply panel (Phase 17b) shows headers that genuinely
+> traveled on the wire.
+>
+> **Phase 17b rebuilt the Admin UI panel itself** to surface all of this:
+> free-text + family/status filtering, click-a-subject-token-to-filter
+> (positional facets, exploiting the fixed 6-token subject arity —
+> `SubjectPath.vue`'s new `clickable` prop), a pause control that freezes
+> the visible list without dropping the SSE, and a bottom detail split with
+> paired **Request** / **Reply** panes (headers table + syntax-tinted JSON
+> body each) — mirroring the channel's actual two-message structure rather
+> than a DevTools-style single-message drawer. Built to the approved static
+> reference, `frontend/admin/request-reply-reference.html`. See
+> `Main-POC-Plan.md` Phase 17 for the full design rationale and layout
+> options considered.
+>
+> **Extended again (Phase 18) — Nats-Requestor/Nats-Responder identity
+> headers (BR-D37/BR-027):** BR-D36/BR-026 made the real headers on a message
+> visible in the panel, but no header actually carried caller or responder
+> *identity* — NATS doesn't attach that itself. Both headers share one
+> instance-qualified format, `"<name>/<instance ID>"` — the same
+> `service.name`/`service.instance.id` split OpenTelemetry's resource
+> conventions use, so replicas of one service stay distinguishable and a
+> future OTel integration maps the halves directly. `refdataconsumer`
+> (shipping-service's `rpc.*` caller) sets `Nats-Requestor` to
+> `nats.Name(...)` plus a NUID generated once per `Consumer`;
+> `useNatsConnection.js`'s `request()` (the browser's `api.*` caller) sets
+> `"seafreight-app/"` plus a random ID generated once per tab — making
+> concurrent tabs tellable apart, which a bare app name never could;
+> `natsrpc`/`browserrpc`'s reply paths set `Nats-Responder` to
+> `"<service's nats.Name>/<micro instance ID>"` on every reply, success or
+> error. Instance IDs are random per process/tab; a stable infra identity
+> (e.g. a Kubernetes pod name) can seed the instance half later without a
+> format change. Fixing this exposed a pre-existing inconsistency: each adapter's
+> `micro.AddService` `Config.Name` (`refdata-rpc`, `shipping-api`) didn't
+> match its own connection's `nats.Name` (`refdata-service`,
+> `shipping-service`) — so `Nats-Requestor` and `Nats-Responder` would have
+> shown two different names for the same service. Both `Config.Name` values
+> were renamed to match their connection's `nats.Name` as part of this
+> change.
 
 **No dedicated stream (original decision, since revised — see below).** A
 `RPCTRACE`-style JetStream stream (`LimitsPolicy`, short `MaxAge`) was

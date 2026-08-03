@@ -15,6 +15,9 @@ export default defineConfig({
       '@refdata': fileURLToPath(new URL('../../shared/refdata', import.meta.url)),
     },
   },
+  test: {
+    environment: 'happy-dom',
+  },
   server: {
     port: 7100,
     fs: {

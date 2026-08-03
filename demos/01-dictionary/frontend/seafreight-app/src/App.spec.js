@@ -14,6 +14,7 @@ import App from './App.vue'
 import { usePortStore } from './stores/port.js'
 import { parseL10nSeed } from '../scripts/parseL10nSeed.mjs'
 import { useL10nCopy } from '@refdata/useL10nCopy.js'
+import { useNatsConnection } from './nats/useNatsConnection.js'
 
 vi.mock('@refdata/useRefdataLabels.js', () => {
   const selectedLocale = ref('en')
@@ -106,6 +107,7 @@ describe('BR-D16 Port UI localization', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useL10nCopy().switching.value = false // the mock's `switching` ref is module-level and outlives each test
+    useNatsConnection().lastError.value = '' // also module-level (real, unmocked, singleton) — same reason
   })
 
   it('reactively switches visible chrome from English to Spanish', async () => {
@@ -207,6 +209,81 @@ describe('BR-D16 Port UI localization', () => {
     expect(wrapper.find('[data-testid="port-view"]').exists()).toBe(true)
   })
 
+  // Regression test for the tenant/context-switch flicker: usePortStore's
+  // connect() clears ships/containers synchronously before its bootstrap
+  // fetches land (stores/port.js), so without the loading guard the Fleet
+  // panel would flash its "no ships match" empty state on every tenant or
+  // fleet-context switch, reading as "this tenant has no ships" rather than
+  // "still loading".
+  it('shows a loading indicator instead of the empty state while the fleet is (re)loading', async () => {
+    const ships = { atlas: { shipID: 'atlas', shipName: 'Atlas', status: 'docked', currentPort: 'Hamburg' } }
+    const { wrapper, store } = mountApp({ ships })
+
+    expect(wrapper.find('[data-testid="fleet-view"] .loading-line').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="fleet-view"] tbody tr').exists()).toBe(true)
+
+    store.$patch({ loading: true })
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="fleet-view"] .loading-line').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="fleet-view"] .p-datatable').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="fleet-view"]').text()).not.toContain('No ships match this filter')
+
+    store.$patch({ loading: false })
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="fleet-view"] .loading-line').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="fleet-view"] tbody tr').exists()).toBe(true)
+  })
+
+  // Same flicker, same fix, extended to Port Management's two panels — they
+  // read from the same store.ships/store.containers reset connect() does.
+  it('shows a loading indicator instead of the empty state on Ships at Port while (re)loading', async () => {
+    const ships = { atlas: { shipID: 'atlas', shipName: 'Atlas', status: 'docked', currentPort: 'Hamburg' } }
+    const { wrapper, store } = mountApp({ ships, port: 'Hamburg' })
+    await openPortView(wrapper)
+
+    expect(wrapper.find('[data-testid="port-view"] .loading-line').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="port-view"] tbody tr').exists()).toBe(true)
+
+    store.$patch({ loading: true })
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="port-view"] .loading-line').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="port-view"] .p-datatable').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="port-view"]').text()).not.toContain('No ships docked here')
+
+    store.$patch({ loading: false })
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="port-view"] .loading-line').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="port-view"] tbody tr').exists()).toBe(true)
+  })
+
+  it('shows a loading indicator instead of the empty state on the Terminal yard while (re)loading', async () => {
+    const containers = {
+      c1: { containerID: 'TCKU0000001', cargo: 'Coffee', originPort: 'Hamburg', destPort: 'Valencia', terminalPort: 'Hamburg' },
+    }
+    const { wrapper, store } = mountApp({ containers, port: 'Hamburg' })
+    await openPortView(wrapper)
+
+    expect(wrapper.find('[data-testid="port-view"] .loading-line').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="port-view"] tbody tr').exists()).toBe(true)
+
+    store.$patch({ loading: true })
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="port-view"] .loading-line').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="port-view"] .p-datatable').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="port-view"]').text()).not.toContain('No outbound containers')
+
+    store.$patch({ loading: false })
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="port-view"] .loading-line').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="port-view"] tbody tr').exists()).toBe(true)
+  })
+
   it('shows a loading spinner on the locale control while a switch is in flight', async () => {
     const { wrapper } = mountApp()
     const { switching } = useL10nCopy()
@@ -220,6 +297,30 @@ describe('BR-D16 Port UI localization', () => {
     switching.value = false
     await nextTick()
     expect(wrapper.find('#locale [data-pc-section="loadingicon"]').exists()).toBe(false)
+  })
+
+  // Regression: useNatsConnection's lastError (e.g. auth-service's 403
+  // "tenant is not active" after a suspended tenant's connection is
+  // force-evicted, ARCHITECTURE-ACCOUNTS.md § 2t-a) was previously set but
+  // never rendered anywhere — panels just stopped updating with no
+  // explanation. `lastError` is a module-level singleton (not a Pinia
+  // store), shared across the whole file, so it must be reset afterward.
+  it('surfaces a NATS connection error, and clears it once the connection recovers', async () => {
+    const { wrapper } = mountApp()
+    const { lastError } = useNatsConnection()
+
+    expect(wrapper.find('[data-testid="connection-error"]').exists()).toBe(false)
+
+    lastError.value = 'tenant is not active'
+    await nextTick()
+    const errorTag = wrapper.find('[data-testid="connection-error"]')
+    expect(errorTag.exists()).toBe(true)
+    expect(errorTag.text()).toBe('connection error')
+    expect(errorTag.attributes('title')).toBe('tenant is not active')
+
+    lastError.value = ''
+    await nextTick()
+    expect(wrapper.find('[data-testid="connection-error"]').exists()).toBe(false)
   })
 
   it('BR-D21: clicking a docked ship\'s port in Fleet Management jumps to Port Management scoped to that port', async () => {

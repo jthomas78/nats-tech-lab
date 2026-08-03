@@ -26,9 +26,11 @@
 //	GET    /api/jetstream/streams                      names of every stream registered on the NATS server
 //	GET    /api/jetstream/watch                       SSE stream of live JetStream messages (DeliverNew)
 //	GET    /api/jetstream/stream                      SSE stream of all JetStream messages (DeliverAll)
-//	GET    /api/rpc-watch                              SSE stream of obs.rpc.* dual-transport RPC traffic (Phase 12.10)
+//	GET    /api/rpc-watch                              SSE stream of obs.rpc.* + obs.api.* request/reply traffic (Phase 12.10; api.* added Phase 16)
 //	GET    /api/tenant                                 active tenant + switchable tenant list (Phase 13b)
 //	POST   /api/tenant/switch                          reconnect under a different tenant's NATS account (Phase 13b)
+//	GET    /api/nats/connections                       every active NATS connection (proxies the server's /connz, Phase 17c)
+//	GET    /api/nats/services                          every micro-registered service + instance + endpoint stats ($SRV.PING/STATS, Phase 17c)
 package rest
 
 import (
@@ -159,6 +161,9 @@ type Deps struct {
 	// minted by accounts-service after this process started ever becomes
 	// visible without a restart.
 	CredsDir string
+	// NatsMonitorURL is the NATS server's HTTP monitoring endpoint (Phase
+	// 17c) — GET /api/nats/connections proxies its /connz.
+	NatsMonitorURL string
 }
 
 type Handlers struct {
@@ -220,6 +225,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/rpc-watch", h.watchRPCObs)
 	mux.HandleFunc("GET /api/tenant", h.getTenant)
 	mux.HandleFunc("POST /api/tenant/switch", h.switchTenant)
+	mux.HandleFunc("GET /api/nats/connections", h.listNatsConnections)
+	mux.HandleFunc("GET /api/nats/services", h.listNatsServices)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

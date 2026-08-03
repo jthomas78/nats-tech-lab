@@ -1,7 +1,12 @@
 // Package natsrpc is the rpc.* dual-transport adapter (Phase 12.10) — a
 // second, internal-only transport onto the same application-layer methods
 // the rest/ adapter already calls, built on the NATS Micro/Services
-// framework. See obsidian/V3-Platform/Architecture/Dictionary-POC/
+// framework (github.com/nats-io/nats.go/micro —
+// https://docs.nats.io/using-nats/developer/services; what it provides —
+// endpoint registration, $SRV.* runtime discovery, the
+// Nats-Service-Error/-Code header convention used by respondError below —
+// is explained in ARCHITECTURE-COMMUNICATIONS.md §4 "What nats.go/micro
+// provides"). See obsidian/V3-Platform/Architecture/Dictionary-POC/
 // ARCHITECTURE-COMMUNICATIONS.md for the full design.
 package natsrpc
 
@@ -9,9 +14,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -208,7 +215,12 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 	}
 
 	svc, err := micro.AddService(nc, micro.Config{
-		Name:        "refdata-rpc",
+		// Matches this connection's own nats.Name("refdata-service") (cmd/main.go)
+		// rather than a family-derived name like "refdata-rpc" — Nats-Responder
+		// (responderIdentity below) and Nats-Requestor (refdataconsumer's
+		// requestorHeader) must agree on one identity string per service, or the
+		// Admin UI's Request/Reply panel reads as if they're different entities.
+		Name:        "refdata-service",
 		Version:     "1.0.0",
 		Description: "refdata-service rpc.* dual-transport endpoints (Phase 12.10/12.11)",
 	})
@@ -253,7 +265,7 @@ func (a *Adapter) handleItemGet(req micro.Request) {
 	// (ARCHITECTURE-COMMUNICATIONS.md §6).
 	correlationID := req.Reply()
 
-	a.publishObs(subject, correlationID, "request", req.Data(), "")
+	a.publishObs(subject, correlationID, "request", map[string][]string(req.Headers()), req.Data(), "")
 
 	var in ItemGetRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
@@ -272,10 +284,7 @@ func (a *Adapter) handleItemGet(req micro.Request) {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	a.publishObs(subject, correlationID, "reply", data, "")
-	if err := req.Respond(data); err != nil && a.log != nil {
-		a.log.Error("natsrpc: respond failed", "subject", subject, "err", err)
-	}
+	a.respondOK(req, subject, correlationID, data)
 }
 
 // entryItem converts a kvcache.CacheItem into the domain.DictionaryItem shape
@@ -370,7 +379,7 @@ func (a *Adapter) handleTypeList(req micro.Request) {
 	subject := req.Subject()
 	itemContext := contextFromSubject(subject)
 	correlationID := req.Reply()
-	a.publishObs(subject, correlationID, "request", req.Data(), "")
+	a.publishObs(subject, correlationID, "request", map[string][]string(req.Headers()), req.Data(), "")
 
 	var in TypeListRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
@@ -389,10 +398,7 @@ func (a *Adapter) handleTypeList(req micro.Request) {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	a.publishObs(subject, correlationID, "reply", data, "")
-	if err := req.Respond(data); err != nil && a.log != nil {
-		a.log.Error("natsrpc: respond failed", "subject", subject, "err", err)
-	}
+	a.respondOK(req, subject, correlationID, data)
 }
 
 // resolveTypeKVFirst serves rpc.*.refdata.type.list.v1 from the internal KV
@@ -467,7 +473,7 @@ func (a *Adapter) handleItemGetVersioned(req micro.Request) {
 	subject := req.Subject()
 	itemContext := contextFromSubject(subject)
 	correlationID := req.Reply()
-	a.publishObs(subject, correlationID, "request", req.Data(), "")
+	a.publishObs(subject, correlationID, "request", map[string][]string(req.Headers()), req.Data(), "")
 
 	if a.versionReader == nil {
 		a.respondError(req, subject, correlationID, errVersionedReadsNotConfigured)
@@ -491,10 +497,7 @@ func (a *Adapter) handleItemGetVersioned(req micro.Request) {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	a.publishObs(subject, correlationID, "reply", data, "")
-	if err := req.Respond(data); err != nil && a.log != nil {
-		a.log.Error("natsrpc: respond failed", "subject", subject, "err", err)
-	}
+	a.respondOK(req, subject, correlationID, data)
 }
 
 // handleLocalesList is the rpc.* counterpart of REST's listLocales — the
@@ -505,7 +508,7 @@ func (a *Adapter) handleLocalesList(req micro.Request) {
 	subject := req.Subject()
 	itemContext := contextFromSubject(subject)
 	correlationID := req.Reply()
-	a.publishObs(subject, correlationID, "request", req.Data(), "")
+	a.publishObs(subject, correlationID, "request", map[string][]string(req.Headers()), req.Data(), "")
 
 	locales, err := a.localizations.ListLocales(context.Background(), itemContext)
 	if err != nil {
@@ -523,10 +526,7 @@ func (a *Adapter) handleLocalesList(req micro.Request) {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	a.publishObs(subject, correlationID, "reply", data, "")
-	if err := req.Respond(data); err != nil && a.log != nil {
-		a.log.Error("natsrpc: respond failed", "subject", subject, "err", err)
-	}
+	a.respondOK(req, subject, correlationID, data)
 }
 
 // ContextListRequest is the rpc._platform.refdata.context.list.v1 request
@@ -548,7 +548,7 @@ type ContextListResponse struct {
 func (a *Adapter) handleContextList(req micro.Request) {
 	subject := req.Subject()
 	correlationID := req.Reply()
-	a.publishObs(subject, correlationID, "request", req.Data(), "")
+	a.publishObs(subject, correlationID, "request", map[string][]string(req.Headers()), req.Data(), "")
 
 	if a.contexts == nil {
 		a.respondError(req, subject, correlationID, errContextsNotConfigured)
@@ -580,18 +580,55 @@ func (a *Adapter) handleContextList(req micro.Request) {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	a.publishObs(subject, correlationID, "reply", data, "")
-	if err := req.Respond(data); err != nil && a.log != nil {
+	a.respondOK(req, subject, correlationID, data)
+}
+
+// responderHeader identifies which service — and which running instance,
+// via micro's own auto-generated per-process instance ID — answered a
+// request. Mirrors refdataconsumer's Nats-Requestor (the caller-identity
+// header) on the reply side: NATS doesn't propagate responder identity onto
+// a reply either, and the subject alone doesn't distinguish which replica
+// of a horizontally-scaled service actually handled the call.
+const responderHeader = "Nats-Responder"
+
+// responderIdentity is "<service name>/<instance ID>" — svc.Info().ID is a
+// fresh, unique value per running process (assigned by micro.AddService),
+// so this changes across restarts/replicas without any config of our own.
+func (a *Adapter) responderIdentity() string {
+	info := a.svc.Info()
+	return fmt.Sprintf("%s/%s", info.Name, info.ID)
+}
+
+// respondOK sends a successful reply, attaching responderHeader to both the
+// real wire reply and its obs.rpc.* observability copy (mirroring how
+// respondError attaches the real error headers to both, BR-D36).
+func (a *Adapter) respondOK(req micro.Request, subject, correlationID string, data []byte) {
+	headers := map[string][]string{responderHeader: {a.responderIdentity()}}
+	a.publishObs(subject, correlationID, "reply", headers, data, "")
+	if err := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); err != nil && a.log != nil {
 		a.log.Error("natsrpc: respond failed", "subject", subject, "err", err)
 	}
 }
 
 // respondError also fires the reply-side obs.rpc.* event on failure (BR-D26
-// — a failed call must still be visible in the observability view).
+// — a failed call must still be visible in the observability view). The
+// reply carries real Nats-Service-Error/Nats-Service-Error-Code headers
+// (micro's own error-header convention, BR-D36) via WithHeaders — additive
+// to the existing JSON error body, so no client that reads the body
+// (isNotFoundErr's NotFound bool, error string) needs to change.
 func (a *Adapter) respondError(req micro.Request, subject, correlationID string, err error) {
 	data, _ := json.Marshal(errorResponse{Error: err.Error(), NotFound: isNotFoundErr(err)})
-	a.publishObs(subject, correlationID, "reply", data, err.Error())
-	if respErr := req.Respond(data); respErr != nil && a.log != nil {
+	code := "500"
+	if isNotFoundErr(err) {
+		code = "404"
+	}
+	headers := map[string][]string{
+		micro.ErrorHeader:     {err.Error()},
+		micro.ErrorCodeHeader: {code},
+		responderHeader:       {a.responderIdentity()},
+	}
+	a.publishObs(subject, correlationID, "reply", headers, data, err.Error())
+	if respErr := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); respErr != nil && a.log != nil {
 		a.log.Error("natsrpc: respond failed", "subject", subject, "err", respErr)
 	}
 }
@@ -614,17 +651,32 @@ func contextFromSubject(subject string) string {
 	return parts[1]
 }
 
+// obsEnvelope's Headers/Timestamp/PayloadBytes (BR-D36, Phase 17a) are
+// additive to the original BR-D26 shape — every field is optional to decode,
+// so events retained on RPCTRACE before this change still parse; a consumer
+// must treat their absence as "unknown", not an error.
 type obsEnvelope struct {
-	Direction     string          `json:"direction"`
-	CorrelationID string          `json:"correlationId"`
-	Subject       string          `json:"subject"`
-	Payload       json.RawMessage `json:"payload,omitempty"`
-	Error         string          `json:"error,omitempty"`
+	Direction     string              `json:"direction"`
+	CorrelationID string              `json:"correlationId"`
+	Subject       string              `json:"subject"`
+	Payload       json.RawMessage     `json:"payload,omitempty"`
+	Error         string              `json:"error,omitempty"`
+	Headers       map[string][]string `json:"headers,omitempty"`
+	Timestamp     time.Time           `json:"timestamp"`
+	PayloadBytes  int                 `json:"payloadBytes"`
 }
 
 // publishObs fire-and-forget publishes an observability event (BR-D26) — it
 // must never block or fail the real RPC reply. Any marshal/publish error
 // here is swallowed rather than propagated to the caller.
+//
+// headers is the real headers carried by this message — the caller's
+// req.Headers() on the request side, or nil on a success reply (this
+// adapter attaches no custom headers there); respondError builds and passes
+// the actual Nats-Service-Error/-Code headers it also sends on the wire
+// (BR-D36), never fabricated ones. Timestamp is set here, at publish time —
+// not left for the SSE consumer to infer from arrival time, which is wrong
+// for RPCTRACE-replayed backlog (BR-D29).
 //
 // When a.js is configured, the event is published onto RPCTRACE via
 // PublishAsync (BR-D29) so a reconnecting Admin UI can catch up on the last
@@ -634,7 +686,7 @@ type obsEnvelope struct {
 // tests). Core NATS subscribers (the live tail) receive the message
 // identically either way — a JetStream publish is still an ordinary NATS
 // message on the wire.
-func (a *Adapter) publishObs(rpcSubject, correlationID, direction string, payload []byte, errMsg string) {
+func (a *Adapter) publishObs(rpcSubject, correlationID, direction string, headers map[string][]string, payload []byte, errMsg string) {
 	defer func() {
 		if r := recover(); r != nil && a.log != nil {
 			a.log.Error("natsrpc: obs publish panicked", "recovered", r)
@@ -646,6 +698,9 @@ func (a *Adapter) publishObs(rpcSubject, correlationID, direction string, payloa
 		Subject:       rpcSubject,
 		Payload:       payload,
 		Error:         errMsg,
+		Headers:       headers,
+		Timestamp:     time.Now().UTC(),
+		PayloadBytes:  len(payload),
 	})
 	if err != nil {
 		return

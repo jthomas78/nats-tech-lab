@@ -226,11 +226,25 @@ func (p *Provisioner) CreateUser(accountPub, accountSigningKeySeed, userName str
 
 // DeleteAccount revokes accountPub via $SYS.REQ.CLAIMS.DELETE — a
 // self-signed request from the operator (or, as here, its signing key)
-// naming the account to remove from every server's resolver. Existing
-// connections under the account are not force-disconnected by this call
-// alone; the account becomes unresolvable for any *new* connection
-// attempt, and the resolver's own state removes the account's JWT (see
-// nats.conf's resolver.allow_delete: true, required for this to work).
+// naming the account to remove from every server's resolver. The resolver's
+// own state removes the account's JWT (see nats.conf's
+// resolver.allow_delete: true, required for this to work), and no *new*
+// connection can authenticate against it afterwards.
+//
+// Existing connections are force-evicted too — verified against NATS 2.11
+// on the running stack (2026-08-03): every connection on the account drops
+// within a couple of seconds and the server reports
+// "account authentication expired" to each. An earlier version of this
+// comment claimed the opposite; it was wrong, and the claim had already
+// propagated into ARCHITECTURE-ACCOUNTS.md § 2t before being corrected
+// there too.
+//
+// Callers should note that eviction alone is not a clean teardown for
+// anything holding a per-tenant connection: shipping-service currently
+// treats the resulting error as transient and reconnect-loops forever
+// against the .creds file suspendAccount has already deleted. See
+// ARCHITECTURE-ACCOUNTS.md § 2t-a for the full runtime consequence and the
+// proposed notify.accounts.account.suspended fix.
 func (p *Provisioner) DeleteAccount(ctx context.Context, accountPub string) error {
 	signingPub, err := p.operatorSigningKey.PublicKey()
 	if err != nil {

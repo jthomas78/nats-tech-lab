@@ -188,3 +188,61 @@ func TestWatchRPCObsDegradesToLiveOnlyWhenJSNil(t *testing.T) {
 		t.Fatal("watchRPCObs did not return after context cancellation")
 	}
 }
+
+// TestWatchRPCObsDeliversTenantAPITraffic — Phase 16: the Request/Reply feed
+// must also carry obs.api.* events, which browserrpc's adapter publishes on
+// the ACTIVE tenant's connection (Deps.TenantNC), not the DEFAULT-account
+// connection the obs.rpc.> subscribe uses. This test wires two separate
+// connections (standing in for the two accounts), publishes one family on
+// each, and asserts both interleave into the same SSE body — proving the
+// obs.api.> half really reads from TenantNC rather than piggybacking on NC.
+func TestWatchRPCObsDeliversTenantAPITraffic(t *testing.T) {
+	nc, _, cleanup := newTestNATSJS(t)
+	defer cleanup()
+	tenantNC, err := nats.Connect(nc.ConnectedUrl(), nats.Name("rpc-watch-test-tenant"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tenantNC.Close()
+
+	h := NewHandlers(Deps{NC: nc, TenantNC: tenantNC, Log: slog.New(slog.DiscardHandler)})
+
+	reqCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/rpc-watch", nil).WithContext(reqCtx)
+	rec := newSyncRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		h.watchRPCObs(rec, req)
+		close(done)
+	}()
+
+	apiEvent := `{"direction":"request","correlationId":"api-1","subject":"api.acme.shipping.ship.list.v1"}`
+	rpcEvent := `{"direction":"request","correlationId":"rpc-1","subject":"rpc.acme-test.refdata.item.get.v1"}`
+	// No replay backlog here (JS is nil) — retry-publish until the
+	// subscribes have definitely taken effect (same pattern as the
+	// live-only test above), then assert both families landed.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := tenantNC.Publish("obs.api.acme.shipping.ship.list.v1", []byte(apiEvent)); err != nil {
+			t.Fatal(err)
+		}
+		if err := nc.Publish("obs.rpc.acme-test.refdata.item.get.v1", []byte(rpcEvent)); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(rec.String(), "api-1") && strings.Contains(rec.String(), "rpc-1") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	waitForBody(t, rec, "api-1")
+	waitForBody(t, rec, "rpc-1")
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("watchRPCObs did not return after context cancellation")
+	}
+}

@@ -1,0 +1,8 @@
+<template>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="1em" height="1em" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="6" rx="1.5" />
+    <rect x="3" y="14" width="18" height="6" rx="1.5" />
+    <circle cx="7" cy="7" r="0.9" fill="currentColor" stroke="none" />
+    <circle cx="7" cy="17" r="0.9" fill="currentColor" stroke="none" />
+  </svg>
+</template>

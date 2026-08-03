@@ -29,9 +29,26 @@
 //   - subscribe(subject, cb)     -> notify.{ctx}.shipping.{entity}.changed  (reactive updates)
 
 import { ref } from 'vue'
-import { jwtAuthenticator, wsconnect } from '@nats-io/nats-core'
+import { headers, jwtAuthenticator, wsconnect } from '@nats-io/nats-core'
 
 const REQUEST_TIMEOUT_MS = 5000
+
+// Identifies this frontend as the caller on every api.* request — NATS auth
+// identity (the tenant JWT) lives at the connection level and never reaches
+// browserrpc's handler Msg, so without this header a handler (and the Admin
+// UI's Request/Reply panel) has no way to tell which app sent the request.
+// Tenant isn't part of this value: that's already the NATS account boundary
+// itself, visible server-side, and repeating it here would just duplicate
+// what the account already encodes.
+//
+// The value is "<app>/<instance ID>", symmetric with Nats-Responder's
+// format (the same service.name/service.instance.id split OpenTelemetry's
+// resource conventions use). The instance half is generated once per module
+// load — i.e. per browser tab — so two tabs of the same app are
+// distinguishable in the Request/Reply panel, which a bare app name never
+// could be.
+const REQUESTOR_HEADER = 'Nats-Requestor'
+const REQUESTOR_ID = `seafreight-app/${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
 
 const connected = ref(false)
 const tenant = ref('')
@@ -120,8 +137,11 @@ export async function switchTenant(newTenant) {
 // try/catch instead of checking a field.
 export async function request(subject, payload) {
   if (!nc) throw new Error('not connected')
+  const h = headers()
+  h.set(REQUESTOR_HEADER, REQUESTOR_ID)
   const msg = await nc.request(subject, encoder.encode(JSON.stringify(payload ?? {})), {
     timeout: REQUEST_TIMEOUT_MS,
+    headers: h,
   })
   const body = msg.data.length ? JSON.parse(decoder.decode(msg.data)) : {}
   if (body.error) throw new Error(body.error)

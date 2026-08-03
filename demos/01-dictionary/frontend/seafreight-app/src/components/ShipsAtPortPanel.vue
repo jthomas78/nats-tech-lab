@@ -113,95 +113,101 @@ watch(
     <div v-if="!store.port" class="lab-muted no-port">
       {{ t('shipsAtPort.selectPort') }}
     </div>
-    <div v-else class="ops">
-      <div class="op-row">
-        <Select
-          v-model="arriveShipID"
-          :options="shipsAtSeaOptions"
-          option-label="label"
-          option-value="value"
-          :placeholder="t('shipsAtPort.atSea')"
-          size="small"
-          style="width:220px"
-        />
-        <Button
-          :label="t('action.arrive')"
-          size="small"
-          :disabled="arriveBusy || !arriveShipID"
-          :loading="arriveBusy"
-          :title="shipsAtSeaOptions.length === 0 ? t('shipsAtPort.noShipsAtSea') : ''"
-          @click="submitArrive"
-        />
-      </div>
-      <div v-if="arriveError" class="domain-error">{{ arriveError }}</div>
-    </div>
-
-    <DataTable
-      v-model:expandedRows="expandedShips"
-      :value="store.dockedShips"
-      size="small"
-      data-key="shipID"
-      resizableColumns
-      columnResizeMode="expand"
-    >
-      <template #empty>
-        <span class="lab-muted">{{ t('shipsAtPort.empty') }}</span>
-      </template>
-      <Column expander style="width:2.5rem" />
-      <Column field="shipID" :header="t('table.shipId')" style="font-family:monospace;font-size:12px" />
-      <Column field="shipName" :header="t('table.name')" />
-      <Column :header="t('status.label')" style="width:100px">
-        <template #body="{ data }">
-          <Tag severity="success" :value="statusLabel(data.status)" />
-        </template>
-      </Column>
-      <Column :header="t('table.manifest')" style="width:100px">
-        <template #body="{ data }">
-          <span class="lab-muted manifest-count">{{ t('container.count', store.manifestFor(data.shipID).length) }}</span>
-        </template>
-      </Column>
-      <Column header="" style="width:110px">
-        <template #body="{ data }">
-          <Button
-            :label="t('action.depart')"
+    <p v-else-if="store.loading" class="lab-muted loading-line">
+      <span class="spinner" aria-hidden="true" />
+      {{ t('shipsAtPort.loading') }}
+    </p>
+    <template v-else>
+      <div class="ops">
+        <div class="op-row">
+          <Select
+            v-model="arriveShipID"
+            :options="shipsAtSeaOptions"
+            option-label="label"
+            option-value="value"
+            :placeholder="t('shipsAtPort.atSea')"
             size="small"
-            :disabled="departBusyID === data.shipID"
-            :loading="departBusyID === data.shipID"
-            @click="submitDepart(data.shipID)"
+            style="width:220px"
           />
-        </template>
-      </Column>
-
-      <template #expansion="{ data }">
-        <DataTable :value="store.manifestFor(data.shipID)" size="small" data-key="containerID" class="manifest-table">
-          <template #empty>
-            <span class="lab-muted">{{ t('manifest.empty') }}</span>
-          </template>
-          <Column field="containerID" :header="t('table.container')" style="font-family:monospace;font-size:12px" />
-          <Column field="cargo" :header="t('table.cargo')" />
-          <Column field="originPort" :header="t('table.origin')" style="width:110px" />
-          <Column :header="t('table.destination')" style="width:130px">
-            <template #body="{ data: container }">
-              <Tag :severity="container.destPort === store.port ? 'success' : 'info'" :value="container.destPort" />
-            </template>
-          </Column>
-          <Column header="" style="width:100px">
-            <template #body="{ data: container }">
-              <Button
-                :label="t('action.unload')"
-                size="small"
-                :disabled="container.destPort !== store.port || unloadBusyID === container.containerID"
-                :loading="unloadBusyID === container.containerID"
-                @click="submitUnload(data.shipID, container.containerID)"
-              />
-            </template>
-          </Column>
-        </DataTable>
-        <div v-if="unloadErrorByShip[data.shipID]" class="domain-error manifest-error">
-          {{ unloadErrorByShip[data.shipID] }}
+          <Button
+            :label="t('action.arrive')"
+            size="small"
+            :disabled="arriveBusy || !arriveShipID"
+            :loading="arriveBusy"
+            :title="shipsAtSeaOptions.length === 0 ? t('shipsAtPort.noShipsAtSea') : ''"
+            @click="submitArrive"
+          />
         </div>
-      </template>
-    </DataTable>
+        <div v-if="arriveError" class="domain-error">{{ arriveError }}</div>
+      </div>
+
+      <DataTable
+        v-model:expandedRows="expandedShips"
+        :value="store.dockedShips"
+        size="small"
+        data-key="shipID"
+        resizableColumns
+        columnResizeMode="expand"
+      >
+        <template #empty>
+          <span class="lab-muted">{{ t('shipsAtPort.empty') }}</span>
+        </template>
+        <Column expander style="width:2.5rem" />
+        <Column field="shipID" :header="t('table.shipId')" style="font-family:monospace;font-size:12px" />
+        <Column field="shipName" :header="t('table.name')" />
+        <Column :header="t('status.label')" style="width:100px">
+          <template #body="{ data }">
+            <Tag severity="success" :value="statusLabel(data.status)" />
+          </template>
+        </Column>
+        <Column :header="t('table.manifest')" style="width:100px">
+          <template #body="{ data }">
+            <span class="lab-muted manifest-count">{{ t('container.count', store.manifestFor(data.shipID).length) }}</span>
+          </template>
+        </Column>
+        <Column header="" style="width:110px">
+          <template #body="{ data }">
+            <Button
+              :label="t('action.depart')"
+              size="small"
+              :disabled="departBusyID === data.shipID"
+              :loading="departBusyID === data.shipID"
+              @click="submitDepart(data.shipID)"
+            />
+          </template>
+        </Column>
+
+        <template #expansion="{ data }">
+          <DataTable :value="store.manifestFor(data.shipID)" size="small" data-key="containerID" class="manifest-table">
+            <template #empty>
+              <span class="lab-muted">{{ t('manifest.empty') }}</span>
+            </template>
+            <Column field="containerID" :header="t('table.container')" style="font-family:monospace;font-size:12px" />
+            <Column field="cargo" :header="t('table.cargo')" />
+            <Column field="originPort" :header="t('table.origin')" style="width:110px" />
+            <Column :header="t('table.destination')" style="width:130px">
+              <template #body="{ data: container }">
+                <Tag :severity="container.destPort === store.port ? 'success' : 'info'" :value="container.destPort" />
+              </template>
+            </Column>
+            <Column header="" style="width:100px">
+              <template #body="{ data: container }">
+                <Button
+                  :label="t('action.unload')"
+                  size="small"
+                  :disabled="container.destPort !== store.port || unloadBusyID === container.containerID"
+                  :loading="unloadBusyID === container.containerID"
+                  @click="submitUnload(data.shipID, container.containerID)"
+                />
+              </template>
+            </Column>
+          </DataTable>
+          <div v-if="unloadErrorByShip[data.shipID]" class="domain-error manifest-error">
+            {{ unloadErrorByShip[data.shipID] }}
+          </div>
+        </template>
+      </DataTable>
+    </template>
   </section>
 </template>
 
@@ -232,6 +238,32 @@ watch(
 }
 .manifest-count {
   font-size: 12px;
+}
+.loading-line {
+  margin: 0;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.spinner {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--lab-panel-border);
+  border-top-color: var(--lab-accent);
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
 }
 .manifest-table {
   margin: 0.25rem 0 0.5rem 2.5rem;

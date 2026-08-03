@@ -126,8 +126,10 @@ export function jetstreamStreamUrl(stream = 'SHIPPING') {
   return `/api/jetstream/stream?stream=${encodeURIComponent(stream)}`
 }
 
-// obs.rpc.* dual-transport RPC traffic (Phase 12.10) — replays up to the
-// last 10 minutes from RPCTRACE on connect, then continues live (BR-D29).
+// obs.rpc.* + obs.api.* request/reply traffic (Phase 12.10; api.* added
+// Phase 16) — replays up to the last 10 minutes of obs.rpc.* from RPCTRACE
+// on connect, then continues live (BR-D29); obs.api.* is live-only and
+// scoped to the active tenant.
 export function rpcWatchUrl() {
   return '/api/rpc-watch'
 }
@@ -178,4 +180,17 @@ export function suspendAccount(name) {
 
 export function reactivateAccount(name) {
   return request(`/api/platform/accounts/${encodeURIComponent(name)}/reactivate`, { method: 'POST' })
+}
+
+// ── NATS Connections + Services (Phase 17c) ──────────────────────────────────
+// Both are snapshot reads, not SSE — /connz and $SRV.STATS are inherently
+// poll-based (a single request/reply round-trip), unlike the KV/JetStream
+// watches above which have a native "replay then live" model.
+
+export function getNatsConnections() {
+  return request('/api/nats/connections')
+}
+
+export function getNatsServices() {
+  return request('/api/nats/services')
 }

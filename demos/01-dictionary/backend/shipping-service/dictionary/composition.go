@@ -4,6 +4,9 @@ package dictionary
 
 import (
 	"context"
+	"encoding/json"
+
+	"github.com/nats-io/nats.go"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/postgres"
@@ -37,16 +40,17 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 	portRepo := postgres.NewPortRepository(mono.DB())
 
 	handlers := rest.NewHandlers(rest.Deps{
-		Ports:         commands.NewPortHandler(portRepo),
-		Refdata:       refdata,
-		DefaultJS:     mono.JS(),
-		NC:            mono.NC(),
-		Log:           log,
-		ShipRepo:      shipRepo,
-		ContainerRepo: containerRepo,
-		PortRepo:      portRepo,
-		NatsURL:       mono.NatsURL(),
-		CredsDir:      mono.CredsDir(),
+		Ports:          commands.NewPortHandler(portRepo),
+		Refdata:        refdata,
+		DefaultJS:      mono.JS(),
+		NC:             mono.NC(),
+		Log:            log,
+		ShipRepo:       shipRepo,
+		ContainerRepo:  containerRepo,
+		PortRepo:       portRepo,
+		NatsURL:        mono.NatsURL(),
+		CredsDir:       mono.CredsDir(),
+		NatsMonitorURL: mono.NatsMonitorURL(),
 	})
 
 	// The initial tenant connect and every later switch are the same code
@@ -61,6 +65,47 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 	// this process starts, without needing an operator to have switched
 	// REST to GLOBEX first. See EnsureAllTenants's doc comment.
 	if err := handlers.EnsureAllTenants(ctx); err != nil {
+		return err
+	}
+
+	// BR-030: react to a tenant minted by accounts-service *after* this
+	// process started, instead of leaving it unprovisioned until an operator
+	// happens to switch the Admin UI to it (EnsureAllTenants above only
+	// covers tenants that already existed at startup) — see
+	// Handlers.EnsureTenantByName's doc comment.
+	if _, err := mono.NC().Subscribe("notify.accounts.account.created", func(msg *nats.Msg) {
+		var evt struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(msg.Data, &evt); err != nil || evt.Name == "" {
+			log.Error("decode notify.accounts.account.created", "err", err)
+			return
+		}
+		if err := handlers.EnsureTenantByName(ctx, evt.Name); err != nil {
+			log.Error("ensure tenant resources on provisioning event", "tenant", evt.Name, "err", err)
+		}
+	}); err != nil {
+		return err
+	}
+
+	// BR-031: the mirror of BR-030 above — react to a tenant being suspended
+	// by tearing its resources down, instead of leaving its per-tenant
+	// connection to reconnect forever against a .creds file
+	// accounts-service's suspendAccount has already deleted (see
+	// ARCHITECTURE-ACCOUNTS.md § 2t-a). Producer is accounts-service's
+	// Handlers.publishAccountSuspended (BR-AC09).
+	if _, err := mono.NC().Subscribe("notify.accounts.account.suspended", func(msg *nats.Msg) {
+		var evt struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(msg.Data, &evt); err != nil || evt.Name == "" {
+			log.Error("decode notify.accounts.account.suspended", "err", err)
+			return
+		}
+		if err := handlers.TeardownTenantByName(ctx, evt.Name); err != nil {
+			log.Error("tear down tenant resources on suspension event", "tenant", evt.Name, "err", err)
+		}
+	}); err != nil {
 		return err
 	}
 

@@ -96,8 +96,11 @@ Treat these as living documents: when a phase produces a notable finding or deci
 The `ARCHITECTURE*.md` reference docs — `ARCHITECTURE.md` (CQRS shape taxonomy,
 event sourcing vs. plain CRUD), `ARCHITECTURE-DICTIONARY.md` (refdata-service's
 seeding, Postgres schema/ER diagram, data access paths, cross-service
-consumption), and `ARCHITECTURE-COMMUNICATIONS.md` (REST/Swagger + NATS
-`rpc.*` dual-transport design, subject taxonomy) — live in the obsidian vault
+consumption), `ARCHITECTURE-COMMUNICATIONS.md` (REST/Swagger + NATS
+`rpc.*` dual-transport design, subject taxonomy), and
+`ARCHITECTURE-ACCOUNTS.md` (NATS operator-mode trust chain, tenant account
+create/suspend/reactivate lifecycle, user auth and token lifecycle) — live
+in the obsidian vault
 under `obsidian/V3-Platform/Architecture/Dictionary-POC/`, not in the repo
 tree, alongside the editable `architecture-dictionary.drawio` workbook and its
 exported PNGs (`images/`). This is a different vault location from

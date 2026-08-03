@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -146,6 +147,48 @@ func TestLookupForwardsLocaleToRPC(t *testing.T) {
 	}
 	if result.Label != "Atracado" {
 		t.Fatalf("expected label Atracado, got %q", result.Label)
+	}
+}
+
+// TestLookupCarriesInstanceQualifiedRequestorHeader — BR-027: every rpc.*
+// request carries Nats-Requestor as "<nats.Name>/<instance ID>", so replicas
+// of the same service stay distinguishable (symmetric with Nats-Responder's
+// format). The instance half is fixed per Consumer, so two calls from the
+// same process must carry the identical value.
+func TestLookupCarriesInstanceQualifiedRequestorHeader(t *testing.T) {
+	nc, cleanupNC := newTestNATS(t)
+	defer cleanupNC()
+
+	var requestors []string
+	sub, err := nc.Subscribe("rpc.acme-test.refdata.item.get.v1", func(msg *nats.Msg) {
+		requestors = append(requestors, msg.Header.Get(requestorHeader))
+		var resp rpcItemGetResponse
+		resp.Item.Code = "docked"
+		resp.Item.Status = "active"
+		data, _ := json.Marshal(resp)
+		_ = msg.Respond(data)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Unsubscribe() //nolint:errcheck
+
+	c := New(nc)
+	for i := 0; i < 2; i++ {
+		if _, err := c.Lookup(context.Background(), "acme-test", "ship-status", "docked", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if len(requestors) != 2 {
+		t.Fatalf("expected 2 captured requests, got %d", len(requestors))
+	}
+	const wantPrefix = "shipping-service-test-rpc/"
+	if !strings.HasPrefix(requestors[0], wantPrefix) || len(requestors[0]) == len(wantPrefix) {
+		t.Fatalf("expected Nats-Requestor %q + non-empty instance ID, got %q", wantPrefix, requestors[0])
+	}
+	if requestors[0] != requestors[1] {
+		t.Fatalf("expected a stable per-Consumer instance ID, got %q then %q", requestors[0], requestors[1])
 	}
 }
 

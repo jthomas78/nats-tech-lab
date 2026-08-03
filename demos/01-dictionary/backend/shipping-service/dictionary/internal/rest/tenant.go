@@ -212,6 +212,7 @@ func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath 
 		Meta:       meta,
 		ShapeA:     shapeA,
 		Log:        prev.Log,
+		Tenant:     tenant,
 	})
 	if err != nil {
 		stopAll(projectors)
@@ -279,6 +280,96 @@ func (h *Handlers) EnsureAllTenants(ctx context.Context) error {
 			h.deps().Log.Error("ensure tenant resources at startup", "tenant", tenant, "err", err)
 		}
 	}
+	return nil
+}
+
+// EnsureTenantByName reactively provisions a single tenant's resources the
+// moment accounts-service mints it (BR-030: composition.go subscribes to
+// accounts-service's notify.accounts.account.created and calls this) —
+// closing the gap EnsureAllTenants's doc comment above describes: a browser
+// connecting directly to a brand-new tenant's account (Sea Freight Flow,
+// Phase 15d — never calls SwitchTenant) previously got no working api.*
+// adapter until a human happened to switch the Admin UI to that tenant, or
+// the process restarted. Every api.* request in the meantime timed out
+// silently (5s, then swallowed by the browser's own catch), which read as
+// "this tenant has no ships/ports" rather than "not provisioned yet".
+//
+// A no-op, not an error, if tenant isn't yet visible in CredsDir: the creds
+// file write (accounts-service's handler.go createAccount) happens before
+// the notify publish, so this shouldn't race it in practice, but staying
+// defensive means a stray/duplicate delivery can't fail loudly — the next
+// delivery, or an operator's own SwitchTenant, remains a fallback.
+func (h *Handlers) EnsureTenantByName(ctx context.Context, tenant string) error {
+	deps := h.deps()
+	known, err := discoverTenants(deps.CredsDir)
+	if err != nil {
+		return err
+	}
+	creds, ok := known[tenant]
+	if !ok {
+		return nil
+	}
+	_, err = h.ensureTenantResources(ctx, tenant, creds.CredsPath)
+	return err
+}
+
+// TeardownTenantByName is the mirror of EnsureTenantByName (BR-031;
+// accounts-service's Handlers.publishAccountSuspended, BR-AC09, is the
+// producer) — reacts to a tenant being suspended by stopping that tenant's
+// persistent resource bundle instead of leaving it running (or, worse,
+// leaving nats.go's default reconnect logic retrying forever against a
+// .creds file suspendAccount has already deleted; see
+// ARCHITECTURE-ACCOUNTS.md § 2t-a for the runtime behavior this closes).
+//
+// Explicitly closing res.nc is what actually stops the reconnect loop —
+// NATS force-evicts the connection the instant the account is revoked at
+// the resolver (also documented in § 2t-a), but an evicted connection still
+// retries on its own by default; only an explicit Close() from this side
+// disables that. Stopping the projectors and the browserrpc adapter first
+// is not strictly required for that (closing nc alone would stop them
+// eventually via read errors), but avoids each one logging a burst of
+// errors against a connection this function already knows is being torn
+// down deliberately.
+//
+// A no-op, not an error, if tenant was never provisioned (nothing in
+// TenantResources) or has already been torn down — mirrors
+// EnsureTenantByName's own idempotency, and for the same reason: a stray or
+// duplicate notify.accounts.account.suspended delivery must not fail loudly.
+//
+// Deliberately does not touch deps.Tenant/TenantNC even if tenant happens to
+// be REST's currently-active tenant — SwitchTenant already does not stop or
+// rebuild anything (see tenantResources's doc comment), and there is no
+// precedent here for this function auto-switching REST away from a tenant
+// an operator explicitly selected. A REST/SSE request against a suspended
+// active tenant will simply start failing against the closed connection,
+// which is the correct outcome for a tenant that no longer exists.
+func (h *Handlers) TeardownTenantByName(_ context.Context, tenant string) error {
+	deps := h.deps()
+	res, ok := deps.TenantResources[tenant]
+	if !ok {
+		return nil
+	}
+
+	stopAll(res.projectors)
+	if err := res.rpcAdapter.Stop(); err != nil {
+		deps.Log.Error("stop rpc adapter during tenant teardown", "tenant", tenant, "err", err)
+	}
+	res.nc.Close()
+
+	// Copy-on-write into the shared map, re-reading h.deps() rather than
+	// reusing deps — mirrors ensureTenantResources's own race-avoidance
+	// comment (a sibling Ensure/Teardown call for a DIFFERENT tenant may be
+	// running concurrently).
+	latest := h.deps()
+	newMap := make(map[string]*tenantResources, len(latest.TenantResources))
+	for k, v := range latest.TenantResources {
+		if k != tenant {
+			newMap[k] = v
+		}
+	}
+	latest.TenantResources = newMap
+	h.SetDeps(latest)
+
 	return nil
 }
 

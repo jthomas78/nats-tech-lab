@@ -264,6 +264,169 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 		})
 	})
 
+	Context("BR-D36: every obs.rpc.* event carries its headers, a publisher-side timestamp, and its payload size", func() {
+		type obsEnvelope struct {
+			Direction     string              `json:"direction"`
+			Error         string              `json:"error,omitempty"`
+			Headers       map[string][]string `json:"headers,omitempty"`
+			Timestamp     time.Time           `json:"timestamp"`
+			PayloadBytes  int                 `json:"payloadBytes"`
+			CorrelationID string              `json:"correlationId"`
+		}
+
+		It("stamps the request-side event with the caller's real headers, a non-zero timestamp, and the true payload size", func() {
+			obsMsgs := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.rpc.>", func(m *nats.Msg) { obsMsgs <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
+
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "EUR", Locale: "en"})
+			Expect(err).NotTo(HaveOccurred())
+
+			msg := nats.NewMsg(rpcSubject)
+			msg.Data = reqBody
+			msg.Header = nats.Header{"X-Client": []string{"admin-ui-test"}}
+			before := time.Now()
+			reply, err := nc.RequestMsg(msg, 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(reply).NotTo(BeNil())
+
+			var reqEnv obsEnvelope
+			Eventually(func() bool {
+				select {
+				case m := <-obsMsgs:
+					Expect(json.Unmarshal(m.Data, &reqEnv)).To(Succeed())
+					return reqEnv.Direction == "request"
+				default:
+					return false
+				}
+			}, 2*time.Second).Should(BeTrue(), "expected a request-side obs.rpc.* event")
+
+			Expect(reqEnv.Headers).To(HaveKeyWithValue("X-Client", []string{"admin-ui-test"}))
+			Expect(reqEnv.Timestamp).To(BeTemporally(">=", before))
+			Expect(reqEnv.PayloadBytes).To(Equal(len(reqBody)))
+		})
+
+		It("attaches real Nats-Service-Error/-Code headers to a failed reply, on both the obs event and the actual wire reply", func() {
+			obsMsgs := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.rpc.>", func(m *nats.Msg) { obsMsgs <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
+
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "does-not-exist", Locale: "en"})
+			Expect(err).NotTo(HaveOccurred())
+			reply, err := nc.Request(rpcSubject, reqBody, 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(reply.Header.Get("Nats-Service-Error")).NotTo(BeEmpty(), "the real wire reply must carry the error header, not just the obs event")
+			Expect(reply.Header.Get("Nats-Service-Error-Code")).To(Equal("404"))
+
+			var sawErrorHeaders bool
+			for i := 0; i < 2; i++ {
+				select {
+				case m := <-obsMsgs:
+					var env obsEnvelope
+					Expect(json.Unmarshal(m.Data, &env)).To(Succeed())
+					if env.Direction == "reply" {
+						Expect(env.Headers).To(HaveKeyWithValue("Nats-Service-Error-Code", []string{"404"}))
+						sawErrorHeaders = true
+					}
+				case <-time.After(2 * time.Second):
+					Fail("timed out waiting for obs.rpc.* events")
+				}
+			}
+			Expect(sawErrorHeaders).To(BeTrue())
+		})
+
+		It("still decodes an old-shape obs event with no headers/timestamp/payloadBytes fields at all", func() {
+			var env obsEnvelope
+			old := []byte(`{"direction":"reply","correlationId":"legacy-1","subject":"rpc.acme-test.refdata.item.get.v1","payload":{"item":{}}}`)
+			Expect(json.Unmarshal(old, &env)).To(Succeed())
+			Expect(env.Direction).To(Equal("reply"))
+			Expect(env.Headers).To(BeNil())
+			Expect(env.Timestamp).To(BeZero())
+		})
+	})
+
+	Context("BR-D37: every rpc.* request carries a Nats-Requestor header identifying its caller, and every reply a Nats-Responder header identifying the answering service instance", func() {
+		type obsEnvelope struct {
+			Direction     string              `json:"direction"`
+			Error         string              `json:"error,omitempty"`
+			Headers       map[string][]string `json:"headers,omitempty"`
+			Timestamp     time.Time           `json:"timestamp"`
+			PayloadBytes  int                 `json:"payloadBytes"`
+			CorrelationID string              `json:"correlationId"`
+		}
+
+		It("forwards the caller's Nats-Requestor header into the obs.rpc.* request event, same as any other caller-supplied header", func() {
+			obsMsgs := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.rpc.>", func(m *nats.Msg) { obsMsgs <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
+
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "EUR", Locale: "en"})
+			Expect(err).NotTo(HaveOccurred())
+
+			msg := nats.NewMsg(rpcSubject)
+			msg.Data = reqBody
+			// Instance-qualified "<service>/<instance ID>" — the same
+			// name/instance split Nats-Responder uses (BR-D37).
+			msg.Header = nats.Header{"Nats-Requestor": []string{"shipping-service/test-instance-1"}}
+			reply, err := nc.RequestMsg(msg, 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(reply).NotTo(BeNil())
+
+			var reqEnv obsEnvelope
+			Eventually(func() bool {
+				select {
+				case m := <-obsMsgs:
+					Expect(json.Unmarshal(m.Data, &reqEnv)).To(Succeed())
+					return reqEnv.Direction == "request"
+				default:
+					return false
+				}
+			}, 2*time.Second).Should(BeTrue(), "expected a request-side obs.rpc.* event")
+
+			Expect(reqEnv.Headers).To(HaveKeyWithValue("Nats-Requestor", []string{"shipping-service/test-instance-1"}))
+		})
+
+		It("attaches a Nats-Responder header (service name/instance ID) to a successful reply, on both the real wire reply and the obs.rpc.* event", func() {
+			obsMsgs := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.rpc.>", func(m *nats.Msg) { obsMsgs <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
+
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "EUR", Locale: "en"})
+			Expect(err).NotTo(HaveOccurred())
+			reply, err := nc.Request(rpcSubject, reqBody, 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			responder := reply.Header.Get("Nats-Responder")
+			Expect(responder).To(HavePrefix("refdata-service/"), "the real wire reply must carry the responder header, not just the obs event")
+
+			var replyEnv obsEnvelope
+			Eventually(func() bool {
+				select {
+				case m := <-obsMsgs:
+					Expect(json.Unmarshal(m.Data, &replyEnv)).To(Succeed())
+					return replyEnv.Direction == "reply"
+				default:
+					return false
+				}
+			}, 2*time.Second).Should(BeTrue(), "expected a reply-side obs.rpc.* event")
+			Expect(replyEnv.Headers).To(HaveKeyWithValue("Nats-Responder", []string{responder}))
+		})
+
+		It("attaches a Nats-Responder header to a failed reply too", func() {
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "does-not-exist", Locale: "en"})
+			Expect(err).NotTo(HaveOccurred())
+			reply, err := nc.Request(rpcSubject, reqBody, 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(reply.Header.Get("Nats-Responder")).To(HavePrefix("refdata-service/"))
+		})
+	})
+
 	Context("BR-D27: an rpc.* lookup backfills the KV cache just like REST's getItem handler", func() {
 		It("writes a fresh cache entry after a cold rpc.* lookup, using the same Projector.Backfill REST relies on", func() {
 			// This adapter needs its own JetStream-backed nc (unlike the

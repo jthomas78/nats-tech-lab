@@ -32,7 +32,7 @@ const {
   disconnect: disconnectRefdata,
 } = useRefdataLabels()
 const { usingFallback, partialFallback, switching, connect: connectL10nCopy, disconnect: disconnectL10nCopy } = useL10nCopy()
-const { disconnect: disconnectNats } = useNatsConnection()
+const { lastError, disconnect: disconnectNats } = useNatsConnection()
 const { t } = useI18n()
 const toast = useToast()
 
@@ -126,6 +126,13 @@ onUnmounted(() => {
         @update:model-value="tenantStore.setTenant($event)"
       />
       <Tag v-if="tenantStore.switching" severity="warning" :value="t('tenant.switching')" />
+      <!-- Surfaces useNatsConnection's lastError (e.g. a tenant suspended
+           mid-session gets force-evicted, then refused a fresh JWT by
+           connectInfo's 403) — previously set silently with nothing
+           rendering it, so panels just stopped updating with no
+           explanation. Clears itself: connect() resets lastError to '' the
+           moment a connection succeeds again. -->
+      <Tag v-if="lastError" data-testid="connection-error" severity="danger" :value="t('connection.error')" :title="lastError" />
       <label class="lab-muted" for="context">{{ t('context.fleet') }}</label>
       <Select
         id="context"

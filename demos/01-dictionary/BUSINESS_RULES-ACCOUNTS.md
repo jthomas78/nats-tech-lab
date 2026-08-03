@@ -16,7 +16,7 @@ via decentralized JWTs (`github.com/nats-io/jwt/v2` + `nkeys`), replacing
 `accounts/handler.go`, with the JWT-minting mechanics themselves in
 `accounts/provisioner.go`.
 
-### BR-AC01–BR-AC06 — Account lifecycle
+### BR-AC01–BR-AC09 — Account lifecycle
 
 - **BR-AC01:** An account name is unique; creating an account with a name
   that already exists is rejected (`409 Conflict`).
@@ -25,14 +25,18 @@ via decentralized JWTs (`github.com/nats-io/jwt/v2` + `nkeys`), replacing
   it, returning that user's `.creds` file content exactly once — it is never
   retrievable again through this API afterward.
 - **BR-AC03:** Suspending an account (`POST /api/accounts/{name}/suspend`)
-  revokes its account JWT at the resolver via `$SYS.REQ.CLAIMS.DELETE` —
-  existing connections are not force-closed, but no new connection under that
-  account can succeed afterward — and best-effort removes its `.creds` file
-  from the shared creds directory so `shipping-service`'s tenant selector
-  stops offering it. Suspension is the only deactivation mechanism — there is
-  no hard-delete endpoint, because tenant data spans multiple services and
-  NATS account-scoped streams, and regulatory retention requirements in
-  logistics make true deletion unsafe.
+  revokes its account JWT at the resolver via `$SYS.REQ.CLAIMS.DELETE`, and
+  best-effort removes its `.creds` file from the shared creds directory so
+  `shipping-service`'s tenant selector stops offering it. **Corrected
+  2026-08-03:** this entry previously claimed existing connections are not
+  force-closed by the revoke — verified against NATS 2.11 on the running
+  stack, that is false; the server evicts every connection on the account
+  within a couple of seconds (see `ARCHITECTURE-ACCOUNTS.md` § 2t-a for the
+  full runtime consequence, and BR-AC09/BR-031 for what reacts to it).
+  Suspension is the only deactivation mechanism — there is no hard-delete
+  endpoint, because tenant data spans multiple services and NATS
+  account-scoped streams, and regulatory retention requirements in logistics
+  make true deletion unsafe.
 - **BR-AC04:** Only a suspended account may be reactivated
   (`POST /api/accounts/{name}/reactivate`); calling it on an account that is
   not currently suspended is rejected (`409 Conflict`), and an unknown
@@ -116,12 +120,50 @@ via decentralized JWTs (`github.com/nats-io/jwt/v2` + `nkeys`), replacing
   account; this rule closes the same gap one level up, where a tenant
   identity is minted in the first place. Only a *leading* underscore is
   rejected — `acme_northdiv` is unaffected.
+- **BR-AC08 (Phase 16h):** After a create fully succeeds (resolver JWT
+  pushed, `.creds` file written, Postgres row persisted), this service
+  publishes `notify.accounts.account.created` — a context-free subject
+  (this service has no `{context}` of its own; see
+  `ARCHITECTURE-COMMUNICATIONS.md` § "Context-free services") — with the new
+  tenant's name, over a second, DEFAULT-account NATS connection
+  (`Handlers.NotifyNC`) dedicated to this one purpose. Exists so
+  `shipping-service` can provision that tenant's resources reactively the
+  instant it's minted, instead of only at its own next startup or the first
+  time an operator switches the Admin UI to it — see
+  `BUSINESS_RULES-SHIPPING.md`'s BR-030, the consumer side. Deliberately not
+  published from the existing SYS-account connection (`Provisioner`'s own):
+  core NATS pub/sub never crosses an account boundary, and
+  shipping-service's subscriber listens on its own DEFAULT account.
+  Best-effort — a publish failure doesn't fail the create request (the
+  account is already fully committed by that point); `NotifyNC` is nil-safe,
+  so this service still runs with the event simply never sent if
+  `NATS_DEFAULT_CREDS_PATH` isn't configured. A rejected/failed create
+  (duplicate name, minting error, etc.) never publishes anything — only a
+  fully-committed account does.
+- **BR-AC09 (Phase 16i):** After a suspend fully succeeds (resolver JWT
+  revoked, Postgres row marked `suspended`), this service publishes
+  `notify.accounts.account.suspended` — the mirror of BR-AC08, same
+  context-free subject family, same `Handlers.NotifyNC` connection — with the
+  suspended tenant's name. Exists so `shipping-service` can react promptly:
+  BR-AC03's revoke force-evicts that tenant's connections, but eviction alone
+  doesn't stop `nats.go`'s default reconnect logic from retrying forever
+  against a `.creds` file this same suspend call has already deleted (see
+  `BUSINESS_RULES-SHIPPING.md`'s BR-031, the consumer side, and
+  `ARCHITECTURE-ACCOUNTS.md` § 2t-a for the full runtime behavior this
+  closes). Same best-effort/nil-safe contract as BR-AC08: a publish failure
+  doesn't fail the suspend request, since the revoke — the actual security
+  boundary — has already happened by that point. A rejected/failed suspend
+  (unknown account name) never publishes anything.
 
 The lifecycle rules (BR-AC01, BR-AC03, BR-AC04, BR-AC06, BR-AC07) are enforced in
 `accounts/handler.go`'s `createAccount`/`suspendAccount`/`reactivateAccount`;
 the JWT mechanics behind BR-AC02/BR-AC03/BR-AC04 are in
 `accounts/provisioner.go`'s `CreateAccount`/`DeleteAccount`/
-`ReactivateAccount`. Ginkgo coverage: `provisioner_test.go` exercises the JWT
+`ReactivateAccount`; BR-AC08 is `accounts/handler.go`'s
+`publishAccountCreated`, called from `createAccount`; BR-AC09 is the same
+file's `publishAccountSuspended`, called from `suspendAccount`. Ginkgo
+coverage:
+`provisioner_test.go` exercises the JWT
 round trip directly against an embedded operator-mode NATS server (mint →
 connect → revoke → reject → reactivate → connect again, with JetStream
 limits verified via `AccountInfo`); `handler_test.go` exercises the full HTTP
@@ -132,7 +174,12 @@ in every casing) against a real disposable Postgres container, mirroring
 regression spec for the 2026-07-28 incident (a real minted account inserted
 with an empty signing key seed and `suspended` status, mimicking a seeded
 account, reactivated through the HTTP endpoint and asserted to come back
-with connectable creds and a persisted signing key). The
+with connectable creds and a persisted signing key), plus BR-AC08's own two
+specs (a rejected create publishes nothing; a successful create publishes
+the tenant's name, and a create with a nil `NotifyNC` still succeeds) and
+BR-AC09's mirrored two specs (a suspend of an unknown account publishes
+nothing; a successful suspend publishes the tenant's name, and a suspend
+with a nil `NotifyNC` still succeeds). The
 `shipping-service`-side defense in depth is covered separately by
 `dictionary/internal/rest/tenant_discovery_test.go`'s
 `TestDiscoverTenantsExcludesReservedNamesCaseInsensitively`, a plain Go test

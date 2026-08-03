@@ -704,17 +704,17 @@
         },
         "/api/rpc-watch": {
             "get": {
-                "description": "Server-Sent Events stream of the refdata-service natsrpc adapter's best-effort obs.rpc.* observability side-channel. Replays whatever the RPCTRACE stream currently retains (up to the last 10 minutes, BR-D29) first, then continues live via core NATS subscribe. Each event carries direction (\"request\"|\"reply\"), a correlationId pairing a request with its reply, the real rpc.* subject, and the payload. See ARCHITECTURE-COMMUNICATIONS.md §6.",
+                "description": "Server-Sent Events stream of the best-effort request/reply observability side-channels: refdata-service's obs.rpc.* (backend-to-backend, DEFAULT account) and shipping-service's obs.api.* (browser-to-service, the ACTIVE tenant's account only). Replays whatever the RPCTRACE stream currently retains for obs.rpc.* (up to the last 10 minutes, BR-D29) first, then continues live via core NATS subscribe; obs.api.* is live-only — RPCTRACE lives on the DEFAULT account and does not capture tenant-account traffic. Each event carries direction (\"request\"|\"reply\"), a correlationId pairing a request with its reply, the real rpc.*/api.* subject, and the payload. See ARCHITECTURE-COMMUNICATIONS.md §6.",
                 "produces": [
                     "text/event-stream"
                 ],
                 "tags": [
                     "streams"
                 ],
-                "summary": "obs.rpc.* dual-transport RPC traffic stream (SSE, Phase 12.10)",
+                "summary": "obs.rpc.* + obs.api.* request/reply traffic stream (SSE, Phase 12.10)",
                 "responses": {
                     "200": {
-                        "description": "SSE stream — data: {obs.rpc.* JSON}",
+                        "description": "SSE stream — data: {obs.rpc.*/obs.api.* JSON}",
                         "schema": {
                             "type": "string"
                         }

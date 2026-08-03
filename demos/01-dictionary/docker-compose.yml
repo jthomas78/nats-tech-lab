@@ -92,6 +92,9 @@ services:
       - frontend
     environment:
       NATS_URL: nats://nats:4222
+      # Phase 17c — the Connections admin panel proxies the NATS server's
+      # HTTP monitoring port (distinct from NATS_URL's client port 4222).
+      NATS_MONITOR_URL: http://nats:8222
       # Phase 14a — operator mode: every tenant account is now a .creds file,
       # not a bare user/password. NATS_CREDS_DIR is the directory
       # rest.Handlers.SwitchTenant scans for <tenant>.creds files.
@@ -157,6 +160,13 @@ services:
       # $SYS.REQ.CLAIMS.* (mint/revoke) is only reachable authenticated as
       # the SYS account.
       NATS_CREDS_PATH: /etc/nats/creds/sys.creds
+      # Phase 16h/BR-AC08 — a second, DEFAULT-account connection used only to
+      # publish notify.accounts.account.created, so shipping-service can
+      # provision a newly-minted tenant's resources immediately (BR-030)
+      # instead of waiting for an operator to switch the Admin UI to it.
+      # Already readable here: ./nats/creds below mounts the whole shared
+      # directory, default.creds included.
+      NATS_DEFAULT_CREDS_PATH: /etc/nats/creds/default.creds
       OPERATOR_SIGNING_KEY_FILE: /etc/nats/keys/operator-signing-key.nk
       NATS_CREDS_DIR: /etc/nats/creds
       RESOLVER_SEED_DIR: /etc/nats/resolver

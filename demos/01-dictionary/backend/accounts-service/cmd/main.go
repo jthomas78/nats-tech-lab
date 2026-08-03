@@ -38,7 +38,8 @@ func run(log *slog.Logger) error {
 
 	databaseURL := envOr("DATABASE_URL", "postgres://accounts:accounts@localhost:5434/accounts?sslmode=disable")
 	natsURL := envOr("NATS_URL", nats.DefaultURL)
-	natsCredsPath := envOr("NATS_CREDS_PATH", "") // sys.creds — $SYS.REQ.CLAIMS.* is only reachable authenticated as SYS
+	natsCredsPath := envOr("NATS_CREDS_PATH", "")                // sys.creds — $SYS.REQ.CLAIMS.* is only reachable authenticated as SYS
+	natsDefaultCredsPath := envOr("NATS_DEFAULT_CREDS_PATH", "") // default.creds — Phase 16h: publishes notify.accounts.account.created for shipping-service's DEFAULT-account subscriber (BR-030); optional, publish is skipped if unset
 	operatorSigningKeyFile := envOr("OPERATOR_SIGNING_KEY_FILE", "")
 	credsDir := envOr("NATS_CREDS_DIR", "") // shared volume shipping-service also mounts
 	resolverSeedDir := envOr("RESOLVER_SEED_DIR", "")
@@ -80,6 +81,38 @@ func run(log *slog.Logger) error {
 	}
 	defer sysNC.Drain() //nolint:errcheck
 
+	// Phase 16h — a second connection, on the DEFAULT account, used only to
+	// publish notify.accounts.account.created (accounts.Handlers.NotifyNC) —
+	// deliberately not sysNC, since shipping-service's subscriber
+	// (composition.go) listens on its own DEFAULT-account connection and
+	// core NATS pub/sub never crosses an account boundary. Optional: if
+	// unset, accounts-service still runs, it just can't notify shipping-service
+	// reactively (EnsureAllTenants at startup / an Admin UI SwitchTenant
+	// remain the fallback paths — see EnsureTenantByName's doc comment).
+	var defaultNC *nats.Conn
+	if natsDefaultCredsPath != "" {
+		defaultOpts := []nats.Option{nats.Name("accounts-service-default")}
+		defaultOpts = append(defaultOpts, nats.UserCredentials(natsDefaultCredsPath))
+		if err := waitForNATS(startupCtx, natsURL, defaultOpts, func(conn *nats.Conn) error {
+			defaultNC = conn
+			return nil
+		}); err != nil {
+			return err
+		}
+		defer defaultNC.Drain() //nolint:errcheck
+	} else {
+		log.Warn("NATS_DEFAULT_CREDS_PATH not set — accounts-service cannot notify shipping-service when a tenant is created; EnsureAllTenants/SwitchTenant remain the only ways a new tenant's resources get provisioned")
+	}
+
+	// Phase 17c — see accounts.RegisterMicroService's doc comment for why
+	// this is a call into the accounts package rather than an inline
+	// micro.AddService here: that's what makes the registration testable.
+	accountsSvc, err := accounts.RegisterMicroService(sysNC)
+	if err != nil {
+		return err
+	}
+	defer accountsSvc.Stop() //nolint:errcheck
+
 	operatorSigningKeySeed, err := os.ReadFile(operatorSigningKeyFile)
 	if err != nil {
 		return err
@@ -96,7 +129,7 @@ func run(log *slog.Logger) error {
 		}
 	}
 
-	handlers := accounts.NewHandlers(store, provisioner, credsDir, log)
+	handlers := accounts.NewHandlers(store, provisioner, credsDir, log, defaultNC)
 	mux := http.NewServeMux()
 	handlers.Mount(mux, authSecret)
 

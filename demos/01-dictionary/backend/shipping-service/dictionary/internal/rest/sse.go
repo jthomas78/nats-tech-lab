@@ -281,23 +281,29 @@ func (h *Handlers) watchBuckets(w http.ResponseWriter, r *http.Request, kvContex
 
 // watchRPCObs godoc
 //
-// @Summary      obs.rpc.* dual-transport RPC traffic stream (SSE, Phase 12.10)
-// @Description  Server-Sent Events stream of the refdata-service natsrpc adapter's best-effort obs.rpc.* observability side-channel. Replays whatever the RPCTRACE stream currently retains (up to the last 10 minutes, BR-D29) first, then continues live via core NATS subscribe. Each event carries direction ("request"|"reply"), a correlationId pairing a request with its reply, the real rpc.* subject, and the payload. See ARCHITECTURE-COMMUNICATIONS.md §6.
+// @Summary      obs.rpc.* + obs.api.* request/reply traffic stream (SSE, Phase 12.10)
+// @Description  Server-Sent Events stream of the best-effort request/reply observability side-channels: refdata-service's obs.rpc.* (backend-to-backend, DEFAULT account) and shipping-service's obs.api.* (browser-to-service, the ACTIVE tenant's account only). Replays whatever the RPCTRACE stream currently retains for obs.rpc.* (up to the last 10 minutes, BR-D29) first, then continues live via core NATS subscribe; obs.api.* is live-only — RPCTRACE lives on the DEFAULT account and does not capture tenant-account traffic. Each event carries direction ("request"|"reply"), a correlationId pairing a request with its reply, the real rpc.*/api.* subject, and the payload. See ARCHITECTURE-COMMUNICATIONS.md §6.
 // @Tags         streams
 // @Produce      text/event-stream
-// @Success      200  {string}  string  "SSE stream — data: {obs.rpc.* JSON}"
+// @Success      200  {string}  string  "SSE stream — data: {obs.rpc.*/obs.api.* JSON}"
 // @Failure      500  {object}  errorResponse
 // @Router       /api/rpc-watch [get]
 // watchRPCObs replays the RPCTRACE stream's current backlog (up to its 10m
 // MaxAge, BR-D29 — best-effort catch-up for a tab opened after a call
-// completes), then subscribes to obs.rpc.> on the shared NATS connection and
-// re-emits each live message as an SSE event. The live subscribe is
-// established before the replay is drained so nothing published during the
-// replay window is missed; a message published in the narrow gap before that
-// subscribe took effect can in principle appear twice, which is acceptable
-// for a best-effort debug trace feed. h.deps().DefaultJS is optional — when
-// nil (or RPCTRACE doesn't exist yet), this degrades to the original
-// live-only behavior.
+// completes), then subscribes to obs.rpc.> on the shared DEFAULT-account
+// connection AND obs.api.> on the active tenant's connection (browserrpc's
+// adapter publishes its observability events inside the tenant account —
+// see the Deps doc comment in browserrpc/adapter.go), re-emitting each live
+// message as an SSE event. The obs.api.> half is live-only (no RPCTRACE
+// retention exists inside tenant accounts) and is pinned to whichever tenant
+// was active when the SSE connection opened — the Admin UI reconnects on
+// tenant switch. The live subscribes are established before the replay is
+// drained so nothing published during the replay window is missed; a message
+// published in the narrow gap before a subscribe took effect can in
+// principle appear twice, which is acceptable for a best-effort debug trace
+// feed. h.deps().DefaultJS is optional — when nil (or RPCTRACE doesn't exist
+// yet), this degrades to live-only behavior. h.deps().TenantNC is likewise
+// optional — when nil, the feed simply carries no obs.api.* traffic.
 func (h *Handlers) watchRPCObs(w http.ResponseWriter, r *http.Request) {
 	if h.deps().NC == nil {
 		writeError(w, http.StatusInternalServerError, "NATS connection not configured")
@@ -318,6 +324,19 @@ func (h *Handlers) watchRPCObs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = sub.Unsubscribe() }()
+
+	// obs.api.* events publish on the active tenant's own account (see
+	// browserrpc.ObsSubjectWildcard) — subscribe there, feeding the same
+	// channel so both families interleave into one SSE feed.
+	if tenantNC := h.deps().TenantNC; tenantNC != nil {
+		apiSub, err := tenantNC.ChanSubscribe("obs.api.>", msgCh)
+		if err != nil {
+			h.deps().Log.Error("obs.api subscribe", "err", err)
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		defer func() { _ = apiSub.Unsubscribe() }()
+	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
