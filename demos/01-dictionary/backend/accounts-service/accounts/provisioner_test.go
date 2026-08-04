@@ -33,7 +33,7 @@ var _ = Describe("Provisioner", func() {
 
 	It("mints an account whose creds can connect and get exactly its configured JetStream limits", func() {
 		limits := accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5}
-		minted, err := provisioner.CreateAccount(ctx, limits)
+		minted, err := provisioner.CreateAccount(ctx, limits, "tenant", "")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(minted.PublicKey).NotTo(BeEmpty())
 		Expect(minted.SigningKeySeed).NotTo(BeEmpty())
@@ -63,12 +63,12 @@ var _ = Describe("Provisioner", func() {
 	})
 
 	It("isolates two minted accounts from each other exactly like the static Phase 13a accounts", func() {
-		mintedA, err := provisioner.CreateAccount(ctx, accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5})
+		mintedA, err := provisioner.CreateAccount(ctx, accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5}, "tenant-a", "")
 		Expect(err).NotTo(HaveOccurred())
 		credsA, err := provisioner.CreateUser(mintedA.PublicKey, mintedA.SigningKeySeed, "a")
 		Expect(err).NotTo(HaveOccurred())
 
-		mintedB, err := provisioner.CreateAccount(ctx, accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5})
+		mintedB, err := provisioner.CreateAccount(ctx, accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5}, "tenant-b", "")
 		Expect(err).NotTo(HaveOccurred())
 		credsB, err := provisioner.CreateUser(mintedB.PublicKey, mintedB.SigningKeySeed, "b")
 		Expect(err).NotTo(HaveOccurred())
@@ -111,7 +111,7 @@ var _ = Describe("Provisioner", func() {
 	})
 
 	It("revokes an account so a subsequent connection attempt is rejected", func() {
-		minted, err := provisioner.CreateAccount(ctx, accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5})
+		minted, err := provisioner.CreateAccount(ctx, accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5}, "tenant", "")
 		Expect(err).NotTo(HaveOccurred())
 		credsBytes, err := provisioner.CreateUser(minted.PublicKey, minted.SigningKeySeed, "tenant-user")
 		Expect(err).NotTo(HaveOccurred())
@@ -128,12 +128,12 @@ var _ = Describe("Provisioner", func() {
 
 	It("reactivates a revoked account under its original public key and limits, restoring connectivity", func() {
 		limits := accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5}
-		minted, err := provisioner.CreateAccount(ctx, limits)
+		minted, err := provisioner.CreateAccount(ctx, limits, "tenant", "")
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(provisioner.DeleteAccount(ctx, minted.PublicKey)).To(Succeed())
 
-		Expect(provisioner.ReactivateAccount(ctx, minted.PublicKey, minted.SigningKeySeed, limits)).To(Succeed())
+		Expect(provisioner.ReactivateAccount(ctx, minted.PublicKey, minted.SigningKeySeed, limits, accounts.CrossAccountOpts{}, nil)).To(Succeed())
 
 		credsBytes, err := provisioner.CreateUser(minted.PublicKey, minted.SigningKeySeed, "tenant-user")
 		Expect(err).NotTo(HaveOccurred(), "the account's own signing key must still be valid post-reactivation, since the public key was reused")

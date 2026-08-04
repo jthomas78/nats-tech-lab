@@ -14,9 +14,9 @@ import (
 
 // RegisterContainers starts the container projector: container events update
 // the canonical Postgres projection first, then eagerly write through to the
-// container-{context} KV bucket (the read model served by the terminal
-// queries). One durable consumer, positioned independently of the ship
-// projectors.
+// tenant-scoped container KV bucket under the event context's key prefix (the
+// read model served by the terminal queries). One durable consumer, positioned
+// independently of the ship projectors.
 //
 // nc is optional (nil-safe, Phase 15b) — see RegisterShapeA's doc comment;
 // after every successful KV write this fire-and-forget publishes

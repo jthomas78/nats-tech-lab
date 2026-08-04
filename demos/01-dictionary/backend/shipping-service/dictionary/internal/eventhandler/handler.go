@@ -16,7 +16,8 @@ import (
 )
 
 // RegisterShapeA starts the Shape A projector: ship events are projected
-// directly into the context-scoped KV bucket, which IS the read model.
+// directly into the tenant-scoped KV bucket under its context key prefix,
+// which IS the read model.
 // On each event the projector reads the current KV state, applies the event
 // delta via ShipAggregate, and writes the new ShipState back.
 //

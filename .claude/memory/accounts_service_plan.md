@@ -1,6 +1,6 @@
 ---
 name: accounts-service-plan
-description: Accounts service for dynamic tenant provisioning via decentralized JWTs (jwt/v2+nkeys); implemented Phase 14 (2026-07-28); suspend/reactivate lifecycle complete; BR-032/BR-033 closed the reactivation regression (2026-08-03); WorkOS human auth deferred; 6 known gaps open (security/audit/reconciliation)
+description: Accounts service for dynamic tenant provisioning via decentralized JWTs (jwt/v2+nkeys); implemented Phase 14 (2026-07-28); suspend/reactivate lifecycle complete; BR-032/BR-033 closed the reactivation regression (2026-08-03); Phase 20a (JetStream limits update/visibility) closed gap #5 (2026-08-03); WorkOS human auth deferred; 5 known gaps still open (security/audit/reconciliation)
 metadata:
   type: project
 ---
@@ -33,7 +33,7 @@ Flow: `Human → (WorkOS session) → Accounts frontend → (authz check) → Ac
 2. **BR-UA05 contradicts the implementation** — it claims the NKey seed is never sent to the browser, but `ConnectInfo.NKeySeed` is returned and used by `useNatsConnection.js` (required for NATS challenge-response). Needs rewording to distinguish "account signing key" (genuinely server-only) from "user NKey seed" (necessarily client-side).
 3. **No audit trail** — no actor, no event log, just `updated_at`. In tension with BR-AC03's own regulatory-retention rationale for no-hard-delete. Compounded by the single shared admin secret (can't attribute an action to a person even with a log).
 4. **Partial failures leave the resolver and Postgres inconsistent, no reconciliation sweep.** `createAccount` pushes the JWT/writes creds before the DB insert (error message admits the inconsistency but nothing compensates); suspend has the mirror problem (revoke succeeds, `SetStatus` fails → resolver-dead but Postgres still reads `active`).
-5. **No way to change JetStream limits after creation** — routes are create/list/get/suspend/reactivate only; no upgrade path for a tenant outgrowing its quota. Probably fine to defer.
+5. ~~No way to change JetStream limits after creation~~ — **closed 2026-08-03, Phase 20a**: `POST /api/accounts/{name}/jslimits` (BR-AC12) + `GET /api/accounts/usage` bulk visibility endpoint. See [[phase21-account-exports-imports]] for the follow-on Phase 20b (kvstore per-tenant-bucket redesign) that stops the underlying stream-count growth this gap was really about.
 6. **Account JWT `Name` is set to the public key, not the tenant name** (`provisioner.go:117`) — why `/connz` shows raw NKeys and BR-028 needed a resolution layer in the Admin UI. Cheap fix, check for `Name`-keyed lookups first.
 
 `auth-service` reading `accounts-postgres` directly (the one break in the repo's database-per-service stance) is documented separately as a known POC trade-off in the plan, not repeated here.

@@ -8,15 +8,16 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 )
 
-// Phase 16d context tree — retires the single flat "emea-acme" context in
-// favor of a real, demonstrable inheritance chain:
+// Phase 16d context tree — two business-unit contexts as peer siblings under
+// the reserved platform root. Tenant "acme" owns both; neither is the parent
+// of the other (flat, not nested):
 //
 //	_platform (reserved root, no tenant)   — standards-based reference data
-//	  └── acme (tenant: acme)              — this demo's company; domain
-//	      │                                  data (ship-status, UI copy) plus
-//	      │                                  one override of a _platform item
-//	      └── acme-atlantic-fleet          — business unit; one addition
-//	          (tenant: acme)                 item only it has
+//	  ├── acme-pacific-fleet (tenant: acme) — Pacific fleet BU; domain data
+//	  │                                       (ship-status, UI copy) plus one
+//	  │                                       override of a _platform item
+//	  └── acme-atlantic-fleet (tenant: acme) — Atlantic fleet BU; one addition
+//	                                           item only it has
 //
 // PlatformContext is seeded via ContextHandler.RegisterPlatformRoot, the one
 // sanctioned exception to BR-D33's rejection of a leading "_" (see that
@@ -24,7 +25,7 @@ import (
 // POST /api/refdata/admin/contexts endpoint, which always rejects it.
 const (
 	PlatformContext     = "_platform"
-	CompanyContext      = "acme"
+	PacificFleetContext = "acme-pacific-fleet"
 	BusinessUnitContext = "acme-atlantic-fleet"
 )
 
@@ -61,20 +62,20 @@ func Seed(ctx context.Context, h *Handlers) error {
 			return err
 		}
 		if err := h.Contexts.Register(ctx, domain.Context{
-			Context: CompanyContext, Parent: PlatformContext, Tenant: "acme",
-			Name: "Acme", Description: "Acme's own domain reference data, inheriting standards from " + PlatformContext,
+			Context: PacificFleetContext, Parent: PlatformContext, Tenant: "acme",
+			Name: "Acme — Pacific Fleet", Description: "Pacific fleet business unit, inheriting standards from " + PlatformContext,
 		}); err != nil {
 			return err
 		}
 		if err := h.Contexts.Register(ctx, domain.Context{
-			Context: BusinessUnitContext, Parent: CompanyContext, Tenant: "acme",
-			Name: "Acme — Atlantic Fleet", Description: "Business unit within Acme, inheriting through " + CompanyContext,
+			Context: BusinessUnitContext, Parent: PlatformContext, Tenant: "acme",
+			Name: "Acme — Atlantic Fleet", Description: "Atlantic fleet business unit, inheriting standards from " + PlatformContext,
 		}); err != nil {
 			return err
 		}
 	}
 
-	for _, c := range []string{PlatformContext, CompanyContext, BusinessUnitContext} {
+	for _, c := range []string{PlatformContext, PacificFleetContext, BusinessUnitContext} {
 		if err := h.Localizations.AddLocale(ctx, c, "en", true); err != nil {
 			return err
 		}
@@ -99,8 +100,8 @@ func Seed(ctx context.Context, h *Handlers) error {
 		{"incoterm", "Incoterm", "Incoterms 2020 delivery terms", domain.CategoryStandards, PlatformContext, incotermSeed},
 		{"uom", "Unit of Measure", "UNECE Recommendation 20 unit codes (subset)", domain.CategoryStandards, PlatformContext, uomSeed},
 		{"hazard-class", "Hazard Class", "UN dangerous goods hazard classes", domain.CategoryStandards, PlatformContext, hazardClassSeed},
-		{"ship-status", "Ship Status", "AIS navigational status (mirrors backend ShipStatus)", domain.CategoryDomainEnum, CompanyContext, shipStatusSeed},
-		{"string", "String", "Frontend UI chrome strings, sourced as reference data (Phase 11.7)", domain.CategoryDomainString, CompanyContext, l10nSeed},
+		{"ship-status", "Ship Status", "AIS navigational status (mirrors backend ShipStatus)", domain.CategoryDomainEnum, PlatformContext, shipStatusSeed},
+		{"string", "String", "Frontend UI chrome strings, sourced as reference data (Phase 11.7)", domain.CategoryDomainString, PlatformContext, l10nSeed},
 	}
 
 	for _, s := range seeds {
@@ -124,7 +125,7 @@ func Seed(ctx context.Context, h *Handlers) error {
 	// OVERRIDDEN at the company level, and code "X1" is an ADDITION that
 	// exists only at the business-unit level.
 	override := seedItem{"3", "Flammable Liquids (Acme Handling Advisory)", "Líquidos inflamables (aviso de manejo de Acme)", "Ontvlambare Vloeistowwe (Acme Hanteringsadvies)"}
-	if err := registerLocalizedItem(ctx, h, "hazard-class", CompanyContext, override); err != nil {
+	if err := registerLocalizedItem(ctx, h, "hazard-class", PacificFleetContext, override); err != nil {
 		return err
 	}
 	addition := seedItem{"X1", "Fleet-Specific Handling Category", "Categoría de manejo específica de la flota", "Vlootspesifieke Hanteringskategorie"}
@@ -133,7 +134,7 @@ func Seed(ctx context.Context, h *Handlers) error {
 	}
 
 	if h.Corpus != nil {
-		for _, publishCtx := range []string{PlatformContext, CompanyContext, BusinessUnitContext} {
+		for _, publishCtx := range []string{PlatformContext, PacificFleetContext, BusinessUnitContext} {
 			if err := publishInitialCorpus(ctx, h.Corpus, publishCtx); err != nil {
 				return err
 			}

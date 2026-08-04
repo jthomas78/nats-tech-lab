@@ -12,9 +12,10 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 )
 
-// Terminal reads the container projection from the container-{context} KV
-// bucket. Because ContainerState models location as two explicit nullable
-// fields, each query filters exactly one field — no branching on status.
+// Terminal reads the container projection from the tenant-scoped container KV
+// bucket, filtered by the context key prefix. Because ContainerState models
+// location as two explicit nullable fields, each query filters exactly one
+// field — no branching on status.
 type Terminal struct {
 	kv *kvstore.Store
 }

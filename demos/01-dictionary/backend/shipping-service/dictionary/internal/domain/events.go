@@ -7,7 +7,7 @@ import (
 
 // Both aggregates (Ship and Container) are co-located on the single SHIPPING
 // stream, partitioned by subject. This keeps every cross-aggregate rule
-// checkable from one atomic replay (Phase 8 baseline). Phase 23 extracts the
+// checkable from one atomic replay (Phase 8 baseline). Phase 103 extracts the
 // container subjects into a dedicated TERMINAL stream to expose the
 // distributed-consistency problem.
 const (
@@ -19,11 +19,11 @@ const (
 	// (separate regional deployment) — see ARCHITECTURE-COMMUNICATIONS.md § 2.3.
 	Domain = "shipping"
 
-	// KV bucket prefixes ({prefix}-{context} outside an account boundary;
-	// just {prefix} inside one — Phase 13). Exported so both the composition
-	// root and rest.SwitchTenant (Phase 13b) can build a kvstore.Store for
-	// the currently active NATS account without an import cycle between
-	// them.
+	// KV bucket prefixes. Each NATS account owns one bucket per prefix;
+	// kvstore.Store prefixes every key with the business-unit context. Exported
+	// so both the composition root and rest.SwitchTenant (Phase 13b) can build
+	// a kvstore.Store for the currently active NATS account without an import
+	// cycle between them.
 	ShapeABucketPrefix    = "dict-a"    // Shape A ship read model
 	ShapeBBucketPrefix    = "dict-b"    // Shape B ship cache
 	ContainerBucketPrefix = "container" // container projection (terminal queries read model)
@@ -50,9 +50,9 @@ const (
 	// position, not just a leading prefix).
 	SubjectWildcard = "evt.*." + Domain + ".>"
 	// SubjectShipWildcard matches ship movement events for every context —
-	// Shape A/B/meta projectors are intentionally tenant-agnostic (they
-	// project every tenant into its own context-scoped KV bucket via
-	// event.Context, not via per-tenant subject filtering).
+	// Shape A/B/meta projectors are intentionally tenant-agnostic: each
+	// tenant's NATS account has its own shared KV buckets, and event.Context
+	// becomes the key prefix inside those buckets.
 	SubjectShipWildcard = "evt.*." + Domain + ".ship.>"
 	// SubjectContainerWildcard matches container lifecycle events for every context.
 	SubjectContainerWildcard = "evt.*." + Domain + ".container.>"

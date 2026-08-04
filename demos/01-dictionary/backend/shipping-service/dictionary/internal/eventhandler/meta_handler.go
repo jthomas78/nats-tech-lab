@@ -22,7 +22,8 @@ type metaEvent struct {
 }
 
 // RegisterMeta starts the meta projector: it maintains the cross-cutting
-// lookup sets in the meta-{context} KV bucket:
+// lookup sets in the tenant-scoped meta KV bucket, under the context key
+// prefix:
 //
 //	known-containers — every registered container ID (JSON array, sorted)
 //

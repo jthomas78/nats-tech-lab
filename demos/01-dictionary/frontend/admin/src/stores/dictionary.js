@@ -5,15 +5,16 @@ import { defineStore } from 'pinia'
 
 import { getPorts, getRefdataContexts, watchUrl } from '../api'
 
-// Contexts scope the KV buckets: each maps to dict-a-{context} and
-// dict-b-{context}. A context is the company / business-unit scope — NOT the
-// tenant (that's the NATS account) and NOT the region (a separate regional
-// deployment); see ARCHITECTURE-COMMUNICATIONS.md § 2.3. The values below are
+// Contexts scope the KV keys: each is stored as {context}.ship.{id} in the
+// tenant-scoped dict-a and dict-b buckets. A context is the company /
+// business-unit scope — NOT the tenant (that's the NATS account) and NOT the
+// region (a separate regional deployment); see ARCHITECTURE-COMMUNICATIONS.md
+// § 2.3. The values below are
 // now only the offline/error fallback (Phase 16f) — the real, tenant-scoped
 // list is fetched via loadContexts()/GET /api/refdata/contexts, kept as a
 // literal (not deleted) so the dropdown still shows something sensible if
 // that fetch never succeeds.
-export const CONTEXTS = ['acme', 'acme-atlantic-fleet', 'acme-pacific-fleet']
+export const CONTEXTS = ['acme-atlantic-fleet', 'acme-pacific-fleet']
 
 export const useDictionaryStore = defineStore('dictionary', {
   state: () => ({
@@ -57,9 +58,8 @@ export const useDictionaryStore = defineStore('dictionary', {
     // is refdata-service's context tree, which includes the shared platform
     // root every tenant inherits standards from — meaningful for reference-
     // data reads, but no ship or container ever belongs to it. Offering it
-    // as a fleet-context choice here would let a click spin up real (if
-    // empty) KV buckets for a context with no shipping domain meaning,
-    // burning the tenant's limited JetStream stream quota for nothing.
+    // as a fleet-context choice here would let a click create real (if empty)
+    // projection keys for a context with no shipping domain meaning.
     async loadContexts() {
       try {
         const contexts = (await getRefdataContexts()).filter((c) => !c.startsWith('_'))

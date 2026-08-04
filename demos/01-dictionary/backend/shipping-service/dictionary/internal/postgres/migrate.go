@@ -98,7 +98,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 // seeding real would require adding a tenant dimension to this schema, which
 // is out of scope here.
 func seedDefaultPorts(ctx context.Context, db *sql.DB) error {
-	contexts := []string{"acme", "acme-atlantic-fleet", "acme-pacific-fleet"}
+	contexts := []string{"acme-pacific-fleet", "acme-atlantic-fleet"}
 	defaults := []string{"Hamburg", "Rotterdam", "Singapore", "New York", "Shanghai", "Sydney"}
 	for _, kvContext := range contexts {
 		for _, name := range defaults {

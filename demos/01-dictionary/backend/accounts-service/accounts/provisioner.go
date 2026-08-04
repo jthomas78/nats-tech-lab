@@ -38,6 +38,15 @@ type Provisioner struct {
 	sysNC              *nats.Conn
 }
 
+// CrossAccountOpts describes the PLATFORM exports a tenant account imports.
+type CrossAccountOpts struct {
+	PlatformPublicKey string
+	// TenantName is the human-readable account name (e.g. "acme") stamped into
+	// rpc.{tenantName}.refdata.* remote subjects — readable in logs and traces
+	// while still operator-enforced (the import lives in a signed JWT).
+	TenantName string
+}
+
 // NewProvisioner loads the operator signing key seed (as exported by
 // nats/bootstrap-operator.sh to nats/keys/operator-signing-key.nk) and pairs
 // it with a NATS connection already authenticated as the SYS account.
@@ -67,7 +76,7 @@ type MintedAccount struct {
 // doc comment describes). The account gets its own signing key so it, in
 // turn, can sign user JWTs (CreateUser below) without exposing this
 // service's operator-level key to per-tenant credential minting.
-func (p *Provisioner) CreateAccount(ctx context.Context, limits JSLimits) (MintedAccount, error) {
+func (p *Provisioner) CreateAccount(ctx context.Context, limits JSLimits, tenantName, platformPublicKey string) (MintedAccount, error) {
 	accountKP, err := nkeys.CreateAccount()
 	if err != nil {
 		return MintedAccount{}, fmt.Errorf("generate account key: %w", err)
@@ -90,7 +99,7 @@ func (p *Provisioner) CreateAccount(ctx context.Context, limits JSLimits) (Minte
 		return MintedAccount{}, fmt.Errorf("account signing key seed: %w", err)
 	}
 
-	claims := newAccountClaims(accountPub, signingPub, limits)
+	claims := newAccountClaims(accountPub, signingPub, limits, nil, CrossAccountOpts{PlatformPublicKey: platformPublicKey, TenantName: tenantName})
 	token, err := claims.Encode(p.operatorSigningKey)
 	if err != nil {
 		return MintedAccount{}, fmt.Errorf("encode account jwt: %w", err)
@@ -105,14 +114,19 @@ func (p *Provisioner) CreateAccount(ctx context.Context, limits JSLimits) (Minte
 
 // newAccountClaims builds the account claims shape shared by CreateAccount
 // and ReactivateAccount: same subject (accountPub), same JetStream limits
-// encoding, same NatsLimits/AccountLimits defaults (unlimited pub/sub,
-// imports/exports — this phase scopes JetStream limits per tenant, the same
-// axis Phase 13a/14a's bootstrap script already fixed; nothing here changes
-// the no-exports-or-imports isolation stance those phases established).
+// encoding, and same NatsLimits/AccountLimits defaults. Existing exports and
+// imports are copied into every re-push: account JWT updates replace the
+// whole claim, so omitting them would silently sever cross-account access.
 // signingPub may be empty (seeded pre-existing accounts have no stored
 // signing key — see Account.SigningKeySeed's doc comment in store.go), in
 // which case the claims simply carry no signing key.
-func newAccountClaims(accountPub, signingPub string, limits JSLimits) *jwt.AccountClaims {
+//
+// Import recovery: if prior is non-nil but carries no imports (e.g. a stale
+// resolver JWT predating the Phase 21 export/import declarations), and
+// crossAccount supplies the PLATFORM public key, fall back to tenantImports
+// rather than propagating the empty slice. This prevents a stale volume JWT
+// from permanently cementing missing imports across any subsequent re-push.
+func newAccountClaims(accountPub, signingPub string, limits JSLimits, prior *jwt.AccountClaims, crossAccount CrossAccountOpts) *jwt.AccountClaims {
 	claims := jwt.NewAccountClaims(accountPub)
 	claims.Name = accountPub
 	if signingPub != "" {
@@ -124,7 +138,49 @@ func newAccountClaims(accountPub, signingPub string, limits JSLimits) *jwt.Accou
 		Streams:       limits.MaxStreams,
 		Consumer:      limits.MaxConsumers,
 	}
+	switch {
+	case prior != nil && len(prior.Imports) > 0:
+		// Happy path: preserve existing exports/imports verbatim.
+		claims.Exports = append(jwt.Exports(nil), prior.Exports...)
+		claims.Imports = append(jwt.Imports(nil), prior.Imports...)
+	case crossAccount.PlatformPublicKey != "":
+		// Recovery path: prior has no imports (stale pre-Phase-21 JWT or
+		// first-time mint) but we have the PLATFORM key — rebuild imports.
+		if prior != nil {
+			claims.Exports = append(jwt.Exports(nil), prior.Exports...)
+		}
+		claims.Imports = tenantImports(crossAccount.TenantName, crossAccount.PlatformPublicKey)
+	case prior != nil:
+		// prior exists but no PLATFORM key — copy whatever is there; caller
+		// is operating without cross-account context (e.g. PLATFORM itself).
+		claims.Exports = append(jwt.Exports(nil), prior.Exports...)
+		claims.Imports = append(jwt.Imports(nil), prior.Imports...)
+	}
 	return claims
+}
+
+// tenantImports is the complete PLATFORM-to-tenant contract. The four
+// remapped services make the caller publish only a context-free local subject;
+// the import's remote subject uses the human-readable tenant name so subjects
+// are readable in logs and the admin UI. Security is preserved: the import
+// lives in an operator-signed JWT so a tenant cannot remap to another
+// tenant's subject without the operator's private key.
+func tenantImports(tenantName, platformPublicKey string) jwt.Imports {
+	service := func(remote, local string) *jwt.Import {
+		return &jwt.Import{Account: platformPublicKey, Subject: jwt.Subject(remote), LocalSubject: jwt.RenamingSubject(local), Type: jwt.Service}
+	}
+	stream := func(subject string) *jwt.Import {
+		return &jwt.Import{Account: platformPublicKey, Subject: jwt.Subject(subject), Type: jwt.Stream}
+	}
+	return jwt.Imports{
+		service(fmt.Sprintf("rpc.%s.refdata.item.get.v1", tenantName), "refdata.item.get.v1"),
+		service(fmt.Sprintf("rpc.%s.refdata.type.list.v1", tenantName), "refdata.type.list.v1"),
+		service(fmt.Sprintf("rpc.%s.refdata.item.get-versioned.v1", tenantName), "refdata.item.get-versioned.v1"),
+		service(fmt.Sprintf("rpc.%s.refdata.locales.list.v1", tenantName), "refdata.locales.list.v1"),
+		service("rpc._platform.refdata.context.list.v1", "rpc._platform.refdata.context.list.v1"),
+		stream("notify.accounts.account.*"),
+		stream("evt.*.refdata.*.changed"),
+	}
 }
 
 // ReactivateAccount restores a previously-suspended account under its
@@ -134,7 +190,7 @@ func newAccountClaims(accountPub, signingPub string, limits JSLimits) *jwt.Accou
 // the exact identity and limits it had before suspension. It does not mint
 // a new user — callers that need a fresh usable .creds file call CreateUser
 // afterward with the same accountPub/signingKeySeed pair.
-func (p *Provisioner) ReactivateAccount(ctx context.Context, accountPub, signingKeySeed string, limits JSLimits) error {
+func (p *Provisioner) ReactivateAccount(ctx context.Context, accountPub, signingKeySeed string, limits JSLimits, crossAccount CrossAccountOpts, prior *jwt.AccountClaims) error {
 	var signingPub string
 	if signingKeySeed != "" {
 		signingKP, err := nkeys.FromSeed([]byte(signingKeySeed))
@@ -147,7 +203,10 @@ func (p *Provisioner) ReactivateAccount(ctx context.Context, accountPub, signing
 		}
 	}
 
-	claims := newAccountClaims(accountPub, signingPub, limits)
+	if current, err := p.lookupAccountClaims(ctx, accountPub); err == nil {
+		prior = current
+	}
+	claims := newAccountClaims(accountPub, signingPub, limits, prior, crossAccount)
 	// Account JWT signing is deterministic (Ed25519, no nonce): claims
 	// rebuilt from identical inputs (same pubkey/signing key/limits) encode
 	// to byte-identical JWTs. Without this tag, a reactivation whose claims
@@ -173,7 +232,7 @@ func (p *Provisioner) ReactivateAccount(ctx context.Context, accountPub, signing
 // JetStream limits, leaving everything else (public key, signing key,
 // identity) unchanged. Status-agnostic — the handler decides whether to
 // gate on active/suspended.
-func (p *Provisioner) UpdateAccountLimits(ctx context.Context, accountPub, signingKeySeed string, limits JSLimits) error {
+func (p *Provisioner) UpdateAccountLimits(ctx context.Context, accountPub, signingKeySeed string, limits JSLimits, crossAccount CrossAccountOpts) error {
 	var signingPub string
 	if signingKeySeed != "" {
 		signingKP, err := nkeys.FromSeed([]byte(signingKeySeed))
@@ -186,7 +245,11 @@ func (p *Provisioner) UpdateAccountLimits(ctx context.Context, accountPub, signi
 		}
 	}
 
-	claims := newAccountClaims(accountPub, signingPub, limits)
+	prior, err := p.lookupAccountClaims(ctx, accountPub)
+	if err != nil {
+		return err
+	}
+	claims := newAccountClaims(accountPub, signingPub, limits, prior, crossAccount)
 	claims.Tags.Add(fmt.Sprintf("jslimits-%d", time.Now().UnixNano()))
 
 	token, err := claims.Encode(p.operatorSigningKey)
@@ -195,6 +258,26 @@ func (p *Provisioner) UpdateAccountLimits(ctx context.Context, accountPub, signi
 	}
 
 	return p.pushClaimsUpdate(ctx, token)
+}
+
+// lookupAccountClaims reads the resolver's current complete account JWT.
+// Limit updates happen while an account is active, so treating an absent or
+// malformed current JWT as an error is safer than overwriting exports/imports.
+// Reactivation deliberately falls back to CrossAccountOpts because a revoked
+// account has no resolver JWT to look up.
+func (p *Provisioner) lookupAccountClaims(_ context.Context, accountPub string) (*jwt.AccountClaims, error) {
+	resp, err := p.sysNC.Request(fmt.Sprintf("$SYS.REQ.ACCOUNT.%s.CLAIMS.LOOKUP", accountPub), nil, requestTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("lookup current account claims: %w", err)
+	}
+	if len(resp.Data) == 0 {
+		return nil, fmt.Errorf("lookup current account claims: account %s has no resolver JWT", accountPub)
+	}
+	claims, err := jwt.DecodeAccountClaims(string(resp.Data))
+	if err != nil {
+		return nil, fmt.Errorf("decode current account claims: %w", err)
+	}
+	return claims, nil
 }
 
 // pushClaimsUpdate requests $SYS.REQ.CLAIMS.UPDATE with the raw account JWT

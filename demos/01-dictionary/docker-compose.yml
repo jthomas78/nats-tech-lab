@@ -99,6 +99,7 @@ services:
       # not a bare user/password. NATS_CREDS_DIR is the directory
       # rest.Handlers.SwitchTenant scans for <tenant>.creds files.
       NATS_CREDS_DIR: /etc/nats/creds
+      NATS_ADMIN_CREDS_PATH: /etc/nats/creds/shipping-admin.creds
       DATABASE_URL: postgres://dict:dict@postgres:5432/dictionary?sslmode=disable
       HTTP_ADDR: ":8080"
     ports:

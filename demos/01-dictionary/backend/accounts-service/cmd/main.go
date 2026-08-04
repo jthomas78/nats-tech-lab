@@ -39,7 +39,7 @@ func run(log *slog.Logger) error {
 
 	databaseURL := envOr("DATABASE_URL", "postgres://accounts:accounts@localhost:5434/accounts?sslmode=disable")
 	natsURL := envOr("NATS_URL", nats.DefaultURL)
-	natsCredsPath := envOr("NATS_CREDS_PATH", "")                // sys.creds — $SYS.REQ.CLAIMS.* is only reachable authenticated as SYS
+	natsCredsPath := envOr("NATS_CREDS_PATH", "")                  // sys.creds — $SYS.REQ.CLAIMS.* is only reachable authenticated as SYS
 	natsPlatformCredsPath := envOr("NATS_PLATFORM_CREDS_PATH", "") // platform.creds — Phase 16h: publishes notify.accounts.account.created for shipping-service's PLATFORM-account subscriber (BR-030); optional, publish is skipped if unset
 	operatorSigningKeyFile := envOr("OPERATOR_SIGNING_KEY_FILE", "")
 	credsDir := envOr("NATS_CREDS_DIR", "") // shared volume shipping-service also mounts
@@ -227,7 +227,7 @@ func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, provisi
 		}); err != nil {
 			return err
 		}
-		if err := ensureSigningKey(ctx, store, provisioner, s.Name, s.Limits, log); err != nil {
+		if err := ensureSigningKey(ctx, store, provisioner, s.Name, s.Limits, claims, log); err != nil {
 			return err
 		}
 	}
@@ -257,7 +257,7 @@ func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, provisi
 // persisted, is never rotated on a later restart (the Postgres row already
 // has one, so this is a no-op) — rotating it would invalidate any browser
 // JWT minted against the previous key that's still within its TTL.
-func ensureSigningKey(ctx context.Context, store *accounts.Store, provisioner *accounts.Provisioner, name string, limits accounts.JSLimits, log *slog.Logger) error {
+func ensureSigningKey(ctx context.Context, store *accounts.Store, provisioner *accounts.Provisioner, name string, limits accounts.JSLimits, prior *jwt.AccountClaims, log *slog.Logger) error {
 	acc, err := store.Get(ctx, name)
 	if err != nil {
 		return fmt.Errorf("reload seeded account %q: %w", name, err)
@@ -275,7 +275,10 @@ func ensureSigningKey(ctx context.Context, store *accounts.Store, provisioner *a
 		return fmt.Errorf("read generated signing key seed for %q: %w", name, err)
 	}
 
-	if err := provisioner.ReactivateAccount(ctx, acc.PublicKey, string(seed), limits); err != nil {
+	// The resolver JWT was decoded by seedPreexistingAccounts above. Pass its
+	// import/export declarations through the re-sign so establishing a browser
+	// signing key cannot erase Phase 21 account-import wiring.
+	if err := provisioner.ReactivateAccount(ctx, acc.PublicKey, string(seed), limits, accounts.CrossAccountOpts{}, prior); err != nil {
 		return fmt.Errorf("establish signing key for %q: %w", name, err)
 	}
 	if err := store.SetSigningKeySeed(ctx, name, string(seed)); err != nil {

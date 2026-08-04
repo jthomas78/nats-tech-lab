@@ -37,12 +37,13 @@ const (
 
 // ─── Read model (projected into KV and Postgres) ─────────────────────────────
 
-// ContainerState is the materialised view stored in the container-{context}
-// KV bucket and the Postgres containers table. Location is modelled as two
-// explicit nullable fields — exactly one is non-nil at any time — so queries
-// never branch on Status to interpret an overloaded string.
+// ContainerState is the materialised view stored in the tenant-scoped
+// container KV bucket (under a context key prefix) and the Postgres containers
+// table. Location is modelled as two explicit nullable fields — exactly one is
+// non-nil at any time — so queries never branch on Status to interpret an
+// overloaded string.
 type ContainerState struct {
-	Context      string          `json:"context"`     // fleet / KV-bucket qualifier
+	Context      string          `json:"context"`     // fleet / KV-key-prefix qualifier
 	ID           string          `json:"id"`          // surrogate key (UUID) — aggregate identity
 	ContainerID  string          `json:"containerID"` // ISO 6346 natural key, e.g. TCKU1234567
 	Cargo        string          `json:"cargo"`       // description of contents
@@ -54,10 +55,11 @@ type ContainerState struct {
 	UpdatedAt    time.Time       `json:"updatedAt"`
 }
 
-// KVKey returns the key within the context-scoped bucket: container.{containerID}.
-// The read-model bucket is keyed by the human-facing natural key for query
-// convenience (and doubles as the natural-key lookup); the surrogate ID is
-// carried as a field. Aggregate identity on the write side is still the ID.
+// KVKey returns the bare key appended after the context prefix in the
+// tenant-scoped bucket: container.{containerID}. The read model is keyed by
+// the human-facing natural key for query convenience (and doubles as the
+// natural-key lookup); the surrogate ID is carried as a field. Aggregate
+// identity on the write side is still the ID.
 func (c ContainerState) KVKey() string { return "container." + c.ContainerID }
 
 // ─── Aggregate (command validation + Shape C reconstruction) ──────────────────
@@ -65,7 +67,7 @@ func (c ContainerState) KVKey() string { return "container." + c.ContainerID }
 // ContainerAggregate reconstructs container state by replaying events. It is
 // the single place where the container rules (BR-008 … BR-016) are enforced.
 // Cross-aggregate rules (BR-008, BR-012, BR-014) take the ship's identity and
-// current port as parameters — until Phase 23 both aggregates hydrate from one
+// current port as parameters — until Phase 103 both aggregates hydrate from one
 // atomic replay of the SHIPPING stream, so these checks are strongly
 // consistent.
 type ContainerAggregate struct {

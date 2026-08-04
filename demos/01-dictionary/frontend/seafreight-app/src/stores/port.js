@@ -25,7 +25,7 @@ import { useNatsConnection } from '../nats/useNatsConnection'
 // something sensible if that fetch never succeeds (e.g. refdata-service is
 // down): a demo shouldn't show an empty dropdown just because a read-only
 // convenience list failed.
-export const CONTEXTS = ['acme', 'acme-atlantic-fleet', 'acme-pacific-fleet']
+export const CONTEXTS = ['acme-atlantic-fleet', 'acme-pacific-fleet']
 
 export const usePortStore = defineStore('port', {
   state: () => ({

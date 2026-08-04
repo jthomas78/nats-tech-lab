@@ -109,9 +109,11 @@ type Adapter struct {
 	svc           micro.Service
 }
 
-// ItemGetRequest is the rpc.{context}.refdata.item.get.v1 request payload —
-// {context} itself travels in the subject, not the body.
+// ItemGetRequest is the rpc.{context}.refdata.item.get.v1 request payload.
+// Context travels in the body (Phase 21: subject position 2 carries the
+// caller's NATS account public key, not the context name).
 type ItemGetRequest struct {
+	Context string `json:"context"`
 	TypeKey string `json:"typeKey"`
 	Code    string `json:"code"`
 	Locale  string `json:"locale"`
@@ -157,6 +159,7 @@ func isNotFoundErr(err error) bool {
 
 // TypeListRequest is the rpc.{context}.refdata.type.list.v1 request payload.
 type TypeListRequest struct {
+	Context string `json:"context"`
 	TypeKey string `json:"typeKey"`
 	Locale  string `json:"locale"`
 }
@@ -172,9 +175,17 @@ type TypeListResponse struct {
 // request payload — Version is the pinned corpus version, not a subject
 // version token.
 type ItemGetVersionedRequest struct {
+	Context string `json:"context"`
 	TypeKey string `json:"typeKey"`
 	Code    string `json:"code"`
 	Version int    `json:"version"`
+}
+
+// LocalesListRequest is the rpc.{context}.refdata.locales.list.v1 request
+// payload. Context travels in the body (Phase 21: subject position 2 carries
+// the caller's NATS account public key, not the context name).
+type LocalesListRequest struct {
+	Context string `json:"context"`
 }
 
 // ItemGetVersionedResponse is exactly kvcache.VersionedEntry — no separate
@@ -259,7 +270,6 @@ func (a *Adapter) Stop() error {
 
 func (a *Adapter) handleItemGet(req micro.Request) {
 	subject := req.Subject()
-	itemContext := contextFromSubject(subject)
 	// The reply-to inbox is unique per request, so it doubles as a
 	// correlation ID pairing this request's obs.rpc.* event with its reply's
 	// (ARCHITECTURE-COMMUNICATIONS.md §6).
@@ -273,7 +283,7 @@ func (a *Adapter) handleItemGet(req micro.Request) {
 		return
 	}
 
-	out, err := a.resolveItemKVFirst(context.Background(), itemContext, in.TypeKey, in.Code, in.Locale)
+	out, err := a.resolveItemKVFirst(context.Background(), in.Context, in.TypeKey, in.Code, in.Locale)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -377,7 +387,6 @@ func (a *Adapter) resolveItemKVFirst(ctx context.Context, itemContext, typeKey, 
 // calls listItems makes, over every item of a type (BR-D25, Phase 12.11).
 func (a *Adapter) handleTypeList(req micro.Request) {
 	subject := req.Subject()
-	itemContext := contextFromSubject(subject)
 	correlationID := req.Reply()
 	a.publishObs(subject, correlationID, "request", map[string][]string(req.Headers()), req.Data(), "")
 
@@ -387,7 +396,7 @@ func (a *Adapter) handleTypeList(req micro.Request) {
 		return
 	}
 
-	out, err := a.resolveTypeKVFirst(context.Background(), itemContext, in.TypeKey, in.Locale)
+	out, err := a.resolveTypeKVFirst(context.Background(), in.Context, in.TypeKey, in.Locale)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -471,7 +480,6 @@ func (a *Adapter) resolveTypeKVFirst(ctx context.Context, itemContext, typeKey, 
 // already-pinned version number.
 func (a *Adapter) handleItemGetVersioned(req micro.Request) {
 	subject := req.Subject()
-	itemContext := contextFromSubject(subject)
 	correlationID := req.Reply()
 	a.publishObs(subject, correlationID, "request", map[string][]string(req.Headers()), req.Data(), "")
 
@@ -486,7 +494,7 @@ func (a *Adapter) handleItemGetVersioned(req micro.Request) {
 		return
 	}
 
-	entry, err := a.versionReader.Get(context.Background(), itemContext, in.Version, in.TypeKey, in.Code)
+	entry, err := a.versionReader.Get(context.Background(), in.Context, in.Version, in.TypeKey, in.Code)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -502,20 +510,25 @@ func (a *Adapter) handleItemGetVersioned(req micro.Request) {
 
 // handleLocalesList is the rpc.* counterpart of REST's listLocales — the
 // same LocalizationHandler.ListLocales + DefaultLocale calls listLocales
-// makes (BR-D25, Phase 12.11). Takes no request body beyond the context
-// carried in the subject.
+// makes (BR-D25, Phase 12.11). Context travels in the body (Phase 21:
+// subject position 2 carries the caller's NATS account public key).
 func (a *Adapter) handleLocalesList(req micro.Request) {
 	subject := req.Subject()
-	itemContext := contextFromSubject(subject)
 	correlationID := req.Reply()
 	a.publishObs(subject, correlationID, "request", map[string][]string(req.Headers()), req.Data(), "")
 
-	locales, err := a.localizations.ListLocales(context.Background(), itemContext)
+	var in LocalesListRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		a.respondError(req, subject, correlationID, err)
+		return
+	}
+
+	locales, err := a.localizations.ListLocales(context.Background(), in.Context)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	defaultLocale, err := a.localizations.DefaultLocale(context.Background(), itemContext)
+	defaultLocale, err := a.localizations.DefaultLocale(context.Background(), in.Context)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return

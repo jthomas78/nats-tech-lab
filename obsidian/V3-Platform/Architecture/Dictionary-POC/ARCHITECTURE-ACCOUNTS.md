@@ -58,15 +58,29 @@ This is acceptable for a POC with a small, known tenant set. At production
 scale (hundreds of tenants) it becomes a connection-count and credential-
 management burden.
 
-**Production-scale fix — NATS stream/KV exports + imports.**
-Each tenant account exports its `SHIPPING` stream and KV buckets; the
-shipping-service's own account imports them as stream mirrors. One connection
-then sees all tenant data without per-account auth. The exports/imports must be
-declared at account-mint time in `accounts/provisioner.go` (added to the
-account JWT claims) and echoed in `nats.conf`'s import stanzas.
+**Implemented Phase 21 partition — PLATFORM exports, tenants import.**
+PLATFORM owns the cross-cutting `accounts-service` and `refdata-service` and
+exports four refdata services, the fixed context-list service, account
+lifecycle notifications, and refdata change events. Every tenant JWT imports
+that same contract. The four data services are remapped locally to
+`refdata.*.v1`; their exported subjects carry the importing account's public
+key at token 2 (`rpc.{account-key}.refdata.*.v1`) and the PLATFORM export
+checks that token. The server therefore stamps/verifies tenant identity — a
+caller on ACME cannot construct a GLOBEX read by supplying a different
+context.
 
-Reference: [NATS stream import/export](https://docs.nats.io/nats-concepts/jetstream/streams#import-and-export)
-and the multi-tenant JetStream pattern in the [Synadia per-tenant FIFO blog post](https://www.synadia.com/blog/nats-jetstream-per-tenant-fifo-processing).
+`shipping-service` still opens one connection per tenant for that tenant's
+own SHIPPING stream and KV buckets. Its permanent PLATFORM connection is now
+the restricted `shipping-admin` user, used only for `$SRV.>` discovery and
+ordered-consumer inspection/replay of REFDATA and RPCTRACE. `$SRV.>` is not
+exported to tenants because server topology is platform administration, not
+tenant data; RPCTRACE replay is likewise not imported because it contains
+cross-tenant observability traffic. The normal tenant import carries refdata
+change events instead.
+
+Account JWT updates replace the entire claim, so `accounts/provisioner.go`
+preserves existing exports/imports whenever it re-signs a claim; freshly
+minted runtime accounts receive the same imports as ACME/GLOBEX.
 
 ### NATS operator-mode trust chain
 

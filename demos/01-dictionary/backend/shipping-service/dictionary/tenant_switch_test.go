@@ -114,7 +114,7 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 
 	arriveShip := func(shipID, port string) {
 		GinkgoHelper()
-		body := `{"context":"acme","shipID":"` + shipID + `","shipName":"Tenant Spike","port":"` + port + `"}`
+		body := `{"context":"acme-pacific-fleet","shipID":"` + shipID + `","shipName":"Tenant Spike","port":"` + port + `"}`
 		resp, err := client.Client().Post(client.URL+"/api/ships/arrive", "application/json", strings.NewReader(body))
 		Expect(err).NotTo(HaveOccurred())
 		defer resp.Body.Close()
@@ -302,7 +302,7 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 			"a reactivated tenant must answer again without a restart or any SwitchTenant call")
 
 		By("and the rebuilt tenant is fully functional, not just answering — a command it accepts must reach its projectors and land in its read model")
-		arriveBody := `{"context":"acme","shipID":"globex-reactivated-ship","shipName":"Reactivated","port":"Hamburg"}`
+		arriveBody := `{"context":"acme-pacific-fleet","shipID":"globex-reactivated-ship","shipName":"Reactivated","port":"Hamburg"}`
 		_, err = globexNC.Request("api.acme.shipping.ship.arrive.v1", []byte(arriveBody), 2*time.Second)
 		Expect(err).NotTo(HaveOccurred())
 

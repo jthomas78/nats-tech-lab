@@ -60,7 +60,7 @@ func waitForNotify(ch chan []byte, match func([]byte) bool) []byte {
 }
 
 var _ = Describe("notify.* publishes (Phase 15b)", func() {
-	const fleetCtx = "acme"
+	const fleetCtx = "acme-pacific-fleet"
 
 	var (
 		ctx context.Context

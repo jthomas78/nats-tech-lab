@@ -181,6 +181,7 @@ func (c *Consumer) LookupAtVersion(ctx context.Context, itemContext string, vers
 // request payload — the corpus version is a per-call parameter, not part of
 // the subject.
 type rpcItemGetVersionedRequest struct {
+	Context string `json:"context"`
 	TypeKey string `json:"typeKey"`
 	Code    string `json:"code"`
 	Version int    `json:"version"`
@@ -192,11 +193,11 @@ type rpcItemGetVersionedRequest struct {
 // and leaves resolution to the caller, so this uses the same local
 // resolveLabel as the KV-hit path for consistency.
 func (c *Consumer) fetchVersionedViaRPC(ctx context.Context, itemContext string, version int, typeKey, code, locale string) (Result, error) {
-	reqBody, err := json.Marshal(rpcItemGetVersionedRequest{TypeKey: typeKey, Code: code, Version: version})
+	reqBody, err := json.Marshal(rpcItemGetVersionedRequest{Context: itemContext, TypeKey: typeKey, Code: code, Version: version})
 	if err != nil {
 		return Result{}, err
 	}
-	subject := fmt.Sprintf("rpc.%s.refdata.item.get-versioned.v1", itemContext)
+	subject := "refdata.item.get-versioned.v1"
 	data, err := c.requestRPC(ctx, subject, reqBody)
 	if err != nil {
 		return Result{}, err
@@ -216,6 +217,11 @@ func (c *Consumer) fetchVersionedViaRPC(ctx context.Context, itemContext string,
 		Description: resolved.Description,
 		Source:      rpcSource,
 	}, nil
+}
+
+// rpcLocalesListRequest mirrors refdata-service's natsrpc.LocalesListRequest.
+type rpcLocalesListRequest struct {
+	Context string `json:"context"`
 }
 
 // rpcLocalesListResponse mirrors refdata-service's natsrpc.LocalesListResponse.
@@ -238,8 +244,12 @@ type LocalesResult struct {
 // rpc.*'s locales.list endpoint — it is config, not a hot-path lookup, and
 // has no KV-cache tier of its own.
 func (c *Consumer) Locales(ctx context.Context, itemContext string) (LocalesResult, error) {
-	subject := fmt.Sprintf("rpc.%s.refdata.locales.list.v1", itemContext)
-	data, err := c.requestRPC(ctx, subject, nil)
+	subject := "refdata.locales.list.v1"
+	reqBody, err := json.Marshal(rpcLocalesListRequest{Context: itemContext})
+	if err != nil {
+		return LocalesResult{}, err
+	}
+	data, err := c.requestRPC(ctx, subject, reqBody)
 	if err != nil {
 		return LocalesResult{}, err
 	}
@@ -346,6 +356,7 @@ func languageOf(locale string) string {
 // consumer has no dependency on refdata-service's Go code, so it agrees on
 // the JSON shape only, same convention as the rest of this file.
 type rpcItemGetRequest struct {
+	Context string `json:"context"`
 	TypeKey string `json:"typeKey"`
 	Code    string `json:"code"`
 	Locale  string `json:"locale"`
@@ -361,16 +372,16 @@ type rpcItemGetResponse struct {
 	Description string `json:"description,omitempty"`
 }
 
-// fetchViaRPC is the rpc.* path (BR-D25): it calls
-// rpc.{context}.refdata.item.get.v1, the NATS Micro/Services adapter wired to
-// the exact same commands.LocalizationHandler.ResolveItem() method the REST
-// GET /api/refdata/{context}/{type}/{code} endpoint calls.
-func (c *Consumer) fetchViaRPC(ctx context.Context, itemContext, typeKey, code, locale string) (Result, error) {
-	reqBody, err := json.Marshal(rpcItemGetRequest{TypeKey: typeKey, Code: code, Locale: locale})
+// fetchViaRPC publishes the tenant-local refdata.item.get.v1 import. NATS
+// remaps it to the PLATFORM export and inserts the caller account identity at
+// rpc.* token 2, so a caller-controlled context can never select another
+// tenant's corpus.
+func (c *Consumer) fetchViaRPC(ctx context.Context, itemContext string, typeKey, code, locale string) (Result, error) {
+	reqBody, err := json.Marshal(rpcItemGetRequest{Context: itemContext, TypeKey: typeKey, Code: code, Locale: locale})
 	if err != nil {
 		return Result{}, err
 	}
-	subject := fmt.Sprintf("rpc.%s.refdata.item.get.v1", itemContext)
+	subject := "refdata.item.get.v1"
 	data, err := c.requestRPC(ctx, subject, reqBody)
 	if err != nil {
 		return Result{}, err
@@ -395,6 +406,7 @@ func (c *Consumer) fetchViaRPC(ctx context.Context, itemContext, typeKey, code, 
 // refdata-service's natsrpc.TypeListRequest/TypeListResponse wire shape
 // (Phase 12.11).
 type rpcTypeListRequest struct {
+	Context string `json:"context"`
 	TypeKey string `json:"typeKey"`
 	Locale  string `json:"locale"`
 }
@@ -415,12 +427,12 @@ type rpcTypeListResponse struct {
 // fetchTypeViaRPC hits rpc.*'s type.list endpoint (BR-D25) — the rpc.*
 // counterpart of REST's list-a-type endpoint, called when the KV bucket for
 // this type is absent/empty.
-func (c *Consumer) fetchTypeViaRPC(ctx context.Context, itemContext, typeKey, locale string) ([]Result, error) {
-	reqBody, err := json.Marshal(rpcTypeListRequest{TypeKey: typeKey, Locale: locale})
+func (c *Consumer) fetchTypeViaRPC(ctx context.Context, itemContext string, typeKey, locale string) ([]Result, error) {
+	reqBody, err := json.Marshal(rpcTypeListRequest{Context: itemContext, TypeKey: typeKey, Locale: locale})
 	if err != nil {
 		return nil, err
 	}
-	subject := fmt.Sprintf("rpc.%s.refdata.type.list.v1", itemContext)
+	subject := "refdata.type.list.v1"
 	data, err := c.requestRPC(ctx, subject, reqBody)
 	if err != nil {
 		return nil, err

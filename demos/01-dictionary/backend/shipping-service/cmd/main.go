@@ -75,6 +75,10 @@ func run(log *slog.Logger) error {
 	// Docker without operator mode configured (PLATFORM connect below then
 	// falls back to no credentials, matching today's local-dev behavior).
 	credsDir := envOr("NATS_CREDS_DIR", "")
+	adminCredsPath := envOr("NATS_ADMIN_CREDS_PATH", "")
+	if adminCredsPath == "" && credsDir != "" {
+		adminCredsPath = filepath.Join(credsDir, "shipping-admin.creds")
+	}
 	// Phase 17c — Connections panel proxies the NATS server's HTTP
 	// monitoring port (distinct from natsURL's client port 4222).
 	natsMonitorURL := envOr("NATS_MONITOR_URL", "http://localhost:8222")
@@ -82,12 +86,12 @@ func run(log *slog.Logger) error {
 	startupCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	// NATS — permanent PLATFORM-account connection (monolith.Monolith.NC/JS).
-	// Phase 13b's tenant-scoped connection is separate, opened by
-	// rest.Handlers.SwitchTenant.
+	// NATS — permanent, restricted shipping-admin PLATFORM connection
+	// (monolith.Monolith.NC/JS). Tenant-scoped connections are separate and
+	// opened by rest.Handlers.SwitchTenant.
 	platformOpts := []nats.Option{nats.Name("shipping-service")}
-	if credsDir != "" {
-		platformOpts = append(platformOpts, nats.UserCredentials(filepath.Join(credsDir, "platform.creds")))
+	if adminCredsPath != "" {
+		platformOpts = append(platformOpts, nats.UserCredentials(adminCredsPath))
 	}
 	var nc *nats.Conn
 	err := waiter.Wait(startupCtx, "nats", log, func(context.Context) error {

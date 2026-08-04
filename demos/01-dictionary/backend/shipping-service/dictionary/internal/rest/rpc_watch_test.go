@@ -145,15 +145,20 @@ func TestWatchRPCObsReplaysBacklogBeforeLive(t *testing.T) {
 	}
 }
 
-// TestWatchRPCObsDegradesToLiveOnlyWhenJSNil — when PlatformJS isn't
-// configured (mirrors production's own nil-safety for deployments without
-// JetStream wired to this handler), the handler must still work as a
-// live-only feed rather than failing.
+// TestWatchRPCObsDegradesToTenantLiveOnlyWhenJSNil — without PLATFORM
+// JetStream, RPCTRACE is unavailable but the active tenant's obs.api.* feed
+// remains live. shipping-admin deliberately has no broad obs.rpc.> core
+// subscription permission.
 func TestWatchRPCObsDegradesToLiveOnlyWhenJSNil(t *testing.T) {
 	nc, _, cleanup := newTestNATSJS(t)
 	defer cleanup()
+	tenantNC, err := nats.Connect(nc.ConnectedUrl(), nats.Name("rpc-watch-test-tenant"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tenantNC.Close()
 
-	h := NewHandlers(Deps{NC: nc, Log: slog.New(slog.DiscardHandler)})
+	h := NewHandlers(Deps{NC: nc, TenantNC: tenantNC, Log: slog.New(slog.DiscardHandler)})
 
 	reqCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -166,12 +171,12 @@ func TestWatchRPCObsDegradesToLiveOnlyWhenJSNil(t *testing.T) {
 		close(done)
 	}()
 
-	live := `{"direction":"request","correlationId":"live-only-1","subject":"rpc.acme-test.refdata.item.get.v1"}`
+	live := `{"direction":"request","correlationId":"live-only-1","subject":"api.acme.shipping.ship.list.v1"}`
 	// No backlog to wait for here (JS is nil) — poll until the subscribe has
 	// definitely taken effect by retrying the publish until it's observed.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if err := nc.Publish("obs.rpc.acme-test.refdata.item.get.v1", []byte(live)); err != nil {
+		if err := tenantNC.Publish("obs.api.acme.shipping.ship.list.v1", []byte(live)); err != nil {
 			t.Fatal(err)
 		}
 		if strings.Contains(rec.String(), "live-only-1") {
@@ -190,12 +195,8 @@ func TestWatchRPCObsDegradesToLiveOnlyWhenJSNil(t *testing.T) {
 }
 
 // TestWatchRPCObsDeliversTenantAPITraffic — Phase 16: the Request/Reply feed
-// must also carry obs.api.* events, which browserrpc's adapter publishes on
-// the ACTIVE tenant's connection (Deps.TenantNC), not the PLATFORM-account
-// connection the obs.rpc.> subscribe uses. This test wires two separate
-// connections (standing in for the two accounts), publishes one family on
-// each, and asserts both interleave into the same SSE body — proving the
-// obs.api.> half really reads from TenantNC rather than piggybacking on NC.
+// must carry obs.api.* events from the ACTIVE tenant's connection
+// (Deps.TenantNC), never from the PLATFORM admin connection.
 func TestWatchRPCObsDeliversTenantAPITraffic(t *testing.T) {
 	nc, _, cleanup := newTestNATSJS(t)
 	defer cleanup()
@@ -219,25 +220,19 @@ func TestWatchRPCObsDeliversTenantAPITraffic(t *testing.T) {
 	}()
 
 	apiEvent := `{"direction":"request","correlationId":"api-1","subject":"api.acme.shipping.ship.list.v1"}`
-	rpcEvent := `{"direction":"request","correlationId":"rpc-1","subject":"rpc.acme-test.refdata.item.get.v1"}`
-	// No replay backlog here (JS is nil) — retry-publish until the
-	// subscribes have definitely taken effect (same pattern as the
-	// live-only test above), then assert both families landed.
+	// No replay backlog here (JS is nil) — retry-publish until the tenant
+	// subscribe has definitely taken effect.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if err := tenantNC.Publish("obs.api.acme.shipping.ship.list.v1", []byte(apiEvent)); err != nil {
 			t.Fatal(err)
 		}
-		if err := nc.Publish("obs.rpc.acme-test.refdata.item.get.v1", []byte(rpcEvent)); err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(rec.String(), "api-1") && strings.Contains(rec.String(), "rpc-1") {
+		if strings.Contains(rec.String(), "api-1") {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	waitForBody(t, rec, "api-1")
-	waitForBody(t, rec, "rpc-1")
 
 	cancel()
 	select {

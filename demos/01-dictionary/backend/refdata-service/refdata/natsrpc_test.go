@@ -800,10 +800,10 @@ var _ = Describe("BR-D25/BR-D28: context.list is the rpc.* counterpart of listCo
 		repo := newFakeContextRepo()
 		contextsH = commands.NewContextHandler(repo)
 
-		platform, acmeCo, acmeUnit, globexCo = "_platform", "acme", "acme-atlantic-fleet", "globex"
+		platform, acmeCo, acmeUnit, globexCo = "_platform", "acme-pacific-fleet", "acme-atlantic-fleet", "globex"
 		Expect(contextsH.RegisterPlatformRoot(ctx, domain.Context{Context: platform, Name: platform})).To(Succeed())
 		Expect(contextsH.Register(ctx, domain.Context{Context: acmeCo, Parent: platform, Name: acmeCo, Tenant: "acme"})).To(Succeed())
-		Expect(contextsH.Register(ctx, domain.Context{Context: acmeUnit, Parent: acmeCo, Name: acmeUnit, Tenant: "acme"})).To(Succeed())
+		Expect(contextsH.Register(ctx, domain.Context{Context: acmeUnit, Parent: platform, Name: acmeUnit, Tenant: "acme"})).To(Succeed())
 		Expect(contextsH.Register(ctx, domain.Context{Context: globexCo, Parent: platform, Name: globexCo, Tenant: "globex"})).To(Succeed())
 
 		nc = newTestNATSConn()

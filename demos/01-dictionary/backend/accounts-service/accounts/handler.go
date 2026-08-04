@@ -119,6 +119,22 @@ func auditActor(r *http.Request) (actor, sourceIP string) {
 	return actor, r.RemoteAddr
 }
 
+// crossAccountOpts supplies the PLATFORM identity only for tenant claims.
+// Active-account limit updates preserve the resolver JWT directly; a
+// suspended account has no JWT to inspect, so reactivation uses this fallback
+// to restore its imports. PLATFORM itself must never import itself.
+func (h *Handlers) crossAccountOpts(ctx context.Context, accountPub, accountName string) CrossAccountOpts {
+	platform, err := h.Store.Get(ctx, "platform")
+	if err != nil {
+		h.Log.Warn("get PLATFORM account for claim preservation", "err", err)
+		return CrossAccountOpts{}
+	}
+	if platform.PublicKey == accountPub {
+		return CrossAccountOpts{}
+	}
+	return CrossAccountOpts{PlatformPublicKey: platform.PublicKey, TenantName: accountName}
+}
+
 // recordAudit is the shared best-effort call behind every audit write in
 // this file (BR-AC11): a failed audit insert is logged but never
 // propagated to the caller — the lifecycle action it's describing has
@@ -313,7 +329,18 @@ func (h *Handlers) createAccount(w http.ResponseWriter, r *http.Request) {
 
 	actor, sourceIP := auditActor(r)
 
-	minted, err := h.Provisioner.CreateAccount(r.Context(), limits)
+	platform, err := h.Store.Get(r.Context(), "platform")
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		h.Log.Error("get PLATFORM account for tenant imports", "err", err)
+		writeError(w, http.StatusInternalServerError, "platform account is unavailable")
+		return
+	}
+	platformPublicKey := ""
+	if err == nil {
+		platformPublicKey = platform.PublicKey
+	}
+
+	minted, err := h.Provisioner.CreateAccount(r.Context(), limits, in.Name, platformPublicKey)
 	if err != nil {
 		h.Log.Error("mint account", "name", in.Name, "err", err)
 		h.recordAudit(r.Context(), AuditEntry{Account: in.Name, Action: AuditActionCreated, Actor: actor, SourceIP: sourceIP,
@@ -517,7 +544,7 @@ func (h *Handlers) reactivateAccount(w http.ResponseWriter, r *http.Request) {
 	actor, sourceIP := auditActor(r)
 
 	limits := JSLimits{MaxMem: acc.JSMaxMem, MaxFile: acc.JSMaxFile, MaxStreams: acc.JSMaxStreams, MaxConsumers: acc.JSMaxConsumers}
-	if err := h.Provisioner.ReactivateAccount(r.Context(), acc.PublicKey, signingKeySeed, limits); err != nil {
+	if err := h.Provisioner.ReactivateAccount(r.Context(), acc.PublicKey, signingKeySeed, limits, h.crossAccountOpts(r.Context(), acc.PublicKey, acc.Name), nil); err != nil {
 		h.Log.Error("reactivate account", "name", name, "err", err)
 		h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionReactivated, Actor: actor, SourceIP: sourceIP,
 			Outcome: AuditOutcomeFailed, Metadata: map[string]any{"step": "reactivate account", "error": err.Error()}})
@@ -638,7 +665,7 @@ func (h *Handlers) updateJSLimits(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newLimits := JSLimits{MaxMem: in.JSMaxMem, MaxFile: in.JSMaxFile, MaxStreams: in.JSMaxStreams, MaxConsumers: in.JSMaxConsumers}
-	if err := h.Provisioner.UpdateAccountLimits(r.Context(), acc.PublicKey, signingKeySeed, newLimits); err != nil {
+	if err := h.Provisioner.UpdateAccountLimits(r.Context(), acc.PublicKey, signingKeySeed, newLimits, h.crossAccountOpts(r.Context(), acc.PublicKey, acc.Name)); err != nil {
 		h.Log.Error("update account limits", "name", name, "err", err)
 		h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionJSLimitsUpdated, Actor: actor, SourceIP: sourceIP,
 			Outcome: AuditOutcomeFailed, Metadata: map[string]any{"step": "update js limits", "error": err.Error(), "previous": previous}})

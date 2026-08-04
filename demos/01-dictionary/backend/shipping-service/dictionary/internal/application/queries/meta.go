@@ -11,8 +11,9 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 )
 
-// Meta KV keys — cross-cutting derived lookup sets in the meta-{context}
-// bucket, maintained incrementally by the meta projector.
+// Meta KV keys — cross-cutting derived lookup sets in the tenant-scoped meta
+// bucket, maintained incrementally by the meta projector under each context
+// key prefix.
 //
 // known-ports was retired: ports are now the Postgres-backed reference table
 // (BR-017, BR-018) served by commands.PortHandler / GET /api/ports/{context},
@@ -21,7 +22,8 @@ const (
 	MetaKeyKnownContainers = "known-containers"
 )
 
-// Meta reads the cross-cutting lookup sets from the meta-{context} KV bucket.
+// Meta reads the cross-cutting lookup sets from the tenant-scoped meta KV
+// bucket, filtered by context.
 // These back UI selectors (container pickers) so the full history survives
 // reload without client-side accumulation or event replay.
 type Meta struct {

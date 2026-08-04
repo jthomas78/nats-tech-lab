@@ -40,80 +40,105 @@ func newJSForKV() jetstream.JetStream {
 var _ = Describe("KVStore — per-tenant bucket with context-prefixed keys", func() {
 	var (
 		ctx   context.Context
+		js    jetstream.JetStream
 		store *kvstore.Store
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		store = kvstore.New(newJSForKV(), "dict-a")
+		js = newJSForKV()
+		store = kvstore.New(js, "dict-a")
 	})
 
 	Describe("Put / Get", func() {
 		It("stores and retrieves a value by context and key", func() {
-			_, err := store.Put(ctx, "acme", "ship.SHIP1", []byte(`{"id":"SHIP1"}`))
+			_, err := store.Put(ctx, "acme-pacific-fleet", "ship.SHIP1", []byte(`{"id":"SHIP1"}`))
 			Expect(err).NotTo(HaveOccurred())
 
-			val, _, err := store.Get(ctx, "acme", "ship.SHIP1")
+			val, _, err := store.Get(ctx, "acme-pacific-fleet", "ship.SHIP1")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(val).To(Equal([]byte(`{"id":"SHIP1"}`)))
 		})
 
 		It("returns ErrKeyNotFound for a missing key", func() {
-			_, _, err := store.Get(ctx, "acme", "ship.MISSING")
+			_, _, err := store.Get(ctx, "acme-pacific-fleet", "ship.MISSING")
 			Expect(err).To(MatchError(jetstream.ErrKeyNotFound))
 		})
 
 		It("does not leak across contexts — getting a key from a different context returns not found", func() {
-			_, err := store.Put(ctx, "acme", "ship.SHIP1", []byte("v"))
+			_, err := store.Put(ctx, "acme-pacific-fleet", "ship.SHIP1", []byte("v"))
 			Expect(err).NotTo(HaveOccurred())
 
-			_, _, err = store.Get(ctx, "acme-pacific-fleet", "ship.SHIP1")
+			_, _, err = store.Get(ctx, "acme-atlantic-fleet", "ship.SHIP1")
 			Expect(err).To(MatchError(jetstream.ErrKeyNotFound),
-				"acme-pacific-fleet must not see acme's key even in the same bucket")
+				"acme-atlantic-fleet must not see acme-pacific-fleet's key even in the same bucket")
 		})
 	})
 
 	Describe("Delete", func() {
 		It("removes a key so subsequent Get returns ErrKeyNotFound", func() {
-			_, err := store.Put(ctx, "acme", "ship.SHIP1", []byte("v"))
+			_, err := store.Put(ctx, "acme-pacific-fleet", "ship.SHIP1", []byte("v"))
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(store.Delete(ctx, "acme", "ship.SHIP1")).To(Succeed())
+			Expect(store.Delete(ctx, "acme-pacific-fleet", "ship.SHIP1")).To(Succeed())
 
-			_, _, err = store.Get(ctx, "acme", "ship.SHIP1")
+			_, _, err = store.Get(ctx, "acme-pacific-fleet", "ship.SHIP1")
 			Expect(err).To(MatchError(jetstream.ErrKeyNotFound))
 		})
 	})
 
 	Describe("Keys() — context isolation", func() {
+		It("uses one shared bucket while returning non-overlapping keys for each context", func() {
+			_, err := store.Put(ctx, "acme-pacific-fleet", "ship.SHIP1", []byte("a"))
+			Expect(err).NotTo(HaveOccurred())
+			_, err = store.Put(ctx, "acme-atlantic-fleet", "ship.SHIP2", []byte("b"))
+			Expect(err).NotTo(HaveOccurred())
+
+			buckets := js.KeyValueStores(ctx)
+			var names []string
+			for status := range buckets.Status() {
+				names = append(names, status.Bucket())
+			}
+			Expect(buckets.Error()).NotTo(HaveOccurred())
+			Expect(names).To(ConsistOf("dict-a"),
+				"two contexts must share the tenant-scoped dict-a bucket")
+
+			pacificKeys, err := store.Keys(ctx, "acme-pacific-fleet")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(pacificKeys).To(ConsistOf("ship.SHIP1"))
+			atlanticKeys, err := store.Keys(ctx, "acme-atlantic-fleet")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(atlanticKeys).To(ConsistOf("ship.SHIP2"))
+		})
+
 		It("returns only keys for the requested context, without the {context}. prefix", func() {
-			_, err := store.Put(ctx, "acme", "ship.SHIP1", []byte("a"))
+			_, err := store.Put(ctx, "acme-pacific-fleet", "ship.SHIP1", []byte("a"))
 			Expect(err).NotTo(HaveOccurred())
-			_, err = store.Put(ctx, "acme-pacific-fleet", "ship.SHIP2", []byte("b"))
+			_, err = store.Put(ctx, "acme-atlantic-fleet", "ship.SHIP2", []byte("b"))
 			Expect(err).NotTo(HaveOccurred())
-			_, err = store.Put(ctx, "acme", "ship.SHIP3", []byte("c"))
+			_, err = store.Put(ctx, "acme-pacific-fleet", "ship.SHIP3", []byte("c"))
 			Expect(err).NotTo(HaveOccurred())
 
-			acmeKeys, err := store.Keys(ctx, "acme")
+			pacificKeys, err := store.Keys(ctx, "acme-pacific-fleet")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(acmeKeys).To(ConsistOf("ship.SHIP1", "ship.SHIP3"),
-				"acme Keys() must return bare keys and must not include acme-pacific-fleet entries")
+			Expect(pacificKeys).To(ConsistOf("ship.SHIP1", "ship.SHIP3"),
+				"acme-pacific-fleet Keys() must return bare keys and must not include acme-atlantic-fleet entries")
 
-			apfKeys, err := store.Keys(ctx, "acme-pacific-fleet")
+			atlanticKeys, err := store.Keys(ctx, "acme-atlantic-fleet")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(apfKeys).To(ConsistOf("ship.SHIP2"),
-				"acme-pacific-fleet Keys() must return bare keys and must not include acme entries")
+			Expect(atlanticKeys).To(ConsistOf("ship.SHIP2"),
+				"acme-atlantic-fleet Keys() must return bare keys and must not include acme-pacific-fleet entries")
 		})
 	})
 
 	Describe("Watch() — context isolation and prefix stripping", func() {
 		It("initial replay contains only entries for the requested context, with bare keys", func() {
-			_, err := store.Put(ctx, "acme", "ship.SHIP1", []byte("acme-val"))
+			_, err := store.Put(ctx, "acme-pacific-fleet", "ship.SHIP1", []byte("apf-val"))
 			Expect(err).NotTo(HaveOccurred())
-			_, err = store.Put(ctx, "acme-pacific-fleet", "ship.SHIP2", []byte("apf-val"))
+			_, err = store.Put(ctx, "acme-atlantic-fleet", "ship.SHIP2", []byte("alf-val"))
 			Expect(err).NotTo(HaveOccurred())
 
-			watcher, err := store.Watch(ctx, "acme")
+			watcher, err := store.Watch(ctx, "acme-pacific-fleet")
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(watcher.Stop)
 
@@ -126,32 +151,32 @@ var _ = Describe("KVStore — per-tenant bucket with context-prefixed keys", fun
 				entries = append(entries, entry)
 			}
 
-			Expect(entries).To(HaveLen(1), "only acme's entry should appear in an acme watcher")
+			Expect(entries).To(HaveLen(1), "only acme-pacific-fleet's entry should appear in a pacific-fleet watcher")
 			Expect(entries[0].Key()).To(Equal("ship.SHIP1"), "key must be the bare key without the context prefix")
-			Expect(entries[0].Value()).To(Equal([]byte("acme-val")))
+			Expect(entries[0].Value()).To(Equal([]byte("apf-val")))
 		})
 
 		It("live updates are scoped to the requested context only", func() {
-			watcher, err := store.Watch(ctx, "acme")
+			watcher, err := store.Watch(ctx, "acme-pacific-fleet")
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(watcher.Stop)
 
 			// Consume the INIT_DONE nil marker (empty bucket)
 			Eventually(watcher.Updates(), 5*time.Second).Should(Receive(BeNil()))
 
-			_, err = store.Put(ctx, "acme", "ship.SHIP1", []byte("v1"))
+			_, err = store.Put(ctx, "acme-pacific-fleet", "ship.SHIP1", []byte("v1"))
 			Expect(err).NotTo(HaveOccurred())
-			_, err = store.Put(ctx, "acme-pacific-fleet", "ship.SHIP2", []byte("should-not-appear"))
+			_, err = store.Put(ctx, "acme-atlantic-fleet", "ship.SHIP2", []byte("should-not-appear"))
 			Expect(err).NotTo(HaveOccurred())
 
 			var liveEntry jetstream.KeyValueEntry
 			Eventually(watcher.Updates(), 5*time.Second).Should(Receive(&liveEntry),
-				"acme watcher must receive the acme write")
+				"acme-pacific-fleet watcher must receive the pacific-fleet write")
 			Expect(liveEntry.Key()).To(Equal("ship.SHIP1"))
 			Expect(liveEntry.Value()).To(Equal([]byte("v1")))
 
 			Consistently(watcher.Updates(), 300*time.Millisecond).ShouldNot(Receive(),
-				"acme watcher must not receive the acme-pacific-fleet write")
+				"acme-pacific-fleet watcher must not receive the acme-atlantic-fleet write")
 		})
 	})
 })

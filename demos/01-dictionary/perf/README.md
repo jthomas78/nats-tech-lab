@@ -1,7 +1,7 @@
 # Performance harness (k6)
 
 Load-testing harness for the Dictionary POC backend. Built in **Phase 10 —
-Performance Baseline (pull-forward)**; reused in **Phase 24** for the full
+Performance Baseline (pull-forward)**; reused in **Phase 104** for the full
 suite. See `.claude/plans/Main-POC-Plan.md` for scope.
 
 > **Measurement only.** These scenarios characterise degradation curves. They
@@ -95,13 +95,13 @@ MAX_EVENTS=200 k6 run demos/01-dictionary/perf/scenarios/hydration-single-ship.j
 - `throughput_cmd_latency` + `throughput_errors` — p95 latency and error rate at the run's `VUS` level (also read `http_reqs` rate for cmd/s and `http_req_failed`).
 - `shape_c_recon_latency` — tagged by `depth` (`100`, `1000`, `10000`).
 
-## Not in this harness (deferred to Phase 24)
+## Not in this harness (deferred to Phase 104)
 
 These need architecture that does not exist yet and would be thrown away if
 scripted now:
 
-- **Optimistic-concurrency contention** — needs the Phase 21 sequence guard.
-- **Cross-stream burst / consumer lag** — needs the Phase 23 `TERMINAL` stream.
-- **Cross-aggregate stale-read window** — needs the Phase 23 split.
+- **Optimistic-concurrency contention** — needs the Phase 101 sequence guard.
+- **Cross-stream burst / consumer lag** — needs the Phase 103 `TERMINAL` stream.
+- **Cross-aggregate stale-read window** — needs the Phase 103 split.
 - **SSE fan-out** — the watch endpoints are streaming, not load-shaped for k6's
-  request model; measured in Phase 24.
+  request model; measured in Phase 104.

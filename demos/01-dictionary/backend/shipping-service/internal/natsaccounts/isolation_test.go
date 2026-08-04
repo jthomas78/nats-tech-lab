@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -28,6 +29,31 @@ const natsDir = "../../../../nats"
 // never production credentials; see that script's header).
 func credsPath(name string) string {
 	return filepath.Join(natsDir, "creds", name+".creds")
+}
+
+// accountPublicKeyFromCreds returns the tenant account identity carried by a
+// checked-in user JWT. Account-token exports stamp this value at token 2;
+// it is intentionally not a caller-controlled company context.
+func accountPublicKeyFromCreds(t *testing.T, name string) string {
+	t.Helper()
+	raw, err := os.ReadFile(credsPath(name))
+	if err != nil {
+		t.Fatalf("read %s creds: %v", name, err)
+	}
+	line := regexp.MustCompile(`(?m)^eyJ[^\n]*$`).Find(raw)
+	if len(line) == 0 {
+		t.Fatalf("find user JWT in %s creds", name)
+	}
+	claims, err := jwt.DecodeUserClaims(string(line))
+	if err != nil {
+		t.Fatalf("decode %s user JWT: %v", name, err)
+	}
+	if claims.IssuerAccount != "" {
+		return claims.IssuerAccount
+	}
+	// nsc's static service users are signed directly by their account key;
+	// in that normal case IssuerAccount is omitted and Issuer is the account.
+	return claims.Issuer
 }
 
 var resolverDirRE = regexp.MustCompile(`dir:\s*"[^"]*"`)
@@ -293,4 +319,86 @@ func TestKVBucketIsolation(t *testing.T) {
 
 	_, err = kvGlobex.Get(ctx, "port.SGSIN")
 	g.Expect(err).To(HaveOccurred(), "globex's freshly created bucket must not already contain acme's key")
+}
+
+func TestTenantRefdataServiceImportStampsItsAccountIdentity(t *testing.T) {
+	g := NewWithT(t)
+	srv, shutdown := newSpikeServer(t)
+	defer shutdown()
+
+	platform := connectAs(t, srv, "platform")
+	acme := connectAs(t, srv, "acme")
+	seen := make(chan string, 1)
+	sub, err := platform.Subscribe("rpc.*.refdata.item.get.v1", func(msg *nats.Msg) {
+		seen <- msg.Subject
+		_ = msg.Respond([]byte("resolved"))
+	})
+	g.Expect(err).NotTo(HaveOccurred())
+	defer sub.Unsubscribe()
+	g.Expect(platform.Flush()).To(Succeed())
+
+	msg, err := acme.Request("refdata.item.get.v1", []byte(`{"context":"globex"}`), time.Second)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(string(msg.Data)).To(Equal("resolved"))
+	g.Eventually(seen).Should(Receive(Equal("rpc.acme.refdata.item.get.v1")))
+}
+
+func TestTenantCannotUseOldStyleCrossContextRefdataSubject(t *testing.T) {
+	g := NewWithT(t)
+	srv, shutdown := newSpikeServer(t)
+	defer shutdown()
+
+	acme := connectAs(t, srv, "acme")
+	globexPub := accountPublicKeyFromCreds(t, "globex")
+	_, err := acme.Request("rpc."+globexPub+".refdata.item.get.v1", nil, 300*time.Millisecond)
+	g.Expect(err).To(HaveOccurred(), "acme has no import for a caller-selected globex subject")
+}
+
+func TestTenantReceivesAccountLifecycleEventViaStreamImport(t *testing.T) {
+	g := NewWithT(t)
+	srv, shutdown := newSpikeServer(t)
+	defer shutdown()
+
+	platform := connectAs(t, srv, "platform")
+	acme := connectAs(t, srv, "acme")
+	sub, err := acme.SubscribeSync("notify.accounts.account.created")
+	g.Expect(err).NotTo(HaveOccurred())
+	defer sub.Unsubscribe()
+	g.Expect(acme.Flush()).To(Succeed())
+	g.Expect(platform.Publish("notify.accounts.account.created", []byte(`{"name":"runtime-tenant"}`))).To(Succeed())
+	g.Expect(platform.Flush()).To(Succeed())
+	msg, err := sub.NextMsg(time.Second)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(string(msg.Data)).To(MatchJSON(`{"name":"runtime-tenant"}`))
+}
+
+func TestShippingAdminCanOnlyUseNarrowOrderedConsumerAccess(t *testing.T) {
+	g := NewWithT(t)
+	srv, shutdown := newSpikeServer(t)
+	defer shutdown()
+
+	platform := connectAs(t, srv, "platform")
+	platformJS, err := jetstream.New(platform)
+	g.Expect(err).NotTo(HaveOccurred())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = platformJS.CreateStream(ctx, jetstream.StreamConfig{Name: "REFDATA", Subjects: []string{"evt.*.refdata.>"}})
+	g.Expect(err).NotTo(HaveOccurred())
+	_, err = platformJS.Publish(ctx, "evt.acme.refdata.item.changed", []byte("change"))
+	g.Expect(err).NotTo(HaveOccurred())
+
+	admin := connectAs(t, srv, "shipping-admin")
+	adminJS, err := jetstream.New(admin)
+	g.Expect(err).NotTo(HaveOccurred())
+	consumer, err := adminJS.OrderedConsumer(ctx, "REFDATA", jetstream.OrderedConsumerConfig{DeliverPolicy: jetstream.DeliverAllPolicy})
+	g.Expect(err).NotTo(HaveOccurred(), "shipping-admin needs ordered consumer access to REFDATA")
+	msgs, err := consumer.Messages()
+	g.Expect(err).NotTo(HaveOccurred())
+	defer msgs.Stop()
+	msg, err := msgs.Next()
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(string(msg.Data())).To(Equal("change"))
+
+	_, err = adminJS.CreateStream(ctx, jetstream.StreamConfig{Name: "FORBIDDEN", Subjects: []string{"forbidden.>"}})
+	g.Expect(err).To(HaveOccurred(), "shipping-admin must not receive blanket JetStream administration")
 }

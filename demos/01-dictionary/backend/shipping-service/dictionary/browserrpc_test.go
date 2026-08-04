@@ -61,7 +61,7 @@ func newNatsConnAndJS() (*nats.Conn, jetstream.JetStream) {
 }
 
 var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
-	const fleetCtx = "acme"
+	const fleetCtx = "acme-pacific-fleet"
 
 	var (
 		ctx        context.Context

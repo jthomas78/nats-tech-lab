@@ -6,7 +6,7 @@ import (
 )
 
 // ErrInvalidToken — BR-020: a value used as a NATS subject token (and, for
-// context, also a KV bucket-name component) must be non-empty and match the
+// context, a KV-key prefix component) must be non-empty and match the
 // safe subject-token charset — no '.', '*', '>', or whitespace, any of which
 // would silently split the value across subject tokens or collide with a
 // wildcard metacharacter.
@@ -23,8 +23,8 @@ func ValidateShipID(id string) error {
 	return nil
 }
 
-// ValidateContext enforces BR-020 on the context/tenant value threaded into
-// every ship/container subject and KV bucket name.
+// ValidateContext enforces BR-020 on the business-unit context threaded into
+// every ship/container subject and KV key prefix.
 func ValidateContext(context string) error {
 	if !subjectTokenPattern.MatchString(context) {
 		return ErrInvalidToken

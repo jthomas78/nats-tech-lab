@@ -290,11 +290,12 @@ func (h *Handlers) watchBuckets(w http.ResponseWriter, r *http.Request, kvContex
 // @Router       /api/rpc-watch [get]
 // watchRPCObs replays the RPCTRACE stream's current backlog (up to its 10m
 // MaxAge, BR-D29 — best-effort catch-up for a tab opened after a call
-// completes), then subscribes to obs.rpc.> on the shared PLATFORM-account
-// connection AND obs.api.> on the active tenant's connection (browserrpc's
-// adapter publishes its observability events inside the tenant account —
-// see the Deps doc comment in browserrpc/adapter.go), re-emitting each live
-// message as an SSE event. The obs.api.> half is live-only (no RPCTRACE
+// completes), then continues RPCTRACE via a restricted ordered consumer on
+// the shared PLATFORM admin connection AND subscribes to obs.api.> on the
+// active tenant's connection (browserrpc's adapter publishes its
+// observability events inside the tenant account — see the Deps doc comment
+// in browserrpc/adapter.go), re-emitting each live message as an SSE event.
+// The obs.api.> half is live-only (no RPCTRACE
 // retention exists inside tenant accounts) and is pinned to whichever tenant
 // was active when the SSE connection opened — the Admin UI reconnects on
 // tenant switch. The live subscribes are established before the replay is
@@ -317,13 +318,6 @@ func (h *Handlers) watchRPCObs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	msgCh := make(chan *nats.Msg, 64)
-	sub, err := h.deps().NC.ChanSubscribe("obs.rpc.>", msgCh)
-	if err != nil {
-		h.deps().Log.Error("obs.rpc subscribe", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	defer func() { _ = sub.Unsubscribe() }()
 
 	// obs.api.* events publish on the active tenant's own account (see
 	// browserrpc.ObsSubjectWildcard) — subscribe there, feeding the same
@@ -338,6 +332,37 @@ func (h *Handlers) watchRPCObs(w http.ResponseWriter, r *http.Request) {
 		defer func() { _ = apiSub.Unsubscribe() }()
 	}
 
+	// shipping-admin intentionally has no core-NATS obs.rpc.> permission.
+	// RPCTRACE is consumed through its explicitly allowed ordered-consumer API
+	// instead, which supplies both retained history and subsequent messages.
+	if platformJS := h.deps().PlatformJS; platformJS != nil {
+		consumer, err := platformJS.OrderedConsumer(ctx, "RPCTRACE", jetstream.OrderedConsumerConfig{
+			DeliverPolicy: jetstream.DeliverAllPolicy,
+		})
+		if err != nil {
+			if !errors.Is(err, jetstream.ErrStreamNotFound) {
+				h.deps().Log.Warn("rpctrace replay: create consumer", "err", err)
+			}
+		} else if messages, err := consumer.Messages(); err != nil {
+			h.deps().Log.Warn("rpctrace replay: consume messages", "err", err)
+		} else {
+			defer messages.Stop()
+			go func() {
+				for {
+					msg, err := messages.Next()
+					if err != nil {
+						return
+					}
+					select {
+					case msgCh <- &nats.Msg{Data: msg.Data()}:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}()
+		}
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -349,27 +374,6 @@ func (h *Handlers) watchRPCObs(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(data)
 		_, _ = w.Write([]byte("\n\n"))
 		flusher.Flush()
-	}
-
-	// RPCTRACE is refdata-service's own stream, on the permanent PLATFORM
-	// account, like REFDATA above — not the tenant-scoped h.deps().JS.
-	if h.deps().PlatformJS != nil {
-		if consumer, err := h.deps().PlatformJS.OrderedConsumer(ctx, "RPCTRACE", jetstream.OrderedConsumerConfig{
-			DeliverPolicy: jetstream.DeliverAllPolicy,
-		}); err != nil {
-			if !errors.Is(err, jetstream.ErrStreamNotFound) {
-				h.deps().Log.Warn("rpctrace replay: create consumer", "err", err)
-			}
-		} else if batch, err := consumer.FetchNoWait(1000); err != nil {
-			h.deps().Log.Warn("rpctrace replay: fetch", "err", err)
-		} else {
-			for msg := range batch.Messages() {
-				write(msg.Data())
-			}
-			if err := batch.Error(); err != nil {
-				h.deps().Log.Warn("rpctrace replay: batch", "err", err)
-			}
-		}
 	}
 
 	heartbeat := time.NewTicker(15 * time.Second)

@@ -21,14 +21,14 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/eventhandler"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/refdataconsumer"
 )
 
 // nonTenantCredsFiles are the .creds stems (checked case-insensitively —
 // see below) in the shared creds directory that are never switchable
-// tenants — PLATFORM is the permanent connection (monolith.Monolith.NC/JS),
-// SYS is accounts-service's own credential (Phase 14b), neither is a
-// ship/container tenant account.
-var nonTenantCredsFiles = map[string]bool{"platform": true, "sys": true}
+// tenants — PLATFORM/shipping-admin are permanent PLATFORM credentials and
+// SYS is accounts-service's own credential; none are ship/container tenants.
+var nonTenantCredsFiles = map[string]bool{"platform": true, "shipping-admin": true, "sys": true}
 
 // discoverTenants scans credsDir (the shared volume accounts-service also
 // writes into, Phase 14b) for *.creds files and returns the known-tenant map
@@ -95,6 +95,7 @@ type tenantResources struct {
 	terminal                       *queries.Terminal
 	meta                           *queries.Meta
 	shapeA                         *queries.ShapeA
+	refdata                        *refdataconsumer.Consumer
 	projectors                     []jetstream.ConsumeContext
 	rpcAdapter                     *browserrpc.Adapter
 }
@@ -140,6 +141,7 @@ func (h *Handlers) SwitchTenant(ctx context.Context, tenant string) error {
 	next.Terminal = res.terminal
 	next.Meta = res.meta
 	next.KVA, next.KVB, next.KVCont, next.KVMeta = res.kvA, res.kvB, res.kvContainers, res.kvMeta
+	next.Refdata = res.refdata
 	next.JS = res.js
 	next.Tenant = tenant
 	next.TenantNC = res.nc
@@ -203,6 +205,7 @@ func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath 
 	terminal := queries.NewTerminal(kvContainers)
 	meta := queries.NewMeta(kvMeta)
 	shapeA := queries.NewShapeA(kvA)
+	refdata := refdataconsumer.New(nc)
 
 	rpcAdapter, err := browserrpc.New(nc, browserrpc.Deps{
 		Ships:      ships,
@@ -234,8 +237,18 @@ func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath 
 		terminal:     terminal,
 		meta:         meta,
 		shapeA:       shapeA,
+		refdata:      refdata,
 		projectors:   projectors,
 		rpcAdapter:   rpcAdapter,
+	}
+
+	if err := h.subscribeTenantLifecycle(ctx, nc); err != nil {
+		if err := rpcAdapter.Stop(); err != nil {
+			prev.Log.Error("stop rpc adapter after lifecycle subscribe failure", "tenant", tenant, "err", err)
+		}
+		stopAll(projectors)
+		nc.Close()
+		return nil, fmt.Errorf("subscribe account lifecycle imports for tenant %q: %w", tenant, err)
 	}
 
 	// Copy-on-write into the shared map, re-reading h.deps() rather than
@@ -254,6 +267,48 @@ func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath 
 	h.SetDeps(latest)
 
 	return res, nil
+}
+
+// subscribeTenantLifecycle consumes the imported PLATFORM lifecycle stream
+// through a tenant connection. Each tenant observes the same event, but the
+// Ensure/Teardown operations are idempotent; this keeps the cross-account
+// path entirely in declared imports instead of a second unrestricted creds
+// file on shipping-service.
+func (h *Handlers) subscribeTenantLifecycle(ctx context.Context, nc *nats.Conn) error {
+	ctx = context.WithoutCancel(ctx)
+	type lifecycleEvent struct {
+		Name string `json:"name"`
+	}
+	created := func(msg *nats.Msg) {
+		var evt lifecycleEvent
+		if err := json.Unmarshal(msg.Data, &evt); err != nil || evt.Name == "" {
+			h.deps().Log.Error("decode notify.accounts.account.created", "err", err)
+			return
+		}
+		if err := h.EnsureTenantByName(ctx, evt.Name); err != nil {
+			h.deps().Log.Error("ensure tenant resources on provisioning event", "tenant", evt.Name, "err", err)
+		}
+	}
+	suspended := func(msg *nats.Msg) {
+		var evt lifecycleEvent
+		if err := json.Unmarshal(msg.Data, &evt); err != nil || evt.Name == "" {
+			h.deps().Log.Error("decode notify.accounts.account.suspended", "err", err)
+			return
+		}
+		if err := h.TeardownTenantByName(ctx, evt.Name); err != nil {
+			h.deps().Log.Error("tear down tenant resources on suspension event", "tenant", evt.Name, "err", err)
+		}
+	}
+	if _, err := nc.Subscribe("notify.accounts.account.created", created); err != nil {
+		return err
+	}
+	if _, err := nc.Subscribe("notify.accounts.account.suspended", suspended); err != nil {
+		return err
+	}
+	if _, err := nc.Subscribe("notify.accounts.account.reactivated", created); err != nil {
+		return err
+	}
+	return nc.Flush()
 }
 
 // EnsureAllTenants creates persistent resources (see ensureTenantResources)

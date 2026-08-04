@@ -3,13 +3,13 @@
 **Status: Phase 10 partial pass.** This document is deliberately incomplete. It
 captures the **pull-forward baselines** measurable on the current architecture
 (Phase 10) and lists the scenarios **deferred** to their gating phase. The full
-suite is finalised in Phase 24. See
+suite is finalised in Phase 104. See
 `.claude/plans/Main-POC-Plan.md` and the harness in
 [`perf/`](perf/README.md).
 
 > **Measurement only.** Baselines here document degradation curves; mitigations
 > (snapshotting, consumer parallelism, SSE load balancing) are **not** applied
-> in Phase 10 — they interact with Phases 21–23 and are Phase 24 work.
+> in Phase 10 — they interact with Phases 21–23 and are Phase 104 work.
 
 ---
 
@@ -133,7 +133,7 @@ Harness: `perf/scenarios/shape-c-reconstruction.js` (10 samples per depth).
 **Confirmed ~linear degradation:** ~10× stream depth → ~8× reconstruction
 latency. At 10k events a full-fleet replay already costs ~45 ms; extrapolating,
 it crosses into hundreds of ms in the low-hundred-thousands of events —
-**unusable for interactive reads without snapshotting** (Phase 24 mitigation).
+**unusable for interactive reads without snapshotting** (Phase 104 mitigation).
 
 ### 2. Single-ship hydration degradation — **WRITE side**
 
@@ -151,7 +151,7 @@ commands, latency bucketed by prior-event count.
 
 **Confirmed degradation:** a ship's own command latency climbs ~28× (0.65 → 18
 ms p50) as its history grows to 10k events. A busy ship slows its own writes —
-the case for a **snapshot checkpoint** on the write path (Phase 24 mitigation).
+the case for a **snapshot checkpoint** on the write path (Phase 104 mitigation).
 Note this is per-aggregate: hydration folds only the ship's own subject, so an
 individual ship's history — not total stream depth — drives the cost.
 
@@ -189,27 +189,27 @@ separate 45 s constant-VU run against a reset stack. Harness:
 > So the true command-pipeline ceiling is **masked** by connection limits in
 > this configuration; the p95/p99 at ≥100 VUs are over surviving requests only.
 > Mitigations (Postgres connection **pooling** in the projector, raising
-> `max_connections`, and consumer parallelism tuning) are **Phase 24** — flagged
+> `max_connections`, and consumer parallelism tuning) are **Phase 104** — flagged
 > here, not applied (measurement only). This is arguably the most actionable
 > finding of the baseline.
 
 ---
 
-## Deferred scenarios (owned by Phase 24)
+## Deferred scenarios (owned by Phase 104)
 
 Not measurable on the current architecture — scripting them now would be thrown
 away when the gating phase lands:
 
 | Scenario | Measures | Gated by |
 |---|---|---|
-| Optimistic-concurrency contention | retry rate + latency cost of the sequence guard | **Phase 21** (guard doesn't exist yet) |
-| Cross-stream burst / consumer lag | `SHIPPING` + `TERMINAL` projection lag under write pressure | **Phase 23** (no `TERMINAL` stream yet) |
-| Cross-aggregate stale-read window | staleness of the read-model guard under load | **Phase 23** (stream split) |
-| SSE fan-out | concurrent watch clients before lag | **Phase 24** (streaming, not request-shaped) |
+| Optimistic-concurrency contention | retry rate + latency cost of the sequence guard | **Phase 101** (guard doesn't exist yet) |
+| Cross-stream burst / consumer lag | `SHIPPING` + `TERMINAL` projection lag under write pressure | **Phase 103** (no `TERMINAL` stream yet) |
+| Cross-aggregate stale-read window | staleness of the read-model guard under load | **Phase 103** (stream split) |
+| SSE fan-out | concurrent watch clients before lag | **Phase 104** (streaming, not request-shaped) |
 
-When Phase 21 and Phase 23 land, Phase 24 also **re-measures the three
+When Phase 101 and Phase 103 land, Phase 104 also **re-measures the three
 baselines above** against the final architecture and records the before/after
-delta — in particular, what the Phase 21 sequence guard costs on the write
+delta — in particular, what the Phase 101 sequence guard costs on the write
 path relative to this pre-guard baseline.
 
 ---

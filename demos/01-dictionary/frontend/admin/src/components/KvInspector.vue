@@ -17,7 +17,8 @@ const REFRESH_MS = 15000
 const FEED_CAP = 40
 
 // Known bucket-prefix families, longest-match first so "dict-a"/"dict-b" win
-// over a bare "dict". Everything after the family is the context suffix.
+// over a bare "dict". Shipping buckets are one per family per tenant; their
+// entries, rather than their names, carry the business-unit context prefix.
 const FAMILIES = [
   { prefix: 'dict-a', label: 'Shape A — ship read model' },
   { prefix: 'dict-b', label: 'Shape B — ship cache' },
@@ -48,7 +49,10 @@ function familyOf(name) {
 function contextOf(name) {
   const fam = familyOf(name)
   if (fam === 'other') return name
-  return name.slice(fam.length + 1) || '—'
+  // The shipping buckets are now exactly their family names (dict-a, dict-b,
+  // container, meta), not {family}-{context}. Keep a suffix readable for
+  // other services' legacy/non-shipping buckets without inventing a context.
+  return name === fam ? name : name.slice(fam.length + 1)
 }
 
 // Buckets grouped by family, in FAMILIES order, so the rail reads as the
@@ -80,7 +84,7 @@ async function refreshBuckets() {
   buckets.value = list
   if (!activeBucket.value || !list.some((b) => b.bucket === activeBucket.value)) {
     // Prefer a ship read model as the opening view, else the first bucket.
-    const first = list.find((b) => b.bucket.startsWith('dict-a-')) ?? list[0]
+    const first = list.find((b) => b.bucket === 'dict-a' || b.bucket.startsWith('dict-a-')) ?? list[0]
     activeBucket.value = first?.bucket ?? null
   }
 }

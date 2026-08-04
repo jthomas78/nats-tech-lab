@@ -179,13 +179,15 @@ onUnmounted(() => {
     <section v-else-if="activeView === 'shapes'" class="group" data-testid="shapes-view">
       <div class="panels">
         <ShapePanel shape="A" title="Shape A — KV as read model">
-          Ship events are projected straight into <code>dict-a-{{ store.context }}</code>. Reads go to
-          KV only; the KV revision is the version. No Postgres involved.
+          Ship events are projected into <code>dict-a</code> under the
+          <code>{{ store.context }}.ship.*</code> key prefix. Reads go to KV
+          only; the KV revision is the version. No Postgres involved.
         </ShapePanel>
         <ShapePanel shape="B" title="Shape B — KV cache in front of Postgres">
           Events update the canonical Postgres projection, then refresh
-          <code>dict-b-{{ store.context }}</code>. Evict a ship, then read it to watch the miss →
-          Postgres → backfill path.
+          <code>dict-b</code> under the <code>{{ store.context }}.ship.*</code>
+          key prefix. Evict a ship, then read it to watch the miss → Postgres →
+          backfill path.
         </ShapePanel>
       </div>
       <ShapeCPanel />

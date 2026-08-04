@@ -33,7 +33,24 @@ func newTestNATS(t *testing.T) (*nats.Conn, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return nc, func() { nc.Close(); srv.Shutdown() }
+	// Existing responder fixtures describe PLATFORM's exported subjects. This
+	// bridge models the Phase 21 account import: the consumer publishes a
+	// fixed local refdata.* subject and the server routes it to the account
+	// stamped rpc.<tenant-public-key> export. Keeping the fixtures on the
+	// exported side makes their wire-contract assertions remain meaningful.
+	bridge, err := nc.Subscribe("refdata.>", func(msg *nats.Msg) {
+		out := nats.NewMsg("rpc.acme-test." + msg.Subject)
+		out.Reply = msg.Reply
+		out.Data = msg.Data
+		out.Header = msg.Header
+		_ = nc.PublishMsg(out)
+	})
+	if err != nil {
+		nc.Close()
+		srv.Shutdown()
+		t.Fatal(err)
+	}
+	return nc, func() { _ = bridge.Unsubscribe(); nc.Close(); srv.Shutdown() }
 }
 
 // respondItemGet subscribes a one-shot rpc.* item.get responder for
@@ -204,6 +221,57 @@ func TestLookupReturnsErrRPCUnavailableWhenNoResponder(t *testing.T) {
 	_, err := c.Lookup(context.Background(), "acme-test", "hazard-class", "3", "")
 	if !errors.Is(err, ErrRPCUnavailable) {
 		t.Fatalf("expected ErrRPCUnavailable, got %v", err)
+	}
+}
+
+func TestDataOperationsPublishFixedTenantLocalSubjects(t *testing.T) {
+	nc, cleanupNC := newTestNATS(t)
+	defer cleanupNC()
+
+	seen := make(chan string, 5)
+	dataSub, err := nc.Subscribe("refdata.>", func(msg *nats.Msg) { seen <- msg.Subject })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dataSub.Unsubscribe() //nolint:errcheck
+	contextsSub, err := nc.Subscribe(contextListSubject, func(msg *nats.Msg) { seen <- msg.Subject })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer contextsSub.Unsubscribe() //nolint:errcheck
+	if err := nc.Flush(); err != nil {
+		t.Fatal(err)
+	}
+
+	c := New(nc, WithRPCTimeout(30*time.Millisecond), WithRPCRetries(0))
+	_, _ = c.Lookup(context.Background(), "caller-supplied-context", "type", "code", "")
+	_, _ = c.ResolveType(context.Background(), "caller-supplied-context", "type", "")
+	_, _ = c.LookupAtVersion(context.Background(), "caller-supplied-context", 1, "type", "code", "")
+	_, _ = c.Locales(context.Background(), "caller-supplied-context")
+	_, _ = c.ListContexts(context.Background(), "tenant")
+
+	want := map[string]bool{
+		"refdata.item.get.v1":           false,
+		"refdata.type.list.v1":          false,
+		"refdata.item.get-versioned.v1": false,
+		"refdata.locales.list.v1":       false,
+		contextListSubject:              false,
+	}
+	for range want {
+		select {
+		case subject := <-seen:
+			if _, ok := want[subject]; !ok {
+				t.Fatalf("unexpected rpc subject %q", subject)
+			}
+			want[subject] = true
+		case <-time.After(time.Second):
+			t.Fatalf("did not observe all fixed subjects: %#v", want)
+		}
+	}
+	for subject, got := range want {
+		if !got {
+			t.Fatalf("did not publish %q", subject)
+		}
 	}
 }
 
@@ -522,7 +590,7 @@ func TestListContextsUsesRPCAndForwardsTenant(t *testing.T) {
 			t.Error(unmarshalErr)
 		}
 		data, _ := json.Marshal(rpcContextListResponse{Contexts: []rpcContext{
-			{Context: "_platform"}, {Context: "acme"}, {Context: "acme-atlantic-fleet"},
+			{Context: "_platform"}, {Context: "acme-pacific-fleet"}, {Context: "acme-atlantic-fleet"},
 		}})
 		_ = msg.Respond(data)
 	})
@@ -539,7 +607,7 @@ func TestListContextsUsesRPCAndForwardsTenant(t *testing.T) {
 	if gotReq.Tenant != "acme" {
 		t.Fatalf("expected tenant %q forwarded in request, got %q", "acme", gotReq.Tenant)
 	}
-	want := []string{"_platform", "acme", "acme-atlantic-fleet"}
+	want := []string{"_platform", "acme-pacific-fleet", "acme-atlantic-fleet"}
 	if len(contexts) != len(want) {
 		t.Fatalf("expected %v, got %v", want, contexts)
 	}

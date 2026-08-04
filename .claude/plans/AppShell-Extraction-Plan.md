@@ -119,7 +119,7 @@ Confirm the exact per-app breadcrumb content when each app's migration starts, n
 - Any router or i18n unification across apps — each app keeps its own (or lack of one).
 - Backend changes of any kind.
 - New features beyond the shell itself (no new nav items, no new topbar controls).
-- Runtime/per-tenant theming (see main plan's Phase 25 placeholder) — unrelated axis.
+- Runtime/per-tenant theming (see main plan's Phase 105 placeholder) — unrelated axis.
 
 ## Recommended migration order
 

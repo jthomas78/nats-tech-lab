@@ -28,7 +28,7 @@ var _ = Describe("Container Domain Rules", func() {
 		containers *commands.ContainerHandler
 	)
 
-	const fleetCtx = "acme"
+	const fleetCtx = "acme-pacific-fleet"
 
 	BeforeEach(func() {
 		ctx = context.Background()
@@ -349,7 +349,7 @@ var _ = Describe("Terminal read models", func() {
 		meta       *queries.Meta
 	)
 
-	const fleetCtx = "acme"
+	const fleetCtx = "acme-pacific-fleet"
 
 	BeforeEach(func() {
 		ctx = context.Background()

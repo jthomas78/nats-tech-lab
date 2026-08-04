@@ -146,7 +146,7 @@ func TestListRefdataContextsForwardsActiveTenant(t *testing.T) {
 			} `json:"contexts"`
 		}{Contexts: []struct {
 			Context string `json:"context"`
-		}{{Context: "_platform"}, {Context: "acme"}}})
+		}{{Context: "_platform"}, {Context: "acme-pacific-fleet"}}})
 		_ = msg.Respond(data)
 	})
 	if err != nil {

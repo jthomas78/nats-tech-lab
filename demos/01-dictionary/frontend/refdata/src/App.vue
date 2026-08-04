@@ -43,7 +43,7 @@ onUnmounted(() => store.disconnect())
         :model-value="store.context"
         :options="CONTEXTS"
         size="small"
-        disabled
+        @update:model-value="val => { store.context = val; store.connect() }"
       />
     </template>
     <template #sidebar>

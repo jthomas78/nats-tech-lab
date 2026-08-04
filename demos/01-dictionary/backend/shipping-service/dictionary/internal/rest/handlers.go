@@ -634,37 +634,24 @@ func writeRefdataError(w http.ResponseWriter, err error) {
 	}
 }
 
-// refdataCompanyContext returns the refdata-service company context this
-// tenant's reference-data reads (types/locales/contexts) resolve against —
-// deliberately independent of the fleet context selector (acme,
-// acme-atlantic-fleet, …), which scopes ship/container data, not reference
-// data. Phase 16f: derived from the active tenant rather than hardcoded (as
-// it was pending in Phase 16d) — per Main-POC-Plan.md § Phase 16 decision
-// 11, "in the common no-company-group case a tenant's own name doubles as
-// its company {context} value" (the same mapping BR-AC07 already relies
-// on). This is a deliberate degenerate-case simplification: a tenant that
-// later hosts more than one company (decision 11's "company group" case)
-// would need a real mapping here instead of this 1:1 assumption.
+// refdataCompanyContext returns the refdata-service context this tenant's
+// UI-chrome reference-data reads (ship-status enum labels, string/l10n
+// copy, locales) resolve against — deliberately independent of the fleet
+// context selector (acme-pacific-fleet, acme-atlantic-fleet, …), which
+// scopes ship/container data, not reference data.
 //
-// KNOWN GAP: "the active tenant" here means Deps.Tenant — REST/SSE's Phase
-// 13b SwitchTenant selection, shared by the Admin/Dictionary frontends. Sea
-// Freight Flow (Phase 15d) no longer drives that selection at all; it
-// authenticates directly into its own NATS account and never calls
-// SwitchTenant. In the common case both happen to point at the same tenant
-// (the demo's default "acme"), so these three endpoints read correctly for
-// Sea Freight Flow too — but if the Admin UI's tenant selection and Sea
-// Freight Flow's own NATS tenant were ever switched to different tenants
-// concurrently, these reads would silently reflect the Admin UI's
-// selection, not the browser's actual tenant. Fixing this for real would
-// mean threading an explicit tenant through the *shared* useRefdataLabels/
-// useL10nCopy composables (used by both frontends) instead of relying on
-// server-side state — out of scope for Phase 16f, which only added the
-// tenant-derivation itself, not a fix for this pre-existing Phase 15
-// scope-boundary seam (see Main-POC-Plan.md § Phase 15's Context section:
-// refdata-service's cross-tenant PLATFORM-account model was already flagged
-// out of scope there).
-func refdataCompanyContext(tenant string) string {
-	return tenant
+// Always resolves to "_platform" (refdata-service's reserved root context),
+// not a tenant-derived value: this data is universal UI copy shared by
+// every business unit of every tenant (ship-status is a fixed AIS
+// vocabulary; string is fixed frontend chrome text), not something that
+// varies by company or business unit. There is deliberately no per-tenant
+// "company context" anymore — Phase 16's flattened context tree (see
+// BUSINESS_RULES-REFDATA.md's Phase 16 amendments) has no context that sits
+// between _platform and a tenant's individual business units, so a
+// tenant-derived company context no longer has anything meaningful to
+// resolve to.
+func refdataCompanyContext(_ string) string {
+	return "_platform"
 }
 
 // listRefdataType godoc

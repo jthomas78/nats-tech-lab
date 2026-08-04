@@ -56,7 +56,7 @@ async function evict(row) {
     toast.add({
       severity: 'warn',
       summary: 'Cache evicted',
-      detail: `${row.shipID} removed from dict-b-${store.context} — read it to see the miss`,
+      detail: `${row.shipID} removed from dict-b (key ${store.context}.ship.${row.shipID}) — read it to see the miss`,
       life: 3500,
     })
   } catch (err) {

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Session Memory
 
-At the start of every session, read all files in `.claude/memory/` — starting with `MEMORY.md` as the index — and apply them as persistent context. When saving new memories during a session, write them to `.claude/memory/` (not `~/.claude/projects/`) so they are shared across devices via git.
+At the start of every session, read `.claude/memory/MEMORY.md` — the index of one-line hooks — and keep it as persistent context. **Do not read every file under `.claude/memory/` unconditionally**: each is 30–75 lines and reading all of them every session is pure token overhead when a task only ever touches a few. Instead, open an individual memory file only once `MEMORY.md`'s hook line suggests it's relevant to the task at hand (same "read on relevance" policy as the global auto-memory system). When saving new memories during a session, write them to `.claude/memory/` (not `~/.claude/projects/`) so they are shared across devices via git, and keep `MEMORY.md`'s hook line for that file short enough to judge relevance without opening it.
 
 ## General preferences
 
@@ -264,18 +264,9 @@ When updating or implementing a plan phase, the agent should follow this sequenc
 2. **Derive tests from rules, not from implementation.** Each business rule maps to one `Context` block in Ginkgo with one or more `It` assertions. Write the specs before writing the implementation (red → green → refactor).
 3. **Update the relevant `BUSINESS_RULES-*.md` and the plan together.** New rules go into the matching domain file and the plan checklist in the same commit.
 
-## AI Skill Roles (Future)
+## AI Skill Roles (Future, not yet implemented)
 
-Skill files (`.claude/skills/`) will be introduced to give the AI agent specialised personas for different stages of delivery. Planned roles:
-
-| Skill | Responsibility |
-|---|---|
-| `product-owner` | Captures business requirements; challenges scope; owns acceptance criteria |
-| `technical-analyst` | Translates requirements into technical consequences; identifies constraints and risks |
-| `software-developer` | Implements the requirement; follows the red→green→refactor cycle |
-| `tester` | Validates correctness against the business rules; owns the Ginkgo spec tree |
-
-These skills are **not yet implemented**. The note is here to record the intent: as the lab grows, plan phases should be walked through each role in sequence rather than going directly from requirement to code.
+Intent, for later: introduce `.claude/skills/` personas (`product-owner`, `technical-analyst`, `software-developer`, `tester`) so plan phases get walked through each role in sequence instead of going straight from requirement to code.
 
 ## Implementation Status
 

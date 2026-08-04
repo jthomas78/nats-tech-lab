@@ -4,15 +4,11 @@ package dictionary
 
 import (
 	"context"
-	"encoding/json"
-
-	"github.com/nats-io/nats.go"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/postgres"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/rest"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/monolith"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/refdataconsumer"
 )
 
 // initialTenant is which tenant account shipping-service connects as when
@@ -28,20 +24,16 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 		return err
 	}
 
-	// mono.JS()/mono.NC() are the permanent PLATFORM-account connection (see
-	// monolith.Monolith doc comment) — used only for
-	// refdata-service's rpc.* calls, its REFDATA change stream, and the
-	// obs.rpc.> observability bridge. The SHIPPING stream is deliberately
-	// NOT created here anymore: Phase 13b moves it entirely into whichever
-	// tenant account is active, via Handlers.SwitchTenant below.
-	refdata := refdataconsumer.New(mono.NC())
+	// mono.JS()/mono.NC() are the narrowed shipping-admin PLATFORM connection:
+	// inspection/replay only. Refdata RPC is deliberately created from each
+	// tenant connection in ensureTenantResources, so NATS account imports can
+	// stamp the tenant identity server-side.
 	shipRepo := postgres.NewRepository(mono.DB())
 	containerRepo := postgres.NewContainerRepository(mono.DB())
 	portRepo := postgres.NewPortRepository(mono.DB())
 
 	handlers := rest.NewHandlers(rest.Deps{
 		Ports:          commands.NewPortHandler(portRepo),
-		Refdata:        refdata,
 		PlatformJS:     mono.JS(),
 		NC:             mono.NC(),
 		Log:            log,
@@ -65,69 +57,6 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 	// this process starts, without needing an operator to have switched
 	// REST to GLOBEX first. See EnsureAllTenants's doc comment.
 	if err := handlers.EnsureAllTenants(ctx); err != nil {
-		return err
-	}
-
-	// BR-030: react to a tenant minted by accounts-service *after* this
-	// process started, instead of leaving it unprovisioned until an operator
-	// happens to switch the Admin UI to it (EnsureAllTenants above only
-	// covers tenants that already existed at startup) — see
-	// Handlers.EnsureTenantByName's doc comment.
-	if _, err := mono.NC().Subscribe("notify.accounts.account.created", func(msg *nats.Msg) {
-		var evt struct {
-			Name string `json:"name"`
-		}
-		if err := json.Unmarshal(msg.Data, &evt); err != nil || evt.Name == "" {
-			log.Error("decode notify.accounts.account.created", "err", err)
-			return
-		}
-		if err := handlers.EnsureTenantByName(ctx, evt.Name); err != nil {
-			log.Error("ensure tenant resources on provisioning event", "tenant", evt.Name, "err", err)
-		}
-	}); err != nil {
-		return err
-	}
-
-	// BR-031: the mirror of BR-030 above — react to a tenant being suspended
-	// by tearing its resources down, instead of leaving its per-tenant
-	// connection to reconnect forever against a .creds file
-	// accounts-service's suspendAccount has already deleted (see
-	// ARCHITECTURE-ACCOUNTS.md § 2t-a). Producer is accounts-service's
-	// Handlers.publishAccountSuspended (BR-AC09).
-	if _, err := mono.NC().Subscribe("notify.accounts.account.suspended", func(msg *nats.Msg) {
-		var evt struct {
-			Name string `json:"name"`
-		}
-		if err := json.Unmarshal(msg.Data, &evt); err != nil || evt.Name == "" {
-			log.Error("decode notify.accounts.account.suspended", "err", err)
-			return
-		}
-		if err := handlers.TeardownTenantByName(ctx, evt.Name); err != nil {
-			log.Error("tear down tenant resources on suspension event", "tenant", evt.Name, "err", err)
-		}
-	}); err != nil {
-		return err
-	}
-
-	// BR-032: completes the lifecycle triple. Without this, BR-031's teardown
-	// is a one-way door — a reactivated tenant would stay unusable until this
-	// process restarted or an operator switched the Admin UI to it. Reuses
-	// EnsureTenantByName unchanged: the teardown removed the tenant from
-	// TenantResources, so this rebuilds it from scratch against the fresh
-	// .creds file reactivation just wrote (BR-AC04/BR-AC10 — the old creds are
-	// deleted on suspend and never reused).
-	if _, err := mono.NC().Subscribe("notify.accounts.account.reactivated", func(msg *nats.Msg) {
-		var evt struct {
-			Name string `json:"name"`
-		}
-		if err := json.Unmarshal(msg.Data, &evt); err != nil || evt.Name == "" {
-			log.Error("decode notify.accounts.account.reactivated", "err", err)
-			return
-		}
-		if err := handlers.EnsureTenantByName(ctx, evt.Name); err != nil {
-			log.Error("ensure tenant resources on reactivation event", "tenant", evt.Name, "err", err)
-		}
-	}); err != nil {
 		return err
 	}
 

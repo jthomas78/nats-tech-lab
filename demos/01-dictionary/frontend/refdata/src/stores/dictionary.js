@@ -12,7 +12,7 @@ import { addLocale, getCacheStatus, getItem, listItems, listLocales, listTypes, 
 // context, so this selector can actually demonstrate inheritance (browse
 // _platform's shared standards, then acme's override, then the business
 // unit's addition).
-export const CONTEXTS = ['_platform', 'acme', 'acme-atlantic-fleet']
+export const CONTEXTS = ['_platform', 'acme-pacific-fleet', 'acme-atlantic-fleet']
 
 export const useDictionaryStore = defineStore('dictionary', {
   state: () => ({
@@ -62,8 +62,9 @@ export const useDictionaryStore = defineStore('dictionary', {
     async connect() {
       this.disconnect()
       await Promise.all([this.refreshTypes(), this.refreshLocales()])
-      if (!this.selectedType && this.types.length > 0) {
-        await this.selectType(this.types[0].typeKey)
+      const target = this.selectedType || (this.types.length > 0 ? this.types[0].typeKey : null)
+      if (target) {
+        await this.selectType(target)
       }
 
       const source = new EventSource(watchUrl(this.context))

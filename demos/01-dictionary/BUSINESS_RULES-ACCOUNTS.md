@@ -397,3 +397,26 @@ from both — never a source of truth themselves.
   that was stolen before logout (XSS, proxy log) must not remain usable —
   server-side revocation is the enforcement point, not client-side deletion
   alone.
+
+### BR-AC14 (Phase 21) — Tenant account claims import only the declared PLATFORM cross-cutting contract
+
+Every tenant account imports the four context-free local refdata service
+subjects (`refdata.item.get.v1`, `refdata.type.list.v1`,
+`refdata.item.get-versioned.v1`, and `refdata.locales.list.v1`), the fixed
+`rpc._platform.refdata.context.list.v1` service, and the account-lifecycle
+and refdata-change streams from PLATFORM. Each remapped service import names
+the tenant's human-readable account name (e.g. `acme`) in the remote
+`rpc.{tenantName}.refdata.*.v1` subject — readable in logs, traces, and the
+admin UI's live subject view, rather than an opaque public key. Security is
+still operator-enforced, not client-supplied: the import itself lives inside
+an operator-signed account JWT, so a tenant cannot rewrite its own import to
+substitute another tenant's name — doing so would require re-signing the
+claim with the operator's private key, which the tenant never holds. Whenever
+accounts-service re-signs a claim (startup signing-key establishment,
+reactivate, or limits update), it preserves the prior JWT's `Exports` and
+`Imports`; an account JWT update replaces the full claim and dropping either
+would silently sever this contract.
+
+- **Enforced in:** `nats/bootstrap-operator.sh`; `accounts/provisioner.go`.
+- **Test:** `provisioner_claims_test.go`; shipping
+  `internal/natsaccounts/isolation_test.go` import/isolation specs.

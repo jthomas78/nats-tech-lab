@@ -22,13 +22,13 @@ type Monolith interface {
 	// jetstream.JetStream alone, such as micro.AddService or a plain
 	// Request/Reply client.
 	//
-	// This is the permanent, unauthenticated (PLATFORM-account) connection —
-	// Phase 13b's tenant-scoped connection is a second, separate connection
-	// owned by rest.Handlers, reconnected on tenant switch. DB/JS/NC here
-	// never change after Startup.
+	// This is the permanent, permission-restricted shipping-admin connection
+	// in PLATFORM. Tenant-scoped work uses connections owned by
+	// rest.Handlers; this one is limited to admin inspection/replay and
+	// $SRV discovery. DB/JS/NC here never change after Startup.
 	NC() *nats.Conn
 	// NatsURL is needed by rest.Handlers.SwitchTenant (Phase 13b) to open a
-	// second, tenant-credentialed connection independent of NC() above.
+	// tenant-credentialed connection independent of the admin NC() above.
 	NatsURL() string
 	// CredsDir is the directory of <tenant>.creds files (Phase 14a —
 	// operator mode) that SwitchTenant scans to resolve a tenant name to its

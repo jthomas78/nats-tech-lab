@@ -49,22 +49,22 @@ var _ = Describe("Seed", func() {
 		Expect(context.Tenant).To(BeEmpty(), "the reserved root belongs to no tenant")
 	})
 
-	It("registers acme as a child of _platform, owned by the acme tenant", func() {
-		context, err := h.Contexts.Get(ctx, refdata.CompanyContext)
+	It("registers acme-pacific-fleet as a child of _platform, owned by the acme tenant", func() {
+		context, err := h.Contexts.Get(ctx, refdata.PacificFleetContext)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(context.Parent).To(Equal(refdata.PlatformContext))
 		Expect(context.Tenant).To(Equal("acme"))
 	})
 
-	It("registers acme-atlantic-fleet as a child of acme, owned by the acme tenant", func() {
+	It("registers acme-atlantic-fleet as a peer sibling of acme-pacific-fleet under _platform, owned by the acme tenant", func() {
 		context, err := h.Contexts.Get(ctx, refdata.BusinessUnitContext)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(context.Parent).To(Equal(refdata.CompanyContext))
+		Expect(context.Parent).To(Equal(refdata.PlatformContext))
 		Expect(context.Tenant).To(Equal("acme"))
 	})
 
 	It("registers en as the default locale and es/af-za as secondary locales for every context in the tree", func() {
-		for _, c := range []string{refdata.PlatformContext, refdata.CompanyContext, refdata.BusinessUnitContext} {
+		for _, c := range []string{refdata.PlatformContext, refdata.PacificFleetContext, refdata.BusinessUnitContext} {
 			locales, err := h.Localizations.ListLocales(ctx, c)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(locales).To(ContainElements("en", "es", "af-za"), "context %q", c)
@@ -85,24 +85,24 @@ var _ = Describe("Seed", func() {
 		}
 	})
 
-	It("registers ship-status under acme, mirroring the backend's ShipStatus values, with en/es/af-za labels", func() {
-		all, err := items.List(ctx, "ship-status", refdata.CompanyContext)
+	It("registers ship-status under _platform, mirroring the backend's ShipStatus values, with en/es/af-za labels", func() {
+		all, err := items.List(ctx, "ship-status", refdata.PlatformContext)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(all).To(HaveLen(5))
 
-		docked, err := items.Get(ctx, "ship-status", refdata.CompanyContext, "docked")
+		docked, err := items.Get(ctx, "ship-status", refdata.PlatformContext, "docked")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(docked.Attrs["name"]).To(Equal("Docked"))
 
-		localizations, err := locs.ListForItem(ctx, "ship-status", refdata.CompanyContext, "docked")
+		localizations, err := locs.ListForItem(ctx, "ship-status", refdata.PlatformContext, "docked")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(localizations).To(ContainElement(And(HaveField("Locale", "en"), HaveField("Label", "Docked"))))
 		Expect(localizations).To(ContainElement(And(HaveField("Locale", "es"), HaveField("Label", "Atracado"))))
 		Expect(localizations).To(ContainElement(And(HaveField("Locale", "af-za"), HaveField("Label", "Vasgemeer"))))
 	})
 
-	It("gives every seeded string key under acme an en, an es, and an af-za label (BR-D16)", func() {
-		all, err := items.List(ctx, "string", refdata.CompanyContext)
+	It("gives every seeded string key under _platform an en, an es, and an af-za label (BR-D16)", func() {
+		all, err := items.List(ctx, "string", refdata.PlatformContext)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(len(all)).To(BeNumerically(">", 2), "expected the full Phase 11.10 string catalog, not just the Phase 11.7 proof-of-concept keys")
 
@@ -126,18 +126,18 @@ var _ = Describe("Seed", func() {
 		})
 
 		It("overrides hazard-class/3 at the company level with an Acme-specific label (BR-V07)", func() {
-			localizations, err := locs.ListForItem(ctx, "hazard-class", refdata.CompanyContext, "3")
+			localizations, err := locs.ListForItem(ctx, "hazard-class", refdata.PacificFleetContext, "3")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(localizations).To(ContainElement(And(HaveField("Locale", "en"), HaveField("Label", "Flammable Liquids (Acme Handling Advisory)"))))
 		})
 
-		It("adds hazard-class/X1 only at the business-unit level (BR-V06) — it does not exist at _platform or acme", func() {
+		It("adds hazard-class/X1 only at the business-unit level (BR-V06) — it does not exist at _platform or acme-pacific-fleet", func() {
 			_, err := items.Get(ctx, "hazard-class", refdata.BusinessUnitContext, "X1")
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = items.Get(ctx, "hazard-class", refdata.PlatformContext, "X1")
 			Expect(err).To(HaveOccurred())
-			_, err = items.Get(ctx, "hazard-class", refdata.CompanyContext, "X1")
+			_, err = items.Get(ctx, "hazard-class", refdata.PacificFleetContext, "X1")
 			Expect(err).To(HaveOccurred())
 		})
 	})
@@ -145,7 +145,7 @@ var _ = Describe("Seed", func() {
 	It("is idempotent — seeding twice does not error or duplicate localizations", func() {
 		Expect(refdata.Seed(ctx, h)).To(Succeed())
 
-		localizations, err := locs.ListForItem(ctx, "hazard-class", refdata.CompanyContext, "3")
+		localizations, err := locs.ListForItem(ctx, "hazard-class", refdata.PacificFleetContext, "3")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(localizations).To(HaveLen(3))
 		Expect(localizations).To(ContainElement(And(HaveField("Locale", "en"), HaveField("Label", "Flammable Liquids (Acme Handling Advisory)"))))

@@ -22,13 +22,17 @@ Phase 12 is governed by the [Refdata Versioning, Tenancy & Template Inheritance 
 > 1. **Root renamed `global` → `_platform`** (BR-D33/BR-AC07 enforce the
 >    reservation — see below). Seeded via `ContextHandler.RegisterPlatformRoot`,
 >    the one sanctioned exception to BR-D33.
-> 2. **Region is removed as a context node.** The real tree is
->    `_platform → acme → acme-atlantic-fleet` (company → business unit),
->    replacing the retired `_platform → emea → emea-acme` shape. Region is a
->    deployment concern (its own regional stack and NATS instance) and never
->    appears in a context value or subject token.
+> 2. **Region is removed as a context node.** The real tree is two business-unit
+>    siblings under the platform root: `_platform → acme-pacific-fleet` and
+>    `_platform → acme-atlantic-fleet`. Tenant "acme" owns both; neither is the
+>    parent of the other. This replaces the retired `_platform → emea → emea-acme`
+>    shape and the earlier `_platform → acme → acme-atlantic-fleet` (company layer)
+>    shape. Region is a deployment concern (its own regional stack and NATS
+>    instance) and never appears in a context value or subject token. Tenant name
+>    is never a context name — contexts are business-unit identifiers, not
+>    company identifiers.
 > 3. **A context may be linked to a tenant** — `refdata.contexts.tenant`
->    (nullable, added by `migrate.go`'s `ALTER TABLE`). `acme` and
+>    (nullable, added by `migrate.go`'s `ALTER TABLE`). `acme-pacific-fleet` and
 >    `acme-atlantic-fleet` are both seeded with `tenant: "acme"`; `_platform`
 >    has none. This is **ownership/governance metadata and query scoping
 >    only — not a security boundary**: refdata-service runs on a single
@@ -40,7 +44,7 @@ Phase 12 is governed by the [Refdata Versioning, Tenancy & Template Inheritance 
 > (`context_repository.go`'s recursive ancestor CTE) — it is not restricted to
 > a fixed number of hops. **Also now demonstrated by real seed data**, not
 > just unit-tested in isolation: `hazard-class` code `3` is overridden at
-> `acme` (BR-V07) and code `X1` is an addition that exists only at
+> `acme-pacific-fleet` (BR-V07) and code `X1` is an addition that exists only at
 > `acme-atlantic-fleet` (BR-V06) — see BR-D34 below and `seed.go`'s
 > `publishInitialCorpus`, which idempotently drafts and publishes an initial
 > corpus version per context, parent-first, so the chain actually has
@@ -322,7 +326,7 @@ Phase 11.12. Two layers, same guard. (1) `DraftTranslations` drafts one item's s
 
 ### BR-D25 — An `rpc.*` operation must exist as a `commands`/`queries` method already exposed via REST
 
-Phase 12.10. The `natsrpc/` adapter is a second transport onto the *same* application-layer method the `rest/` adapter already calls — never a place for new business logic or a shortcut around it. Concretely: `natsrpc.Adapter`'s `item.get` endpoint calls `commands.LocalizationHandler.ResolveItem()`, the identical method backing `GET /api/refdata/{context}/{type}/{code}`. This keeps REST behavior as a working isolation tool for RPC bugs (§5 of `ARCHITECTURE-COMMUNICATIONS.md`): if a `rpc.*` call misbehaves but the equivalent REST call succeeds with the same input, the bug is in the `natsrpc/` adapter, not the domain. BR-D28 (Phase 12.11) extends this same parity requirement to `type.list`, `item.get-versioned`, and `locales.list`.
+Phase 12.10. The `natsrpc/` adapter is a second transport onto the *same* application-layer method the `rest/` adapter already calls — never a place for new business logic or a shortcut around it. Concretely: `natsrpc.Adapter`'s `item.get` endpoint calls `commands.LocalizationHandler.ResolveItem()`, the identical method backing `GET /api/refdata/{context}/{type}/{code}`. This keeps REST behavior as a working isolation tool for RPC bugs (§5 of `ARCHITECTURE-COMMUNICATIONS.md`): if a `rpc.*` call misbehaves but the equivalent REST call succeeds with the same input, the bug is in the `natsrpc/` adapter, not the domain. BR-D28 (Phase 12.11) extends this same parity requirement to `type.list`, `item.get-versioned`, and `locales.list`. **Phase 21:** shipping's four call sites publish context-free local `refdata.*.v1` subjects; the tenant's NATS import maps them to the exported `rpc.{tenant-account-key}.refdata.*.v1` subject, so server-enforced account identity replaces caller-supplied context routing.
 
 - **Enforced in:** `natsrpc.Adapter` handlers call the exported `commands.*Handler` methods directly — no adapter-local reimplementation
 - **Test:** `NATS RPC Adapter / BR-D25` — asserts the RPC and REST paths return byte-identical results for the same input

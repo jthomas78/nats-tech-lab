@@ -46,7 +46,7 @@ const (
 // NOT part of ship state — it is a join over the container projection
 // (OnShipID == ShipID).
 type ShipState struct {
-	Context     string     `json:"context"` // fleet / KV-bucket qualifier
+	Context     string     `json:"context"` // fleet / KV-key-prefix qualifier
 	ID          string     `json:"id"`      // surrogate key (UUID) — aggregate identity
 	ShipID      string     `json:"shipID"`  // mutable natural key (call-sign / fleet code)
 	ShipName    string     `json:"shipName"`
@@ -55,10 +55,11 @@ type ShipState struct {
 	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
-// KVKey returns the key within the context-scoped bucket: ship.{shipID}. The
-// read-model bucket is keyed by the human-facing natural key for query
-// convenience (and doubles as the natural-key lookup); the surrogate ID is
-// carried as a field. Aggregate identity on the write side is still the ID.
+// KVKey returns the bare key appended after the context prefix in the
+// tenant-scoped bucket: ship.{shipID}. The read model is keyed by the
+// human-facing natural key for query convenience (and doubles as the
+// natural-key lookup); the surrogate ID is carried as a field. Aggregate
+// identity on the write side is still the ID.
 func (s ShipState) KVKey() string { return "ship." + s.ShipID }
 
 // ─── Aggregate (command validation + Shape C reconstruction) ──────────────────

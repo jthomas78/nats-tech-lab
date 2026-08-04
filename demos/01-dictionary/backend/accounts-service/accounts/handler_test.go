@@ -45,6 +45,14 @@ var _ = Describe("Handlers", func() {
 
 		store = accounts.NewStore(storeTestDB)
 		auditLog = accounts.NewAuditLog(storeTestDB)
+		// The shared Postgres test database may contain the real bootstrap
+		// PLATFORM row. Replace it with an account minted into this embedded
+		// server so the import source in each created tenant is resolvable.
+		_, err = storeTestDB.ExecContext(context.Background(), "DELETE FROM accounts.accounts WHERE name = $1", "platform")
+		Expect(err).NotTo(HaveOccurred())
+		platform, err := provisioner.CreateAccount(context.Background(), accounts.JSLimits{MaxMem: 1 << 30, MaxFile: 5 << 30, MaxStreams: 20, MaxConsumers: 100}, "platform", "")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(store.Insert(context.Background(), accounts.Account{Name: "platform", PublicKey: platform.PublicKey, SigningKeySeed: platform.SigningKeySeed, Status: accounts.StatusActive, JSMaxMem: 1 << 30, JSMaxFile: 5 << 30, JSMaxStreams: 20, JSMaxConsumers: 100})).To(Succeed())
 		credsDir := GinkgoT().TempDir()
 		handlers := accounts.NewHandlers(store, provisioner, credsDir, slog.New(slog.DiscardHandler), nil, auditLog)
 
@@ -190,7 +198,7 @@ var _ = Describe("Handlers", func() {
 	// suspend→reactivate must come out with a genuinely usable .creds file,
 	// not just an "active" status with no way to ever mint one again.
 	It("reactivating an account with no stored signing key establishes one and mints working creds", func() {
-		minted, err := provisioner.CreateAccount(context.Background(), accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5})
+		minted, err := provisioner.CreateAccount(context.Background(), accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5}, "seeded-like", "")
 		Expect(err).NotTo(HaveOccurred())
 
 		// Simulate a seeded account (like PLATFORM/ACME/GLOBEX): a real,
