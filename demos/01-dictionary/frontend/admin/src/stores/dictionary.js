@@ -5,21 +5,10 @@ import { defineStore } from 'pinia'
 
 import { getPorts, getRefdataContexts, watchUrl } from '../api'
 
-// Contexts scope the KV keys: each is stored as {context}.ship.{id} in the
-// tenant-scoped dict-a and dict-b buckets. A context is the company /
-// business-unit scope — NOT the tenant (that's the NATS account) and NOT the
-// region (a separate regional deployment); see ARCHITECTURE-COMMUNICATIONS.md
-// § 2.3. The values below are
-// now only the offline/error fallback (Phase 16f) — the real, tenant-scoped
-// list is fetched via loadContexts()/GET /api/refdata/contexts, kept as a
-// literal (not deleted) so the dropdown still shows something sensible if
-// that fetch never succeeds.
-export const CONTEXTS = ['acme-atlantic-fleet', 'acme-pacific-fleet']
-
 export const useDictionaryStore = defineStore('dictionary', {
   state: () => ({
-    context: CONTEXTS[0],
-    availableContexts: [...CONTEXTS], // Phase 16f: replaced by loadContexts() once the tenant is known
+    context: '',
+    availableContexts: [], // Phase 22: populated by loadContexts(); empty until fetched
     // key (ship.{shipID}) → { state: ShipState, revision } per shape
     shapeA: {},
     shapeB: {},
@@ -47,30 +36,19 @@ export const useDictionaryStore = defineStore('dictionary', {
       this.connect()
     },
 
-    // Fetches this tenant's real context list (Phase 16f), replacing the
-    // static CONTEXTS fallback. Called from stores/tenant.js on tenant
-    // switch — not from connect() below, so a plain fleet-context change
-    // doesn't needlessly refetch the very list it's picking from. Falls
-    // back to the existing (initially CONTEXTS) list on error — this is a
-    // convenience list for a dropdown, not a required resource.
-    //
-    // Filters out "_"-reserved contexts (e.g. "_platform"): the fetched list
-    // is refdata-service's context tree, which includes the shared platform
-    // root every tenant inherits standards from — meaningful for reference-
-    // data reads, but no ship or container ever belongs to it. Offering it
-    // as a fleet-context choice here would let a click create real (if empty)
-    // projection keys for a context with no shipping domain meaning.
+    // Fetches this tenant's real context list (Phase 16f/22). Called from
+    // stores/tenant.js on tenant switch. Filters "_"-reserved contexts (e.g.
+    // "_platform", "_default_bu") — those are platform roots, not fleet scopes.
+    // A failed fetch leaves availableContexts empty (no stale fallback — Phase 22).
     async loadContexts() {
       try {
         const contexts = (await getRefdataContexts()).filter((c) => !c.startsWith('_'))
-        if (contexts.length > 0) {
-          this.availableContexts = contexts
-          if (!this.availableContexts.includes(this.context)) {
-            this.context = this.availableContexts[0]
-          }
+        this.availableContexts = contexts
+        if (contexts.length > 0 && !contexts.includes(this.context)) {
+          this.setContext(contexts[0])
         }
       } catch {
-        // keep whatever availableContexts already held (CONTEXTS on first load)
+        this.availableContexts = []
       }
     },
 

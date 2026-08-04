@@ -82,4 +82,18 @@ var _ = Describe("Context Domain Rules", func() {
 			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
 		})
 	})
+
+	Context("Phase 22: RegisterDefaultBu is the second sanctioned exception to BR-D33 (BR-D38)", func() {
+		It("registers _default_bu, unlike Register above", func() {
+			Expect(ch.RegisterDefaultBu(ctx, domain.Context{Context: "_default_bu", Name: "Default Business Unit"})).To(Succeed())
+			got, err := ch.Get(ctx, "_default_bu")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(got.Name).To(Equal("Default Business Unit"))
+		})
+
+		It("still applies the base charset check — a malformed value is not exempted", func() {
+			err := ch.RegisterDefaultBu(ctx, domain.Context{Context: "_default bu", Name: "Default Business Unit"})
+			Expect(errors.Is(err, domain.ErrInvalidToken)).To(BeTrue())
+		})
+	})
 })

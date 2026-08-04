@@ -190,6 +190,26 @@ export function getAccountsUsage() {
   return request('/api/platform/accounts/usage')
 }
 
+// ── Business Units (Phase 22) ─────────────────────────────────────────────────
+
+export function listBusinessUnits(name) {
+  return request(`/api/platform/accounts/${encodeURIComponent(name)}/business-units`)
+}
+
+export function createBusinessUnit(name, input) {
+  return request(`/api/platform/accounts/${encodeURIComponent(name)}/business-units`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateBusinessUnit(name, buName, input) {
+  return request(`/api/platform/accounts/${encodeURIComponent(name)}/business-units/${encodeURIComponent(buName)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+}
+
 // ── NATS Connections + Services (Phase 17c) ──────────────────────────────────
 // Both are snapshot reads, not SSE — /connz and $SRV.STATS are inherently
 // poll-based (a single request/reply round-trip), unlike the KV/JetStream

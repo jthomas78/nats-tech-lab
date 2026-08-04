@@ -5,18 +5,13 @@
 // cache-status widget's "something changed, refetch" signal.
 import { defineStore } from 'pinia'
 
-import { addLocale, getCacheStatus, getItem, listItems, listLocales, listTypes, watchUrl } from '../api'
-
-// Phase 16d: the real context tree (_platform reserved root, acme company,
-// acme-atlantic-fleet business unit) — replaces the single flat "emea-acme"
-// context, so this selector can actually demonstrate inheritance (browse
-// _platform's shared standards, then acme's override, then the business
-// unit's addition).
-export const CONTEXTS = ['_platform', 'acme-pacific-fleet', 'acme-atlantic-fleet']
+import { addLocale, getCacheStatus, getItem, listContexts, listItems, listLocales, listTypes, watchUrl } from '../api'
 
 export const useDictionaryStore = defineStore('dictionary', {
   state: () => ({
-    context: CONTEXTS[0],
+    context: '_platform', // stays at _platform until loadContexts() resolves
+    availableContexts: [], // Phase 22: populated by loadContexts() at connect()
+
     types: [],
     typeCounts: {},
     selectedType: '',
@@ -59,8 +54,21 @@ export const useDictionaryStore = defineStore('dictionary', {
   },
 
   actions: {
+    async loadContexts() {
+      try {
+        const ctxs = await listContexts()
+        this.availableContexts = ctxs
+        if (!this.availableContexts.includes(this.context) && ctxs.length > 0) {
+          this.context = ctxs[0]
+        }
+      } catch {
+        this.availableContexts = []
+      }
+    },
+
     async connect() {
       this.disconnect()
+      await this.loadContexts()
       await Promise.all([this.refreshTypes(), this.refreshLocales()])
       const target = this.selectedType || (this.types.length > 0 ? this.types[0].typeKey : null)
       if (target) {

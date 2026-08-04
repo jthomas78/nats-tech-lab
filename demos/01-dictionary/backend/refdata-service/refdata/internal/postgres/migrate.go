@@ -96,6 +96,13 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// BR-D34 and Refdata-Versioning-Tenancy-Design.md § 2.1. NULL for
 		// "_"-reserved platform contexts, which no tenant owns.
 		`ALTER TABLE refdata.contexts ADD COLUMN IF NOT EXISTS tenant TEXT`,
+		// Phase 22: operator-controlled visibility toggle (BR-D38). false hides
+		// a context from ListByTenant (and therefore from fleet dropdowns and
+		// the refdata KV consumer path) without deleting it or its data — used
+		// by accounts-service to hide _default_bu once real business units are
+		// registered. Defaults true so all pre-existing contexts remain visible
+		// after the migration.
+		`ALTER TABLE refdata.contexts ADD COLUMN IF NOT EXISTS visible BOOLEAN NOT NULL DEFAULT true`,
 
 		`CREATE TABLE IF NOT EXISTS refdata.corpus_versions (
 			context              TEXT NOT NULL REFERENCES refdata.contexts(context),

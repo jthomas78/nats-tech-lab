@@ -53,7 +53,7 @@ export const useTenantStore = defineStore('tenant', {
       // it here rather than in usePortStore().connect() (which also runs on
       // a plain fleet-context change, where refetching the same list would
       // be pure waste).
-      await usePortStore().loadContexts()
+      await usePortStore().loadContexts(initial)
     },
 
     async setTenant(tenant) {
@@ -62,7 +62,7 @@ export const useTenantStore = defineStore('tenant', {
       try {
         await useNatsConnection().switchTenant(tenant)
         this.tenant = tenant
-        await usePortStore().loadContexts()
+        await usePortStore().loadContexts(tenant)
         // The active tenant is a different NATS account with its own
         // SHIPPING stream and KV buckets — the port store's api.*/notify.*
         // subscriptions reconnect against it, exactly as a fleet-context

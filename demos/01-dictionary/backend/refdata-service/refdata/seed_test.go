@@ -49,22 +49,15 @@ var _ = Describe("Seed", func() {
 		Expect(context.Tenant).To(BeEmpty(), "the reserved root belongs to no tenant")
 	})
 
-	It("registers acme-pacific-fleet as a child of _platform, owned by the acme tenant", func() {
-		context, err := h.Contexts.Get(ctx, refdata.PacificFleetContext)
+	It("registers _default_bu as a child of _platform with no tenant (Phase 22, BR-D38)", func() {
+		context, err := h.Contexts.Get(ctx, refdata.DefaultBuContext)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(context.Parent).To(Equal(refdata.PlatformContext))
-		Expect(context.Tenant).To(Equal("acme"))
+		Expect(context.Tenant).To(BeEmpty(), "_default_bu is untenanted — shared across all accounts")
 	})
 
-	It("registers acme-atlantic-fleet as a peer sibling of acme-pacific-fleet under _platform, owned by the acme tenant", func() {
-		context, err := h.Contexts.Get(ctx, refdata.BusinessUnitContext)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(context.Parent).To(Equal(refdata.PlatformContext))
-		Expect(context.Tenant).To(Equal("acme"))
-	})
-
-	It("registers en as the default locale and es/af-za as secondary locales for every context in the tree", func() {
-		for _, c := range []string{refdata.PlatformContext, refdata.PacificFleetContext, refdata.BusinessUnitContext} {
+	It("registers en as the default locale and es/af-za as secondary locales for _platform and _default_bu", func() {
+		for _, c := range []string{refdata.PlatformContext, refdata.DefaultBuContext} {
 			locales, err := h.Localizations.ListLocales(ctx, c)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(locales).To(ContainElements("en", "es", "af-za"), "context %q", c)
@@ -125,19 +118,17 @@ var _ = Describe("Seed", func() {
 			Expect(localizations).To(ContainElement(And(HaveField("Locale", "en"), HaveField("Label", "Flammable Liquids"))))
 		})
 
-		It("overrides hazard-class/3 at the company level with an Acme-specific label (BR-V07)", func() {
-			localizations, err := locs.ListForItem(ctx, "hazard-class", refdata.PacificFleetContext, "3")
+		It("overrides hazard-class/3 at _default_bu with an Acme-specific label (BR-V07)", func() {
+			localizations, err := locs.ListForItem(ctx, "hazard-class", refdata.DefaultBuContext, "3")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(localizations).To(ContainElement(And(HaveField("Locale", "en"), HaveField("Label", "Flammable Liquids (Acme Handling Advisory)"))))
 		})
 
-		It("adds hazard-class/X1 only at the business-unit level (BR-V06) — it does not exist at _platform or acme-pacific-fleet", func() {
-			_, err := items.Get(ctx, "hazard-class", refdata.BusinessUnitContext, "X1")
+		It("adds hazard-class/X1 only at _default_bu (BR-V06) — it does not exist at _platform", func() {
+			_, err := items.Get(ctx, "hazard-class", refdata.DefaultBuContext, "X1")
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = items.Get(ctx, "hazard-class", refdata.PlatformContext, "X1")
-			Expect(err).To(HaveOccurred())
-			_, err = items.Get(ctx, "hazard-class", refdata.PacificFleetContext, "X1")
 			Expect(err).To(HaveOccurred())
 		})
 	})
@@ -145,7 +136,7 @@ var _ = Describe("Seed", func() {
 	It("is idempotent — seeding twice does not error or duplicate localizations", func() {
 		Expect(refdata.Seed(ctx, h)).To(Succeed())
 
-		localizations, err := locs.ListForItem(ctx, "hazard-class", refdata.PacificFleetContext, "3")
+		localizations, err := locs.ListForItem(ctx, "hazard-class", refdata.DefaultBuContext, "3")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(localizations).To(HaveLen(3))
 		Expect(localizations).To(ContainElement(And(HaveField("Locale", "en"), HaveField("Label", "Flammable Liquids (Acme Handling Advisory)"))))

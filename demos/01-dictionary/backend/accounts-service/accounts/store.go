@@ -11,6 +11,23 @@ import (
 // ErrNotFound is returned by Store.Get when no account has the given name.
 var ErrNotFound = errors.New("account not found")
 
+// ErrBUNotFound is returned by BU methods when no business unit matches.
+var ErrBUNotFound = errors.New("business unit not found")
+
+// ErrBUDuplicate is returned by InsertBusinessUnit when a BU with that name
+// already exists for the account.
+var ErrBUDuplicate = errors.New("business unit already exists")
+
+// BusinessUnit is one registered business unit for an account (Phase 22,
+// BR-AC15). name is the {context} token that refdata-service will also know.
+type BusinessUnit struct {
+	ID        string
+	AccountID string
+	Name      string
+	Visible   bool
+	CreatedAt time.Time
+}
+
 // Account is one NATS account this service knows about — both the ones it
 // minted itself (Phase 14b) and the three pre-existing accounts from Phase
 // 13a/14a's bootstrap (PLATFORM/ACME/GLOBEX), seeded at startup so the list
@@ -76,6 +93,19 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
 		`CREATE INDEX IF NOT EXISTS audit_events_account_idx ON accounts.audit_events (account, created_at DESC)`,
+		// Phase 22: per-account business unit registry (BR-AC15/BR-AC16).
+		// name mirrors the {context} token in refdata-service and subject taxonomy.
+		// FK to accounts so orphaned BUs can't accumulate, but the account row must
+		// exist before BUs are registered (auto-create at account-creation time).
+		`CREATE TABLE IF NOT EXISTS accounts.business_units (
+			id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			account_id UUID NOT NULL REFERENCES accounts.accounts(id) ON DELETE CASCADE,
+			name       TEXT NOT NULL,
+			visible    BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE (account_id, name)
+		)`,
+		`CREATE INDEX IF NOT EXISTS business_units_account_idx ON accounts.business_units (account_id)`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
@@ -254,6 +284,94 @@ func (s *Store) SetSigningKeySeed(ctx context.Context, name, seed string) error 
 	}
 	if n == 0 {
 		return ErrNotFound
+	}
+	return nil
+}
+
+// InsertBusinessUnit adds a new business unit row for the account identified
+// by accountID (UUID). Returns ErrBUDuplicate on name collision.
+func (s *Store) InsertBusinessUnit(ctx context.Context, accountID, name string, visible bool) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO accounts.business_units (account_id, name, visible) VALUES ($1, $2, $3)`,
+		accountID, name, visible)
+	if err != nil && strings.Contains(err.Error(), "unique") {
+		return ErrBUDuplicate
+	}
+	return err
+}
+
+// InsertBusinessUnitIfMissing is like InsertBusinessUnit but silently ignores
+// duplicate-name conflicts — used for idempotent seeding.
+func (s *Store) InsertBusinessUnitIfMissing(ctx context.Context, accountID, name string, visible bool) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO accounts.business_units (account_id, name, visible) VALUES ($1, $2, $3)
+		ON CONFLICT (account_id, name) DO NOTHING`,
+		accountID, name, visible)
+	return err
+}
+
+// ListBusinessUnits returns all business units for the named account, ordered
+// by name. Returns ErrNotFound if no account with that name exists.
+func (s *Store) ListBusinessUnits(ctx context.Context, accountName string) ([]BusinessUnit, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT bu.id, bu.account_id, bu.name, bu.visible, bu.created_at
+		FROM accounts.business_units bu
+		JOIN accounts.accounts a ON a.id = bu.account_id
+		WHERE a.name = $1
+		ORDER BY bu.name`, accountName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []BusinessUnit
+	for rows.Next() {
+		var bu BusinessUnit
+		if err := rows.Scan(&bu.ID, &bu.AccountID, &bu.Name, &bu.Visible, &bu.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, bu)
+	}
+	return out, rows.Err()
+}
+
+// GetBusinessUnit returns a specific business unit by account name + BU name.
+// Returns ErrBUNotFound if it doesn't exist.
+func (s *Store) GetBusinessUnit(ctx context.Context, accountName, buName string) (BusinessUnit, error) {
+	var bu BusinessUnit
+	err := s.db.QueryRowContext(ctx, `
+		SELECT bu.id, bu.account_id, bu.name, bu.visible, bu.created_at
+		FROM accounts.business_units bu
+		JOIN accounts.accounts a ON a.id = bu.account_id
+		WHERE a.name = $1 AND bu.name = $2`, accountName, buName).
+		Scan(&bu.ID, &bu.AccountID, &bu.Name, &bu.Visible, &bu.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return BusinessUnit{}, ErrBUNotFound
+	}
+	if err != nil {
+		return BusinessUnit{}, err
+	}
+	return bu, nil
+}
+
+// SetBusinessUnitVisible updates the visible flag for a BU identified by
+// account name + BU name. Returns ErrBUNotFound if no such row exists.
+func (s *Store) SetBusinessUnitVisible(ctx context.Context, accountName, buName string, visible bool) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE accounts.business_units bu
+		SET visible = $3
+		FROM accounts.accounts a
+		WHERE a.id = bu.account_id AND a.name = $1 AND bu.name = $2`,
+		accountName, buName, visible)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrBUNotFound
 	}
 	return nil
 }

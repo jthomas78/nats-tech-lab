@@ -80,10 +80,15 @@ type ContextRepository interface {
 	// "_"-reserved platform roots, which every tenant inherits from and none
 	// owns) — Phase 16f. Unlike List, this is what a specific tenant's own
 	// caller should see: its own contexts plus the shared platform ones, not
-	// every other tenant's contexts too.
+	// every other tenant's contexts too. Phase 22: only visible=true rows are
+	// returned — hidden contexts (e.g. a suppressed _default_bu) are excluded.
 	ListByTenant(ctx context.Context, tenant string) ([]Context, error)
 	Ancestors(ctx context.Context, contextKey string) ([]Context, error)
 	Descendants(ctx context.Context, contextKey string) ([]Context, error)
+	// SetVisible updates the visible flag for a context (Phase 22, BR-D38).
+	// Used by accounts-service to hide or show _default_bu when real business
+	// units are registered. Returns ErrContextNotFound if no context has that key.
+	SetVisible(ctx context.Context, contextKey string, visible bool) error
 }
 
 // CorpusRepository owns immutable corpus snapshots. Implementations must make

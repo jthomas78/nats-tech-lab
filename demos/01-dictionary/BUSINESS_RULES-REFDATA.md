@@ -468,3 +468,44 @@ Both headers share one **instance-qualified format**: `"<name>/<instance ID>"` �
 
 - **Enforced in:** `internal/refdataconsumer/consumer.go`'s `requestRPC` (sets `Nats-Requestor`); `frontend/seafreight-app/src/nats/useNatsConnection.js`'s `request()` (sets `Nats-Requestor`); `natsrpc.Adapter.respondOK()`/`respondError()` (refdata) and `browserrpc.Adapter.respond()`/`respondError()` (shipping) (both set `Nats-Responder`); both adapters' `micro.AddService` `Config.Name`.
 - **Test:** `NATS RPC Adapter (Phase 12.10) / BR-D37` (`refdata/natsrpc_test.go`) — a caller's instance-qualified `Nats-Requestor` header is forwarded into the obs event; a successful reply carries `Nats-Responder` (prefixed `refdata-service/`) on both the real wire reply and the obs event; a failed reply carries it too. The requestor side's format itself is asserted in shipping-service's `TestLookupCarriesInstanceQualifiedRequestorHeader` (`internal/refdataconsumer/consumer_test.go`).
+
+---
+
+### BR-D38 (Phase 22) — `_default_bu` is the second sanctioned exception to BR-D33's reserved-prefix rule
+
+The shared reserved context `_default_bu` is seeded once by `refdata/seed.go`
+via `ContextHandler.RegisterDefaultBu` — the second, and currently last,
+method that bypasses `ValidateContextName`'s leading-underscore rejection
+(the first is `RegisterPlatformRoot` for `_platform`, Phase 16d). All three
+of the following are true:
+
+1. Only `seed.go` ever calls `RegisterDefaultBu`.
+2. `RegisterDefaultBu` applies `ValidateSubjectToken` (the charset check)
+   but NOT `ValidateContextName` (which would reject the `_` prefix).
+3. The public `POST /api/refdata/admin/contexts` endpoint always routes
+   through `ContextHandler.Register`, which always runs the full
+   `ValidateContextName` — so no external caller can register a
+   `_`-prefixed context.
+
+`_default_bu` is **untenanted** (`tenant = NULL` in Postgres) — `ListByTenant`
+returns it for every tenant automatically (the `tenant IS NULL` arm of its
+WHERE clause), so it appears in every tenant's context selector until the
+tenant registers real BUs and hides it via accounts-service's visibility toggle.
+
+Per-tenant business unit rows (e.g. `acme-pacific-fleet`) are registered as
+plain contexts (via the normal `Register` path) by accounts-service at startup
+(`seedDemoBusinessUnits`) and via `POST /api/accounts/{name}/business-units`.
+The two sanctioned underscore-prefixed contexts remain `_platform` and
+`_default_bu`; no further additions are expected.
+
+> **See also:** BR-D34 and BR-D35 (per-tenant context registration) — as of
+> Phase 22 the expectation is that real business-unit contexts (e.g.
+> `acme-pacific-fleet`, `acme-atlantic-fleet`) are authored by accounts-service
+> (via `callRefdataRegisterContext`) and not seeded by refdata's own `seed.go`.
+> refdata-service's `seed.go` only seeds the two platform-level roots
+> (`_platform`, `_default_bu`).
+
+- **Enforced in:** `refdata/internal/application/commands/context.go`
+  (`RegisterDefaultBu`) — charset check only, no `_` rejection.
+- **Test:** `refdata/context_test.go` `Phase 22: RegisterDefaultBu is the
+  second sanctioned exception to BR-D33 (BR-D38)`.

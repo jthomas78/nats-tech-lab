@@ -233,8 +233,30 @@ tests migrated with it (`accounts-service/auth/*_test.go`), now reusing
   or the failing step and error on failure. This rule closes gap #5 from the
   2026-08-03 accounts architecture review — limits set at mint time with no
   update path — directly motivated by the `acme` account exhausting its
-  `js_max_streams=10` ceiling after two contexts were provisioned (each
-  context requiring 4 KV-bucket streams).
+  `js_max_streams=10` ceiling after two contexts were provisioned. Prior to
+  Phase 20b, each context required 4 dedicated KV-bucket streams; Phase 20b
+  collapsed per-context buckets to one shared bucket per tenant role so
+  adding a context no longer consumes additional streams, but the limit
+  enforcement remains relevant for the streams each tenant does use.
+
+- **BR-AC12b (2026-08-03):** Live JetStream usage for all tenant accounts is
+  readable via `GET /api/accounts/usage`. The response is an array of
+  per-account objects, each carrying four `{used, limit}` counters: `streams`,
+  `consumers`, `mem`, and `file`. Live values are fetched from the NATS
+  server's monitoring endpoint (`/jsz?accounts=true&account-details=true&streams=true`),
+  keyed by account public key; Postgres-stored limits are joined in from the
+  same `accounts` table that BR-AC12 writes. Accounts present in Postgres but
+  not yet seen by the NATS server (zero JetStream activity) appear with
+  `used = 0`. Consumer count is reported as 0 — the `/jsz` endpoint only
+  exposes consumers when `?consumers=true` is set (a separate expensive query
+  omitted for performance). When `NATS_MONITOR_URL` is not configured, the
+  handler returns `503 Service Unavailable`. The endpoint requires Basic Auth
+  (same shared secret as other accounts-service admin endpoints).
+  - **Enforced in:** `accounts/jsusage.go` (`UsageFetcher.FetchAll`);
+    `accounts/handler.go` (`listJSUsage`).
+  - **UI surface:** the Admin UI Accounts panel shows a `Streams` column
+    (used / limit, color-coded green / amber / red at 0–79% / 80–99% / ≥100%)
+    and an Edit Limits dialog wired to BR-AC12's update endpoint.
 
 - **BR-AC13 (2026-08-03):** Reserved accounts (`PLATFORM`, `SYS`, matched
   case-insensitively) can never be suspended. `POST /api/accounts/{name}/suspend`
@@ -420,3 +442,47 @@ would silently sever this contract.
 - **Enforced in:** `nats/bootstrap-operator.sh`; `accounts/provisioner.go`.
 - **Test:** `provisioner_claims_test.go`; shipping
   `internal/natsaccounts/isolation_test.go` import/isolation specs.
+
+## BR-AC15 — Business unit registration
+
+Every non-reserved, non-underscore name may be registered as a business unit
+for any account. The name becomes the `{context}` token in refdata-service's
+context tree, NATS subject taxonomy, and KV key prefix. Registration persists
+a row in `accounts.business_units (account_id, name, visible)` and fires a
+best-effort call to `POST /api/refdata/admin/contexts` to register the context
+there as well. A name starting with `_` is rejected at the API level — the
+underscore prefix is reserved for platform use (matching BR-D33 in
+refdata-service and BR-AC07 for account names).
+
+- **Enforced in:** `accounts/handler.go` (`createBusinessUnit`).
+- **Test:** integration against the full stack (Phase 22 E2E).
+
+## BR-AC16 — Auto-create `_default_bu` business unit row
+
+Every newly created account receives a `_default_bu` business unit row
+automatically, created immediately after `Store.Insert` persists the account.
+This guarantees that `ListBusinessUnits` always returns at least one entry
+even before any real business units are registered, and that refdata-service's
+shared `_default_bu` context is always represented in the BU list. The
+auto-creation is best-effort: a failure is logged but does not fail the create
+request, since the account is already fully minted at that point.
+
+- **Enforced in:** `accounts/handler.go` (`createAccount` — auto-inserts
+  `_default_bu` after the `Store.Get` reload).
+- **Test:** integration against the full stack (Phase 22 E2E).
+
+## BR-AC17 — Business unit visibility toggle semantics
+
+Setting a business unit's `visible` flag to `false` hides it from the context
+selector in the shipping and refdata UIs (`ListByTenant` filters by
+`visible = true`). It does not delete the BU row or any refdata items seeded
+under that context — those remain queryable directly. The Admin UI prompts the
+operator to hide `_default_bu` when they register their first real BU (since
+real BUs make the placeholder redundant), but does not do so automatically
+because `_default_bu` may already hold demo or migration data. Visibility can
+be toggled back at any time via `PATCH
+/api/accounts/{name}/business-units/{buName}`.
+
+- **Enforced in:** `accounts/handler.go` (`updateBusinessUnit`);
+  `refdata/internal/postgres/context_repository.go` (`ListByTenant`).
+- **Test:** integration against the full stack (Phase 22 E2E).

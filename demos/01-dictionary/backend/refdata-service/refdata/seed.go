@@ -8,25 +8,22 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 )
 
-// Phase 16d context tree — two business-unit contexts as peer siblings under
-// the reserved platform root. Tenant "acme" owns both; neither is the parent
-// of the other (flat, not nested):
+// Phase 22 context tree — refdata-service seeds exactly two reserved contexts:
 //
-//	_platform (reserved root, no tenant)   — standards-based reference data
-//	  ├── acme-pacific-fleet (tenant: acme) — Pacific fleet BU; domain data
-//	  │                                       (ship-status, UI copy) plus one
-//	  │                                       override of a _platform item
-//	  └── acme-atlantic-fleet (tenant: acme) — Atlantic fleet BU; one addition
-//	                                           item only it has
+//	_platform   (no tenant) — standards-based reference data shared by every tenant
+//	_default_bu (no tenant) — shared reserved context covering every account that
+//	                          has zero registered business units; seeded once here
+//	                          so it always exists, independent of accounts-service
 //
-// PlatformContext is seeded via ContextHandler.RegisterPlatformRoot, the one
-// sanctioned exception to BR-D33's rejection of a leading "_" (see that
-// method's doc comment) — never through the public
-// POST /api/refdata/admin/contexts endpoint, which always rejects it.
+// Real business-unit contexts (e.g. acme-pacific-fleet) are no longer seeded
+// here; accounts-service registers them at BU-creation time via
+// POST /api/refdata/admin/contexts (Phase 22). PlatformContext is seeded via
+// ContextHandler.RegisterPlatformRoot and DefaultBuContext via
+// RegisterDefaultBu — the two sanctioned exceptions to BR-D33's leading-"_"
+// rejection (BR-D38); see each method's doc comment.
 const (
-	PlatformContext     = "_platform"
-	PacificFleetContext = "acme-pacific-fleet"
-	BusinessUnitContext = "acme-atlantic-fleet"
+	PlatformContext  = "_platform"
+	DefaultBuContext = "_default_bu"
 )
 
 type seedItem struct {
@@ -61,21 +58,22 @@ func Seed(ctx context.Context, h *Handlers) error {
 		}); err != nil {
 			return err
 		}
-		if err := h.Contexts.Register(ctx, domain.Context{
-			Context: PacificFleetContext, Parent: PlatformContext, Tenant: "acme",
-			Name: "Acme — Pacific Fleet", Description: "Pacific fleet business unit, inheriting standards from " + PlatformContext,
-		}); err != nil {
-			return err
-		}
-		if err := h.Contexts.Register(ctx, domain.Context{
-			Context: BusinessUnitContext, Parent: PlatformContext, Tenant: "acme",
-			Name: "Acme — Atlantic Fleet", Description: "Atlantic fleet business unit, inheriting standards from " + PlatformContext,
+		// Phase 22: _default_bu is the second sanctioned BR-D33 exception (BR-D38).
+		// It is an untenanted shared context that covers every account with no
+		// registered business units — always seeded here, independent of
+		// accounts-service so the fleet dropdown always has at least one non-"_"
+		// option even before any BU is registered.
+		if err := h.Contexts.RegisterDefaultBu(ctx, domain.Context{
+			Context:     DefaultBuContext,
+			Parent:      PlatformContext,
+			Name:        "Default Business Unit",
+			Description: "Shared reserved context for accounts with no registered business units (Phase 22)",
 		}); err != nil {
 			return err
 		}
 	}
 
-	for _, c := range []string{PlatformContext, PacificFleetContext, BusinessUnitContext} {
+	for _, c := range []string{PlatformContext, DefaultBuContext} {
 		if err := h.Localizations.AddLocale(ctx, c, "en", true); err != nil {
 			return err
 		}
@@ -117,24 +115,23 @@ func Seed(ctx context.Context, h *Handlers) error {
 		}
 	}
 
-	// Phase 16d — demonstrate inheritance concretely (BR-V06/BR-V07), which
-	// was otherwise "built and unit-tested but invisible in the running
-	// demo" with only one flat context to ever draft. hazard-class now
-	// carries all three inheritance states at once: codes 1/2/4-9 are pure
-	// INHERITED from _platform (nothing below overrides them), code "3" is
-	// OVERRIDDEN at the company level, and code "X1" is an ADDITION that
-	// exists only at the business-unit level.
+	// Phase 22: both hazard-class demo items (the override of "3" and the
+	// addition "X1") are now seeded on _default_bu, which is guaranteed to
+	// exist at startup independent of any accounts-service BU registration.
+	// The inheritance states they demonstrate (BR-V06/BR-V07) are still
+	// visible: codes 1/2/4-9 are INHERITED from _platform, code "3" is
+	// OVERRIDDEN at _default_bu, and code "X1" is an ADDITION only at _default_bu.
 	override := seedItem{"3", "Flammable Liquids (Acme Handling Advisory)", "Líquidos inflamables (aviso de manejo de Acme)", "Ontvlambare Vloeistowwe (Acme Hanteringsadvies)"}
-	if err := registerLocalizedItem(ctx, h, "hazard-class", PacificFleetContext, override); err != nil {
+	if err := registerLocalizedItem(ctx, h, "hazard-class", DefaultBuContext, override); err != nil {
 		return err
 	}
 	addition := seedItem{"X1", "Fleet-Specific Handling Category", "Categoría de manejo específica de la flota", "Vlootspesifieke Hanteringskategorie"}
-	if err := registerLocalizedItem(ctx, h, "hazard-class", BusinessUnitContext, addition); err != nil {
+	if err := registerLocalizedItem(ctx, h, "hazard-class", DefaultBuContext, addition); err != nil {
 		return err
 	}
 
 	if h.Corpus != nil {
-		for _, publishCtx := range []string{PlatformContext, PacificFleetContext, BusinessUnitContext} {
+		for _, publishCtx := range []string{PlatformContext, DefaultBuContext} {
 			if err := publishInitialCorpus(ctx, h.Corpus, publishCtx); err != nil {
 				return err
 			}
@@ -366,7 +363,7 @@ var l10nSeed = []seedItem{
 	{"connection.watching", "watching", "observando", "kyk tans"},
 	{"connection.disconnected", "disconnected", "desconectado", "ontkoppel"},
 	{"connection.error", "connection error", "error de conexión", "verbindingfout"},
-	{"context.fleet", "Fleet", "Flota", "Vloot"},
+	{"context.business-unit", "BU", "BU", "BE"},
 	{"nav.tenant", "Tenant", "Inquilino", "Huurder"},
 	{"tenant.switching", "switching…", "cambiando…", "wissel tans…"},
 	{"fallback.unreachable", "UI text: bundled (refdata unreachable)", "Texto de interfaz: incluido (datos de referencia no disponibles)", "Koppelvlakteks: ingebou (verwysingsdata onbereikbaar)"},

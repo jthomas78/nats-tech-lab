@@ -78,6 +78,12 @@ func (r *fakeContextRepo) Descendants(_ context.Context, key string) ([]domain.C
 	_, err := r.Get(context.Background(), key)
 	return nil, err
 }
+func (r *fakeContextRepo) SetVisible(_ context.Context, key string, _ bool) error {
+	if _, ok := r.contexts[key]; !ok {
+		return domain.ErrContextNotFound
+	}
+	return nil
+}
 
 func newFakeItemRepo() *fakeItemRepo {
 	return &fakeItemRepo{items: make(map[string]domain.DictionaryItem)}

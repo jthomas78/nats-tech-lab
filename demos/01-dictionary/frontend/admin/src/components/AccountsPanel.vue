@@ -10,7 +10,7 @@ import Textarea from 'primevue/textarea'
 import { useToast } from 'primevue/usetoast'
 import { onMounted, reactive, ref } from 'vue'
 
-import { createAccount, getAccountsUsage, listAccounts, reactivateAccount, suspendAccount, updateAccountLimits } from '../api'
+import { createAccount, createBusinessUnit, getAccountsUsage, listAccounts, listBusinessUnits, reactivateAccount, suspendAccount, updateAccountLimits, updateBusinessUnit } from '../api'
 import { useTenantStore } from '../stores/tenant'
 
 // Phase 14c — dynamic tenant provisioning via accounts-service. Distinct
@@ -47,6 +47,98 @@ const editSaving = ref(false)
 const editError = ref('')
 const editAccount = ref(null)
 const editForm = reactive({ jsMaxMem: 0, jsMaxFile: 0, jsMaxStreams: 0, jsMaxConsumers: 0 })
+
+// Phase 22: Business unit management
+const expandedRows = ref([])
+const busByAccount = ref({}) // accountName → BusinessUnit[]
+const buLoading = ref({})   // accountName → bool
+
+// New-BU form state
+const addBUOpen = ref(false)
+const addBUAccount = ref('')
+const addBUName = ref('')
+const addBUSaving = ref(false)
+const addBUError = ref('')
+
+// Hide-_default_bu confirmation dialog
+const hideDefaultBUOpen = ref(false)
+const hideDefaultBUAccount = ref('')
+const hideDefaultBUSaving = ref(false)
+
+async function loadBUs(accountName, silent = false) {
+  if (!silent) buLoading.value = { ...buLoading.value, [accountName]: true }
+  try {
+    busByAccount.value = { ...busByAccount.value, [accountName]: await listBusinessUnits(accountName) }
+  } catch {
+    /* best-effort */
+  } finally {
+    if (!silent) buLoading.value = { ...buLoading.value, [accountName]: false }
+  }
+}
+
+async function onRowExpand(event) {
+  const name = event.data.name
+  if (!isReserved(name)) await loadBUs(name)
+}
+
+function openAddBU(accountName) {
+  addBUAccount.value = accountName
+  addBUName.value = ''
+  addBUError.value = ''
+  addBUOpen.value = true
+}
+
+async function submitAddBU() {
+  if (!addBUName.value) return
+  addBUSaving.value = true
+  addBUError.value = ''
+  try {
+    await createBusinessUnit(addBUAccount.value, { name: addBUName.value })
+    addBUOpen.value = false
+    await loadBUs(addBUAccount.value)
+    // Show the hide-_default_bu confirmation if this is the first real BU
+    const bus = busByAccount.value[addBUAccount.value] ?? []
+    const realBUs = bus.filter((b) => b.name !== '_default_bu')
+    if (realBUs.length === 1) {
+      hideDefaultBUAccount.value = addBUAccount.value
+      hideDefaultBUOpen.value = true
+    }
+    toast.add({ severity: 'success', summary: 'Business unit registered', detail: addBUName.value, life: 3000 })
+  } catch (e) {
+    addBUError.value = e.message
+  } finally {
+    addBUSaving.value = false
+  }
+}
+
+async function toggleBUVisible(accountName, bu) {
+  const snapshot = busByAccount.value[accountName] ?? []
+  // Optimistic: flip the flag immediately so the icon updates without a flicker
+  busByAccount.value = {
+    ...busByAccount.value,
+    [accountName]: snapshot.map(b => b.name === bu.name ? { ...b, visible: !b.visible } : b),
+  }
+  try {
+    await updateBusinessUnit(accountName, bu.name, { visible: !bu.visible })
+    await loadBUs(accountName, true) // silent — no loading spinner, list already looks right
+  } catch (e) {
+    busByAccount.value = { ...busByAccount.value, [accountName]: snapshot } // revert on error
+    toast.add({ severity: 'error', summary: 'Failed to update visibility', detail: e.message, life: 5000 })
+  }
+}
+
+async function hideDefaultBU() {
+  hideDefaultBUSaving.value = true
+  try {
+    await updateBusinessUnit(hideDefaultBUAccount.value, '_default_bu', { visible: false })
+    await loadBUs(hideDefaultBUAccount.value)
+    hideDefaultBUOpen.value = false
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed to hide _default_bu', detail: e.message, life: 5000 })
+  } finally {
+    hideDefaultBUSaving.value = false
+  }
+}
 
 async function load() {
   loading.value = true
@@ -219,9 +311,59 @@ onMounted(load)
 
     <p v-if="error" class="error-text">{{ error }}</p>
 
-    <DataTable :value="accounts" size="small" paginator :rows="10" class="accounts-table">
+    <DataTable
+      v-model:expanded-rows="expandedRows"
+      :value="accounts"
+      size="small"
+      paginator
+      :rows="10"
+      class="accounts-table"
+      @row-expand="onRowExpand"
+    >
       <template #empty>
         <span class="lab-muted">No accounts yet.</span>
+      </template>
+      <Column expander style="width: 2.5rem" />
+      <template #expansion="{ data }">
+        <div v-if="isReserved(data.name)" class="bu-expansion lab-muted">
+          Reserved accounts have no business units.
+        </div>
+        <div v-else class="bu-expansion">
+          <div class="bu-header">
+            <span class="bu-title">Business Units</span>
+            <Button icon="pi pi-plus" label="Add" size="small" text @click="openAddBU(data.name)" />
+          </div>
+          <div v-if="buLoading[data.name]" class="lab-muted">Loading…</div>
+          <DataTable
+            v-else
+            :value="busByAccount[data.name] ?? []"
+            size="small"
+            class="bu-table"
+          >
+            <template #empty><span class="lab-muted">No business units yet.</span></template>
+            <Column header="Name">
+              <template #body="{ data: bu }">
+                <span :class="bu.name === '_default_bu' ? 'bu-reserved' : ''">{{ bu.name }}</span>
+                <Tag v-if="bu.name === '_default_bu'" severity="secondary" value="reserved" class="bu-reserved-tag" />
+              </template>
+            </Column>
+            <Column header="Visible">
+              <template #body="{ data: bu }">
+                <Button
+                  :icon="bu.visible ? 'pi pi-eye' : 'pi pi-eye-slash'"
+                  :severity="bu.visible ? 'success' : 'secondary'"
+                  size="small"
+                  text
+                  :aria-label="bu.visible ? 'Visible — click to hide' : 'Hidden — click to show'"
+                  @click="toggleBUVisible(data.name, bu)"
+                />
+              </template>
+            </Column>
+            <Column header="Registered">
+              <template #body="{ data: bu }">{{ formatDate(bu.createdAt) }}</template>
+            </Column>
+          </DataTable>
+        </div>
       </template>
       <Column header="Name">
         <template #body="{ data }">
@@ -333,6 +475,37 @@ onMounted(load)
       <Textarea :model-value="mintedCreds" readonly rows="12" class="creds-text" />
       <template #footer>
         <Button label="Close" @click="credsOpen = false" />
+      </template>
+    </Dialog>
+
+    <!-- Phase 22: Add business unit dialog -->
+    <Dialog v-model:visible="addBUOpen" :header="`Add Business Unit — ${addBUAccount}`" modal :style="{ width: '26rem' }">
+      <div class="form-field">
+        <label for="bu-name">Name (will become the {context} token)</label>
+        <InputText id="bu-name" v-model="addBUName" placeholder="e.g. acme-westcoast" autofocus />
+      </div>
+      <p class="lab-muted" style="font-size: 0.8rem; margin: 0">
+        Must be a valid NATS subject token — lowercase letters, digits, hyphens only. No leading underscore.
+      </p>
+      <p v-if="addBUError" class="error-text">{{ addBUError }}</p>
+      <template #footer>
+        <Button label="Cancel" text @click="addBUOpen = false" />
+        <Button label="Register" :loading="addBUSaving" :disabled="!addBUName" @click="submitAddBU" />
+      </template>
+    </Dialog>
+
+    <!-- Phase 22: Confirm hiding _default_bu after first real BU is added -->
+    <Dialog v-model:visible="hideDefaultBUOpen" header="Hide default placeholder?" modal :style="{ width: '26rem' }">
+      <p>
+        You've added the first real business unit for <strong>{{ hideDefaultBUAccount }}</strong>.
+        Would you like to hide the <code>_default_bu</code> placeholder from the context selector?
+      </p>
+      <p class="lab-muted" style="font-size: 0.8rem; margin: 0">
+        You can always show it again from the Business Units table.
+      </p>
+      <template #footer>
+        <Button label="Keep visible" text @click="hideDefaultBUOpen = false" />
+        <Button label="Hide _default_bu" severity="secondary" :loading="hideDefaultBUSaving" @click="hideDefaultBU" />
       </template>
     </Dialog>
 
@@ -448,5 +621,51 @@ onMounted(load)
   align-items: center;
   gap: 0.125rem;
   flex-wrap: nowrap;
+}
+.bu-expansion {
+  padding: 0.5rem 0.5rem 0.75rem 2.75rem;
+  position: relative;
+  /* Left of pin line (0→1.1rem): same as account row; right: darker blue-shifted zone */
+  background: linear-gradient(to right, var(--lab-bg) 1.1rem, #171c29 1.1rem);
+}
+.bu-expansion::before {
+  content: '';
+  position: absolute;
+  left: 1.1rem;
+  top: 0;
+  bottom: 0.25rem;
+  width: 2px;
+  background: rgba(0, 111, 255, 0.35);
+  border-radius: 1px;
+}
+.bu-table :deep(.p-datatable-tbody > tr) {
+  background-color: #171c29;
+}
+.bu-table :deep(.p-datatable-tbody > tr:hover) {
+  background-color: #1d2336;
+}
+.bu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+.bu-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--lab-accent);
+}
+.bu-table {
+  max-width: 36rem;
+}
+.bu-reserved {
+  font-style: italic;
+  color: var(--p-surface-400, #94a3b8);
+}
+.bu-reserved-tag {
+  margin-left: 0.4rem;
+  font-size: 0.7rem;
 }
 </style>

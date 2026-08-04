@@ -10,7 +10,7 @@ import { defineStore } from 'pinia'
 
 import {
   getPorts,
-  getRefdataContexts,
+  getBusinessUnits,
   knownContainers as fetchKnownContainers,
   listContainers,
   listShips,
@@ -19,18 +19,10 @@ import {
 } from '../api'
 import { useNatsConnection } from '../nats/useNatsConnection'
 
-// CONTEXTS is now only the offline/error fallback (Phase 16f) — the real
-// list is fetched per-tenant via loadContexts()/GET /api/refdata/contexts.
-// Kept as a literal, not deleted, so the fleet-context dropdown still shows
-// something sensible if that fetch never succeeds (e.g. refdata-service is
-// down): a demo shouldn't show an empty dropdown just because a read-only
-// convenience list failed.
-export const CONTEXTS = ['acme-atlantic-fleet', 'acme-pacific-fleet']
-
 export const usePortStore = defineStore('port', {
   state: () => ({
-    context: CONTEXTS[0],
-    availableContexts: [...CONTEXTS], // Phase 16f: replaced by loadContexts() once the tenant is known
+    context: '',
+    availableContexts: [], // Phase 22: populated by loadContexts(); empty until fetched
     port: '', // selected port — scopes every panel
     knownPorts: [],
     knownContainers: [],
@@ -76,31 +68,19 @@ export const usePortStore = defineStore('port', {
       this.connect()
     },
 
-    // Fetches this tenant's real context list (Phase 16f), replacing the
-    // static CONTEXTS fallback. Called from stores/tenant.js on init/switch
-    // — not from connect() below, so a plain fleet-context change doesn't
-    // needlessly refetch the very list it's picking from. Falls back to the
-    // existing (initially CONTEXTS) list on error rather than throwing —
-    // this is a convenience list for a dropdown, not a required resource.
-    //
-    // Filters out "_"-reserved contexts (e.g. "_platform"): the fetched list
-    // is refdata-service's context tree, which includes the shared platform
-    // root every tenant inherits standards from — meaningful for reference-
-    // data reads, but no ship or container ever belongs to it. Offering it
-    // as a fleet-context choice here would let a click spin up real (if
-    // empty) KV buckets for a context with no shipping domain meaning,
-    // burning the tenant's limited JetStream stream quota for nothing.
-    async loadContexts() {
+    // Fetches this tenant's BU list from accounts-service (Phase 22). Called
+    // from stores/tenant.js on init/switch with the newly-active tenant name.
+    // Only visible BUs are returned; a failed fetch leaves availableContexts
+    // empty with no stale fallback.
+    async loadContexts(tenant) {
       try {
-        const contexts = (await getRefdataContexts()).filter((c) => !c.startsWith('_'))
-        if (contexts.length > 0) {
-          this.availableContexts = contexts
-          if (!this.availableContexts.includes(this.context)) {
-            this.context = this.availableContexts[0]
-          }
+        const contexts = await getBusinessUnits(tenant)
+        this.availableContexts = contexts
+        if (contexts.length > 0 && !contexts.includes(this.context)) {
+          this.context = contexts[0]
         }
       } catch {
-        // keep whatever availableContexts already held (CONTEXTS on first load)
+        this.availableContexts = []
       }
     },
 
@@ -157,7 +137,10 @@ export const usePortStore = defineStore('port', {
       ]
 
       const bootstrap = Promise.allSettled([
-        getPorts(this.context)
+        // TODO(tenant-scoping): ports should be scoped to tenant/account, not
+        // BU context. For now, always read from _default_bu where the seeded
+        // ports live. Remove this hack when ports are re-keyed to tenant.
+        getPorts('_default_bu')
           .then((ports) => {
             this.mergeKnownPorts(ports ?? [])
             if (!this.port && this.knownPorts.length > 0) {

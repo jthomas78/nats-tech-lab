@@ -12,7 +12,7 @@ import { usePortStore } from './port.js'
 
 vi.mock('../api', () => ({
   getPorts: vi.fn(),
-  getRefdataContexts: vi.fn(),
+  getBusinessUnits: vi.fn(),
   knownContainers: vi.fn(),
   listContainers: vi.fn(),
   listShips: vi.fn(),

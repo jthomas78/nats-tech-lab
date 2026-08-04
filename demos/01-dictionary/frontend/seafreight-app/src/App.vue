@@ -142,7 +142,7 @@ onUnmounted(() => {
            explanation. Clears itself: connect() resets lastError to '' the
            moment a connection succeeds again. -->
       <Tag v-if="lastError" data-testid="connection-error" severity="danger" :value="t('connection.error')" :title="lastError" />
-      <label class="lab-muted" for="context">{{ t('context.fleet') }}</label>
+      <label class="lab-muted" for="context">{{ t('context.business-unit') }}</label>
       <Select
         id="context"
         :model-value="store.context"

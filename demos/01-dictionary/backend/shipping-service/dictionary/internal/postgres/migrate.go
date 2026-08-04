@@ -87,18 +87,13 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 // frontends offer, so a fresh install still has a working set of ports without
 // a manual registration step. Idempotent — ON CONFLICT DO NOTHING.
 //
-// Phase 16e: these are the fully-qualified context values (acme,
-// acme-atlantic-fleet, acme-pacific-fleet — formerly global, atlantic-fleet,
-// pacific-fleet), mirroring refdata-service's real context tree. This list is
-// NOT tenant-scoped: shipping-service's Postgres schema has no tenant column
-// at all today (ports/ships/containers are one shared table set for every
-// tenant, keyed only by context; see Main-POC-Plan.md § Phase 16e) — tenant
-// isolation for this data lives entirely in which NATS account a request
-// authenticates into, not in a Postgres row. Making per-tenant context
-// seeding real would require adding a tenant dimension to this schema, which
-// is out of scope here.
+// Phase 22: seeded under _default_bu (the shared placeholder context for
+// accounts with no registered BUs). acme-pacific-fleet and acme-atlantic-fleet
+// are now registered dynamically by accounts-service at startup — their port
+// data follows from the shipping admin UI rather than from this seed.
+// Phase 16e context: this list is NOT tenant-scoped (see Phase 16e notes above).
 func seedDefaultPorts(ctx context.Context, db *sql.DB) error {
-	contexts := []string{"acme-pacific-fleet", "acme-atlantic-fleet"}
+	contexts := []string{"_default_bu"}
 	defaults := []string{"Hamburg", "Rotterdam", "Singapore", "New York", "Shanghai", "Sydney"}
 	for _, kvContext := range contexts {
 		for _, name := range defaults {

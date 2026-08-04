@@ -14,9 +14,12 @@
 package accounts
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -94,6 +97,11 @@ type Handlers struct {
 	// UsageFetcher joins live /jsz stats with Postgres limits for the usage
 	// endpoint — nil-safe (GET /api/accounts/usage returns 503 when unset).
 	UsageFetcher *UsageFetcher
+	// RefdataURL is the base URL of refdata-service (e.g. http://refdata-service:8080).
+	// Used by the BU endpoints to register/hide contexts in refdata. Best-effort:
+	// empty string skips the refdata call with a warning, but the BU row is still
+	// persisted locally so the lookup stays consistent.
+	RefdataURL string
 }
 
 func NewHandlers(store *Store, provisioner *Provisioner, credsDir string, log *slog.Logger, notifyNC *nats.Conn, auditLog *AuditLog) *Handlers {
@@ -233,6 +241,10 @@ func (h *Handlers) Mount(mux *http.ServeMux, authSecret string) {
 	mux.Handle("POST /api/accounts/{name}/suspend", BasicAuth(authSecret, http.HandlerFunc(h.suspendAccount)))
 	mux.Handle("POST /api/accounts/{name}/reactivate", BasicAuth(authSecret, http.HandlerFunc(h.reactivateAccount)))
 	mux.Handle("POST /api/accounts/{name}/jslimits", BasicAuth(authSecret, http.HandlerFunc(h.updateJSLimits)))
+	// Phase 22: business unit management (BR-AC15/BR-AC16/BR-AC17)
+	mux.Handle("GET /api/accounts/{name}/business-units", BasicAuth(authSecret, http.HandlerFunc(h.listBusinessUnits)))
+	mux.Handle("POST /api/accounts/{name}/business-units", BasicAuth(authSecret, http.HandlerFunc(h.createBusinessUnit)))
+	mux.Handle("PATCH /api/accounts/{name}/business-units/{buName}", BasicAuth(authSecret, http.HandlerFunc(h.updateBusinessUnit)))
 }
 
 func (h *Handlers) listJSUsage(w http.ResponseWriter, r *http.Request) {
@@ -398,6 +410,13 @@ func (h *Handlers) createAccount(w http.ResponseWriter, r *http.Request) {
 		h.Log.Error("reload account after insert", "name", in.Name, "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
+	}
+
+	// BR-AC16: auto-create the _default_bu BU row using the stored UUID.
+	// Best-effort: a failure here is logged but does not fail the request —
+	// the account is already fully minted and persisted.
+	if err := h.Store.InsertBusinessUnit(r.Context(), stored.ID, "_default_bu", true); err != nil && !errors.Is(err, ErrBUDuplicate) {
+		h.Log.Warn("auto-create _default_bu business unit", "account", in.Name, "err", err)
 	}
 
 	writeJSON(w, http.StatusCreated, createAccountResponse{
@@ -707,4 +726,191 @@ func (h *Handlers) updateJSLimits(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, toResponse(stored))
+}
+
+// --- Phase 22: Business Unit endpoints (BR-AC15/BR-AC16/BR-AC17) ---
+
+type businessUnitResponse struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Visible   bool   `json:"visible"`
+	CreatedAt string `json:"createdAt"`
+}
+
+func toBUResponse(bu BusinessUnit) businessUnitResponse {
+	return businessUnitResponse{
+		ID:        bu.ID,
+		Name:      bu.Name,
+		Visible:   bu.Visible,
+		CreatedAt: bu.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+	}
+}
+
+func (h *Handlers) listBusinessUnits(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, err := h.Store.Get(r.Context(), name); errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "account not found")
+		return
+	} else if err != nil {
+		h.Log.Error("get account for BU list", "name", name, "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	bus, err := h.Store.ListBusinessUnits(r.Context(), name)
+	if err != nil {
+		h.Log.Error("list business units", "account", name, "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	out := make([]businessUnitResponse, 0, len(bus))
+	for _, bu := range bus {
+		out = append(out, toBUResponse(bu))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+type createBURequest struct {
+	Name string `json:"name"`
+}
+
+func (h *Handlers) createBusinessUnit(w http.ResponseWriter, r *http.Request) {
+	accountName := r.PathValue("name")
+	acc, err := h.Store.Get(r.Context(), accountName)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "account not found")
+		return
+	} else if err != nil {
+		h.Log.Error("get account for BU create", "name", accountName, "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	var in createBURequest
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if strings.HasPrefix(in.Name, "_") {
+		writeError(w, http.StatusBadRequest, "business unit name may not start with '_' — that prefix is reserved for platform use")
+		return
+	}
+
+	if err := h.Store.InsertBusinessUnit(r.Context(), acc.ID, in.Name, true); err != nil {
+		if errors.Is(err, ErrBUDuplicate) {
+			writeError(w, http.StatusConflict, "business unit already exists")
+			return
+		}
+		h.Log.Error("insert business unit", "account", accountName, "name", in.Name, "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	if err := h.callRefdataRegisterContext(r.Context(), accountName, in.Name); err != nil {
+		h.Log.Warn("register BU context in refdata", "account", accountName, "name", in.Name, "err", err)
+	}
+
+	bu, err := h.Store.GetBusinessUnit(r.Context(), accountName, in.Name)
+	if err != nil {
+		h.Log.Error("reload BU after insert", "account", accountName, "name", in.Name, "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusCreated, toBUResponse(bu))
+}
+
+type updateBURequest struct {
+	Visible bool `json:"visible"`
+}
+
+func (h *Handlers) updateBusinessUnit(w http.ResponseWriter, r *http.Request) {
+	accountName := r.PathValue("name")
+	buName := r.PathValue("buName")
+
+	var in updateBURequest
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := h.Store.SetBusinessUnitVisible(r.Context(), accountName, buName, in.Visible); err != nil {
+		if errors.Is(err, ErrBUNotFound) {
+			writeError(w, http.StatusNotFound, "business unit not found")
+			return
+		}
+		h.Log.Error("set BU visible", "account", accountName, "name", buName, "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	if err := h.callRefdataSetContextVisible(r.Context(), buName, in.Visible); err != nil {
+		h.Log.Warn("set context visible in refdata", "name", buName, "visible", in.Visible, "err", err)
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// callRefdataRegisterContext registers a new BU context in refdata-service.
+// Best-effort: returns an error for logging only, never propagates to the caller.
+func (h *Handlers) callRefdataRegisterContext(ctx context.Context, accountName, buName string) error {
+	if h.RefdataURL == "" {
+		h.Log.Warn("REFDATA_URL not set — skipping context registration", "name", buName)
+		return nil
+	}
+	body, err := json.Marshal(map[string]string{
+		"context": buName,
+		"parent":  "_platform",
+		"name":    buName,
+		"tenant":  accountName,
+	})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		h.RefdataURL+"/api/refdata/admin/contexts", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusConflict {
+		return nil // idempotent: already registered
+	}
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("refdata returned %d: %s", resp.StatusCode, b)
+	}
+	return nil
+}
+
+// callRefdataSetContextVisible toggles the visible flag on a context in refdata-service.
+// Best-effort: returns an error for logging only, never propagates to the caller.
+func (h *Handlers) callRefdataSetContextVisible(ctx context.Context, contextKey string, visible bool) error {
+	if h.RefdataURL == "" {
+		h.Log.Warn("REFDATA_URL not set — skipping context visibility update", "context", contextKey)
+		return nil
+	}
+	body, err := json.Marshal(map[string]bool{"visible": visible})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch,
+		h.RefdataURL+"/api/refdata/admin/contexts/"+contextKey+"/visible", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("refdata returned %d: %s", resp.StatusCode, b)
+	}
+	return nil
 }

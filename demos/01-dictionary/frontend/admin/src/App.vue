@@ -82,9 +82,9 @@ const SUBTITLES = {
 }
 const subtitle = computed(() => SUBTITLES[activeView.value] ?? '')
 
-onMounted(() => {
+onMounted(async () => {
+  await store.loadContexts()
   store.connect()
-  store.loadContexts()
   connectRefdata()
   connectL10nCopy(i18n)
   tenantStore.refresh()
@@ -122,7 +122,7 @@ onUnmounted(() => {
         @update:model-value="tenantStore.setTenant($event)"
       />
       <Tag v-if="tenantStore.switching" severity="warning" :value="t('tenant.switching')" />
-      <label class="lab-muted" for="context">Fleet</label>
+      <label class="lab-muted" for="context">BU</label>
       <Select
         id="context"
         :model-value="store.context"

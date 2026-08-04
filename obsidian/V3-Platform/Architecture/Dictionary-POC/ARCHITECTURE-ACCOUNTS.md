@@ -63,11 +63,16 @@ PLATFORM owns the cross-cutting `accounts-service` and `refdata-service` and
 exports four refdata services, the fixed context-list service, account
 lifecycle notifications, and refdata change events. Every tenant JWT imports
 that same contract. The four data services are remapped locally to
-`refdata.*.v1`; their exported subjects carry the importing account's public
-key at token 2 (`rpc.{account-key}.refdata.*.v1`) and the PLATFORM export
-checks that token. The server therefore stamps/verifies tenant identity — a
-caller on ACME cannot construct a GLOBEX read by supplying a different
-context.
+`refdata.*.v1`; their remote subjects carry the tenant's own human-readable
+account name (`rpc.{tenantName}.refdata.*.v1`, e.g. `rpc.acme.refdata.type.list.v1`)
+rather than an opaque public key — readable in logs, traces, and the Admin
+UI's live Request/Reply view. Security is still operator-enforced, not
+client-supplied: the import itself lives inside an operator-signed account
+JWT (`accounts/provisioner.go`'s `tenantImports`), so a tenant cannot rewrite
+its own import to substitute another tenant's name — doing so would require
+re-signing the claim with the operator's private key, which the tenant never
+holds. A caller on ACME cannot construct a GLOBEX read by supplying a
+different remote subject; its import simply has no such mapping.
 
 `shipping-service` still opens one connection per tenant for that tenant's
 own SHIPPING stream and KV buckets. Its permanent PLATFORM connection is now
@@ -81,6 +86,58 @@ change events instead.
 Account JWT updates replace the entire claim, so `accounts/provisioner.go`
 preserves existing exports/imports whenever it re-signs a claim; freshly
 minted runtime accounts receive the same imports as ACME/GLOBEX.
+
+### Business unit registration (Phase 22)
+
+Business units (the `{context}` scope — `acme-pacific-fleet`,
+`acme-atlantic-fleet`, …) are owned by accounts-service, not
+refdata-service. accounts-service holds the authoritative registry (its own
+`business_units` table: `account_id`, `name`, `visible`, `created_at`),
+managed through the Admin UI's Accounts panel. refdata-service's existing
+`contexts` table remains the store every context-consuming read already goes
+through (corpus inheritance, KV/Postgres scoping) — accounts-service becomes
+its *writer*, calling refdata-service's `POST /api/refdata/admin/contexts`
+at BU-creation time, rather than refdata-service seeding a fixed list at its
+own startup. Only who writes the row changes; the read path
+(`rpc.*.refdata.*`, BR-D35's `ListByTenant`) is unchanged.
+
+**Reserved `_default_bu`.** A single literal context value shared across
+every account — the same sharing model `_platform` already uses (see
+`ARCHITECTURE-DICTIONARY.md`'s Seeding section), safe because tenant
+isolation is the NATS account boundary, not the context string. Every
+account with zero registered real business units implicitly resolves to it;
+accounts-service auto-creates a per-account `business_units` row for it
+(`visible: true`) at account-creation time, purely for the Admin UI's own
+bookkeeping — refdata-service seeds the underlying context once, globally,
+alongside `_platform`.
+
+**Mutual exclusivity — relaxed, not strict.** `_default_bu` and real
+business units are not hard-exclusive. Registering an account's first real
+business unit always surfaces an Admin UI confirmation prompt asking whether
+to hide `_default_bu` — unconditionally, with no attempt to detect whether
+it actually holds data (that would require accounts-service reading into
+shipping-service/refdata-service's own stores, a cross-service read
+dependency this design deliberately avoids). Confirming sets `visible: false`
+on that account's `_default_bu` row; declining leaves it visible and
+selectable permanently alongside real business units. `visible` is a toggle,
+directly editable per row in the Admin UI's business-unit table — not a
+delete, and not something migrated automatically. Migrating `_default_bu`'s
+underlying data into a named business unit is explicitly out of scope for
+now: its context id may already be referenced inside published NATS events
+(JetStream history, KV entries), and a migration would need to handle that
+without silently orphaning or duplicating data — flagged as a known gap to
+revisit later, not solved by this design.
+
+**Endpoints (implemented).** `GET /api/accounts/{name}/business-units`,
+`POST /api/accounts/{name}/business-units` (validates no `_` prefix; calls
+`POST /api/refdata/admin/contexts` to register the context; idempotent on
+duplicate), `PATCH /api/accounts/{name}/business-units/{buName}` (sets
+`visible`; also calls `PATCH /api/refdata/admin/contexts/{context}/visible`).
+accounts-service's startup `seedDemoBusinessUnits` idempotently registers
+`acme-pacific-fleet` and `acme-atlantic-fleet` for the `acme` account.
+All three frontend CONTEXTS fallback arrays have been removed; context selectors
+are populated dynamically by `loadContexts()` on tenant connect. See
+`BUSINESS_RULES-ACCOUNTS.md` BR-AC15/16/17 for the enforcement rules.
 
 ### NATS operator-mode trust chain
 

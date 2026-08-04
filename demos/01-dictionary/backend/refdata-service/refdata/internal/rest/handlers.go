@@ -246,6 +246,9 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// startup rather than silently misrouting. A 4th literal segment can
 	// never collide with any 3-segment {context}/{type}/action pattern.
 	mux.HandleFunc("GET /api/refdata/admin/contexts/{context}/detail", h.getContext)
+	// Phase 22: visibility toggle called by accounts-service when the operator
+	// hides or shows _default_bu via the Admin UI (BR-D38).
+	mux.HandleFunc("PATCH /api/refdata/admin/contexts/{context}/visible", h.setContextVisible)
 	mux.HandleFunc("POST /api/refdata/admin/corpus/{context}/draft", h.createDraft)
 	mux.HandleFunc("GET /api/refdata/admin/corpus/{context}/draft", h.getDraft)
 	mux.HandleFunc("PUT /api/refdata/admin/corpus/{context}/draft/items", h.putDraftItem)
@@ -632,6 +635,28 @@ func (h *Handlers) getContext(w http.ResponseWriter, r *http.Request) {
 		Ancestors   []domain.Context `json:"ancestors"`
 		Descendants []domain.Context `json:"descendants"`
 	}{Context: value, Ancestors: ancestors, Descendants: descendants})
+}
+
+// setContextVisible toggles the visible flag on a context (Phase 22, BR-D38).
+// Called by accounts-service when the operator hides or shows _default_bu via
+// the Admin UI. The body must be {"visible": <bool>}.
+func (h *Handlers) setContextVisible(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Contexts == nil {
+		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "context hierarchy is not configured"})
+		return
+	}
+	var req struct {
+		Visible bool `json:"visible"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid request body"})
+		return
+	}
+	if err := h.deps.Contexts.SetVisible(r.Context(), r.PathValue("context"), req.Visible); err != nil {
+		h.writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // @Summary      List dictionary types

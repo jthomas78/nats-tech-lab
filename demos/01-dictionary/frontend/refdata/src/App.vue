@@ -10,7 +10,7 @@ import ItemGrid from './components/ItemGrid.vue'
 import LocalizationView from './components/LocalizationView.vue'
 import TypeNavigator from './components/TypeNavigator.vue'
 import VersioningPanel from './components/VersioningPanel.vue'
-import { CONTEXTS, useDictionaryStore } from './stores/dictionary'
+import { useDictionaryStore } from './stores/dictionary'
 import AppShell from '@ui-shell/AppShell.vue'
 
 const store = useDictionaryStore()
@@ -41,7 +41,7 @@ onUnmounted(() => store.disconnect())
       <Select
         id="context"
         :model-value="store.context"
-        :options="CONTEXTS"
+        :options="store.availableContexts"
         size="small"
         @update:model-value="val => { store.context = val; store.connect() }"
       />

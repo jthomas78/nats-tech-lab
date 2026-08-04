@@ -77,13 +77,14 @@ export function notifySubject(context, entity) {
   return `notify.${context}.shipping.${entity}.changed`
 }
 
-// ── Refdata contexts (Phase 16f) — the one REST call in this file; see the
-// module comment above for why refdata reads stay on REST. Replaces the
-// previously hardcoded CONTEXTS array in stores/port.js. ────────────────
+// ── Business units (Phase 22) — replaces the old /api/refdata/contexts
+// path. BU source of truth is now accounts-service; the seafreight app reads
+// the visible BUs for the current tenant and maps them to context names. ──
 
-export async function getRefdataContexts() {
-  const res = await fetch('/api/refdata/contexts')
+export async function getBusinessUnits(tenant) {
+  const res = await fetch(`/api/platform/accounts/${encodeURIComponent(tenant)}/business-units`)
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
-  return body.values ?? []
+  const units = Array.isArray(body) ? body : []
+  return units.filter((u) => u.visible).map((u) => u.name)
 }

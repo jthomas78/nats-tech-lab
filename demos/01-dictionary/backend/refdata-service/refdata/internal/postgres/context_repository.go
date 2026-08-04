@@ -70,11 +70,12 @@ func (r *ContextRepository) List(ctx context.Context) ([]domain.Context, error) 
 
 // ListByTenant returns every context whose tenant column equals tenant, plus
 // every context with no tenant link at all (Phase 16f) — see the domain
-// interface doc comment for why the platform roots are always included.
+// interface doc comment for why the platform roots are always included. Phase
+// 22: only visible=true rows are returned (BR-D38).
 func (r *ContextRepository) ListByTenant(ctx context.Context, tenant string) ([]domain.Context, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT context, COALESCE(parent, ''), name, description, tenant
-		FROM refdata.contexts WHERE tenant = $1 OR tenant IS NULL ORDER BY context`, tenant)
+		FROM refdata.contexts WHERE (tenant = $1 OR tenant IS NULL) AND visible = true ORDER BY context`, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +120,21 @@ func (r *ContextRepository) Ancestors(ctx context.Context, key string) ([]domain
 		return nil, domain.ErrContextNotFound
 	}
 	return values, rows.Err()
+}
+
+func (r *ContextRepository) SetVisible(ctx context.Context, contextKey string, visible bool) error {
+	res, err := r.db.ExecContext(ctx, `UPDATE refdata.contexts SET visible = $2 WHERE context = $1`, contextKey, visible)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return domain.ErrContextNotFound
+	}
+	return nil
 }
 
 func (r *ContextRepository) Descendants(ctx context.Context, key string) ([]domain.Context, error) {

@@ -51,3 +51,23 @@ func (h *ContextHandler) Ancestors(ctx context.Context, key string) ([]domain.Co
 func (h *ContextHandler) Descendants(ctx context.Context, key string) ([]domain.Context, error) {
 	return h.contexts.Descendants(ctx, key)
 }
+
+// RegisterDefaultBu is the second sanctioned exception to ValidateContextName's
+// leading-underscore rejection (BR-D33, BR-D38) — used exclusively by seed.go
+// to register the shared reserved "_default_bu" context (Phase 22). The public
+// POST /api/refdata/admin/contexts endpoint always rejects leading underscores;
+// only this method and RegisterPlatformRoot bypass that check. The charset
+// validation still applies.
+func (h *ContextHandler) RegisterDefaultBu(ctx context.Context, value domain.Context) error {
+	if err := domain.ValidateSubjectToken(value.Context); err != nil {
+		return err
+	}
+	return h.contexts.Register(ctx, value)
+}
+
+// SetVisible updates the visible flag for a context (Phase 22, BR-D38) — used
+// by accounts-service to hide or show _default_bu when real business units are
+// registered. Returns ErrContextNotFound if no context has that key.
+func (h *ContextHandler) SetVisible(ctx context.Context, contextKey string, visible bool) error {
+	return h.contexts.SetVisible(ctx, contextKey, visible)
+}

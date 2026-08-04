@@ -5,10 +5,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -53,6 +56,9 @@ func run(log *slog.Logger) error {
 	// network.
 	natsWSUrl := envOr("NATS_WS_URL", "ws://localhost:9222")
 	httpAddr := envOr("HTTP_ADDR", ":8080")
+	// Phase 22: base URL of refdata-service for BU context registration.
+	// Optional: if unset, BU endpoints still persist locally but skip refdata sync.
+	refdataURL := envOr("REFDATA_URL", "")
 
 	if operatorSigningKeyFile == "" {
 		return errors.New("OPERATOR_SIGNING_KEY_FILE is required")
@@ -136,12 +142,17 @@ func run(log *slog.Logger) error {
 			return err
 		}
 	}
+	// Phase 22: seed demo BUs for the pre-existing acme account idempotently.
+	if err := seedDemoBusinessUnits(ctx, store, refdataURL, log); err != nil {
+		log.Warn("seed demo business units", "err", err)
+	}
 
 	auditLog := accounts.NewAuditLog(db)
 	handlers := accounts.NewHandlers(store, provisioner, credsDir, log, platformNC, auditLog)
 	if natsMonitorURL != "" {
 		handlers.UsageFetcher = accounts.NewUsageFetcher(natsMonitorURL, store)
 	}
+	handlers.RefdataURL = refdataURL
 	mux := http.NewServeMux()
 	handlers.Mount(mux, authSecret)
 
@@ -320,4 +331,64 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// seedDemoBusinessUnits idempotently registers acme-pacific-fleet and
+// acme-atlantic-fleet as business units for the acme demo account, and calls
+// refdata-service to register them as contexts under _platform. Called at every
+// startup so a freshly-migrated DB always ends up with the demo data.
+func seedDemoBusinessUnits(ctx context.Context, store *accounts.Store, refdataURL string, log *slog.Logger) error {
+	acme, err := store.Get(ctx, "acme")
+	if err != nil {
+		// acme may not exist yet on the first boot of a brand-new deployment.
+		log.Warn("seed demo BUs: acme account not found, skipping", "err", err)
+		return nil
+	}
+
+	demoBUs := []string{"acme-pacific-fleet", "acme-atlantic-fleet"}
+	for _, name := range demoBUs {
+		if err := store.InsertBusinessUnitIfMissing(ctx, acme.ID, name, true); err != nil {
+			return fmt.Errorf("seed BU %q: %w", name, err)
+		}
+		if refdataURL != "" {
+			if err := refdataRegisterContext(ctx, refdataURL, "acme", name); err != nil {
+				log.Warn("seed BU: register context in refdata", "name", name, "err", err)
+			}
+		}
+	}
+	return nil
+}
+
+// refdataRegisterContext is the standalone (non-handler) version of
+// callRefdataRegisterContext — used by seedDemoBusinessUnits at startup before
+// handlers are wired. Same best-effort semantics: conflict → idempotent.
+func refdataRegisterContext(ctx context.Context, refdataURL, accountName, buName string) error {
+	body, err := json.Marshal(map[string]string{
+		"context": buName,
+		"parent":  "_platform",
+		"name":    buName,
+		"tenant":  accountName,
+	})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		refdataURL+"/api/refdata/admin/contexts", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusConflict {
+		return nil
+	}
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("refdata returned %d: %s", resp.StatusCode, b)
+	}
+	return nil
 }
