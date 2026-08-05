@@ -66,6 +66,14 @@ export const useDictionaryStore = defineStore('dictionary', {
     // shape (e.g. "ship.SHIP1") ShapePanel's columns already expect.
     async connect() {
       this.disconnect()
+      // No context means no valid subject to subscribe on — App.vue calls
+      // this unconditionally after loadContexts(), which leaves this.context
+      // at its initial '' when getRefdataContexts() fails (e.g. refdata-service
+      // not yet ready). Subscribing anyway produced a malformed
+      // notify..kv.{bucket}.> subject (empty {context} token) that the NATS
+      // server correctly rejected as a Subscription Violation — a real
+      // failure mode this Log panel first surfaced, not just log noise.
+      if (!this.context) return
       this.shapeA = {}
       this.shapeB = {}
       this.events = []

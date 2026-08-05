@@ -40,6 +40,7 @@ type app struct {
 	natsURL        string
 	credsDir       string
 	natsMonitorURL string
+	natsLogPath    string
 	mux            *http.ServeMux
 	logger         *slog.Logger
 }
@@ -50,6 +51,7 @@ func (a *app) NC() *nats.Conn          { return a.nc }
 func (a *app) NatsURL() string         { return a.natsURL }
 func (a *app) CredsDir() string        { return a.credsDir }
 func (a *app) NatsMonitorURL() string  { return a.natsMonitorURL }
+func (a *app) NatsLogPath() string     { return a.natsLogPath }
 func (a *app) Mux() *http.ServeMux     { return a.mux }
 func (a *app) Logger() *slog.Logger    { return a.logger }
 
@@ -82,6 +84,11 @@ func run(log *slog.Logger) error {
 	// Phase 17c — Connections panel proxies the NATS server's HTTP
 	// monitoring port (distinct from natsURL's client port 4222).
 	natsMonitorURL := envOr("NATS_MONITOR_URL", "http://localhost:8222")
+	// Admin UI Log panel — path to NATS's log_file, mounted read-only from
+	// the same volume NATS writes into (see docker-compose.yml). Empty
+	// outside Docker; the Log panel's endpoint reports unavailable rather
+	// than erroring.
+	natsLogPath := envOr("NATS_LOG_PATH", "")
 
 	startupCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -118,7 +125,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	a := &app{db: db, js: js, nc: nc, natsURL: natsURL, credsDir: credsDir, natsMonitorURL: natsMonitorURL, mux: http.NewServeMux(), logger: log}
+	a := &app{db: db, js: js, nc: nc, natsURL: natsURL, credsDir: credsDir, natsMonitorURL: natsMonitorURL, natsLogPath: natsLogPath, mux: http.NewServeMux(), logger: log}
 
 	modules := []monolith.Module{dictionary.Module{}}
 	for _, m := range modules {

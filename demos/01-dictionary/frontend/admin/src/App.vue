@@ -9,6 +9,7 @@ import AccountsPanel from './components/AccountsPanel.vue'
 import ConnectionsPanel from './components/ConnectionsPanel.vue'
 import JetStreamPanel from './components/JetStreamPanel.vue'
 import KvInspector from './components/KvInspector.vue'
+import LogPanel from './components/LogPanel.vue'
 import OverviewPanel from './components/OverviewPanel.vue'
 import PostgresTablesPanel from './components/PostgresTablesPanel.vue'
 import RpcPanel from './components/RpcPanel.vue'
@@ -20,6 +21,7 @@ import TopologyPanel from './components/TopologyPanel.vue'
 import IconAccounts from './components/icons/IconAccounts.vue'
 import IconConnections from './components/icons/IconConnections.vue'
 import IconKv from './components/icons/IconKv.vue'
+import IconLog from './components/icons/IconLog.vue'
 import IconOverview from './components/icons/IconOverview.vue'
 import IconRpc from './components/icons/IconRpc.vue'
 import IconServices from './components/icons/IconServices.vue'
@@ -70,6 +72,7 @@ const sections = [
       { key: 'topology', label: 'Topology', icon: IconTopology },
       { key: 'connections', label: 'Connections', icon: IconConnections },
       { key: 'services', label: 'Services', icon: IconServices },
+      { key: 'log', label: 'Log', icon: IconLog },
       { key: 'rpc', label: 'Request/Reply', icon: IconRpc },
       { key: 'streams', label: 'Streams', icon: IconStreams },
       { key: 'kv', label: 'KV Buckets', icon: IconKv },
@@ -90,6 +93,7 @@ const SUBTITLES = {
   rpc: 'rpc.* + api.* request/reply traffic · rpc.* replays last 10 min, api.* live only',
   connections: 'nats connections · all accounts',
   services: 'nats micro services · $SRV.* discovery',
+  log: 'nats server log · level + text filter, no rotation',
   tables: 'canonical Postgres tables by schema',
   accounts: 'dynamic tenant provisioning · decentralized JWTs',
   topology: 'live export/import edges between accounts · read from resolver JWTs',
@@ -230,6 +234,11 @@ onUnmounted(() => {
       <div class="lab-panel streams-panel">
         <ServicesPanel />
       </div>
+    </section>
+
+    <!-- Log — tails NATS's own log_file, level + text filter, no rotation -->
+    <section v-else-if="activeView === 'log'" class="group" data-testid="log-view">
+      <LogPanel />
     </section>
 
     <!-- Postgres — canonical tables by schema -->

@@ -39,6 +39,13 @@ type Monolith interface {
 	// port 8222) — used by the admin Connections panel (Phase 17c) to proxy
 	// GET /connz. Distinct from NatsURL, which is the client (4222) port.
 	NatsMonitorURL() string
+	// NatsLogPath is the local filesystem path to NATS's log_file (see
+	// nats/nats.conf), mounted read-only into this container from the same
+	// volume NATS writes into — used by the admin Log panel to tail it.
+	// Empty when running locally outside Docker without a log_file
+	// configured; the Log panel's endpoint reports unavailable rather than
+	// erroring.
+	NatsLogPath() string
 	Mux() *http.ServeMux
 	Logger() *slog.Logger
 }

@@ -9,7 +9,9 @@ async function request(path, options = {}) {
   if (res.status === 204) return null
   const body = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new Error(body.error || `${res.status} ${res.statusText}`)
+    const err = new Error(body.error || `${res.status} ${res.statusText}`)
+    err.status = res.status
+    throw err
   }
   return body
 }
@@ -213,4 +215,16 @@ export function getNatsConnections() {
 
 export function getNatsServices() {
   return request('/api/nats/services')
+}
+
+// Log panel — tails NATS's own log_file server-side (level/q filters, tail
+// hard-capped at 1000 regardless of what's requested). REST-polled like the
+// two above, not a push/follow transport.
+export function getNatsLog({ level, q, tail } = {}) {
+  const params = new URLSearchParams()
+  if (level) params.set('level', level)
+  if (q) params.set('q', q)
+  if (tail) params.set('tail', tail)
+  const qs = params.toString()
+  return request(`/api/nats/log${qs ? `?${qs}` : ''}`)
 }

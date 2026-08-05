@@ -161,6 +161,10 @@ type Deps struct {
 	// NatsMonitorURL is the NATS server's HTTP monitoring endpoint (Phase
 	// 17c) — GET /api/nats/connections proxies its /connz.
 	NatsMonitorURL string
+	// NatsLogPath is the local path to NATS's log_file — GET /api/nats/log
+	// tails it. Empty outside Docker; the handler reports 503 rather than
+	// erroring when unset.
+	NatsLogPath string
 }
 
 type Handlers struct {
@@ -221,6 +225,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/tenant/switch", h.switchTenant)
 	mux.HandleFunc("GET /api/nats/connections", h.listNatsConnections)
 	mux.HandleFunc("GET /api/nats/services", h.listNatsServices)
+	mux.HandleFunc("GET /api/nats/log", h.tailNatsLog)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

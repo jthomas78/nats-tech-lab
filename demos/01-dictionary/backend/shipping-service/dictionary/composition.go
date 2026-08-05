@@ -44,6 +44,7 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 		NatsURL:        mono.NatsURL(),
 		CredsDir:       mono.CredsDir(),
 		NatsMonitorURL: mono.NatsMonitorURL(),
+		NatsLogPath:    mono.NatsLogPath(),
 	})
 
 	// The initial tenant connect and every later switch are the same code
