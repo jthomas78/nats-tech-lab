@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/eventhandler"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/postgres"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/rest"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/monolith"
@@ -59,6 +60,15 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 	if err := handlers.EnsureAllTenants(ctx); err != nil {
 		return err
 	}
+
+	// Phase 23: permanent PLATFORM-account background bridges replacing
+	// dictionary/internal/rest/sse.go's watchRefdata/watchRPCObs per-request
+	// OrderedConsumers — see eventhandler.RegisterRefdataNotify's doc comment
+	// for why these run unconditionally for the process lifetime rather than
+	// per tenant. Both are nil-safe on mono.JS()/mono.NC(), the same
+	// convention PlatformJS/NC already follow elsewhere in this Deps.
+	eventhandler.RegisterRefdataNotify(ctx, mono.JS(), mono.NC(), log)
+	eventhandler.RegisterRPCTraceNotify(ctx, mono.JS(), mono.NC(), log)
 
 	handlers.Mount(mono.Mux())
 	return nil

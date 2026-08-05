@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ACCOUNTS.md",
+                "file": "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md",
                 "mode": "preview",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "ARCHITECTURE-ACCOUNTS"
+              "title": "ARCHITECTURE-COMMUNICATIONS"
             }
           }
         ]
@@ -187,8 +187,8 @@
   },
   "active": "c50d6372ff085bfe",
   "lastOpenFiles": [
-    "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md",
     "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ACCOUNTS.md",
+    "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md",
     "Checklist.md",
     "V3-Platform/Architecture/Dictionary-POC/images/jwt-minting-sequence.png",
     "V3-Platform/System Design - V3 Logistics Platform.md",

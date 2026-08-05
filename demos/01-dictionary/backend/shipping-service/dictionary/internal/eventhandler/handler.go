@@ -49,6 +49,11 @@ func RegisterShapeA(ctx context.Context, js jetstream.JetStream, kv *kvstore.Sto
 			return err
 		}
 		publishNotify(nc, log, event.Context, "ship", data)
+		if _, _, eventType, ok := domain.SubjectDetails(subject); ok {
+			if rawData, err := json.Marshal(event); err == nil {
+				publishRawNotify(nc, log, event.Context, "ship", eventType, rawData)
+			}
+		}
 		return nil
 	})
 }
@@ -181,5 +186,23 @@ func publishNotify(nc *nats.Conn, log *slog.Logger, kvContext, entity string, pa
 	subject := "notify." + kvContext + ".shipping." + entity + ".changed"
 	if err := nc.Publish(subject, payload); err != nil && log != nil {
 		log.Warn("notify publish failed", "subject", subject, "err", err)
+	}
+}
+
+// publishRawNotify fire-and-forget publishes
+// notify.{kvContext}.shipping.raw.{entity}.{event} (Phase 23) carrying the
+// raw domain event as received off the SHIPPING stream — distinct from
+// publishNotify's "current projected state" payload: the Admin UI's
+// JetStream watch panel wants the actual verb (arrived/departed/loaded/...),
+// not a projected snapshot, replacing the per-SSE-connection OrderedConsumer
+// dictionary/internal/rest/sse.go's watchJetStream used to create. Same
+// nil-safe, best-effort convention as publishNotify.
+func publishRawNotify(nc *nats.Conn, log *slog.Logger, kvContext, entity, event string, payload []byte) {
+	if nc == nil {
+		return
+	}
+	subject := "notify." + kvContext + ".shipping.raw." + entity + "." + event
+	if err := nc.Publish(subject, payload); err != nil && log != nil {
+		log.Warn("raw notify publish failed", "subject", subject, "err", err)
 	}
 }

@@ -338,6 +338,38 @@ services skip context" exemption: `refdata-service` is
 equally a platform service but its *data* is genuinely company-scoped, so it
 keeps `{context}`.
 
+#### 2.3.1 Decision rule for a new or changed service
+
+The common mistake is sorting services into "platform" vs. "tenant-facing"
+and inferring `{context}`'s meaning from that label — e.g. assuming a
+platform service should carry the tenant name. That's not the axis that
+matters. The question that actually decides `{context}`'s shape is: **what
+does this service's data belong to, and does it have a dedicated per-tenant
+NATS account to lean on?**
+
+```mermaid
+flowchart TD
+    Q1{"Does this operation administer\nthe tenant/account axis itself?\n(create/suspend account, mint token)"}
+    Q1 -->|yes| A["No {context} token at all.\nrpc.accounts.account.create.v1\nTenant name, if needed, travels as an\nordinary payload field — never as {context}."]
+    Q1 -->|no| Q2{"Does this service run on a\ndedicated per-tenant NATS account?\n(tenant already implicit in the connection)"}
+    Q2 -->|yes\ne.g. shipping-service| B["{context} = company/BU only.\nrpc.acme-northdiv.shipping.ship.arrive.v1\nTenant is never repeated — the account IS the tenant boundary."]
+    Q2 -->|no, shared account\ne.g. refdata-service| C["{context} = fully-qualified company/BU.\nrpc.acme-northdiv.refdata.item.get.v1\nNo account boundary to lean on, so the\ncompany qualifier must live in the token."]
+```
+
+| | Administers the tenant axis itself | Company-scoped, dedicated per-tenant account | Company-scoped, shared account |
+|---|---|---|---|
+| **Example** | `accounts-service` (incl. `auth`) | `shipping-service` | `refdata-service` |
+| **`{context}` token** | absent | `{bu}` (e.g. `atlantic-fleet`) | `{company}` or `{company}-{bu}` (e.g. `acme-atlantic-fleet`) |
+| **Tenant identity** | ordinary payload field, when the operation needs one (e.g. account name at creation) | implicit — the NATS account | implicit — the NATS account, but restated in the context value because the service has no per-tenant boundary of its own |
+| **Rejects `_`-prefixed values** | yes — BR-AC07 | n/a | yes — BR-D33 |
+
+**Rule of thumb for any new service:** never write "tenant" into a subject
+or an RPC/event payload — tenant is always the NATS account, full stop. Then
+ask only whether the service's data is company/BU-scoped (→ `{context}`
+carries it, fully qualified if the account is shared) or whether the
+operation *is* tenant-lifecycle management (→ no `{context}`, tenant travels
+as a normal field where the operation genuinely needs to name one).
+
 ### 2.4 `rpc.*` vs `api.*` — separation rule
 
 The two families never collide as subject strings, but the same *operation*
@@ -540,6 +572,51 @@ a JetStream concern — it's a separate, best-effort side-channel off the
 > shown two different names for the same service. Both `Config.Name` values
 > were renamed to match their connection's `nats.Name` as part of this
 > change.
+
+> **Extended again (Phase 23) — `/api/rpc-watch`'s single SSE stream is
+> retired; the browser subscribes to both halves directly instead.** The
+> pattern above — one Go handler holding both a `RPCTRACE` ordered consumer
+> and a tenant-account `obs.api.>` subscription, merging them into one SSE
+> feed — is gone. Two independent browser-held NATS WebSocket connections
+> (Phase 15's model, now extended to `frontend/admin`) each carry one half
+> directly:
+>
+> ```mermaid
+> flowchart LR
+>     subgraph Platform["Admin/Platform connection (opened once, never reconnects)"]
+>         RPCTRACE[("RPCTRACE stream<br/>PLATFORM account")]
+>         Bridge["eventhandler.RegisterRPCTraceNotify<br/>permanent background bridge"]
+>         NotifyRPC["notify._platform.rpctrace.entry<br/>(live tail only)"]
+>         RPCTRACE --> Bridge --> NotifyRPC
+>     end
+>     subgraph Tenant["Tenant connection (reconnects on tenant switch)"]
+>         ObsApi["obs.api.&gt;<br/>tenant account, published directly<br/>by browserrpc/adapter.go"]
+>     end
+>     Replay["GET /api/rpctrace/replay<br/>one-shot REST bootstrap"]
+>     Browser["RpcPanel.vue<br/>merges both into one row list by correlationId"]
+>     RPCTRACE -.snapshot at page load.-> Replay --> Browser
+>     NotifyRPC --> Browser
+>     ObsApi --> Browser
+> ```
+>
+> `RPCTRACE`'s retained backlog ("last N minutes," `BR-D29`) is now served by
+> a one-shot `GET /api/rpctrace/replay` bootstrap fetch instead of an
+> SSE-replay-then-live merge — the panel calls it once on mount, then relies
+> on the two subscriptions above for anything published afterward. `obs.api.>`
+> is no longer relayed through a Go handler at all: the tenant browser JWT
+> (`auth/token.go`'s `MintBrowserToken`) already carries a direct `obs.api.>`
+> subscribe grant, so `RpcPanel.vue` subscribes to it on its own tenant
+> connection — removing a hop, and removing the "pinned to whichever tenant
+> was active when the SSE connection opened" staleness this section
+> previously called out, since the tenant connection itself now reconnects
+> on tenant switch (`stores/tenant.js`'s `useNatsConnection().switchTenant`)
+> rather than requiring the whole panel to reconnect. See `BR-AC18` in
+> `BUSINESS_RULES-ACCOUNTS.md` for the Admin/Platform connection's own
+> credential (`MintAdminToken`) and `Main-POC-Plan.md`'s Phase 23 entry for
+> the full design (this same shape — permanent background bridge,
+> `notify.*` publish, REST bootstrap — replaced the Admin UI's other three
+> SSE streams too: dictionary KV watch, KV inspector, and JetStream raw
+> watch).
 
 **No dedicated stream (original decision, since revised — see below).** A
 `RPCTRACE`-style JetStream stream (`LimitsPolicy`, short `MaxAge`) was

@@ -48,9 +48,13 @@ var _ = Describe("MintBrowserToken", func() {
 		// comment. "acme" would never match a real subject, silently
 		// breaking every browser call.
 		Expect(claims.Permissions.Pub.Allow).To(ConsistOf("api.>", "_INBOX.>"))
-		Expect(claims.Permissions.Sub.Allow).To(ConsistOf("api.>", "notify.>", "_INBOX.>"))
+		Expect(claims.Permissions.Sub.Allow).To(ConsistOf("api.>", "notify.>", "obs.api.>", "_INBOX.>"))
 		Expect(claims.Permissions.Pub.Allow).NotTo(ContainElement(ContainSubstring("evt.")))
-		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("rpc.")))
+		// obs.api.> is allowed (Phase 23, RPC panel live tail); obs.rpc.>
+		// and bare rpc.> are not — this credential must still never observe
+		// or reach service-to-service rpc.* traffic.
+		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("obs.rpc.")))
+		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(Equal("rpc.>")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("$KV")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("$JS.API")))
 	})
@@ -103,6 +107,69 @@ var _ = Describe("MintBrowserToken", func() {
 
 	It("returns an error when the signing key seed is invalid", func() {
 		_, err := auth.MintBrowserToken(accountPub, "not-a-real-seed", "acme", "ws://localhost:9222")
+		Expect(err).To(HaveOccurred())
+	})
+})
+
+var _ = Describe("MintAdminToken", func() {
+	var accountKP nkeys.KeyPair
+	var accountPub, accountSigningSeed string
+
+	BeforeEach(func() {
+		var err error
+		accountKP, err = nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		accountPub, err = accountKP.PublicKey()
+		Expect(err).NotTo(HaveOccurred())
+
+		signingKP, err := nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		seed, err := signingKP.Seed()
+		Expect(err).NotTo(HaveOccurred())
+		accountSigningSeed = string(seed)
+	})
+
+	// BR-AC18: subscribe-only, scoped to notify.accounts.account.> plus the
+	// REFDATA/RPCTRACE notify.* subjects Phase 23 adds — no publish grant,
+	// no $JS.API.>/$KV.>, no tenant-shaped api.>/notify.{tenant}.* access.
+	It("mints a sub-only JWT scoped to notify.accounts.account.> and the REFDATA/RPCTRACE notify subjects, with publish denied entirely", func() {
+		info, err := auth.MintAdminToken(accountPub, accountSigningSeed, "ws://localhost:9222")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(info.WSUrl).To(Equal("ws://localhost:9222"))
+		Expect(info.Tenant).To(Equal("platform"))
+		Expect(info.JWT).NotTo(BeEmpty())
+		Expect(info.NKeySeed).NotTo(BeEmpty())
+
+		claims, err := jwt.DecodeUserClaims(info.JWT)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(claims.IssuerAccount).To(Equal(accountPub))
+
+		Expect(claims.Permissions.Sub.Allow).To(ConsistOf(
+			"notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.rpctrace.>",
+		))
+		Expect(claims.Permissions.Pub.Allow).To(BeEmpty())
+		Expect(claims.Permissions.Pub.Deny).To(ConsistOf(">"))
+
+		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("api.")))
+		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("rpc.")))
+		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("$KV")))
+		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("$JS.API")))
+	})
+
+	It("sets a short expiry in the future", func() {
+		before := time.Now()
+		info, err := auth.MintAdminToken(accountPub, accountSigningSeed, "ws://localhost:9222")
+		Expect(err).NotTo(HaveOccurred())
+
+		claims, err := jwt.DecodeUserClaims(info.JWT)
+		Expect(err).NotTo(HaveOccurred())
+		expiry := time.Unix(claims.Expires, 0)
+		Expect(expiry).To(BeTemporally(">", before))
+		Expect(expiry).To(BeTemporally("<", before.Add(10*time.Minute)))
+	})
+
+	It("returns an error when the signing key seed is invalid", func() {
+		_, err := auth.MintAdminToken(accountPub, "not-a-real-seed", "ws://localhost:9222")
 		Expect(err).To(HaveOccurred())
 	})
 })

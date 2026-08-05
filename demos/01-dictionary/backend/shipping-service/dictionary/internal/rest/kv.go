@@ -10,6 +10,20 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
+// opString renders a jetstream.KeyValueOp for the wire (kvChange.Op /
+// the old watchEvent.Op) — PUT/DEL/PURGE, matching NATS KV's own three
+// operation kinds.
+func opString(op jetstream.KeyValueOp) string {
+	switch op {
+	case jetstream.KeyValueDelete:
+		return "DEL"
+	case jetstream.KeyValuePurge:
+		return "PURGE"
+	default:
+		return "PUT"
+	}
+}
+
 // kvBucket is one registered KV bucket's run-time status — the bucket rail's
 // row shape. Values counts every message including historical revisions;
 // ttlSeconds is 0 when keys never expire.
@@ -59,36 +73,30 @@ func (h *Handlers) listKVBuckets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, kvBucketsResponse{Buckets: buckets})
 }
 
-// kvChange is one SSE payload from a bucket watch. During the initial replay
-// Live is false (these events reconstruct the bucket's current contents);
-// once the snapshot completes an INIT_DONE control event is sent and every
-// subsequent change has Live=true (these are the "how it was updated" feed).
+// kvChange is one KV entry as returned by kvBucketEntriesOnce's bootstrap
+// snapshot (Phase 23) — live changes after this snapshot arrive over
+// notify.{context}.kv.{bucket}.{key}.changed instead, which carries just the
+// raw value (see internal/kvstore.Store.EnableNotify), not this envelope.
 type kvChange struct {
 	Key      string          `json:"key"`
-	Op       string          `json:"op"` // PUT, DEL, PURGE, INIT_DONE
+	Op       string          `json:"op"` // PUT, DEL, PURGE
 	Revision uint64          `json:"revision"`
 	Created  time.Time       `json:"created,omitempty"`
-	Value    json.RawMessage `json:"value,omitempty"`
-	Live     bool            `json:"live"`
+	Value    json.RawMessage `json:"value,omitempty" swaggertype:"object"`
 }
 
-// watchKVBucket godoc
+// kvBucketEntriesOnce godoc
 //
-// @Summary      Watch a KV bucket (SSE)
-// @Description  Server-Sent Events stream for one KV bucket by full name. Replays the bucket's current entries first (Live=false), sends an INIT_DONE control event, then streams live changes (Live=true). One connection drives both the contents snapshot and the live update feed — the same WatchAll semantics the NATS KV watch model is built on.
+// @Summary      One-shot KV bucket entries (Phase 23)
+// @Description  Returns every current entry in one KV bucket as a single JSON array, snapshotted at request time — the bootstrap half of watchKVBucket's old SSE stream (Live=false entries only). Live changes after this snapshot arrive via notify.{context}.kv.{bucket}.{key}.changed (internal/kvstore.Store.EnableNotify) instead of holding a connection open.
 // @Tags         kv
-// @Produce      text/event-stream
-// @Param        bucket  path  string  true  "KV bucket name (e.g. dict-a, dict-b, container, meta, refdata-acme)"
-// @Success      200  {string}  string  "SSE stream — data: {kvChange JSON}"
+// @Produce      json
+// @Param        bucket  path  string  true  "KV bucket name (e.g. dict-a, dict-b, container, meta)"
+// @Success      200  {array}   kvChange
 // @Failure      400  {object}  errorResponse  "Unknown bucket"
 // @Failure      500  {object}  errorResponse
-// @Router       /api/kv/buckets/{bucket}/watch [get]
-func (h *Handlers) watchKVBucket(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "streaming unsupported")
-		return
-	}
+// @Router       /api/kv/buckets/{bucket}/entries [get]
+func (h *Handlers) kvBucketEntriesOnce(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	kv, err := h.deps().JS.KeyValue(ctx, r.PathValue("bucket"))
@@ -110,57 +118,23 @@ func (h *Handlers) watchKVBucket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = watcher.Stop() }()
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
-
-	heartbeat := time.NewTicker(15 * time.Second)
-	defer heartbeat.Stop()
-
-	send := func(change kvChange) {
-		data, err := json.Marshal(change)
-		if err != nil {
-			return
+	entries := []kvChange{}
+	for entry := range watcher.Updates() {
+		if entry == nil {
+			break // WatchAll's INIT_DONE marker — snapshot complete
 		}
-		_, _ = w.Write([]byte("data: "))
-		_, _ = w.Write(data)
-		_, _ = w.Write([]byte("\n\n"))
-		flusher.Flush()
+		change := kvChange{
+			Key:      entry.Key(),
+			Op:       opString(entry.Operation()),
+			Revision: entry.Revision(),
+			Created:  entry.Created(),
+		}
+		if entry.Operation() == jetstream.KeyValuePut {
+			change.Value = entry.Value()
+		}
+		entries = append(entries, change)
 	}
 
-	// WatchAll replays current entries, then delivers a single nil entry to
-	// mark the end of the initial snapshot, then live updates. `live` flips
-	// true at that marker so the frontend can split contents from the feed.
-	live := false
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case entry, ok := <-watcher.Updates():
-			if !ok {
-				return
-			}
-			if entry == nil {
-				live = true
-				send(kvChange{Op: "INIT_DONE", Live: true})
-				continue
-			}
-			change := kvChange{
-				Key:      entry.Key(),
-				Op:       opString(entry.Operation()),
-				Revision: entry.Revision(),
-				Created:  entry.Created(),
-				Live:     live,
-			}
-			if entry.Operation() == jetstream.KeyValuePut {
-				change.Value = entry.Value()
-			}
-			send(change)
-		case <-heartbeat.C:
-			_, _ = w.Write([]byte(": ping\n\n"))
-			flusher.Flush()
-		}
-	}
+	writeJSON(w, http.StatusOK, entries)
 }
+

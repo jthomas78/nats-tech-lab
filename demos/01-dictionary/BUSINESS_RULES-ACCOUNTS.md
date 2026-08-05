@@ -486,3 +486,30 @@ be toggled back at any time via `PATCH
 - **Enforced in:** `accounts/handler.go` (`updateBusinessUnit`);
   `refdata/internal/postgres/context_repository.go` (`ListByTenant`).
 - **Test:** integration against the full stack (Phase 22 E2E).
+
+## BR-AC18 — Admin token minting is isolated from the tenant lifecycle
+
+`MintAdminToken` mints a NATS user JWT under `PLATFORM` directly from its own
+signing key material (established at startup for every seeded account by
+`cmd/main.go`'s `ensureSigningKey`, same mechanism as a tenant's), independent
+of `accounts.Store`'s `Status`/`SigningKeySeed`/reactivation state machine —
+that machine governs tenant accounts only, and PLATFORM has no
+suspend/reactivate lifecycle to gate on. `GET /api/auth/adminConnectInfo`
+looks up the fixed `"platform"` row directly rather than going through
+`connectInfo`'s tenant-shaped, `Status`-gated lookup. The minted JWT carries
+subscribe-only permissions (no `$JS.API.>`, `$KV.>`, or publish grants at
+all — `Pub.Deny` is set to `>` explicitly, since an unset Allow list means
+"allow everything" in NATS permission semantics, not "allow nothing") scoped
+to `notify.accounts.account.>` and the REFDATA/RPCTRACE `notify.*` subjects
+Phase 23 adds (`notify._platform.refdata.>`, `notify._platform.rpctrace.>`).
+This is the Admin UI's PLATFORM-account browser connection
+(`frontend/admin/src/nats/usePlatformConnection.js`) — opened once at boot,
+never reconnected on tenant/BU switch, and the one connection the topbar's
+connection indicator is driven by for exactly that reason.
+
+- **Enforced in:** `auth/token.go` (`MintAdminToken`); `auth/handler.go`
+  (`adminConnectInfo`).
+- **Test:** `auth/token_test.go` (`MintAdminToken` — asserts the exact
+  `Sub.Allow` set, `Pub.Allow` empty, `Pub.Deny` contains `>`); `auth/
+  handler_test.go` (`GET /api/auth/adminConnectInfo` — 200 with a signing key
+  on record, 404 when PLATFORM isn't seeded, 409 with no signing key).

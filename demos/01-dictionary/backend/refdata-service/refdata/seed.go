@@ -364,6 +364,7 @@ var l10nSeed = []seedItem{
 	{"connection.disconnected", "disconnected", "desconectado", "ontkoppel"},
 	{"connection.error", "connection error", "error de conexión", "verbindingfout"},
 	{"context.business-unit", "BU", "BU", "BE"},
+	{"context.default", "<default>", "<predeterminado>", "<standaard>"},
 	{"nav.tenant", "Tenant", "Inquilino", "Huurder"},
 	{"tenant.switching", "switching…", "cambiando…", "wissel tans…"},
 	{"fallback.unreachable", "UI text: bundled (refdata unreachable)", "Texto de interfaz: incluido (datos de referencia no disponibles)", "Koppelvlakteks: ingebou (verwysingsdata onbereikbaar)"},

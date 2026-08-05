@@ -19,14 +19,11 @@
 //	GET    /api/shape-b/ships/{context}/{shipID}      read ship via KV cache → Postgres
 //	DELETE /api/shape-b/cache/{context}/{shipID}      evict cache key (demo the miss path)
 //	GET    /api/shape-c/fleet                         reconstruct fleet + containers from JetStream replay
-//	GET    /api/watch/{context}                       SSE stream of ship KV changes, both shapes
-//	GET    /api/watch-terminal/{context}              SSE stream of container + meta KV changes
 //	GET    /api/kv/buckets                             every KV bucket registered on the NATS server (+ status)
-//	GET    /api/kv/buckets/{bucket}/watch              SSE: bucket contents snapshot then live changes
+//	GET    /api/kv/buckets/{bucket}/entries             one-shot JSON array of current bucket contents (Phase 23 bootstrap; live changes arrive via notify.{context}.kv.{bucket}.{key}.changed)
 //	GET    /api/jetstream/streams                      names of every stream registered on the NATS server
-//	GET    /api/jetstream/watch                       SSE stream of live JetStream messages (DeliverNew)
-//	GET    /api/jetstream/stream                      SSE stream of all JetStream messages (DeliverAll)
-//	GET    /api/rpc-watch                              SSE stream of obs.rpc.* + obs.api.* request/reply traffic (Phase 12.10; api.* added Phase 16)
+//	GET    /api/jetstream/replay                      one-shot JSON array of all currently-retained JetStream messages (Phase 23 bootstrap; live tail arrives via notify.{context}.shipping.raw.*)
+//	GET    /api/rpctrace/replay                        one-shot JSON array of all currently-retained RPCTRACE entries (Phase 23 bootstrap; live tail arrives via notify._platform.rpctrace.entry)
 //	GET    /api/tenant                                 active tenant + switchable tenant list (Phase 13b)
 //	POST   /api/tenant/switch                          reconnect under a different tenant's NATS account (Phase 13b)
 //	GET    /api/nats/connections                       every active NATS connection (proxies the server's /connz, Phase 17c)
@@ -210,19 +207,16 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/shape-b/ships/{context}/{shipID}", h.getShipShapeB)
 	mux.HandleFunc("DELETE /api/shape-b/cache/{context}/{shipID}", h.evictShipCache)
 	mux.HandleFunc("GET /api/shape-c/fleet", h.getFleet)
-	mux.HandleFunc("GET /api/watch/{context}", h.watch)
-	mux.HandleFunc("GET /api/watch-terminal/{context}", h.watchTerminal)
 	mux.HandleFunc("GET /api/kv/buckets", h.listKVBuckets)
-	mux.HandleFunc("GET /api/kv/buckets/{bucket}/watch", h.watchKVBucket)
+	mux.HandleFunc("GET /api/kv/buckets/{bucket}/entries", h.kvBucketEntriesOnce)
 	mux.HandleFunc("GET /api/jetstream/streams", h.listStreams)
-	mux.HandleFunc("GET /api/jetstream/watch", h.watchJetStream)
-	mux.HandleFunc("GET /api/jetstream/stream", h.replayJetStream)
+	mux.HandleFunc("GET /api/jetstream/replay", h.jetstreamReplayOnce)
+	mux.HandleFunc("GET /api/rpctrace/replay", h.rpcTraceReplayOnce)
 	mux.HandleFunc("GET /api/refdata-demo/{context}/{type}/{code}", h.getRefdataDemo)
 	mux.HandleFunc("GET /api/refdata/types/{type}", h.listRefdataType)
 	mux.HandleFunc("GET /api/refdata/locales", h.listRefdataLocales)
 	mux.HandleFunc("GET /api/refdata/contexts", h.listRefdataContexts)
 	mux.HandleFunc("GET /api/refdata-watch", h.watchRefdata)
-	mux.HandleFunc("GET /api/rpc-watch", h.watchRPCObs)
 	mux.HandleFunc("GET /api/tenant", h.getTenant)
 	mux.HandleFunc("POST /api/tenant/switch", h.switchTenant)
 	mux.HandleFunc("GET /api/nats/connections", h.listNatsConnections)

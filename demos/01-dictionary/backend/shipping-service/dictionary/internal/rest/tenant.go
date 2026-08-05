@@ -192,6 +192,12 @@ func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath 
 	kvB := kvstore.New(js, domain.ShapeBBucketPrefix)
 	kvContainers := kvstore.New(js, domain.ContainerBucketPrefix)
 	kvMeta := kvstore.New(js, domain.MetaBucketPrefix)
+	// Phase 23: the Admin UI's KV inspector watches these over
+	// notify.{context}.kv.{bucket}.{key}.changed instead of the SSE
+	// watchKVBucket handler it replaces.
+	for _, kv := range []*kvstore.Store{kvA, kvB, kvContainers, kvMeta} {
+		kv.EnableNotify(nc, prev.Log)
+	}
 
 	projectors, err := registerProjectors(ctx, js, kvA, kvB, kvContainers, kvMeta, nc, prev.ShipRepo, prev.ContainerRepo, prev.Log)
 	if err != nil {

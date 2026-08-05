@@ -1,9 +1,13 @@
 // Pinia store = the browser-side projected read model. It is deliberately
 // the same idea as the server-side projections: state derived from an event
-// stream (here: KV watch → SSE), one layer further out. See CLAUDE.md.
+// stream (here, Phase 23: KV bootstrap fetch + notify.* subscribe on the
+// tenant NATS connection — previously KV watch → SSE), one layer further
+// out. See CLAUDE.md.
 import { defineStore } from 'pinia'
 
-import { getPorts, getRefdataContexts, watchUrl } from '../api'
+import { getKvBucketEntries, getPorts, getRefdataContexts } from '../api'
+import { useNatsConnection } from '../nats/useNatsConnection.js'
+import { parseKvNotifySubject } from '../nats/kvNotifySubject.js'
 
 export const useDictionaryStore = defineStore('dictionary', {
   state: () => ({
@@ -15,7 +19,7 @@ export const useDictionaryStore = defineStore('dictionary', {
     // rolling log of raw watch events, newest first
     events: [],
     connected: false,
-    _source: null,
+    _unsubscribe: null,
     // ports seen across all events so the shipping form can auto-populate
     seenPorts: [],
   }),
@@ -52,12 +56,22 @@ export const useDictionaryStore = defineStore('dictionary', {
       }
     },
 
-    connect() {
+    // Phase 23: replaces the /api/watch/{context} EventSource with a
+    // one-shot bootstrap fetch (getKvBucketEntries, both dict-a and dict-b)
+    // plus notify.{context}.kv.dict-a/dict-b.> subscribes on the tenant NATS
+    // connection. Bootstrap entries come back with the {context}. key prefix
+    // still attached (kv.go's kvBucketEntriesOnce reads the raw bucket,
+    // unlike the old SSE handler's kvstore.Store.Watch, which stripped it) —
+    // filtered and stripped here so shapeA/shapeB keep the same bare-key
+    // shape (e.g. "ship.SHIP1") ShapePanel's columns already expect.
+    async connect() {
       this.disconnect()
       this.shapeA = {}
       this.shapeB = {}
       this.events = []
       this.seenPorts = []
+
+      const { connected: tenantConnected, subscribe } = useNatsConnection()
 
       // Seed the port list from the Postgres-backed ports registry
       // (BR-017/BR-018) so the dropdown reflects real, arrival-eligible
@@ -66,18 +80,47 @@ export const useDictionaryStore = defineStore('dictionary', {
         .then((res) => this.mergePorts(res?.values ?? []))
         .catch(() => {})
 
-      const source = new EventSource(watchUrl(this.context))
-      this._source = source
-      source.onopen = () => { this.connected = true }
-      source.onerror = () => { this.connected = false }
-      source.onmessage = (msg) => { this.applyWatchEvent(JSON.parse(msg.data)) }
+      // Subscribe before the bootstrap fetch, same ordering sse.go's own
+      // watchRefdata/watchRPCObs use: a message published in the narrow gap
+      // before the subscribe took effect could in principle be re-applied by
+      // the bootstrap fetch below, which is harmless (applyWatchEvent is
+      // idempotent per key) — the alternative order risks losing it entirely.
+      const buckets = [['A', 'dict-a'], ['B', 'dict-b']]
+      const unsubs = tenantConnected.value
+        ? buckets.map(([shape, bucket]) =>
+            subscribe(`notify.${this.context}.kv.${bucket}.>`, (value, subject) => {
+              const parsed = parseKvNotifySubject(subject)
+              if (!parsed) return
+              this.applyWatchEvent(
+                value === null
+                  ? { shape, key: parsed.key, op: 'DEL' }
+                  : { shape, key: parsed.key, op: 'PUT', revision: undefined, value },
+              )
+            }),
+          )
+        : []
+      this._unsubscribe = () => unsubs.forEach((u) => u())
+      this.connected = tenantConnected.value
+
+      for (const [shape, bucket] of buckets) {
+        try {
+          const rows = await getKvBucketEntries(bucket)
+          const prefix = this.context + '.'
+          for (const row of rows ?? []) {
+            if (!row.key.startsWith(prefix)) continue
+            this.applyWatchEvent({
+              shape, key: row.key.slice(prefix.length), op: 'PUT', revision: row.revision, value: row.value,
+            })
+          }
+        } catch {
+          // best-effort snapshot — live subscribe above still works even if this fails
+        }
+      }
     },
 
     disconnect() {
-      if (this._source) {
-        this._source.close()
-        this._source = null
-      }
+      this._unsubscribe?.()
+      this._unsubscribe = null
       this.connected = false
     },
 

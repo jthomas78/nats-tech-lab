@@ -1,9 +1,15 @@
 ---
 name: admin-ui-realtime-transport-options
-description: Design discussion that led to Phase 15 — replacing per-panel SSE with a single browser-side NATS WebSocket connection; **resolved for Sea Freight Flow only**, Admin/Dictionary UIs still on SSE
+description: Design discussion that led to Phase 15 — replacing per-panel SSE with a single browser-side NATS WebSocket connection; resolved for Sea Freight Flow (Phase 15) and now for frontend/admin (Phase 23, IMPLEMENTED 2026-08-04, live verification still pending)
 metadata:
   type: project
 ---
+
+**Phase 23 (IMPLEMENTED 2026-08-04 — code landed, tests green; live docker verification not yet run — see `Main-POC-Plan.md`):** `frontend/admin` got the same SSE→NATS-WebSocket treatment as Phase 15, with a **dual-connection model**: `usePlatformConnection.js` (new `MintAdminToken` under `PLATFORM`, minted independently of the tenant `Store`/`SigningKeySeed` lifecycle — PLATFORM isn't a tenant, `BUSINESS_RULES-ACCOUNTS.md` BR-AC18) plus `useNatsConnection.js` (existing tenant `MintBrowserToken` flow, reused from Phase 15's pattern, sharing a `connectionFactory.js` with the platform one). The topbar connection indicator now reads the Admin/Platform connection specifically, decoupling it from BU/tenant selection (the bug this whole thing started from: `store.connected` used to be a side effect of `/api/watch/{context}` failing on an empty context). KV/JetStream/RPCTRACE watch moved to new `notify.*` publish points (`internal/kvstore.Store.EnableNotify`; `eventhandler.publishRawNotify`/`RegisterRefdataNotify`/`RegisterRPCTraceNotify`) + one-shot REST bootstrap for replay (`GET /api/kv/buckets/{bucket}/entries`, `/api/jetstream/replay`, `/api/rpctrace/replay`) — not direct browser JetStream/KV API access.
+
+**Scope correction found mid-implementation:** `watchRefdata`/`GET /api/refdata-watch` was NOT migrated or deleted — it backs `shared/refdata/useRefdataLabels.js`'s UI-text/label refresh, used by every frontend (admin, seafreight-app, refdata), not just the four admin-specific panels Phase 23 targeted (dictionary watch, KV inspector, JetStream watch, RPC panel). The original Phase 23 plan's `notify.*` bullet list conflated this shared SSE endpoint with the four in-scope ones — caught before landing; it now lives untouched in its own `rest/refdata_watch.go`. **Correction to this note's earlier text below**: there is no `DEFAULT` account in this system — RPCTRACE/REFDATA both already live on `PLATFORM` (confirmed via `bootstrap-operator.sh` and the old `sse.go`'s doc comments during Phase 23 design). See [[phase16_tenancy_taxonomy]] for account topology.
+
+**Remaining before this is fully done:** `nats/bootstrap-operator.sh --force` + `docker compose down -v && up --build` (needed — `shipping-admin` gained `notify._platform.>` publish permission, which requires regenerating creds) and a live multi-tab/connection-indicator/four-panel check. Not run yet — destructive (invalidates every existing JWT/creds file), needs an explicit go-ahead.
 
 **Resolution (Phase 15, DONE 2026-07-31 — scope: `frontend/seafreight-app` only):** option 4 below
 was built, not just discussed. `useNatsConnection.js` holds one `nats.ws` WebSocket per tab;
@@ -66,11 +72,12 @@ note (symptom + 3 SSE-side fixes + the 4th NATS-WebSocket option), kept as-is fo
 trail. Superseded by the Resolution note at the top for `seafreight-app`'s scope — still accurate
 background if the same question comes up for `frontend/admin`/`frontend/refdata`.
 
-**Relevant existing context if this resurfaces for Admin/Dictionary UIs:** the Admin UI's RPC panel
-already replays `obs.rpc.*` traffic via JetStream + SSE (BR-D29/RPCTRACE) — see the `RpcPanel.vue`
-/ `watchRPCObs` work. Any NATS-WebSocket redesign would need to account for that stream's existing
-JetStream-backed replay-then-live semantics, not just simple live pub-sub. Note also that Phase 15
-deliberately left cross-account imports (DEFAULT-account streams like RPCTRACE/REFDATA) out of
-scope — a browser JWT scoped to one tenant account can't see them, so the RPC panel's own
-DEFAULT-account SSE watch would still be needed even after a WebSocket migration, not replaced by
-one.
+**How Phase 23 actually handled RPCTRACE's replay-then-live semantics** (superseding the paragraph
+this replaces, which predated the implementation): `RpcPanel.vue` no longer has a single JetStream-
+backed replay-then-live stream — it does a one-shot `GET /api/rpctrace/replay` bootstrap fetch
+(server-side, still reads the RPCTRACE JetStream stream via the ordered-consumer API, since the
+browser never gets `$JS.API.>` access) followed by a `notify._platform.rpctrace.entry` subscribe on
+the Admin/Platform connection for anything published afterward. `obs.api.>` (the tenant-side half)
+is no longer relayed through a Go handler at all — the tenant browser JWT already carries a direct
+`obs.api.>` subscribe grant, so the panel subscribes to it straight on its own tenant connection.
+`frontend/refdata` did not get any of this treatment (still out of scope, per the goal line above).

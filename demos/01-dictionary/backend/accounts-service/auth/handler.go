@@ -10,6 +10,7 @@
 // Routes (no auth gate — see connectInfo's doc comment for why):
 //
 //	GET   /api/auth/connectInfo?tenant={name}   mint a browser NATS user JWT for tenant
+//	GET   /api/auth/adminConnectInfo            mint a browser NATS user JWT under PLATFORM (Phase 23, BR-AC18)
 //	GET   /api/auth/tenants                     list switchable tenant names
 //	POST  /api/auth/login                       placeholder for the future WorkOS flow (BR-UA01) — 501
 package auth
@@ -49,8 +50,14 @@ func NewHandlers(store *accounts.Store, wsURL string, log *slog.Logger) *Handler
 	return &Handlers{Store: store, WSUrl: wsURL, Log: log}
 }
 
+// platformAccountName is accounts-service's own lowercase row name for the
+// seeded PLATFORM account (cmd/main.go's seedPreexistingAccounts) — the
+// same identity ensureSigningKey establishes a signing key for at startup.
+const platformAccountName = "platform"
+
 func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/auth/connectInfo", h.connectInfo)
+	mux.HandleFunc("GET /api/auth/adminConnectInfo", h.adminConnectInfo)
 	mux.HandleFunc("GET /api/auth/tenants", h.tenants)
 	mux.HandleFunc("POST /api/auth/login", h.login)
 }
@@ -96,6 +103,40 @@ func (h *Handlers) connectInfo(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.Log.Error("mint browser token", "tenant", tenant, "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to mint browser credential")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, info)
+}
+
+// adminConnectInfo mints and returns a fresh browser NATS credential for the
+// Admin UI's own PLATFORM-account connection (Phase 23, BR-AC18). PLATFORM
+// is not a tenant — deliberately not routed through connectInfo's
+// Status-gated tenant lookup; it looks up the fixed "platform" row directly
+// and mints via MintAdminToken's own restricted, sub-only permission
+// profile instead of MintBrowserToken's tenant-shaped one.
+func (h *Handlers) adminConnectInfo(w http.ResponseWriter, r *http.Request) {
+	acc, err := h.Store.Get(r.Context(), platformAccountName)
+	if errors.Is(err, accounts.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "platform account not seeded")
+		return
+	}
+	if err != nil {
+		h.Log.Error("look up platform account", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if acc.SigningKeySeed == "" {
+		// cmd/main.go's ensureSigningKey establishes this at every startup —
+		// an empty seed here means that step hasn't run yet or failed.
+		writeError(w, http.StatusConflict, "platform account has no signing key on record")
+		return
+	}
+
+	info, err := MintAdminToken(acc.PublicKey, acc.SigningKeySeed, h.WSUrl)
+	if err != nil {
+		h.Log.Error("mint admin token", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to mint admin credential")
 		return
 	}
 

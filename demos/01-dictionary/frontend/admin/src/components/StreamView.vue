@@ -2,10 +2,11 @@
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
 import Tag from 'primevue/tag'
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 
 import SubjectPath from './SubjectPath.vue'
-import { jetstreamStreamUrl, jetstreamWatchUrl } from '../api'
+import { getJetstreamReplay } from '../api'
+import { useNatsConnection } from '../nats/useNatsConnection.js'
 
 // One stream's content: Messages (live, DeliverNew) + Stream (replay,
 // DeliverAll). Kept alive via v-show at the call site rather than v-if, so a
@@ -49,41 +50,74 @@ function batchedAppender(targetRef, { prepend = false } = {}) {
   return push
 }
 
-// ── Messages (live, DeliverNew) ──────────────────────────────────────────────
+// ── Messages (live) — Phase 23: notify.{context}.shipping.raw.{entity}.{event}
+// on the tenant NATS connection, replacing the DeliverNew EventSource. Only
+// wired for the SHIPPING stream: that's the only stream
+// eventhandler.publishRawNotify covers (Main-POC-Plan.md Phase 23) — a
+// stream other than SHIPPING (e.g. REFDATA) simply has no raw notify
+// publisher, so this tab stays empty for it rather than silently
+// misreporting "live" for a feed that will never arrive.
+const { connected: tenantConnected, subscribe } = useNatsConnection()
 const liveEvents = ref([])
 const liveConnected = ref(false)
-let liveSource = null
+let unsubscribeLive = null
+
+// Reconstructs an evt.{context}.shipping.{entity}.{id}.{event} display
+// subject from the notify subject + raw event payload, so subjectSeverity/
+// subjectLabel/SubjectPath below behave identically to the old SSE feed's
+// jsEvent.subject.
+function parseRawShippingNotifySubject(subject) {
+  const parts = subject.split('.')
+  // notify.{context}.shipping.raw.{entity}.{event}
+  if (parts.length !== 6 || parts[0] !== 'notify' || parts[2] !== 'shipping' || parts[3] !== 'raw') return null
+  return { context: parts[1], entity: parts[4], event: parts[5] }
+}
+
+// Live rows have no JetStream sequence number (they never touch JetStream —
+// notify.* is plain core NATS pub/sub) but the "live-" + seq key in the
+// template needs something unique per row, so this synthesizes one.
+let liveSeqCounter = 0
 
 function connectLive() {
+  if (props.stream !== 'SHIPPING' || !tenantConnected.value) return
   const appendLive = batchedAppender(liveEvents, { prepend: true })
-  liveSource = new EventSource(jetstreamWatchUrl(props.stream))
-  liveSource.onopen = () => { liveConnected.value = true }
-  liveSource.onmessage = (e) => appendLive(JSON.parse(e.data))
-  liveSource.onerror = () => { liveConnected.value = false }
+  unsubscribeLive = subscribe(`notify.*.shipping.raw.>`, (payload, subject) => {
+    const parsed = parseRawShippingNotifySubject(subject)
+    if (!parsed) return
+    const id = payload?.shipID ?? payload?.containerID ?? ''
+    appendLive({
+      subject: `evt.${parsed.context}.shipping.${parsed.entity}.${id}.${parsed.event}`,
+      seq: `live-${++liveSeqCounter}`,
+      timestamp: payload?.occurredAt ?? new Date().toISOString(),
+      payload,
+    })
+  })
+  liveConnected.value = true
 }
 
 function disconnectLive() {
-  liveSource?.close()
+  unsubscribeLive?.()
+  unsubscribeLive = null
   liveConnected.value = false
 }
 
-// ── Stream (replay all, DeliverAll) ──────────────────────────────────────────
+// ── Stream (replay all) — Phase 23: one-shot GET /api/jetstream/replay,
+// replacing the DeliverAll EventSource. A snapshot at request time, not a
+// live feed — re-fetch (e.g. re-mount) to see anything published since.
 const streamEvents = ref([])
 const streamConnected = ref(false)
-let streamSource = null
 
-function connectStream() {
-  // append newest last so this reads chronologically
-  const appendStream = batchedAppender(streamEvents)
-  streamSource = new EventSource(jetstreamStreamUrl(props.stream))
-  streamSource.onopen = () => { streamConnected.value = true }
-  streamSource.onmessage = (e) => appendStream(JSON.parse(e.data))
-  streamSource.onerror = () => { streamConnected.value = false }
+async function connectStream() {
+  streamConnected.value = false
+  try {
+    streamEvents.value = (await getJetstreamReplay(props.stream)) ?? []
+    streamConnected.value = true
+  } catch {
+    streamEvents.value = []
+  }
 }
 
 function disconnectStream() {
-  streamSource?.close()
-  streamSource = null
   streamConnected.value = false
 }
 
@@ -92,6 +126,12 @@ onMounted(() => {
   connectStream()
 })
 onUnmounted(() => { disconnectLive(); disconnectStream() })
+
+// Retry the live subscription once the tenant connection comes up (mount-
+// order race — see KvInspector.vue's identical guard).
+watch(tenantConnected, (isConnected) => {
+  if (isConnected) connectLive()
+})
 
 const activeSubTab = ref('messages')
 

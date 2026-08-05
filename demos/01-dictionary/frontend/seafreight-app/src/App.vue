@@ -143,13 +143,22 @@ onUnmounted(() => {
            moment a connection succeeds again. -->
       <Tag v-if="lastError" data-testid="connection-error" severity="danger" :value="t('connection.error')" :title="lastError" />
       <label class="lab-muted" for="context">{{ t('context.business-unit') }}</label>
+      <!-- Disabled + `<default>` when the tenant has no real BU registered
+           (availableContexts empty, Phase 22's _default_bu case) — nothing
+           to choose between, and the reserved context name shouldn't render
+           as if it were a normal selectable option. -->
       <Select
         id="context"
         :model-value="store.context"
         :options="store.availableContexts"
+        :disabled="!store.availableContexts.length"
         size="small"
         @update:model-value="store.setContext($event)"
-      />
+      >
+        <template #value="{ value }">
+          {{ store.availableContexts.length ? value : t('context.default') }}
+        </template>
+      </Select>
       <label class="lab-muted" for="locale">{{ t('nav.language') }}</label>
       <Select
         id="locale"

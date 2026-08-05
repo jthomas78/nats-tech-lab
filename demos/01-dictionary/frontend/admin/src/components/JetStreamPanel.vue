@@ -6,13 +6,12 @@ import { listStreams } from '../api'
 
 // One tab per stream actually registered on the NATS server — not a
 // user-managed open set. Only the ACTIVE tab's StreamView is mounted: each
-// one opens two EventSource connections (Messages + Stream), and browsers
-// cap concurrent connections per origin at 6 (HTTP/1.1) — counting this
-// app's KV-watch and refdata-label SSE connections too, keeping every
-// registered stream connected in the background would exhaust that budget
-// as soon as a second or third stream shows up. Switching tabs disconnects
-// the old stream and connects the new one fresh (the "Stream" replay tab
-// re-fetches full history on every mount, so nothing is lost by this).
+// one holds a notify.*.shipping.raw.> subscription on the shared tenant NATS
+// connection (Messages) plus a one-shot REST replay fetch (Stream, Phase
+// 23) — kept to one active tab at a time so switching tabs doesn't pile up
+// subscriptions no one's looking at. Switching tabs disconnects the old
+// stream and connects the new one fresh (the "Stream" tab re-fetches full
+// history on every mount, so nothing is lost by this).
 const REFRESH_MS = 15000
 
 const streams = ref([])

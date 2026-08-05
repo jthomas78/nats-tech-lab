@@ -3,16 +3,20 @@ import InputText from 'primevue/inputtext'
 import Tag from 'primevue/tag'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
-import { kvBucketWatchUrl, listKVBuckets } from '../api'
+import { getKvBucketEntries, listKVBuckets } from '../api'
+import { useNatsConnection } from '../nats/useNatsConnection.js'
+import { parseKvNotifySubject } from '../nats/kvNotifySubject.js'
 
 // KV inspector: every registered KV bucket in a left rail, the selected
-// bucket's current contents + live update feed on the right. A NATS KV
-// WatchAll replays the bucket's current entries, marks end-of-snapshot, then
-// streams live changes — so one SSE connection per bucket drives BOTH the
-// contents table (all entries) and the "recent updates" feed (live changes
-// only). Only the selected bucket is connected at a time: each connection
-// holds one of the browser's ~6-per-origin slots, so we don't keep every
-// bucket streaming in the background.
+// bucket's current contents + live update feed on the right. Phase 23: a
+// one-shot GET /api/kv/buckets/{bucket}/entries fetches the current contents
+// snapshot, then a notify.*.kv.{bucket}.> subscribe on the tenant NATS
+// connection drives the "recent updates" feed — replacing the single
+// SSE/WatchAll connection that used to serve both. Cross-context by design
+// (matching the old SSE handler): the subscribe wildcards the context token
+// since this panel inspects every business unit in the bucket, not just the
+// one currently selected in the topbar. Only the selected bucket is
+// subscribed at a time, mirroring the old "one connection at a time" intent.
 const REFRESH_MS = 15000
 const FEED_CAP = 40
 
@@ -92,51 +96,54 @@ async function refreshBuckets() {
 const activeStatus = computed(() => buckets.value.find((b) => b.bucket === activeBucket.value))
 
 // ── Selected bucket: contents snapshot + live feed ─────────────────────────────
+const { connected: tenantConnected, subscribe } = useNatsConnection()
 const entries = reactive(new Map()) // key → { key, value, revision, created }
 const feed = ref([]) // live changes only, newest first
-const connected = ref(false)
 const loading = ref(false)
-let source = null
+let unsubscribe = null
 
 function resetBucketState() {
   entries.clear()
   feed.value = []
   loading.value = true
-  connected.value = false
 }
 
-function connectBucket(bucket) {
+async function connectBucket(bucket) {
   disconnectBucket()
   resetBucketState()
-  source = new EventSource(kvBucketWatchUrl(bucket))
-  source.onopen = () => { connected.value = true }
-  source.onerror = () => { connected.value = false }
-  source.onmessage = (e) => {
-    const change = JSON.parse(e.data)
-    if (change.op === 'INIT_DONE') {
-      loading.value = false
-      return
-    }
+
+  if (!tenantConnected.value) return // watch(tenantConnected) below retries once it's up
+
+  unsubscribe = subscribe(`notify.*.kv.${bucket}.>`, (value, subject) => {
+    const parsed = parseKvNotifySubject(subject)
+    if (!parsed) return
+    const { key } = parsed
+    const change = value === null
+      ? { key, op: 'DEL' }
+      : { key, op: 'PUT', value, revision: undefined, created: new Date().toISOString() }
     if (change.op === 'PUT') {
-      entries.set(change.key, {
-        key: change.key,
-        value: change.value,
-        revision: change.revision,
-        created: change.created,
-      })
+      entries.set(key, { key, value: change.value, revision: change.revision, created: change.created })
     } else {
-      entries.delete(change.key)
+      entries.delete(key)
     }
-    if (change.live) {
-      feed.value = [{ ...change, at: new Date().toLocaleTimeString() }, ...feed.value].slice(0, FEED_CAP)
+    feed.value = [{ ...change, at: new Date().toLocaleTimeString() }, ...feed.value].slice(0, FEED_CAP)
+  })
+
+  try {
+    const rows = await getKvBucketEntries(bucket)
+    for (const row of rows ?? []) {
+      entries.set(row.key, { key: row.key, value: row.value, revision: row.revision, created: row.created })
     }
+  } catch {
+    // best-effort snapshot — live feed above still works even if this fails
+  } finally {
+    loading.value = false
   }
 }
 
 function disconnectBucket() {
-  source?.close()
-  source = null
-  connected.value = false
+  unsubscribe?.()
+  unsubscribe = null
 }
 
 let refreshTimer = null
@@ -147,6 +154,13 @@ onMounted(() => {
 onUnmounted(() => {
   clearInterval(refreshTimer)
   disconnectBucket()
+})
+
+// Retry the active bucket's subscription once the tenant connection comes up
+// (covers the mount-order race: activeBucket can be set before connect()
+// finishes authenticating).
+watch(tenantConnected, (isConnected) => {
+  if (isConnected && activeBucket.value) connectBucket(activeBucket.value)
 })
 
 // Switch the single live connection whenever the selected bucket changes.
@@ -251,7 +265,7 @@ function ttlLabel(seconds) {
       <header class="detail-head">
         <div class="detail-title">
           <code class="bucket-name">{{ activeBucket }}</code>
-          <Tag :severity="connected ? 'success' : 'danger'" :value="connected ? 'watching' : 'off'" />
+          <Tag :severity="tenantConnected ? 'success' : 'danger'" :value="tenantConnected ? 'watching' : 'off'" />
         </div>
         <div class="detail-meta lab-muted">
           <span><strong>{{ entries.size }}</strong> keys</span>

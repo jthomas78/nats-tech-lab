@@ -13,6 +13,7 @@ export const l10nFallbackEn = {
   "connection.disconnected": "disconnected",
   "connection.error": "connection error",
   "context.business-unit": "BU",
+  "context.default": "<default>",
   "nav.tenant": "Tenant",
   "tenant.switching": "switching…",
   "fallback.unreachable": "UI text: bundled (refdata unreachable)",

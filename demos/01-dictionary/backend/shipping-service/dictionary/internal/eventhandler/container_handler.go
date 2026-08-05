@@ -44,7 +44,7 @@ func RegisterContainers(
 		return nil, err
 	}
 	return cons.Consume(func(msg jetstream.Msg) {
-		aggregate, id, _, subjectOK := domain.SubjectDetails(msg.Subject())
+		aggregate, id, eventType, subjectOK := domain.SubjectDetails(msg.Subject())
 		var event domain.ContainerEvent
 		if err := json.Unmarshal(msg.Data(), &event); err != nil {
 			log.Error("drop malformed container event", "subject", msg.Subject(), "err", err)
@@ -80,6 +80,9 @@ func RegisterContainers(
 			return
 		}
 		publishNotify(nc, log, event.Context, "container", data)
+		if rawData, err := json.Marshal(event); err == nil {
+			publishRawNotify(nc, log, event.Context, "container", eventType, rawData)
+		}
 		_ = msg.Ack()
 	})
 }

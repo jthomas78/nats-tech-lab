@@ -5,27 +5,30 @@ import Tag from 'primevue/tag'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
 import SubjectPath from './SubjectPath.vue'
-import { rpcWatchUrl } from '../api'
-import { useTenantStore } from '../stores/tenant'
+import { getRpcTraceReplay } from '../api'
+import { useNatsConnection } from '../nats/useNatsConnection.js'
+import { usePlatformConnection } from '../nats/usePlatformConnection.js'
 
 // Request/Reply panel v2 (Main-POC-Plan.md Phase 17b) — rebuilt to match the
 // approved static reference, frontend/admin/request-reply-reference.html.
 // Traffic: obs.rpc.* (backend-to-backend, Phase 12.10) plus obs.api.*
-// (browser-to-service, Phase 16). A connection replays up to the last 10
-// minutes of retained obs.rpc.* traffic from RPCTRACE before switching to
-// live delivery (BR-D29, ARCHITECTURE-COMMUNICATIONS.md §6); obs.api.* is
-// live-only — it publishes inside the active tenant's NATS account, which
-// RPCTRACE (PLATFORM account) doesn't capture. The backend sends replayed
-// and live events identically over the same SSE stream, so this component
-// doesn't distinguish them; rows just appear in the order the server
-// emitted them. Request and reply arrive as two separate obs.rpc.*/
-// obs.api.* messages sharing a correlationId (the request's reply-to
-// inbox); this pairs them into one row per call instead of two unrelated
-// list entries.
+// (browser-to-service, Phase 16). Phase 23 replaces the merged SSE stream
+// with two direct subscriptions, one per connection: obs.api.* on the
+// tenant NATS connection (the tenant browser JWT already carries a direct
+// obs.api.> subscribe grant, auth/token.go's MintBrowserToken — this app
+// subscribes to it straight, no backend relay needed) and a one-shot
+// GET /api/rpctrace/replay bootstrap + notify._platform.rpctrace.entry live
+// subscribe on the PLATFORM connection (obs.rpc.*/RPCTRACE, BR-D29 — see
+// eventhandler.RegisterRPCTraceNotify). Request and reply arrive as two
+// separate messages sharing a correlationId (the request's reply-to inbox);
+// this pairs them into one row per call instead of two unrelated list
+// entries.
 //
-// The server pins its obs.api.> subscription to the tenant that was active
-// when the SSE connection opened (rest/sse.go watchRPCObs), so a tenant
-// switch reconnects — same pattern as the KV watches in stores/*.js.
+// The tenant connection reconnects on tenant switch (useNatsConnection.js's
+// switchTenant, called from stores/tenant.js) — this component re-subscribes
+// obs.api.> whenever that connection's `connected` ref flips back to true,
+// the same defensive pattern KvInspector.vue/StreamView.vue use, rather than
+// watching the tenant store directly.
 //
 // Headers/timestamp/payloadBytes (BR-D36/BR-026, Phase 17a) are optional on
 // the wire — an event retained before that change, or ever missing them,
@@ -85,34 +88,62 @@ function upsertRow(event) {
   }
 }
 
-const connected = ref(false)
-let source = null
+const { connected: tenantConnected, subscribe: subscribeTenant } = useNatsConnection()
+const { connected: platformConnected, subscribe: subscribePlatform } = usePlatformConnection()
+const connected = computed(() => tenantConnected.value || platformConnected.value)
 
-function connect() {
-  source = new EventSource(rpcWatchUrl())
-  source.onopen = () => { connected.value = true }
-  source.onerror = () => { connected.value = false }
-  source.onmessage = (e) => upsertRow(JSON.parse(e.data))
+let unsubscribeApi = null
+let unsubscribeRpcTrace = null
+
+function connectApi() {
+  if (!tenantConnected.value) return
+  unsubscribeApi = subscribeTenant('obs.api.>', upsertRow)
 }
 
-function disconnect() {
-  source?.close()
-  source = null
-  connected.value = false
+function disconnectApi() {
+  unsubscribeApi?.()
+  unsubscribeApi = null
 }
 
-onMounted(connect)
-onUnmounted(disconnect)
+async function connectRpcTrace() {
+  try {
+    const entries = await getRpcTraceReplay()
+    for (const raw of entries ?? []) upsertRow(raw)
+  } catch {
+    // best-effort replay — live subscribe below still works even if this fails
+  }
+  if (!platformConnected.value) return
+  unsubscribeRpcTrace = subscribePlatform('notify._platform.rpctrace.entry', upsertRow)
+}
 
-// Reconnect on tenant switch so the server re-pins its obs.api.>
-// subscription to the new tenant's connection. Rows are kept: the obs.rpc.*
-// replay would re-deliver most of them anyway (rowsById upserts by
-// correlationId, so replayed duplicates collapse in place).
-const tenantStore = useTenantStore()
-watch(() => tenantStore.tenant, (next, prev) => {
-  if (prev === null || next === prev) return // initial load, not a switch
-  disconnect()
-  connect()
+function disconnectRpcTrace() {
+  unsubscribeRpcTrace?.()
+  unsubscribeRpcTrace = null
+}
+
+onMounted(() => {
+  connectApi()
+  connectRpcTrace()
+})
+onUnmounted(() => {
+  disconnectApi()
+  disconnectRpcTrace()
+})
+
+// Re-subscribe whenever either connection (re)establishes — tenant switch,
+// a dropped WebSocket reconnecting, or the initial connect landing after
+// mount all flip these refs the same way. Rows already collected are kept;
+// rowsById upserts by correlationId, so a replayed/re-delivered duplicate
+// collapses in place rather than duplicating a row.
+watch(tenantConnected, (isConnected) => {
+  disconnectApi()
+  if (isConnected) connectApi()
+})
+watch(platformConnected, (isConnected) => {
+  if (isConnected) {
+    disconnectRpcTrace()
+    unsubscribeRpcTrace = subscribePlatform('notify._platform.rpctrace.entry', upsertRow)
+  }
 })
 
 // ── Pause — freezes which rows are VISIBLE, not the SSE connection itself.

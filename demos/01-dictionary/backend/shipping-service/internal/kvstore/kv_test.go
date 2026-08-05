@@ -19,7 +19,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 )
 
-func newJSForKV() jetstream.JetStream {
+func newJSForKV() (jetstream.JetStream, *nats.Conn) {
 	GinkgoHelper()
 	opts := &server.Options{JetStream: true, StoreDir: GinkgoT().TempDir(), Port: -1}
 	srv, err := server.NewServer(opts)
@@ -34,19 +34,20 @@ func newJSForKV() jetstream.JetStream {
 
 	js, err := jetstream.New(nc)
 	Expect(err).NotTo(HaveOccurred())
-	return js
+	return js, nc
 }
 
 var _ = Describe("KVStore — per-tenant bucket with context-prefixed keys", func() {
 	var (
 		ctx   context.Context
 		js    jetstream.JetStream
+		nc    *nats.Conn
 		store *kvstore.Store
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		js = newJSForKV()
+		js, nc = newJSForKV()
 		store = kvstore.New(js, "dict-a")
 	})
 
@@ -177,6 +178,53 @@ var _ = Describe("KVStore — per-tenant bucket with context-prefixed keys", fun
 
 			Consistently(watcher.Updates(), 300*time.Millisecond).ShouldNot(Receive(),
 				"acme-pacific-fleet watcher must not receive the acme-atlantic-fleet write")
+		})
+	})
+
+	Describe("EnableNotify", func() {
+		It("does not publish before EnableNotify is called", func() {
+			sub, err := nc.SubscribeSync("notify.>")
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(sub.Unsubscribe)
+
+			_, err = store.Put(ctx, "acme-pacific-fleet", "ship.SHIP1", []byte("v1"))
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = sub.NextMsg(200 * time.Millisecond)
+			Expect(err).To(MatchError(nats.ErrTimeout))
+		})
+
+		It("publishes notify.{context}.kv.{bucket}.{key}.changed with the new value after Put", func() {
+			store.EnableNotify(nc, nil)
+
+			sub, err := nc.SubscribeSync("notify.>")
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(sub.Unsubscribe)
+
+			_, err = store.Put(ctx, "acme-pacific-fleet", "ship.SHIP1", []byte("v1"))
+			Expect(err).NotTo(HaveOccurred())
+
+			msg, err := sub.NextMsg(2 * time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(msg.Subject).To(Equal("notify.acme-pacific-fleet.kv.dict-a.ship.SHIP1.changed"))
+			Expect(msg.Data).To(Equal([]byte("v1")))
+		})
+
+		It("publishes an empty-payload notify on Delete, distinguishing DEL from PUT", func() {
+			store.EnableNotify(nc, nil)
+			_, err := store.Put(ctx, "acme-pacific-fleet", "ship.SHIP1", []byte("v1"))
+			Expect(err).NotTo(HaveOccurred())
+
+			sub, err := nc.SubscribeSync("notify.>")
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(sub.Unsubscribe)
+
+			Expect(store.Delete(ctx, "acme-pacific-fleet", "ship.SHIP1")).To(Succeed())
+
+			msg, err := sub.NextMsg(2 * time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(msg.Subject).To(Equal("notify.acme-pacific-fleet.kv.dict-a.ship.SHIP1.changed"))
+			Expect(msg.Data).To(BeEmpty())
 		})
 	})
 })

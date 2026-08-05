@@ -96,6 +96,26 @@ var _ = Describe("notify.* publishes (Phase 15b)", func() {
 		Expect(state.Context).To(Equal(fleetCtx))
 	})
 
+	It("publishes notify.{context}.shipping.raw.ship.{event} with the raw event alongside the projected-state notify (Phase 23)", func() {
+		kvA := kvstore.New(js, "dict-a")
+		cc, err := eventhandler.RegisterShapeA(ctx, js, kvA, nc, log)
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(cc.Stop)
+
+		notifyCh := subscribeNotify(nc, "notify."+fleetCtx+".shipping.raw.ship.arrived")
+
+		ships := commands.NewShipHandler(jstream.NewPublisher(js), js, newFakePortRepo())
+		_, err = ships.ArrivePort(ctx, commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg"})
+		Expect(err).NotTo(HaveOccurred())
+
+		var payload []byte
+		Eventually(notifyCh, 3*time.Second).Should(Receive(&payload))
+		var event domain.ShipEvent
+		Expect(json.Unmarshal(payload, &event)).To(Succeed())
+		Expect(event.ShipID).To(Equal("orient-express"))
+		Expect(event.Port).To(Equal("Hamburg"))
+	})
+
 	It("publishes notify.{context}.shipping.container.changed with the full ContainerState after the container projector runs", func() {
 		kvContainers := kvstore.New(js, "container")
 		cc, err := eventhandler.RegisterContainers(ctx, js, kvContainers, nc, newFakeContainerRepo(), log)
@@ -118,6 +138,28 @@ var _ = Describe("notify.* publishes (Phase 15b)", func() {
 		Expect(state.ContainerID).To(Equal("TCKU1234567"))
 		Expect(state.TerminalPort).NotTo(BeNil())
 		Expect(*state.TerminalPort).To(Equal("Hamburg"))
+	})
+
+	It("publishes notify.{context}.shipping.raw.container.{event} with the raw event alongside the projected-state notify (Phase 23)", func() {
+		kvContainers := kvstore.New(js, "container")
+		cc, err := eventhandler.RegisterContainers(ctx, js, kvContainers, nc, newFakeContainerRepo(), log)
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(cc.Stop)
+
+		notifyCh := subscribeNotify(nc, "notify."+fleetCtx+".shipping.raw.container.registered")
+
+		portRepo := newFakePortRepo()
+		containers := commands.NewContainerHandler(jstream.NewPublisher(js), js, portRepo)
+		_, err = containers.RegisterContainer(ctx, commands.ContainerInput{
+			Context: fleetCtx, ContainerID: "TCKU9998887", Cargo: "steel", OriginPort: "Hamburg", DestPort: "Rotterdam",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		var payload []byte
+		Eventually(notifyCh, 3*time.Second).Should(Receive(&payload))
+		var event domain.ContainerEvent
+		Expect(json.Unmarshal(payload, &event)).To(Succeed())
+		Expect(event.ContainerID).To(Equal("TCKU9998887"))
 	})
 
 	It("publishes notify.{context}.shipping.meta.changed with the updated known-containers array when a new container is registered", func() {

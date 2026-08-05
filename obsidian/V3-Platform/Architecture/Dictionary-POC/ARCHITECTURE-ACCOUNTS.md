@@ -139,6 +139,48 @@ All three frontend CONTEXTS fallback arrays have been removed; context selectors
 are populated dynamically by `loadContexts()` on tenant connect. See
 `BUSINESS_RULES-ACCOUNTS.md` BR-AC15/16/17 for the enforcement rules.
 
+### Admin UI browser connections (Phase 23)
+
+`frontend/admin` holds two independent browser-side NATS WebSocket
+connections, not one — extending Phase 15's "browser holds its own NATS
+credential" model (previously Sea Freight Flow only) to the Admin UI's own
+EventSource/SSE streams:
+
+```mermaid
+flowchart TB
+    subgraph Browser["frontend/admin (one browser tab)"]
+        Tenant["useNatsConnection.js<br/>tenant connection"]
+        Platform["usePlatformConnection.js<br/>Admin/Platform connection"]
+    end
+    Tenant -- "GET /api/auth/connectInfo?tenant=" --> MintBrowser["MintBrowserToken<br/>(tenant account signing key)"]
+    Platform -- "GET /api/auth/adminConnectInfo" --> MintAdmin["MintAdminToken<br/>(PLATFORM signing key)"]
+    MintBrowser -.->|"api.&gt;/notify.&gt;/obs.api.&gt;<br/>reconnects on tenant switch"| Tenant
+    MintAdmin -.->|"sub-only: notify.accounts.account.&gt;,<br/>notify._platform.refdata.&gt;,<br/>notify._platform.rpctrace.&gt;<br/>publish denied entirely"| Platform
+```
+
+The two connections are not symmetric, and deliberately so:
+
+- **Tenant** (`useNatsConnection.js`) reconnects on every tenant switch —
+  same `MintBrowserToken` credential and permission profile Sea Freight Flow
+  already used (Phase 15c), just reused by a second app. Carries the
+  dictionary/KV/JetStream-raw `notify.*` subjects plus a direct `obs.api.>`
+  subscribe (added this phase for the Request/Reply panel's live tenant-side
+  tail).
+- **Admin/Platform** (`usePlatformConnection.js`) connects once at boot and
+  never reconnects on tenant/BU switch — PLATFORM has no tenant lifecycle to
+  switch against (see `MintAdminToken`'s doc comment, `auth/token.go`). This
+  is deliberate: the Admin UI's topbar connection indicator is driven by
+  *this* connection specifically, so "connected" stops being a side effect
+  of which tenant/BU happens to be selected, which is what it was under the
+  SSE-era `/api/watch/{context}` (empty context → connection error →
+  "disconnected," even though NATS itself was fine).
+
+See `BUSINESS_RULES-ACCOUNTS.md` BR-AC18 for `MintAdminToken`'s exact
+permission grant and why it's issued outside the tenant `Status`/
+`SigningKeySeed` lifecycle this section otherwise documents, and
+`ARCHITECTURE-COMMUNICATIONS.md` § 6 for how the Request/Reply panel splits
+`obs.rpc.*`/`obs.api.*` across these two connections.
+
 ### NATS operator-mode trust chain
 
 ```

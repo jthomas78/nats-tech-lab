@@ -101,37 +101,22 @@ export function listKVBuckets() {
   return request('/api/kv/buckets')
 }
 
-// ── SSE stream URLs ───────────────────────────────────────────────────────────
+// ── One-shot bootstrap reads (Phase 23) ──────────────────────────────────────
+// Replace the snapshot/replay half of the SSE streams below — each returns a
+// single JSON array reflecting current state at request time. Live updates
+// after this snapshot arrive over the tenant/platform NATS WebSocket
+// connections (src/nats/) via notify.* subscriptions instead.
 
-// One bucket's WatchAll feed: current contents (replay) → INIT_DONE → live
-// changes. Both the contents snapshot and the update feed come from this one
-// connection.
-export function kvBucketWatchUrl(bucket) {
-  return `/api/kv/buckets/${encodeURIComponent(bucket)}/watch`
+export function getKvBucketEntries(bucket) {
+  return request(`/api/kv/buckets/${encodeURIComponent(bucket)}/entries`)
 }
 
-
-export function watchUrl(context) {
-  return `/api/watch/${context}`
+export function getJetstreamReplay(stream = 'SHIPPING') {
+  return request(`/api/jetstream/replay?stream=${encodeURIComponent(stream)}`)
 }
 
-export function watchTerminalUrl(context) {
-  return `/api/watch-terminal/${context}`
-}
-
-export function jetstreamWatchUrl(stream = 'SHIPPING') {
-  return `/api/jetstream/watch?stream=${encodeURIComponent(stream)}`
-}
-export function jetstreamStreamUrl(stream = 'SHIPPING') {
-  return `/api/jetstream/stream?stream=${encodeURIComponent(stream)}`
-}
-
-// obs.rpc.* + obs.api.* request/reply traffic (Phase 12.10; api.* added
-// Phase 16) — replays up to the last 10 minutes of obs.rpc.* from RPCTRACE
-// on connect, then continues live (BR-D29); obs.api.* is live-only and
-// scoped to the active tenant.
-export function rpcWatchUrl() {
-  return '/api/rpc-watch'
+export function getRpcTraceReplay() {
+  return request('/api/rpctrace/replay')
 }
 
 // ── Tenant switch (Phase 13b) ─────────────────────────────────────────────────

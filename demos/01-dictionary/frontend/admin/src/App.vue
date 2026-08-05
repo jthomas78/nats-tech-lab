@@ -32,6 +32,7 @@ import { useL10nCopy } from '@refdata/useL10nCopy.js'
 import { i18n } from './i18n.js'
 import AppShell from '@ui-shell/AppShell.vue'
 import NavList from '@ui-shell/NavList.vue'
+import { usePlatformConnection } from './nats/usePlatformConnection.js'
 
 const store = useDictionaryStore()
 const tenantStore = useTenantStore()
@@ -44,6 +45,15 @@ const {
 const { usingFallback, partialFallback, connect: connectL10nCopy, disconnect: disconnectL10nCopy } = useL10nCopy()
 const { t } = useI18n()
 
+// Phase 23: the topbar connection indicator below is driven by this
+// PLATFORM-account connection specifically, not the tenant one — PLATFORM
+// has no tenant/BU lifecycle (auth/token.go's MintAdminToken doc comment),
+// so "connected" stops being a side effect of which tenant/BU happens to be
+// selected, which is what it was under the old /api/watch/{context}
+// EventSource (empty context → connection error → "disconnected", even
+// though NATS itself was fine).
+const platformConnection = usePlatformConnection()
+
 // ── View selection (grouped activity bar) — one view rendered at a time, no
 // router. The NATS group holds the four NATS surfaces (request/reply,
 // streams, KV, the shape read models); Postgres holds the canonical tables.
@@ -54,13 +64,13 @@ const sections = [
   {
     eyebrow: 'NATS',
     items: [
+      { key: 'accounts', label: 'Accounts', icon: IconAccounts },
       { key: 'connections', label: 'Connections', icon: IconConnections },
       { key: 'services', label: 'Services', icon: IconServices },
       { key: 'rpc', label: 'Request/Reply', icon: IconRpc },
       { key: 'streams', label: 'Streams', icon: IconStreams },
       { key: 'kv', label: 'KV Buckets', icon: IconKv },
       { key: 'shapes', label: 'CQRS Shapes', icon: IconShapes, badge: 3 },
-      { key: 'accounts', label: 'Accounts', icon: IconAccounts },
     ],
   },
   {
@@ -83,16 +93,24 @@ const SUBTITLES = {
 const subtitle = computed(() => SUBTITLES[activeView.value] ?? '')
 
 onMounted(async () => {
+  // Platform connection first (no tenant dependency, drives the connection
+  // indicator on its own) — fire-and-forget, its own connected/lastError
+  // refs track outcome.
+  platformConnection.connect().catch(() => {})
+  // tenantStore.refresh() also establishes the tenant NATS connection
+  // (Phase 23) and is awaited so loadContexts()/store.connect() below run
+  // against a settled connection attempt, not mid-authentication.
+  await tenantStore.refresh()
   await store.loadContexts()
   store.connect()
   connectRefdata()
   connectL10nCopy(i18n)
-  tenantStore.refresh()
 })
 onUnmounted(() => {
   store.disconnect()
   disconnectRefdata()
   disconnectL10nCopy()
+  platformConnection.disconnect()
 })
 </script>
 
@@ -107,7 +125,10 @@ onUnmounted(() => {
       <span class="lab-muted">{{ subtitle }}</span>
     </template>
     <template #topbar-right>
-      <Tag :severity="store.connected ? 'success' : 'danger'" :value="store.connected ? 'watching' : 'disconnected'" />
+      <Tag
+        :severity="platformConnection.connected.value ? 'success' : 'danger'"
+        :value="platformConnection.connected.value ? 'watching' : 'disconnected'"
+      />
       <!-- Phase 13b tenant selector — a different NATS account, not a fleet
            filter (CLAUDE.md/plan: must stay visually + functionally distinct
            from the Fleet selector below). "warning" severity is deliberate:
@@ -122,14 +143,6 @@ onUnmounted(() => {
         @update:model-value="tenantStore.setTenant($event)"
       />
       <Tag v-if="tenantStore.switching" severity="warning" :value="t('tenant.switching')" />
-      <label class="lab-muted" for="context">BU</label>
-      <Select
-        id="context"
-        :model-value="store.context"
-        :options="store.availableContexts"
-        size="small"
-        @update:model-value="store.setContext($event)"
-      />
       <label class="lab-muted" for="locale">{{ t('nav.language') }}</label>
       <Select
         id="locale"

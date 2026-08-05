@@ -71,13 +71,24 @@ export const usePortStore = defineStore('port', {
     // Fetches this tenant's BU list from accounts-service (Phase 22). Called
     // from stores/tenant.js on init/switch with the newly-active tenant name.
     // Only visible BUs are returned; a failed fetch leaves availableContexts
-    // empty with no stale fallback.
+    // empty with no stale fallback. `_default_bu` (BR-AC16 — auto-created,
+    // visible by default, silently covers an account with zero registered
+    // BUs) is filtered out of the *selectable* list here, same convention
+    // frontend/admin's dictionary.js already applies: an account with no
+    // real BU registered against it should read as "nothing to choose
+    // between," not offer the reserved placeholder as if it were a normal
+    // option. When that leaves the list empty, the store still targets
+    // `_default_bu` internally (ships/ports/etc. genuinely live there) —
+    // App.vue's Select just renders it as `<default>` and disables itself
+    // rather than showing the literal reserved name.
     async loadContexts(tenant) {
       try {
-        const contexts = await getBusinessUnits(tenant)
+        const contexts = (await getBusinessUnits(tenant)).filter((c) => !c.startsWith('_'))
         this.availableContexts = contexts
         if (contexts.length > 0 && !contexts.includes(this.context)) {
           this.context = contexts[0]
+        } else if (contexts.length === 0) {
+          this.context = '_default_bu'
         }
       } catch {
         this.availableContexts = []

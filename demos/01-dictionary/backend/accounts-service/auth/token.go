@@ -76,6 +76,13 @@ type ConnectInfo struct {
 // namespace. The grant therefore only needs to additionally restrict PUB
 // vs. SUB and rule out $KV.>/$JS.API.>/evt.> within that already-isolated
 // account.
+//
+// Sub also includes obs.api.> (Phase 23) — the "supportive" observability
+// side-channel that traces api.* request/reply traffic (never on a business
+// path, ARCHITECTURE-COMMUNICATIONS.md § 2). This is distinct from rpc.*,
+// which stays excluded per the rpc.* discussion above: obs.api.> only
+// observes traffic this same credential is already permitted to originate
+// (api.>), it doesn't grant reach into any new business subject.
 func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string) (ConnectInfo, error) {
 	signingKP, err := nkeys.FromSeed([]byte(accountSigningKeySeed))
 	if err != nil {
@@ -99,7 +106,7 @@ func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string) (
 	claims.Name = "browser-" + tenant
 	claims.IssuerAccount = accountPub
 	claims.Permissions.Pub.Allow.Add("api.>", "_INBOX.>")
-	claims.Permissions.Sub.Allow.Add("api.>", "notify.>", "_INBOX.>")
+	claims.Permissions.Sub.Allow.Add("api.>", "notify.>", "obs.api.>", "_INBOX.>")
 	claims.Expires = time.Now().Add(tokenTTL).Unix()
 
 	token, err := claims.Encode(signingKP)
@@ -112,5 +119,56 @@ func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string) (
 		JWT:      token,
 		NKeySeed: string(userSeed),
 		Tenant:   tenant,
+	}, nil
+}
+
+// MintAdminToken mints an ephemeral NATS user JWT under the PLATFORM
+// account for the Admin UI's own connection-health/observability surface
+// (Main-POC-Plan.md Phase 23, BR-AC18) — a distinct profile from
+// MintBrowserToken's tenant-shaped one, not a parameterization of it.
+// PLATFORM is not a tenant (no Status/Suspend/Reactivate lifecycle), so this
+// deliberately isn't "MintBrowserToken with tenant=platform": it has its own
+// subscribe-only subject set (notify.accounts.account.> plus the
+// REFDATA/RPCTRACE notify.* subjects Phase 23 adds) and, unlike
+// MintBrowserToken, no publish grant at all — this connection only watches,
+// it never issues commands. Pub is explicitly denied (Deny.Add(">")) rather
+// than left unset, because an empty/unset Allow list means "allow
+// everything" in NATS permission semantics, not "allow nothing".
+func MintAdminToken(accountPub, accountSigningKeySeed, wsURL string) (ConnectInfo, error) {
+	signingKP, err := nkeys.FromSeed([]byte(accountSigningKeySeed))
+	if err != nil {
+		return ConnectInfo{}, fmt.Errorf("load account signing key: %w", err)
+	}
+
+	userKP, err := nkeys.CreateUser()
+	if err != nil {
+		return ConnectInfo{}, fmt.Errorf("generate user key: %w", err)
+	}
+	userPub, err := userKP.PublicKey()
+	if err != nil {
+		return ConnectInfo{}, fmt.Errorf("user public key: %w", err)
+	}
+	userSeed, err := userKP.Seed()
+	if err != nil {
+		return ConnectInfo{}, fmt.Errorf("user seed: %w", err)
+	}
+
+	claims := jwt.NewUserClaims(userPub)
+	claims.Name = "admin-platform"
+	claims.IssuerAccount = accountPub
+	claims.Permissions.Pub.Deny.Add(">")
+	claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.rpctrace.>")
+	claims.Expires = time.Now().Add(tokenTTL).Unix()
+
+	token, err := claims.Encode(signingKP)
+	if err != nil {
+		return ConnectInfo{}, fmt.Errorf("encode user jwt: %w", err)
+	}
+
+	return ConnectInfo{
+		WSUrl:    wsURL,
+		JWT:      token,
+		NKeySeed: string(userSeed),
+		Tenant:   "platform",
 	}, nil
 }

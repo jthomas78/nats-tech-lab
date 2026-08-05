@@ -25,6 +25,17 @@ export default defineConfig({
       allow: [fileURLToPath(new URL('../../../..', import.meta.url))],
     },
     proxy: {
+      // Phase 15c/19 — accounts-service's own auth routes (connectInfo,
+      // adminConnectInfo, tenants). More specific than '/api' below, so
+      // Vite's prefix match picks this one first — mirrors
+      // seafreight-app/vite.config.js and nginx.conf's production rule.
+      // Without this, /api/auth/* silently falls through to the general
+      // '/api' rule below (shipping-service, port 7200) and 404s, since
+      // these routes only exist on accounts-service.
+      '/api/auth': {
+        target: 'http://localhost:7202',
+        changeOrigin: true,
+      },
       // Phase 14c — accounts-service, ahead of the general '/api' rule so
       // Vite's longest-prefix match picks it first. rewrite drops only the
       // '/api/platform' segment, mirroring nginx.conf's production rule.

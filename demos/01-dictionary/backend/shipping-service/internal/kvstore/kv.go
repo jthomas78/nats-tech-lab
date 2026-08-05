@@ -12,9 +12,11 @@ package kvstore
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -26,12 +28,29 @@ type Store struct {
 	js     jetstream.JetStream
 	prefix string // also the bucket name
 
+	notifyNC  *nats.Conn    // optional (nil until EnableNotify) — see Put's notify publish
+	notifyLog *slog.Logger
+
 	mu sync.Mutex
 	kv jetstream.KeyValue // lazily initialised on first use
 }
 
 func New(js jetstream.JetStream, prefix string) *Store {
 	return &Store{js: js, prefix: prefix}
+}
+
+// EnableNotify turns on Put's best-effort
+// notify.{context}.kv.{bucket}.{key}.changed publish (Main-POC-Plan.md Phase
+// 23) so the Admin UI's KV inspector can watch bucket changes directly over
+// NATS instead of the SSE watchKVBucket handler it's replacing. Not part of
+// New's constructor signature deliberately — most of this package's ~20
+// existing call sites (mainly tests) have no use for it, and requiring nc at
+// construction would force every one of them to pass nil, the same
+// mechanical churn EnableNotify avoids. Unset (the default) means Put never
+// publishes, matching today's behavior exactly.
+func (s *Store) EnableNotify(nc *nats.Conn, log *slog.Logger) {
+	s.notifyNC = nc
+	s.notifyLog = log
 }
 
 // bucket returns the KV bucket, creating it on first call.
@@ -63,7 +82,29 @@ func (s *Store) Put(ctx context.Context, kvContext, key string, value []byte) (u
 	if err != nil {
 		return 0, err
 	}
-	return kv.Put(ctx, internalKey(kvContext, key), value)
+	rev, err := kv.Put(ctx, internalKey(kvContext, key), value)
+	if err == nil {
+		s.publishNotify(kvContext, key, value)
+	}
+	return rev, err
+}
+
+// publishNotify fires notify.{context}.kv.{bucket}.{key}.changed after a
+// successful Put or Delete. Nil-safe (no-op until EnableNotify is called) and
+// best-effort: a publish error is logged, never returned — notify.* is a
+// reactive-UI convenience, not a correctness requirement Put/Delete's own
+// success depends on, same convention as eventhandler.publishNotify. value is
+// nil for a Delete (the wire message carries zero bytes) — the KV inspector
+// distinguishes PUT from DEL by whether the notify payload is empty, since
+// this repo's own KV values are always non-empty JSON.
+func (s *Store) publishNotify(kvContext, key string, value []byte) {
+	if s.notifyNC == nil {
+		return
+	}
+	subject := "notify." + kvContext + ".kv." + s.prefix + "." + key + ".changed"
+	if err := s.notifyNC.Publish(subject, value); err != nil && s.notifyLog != nil {
+		s.notifyLog.Warn("kv notify publish failed", "subject", subject, "err", err)
+	}
 }
 
 // Get reads a key, returning the value and its revision.
@@ -86,7 +127,11 @@ func (s *Store) Delete(ctx context.Context, kvContext, key string) error {
 	if err != nil {
 		return err
 	}
-	return kv.Delete(ctx, internalKey(kvContext, key))
+	if err := kv.Delete(ctx, internalKey(kvContext, key)); err != nil {
+		return err
+	}
+	s.publishNotify(kvContext, key, nil)
+	return nil
 }
 
 // Keys lists all keys for the given context, with the context prefix stripped

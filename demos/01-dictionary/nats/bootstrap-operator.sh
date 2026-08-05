@@ -122,8 +122,16 @@ nsc add user --account PLATFORM shipping-admin >/dev/null
 # Ordered consumers for REFDATA/RPCTRACE require only their create/next API
 # subjects; reply inboxes are necessary for normal NATS request/reply. Do not
 # grant $JS.API.> or access to tenant streams/KV.
+# notify._platform.> (Phase 23) is this user's own re-publish target: the
+# eventhandler.RegisterRefdataNotify/RegisterRPCTraceNotify background
+# bridges consume REFDATA/RPCTRACE via the ordered-consumer API above and
+# republish onto notify._platform.refdata.>/notify._platform.rpctrace.entry
+# for the Admin UI's PLATFORM-account browser connection (auth/token.go's
+# MintAdminToken) to subscribe to directly — a narrow publish grant, not the
+# broad notify.> a tenant browser credential gets, since this user has no
+# business publishing anywhere else.
 nsc edit user --account PLATFORM --name shipping-admin \
-  --allow-pub '$JS.API.CONSUMER.CREATE.REFDATA.>,$JS.API.CONSUMER.CREATE.RPCTRACE.>,$JS.API.CONSUMER.INFO.REFDATA.>,$JS.API.CONSUMER.INFO.RPCTRACE.>,$JS.API.CONSUMER.DELETE.REFDATA.>,$JS.API.CONSUMER.DELETE.RPCTRACE.>,$JS.API.CONSUMER.MSG.NEXT.REFDATA.>,$JS.API.CONSUMER.MSG.NEXT.RPCTRACE.>' \
+  --allow-pub '$JS.API.CONSUMER.CREATE.REFDATA.>,$JS.API.CONSUMER.CREATE.RPCTRACE.>,$JS.API.CONSUMER.INFO.REFDATA.>,$JS.API.CONSUMER.INFO.RPCTRACE.>,$JS.API.CONSUMER.DELETE.REFDATA.>,$JS.API.CONSUMER.DELETE.RPCTRACE.>,$JS.API.CONSUMER.MSG.NEXT.REFDATA.>,$JS.API.CONSUMER.MSG.NEXT.RPCTRACE.>,notify._platform.>' \
   --allow-sub '$SRV.>,_INBOX.>,$JS.API.CONSUMER.MSG.NEXT.REFDATA.>,$JS.API.CONSUMER.MSG.NEXT.RPCTRACE.>' >/dev/null
 nsc generate creds --account PLATFORM --name shipping-admin >"$NATS_DIR/creds/shipping-admin.creds"
 
