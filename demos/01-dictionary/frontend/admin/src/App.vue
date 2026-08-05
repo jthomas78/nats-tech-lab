@@ -16,6 +16,7 @@ import ServicesPanel from './components/ServicesPanel.vue'
 import ShapeCPanel from './components/ShapeCPanel.vue'
 import ShapePanel from './components/ShapePanel.vue'
 import TelemetryStrip from './components/TelemetryStrip.vue'
+import TopologyPanel from './components/TopologyPanel.vue'
 import IconAccounts from './components/icons/IconAccounts.vue'
 import IconConnections from './components/icons/IconConnections.vue'
 import IconKv from './components/icons/IconKv.vue'
@@ -25,6 +26,7 @@ import IconServices from './components/icons/IconServices.vue'
 import IconShapes from './components/icons/IconShapes.vue'
 import IconStreams from './components/icons/IconStreams.vue'
 import IconTables from './components/icons/IconTables.vue'
+import IconTopology from './components/icons/IconTopology.vue'
 import { useDictionaryStore } from './stores/dictionary'
 import { useTenantStore } from './stores/tenant'
 import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
@@ -65,6 +67,7 @@ const sections = [
     eyebrow: 'NATS',
     items: [
       { key: 'accounts', label: 'Accounts', icon: IconAccounts },
+      { key: 'topology', label: 'Topology', icon: IconTopology },
       { key: 'connections', label: 'Connections', icon: IconConnections },
       { key: 'services', label: 'Services', icon: IconServices },
       { key: 'rpc', label: 'Request/Reply', icon: IconRpc },
@@ -89,6 +92,7 @@ const SUBTITLES = {
   services: 'nats micro services · $SRV.* discovery',
   tables: 'canonical Postgres tables by schema',
   accounts: 'dynamic tenant provisioning · decentralized JWTs',
+  topology: 'live export/import edges between accounts · read from resolver JWTs',
 }
 const subtitle = computed(() => SUBTITLES[activeView.value] ?? '')
 
@@ -231,6 +235,11 @@ onUnmounted(() => {
     <!-- Postgres — canonical tables by schema -->
     <section v-else-if="activeView === 'tables'" class="group" data-testid="tables-view">
       <PostgresTablesPanel />
+    </section>
+
+    <!-- Topology — live account export/import graph, read from each account's resolver JWT -->
+    <section v-else-if="activeView === 'topology'" class="group" data-testid="topology-view">
+      <TopologyPanel />
     </section>
 
     <!-- Platform — dynamic tenant provisioning (Phase 14c) -->

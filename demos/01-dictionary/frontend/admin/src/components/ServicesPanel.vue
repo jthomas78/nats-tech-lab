@@ -340,14 +340,14 @@ function volumePct(e, instance) {
 /* ── instances / endpoints ──
    Indent + pin-line matches AccountsPanel.vue's .bu-expansion (Business
    Units nested under an account row) — same 1.1rem pin-line offset,
-   2.75rem content indent, and #171c29 blue-shifted zone, so the two nested
+   2.75rem content indent, and --lab-nested-bg zone, so the two nested
    "child rows under a parent" patterns in this admin app read as one
    visual language rather than two independent ones. */
 .instances {
   position: relative;
   padding-left: 2.75rem;
   border-top: 1px solid var(--lab-panel-border);
-  background: linear-gradient(to right, var(--lab-panel-bg) 1.1rem, #171c29 1.1rem);
+  background: linear-gradient(to right, var(--lab-panel-bg) 1.1rem, var(--lab-nested-bg) 1.1rem);
 }
 .instances::before {
   content: '';

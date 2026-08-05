@@ -100,9 +100,28 @@ func (f *UsageFetcher) FetchAll(ctx context.Context) ([]JSUsage, error) {
 
 	out := make([]JSUsage, 0, len(accs))
 	for _, a := range accs {
+		if !jsEnabled(a) {
+			// SYS (and any future account seeded without JetStream limits)
+			// never appears in /jsz — it has no JetStream context to report
+			// on, not merely idle usage of one. Omitting it here (not from
+			// the account list itself — Store.List still returns it) lets
+			// the Admin UI's existing "no usage record" branch render N/A
+			// instead of a misleading 0/0, without the frontend needing to
+			// special-case reserved accounts.
+			continue
+		}
 		out = append(out, usageFor(a, live[a.PublicKey]))
 	}
 	return out, nil
+}
+
+// jsEnabled reports whether an account has any JetStream limit configured.
+// An account seeded with all four limits at zero (SYS today — see
+// cmd/main.go's seedSysAccountForDisplay) was never granted JetStream at
+// all, as opposed to an account that has JetStream but happens to be at
+// zero usage.
+func jsEnabled(a Account) bool {
+	return a.JSMaxMem != 0 || a.JSMaxFile != 0 || a.JSMaxStreams != 0 || a.JSMaxConsumers != 0
 }
 
 // usageFor joins one account's Postgres-stored limits with its live /jsz

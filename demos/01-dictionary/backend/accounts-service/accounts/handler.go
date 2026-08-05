@@ -8,6 +8,7 @@
 //	POST   /api/accounts                    create an account — mints an account + one user, returns the one-time .creds content
 //	GET    /api/accounts                    list every known account (no creds, no signing key)
 //	GET    /api/accounts/{name}             one account's details (no creds, no signing key)
+//	GET    /api/accounts/topology           every live export/import edge across all accounts, read from resolver JWTs
 //	POST   /api/accounts/{name}/suspend     suspend an account — revokes its resolver JWT via $SYS.REQ.CLAIMS.DELETE
 //	POST   /api/accounts/{name}/reactivate  reactivate a suspended account — re-mints its resolver JWT via $SYS.REQ.CLAIMS.UPDATE and, when possible, a fresh one-time .creds
 //	POST   /api/accounts/{name}/jslimits    update an account's JetStream resource limits — re-mints its resolver JWT with the new limits
@@ -237,6 +238,7 @@ func (h *Handlers) Mount(mux *http.ServeMux, authSecret string) {
 	mux.Handle("POST /api/accounts", BasicAuth(authSecret, http.HandlerFunc(h.createAccount)))
 	mux.Handle("GET /api/accounts", BasicAuth(authSecret, http.HandlerFunc(h.listAccounts)))
 	mux.Handle("GET /api/accounts/usage", BasicAuth(authSecret, http.HandlerFunc(h.listJSUsage)))
+	mux.Handle("GET /api/accounts/topology", BasicAuth(authSecret, http.HandlerFunc(h.listTopology)))
 	mux.Handle("GET /api/accounts/{name}", BasicAuth(authSecret, http.HandlerFunc(h.getAccount)))
 	mux.Handle("POST /api/accounts/{name}/suspend", BasicAuth(authSecret, http.HandlerFunc(h.suspendAccount)))
 	mux.Handle("POST /api/accounts/{name}/reactivate", BasicAuth(authSecret, http.HandlerFunc(h.reactivateAccount)))
@@ -437,6 +439,66 @@ func (h *Handlers) listAccounts(w http.ResponseWriter, r *http.Request) {
 		out = append(out, toResponse(a))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// topologyEdge is one account's import of another account's export — the
+// unit the Admin UI's Topology panel draws as a single directed line.
+// FromAccount is the exporter (data/service origin), ToAccount the importer
+// (consumer), matching the direction data actually flows in NATS's
+// export/import model regardless of which account initiated the request
+// (a service import still flows request→response, but the subject
+// ownership — and so the line's direction here — is the exporter's).
+type topologyEdge struct {
+	FromAccount  string `json:"fromAccount"`
+	ToAccount    string `json:"toAccount"`
+	Subject      string `json:"subject"`
+	LocalSubject string `json:"localSubject,omitempty"`
+	Type         string `json:"type"` // "service" | "stream"
+}
+
+// listTopology reads every account's *live* resolver JWT (not the
+// bootstrap-time convention baked into tenantImports — see provisioner.go)
+// via Provisioner.LookupAccountClaims, so the graph reflects reality even if
+// an account's imports were hand-edited or diverge from the standard tenant
+// shape in the future. Accounts with no resolver JWT (shouldn't happen for
+// an active account, but SYS/PLATFORM/tenants all have one) are skipped
+// with a warning rather than failing the whole response — one account's
+// lookup failure shouldn't blank the diagram for every other account.
+func (h *Handlers) listTopology(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	accs, err := h.Store.List(ctx)
+	if err != nil {
+		h.Log.Error("list accounts for topology", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	nameByPub := make(map[string]string, len(accs))
+	for _, a := range accs {
+		nameByPub[a.PublicKey] = a.Name
+	}
+
+	edges := make([]topologyEdge, 0)
+	for _, a := range accs {
+		claims, err := h.Provisioner.LookupAccountClaims(ctx, a.PublicKey)
+		if err != nil {
+			h.Log.Warn("topology: lookup account claims", "account", a.Name, "err", err)
+			continue
+		}
+		for _, imp := range claims.Imports {
+			fromName, ok := nameByPub[imp.Account]
+			if !ok {
+				fromName = imp.Account // exporter outside this deployment's known accounts — show the raw pubkey rather than drop the edge
+			}
+			edges = append(edges, topologyEdge{
+				FromAccount:  fromName,
+				ToAccount:    a.Name,
+				Subject:      string(imp.Subject),
+				LocalSubject: string(imp.LocalSubject),
+				Type:         imp.Type.String(),
+			})
+		}
+	}
+	writeJSON(w, http.StatusOK, edges)
 }
 
 func (h *Handlers) getAccount(w http.ResponseWriter, r *http.Request) {

@@ -759,6 +759,48 @@ var _ = Describe("Handlers", func() {
 		Expect(entries[0].Metadata["step"]).To(Equal("revoke account"))
 		Expect(entries[0].Metadata["error"]).NotTo(BeEmpty())
 	})
+
+	// Admin UI Topology panel: GET /api/accounts/topology must reflect the
+	// *live* resolver JWT for each account (Provisioner.LookupAccountClaims),
+	// not just the bootstrap-time tenantImports convention — this is the
+	// thing that makes the panel trustworthy if an account's imports ever
+	// diverge from that convention.
+	It("reports every tenant's live PLATFORM imports as topology edges", func() {
+		platform, err := store.Get(context.Background(), "platform")
+		Expect(err).NotTo(HaveOccurred())
+
+		minted, err := provisioner.CreateAccount(context.Background(), accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5}, "acme", platform.PublicKey)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(store.Insert(context.Background(), accounts.Account{
+			Name: "acme", PublicKey: minted.PublicKey, SigningKeySeed: minted.SigningKeySeed,
+			Status: accounts.StatusActive, JSMaxMem: 64 << 20, JSMaxFile: 128 << 20, JSMaxStreams: 3, JSMaxConsumers: 5,
+		})).To(Succeed())
+
+		resp := doRequest(http.MethodGet, "/api/accounts/topology", nil, accounts.BasicAuthUser, authSecret)
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var edges []struct {
+			FromAccount  string `json:"fromAccount"`
+			ToAccount    string `json:"toAccount"`
+			Subject      string `json:"subject"`
+			LocalSubject string `json:"localSubject"`
+			Type         string `json:"type"`
+		}
+		Expect(json.NewDecoder(resp.Body).Decode(&edges)).To(Succeed())
+
+		acmeEdges := make([]string, 0)
+		for _, e := range edges {
+			Expect(e.ToAccount).NotTo(BeEmpty())
+			if e.ToAccount == "acme" {
+				Expect(e.FromAccount).To(Equal("platform"), "acme's imports all originate from PLATFORM's exports")
+				acmeEdges = append(acmeEdges, e.Subject)
+			}
+		}
+		Expect(acmeEdges).To(ContainElement("rpc.acme.refdata.item.get.v1"))
+		Expect(acmeEdges).To(ContainElement("notify.accounts.account.*"))
+		Expect(acmeEdges).To(HaveLen(7), "the complete tenantImports contract: 4 refdata RPCs + context-list + notify + evt stream — see provisioner.go's tenantImports")
+	})
 })
 
 func readAll(resp *http.Response) (string, error) {

@@ -203,7 +203,7 @@ func (p *Provisioner) ReactivateAccount(ctx context.Context, accountPub, signing
 		}
 	}
 
-	if current, err := p.lookupAccountClaims(ctx, accountPub); err == nil {
+	if current, err := p.LookupAccountClaims(ctx, accountPub); err == nil {
 		prior = current
 	}
 	claims := newAccountClaims(accountPub, signingPub, limits, prior, crossAccount)
@@ -245,7 +245,7 @@ func (p *Provisioner) UpdateAccountLimits(ctx context.Context, accountPub, signi
 		}
 	}
 
-	prior, err := p.lookupAccountClaims(ctx, accountPub)
+	prior, err := p.LookupAccountClaims(ctx, accountPub)
 	if err != nil {
 		return err
 	}
@@ -260,12 +260,12 @@ func (p *Provisioner) UpdateAccountLimits(ctx context.Context, accountPub, signi
 	return p.pushClaimsUpdate(ctx, token)
 }
 
-// lookupAccountClaims reads the resolver's current complete account JWT.
+// LookupAccountClaims reads the resolver's current complete account JWT.
 // Limit updates happen while an account is active, so treating an absent or
 // malformed current JWT as an error is safer than overwriting exports/imports.
 // Reactivation deliberately falls back to CrossAccountOpts because a revoked
 // account has no resolver JWT to look up.
-func (p *Provisioner) lookupAccountClaims(_ context.Context, accountPub string) (*jwt.AccountClaims, error) {
+func (p *Provisioner) LookupAccountClaims(_ context.Context, accountPub string) (*jwt.AccountClaims, error) {
 	resp, err := p.sysNC.Request(fmt.Sprintf("$SYS.REQ.ACCOUNT.%s.CLAIMS.LOOKUP", accountPub), nil, requestTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("lookup current account claims: %w", err)

@@ -56,7 +56,8 @@ export const useDictionaryStore = defineStore('dictionary', {
   actions: {
     async loadContexts() {
       try {
-        const ctxs = await listContexts()
+        const { contexts } = await listContexts()
+        const ctxs = (contexts ?? []).map((c) => c.context)
         this.availableContexts = ctxs
         if (!this.availableContexts.includes(this.context) && ctxs.length > 0) {
           this.context = ctxs[0]

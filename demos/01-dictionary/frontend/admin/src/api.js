@@ -175,6 +175,13 @@ export function getAccountsUsage() {
   return request('/api/platform/accounts/usage')
 }
 
+// Live export/import edges across every account, read from each account's
+// current resolver JWT (not the bootstrap-time convention) — powers the
+// Topology tab.
+export function getAccountsTopology() {
+  return request('/api/platform/accounts/topology')
+}
+
 // ── Business Units (Phase 22) ─────────────────────────────────────────────────
 
 export function listBusinessUnits(name) {

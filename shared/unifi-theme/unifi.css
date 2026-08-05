@@ -13,6 +13,11 @@
      control is still clearly visible, but obviously inactive. */
   --lab-disabled-bg: #3a4049;
   --lab-disabled-text: #9aa1a9;
+  /* Nested-row zone: the blue-shifted background used where an expanded
+     table row (business units, service instances) sits inside a parent
+     row — distinguishes the nested content from the panel around it. */
+  --lab-nested-bg: #171c29;
+  --lab-nested-bg-hover: #1d2336;
 }
 
 /* Light overrides — applied when .p-dark is absent */
@@ -26,6 +31,8 @@
   --lab-accent: #005fdb;
   --lab-disabled-bg: #e2e5e9;
   --lab-disabled-text: #9aa1a9;
+  --lab-nested-bg: #eef1f7;
+  --lab-nested-bg-hover: #e3e8f2;
 }
 
 html,

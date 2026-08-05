@@ -141,6 +141,13 @@ async function hideDefaultBU() {
   }
 }
 
+// Reserved accounts (platform, sys) are the fixed crosscutting accounts
+// this deployment can't run without — surfacing them first orients the
+// reader before the open-ended, growing list of tenant accounts below.
+const sortedAccounts = computed(() =>
+  [...accounts.value].sort((a, b) => Number(isReserved(b.name)) - Number(isReserved(a.name)))
+)
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -352,11 +359,12 @@ const rowMenuItems = computed(() => {
 
     <DataTable
       v-model:expanded-rows="expandedRows"
-      :value="accounts"
+      :value="sortedAccounts"
       size="small"
       paginator
       :rows="10"
       class="accounts-table"
+      :row-class="(data) => ({ 'row-not-expandable': isReserved(data.name) })"
       @row-expand="onRowExpand"
     >
       <template #empty>
@@ -637,11 +645,15 @@ const rowMenuItems = computed(() => {
 .usage-na {
   color: var(--p-surface-400, #94a3b8);
 }
+:global(tr.row-not-expandable .p-datatable-row-toggle-button) {
+  visibility: hidden;
+  pointer-events: none;
+}
 .bu-expansion {
   padding: 0.5rem 0.5rem 0.75rem 2.75rem;
   position: relative;
-  /* Left of pin line (0→1.1rem): same as account row; right: darker blue-shifted zone */
-  background: linear-gradient(to right, var(--lab-bg) 1.1rem, #171c29 1.1rem);
+  /* Left of pin line (0→1.1rem): same as account row; right: nested-zone background */
+  background: linear-gradient(to right, var(--lab-bg) 1.1rem, var(--lab-nested-bg) 1.1rem);
 }
 .bu-expansion::before {
   content: '';
@@ -654,10 +666,10 @@ const rowMenuItems = computed(() => {
   border-radius: 1px;
 }
 .bu-table :deep(.p-datatable-tbody > tr) {
-  background-color: #171c29;
+  background-color: var(--lab-nested-bg);
 }
 .bu-table :deep(.p-datatable-tbody > tr:hover) {
-  background-color: #1d2336;
+  background-color: var(--lab-nested-bg-hover);
 }
 .bu-header {
   display: flex;

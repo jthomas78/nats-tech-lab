@@ -41,3 +41,29 @@ func TestUsageForZeroStreamsYieldsZeroConsumers(t *testing.T) {
 		t.Fatalf("expected zero usage for an account with no live stream_detail, got %+v", got)
 	}
 }
+
+// FetchAll must be able to tell "SYS has no JetStream at all" apart from
+// "this tenant has JetStream but is currently idle" — both would otherwise
+// join into an indistinguishable 0/0, which the Admin UI's Accounts panel
+// rendered as a misleading "0/0" instead of "N/A" for the SYS row.
+func TestJSEnabled(t *testing.T) {
+	cases := []struct {
+		name string
+		a    Account
+		want bool
+	}{
+		{"all limits zero (SYS today)", Account{Name: "sys"}, false},
+		{"only mem set", Account{Name: "x", JSMaxMem: 1}, true},
+		{"only file set", Account{Name: "x", JSMaxFile: 1}, true},
+		{"only streams set", Account{Name: "x", JSMaxStreams: 1}, true},
+		{"only consumers set", Account{Name: "x", JSMaxConsumers: 1}, true},
+		{"all limits set", Account{Name: "acme", JSMaxMem: 1, JSMaxFile: 1, JSMaxStreams: 1, JSMaxConsumers: 1}, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := jsEnabled(c.a); got != c.want {
+				t.Fatalf("jsEnabled(%+v) = %v, want %v", c.a, got, c.want)
+			}
+		})
+	}
+}

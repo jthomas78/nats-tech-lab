@@ -20,22 +20,26 @@ const connections = ref([])
 const loading = ref(true)
 const errorMsg = ref('')
 
-// accounts-service's own account list (name ↔ publicKey), fetched purely as
-// a fallback name source for rows nats_ops.go's tenantLabelsByAccount()
-// couldn't resolve — e.g. accounts-service's own connection, which
-// authenticates as SYS, an account shipping-service holds no connection on
-// and so can never resolve from its own connection set (see that function's
-// doc comment). This doesn't replace the backend's resolution: a
-// server-resolved tenantLabel always wins (it's free and already correct);
-// this only fills in rows the backend left blank. Best-effort — if
-// accounts-service is unreachable, those rows just fall back to the raw
-// NKey exactly as before this existed.
+// accounts-service's own account list (name ↔ publicKey) is the naming
+// AUTHORITY here, not a fallback: accounts-service's whole job is knowing
+// what an account is called, so whenever it's reachable its name wins —
+// resolveLabel() checks it first. nats_ops.go's tenantLabelsByAccount()
+// (row.tenantLabel) only steps in when accounts-service's list doesn't
+// cover a row, which happens in exactly one situation: accounts-service
+// itself is unreachable/erroring, so `accounts` below is empty or stale.
+// tenantLabelsByAccount() can resolve PLATFORM/acme/globex independently
+// (shipping-service already holds live connections on those, § 11 of
+// ARCHITECTURE-COMMUNICATIONS.md) — so the panel degrades to "still
+// mostly named" rather than "all raw NKeys" if accounts-service is down.
+// It can never resolve SYS on its own (accounts-service's own connection —
+// shipping-service holds no connection on that account by design), so
+// that row specifically depends on accounts-service being reachable.
 const accounts = ref([])
 const accountNameByKey = computed(() =>
   Object.fromEntries(accounts.value.map((a) => [a.publicKey, a.name])),
 )
 function resolveLabel(row) {
-  return row.tenantLabel || accountNameByKey.value[row.account] || null
+  return accountNameByKey.value[row.account] || row.tenantLabel || null
 }
 
 async function refresh() {
@@ -108,13 +112,12 @@ function formatTime(iso) {
 // could put a friendly name on this connection (rendered as a colored tag
 // instead — the two need different markup, not just different text, so
 // there's no single "accountLabel" string helper). resolveLabel() above
-// tries the backend's tenantLabel first (nats_ops.go's
-// tenantLabelsByAccount, resolved from shipping-service's own connection
-// set — "PLATFORM" or a friendly tenant name like "acme"), then falls back
-// to accountNameByKey (accounts-service's account list) for anything the
-// backend left blank — chiefly accounts-service's own SYS-account
-// connection, which shipping-service holds no connection on and so can
-// never resolve on its own. Truncated the way most NATS admin tooling
+// tries accountNameByKey first (accounts-service's account list — the
+// naming authority, see that computed's doc comment), then falls back to
+// the backend's tenantLabel (nats_ops.go's tenantLabelsByAccount, resolved
+// from shipping-service's own connection set) only if accounts-service's
+// list didn't cover this row — which in practice means accounts-service
+// itself is unreachable. Truncated the way most NATS admin tooling
 // displays account identifiers.
 function shortAccount(acc) {
   if (!acc) return '—'
