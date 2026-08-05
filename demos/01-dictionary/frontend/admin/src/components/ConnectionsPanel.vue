@@ -4,7 +4,7 @@ import DataTable from 'primevue/datatable'
 import Tag from 'primevue/tag'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
-import { getNatsConnections } from '../api'
+import { getNatsConnections, listAccounts } from '../api'
 
 // Connections panel (Phase 17c) — every active NATS connection, proxied
 // from the server's own /connz monitoring endpoint. Distinct from the
@@ -20,6 +20,24 @@ const connections = ref([])
 const loading = ref(true)
 const errorMsg = ref('')
 
+// accounts-service's own account list (name ↔ publicKey), fetched purely as
+// a fallback name source for rows nats_ops.go's tenantLabelsByAccount()
+// couldn't resolve — e.g. accounts-service's own connection, which
+// authenticates as SYS, an account shipping-service holds no connection on
+// and so can never resolve from its own connection set (see that function's
+// doc comment). This doesn't replace the backend's resolution: a
+// server-resolved tenantLabel always wins (it's free and already correct);
+// this only fills in rows the backend left blank. Best-effort — if
+// accounts-service is unreachable, those rows just fall back to the raw
+// NKey exactly as before this existed.
+const accounts = ref([])
+const accountNameByKey = computed(() =>
+  Object.fromEntries(accounts.value.map((a) => [a.publicKey, a.name])),
+)
+function resolveLabel(row) {
+  return row.tenantLabel || accountNameByKey.value[row.account] || null
+}
+
 async function refresh() {
   try {
     const res = await getNatsConnections()
@@ -29,6 +47,11 @@ async function refresh() {
     errorMsg.value = err.message || 'Failed to load connections'
   } finally {
     loading.value = false
+  }
+  try {
+    accounts.value = await listAccounts()
+  } catch {
+    // best-effort — see accounts/accountNameByKey doc comment above
   }
 }
 
@@ -56,7 +79,7 @@ function rowMatches(row) {
   return (
     (row.name || '').toLowerCase().includes(q) ||
     (row.account || '').toLowerCase().includes(q) ||
-    (row.tenantLabel || '').toLowerCase().includes(q) ||
+    (resolveLabel(row) || '').toLowerCase().includes(q) ||
     (row.ip || '').toLowerCase().includes(q) ||
     (row.subscriptionsList || []).some((s) => s.toLowerCase().includes(q))
   )
@@ -81,15 +104,18 @@ function formatTime(iso) {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 // Account is a raw NATS account NKey (public identifier) — rendered (as a
-// monospace code snippet, see the template) only when the backend couldn't
-// resolve a friendly tenantLabel for this connection (rendered as a colored
-// tag instead — the two need different markup, not just different text, so
-// there's no single "accountLabel" string helper). tenantLabel
-// (backend-resolved — "PLATFORM" or a friendly tenant name like "acme") is
-// resolved for any connection sharing a known account (nats_ops.go's
-// tenantLabelsByAccount) — not just connections shipping-service holds
-// itself. Truncated the way most NATS admin tooling displays account
-// identifiers.
+// monospace code snippet, see the template) only when neither resolver
+// could put a friendly name on this connection (rendered as a colored tag
+// instead — the two need different markup, not just different text, so
+// there's no single "accountLabel" string helper). resolveLabel() above
+// tries the backend's tenantLabel first (nats_ops.go's
+// tenantLabelsByAccount, resolved from shipping-service's own connection
+// set — "PLATFORM" or a friendly tenant name like "acme"), then falls back
+// to accountNameByKey (accounts-service's account list) for anything the
+// backend left blank — chiefly accounts-service's own SYS-account
+// connection, which shipping-service holds no connection on and so can
+// never resolve on its own. Truncated the way most NATS admin tooling
+// displays account identifiers.
 function shortAccount(acc) {
   if (!acc) return '—'
   return acc.length > 12 ? `${acc.slice(0, 10)}…` : acc
@@ -164,7 +190,7 @@ function shortAccount(acc) {
       </Column>
       <Column header="Account" style="width:110px">
         <template #body="{ data }">
-          <span v-if="data.tenantLabel" class="tenant-label" :title="data.account">{{ data.tenantLabel }}</span>
+          <span v-if="resolveLabel(data)" class="tenant-label" :title="data.account">{{ resolveLabel(data) }}</span>
           <code v-else class="acct" :title="data.account">{{ shortAccount(data.account) }}</code>
         </template>
       </Column>
@@ -208,7 +234,7 @@ function shortAccount(acc) {
               <div class="row">
                 <span class="k">Account</span>
                 <span class="v">
-                  <span v-if="selectedRow.tenantLabel" class="tenant-label">{{ selectedRow.tenantLabel }}</span>
+                  <span v-if="resolveLabel(selectedRow)" class="tenant-label">{{ resolveLabel(selectedRow) }}</span>
                   {{ selectedRow.account || '—' }}
                 </span>
               </div>

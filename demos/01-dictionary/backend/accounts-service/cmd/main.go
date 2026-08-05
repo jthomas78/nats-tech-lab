@@ -242,7 +242,41 @@ func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, provisi
 			return err
 		}
 	}
-	return nil
+	return seedSysAccountForDisplay(ctx, store, resolverSeedDir, log)
+}
+
+// seedSysAccountForDisplay stores a Postgres row for the SYS account —
+// decoded from the same resolver JWT as the other seeds above — purely so
+// the Admin UI's Accounts panel can resolve its public key to the name
+// "sys" instead of showing a raw, unlabeled NKey. Deliberately NOT run
+// through the seeds loop above / ensureSigningKey: this repo's whole
+// design keeps SYS credentials to a single static sys.creds file this
+// service holds for itself (see BUSINESS_RULES-ACCOUNTS.md and
+// ARCHITECTURE-ACCOUNTS.md's "NATS operator-mode trust chain") — nothing
+// else may ever authenticate as SYS. Establishing a signing key here would
+// make this service able to mint additional SYS-account users on demand,
+// which is a real widening of authority (SYS controls $SYS.REQ.CLAIMS.*
+// for every tenant) that nothing in this system needs or should have.
+// reservedAccountNames (BR-AC06) already blocks "sys" from creation,
+// suspension, or tenant-switching through the REST API regardless of this
+// row's presence, so adding it here only affects display, never behavior.
+func seedSysAccountForDisplay(ctx context.Context, store *accounts.Store, resolverSeedDir string, log *slog.Logger) error {
+	raw, err := os.ReadFile(resolverSeedDir + "/SYS.jwt")
+	if err != nil {
+		log.Warn("seed sys account: could not read resolver JWT, skipping", "err", err)
+		return nil
+	}
+	claims, err := jwt.DecodeAccountClaims(string(raw))
+	if err != nil {
+		return err
+	}
+	return store.SeedIfMissing(ctx, accounts.Account{
+		Name:      "sys",
+		PublicKey: claims.Subject,
+		Status:    accounts.StatusActive,
+		// SYS runs no JetStream workload of its own (bootstrap-operator.sh
+		// never assigns it JS limits — confirmed zero in the decoded JWT).
+	})
 }
 
 // ensureSigningKey establishes a signing key for a seeded pre-existing

@@ -5,14 +5,21 @@ import StreamView from './StreamView.vue'
 import { listStreams } from '../api'
 import { useNatsConnection } from '../nats/useNatsConnection.js'
 
-// One tab per stream actually registered on the NATS server — not a
-// user-managed open set. Only the ACTIVE tab's StreamView is mounted: each
-// one holds a notify.*.shipping.raw.> subscription on the shared tenant NATS
-// connection (Messages) plus a one-shot REST replay fetch (Stream, Phase
-// 23) — kept to one active tab at a time so switching tabs doesn't pile up
-// subscriptions no one's looking at. Switching tabs disconnects the old
-// stream and connects the new one fresh (the "Stream" tab re-fetches full
-// history on every mount, so nothing is lost by this).
+// A rail of every stream actually registered on the NATS server — not a
+// user-managed open set — mirroring KvInspector.vue's bucket rail (Phase
+// 24). Only the selected stream's StreamView is mounted: it holds a
+// one-shot REST replay fetch (Stream tab, Phase 23) that gets re-run on
+// every mount, so switching the selection disconnects the old stream and
+// fetches the new one fresh with nothing lost.
+//
+// No per-row "connected" state in the rail: a JetStream stream doesn't
+// have a live-connection concept the way a NATS client does — it's either
+// registered on the server or it isn't, and listStreams() already only
+// returns registered ones. The "connected"/"idle" Tag that does exist
+// lives in the detail panel (StreamView.vue's header) because it reflects
+// whether *this session's* replay fetch for the *selected* stream
+// succeeded, which is only meaningful for the one stream actually being
+// queried right now.
 const REFRESH_MS = 15000
 
 const streams = ref([])
@@ -50,7 +57,7 @@ onUnmounted(() => clearInterval(refreshTimer))
 
 // Re-fetch immediately on tenant switch rather than waiting up to
 // REFRESH_MS for the next scheduled poll — Deps.JS (and therefore this
-// stream list) is swapped per-tenant server-side, so the tab bar otherwise
+// stream list) is swapped per-tenant server-side, so the rail otherwise
 // shows the previous tenant's streams for a few seconds after switching.
 const { connected: tenantConnected } = useNatsConnection()
 watch(tenantConnected, (isConnected) => {
@@ -62,23 +69,26 @@ const hasStreams = computed(() => streams.value.length > 0)
 
 <template>
   <div class="jetstream-view">
-    <div class="stream-tabbar">
-      <button
-        v-for="name in streams"
-        :key="name"
-        type="button"
-        class="stream-tab"
-        :class="{ active: name === activeStream }"
-        @click="activeStream = name"
-      >
-        {{ name }}
-      </button>
-    </div>
+    <aside class="rail" aria-label="Streams">
+      <div class="rail-header">
+        <span>Streams</span>
+      </div>
+      <div class="rail-group">
+        <button
+          v-for="name in streams"
+          :key="name"
+          type="button"
+          class="rail-item"
+          :class="{ active: name === activeStream }"
+          @click="activeStream = name"
+        >
+          <code class="rail-name">{{ name }}</code>
+        </button>
+      </div>
+      <p v-if="!hasStreams" class="lab-muted rail-empty">No streams registered on the server yet.</p>
+    </aside>
 
-    <div v-if="!hasStreams" class="empty-state lab-muted">
-      No streams registered on the server yet.
-    </div>
-    <StreamView v-else-if="activeStream" :key="activeStream" :stream="activeStream" />
+    <StreamView v-if="activeStream" :key="activeStream" :stream="activeStream" class="detail" />
   </div>
 </template>
 
@@ -87,43 +97,85 @@ const hasStreams = computed(() => streams.value.length > 0)
   flex: 1;
   min-height: 0;
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.75rem;
 }
-.stream-tabbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
+/* ── Rail — matches KvInspector.vue's bucket rail exactly, so the two
+   "pick one thing from a list, inspect it on the right" panels in this
+   admin app read as one visual pattern. ── */
+.rail {
+  width: 220px;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--lab-panel-border);
-  padding-bottom: 0.4rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-right: 0.25rem;
+  border-right: 1px solid var(--lab-panel-border);
 }
-.stream-tab {
+.rail-header {
+  flex-shrink: 0;
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--p-text-muted-color);
+}
+.rail-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rail-item {
   all: unset;
   box-sizing: border-box;
   cursor: pointer;
-  padding: 3px 8px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 5px 8px;
   border-radius: 4px;
+  border-left: 2px solid transparent;
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
   color: var(--p-text-muted-color);
 }
-.stream-tab:hover {
+.rail-item:hover {
   background: var(--lab-panel-border);
   color: var(--p-text-color);
 }
-.stream-tab.active {
+.rail-item.active {
   background: var(--lab-panel-border);
+  border-left-color: var(--lab-accent);
   color: var(--p-text-color);
+  font-weight: 600;
 }
-.stream-tab:focus-visible {
+.rail-item:focus-visible {
   outline: 2px solid var(--lab-accent);
   outline-offset: -2px;
 }
-.empty-state {
+.rail-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-empty {
   font-size: 12px;
-  padding: 1rem 0;
+  padding: 0 8px;
+}
+.detail {
+  flex: 1;
+  min-width: 0;
+}
+@media (max-width: 720px) {
+  .jetstream-view {
+    flex-direction: column;
+  }
+  .rail {
+    width: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--lab-panel-border);
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
 }
 </style>

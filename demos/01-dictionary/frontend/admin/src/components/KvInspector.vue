@@ -168,7 +168,7 @@ function ttlLabel(seconds) {
   <div class="kv-inspector">
     <!-- Bucket rail -->
     <aside class="rail" aria-label="KV buckets">
-      <div v-if="buckets.length" class="rail-header">
+      <div class="rail-header">
         <span>Bucket ID</span>
         <span>Keys</span>
       </div>

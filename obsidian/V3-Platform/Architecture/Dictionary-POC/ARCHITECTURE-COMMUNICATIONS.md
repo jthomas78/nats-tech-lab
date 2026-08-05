@@ -925,3 +925,72 @@ frontend reads those sub-fields today (confirmed, same search as § 9).
 
 See `BUSINESS_RULES-REFDATA.md`'s BR-D30 for the corresponding business rule
 and its tests.
+
+---
+
+## 11. Admin UI account-name resolution — two-tier fallback, composed in the browser (Phase 24)
+
+The Connections panel (`ConnectionsPanel.vue`) shows a friendly account name
+("PLATFORM", "acme", "sys"...) next to every live NATS connection instead of
+a raw NKey. That name comes from two independent resolvers, one server-side
+and one client-side, composed in the browser rather than merged in either
+backend:
+
+```mermaid
+sequenceDiagram
+    participant U as Admin UI (browser)
+    participant P as nginx/vite proxy
+    participant S as shipping-service
+    participant A as accounts-service
+    participant N as NATS server
+
+    U->>P: GET /api/nats/connections
+    P->>S: (same-origin passthrough)
+    S->>N: GET /connz (monitoring)
+    N-->>S: every live connection + raw account NKey
+    S->>S: tenantLabelsByAccount() —<br/>match each NKey against accounts<br/>*this process itself* holds a<br/>connection on (deps.NC / TenantResources)
+    S-->>U: connections[] with tenantLabel<br/>set ONLY where resolvable
+
+    U->>P: GET /api/platform/accounts
+    P->>P: inject shared BasicAuth secret<br/>(browser never holds it)
+    P->>A: (forwarded, authenticated)
+    A-->>U: accounts[] — every known<br/>{name, publicKey}, incl. sys
+
+    Note over U: resolveLabel(row) =<br/>row.tenantLabel ?? accountNameByKey[row.account] ?? null<br/>— server-resolved always wins; the accounts-service<br/>list only fills rows the server left blank.
+```
+
+**Why two resolvers instead of one.** `shipping-service` can only resolve a
+connection's account by comparing it against accounts it *itself* holds a
+live connection on (PLATFORM, plus one per active tenant) — it has no
+general "list every account" capability, and reaching into
+`accounts-service`'s Postgres from Go would mean shipping-service (Layer B)
+taking on a runtime dependency on accounts-service (Layer A) just to render
+a label, which is the wrong direction for a business service (see the
+[[context definition]] discussion — Layer B should never need to reach
+into Layer A's data to do its own job). `accounts-service`'s own connection
+authenticates as **SYS**, an account shipping-service holds no connection on
+by design (§ 2.3's account-isolation model — nothing outside accounts-service
+should ever need SYS), so that row is structurally unresolvable server-side
+no matter what shipping-service does internally.
+
+**Why the browser, not a new backend call.** The Admin UI already talks to
+`accounts-service` directly for the Accounts panel (`GET
+/api/platform/accounts`, BasicAuth injected by the proxy layer — see
+`api.js`'s doc comment) — same origin, no new secret, no new service-to-
+service dependency. Adding a second consumer of that same call in
+`ConnectionsPanel.vue` costs nothing structurally; the alternative (piping
+the lookup through shipping-service) would have added a new
+shipping-service → accounts-service credential and coupling for a
+display-only concern. Composing two purpose-built backends' data in the
+browser — rather than one backend reaching into another's domain — is the
+preferred shape for this kind of gap going forward.
+
+**What this does and doesn't fix.** It's additive, not a replacement:
+`resolveLabel()` always prefers the backend's `tenantLabel` (free, and
+already correct for every connection shipping-service can see); the
+accounts-service list only fills in names for rows the backend left blank.
+Best-effort on both sides — if accounts-service is unreachable, those rows
+fall back to the raw NKey exactly as before this existed. This also
+generalizes past SYS: any future connection on an account shipping-service
+holds no connection on (a runtime-provisioned tenant it hasn't connected to
+yet, for instance) resolves the same way, with no code change required.
