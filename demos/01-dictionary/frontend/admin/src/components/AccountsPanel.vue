@@ -5,10 +5,11 @@ import DataTable from 'primevue/datatable'
 import Dialog from 'primevue/dialog'
 import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
+import Menu from 'primevue/menu'
 import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
 import { useToast } from 'primevue/usetoast'
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 
 import { createAccount, createBusinessUnit, getAccountsUsage, listAccounts, listBusinessUnits, reactivateAccount, suspendAccount, updateAccountLimits, updateBusinessUnit } from '../api'
 import { useTenantStore } from '../stores/tenant'
@@ -259,16 +260,30 @@ function isReserved(name) {
   return RESERVED_NAMES.has(name?.toLowerCase())
 }
 
-function streamsLabel(name) {
-  const u = usage.value[name]
-  if (!u) return '–'
-  return `${u.streams.used} / ${u.streams.limit}`
+// JetStream Limits split (mem/file/streams/consumers) — each column shows
+// live used/limit from GET /api/accounts/usage, same used/limit + threshold
+// pattern the old single "Streams" column already used.
+const USAGE_DIMS = {
+  mem: { label: 'Memory', bytes: true },
+  file: { label: 'Disk', bytes: true },
+  streams: { label: 'Streams', bytes: false },
+  consumers: { label: 'Consumers', bytes: false },
 }
 
-function streamsClass(name) {
+function usageLabel(name, dim) {
+  const u = usage.value[name]
+  if (!u) return '–'
+  const c = u[dim]
+  const fmt = USAGE_DIMS[dim].bytes ? formatBytes : (n) => n
+  return `${fmt(c.used)} / ${fmt(c.limit)}`
+}
+
+function usageClass(name, dim) {
   const u = usage.value[name]
   if (!u) return 'usage-na'
-  const ratio = u.streams.used / u.streams.limit
+  const c = u[dim]
+  if (!c.limit) return 'usage-na'
+  const ratio = c.used / c.limit
   if (ratio >= 1) return 'usage-crit'
   if (ratio >= 0.8) return 'usage-warn'
   return 'usage-ok'
@@ -292,6 +307,30 @@ function formatDate(ts) {
 }
 
 onMounted(load)
+
+// ── Per-row overflow menu: Edit Limits · Suspend/Reactivate (RefData's
+// CategoryTypeList.vue pattern — standardizing row actions across the admin
+// apps). Add stays a top-of-table button, unlike Edit/Suspend/Reactivate.
+const rowMenu = ref()
+const menuAccount = ref(null)
+
+function openRowMenu(event, acc) {
+  menuAccount.value = acc
+  rowMenu.value.toggle(event)
+}
+
+const rowMenuItems = computed(() => {
+  const acc = menuAccount.value
+  if (!acc) return []
+  const items = [{ label: 'Edit Limits', icon: 'pi pi-sliders-h', command: () => openEdit(acc) }]
+  if (isReserved(acc.name)) return items
+  if (acc.status === 'active') {
+    items.push({ label: 'Suspend', icon: 'pi pi-ban', command: () => suspend(acc.name) })
+  } else if (acc.status === 'suspended') {
+    items.push({ label: 'Reactivate', icon: 'pi pi-play', command: () => reactivate(acc.name) })
+  }
+  return items
+})
 </script>
 
 <template>
@@ -389,52 +428,34 @@ onMounted(load)
           <code class="pubkey">{{ data.publicKey.slice(0, 12) }}…</code>
         </template>
       </Column>
-      <Column header="JetStream Limits">
+      <Column
+        v-for="(dim, key) in USAGE_DIMS"
+        :key="key"
+        :header="dim.label"
+      >
         <template #body="{ data }">
-          {{ formatBytes(data.jsMaxMem) }} mem · {{ formatBytes(data.jsMaxFile) }} disk ·
-          {{ data.jsMaxStreams }} streams · {{ data.jsMaxConsumers }} consumers
-        </template>
-      </Column>
-      <Column header="Streams">
-        <template #body="{ data }">
-          <span :class="streamsClass(data.name)" class="streams-usage">
-            {{ streamsLabel(data.name) }}
+          <span :class="usageClass(data.name, key)" class="streams-usage">
+            {{ usageLabel(data.name, key) }}
           </span>
         </template>
       </Column>
       <Column header="Created At">
         <template #body="{ data }">{{ formatDate(data.createdAt) }}</template>
       </Column>
-      <Column header="">
+      <Column header="" style="width: 2.5rem">
         <template #body="{ data }">
-          <div class="row-actions">
-            <Button
-              label="Edit Limits"
-              icon="pi pi-sliders-h"
-              text
-              size="small"
-              @click="openEdit(data)"
-            />
-            <Button
-              v-if="data.status === 'active' && !isReserved(data.name)"
-              label="Suspend"
-              severity="danger"
-              text
-              size="small"
-              @click="suspend(data.name)"
-            />
-            <Button
-              v-else-if="data.status === 'suspended'"
-              label="Reactivate"
-              severity="success"
-              text
-              size="small"
-              @click="reactivate(data.name)"
-            />
-          </div>
+          <Button
+            icon="pi pi-ellipsis-v"
+            text
+            size="small"
+            aria-label="Account actions"
+            @click.stop="openRowMenu($event, data)"
+          />
         </template>
       </Column>
     </DataTable>
+
+    <Menu ref="rowMenu" :model="rowMenuItems" popup />
 
     <Dialog v-model:visible="createOpen" header="Create Account" modal :style="{ width: '28rem' }">
       <div class="form-field">
@@ -615,12 +636,6 @@ onMounted(load)
 }
 .usage-na {
   color: var(--p-surface-400, #94a3b8);
-}
-.row-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.125rem;
-  flex-wrap: nowrap;
 }
 .bu-expansion {
   padding: 0.5rem 0.5rem 0.75rem 2.75rem;

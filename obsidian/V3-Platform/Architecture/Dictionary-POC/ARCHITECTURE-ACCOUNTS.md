@@ -206,6 +206,31 @@ Operator (lab-operator)
 | User JWT | Signed claims (account association, permissions) | `.creds` file on disk / short-lived in browser | Medium — grants access but expires |
 | User NKey seed | Ed25519 private key for the user identity | `.creds` file (server-side only — BR-UA05) | High — paired with the JWT for auth |
 
+**Reading a raw public key.** Every public key above (operator, account, user) is
+an NKey — base32-encoded, with the first character identifying the key
+*type*, not the specific identity. Source: the `nkeys` package
+(`strkey.go`'s `PrefixByte*` constants); not NATS-specific documentation
+beyond that, see also
+[docs.nats.io's NKeys/security docs](https://docs.nats.io/running-a-nats-service/configuration/securing_nats/auth_intro/nkey_auth).
+
+| Prefix | Type |
+|---|---|
+| `A` | Account |
+| `U` | User |
+| `O` | Operator |
+| `N` | Server |
+| `C` | Cluster |
+| `X` | Curve (X25519) key |
+
+So every account in this lab — SYS, PLATFORM, ACME, GLOBEX, and any
+runtime-provisioned tenant — has an `A`-prefixed public key; the prefix
+alone never tells you *which* account you're looking at, only that it's an
+account and not, say, a user or operator key. The Connections panel's
+`shortAccount()` fallback (when a connection's tenant can't be resolved to a
+friendly name — see `ARCHITECTURE-COMMUNICATIONS.md`) is exactly the case
+where you're staring at a bare key like this and need to know what you're
+looking at.
+
 ### 1t. Tenant account creation
 
 BR-AC01, BR-AC02 — mint account + user JWTs, push to resolver, write `.creds`.

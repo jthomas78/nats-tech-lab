@@ -1,8 +1,9 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import StreamView from './StreamView.vue'
 import { listStreams } from '../api'
+import { useNatsConnection } from '../nats/useNatsConnection.js'
 
 // One tab per stream actually registered on the NATS server — not a
 // user-managed open set. Only the ACTIVE tab's StreamView is mounted: each
@@ -46,6 +47,15 @@ onMounted(() => {
   refreshTimer = setInterval(refresh, REFRESH_MS)
 })
 onUnmounted(() => clearInterval(refreshTimer))
+
+// Re-fetch immediately on tenant switch rather than waiting up to
+// REFRESH_MS for the next scheduled poll — Deps.JS (and therefore this
+// stream list) is swapped per-tenant server-side, so the tab bar otherwise
+// shows the previous tenant's streams for a few seconds after switching.
+const { connected: tenantConnected } = useNatsConnection()
+watch(tenantConnected, (isConnected) => {
+  if (isConnected) refresh()
+})
 
 const hasStreams = computed(() => streams.value.length > 0)
 </script>

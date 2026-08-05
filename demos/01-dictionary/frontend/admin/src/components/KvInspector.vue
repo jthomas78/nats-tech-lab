@@ -20,62 +20,17 @@ import { parseKvNotifySubject } from '../nats/kvNotifySubject.js'
 const REFRESH_MS = 15000
 const FEED_CAP = 40
 
-// Known bucket-prefix families, longest-match first so "dict-a"/"dict-b" win
-// over a bare "dict". Shipping buckets are one per family per tenant; their
-// entries, rather than their names, carry the business-unit context prefix.
-const FAMILIES = [
-  { prefix: 'dict-a', label: 'Shape A — ship read model' },
-  { prefix: 'dict-b', label: 'Shape B — ship cache' },
-  { prefix: 'container', label: 'Container projection' },
-  { prefix: 'meta', label: 'Meta lookup sets' },
-  { prefix: 'refdata', label: 'Reference data (refdata-service)' },
-]
-
 const OP_SEVERITY = { PUT: 'success', DEL: 'warn', PURGE: 'danger' }
 
 // ── Bucket rail ───────────────────────────────────────────────────────────────
 const buckets = ref([]) // [{ bucket, values, history, bytes, ttlSeconds }]
 const activeBucket = ref(null)
-// Flat is the opening view: it's the literal bucket name as it exists in
-// NATS, which is what you want when you're cross-referencing a `nats kv ls`
-// or a curl against /api/kv/buckets. Grouped is the guided read for someone
-// learning how the families map to the CQRS shapes.
-const viewMode = ref('flat')
 
-// All buckets, one level, raw name — no family shorthand.
+// The literal bucket name as it exists in NATS — what you want when
+// cross-referencing a `nats kv ls` or a curl against /api/kv/buckets (flat
+// was always the more useful default; the grouped-by-CQRS-family view was
+// dropped in favor of always showing this).
 const flatBuckets = computed(() => [...buckets.value].sort((a, b) => a.bucket.localeCompare(b.bucket)))
-
-function familyOf(name) {
-  const fam = FAMILIES.find((f) => name === f.prefix || name.startsWith(f.prefix + '-'))
-  return fam ? fam.prefix : 'other'
-}
-
-function contextOf(name) {
-  const fam = familyOf(name)
-  if (fam === 'other') return name
-  // The shipping buckets are now exactly their family names (dict-a, dict-b,
-  // container, meta), not {family}-{context}. Keep a suffix readable for
-  // other services' legacy/non-shipping buckets without inventing a context.
-  return name === fam ? name : name.slice(fam.length + 1)
-}
-
-// Buckets grouped by family, in FAMILIES order, so the rail reads as the
-// pipeline's KV layer rather than an alphabetical dump.
-const groups = computed(() => {
-  const order = [...FAMILIES.map((f) => f.prefix), 'other']
-  const byFamily = {}
-  for (const b of buckets.value) {
-    const fam = familyOf(b.bucket)
-    ;(byFamily[fam] ??= []).push(b)
-  }
-  return order
-    .filter((fam) => byFamily[fam])
-    .map((fam) => ({
-      family: fam,
-      label: FAMILIES.find((f) => f.prefix === fam)?.label ?? 'Other buckets',
-      buckets: byFamily[fam].sort((a, b) => a.bucket.localeCompare(b.bucket)),
-    }))
-})
 
 async function refreshBuckets() {
   let list
@@ -156,11 +111,15 @@ onUnmounted(() => {
   disconnectBucket()
 })
 
-// Retry the active bucket's subscription once the tenant connection comes up
-// (covers the mount-order race: activeBucket can be set before connect()
-// finishes authenticating).
+// On tenant switch: re-fetch the bucket list immediately (REFRESH_MS's poll
+// would otherwise leave the rail showing the previous tenant's buckets for
+// up to 15s) and retry the active bucket's subscription — this also covers
+// the mount-order race, since activeBucket can be set before connect()
+// finishes authenticating.
 watch(tenantConnected, (isConnected) => {
-  if (isConnected && activeBucket.value) connectBucket(activeBucket.value)
+  if (!isConnected) return
+  refreshBuckets()
+  if (activeBucket.value) connectBucket(activeBucket.value)
 })
 
 // Switch the single live connection whenever the selected bucket changes.
@@ -209,26 +168,11 @@ function ttlLabel(seconds) {
   <div class="kv-inspector">
     <!-- Bucket rail -->
     <aside class="rail" aria-label="KV buckets">
-      <div class="rail-mode-toggle" role="tablist" aria-label="Bucket list view">
-        <button
-          type="button"
-          role="tab"
-          class="rail-mode-btn"
-          :class="{ active: viewMode === 'flat' }"
-          :aria-selected="viewMode === 'flat'"
-          @click="viewMode = 'flat'"
-        >Flat</button>
-        <button
-          type="button"
-          role="tab"
-          class="rail-mode-btn"
-          :class="{ active: viewMode === 'grouped' }"
-          :aria-selected="viewMode === 'grouped'"
-          @click="viewMode = 'grouped'"
-        >Grouped</button>
+      <div v-if="buckets.length" class="rail-header">
+        <span>Bucket ID</span>
+        <span>Keys</span>
       </div>
-
-      <div v-if="viewMode === 'flat'" class="rail-group">
+      <div class="rail-group">
         <button
           v-for="b in flatBuckets"
           :key="b.bucket"
@@ -241,22 +185,6 @@ function ttlLabel(seconds) {
           <span class="rail-count">{{ b.values }}</span>
         </button>
       </div>
-      <template v-else>
-        <div v-for="group in groups" :key="group.family" class="rail-group">
-          <p class="rail-eyebrow">{{ group.label }}</p>
-          <button
-            v-for="b in group.buckets"
-            :key="b.bucket"
-            type="button"
-            class="rail-item"
-            :class="{ active: b.bucket === activeBucket }"
-            @click="activeBucket = b.bucket"
-          >
-            <span class="rail-name">{{ contextOf(b.bucket) }}</span>
-            <span class="rail-count">{{ b.values }}</span>
-          </button>
-        </div>
-      </template>
       <p v-if="!buckets.length" class="lab-muted rail-empty">No KV buckets registered yet.</p>
     </aside>
 
@@ -354,51 +282,23 @@ function ttlLabel(seconds) {
   padding-right: 0.25rem;
   border-right: 1px solid var(--lab-panel-border);
 }
-.rail-mode-toggle {
+.rail-header {
   flex-shrink: 0;
   display: flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--lab-panel-border);
-  border-radius: 6px;
-}
-.rail-mode-btn {
-  all: unset;
-  box-sizing: border-box;
-  flex: 1;
-  text-align: center;
-  cursor: pointer;
-  padding: 4px 0;
-  border-radius: 4px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 8px;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--p-text-muted-color);
-}
-.rail-mode-btn:hover {
-  color: var(--p-text-color);
-}
-.rail-mode-btn.active {
-  background: var(--lab-panel-border);
-  color: var(--lab-accent);
-}
-.rail-mode-btn:focus-visible {
-  outline: 2px solid var(--lab-accent);
-  outline-offset: -2px;
 }
 .rail-group {
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-.rail-eyebrow {
-  margin: 0 0 2px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--p-text-muted-color);
 }
 .rail-item {
   all: unset;

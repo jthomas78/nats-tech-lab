@@ -130,8 +130,17 @@ nsc add user --account PLATFORM shipping-admin >/dev/null
 # MintAdminToken) to subscribe to directly — a narrow publish grant, not the
 # broad notify.> a tenant browser credential gets, since this user has no
 # business publishing anywhere else.
+# $SRV.> was already allow-sub'd (to receive discovery replies) but never
+# allow-pub'd, so the Services panel's $SRV.STATS broadcast (nats_ops.go's
+# listNatsServices, over this same shipping-admin PLATFORM connection) was
+# being silently dropped server-side — "Publish Violation" in the NATS
+# server log — and refdata-service (which registers on PLATFORM) never
+# appeared in the panel, only shipping-service (found via the tenant
+# connection instead). Added to allow-pub, matching the existing allow-sub
+# breadth, so the service-discovery broadcast/reply round-trip actually
+# completes.
 nsc edit user --account PLATFORM --name shipping-admin \
-  --allow-pub '$JS.API.CONSUMER.CREATE.REFDATA.>,$JS.API.CONSUMER.CREATE.RPCTRACE.>,$JS.API.CONSUMER.INFO.REFDATA.>,$JS.API.CONSUMER.INFO.RPCTRACE.>,$JS.API.CONSUMER.DELETE.REFDATA.>,$JS.API.CONSUMER.DELETE.RPCTRACE.>,$JS.API.CONSUMER.MSG.NEXT.REFDATA.>,$JS.API.CONSUMER.MSG.NEXT.RPCTRACE.>,notify._platform.>' \
+  --allow-pub '$JS.API.CONSUMER.CREATE.REFDATA.>,$JS.API.CONSUMER.CREATE.RPCTRACE.>,$JS.API.CONSUMER.INFO.REFDATA.>,$JS.API.CONSUMER.INFO.RPCTRACE.>,$JS.API.CONSUMER.DELETE.REFDATA.>,$JS.API.CONSUMER.DELETE.RPCTRACE.>,$JS.API.CONSUMER.MSG.NEXT.REFDATA.>,$JS.API.CONSUMER.MSG.NEXT.RPCTRACE.>,notify._platform.>,$SRV.>' \
   --allow-sub '$SRV.>,_INBOX.>,$JS.API.CONSUMER.MSG.NEXT.REFDATA.>,$JS.API.CONSUMER.MSG.NEXT.RPCTRACE.>' >/dev/null
 nsc generate creds --account PLATFORM --name shipping-admin >"$NATS_DIR/creds/shipping-admin.creds"
 
