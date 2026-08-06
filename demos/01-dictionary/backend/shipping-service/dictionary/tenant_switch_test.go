@@ -1,12 +1,12 @@
 package dictionary
 
 // Phase 13b integration spec (Main-POC-Plan.md, Phase 13b — creds mechanism
-// updated in Phase 14a): proves the tenant switch through the actual
-// application path — rest.Handlers.SwitchTenant and real HTTP requests —
-// not just a synthetic NATS-level check like 13a's. Loads the real shipping
-// nats/nats.conf (operator mode, resolver_preload) into an embedded server,
-// same as internal/natsaccounts/isolation_test.go, so this exercises the
-// shipped config rather than a re-description of it.
+// updated in Phase 14a, server setup migrated to synthetic operator mode in
+// Phase 24a): proves the tenant switch through the actual application path —
+// rest.Handlers.SwitchTenant and real HTTP requests — not just a synthetic
+// NATS-level check like 13a's. Uses a fully in-process synthetic NATS server
+// (see tenant_testserver_test.go) instead of loading nats/nats.conf, so the
+// spec stands alone from whatever bootstrap-operator.sh last produced.
 
 import (
 	"context"
@@ -14,75 +14,29 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/rest"
 )
 
-// tenantSwitchNatsDir mirrors internal/natsaccounts's own path constant:
-// this test file sits one directory shallower (dictionary/ vs.
-// internal/natsaccounts/), hence one fewer "..".
-const tenantSwitchNatsDir = "../../../nats"
-
-func tenantSwitchCredsPath(name string) string {
-	return filepath.Join(tenantSwitchNatsDir, "creds", name+".creds")
-}
-
-// loadTenantSwitchServer mirrors internal/natsaccounts.newSpikeServer's
-// config-rewrite step (see that function's doc comment for why the two
-// docker-only absolute paths need rewriting before an embedded server can
-// load the shipped nats.conf).
-func loadTenantSwitchServer() *server.Server {
-	GinkgoHelper()
-
-	raw, err := os.ReadFile(filepath.Join(tenantSwitchNatsDir, "nats.conf"))
-	Expect(err).NotTo(HaveOccurred())
-	operatorPath, err := filepath.Abs(filepath.Join(tenantSwitchNatsDir, "operator.jwt"))
-	Expect(err).NotTo(HaveOccurred())
-	rewritten := regexp.MustCompile(`operator:\s*\S+`).ReplaceAll(raw, []byte("operator: "+operatorPath))
-	rewritten = regexp.MustCompile(`dir:\s*"[^"]*"`).ReplaceAll(rewritten, []byte(`dir: "`+GinkgoT().TempDir()+`"`))
-
-	confPath := filepath.Join(GinkgoT().TempDir(), "nats.conf")
-	Expect(os.WriteFile(confPath, rewritten, 0o600)).To(Succeed())
-
-	opts, err := server.ProcessConfigFile(confPath)
-	Expect(err).NotTo(HaveOccurred())
-	opts.Port = -1
-	opts.HTTPPort = 0
-	opts.Websocket.Port = 0
-	opts.StoreDir = GinkgoT().TempDir()
-
-	srv, err := server.NewServer(opts)
-	Expect(err).NotTo(HaveOccurred())
-	srv.Start()
-	DeferCleanup(srv.Shutdown)
-	Expect(srv.ReadyForConnections(10 * time.Second)).To(BeTrue())
-	return srv
-}
-
 var _ = Describe("Phase 13b — tenant switch", func() {
 	var (
 		ctx      context.Context
-		srv      *server.Server
+		synthSrv *tenantSwitchServer
 		handlers *rest.Handlers
 		client   *httptest.Server
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		srv = loadTenantSwitchServer()
+		synthSrv = newTenantSwitchServer()
 
 		deps := rest.Deps{
 			Ports:         commands.NewPortHandler(newFakePortRepo()),
@@ -90,8 +44,8 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 			ShipRepo:      newFakeRepo(),
 			ContainerRepo: newFakeContainerRepo(),
 			PortRepo:      newFakePortRepo(),
-			NatsURL:       srv.ClientURL(),
-			CredsDir:      filepath.Join(tenantSwitchNatsDir, "creds"),
+			NatsURL:       synthSrv.srv.ClientURL(),
+			CredsDir:      synthSrv.CredsDir,
 		}
 		handlers = rest.NewHandlers(deps)
 		Expect(handlers.SwitchTenant(ctx, "acme")).To(Succeed())
@@ -101,16 +55,6 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 		client = httptest.NewServer(mux)
 		DeferCleanup(client.Close)
 	})
-
-	connectAs := func(name string) (*nats.Conn, jetstream.JetStream) {
-		GinkgoHelper()
-		nc, err := nats.Connect(srv.ClientURL(), nats.Name("tenant-switch-test"), nats.UserCredentials(tenantSwitchCredsPath(name)))
-		Expect(err).NotTo(HaveOccurred())
-		DeferCleanup(nc.Close)
-		js, err := jetstream.New(nc)
-		Expect(err).NotTo(HaveOccurred())
-		return nc, js
-	}
 
 	arriveShip := func(shipID, port string) {
 		GinkgoHelper()
@@ -155,7 +99,7 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 		Expect(fleetShipIDs()).To(ContainElement("acme-spike-ship"))
 
 		By("confirming no InactiveThreshold is set on the projector durables — a durable with one is reaped after inactivity and would lose its position across a long tenant switch")
-		_, acmeJS := connectAs("acme")
+		_, acmeJS := synthSrv.connectAs("acme")
 		cons, err := acmeJS.Consumer(ctx, "SHIPPING", "ship-shape-a")
 		Expect(err).NotTo(HaveOccurred())
 		info, err := cons.Info(ctx)
@@ -168,7 +112,7 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 			"tenant B must not see tenant A's ship through the same API call")
 
 		By("proving that's a server-side isolation fact, not an application filter: globex's own SHIPPING stream — independently created by SwitchTenant — genuinely has zero messages")
-		_, globexJS := connectAs("globex")
+		_, globexJS := synthSrv.connectAs("globex")
 		globexStream, err := globexJS.Stream(ctx, "SHIPPING")
 		Expect(err).NotTo(HaveOccurred(), "SwitchTenant must create SHIPPING in every tenant account it connects to")
 		globexInfo, err := globexStream.Info(ctx)
@@ -195,7 +139,7 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 	// reactively; this proves the piece that matters — that calling it makes
 	// a tenant's adapter answer, without ever touching SwitchTenant.
 	It("EnsureTenantByName provisions globex's api.* adapter without ever calling SwitchTenant for it", func() {
-		globexNC, _ := connectAs("globex")
+		globexNC, _ := synthSrv.connectAs("globex")
 
 		By("before EnsureTenantByName, nothing is listening on globex's account — this process has never touched that tenant")
 		_, err := globexNC.Request("api.acme.shipping.ship.list.v1", []byte(`{}`), 300*time.Millisecond)
@@ -243,7 +187,7 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 		By("ensuring globex has resources to tear down")
 		Expect(handlers.EnsureTenantByName(ctx, "globex")).To(Succeed())
 
-		globexNC, _ := connectAs("globex")
+		globexNC, _ := synthSrv.connectAs("globex")
 		Eventually(func() error {
 			_, err := globexNC.Request("api.acme.shipping.ship.list.v1", []byte(`{}`), time.Second)
 			return err
@@ -273,7 +217,7 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 	// accounts-service published nothing on reactivation, so a suspended-then-
 	// reactivated tenant stayed permanently dark to Sea Freight Flow.
 	It("a torn-down tenant is fully restored by EnsureTenantByName, closing the suspend/reactivate round trip", func() {
-		globexNC, _ := connectAs("globex")
+		globexNC, _ := synthSrv.connectAs("globex")
 
 		By("provisioned, then torn down as BR-031's suspension handler would")
 		Expect(handlers.EnsureTenantByName(ctx, "globex")).To(Succeed())

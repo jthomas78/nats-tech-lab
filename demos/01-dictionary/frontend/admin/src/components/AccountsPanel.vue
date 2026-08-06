@@ -686,6 +686,7 @@ const rowMenuItems = computed(() => {
 }
 .bu-table {
   max-width: 36rem;
+  --p-datatable-header-cell-background: color-mix(in srgb, var(--lab-nested-bg) 95%, var(--lab-accent) 5%);
 }
 .bu-reserved {
   font-style: italic;

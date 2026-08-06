@@ -1,137 +1,31 @@
 // Package natsaccounts is Phase 13a's standalone isolation spike
 // (.claude/plans/Main-POC-Plan.md, Phase 13): it is never imported by
-// application code. It loads the repo's actual nats/nats.conf — the file
-// shipped in docker-compose, not a reimplementation — into an embedded
-// in-process server, so what's proven here is what the shipped config does.
+// application code. Phase 24a migrated it off the repo's checked-in
+// nats/nats.conf and nats/creds/ artifacts onto a fully synthetic
+// operator-mode server (see shipping_testserver_test.go), so the specs
+// now stand alone from whatever bootstrap-operator.sh last produced.
 package natsaccounts
 
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"regexp"
 	"testing"
 	"time"
 
-	"github.com/nats-io/jwt/v2"
-	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	. "github.com/onsi/gomega"
 )
 
-// natsDir is the shipped nats/ directory, relative to this package's
-// directory (Go's test runner sets the working directory there).
-const natsDir = "../../../../nats"
-
-// credsPath resolves one of nats/creds/*.creds, minted by
-// bootstrap-operator.sh — these are checked into the repo (spike-only,
-// never production credentials; see that script's header).
-func credsPath(name string) string {
-	return filepath.Join(natsDir, "creds", name+".creds")
-}
-
-// accountPublicKeyFromCreds returns the tenant account identity carried by a
-// checked-in user JWT. Account-token exports stamp this value at token 2;
-// it is intentionally not a caller-controlled company context.
-func accountPublicKeyFromCreds(t *testing.T, name string) string {
-	t.Helper()
-	raw, err := os.ReadFile(credsPath(name))
-	if err != nil {
-		t.Fatalf("read %s creds: %v", name, err)
-	}
-	line := regexp.MustCompile(`(?m)^eyJ[^\n]*$`).Find(raw)
-	if len(line) == 0 {
-		t.Fatalf("find user JWT in %s creds", name)
-	}
-	claims, err := jwt.DecodeUserClaims(string(line))
-	if err != nil {
-		t.Fatalf("decode %s user JWT: %v", name, err)
-	}
-	if claims.IssuerAccount != "" {
-		return claims.IssuerAccount
-	}
-	// nsc's static service users are signed directly by their account key;
-	// in that normal case IssuerAccount is omitted and Issuer is the account.
-	return claims.Issuer
-}
-
-var resolverDirRE = regexp.MustCompile(`dir:\s*"[^"]*"`)
-
-// newSpikeServer loads the shipped nats/nats.conf into an embedded server —
-// the file docker-compose actually mounts, not a reimplementation — proving
-// what's tested here is what's shipped. Two absolute paths in the checked-in
-// file are docker-only (/etc/nats/operator.jwt, /data/jwt's resolver dir),
-// so this rewrites just those two before parsing; every account, JetStream
-// limit, and resolver_preload JWT comes from the file unchanged.
-func newSpikeServer(t *testing.T) (*server.Server, func()) {
-	t.Helper()
-
-	raw, err := os.ReadFile(filepath.Join(natsDir, "nats.conf"))
-	if err != nil {
-		t.Fatalf("read nats.conf: %v", err)
-	}
-	operatorPath, err := filepath.Abs(filepath.Join(natsDir, "operator.jwt"))
-	if err != nil {
-		t.Fatalf("resolve operator.jwt path: %v", err)
-	}
-	rewritten := regexp.MustCompile(`operator:\s*\S+`).ReplaceAll(raw, []byte("operator: "+operatorPath))
-	rewritten = resolverDirRE.ReplaceAll(rewritten, []byte(`dir: "`+t.TempDir()+`"`))
-
-	confPath := filepath.Join(t.TempDir(), "nats.conf")
-	if err := os.WriteFile(confPath, rewritten, 0o600); err != nil {
-		t.Fatalf("write rewritten nats.conf: %v", err)
-	}
-
-	opts, err := server.ProcessConfigFile(confPath)
-	if err != nil {
-		t.Fatalf("load rewritten nats.conf: %v", err)
-	}
-	opts.Port = -1
-	opts.HTTPPort = 0
-	opts.Websocket.Port = 0
-	opts.StoreDir = t.TempDir()
-
-	srv, err := server.NewServer(opts)
-	if err != nil {
-		t.Fatalf("new server: %v", err)
-	}
-	srv.Start()
-	if !srv.ReadyForConnections(10 * time.Second) {
-		t.Fatal("nats server not ready")
-	}
-	return srv, srv.Shutdown
-}
-
-// connectAs dials srv authenticated by the named account's .creds file
-// (e.g. "acme", "globex", "platform") — empty name dials with no credentials,
-// which operator mode always rejects (Phase 14a removed no_auth_user).
-func connectAs(t *testing.T, srv *server.Server, name string) *nats.Conn {
-	t.Helper()
-	opts := []nats.Option{nats.Name("phase13a-isolation-test")}
-	if name != "" {
-		opts = append(opts, nats.UserCredentials(credsPath(name)))
-	}
-	nc, err := nats.Connect(srv.ClientURL(), opts...)
-	if err != nil {
-		t.Fatalf("connect as %q: %v", name, err)
-	}
-	t.Cleanup(nc.Close)
-	return nc
-}
-
-// TestPlatformCredsGetFullJetStreamAccess proves the PLATFORM account (Phase
-// 14a's replacement for Phase 13a's no_auth_user) still gets everything
-// shipping-service and refdata-service need for their permanent connection
-// (shipping-service/cmd/main.go, refdata-service/cmd/main.go) — full
-// JetStream access and plain core pub/sub — just authenticated by a .creds
-// file now instead of connecting with zero credentials.
+// TestPlatformCredsGetFullJetStreamAccess proves the PLATFORM account still
+// gets everything shipping-service and refdata-service need for their
+// permanent connection — full JetStream access and plain core pub/sub.
 func TestPlatformCredsGetFullJetStreamAccess(t *testing.T) {
 	g := NewWithT(t)
-	srv, shutdown := newSpikeServer(t)
-	defer shutdown()
+	s := newShippingTestServer(t)
 
-	nc := connectAs(t, srv, "platform")
+	nc := s.connectAs(t, "platform")
 	g.Expect(nc.Opts.Name).NotTo(BeEmpty())
 
 	js, err := jetstream.New(nc)
@@ -155,15 +49,13 @@ func TestPlatformCredsGetFullJetStreamAccess(t *testing.T) {
 }
 
 // TestUnauthenticatedConnectionRejected proves Phase 14a's no_auth_user
-// removal actually took effect: unlike Phase 13a, a connection presenting no
-// credentials at all must now be rejected — operator mode has no anonymous
-// account.
+// removal actually took effect: a connection presenting no credentials at
+// all must be rejected — operator mode has no anonymous account.
 func TestUnauthenticatedConnectionRejected(t *testing.T) {
 	g := NewWithT(t)
-	srv, shutdown := newSpikeServer(t)
-	defer shutdown()
+	s := newShippingTestServer(t)
 
-	_, err := nats.Connect(srv.ClientURL())
+	_, err := nats.Connect(s.srv.ClientURL())
 	g.Expect(err).To(HaveOccurred(), "operator mode must reject a connection with no credentials — no_auth_user no longer exists")
 }
 
@@ -175,25 +67,25 @@ func TestUnauthenticatedConnectionRejected(t *testing.T) {
 // rather than "a malformed file fails to parse locally."
 func TestWrongCredentialsRejected(t *testing.T) {
 	g := NewWithT(t)
-	srv, shutdown := newSpikeServer(t)
-	defer shutdown()
+	s := newShippingTestServer(t)
 
-	real, err := os.ReadFile(credsPath("acme"))
+	acmeCredsPath := s.credsPath("acme")
+	real, err := os.ReadFile(acmeCredsPath)
 	g.Expect(err).NotTo(HaveOccurred())
 	tampered := tamperJWTSignature(t, real)
-	tmp := filepath.Join(t.TempDir(), "bad.creds")
+	tmp := t.TempDir() + "/bad.creds"
 	g.Expect(os.WriteFile(tmp, tampered, 0o600)).To(Succeed())
 
-	_, err = nats.Connect(srv.ClientURL(), nats.UserCredentials(tmp))
+	_, err = nats.Connect(s.srv.ClientURL(), nats.UserCredentials(tmp))
 	g.Expect(err).To(HaveOccurred())
 }
 
 // tamperJWTSignature flips one base64 character well inside a .creds file's
 // JWT signature segment (10 characters before the end — clear of the final
-// character, which for a 64-byte ed25519 signature encodes only padding
-// bits base64 decoders discard, so flipping it wouldn't actually change the
-// decoded signature). Invalidates the signature without touching the seed
-// or the file's overall structure.
+// character, which for a 64-byte ed25519 signature encodes only padding bits
+// base64 decoders discard, so flipping it wouldn't actually change the
+// decoded signature). Invalidates the signature without touching the seed or
+// the file's overall structure.
 func tamperJWTSignature(t *testing.T, creds []byte) []byte {
 	t.Helper()
 	s := string(creds)
@@ -216,11 +108,10 @@ func tamperJWTSignature(t *testing.T, creds []byte) []byte {
 // space is not shared), not a rejected publish/subscribe call.
 func TestCoreNATSCrossAccountIsolation(t *testing.T) {
 	g := NewWithT(t)
-	srv, shutdown := newSpikeServer(t)
-	defer shutdown()
+	s := newShippingTestServer(t)
 
-	ncAcme := connectAs(t, srv, "acme")
-	ncGlobex := connectAs(t, srv, "globex")
+	ncAcme := s.connectAs(t, "acme")
+	ncGlobex := s.connectAs(t, "globex")
 
 	received := make(chan *nats.Msg, 1)
 	sub, err := ncAcme.Subscribe("evt.shared-subject.shipping.ship.SHIP1.arrived", func(m *nats.Msg) { received <- m })
@@ -240,11 +131,10 @@ func TestCoreNATSCrossAccountIsolation(t *testing.T) {
 // streams, and neither account can see the other's.
 func TestJetStreamStreamIsolation(t *testing.T) {
 	g := NewWithT(t)
-	srv, shutdown := newSpikeServer(t)
-	defer shutdown()
+	s := newShippingTestServer(t)
 
-	ncAcme := connectAs(t, srv, "acme")
-	ncGlobex := connectAs(t, srv, "globex")
+	ncAcme := s.connectAs(t, "acme")
+	ncGlobex := s.connectAs(t, "globex")
 	jsAcme, err := jetstream.New(ncAcme)
 	g.Expect(err).NotTo(HaveOccurred())
 	jsGlobex, err := jetstream.New(ncGlobex)
@@ -291,11 +181,10 @@ func TestJetStreamStreamIsolation(t *testing.T) {
 // tenants with identical bucket names cannot see each other's data.
 func TestKVBucketIsolation(t *testing.T) {
 	g := NewWithT(t)
-	srv, shutdown := newSpikeServer(t)
-	defer shutdown()
+	s := newShippingTestServer(t)
 
-	ncAcme := connectAs(t, srv, "acme")
-	ncGlobex := connectAs(t, srv, "globex")
+	ncAcme := s.connectAs(t, "acme")
+	ncGlobex := s.connectAs(t, "globex")
 	jsAcme, err := jetstream.New(ncAcme)
 	g.Expect(err).NotTo(HaveOccurred())
 	jsGlobex, err := jetstream.New(ncGlobex)
@@ -323,11 +212,10 @@ func TestKVBucketIsolation(t *testing.T) {
 
 func TestTenantRefdataServiceImportStampsItsAccountIdentity(t *testing.T) {
 	g := NewWithT(t)
-	srv, shutdown := newSpikeServer(t)
-	defer shutdown()
+	s := newShippingTestServer(t)
 
-	platform := connectAs(t, srv, "platform")
-	acme := connectAs(t, srv, "acme")
+	platform := s.connectAs(t, "platform")
+	acme := s.connectAs(t, "acme")
 	seen := make(chan string, 1)
 	sub, err := platform.Subscribe("rpc.*.refdata.item.get.v1", func(msg *nats.Msg) {
 		seen <- msg.Subject
@@ -345,22 +233,20 @@ func TestTenantRefdataServiceImportStampsItsAccountIdentity(t *testing.T) {
 
 func TestTenantCannotUseOldStyleCrossContextRefdataSubject(t *testing.T) {
 	g := NewWithT(t)
-	srv, shutdown := newSpikeServer(t)
-	defer shutdown()
+	s := newShippingTestServer(t)
 
-	acme := connectAs(t, srv, "acme")
-	globexPub := accountPublicKeyFromCreds(t, "globex")
-	_, err := acme.Request("rpc."+globexPub+".refdata.item.get.v1", nil, 300*time.Millisecond)
+	acme := s.connectAs(t, "acme")
+	globexAccountPub := s.accountPubKey("globex")
+	_, err := acme.Request("rpc."+globexAccountPub+".refdata.item.get.v1", nil, 300*time.Millisecond)
 	g.Expect(err).To(HaveOccurred(), "acme has no import for a caller-selected globex subject")
 }
 
 func TestTenantReceivesAccountLifecycleEventViaStreamImport(t *testing.T) {
 	g := NewWithT(t)
-	srv, shutdown := newSpikeServer(t)
-	defer shutdown()
+	s := newShippingTestServer(t)
 
-	platform := connectAs(t, srv, "platform")
-	acme := connectAs(t, srv, "acme")
+	platform := s.connectAs(t, "platform")
+	acme := s.connectAs(t, "acme")
 	sub, err := acme.SubscribeSync("notify.accounts.account.created")
 	g.Expect(err).NotTo(HaveOccurred())
 	defer sub.Unsubscribe()
@@ -374,10 +260,9 @@ func TestTenantReceivesAccountLifecycleEventViaStreamImport(t *testing.T) {
 
 func TestShippingAdminCanOnlyUseNarrowOrderedConsumerAccess(t *testing.T) {
 	g := NewWithT(t)
-	srv, shutdown := newSpikeServer(t)
-	defer shutdown()
+	s := newShippingTestServer(t)
 
-	platform := connectAs(t, srv, "platform")
+	platform := s.connectAs(t, "platform")
 	platformJS, err := jetstream.New(platform)
 	g.Expect(err).NotTo(HaveOccurred())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -387,7 +272,7 @@ func TestShippingAdminCanOnlyUseNarrowOrderedConsumerAccess(t *testing.T) {
 	_, err = platformJS.Publish(ctx, "evt.acme.refdata.item.changed", []byte("change"))
 	g.Expect(err).NotTo(HaveOccurred())
 
-	admin := connectAs(t, srv, "shipping-admin")
+	admin := s.connectAs(t, "shipping-admin")
 	adminJS, err := jetstream.New(admin)
 	g.Expect(err).NotTo(HaveOccurred())
 	consumer, err := adminJS.OrderedConsumer(ctx, "REFDATA", jetstream.OrderedConsumerConfig{DeliverPolicy: jetstream.DeliverAllPolicy})

@@ -197,6 +197,11 @@ function shortAccount(acc) {
           <code v-else class="acct" :title="data.account">{{ shortAccount(data.account) }}</code>
         </template>
       </Column>
+      <Column header="Host" style="width:150px">
+        <template #body="{ data }">
+          <code class="acct">{{ data.ip }}:{{ data.port }}</code>
+        </template>
+      </Column>
       <Column header="RTT" style="width:70px" bodyClass="num-cell">
         <template #body="{ data }">{{ data.rtt || '—' }}</template>
       </Column>
