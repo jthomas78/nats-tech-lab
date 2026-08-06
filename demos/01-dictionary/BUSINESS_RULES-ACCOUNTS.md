@@ -91,9 +91,14 @@ tests migrated with it (`accounts-service/auth/*_test.go`), now reusing
   `nats/bootstrap-operator.sh` are seeded into this service's Postgres under
   their **lowercase tenant identity** — `platform`/`acme`/`globex` — if not
   already present, so the account list is complete without re-minting or
-  overwriting their JWTs. Seeded rows have no signing key seed on record
-  (this service never minted them) until the first time BR-AC04's
-  reactivation establishes one for them.
+  overwriting their JWTs. **Amended 2026-08-06 (BR-AC19):** seeded rows now
+  take their signing key seed from the one `bootstrap-operator.sh` exported
+  for that account, so the account's identity is stable across a
+  `docker compose down -v`. This entry previously said seeded rows have no
+  signing key seed on record until BR-AC04's reactivation establishes one —
+  that stopped being true when startup establishment (Phase 15c's
+  `ensureSigningKey`) was added, and minting a *fresh random* key on each
+  wiped boot is precisely the defect BR-AC19 fixes.
   **Naming note (2026-07-28):** `bootstrap-operator.sh` names these
   accounts uppercase at the `nsc`/JWT level (`PLATFORM`/`ACME`/`GLOBEX` — that
   is what the resolver JWT filenames and the account claims' own `Name`
@@ -437,7 +442,9 @@ claim with the operator's private key, which the tenant never holds. Whenever
 accounts-service re-signs a claim (startup signing-key establishment,
 reactivate, or limits update), it preserves the prior JWT's `Exports` and
 `Imports`; an account JWT update replaces the full claim and dropping either
-would silently sever this contract.
+would silently sever this contract. BR-AC19 extends the same treatment to
+`SigningKeys`, which this rule did not cover and which was in fact being
+dropped on every re-sign.
 
 - **Enforced in:** `nats/bootstrap-operator.sh`; `accounts/provisioner.go`.
 - **Test:** `provisioner_claims_test.go`; shipping
@@ -513,3 +520,60 @@ connection indicator is driven by for exactly that reason.
   `Sub.Allow` set, `Pub.Allow` empty, `Pub.Deny` contains `>`); `auth/
   handler_test.go` (`GET /api/auth/adminConnectInfo` — 200 with a signing key
   on record, 404 when PLATFORM isn't seeded, 409 with no signing key).
+
+## BR-AC19 (2026-08-06) — Seeded accounts adopt a stable signing key, and a claim re-sign never drops one
+
+Two halves of one invariant: **an account's signing key is stable across a
+`docker compose down -v`, and re-signing an account claim never invalidates a
+credential that was valid a moment earlier.**
+
+`bootstrap-operator.sh` exports each seeded account's signing key seed to
+`nats/keys/{platform,acme,globex}-signing-key.nk`, alongside the operator's
+own. At startup `accounts-service` adopts that seed for any seeded account
+with none on record, after verifying its public key is listed in that
+account's resolver JWT — a seed the resolver doesn't trust is a startup
+error, not a warning, since persisting it would mint user JWTs the server
+rejects. When no seed is exported (a stack bootstrapped before this rule),
+the previous behaviour stands: mint one and re-sign the claim.
+
+Separately, every claim re-sign — startup key establishment, reactivate, or
+limits update — **accumulates** signing keys rather than replacing the list,
+exactly as BR-AC14 already requires for `Exports`/`Imports` and for the same
+reason: an account JWT update replaces the whole claim. Re-signing is not a
+revocation operation; revoking an account's credentials is BR-AC03's suspend
+(`$SYS.REQ.CLAIMS.DELETE`), which removes the account JWT outright.
+
+**This closes a real incident (2026-08-06).** `globex` could not connect at
+all — `nats: authorization violation` on every `shipping-service` tenant
+connection — after nothing more than `docker compose down -v && docker
+compose up`. The chain: `bootstrap-operator.sh` deletes its `nsc` keystore,
+so the seeded accounts' signing keys were never exported and their Postgres
+rows started with none (BR-AC05). `ensureSigningKey` therefore minted a
+**fresh random key on every boot with an empty accounts Postgres**, and the
+re-sign replaced the account's whole signing key list. That was harmless for
+as long as every shipped `.creds` file was signed by its account's *identity*
+key — which is why `acme` never broke, and why the assumption went unnoticed
+in `ensureSigningKey`'s own doc comment. But BR-AC04's reactivation had
+rewritten `globex.creds` as a **signing-key**-signed credential
+(`CreateUser` always signs with the account signing key, and the shared
+`./nats/creds` mount is writable by `accounts-service`), and that file was
+committed. From then on each wiped boot dropped the one key `globex.creds`
+was signed by, with a different random key each time — which is why it
+presented as intermittent. The repo was inconsistent at rest too:
+`nats/resolver/GLOBEX.jwt` listed one signing key while the committed
+`globex.creds` was signed by another, so even a fresh clone would fail for
+`globex`.
+
+- **Enforced in:** `nats/bootstrap-operator.sh` (seed export);
+  `accounts/signingkeys.go` (`ResolveSeededSigningKey` — verification);
+  `cmd/main.go` (`seedPreexistingAccounts`, `ensureSigningKey` — adoption);
+  `accounts/provisioner.go` (`newAccountClaims` — signing key accumulation).
+- **Test:** `accounts/signingkeys_test.go` (adoption, lowercase lookup,
+  absent-seed fallback, and each rejection path);
+  `accounts/provisioner_claims_test.go`
+  (`TestNewAccountClaimsPreservesPriorSigningKeys`).
+- **Operational note:** adopting the exported seeds requires regenerating the
+  trust chain once (`nats/bootstrap-operator.sh --force`, then
+  `docker compose down -v && docker compose up --build`), because the
+  existing accounts' signing keys were never exported and cannot be
+  recovered — `nsc`'s keystore holding them was deleted at bootstrap time.

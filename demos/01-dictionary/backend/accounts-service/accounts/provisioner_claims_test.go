@@ -6,6 +6,40 @@ import (
 	"github.com/nats-io/jwt/v2"
 )
 
+// BR-AC19 — a claim re-sign accumulates signing keys rather than replacing
+// them. The failure this guards against is not hypothetical: dropping a prior
+// key invalidated every .creds file signed by it, which is what left globex
+// unable to connect at all after a `docker compose down -v` (2026-08-06).
+func TestNewAccountClaimsPreservesPriorSigningKeys(t *testing.T) {
+	const tenant = "ATENANTPUBLICKEY"
+	const priorSigningKey = "APRIORSIGNINGKEY"
+	const newSigningKey = "ANEWSIGNINGKEY"
+
+	prior := jwt.NewAccountClaims(tenant)
+	prior.SigningKeys.Add(priorSigningKey)
+
+	claims := newAccountClaims(tenant, newSigningKey, JSLimits{}, prior, CrossAccountOpts{})
+	if !claims.SigningKeys.Contains(priorSigningKey) {
+		t.Fatalf("prior signing key was dropped, invalidating every credential signed by it: %#v", claims.SigningKeys.Keys())
+	}
+	if !claims.SigningKeys.Contains(newSigningKey) {
+		t.Fatalf("newly established signing key is missing: %#v", claims.SigningKeys.Keys())
+	}
+
+	// Establishing a key on an account that has none must not invent history.
+	fresh := newAccountClaims(tenant, newSigningKey, JSLimits{}, nil, CrossAccountOpts{})
+	if got := fresh.SigningKeys.Keys(); len(got) != 1 || got[0] != newSigningKey {
+		t.Fatalf("expected exactly the new signing key, got %#v", got)
+	}
+
+	// A re-sign that establishes no key of its own (limits update on an
+	// account whose seed is unknown) must still carry the prior key forward.
+	limitsOnly := newAccountClaims(tenant, "", JSLimits{}, prior, CrossAccountOpts{})
+	if got := limitsOnly.SigningKeys.Keys(); len(got) != 1 || got[0] != priorSigningKey {
+		t.Fatalf("expected the prior signing key to survive a limits-only re-sign, got %#v", got)
+	}
+}
+
 func TestNewAccountClaimsAddsTenantImportsAndPreservesPriorCrossAccountWiring(t *testing.T) {
 	const tenant = "ATENANTPUBLICKEY"
 	const tenantName = "acme"

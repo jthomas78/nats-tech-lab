@@ -196,6 +196,11 @@ services:
       OPERATOR_SIGNING_KEY_FILE: /etc/nats/keys/operator-signing-key.nk
       NATS_CREDS_DIR: /etc/nats/creds
       RESOLVER_SEED_DIR: /etc/nats/resolver
+      # BR-AC19 — bootstrap-operator.sh's per-account signing key seeds, in the
+      # same directory as the operator's. Adopted at startup so platform/acme/
+      # globex keep a stable identity across `docker compose down -v` rather
+      # than being handed a fresh random key whenever accounts Postgres is empty.
+      ACCOUNT_SIGNING_KEYS_DIR: /etc/nats/keys
       # Spike-only shared secret (see accounts/middleware.go) — same
       # plaintext-fixture precedent as nats/creds/*.creds; WorkOS-backed
       # human auth is a later phase (.claude/memory/accounts_service_plan.md).
@@ -217,7 +222,7 @@ services:
       - "7202:8080"
     volumes:
       - ./nats/creds:/etc/nats/creds
-      - ./nats/keys/operator-signing-key.nk:/etc/nats/keys/operator-signing-key.nk:ro
+      - ./nats/keys:/etc/nats/keys:ro
       - ./nats/resolver:/etc/nats/resolver:ro
     depends_on:
       nats:

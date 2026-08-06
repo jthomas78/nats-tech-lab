@@ -114,12 +114,21 @@ func (p *Provisioner) CreateAccount(ctx context.Context, limits JSLimits, tenant
 
 // newAccountClaims builds the account claims shape shared by CreateAccount
 // and ReactivateAccount: same subject (accountPub), same JetStream limits
-// encoding, and same NatsLimits/AccountLimits defaults. Existing exports and
-// imports are copied into every re-push: account JWT updates replace the
-// whole claim, so omitting them would silently sever cross-account access.
+// encoding, and same NatsLimits/AccountLimits defaults. Existing exports,
+// imports, and signing keys are copied into every re-push: account JWT
+// updates replace the whole claim, so omitting them would silently sever
+// cross-account access (BR-AC14) or invalidate every credential already
+// signed by a prior signing key (BR-AC19).
 // signingPub may be empty (seeded pre-existing accounts have no stored
 // signing key — see Account.SigningKeySeed's doc comment in store.go), in
-// which case the claims simply carry no signing key.
+// which case the claims simply carry no signing key of their own.
+//
+// Signing keys accumulate rather than rotate: re-signing a claim is not a
+// revocation operation, and a caller that re-signs for an unrelated reason
+// (establishing a browser signing key at startup, changing JetStream limits)
+// must not silently invalidate credentials that were valid a moment earlier.
+// Revoking an account's credentials is BR-AC03's suspend
+// ($SYS.REQ.CLAIMS.DELETE), which removes the account JWT outright.
 //
 // Import recovery: if prior is non-nil but carries no imports (e.g. a stale
 // resolver JWT predating the Phase 21 export/import declarations), and
@@ -131,6 +140,15 @@ func newAccountClaims(accountPub, signingPub string, limits JSLimits, prior *jwt
 	claims.Name = accountPub
 	if signingPub != "" {
 		claims.SigningKeys.Add(signingPub)
+	}
+	if prior != nil {
+		for key, scope := range prior.SigningKeys {
+			if scope != nil {
+				claims.SigningKeys.AddScopedSigner(scope)
+				continue
+			}
+			claims.SigningKeys.Add(key)
+		}
 	}
 	claims.Limits.JetStreamLimits = jwt.JetStreamLimits{
 		MemoryStorage: limits.MaxMem,

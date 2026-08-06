@@ -47,6 +47,10 @@ func run(log *slog.Logger) error {
 	operatorSigningKeyFile := envOr("OPERATOR_SIGNING_KEY_FILE", "")
 	credsDir := envOr("NATS_CREDS_DIR", "") // shared volume shipping-service also mounts
 	resolverSeedDir := envOr("RESOLVER_SEED_DIR", "")
+	// BR-AC19 — bootstrap-operator.sh's per-account signing key seeds, so the
+	// seeded accounts keep a stable identity across a `docker compose down -v`
+	// instead of being handed a fresh random one on each wiped boot.
+	accountKeysDir := envOr("ACCOUNT_SIGNING_KEYS_DIR", "")
 	authSecret := envOr("ACCOUNTS_AUTH_SECRET", "")
 	natsMonitorURL := envOr("NATS_MONITOR_URL", "")
 	// Phase 19 — folded in from auth-service: the address the browser
@@ -138,7 +142,7 @@ func run(log *slog.Logger) error {
 
 	store := accounts.NewStore(db)
 	if resolverSeedDir != "" {
-		if err := seedPreexistingAccounts(ctx, store, provisioner, resolverSeedDir, log); err != nil {
+		if err := seedPreexistingAccounts(ctx, store, provisioner, resolverSeedDir, accountKeysDir, log); err != nil {
 			return err
 		}
 	}
@@ -202,7 +206,7 @@ func run(log *slog.Logger) error {
 // Postgres's tenant-identity column), so RenameIfExists below migrates any
 // existing uppercase row to its lowercase identity before SeedIfMissing
 // runs. Both steps are safe to run on every startup.
-func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, provisioner *accounts.Provisioner, resolverSeedDir string, log *slog.Logger) error {
+func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, provisioner *accounts.Provisioner, resolverSeedDir, accountKeysDir string, log *slog.Logger) error {
 	seeds := []struct {
 		Name       string
 		LegacyName string
@@ -223,13 +227,21 @@ func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, provisi
 		if err != nil {
 			return err
 		}
+		// BR-AC19: prefer the signing key bootstrap-operator.sh exported for
+		// this account, verified against the resolver JWT just decoded. Empty
+		// when the stack predates that export, in which case ensureSigningKey
+		// falls back to minting one.
+		bootstrapSeed, err := accounts.ResolveSeededSigningKey(accountKeysDir, s.Name, claims)
+		if err != nil {
+			return err
+		}
 		if err := store.RenameIfExists(ctx, s.LegacyName, s.Name); err != nil {
 			return err
 		}
 		if err := store.SeedIfMissing(ctx, accounts.Account{
 			Name:           s.Name,
 			PublicKey:      claims.Subject,
-			SigningKeySeed: "", // not this service's to mint users for — see doc comment
+			SigningKeySeed: bootstrapSeed,
 			Status:         accounts.StatusActive,
 			JSMaxMem:       s.Limits.MaxMem,
 			JSMaxFile:      s.Limits.MaxFile,
@@ -238,7 +250,7 @@ func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, provisi
 		}); err != nil {
 			return err
 		}
-		if err := ensureSigningKey(ctx, store, provisioner, s.Name, s.Limits, claims, log); err != nil {
+		if err := ensureSigningKey(ctx, store, provisioner, s.Name, s.Limits, claims, bootstrapSeed, log); err != nil {
 			return err
 		}
 	}
@@ -284,30 +296,46 @@ func seedSysAccountForDisplay(ctx context.Context, store *accounts.Store, resolv
 // because GET /api/auth/connectInfo (auth/handler.go, folded into this
 // service in Phase 19) mints browser user JWTs by loading an account's
 // SigningKeySeed from this same service's own Store (see
-// accounts/store.go's Account.SigningKeySeed doc comment), and
-// bootstrap-operator.sh's nsc-generated signing key for these accounts was
-// never exported anywhere this service can read (nsc's local keystore is
-// deleted at the end of that script — see its own header comment). Reuses
-// exactly the key-establishment logic accounts/handler.go's
-// reactivateAccount already uses for a suspended account with no signing
-// key on record, just triggered at startup instead of gated behind
-// suspension — Provisioner.ReactivateAccount itself doesn't check status,
-// only the REST handler does, so calling it here on an active account is
-// safe: it just re-pushes the account's claims with a signing key added,
-// which shipping-service's own already-working .creds files (signed
-// directly by the account's identity key, not this signing key) are
-// unaffected by.
+// accounts/store.go's Account.SigningKeySeed doc comment).
+//
+// bootstrapSeed (BR-AC19) is the key bootstrap-operator.sh exported for this
+// account, already verified against its resolver JWT. When present it is
+// simply adopted: the resolver trusts it by construction, so there is
+// nothing to re-sign or push, and the account's identity stays byte-stable
+// across a `docker compose down -v`.
+//
+// The generate-and-push path below is the fallback for a stack bootstrapped
+// before that export existed. It re-signs the account's claims — safe on an
+// active account (Provisioner.ReactivateAccount doesn't check status, only
+// the REST handler does), and since BR-AC19 the re-sign preserves any
+// signing keys already on the claim rather than replacing them.
+//
+// **This is the 2026-08-06 incident (BR-AC19).** The generated-key path used
+// to replace the account's whole signing key list, on the assumption — stated
+// in this comment until now — that every shipped .creds file was signed by
+// the account's identity key and therefore unaffected. That held until
+// BR-AC04's reactivation rewrote globex.creds as a *signing-key*-signed
+// credential, after which each wiped-Postgres boot minted a fresh random key,
+// dropped the one globex.creds was signed by, and left the tenant unable to
+// connect at all ("authorization violation").
 //
 // Runs at most once per account: a signing key, once established and
 // persisted, is never rotated on a later restart (the Postgres row already
 // has one, so this is a no-op) — rotating it would invalidate any browser
 // JWT minted against the previous key that's still within its TTL.
-func ensureSigningKey(ctx context.Context, store *accounts.Store, provisioner *accounts.Provisioner, name string, limits accounts.JSLimits, prior *jwt.AccountClaims, log *slog.Logger) error {
+func ensureSigningKey(ctx context.Context, store *accounts.Store, provisioner *accounts.Provisioner, name string, limits accounts.JSLimits, prior *jwt.AccountClaims, bootstrapSeed string, log *slog.Logger) error {
 	acc, err := store.Get(ctx, name)
 	if err != nil {
 		return fmt.Errorf("reload seeded account %q: %w", name, err)
 	}
 	if acc.SigningKeySeed != "" {
+		return nil
+	}
+	if bootstrapSeed != "" {
+		if err := store.SetSigningKeySeed(ctx, name, bootstrapSeed); err != nil {
+			return fmt.Errorf("persist bootstrap signing key for %q: %w", name, err)
+		}
+		log.Info("adopted bootstrap signing key for seeded account", "name", name)
 		return nil
 	}
 

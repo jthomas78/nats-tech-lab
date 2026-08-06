@@ -25,6 +25,13 @@
 #                                 manager, not a repo; needed by
 #                                 accounts-service (Phase 14b) to mint new
 #                                 account JWTs at runtime.
+#   nats/keys/{platform,acme,globex}-signing-key.nk
+#                                 per-account signing key seeds (BR-AC19) —
+#                                 adopted by accounts-service at startup so
+#                                 these accounts keep a stable identity across
+#                                 a `docker compose down -v`, instead of being
+#                                 handed a fresh random key on each wiped boot.
+#                                 Same secrets-manager caveat as above.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -84,6 +91,20 @@ for account in PLATFORM ACME GLOBEX; do
   user="$(echo "$account" | tr '[:upper:]' '[:lower:]')"
   nsc add user --account "$account" "$user" >/dev/null
   nsc generate creds --account "$account" --name "$user" >"$NATS_DIR/creds/$user.creds"
+
+  # BR-AC19 — export this account's signing key seed alongside the operator's.
+  # Without it accounts-service has no way to learn the key (nsc's keystore is
+  # deleted below), so its startup ensureSigningKey minted a *fresh random one*
+  # on every boot with an empty accounts Postgres and re-signed the account
+  # claims with it — invalidating any .creds file signed by the previous key.
+  # Exported under the lowercase tenant identity, matching creds/$user.creds.
+  account_sk="$(nsc describe account "$account" --json | jq -r '.nats.signing_keys[0]')"
+  account_sk_file="$(find "$NKEYS_PATH" -name "${account_sk}.nk")"
+  if [[ -z "$account_sk_file" ]]; then
+    echo "error: could not locate $account's signing key seed under $NKEYS_PATH" >&2
+    exit 1
+  fi
+  cp "$account_sk_file" "$NATS_DIR/keys/$user-signing-key.nk"
 done
 
 platform_pub="$(nsc describe account PLATFORM --json | jq -r '.sub')"
