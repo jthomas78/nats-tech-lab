@@ -30,7 +30,7 @@ var _ = Describe("MintBrowserToken", func() {
 	})
 
 	It("mints a JWT signed by the account's signing key, scoped to api.>/notify.> unparameterized by tenant", func() {
-		info, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "acme", "ws://localhost:9222")
+		info, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "acme", "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(info.WSUrl).To(Equal("ws://localhost:9222"))
 		Expect(info.Tenant).To(Equal("acme"))
@@ -59,20 +59,22 @@ var _ = Describe("MintBrowserToken", func() {
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("$JS.API")))
 	})
 
-	It("sets a short expiry in the future", func() {
+	It("stamps the expiry from the ttl argument", func() {
 		before := time.Now()
-		info, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "acme", "ws://localhost:9222")
+		// A non-default ttl proves the argument flows through to Expires
+		// rather than a hardcoded constant.
+		info, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "acme", "ws://localhost:9222", 22*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 
 		claims, err := jwt.DecodeUserClaims(info.JWT)
 		Expect(err).NotTo(HaveOccurred())
 		expiry := time.Unix(claims.Expires, 0)
-		Expect(expiry).To(BeTemporally(">", before))
-		Expect(expiry).To(BeTemporally("<", before.Add(10*time.Minute)))
+		Expect(expiry).To(BeTemporally(">", before.Add(21*time.Minute)))
+		Expect(expiry).To(BeTemporally("<", before.Add(23*time.Minute)))
 	})
 
 	It("produces an NKey seed matching a valid NATS user identity", func() {
-		info, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "acme", "ws://localhost:9222")
+		info, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "acme", "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 
 		userKP, err := nkeys.FromSeed([]byte(info.NKeySeed))
@@ -86,9 +88,9 @@ var _ = Describe("MintBrowserToken", func() {
 	})
 
 	It("gives every tenant the identical api.>/notify.> subject permissions — isolation comes from the account, not the subject", func() {
-		infoAcme, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "acme", "ws://localhost:9222")
+		infoAcme, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "acme", "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
-		infoGlobex, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "globex", "ws://localhost:9222")
+		infoGlobex, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "globex", "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 
 		claimsAcme, err := jwt.DecodeUserClaims(infoAcme.JWT)
@@ -106,7 +108,7 @@ var _ = Describe("MintBrowserToken", func() {
 	})
 
 	It("returns an error when the signing key seed is invalid", func() {
-		_, err := auth.MintBrowserToken(accountPub, "not-a-real-seed", "acme", "ws://localhost:9222")
+		_, err := auth.MintBrowserToken(accountPub, "not-a-real-seed", "acme", "ws://localhost:9222", 15*time.Minute)
 		Expect(err).To(HaveOccurred())
 	})
 })
@@ -133,7 +135,7 @@ var _ = Describe("MintAdminToken", func() {
 	// REFDATA/RPCTRACE notify.* subjects Phase 23 adds — no publish grant,
 	// no $JS.API.>/$KV.>, no tenant-shaped api.>/notify.{tenant}.* access.
 	It("mints a sub-only JWT scoped to notify.accounts.account.> and the REFDATA/RPCTRACE notify subjects, with publish denied entirely", func() {
-		info, err := auth.MintAdminToken(accountPub, accountSigningSeed, "ws://localhost:9222")
+		info, err := auth.MintAdminToken(accountPub, accountSigningSeed, "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(info.WSUrl).To(Equal("ws://localhost:9222"))
 		Expect(info.Tenant).To(Equal("platform"))
@@ -156,20 +158,20 @@ var _ = Describe("MintAdminToken", func() {
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("$JS.API")))
 	})
 
-	It("sets a short expiry in the future", func() {
+	It("stamps the expiry from the ttl argument", func() {
 		before := time.Now()
-		info, err := auth.MintAdminToken(accountPub, accountSigningSeed, "ws://localhost:9222")
+		info, err := auth.MintAdminToken(accountPub, accountSigningSeed, "ws://localhost:9222", 22*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 
 		claims, err := jwt.DecodeUserClaims(info.JWT)
 		Expect(err).NotTo(HaveOccurred())
 		expiry := time.Unix(claims.Expires, 0)
-		Expect(expiry).To(BeTemporally(">", before))
-		Expect(expiry).To(BeTemporally("<", before.Add(10*time.Minute)))
+		Expect(expiry).To(BeTemporally(">", before.Add(21*time.Minute)))
+		Expect(expiry).To(BeTemporally("<", before.Add(23*time.Minute)))
 	})
 
 	It("returns an error when the signing key seed is invalid", func() {
-		_, err := auth.MintAdminToken(accountPub, "not-a-real-seed", "ws://localhost:9222")
+		_, err := auth.MintAdminToken(accountPub, "not-a-real-seed", "ws://localhost:9222", 15*time.Minute)
 		Expect(err).To(HaveOccurred())
 	})
 })

@@ -2,7 +2,7 @@
 
 - [Project plan location](project_plan_location.md) — Plans live in `.claude/plans/`, not repo root
 - [Dev machine toolchain](dev_machine_toolchain.md) — Linux box has no Docker; Mac (Homebrew/Volta) does — check before assuming
-- [Shipping domain overview](shipping_domain_overview.md) — Ship/Container aggregates on `SHIPPING` stream; hydrate/read-modify-write/422 conventions; **updated 2026-07-31**: subjects are `evt.{context}.{service}.{entity}.{id}.{event}` where `{context}` is company/business-unit — **not** tenant (tenant = NATS account; see Phase 16a); Ship is surrogate-UUID-keyed like Container (BR-020…BR-022)
+- [Shipping domain overview](shipping_domain_overview.md) — Ship/Container on SHIPPING stream; `{context}`=business-unit, not tenant; Ship UUID-keyed like Container
 - [NATS volume legacy messages](nats_volume_legacy_messages.md) — stale-subject Nak loop after a domain rename; fix: `docker compose down -v`
 - [Container status model](container_status_model.md) — only `in-terminal`/`on-ship` exist; derive UI splits from `destPort` client-side
 - [frontend-port structure](frontend_port_structure.md) — now at `frontend/seafreight-app/`; Fleet/Port view split, refdata l10n, Vitest gotchas
@@ -13,16 +13,32 @@
 - [UI bug triage: trust framing](ui_bug_triage_trust_framing.md) — user names "the UI" as broken → investigate frontend first
 - [PrimeVue RadioButtonGroup for shared state](primevue_radiobutton_group_for_shared_state.md) — standalone RadioButtons in v-for need grouping
 - [Locale switch race condition](locale_switch_race_condition.md) — overlapping fetches resolve out of order; fixed with a request-token guard
-- [Verify before resuming offloaded work](verify_before_resuming_offloaded_work.md) — check git log before trusting a resumed summary's "still open" claims
-- [Design discussion vs. implementation signal](design_discussion_vs_implementation_signal.md) — this user iterates/reverts design ideas before saying "let's plan" — don't implement early
-- [NATS Tower operator-mode tradeoff](nats_tower_operator_mode_tradeoff.md) — **resolved 2026-07-28**: Phase 14a converted the shared server to operator mode; Tower can now be pointed at `nats/creds/sys.creds` through its own UI (not yet done — manual follow-up)
-- [Tenant-service separation decision](tenant_service_separation_decision.md) — agreed and **implemented 2026-07-28**: `accounts-service` is its own service/Postgres, separate from `refdata-service`; only the Admin UI merges both
-- [Accounts service plan](accounts_service_plan.md) — Phase 14 (2026-07-28) dynamic tenant provisioning; **2026-08-03**: BR-032/BR-033 closed the reactivation-regression + UI-truthfulness bugs; JetStream-limits gap closed by Phase 26a; 5 open gaps recorded (unrestricted/non-expiring service creds is top)
-- [Phase 21 account exports/imports](phase21_account_exports_imports.md) — plan approved 2026-08-03: two-account partitioning (PLATFORM cross-cutting, tenant data-plane) replacing the "second .creds connection" pattern; not yet implemented
-- [$SYS.REQ.CLAIMS reference](nats_sys_claims_subjects.md) — `$SYS.REQ.CLAIMS.*` is core NATS request-reply (not JetStream) for runtime JWT resolver management in operator mode
-- [refdata database-per-service](refdata_database_per_service.md) — refdata-service moved off shared `postgres` to its own `refdata-postgres` instance (port 5433); NATS is now the only shared infra
-- [Admin UI realtime transport options](admin_ui_realtime_transport_options.md) — Phase 15 + **Phase 23 (2026-08-04) both IMPLEMENTED**; live docker verification of Phase 23 still pending
-- [Phase 16 tenancy/taxonomy](phase16_tenancy_taxonomy.md) — 13-point decision record + a-f status: **all of 16a-16f DONE 2026-07-31**; known gap: refdata reads' tenant resolution doesn't track Sea Freight Flow's own NATS tenant
-- [Phase 17 Request/Reply panel](phase17_request_reply_panel.md) — DONE 2026-08-01 (BR-D36/BR-026 obs envelope + RpcPanel.vue rebuild); admin frontend has no Vitest infra
-- [Phase 18 Requestor/Responder headers](phase18_requestor_responder_headers.md) — DONE 2026-08-01 (BR-D37/BR-027); also fixed micro.Config.Name vs nats.Name mismatch (refdata-rpc/shipping-api → refdata-service/shipping-service)
-- [Ports tenant scoping (pending)](project-ports-tenant-scoping.md) — ports/refdata should scope to tenant/account not BU; temporary hack uses `_default_bu` for getPorts
+- [Verify before resuming offloaded work](verify_before_resuming_offloaded_work.md) — check git log before trusting a resumed summary's claims
+- [Design discussion vs. implementation signal](design_discussion_vs_implementation_signal.md) — user iterates/reverts ideas before "let's plan" — don't implement early
+- [NATS Tower operator-mode tradeoff](nats_tower_operator_mode_tradeoff.md) — resolved 2026-07-28: server is operator mode; Tower→sys.creds via its own UI not done yet
+- [Tenant-service separation decision](tenant_service_separation_decision.md) — implemented: accounts-service is its own service/DB, separate from refdata-service; Admin UI merges both
+- [Accounts service plan](accounts_service_plan.md) — Phase 14 dynamic tenant provisioning; BR-032/033 fixed reactivation bug; open gap: unrestricted service creds
+- [Phase 21 account exports/imports](phase21_account_exports_imports.md) — approved: PLATFORM/tenant two-account partitioning via NATS exports/imports; not implemented
+- [$SYS.REQ.CLAIMS reference](nats_sys_claims_subjects.md) — core NATS request-reply (not JetStream), for JWT resolver mgmt in operator mode
+- [refdata database-per-service](refdata_database_per_service.md) — refdata-service moved off shared postgres to its own instance (port 5433)
+- [Admin UI realtime transport options](admin_ui_realtime_transport_options.md) — Phase 15+23 IMPLEMENTED; live docker verification of Phase 23 pending
+- [Phase 16 tenancy/taxonomy](phase16_tenancy_taxonomy.md) — 13-point record, 16a-16f DONE; gap: refdata reads don't track Sea Freight Flow's own tenant
+- [Phase 17 Request/Reply panel](phase17_request_reply_panel.md) — DONE (obs envelope + RpcPanel.vue rebuild); admin frontend has no Vitest infra
+- [Phase 18 Requestor/Responder headers](phase18_requestor_responder_headers.md) — DONE; also fixed micro.Config.Name vs nats.Name mismatch
+- [Ports tenant scoping (pending)](project-ports-tenant-scoping.md) — ports/refdata should scope to tenant not BU; temp hack uses `_default_bu`
+- [Phase 25i diesel overlay](phase25i_diesel_overlay.md) — DONE; fixed BR-P24 zero-baseline corruption + a DatePicker UTC date-shift bug; 25j not started
+- [V3 tenancy axes decision](v3_tenancy_axes_decision.md) — tenant = marketplace-operating business, not region; 5 axes; discussion only, nothing built
+- [NATS scoped signing keys](nats_scoped_signing_keys.md) — server enforces the key's permission template, discards user JWT's own; check JWT bloat
+- [Linebooker V2 refdata candidates](linebooker_v2_refdata_candidates.md) — enum+table duplicates (VehicleType etc) are tier 1; versioning+l10n are net-new
+- [Linebooker refdata layering model](linebooker_refdata_layering_model.md) — Codex's platform/tenant/org 3-layer framework; flags snapshot-onto-history as a gap
+- [refdata cross-tenant stream import](refdata_cross_tenant_stream_import.md) — open bug: tenants import `evt.*.refdata.*.changed` unbounded, see each other's metadata
+- [Platform/Marketplace/Tenant diagram](linebooker_platform_marketplace_tenant_diagram.md) — draft: Marketplace under PLATFORM; Trips per-tenant; 2 UIs per tenant
+- [BusinessType vs BusinessEntityType](linebooker_business_type_vs_entity_type.md) — "Company" is a legal-structure value, not a 3rd role; roles are Customer/Transporter/Operator/Integrator
+- [Bid/Tender allocation rules](linebooker_bid_tender_allocation_rules.md) — Bid/Tender are unconnected tracks (no FK), map to "Submission/Bidding Tenders" UI tabs; lowest-bid wins at expiry
+- [Shipper vs Customer naming](linebooker_shipper_vs_customer_naming.md) — "Customer" implies buying, but role submits tenders; "Shipper" pairs correctly with "Transporter"
+- [Transport execution phase naming](linebooker_transport_execution_phase_naming.md) — term for post-marketplace loads/trucks/POD/collection; 4 stages: dispatch→collection→in-transit→delivery
+- [Payments/settlement phase](linebooker_payments_settlement_phase.md) — 3rd end-to-end phase; real V2 entities: PaymentEntity, InvoiceSplitType, EarlySettlementRequest (factoring)
+- [Platform vs tenant service split](linebooker_platform_vs_tenant_service_split.md) — Refdata+Accounts/Auth are platform; Marketplace/Payments likely tenant-scoped (corrects original diagram)
+- [Registration UI placement](linebooker_registration_ui_placement.md) — Trading-partner Registration belongs in Admin UI ("Trading partners"), not RefData UI — master data, not a vocabulary
+- [Trading partners term + fleet cardinality](linebooker_trading_partners_term_and_fleet_cardinality.md) — collective term "Trading partners"; Transporter→truck is one-to-many via FleetAssetEntity FK
+- [Trading Partner phase v1 scope](linebooker_trading_partner_phase_v1_scope.md) — confirmed: single record (no platform/tenant split yet), 2-state lifecycle (CQRS/temporal explore flagged), docs+fleet in v1, both roles together

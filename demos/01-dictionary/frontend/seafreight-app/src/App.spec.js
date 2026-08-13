@@ -118,6 +118,7 @@ describe('BR-D16 Port UI localization', () => {
     expect(wrapper.findAll('.nav-item').map((node) => node.text())).toEqual([
       'Fleet Management',
       'Port Management',
+      'Pricing',
     ])
     expect(wrapper.get('.topbar .lab-muted').text()).toBe('fleet overview · docked ships · manifests')
     expect(wrapper.get('label[for="locale"]').text()).toBe('Language')
@@ -134,6 +135,7 @@ describe('BR-D16 Port UI localization', () => {
     expect(wrapper.findAll('.nav-item').map((node) => node.text())).toEqual([
       'Gestión de flota',
       'Gestión portuaria',
+      'Precios',
     ])
     expect(wrapper.get('.topbar .lab-muted').text()).toBe(
       'patio de terminal · buques en puerto · operaciones de contenedores',
@@ -146,6 +148,7 @@ describe('BR-D16 Port UI localization', () => {
     for (const enString of [
       'Fleet Management',
       'Port Management',
+      'Pricing',
       'fleet overview · docked ships · manifests',
       'terminal yard · ships at port · container operations',
       'Language',

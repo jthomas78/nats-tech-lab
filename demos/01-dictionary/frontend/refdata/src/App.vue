@@ -42,6 +42,8 @@ onUnmounted(() => store.disconnect())
         id="context"
         :model-value="store.context"
         :options="store.availableContexts"
+        option-label="name"
+        option-value="context"
         size="small"
         @update:model-value="val => { store.context = val; store.connect() }"
       />

@@ -366,7 +366,11 @@ from both — never a source of truth themselves.
   issues a longer-lived **refresh token** (7–30 days) alongside it. The NATS
   JWT is the access credential presented to NATS on connect; the refresh
   token is used to obtain a fresh NATS JWT without re-authenticating through
-  WorkOS.
+  WorkOS. **Partially realized (2026-08-07):** the 15–30 min TTL target is now
+  enforced and configurable for the browser/admin credentials — see
+  [[BR-AC20]] (durable, Admin-UI-configurable TTL, default 15 min) and
+  [[BR-AC21]] (the hard 15–30 min envelope). The refresh-token half remains
+  unbuilt; browser tabs reconnect on expiry rather than renewing in place.
 - **BR-UA04:** When a NATS user JWT expires, the client uses the refresh
   token to request a new one from the backend. The backend validates the
   refresh token, checks the user's status in the app DB (active, not
@@ -452,47 +456,75 @@ dropped on every re-sign.
 
 ## BR-AC15 — Business unit registration
 
-Every non-reserved, non-underscore name may be registered as a business unit
-for any account. The name becomes the `{context}` token in refdata-service's
-context tree, NATS subject taxonomy, and KV key prefix. Registration persists
-a row in `accounts.business_units (account_id, name, visible)` and fires a
-best-effort call to `POST /api/refdata/admin/contexts` to register the context
-there as well. A name starting with `_` is rejected at the API level — the
-underscore prefix is reserved for platform use (matching BR-D33 in
-refdata-service and BR-AC07 for account names).
+Every business unit has two fields, not one (Phase 22b, BR-AC26): a free-text
+English **name** (`Pacific Fleet`) and an immutable, subject-safe **context**
+slug (`acme-pacific-fleet`) — the token refdata-service's context tree, the
+NATS subject taxonomy, and KV key prefixes all actually use. When a create
+request omits `context`, it is derived from `name` (BR-AC26). Registration
+persists a row in `accounts.business_units (account_id, name, context,
+visible, is_default)` and fires a best-effort call to `POST
+/api/refdata/admin/contexts` — sending `name` and `context` as the distinct
+values they are — to register the context there as well. A context is
+rejected at the API level unless it passes `ValidateContext` (BR-AC27); this
+implicitly also blocks a leading `_`, since that character never appears in
+anything `ValidateContext` accepts.
 
-- **Enforced in:** `accounts/handler.go` (`createBusinessUnit`).
-- **Test:** integration against the full stack (Phase 22 E2E).
+- **Enforced in:** `accounts/handler.go` (`createBusinessUnit`);
+  `accounts/slug.go` (`ValidateContext`, `DeriveContext`).
+- **Test:** `accounts/slug_test.go`; `accounts/handler_test.go`
+  (`Describe("Business units (BR-AC26/27/28/29)")`).
 
-## BR-AC16 — Auto-create `_default_bu` business unit row
+## BR-AC16 — Auto-create a default business unit row
 
-Every newly created account receives a `_default_bu` business unit row
-automatically, created immediately after `Store.Insert` persists the account.
-This guarantees that `ListBusinessUnits` always returns at least one entry
-even before any real business units are registered, and that refdata-service's
-shared `_default_bu` context is always represented in the BU list. The
-auto-creation is best-effort: a failure is logged but does not fail the create
-request, since the account is already fully minted at that point.
+Every newly created account receives its own default business unit row
+automatically — name `Default`, context `{tenant}-default`, `is_default: true`
+— created immediately after `Store.Insert` persists the account. This
+guarantees that `ListBusinessUnits` always returns at least one entry even
+before any real business units are registered. The auto-creation is
+best-effort: a failure is logged but does not fail the create request, since
+the account is already fully minted at that point.
+
+Before 2026-08-13 (Phase 22) this was a single literal `_default_bu` row
+shared by every account with none of its own. That collapsed two tenants'
+data onto the same refdata-service `(context, type_key, code)` rows the
+moment both resolved to it, which is the defect Phase 22b's per-tenant
+default (BR-AC28) exists to remove.
 
 - **Enforced in:** `accounts/handler.go` (`createAccount` — auto-inserts
-  `_default_bu` after the `Store.Get` reload).
-- **Test:** integration against the full stack (Phase 22 E2E).
+  the default row after the `Store.Get` reload, using `DefaultContext` from
+  `accounts/slug.go`). Also replayed by `cmd/main.go`'s
+  `seedPreexistingAccounts` for every non-reserved seeded account (acme,
+  globex): that path inserts account rows directly via `Store.SeedIfMissing`
+  rather than going through `createAccount`, so without this it would seed
+  accounts that never satisfy the "always at least one BU" invariant — which
+  is exactly what happened before 2026-08-13 (globex showed "No business
+  units yet" while a freshly-registered account always showed the
+  placeholder).
+- **Test:** `accounts/handler_test.go` (BR-AC16/BR-AC28 spec — auto-created
+  default carries its own tenant-prefixed slug, never the retired shared
+  literal).
 
 ## BR-AC17 — Business unit visibility toggle semantics
 
 Setting a business unit's `visible` flag to `false` hides it from the context
 selector in the shipping and refdata UIs (`ListByTenant` filters by
 `visible = true`). It does not delete the BU row or any refdata items seeded
-under that context — those remain queryable directly. The Admin UI prompts the
-operator to hide `_default_bu` when they register their first real BU (since
-real BUs make the placeholder redundant), but does not do so automatically
-because `_default_bu` may already hold demo or migration data. Visibility can
-be toggled back at any time via `PATCH
-/api/accounts/{name}/business-units/{buName}`.
+under that context — those remain queryable directly. The Admin UI prompts
+the operator to hide the account's default business unit when they register
+their first real BU (since real BUs make the placeholder redundant), but does
+not do so automatically because the default may already hold demo or
+migration data. Visibility can be toggled back at any time via `PATCH
+/api/accounts/{name}/business-units/{context}`.
 
 - **Enforced in:** `accounts/handler.go` (`updateBusinessUnit`);
   `refdata/internal/postgres/context_repository.go` (`ListByTenant`).
-- **Test:** integration against the full stack (Phase 22 E2E).
+  `cmd/main.go`'s `seedDemoBusinessUnits` replays this same hide step for
+  acme immediately after seeding its two real demo BUs, so acme's Business
+  Units table matches what a real operator would see after registering an
+  account and adding its first real BU — an always-visible reserved row
+  would otherwise never occur through the normal create-then-add-BU flow.
+- **Test:** `accounts/handler_test.go` (BR-AC28 spec covers the toggle
+  surviving on the default row specifically).
 
 ## BR-AC18 — Admin token minting is isolated from the tenant lifecycle
 
@@ -577,3 +609,281 @@ presented as intermittent. The repo was inconsistent at rest too:
   `docker compose down -v && docker compose up --build`), because the
   existing accounts' signing keys were never exported and cannot be
   recovered — `nsc`'s keystore holding them was deleted at bootstrap time.
+
+## BR-AC20 (2026-08-07) — Browser/admin JWT expiry TTL is a durable, configurable system setting
+
+The TTL stamped on the short-lived NATS user JWTs that `auth.MintBrowserToken`
+and `auth.MintAdminToken` issue to browser WebSocket connections is a
+**durable, platform-global system setting**, not a compile-time constant. It
+is stored in a singleton `accounts.system_config` row (one row, guaranteed by
+a `BOOLEAN PRIMARY KEY … CHECK (singleton)`), edited from the Admin UI's
+**System → Settings** screen, and read fresh on **every** mint so a change
+takes effect on the next browser (re)connect without a service restart.
+
+Two values are configurable: the **TTL value** actually issued
+(`token_ttl_minutes`) and the **operational range** it must sit within
+(`token_ttl_min_minutes`, `token_ttl_max_minutes`). Defaults, seeded by
+`Migrate` and returned by `DefaultTokenTTLConfig`: **value 15 min, range
+15–30 min.** A config read failure at mint time falls back to that default
+rather than failing the connect — issuing a short-lived credential on the
+default TTL is strictly safer than refusing to connect the browser.
+
+This supersedes the previous behaviour (a hardcoded `const tokenTTL =
+5 * time.Minute` in `auth/token.go`) and is the POC's first concrete step
+toward BR-UA03's 15–30 min target — the refresh-token half of BR-UA03/UA04
+is still not built, so a tab open past the TTL still reconnects rather than
+renewing in place (see `ARCHITECTURE-ACCOUNTS.md` § "Runtime — browser JWT
+expiry & reconnect").
+
+- **Where:** `accounts/config.go` (`TokenTTLConfig`, `DefaultTokenTTLConfig`,
+  `Store.GetTokenTTLConfig`/`SetTokenTTLConfig`); `accounts/store.go`
+  (`Migrate` — `system_config` table + seed); `accounts/handler.go`
+  (`GET`/`PUT /api/accounts/system-config`, BasicAuth-gated);
+  `auth/handler.go` (`tokenTTL` — read per mint); `auth/token.go`
+  (`Mint*` now take a `ttl` argument).
+- **Test:** `accounts/config_test.go` (default + duration, always runs — no
+  Postgres); `accounts/handler_test.go` (GET default, PUT round-trip, auth
+  required); `auth/handler_test.go` (end-to-end: `connectInfo`'s minted JWT
+  expiry reflects the configured TTL); `auth/token_test.go` (the `ttl`
+  argument flows through to `Expires`).
+
+## BR-AC21 (2026-08-07) — TTL value and range are bounded by the hard 15–30 minute envelope
+
+`TokenTTLConfig.Validate` enforces, and the `PUT /api/accounts/system-config`
+handler rejects with **HTTP 400** any update that violates:
+
+1. the configured range must lie within the **hard `[MinTTLMinutes,
+   MaxTTLMinutes]` = `[15, 30]` envelope** — these are code constants because
+   they *are* BR-UA03's rule ("all JWT expiry must be between 15 and 30
+   minutes"); widening the envelope is a change to the rule and must go
+   through code + a spec, never a runtime toggle;
+2. the range minimum must not exceed the maximum; and
+3. the issued value must fall within the configured range.
+
+Because a valid range is envelope-bounded, a valid value is transitively
+guaranteed to sit inside the 15–30 minute window. The configurable range
+therefore only ever lets an operator **narrow** the window within the
+envelope, never escape it. The `GET`/`PUT` responses expose the envelope
+(`envelopeMinMinutes`/`envelopeMaxMinutes`) read-only so the Admin UI can
+constrain its editors without hardcoding the bounds.
+
+- **Where:** `accounts/config.go` (`TokenTTLConfig.Validate`, `MinTTLMinutes`,
+  `MaxTTLMinutes`); `accounts/handler.go` (`updateSystemConfig`).
+- **Test:** `accounts/config_test.go` (`DescribeTable` over the envelope,
+  range-inversion, and value-out-of-range cases); `accounts/handler_test.go`
+  (400 for a range outside the envelope, 400 for a value outside the range).
+
+## BR-AC22 (2026-08-12) — A declared import is only "healthy" if a matching export actually exists
+
+`GET /api/accounts/topology` used to report every account's declared
+imports as if they were live traffic, with no check that anything on the
+exporter's side actually satisfies them. An import is only satisfiable when
+the account it names (`Import.Account`) declares an export of the same type
+(`service`/`stream`) whose subject **contains** the import's subject —
+`jwt.Subject.IsContainedIn`, the same wildcard-aware containment nsc itself
+uses to validate an import against an export (mirroring, with an added type
+check, `jwt.Exports.HasExportContainingSubject`). An import with no such
+export is reported with status `no-export`, never silently dropped —
+omitting it is exactly what made this class of misconfiguration invisible.
+A known exporter whose own claims lookup failed is treated the same as
+`no-export` rather than invented as a third "can't tell" state, since either
+way no export can be confirmed.
+
+- **Where:** `accounts/topology.go` (`matchExport`, `importStatus`,
+  `listTopology`).
+- **Test:** `accounts/topology_test.go` (`TestMatchExport`,
+  `TestImportStatus` — table-driven, including the real wildcarded PLATFORM
+  export shapes from `nats/bootstrap-operator.sh`); `accounts/handler_test.go`
+  (BR-AC22/BR-AC23 spec — matched vs. no-export over a live pushed export).
+
+## BR-AC23 — An export nobody imports is reported as unconsumed, separately from the edge list
+
+Alongside `edges`, the topology response carries `unconsumedExports`: every
+export, on any known account, that no import (from any known account)
+currently matches. This is lower severity than an unmatched import — unused
+capability, not breakage — so it's reported as its own list rather than as a
+graph edge; an export has no importer endpoint to draw a line to. An export
+is "consumed" the moment any import matches it by subject+type, independent
+of whether that import also satisfies BR-AC24's token requirement.
+
+- **Where:** `accounts/topology.go` (`listTopology`'s second pass over
+  `claims.Exports`, gated on the `consumed` map built while walking imports).
+- **Test:** `accounts/handler_test.go` (BR-AC22/BR-AC23 spec — an export with
+  no importer appears in `unconsumedExports`; a consumed export does not).
+
+## BR-AC24 — An import matching an export that requires a token, without one, is reported distinctly
+
+An export may set `TokenReq`, meaning an importer must present an activation
+token to actually use it. An import whose subject+type matches such an
+export but carries no `Token` is reported as `token-required` — distinct
+from both `matched` (usable as declared) and `no-export` (no contract exists
+at all): here a contract exists but isn't actually usable as declared, which
+is a different failure to diagnose than either of those.
+
+- **Where:** `accounts/topology.go` (`importStatus`).
+- **Test:** `accounts/topology_test.go` (`TestImportStatus`);
+  `accounts/handler_test.go` (BR-AC24 spec).
+
+## BR-AC25 — An import naming an account outside this deployment is reported as unknown-account, never dropped
+
+If `Import.Account` isn't a public key any known account (`Store.List`)
+holds, the edge is still reported — with `status: "unknown-account"` and
+`fromAccount` set to the raw public key rather than a resolved name — instead
+of being silently omitted. This was already accounts-service's stated intent
+(`imp.Account` falling back to the raw pubkey "rather than drop the edge")
+before the Admin UI's Topology panel had anywhere to render it; BR-AC25 is
+what makes that intent an enforced, tested contract.
+
+- **Where:** `accounts/topology.go` (`importStatus`, `listTopology`).
+- **Test:** `accounts/topology_test.go` (`TestImportStatus`);
+  `accounts/handler_test.go` (BR-AC25 spec — an import naming a freshly
+  generated, never-registered account pubkey).
+
+## BR-AC26 (2026-08-13) — A business unit's name and its context slug are distinct, and the slug is immutable once created
+
+A business unit carries two independently-mutable-or-not fields: `name`, a
+free-text English label an operator may rename at will, and `context`, the
+subject-safe slug refdata-service and every NATS subject/KV-key actually use.
+Before this rule (Phase 22) they were one field — an operator naming a unit
+had to type its eventual subject token directly, and the Admin UI displayed
+that token as if it were the label.
+
+`context` is immutable from the moment a business unit is created. This is
+not a preference but a hard constraint: none of refdata-service's data
+tables (`dictionary_items`, `dictionary_localizations`, `dictionary_references`,
+`dictionary_locales`) carry a foreign key back to `refdata.contexts` — they
+hold the context value as a bare column. Renaming a slug would silently
+orphan every row keyed under the old value, plus the `refdata-{context}` KV
+bucket, the versioned corpus buckets, and the already-immutable
+`evt.{context}.…` JetStream history recorded under it. `PATCH
+/api/accounts/{name}/business-units/{context}` accepts a `name` field and has
+no `context` field at all — there is no code path that could rename a slug,
+by construction, not by a check that could be bypassed.
+
+When a create request omits `context`, `DeriveContext(tenant, name)` proposes
+one: the tenant name, then the slugified display name, skipping the tenant
+prefix when the name already leads with it (so "Acme Pacific Fleet" under
+tenant `acme` still derives `acme-pacific-fleet`, not
+`acme-acme-pacific-fleet`). The Admin UI sends the derived value back
+explicitly rather than relying on server-side derivation, so the operator
+sees and can edit it before committing to something that can never change.
+
+- **Enforced in:** `accounts/slug.go` (`DeriveContext`, `Slugify`);
+  `accounts/handler.go` (`createBusinessUnit` — derives when omitted;
+  `updateBusinessUnit` — `name` is the only mutable field a `PATCH` body can
+  carry); `frontend/admin/src/components/AccountsPanel.vue` (Add Business
+  Unit dialog — Context auto-follows Name until hand-edited, then stops).
+- **Test:** `accounts/slug_test.go` (`TestDeriveContext`);
+  `accounts/handler_test.go` (BR-AC26 specs — derived vs. explicit context,
+  rename preserves the slug unchanged).
+
+## BR-AC27 (2026-08-13) — A context slug must be a legal subject token and is globally unique, not just unique per account
+
+`ValidateContext` rejects anything that isn't lowercase letters, digits and
+hyphens, starting and ending alphanumeric, at most 48 characters
+(`MaxContextLen`) — stricter than refdata-service's own `ValidateSubjectToken`
+(`^[A-Za-z0-9_-]+$`, BR-D22) in one deliberate way: no uppercase. NATS subject
+tokens are case-sensitive, so `Acme` and `acme` address two different
+subjects and two different KV buckets while reading as the same business unit
+to a human — exactly the mismatch that surfaces as "the dropdown is populated
+but every lookup returns nothing." Validation runs in accounts-service at the
+point of write, not left to refdata-service's own check: the call into
+refdata-service is best-effort, so before this rule a business unit named
+`west coast` persisted locally and then failed *silently* downstream, leaving
+a row that could never resolve to anything.
+
+`context` is also unique across every account, not merely within one:
+`accounts.business_units` carries a global `UNIQUE (context)` index, even
+though `UNIQUE (account_id, name)` (display names) stays per-account.
+refdata-service's own `contexts.context` is a primary key, and its `Register`
+upserts on conflict — so before this constraint, two accounts registering the
+same slug would let the second silently overwrite the first's context row,
+including its `name` and `tenant` ownership metadata, with no error surfaced
+to anyone. `POST /api/accounts/{name}/business-units` now returns `409` on a
+global slug collision.
+
+- **Enforced in:** `accounts/slug.go` (`ValidateContext`); `accounts/store.go`
+  (`business_units_context_key` unique index); `accounts/handler.go`
+  (`createBusinessUnit` — 400 on an invalid slug, 409 on a collision).
+- **Test:** `accounts/slug_test.go` (`TestValidateContext`,
+  `TestValidateContextLength`); `accounts/handler_test.go` (BR-AC27 specs —
+  rejects an illegal slug; rejects a cross-account slug collision).
+
+## BR-AC28 (2026-08-13) — Every account's default business unit is its own, tenant-owned, and its identity is readonly
+
+Each account's auto-created default business unit (BR-AC16) has context
+`{tenant}-default` — an ordinary tenant-owned slug, deliberately *not* the
+Phase 22 shared literal `_default_bu`. Two tenants can no longer collide by
+both resolving to the same context: `acme`'s default is `acme-default`,
+`globex`'s is `globex-default`, each satisfying `ValidateContext` (BR-AC27)
+with no special-case exception.
+
+The default is identified by an explicit `is_default BOOLEAN` column, never
+by comparing a name or slug against a reserved literal — Phase 22's code had
+roughly seven places (three in accounts-service, four across the frontends)
+that string-matched `_default_bu` directly, every one of which a per-tenant
+slug would have silently broken.
+
+"Readonly" covers identity only: a default business unit cannot be renamed
+(`updateBusinessUnit` returns `409` for any `name` change once
+`bu.IsDefault` is true) and there is no endpoint to create one directly or
+delete any business unit at all. `visible` stays toggleable — BR-AC17's
+hide-once-a-real-BU-exists flow is exactly this toggle, and disabling it
+there would break that flow.
+
+`ListBusinessUnits` sorts the default first, ahead of every real business
+unit by name, rather than wherever it falls alphabetically — it is the one
+row guaranteed to exist and reads as the list's anchor.
+
+- **Enforced in:** `accounts/slug.go` (`DefaultContext`); `accounts/store.go`
+  (`ListBusinessUnits`'s `ORDER BY bu.is_default DESC, bu.name`);
+  `accounts/handler.go` (`updateBusinessUnit` — rejects a rename when
+  `IsDefault`).
+- **Test:** `accounts/slug_test.go` (`TestDefaultContext` — two tenants never
+  collapse to the same value); `accounts/handler_test.go` (BR-AC28 specs —
+  rename rejected, visibility toggle still succeeds, list ordering).
+
+## BR-AC29 (2026-08-13) — A tenant's default business unit context is provisioned to inherit the platform template, gated on that template actually being ready
+
+Registering an account's default business unit's *context* in
+refdata-service is more than one call: `RegisterContext` (parented to
+`_default_bu`, the platform-owned template — see BUSINESS_RULES-REFDATA.md's
+amended BR-D38), `AddLocale` for en/es/af-za (locales are **not** covered by
+corpus inheritance — they sit on refdata-service's flat, non-inheriting read
+path, so a context with none of its own has no effective default locale even
+though its items inherit correctly), then `CreateDraft` + `Publish` so the new
+context's corpus actually contains `_default_bu`'s (and therefore
+`_platform`'s) inherited items rather than nothing.
+
+Every step is gated on `RefdataClient.WaitForPublishedAncestor(ctx,
+"_default_bu")` succeeding first. This has to tolerate two distinct failure
+modes as the same "not ready" signal: refdata-service's `CreateDraft` silently
+skips an ancestor with no published corpus — a draft created one instant too
+early inherits nothing and still reports success — and, since
+accounts-service and refdata-service are independent containers with no
+startup ordering guarantee between them, the very first call in the sequence
+is just as likely to hit "connection refused" as "context not found yet" on a
+cold `docker compose up`. Both are retried identically, up to 30 attempts at
+one-second intervals.
+
+This runs off the HTTP request path for a live `createAccount` call (a
+detached goroutine with its own 45s timeout) so a slow or cold
+refdata-service never turns tenant registration itself into a slow request —
+but runs synchronously during `cmd/main.go`'s own startup seeding, where
+blocking is expected and acceptable.
+
+- **Enforced in:** `accounts/refdata.go` (`RefdataClient.ProvisionDefaultContext`,
+  `WaitForPublishedAncestor`); `accounts/handler.go` (`createAccount` — fires
+  provisioning in a detached goroutine); `cmd/main.go`
+  (`seedPreexistingAccounts` — same provisioning, run synchronously at
+  startup).
+- **Test:** integration against the full stack — verified live
+  (`docker compose down -v && up --build`) that `acme-default` and
+  `globex-default` both register with `parent: _default_bu` and their own
+  locales, and that the versioned corpus endpoint returns every `_platform`
+  currency item under `acme-default` with `sourceContext: "_platform"`.
+  Not yet covered by an automated Go test — the accounts-service test suite
+  doesn't stand up a live refdata-service, so `RefdataURL` is unset there and
+  every call in this rule is a no-op by `configured()`'s design (BR-AC26's
+  "best-effort" contract). A dedicated integration test would need its own
+  refdata-service fixture.

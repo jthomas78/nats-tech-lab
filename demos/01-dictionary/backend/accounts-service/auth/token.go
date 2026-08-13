@@ -8,14 +8,16 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
-// tokenTTL bounds how long a minted browser user JWT is valid. BR-UA03
-// (BUSINESS_RULES-ACCOUNTS.md) calls for 15-30 minutes plus a refresh-token
-// renewal path in production; this POC has no renewal path yet, so the
-// window is deliberately tight — a browser tab open longer than this simply
-// reconnects (Phase 15d's useNatsConnection re-authenticates on any auth
-// error), matching the short-lived-credential intent without yet building
-// the renewal flow.
-const tokenTTL = 5 * time.Minute
+// The TTL stamped on minted browser/admin JWTs is no longer a constant here:
+// it is a durable, Admin-UI-configurable system setting (BR-AC20,
+// accounts.TokenTTLConfig), read at mint time and passed into MintBrowserToken
+// / MintAdminToken as the `ttl` argument. Callers (auth/handler.go) resolve it
+// from accounts.Store.GetTokenTTLConfig, falling back to
+// accounts.DefaultTokenTTLConfig (15 min). This POC still has no in-place
+// refresh path — a browser tab open past the TTL simply reconnects (Phase 15d's
+// useNatsConnection/connectionFactory re-authenticate on connection close),
+// minting a fresh credential — so the setting bounds the reconnect cadence and
+// the credential blast radius, within the hard 15–30 minute BR-UA03 envelope.
 
 // ConnectInfo is everything a browser needs to open its own NATS WebSocket
 // connection: where to dial, and a short-lived, permission-restricted user
@@ -83,7 +85,7 @@ type ConnectInfo struct {
 // which stays excluded per the rpc.* discussion above: obs.api.> only
 // observes traffic this same credential is already permitted to originate
 // (api.>), it doesn't grant reach into any new business subject.
-func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string) (ConnectInfo, error) {
+func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string, ttl time.Duration) (ConnectInfo, error) {
 	signingKP, err := nkeys.FromSeed([]byte(accountSigningKeySeed))
 	if err != nil {
 		return ConnectInfo{}, fmt.Errorf("load account signing key: %w", err)
@@ -107,7 +109,7 @@ func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string) (
 	claims.IssuerAccount = accountPub
 	claims.Permissions.Pub.Allow.Add("api.>", "_INBOX.>")
 	claims.Permissions.Sub.Allow.Add("api.>", "notify.>", "obs.api.>", "_INBOX.>")
-	claims.Expires = time.Now().Add(tokenTTL).Unix()
+	claims.Expires = time.Now().Add(ttl).Unix()
 
 	token, err := claims.Encode(signingKP)
 	if err != nil {
@@ -134,7 +136,7 @@ func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string) (
 // it never issues commands. Pub is explicitly denied (Deny.Add(">")) rather
 // than left unset, because an empty/unset Allow list means "allow
 // everything" in NATS permission semantics, not "allow nothing".
-func MintAdminToken(accountPub, accountSigningKeySeed, wsURL string) (ConnectInfo, error) {
+func MintAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl time.Duration) (ConnectInfo, error) {
 	signingKP, err := nkeys.FromSeed([]byte(accountSigningKeySeed))
 	if err != nil {
 		return ConnectInfo{}, fmt.Errorf("load account signing key: %w", err)
@@ -158,7 +160,7 @@ func MintAdminToken(accountPub, accountSigningKeySeed, wsURL string) (ConnectInf
 	claims.IssuerAccount = accountPub
 	claims.Permissions.Pub.Deny.Add(">")
 	claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.rpctrace.>")
-	claims.Expires = time.Now().Add(tokenTTL).Unix()
+	claims.Expires = time.Now().Add(ttl).Unix()
 
 	token, err := claims.Encode(signingKP)
 	if err != nil {

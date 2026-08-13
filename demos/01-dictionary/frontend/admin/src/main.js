@@ -6,6 +6,7 @@ import Aura from '@primevue/themes/aura'
 import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import ToastService from 'primevue/toastservice'
+import Tooltip from 'primevue/tooltip'
 import { createApp } from 'vue'
 
 import { createUnifiPreset, enableDarkMode, themeOptions } from '@unifi-theme/preset.js'
@@ -24,5 +25,6 @@ app.use(PrimeVue, {
   },
 })
 app.use(ToastService)
+app.directive('tooltip', Tooltip)
 app.use(i18n)
 app.mount('#app')

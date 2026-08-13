@@ -8,24 +8,23 @@
 //	POST   /api/accounts                    create an account — mints an account + one user, returns the one-time .creds content
 //	GET    /api/accounts                    list every known account (no creds, no signing key)
 //	GET    /api/accounts/{name}             one account's details (no creds, no signing key)
-//	GET    /api/accounts/topology           every live export/import edge across all accounts, read from resolver JWTs
+//	GET    /api/accounts/topology           every declared export/import edge across all accounts, read from resolver JWTs — see topology.go
 //	POST   /api/accounts/{name}/suspend     suspend an account — revokes its resolver JWT via $SYS.REQ.CLAIMS.DELETE
 //	POST   /api/accounts/{name}/reactivate  reactivate a suspended account — re-mints its resolver JWT via $SYS.REQ.CLAIMS.UPDATE and, when possible, a fresh one-time .creds
 //	POST   /api/accounts/{name}/jslimits    update an account's JetStream resource limits — re-mints its resolver JWT with the new limits
 package accounts
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
@@ -107,6 +106,13 @@ type Handlers struct {
 
 func NewHandlers(store *Store, provisioner *Provisioner, credsDir string, log *slog.Logger, notifyNC *nats.Conn, auditLog *AuditLog) *Handlers {
 	return &Handlers{Store: store, Provisioner: provisioner, CredsDir: credsDir, Log: log, NotifyNC: notifyNC, AuditLog: auditLog}
+}
+
+// Refdata builds the writer-side refdata-service client from RefdataURL.
+// Cheap enough to build per-call (no connection state) and keeps RefdataURL as
+// the one field composition.go/cmd/main.go need to set.
+func (h *Handlers) Refdata() *RefdataClient {
+	return &RefdataClient{BaseURL: h.RefdataURL, Log: h.Log}
 }
 
 // auditActor extracts a best-effort actor identity for an audit row
@@ -243,10 +249,18 @@ func (h *Handlers) Mount(mux *http.ServeMux, authSecret string) {
 	mux.Handle("POST /api/accounts/{name}/suspend", BasicAuth(authSecret, http.HandlerFunc(h.suspendAccount)))
 	mux.Handle("POST /api/accounts/{name}/reactivate", BasicAuth(authSecret, http.HandlerFunc(h.reactivateAccount)))
 	mux.Handle("POST /api/accounts/{name}/jslimits", BasicAuth(authSecret, http.HandlerFunc(h.updateJSLimits)))
+
+	// BR-AC20: platform-global system config (not account-scoped — sits under
+	// the /api/accounts prefix alongside the other collection-level endpoints
+	// /usage and /topology so it reuses the existing /api/platform/accounts
+	// proxy rewrite; the {name} route above never matches the literal
+	// "system-config" segment).
+	mux.Handle("GET /api/accounts/system-config", BasicAuth(authSecret, http.HandlerFunc(h.getSystemConfig)))
+	mux.Handle("PUT /api/accounts/system-config", BasicAuth(authSecret, http.HandlerFunc(h.updateSystemConfig)))
 	// Phase 22: business unit management (BR-AC15/BR-AC16/BR-AC17)
 	mux.Handle("GET /api/accounts/{name}/business-units", BasicAuth(authSecret, http.HandlerFunc(h.listBusinessUnits)))
 	mux.Handle("POST /api/accounts/{name}/business-units", BasicAuth(authSecret, http.HandlerFunc(h.createBusinessUnit)))
-	mux.Handle("PATCH /api/accounts/{name}/business-units/{buName}", BasicAuth(authSecret, http.HandlerFunc(h.updateBusinessUnit)))
+	mux.Handle("PATCH /api/accounts/{name}/business-units/{buContext}", BasicAuth(authSecret, http.HandlerFunc(h.updateBusinessUnit)))
 }
 
 func (h *Handlers) listJSUsage(w http.ResponseWriter, r *http.Request) {
@@ -414,12 +428,33 @@ func (h *Handlers) createAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// BR-AC16: auto-create the _default_bu BU row using the stored UUID.
-	// Best-effort: a failure here is logged but does not fail the request —
-	// the account is already fully minted and persisted.
-	if err := h.Store.InsertBusinessUnit(r.Context(), stored.ID, "_default_bu", true); err != nil && !errors.Is(err, ErrBUDuplicate) {
-		h.Log.Warn("auto-create _default_bu business unit", "account", in.Name, "err", err)
+	// BR-AC16/BR-AC28: auto-create the account's own {tenant}-default BU row
+	// using the stored UUID. Best-effort: a failure here is logged but does
+	// not fail the request — the account is already fully minted and
+	// persisted.
+	defaultSlug := DefaultContext(in.Name)
+	if err := h.Store.InsertBusinessUnit(r.Context(), NewBusinessUnit{
+		AccountID: stored.ID,
+		Name:      DefaultBUName,
+		Context:   defaultSlug,
+		Visible:   true,
+		IsDefault: true,
+	}); err != nil && !errors.Is(err, ErrBUDuplicate) {
+		h.Log.Warn("auto-create default business unit", "account", in.Name, "err", err)
 	}
+	// BR-AC29: provisioning the refdata-service side (register context, add
+	// locales, draft+publish so it inherits the platform template) can poll
+	// for up to 30s waiting on _default_bu's corpus — run it off the request
+	// path so a cold refdata-service startup never turns into a slow tenant
+	// registration. Detached from r.Context(), which is canceled the moment
+	// this handler returns.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		if err := h.Refdata().ProvisionDefaultContext(ctx, in.Name, defaultSlug); err != nil {
+			h.Log.Warn("provision default BU context in refdata", "account", in.Name, "context", defaultSlug, "err", err)
+		}
+	}()
 
 	writeJSON(w, http.StatusCreated, createAccountResponse{
 		Account: toResponse(stored),
@@ -439,66 +474,6 @@ func (h *Handlers) listAccounts(w http.ResponseWriter, r *http.Request) {
 		out = append(out, toResponse(a))
 	}
 	writeJSON(w, http.StatusOK, out)
-}
-
-// topologyEdge is one account's import of another account's export — the
-// unit the Admin UI's Topology panel draws as a single directed line.
-// FromAccount is the exporter (data/service origin), ToAccount the importer
-// (consumer), matching the direction data actually flows in NATS's
-// export/import model regardless of which account initiated the request
-// (a service import still flows request→response, but the subject
-// ownership — and so the line's direction here — is the exporter's).
-type topologyEdge struct {
-	FromAccount  string `json:"fromAccount"`
-	ToAccount    string `json:"toAccount"`
-	Subject      string `json:"subject"`
-	LocalSubject string `json:"localSubject,omitempty"`
-	Type         string `json:"type"` // "service" | "stream"
-}
-
-// listTopology reads every account's *live* resolver JWT (not the
-// bootstrap-time convention baked into tenantImports — see provisioner.go)
-// via Provisioner.LookupAccountClaims, so the graph reflects reality even if
-// an account's imports were hand-edited or diverge from the standard tenant
-// shape in the future. Accounts with no resolver JWT (shouldn't happen for
-// an active account, but SYS/PLATFORM/tenants all have one) are skipped
-// with a warning rather than failing the whole response — one account's
-// lookup failure shouldn't blank the diagram for every other account.
-func (h *Handlers) listTopology(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	accs, err := h.Store.List(ctx)
-	if err != nil {
-		h.Log.Error("list accounts for topology", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	nameByPub := make(map[string]string, len(accs))
-	for _, a := range accs {
-		nameByPub[a.PublicKey] = a.Name
-	}
-
-	edges := make([]topologyEdge, 0)
-	for _, a := range accs {
-		claims, err := h.Provisioner.LookupAccountClaims(ctx, a.PublicKey)
-		if err != nil {
-			h.Log.Warn("topology: lookup account claims", "account", a.Name, "err", err)
-			continue
-		}
-		for _, imp := range claims.Imports {
-			fromName, ok := nameByPub[imp.Account]
-			if !ok {
-				fromName = imp.Account // exporter outside this deployment's known accounts — show the raw pubkey rather than drop the edge
-			}
-			edges = append(edges, topologyEdge{
-				FromAccount:  fromName,
-				ToAccount:    a.Name,
-				Subject:      string(imp.Subject),
-				LocalSubject: string(imp.LocalSubject),
-				Type:         imp.Type.String(),
-			})
-		}
-	}
-	writeJSON(w, http.StatusOK, edges)
 }
 
 func (h *Handlers) getAccount(w http.ResponseWriter, r *http.Request) {
@@ -790,12 +765,94 @@ func (h *Handlers) updateJSLimits(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toResponse(stored))
 }
 
+// systemConfigResponse is the shape the Admin UI's System Settings screen
+// reads and writes. envelopeMin/Max expose the hard BR-UA03 bounds so the UI
+// can constrain both editors without hardcoding them; they are read-only.
+type systemConfigResponse struct {
+	TokenTTLMinutes    int    `json:"tokenTtlMinutes"`
+	TokenTTLMinMinutes int    `json:"tokenTtlMinMinutes"`
+	TokenTTLMaxMinutes int    `json:"tokenTtlMaxMinutes"`
+	EnvelopeMinMinutes int    `json:"envelopeMinMinutes"`
+	EnvelopeMaxMinutes int    `json:"envelopeMaxMinutes"`
+	UpdatedAt          string `json:"updatedAt,omitempty"`
+}
+
+func systemConfigToResponse(c TokenTTLConfig) systemConfigResponse {
+	resp := systemConfigResponse{
+		TokenTTLMinutes:    c.ValueMinutes,
+		TokenTTLMinMinutes: c.MinMinutes,
+		TokenTTLMaxMinutes: c.MaxMinutes,
+		EnvelopeMinMinutes: MinTTLMinutes,
+		EnvelopeMaxMinutes: MaxTTLMinutes,
+	}
+	if !c.UpdatedAt.IsZero() {
+		resp.UpdatedAt = c.UpdatedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+	return resp
+}
+
+type updateSystemConfigRequest struct {
+	TokenTTLMinutes    int `json:"tokenTtlMinutes"`
+	TokenTTLMinMinutes int `json:"tokenTtlMinMinutes"`
+	TokenTTLMaxMinutes int `json:"tokenTtlMaxMinutes"`
+}
+
+// getSystemConfig returns the current browser/admin JWT expiry policy
+// (BR-AC20).
+func (h *Handlers) getSystemConfig(w http.ResponseWriter, r *http.Request) {
+	cfg, err := h.Store.GetTokenTTLConfig(r.Context())
+	if err != nil {
+		h.Log.Error("get system config", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, systemConfigToResponse(cfg))
+}
+
+// updateSystemConfig validates (BR-AC21) and persists a new expiry policy.
+// Unlike updateJSLimits it does not touch NATS: the TTL affects only *future*
+// mints (auth.MintBrowserToken/MintAdminToken read it per connect), so there
+// is no resolver push and no notify — the next browser (re)connect picks it up.
+func (h *Handlers) updateSystemConfig(w http.ResponseWriter, r *http.Request) {
+	var in updateSystemConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	cfg := TokenTTLConfig{
+		ValueMinutes: in.TokenTTLMinutes,
+		MinMinutes:   in.TokenTTLMinMinutes,
+		MaxMinutes:   in.TokenTTLMaxMinutes,
+	}
+	if err := cfg.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := h.Store.SetTokenTTLConfig(r.Context(), cfg); err != nil {
+		h.Log.Error("persist system config", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to persist system config")
+		return
+	}
+
+	stored, err := h.Store.GetTokenTTLConfig(r.Context())
+	if err != nil {
+		h.Log.Error("reload system config", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, systemConfigToResponse(stored))
+}
+
 // --- Phase 22: Business Unit endpoints (BR-AC15/BR-AC16/BR-AC17) ---
 
 type businessUnitResponse struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
+	Context   string `json:"context"`
 	Visible   bool   `json:"visible"`
+	IsDefault bool   `json:"isDefault"`
 	CreatedAt string `json:"createdAt"`
 }
 
@@ -803,7 +860,9 @@ func toBUResponse(bu BusinessUnit) businessUnitResponse {
 	return businessUnitResponse{
 		ID:        bu.ID,
 		Name:      bu.Name,
+		Context:   bu.Context,
 		Visible:   bu.Visible,
+		IsDefault: bu.IsDefault,
 		CreatedAt: bu.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 }
@@ -831,8 +890,13 @@ func (h *Handlers) listBusinessUnits(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// createBURequest carries the display name and, optionally, the context slug.
+// When Context is omitted the server derives it (BR-AC26) — the Admin UI sends
+// the derived value explicitly so the operator can see and adjust it before
+// committing to something immutable.
 type createBURequest struct {
-	Name string `json:"name"`
+	Name    string `json:"name"`
+	Context string `json:"context"`
 }
 
 func (h *Handlers) createBusinessUnit(w http.ResponseWriter, r *http.Request) {
@@ -848,131 +912,142 @@ func (h *Handlers) createBusinessUnit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var in createBURequest
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Name == "" {
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || strings.TrimSpace(in.Name) == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if strings.HasPrefix(in.Name, "_") {
-		writeError(w, http.StatusBadRequest, "business unit name may not start with '_' — that prefix is reserved for platform use")
+	in.Name = strings.TrimSpace(in.Name)
+
+	slug := in.Context
+	if slug == "" {
+		slug = DeriveContext(accountName, in.Name)
+	}
+	// BR-AC27: validated here, at the point of write, rather than left to the
+	// best-effort call into refdata-service below — a slug that fails there
+	// fails silently, leaving a business unit that can never resolve.
+	if err := ValidateContext(slug); err != nil {
+		writeError(w, http.StatusBadRequest,
+			"context must be lowercase letters, digits and hyphens, start and end alphanumeric, and be at most "+
+				strconv.Itoa(MaxContextLen)+" characters")
 		return
 	}
 
-	if err := h.Store.InsertBusinessUnit(r.Context(), acc.ID, in.Name, true); err != nil {
+	if err := h.Store.InsertBusinessUnit(r.Context(), NewBusinessUnit{
+		AccountID: acc.ID,
+		Name:      in.Name,
+		Context:   slug,
+		Visible:   true,
+	}); err != nil {
 		if errors.Is(err, ErrBUDuplicate) {
-			writeError(w, http.StatusConflict, "business unit already exists")
+			writeError(w, http.StatusConflict, "a business unit with that name or context already exists")
 			return
 		}
-		h.Log.Error("insert business unit", "account", accountName, "name", in.Name, "err", err)
+		h.Log.Error("insert business unit", "account", accountName, "context", slug, "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
-	if err := h.callRefdataRegisterContext(r.Context(), accountName, in.Name); err != nil {
-		h.Log.Warn("register BU context in refdata", "account", accountName, "name", in.Name, "err", err)
+	if err := h.Refdata().RegisterContext(r.Context(), ContextRegistration{
+		Context: slug,
+		Parent:  DefaultBUTemplateContext,
+		Name:    in.Name,
+		Tenant:  accountName,
+	}); err != nil {
+		h.Log.Warn("register BU context in refdata", "account", accountName, "context", slug, "err", err)
 	}
 
-	bu, err := h.Store.GetBusinessUnit(r.Context(), accountName, in.Name)
+	bu, err := h.Store.GetBusinessUnit(r.Context(), accountName, slug)
 	if err != nil {
-		h.Log.Error("reload BU after insert", "account", accountName, "name", in.Name, "err", err)
+		h.Log.Error("reload BU after insert", "account", accountName, "context", slug, "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusCreated, toBUResponse(bu))
 }
 
+// updateBURequest carries the two mutable fields. Both are pointers so the
+// handler can tell "not supplied" from "set to the zero value" — without that,
+// a rename-only request would read as a request to hide the unit.
+//
+// There is deliberately no Context field: the slug has no rename path anywhere
+// (BR-AC26).
 type updateBURequest struct {
-	Visible bool `json:"visible"`
+	Visible *bool   `json:"visible"`
+	Name    *string `json:"name"`
 }
 
 func (h *Handlers) updateBusinessUnit(w http.ResponseWriter, r *http.Request) {
 	accountName := r.PathValue("name")
-	buName := r.PathValue("buName")
+	buContext := r.PathValue("buContext")
 
 	var in updateBURequest
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	if in.Visible == nil && in.Name == nil {
+		writeError(w, http.StatusBadRequest, "nothing to update — supply visible, name, or both")
+		return
+	}
 
-	if err := h.Store.SetBusinessUnitVisible(r.Context(), accountName, buName, in.Visible); err != nil {
-		if errors.Is(err, ErrBUNotFound) {
-			writeError(w, http.StatusNotFound, "business unit not found")
-			return
-		}
-		h.Log.Error("set BU visible", "account", accountName, "name", buName, "err", err)
+	bu, err := h.Store.GetBusinessUnit(r.Context(), accountName, buContext)
+	if errors.Is(err, ErrBUNotFound) {
+		writeError(w, http.StatusNotFound, "business unit not found")
+		return
+	} else if err != nil {
+		h.Log.Error("get BU for update", "account", accountName, "context", buContext, "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
-	if err := h.callRefdataSetContextVisible(r.Context(), buName, in.Visible); err != nil {
-		h.Log.Warn("set context visible in refdata", "name", buName, "visible", in.Visible, "err", err)
+	// BR-AC28: the default's identity is fixed. Visibility stays toggleable —
+	// BR-AC17's hide-once-a-real-BU-exists flow depends on exactly that.
+	if in.Name != nil && bu.IsDefault {
+		writeError(w, http.StatusConflict, "the default business unit cannot be renamed")
+		return
+	}
+
+	if in.Name != nil {
+		name := strings.TrimSpace(*in.Name)
+		if name == "" {
+			writeError(w, http.StatusBadRequest, "name may not be empty")
+			return
+		}
+		if err := h.Store.RenameBusinessUnit(r.Context(), accountName, buContext, name); err != nil {
+			if errors.Is(err, ErrBUDuplicate) {
+				writeError(w, http.StatusConflict, "a business unit with that name already exists")
+				return
+			}
+			h.Log.Error("rename BU", "account", accountName, "context", buContext, "err", err)
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		// refdata-service's Register upserts, so re-registering the same slug
+		// with the new display name is its rename path.
+		if err := h.Refdata().RegisterContext(r.Context(), ContextRegistration{
+			Context: buContext,
+			Parent:  DefaultBUTemplateContext,
+			Name:    name,
+			Tenant:  accountName,
+		}); err != nil {
+			h.Log.Warn("rename BU context in refdata", "context", buContext, "err", err)
+		}
+	}
+
+	if in.Visible != nil {
+		if err := h.Store.SetBusinessUnitVisible(r.Context(), accountName, buContext, *in.Visible); err != nil {
+			if errors.Is(err, ErrBUNotFound) {
+				writeError(w, http.StatusNotFound, "business unit not found")
+				return
+			}
+			h.Log.Error("set BU visible", "account", accountName, "context", buContext, "err", err)
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if err := h.Refdata().SetContextVisible(r.Context(), buContext, *in.Visible); err != nil {
+			h.Log.Warn("set context visible in refdata", "context", buContext, "visible", *in.Visible, "err", err)
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// callRefdataRegisterContext registers a new BU context in refdata-service.
-// Best-effort: returns an error for logging only, never propagates to the caller.
-func (h *Handlers) callRefdataRegisterContext(ctx context.Context, accountName, buName string) error {
-	if h.RefdataURL == "" {
-		h.Log.Warn("REFDATA_URL not set — skipping context registration", "name", buName)
-		return nil
-	}
-	body, err := json.Marshal(map[string]string{
-		"context": buName,
-		"parent":  "_platform",
-		"name":    buName,
-		"tenant":  accountName,
-	})
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		h.RefdataURL+"/api/refdata/admin/contexts", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusConflict {
-		return nil // idempotent: already registered
-	}
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("refdata returned %d: %s", resp.StatusCode, b)
-	}
-	return nil
-}
-
-// callRefdataSetContextVisible toggles the visible flag on a context in refdata-service.
-// Best-effort: returns an error for logging only, never propagates to the caller.
-func (h *Handlers) callRefdataSetContextVisible(ctx context.Context, contextKey string, visible bool) error {
-	if h.RefdataURL == "" {
-		h.Log.Warn("REFDATA_URL not set — skipping context visibility update", "context", contextKey)
-		return nil
-	}
-	body, err := json.Marshal(map[string]bool{"visible": visible})
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPatch,
-		h.RefdataURL+"/api/refdata/admin/contexts/"+contextKey+"/visible", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("refdata returned %d: %s", resp.StatusCode, b)
-	}
-	return nil
 }

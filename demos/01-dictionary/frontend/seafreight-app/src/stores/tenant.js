@@ -16,6 +16,7 @@ import { defineStore } from 'pinia'
 
 import { useNatsConnection } from '../nats/useNatsConnection'
 import { usePortStore } from './port'
+import { usePricingStore } from './pricing'
 
 // Mirrors shipping-service composition.go's initialTenant — the tenant a
 // fresh browser session connects to before anyone has picked one
@@ -68,6 +69,11 @@ export const useTenantStore = defineStore('tenant', {
         // subscriptions reconnect against it, exactly as a fleet-context
         // switch does.
         await usePortStore().connect()
+        // pricing-service's api.* adapter is likewise one-per-tenant
+        // connection (Phase 25f) — reconnect it against the same context
+        // loadContexts just resolved, same reasoning as the port store above.
+        usePricingStore().context = usePortStore().context
+        await usePricingStore().connect()
       } finally {
         this.switching = false
       }

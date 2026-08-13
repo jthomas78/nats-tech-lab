@@ -68,27 +68,38 @@ export const usePortStore = defineStore('port', {
       this.connect()
     },
 
-    // Fetches this tenant's BU list from accounts-service (Phase 22). Called
-    // from stores/tenant.js on init/switch with the newly-active tenant name.
-    // Only visible BUs are returned; a failed fetch leaves availableContexts
-    // empty with no stale fallback. `_default_bu` (BR-AC16 — auto-created,
-    // visible by default, silently covers an account with zero registered
-    // BUs) is filtered out of the *selectable* list here, same convention
-    // frontend/admin's dictionary.js already applies: an account with no
-    // real BU registered against it should read as "nothing to choose
-    // between," not offer the reserved placeholder as if it were a normal
-    // option. When that leaves the list empty, the store still targets
-    // `_default_bu` internally (ships/ports/etc. genuinely live there) —
-    // App.vue's Select just renders it as `<default>` and disables itself
-    // rather than showing the literal reserved name.
+    // Fetches this tenant's BU list from accounts-service (Phase 22, split
+    // Phase 22b). Called from stores/tenant.js on init/switch with the
+    // newly-active tenant name. A failed fetch leaves availableContexts empty
+    // with no stale fallback.
+    //
+    // The account's own default BU (BR-AC28 — auto-created, tenant-owned,
+    // e.g. "acme-default") is excluded from the *selectable* list by its
+    // isDefault flag, not by name — Phase 22b deliberately dropped the `_`
+    // prefix that used to make this a string check, since the default is no
+    // longer a shared platform-owned value. An account with no real BU
+    // registered should read as "nothing to choose between," not offer the
+    // placeholder as if it were a normal option. availableContexts holds
+    // {context, name} pairs so the Select in App.vue can show the display
+    // name while the store's own `context` stays the slug every subject and
+    // API call actually uses.
+    //
+    // When the selectable list is empty, the store still targets the
+    // default's own context internally (ships/ports/etc. genuinely live
+    // there) — found from the unfiltered response, regardless of whether an
+    // operator has hidden it, so this never has to guess at the slug's shape.
+    // App.vue's Select renders that case as `<default>` and disables itself
+    // rather than showing the context token.
     async loadContexts(tenant) {
       try {
-        const contexts = (await getBusinessUnits(tenant)).filter((c) => !c.startsWith('_'))
-        this.availableContexts = contexts
-        if (contexts.length > 0 && !contexts.includes(this.context)) {
-          this.context = contexts[0]
-        } else if (contexts.length === 0) {
-          this.context = '_default_bu'
+        const bus = await getBusinessUnits(tenant)
+        const defaultBU = bus.find((b) => b.isDefault)
+        const selectable = bus.filter((b) => b.visible && !b.isDefault)
+        this.availableContexts = selectable.map((b) => ({ context: b.context, name: b.name }))
+        if (selectable.length > 0 && !selectable.some((b) => b.context === this.context)) {
+          this.context = selectable[0].context
+        } else if (selectable.length === 0) {
+          this.context = defaultBU?.context ?? ''
         }
       } catch {
         this.availableContexts = []

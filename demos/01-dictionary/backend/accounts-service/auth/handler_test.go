@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"time"
 
+	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -68,6 +70,36 @@ var _ = Describe("Handlers", func() {
 			Expect(info.WSUrl).To(Equal("ws://localhost:9222"))
 			Expect(info.JWT).NotTo(BeEmpty())
 			Expect(info.NKeySeed).NotTo(BeEmpty())
+		})
+
+		It("BR-AC20: stamps the minted JWT's expiry from the configured TTL", func() {
+			// Reset to default first, then set a known non-default value so
+			// this spec is independent of order and proves the configured
+			// value (not a constant) flows into the mint.
+			Expect(store.SetTokenTTLConfig(context.Background(), accounts.DefaultTokenTTLConfig())).To(Succeed())
+			Expect(store.SetTokenTTLConfig(context.Background(), accounts.TokenTTLConfig{
+				ValueMinutes: 25, MinMinutes: 20, MaxMinutes: 30,
+			})).To(Succeed())
+
+			name := uniqueName("acme")
+			Expect(seedAccount(name, "A"+name, signingSeedFor(), "active")).To(Succeed())
+
+			before := time.Now()
+			req := httptest.NewRequest(http.MethodGet, "/api/auth/connectInfo?tenant="+name, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			Expect(rec.Code).To(Equal(http.StatusOK))
+
+			var info auth.ConnectInfo
+			Expect(json.Unmarshal(rec.Body.Bytes(), &info)).To(Succeed())
+			claims, err := jwt.DecodeUserClaims(info.JWT)
+			Expect(err).NotTo(HaveOccurred())
+			expiry := time.Unix(claims.Expires, 0)
+			Expect(expiry).To(BeTemporally(">", before.Add(24*time.Minute)))
+			Expect(expiry).To(BeTemporally("<", before.Add(26*time.Minute)))
+
+			// Leave the singleton row back at the default for other specs.
+			Expect(store.SetTokenTTLConfig(context.Background(), accounts.DefaultTokenTTLConfig())).To(Succeed())
 		})
 
 		It("returns 400 when tenant is missing", func() {

@@ -371,6 +371,51 @@ Every account implicitly resolves to `_default_bu` when it has zero registered r
 - [x] `ginkgo ./...` green in `accounts-service` and `refdata-service`; shipping-service tests updated for the dropped static port-context seeding
 - [x] Live verification: `docker compose down -v && up --build`; fleet dropdowns populate from the live business-unit list with no hardcoded fallback; adding an account's first real BU surfaces the hide-`_default_bu` prompt; declining leaves `_default_bu` selectable alongside the new BU; toggling `visible` in the Admin UI table is reflected in the fleet dropdown
 
+### Phase 22b (IMPLEMENTED 2026-08-13) — Business Unit Name/Context Split; Per-Tenant Default BU
+
+#### Goal
+
+Phase 22 gave a business unit a single `name` field that doubles as both the human label and the `{context}` subject token, so an operator registering "Pacific Fleet" has to type `acme-pacific-fleet` and live with that string as the UI label forever. This phase splits the two: a free-text English **name** (`Pacific Fleet`) and an immutable, subject-safe **context** slug (`acme-pacific-fleet`), auto-derived from the name at registration and editable before it is committed.
+
+It also retires the shared `_default_bu` *as a tenant's context*. Today every account with no real business units resolves to one globally shared context value, and because `refdata.dictionary_items` is keyed `(context, type_key, code)` with no tenant column, two tenants writing the same code under `_default_bu` collide on the same Postgres rows. Each account gets its own `{tenant}-default` instead.
+
+#### Design
+
+**refdata-service already models the split.** `refdata.contexts` has carried both a `context` column (PK, subject-safe, validated by `ValidateContextName`) and a free-text `name` column since Phase 16 — accounts-service has simply been collapsing them, sending `{"context": buName, "name": buName}` from both `cmd/main.go`'s `refdataRegisterContext` and `accounts/handler.go`'s `callRefdataRegisterContext`. **No refdata-service schema change is required by this phase**; accounts-service stops throwing the display name away.
+
+**Slug derivation and immutability.** The slug is auto-derived in the Add-BU dialog as `{tenant}-{slugify(name)}` and stays editable until submit. After that it is immutable — not a preference but a hard constraint: none of refdata's data tables (`dictionary_items`, `dictionary_localizations`, `dictionary_references`, `dictionary_locales`) carry a foreign key back to `refdata.contexts`, so renaming a slug silently orphans every row, plus the `refdata-{context}` KV bucket, the versioned corpus buckets, and the already-immutable `evt.{context}.…` JetStream history. `name` stays freely editable and gains the `PATCH` field it has never had.
+
+**Global slug uniqueness.** accounts-service's `UNIQUE (account_id, name)` is per-account, but refdata's `context` is a **primary key — globally unique** — and `ContextRepository.Register` upserts on conflict while accounts-service's call to it is best-effort/log-only. A slug clash therefore lets one tenant silently overwrite another tenant's context row (name and `tenant` ownership metadata). `UNIQUE (context)` across all accounts, rejected with a 409, closes that; tenant-prefixing makes it collide-by-accident-proof in practice. The prefix is a naming convention for uniqueness and readability only — per `ARCHITECTURE-COMMUNICATIONS.md` § 2.3 the value stays **opaque** and is never split on `-` to recover the tenant.
+
+**Validation moves upstream.** accounts-service currently validates only non-empty and a leading `_`; there is no charset check at all, so a BU named `west coast` persists locally and fails *silently* downstream because the refdata call is best-effort. A `ValidateSubjectToken`-equivalent moves onto the slug at accounts-service, stricter than refdata's `^[A-Za-z0-9_-]+$`: **lowercase-only**, since NATS subjects are case-sensitive and `Acme` ≠ `acme` is a live footgun, plus a length cap (the slug ends up inside `refdata-{context}-v{N}` bucket names).
+
+**Default BU: tenant-owned, no `_` prefix, readonly.** The default becomes `{tenant}-default` (name `Default`, `[reserved]` tag retained in the UI). Dropping the `_` prefix keeps BR-D33 a hard two-exception rule instead of growing an exception per tenant, and removes the need for a `RegisterDefaultBu`-style validation bypass — a tenant default is just an ordinary BU that happens to be auto-created. It is identified by an explicit `is_default BOOLEAN` column, **not** by string-matching the slug (Phase 22 hardcodes the literal `_default_bu` in ~3 backend and ~4 frontend spots; per-tenant slugs break all of them). Readonly covers identity only: not renamable, not deletable, not creatable through `POST /business-units`. `visible` remains toggleable — BR-AC17's hide-once-a-real-BU-exists flow depends on it.
+
+**`_default_bu` survives as a platform-owned template.** It stops being any tenant's context and becomes the parent every tenant default inherits from: `_platform` → `_default_bu` → `{tenant}-default`. Its `_` prefix becomes *correct* rather than an exception-by-fiat, BR-D38 keeps its sanctioned-exception status with a clarified meaning, and the BR-V06/V07 hazard-class override demo data stays in one place while every tenant default still inherits it through the ancestor walk.
+
+**Inheritance works, but only through the corpus path.** `CorpusRepository.CreateDraft` walks the ancestor chain and flattens each ancestor's locally-authored rows (`domain.FlattenCorpus`); the live path (`item_repository.go` et al.) is a flat `WHERE context = $1` with no chain traversal anywhere. This is **already true of `_default_bu` today** — it works because it is directly seeded and its corpus is published at seed time, not because live reads inherit. Per-tenant defaults parented into the same chain therefore reproduce current behavior exactly, with two ordering requirements: (1) locales are **not** covered by corpus flattening (`dictionary_locales` is on the flat path), so each tenant default must have its locales registered explicitly the way `seed.go` already does for `_default_bu`; (2) `CreateDraft` *silently* skips an ancestor with no published corpus, so tenant-default creation must be ordered after refdata-service's seed completes, with a retry rather than best-effort. Closing the live-path gap is deferred to Phase 106.
+
+#### Checklist
+
+- [x] `accounts-service`: `business_units` gains `context TEXT NOT NULL` + `is_default BOOLEAN NOT NULL DEFAULT false`; `UNIQUE (context)` global; keep `UNIQUE (account_id, name)` for display names. Migration backfills `context = name` (every existing value is already a valid slug — `acme-pacific-fleet`, `_default_bu`), rewrites any legacy `_default_bu` row to `{tenant}-default` before the unique index is built (two accounts both carrying the shared literal would otherwise collide on it), then `SET NOT NULL`
+- [x] `accounts-service`: slug validation — `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, 48-char cap, leading `_` impossible by construction (the charset has no way to produce one); applied on write in `createBusinessUnit`, not deferred to the best-effort refdata call (`accounts/slug.go`)
+- [x] `accounts-service`: `businessUnitResponse` gains `context` + `isDefault`; `createBURequest` gains optional `context` (server derives `{tenant}-{slugify(name)}` when omitted); `updateBURequest` gains `name` (as a pointer, alongside `visible`, so a rename-only request can't be misread as "hide")
+- [x] `accounts-service`: `PATCH /api/accounts/{name}/business-units/{buContext}` path param is now the slug; rejects rename of an `is_default` row (409); no delete endpoint exists for a BU at all (Phase 22 never added one), so "not deletable" holds trivially; `visible` toggle unchanged
+- [x] `accounts-service`: both refdata calls send `context` and `name` as distinct values, via a new shared `RefdataClient` (`accounts/refdata.go`) — replaces the two hand-rolled, already-drifting HTTP helpers in `handler.go` and `cmd/main.go`
+- [x] `accounts-service`: default BU becomes `{tenant}-default` (name `Default`, `is_default: true`), auto-created in `createAccount` (BR-AC16) **and** in `cmd/main.go`'s `seedPreexistingAccounts`; registers the context with `Parent: "_default_bu"`, registers its locales explicitly, then `CreateDraft` + `Publish` — gated on `RefdataClient.WaitForPublishedAncestor`, which doubles as a "refdata-service isn't listening yet" retry, not just a "corpus not published yet" check (a cold `docker compose up` hits connection-refused, not merely an empty result, on the very first call)
+- [x] `refdata-service`: no schema change; `_default_bu` stops being assigned to tenants and is documented as the platform-owned template parent
+- [x] `shipping-service`: investigated and found to be a **non-issue**, not a fix — `port_repository.go`'s `_default_bu` OR-fallback and `migrate.go`'s seeded base-port list target the *platform template* context, which still exists unchanged (it never stopped being a real, valid context; it only stopped being assigned as anyone's tenant default). Left untouched; the frontend's separate `getPorts('_default_bu')` TODO(tenant-scoping) hack in `seafreight-app/stores/port.js` is likewise unaffected and remains its own pre-existing, unrelated gap
+- [x] `frontend/admin`: Add-BU dialog gains two fields (Name free-text; Context auto-derived via a client-side `deriveContext`/`slugify` mirroring the backend, editable, regex-validated inline, with an immutable-after-creation warning); BU table gains a Context column (mono); `is_default` replaces every `bu.name === '_default_bu'` string-match; hide-default-placeholder dialog now names the real per-tenant slug instead of a hardcoded literal
+- [x] `frontend`: `availableContexts` becomes `{context, name}[]` in `seafreight-app` (sourced from accounts-service's now-unfiltered BU list, selecting on `isDefault` rather than a `_`-prefix string check) and `frontend/refdata` (sourced from refdata-service's context list, which already had both fields — the frontend was just discarding `name`); the two `<Select>`s gain `option-label="name" option-value="context"` (precedent: `refdata/components/VersioningPanel.vue`). `frontend/admin`'s `dictionary.js` has no context `<Select>` at all (context is auto-picked, never operator-chosen) and was left as-is — no label/value split to make. `store.context` keeps holding the slug everywhere, so the ~80 downstream API call sites are unaffected
+- [x] `BUSINESS_RULES-ACCOUNTS.md`: BR-AC26 (name/context split + slug immutability), BR-AC27 (slug charset + global uniqueness), BR-AC28 (default BU is tenant-owned, auto-created, readonly), BR-AC29 (tenant default parenting, locale registration, corpus publish ordering); amend BR-AC15/16/17
+- [x] `BUSINESS_RULES-REFDATA.md`: amend BR-D38 — `_default_bu` is the platform-owned template parent for tenant defaults, never a tenant's own context
+- [x] `ARCHITECTURE-ACCOUNTS.md` / `ARCHITECTURE-DICTIONARY.md` updated — rewrote ARCHITECTURE-ACCOUNTS.md's "Business unit registration" section for the name/context split and per-tenant default; rewrote ARCHITECTURE-DICTIONARY.md's Seeding section and "Contexts form a tree" (now three levels: `_platform` → `{_default_bu, real BUs}` → `{tenant}-default`), fixing a pre-existing stale claim along the way (the per-context locale-registration loop never actually ran over `acme-pacific-fleet`/`acme-atlantic-fleet` — only over the two reserved roots)
+- [x] **Tests**: Phase 22 shipped with *no* Go coverage of BU behavior at all — added `accounts/slug_test.go` (`ValidateContext`/`DeriveContext`/`DefaultContext`, BR-AC26–28) and a new `Describe("Business units …")` block in `accounts/handler_test.go` covering BR-AC16/26/27/28 end to end over real HTTP + Postgres (default auto-create, derived vs. explicit slug, invalid-slug rejection, cross-account global-uniqueness conflict, rename-preserves-slug, default-rename-rejected-but-still-toggleable, default-sorts-first)
+- [x] `ginkgo ./...` green in `accounts-service` (82/82 specs, including the new BR-AC26–29 coverage)
+- [x] Live verification: `docker compose down -v && up --build`; confirmed in Postgres that `acme`/`globex` each carry their own `{tenant}-default` row (`acme-default`, `globex-default`) with no `_default_bu` collision, and that `refdata.contexts` shows the full `_platform → _default_bu → {tenant}-default` chain with `name` populated distinctly from `context`; confirmed via the versioned corpus API that `acme-default` inherits `_platform`'s full item set (`sourceContext: "_platform"` on every row) while the live (non-versioned) read path correctly returns empty, matching the documented Phase 106 gap; exercised the Admin UI end to end — Add-BU dialog auto-derives `acme-west-coast-fleet` from "West Coast Fleet" and rejects an edited-to-invalid slug inline; registering globex's first real BU correctly named its real slug (`globex-default`) in the hide-placeholder dialog rather than a hardcoded literal, and hiding it round-tripped to `visible: false` in Postgres
+
+Phase 22b is now fully complete: code, tests, both `BUSINESS_RULES-*.md` files, both architecture docs, and the Admin UI's BU table width follow-up (widened from a 36rem cap to a proportioned, full-width layout once the Context column made it cramped) are all done and verified live.
+
 ### Phase 23 (IMPLEMENTED 2026-08-04, pending live verification) — Admin UI: SSE → NATS WebSocket Migration (Dual-Connection Model)
 
 #### Goal
@@ -473,6 +518,426 @@ Watch for the startup-ordering trap this surfaces: `shipping-service` currently 
 - [ ] 24c: `bootstrap-operator.sh` scope reduced to `operator` + `SYS` + `PLATFORM` only
 - [ ] 24c: `BUSINESS_RULES-ACCOUNTS.md` — rule change documenting PLATFORM-bootstrapped / tenants-runtime as the enforced split
 - [ ] 24c: Live verification — fresh `down -v && up --build` produces working `acme`/`globex` tenants with no bootstrap involvement beyond `PLATFORM`
+
+### Phase 25 (25a–25d, 25f–25h IMPLEMENTED; 25e RESOLVED, 2026-08-06) — Pricing Service: Port Linebooker's Rate/Fee Domain
+
+#### Goal
+
+Explore whether refdata-service's corpus-versioning *pattern*
+(draft → published → rollback, immutable snapshots) holds up for a
+**write-adjacent** domain, by porting the pricing/rate domain of a real
+production freight marketplace (Linebooker) —
+`RateSheetEntity`/`FeeScaleEntity`/`FixedRateEntity` and their versioning —
+into a new standalone `pricing-service`, alongside `shipping-service` and
+`refdata-service`. Unlike refdata-service, this domain sits on a write path
+in the source system (fee calculation on load-accept, bid validation
+against book-now price), so it gets its own service and own Postgres rather
+than a merge into refdata-service — see
+`obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-DICTIONARY.md`
+BR-D28 for the read-only boundary this deliberately does *not* inherit.
+
+A source-code read of the Linebooker domain surfaced several real bugs
+worth fixing rather than porting faithfully: FeeScale range matching is
+fail-open (a bid above the top range silently charges zero fee), FeeScale
+active-version selection sorts by insertion order (`id desc`) instead of
+its own `activationDate`, and RateSheet "current version" falls back to
+the *earliest* version rather than reporting "none yet." All three are
+fixed in the port (BR-P05/BR-P06 in `BUSINESS_RULES-PRICING.md`) rather
+than reproduced.
+
+**Confirmed CQRS classification:** plain Postgres CRUD, not event-sourced —
+applying the heuristic in `ARCHITECTURE.md` § "Event Sourcing vs Plain
+CRUD," nothing here ever needs to replay a log to reconstruct state; "what
+rate was in effect on date X" is answered by querying stored, effective-
+dated/versioned rows, the same shape as refdata's corpus snapshots.
+
+**Sub-phases**, each independently landable:
+
+- **25a — FeeScale domain (IMPLEMENTED).** `FeeScale`/`FeeScaleVersion`/
+  `FeeScaleRange` in `pricing-service/pricing/internal/domain/fee_scale.go`,
+  with the corpus draft/published/rolled-back lifecycle reused at
+  per-aggregate granularity (each FeeScale versions independently, not one
+  context-wide bundle covering RateSheet/FixedRate too). Domain layer only —
+  no Postgres/REST/NATS adapters, no `cmd/` yet.
+- **25b — RateSheet domain (IMPLEMENTED).** `RateSheet`/`RateSheetVersion`/
+  `RateSheetEntry` in `rate_sheet.go` — self-contained opaque
+  `CustomerKey`/`RouteKey`/`VehicleType` identifiers owned by
+  pricing-service, no dependency on shipping-service's Ship/Container. The
+  same draft/published/rolled-back lifecycle as 25a, duplicated with
+  distinct error names rather than unified behind a shared type (would have
+  meant rewriting 25a's already-passing specs). `FeeScaleOverride`
+  resolves when set; the default-fallback half of that rule stays deferred
+  (no customer aggregate to hang a default off of).
+- **25c — FixedRate domain (IMPLEMENTED).** `FixedRate`/`FixedRateVersion`
+  in `fixed_rate.go`, same lifecycle shape again. The source's two
+  independently-set "fixed rate" flags (`PricingType.FIXED_RATE` on the
+  load, `RateSheetType.FIXED_RATE` on the rate sheet) don't collapse into a
+  new field on `FixedRate` as originally planned — on closer read there is
+  no `FixedRate`-side flag to collapse; `RateSheet.Type` (BR-P07) is simply
+  designated the single source of truth for that "needs admin gating"
+  signal, recorded as a design constraint for whenever 25e adds a load to
+  gate (see `BUSINESS_RULES-PRICING.md`'s scope note — deliberately not a
+  numbered BR-P, since there's nothing testable yet).
+- **25d — Service wiring (IMPLEMENTED).** Own `pricing` Postgres schema/
+  container (`pricing-postgres`, port 5435 — next free after
+  `accounts-postgres`'s 5434), a `postgres/*_repository.go` adapter per
+  aggregate mirroring refdata's corpus-repository transaction/rollback
+  pattern (Publish/Rollback are transaction-bound; Rollback marks the
+  previously-active version `rolled-back` with `rolled_back_by` pointing at
+  the new one, exactly like `CorpusRepository.Rollback`), thin
+  `application/commands` pass-through handlers (no notifier — no NATS this
+  phase), a REST API under `/api/pricing/{context}/...` (port 7203, next
+  free in the backend range), and a `pricing-service` docker-compose entry.
+  Verified end to end against a live Postgres via `docker compose up`: full
+  register → draft → add range/entry → publish → active-version resolution
+  → fee/drop-charge calculation → rollback cycle for all three aggregates.
+- **25e (RESOLVED) — Cross-service consultation.** Not `shipping-service`
+  consulting pricing-service on a write path (the original framing) — the
+  real first consumer is the Sea Freight Flow **browser**, directly, over
+  `api.*`, mimicking a "Pricing" tab's manual rate-entry UX loosely modeled
+  on Linebooker's own admin screens (auto-chained fee-scale range rows kept;
+  Linebooker's forced-infinite top range and date-driven versioning
+  deliberately not carried over — the former would recreate the exact
+  fail-open bug BR-P05 closed, the latter contradicts the corpus
+  draft/publish/rollback model already chosen for this port).
+- **25f (IMPLEMENTED) — `api.*` adapter + tenant NATS connections.** See
+  `BUSINESS_RULES-PRICING.md`'s "`api.*` frontend adapter" entry for the
+  full design (package `internal/browserrpc`, lifecycle manager
+  `internal/tenants`) — live-verified via the `nats` CLI against real
+  `acme`/`globex` tenant creds; the reactive
+  `notify.accounts.account.created`-triggered provisioning path mirrors
+  shipping-service's proven mechanism but wasn't independently exercised
+  with a freshly-minted tenant in this pass.
+- **25g (IMPLEMENTED) — Sea Freight Flow "Pricing" tab.** A new sidebar
+  entry in `frontend/seafreight-app` (pushed into `App.vue`'s `sections`
+  array, no router changes needed — per `shared/unifi-theme/LAYOUT.md`), a
+  new Pinia store (`stores/pricing.js`) modeled on `stores/port.js`'s
+  bootstrap-then-loading-clears shape, and a read-only `PricingPanel.vue`
+  listing every FeeScale/RateSheet/FixedRate in the current context.
+  Discovered mid-phase that no endpoint existed to list what's registered
+  without already knowing an exact name — added `List` per aggregate
+  (BR-P16 in `BUSINESS_RULES-PRICING.md`, excludes soft-deleted FeeScales)
+  across the domain/Postgres/REST/`api.*` layers first. Unlike
+  `stores/port.js`, there is **no `notify.*` subscription** — pricing-service
+  publishes no change-notification stream yet, so this store is a one-shot
+  bootstrap read per connect/context-switch, not a live-updating view (BR-029's
+  loading-state convention still applies, since the same reset-then-fetch
+  gap exists). Live-verified in-browser against the real `docker compose`
+  stack: seeded FeeScale/RateSheet/FixedRate rows via REST, confirmed they
+  render over the real `api.*` NATS WebSocket path, confirmed a BU-context
+  switch reconnects and shows that context's own distinct rows, and
+  confirmed the new l10n keys (added to `refdata-service/refdata/seed.go`'s
+  `l10nSeed` and regenerated via `npm run gen:i18n`) render correctly in
+  both English and Spanish. Drilling into a row's version detail and the
+  add/edit/publish/rollback UI are Phase 25h, deliberately out of scope here.
+- **25h (IMPLEMENTED) — Manual-entry UX.** `FeeScalePanel.vue`/
+  `RateSheetPanel.vue`/`FixedRatePanel.vue` (composed by `PricingPanel.vue`,
+  replacing its 25g read-only tables) — register, create-draft, add-
+  range-or-entry (auto-chained lower limits for FeeScale, no forced-infinite
+  top row — that would recreate BR-P05's fail-open bug), publish, roll back,
+  for all three aggregates; RateSheet/FixedRate also get an active/inactive
+  toggle (re-`Register` with the flag flipped). FixedRate's "add entry" step
+  collapses into "create draft" itself, since `CreateDraft` takes its rate
+  fields directly rather than incrementally. No endpoint resolves an
+  arbitrary version's ranges/entries by number, so a draft's rows are
+  tracked client-side as added in the current session rather than
+  re-fetched — a disclosed limitation, not a bug. `stores/pricing.js` only
+  grew list-upserting actions (`register*`/`toggle*Active`); every other
+  action is a direct `api.js` call from the owning panel, mirroring
+  `ShipsAtPortPanel.vue`/`TerminalPanel.vue`'s existing split. Live-verified
+  end to end in-browser for all three aggregates' full lifecycle.
+- **Deferred, not rejected:** context-tree inheritance (a business-unit
+  context falling back to `_platform` defaults) for pricing entities — every
+  aggregate carries a flat `context` field but does not walk an ancestry
+  chain.
+
+#### Checklist
+
+- [x] 25a: Business rules confirmed with user before implementation (BR-P01–BR-P06)
+- [x] 25a: Ginkgo specs written from rules before implementation (`pricing/fee_scale_test.go`), confirmed red
+- [x] 25a: `domain.FeeScale`/`FeeScaleVersion`/`FeeScaleRange` implemented, specs green (`ginkgo ./...` in `pricing-service`)
+- [x] 25a: `BUSINESS_RULES-PRICING.md` written and indexed from `BUSINESS_RULES.md`
+- [x] 25b: RateSheet domain rules confirmed with user (BR-P07–BR-P12), specs written (confirmed red), implemented (green)
+- [x] 25c: FixedRate domain rules confirmed with user (BR-P13–BR-P15), specs written (confirmed red), implemented (green); flag-conflation resolved as a design constraint on `RateSheet.Type`, not a new field
+- [x] 25b/25c: `BUSINESS_RULES-PRICING.md` updated with BR-P07–BR-P15 and the deferred/design-constraint notes; index in `BUSINESS_RULES.md` updated
+- [x] 25d: Postgres schema + adapters (own `pricing-postgres`, port 5435) for all three aggregates
+- [x] 25d: REST API (`cmd/main.go`, port 7203), docker-compose entries (`pricing-postgres` + `pricing-service`)
+- [x] 25d: Live-verified via `docker compose up` — full lifecycle for all three aggregates, including rollback semantics
+- [x] 25d: `BUSINESS_RULES-PRICING.md`/plan updated to reflect service wiring is live
+- [x] 25e: Resolved with user — browser talks to pricing-service directly via `api.*`; `shipping-service` never consults it
+- [x] 25f: `internal/browserrpc` adapter (27 endpoints across FeeScale/RateSheet/FixedRate) implemented, mirroring shipping-service's browserrpc pattern
+- [x] 25f: `internal/tenants` lifecycle manager (`EnsureAll`/`EnsureByName`/`TeardownByName`, notify.accounts.account.* subscription) implemented
+- [x] 25f: `cmd/main.go`/docker-compose wired (`NATS_URL`, `NATS_CREDS_DIR`, creds volume, depends_on `nats`)
+- [x] 25f: Live-verified via `nats` CLI against real `acme`/`globex` creds — full FeeScale lifecycle + confirmed per-tenant adapter isolation
+- [x] 25f: `BUSINESS_RULES-PRICING.md`/plan updated
+- [x] 25g: `List` endpoint added per aggregate (BR-P16) across domain/Postgres/REST/`api.*` layers, Ginkgo spec green
+- [x] 25g: `stores/pricing.js` + `PricingPanel.vue` + `IconPricing.vue` built; wired into `App.vue`'s sections/onMounted/onUnmounted and `stores/tenant.js`'s tenant-switch reconnect
+- [x] 25g: l10n keys added to `refdata-service/refdata/seed.go`, `npm run gen:i18n` regenerated `l10nFallback.en.js`
+- [x] 25g: `App.spec.js`'s hardcoded nav-item list updated for the new tab; full `vitest run` back to the same pre-existing failure count (7, unrelated to this phase)
+- [x] 25g: Live-verified in-browser against `docker compose` — seeded data renders over real `api.*` NATS, BU-context switch reconnects to a distinct context's rows, English/Spanish both render correctly
+- [x] 25g: `BUSINESS_RULES-PRICING.md`/`BUSINESS_RULES.md`/plan updated
+- [x] 25h: `api.js` extended with the full register/get/create-draft/add-range-or-entry/set-fee-scale-override/publish/rollback/versions/active endpoint set for all three aggregates
+- [x] 25h: `stores/pricing.js` gained `register*`/`toggle*Active` list-upserting actions; `stores/pricing.spec.js` added (6 specs, mirrors `port.spec.js`'s conventions)
+- [x] 25h: `FeeScalePanel.vue`/`RateSheetPanel.vue`/`FixedRatePanel.vue` built (register dialog, row-expansion detail, create-draft, add-range-or-entry, publish, rollback); `PricingPanel.vue` simplified to compose them
+- [x] 25h: l10n keys (42 new) added to `seed.go`, `npm run gen:i18n` regenerated `l10nFallback.en.js`; cross-checked every `t(...)` call used in the new panels resolves to a real key
+- [x] 25h: `vite build` and full `vitest run` clean (31 tests: 24 passing + the pre-existing 7 unrelated failures, same as before this phase)
+- [x] 25h: Live-verified in-browser against `docker compose` — full register→draft→add-range/entry→publish→rollback cycle for FeeScale, RateSheet (incl. fee-scale override), and FixedRate (incl. active/inactive toggle)
+- [x] 25h: `BUSINESS_RULES-PRICING.md`/`BUSINESS_RULES.md`/plan updated
+
+### Phase 25i (DONE) — Effective-Dated Diesel Overlay
+
+#### Goal
+
+Add the one dimension the Phase 25 port deliberately left out: diesel
+adjustments as a **date-effective overlay** on a stable, published rate
+sheet — not a re-publish. A source-code read of Linebooker (delegated
+investigation, 2026-08-07, citations in the 25i design sketch) established
+that `RateSheetDieselAdjustmentEntity` is an independently effective-dated
+overlay (`start_date`/`end_date`/`minor_version`) on a stable
+`RateSheetVersionEntryEntity`, selected **by the load's own execution
+date** (`RateSheetVersionEntryEntityRepository.java:106-121`;
+`RateSheetEntityServiceImpl.java:372-377`) — not "the latest." This
+**supersedes and corrects** the claim currently written into
+`pricing/internal/domain/rate_sheet.go:75-77` and `fixed_rate.go:36-39`
+that "a diesel-triggered repricing is just another publish": that is
+factually wrong about the source and loses real behaviour (a backdated
+load must reprice against the diesel window in effect *then*).
+
+**Confirmed CQRS classification (unchanged):** still plain Postgres CRUD,
+not event-sourced. "What diesel-adjusted rate was in effect on date X" is
+answered by an interval query over dated rows, never by replaying a log —
+the exact worked example of "reference-looking data that needs
+date-effective history but still isn't event-sourced" that
+`ARCHITECTURE.md` § "Event Sourcing vs Plain CRUD" describes.
+
+#### Versioning model — two axes, `major.minor`
+
+The correction is not that "publish" goes away; it is that **two kinds of
+change were collapsed onto one axis**. This phase splits them:
+
+- **Major version — content changes → publish.** Editing lanes, base
+  rates, or drop rules stays exactly the existing `draft → published →
+  rolled-back` lifecycle (BR-P09, **unchanged**).
+- **Minor version — a diesel-price change → append an overlay.** A new
+  diesel price appends a dated adjustment on top of the *currently
+  published major version*, with **no new major publish**.
+
+Resolved identity becomes `major.minor` (e.g. `v3.0` published content,
+`v3.1`/`v3.2` diesel re-prices on it) — matching Linebooker's
+`major_version` + `minor_version` two-column model.
+
+#### Decisions locked (with user, 2026-08-07)
+
+- **Diesel price index lives in `pricing-service`** (one more table in
+  schema `pricing`), not `refdata-service` — keeps the overlay
+  self-contained, zero new cross-service `rpc.*` hops, does not re-open the
+  BR-D28 read-only-boundary question. (The refdata option is recorded as a
+  rejected-for-now alternative, not deleted.)
+- **Diesel adjustments are auto-appended as immediately-effective minor
+  versions** — no draft/publish gate. They are system-generated from an
+  authoritative price change; the human draft/publish ceremony stays for
+  content (major) edits only. Faithful to the source.
+- **FixedRate overlay deferred to Phase 25j** — 25i covers RateSheet (the
+  richer case); FixedRate reuses the identical pattern as a mechanical
+  follow-up (`FixedRateSubVersionEntity` in the source).
+
+#### Proposed business rules (final wording confirmed at 25i-a, before specs)
+
+- **BR-P17** — A resolved rate carries a `major.minor` version. Major = the
+  existing published content version (BR-P09, unchanged); minor = a diesel
+  overlay on a published major. A diesel-price change bumps minor only,
+  never a new major publish.
+- **BR-P18** — A diesel price index is a time series `active_date →
+  (cent_coastal_price, cent_inland_price)`. "Price in effect on date X" =
+  the entry with the greatest `active_date ≤ X`.
+- **BR-P19** — Each rate-sheet entry carries its diesel baseline
+  (`cent_initial_diesel_price`, `diesel_percentage`, `diesel_type` ∈
+  {coastal, inland}), authored as part of the major version; these are the
+  formula inputs.
+- **BR-P20** — When a diesel price becomes effective on date D, a new
+  minor-version adjustment is appended per affected entry (`start_date =
+  D`); the previously-open window's `end_date` closes to D (contiguous,
+  non-overlapping). Adjusted rate is computed **once, at creation**:
+  `adjusted = base + base·(dieselPct/100)·((currentDiesel − initialDiesel)/initialDiesel)`,
+  with `currentDiesel` the indexed price (coastal|inland per the entry's
+  `diesel_type`) in effect on D.
+- **BR-P21** — If no diesel price is indexed on/before D, adjustment
+  creation is **rejected** (same fail-closed spirit as BR-P05), never
+  silently zero or "current."
+- **BR-P22** — Pricing a load resolves `(sheet, route, vehicle,
+  effectiveDate)`: active published major (BR-P08) → entry for
+  route×vehicle → the adjustment window containing `effectiveDate`
+  (`start ≤ date < next start`; the last window is open-ended) → that
+  adjusted rate → then the drop surcharge (BR-P12, unchanged).
+  `effectiveDate` = the load's pickup date, not "now."
+- **BR-P23** — A date preceding the first adjustment window falls back to
+  the entry's authored base rate. A newly published major version starts
+  with no overlays and accrues its own going forward.
+
+#### Design
+
+- **Domain** (`pricing/internal/domain/`): `rate_sheet.go`'s
+  `RateSheetEntry` gains `CentInitialDieselPrice`, `DieselPercentage`,
+  `DieselType`; new `DieselAdjustment` (minor version, start/end,
+  precomputed `CentAdjustedRate`); a `DieselPriceIndex` lookup
+  (`greatest active_date ≤ X`); a `major.minor` resolver
+  (`ResolveRate(sheet, versions, adjustments, route, vehicle,
+  effectiveDate)`); the BR-P20 formula. Major-version lifecycle code
+  untouched.
+- **Postgres** (`pricing/internal/postgres/migrate.go` + repos): 3 new
+  columns on `pricing.rate_sheet_entries`; new `pricing.diesel_prices`
+  (`context, active_date, cent_coastal_price, cent_inland_price`); new
+  `pricing.rate_sheet_diesel_adjustments` (`context, rate_sheet_name,
+  major_version, route_key, vehicle_type, minor_version, start_date,
+  end_date, cent_adjusted_rate`, FK to the entry) with window-maintenance
+  on insert.
+- **`api.*`/browserrpc** (`internal/browserrpc`): publish-a-diesel-price
+  (which auto-generates the overlay across affected entries),
+  list-diesel-prices, and resolve-rate-at-date. Overlay generation is a
+  server-side effect of the price publish, not a separate authoring step
+  (locked decision).
+- **Frontend** (`frontend/seafreight-app`, Pricing tab): a diesel-price
+  entry/list surface and a resolved `major.minor` + effective-date
+  display on the rate-sheet panel. l10n keys via `seed.go` +
+  `gen:i18n` (BR-D16), same as 25g/25h.
+
+#### Sub-phases (each independently landable)
+
+- **25i-a — Domain + rules.** Confirm BR-P17–P23 wording, write Ginkgo
+  specs (red), implement (green). Domain layer only.
+- **25i-b — Postgres.** Schema + repositories + migration + window
+  maintenance; integration-verified.
+- **25i-c — `api.*` + UI.** browserrpc endpoints + Pricing-tab surfaces;
+  live-verified via `docker compose`.
+- **25j (separate) — FixedRate overlay.** Same pattern applied to
+  FixedRate sub-versions.
+
+#### Checklist
+
+- [x] 25i-a: BR-P17–P23 final wording confirmed with user before specs (2026-08-07)
+- [x] 25i-a: Ginkgo specs written from rules (`pricing/rate_sheet_diesel_test.go`), confirmed red
+- [x] 25i-a: Domain types `DieselPrice`/`DieselOverlay`; `MinorVersion`+`Overlays` on `RateSheetVersion`; `DieselPct`/`InitialDieselCents` on `RateSheetEntry`; `AdjustedRate`, `DieselPriceOn`, `AppendDieselOverlay`, `AppendDieselOverlayFromIndex`, `RateForLoad` implemented; 40/40 specs green
+- [x] 25i-a: Correction landed — "just another publish" replaced in `rate_sheet.go`/`fixed_rate.go`; superseded-claim note + BR-P14 body updated in `BUSINESS_RULES-PRICING.md`
+- [x] 25i-b: `migrate.go` — `minor_version` on `rate_sheet_versions`; `diesel_pct`/`initial_diesel_cents` on `rate_sheet_entries`; new `pricing.diesel_prices` + `pricing.rate_sheet_overlays` tables (note: plan used `rate_sheet_diesel_adjustments` — shipped as `rate_sheet_overlays`); `AddEntry`/`ActiveVersion` updated; `IndexDieselPrice`/`ListDieselPrices`/`PersistDieselOverlay` implemented
+- [x] 25i-b: Live-verified via `docker compose` — indexed diesel prices, confirmed overlays appended (contiguous window-closing, minor-version bump), confirmed BR-P21 fail-closed (404 on an unindexed date) and BR-P22/BR-P23 resolution behavior
+- [x] 25i-c: REST endpoints (`POST/GET /api/pricing/{context}/diesel-prices`, `POST .../diesel-overlay`); browserrpc subjects (`DieselPriceIndexSubject`, `DieselPriceListSubject`, `RateSheetApplyOverlaySubject`); `ApplyDieselOverlay` command; error mapping for `ErrNoDieselPrice`/`ErrEntryNotFound`
+- [x] 25i-c: Pricing-tab frontend — `DieselPricePanel.vue` (index/list surface); `RateSheetPanel.vue` gained `major.minor` display, an overlays table, and an "Apply Diesel Overlay" control; l10n keys added via `seed.go` + `gen:i18n`
+- [x] 25i-c: `vite build` + `vitest run` clean (pre-existing unrelated `useL10nCopy`/`useRefdataLabels` localStorage failures excluded); live-verified in-browser against real stack, including a DatePicker-timezone bug fix (`.toISOString()` on a local-midnight `Date` shifted the calendar day back a day under UTC+2 — fixed with a UTC-midnight re-anchor in both `DieselPricePanel.vue` and `RateSheetPanel.vue`)
+- [x] BR-P24 (found + fixed during 25i-c's live smoke test): `AppendDieselOverlay` divided by `InitialDieselCents` with no zero guard — any entry without an authored diesel baseline (true of every pre-25i seeded rate sheet) was silently corrupted to a $0 adjusted rate via a NaN→int64 conversion. Fixed to skip overlaying baseline-less entries (they keep resolving to their base rate via BR-P23); 3 new Ginkgo specs added, 43/43 green.
+- [x] `BUSINESS_RULES-PRICING.md` updated with BR-P17–P24 (IMPLEMENTED, Phase 25i); index in `BUSINESS_RULES.md` range updated
+- [x] Plan checklist updated to reflect landed sub-phases
+
+### Phase 26 (PROPOSED — awaiting approval) — Trading Partner Service: Shipper/Transporter Registration
+
+#### Goal
+
+Port Linebooker's Shipper/Transporter onboarding model (V2's `BusinessEntity`
++ `CustomerProfileEntity`/`TransporterProfileEntity`/`TransporterDocumentEntity`/
+`FleetAssetEntity`) into a new standalone `trading-partner-service`, alongside
+`shipping-service`/`refdata-service`/`accounts-service`/`pricing-service`.
+Collective role term is **Trading partners** (Shipper + Transporter — see
+`linebooker_shipper_vs_customer_naming.md`,
+`linebooker_trading_partners_term_and_fleet_cardinality.md` in
+`.claude/memory/`), surfaced in Admin UI under a new "Trading partners" nav
+section rather than RefData UI — this is organisation-owned master data that
+*consumes* refdata lookups, not a vocabulary itself
+(`linebooker_registration_ui_placement.md`).
+
+**Confirmed CQRS classification:** plain Postgres CRUD, not event-sourced —
+a `TradingPartner`'s current registration state is all that's ever queried;
+nothing replays a log to reconstruct it. **Deferred, not rejected:** the user
+flagged wanting a follow-up exploration of whether the Registered→Active
+transition should eventually become its own CQRS/event-sourced shape or use
+a temporal/effective-dated model (e.g. for re-vetting after suspension) —
+recorded here as a named open item, not designed or scheduled yet
+(`linebooker_trading_partner_phase_v1_scope.md`).
+
+**Scope decisions confirmed 2026-08-13** (full detail:
+`linebooker_trading_partner_phase_v1_scope.md`):
+
+- **No platform-identity/tenant-membership split for v1.** One
+  `TradingPartner` record (identity + status), no separate platform-account
+  vs. tenant-membership tables. Revisit only if a real cross-tenant
+  membership need appears.
+- **Status is a simple two-state lifecycle: `Registered` → `Active`**, set
+  **manually**, independent of compliance-document approval state (not
+  derived/gated by documents in v1).
+- **v1 includes both compliance documents and Transporter fleet assets** —
+  not deferred to a follow-on phase. Subcontracting
+  (`FleetAssetEntity.subcontractingOwner`) stays out of scope regardless.
+- **Shipper and Transporter built together**, one generic `TradingPartner`
+  aggregate with a `PartnerType` discriminator (`SHIPPER` | `TRANSPORTER`),
+  mirroring V2's `BusinessEntity` + `BusinessType` pattern
+  (`v3_tenancy_axes_decision.md`).
+
+**Confirmed fields** (trimmed from V2's full `BusinessEntity`/
+`TransporterProfileEntity`, per 2026-08-13 sign-off):
+
+- Shared: `name`, `tradingAs`, `companyName`, `registrationNo`,
+  `vatRegistrationNo`, `type` (`SHIPPER`|`TRANSPORTER`), `status`
+  (`REGISTERED`|`ACTIVE`), `context` (business-unit scope, per this repo's
+  `{context}` convention). Dropped from V2: `contactPerson`/`contactNo`
+  (redundant with a future Users/contacts model).
+- Transporter-only: fleet assets, one-to-many (`registrationNo`, `vin`,
+  `make`, `model` — a trimmed `FleetAssetEntity`, no `subcontractingOwner`).
+  Dropped from V2: `gitCoverage` (insurance amount) — insurance is tracked
+  as a document (below), not a numeric coverage field, for v1.
+
+**Confirmed compliance documents** (subset of V2's `DocumentTypes`,
+per-document `status`: `PENDING`|`APPROVED`|`REJECTED`, independent of the
+parent `TradingPartner.status`):
+
+- Both roles: `CIPC` (company registration cert), `DIRECTOR_ID`,
+  `BANK_CONFIRMATION_LETTER`, `TERMS_AND_CONDITIONS`.
+- Transporter-only addition: `GOODS_IN_TRANSIT` (insurance cert). Dropped
+  from V2 candidates: `GIT_CONTINGENCY_POLICY`, `BEE_COMPLIANCE_CERTIFICATE`.
+
+**Sub-phases**, each independently landable (mirroring Phase 25's
+domain-first decomposition):
+
+- **26a — TradingPartner domain model.** `TradingPartner` aggregate +
+  `PartnerType`/`PartnerStatus` in
+  `trading-partner-service/tradingpartner/internal/domain/`. Manual
+  Register/Activate/Suspend(?) commands — exact transition set to be
+  finalized against BR-TP numbering before specs. Domain layer only.
+- **26b — Compliance documents.** `ComplianceDocument` child entity
+  (per-role subset above), independent status field, no link enforced to
+  parent `TradingPartner.status` in v1 (explicit design decision, not a
+  gap).
+- **26c — Transporter fleet assets.** `FleetAsset` child entity,
+  one-to-many off `TradingPartner` (Transporter only).
+- **26d — Service wiring.** Own Postgres (`trading-partner-postgres`, port
+  5436 — next free after `pricing-postgres`'s 5435), REST API
+  (`trading-partner-service`, port 7204 — next free in the 7200s backend
+  range), docker-compose entry.
+- **26e — Admin UI "Trading partners" section.** New nav category (per
+  `linebooker_registration_ui_placement.md`), `stores/tradingPartners.js`
+  Pinia store, register/list/detail panels including document upload/status
+  and (Transporter) fleet-asset management.
+
+#### Checklist
+
+- [x] Business rules confirmed with user before planning (2026-08-13 —
+      fields, documents, status model, scope, build order; see
+      `linebooker_trading_partner_phase_v1_scope.md`)
+- [ ] Plan phase reviewed and signed off by user before implementation
+- [ ] 26a: BR-TP numbering assigned; Ginkgo specs written from rules,
+      confirmed red
+- [ ] 26a: `domain.TradingPartner`/`PartnerType`/`PartnerStatus` implemented,
+      specs green
+- [ ] 26b: Compliance-document rules confirmed, specs written (red),
+      implemented (green)
+- [ ] 26c: Fleet-asset rules confirmed, specs written (red), implemented
+      (green)
+- [ ] `BUSINESS_RULES-TRADING-PARTNER.md` written (new domain file) and
+      indexed from `BUSINESS_RULES.md`
+- [ ] 26d: Postgres schema + adapters, REST API, docker-compose entry
+- [ ] 26d: Live-verified via `docker compose up` — full
+      register→document-upload→fleet-asset-add→activate cycle
+- [ ] 26e: Admin UI "Trading partners" section built, wired into
+      `App.vue`/`AppShell.vue` per `shared/unifi-theme/LAYOUT.md`
+- [ ] 26e: Live-verified in-browser against real `docker compose` stack
+- [ ] `BUSINESS_RULES-TRADING-PARTNER.md`/`BUSINESS_RULES.md`/plan updated
 
 ### Phase 100 (PROPOSED — awaiting approval) — Ship Container Capacity Limit
 
@@ -674,7 +1139,29 @@ Theme data is fetch-then-apply's worst case: `l10n`/label fallback (BR-D11) and 
 - [ ] Verify no flash-of-wrong-theme on first load for a tenant the browser has never seen (the actual test this spike exists to pass)
 - [ ] Document the trade-off vs. compiled-in-at-build-time in `ARCHITECTURE.md`: when per-tenant runtime branding is worth the added deploy-topology complexity vs. just rebuilding per tenant
 
+### Phase 106 (DEFERRED from Phase 22b, 2026-08-13) — Context Inheritance on the Live Read Path
 
+#### Goal
+
+Make live reference-data reads honour the context `parent` chain, closing the gap between what the context hierarchy *implies* and what it actually does.
+
+#### The gap
+
+refdata-service has two parallel read paths, and only one inherits:
+
+- **Corpus / versioned path — inherits.** `CorpusRepository.CreateDraft` walks the ancestor chain with a recursive CTE and flattens each ancestor's locally-authored rows via `domain.FlattenCorpus` / `FlattenLocalizations`, writing resolved rows with `source_context` + `is_override`. `inheritance.go`'s header states the intent plainly: the flattened form exists so reads never traverse a chain.
+- **Live path — does not.** Every query in `item_repository.go`, `localization_repository.go`, `locale_repository.go` and `reference_repository.go` is a flat `WHERE context = $1`. No CTE, no UNION, no IN-list. `kvcache.Projector.rebuildEntry` builds the `refdata-{context}` bucket from those same exact-match queries, so the live KV cache doesn't inherit either. `Ancestors()` exists but is consumed only by the admin detail endpoint and by `Register`'s cycle check.
+
+The consequence is that a context registered with a parent looks correct in the admin UI's context tree and returns nothing through `rpc.{context}.refdata.item.get.v1`, `type.list.v1`, the REST list/get routes, or the `refdata-{context}` bucket — while `item.get-versioned.v1` returns the fully inherited set. Phase 22b makes this more visible by giving every tenant a parented default context, but does not introduce it.
+
+#### Scope
+
+- [ ] Decide the mechanism: recursive-CTE resolution in the repositories (correct, touches every read query) vs. materialising inherited rows into the child context on write (simpler, duplicates data, drifts when an ancestor changes)
+- [ ] `dictionary_locales` is on the flat path and is **not** covered by corpus flattening — whichever mechanism is chosen must cover locales, or `EffectiveDefaultLocale` still resolves against an empty set
+- [ ] `kvcache.Projector.rebuildEntry` must project inherited entries into `refdata-{context}`, or readers must fall back to an ancestor's bucket — pick one; a KV cache that disagrees with Postgres is worse than no inheritance
+- [ ] Override semantics on the live path must match the corpus path's `is_override` precedence (child wins, nearest ancestor next) so the two paths cannot disagree about the same item
+- [ ] Decide whether `Ancestors()` and `ancestorChainTx` (currently duplicated between `context_repository.go` and `corpus_repository.go`) collapse into one implementation as part of this
+- [ ] Business rules for live-path inheritance and override precedence; specs covering a child with no local rows, a child overriding one ancestor row, and a three-level chain
 
 ---
 

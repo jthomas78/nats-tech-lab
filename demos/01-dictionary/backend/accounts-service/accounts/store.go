@@ -19,13 +19,38 @@ var ErrBUNotFound = errors.New("business unit not found")
 var ErrBUDuplicate = errors.New("business unit already exists")
 
 // BusinessUnit is one registered business unit for an account (Phase 22,
-// BR-AC15). name is the {context} token that refdata-service will also know.
+// BR-AC15).
+//
+// Name and Context are deliberately distinct (Phase 22b, BR-AC26): Name is the
+// free-text English label an operator reads ("Pacific Fleet") and may rename at
+// will; Context is the subject-safe slug refdata-service knows the same unit by
+// ("acme-pacific-fleet"), and is immutable once written — nothing in
+// refdata-service's data tables carries a foreign key back to a context, so a
+// rename would silently orphan every item, localization, KV bucket and
+// already-published event recorded under the old value.
+//
+// IsDefault marks the one auto-created business unit every account gets
+// (BR-AC28). It is an explicit column rather than a name/slug comparison so
+// nothing has to string-match a reserved value to recognize it.
 type BusinessUnit struct {
 	ID        string
 	AccountID string
 	Name      string
+	Context   string
 	Visible   bool
+	IsDefault bool
 	CreatedAt time.Time
+}
+
+// NewBusinessUnit is the input to the two insert paths. A struct rather than a
+// positional argument list because the two string fields (Name, Context) are
+// easy to transpose at a call site and impossible to tell apart by type.
+type NewBusinessUnit struct {
+	AccountID string
+	Name      string
+	Context   string
+	Visible   bool
+	IsDefault bool
 }
 
 // Account is one NATS account this service knows about — both the ones it
@@ -106,6 +131,46 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			UNIQUE (account_id, name)
 		)`,
 		`CREATE INDEX IF NOT EXISTS business_units_account_idx ON accounts.business_units (account_id)`,
+		// Phase 22b (BR-AC26/BR-AC27/BR-AC28): split the single `name` column
+		// into a free-text display name and an immutable subject-safe `context`
+		// slug, and mark the auto-created default explicitly.
+		//
+		// The backfill is lossless because every name written under Phase 22 was
+		// already slug-shaped (it *was* the context token): `acme-pacific-fleet`,
+		// `_default_bu`. So `context = name` is the correct history, and only the
+		// legacy shared `_default_bu` rows need rewriting — each becomes that
+		// account's own `{tenant}-default`, which is the whole point of the
+		// phase (one shared context meant two tenants writing the same
+		// `(context, type_key, code)` rows in refdata-service).
+		//
+		// Statement order matters: the `_default_bu` rewrite must land before the
+		// global unique index is built, or two accounts both carrying the legacy
+		// row would collide on `context` and the index creation would fail.
+		`ALTER TABLE accounts.business_units ADD COLUMN IF NOT EXISTS context TEXT`,
+		`ALTER TABLE accounts.business_units ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT false`,
+		`UPDATE accounts.business_units SET context = name WHERE context IS NULL`,
+		`UPDATE accounts.business_units bu
+			SET name = 'Default', context = a.name || '-default', is_default = true
+			FROM accounts.accounts a
+			WHERE a.id = bu.account_id AND bu.name = '_default_bu'`,
+		`ALTER TABLE accounts.business_units ALTER COLUMN context SET NOT NULL`,
+		// Global, not per-account: refdata-service's `contexts.context` is a
+		// primary key, and its Register upserts on conflict, so two accounts
+		// claiming one slug would let the second silently overwrite the first's
+		// context row (name and tenant ownership alike). BR-AC27.
+		`CREATE UNIQUE INDEX IF NOT EXISTS business_units_context_key ON accounts.business_units (context)`,
+		// BR-AC20: platform-global system config. A singleton row (the
+		// CHECK (singleton) + boolean PK guarantees at most one) holding the
+		// browser/admin JWT expiry policy. Seeded immediately below with the
+		// BR-AC20 defaults so GetTokenTTLConfig always has a row to read.
+		`CREATE TABLE IF NOT EXISTS accounts.system_config (
+			singleton             BOOLEAN PRIMARY KEY DEFAULT true CHECK (singleton),
+			token_ttl_minutes     INT NOT NULL DEFAULT 15,
+			token_ttl_min_minutes INT NOT NULL DEFAULT 15,
+			token_ttl_max_minutes INT NOT NULL DEFAULT 30,
+			updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`INSERT INTO accounts.system_config (singleton) VALUES (true) ON CONFLICT (singleton) DO NOTHING`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
@@ -288,12 +353,22 @@ func (s *Store) SetSigningKeySeed(ctx context.Context, name, seed string) error 
 	return nil
 }
 
-// InsertBusinessUnit adds a new business unit row for the account identified
-// by accountID (UUID). Returns ErrBUDuplicate on name collision.
-func (s *Store) InsertBusinessUnit(ctx context.Context, accountID, name string, visible bool) error {
+// buColumns is the select list every BU read shares, so a new column can't be
+// added to one query and forgotten in the other.
+const buColumns = `bu.id, bu.account_id, bu.name, bu.context, bu.visible, bu.is_default, bu.created_at`
+
+func scanBU(dest *BusinessUnit) []any {
+	return []any{&dest.ID, &dest.AccountID, &dest.Name, &dest.Context, &dest.Visible, &dest.IsDefault, &dest.CreatedAt}
+}
+
+// InsertBusinessUnit adds a new business unit row. Returns ErrBUDuplicate when
+// either the display name is already taken within the account or the context
+// slug is already taken by any account (BR-AC27 — the slug is globally unique).
+func (s *Store) InsertBusinessUnit(ctx context.Context, in NewBusinessUnit) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO accounts.business_units (account_id, name, visible) VALUES ($1, $2, $3)`,
-		accountID, name, visible)
+		INSERT INTO accounts.business_units (account_id, name, context, visible, is_default)
+		VALUES ($1, $2, $3, $4, $5)`,
+		in.AccountID, in.Name, in.Context, in.Visible, in.IsDefault)
 	if err != nil && strings.Contains(err.Error(), "unique") {
 		return ErrBUDuplicate
 	}
@@ -301,24 +376,29 @@ func (s *Store) InsertBusinessUnit(ctx context.Context, accountID, name string, 
 }
 
 // InsertBusinessUnitIfMissing is like InsertBusinessUnit but silently ignores
-// duplicate-name conflicts — used for idempotent seeding.
-func (s *Store) InsertBusinessUnitIfMissing(ctx context.Context, accountID, name string, visible bool) error {
+// conflicts — used for idempotent seeding. Untargeted ON CONFLICT deliberately:
+// a seed re-run can collide on either the per-account name or the global
+// context slug, and both mean "already seeded".
+func (s *Store) InsertBusinessUnitIfMissing(ctx context.Context, in NewBusinessUnit) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO accounts.business_units (account_id, name, visible) VALUES ($1, $2, $3)
-		ON CONFLICT (account_id, name) DO NOTHING`,
-		accountID, name, visible)
+		INSERT INTO accounts.business_units (account_id, name, context, visible, is_default)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT DO NOTHING`,
+		in.AccountID, in.Name, in.Context, in.Visible, in.IsDefault)
 	return err
 }
 
-// ListBusinessUnits returns all business units for the named account, ordered
-// by name. Returns ErrNotFound if no account with that name exists.
+// ListBusinessUnits returns all business units for the named account. The
+// account's default sorts first (BR-AC28 — it is the one row guaranteed to
+// exist, and reads as the anchor of the list rather than an alphabetical
+// accident), then the rest by display name.
 func (s *Store) ListBusinessUnits(ctx context.Context, accountName string) ([]BusinessUnit, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT bu.id, bu.account_id, bu.name, bu.visible, bu.created_at
+		SELECT `+buColumns+`
 		FROM accounts.business_units bu
 		JOIN accounts.accounts a ON a.id = bu.account_id
 		WHERE a.name = $1
-		ORDER BY bu.name`, accountName)
+		ORDER BY bu.is_default DESC, bu.name`, accountName)
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +407,7 @@ func (s *Store) ListBusinessUnits(ctx context.Context, accountName string) ([]Bu
 	var out []BusinessUnit
 	for rows.Next() {
 		var bu BusinessUnit
-		if err := rows.Scan(&bu.ID, &bu.AccountID, &bu.Name, &bu.Visible, &bu.CreatedAt); err != nil {
+		if err := rows.Scan(scanBU(&bu)...); err != nil {
 			return nil, err
 		}
 		out = append(out, bu)
@@ -335,16 +415,18 @@ func (s *Store) ListBusinessUnits(ctx context.Context, accountName string) ([]Bu
 	return out, rows.Err()
 }
 
-// GetBusinessUnit returns a specific business unit by account name + BU name.
+// GetBusinessUnit returns a specific business unit by account name + context
+// slug. Keyed on the slug, not the display name: the slug is the immutable
+// identity (BR-AC26), which is what makes it safe to carry in a URL path.
 // Returns ErrBUNotFound if it doesn't exist.
-func (s *Store) GetBusinessUnit(ctx context.Context, accountName, buName string) (BusinessUnit, error) {
+func (s *Store) GetBusinessUnit(ctx context.Context, accountName, buContext string) (BusinessUnit, error) {
 	var bu BusinessUnit
 	err := s.db.QueryRowContext(ctx, `
-		SELECT bu.id, bu.account_id, bu.name, bu.visible, bu.created_at
+		SELECT `+buColumns+`
 		FROM accounts.business_units bu
 		JOIN accounts.accounts a ON a.id = bu.account_id
-		WHERE a.name = $1 AND bu.name = $2`, accountName, buName).
-		Scan(&bu.ID, &bu.AccountID, &bu.Name, &bu.Visible, &bu.CreatedAt)
+		WHERE a.name = $1 AND bu.context = $2`, accountName, buContext).
+		Scan(scanBU(&bu)...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return BusinessUnit{}, ErrBUNotFound
 	}
@@ -354,15 +436,42 @@ func (s *Store) GetBusinessUnit(ctx context.Context, accountName, buName string)
 	return bu, nil
 }
 
+// RenameBusinessUnit updates a BU's display name. The context slug is never
+// touched — it has no rename path anywhere by design (BR-AC26). Returns
+// ErrBUNotFound if no such row exists, or ErrBUDuplicate if the account
+// already has another unit under that name.
+func (s *Store) RenameBusinessUnit(ctx context.Context, accountName, buContext, name string) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE accounts.business_units bu
+		SET name = $3
+		FROM accounts.accounts a
+		WHERE a.id = bu.account_id AND a.name = $1 AND bu.context = $2`,
+		accountName, buContext, name)
+	if err != nil {
+		if strings.Contains(err.Error(), "unique") {
+			return ErrBUDuplicate
+		}
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrBUNotFound
+	}
+	return nil
+}
+
 // SetBusinessUnitVisible updates the visible flag for a BU identified by
-// account name + BU name. Returns ErrBUNotFound if no such row exists.
-func (s *Store) SetBusinessUnitVisible(ctx context.Context, accountName, buName string, visible bool) error {
+// account name + context slug. Returns ErrBUNotFound if no such row exists.
+func (s *Store) SetBusinessUnitVisible(ctx context.Context, accountName, buContext string, visible bool) error {
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE accounts.business_units bu
 		SET visible = $3
 		FROM accounts.accounts a
-		WHERE a.id = bu.account_id AND a.name = $1 AND bu.name = $2`,
-		accountName, buName, visible)
+		WHERE a.id = bu.account_id AND a.name = $1 AND bu.context = $2`,
+		accountName, buContext, visible)
 	if err != nil {
 		return err
 	}

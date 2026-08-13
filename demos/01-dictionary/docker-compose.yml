@@ -93,6 +93,30 @@ services:
       timeout: 2s
       retries: 15
 
+  # pricing-service's own Postgres instance (Phase 25) — same
+  # database-per-service isolation as refdata-postgres/accounts-postgres.
+  # This domain is write-adjacent in the source system it was ported from
+  # (unlike refdata-service's read-only boundary), so it gets the same
+  # isolated datastore rigor rather than a shared schema.
+  pricing-postgres:
+    image: postgres:16-alpine
+    container_name: lb-pricing-postgres
+    environment:
+      POSTGRES_USER: pricing
+      POSTGRES_PASSWORD: pricing
+      POSTGRES_DB: pricing
+    ports:
+      - "5435:5432"
+    networks:
+      - backend
+    volumes:
+      - pg-pricing-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pricing -d pricing"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
   shipping-service:
     build: ./backend/shipping-service
     container_name: lb-shipping-service
@@ -232,6 +256,35 @@ services:
       refdata-service:
         condition: service_started
 
+  # Phase 25 — pricing/rate domain ported from Linebooker
+  # (RateSheet/FeeScale/FixedRate). No NATS wiring yet: Postgres + REST
+  # only, since whether shipping-service ever consults it is still
+  # undecided (Phase 25e, see BUSINESS_RULES-PRICING.md).
+  pricing-service:
+    build: ./backend/pricing-service
+    container_name: lb-pricing-service
+    networks:
+      - backend
+      - frontend
+    environment:
+      DATABASE_URL: postgres://pricing:pricing@pricing-postgres:5432/pricing?sslmode=disable
+      HTTP_ADDR: ":8080"
+      # Phase 25f — api.* adapter: one NATS connection per known tenant,
+      # discovered from NATS_CREDS_DIR, same shared directory
+      # shipping-service/accounts-service read (read-only here — unlike
+      # accounts-service, pricing-service never mints creds itself).
+      NATS_URL: nats://nats:4222
+      NATS_CREDS_DIR: /etc/nats/creds
+    ports:
+      - "7203:8080"
+    volumes:
+      - ./nats/creds:/etc/nats/creds:ro
+    depends_on:
+      nats:
+        condition: service_started
+      pricing-postgres:
+        condition: service_healthy
+
   admin-frontend:
     build:
       # Context is the repo root so the build can copy the shared UniFi
@@ -355,5 +408,6 @@ volumes:
   pg-data:
   pg-refdata-data:
   pg-accounts-data:
+  pg-pricing-data:
   nui-data:
   nats-tower-data:

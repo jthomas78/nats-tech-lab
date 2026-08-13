@@ -1,0 +1,212 @@
+<mxfile host="Electron">
+  <diagram id="diesel-overlay-sequence" name="diesel-overlay-sequence">
+    <mxGraphModel dx="1369" dy="870" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1560" pageHeight="1872" background="light-dark(#14171B,#000000)" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="c101" parent="1" style="text;html=1;fontColor=#DEE0E3;fontSize=16;fontStyle=1;align=left;verticalAlign=middle;" value="How a diesel price index update propagates into RateSheet pricing (pricing-service, Phase 25i)" vertex="1">
+          <mxGeometry height="32" width="1440" x="60" as="geometry" />
+        </mxCell>
+        <mxCell id="c102" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#006FFF;fontColor=#0B0F14;fontSize=12.5;fontStyle=1;align=center;verticalAlign=middle;" value="Sea Freight UI (Pricing tab)" vertex="1">
+          <mxGeometry height="64" width="220" x="90" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="c103" edge="1" parent="1" style="endArrow=none;html=1;strokeColor=#4A515B;dashed=1;dashPattern=4 4;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="200" y="104" as="sourcePoint" />
+            <mxPoint x="200" y="1840" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c104" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#006FFF;fontColor=#0B0F14;fontSize=12.5;fontStyle=1;align=center;verticalAlign=middle;" value="pricing-service REST / browserrpc" vertex="1">
+          <mxGeometry height="64" width="220" x="380" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="c105" edge="1" parent="1" style="endArrow=none;html=1;strokeColor=#4A515B;dashed=1;dashPattern=4 4;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="490" y="104" as="sourcePoint" />
+            <mxPoint x="490" y="1840" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c106" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#006FFF;fontColor=#DEE0E3;fontSize=12.5;fontStyle=1;align=center;verticalAlign=middle;" value="ApplyDieselOverlay (application/commands)" vertex="1">
+          <mxGeometry height="64" width="220" x="670" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="c107" edge="1" parent="1" style="endArrow=none;html=1;strokeColor=#4A515B;dashed=1;dashPattern=4 4;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="780" y="104" as="sourcePoint" />
+            <mxPoint x="780" y="1840" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c108" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#27C07F;fontColor=#DEE0E3;fontSize=12.5;fontStyle=1;align=center;verticalAlign=middle;" value="domain.RateSheetVersion (rate_sheet.go)" vertex="1">
+          <mxGeometry height="64" width="220" x="960" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="c109" edge="1" parent="1" style="endArrow=none;html=1;strokeColor=#4A515B;dashed=1;dashPattern=4 4;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1070" y="104" as="sourcePoint" />
+            <mxPoint x="1070" y="1840" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c110" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#27C07F;fontColor=#0B0F14;fontSize=12.5;fontStyle=1;align=center;verticalAlign=middle;" value="Postgres schema pricing" vertex="1">
+          <mxGeometry height="64" width="220" x="1250" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="c111" edge="1" parent="1" style="endArrow=none;html=1;strokeColor=#4A515B;dashed=1;dashPattern=4 4;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1360" y="104" as="sourcePoint" />
+            <mxPoint x="1360" y="1840" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c112" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#4A515B;dashed=1;fontColor=#B7BCC2;fontSize=12;fontStyle=2;align=center;" value="PHASE A — index a diesel price (BR-P18)" vertex="1">
+          <mxGeometry height="30" width="1440" x="60" y="134" as="geometry" />
+        </mxCell>
+        <mxCell id="c113" edge="1" parent="1" style="endArrow=block;html=1;strokeColor=#006FFF;fontColor=#B7BCC2;fontSize=12;rounded=0;jettySize=auto;exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;labelBackgroundColor=none;labelBorderColor=none;" value="POST /diesel-prices  {activeDate, coastalCents, inlandCents}">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-14" as="offset" />
+            <mxPoint x="200" y="180" as="sourcePoint" />
+            <mxPoint x="490" y="180" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c114" edge="1" parent="1" style="endArrow=block;html=1;strokeColor=#006FFF;fontColor=#B7BCC2;fontSize=12;rounded=0;jettySize=auto;exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;labelBackgroundColor=none;labelBorderColor=none;" value="IndexDieselPrice — UPSERT (context, active_date)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-14" as="offset" />
+            <mxPoint x="490" y="230" as="sourcePoint" />
+            <mxPoint x="1360" y="230" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c115" edge="1" parent="1" style="endArrow=block;html=1;strokeColor=#006FFF;dashed=1;fontColor=#B7BCC2;fontSize=12;rounded=0;jettySize=auto;exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;labelBackgroundColor=#14171B;labelBorderColor=none;" value="ok">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-14" as="offset" />
+            <mxPoint x="1360" y="280" as="sourcePoint" />
+            <mxPoint x="490" y="280" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c116" edge="1" parent="1" style="endArrow=block;html=1;strokeColor=#006FFF;dashed=1;fontColor=#B7BCC2;fontSize=12;rounded=0;jettySize=auto;exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;labelBackgroundColor=#14171B;labelBorderColor=none;" value="200 OK">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-14" as="offset" />
+            <mxPoint x="490" y="330" as="sourcePoint" />
+            <mxPoint x="200" y="330" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c117" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#4A515B;dashed=1;fontColor=#B7BCC2;fontSize=12;fontStyle=2;align=center;" value="later — an operator applies that indexed price as an overlay on a published RateSheet" vertex="1">
+          <mxGeometry height="30" width="1440" x="60" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="c118" edge="1" parent="1" style="endArrow=block;html=1;strokeColor=#006FFF;fontColor=#B7BCC2;fontSize=12;rounded=0;jettySize=auto;exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;labelBackgroundColor=none;labelBorderColor=none;" value="POST /rate-sheets/{name}/diesel-overlay  {activeDate}">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-14" as="offset" />
+            <mxPoint x="200" y="436" as="sourcePoint" />
+            <mxPoint x="490" y="436" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c119" edge="1" parent="1" style="endArrow=block;html=1;strokeColor=#006FFF;fontColor=#B7BCC2;fontSize=12;rounded=0;jettySize=auto;exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;labelBackgroundColor=none;labelBorderColor=none;" value="ApplyDieselOverlay(context, name, activeDate)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-14" as="offset" />
+            <mxPoint x="490" y="486" as="sourcePoint" />
+            <mxPoint x="780" y="486" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c120" edge="1" parent="1" style="endArrow=block;html=1;strokeColor=#006FFF;fontColor=#B7BCC2;fontSize=12;rounded=0;jettySize=auto;exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;labelBackgroundColor=none;labelBorderColor=none;" value="ListDieselPrices(context)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-14" as="offset" />
+            <mxPoint x="780" y="536" as="sourcePoint" />
+            <mxPoint x="1360" y="536" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c121" edge="1" parent="1" style="endArrow=block;html=1;strokeColor=#006FFF;dashed=1;fontColor=#B7BCC2;fontSize=12;rounded=0;jettySize=auto;exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;labelBackgroundColor=none;labelBorderColor=none;" value="[]DieselPrice">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-14" as="offset" />
+            <mxPoint x="1360" y="582" as="sourcePoint" />
+            <mxPoint x="780" y="582" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c122" edge="1" parent="1" style="endArrow=block;html=1;strokeColor=#006FFF;fontColor=#B7BCC2;fontSize=12;rounded=0;jettySize=auto;exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;labelBackgroundColor=none;labelBorderColor=none;" value="ActiveVersion(context, name)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-14" as="offset" />
+            <mxPoint x="780" y="632" as="sourcePoint" />
+            <mxPoint x="1360" y="632" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c123" edge="1" parent="1" style="endArrow=block;html=1;strokeColor=#006FFF;dashed=1;fontColor=#B7BCC2;fontSize=12;rounded=0;jettySize=auto;exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;labelBackgroundColor=none;labelBorderColor=none;" value="RateSheetVersion{ Entries, Overlays }">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-14" as="offset" />
+            <mxPoint x="1360" y="678" as="sourcePoint" />
+            <mxPoint x="780" y="678" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c124" edge="1" parent="1" style="endArrow=block;html=1;strokeColor=#006FFF;fontColor=#B7BCC2;fontSize=12;rounded=0;jettySize=auto;exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;labelBackgroundColor=none;labelBorderColor=none;" value="AppendDieselOverlayFromIndex(version, prices, activeDate)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-14" as="offset" />
+            <mxPoint x="780" y="728" as="sourcePoint" />
+            <mxPoint x="1070" y="728" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c125" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=none;strokeColor=none;fontColor=#B7BCC2;fontSize=11.5;align=left;verticalAlign=middle;spacingLeft=6;" value="DieselPriceOn(prices, activeDate): pick the entry with the greatest ActiveDate ≤ activeDate  (BR-P18)" vertex="1">
+          <mxGeometry height="52" width="340" x="900" y="772" as="geometry" />
+        </mxCell>
+        <mxCell id="c126" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9A7B1E;fontColor=#9A7B1E;fontSize=11.5;align=left;verticalAlign=middle;spacingLeft=6;dashed=1;" value="no price covers activeDate → return ErrNoDieselPrice (BR-P21 — fail-closed, no silent zero/base fallback)" vertex="1">
+          <mxGeometry height="52" width="340" x="900" y="834" as="geometry" />
+        </mxCell>
+        <mxCell id="c127" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=none;strokeColor=none;fontColor=#B7BCC2;fontSize=11.5;align=left;verticalAlign=middle;spacingLeft=6;" value="close every currently open-ended overlay: EndDate = activeDate" vertex="1">
+          <mxGeometry height="52" width="320" x="910" y="902" as="geometry" />
+        </mxCell>
+        <mxCell id="c128" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=none;strokeColor=none;fontColor=#B7BCC2;fontSize=11.5;align=left;verticalAlign=middle;spacingLeft=6;" value="for each entry with InitialDieselCents &gt; 0 (BR-P19): AdjustedRate = base + base·(pct/100)·((current−initial)/initial) append DieselOverlay{ MinorVersion+1, RouteKey, VehicleType, StartDate=activeDate, EndDate=nil, CentAdjustedRate }  (BR-P20)" vertex="1">
+          <mxGeometry height="84" width="380" x="880" y="964" as="geometry" />
+        </mxCell>
+        <mxCell id="c129" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9A7B1E;fontColor=#9A7B1E;fontSize=11.5;align=left;verticalAlign=middle;spacingLeft=6;dashed=1;" value="entry has InitialDieselCents == 0 → skip it, no overlay appended; it keeps resolving to its authored base rate  (BR-P24 zero-guard)" vertex="1">
+          <mxGeometry height="52" width="380" x="880" y="1058" as="geometry" />
+        </mxCell>
+        <mxCell id="c130" edge="1" parent="1" style="endArrow=block;html=1;strokeColor=#006FFF;dashed=1;fontColor=#B7BCC2;fontSize=12;rounded=0;jettySize=auto;exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;labelBackgroundColor=none;labelBorderColor=none;" value="new RateSheetVersion{ MinorVersion+1, Overlays }">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-14" as="offset" />
+            <mxPoint x="1070" y="1126" as="sourcePoint" />
+            <mxPoint x="780" y="1126" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c131" edge="1" parent="1" style="endArrow=block;html=1;strokeColor=#006FFF;fontColor=#B7BCC2;fontSize=12;rounded=0;jettySize=auto;exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;labelBackgroundColor=none;labelBorderColor=none;" value="PersistDieselOverlay — txn: bump minor_version, close prior overlays&#39; end_date, insert new overlay rows">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-14" as="offset" />
+            <mxPoint x="780" y="1176" as="sourcePoint" />
+            <mxPoint x="1360" y="1176" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c132" edge="1" parent="1" style="endArrow=block;html=1;strokeColor=#006FFF;dashed=1;fontColor=#B7BCC2;fontSize=12;rounded=0;jettySize=auto;exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;labelBackgroundColor=#14171B;labelBorderColor=none;" value="ok">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-14" as="offset" />
+            <mxPoint x="1360" y="1234" as="sourcePoint" />
+            <mxPoint x="780" y="1234" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c133" edge="1" parent="1" style="endArrow=block;html=1;strokeColor=#006FFF;dashed=1;fontColor=#B7BCC2;fontSize=12;rounded=0;jettySize=auto;exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;labelBackgroundColor=none;labelBorderColor=none;" value="version (major.minor)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-14" as="offset" />
+            <mxPoint x="780" y="1284" as="sourcePoint" />
+            <mxPoint x="490" y="1284" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c134" edge="1" parent="1" style="endArrow=block;html=1;strokeColor=#006FFF;dashed=1;fontColor=#B7BCC2;fontSize=12;rounded=0;jettySize=auto;exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;labelBackgroundColor=none;labelBorderColor=none;" value="200  { major }.{ minor }">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="-14" as="offset" />
+            <mxPoint x="490" y="1334" as="sourcePoint" />
+            <mxPoint x="200" y="1334" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c135" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9A7B1E;fontColor=#9A7B1E;fontSize=11.5;align=left;verticalAlign=middle;spacingLeft=6;dashed=1;" value="no diesel price indexed on/before activeDate → 404 (ErrNoDieselPrice)" vertex="1">
+          <mxGeometry height="36" width="460" x="115" y="1374" as="geometry" />
+        </mxCell>
+        <mxCell id="c136" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#4A515B;dashed=1;fontColor=#B7BCC2;fontSize=12;fontStyle=2;align=center;" value="independently — resolving what a load pays, for any effective date" vertex="1">
+          <mxGeometry height="30" width="1440" x="60" y="1440" as="geometry" />
+        </mxCell>
+        <mxCell id="c137" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#4A515B;fontColor=#B7BCC2;fontSize=11.5;align=left;verticalAlign=middle;spacingLeft=6;" value="RateForLoad(routeKey, vehicleType, effectiveDate, addressCount) — domain-only today: no REST/browserrpc endpoint or command calls this yet (no Load aggregate in the demo). Exercised only by the Ginkgo specs in rate_sheet_diesel_test.go." vertex="1">
+          <mxGeometry height="84" width="460" x="840" y="1486" as="geometry" />
+        </mxCell>
+        <mxCell id="c138" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=none;strokeColor=none;fontColor=#B7BCC2;fontSize=11.5;align=left;verticalAlign=middle;spacingLeft=6;" value="find the entry for routeKey × vehicleType (else ErrEntryNotFound)" vertex="1">
+          <mxGeometry height="52" width="320" x="910" y="1586" as="geometry" />
+        </mxCell>
+        <mxCell id="c139" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=none;strokeColor=none;fontColor=#B7BCC2;fontSize=11.5;align=left;verticalAlign=middle;spacingLeft=6;" value="find the overlay window with StartDate ≤ effectiveDate &lt; EndDate (or EndDate = nil)" vertex="1">
+          <mxGeometry height="52" width="360" x="890" y="1650" as="geometry" />
+        </mxCell>
+        <mxCell id="c140" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#27C07F;fontColor=#27C07F;fontSize=11.5;align=left;verticalAlign=middle;spacingLeft=6;" value="window found → adjusted rate + drop surcharge  (BR-P22)" vertex="1">
+          <mxGeometry height="36" width="380" x="880" y="1714" as="geometry" />
+        </mxCell>
+        <mxCell id="c141" parent="1" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9A7B1E;fontColor=#9A7B1E;fontSize=11.5;align=left;verticalAlign=middle;spacingLeft=6;dashed=1;" value="effectiveDate precedes every overlay window → fall back to the authored CentBaseRate + drop surcharge  (BR-P23)" vertex="1">
+          <mxGeometry height="52" width="420" x="860" y="1760" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

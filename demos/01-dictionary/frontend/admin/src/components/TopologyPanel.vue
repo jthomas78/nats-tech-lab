@@ -19,15 +19,17 @@ const REFRESH_MS = 15000
 
 const accounts = ref([])
 const edges = ref([])
+const unconsumedExports = ref([])
 const loading = ref(true)
 const errorMsg = ref('')
 const selectedKey = ref(null)
 
 async function refresh() {
   try {
-    const [accs, edgeList] = await Promise.all([listAccounts(), getAccountsTopology()])
+    const [accs, topology] = await Promise.all([listAccounts(), getAccountsTopology()])
     accounts.value = accs
-    edges.value = edgeList
+    edges.value = topology?.edges ?? []
+    unconsumedExports.value = topology?.unconsumedExports ?? []
     errorMsg.value = ''
   } catch (err) {
     errorMsg.value = err.message || 'Failed to load topology'
@@ -64,6 +66,27 @@ function selectGroup(key) {
   selectedKey.value = selectedKey.value === key ? null : key
 }
 
+// Every known account, plus any edge endpoint listAccounts() doesn't know
+// about — an import naming an account outside this deployment (BR-AC25,
+// status "unknown-account") still needs somewhere to draw a node, or the
+// edge silently disappears (pathFor below returns '' with no position to
+// draw from/to).
+const allNodeNames = computed(() => {
+  const names = new Set(accounts.value.map((a) => a.name))
+  for (const e of edges.value) {
+    names.add(e.fromAccount)
+    names.add(e.toAccount)
+  }
+  return [...names]
+})
+
+// An edge endpoint outside this deployment's known accounts is a raw NATS
+// public key (accounts-service's handler.go), not a name — same
+// truncation ConnectionsPanel uses for the same kind of value.
+function displayName(name) {
+  return name.length > 12 ? `${name.slice(0, 10)}…` : name
+}
+
 // ── Layout: hub (the account other accounts import from most) at center,
 // every other known account arranged in a circle around it. An account
 // with no edges at all (SYS today) still gets a node — dimmed — so its
@@ -75,7 +98,7 @@ const CENTER = { x: W / 2, y: H / 2 - 10 }
 const RADIUS = 145
 
 const layout = computed(() => {
-  const names = accounts.value.map((a) => a.name)
+  const names = allNodeNames.value
   if (names.length === 0) return { hub: null, spokes: [], positions: {} }
 
   const outDegree = new Map(names.map((n) => [n, 0]))
@@ -133,21 +156,100 @@ function pathFor(from, to) {
   return `M ${p1.x} ${p1.y} Q ${cx} ${cy} ${p2.x} ${p2.y}`
 }
 
-// service imports (rpc.* request/reply) read as the primary traffic —
-// accent blue; stream imports (notify.*/evt.* broadcast) get the same
-// green already used for "active" elsewhere in this app, so the color
-// itself carries type information instead of every line looking identical.
-function isStreamOnly(group) {
-  return group.items.some((e) => e.type === 'stream') && !group.items.some((e) => e.type === 'service')
+// An import with no matching export, an unresolved account, or a missing
+// activation token carries no real traffic — the flowing-dash animation
+// would otherwise claim traffic that can't exist (BR-AC22/24/25). Line
+// color is health, not subject type — a real group is almost always a mix
+// of service + stream imports, so a type-keyed color never actually
+// distinguished anything; type stays on the per-subject Tag in the detail
+// pane, where it's unambiguous.
+function isUnhealthy(group) {
+  return group.items.some((e) => e.status && e.status !== 'matched')
 }
 function groupColor(group) {
-  return isStreamOnly(group) ? 'var(--p-green-500, #22c55e)' : 'var(--lab-accent)'
+  return isUnhealthy(group) ? 'var(--p-amber-400, #fbbf24)' : 'var(--lab-accent)'
 }
 function markerFor(group) {
-  return isStreamOnly(group) ? 'url(#topo-arrow-stream)' : 'url(#topo-arrow-service)'
+  return isUnhealthy(group) ? 'url(#topo-arrow-unhealthy)' : 'url(#topo-arrow-healthy)'
 }
 function strokeWidth(group) {
   return Math.min(1.25 + group.items.length * 0.18, 2.75)
+}
+
+const STATUS_LABEL = {
+  'no-export': 'no export',
+  'token-required': 'token required',
+  'unknown-account': 'unknown account',
+}
+
+// A subject row's local-subject line has three distinct states, not two —
+// "no arrow" doesn't mean the same thing for a stream import (LocalSubject
+// is never set — tenantImports() only remaps the four rpc.* services) as it
+// does for a service import whose local subject happens to equal the
+// remote one (LocalSubject set, identical value — no case in this
+// deployment's live data today, but not excluded by the data model). Only
+// a genuine remap gets the arrow; the other two states say why there isn't
+// one instead of just omitting the line.
+function remapInfo(e) {
+  if (e.localSubject && e.localSubject !== e.subject) return { text: e.localSubject, remapped: true }
+  if (e.localSubject) return { text: 'same subject, no remap', remapped: false }
+  return { text: 'no local-subject field', remapped: false }
+}
+
+// Service imports flow request→response (importer publishes the request),
+// while the edge itself is drawn exporter→importer (subject ownership —
+// see topologyEdge's Go-side doc comment); read literally, that draws
+// service edges backwards. Rather than splitting geometry per type (most
+// groups mix both), the detail header states each type's real direction
+// in words.
+const directionCaptions = computed(() => {
+  if (!selectedGroup.value) return []
+  const { from, to, items } = selectedGroup.value
+  const captions = []
+  if (items.some((e) => e.type === 'service')) captions.push(`${to} requests → ${from}`)
+  if (items.some((e) => e.type === 'stream')) captions.push(`${from} streams → ${to}`)
+  return captions
+})
+
+// Per-account counts driving the node badges — an unmatched import is a
+// live problem on the importer; an unconsumed export is unused capacity on
+// the exporter. Different corners, different colors, so neither reads as
+// the other at a glance (see the legend).
+const unmatchedCountByAccount = computed(() => {
+  const counts = new Map()
+  for (const e of edges.value) {
+    if (e.status && e.status !== 'matched') counts.set(e.toAccount, (counts.get(e.toAccount) ?? 0) + 1)
+  }
+  return counts
+})
+const unconsumedCountByAccount = computed(() => {
+  const counts = new Map()
+  for (const u of unconsumedExports.value) counts.set(u.account, (counts.get(u.account) ?? 0) + 1)
+  return counts
+})
+
+function badgePos(name, corner) {
+  const p = layout.value.positions[name]
+  if (!p) return { x: 0, y: 0 }
+  const r = nodeRadius(name) * 0.72
+  return { x: p.x + r, y: p.y + (corner === 'top' ? -r : r) }
+}
+
+// SYS never imports anything by design — the server routes $SYS.> to
+// whichever account is system_account, not via account imports — so a SYS
+// node with no edges is a verified fact, not a gap. It may still carry
+// nsc's own default system-account exports ($SYS.REQ.ACCOUNT.*.*,
+// $SYS.ACCOUNT.*.>, from `nsc add operator --sys`) that nothing in this
+// deployment consumes — that's real and shows up as its unconsumed-export
+// badge, not something this tooltip should contradict. Any other
+// disconnected account is more likely still-loading or genuinely
+// unconfigured, so it gets a more neutral caption.
+function nodeTooltip(name) {
+  if (isConnected(name) || name === layout.value.hub) return null
+  if (name.toLowerCase() === 'sys') {
+    return 'SYS never imports — reached over $SYS.>, not this export/import graph. Any exports shown below are unconsumed by design.'
+  }
+  return 'No exports or imports currently declared.'
 }
 
 // ── Resizable splitter between the graph and the detail list ───────────────
@@ -184,8 +286,8 @@ onUnmounted(stopResize)
     </div>
 
     <p class="lab-muted description">
-      Live export/import edges between accounts, read from each account's current resolver JWT — not a snapshot of the
-      bootstrap script. Line thickness reflects how many subjects a pair shares; click a line for the list.
+      Declared export/import edges between accounts, read from each account's current resolver JWT — not a snapshot
+      of the bootstrap script. Line thickness reflects how many subjects a pair shares; click a line for the list.
     </p>
 
     <p v-if="errorMsg" class="error-text">{{ errorMsg }}</p>
@@ -193,11 +295,11 @@ onUnmounted(stopResize)
     <div class="topology-body" ref="bodyEl">
       <svg :viewBox="`0 0 ${W} ${H}`" class="topology-svg" role="img" aria-label="Account export and import graph">
         <defs>
-          <marker id="topo-arrow-service" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+          <marker id="topo-arrow-healthy" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
             <path d="M0 0L10 5L0 10z" fill="var(--lab-accent)" />
           </marker>
-          <marker id="topo-arrow-stream" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
-            <path d="M0 0L10 5L0 10z" fill="var(--p-green-500, #22c55e)" />
+          <marker id="topo-arrow-unhealthy" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+            <path d="M0 0L10 5L0 10z" fill="var(--p-amber-400, #fbbf24)" />
           </marker>
         </defs>
 
@@ -211,19 +313,33 @@ onUnmounted(stopResize)
           stroke-linecap="round"
           :marker-end="markerFor(g)"
           class="topo-edge"
-          :class="{ selected: selectedKey === g.key }"
+          :class="{ selected: selectedKey === g.key, unhealthy: isUnhealthy(g) }"
           @click="selectGroup(g.key)"
         />
 
-        <g v-for="name in accounts.map((a) => a.name)" :key="name" class="topo-node" :class="{ hub: name === layout.hub, dim: !isConnected(name) && name !== layout.hub }">
+        <g v-for="name in allNodeNames" :key="name" class="topo-node" :class="{ hub: name === layout.hub, dim: !isConnected(name) && name !== layout.hub }">
+          <title v-if="nodeTooltip(name)">{{ nodeTooltip(name) }}</title>
           <circle
             :cx="layout.positions[name]?.x"
             :cy="layout.positions[name]?.y"
             :r="name === layout.hub ? 26 : 20"
           />
           <text :x="layout.positions[name]?.x" :y="(layout.positions[name]?.y ?? 0) + nodeRadius(name) + 26" text-anchor="middle" class="topo-label">
-            {{ name }}
+            {{ displayName(name) }}
           </text>
+        </g>
+
+        <g v-for="name in allNodeNames" :key="`${name}-badges`">
+          <g v-if="unmatchedCountByAccount.get(name)" class="topo-badge topo-badge-unhealthy">
+            <title>{{ unmatchedCountByAccount.get(name) }} import{{ unmatchedCountByAccount.get(name) > 1 ? 's' : '' }} with no matching export</title>
+            <circle :cx="badgePos(name, 'top').x" :cy="badgePos(name, 'top').y" r="8" />
+            <text :x="badgePos(name, 'top').x" :y="badgePos(name, 'top').y + 3" text-anchor="middle">{{ unmatchedCountByAccount.get(name) }}</text>
+          </g>
+          <g v-if="unconsumedCountByAccount.get(name)" class="topo-badge topo-badge-unconsumed">
+            <title>{{ unconsumedCountByAccount.get(name) }} export{{ unconsumedCountByAccount.get(name) > 1 ? 's' : '' }} nobody imports</title>
+            <circle :cx="badgePos(name, 'bottom').x" :cy="badgePos(name, 'bottom').y" r="8" />
+            <text :x="badgePos(name, 'bottom').x" :y="badgePos(name, 'bottom').y + 3" text-anchor="middle">{{ unconsumedCountByAccount.get(name) }}</text>
+          </g>
         </g>
       </svg>
 
@@ -232,12 +348,26 @@ onUnmounted(stopResize)
       <div class="topology-detail" :style="{ flexBasis: detailWidth + 'px' }">
         <template v-if="selectedGroup">
           <div class="detail-header">
-            <span class="detail-title">{{ selectedGroup.from }} <i class="pi pi-arrow-right" /> {{ selectedGroup.to }}</span>
+            <span class="detail-title">{{ selectedGroup.from }} · {{ selectedGroup.to }}</span>
             <Button icon="pi pi-times" text rounded size="small" aria-label="Close" @click="selectedKey = null" />
           </div>
+          <p v-for="(caption, i) in directionCaptions" :key="i" class="lab-muted direction-caption">{{ caption }}</p>
           <div v-for="(e, i) in selectedGroup.items" :key="i" class="detail-row">
-            <SubjectPath :subject="e.subject" />
-            <Tag :value="e.type" :severity="e.type === 'stream' ? 'success' : 'info'" class="detail-type" />
+            <div class="detail-subject">
+              <SubjectPath :subject="e.subject" />
+              <span class="local-subject" :class="{ remapped: remapInfo(e).remapped }">
+                <i class="pi pi-arrow-right" /><span>{{ remapInfo(e).text }}</span>
+              </span>
+            </div>
+            <div class="detail-tags">
+              <Tag
+                v-if="e.status && e.status !== 'matched'"
+                :value="STATUS_LABEL[e.status] ?? e.status"
+                severity="warning"
+                class="detail-type"
+              />
+              <Tag :value="e.type" :severity="e.type === 'stream' ? 'success' : 'info'" class="detail-type" />
+            </div>
           </div>
         </template>
         <template v-else-if="accounts.length && edgeGroups.length === 0">
@@ -246,7 +376,21 @@ onUnmounted(stopResize)
         <template v-else-if="!loading">
           <span class="lab-muted">Click a line to see the subjects it carries.</span>
         </template>
+        <div v-if="!selectedGroup && !loading && unconsumedExports.length" class="unconsumed">
+          <span class="lab-muted unconsumed-title">Unconsumed exports ({{ unconsumedExports.length }})</span>
+          <div v-for="(u, i) in unconsumedExports" :key="i" class="detail-row">
+            <SubjectPath :subject="u.subject" />
+            <Tag :value="u.account" severity="secondary" class="detail-type" />
+          </div>
+        </div>
       </div>
+    </div>
+
+    <div class="topo-legend">
+      <span class="legend-item"><span class="legend-swatch legend-healthy" /> matched</span>
+      <span class="legend-item"><span class="legend-swatch legend-unhealthy" /> unmatched / no export / token required</span>
+      <span class="legend-item"><span class="legend-dot legend-dot-unconsumed" /> unconsumed export</span>
+      <span class="legend-item"><span class="legend-node legend-dim" /> no imports or exports declared</span>
     </div>
   </div>
 </template>
@@ -313,6 +457,9 @@ onUnmounted(stopResize)
   .topo-edge {
     animation: topo-flow 1.1s linear infinite;
   }
+  .topo-edge.unhealthy {
+    animation: none;
+  }
 }
 @keyframes topo-flow {
   to {
@@ -340,6 +487,73 @@ onUnmounted(stopResize)
   fill: var(--p-text-color);
   font-size: 12px;
   font-weight: 500;
+}
+
+.topo-badge circle {
+  stroke: var(--lab-bg);
+  stroke-width: 1.5;
+}
+.topo-badge text {
+  font-size: 9px;
+  font-weight: 600;
+  text-anchor: middle;
+}
+.topo-badge-unhealthy circle {
+  fill: var(--p-amber-400, #fbbf24);
+}
+.topo-badge-unhealthy text {
+  fill: #1a1e0a;
+}
+.topo-badge-unconsumed circle {
+  fill: var(--lab-panel-border);
+}
+.topo-badge-unconsumed text {
+  fill: var(--p-text-color);
+}
+
+.topo-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  padding-top: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--p-text-muted-color);
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.legend-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+}
+.legend-healthy {
+  background: var(--lab-accent);
+}
+.legend-unhealthy {
+  background: var(--p-amber-400, #fbbf24);
+}
+.legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.legend-dot-unconsumed {
+  background: var(--lab-panel-border);
+}
+.legend-node {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--lab-panel-border);
+}
+.legend-dim {
+  opacity: 0.45;
 }
 
 .resize-handle {
@@ -383,19 +597,56 @@ onUnmounted(stopResize)
   font-weight: 600;
   font-size: 0.8rem;
 }
+.direction-caption {
+  margin: 0 0 0.2rem;
+  font-size: 0.7rem;
+}
 .detail-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.4rem;
-  padding: 0.15rem 0;
+  padding: 0.2rem 0;
   border-bottom: 1px solid var(--lab-panel-border);
 }
 .detail-row:last-child {
   border-bottom: none;
 }
+.detail-subject {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+.local-subject {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.65rem;
+  color: var(--p-text-muted-color);
+}
+.local-subject.remapped {
+  color: var(--lab-accent);
+  font-family: var(--font-mono, monospace);
+}
 .detail-type {
   font-size: 0.65rem;
   flex-shrink: 0;
+}
+.detail-tags {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+.unconsumed {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--lab-panel-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.unconsumed-title {
+  font-size: 0.75rem;
 }
 </style>

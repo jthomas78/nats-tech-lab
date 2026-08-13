@@ -54,13 +54,17 @@ export const useDictionaryStore = defineStore('dictionary', {
   },
 
   actions: {
+    // Phase 22b: availableContexts keeps both fields — {context, name} — so
+    // the Select in App.vue can show the human-readable name (e.g. "Pacific
+    // Fleet") while still submitting the immutable {context} slug everywhere
+    // a context travels as a subject/KV-key token.
     async loadContexts() {
       try {
         const { contexts } = await listContexts()
-        const ctxs = (contexts ?? []).map((c) => c.context)
-        this.availableContexts = ctxs
-        if (!this.availableContexts.includes(this.context) && ctxs.length > 0) {
-          this.context = ctxs[0]
+        const options = (contexts ?? []).map((c) => ({ context: c.context, name: c.name || c.context }))
+        this.availableContexts = options
+        if (!options.some((c) => c.context === this.context) && options.length > 0) {
+          this.context = options[0].context
         }
       } catch {
         this.availableContexts = []

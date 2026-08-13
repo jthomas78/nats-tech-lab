@@ -87,57 +87,130 @@ Account JWT updates replace the entire claim, so `accounts/provisioner.go`
 preserves existing exports/imports whenever it re-signs a claim; freshly
 minted runtime accounts receive the same imports as ACME/GLOBEX.
 
-### Business unit registration (Phase 22)
+### Business unit registration (Phase 22, name/context split + per-tenant default Phase 22b)
 
 Business units (the `{context}` scope — `acme-pacific-fleet`,
 `acme-atlantic-fleet`, …) are owned by accounts-service, not
 refdata-service. accounts-service holds the authoritative registry (its own
-`business_units` table: `account_id`, `name`, `visible`, `created_at`),
-managed through the Admin UI's Accounts panel. refdata-service's existing
-`contexts` table remains the store every context-consuming read already goes
-through (corpus inheritance, KV/Postgres scoping) — accounts-service becomes
-its *writer*, calling refdata-service's `POST /api/refdata/admin/contexts`
-at BU-creation time, rather than refdata-service seeding a fixed list at its
-own startup. Only who writes the row changes; the read path
-(`rpc.*.refdata.*`, BR-D35's `ListByTenant`) is unchanged.
+`business_units` table: `account_id`, `name`, `context`, `visible`,
+`is_default`, `created_at`), managed through the Admin UI's Accounts panel.
+refdata-service's existing `contexts` table remains the store every
+context-consuming read already goes through (corpus inheritance,
+KV/Postgres scoping) — accounts-service becomes its *writer*, calling
+refdata-service's `POST /api/refdata/admin/contexts` at BU-creation time,
+rather than refdata-service seeding a fixed list at its own startup. Only
+who writes the row changes; the read path (`rpc.*.refdata.*`, BR-D35's
+`ListByTenant`) is unchanged.
 
-**Reserved `_default_bu`.** A single literal context value shared across
-every account — the same sharing model `_platform` already uses (see
-`ARCHITECTURE-DICTIONARY.md`'s Seeding section), safe because tenant
-isolation is the NATS account boundary, not the context string. Every
-account with zero registered real business units implicitly resolves to it;
-accounts-service auto-creates a per-account `business_units` row for it
-(`visible: true`) at account-creation time, purely for the Admin UI's own
-bookkeeping — refdata-service seeds the underlying context once, globally,
-alongside `_platform`.
+**Name and context are two fields, not one (Phase 22b).** Through Phase 22 a
+business unit had a single `name`, which doubled as the subject-safe
+`{context}` token — an operator registering "Pacific Fleet" had to type
+`acme-pacific-fleet` directly, and the Admin UI displayed that token as the
+label. `name` is now a free-text English display label an operator can
+rename at will; `context` is the immutable slug refdata-service, every NATS
+subject, and every KV key prefix actually use. The split was purely
+additive on refdata-service's side — `refdata.contexts` had carried both a
+`context` and a `name` column since Phase 16; accounts-service had simply
+been collapsing them by sending the same value for both.
 
-**Mutual exclusivity — relaxed, not strict.** `_default_bu` and real
-business units are not hard-exclusive. Registering an account's first real
-business unit always surfaces an Admin UI confirmation prompt asking whether
-to hide `_default_bu` — unconditionally, with no attempt to detect whether
-it actually holds data (that would require accounts-service reading into
-shipping-service/refdata-service's own stores, a cross-service read
+The Add Business Unit dialog derives `context` from `name` as the operator
+types (`{tenant}-{slugify(name)}`, skipping a redundant tenant prefix — "Acme
+Pacific Fleet" under tenant `acme` still derives `acme-pacific-fleet`), shown
+live and editable until submit. Once created, `context` cannot change:
+none of refdata-service's data tables (`dictionary_items`,
+`dictionary_localizations`, `dictionary_references`, `dictionary_locales`)
+carry a foreign key back to `refdata.contexts` — they hold the context value
+as a bare text column — so renaming a slug would silently orphan every row
+under the old value, plus its `refdata-{context}` KV bucket, its versioned
+corpus buckets, and its already-immutable `evt.{context}.…` JetStream
+history. `context` is also unique globally across every account, not merely
+per account, closing a gap where refdata-service's `Register` upserts on
+conflict: two accounts registering the same slug would otherwise let the
+second silently overwrite the first's context row.
+
+**Per-tenant default, not a shared literal (revised Phase 22b).** Through
+Phase 22, every account with zero registered real business units resolved to
+one literal context value, `_default_bu`, shared across the whole
+deployment. Because refdata-service's item tables key on `(context,
+type_key, code)` with no tenant column, two tenants both resolving to it
+wrote to the exact same Postgres rows — a real cross-tenant collision, not
+just an aesthetic one. Each account now gets its own default business unit
+instead: context `{tenant}-default` (e.g. `acme-default`, `globex-default`),
+name `Default`, `is_default: true`, auto-created at account-creation time
+the same way `_default_bu` used to be. It is identified by that explicit
+column, never by comparing a name or slug against a reserved literal.
+
+`_default_bu` itself survives, but its role changed: it is no longer
+assigned to any tenant, and instead becomes the **platform-owned template**
+every tenant default is parented to — `_platform` → `_default_bu` →
+`{tenant}-default` (see `ARCHITECTURE-DICTIONARY.md`'s Seeding section and
+`BUSINESS_RULES-REFDATA.md`'s revised BR-D38). Provisioning a tenant's
+default context is therefore more than one call: register the context
+(`parent: "_default_bu"`), register its locales explicitly (locales are
+**not** covered by refdata-service's corpus-inheritance flattening — a
+context with none of its own has no effective default locale even though
+its items inherit correctly), then draft and publish its corpus so it
+actually contains `_default_bu`'s (and therefore `_platform`'s) inherited
+items. Every step is gated on the platform template already having a
+published corpus — required not only because refdata-service silently skips
+an ancestor with no published corpus (a draft created one instant too early
+inherits nothing and still reports success), but because accounts-service
+and refdata-service are independent containers with no startup ordering
+guarantee between them: on a cold `docker compose up`, the very first call
+in the sequence is just as likely to hit connection-refused as "context not
+found yet," so the wait retries on both identically.
+
+**"Readonly" is about identity, not visibility.** A default business unit
+cannot be renamed (rejected with 409) and there is no endpoint to create one
+directly or to delete any business unit at all. `visible` stays fully
+toggleable, since the hide-on-first-real-BU flow below depends on exactly
+that.
+
+**Mutual exclusivity — relaxed, not strict.** A tenant's default and its
+real business units are not hard-exclusive. Registering an account's first
+real business unit always surfaces an Admin UI confirmation prompt asking
+whether to hide the default — unconditionally, with no attempt to detect
+whether it actually holds data (that would require accounts-service reading
+into shipping-service/refdata-service's own stores, a cross-service read
 dependency this design deliberately avoids). Confirming sets `visible: false`
-on that account's `_default_bu` row; declining leaves it visible and
-selectable permanently alongside real business units. `visible` is a toggle,
-directly editable per row in the Admin UI's business-unit table — not a
-delete, and not something migrated automatically. Migrating `_default_bu`'s
-underlying data into a named business unit is explicitly out of scope for
-now: its context id may already be referenced inside published NATS events
+on that account's default row; declining leaves it visible and selectable
+permanently alongside real business units. `visible` is a toggle, directly
+editable per row in the Admin UI's business-unit table — not a delete, and
+not something migrated automatically. Migrating a default business unit's
+underlying data into a named business unit remains explicitly out of scope:
+its context id may already be referenced inside published NATS events
 (JetStream history, KV entries), and a migration would need to handle that
 without silently orphaning or duplicating data — flagged as a known gap to
 revisit later, not solved by this design.
 
 **Endpoints (implemented).** `GET /api/accounts/{name}/business-units`,
-`POST /api/accounts/{name}/business-units` (validates no `_` prefix; calls
-`POST /api/refdata/admin/contexts` to register the context; idempotent on
-duplicate), `PATCH /api/accounts/{name}/business-units/{buName}` (sets
-`visible`; also calls `PATCH /api/refdata/admin/contexts/{context}/visible`).
-accounts-service's startup `seedDemoBusinessUnits` idempotently registers
-`acme-pacific-fleet` and `acme-atlantic-fleet` for the `acme` account.
-All three frontend CONTEXTS fallback arrays have been removed; context selectors
-are populated dynamically by `loadContexts()` on tenant connect. See
-`BUSINESS_RULES-ACCOUNTS.md` BR-AC15/16/17 for the enforcement rules.
+`POST /api/accounts/{name}/business-units` (accepts `name` and an optional
+`context`; derives one when omitted; validates the slug's charset, length,
+and global uniqueness; calls `POST /api/refdata/admin/contexts` with `name`
+and `context` as distinct values; idempotent on duplicate), `PATCH
+/api/accounts/{name}/business-units/{context}` (accepts `visible` and/or
+`name`; rejects a `name` change on an `is_default` row; the path segment is
+now the immutable slug, not the mutable name, so it can safely identify the
+same row across a rename). accounts-service's startup seeding registers
+`acme`'s and `globex`'s own `{tenant}-default` context, plus `acme`'s two
+demo real business units (`Pacific Fleet`/`acme-pacific-fleet`,
+`Atlantic Fleet`/`acme-atlantic-fleet`) — reproduced via the same derivation
+function the live registration path uses, not a hand-typed literal. All
+three frontend CONTEXTS fallback arrays have been removed; context selectors
+are populated dynamically by `loadContexts()` on tenant connect, and in
+`seafreight-app`/`frontend/refdata` now carry `{context, name}` pairs so the
+Select can show the display name while every subject/API call still uses the
+slug. See `BUSINESS_RULES-ACCOUNTS.md` BR-AC15–17 and BR-AC26–29 for the
+enforcement rules.
+
+Closing the gap this leaves: refdata-service's corpus/versioned read path
+inherits an ancestor's items via `CorpusRepository.CreateDraft`'s
+ancestor-chain flattening, but the live, non-versioned read path
+(`item_repository.go` et al.) is a flat `WHERE context = $1` with no chain
+traversal at all — a tenant default's items are only visible through the
+versioned API today, not through the plain `GET /api/refdata/{context}/...`
+routes or the live KV cache. Tracked as `Main-POC-Plan.md`'s Phase 106, not
+solved by this design.
 
 ### Admin UI browser connections (Phase 23)
 
@@ -180,6 +253,71 @@ permission grant and why it's issued outside the tenant `Status`/
 `SigningKeySeed` lifecycle this section otherwise documents, and
 `ARCHITECTURE-COMMUNICATIONS.md` § 6 for how the Request/Reply panel splits
 `obs.rpc.*`/`obs.api.*` across these two connections.
+
+#### Runtime — browser JWT expiry & reconnect
+
+Both mint paths stamp `claims.Expires = now + ttl`, where `ttl` is the
+**configurable** browser/admin JWT expiry setting (BR-AC20) — a durable
+`accounts.system_config` row, **default 15 minutes**, editable from the Admin
+UI's System → Settings screen and read fresh on every mint. It replaces the
+old hardcoded `const tokenTTL = 5 * time.Minute`. The value is hard-bounded to
+the **15–30 minute envelope** (BR-AC21, which *is* BR-UA03's rule expressed as
+a code constant). There is still **no refresh-token flow** for these browser
+connections — § 3 below ("Token refresh") documents the *proposed* production
+renewal (BR-UA03/UA04, 15–30 min TTL + refresh token); BR-AC20 realizes the
+TTL half of that target but not the in-place renewal. What the POC connections
+actually do is reconnect-on-expiry: the NATS server enforces the `Expires`
+claim with its own timer and force-closes the connection the moment the JWT
+lapses, and the frontend's `conn.closed()` handler
+(`frontend/admin/src/nats/connectionFactory.js:61–85`; same shape in
+`frontend/seafreight-app/src/nats/useNatsConnection.js`) re-fetches
+`connectInfo` and reconnects with a **brand-new** credential.
+
+```mermaid
+sequenceDiagram
+    participant Tab as Browser tab<br/>(admin / seafreight-app)
+    participant Backend as accounts-service<br/>(auth/token.go)
+    participant NATS as NATS Server<br/>(:9222 websocket)
+
+    Note over Tab,NATS: Bootstrap — first connect
+    Tab->>Backend: GET /api/auth/connectInfo (or /adminConnectInfo)
+    Backend->>Backend: read configured TTL (system_config, default 15m)<br/>MintBrowserToken / MintAdminToken<br/>fresh NKey · sign w/ account signing key · Expires = now + TTL
+    Backend-->>Tab: 200 { wsUrl, jwt, nkeySeed }
+    Tab->>NATS: wsconnect · jwtAuthenticator(jwt, nkeySeed)
+    NATS-->>Tab: CONNECTED — server starts expiry timer (configured TTL)
+
+    loop every TTL minutes (default 15) while the tab stays open · no refresh flow
+        Note over Tab,NATS: api.>/notify.> traffic flows normally
+        NATS->>NATS: Expires reached — server's own timer fires
+        NATS->>Tab: force-close · logs [ERR] authentication error – Nkey "…"
+        Tab->>Backend: GET /api/auth/connectInfo (conn.closed() handler)
+        Backend->>Backend: re-read configured TTL · mint NEW NKey + JWT<br/>Expires = now + TTL
+        Backend-->>Tab: 200 { wsUrl, jwt, nkeySeed } (new pair)
+        Tab->>NATS: wsconnect · jwtAuthenticator(new jwt, new nkeySeed)
+        NATS-->>Tab: CONNECTED — new expiry timer starts
+    end
+```
+
+Two consequences worth calling out, both visible in the NATS admin log
+viewer:
+
+- **Each `[ERR] authentication error` line is the *old* connection being
+  expired, not a *new* one failing to authenticate.** The error is the
+  server enforcing `Expires`; the successful reconnect that immediately
+  follows is on the success path and is not logged. So a steady cadence of
+  auth errors from a long-open tab is expected POC behavior, not a fault.
+- **Every log line carries a different Nkey**, because `MintBrowserToken`/
+  `MintAdminToken` call `nkeys.CreateUser()` fresh on every mint
+  (`auth/token.go:92` / `:143`) — the ephemeral user key is never persisted
+  or reused. Each distinct Nkey in the log is therefore exactly one
+  iteration of the loop above.
+
+An interval materially longer than the configured TTL between a tab's
+successive auth errors indicates a reconnect cycle that didn't fire promptly —
+typically the browser tab being backgrounded/throttled so the `conn.closed()`
+handler is deferred, rather than a code fault. (The original incident that
+surfaced this showed ~5-min spacing because the TTL was the old hardcoded
+5 min; with the BR-AC20 default the cadence is now ~15 min.)
 
 ### NATS operator-mode trust chain
 

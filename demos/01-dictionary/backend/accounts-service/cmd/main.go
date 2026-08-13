@@ -5,13 +5,10 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -142,7 +139,7 @@ func run(log *slog.Logger) error {
 
 	store := accounts.NewStore(db)
 	if resolverSeedDir != "" {
-		if err := seedPreexistingAccounts(ctx, store, provisioner, resolverSeedDir, accountKeysDir, log); err != nil {
+		if err := seedPreexistingAccounts(ctx, store, provisioner, resolverSeedDir, accountKeysDir, refdataURL, log); err != nil {
 			return err
 		}
 	}
@@ -206,7 +203,7 @@ func run(log *slog.Logger) error {
 // Postgres's tenant-identity column), so RenameIfExists below migrates any
 // existing uppercase row to its lowercase identity before SeedIfMissing
 // runs. Both steps are safe to run on every startup.
-func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, provisioner *accounts.Provisioner, resolverSeedDir, accountKeysDir string, log *slog.Logger) error {
+func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, provisioner *accounts.Provisioner, resolverSeedDir, accountKeysDir, refdataURL string, log *slog.Logger) error {
 	seeds := []struct {
 		Name       string
 		LegacyName string
@@ -252,6 +249,36 @@ func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, provisi
 		}
 		if err := ensureSigningKey(ctx, store, provisioner, s.Name, s.Limits, claims, bootstrapSeed, log); err != nil {
 			return err
+		}
+		// BR-AC16/BR-AC28: createAccount auto-creates {tenant}-default for every
+		// newly registered tenant, but this seeding path inserts rows directly
+		// via SeedIfMissing and never goes through that handler — replay the
+		// same invariant here so acme/globex end up with the same guarantee a
+		// freshly-registered account gets. platform is exempt: it's a reserved
+		// account with no business-unit concept (BR-AC06), matching the Admin
+		// UI's "Reserved accounts have no business units" treatment.
+		if s.Name != "platform" {
+			acc, err := store.Get(ctx, s.Name)
+			if err != nil {
+				return err
+			}
+			slug := accounts.DefaultContext(s.Name)
+			if err := store.InsertBusinessUnitIfMissing(ctx, accounts.NewBusinessUnit{
+				AccountID: acc.ID,
+				Name:      accounts.DefaultBUName,
+				Context:   slug,
+				Visible:   true,
+				IsDefault: true,
+			}); err != nil {
+				return fmt.Errorf("seed default BU for %q: %w", s.Name, err)
+			}
+			// BR-AC29: best-effort, like every other refdata call from this
+			// process — a cold refdata-service should delay seeding of its own
+			// data, not fail accounts-service's.
+			refdata := &accounts.RefdataClient{BaseURL: refdataURL, Log: log}
+			if err := refdata.ProvisionDefaultContext(ctx, s.Name, slug); err != nil {
+				log.Warn("provision default BU context in refdata", "account", s.Name, "context", slug, "err", err)
+			}
 		}
 	}
 	return seedSysAccountForDisplay(ctx, store, resolverSeedDir, log)
@@ -395,10 +422,19 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// seedDemoBusinessUnits idempotently registers acme-pacific-fleet and
-// acme-atlantic-fleet as business units for the acme demo account, and calls
-// refdata-service to register them as contexts under _platform. Called at every
-// startup so a freshly-migrated DB always ends up with the demo data.
+// demoBusinessUnits are acme's two seeded real business units — a display
+// name plus the exact slug Phase 22 hand-seeded, reproduced via DeriveContext
+// rather than a literal so the derivation function is exercised by the one
+// piece of demo data that predates it.
+var demoBusinessUnits = []struct{ Name string }{
+	{"Pacific Fleet"},
+	{"Atlantic Fleet"},
+}
+
+// seedDemoBusinessUnits idempotently registers acme's two demo business units
+// (BR-AC26: a display name plus its own immutable context slug) and calls
+// refdata-service to register the matching contexts under _platform. Called at
+// every startup so a freshly-migrated DB always ends up with the demo data.
 func seedDemoBusinessUnits(ctx context.Context, store *accounts.Store, refdataURL string, log *slog.Logger) error {
 	acme, err := store.Get(ctx, "acme")
 	if err != nil {
@@ -407,50 +443,42 @@ func seedDemoBusinessUnits(ctx context.Context, store *accounts.Store, refdataUR
 		return nil
 	}
 
-	demoBUs := []string{"acme-pacific-fleet", "acme-atlantic-fleet"}
-	for _, name := range demoBUs {
-		if err := store.InsertBusinessUnitIfMissing(ctx, acme.ID, name, true); err != nil {
-			return fmt.Errorf("seed BU %q: %w", name, err)
+	refdata := &accounts.RefdataClient{BaseURL: refdataURL, Log: log}
+	// Same cold-start race ProvisionDefaultContext guards against: refdata-service
+	// is a separate container with no ordering guarantee relative to this one, so
+	// the very first call here can hit "connection refused" as easily as
+	// "_platform not found yet". Best-effort — logged, not fatal, like every
+	// other refdata call this process makes.
+	if err := refdata.WaitForPublishedAncestor(ctx, accounts.PlatformContext); err != nil {
+		log.Warn("seed demo BUs: refdata-service not ready", "err", err)
+	}
+	for _, bu := range demoBusinessUnits {
+		slug := accounts.DeriveContext("acme", bu.Name)
+		if err := store.InsertBusinessUnitIfMissing(ctx, accounts.NewBusinessUnit{
+			AccountID: acme.ID,
+			Name:      bu.Name,
+			Context:   slug,
+			Visible:   true,
+		}); err != nil {
+			return fmt.Errorf("seed BU %q: %w", bu.Name, err)
 		}
-		if refdataURL != "" {
-			if err := refdataRegisterContext(ctx, refdataURL, "acme", name); err != nil {
-				log.Warn("seed BU: register context in refdata", "name", name, "err", err)
-			}
+		if err := refdata.RegisterContext(ctx, accounts.ContextRegistration{
+			Context: slug,
+			Parent:  accounts.PlatformContext,
+			Name:    bu.Name,
+			Tenant:  "acme",
+		}); err != nil {
+			log.Warn("seed BU: register context in refdata", "name", bu.Name, "context", slug, "err", err)
 		}
 	}
-	return nil
-}
 
-// refdataRegisterContext is the standalone (non-handler) version of
-// callRefdataRegisterContext — used by seedDemoBusinessUnits at startup before
-// handlers are wired. Same best-effort semantics: conflict → idempotent.
-func refdataRegisterContext(ctx context.Context, refdataURL, accountName, buName string) error {
-	body, err := json.Marshal(map[string]string{
-		"context": buName,
-		"parent":  "_platform",
-		"name":    buName,
-		"tenant":  accountName,
-	})
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		refdataURL+"/api/refdata/admin/contexts", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusConflict {
-		return nil
-	}
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("refdata returned %d: %s", resp.StatusCode, b)
+	// BR-AC17: acme now has real BUs, so replay the same hide step the Admin
+	// UI prompts an operator to take once their first real BU exists —
+	// otherwise acme would show its default as a permanently-visible row
+	// that a normal registration-then-add-BU flow would have hidden.
+	defaultSlug := accounts.DefaultContext("acme")
+	if err := store.SetBusinessUnitVisible(ctx, "acme", defaultSlug, false); err != nil && !errors.Is(err, accounts.ErrBUNotFound) {
+		return fmt.Errorf("hide default BU for acme: %w", err)
 	}
 	return nil
 }

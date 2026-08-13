@@ -487,25 +487,49 @@ of the following are true:
    `ValidateContextName` — so no external caller can register a
    `_`-prefixed context.
 
-`_default_bu` is **untenanted** (`tenant = NULL` in Postgres) — `ListByTenant`
-returns it for every tenant automatically (the `tenant IS NULL` arm of its
-WHERE clause), so it appears in every tenant's context selector until the
-tenant registers real BUs and hides it via accounts-service's visibility toggle.
+`_default_bu` is **untenanted** (`tenant = NULL` in Postgres).
 
-Per-tenant business unit rows (e.g. `acme-pacific-fleet`) are registered as
-plain contexts (via the normal `Register` path) by accounts-service at startup
-(`seedDemoBusinessUnits`) and via `POST /api/accounts/{name}/business-units`.
+**Revised 2026-08-13 (Phase 22b, accounts-service's BR-AC28/BR-AC29):**
+through Phase 22, `_default_bu` was assigned directly to any account with no
+business units of its own — which meant two tenants both resolving to it
+wrote to the exact same refdata-service `(context, type_key, code)` rows the
+moment both had zero real BUs, a real cross-tenant collision. `_default_bu`
+is no longer any tenant's own context. It is now the **platform-owned
+template** every tenant's own default business unit inherits from:
+`_platform` → `_default_bu` → `{tenant}-default`. accounts-service registers
+each tenant's default (e.g. `acme-default`, `globex-default`) with `parent:
+"_default_bu"`, so `ListByTenant`'s old `tenant IS NULL` fallback path no
+longer needs to surface `_default_bu` itself to every tenant — each tenant
+now has its own real, tenanted default row instead. `_default_bu`'s role is
+purely to hold the demo hazard-class override data (BR-V06/V07) that every
+tenant default should inherit alongside `_platform`'s full corpus, via the
+ancestor-chain flattening `CorpusRepository.CreateDraft` performs (see
+`ARCHITECTURE-DICTIONARY.md`'s inheritance note) — **this is corpus-path
+inheritance only**; the live, non-versioned read path does not traverse the
+chain at all (deferred to `Main-POC-Plan.md`'s Phase 106).
+
+Per-tenant business unit contexts (e.g. `acme-pacific-fleet`, `acme-default`)
+are registered as plain contexts (via the normal `Register` path) by
+accounts-service at startup (`seedPreexistingAccounts`,
+`seedDemoBusinessUnits`) and via `POST /api/accounts/{name}/business-units`.
 The two sanctioned underscore-prefixed contexts remain `_platform` and
-`_default_bu`; no further additions are expected.
+`_default_bu`; no further additions are expected — critically, a tenant's
+default is *not* a third exception, since it carries an ordinary
+tenant-prefixed slug with no leading `_` at all.
 
 > **See also:** BR-D34 and BR-D35 (per-tenant context registration) — as of
 > Phase 22 the expectation is that real business-unit contexts (e.g.
 > `acme-pacific-fleet`, `acme-atlantic-fleet`) are authored by accounts-service
-> (via `callRefdataRegisterContext`) and not seeded by refdata's own `seed.go`.
+> (via its `RefdataClient`) and not seeded by refdata's own `seed.go`.
 > refdata-service's `seed.go` only seeds the two platform-level roots
 > (`_platform`, `_default_bu`).
 
 - **Enforced in:** `refdata/internal/application/commands/context.go`
   (`RegisterDefaultBu`) — charset check only, no `_` rejection.
+  `accounts-service`'s `accounts/refdata.go` (`ProvisionDefaultContext`) is
+  the caller that now parents every tenant default to this context instead of
+  assigning tenants to it directly.
 - **Test:** `refdata/context_test.go` `Phase 22: RegisterDefaultBu is the
-  second sanctioned exception to BR-D33 (BR-D38)`.
+  second sanctioned exception to BR-D33 (BR-D38)`. The per-tenant parenting
+  behavior itself is covered by `BUSINESS_RULES-ACCOUNTS.md`'s BR-AC29 (live
+  verification only — no dedicated refdata-service-side automated test yet).

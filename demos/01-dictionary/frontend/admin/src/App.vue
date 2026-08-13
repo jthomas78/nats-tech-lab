@@ -5,7 +5,7 @@ import Toast from 'primevue/toast'
 import { useI18n } from 'vue-i18n'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
-import AccountsPanel from './components/AccountsPanel.vue'
+import AccountsView from './components/AccountsView.vue'
 import ConnectionsPanel from './components/ConnectionsPanel.vue'
 import JetStreamPanel from './components/JetStreamPanel.vue'
 import KvInspector from './components/KvInspector.vue'
@@ -14,10 +14,10 @@ import OverviewPanel from './components/OverviewPanel.vue'
 import PostgresTablesPanel from './components/PostgresTablesPanel.vue'
 import RpcPanel from './components/RpcPanel.vue'
 import ServicesPanel from './components/ServicesPanel.vue'
+import SettingsPanel from './components/SettingsPanel.vue'
 import ShapeCPanel from './components/ShapeCPanel.vue'
 import ShapePanel from './components/ShapePanel.vue'
 import TelemetryStrip from './components/TelemetryStrip.vue'
-import TopologyPanel from './components/TopologyPanel.vue'
 import IconAccounts from './components/icons/IconAccounts.vue'
 import IconConnections from './components/icons/IconConnections.vue'
 import IconKv from './components/icons/IconKv.vue'
@@ -25,12 +25,13 @@ import IconLog from './components/icons/IconLog.vue'
 import IconOverview from './components/icons/IconOverview.vue'
 import IconRpc from './components/icons/IconRpc.vue'
 import IconServices from './components/icons/IconServices.vue'
+import IconSettings from './components/icons/IconSettings.vue'
 import IconShapes from './components/icons/IconShapes.vue'
 import IconStreams from './components/icons/IconStreams.vue'
 import IconTables from './components/icons/IconTables.vue'
-import IconTopology from './components/icons/IconTopology.vue'
 import { useDictionaryStore } from './stores/dictionary'
 import { useTenantStore } from './stores/tenant'
+import { useUiStore } from './stores/ui'
 import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
 import { useL10nCopy } from '@refdata/useL10nCopy.js'
 import { i18n } from './i18n.js'
@@ -40,6 +41,7 @@ import { usePlatformConnection } from './nats/usePlatformConnection.js'
 
 const store = useDictionaryStore()
 const tenantStore = useTenantStore()
+const uiStore = useUiStore()
 const {
   selectedLocale,
   localeOptions,
@@ -69,7 +71,6 @@ const sections = [
     eyebrow: 'NATS',
     items: [
       { key: 'accounts', label: 'Accounts', icon: IconAccounts },
-      { key: 'topology', label: 'Topology', icon: IconTopology },
       { key: 'connections', label: 'Connections', icon: IconConnections },
       { key: 'services', label: 'Services', icon: IconServices },
       { key: 'log', label: 'Log', icon: IconLog },
@@ -83,6 +84,10 @@ const sections = [
     eyebrow: 'Postgres',
     items: [{ key: 'tables', label: 'Tables', icon: IconTables }],
   },
+  {
+    eyebrow: 'System',
+    items: [{ key: 'settings', label: 'Settings', icon: IconSettings }],
+  },
 ]
 
 const SUBTITLES = {
@@ -95,10 +100,19 @@ const SUBTITLES = {
   services: 'nats micro services · $SRV.* discovery',
   log: 'nats server log · level + text filter, no rotation',
   tables: 'canonical Postgres tables by schema',
-  accounts: 'dynamic tenant provisioning · decentralized JWTs',
-  topology: 'live export/import edges between accounts · read from resolver JWTs',
+  settings: 'platform-global system configuration',
 }
-const subtitle = computed(() => SUBTITLES[activeView.value] ?? '')
+// accounts has two tabs (AccountsView.vue) with distinct enough subject
+// matter — provisioning vs. the export/import graph — that one subtitle for
+// both would either describe neither or run long, so it's the one entry
+// SUBTITLES can't answer directly.
+const ACCOUNTS_SUBTITLES = {
+  provisioning: 'dynamic tenant provisioning · decentralized JWTs',
+  topology: 'declared export/import edges between accounts · read from resolver JWTs',
+}
+const subtitle = computed(() =>
+  activeView.value === 'accounts' ? ACCOUNTS_SUBTITLES[uiStore.accountsTab] : SUBTITLES[activeView.value] ?? '',
+)
 
 onMounted(async () => {
   // Platform connection first (no tenant dependency, drives the connection
@@ -246,14 +260,15 @@ onUnmounted(() => {
       <PostgresTablesPanel />
     </section>
 
-    <!-- Topology — live account export/import graph, read from each account's resolver JWT -->
-    <section v-else-if="activeView === 'topology'" class="group" data-testid="topology-view">
-      <TopologyPanel />
+    <!-- System — platform-global configuration (BR-AC20) -->
+    <section v-else-if="activeView === 'settings'" class="group" data-testid="settings-view">
+      <SettingsPanel />
     </section>
 
-    <!-- Platform — dynamic tenant provisioning (Phase 14c) -->
+    <!-- Accounts — provisioning (Phase 14c) + the declared export/import
+         topology graph, as tabs of one view (see AccountsView.vue) -->
     <section v-else class="group" data-testid="accounts-view">
-      <AccountsPanel />
+      <AccountsView />
     </section>
 
     <template #footer>

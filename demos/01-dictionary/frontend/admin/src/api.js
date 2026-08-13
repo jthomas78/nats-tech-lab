@@ -184,6 +184,21 @@ export function getAccountsTopology() {
   return request('/api/platform/accounts/topology')
 }
 
+// ── System settings (BR-AC20) ──────────────────────────────────────────────
+// Platform-global config, not account-scoped — served under the same
+// /api/platform/accounts proxy prefix (basic-auth injected by nginx/vite) as
+// the collection-level /usage and /topology endpoints. Currently just the
+// browser/admin JWT expiry TTL policy; the response also carries the read-only
+// envelope bounds so the UI can constrain its editors.
+
+export function getSystemConfig() {
+  return request('/api/platform/accounts/system-config')
+}
+
+export function updateSystemConfig(input) {
+  return request('/api/platform/accounts/system-config', { method: 'PUT', body: JSON.stringify(input) })
+}
+
 // ── Business Units (Phase 22) ─────────────────────────────────────────────────
 
 export function listBusinessUnits(name) {

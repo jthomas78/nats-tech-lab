@@ -11,6 +11,7 @@ package accounts_test
 // "shipped" resolver_preload entry for those yet.
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -128,6 +129,30 @@ func (o *operatorTestServer) ConnectSys(t tempDirer) *nats.Conn {
 	nc, err := nats.Connect(o.Server.ClientURL(), nats.Name("test-sys"), nats.UserCredentials(o.SysCredsPath))
 	Expect(err).NotTo(HaveOccurred())
 	return nc
+}
+
+// PushAccountClaims signs claims with the given operator signing key seed
+// and pushes it via $SYS.REQ.CLAIMS.UPDATE — the same round trip
+// Provisioner.pushClaimsUpdate uses internally, exposed here because
+// Provisioner's own public API never writes Exports (in the real system
+// those come from nats/bootstrap-operator.sh's nsc add export once, at
+// bootstrap; Provisioner only ever preserves them across re-signs — see
+// newAccountClaims). Topology specs use this to seed an exporter's Exports
+// directly, and to inject Imports that reference an account outside the
+// deployment (BR-AC25).
+func (o *operatorTestServer) PushAccountClaims(sysNC *nats.Conn, operatorSigningKeySeed []byte, claims *jwt.AccountClaims) {
+	GinkgoHelper()
+	kp, err := nkeys.FromSeed(operatorSigningKeySeed)
+	Expect(err).NotTo(HaveOccurred())
+	token, err := claims.Encode(kp)
+	Expect(err).NotTo(HaveOccurred())
+	resp, err := sysNC.Request("$SYS.REQ.CLAIMS.UPDATE", []byte(token), 5*time.Second)
+	Expect(err).NotTo(HaveOccurred())
+	var parsed server.ServerAPIClaimUpdateResponse
+	Expect(json.Unmarshal(resp.Data, &parsed)).To(Succeed())
+	if parsed.Error != nil {
+		Fail("claims update rejected: " + parsed.Error.Description)
+	}
 }
 
 func (o *operatorTestServer) ConnectWithCreds(credsBytes []byte, name string) (*nats.Conn, error) {

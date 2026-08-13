@@ -17,18 +17,30 @@ context, see BUSINESS_RULES-REFDATA.md's Phase 16 amendments):
 
 ```
 _platform                     (reserved root, no tenant — PlatformContext)
-  └── _default_bu              (shared reserved placeholder, no tenant — DefaultBuContext)
+  └── _default_bu              (platform-owned template, no tenant — DefaultBuContext)
 ```
 
-`acme-pacific-fleet` and `acme-atlantic-fleet` are no longer seeded here —
-they are registered dynamically by accounts-service's startup seed step
-(`seedDemoBusinessUnits` in `accounts-service/cmd/main.go`), which calls
-this service's `POST /api/refdata/admin/contexts` at BU-creation time.
-Business units that an operator registers via the Admin UI follow the same
-path: accounts-service's `POST /api/accounts/{name}/business-units` handler
-calls the same endpoint. This keeps `seed.go` authoring only the two
-reserved platform-level roots, and all tenant-specific or demo BU contexts
-authored by accounts-service — the single writer of the business-unit tier.
+`seed.go` itself only ever registers these two reserved roots — it has
+never seeded any tenant-specific context, and Phase 22b did not change that.
+What changed is what `_default_bu` *is*: through Phase 22 it was a shared
+context directly assigned to any account with no business units of its
+own — a real collision waiting to happen, since refdata's item tables key on
+`(context, type_key, code)` with no tenant column, so two such accounts
+wrote to the same rows. As of Phase 22b it is never assigned to a tenant at
+all; it is the template every tenant's own default business unit (`{tenant}
+-default`) is parented to instead — see "Contexts form a tree" below for
+the full three-level shape this produces.
+
+Every other context — `acme-pacific-fleet`, `acme-atlantic-fleet`,
+`acme-default`, `globex-default`, and anything an operator registers through
+the Admin UI — is registered dynamically by accounts-service, which calls
+this service's `POST /api/refdata/admin/contexts` at BU-creation time: at
+its own startup (`seedPreexistingAccounts` for each tenant's default,
+`seedDemoBusinessUnits` for acme's two demo real BUs), and live via `POST
+/api/accounts/{name}/business-units`. This keeps `seed.go` authoring only
+the two reserved platform-level roots, and every tenant-specific or demo BU
+context authored by accounts-service — the single writer of the
+business-unit tier.
 
 `_platform` is seeded via `ContextHandler.RegisterPlatformRoot`, the first
 sanctioned exception to `ValidateContextName`'s rejection of a leading `_`
@@ -36,17 +48,13 @@ sanctioned exception to `ValidateContextName`'s rejection of a leading `_`
 (Phase 22, BR-D38) — the second and currently last exception. Both bypass
 only the `_` prefix check; the NATS subject-token charset check still
 applies. The public `POST /api/refdata/admin/contexts` endpoint always
-rejects `_`-prefixed names via the full `ValidateContextName`. See
+rejects `_`-prefixed names via the full `ValidateContextName` — a tenant's
+own default is not a third exception, since `{tenant}-default` carries no
+leading `_` at all and registers through the same ordinary path as any real
+business unit. See
 [ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) § 2.3 for
 the `{context}` rule and `.claude/plans/Main-POC-Plan.md` Phase 16 decisions
 11–13 for the fully-qualified-naming rationale.
-
-**`_default_bu`** is a shared, untenanted context (same sharing model as
-`_platform`) that `ListByTenant` always returns for every tenant because its
-`tenant` column is NULL. It covers accounts that have no registered real
-business units yet. accounts-service auto-creates a `business_units` row for
-it at account-creation time (BR-AC16) purely for Admin UI bookkeeping;
-refdata-service owns the underlying context row globally.
 
 **The seed data itself demonstrates inheritance**, not just registers a tree:
 standards-based types (currency, country, incoterm, uom, hazard-class) are
@@ -57,13 +65,23 @@ which always resolves to `_platform`). `hazard-class` demonstrates all three
 inheritance states from BR-V06/BR-V07 — codes `1`/`2`/`4`–`9` are plain
 **inherited** from `_platform`, code `3` is **overridden** at `_default_bu`
 with an Acme-specific advisory label, and code `X1` is an **addition** that
-exists only at `_default_bu`. `Seed` also idempotently drafts and publishes
-an initial corpus version for each context, parent-first — required for the
-chain to actually inherit (a child's draft silently sees nothing from an
-ancestor that has never published, see `publishInitialCorpus`'s doc comment)
-— so this is genuinely observable via
-`GET /api/refdata/v/{version}/{context}/...`, not just present in the working
-tables.
+exists only at `_default_bu`. Because every tenant default now parents to
+`_default_bu` rather than being `_default_bu`, this override/addition pair
+demonstrates the same three inheritance states for *every* tenant's default
+business unit, not just one shared context — a live check against
+`acme-default`'s versioned corpus after Phase 22b shipped confirmed every
+`_platform` currency item flows through with `sourceContext: "_platform"`.
+`Seed` also idempotently drafts and publishes an initial corpus version for
+each context it registers, parent-first — required for the chain to
+actually inherit (a child's draft silently sees nothing from an ancestor
+that has never published, see `publishInitialCorpus`'s doc comment) — so
+this is genuinely observable via `GET /api/refdata/v/{version}/{context}/...`,
+not just present in the working tables. accounts-service's own provisioning
+of each tenant default reproduces this same parent-first drafting sequence,
+gated on `_default_bu` already having a published corpus to inherit from
+(`RefdataClient.WaitForPublishedAncestor`, BR-AC29) — necessary because
+accounts-service and refdata-service start as independent containers with
+no ordering guarantee between them.
 
 Seeded types, each a `DictionaryType` (`type_key`, `name`, `description`):
 
@@ -101,8 +119,17 @@ For each type, `Seed` walks a `[]seedItem{code, name, nameEs}` list and:
    `Attrs["name"]`.
 
 Before the per-type loop, `Seed` registers three locales — `en` (**default**),
-`es`, and `af-za` — for *each* context in the tree (`_platform`,
-`acme-pacific-fleet`, `acme-atlantic-fleet`). `en` as default gives
+`es`, and `af-za` — for each of the two reserved roots it owns, `_platform`
+and `_default_bu`. Locales are **not** covered by corpus-inheritance
+flattening (they sit on the same flat, non-inheriting read path as the live
+item queries — see "Contexts form a tree" below), so a context with none of
+its own has no effective default locale no matter how correctly its items
+inherit. Every other context needs this done for it explicitly by whoever
+registers it: accounts-service registers the same three locales for `acme`'s
+and `globex`'s own default business units as part of provisioning them
+(`RefdataClient.ProvisionDefaultContext`, BR-AC29) — real business units
+(`acme-pacific-fleet`, `acme-atlantic-fleet`) do not currently get this same
+treatment and rely on `_platform`'s locales alone. `en` as default gives
 `ResolveLabel` a fallback to
 land on when a caller requests a locale that hasn't been localized (e.g.
 `fr-FR` with no French translations entered); the non-default locales exist
@@ -355,16 +382,40 @@ unversioned `refdata-{context}` bucket and REST paths are unchanged and
 keep serving "current working-table state" exactly as before; everything
 below is additive.
 
-**Contexts form a tree**, not a flat namespace: `_platform` with
-`acme-pacific-fleet` and `acme-atlantic-fleet` as peer business-unit
-siblings is the real demo tree (Phase 16d, flattened — see this document's
-Seeding section above), registered via `POST /api/refdata/admin/contexts`
-for ordinary business-unit contexts, or `ContextHandler.RegisterPlatformRoot`
-for the reserved `_platform` root (the one case that endpoint always
-rejects — BR-D33). A context inherits every
-item its ancestors registered; it may add its own items or override an
-inherited one, but it can never delete an inherited item (BR-V06) — an
-override only ever wins for that item, never removes it from view.
+**Contexts form a tree**, not a flat namespace. The real demo tree (Phase
+16d flattened, Phase 22b re-shaped — see this document's Seeding section
+above) is now three levels, not two:
+
+```
+_platform
+  ├── acme-pacific-fleet         (real BU, tenant: acme)
+  ├── acme-atlantic-fleet        (real BU, tenant: acme)
+  └── _default_bu                (platform-owned template, untenanted)
+        ├── acme-default         (tenant acme's own default BU)
+        └── globex-default       (tenant globex's own default BU)
+```
+
+Real business-unit contexts parent directly to `_platform`; a tenant's
+default business unit parents to `_default_bu` instead, so its own hazard-
+class demo override (below) reaches every tenant default without also
+reaching every tenant's real, named business units. Contexts are registered
+via `POST /api/refdata/admin/contexts` for ordinary business-unit contexts
+(real or default alike — only the `parent` value differs), or
+`ContextHandler.RegisterPlatformRoot`/`RegisterDefaultBu` for the two
+reserved roots (the only two exceptions `POST /api/refdata/admin/contexts`
+itself always rejects — BR-D33/BR-D38). A context inherits every item its
+ancestors registered; it may add its own items or override an inherited one,
+but it can never delete an inherited item (BR-V06) — an override only ever
+wins for that item, never removes it from view.
+
+**This inheritance is corpus-path only.** The flattening described next
+happens when a draft is created and published — the *unversioned*
+`refdata-{context}` bucket and the plain `GET /api/refdata/{context}/...`
+REST routes read a flat `WHERE context = $1` with no ancestor traversal at
+all, so a freshly-provisioned context (a new tenant default, for instance)
+resolves correctly through the versioned API but appears empty through
+those unversioned paths until that gap is closed (`Main-POC-Plan.md` Phase
+106).
 
 **A corpus version is an immutable, flattened snapshot** of one context's
 full effective item set — every inherited item plus every local

@@ -79,6 +79,42 @@ cell before anything else and keep its `width`/`height` in sync with that page's
 `pageHeight` (a mismatch here is easy to miss since it also only shows up in the live editor, not
 in exports).
 
+**The `page-bg` rect only covers the *declared* `pageWidth`/`pageHeight` — content that overflows
+those bounds lands on Draw.io's next print-page tile, which has no `page-bg` of its own and so
+renders plain white regardless of app theme or the `background` attribute.** This shows up as a
+white rectangle (often with a red dashed page-break line at its left edge) sitting to the
+right of or below an otherwise-correct dark canvas — easy to misdiagnose as "the dark background
+isn't working" when the real cause is a sizing mismatch: some node's geometry (`x + width`, or
+`y + height`) exceeds the page's declared dimensions. For a sequence diagram specifically, check
+the *rightmost* lane's `x + LANE_W`, not just the number of lanes — it's easy to add or reposition
+a lane without re-deriving `pageWidth` from the new content bounds. Fix by widening `pageWidth`/
+`pageHeight` (and the matching `page-bg` geometry) to comfortably exceed every cell's far edge —
+don't just make `page-bg` bigger than `pageWidth`/`pageHeight` while leaving those attributes
+too small, since the print-tiling that creates the extra white page is driven by `pageWidth`/
+`pageHeight` themselves, not by `page-bg`'s geometry. Verify with a quick bounds check before
+export: the rightmost `x + width` and bottommost `y + height` across all cells must be ≤
+`pageWidth`/`pageHeight` respectively, with margin to spare.
+
+**Edge labels default to a white background box — always override it on a dark canvas.**
+Draw.io's default edge style renders each edge's label on its own white (or theme-light)
+rectangle, so the label stays legible when an edge crosses other lines regardless of the
+underlying page color. On this UniFi dark canvas that default reads as a glaring white patch
+sitting on `#14171B`/`#1A1E23` — most visible on sequence diagrams, where every message label
+sits on a lifeline. Any edge style you author must explicitly set the label's background to the
+canvas color instead of leaving it at the mxGraph default:
+
+```
+labelBackgroundColor=#14171B;labelBorderColor=none;
+```
+
+Use the same value as that page's `page-bg` fill (`#14171B` for the standard canvas). This still
+gets you the readability benefit — the label opaquely covers the lifeline/edge crossing behind
+it — without the white-box mismatch. Apply this to every `edge="1"` cell that carries a `value`
+label, not just a few; a single missed edge style is enough to reintroduce a stray white box in
+an otherwise-fixed diagram. Check for this specifically during the visual-inspection step (step 7
+below) — it is easy to miss when eyeballing overall layout/color, since the white boxes are small
+and easy to read past rather than around.
+
 ## Workflow
 
 1. Inspect the existing architecture document, theme assets, and current rendered diagrams.
@@ -99,7 +135,8 @@ in exports).
    - `xmllint --noout obsidian/V3-Platform/Architecture/Dictionary-POC/architecture-dictionary.drawio`
    - `git diff --check`
    - `file obsidian/V3-Platform/Architecture/Dictionary-POC/images/*.png`
-   - visually inspect each PNG for clipping, overlap, unreadable labels, missing lifelines, and incorrect canvas colors.
+   - visually inspect each PNG for clipping, overlap, unreadable labels, missing lifelines, incorrect canvas colors, and stray white edge-label backgrounds (see the edge-label note above).
+   - confirm no cell's `x + width` or `y + height` exceeds that page's `pageWidth`/`pageHeight` (see the page-overflow note above) — a PNG export can look correct while the Desktop editor still shows a white overflow page-tile, so this needs a bounds check, not just a PNG glance.
 8. Update Markdown image links and the editable workbook link together.
 
 ## Diagramming a docker-compose.yml (network topology)

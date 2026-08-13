@@ -54,16 +54,69 @@ const expandedRows = ref([])
 const busByAccount = ref({}) // accountName → BusinessUnit[]
 const buLoading = ref({})   // accountName → bool
 
-// New-BU form state
+// New-BU form state (BR-AC26): Name is the free-text display label; Context
+// is the immutable {context} subject token, auto-derived from Name but
+// editable up until submit. addBUContextTouched tracks whether the operator
+// has hand-edited Context, so typing further into Name stops overwriting it —
+// the same "slug follows title until you touch the slug" pattern used for
+// URL-slug fields elsewhere.
 const addBUOpen = ref(false)
 const addBUAccount = ref('')
 const addBUName = ref('')
+const addBUContext = ref('')
+const addBUContextTouched = ref(false)
 const addBUSaving = ref(false)
 const addBUError = ref('')
 
-// Hide-_default_bu confirmation dialog
+// Mirrors accounts-service's contextPattern (BR-AC27) — lowercase letters,
+// digits and hyphens, alphanumeric at both ends. Kept in sync by hand since
+// this is the one validation rule duplicated client-side for instant
+// feedback; the server is still the source of truth and re-validates.
+const CONTEXT_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/
+const CONTEXT_MAX_LEN = 48
+
+function slugify(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+// Mirrors accounts-service's DeriveContext: tenant-prefixed unless the name
+// already leads with the tenant, so "Acme Pacific Fleet" under tenant "acme"
+// doesn't come out "acme-acme-pacific-fleet".
+function deriveContext(tenant, name) {
+  const tenantSlug = slugify(tenant)
+  const nameSlug = slugify(name)
+  if (!nameSlug) return tenantSlug
+  if (!tenantSlug) return nameSlug
+  if (nameSlug === tenantSlug || nameSlug.startsWith(tenantSlug + '-')) return nameSlug
+  return `${tenantSlug}-${nameSlug}`
+}
+
+const addBUContextError = computed(() => {
+  if (!addBUContext.value) return ''
+  if (addBUContext.value.length > CONTEXT_MAX_LEN) return `Must be ${CONTEXT_MAX_LEN} characters or fewer`
+  if (!CONTEXT_PATTERN.test(addBUContext.value)) {
+    return 'Lowercase letters, digits and hyphens only — must start and end with a letter or digit'
+  }
+  return ''
+})
+
+function onAddBUNameInput() {
+  if (!addBUContextTouched.value) {
+    addBUContext.value = deriveContext(addBUAccount.value, addBUName.value)
+  }
+}
+
+function onAddBUContextInput() {
+  addBUContextTouched.value = true
+}
+
+// Hide-default-BU confirmation dialog (BR-AC17)
 const hideDefaultBUOpen = ref(false)
 const hideDefaultBUAccount = ref('')
+const hideDefaultBUContext = ref('')
 const hideDefaultBUSaving = ref(false)
 
 async function loadBUs(accountName, silent = false) {
@@ -85,23 +138,27 @@ async function onRowExpand(event) {
 function openAddBU(accountName) {
   addBUAccount.value = accountName
   addBUName.value = ''
+  addBUContext.value = ''
+  addBUContextTouched.value = false
   addBUError.value = ''
   addBUOpen.value = true
 }
 
 async function submitAddBU() {
-  if (!addBUName.value) return
+  if (!addBUName.value || addBUContextError.value) return
   addBUSaving.value = true
   addBUError.value = ''
   try {
-    await createBusinessUnit(addBUAccount.value, { name: addBUName.value })
+    await createBusinessUnit(addBUAccount.value, { name: addBUName.value, context: addBUContext.value })
     addBUOpen.value = false
     await loadBUs(addBUAccount.value)
-    // Show the hide-_default_bu confirmation if this is the first real BU
+    // Show the hide-default confirmation if this is the first real BU
     const bus = busByAccount.value[addBUAccount.value] ?? []
-    const realBUs = bus.filter((b) => b.name !== '_default_bu')
+    const realBUs = bus.filter((b) => !b.isDefault)
     if (realBUs.length === 1) {
+      const defaultBU = bus.find((b) => b.isDefault)
       hideDefaultBUAccount.value = addBUAccount.value
+      hideDefaultBUContext.value = defaultBU?.context ?? ''
       hideDefaultBUOpen.value = true
     }
     toast.add({ severity: 'success', summary: 'Business unit registered', detail: addBUName.value, life: 3000 })
@@ -117,10 +174,10 @@ async function toggleBUVisible(accountName, bu) {
   // Optimistic: flip the flag immediately so the icon updates without a flicker
   busByAccount.value = {
     ...busByAccount.value,
-    [accountName]: snapshot.map(b => b.name === bu.name ? { ...b, visible: !b.visible } : b),
+    [accountName]: snapshot.map(b => b.context === bu.context ? { ...b, visible: !b.visible } : b),
   }
   try {
-    await updateBusinessUnit(accountName, bu.name, { visible: !bu.visible })
+    await updateBusinessUnit(accountName, bu.context, { visible: !bu.visible })
     await loadBUs(accountName, true) // silent — no loading spinner, list already looks right
   } catch (e) {
     busByAccount.value = { ...busByAccount.value, [accountName]: snapshot } // revert on error
@@ -131,11 +188,11 @@ async function toggleBUVisible(accountName, bu) {
 async function hideDefaultBU() {
   hideDefaultBUSaving.value = true
   try {
-    await updateBusinessUnit(hideDefaultBUAccount.value, '_default_bu', { visible: false })
+    await updateBusinessUnit(hideDefaultBUAccount.value, hideDefaultBUContext.value, { visible: false })
     await loadBUs(hideDefaultBUAccount.value)
     hideDefaultBUOpen.value = false
   } catch (e) {
-    toast.add({ severity: 'error', summary: 'Failed to hide _default_bu', detail: e.message, life: 5000 })
+    toast.add({ severity: 'error', summary: 'Failed to hide the default business unit', detail: e.message, life: 5000 })
   } finally {
     hideDefaultBUSaving.value = false
   }
@@ -267,6 +324,11 @@ function isReserved(name) {
   return RESERVED_NAMES.has(name?.toLowerCase())
 }
 
+// BR-AC16/BR-AC17: explains what the auto-created placeholder is and why it
+// can disappear — the "reserved" tag alone doesn't say either.
+const DEFAULT_BU_TOOLTIP =
+  'Auto-created so this account always has at least one business unit. Add a real one and you can hide this placeholder.'
+
 // JetStream Limits split (mem/file/streams/consumers) — each column shows
 // live used/limit from GET /api/accounts/usage, same used/limit + threshold
 // pattern the old single "Streams" column already used.
@@ -388,13 +450,22 @@ const rowMenuItems = computed(() => {
             class="bu-table"
           >
             <template #empty><span class="lab-muted">No business units yet.</span></template>
-            <Column header="Name">
+            <Column header="Name" class="bu-col-name">
               <template #body="{ data: bu }">
-                <span :class="bu.name === '_default_bu' ? 'bu-reserved' : ''">{{ bu.name }}</span>
-                <Tag v-if="bu.name === '_default_bu'" severity="secondary" value="reserved" class="bu-reserved-tag" />
+                <span :class="bu.isDefault ? 'bu-reserved' : ''">{{ bu.name }}</span>
+                <Tag
+                  v-if="bu.isDefault"
+                  v-tooltip.top="DEFAULT_BU_TOOLTIP"
+                  severity="secondary"
+                  value="reserved"
+                  class="bu-reserved-tag"
+                />
               </template>
             </Column>
-            <Column header="Visible">
+            <Column header="Context" class="bu-col-context">
+              <template #body="{ data: bu }"><span class="bu-context">{{ bu.context }}</span></template>
+            </Column>
+            <Column header="Visible" class="bu-col-visible">
               <template #body="{ data: bu }">
                 <Button
                   :icon="bu.visible ? 'pi pi-eye' : 'pi pi-eye-slash'"
@@ -406,7 +477,7 @@ const rowMenuItems = computed(() => {
                 />
               </template>
             </Column>
-            <Column header="Registered">
+            <Column header="Registered" class="bu-col-registered">
               <template #body="{ data: bu }">{{ formatDate(bu.createdAt) }}</template>
             </Column>
           </DataTable>
@@ -507,34 +578,54 @@ const rowMenuItems = computed(() => {
       </template>
     </Dialog>
 
-    <!-- Phase 22: Add business unit dialog -->
-    <Dialog v-model:visible="addBUOpen" :header="`Add Business Unit — ${addBUAccount}`" modal :style="{ width: '26rem' }">
+    <!-- Phase 22b: Add business unit dialog — Name (BR-AC26 display label) and
+         Context (the immutable {context} slug), the latter auto-derived from
+         Name but editable up to the point of submit. -->
+    <Dialog v-model:visible="addBUOpen" :header="`Add Business Unit — ${addBUAccount}`" modal :style="{ width: '28rem' }">
       <div class="form-field">
-        <label for="bu-name">Name (will become the {context} token)</label>
-        <InputText id="bu-name" v-model="addBUName" placeholder="e.g. acme-westcoast" autofocus />
+        <label for="bu-name">Name</label>
+        <InputText id="bu-name" v-model="addBUName" placeholder="e.g. Pacific Fleet" autofocus @input="onAddBUNameInput" />
       </div>
+      <div class="form-field">
+        <label for="bu-context">Context</label>
+        <InputText
+          id="bu-context"
+          v-model="addBUContext"
+          placeholder="e.g. acme-pacific-fleet"
+          class="bu-context-input"
+          :invalid="!!addBUContextError"
+          @input="onAddBUContextInput"
+        />
+      </div>
+      <p v-if="addBUContextError" class="error-text">{{ addBUContextError }}</p>
       <p class="lab-muted" style="font-size: 0.8rem; margin: 0">
-        Must be a valid NATS subject token — lowercase letters, digits, hyphens only. No leading underscore.
+        The subject token every lookup and query will use — lowercase letters, digits and hyphens only.
+        <strong>Cannot be changed once created.</strong> Name can be edited any time.
       </p>
       <p v-if="addBUError" class="error-text">{{ addBUError }}</p>
       <template #footer>
         <Button label="Cancel" text @click="addBUOpen = false" />
-        <Button label="Register" :loading="addBUSaving" :disabled="!addBUName" @click="submitAddBU" />
+        <Button
+          label="Register"
+          :loading="addBUSaving"
+          :disabled="!addBUName || !addBUContext || !!addBUContextError"
+          @click="submitAddBU"
+        />
       </template>
     </Dialog>
 
-    <!-- Phase 22: Confirm hiding _default_bu after first real BU is added -->
+    <!-- Phase 22/22b: Confirm hiding the default BU after the first real BU is added -->
     <Dialog v-model:visible="hideDefaultBUOpen" header="Hide default placeholder?" modal :style="{ width: '26rem' }">
       <p>
         You've added the first real business unit for <strong>{{ hideDefaultBUAccount }}</strong>.
-        Would you like to hide the <code>_default_bu</code> placeholder from the context selector?
+        Would you like to hide the <code>{{ hideDefaultBUContext }}</code> placeholder from the context selector?
       </p>
       <p class="lab-muted" style="font-size: 0.8rem; margin: 0">
         You can always show it again from the Business Units table.
       </p>
       <template #footer>
         <Button label="Keep visible" text @click="hideDefaultBUOpen = false" />
-        <Button label="Hide _default_bu" severity="secondary" :loading="hideDefaultBUSaving" @click="hideDefaultBU" />
+        <Button label="Hide it" severity="secondary" :loading="hideDefaultBUSaving" @click="hideDefaultBU" />
       </template>
     </Dialog>
 
@@ -685,8 +776,36 @@ const rowMenuItems = computed(() => {
   color: var(--lab-accent);
 }
 .bu-table {
-  max-width: 36rem;
+  /* Was capped at 36rem — cramped once Context joined Name/Visible/Registered
+     (Phase 22b), squeezing four columns into a width sized for three. Full
+     width of the expansion row, with a ceiling so it doesn't stretch
+     edge-to-edge on very wide screens. */
+  width: 100%;
+  max-width: 64rem;
   --p-datatable-header-cell-background: color-mix(in srgb, var(--lab-nested-bg) 95%, var(--lab-accent) 5%);
+}
+.bu-table :deep(table) {
+  table-layout: fixed;
+}
+.bu-table :deep(.p-datatable-thead > tr > th),
+.bu-table :deep(.p-datatable-tbody > tr > td) {
+  padding-block: 0.55rem;
+  padding-inline: 0.85rem;
+}
+/* :deep() required — Column's `class` prop lands on the th/td PrimeVue
+   renders internally, which never receive this SFC's scoped data-v attribute. */
+.bu-table :deep(.bu-col-name) {
+  width: 30%;
+}
+.bu-table :deep(.bu-col-context) {
+  width: 32%;
+}
+.bu-table :deep(.bu-col-visible) {
+  width: 12%;
+  text-align: center;
+}
+.bu-table :deep(.bu-col-registered) {
+  width: 26%;
 }
 .bu-reserved {
   font-style: italic;
@@ -695,5 +814,19 @@ const rowMenuItems = computed(() => {
 .bu-reserved-tag {
   margin-left: 0.4rem;
   font-size: 0.7rem;
+}
+.bu-context {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  color: var(--p-text-muted-color);
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.bu-context-input {
+  font-family: var(--font-mono, ui-monospace, monospace);
 }
 </style>

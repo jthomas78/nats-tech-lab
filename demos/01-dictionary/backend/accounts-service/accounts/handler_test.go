@@ -10,12 +10,46 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nkeys"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
 )
+
+// Decode shapes for GET /api/accounts/topology — see topology.go's
+// topologyEdge/unconsumedExport/topologyResponse for the JSON these mirror.
+type topologyEdgeJSON struct {
+	FromAccount  string `json:"fromAccount"`
+	ToAccount    string `json:"toAccount"`
+	Subject      string `json:"subject"`
+	LocalSubject string `json:"localSubject"`
+	Type         string `json:"type"`
+	Status       string `json:"status"`
+}
+
+type unconsumedExportJSON struct {
+	Account string `json:"account"`
+	Subject string `json:"subject"`
+	Type    string `json:"type"`
+}
+
+type topologyResponseJSON struct {
+	Edges             []topologyEdgeJSON     `json:"edges"`
+	UnconsumedExports []unconsumedExportJSON `json:"unconsumedExports"`
+}
+
+// businessUnitJSON mirrors handler.go's businessUnitResponse (BR-AC26/28).
+type businessUnitJSON struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Context   string `json:"context"`
+	Visible   bool   `json:"visible"`
+	IsDefault bool   `json:"isDefault"`
+	CreatedAt string `json:"createdAt"`
+}
 
 var _ = Describe("Handlers", func() {
 	const authSecret = "test-secret"
@@ -53,6 +87,10 @@ var _ = Describe("Handlers", func() {
 		platform, err := provisioner.CreateAccount(context.Background(), accounts.JSLimits{MaxMem: 1 << 30, MaxFile: 5 << 30, MaxStreams: 20, MaxConsumers: 100}, "platform", "")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(store.Insert(context.Background(), accounts.Account{Name: "platform", PublicKey: platform.PublicKey, SigningKeySeed: platform.SigningKeySeed, Status: accounts.StatusActive, JSMaxMem: 1 << 30, JSMaxFile: 5 << 30, JSMaxStreams: 20, JSMaxConsumers: 100})).To(Succeed())
+		// The system_config row is a shared singleton; reset it to the BR-AC20
+		// default so config specs don't leak into one another under Ginkgo's
+		// randomized order.
+		Expect(store.SetTokenTTLConfig(context.Background(), accounts.DefaultTokenTTLConfig())).To(Succeed())
 		credsDir := GinkgoT().TempDir()
 		handlers := accounts.NewHandlers(store, provisioner, credsDir, slog.New(slog.DiscardHandler), nil, auditLog)
 
@@ -653,6 +691,84 @@ var _ = Describe("Handlers", func() {
 		Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
 	})
 
+	// ── BR-AC20 / BR-AC21: configurable browser/admin JWT expiry TTL ──────────
+
+	decodeSystemConfig := func(resp *http.Response) struct {
+		TokenTTLMinutes    int `json:"tokenTtlMinutes"`
+		TokenTTLMinMinutes int `json:"tokenTtlMinMinutes"`
+		TokenTTLMaxMinutes int `json:"tokenTtlMaxMinutes"`
+		EnvelopeMinMinutes int `json:"envelopeMinMinutes"`
+		EnvelopeMaxMinutes int `json:"envelopeMaxMinutes"`
+	} {
+		GinkgoHelper()
+		var body struct {
+			TokenTTLMinutes    int `json:"tokenTtlMinutes"`
+			TokenTTLMinMinutes int `json:"tokenTtlMinMinutes"`
+			TokenTTLMaxMinutes int `json:"tokenTtlMaxMinutes"`
+			EnvelopeMinMinutes int `json:"envelopeMinMinutes"`
+			EnvelopeMaxMinutes int `json:"envelopeMaxMinutes"`
+		}
+		Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+		return body
+	}
+
+	It("BR-AC20: GET /api/accounts/system-config returns the 15-minute default within the 15–30 envelope", func() {
+		resp := doRequest(http.MethodGet, "/api/accounts/system-config", nil, accounts.BasicAuthUser, authSecret)
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body := decodeSystemConfig(resp)
+		Expect(body.TokenTTLMinutes).To(Equal(15))
+		Expect(body.TokenTTLMinMinutes).To(Equal(15))
+		Expect(body.TokenTTLMaxMinutes).To(Equal(30))
+		Expect(body.EnvelopeMinMinutes).To(Equal(15))
+		Expect(body.EnvelopeMaxMinutes).To(Equal(30))
+	})
+
+	It("BR-AC20: PUT /api/accounts/system-config persists a valid setting and GET reflects it", func() {
+		putResp := doRequest(http.MethodPut, "/api/accounts/system-config", map[string]any{
+			"tokenTtlMinutes": 25, "tokenTtlMinMinutes": 20, "tokenTtlMaxMinutes": 30,
+		}, accounts.BasicAuthUser, authSecret)
+		defer putResp.Body.Close()
+		Expect(putResp.StatusCode).To(Equal(http.StatusOK))
+		Expect(decodeSystemConfig(putResp).TokenTTLMinutes).To(Equal(25))
+
+		getResp := doRequest(http.MethodGet, "/api/accounts/system-config", nil, accounts.BasicAuthUser, authSecret)
+		defer getResp.Body.Close()
+		fetched := decodeSystemConfig(getResp)
+		Expect(fetched.TokenTTLMinutes).To(Equal(25))
+		Expect(fetched.TokenTTLMinMinutes).To(Equal(20))
+		Expect(fetched.TokenTTLMaxMinutes).To(Equal(30))
+	})
+
+	It("BR-AC21: rejects a range outside the 15–30 minute envelope", func() {
+		resp := doRequest(http.MethodPut, "/api/accounts/system-config", map[string]any{
+			"tokenTtlMinutes": 45, "tokenTtlMinMinutes": 15, "tokenTtlMaxMinutes": 60,
+		}, accounts.BasicAuthUser, authSecret)
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+	})
+
+	It("BR-AC21: rejects a value outside the configured range", func() {
+		resp := doRequest(http.MethodPut, "/api/accounts/system-config", map[string]any{
+			"tokenTtlMinutes": 16, "tokenTtlMinMinutes": 18, "tokenTtlMaxMinutes": 22,
+		}, accounts.BasicAuthUser, authSecret)
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+	})
+
+	It("BR-AC20: the config endpoints require basic auth", func() {
+		getResp := doRequest(http.MethodGet, "/api/accounts/system-config", nil, "", "")
+		defer getResp.Body.Close()
+		Expect(getResp.StatusCode).To(Equal(http.StatusUnauthorized))
+
+		putResp := doRequest(http.MethodPut, "/api/accounts/system-config", map[string]any{
+			"tokenTtlMinutes": 20, "tokenTtlMinMinutes": 15, "tokenTtlMaxMinutes": 30,
+		}, "", "")
+		defer putResp.Body.Close()
+		Expect(putResp.StatusCode).To(Equal(http.StatusUnauthorized))
+	})
+
 	It("BR-AC12: publishes notify.accounts.account.jslimits_updated after a successful update", func() {
 		notifyNC := ots.ConnectSys(GinkgoT())
 		defer notifyNC.Close()
@@ -780,17 +896,11 @@ var _ = Describe("Handlers", func() {
 		defer resp.Body.Close()
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-		var edges []struct {
-			FromAccount  string `json:"fromAccount"`
-			ToAccount    string `json:"toAccount"`
-			Subject      string `json:"subject"`
-			LocalSubject string `json:"localSubject"`
-			Type         string `json:"type"`
-		}
-		Expect(json.NewDecoder(resp.Body).Decode(&edges)).To(Succeed())
+		var body topologyResponseJSON
+		Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
 
 		acmeEdges := make([]string, 0)
-		for _, e := range edges {
+		for _, e := range body.Edges {
 			Expect(e.ToAccount).NotTo(BeEmpty())
 			if e.ToAccount == "acme" {
 				Expect(e.FromAccount).To(Equal("platform"), "acme's imports all originate from PLATFORM's exports")
@@ -800,6 +910,281 @@ var _ = Describe("Handlers", func() {
 		Expect(acmeEdges).To(ContainElement("rpc.acme.refdata.item.get.v1"))
 		Expect(acmeEdges).To(ContainElement("notify.accounts.account.*"))
 		Expect(acmeEdges).To(HaveLen(7), "the complete tenantImports contract: 4 refdata RPCs + context-list + notify + evt stream — see provisioner.go's tenantImports")
+	})
+
+	// BR-AC22/BR-AC23: Provisioner's own API never writes Exports (see
+	// PushAccountClaims's doc comment) — PLATFORM's Exports are pushed
+	// directly here, the way nats/bootstrap-operator.sh's nsc add export
+	// would at real bootstrap, so the matching logic runs against a live
+	// export declaration instead of the always-empty claims CreateAccount
+	// produces on its own.
+	It("BR-AC22/BR-AC23: matches an import against a live export, leaves the rest no-export, and reports the unconsumed export separately", func() {
+		platform, err := store.Get(context.Background(), "platform")
+		Expect(err).NotTo(HaveOccurred())
+
+		minted, err := provisioner.CreateAccount(context.Background(), accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5}, "acme-ac22", platform.PublicKey)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(store.Insert(context.Background(), accounts.Account{
+			Name: "acme-ac22", PublicKey: minted.PublicKey, SigningKeySeed: minted.SigningKeySeed,
+			Status: accounts.StatusActive, JSMaxMem: 64 << 20, JSMaxFile: 128 << 20, JSMaxStreams: 3, JSMaxConsumers: 5,
+		})).To(Succeed())
+
+		// Two of this tenant's seven tenantImports get a matching export
+		// here; the rest stay no-export; evt.*.audit.*.written has no
+		// importer at all.
+		platformClaims := jwt.NewAccountClaims(platform.PublicKey)
+		platformClaims.Exports.Add(
+			&jwt.Export{Subject: "rpc.*.refdata.item.get.v1", Type: jwt.Service},
+			&jwt.Export{Subject: "notify.accounts.account.*", Type: jwt.Stream},
+			&jwt.Export{Subject: "evt.*.audit.*.written", Type: jwt.Stream},
+		)
+		ots.PushAccountClaims(sysNC, ots.OperatorSigningKeySeed, platformClaims)
+
+		resp := doRequest(http.MethodGet, "/api/accounts/topology", nil, accounts.BasicAuthUser, authSecret)
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var body topologyResponseJSON
+		Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+
+		statusBySubject := make(map[string]string)
+		for _, e := range body.Edges {
+			if e.ToAccount == "acme-ac22" {
+				statusBySubject[e.Subject] = e.Status
+			}
+		}
+		Expect(statusBySubject["rpc.acme-ac22.refdata.item.get.v1"]).To(Equal("matched"))
+		Expect(statusBySubject["notify.accounts.account.*"]).To(Equal("matched"))
+		Expect(statusBySubject["rpc.acme-ac22.refdata.type.list.v1"]).To(Equal("no-export"), "PLATFORM declares no export for this operation in this test")
+		Expect(statusBySubject["evt.*.refdata.*.changed"]).To(Equal("no-export"))
+
+		Expect(body.UnconsumedExports).To(ContainElement(unconsumedExportJSON{
+			Account: "platform", Subject: "evt.*.audit.*.written", Type: "stream",
+		}))
+		for _, u := range body.UnconsumedExports {
+			Expect(u.Subject).NotTo(Equal("rpc.*.refdata.item.get.v1"), "this export is consumed by acme's import — must not also appear as unconsumed")
+		}
+	})
+
+	It("BR-AC24: reports an import as token-required when its matching export demands an activation token", func() {
+		platform, err := store.Get(context.Background(), "platform")
+		Expect(err).NotTo(HaveOccurred())
+
+		minted, err := provisioner.CreateAccount(context.Background(), accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5}, "acme-ac24", platform.PublicKey)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(store.Insert(context.Background(), accounts.Account{
+			Name: "acme-ac24", PublicKey: minted.PublicKey, SigningKeySeed: minted.SigningKeySeed,
+			Status: accounts.StatusActive, JSMaxMem: 64 << 20, JSMaxFile: 128 << 20, JSMaxStreams: 3, JSMaxConsumers: 5,
+		})).To(Succeed())
+
+		platformClaims := jwt.NewAccountClaims(platform.PublicKey)
+		platformClaims.Exports.Add(&jwt.Export{Subject: "rpc.*.refdata.item.get.v1", Type: jwt.Service, TokenReq: true})
+		ots.PushAccountClaims(sysNC, ots.OperatorSigningKeySeed, platformClaims)
+
+		resp := doRequest(http.MethodGet, "/api/accounts/topology", nil, accounts.BasicAuthUser, authSecret)
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var body topologyResponseJSON
+		Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+
+		found := false
+		for _, e := range body.Edges {
+			if e.ToAccount == "acme-ac24" && e.Subject == "rpc.acme-ac24.refdata.item.get.v1" {
+				found = true
+				Expect(e.Status).To(Equal("token-required"), "the export exists and covers this subject, but tenantImports() never attaches an activation token")
+			}
+		}
+		Expect(found).To(BeTrue())
+	})
+
+	It("BR-AC25: reports an import as unknown-account when its exporter isn't a recognized account", func() {
+		platform, err := store.Get(context.Background(), "platform")
+		Expect(err).NotTo(HaveOccurred())
+
+		minted, err := provisioner.CreateAccount(context.Background(), accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5}, "acme-ac25", platform.PublicKey)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(store.Insert(context.Background(), accounts.Account{
+			Name: "acme-ac25", PublicKey: minted.PublicKey, SigningKeySeed: minted.SigningKeySeed,
+			Status: accounts.StatusActive, JSMaxMem: 64 << 20, JSMaxFile: 128 << 20, JSMaxStreams: 3, JSMaxConsumers: 5,
+		})).To(Succeed())
+
+		ghostKP, err := nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		ghostPub, err := ghostKP.PublicKey()
+		Expect(err).NotTo(HaveOccurred())
+
+		// Append to this tenant's live claims rather than replacing them, so
+		// the existing tenantImports contract survives alongside the
+		// injected ghost import.
+		tenantClaims, err := provisioner.LookupAccountClaims(context.Background(), minted.PublicKey)
+		Expect(err).NotTo(HaveOccurred())
+		tenantClaims.Imports.Add(&jwt.Import{Account: ghostPub, Subject: "evt.*.ghost.*.changed", Type: jwt.Stream})
+		ots.PushAccountClaims(sysNC, ots.OperatorSigningKeySeed, tenantClaims)
+
+		resp := doRequest(http.MethodGet, "/api/accounts/topology", nil, accounts.BasicAuthUser, authSecret)
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var body topologyResponseJSON
+		Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
+
+		found := false
+		for _, e := range body.Edges {
+			if e.ToAccount == "acme-ac25" && e.Subject == "evt.*.ghost.*.changed" {
+				found = true
+				Expect(e.FromAccount).To(Equal(ghostPub), "the exporter is outside this deployment's known accounts — shown as the raw pubkey, never dropped")
+				Expect(e.Status).To(Equal("unknown-account"))
+			}
+		}
+		Expect(found).To(BeTrue())
+	})
+
+	// BR-AC26/27/28/29 — business unit name/context split, slug validation and
+	// immutability, and the per-tenant default. RefdataURL is unset in this
+	// suite's setup, so every refdata-service call inside these handlers is a
+	// no-op warn-and-continue — these specs exercise accounts-service's own
+	// contract only, not the cross-service write.
+	Describe("Business units (BR-AC26/27/28/29)", func() {
+		createTenant := func(name string) {
+			resp := doRequest(http.MethodPost, "/api/accounts", map[string]any{"name": name}, accounts.BasicAuthUser, authSecret)
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+		}
+
+		listBUs := func(name string) []businessUnitJSON {
+			resp := doRequest(http.MethodGet, "/api/accounts/"+name+"/business-units", nil, accounts.BasicAuthUser, authSecret)
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			var out []businessUnitJSON
+			Expect(json.NewDecoder(resp.Body).Decode(&out)).To(Succeed())
+			return out
+		}
+
+		It("BR-AC16/BR-AC28: auto-creates a tenant-owned default, not the Phase 22 shared _default_bu", func() {
+			createTenant("bu-ac28")
+			bus := listBUs("bu-ac28")
+			Expect(bus).To(HaveLen(1))
+			Expect(bus[0].Name).To(Equal("Default"))
+			Expect(bus[0].Context).To(Equal("bu-ac28-default"), "each tenant must get its own slug, never the shared _default_bu")
+			Expect(bus[0].IsDefault).To(BeTrue())
+			Expect(bus[0].Visible).To(BeTrue())
+		})
+
+		It("BR-AC26: derives the context slug from name when none is supplied, keeping the two fields distinct", func() {
+			createTenant("bu-ac26")
+			resp := doRequest(http.MethodPost, "/api/accounts/bu-ac26/business-units", map[string]any{
+				"name": "Pacific Fleet",
+			}, accounts.BasicAuthUser, authSecret)
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+			var bu businessUnitJSON
+			Expect(json.NewDecoder(resp.Body).Decode(&bu)).To(Succeed())
+			Expect(bu.Name).To(Equal("Pacific Fleet"))
+			Expect(bu.Context).To(Equal("bu-ac26-pacific-fleet"))
+			Expect(bu.IsDefault).To(BeFalse())
+		})
+
+		It("BR-AC26: an explicitly supplied context is honored instead of the derived one", func() {
+			createTenant("bu-ac26b")
+			resp := doRequest(http.MethodPost, "/api/accounts/bu-ac26b/business-units", map[string]any{
+				"name": "Pacific Fleet", "context": "custom-slug",
+			}, accounts.BasicAuthUser, authSecret)
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+			var bu businessUnitJSON
+			Expect(json.NewDecoder(resp.Body).Decode(&bu)).To(Succeed())
+			Expect(bu.Context).To(Equal("custom-slug"))
+		})
+
+		It("BR-AC27: rejects a context that isn't a legal subject token", func() {
+			createTenant("bu-ac27")
+			resp := doRequest(http.MethodPost, "/api/accounts/bu-ac27/business-units", map[string]any{
+				"name": "West Coast", "context": "West Coast",
+			}, accounts.BasicAuthUser, authSecret)
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest), "a bad slug must fail loudly here, not persist and fail silently downstream in refdata-service")
+		})
+
+		It("BR-AC27: a context slug is globally unique across accounts, not just per-account", func() {
+			createTenant("bu-ac27a")
+			createTenant("bu-ac27b")
+			first := doRequest(http.MethodPost, "/api/accounts/bu-ac27a/business-units", map[string]any{
+				"name": "Shared", "context": "globally-unique-slug",
+			}, accounts.BasicAuthUser, authSecret)
+			defer first.Body.Close()
+			Expect(first.StatusCode).To(Equal(http.StatusCreated))
+
+			second := doRequest(http.MethodPost, "/api/accounts/bu-ac27b/business-units", map[string]any{
+				"name": "Different Name", "context": "globally-unique-slug",
+			}, accounts.BasicAuthUser, authSecret)
+			defer second.Body.Close()
+			Expect(second.StatusCode).To(Equal(http.StatusConflict), "two accounts claiming one slug would let the second silently overwrite the first's context row in refdata-service")
+		})
+
+		It("BR-AC26: renaming changes the display name only — the context slug has no rename path", func() {
+			createTenant("bu-ac26c")
+			created := doRequest(http.MethodPost, "/api/accounts/bu-ac26c/business-units", map[string]any{
+				"name": "Old Name",
+			}, accounts.BasicAuthUser, authSecret)
+			defer created.Body.Close()
+			var bu businessUnitJSON
+			Expect(json.NewDecoder(created.Body).Decode(&bu)).To(Succeed())
+			originalContext := bu.Context
+
+			resp := doRequest(http.MethodPatch, "/api/accounts/bu-ac26c/business-units/"+originalContext, map[string]any{
+				"name": "New Name",
+			}, accounts.BasicAuthUser, authSecret)
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+			bus := listBUs("bu-ac26c")
+			Expect(bus).To(HaveLen(2)) // the auto-created default, plus this one
+			var renamed *businessUnitJSON
+			for i := range bus {
+				if bus[i].Context == originalContext {
+					renamed = &bus[i]
+				}
+			}
+			Expect(renamed).NotTo(BeNil(), "the slug must survive a rename unchanged")
+			Expect(renamed.Name).To(Equal("New Name"))
+		})
+
+		It("BR-AC28: the default business unit cannot be renamed, but stays visibility-toggleable", func() {
+			createTenant("bu-ac28b")
+			bus := listBUs("bu-ac28b")
+			Expect(bus).To(HaveLen(1))
+			defaultContext := bus[0].Context
+
+			renameResp := doRequest(http.MethodPatch, "/api/accounts/bu-ac28b/business-units/"+defaultContext, map[string]any{
+				"name": "Renamed Default",
+			}, accounts.BasicAuthUser, authSecret)
+			defer renameResp.Body.Close()
+			Expect(renameResp.StatusCode).To(Equal(http.StatusConflict))
+
+			visResp := doRequest(http.MethodPatch, "/api/accounts/bu-ac28b/business-units/"+defaultContext, map[string]any{
+				"visible": false,
+			}, accounts.BasicAuthUser, authSecret)
+			defer visResp.Body.Close()
+			Expect(visResp.StatusCode).To(Equal(http.StatusNoContent), "BR-AC17's hide-once-a-real-BU-exists flow depends on the default staying toggleable")
+
+			bus = listBUs("bu-ac28b")
+			Expect(bus[0].Visible).To(BeFalse())
+			Expect(bus[0].Name).To(Equal("Default"), "the rejected rename must not have partially applied")
+		})
+
+		It("lists the default business unit first, ahead of every real one", func() {
+			createTenant("bu-order")
+			addResp := doRequest(http.MethodPost, "/api/accounts/bu-order/business-units", map[string]any{
+				"name": "Atlantic Fleet",
+			}, accounts.BasicAuthUser, authSecret)
+			defer addResp.Body.Close()
+			Expect(addResp.StatusCode).To(Equal(http.StatusCreated))
+
+			bus := listBUs("bu-order")
+			Expect(bus).To(HaveLen(2))
+			Expect(bus[0].IsDefault).To(BeTrue(), "the default is the one row guaranteed to exist and should anchor the list, not sort alphabetically among the rest")
+		})
 	})
 })
 

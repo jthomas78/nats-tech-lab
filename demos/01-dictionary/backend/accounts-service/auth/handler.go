@@ -16,10 +16,12 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
 )
@@ -48,6 +50,21 @@ type Handlers struct {
 
 func NewHandlers(store *accounts.Store, wsURL string, log *slog.Logger) *Handlers {
 	return &Handlers{Store: store, WSUrl: wsURL, Log: log}
+}
+
+// tokenTTL resolves the currently-configured browser/admin JWT TTL (BR-AC20)
+// from the system-config row, read fresh on every mint so a change from the
+// Admin UI takes effect on the next connect without a restart. A read failure
+// falls back to the default rather than failing the mint — issuing a
+// short-lived credential on the default TTL is strictly safer than refusing to
+// connect the browser at all.
+func (h *Handlers) tokenTTL(ctx context.Context) time.Duration {
+	cfg, err := h.Store.GetTokenTTLConfig(ctx)
+	if err != nil {
+		h.Log.Warn("read token TTL config; using default", "err", err)
+		return accounts.DefaultTokenTTLConfig().TTL()
+	}
+	return cfg.TTL()
 }
 
 // platformAccountName is accounts-service's own lowercase row name for the
@@ -99,7 +116,7 @@ func (h *Handlers) connectInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := MintBrowserToken(acc.PublicKey, acc.SigningKeySeed, tenant, h.WSUrl)
+	info, err := MintBrowserToken(acc.PublicKey, acc.SigningKeySeed, tenant, h.WSUrl, h.tokenTTL(r.Context()))
 	if err != nil {
 		h.Log.Error("mint browser token", "tenant", tenant, "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to mint browser credential")
@@ -133,7 +150,7 @@ func (h *Handlers) adminConnectInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := MintAdminToken(acc.PublicKey, acc.SigningKeySeed, h.WSUrl)
+	info, err := MintAdminToken(acc.PublicKey, acc.SigningKeySeed, h.WSUrl, h.tokenTTL(r.Context()))
 	if err != nil {
 		h.Log.Error("mint admin token", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to mint admin credential")
