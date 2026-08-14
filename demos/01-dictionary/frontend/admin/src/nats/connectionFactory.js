@@ -1,12 +1,23 @@
-// Shared connect/reconnect/subscribe machinery behind useNatsConnection.js
-// (tenant) and usePlatformConnection.js (PLATFORM) — Phase 23's dual-
-// connection model for frontend/admin, replacing its EventSource/SSE
-// streams. Both composables are subscribe-only (the Admin UI inspects, it
-// never issues api.* commands the way seafreight-app's useNatsConnection.js
-// does), so this factory has no request()/publish surface at all — adding
-// one before anything needs it would be exactly the speculative feature
-// CLAUDE.md's "don't design for hypothetical future requirements" warns
-// against.
+// Shared connect/reconnect/subscribe/request machinery behind
+// useNatsConnection.js (tenant) and usePlatformConnection.js (PLATFORM) —
+// Phase 23's dual-connection model for frontend/admin, replacing its
+// EventSource/SSE streams.
+//
+// This factory was subscribe-only until Phase 26h, on the explicit grounds
+// that "adding [a request surface] before anything needs it would be exactly
+// the speculative feature CLAUDE.md's 'don't design for hypothetical future
+// requirements' warns against". Phase 26h is that need arriving: the Admin
+// UI's Trading Partners screens call trading-partner-service over
+// api.{context}.trading-partner.* instead of REST.
+//
+// request() is only usable on the *tenant* connection. The PLATFORM
+// credential from GET /api/auth/adminConnectInfo is publish-denied at the JWT
+// level (auth/token.go's MintAdminToken sets Pub.Deny = ">"), while the tenant
+// credential from GET /api/auth/connectInfo?tenant=… already carries
+// Pub.Allow = ["api.>", "_INBOX.>"] — the same MintBrowserToken seafreight
+// uses. Calling request() on the platform connection will fail the publish
+// authorization, by design; nothing here needs to guard it because no caller
+// has a reason to try.
 //
 // Modeled directly on seafreight-app/src/nats/useNatsConnection.js's
 // connect/disconnect/auto-reconnect-on-close shape (same short-lived-JWT,
@@ -16,10 +27,17 @@
 // has its own separate node_modules from seafreight-app's.
 
 import { ref } from 'vue'
-import { jwtAuthenticator, wsconnect } from '@nats-io/nats-core'
+import { headers, jwtAuthenticator, wsconnect } from '@nats-io/nats-core'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
+
+// Matches seafreight-app's convention (Phase 18): a per-tab identity the
+// Admin UI's own Request/Reply panel can attribute traffic to, and the value
+// trading-partner-service records as an audit row's sourceIP (NATS has no
+// client address to record instead — see browserrpc's actor()).
+const REQUESTOR_HEADER = 'Nats-Requestor'
+const REQUEST_TIMEOUT_MS = 10000
 
 function errorMessage(err) {
   return err instanceof Error ? err.message : String(err)
@@ -37,6 +55,11 @@ function errorMessage(err) {
 export function createConnectionState({ fetchConnectInfo, connectionName }) {
   const connected = ref(false)
   const lastError = ref('')
+
+  // Per-instance so the tenant and PLATFORM connections are distinguishable in
+  // the Request/Reply panel, and stable for the tab's lifetime so a series of
+  // calls is attributable to one session.
+  const requestorID = `${connectionName}/${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
 
   let nc = null
   let connectSeq = 0
@@ -115,5 +138,24 @@ export function createConnectionState({ fetchConnectInfo, connectionName }) {
     return () => sub.unsubscribe()
   }
 
-  return { connected, lastError, connect, disconnect, subscribe }
+  // request performs one api.* call: JSON-encodes payload, sends it, decodes
+  // the JSON reply. Throws if the service replied with an {error} envelope
+  // (browserrpc.errorResponse — the same shape every service in this repo
+  // uses) so callers use ordinary try/catch instead of checking a field, which
+  // also keeps the api.js functions' contract identical to the fetch-based
+  // ones they replace. Mirrors seafreight-app's request() deliberately.
+  async function request(subject, payload) {
+    if (!nc) throw notConnectedError()
+    const h = headers()
+    h.set(REQUESTOR_HEADER, requestorID)
+    const msg = await nc.request(subject, encoder.encode(JSON.stringify(payload ?? {})), {
+      timeout: REQUEST_TIMEOUT_MS,
+      headers: h,
+    })
+    const body = msg.data.length ? JSON.parse(decoder.decode(msg.data)) : {}
+    if (body.error) throw new Error(body.error)
+    return body
+  }
+
+  return { connected, lastError, connect, disconnect, subscribe, request }
 }

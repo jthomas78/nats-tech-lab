@@ -79,7 +79,7 @@ export const useDictionaryStore = defineStore('dictionary', {
       this.events = []
       this.seenPorts = []
 
-      const { connected: tenantConnected, subscribe } = useNatsConnection()
+      const { connected: tenantConnected, subscribe, tenant } = useNatsConnection()
 
       // Seed the port list from the Postgres-backed ports registry
       // (BR-017/BR-018) so the dropdown reflects real, arrival-eligible
@@ -112,7 +112,7 @@ export const useDictionaryStore = defineStore('dictionary', {
 
       for (const [shape, bucket] of buckets) {
         try {
-          const rows = await getKvBucketEntries(bucket)
+          const rows = await getKvBucketEntries(tenant.value, bucket)
           const prefix = this.context + '.'
           for (const row of rows ?? []) {
             if (!row.key.startsWith(prefix)) continue

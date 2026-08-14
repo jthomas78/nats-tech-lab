@@ -2,7 +2,7 @@
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
 import Tag from 'primevue/tag'
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import SubjectPath from './SubjectPath.vue'
 import { getJetstreamReplay } from '../api'
@@ -13,8 +13,16 @@ import { useNatsConnection } from '../nats/useNatsConnection.js'
 // dropped — it only ever worked for the SHIPPING stream, and a snapshot
 // re-fetched on every mount/tenant-switch covers the same "see what's in
 // this stream" need without a second tab).
+//
+// account is required alongside stream because a stream name is only unique
+// WITHIN a NATS account — every tenant provisions its own SHIPPING — so the
+// replay fetch would otherwise be ambiguous about which one it means.
 const props = defineProps({
+  account: { type: String, required: true },
   stream: { type: String, required: true },
+  // One row of listStreams' response for this stream, or undefined if the
+  // rail hasn't polled yet — purely for the header's status line.
+  status: { type: Object, default: undefined },
 })
 
 // A DeliverAll replay can dump hundreds or thousands of messages in a
@@ -27,7 +35,7 @@ const streamConnected = ref(false)
 async function connectStream() {
   streamConnected.value = false
   try {
-    streamEvents.value = (await getJetstreamReplay(props.stream)) ?? []
+    streamEvents.value = (await getJetstreamReplay(props.account, props.stream)) ?? []
     streamConnected.value = true
   } catch {
     streamEvents.value = []
@@ -36,14 +44,52 @@ async function connectStream() {
 
 onMounted(connectStream)
 
-// Re-fetch on tenant switch — this stream name can exist under more than
-// one tenant's account (e.g. SHIPPING), so without this the panel kept
-// showing the previous tenant's snapshot until the stream tab was
-// remounted. Same mount-order-race guard pattern as KvInspector.vue.
-const { connected: tenantConnected } = useNatsConnection()
+// Re-fetch on tenant (re)connect. The snapshot itself is backend-mediated and
+// keyed on props.account, so it no longer goes stale when the topbar tenant
+// changes the way it did when this endpoint read the active tenant's Deps.JS —
+// but a switch can bring a previously-unseen tenant's resources into existence
+// server-side, and a fresh connection is worth a re-read regardless.
+const { connected: tenantConnected, tenant } = useNatsConnection()
 watch(tenantConnected, (isConnected) => {
   if (isConnected) connectStream()
 })
+
+// This panel has no live tail at all — every stream shows a point-in-time
+// replay snapshot — but WHY differs by account, and saying so beats leaving
+// the operator to wonder why nothing ever arrives. Mirrors
+// KvInspector.vue's liveUnavailableReason.
+//
+// For another account it's a hard boundary, not a missing feature: NATS
+// enforces account isolation at the server, so a browser authenticated into
+// ACME's account cannot subscribe to GLOBEX's or PLATFORM's subjects, full
+// stop. The snapshot still works because the backend holds a connection per
+// account and fetches it on the browser's behalf.
+const snapshotReason = computed(() => {
+  const isolation = `NATS enforces account isolation at the server, so this browser — authenticated as "${tenant.value || 'none'}" — cannot subscribe to ${props.account}'s subjects.`
+  // PLATFORM isn't a tenant, so unlike another tenant's account there is no
+  // topbar selection that would ever make it live from here.
+  if (props.account === 'platform') {
+    return `Point-in-time snapshot, fetched by the backend over the PLATFORM connection. No live tail: ${isolation} PLATFORM isn't a selectable tenant, so this panel only ever reads it as a snapshot.`
+  }
+  if (props.account !== tenant.value) {
+    return `Point-in-time snapshot, fetched by the backend. No live tail: ${isolation} Switch the topbar tenant to "${props.account}" to watch it live.`
+  }
+  return 'Point-in-time snapshot, re-fetched when you reselect this stream or reconnect the tenant.'
+})
+
+// A stream with exactly one configured subject filter (REFDATA, RPCTRACE) is
+// the common case here, not an edge case, so the header shouldn't read
+// "1 subject filters".
+function pluralize(n, noun) {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`
+}
+
+function formatBytes(n) {
+  if (n == null) return '—'
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 function subjectSeverity(subject) {
@@ -83,11 +129,26 @@ function fullPayload(payload) {
 
 <template>
   <div class="stream-view">
-    <div class="stream-status">
-      <span class="stream-status-label">Stream</span>
-      <Tag :severity="streamConnected ? 'success' : 'secondary'" :value="streamConnected ? 'connected' : 'idle'" class="stream-status-tag" />
-      <span v-if="streamEvents.length" class="msg-count">{{ streamEvents.length }}</span>
-    </div>
+    <header class="detail-head">
+      <div class="detail-title">
+        <code class="stream-name">{{ stream }}</code>
+        <Tag severity="secondary" :value="account" class="stream-status-tag" />
+        <Tag
+          :severity="streamConnected ? 'success' : 'secondary'"
+          :value="streamConnected ? 'snapshot' : 'idle'"
+          class="stream-status-tag"
+        />
+        <span v-if="streamEvents.length" class="msg-count">{{ streamEvents.length }}</span>
+      </div>
+      <div v-if="status" class="detail-meta lab-muted">
+        <span><strong>{{ status.messages }}</strong> messages</span>
+        <span>· {{ formatBytes(status.bytes) }}</span>
+        <span>· seq {{ status.firstSeq }}–{{ status.lastSeq }}</span>
+        <span>· {{ pluralize(status.subjects, 'subject filter') }}</span>
+        <span>· {{ pluralize(status.consumers, 'consumer') }}</span>
+      </div>
+      <p class="snapshot-note lab-muted">{{ snapshotReason }}</p>
+    </header>
 
     <div class="sub-panel">
       <DataTable
@@ -139,20 +200,40 @@ function fullPayload(payload) {
   display: flex;
   flex-direction: column;
 }
-.stream-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+/* Header mirrors KvInspector.vue's detail-head, so the two cross-account
+   inspector panels read as one pattern. */
+.detail-head {
   flex-shrink: 0;
   margin: 0.5rem 0 0.4rem;
 }
-.stream-status-label {
-  font-size: 13px;
+.detail-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.stream-name {
+  font-size: 14px;
   font-weight: 600;
   color: var(--p-text-color);
 }
 .stream-status-tag {
   font-size: 10px;
+}
+.detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  font-size: 11px;
+  margin-top: 3px;
+}
+.detail-meta strong {
+  color: var(--p-text-color);
+  font-variant-numeric: tabular-nums;
+}
+.snapshot-note {
+  font-size: 11px;
+  margin: 3px 0 0;
+  max-width: 78ch;
 }
 .msg-count {
   font-size: 11px;

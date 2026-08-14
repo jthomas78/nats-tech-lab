@@ -19,15 +19,16 @@
 //	GET    /api/shape-b/ships/{context}/{shipID}      read ship via KV cache → Postgres
 //	DELETE /api/shape-b/cache/{context}/{shipID}      evict cache key (demo the miss path)
 //	GET    /api/shape-c/fleet                         reconstruct fleet + containers from JetStream replay
-//	GET    /api/kv/buckets                             every KV bucket registered on the NATS server (+ status)
-//	GET    /api/kv/buckets/{bucket}/entries             one-shot JSON array of current bucket contents (Phase 23 bootstrap; live changes arrive via notify.{context}.kv.{bucket}.{key}.changed)
-//	GET    /api/jetstream/streams                      names of every stream registered on the NATS server
-//	GET    /api/jetstream/replay                      one-shot JSON array of all currently-retained JetStream messages (Phase 23 bootstrap; live tail arrives via notify.{context}.shipping.raw.*)
+//	GET    /api/kv/buckets                             every KV bucket across every account this backend reaches, tagged by account (+ status) — not scoped to the active tenant
+//	GET    /api/kv/buckets/{account}/{bucket}/entries   one-shot JSON array of current bucket contents (Phase 23 bootstrap; live changes arrive via notify.{context}.kv.{bucket}.{key}.changed)
+//	GET    /api/jetstream/streams                      every event stream across every account this backend reaches, tagged by account (+ status) — not scoped to the active tenant; KV_* excluded
+//	GET    /api/jetstream/replay                      one-shot JSON array of all currently-retained messages in ?account=&stream= (Phase 23 bootstrap; live tail arrives via notify.{context}.shipping.raw.*, tenant account only)
 //	GET    /api/rpctrace/replay                        one-shot JSON array of all currently-retained RPCTRACE entries (Phase 23 bootstrap; live tail arrives via notify._platform.rpctrace.entry)
 //	GET    /api/tenant                                 active tenant + switchable tenant list (Phase 13b)
 //	POST   /api/tenant/switch                          reconnect under a different tenant's NATS account (Phase 13b)
 //	GET    /api/nats/connections                       every active NATS connection (proxies the server's /connz, Phase 17c)
 //	GET    /api/nats/services                          every micro-registered service + instance + endpoint stats ($SRV.PING/STATS, Phase 17c)
+//	GET    /api/nats/account-activity                  per-account traffic + slow-consumer health (proxies the server's /accstatz, Phase 27)
 package rest
 
 import (
@@ -36,6 +37,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"sync/atomic"
 
@@ -130,8 +132,17 @@ type Deps struct {
 	Refdata    *refdataconsumer.Consumer // rpc.*-only cross-service consumer (BR-D08) — no KV dep
 	JS         jetstream.JetStream       // tenant-scoped: SHIPPING stream, ship/container KV, KV+JetStream inspector panels
 	PlatformJS jetstream.JetStream       // permanent PLATFORM-account JS — only for watchRefdata's REFDATA-stream consumer
-	NC         *nats.Conn                // permanent PLATFORM-account conn (Phase 12.10 — obs.rpc.* SSE bridge)
-	Log        *slog.Logger
+	// PlatformFullJS is the SECOND, unrestricted PLATFORM-account JS
+	// (platform.creds, not shipping-admin.creds like PlatformJS above) — read
+	// by introspectableAccounts, so listKVBuckets and listStreams can see
+	// refdata-service's KV_* streams and PLATFORM's REFDATA/RPCTRACE
+	// ($JS.API.STREAM.LIST, which shipping-admin is deliberately denied). See
+	// monolith.Monolith.PlatformFullJS' doc comment. May be nil (local dev
+	// outside Docker, or the connection failed at Startup) —
+	// introspectableAccounts skips the "platform" account entirely when nil.
+	PlatformFullJS jetstream.JetStream
+	NC             *nats.Conn // permanent PLATFORM-account conn (Phase 12.10 — obs.rpc.* SSE bridge)
+	Log            *slog.Logger
 
 	// Tenant-switch plumbing (Phase 13b) — shipping-service only; refdata-service
 	// stays on PLATFORM (see Main-POC-Plan.md Phase 13b, cost #3).
@@ -212,7 +223,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/shape-b/cache/{context}/{shipID}", h.evictShipCache)
 	mux.HandleFunc("GET /api/shape-c/fleet", h.getFleet)
 	mux.HandleFunc("GET /api/kv/buckets", h.listKVBuckets)
-	mux.HandleFunc("GET /api/kv/buckets/{bucket}/entries", h.kvBucketEntriesOnce)
+	mux.HandleFunc("GET /api/kv/buckets/{account}/{bucket}/entries", h.kvBucketEntriesOnce)
 	mux.HandleFunc("GET /api/jetstream/streams", h.listStreams)
 	mux.HandleFunc("GET /api/jetstream/replay", h.jetstreamReplayOnce)
 	mux.HandleFunc("GET /api/rpctrace/replay", h.rpcTraceReplayOnce)
@@ -225,6 +236,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/tenant/switch", h.switchTenant)
 	mux.HandleFunc("GET /api/nats/connections", h.listNatsConnections)
 	mux.HandleFunc("GET /api/nats/services", h.listNatsServices)
+	mux.HandleFunc("GET /api/nats/account-activity", h.listNatsAccountActivity)
 	mux.HandleFunc("GET /api/nats/log", h.tailNatsLog)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -775,30 +787,84 @@ func (h *Handlers) getFleet(w http.ResponseWriter, r *http.Request) {
 
 // ─── JetStream introspection ──────────────────────────────────────────────────
 
+// jsStream is one registered JetStream stream's run-time status — the stream
+// rail's row shape, and the direct analogue of kv.go's kvBucket.
+//
+// Account is the NATS account this stream lives in (a known tenant name, or
+// "platform"). Stream names are only unique WITHIN an account — every tenant
+// provisions its own SHIPPING — so this is what lets the rail group streams
+// correctly instead of collapsing same-named rows from different accounts into
+// one, and it's what /api/jetstream/replay needs to know which account's
+// stream to replay.
+//
+// Subjects counts the stream's *configured* subject filters, not the distinct
+// subjects it has happened to receive: the former says what the stream
+// captures (stable, and the interesting fact about a stream's design), the
+// latter just tracks traffic, which Messages already covers.
+type jsStream struct {
+	Stream    string `json:"stream"`
+	Account   string `json:"account"`
+	Subjects  int    `json:"subjects"`
+	Messages  uint64 `json:"messages"`
+	Bytes     uint64 `json:"bytes"`
+	FirstSeq  uint64 `json:"firstSeq"`
+	LastSeq   uint64 `json:"lastSeq"`
+	Consumers int    `json:"consumers"`
+}
+
+type jsStreamsResponse struct {
+	Streams []jsStream `json:"streams"`
+}
+
 // listStreams godoc
 //
 // @Summary      List registered streams
-// @Description  Names of every event stream registered on the NATS server (not just SHIPPING) — lets the frontend's stream picker reflect what's actually provisioned. KV_* streams are NATS' internal storage for KV buckets, not event streams a client watches for messages, so they're excluded.
+// @Description  Every event stream registered across every NATS account this backend holds a connection to — each known tenant's SHIPPING plus the PLATFORM account's REFDATA/RPCTRACE — tagged with its account and carrying run-time status (message count, bytes, configured subject count, first/last sequence, consumer count). Deliberately NOT scoped to the topbar's currently-selected tenant: a tenant switch reconnects Deps.JS for command/query traffic, but this is a read-only cross-account diagnostic view (same rationale as /api/kv/buckets). KV_* streams are NATS' internal backing storage for KV buckets, not event streams a client watches for messages, so they're excluded — /api/kv/buckets reports those as buckets instead.
 // @Tags         streams
 // @Produce      json
-// @Success      200  {object}  metaValuesResponse
+// @Success      200  {object}  jsStreamsResponse
 // @Failure      500  {object}  errorResponse
 // @Router       /api/jetstream/streams [get]
 func (h *Handlers) listStreams(w http.ResponseWriter, r *http.Request) {
-	lister := h.deps().JS.StreamNames(r.Context())
-	names := []string{}
-	for name := range lister.Name() {
-		if strings.HasPrefix(name, "KV_") {
-			continue
+	ctx := r.Context()
+
+	streams := []jsStream{}
+	for _, acct := range h.introspectableAccounts() {
+		lister := acct.js.ListStreams(ctx)
+		for info := range lister.Info() {
+			// Every KV bucket is backed by a KV_<bucket> stream. Without this
+			// filter the panel would list all of them and simply duplicate the
+			// KV Buckets panel next door.
+			if strings.HasPrefix(info.Config.Name, "KV_") {
+				continue
+			}
+			streams = append(streams, jsStream{
+				Stream:    info.Config.Name,
+				Account:   acct.name,
+				Subjects:  len(info.Config.Subjects),
+				Messages:  info.State.Msgs,
+				Bytes:     info.State.Bytes,
+				FirstSeq:  info.State.FirstSeq,
+				LastSeq:   info.State.LastSeq,
+				Consumers: info.State.Consumers,
+			})
 		}
-		names = append(names, name)
+		if err := lister.Err(); err != nil {
+			h.deps().Log.Error("list streams", "account", acct.name, "err", err)
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
 	}
-	if err := lister.Err(); err != nil {
-		h.deps().Log.Error("list streams", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"values": names})
+	// Stable order (account, then stream name) so the rail's groups and rows
+	// don't reshuffle between the frontend's polls — TenantResources is a map,
+	// so introspectableAccounts' own order is random.
+	sort.Slice(streams, func(i, j int) bool {
+		if streams[i].Account != streams[j].Account {
+			return streams[i].Account < streams[j].Account
+		}
+		return streams[i].Stream < streams[j].Stream
+	})
+	writeJSON(w, http.StatusOK, jsStreamsResponse{Streams: streams})
 }
 
 // ─── Error mapping ────────────────────────────────────────────────────────────

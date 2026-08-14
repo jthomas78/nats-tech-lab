@@ -107,18 +107,26 @@ docker compose down -v       # also drop NATS and Postgres data volumes
 | Swagger UI (refdata)  | http://localhost:7201/swagger/                              |
 | refdata-service API   | http://localhost:7201                                       |
 | accounts-service API  | http://localhost:7202                                       |
+| pricing-service API   | http://localhost:7203                                       |
+| trading-partner-service API | http://localhost:7204                                |
 | NATS client           | nats://localhost:4222                                       |
 | NATS monitor          | http://localhost:8222                                       |
 | NATS WebSocket        | ws://localhost:9222                                          |
 | Postgres (shipping-service) | localhost:5432                                         |
 | Postgres (refdata-service)  | localhost:5433                                         |
 | Postgres (accounts-service) | localhost:5434                                         |
+| Postgres (pricing-service)  | localhost:5435                                         |
+| Postgres (trading-partner-service) | localhost:5436                                  |
 
 **Postgres credentials (shipping-service):** host `localhost`, port `5432`, user `dict`, password `dict`, database `dictionary`
 
 **Postgres credentials (refdata-service):** host `localhost`, port `5433`, user `refdata`, password `refdata`, database `refdata` — its own instance, not a schema on the one above (see `backend/refdata-service/README.md`).
 
 **Postgres credentials (accounts-service):** host `localhost`, port `5434`, user `accounts`, password `accounts`, database `accounts` — its own instance. Browser NATS credential minting (Phase 15c, folded into this service as its `auth` package in Phase 19 — see `backend/accounts-service/auth/`) reads the same instance in-process, no longer a separate service.
+
+**Postgres credentials (pricing-service):** host `localhost`, port `5435`, user `pricing`, password `pricing`, database `pricing` — its own instance (Phase 25).
+
+**Postgres credentials (trading-partner-service):** host `localhost`, port `5436`, user `trading_partner`, password `trading_partner`, database `trading_partner` — its own instance (Phase 26).
 
 ## Dev mode (outside Docker)
 

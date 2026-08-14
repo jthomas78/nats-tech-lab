@@ -5,6 +5,7 @@ import Tag from 'primevue/tag'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import { getNatsConnections, listAccounts } from '../api'
+import { compactCount, exactCount } from '../format'
 
 // Connections panel (Phase 17c) — every active NATS connection, proxied
 // from the server's own /connz monitoring endpoint. Distinct from the
@@ -19,6 +20,21 @@ const REFRESH_MS = 10000
 const connections = ref([])
 const loading = ref(true)
 const errorMsg = ref('')
+
+// /connz's paging envelope, passed straight through by the backend. `limit`
+// is the page SIZE the server applied (its default is 1024) — NOT
+// max_connections: 1024 connections is not a "full" server, it's just where
+// /connz stops filling one response. The panel renders it to answer one
+// question — "is the list below every connection, or one page of several?" —
+// which is unanswerable from the rows alone.
+const page = ref({ numConnections: 0, total: 0, offset: 0, limit: 0 })
+
+// The server's own ceilings, read from /varz. maxConnections IS a cap — the
+// server refuses the next connection past it — so unlike page.limit above it
+// earns "N of max" framing. Zero means /varz didn't answer (a secondary read
+// the backend absorbs), and the panel then draws no capacity rail rather than
+// implying the server is unlimited.
+const serverLimits = ref({ maxConnections: 0 })
 
 // accounts-service's own account list (name ↔ publicKey) is the naming
 // AUTHORITY here, not a fallback: accounts-service's whole job is knowing
@@ -46,6 +62,8 @@ async function refresh() {
   try {
     const res = await getNatsConnections()
     connections.value = res?.connections ?? []
+    page.value = res?.page ?? { numConnections: 0, total: 0, offset: 0, limit: 0 }
+    serverLimits.value = res?.server ?? { maxConnections: 0 }
     errorMsg.value = ''
   } catch (err) {
     errorMsg.value = err.message || 'Failed to load connections'
@@ -71,6 +89,65 @@ const natsCount = computed(() => connections.value.filter((c) => c.type === 'nat
 const wsCount = computed(() => connections.value.filter((c) => c.type === 'websocket').length)
 const totalInMsgs = computed(() => connections.value.reduce((sum, c) => sum + (c.inMsgs || 0), 0))
 const totalOutMsgs = computed(() => connections.value.reduce((sum, c) => sum + (c.outMsgs || 0), 0))
+
+// ── Total against the server's ceiling ───────────────────────────────────
+// The Total card carries one ratio — connections against max_connections
+// (/varz) — with a bar under it. Only that one, because it's the only real
+// ratio available here: the server refuses clients past max_connections, so
+// "N / max" is true. /connz's `limit` is a page SIZE (how many rows one
+// response carries), so it never gets the same framing — it would read as
+// capacity — and it earns no permanent line either: on a server under 1,024
+// connections it would say "nothing hidden" forever. It surfaces only in the
+// one state where it changes what the table below means (see `truncated`).
+const pageLimit = computed(() => page.value.limit || 0)
+// Every connection the server reported, which is what capacity measures — not
+// the row count, which is only this page.
+const pageTotal = computed(() => page.value.total || connections.value.length)
+const shownCount = computed(() => page.value.numConnections || connections.value.length)
+
+const maxConnections = computed(() => serverLimits.value.maxConnections || 0)
+// One string, one type treatment — the ceiling is not set a size below the
+// count. Both halves are the same kind of number, so the row shows them the
+// same way (as the Msgs card already showed its pair).
+const totalDisplay = computed(() =>
+  maxConnections.value
+    ? `${compactCount(pageTotal.value)} / ${compactCount(maxConnections.value)}`
+    : compactCount(pageTotal.value),
+)
+const capacityFill = computed(() => {
+  if (!maxConnections.value) return 0
+  const pct = (pageTotal.value / maxConnections.value) * 100
+  return Math.round(Math.min(100, pct) * 100) / 100
+})
+// 80% is where AccountsPanel's usage meters turn amber — same threshold, since
+// this is the same kind of reading pressed against a configured limit.
+const capacityHot = computed(
+  () => maxConnections.value > 0 && pageTotal.value / maxConnections.value >= 0.8,
+)
+const capacityTitle = computed(
+  () =>
+    `The server accepts at most ${maxConnections.value.toLocaleString()} client connections (max_connections, reported by /varz) and refuses the next one past that.`,
+)
+
+// ── Paged reading (only surfaced when it changes what the table means) ──
+const truncated = computed(
+  () => pageLimit.value > 0 && page.value.offset + shownCount.value < pageTotal.value,
+)
+const pageCount = computed(() =>
+  pageLimit.value ? Math.max(1, Math.ceil(pageTotal.value / pageLimit.value)) : 1,
+)
+const pageIndex = computed(() =>
+  pageLimit.value ? Math.floor((page.value.offset || 0) / pageLimit.value) + 1 : 1,
+)
+const pagedNote = computed(() =>
+  truncated.value
+    ? `${shownCount.value.toLocaleString()} of ${pageTotal.value.toLocaleString()} shown · page ${pageIndex.value} of ${pageCount.value}`
+    : '',
+)
+const pagedTitle = computed(
+  () =>
+    `/connz returns at most ${pageLimit.value.toLocaleString()} connections per request, so the table below is one page of ${pageCount.value}. That page size is not a limit on connections.`,
+)
 
 // ── Filter ───────────────────────────────────────────────────────────────
 const searchText = ref('')
@@ -130,7 +207,11 @@ function shortAccount(acc) {
     <div class="summary-row">
       <div class="summary-card">
         <div class="summary-label">Total</div>
-        <div class="summary-value">{{ connections.length }}</div>
+        <div class="summary-value" :title="maxConnections ? capacityTitle : null">{{ totalDisplay }}</div>
+        <div v-if="maxConnections" class="gauge" :class="{ hot: capacityHot }" :title="capacityTitle">
+          <div class="gauge-rail"><div class="gauge-fill" :style="{ width: capacityFill + '%' }" /></div>
+        </div>
+        <div v-if="truncated" class="paged-note" :title="pagedTitle">{{ pagedNote }}</div>
       </div>
       <div class="summary-card">
         <div class="summary-label">TCP (nats)</div>
@@ -142,7 +223,10 @@ function shortAccount(acc) {
       </div>
       <div class="summary-card">
         <div class="summary-label">Msgs in / out</div>
-        <div class="summary-value small">{{ totalInMsgs.toLocaleString() }} / {{ totalOutMsgs.toLocaleString() }}</div>
+        <div
+          class="summary-value"
+          :title="`${exactCount(totalInMsgs)} in / ${exactCount(totalOutMsgs)} out`"
+        >{{ compactCount(totalInMsgs) }} / {{ compactCount(totalOutMsgs) }}</div>
       </div>
     </div>
 
@@ -283,7 +367,13 @@ function shortAccount(acc) {
 .summary-row {
   flex: none;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* Cards wrap to a second row rather than squeezing below the width a value
+     needs. A fixed 4-column grid gave ~94px of text room at a 760px viewport,
+     where "20 / 65,536" needs ~102px at the row's one value size — that shortfall
+     is what the old smaller-font-on-some-cards treatment was papering over.
+     165px is the widest realistic pair ("54,120 / 65,536", ~141px) plus padding;
+     the min() keeps very narrow viewports from overflowing instead of wrapping. */
+  grid-template-columns: repeat(auto-fit, minmax(min(165px, 100%), 1fr));
   gap: 0.5rem;
 }
 .summary-card {
@@ -299,14 +389,50 @@ function shortAccount(acc) {
   text-transform: uppercase;
   color: var(--p-text-disabled-color);
 }
+/* Every value in this row, without exception: same size, weight and color,
+   whether the card holds one number or a pair. Counters that outgrow the card
+   shorten (compactCount) instead of shrinking the type — see ../format.js. */
 .summary-value {
   font-size: 20px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   margin-top: 2px;
 }
-.summary-value.small {
-  font-size: 15px;
+
+/* ── capacity bar: connections against max_connections ── */
+.gauge {
+  margin-top: 6px;
+  cursor: help;
+}
+.gauge-rail {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--lab-panel-border);
+}
+.gauge-fill {
+  height: 100%;
+  /* A fraction of a percent on a ~110px card is sub-pixel — hold the fill at a
+     legible tick so "barely any of it used" reads as a mark on the rail rather
+     than an empty rail. */
+  min-width: 4px;
+  border-radius: 1px;
+  background: var(--lab-accent);
+}
+/* Same amber the Accounts panel uses for a usage threshold — this is that same
+   signal (a reading pressed against a limit), so it adds no new color. */
+.gauge.hot .gauge-fill {
+  background: var(--p-amber-400, #fbbf24);
+}
+
+/* Appears only when /connz paged, i.e. when the table below is partial — never
+   in the steady state, where it would say "nothing hidden" forever. */
+.paged-note {
+  margin-top: 5px;
+  font-size: 10px;
+  line-height: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--p-amber-400, #fbbf24);
+  cursor: help;
 }
 
 /* ── toolbar (mirrors RpcPanel's) ── */

@@ -1,4 +1,5 @@
 ---
+_verified: "2026-08-13 — still PROPOSED, not implemented. provisioner.go uses the unscoped SigningKeys.Add (the one AddScopedSigner call only preserves a pre-existing scoped signer); resolver JWTs carry flat key-string arrays, not permission templates. So a user JWT's own permissions ARE authoritative today — see linebooker_trading_partner_phase_v1_scope."
 name: nats-scoped-signing-keys
 description: Scoped signing keys let the NATS server enforce a permission template and discard whatever the user JWT claims — the mechanism for org-inside-account isolation and for fixing unrestricted service creds
 metadata:

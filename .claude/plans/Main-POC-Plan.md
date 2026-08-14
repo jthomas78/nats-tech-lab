@@ -261,7 +261,10 @@ or checklist detail for a specific completed phase).
 - [x] Phase 17 (17a/17b/17c) — Request/Reply Panel v2, Connections + Services Panels: obs envelope
       gained headers/timestamp/size (BR-D36/BR-026); panel rebuilt with filtering, facets, paired
       Request/Reply detail; new Connections/Services admin panels (BR-028) with account→tenant
-      labeling and coverage-audit-driven Vitest infra for `frontend/admin`
+      labeling and coverage-audit-driven Vitest infra for `frontend/admin`; Connections' Total card
+      now reads `N / max_connections` (from `/varz`) with a capacity bar under it, amber at 80%,
+      and surfaces `/connz`'s paging envelope only when a response actually paged — the page size
+      is never framed as a connection ceiling
 - [x] Phase 18 — Requestor/Responder Identity Headers: `Nats-Requestor`/`Nats-Responder` headers
       (BR-D37/BR-027) identify caller/responder instance on every `rpc.*`/`api.*` call
 - [x] Phase 19 — Merge auth-service into accounts-service: `auth-service` had no independent state
@@ -827,7 +830,7 @@ Resolved identity becomes `major.minor` (e.g. `v3.0` published content,
 - [x] `BUSINESS_RULES-PRICING.md` updated with BR-P17–P24 (IMPLEMENTED, Phase 25i); index in `BUSINESS_RULES.md` range updated
 - [x] Plan checklist updated to reflect landed sub-phases
 
-### Phase 26 (PROPOSED — awaiting approval) — Trading Partner Service: Shipper/Transporter Registration
+### Phase 26 (IMPLEMENTED, 2026-08-13) — Trading Partner Service: Shipper/Transporter Registration
 
 #### Goal
 
@@ -843,25 +846,117 @@ section rather than RefData UI — this is organisation-owned master data that
 *consumes* refdata lookups, not a vocabulary itself
 (`linebooker_registration_ui_placement.md`).
 
-**Confirmed CQRS classification:** plain Postgres CRUD, not event-sourced —
-a `TradingPartner`'s current registration state is all that's ever queried;
-nothing replays a log to reconstruct it. **Deferred, not rejected:** the user
-flagged wanting a follow-up exploration of whether the Registered→Active
-transition should eventually become its own CQRS/event-sourced shape or use
-a temporal/effective-dated model (e.g. for re-vetting after suspension) —
-recorded here as a named open item, not designed or scheduled yet
-(`linebooker_trading_partner_phase_v1_scope.md`).
+**Why Admin UI and not `seafreight-app`, given Phase 25's counter-precedent.**
+The immediately preceding "port a real V2 domain" phase put its UI in
+`frontend/seafreight-app/` (`PricingPanel.vue`, nav key `pricing`), not Admin
+— so the precedent for "ported business domain → which frontend" currently
+points at the ops app, and this phase deliberately diverges from it. The
+distinction is *who does the task, and how often*: pricing is day-to-day
+operational work performed by the same people running ships and terminals,
+whereas partner onboarding is operator-administration — rare, privileged,
+PII/KYC-bearing, and adjacent to the tenant lifecycle already administered on
+the Accounts screen. That places it with Accounts in the Admin UI, matching
+`linebooker_registration_ui_placement.md`'s reasoning. Recorded explicitly so
+a later reader doesn't find two ported domains in two different frontends
+with no stated reason.
+
+**Confirmed CQRS classification.** CLAUDE.md's test ("does anything need to
+replay this?") applies per entity, not per service, so it is applied per
+entity here rather than asserted once for the phase:
+
+- **`TradingPartner` identity** (`name`, `registrationNo`, `vatRegistrationNo`,
+  …) — only current state is ever queried; nothing reconstructs a partner
+  from a log. **Plain Postgres CRUD.**
+- **`FleetAsset`** — same; a truck's current registration/VIN/make/model is
+  all anything asks for. **Plain Postgres CRUD.**
+- **`ComplianceDocument` — CRUD now, temporal later (not a clean CRUD case).**
+  "Was this partner's GIT cover valid on the date of the load that was
+  damaged?" is a point-in-time question, which is precisely CLAUDE.md's own
+  *"a rate table where 'what was in effect on date X' matters"* counter-example
+  to the reference-data-looking-therefore-CRUD instinct. v1 still ships plain
+  CRUD — nothing in the POC asks that question yet — but the classification is
+  provisional and is filed under the deferred item below, not settled
+  alongside the two above.
+- **Status transitions** — the deferred item itself; see below.
+
+Note on the Phase 25 precedent: pricing-service avoided event sourcing but did
+**not** avoid history — it built an explicit draft/published/rolled-back
+version lifecycle in Postgres (BR-P07–P12). In this repo, "ported domain,
+plain CRUD" has in practice meant "CRUD *plus* explicit versioning wherever
+history matters." Phase 25 is not a licence for pure CRUD everywhere, and
+`ComplianceDocument` above is where that distinction bites.
+
+**Deferred, not rejected (named open item, not designed or scheduled):** the
+user flagged wanting a follow-up exploration of whether the Registered→Active
+transition should eventually become its own CQRS/event-sourced shape or use a
+temporal/effective-dated model (e.g. for re-vetting after suspension)
+(`linebooker_trading_partner_phase_v1_scope.md`). Two further questions belong
+in that *same* exploration rather than being decided piecemeal: (a)
+`ComplianceDocument`'s temporal classification above, and (b)
+document-expiry-driven suspension (see "Deferred: document-driven status"
+below).
 
 **Scope decisions confirmed 2026-08-13** (full detail:
 `linebooker_trading_partner_phase_v1_scope.md`):
 
 - **No platform-identity/tenant-membership split for v1.** One
   `TradingPartner` record (identity + status), no separate platform-account
-  vs. tenant-membership tables. Revisit only if a real cross-tenant
-  membership need appears.
-- **Status is a simple two-state lifecycle: `Registered` → `Active`**, set
-  **manually**, independent of compliance-document approval state (not
-  derived/gated by documents in v1).
+  vs. tenant-membership tables.
+  **Why this does not make "suspended" ambiguous:** `TradingPartner.context`
+  is not a free-floating label. `accounts.business_units` carries a
+  **globally unique** `context` column with an `account_id` FK
+  (`accounts/store.go`'s `business_units_context_key`), and refdata's
+  `domain.Context` carries a `Tenant` field with `ListByTenant`. So
+  context → tenant is 1:1 and resolvable from data that already exists;
+  a partner row is therefore **single-tenant by construction**, and
+  `Suspended` means "suspended within this context, which belongs to exactly
+  one tenant." The absence of a membership table removes a degree of freedom
+  rather than creating an ambiguity.
+  **Trigger that would force the split:** the first real-world partner
+  needing rows in two contexts owned by *different* tenants. At that point
+  `context` alone stops identifying the partner and the platform-identity /
+  tenant-membership layering of
+  `linebooker_platform_vs_tenant_service_split.md` becomes required. Until
+  then, don't build it.
+- **Status lifecycle: `Registered` → `Active` → `Suspended` → `Reactivate`
+  (back to `Active`)**, confirmed 2026-08-13 to mirror accounts-service's
+  create/suspend/reactivate triple — all transitions set **manually**,
+  independent of compliance-document approval state (not derived/gated by
+  documents in v1).
+- **Transition legality matrix** (needed before any BR-TP spec can be
+  written; mirrors accounts-service's explicit guards, e.g.
+  `reactivateAccount`'s `409 Conflict` when status is not `Suspended` —
+  `accounts/handler.go`):
+
+  | From \ command | `Activate` | `Suspend` | `Reactivate` |
+  |---|---|---|---|
+  | `Registered` | → `Active` | **409** (nothing to suspend from; a partner that should never go live is simply never activated) | **409** |
+  | `Active`     | **409** (already active) | → `Suspended` | **409** (not suspended) |
+  | `Suspended`  | **409** (`Reactivate` is the only way back — one named command per edge, as in accounts-service) | **409** (already suspended) | → `Active` |
+
+  `Register` is creation, not a transition; it always lands in `Registered`.
+- **v1 `Suspend` has no enforcement consumer — this is a status flag, not a
+  gate.** accounts-service's suspend has teeth: it revokes the account JWT at
+  the resolver, force-evicts live connections, deletes the `.creds` file, and
+  publishes `notify.accounts.account.suspended`, which two downstream services
+  act on (BR-AC09 → BR-031/BR-032). `TradingPartner.Suspended` has **no
+  equivalent enforcement point anywhere in this POC** — there is no
+  tender/bid/marketplace service yet to refuse a suspended partner. Stated
+  explicitly so the phase isn't mistaken for shipping an enforced boundary:
+  what 26a actually delivers is a guarded state machine plus an audit trail.
+  **The eventual consumer is the marketplace/tender phase** (bid submission
+  and allocation must reject a non-`Active` partner — see
+  `linebooker_bid_tender_allocation_rules.md`); a `notify.*` publication
+  mirroring BR-AC08–AC10 is deliberately *not* built now, because there is
+  nothing to subscribe to it.
+- **No offboarding / terminal state in v1 — explicit non-goal, not an
+  oversight.** accounts-service deliberately allows no hard delete, on
+  regulatory-retention grounds (BR-AC03); a KYC/compliance record with
+  identity documents attached has at least as strong a retention argument, so
+  "delete a trading partner" is not implemented and no `Deregistered`/`Closed`
+  terminal state is defined. A partner that stops trading is left
+  `Suspended`. Adding a distinct terminal state is a follow-on decision, and
+  belongs with the deferred lifecycle exploration above.
 - **v1 includes both compliance documents and Transporter fleet assets** —
   not deferred to a follow-on phase. Subcontracting
   (`FleetAssetEntity.subcontractingOwner`) stays out of scope regardless.
@@ -875,13 +970,38 @@ recorded here as a named open item, not designed or scheduled yet
 
 - Shared: `name`, `tradingAs`, `companyName`, `registrationNo`,
   `vatRegistrationNo`, `type` (`SHIPPER`|`TRANSPORTER`), `status`
-  (`REGISTERED`|`ACTIVE`), `context` (business-unit scope, per this repo's
-  `{context}` convention). Dropped from V2: `contactPerson`/`contactNo`
-  (redundant with a future Users/contacts model).
+  (`REGISTERED`|`ACTIVE`|`SUSPENDED` — all three states of the lifecycle
+  above), `context` (business-unit scope, per this repo's `{context}`
+  convention). Dropped from V2: `contactPerson`/`contactNo` (redundant with a
+  future Users/contacts model).
 - Transporter-only: fleet assets, one-to-many (`registrationNo`, `vin`,
-  `make`, `model` — a trimmed `FleetAssetEntity`, no `subcontractingOwner`).
-  Dropped from V2: `gitCoverage` (insurance amount) — insurance is tracked
-  as a document (below), not a numeric coverage field, for v1.
+  `make`, `model`, **`vehicleTypeCode`** — a trimmed `FleetAssetEntity`, no
+  `subcontractingOwner`).
+  **`vehicleTypeCode` is validated against refdata**, not stored as free
+  text. Without it this phase consumes *zero* reference data, which both
+  wastes the demonstration (a repo whose central question is
+  refdata-as-a-service) and hollows out the stated reason for the Admin-UI
+  placement — `linebooker_registration_ui_placement.md` justifies it partly on
+  "consumes refdata lookups (VehicleType/DocumentType/Country pickers)". The
+  corpus already exists: `refdata-service/cmd/seed-vehicle-types` builds a
+  `vehicle-type` dictionary type (plus a `vehicle-type-category` domain enum)
+  directly from Linebooker V2's own `VehicleType.java`, via refdata's REST
+  admin API. `make`/`model` stay free text — they are the specific truck, not
+  a vocabulary.
+- **`gitCoverage`: the earlier "insurance is a document, not a number"
+  rationale was wrong on the V2 evidence and is corrected here.** In V2 the
+  coverage amount does not live on the profile at all — it lives *on the
+  document*, as `TransporterDocumentEntity.coverage`/`centCoverage`. So
+  "tracked as a document" does not justify dropping the number; the number is
+  part of the document record. It is therefore **restored as
+  `coverageCents` on `ComplianceDocument`** (nullable, meaningful only for
+  `GOODS_IN_TRANSIT`), not on `TradingPartner`. Any "is this transporter
+  adequately insured?" view needs it, and it is close to free once the
+  document entity exists. Consciously dropped from the same V2 entity, for the
+  record rather than by omission: `insuranceCompanyName`,
+  `insuranceContactPersonName`, `insuranceContactNumber`,
+  `thirdPartyContingencyCover` (the last pairs with the dropped
+  `GIT_CONTINGENCY_POLICY` document type, so both go together).
 
 **Confirmed compliance documents** (subset of V2's `DocumentTypes`,
 per-document `status`: `PENDING`|`APPROVED`|`REJECTED`, independent of the
@@ -890,7 +1010,56 @@ parent `TradingPartner.status`):
 - Both roles: `CIPC` (company registration cert), `DIRECTOR_ID`,
   `BANK_CONFIRMATION_LETTER`, `TERMS_AND_CONDITIONS`.
 - Transporter-only addition: `GOODS_IN_TRANSIT` (insurance cert). Dropped
-  from V2 candidates: `GIT_CONTINGENCY_POLICY`, `BEE_COMPLIANCE_CERTIFICATE`.
+  from V2 candidates: `GIT_CONTINGENCY_POLICY`, `BEE_COMPLIANCE_CERTIFICATE`
+  — note the latter is a ZA-regulatory artefact and a business call rather
+  than a technical one; expect it back.
+- **Document type stays a Go enum in v1, not a refdata `document-type`
+  vocabulary — deliberate, and worth the sentence** because
+  `linebooker_registration_ui_placement.md` names `DocumentType` as an example
+  of exactly the sort of stable shared vocabulary refdata *should* own. The
+  reason it stays in the domain layer for now: the per-type rules are domain
+  logic, not lookup data (which types are Transporter-only, which carry
+  `coverageCents`, which are required before a partner can sensibly be
+  activated later), and refdata has no `document-type` corpus seeded today.
+  Migrating it to refdata later is additive. `vehicleTypeCode` above is the
+  opposite case and *does* go to refdata, because its corpus already exists
+  and carries no per-code behaviour.
+- **Per-document fields:** `type`, `status`
+  (`PENDING`|`APPROVED`|`REJECTED`), **`expiresAt` (nullable)**,
+  **`coverageCents` (nullable)**, `reference` (see storage decision below),
+  `updatedAt`.
+  **`expiresAt` is added in v1 even though nothing reads it.** V2's
+  `TransporterDocumentEntity` has an `expiry_date` column, and GIT insurance
+  certificates genuinely expire — expiry, not rejection, is the realistic
+  trigger for the deferred document-driven-status rule below. Adding the
+  column now costs nothing; adding it later costs a migration, and without it
+  the UI cannot even *display* an expired certificate as expired.
+- **Document storage: metadata-only in v1 — no file bytes are stored, and
+  this is a decision, not an omission.** V2 splits document metadata
+  (`TransporterDocumentEntity`) from the file itself (a separate
+  `DocumentEntity`). This stack has no blob store and adding one (S3/MinIO
+  container, upload endpoints, content-type and size validation, signed URLs)
+  is a materially larger piece of work than the domain model this phase is
+  actually about. `ComplianceDocument` therefore carries a `reference` string
+  (an opaque external document locator, unvalidated in v1) alongside status
+  and expiry. Consequence to keep straight in 26e: the Admin UI surfaces
+  **document registration and status management, not file upload** — the
+  earlier "document upload" wording was wrong and is retracted. Real file
+  storage is a follow-on phase.
+
+**Deferred: document-driven status (named open item, mirroring the
+CQRS/temporal one — not a settled non-feature).** v1 keeps every status
+transition manual and fully independent of document state, as confirmed
+2026-08-13. That decision stands for this phase, since gating would couple two
+state machines before either has been exercised. But it is a *deferral with a
+known trigger*, not a permanent design property, and was previously written up
+as though settled — corrected here so it is tracked symmetrically with the
+CQRS/temporal exploration. The trigger is `expiresAt` passing: a Transporter
+whose `GOODS_IN_TRANSIT` cover has lapsed is the concrete case where a
+document should influence status. **Intended shape when it lands:** an expiry
+raises a flag/notification for an operator, and does **not** auto-flip
+`status` — so the "all transitions are manual and audited" invariant (and its
+BR-TP specs) survives the change rather than being contradicted by it.
 
 **Sub-phases**, each independently landable (mirroring Phase 25's
 domain-first decomposition):
@@ -898,46 +1067,484 @@ domain-first decomposition):
 - **26a — TradingPartner domain model.** `TradingPartner` aggregate +
   `PartnerType`/`PartnerStatus` in
   `trading-partner-service/tradingpartner/internal/domain/`. Manual
-  Register/Activate/Suspend(?) commands — exact transition set to be
-  finalized against BR-TP numbering before specs. Domain layer only.
+  `Register` → `Activate` → `Suspend` → `Reactivate` lifecycle (confirmed
+  2026-08-13 — mirrors accounts-service's create/suspend/reactivate triple,
+  BR-AC08–AC10 in `BUSINESS_RULES-ACCOUNTS.md`), all transitions manual (no
+  document-approval gating in v1, per the Active-gate decision above) and
+  guarded by the legality matrix above (every illegal edge is a
+  `409 Conflict`, as in `reactivateAccount`). `PartnerStatus`: `Registered` |
+  `Active` | `Suspended`. `Suspend` takes a **required `reason`** (see 26a1).
+  Domain layer only.
+- **26a1 — Lifecycle audit trail.** An append-only
+  `trading_partner.audit_events` table, deliberately the same shape as
+  `accounts.audit_events` (BR-AC11): action, partner id, actor, source IP,
+  outcome `success`/`failed`, JSONB metadata; no `UPDATE`, no `DELETE`.
+  **This is the substantive counterweight to `Suspend` having no enforcement
+  consumer in v1** — the durable record of *who* suspended *whom*, *when*, and
+  *why* is the actual deliverable of the lifecycle, and a KYC/compliance
+  domain carries a stronger audit obligation than the NATS-account minting
+  BR-AC11 already covers. Reuse BR-AC11's conventions verbatim rather than
+  inventing new ones: `X-Actor` header over the basic-auth username as the
+  pre-WorkOS actor placeholder; best-effort writes that log but never block or
+  roll back the operation they describe; nothing written for a request that
+  fails validation before any state was mutated. `Suspend`'s `reason` is
+  required at the domain boundary and lands in `metadata`.
 - **26b — Compliance documents.** `ComplianceDocument` child entity
-  (per-role subset above), independent status field, no link enforced to
-  parent `TradingPartner.status` in v1 (explicit design decision, not a
-  gap).
+  (per-role subset above, with `expiresAt`/`coverageCents`/`reference`),
+  independent status field, no link enforced to parent
+  `TradingPartner.status` in v1 — a deferral with a named trigger, per
+  "Deferred: document-driven status" above, not a settled non-feature.
+  Metadata-only: no file bytes, no upload path.
 - **26c — Transporter fleet assets.** `FleetAsset` child entity,
-  one-to-many off `TradingPartner` (Transporter only).
-- **26d — Service wiring.** Own Postgres (`trading-partner-postgres`, port
-  5436 — next free after `pricing-postgres`'s 5435), REST API
-  (`trading-partner-service`, port 7204 — next free in the 7200s backend
-  range), docker-compose entry.
+  one-to-many off `TradingPartner` (Transporter only), including
+  `vehicleTypeCode` validated against refdata's `vehicle-type` corpus.
+- **26d — Service wiring.** Own Postgres (`trading-partner-postgres`, host
+  port 5436) and REST API (`trading-partner-service`, host port 7204), plus a
+  docker-compose entry. **Ports verified free directly against
+  `demos/01-dictionary/docker-compose.yml`** (not assumed): Postgres hosts in
+  use are 5432 shipping / 5433 refdata / 5434 accounts / 5435 pricing;
+  backend hosts in use are 7200 shipping / 7201 refdata / 7202 accounts /
+  7203 pricing. 5436 and 7204 are the next free in each range.
+  - **Transport: REST (frontend) + a tenant-scoped `rpc.*` client
+    (backend-to-backend, for 26c's `vehicleTypeCode` validation only) —
+    corrected 2026-08-13 after a design-review contradiction.** The first
+    pass of this plan called the transport "REST-only, no NATS, no tenants
+    package," reasoning by analogy to accounts-service. That's wrong: BR-D28
+    in `BUSINESS_RULES-REFDATA.md` is absolute — *"`rpc.*` is the only
+    transport for backend-to-backend synchronous calls, full stop... no HTTP
+    client, base URL, or hostname/port config pointing at a peer backend
+    service"* — there is no REST fallback for one backend calling another,
+    and that was tried and deliberately closed. Since 26c validates
+    `vehicleTypeCode` against refdata-service, and
+    `refdataconsumer.New(nc *nats.Conn)` shows that call rides the caller's
+    **own tenant-local NATS import** (Phase 21's account-export/import model
+    — even reading platform-root corpus data requires being connected as
+    that tenant's account, not a shared/platform connection), this service
+    needs the **same tenant-scoped NATS wiring `pricing-service` built**:
+    `internal/tenants` (per-tenant connection lifecycle,
+    `notify.accounts.account.*` reactive provisioning/teardown, mirroring
+    `pricing/internal/tenants`), `NATS_CREDS_DIR` + creds volume mount in
+    docker-compose, and a small `refdataconsumer`-style client for the one
+    `rpc.{context}.refdata.type.list.v1` (or `item.get.v1`) call 26c needs.
+    The browser-facing surface stays REST-only (no `api.*` browserrpc
+    adapter for the Admin UI — that part of the original reasoning holds);
+    only the backend's *outbound* call to refdata-service moves onto
+    `rpc.*`. Every `nats.Connect` call must set `nats.Name("trading-partner-service")`
+    per CLAUDE.md, testably (`nc.Opts.Name` non-empty).
+  - **`frontend/admin/nginx.conf` needs a `proxy_pass` location.** Since
+    `TradingPartner` carries a `context` field like pricing/refdata's
+    resources (not a flat, context-free identifier like an account name),
+    its REST routes follow **pricing/refdata's `/api/{service}/{context}/...`
+    shape**, not accounts-service's flat `/api/accounts/{name}` shape — route
+    `/api/trading-partners/` → `trading-partner-service:8080/api/trading-partners/`.
+    Confirmed by inspecting the actual file: today it only proxies
+    `/api/auth/` and `/api/platform/accounts` to accounts-service plus a
+    shipping-service catch-all on `/api/` — there is no existing
+    refdata/pricing route to copy verbatim (those UIs live in different
+    frontends), so this is a new location block, not a copy-paste.
+  - **Swagger** — every other backend in this demo publishes one; add it
+    (`/swagger/` on 7204) for consistency.
+  - **`README.md` port tables** — add the new Postgres and backend rows, and
+    fix the existing drift while in there: the tables currently stop at
+    `accounts-service` (7202/5434) and never gained `pricing-service`
+    (7203/5435).
 - **26e — Admin UI "Trading partners" section.** New nav category (per
-  `linebooker_registration_ui_placement.md`), `stores/tradingPartners.js`
-  Pinia store, register/list/detail panels including document upload/status
-  and (Transporter) fleet-asset management.
+  `linebooker_registration_ui_placement.md` and the Admin-vs-`seafreight-app`
+  rationale above), `stores/tradingPartners.js` Pinia store, register/list/
+  detail panels covering **document registration and status management (not
+  file upload — see the storage decision above)**, suspend/reactivate with the
+  required reason, an audit-trail view, and (Transporter) fleet-asset
+  management with a refdata-backed vehicle-type picker.
 
 #### Checklist
 
 - [x] Business rules confirmed with user before planning (2026-08-13 —
       fields, documents, status model, scope, build order; see
       `linebooker_trading_partner_phase_v1_scope.md`)
-- [ ] Plan phase reviewed and signed off by user before implementation
-- [ ] 26a: BR-TP numbering assigned; Ginkgo specs written from rules,
-      confirmed red
-- [ ] 26a: `domain.TradingPartner`/`PartnerType`/`PartnerStatus` implemented,
-      specs green
-- [ ] 26b: Compliance-document rules confirmed, specs written (red),
-      implemented (green)
-- [ ] 26c: Fleet-asset rules confirmed, specs written (red), implemented
-      (green)
+- [x] Design review of this plan section (2026-08-13) — 10 findings applied:
+      transition legality matrix, `SUSPENDED` in the field list, "no
+      enforcement consumer" stated, context→tenant rationale recorded, audit
+      trail added (26a1), document storage decided (metadata-only),
+      `expiresAt`/`coverageCents` restored + document-driven status promoted
+      to a deferred item, `ComplianceDocument` re-classified "CRUD now,
+      temporal later", 26d transport/nginx/Swagger/README gaps closed,
+      `vehicleTypeCode` + Admin-vs-`seafreight-app` rationale added
+- [x] Independent verification pass (2026-08-13) of the above against actual
+      repo code confirmed all 10 findings, but found the 26d transport
+      conclusion self-contradicted finding #9: `vehicleTypeCode`-vs-refdata
+      validation requires `rpc.*` (BR-D28, no REST fallback for
+      backend-to-backend calls) over a tenant-scoped NATS connection
+      (`refdataconsumer.New(nc *nats.Conn)`'s tenant-local import), not the
+      "REST-only, no NATS" transport the same pass had just settled on.
+      Corrected: this service gets `pricing-service`'s `internal/tenants`
+      wiring for that one outbound `rpc.*` call; only the Admin UI-facing
+      surface stays REST-only. Also corrected: `/api/trading-partners/`
+      routes are context-scoped (pricing/refdata-shaped), not
+      accounts-shaped, since `TradingPartner` carries `context`.
+- [x] Plan phase reviewed and signed off by user before implementation
+      (2026-08-13)
+- [x] 26a: BR-TP01–BR-TP06 numbered and confirmed in
+      `BUSINESS_RULES-TRADING-PARTNER.md`; Ginkgo specs written from rules
+      first (`trading-partner-service/tradingpartner/trading_partner_test.go`),
+      confirmed red (package `internal/domain` didn't exist yet — compile
+      failure, not just failing assertions)
+- [x] 26a: `domain.TradingPartner`/`PartnerType`/`PartnerStatus` implemented
+      (`internal/domain/trading_partner.go`), 15/15 specs green
+      (`ginkgo ./...`), `go build`/`go vet`/`gofmt -l` clean
+- [x] 26a: every cell of the 3×3 transition legality matrix has its own spec
+      — the 3 legal edges succeed, the 6 illegal ones return the matching
+      sentinel error (`ErrNotRegistered`/`ErrNotActive`/`ErrNotSuspended`,
+      mapped to `409 Conflict` at the REST layer in 26d — the domain layer
+      itself returns Go errors, not HTTP status codes) (plus `Register`,
+      which always lands in `Registered`)
+- [x] 26a: `Suspend` without a `reason` is rejected at the domain boundary,
+      checked before the status guard so it rejects the same way regardless
+      of current status
+- [ ] 26a1: `trading_partner.audit_events` append-only table + Postgres
+      adapter (26d). **Scoping note (2026-08-13):** BR-TP06's append-only/
+      best-effort/writes-nothing-on-pre-mutation-failure guarantees are
+      Postgres/handler-level, not pure domain logic — mirrors
+      accounts-service's own `AuditLog` (BR-AC11), which has no dedicated
+      Ginkgo/unit test either; verify live via `docker compose up` in 26d
+      (register→suspend→reactivate cycle writes three rows carrying
+      actor/outcome/reason; a request failing validation before any
+      mutation writes none), not as a 26a domain-layer spec.
+- [x] 26b: Compliance-document rules confirmed 2026-08-13 (BR-TP07–BR-TP11,
+      including two design calls made during confirmation: `Reject` ->
+      `Pending` resubmission is in scope, and `CoverageCents` carries no
+      domain-level type restriction); Ginkgo specs written from rules first
+      (`compliance_document_test.go`), confirmed red (`domain.DocumentType`
+      undefined), then `internal/domain/compliance_document.go` implemented,
+      31/31 specs green (`ginkgo ./...`), `go build`/`go vet`/`gofmt -l`
+      clean. Every cell of the document-status 3×3 matrix has its own spec.
+      Still pending (26d/26e, not 26b): `expiresAt`/`coverageCents` actually
+      persisted in Postgres, and an expired document surfaced as expired in
+      the UI (displayed, not enforced) — 26b covers the pure domain rules
+      only.
+- [x] 26c: Fleet-asset rules confirmed 2026-08-13 (BR-TP12: Transporter-only
+      ownership; BR-TP13: registrationNo/vehicleTypeCode required,
+      vin/make/model optional free text; registrationNo global uniqueness
+      deferred to 26d as a repository invariant, same treatment as
+      BR-TP08). Ginkgo specs written from rules first (`fleet_asset_test.go`),
+      confirmed red (`domain.AddFleetAsset` undefined), then
+      `internal/domain/fleet_asset.go` implemented, 37/37 specs green
+      (`ginkgo ./...`), `go build`/`go vet`/`gofmt -l` clean.
+- [ ] 26c/BR-TP14: `vehicleTypeCode` validated against refdata via a
+      tenant-scoped `rpc.*` adapter (not a domain-layer spec — see
+      BUSINESS_RULES-TRADING-PARTNER.md's BR-TP14 scoping note) — unknown
+      code rejected; requires the `vehicle-type` corpus (run
+      `refdata-service/cmd/seed-vehicle-types` against the composed stack, or
+      seed equivalently); lands with 26d
 - [ ] `BUSINESS_RULES-TRADING-PARTNER.md` written (new domain file) and
-      indexed from `BUSINESS_RULES.md`
-- [ ] 26d: Postgres schema + adapters, REST API, docker-compose entry
-- [ ] 26d: Live-verified via `docker compose up` — full
-      register→document-upload→fleet-asset-add→activate cycle
-- [ ] 26e: Admin UI "Trading partners" section built, wired into
-      `App.vue`/`AppShell.vue` per `shared/unifi-theme/LAYOUT.md`
-- [ ] 26e: Live-verified in-browser against real `docker compose` stack
-- [ ] `BUSINESS_RULES-TRADING-PARTNER.md`/`BUSINESS_RULES.md`/plan updated
+      indexed from `BUSINESS_RULES.md` (BR-TP prefix — confirmed no collision
+      with BR-0xx / BR-D / BR-AC / BR-P)
+- [x] 26d: Postgres schema (`internal/postgres/migrate.go`) + repository
+      adapters (`trading_partner_repository.go`, `compliance_document_repository.go`,
+      `fleet_asset_repository.go`, `audit_repository.go`), REST API on
+      `/api/trading-partners/{context}/...` (pricing/refdata-shaped, not
+      accounts-shaped — `internal/rest/handlers.go`), docker-compose entry
+      on 5436/7204. `go build`/`go vet`/`gofmt -l` clean.
+- [x] 26d: `internal/tenants` lifecycle manager (per-tenant NATS connections,
+      `notify.accounts.account.*` reactive provisioning/teardown, mirroring
+      `pricing/internal/tenants` minus the `browserrpc.Adapter` — no `api.*`
+      surface here) + `internal/refdataclient`, a trimmed
+      `refdataconsumer`-style `rpc.*` client for BR-TP14's `vehicleTypeCode`
+      lookup. `tenants.Manager` implements `domain.VehicleTypeValidator`
+      directly, resolving the caller-supplied `tenant` (see
+      `fleetAssetRequest.Tenant` in `internal/rest/handlers.go` — the Admin
+      UI's existing `tenant.js` selection is the source; no prior REST route
+      in this repo needed tenant identity as a request field, since Postgres
+      data isn't NATS-account-partitioned the way this one `rpc.*` call is).
+- [x] 26d: `NATS_CREDS_DIR` + creds volume mount wired in docker-compose;
+      `nats.Connect` sets `nats.Name("trading-partner-service")` (CLAUDE.md
+      rule) in `internal/tenants/tenants.go`'s `ensure`.
+- [x] 26d: `frontend/admin/nginx.conf` `proxy_pass` location added for
+      `/api/trading-partners/` (new location block, context-scoped passthrough
+      — no prefix rewrite needed, unlike `/api/platform/accounts`), with the
+      service's own BasicAuth secret injected the same way accounts-service's is.
+- [x] 26d: Swagger — **skipped, correcting the design review's claim.**
+      Checked directly: only shipping-service and refdata-service actually
+      have Swagger; accounts-service and pricing-service don't. This service
+      follows its closer precedent (accounts-service: REST-only, Admin UI,
+      BasicAuth-gated, no Swagger), not the inaccurate "every backend has
+      one" claim.
+- [x] 26d: `README.md` port tables updated — new trading-partner-service rows
+      *and* the previously-missing `pricing-service` rows (7203/5435).
+- [x] 26d: Live-verified via `docker compose up` — full
+      register→document-register→fleet-asset-add→activate→suspend→reactivate
+      cycle against the real composed stack (nats, refdata-service +
+      refdata-postgres, accounts-service + accounts-postgres,
+      trading-partner-service + trading-partner-postgres). Seeded the
+      `vehicle-type` corpus into context `acme` via
+      `refdata-service/cmd/seed-vehicle-types`; confirmed BR-TP14 rejects a
+      bogus `vehicleTypeCode` and accepts a real one (`TAUTLINER`) via a live
+      `rpc.*` round trip to refdata-service over the `acme` tenant's own NATS
+      connection; confirmed BR-TP13's `registrationNo` uniqueness rejects a
+      duplicate; confirmed the full 409 transition-matrix guard
+      (re-`Activate` on an already-`Active` partner); confirmed all 4 audit
+      rows (`registered`/`activated`/`suspended`/`reactivated`, the last
+      carrying `reason` in `metadata`) directly in Postgres. Also confirmed
+      `frontend/admin/nginx.conf`'s new `/api/trading-partners/` route works
+      end-to-end through the Admin UI's own port (7100) before any frontend
+      code was written.
+- [x] 26e: Admin UI "Trading partners" nav category + "Registration" screen
+      built (`TradingPartnersPanel.vue`, `IconTradingPartners.vue` — both
+      since restructured, see 26f below), wired
+      into `App.vue`'s `sections`/`SUBTITLES`/section-render per
+      `shared/unifi-theme/LAYOUT.md` — no `AppShell.vue` changes needed
+      (existing slot API sufficed). API client functions added to `api.js`;
+      dev-mode Vite proxy entry added alongside the existing
+      `/api/platform/accounts` one. `npm run build` clean; `npx vitest run`
+      shows the same single pre-existing, unrelated failure
+      (`ConnectionsPanel.spec.js`'s BR-028 test) confirmed via `git stash` to
+      reproduce identically without this phase's changes.
+- [x] 26e: Live-verified in-browser (Browser pane) against the real
+      `docker compose` stack — registered "Globex Logistics" (Transporter)
+      through the actual UI, expanded the row (Compliance
+      Documents/Fleet Assets/Audit Trail all render), added a fleet asset
+      with a bogus `vehicleTypeCode` (clean "not recognized by refdata"
+      error, live `rpc.*` round trip confirmed via network log), seeded the
+      `vehicle-type` corpus into `acme-atlantic-fleet` and retried
+      successfully, then Activated and Suspended (with reason) through the
+      row menu and confirmed all 3 audit rows — including the reason —
+      rendered in the Audit Trail sub-table. Every `/api/trading-partners/*`
+      network call succeeded exactly as expected; the only console errors
+      were the pre-existing, unrelated `dict-b` KV bucket 400s.
+- [x] `BUSINESS_RULES-TRADING-PARTNER.md`/`BUSINESS_RULES.md`/plan updated
+- [ ] Deferred items carried forward as named open questions (not silently
+      dropped): lifecycle-as-CQRS/temporal exploration,
+      `ComplianceDocument` temporal classification, document-expiry-driven
+      status, real file storage, terminal/offboarding state,
+      platform-identity vs tenant-membership split, `notify.*` publication
+      once a marketplace consumer exists
+
+#### 26f — Admin sidebar PLATFORM/SYSTEM grouping (IMPLEMENTED, 2026-08-13)
+
+A follow-on to 26e rather than a phase of its own: adding Trading partners
+made the admin sidebar's flat eyebrow list read as a pile of unrelated
+categories, mixing business-layer screens with NATS/Postgres diagnostics. Not
+a backend or business-rule change — no BR-TP rule moved.
+
+- [x] `shared/ui-shell/NavList.vue` grew a third *banding* level (not a third
+      nav level): a `sections` entry may now be `{ group, sections }`, a
+      collapsible accent-tinted banner over one or more ordinary
+      `{ eyebrow?, items }` sections. Both entry forms mix in one ordered
+      array, so `seafreight-app`'s flat single section and admin's ungrouped
+      Overview are unaffected. Collapse state is the component's own, like
+      `AppShell.vue`'s sidebar collapse.
+- [x] `shared/ui-shell/app-shell.css`: `.nav-group-toggle` reuses `.eyebrow`
+      for its micro-type and finally activates the `.eyebrow.is-open svg`
+      chevron-rotate rule that had been sitting there unused; adds
+      `.nav-group-body` with a `visibility`-based collapse (so collapsed
+      items leave the tab order) plus a `.sidebar.collapsed` override forcing
+      groups open on the icon rail — the banners hide there, so a collapsed
+      group would otherwise be unreachable.
+- [x] Group contents indent 18px (`.nav-group-body.is-grouped`) so they read
+      as nested under the banner. 18px = the banner's chevron (12px) + gap
+      (6px), landing contents on the group *label's* text column rather than
+      its chevron's — the tree-view convention. Ungrouped sections don't
+      indent; the icon rail zeroes it so icons stay centred (verified: all 13
+      rail icons share one centre, 109.5 against a sidebar centre of 110).
+- [x] `admin/src/App.vue`: PLATFORM (Accounts, Trading partners →
+      Shippers/Transporters, Settings) before SYSTEM (NATS, Postgres), with
+      Overview ungrouped above both. Accounts moved out of the NATS eyebrow —
+      it's a platform-membership roster, NATS accounts are just its mechanism.
+- [x] Trading partners split per role: `TradingPartnersPanel.vue` takes a
+      `partnerType` prop and is mounted twice (`:key` per role so switching
+      remounts). Register dialog lost its Type field, list lost its Type
+      column, list filters client-side (`GET /api/trading-partners/{context}`
+      has no `type` param — noted as revisit-if-paginated).
+      `IconTradingPartners.vue` → `IconTransporters.vue`, new
+      `IconShippers.vue`.
+- [x] `admin/src/components/NavList.spec.js` — 9 specs covering both entry
+      forms, per-group independent collapse, and that an ungrouped section is
+      never collapsible. `shared/ui-shell/` has no runner of its own, so the
+      spec lives under admin's Vitest.
+- [x] `shared/unifi-theme/LAYOUT.md` updated with the new `sections` shape,
+      the "no third nav level" rule, and admin's per-app note.
+- [x] Live-verified in-browser: alignment measured (group banners, eyebrows
+      and items all share one left edge; the Trading partners eyebrow's text
+      lines up with the Accounts icon, as mocked), independent collapse,
+      icon-rail override (13/13 items reachable with a group left collapsed,
+      0 banners shown), collapsed items out of the tab order, light + dark
+      mode, and the role filter (a Shipper registered through the UI appears
+      under Shippers and not under Transporters).
+
+#### 26g — trading-partner-service micro registration (IMPLEMENTED, 2026-08-13)
+
+Prompted by a real observation: the service was absent from the Admin UI's
+Services panel despite running with live NATS connections. Root cause — an
+outbound-only `rpc.*` requester has nothing for `$SRV` discovery to find, and
+`micro.AddService` was never called. `micro.AddService` wires the
+`$SRV.PING/INFO/STATS` responders independently of `AddEndpoint`, so discovery
+is fixable without any transport migration. Split from 26h deliberately so the
+panel fix ships now and the transport change gets its own review.
+
+- [x] New `tradingpartner/internal/browserrpc` package: `micro.AddService`
+      with `Name: "trading-partner-service"` (matching the connection's own
+      `nats.Name`, the Phase 18 responder/requestor identity invariant),
+      `Version: "1.0.0"`, and `Metadata{"tenant": …}` so per-tenant
+      registrations are distinguishable in the panel. **Zero endpoints** — the
+      `Description` says so out loud rather than leaving an operator to guess
+      whether an empty endpoint list is a bug.
+- [x] `internal/tenants` now holds a `browserrpc.Adapter` per tenant
+      connection alongside the existing `refdataclient.Client`, mirroring
+      pricing-service's `resources` struct. Registered in `ensure` (including
+      a `Stop()` on the lost-race path), stopped in `TeardownByName` before
+      the connection closes (so a suspended tenant stops answering discovery
+      rather than lingering as a phantom row, BR-031) and in `Close`.
+- [x] 6 new Ginkgo specs (`tradingpartner/browserrpc_test.go`, embedded
+      in-process NATS server per refdata-service's `natsrpc_test.go`
+      convention) — 43 total green. They assert discoverability *over the
+      wire* via a real `$SRV.PING` broadcast, not just that `New()` returns
+      nil: a constructor-only test would not have caught the original bug.
+      Includes a spec pinning the deliberate zero-endpoint scope, to be
+      replaced (not deleted) when 26h lands.
+- [x] Stale "there is no api.* adapter / REST only" comments corrected in
+      `composition.go`, `cmd/main.go`, `internal/tenants`, and
+      `docker-compose.yml`.
+- [x] Live-verified: `GET /api/nats/services` and the rendered panel both go
+      3 → 4 services, `trading-partner-service v1.0.0`, 1 instance,
+      `tenant: acme`, 0 endpoints. The `tenant=test` "Authorization Violation"
+      in its startup log is pre-existing and unrelated — pricing-service and
+      shipping-service log the identical error from a stale `test.creds`,
+      timestamped before this change.
+
+#### 26h — trading-partner-service api.* transport (IMPLEMENTED, 2026-08-13)
+
+Decisions confirmed 2026-08-13 before any code: **`api.*`, not `rpc.*`**;
+**REST kept** as a dual transport; **micro registration shipped first** (26g).
+
+The `api.*` choice is the repo's own rule, not a preference: CLAUDE.md's
+subject taxonomy and `ARCHITECTURE-COMMUNICATIONS.md` § 2 make `api.*`
+frontend-to-service and `rpc.*` service-to-service, and state "a browser
+credential is never granted `rpc.>`". The Admin UI is the only caller today,
+so its endpoints are
+`api.{context}.trading-partner.{entity}.{action}.v1`. `rpc.*` endpoints get
+added when a *backend* caller exists — the marketplace/tender phase that
+finally gives BR-TP04's `Suspend` an enforcement consumer — not speculatively.
+
+**Correction (2026-08-13): there is no credential blocker — the earlier claim
+in this section was wrong.** It conflated the Admin UI's *two* NATS
+connections. `usePlatformConnection.js` (PLATFORM account, from
+`GET /api/auth/adminConnectInfo`) is genuinely publish-denied —
+`auth/token.go`'s `MintAdminToken` sets `Pub.Deny.Add(">")`. But the *tenant*
+connection in `useNatsConnection.js` (from
+`GET /api/auth/connectInfo?tenant=…`, the same `MintBrowserToken` seafreight
+uses) already carries `Pub.Allow = ["api.>", "_INBOX.>"]` and
+`Sub.Allow = ["api.>", "notify.>", "obs.api.>", "_INBOX.>"]`
+(`auth/token.go:110-111`), and that file's own comment already said so:
+"subscribe-only *use* here even though that JWT also carries
+`api.>`/`_INBOX.>` publish permission: this app has no command surface of its
+own to exercise it with."
+
+trading-partner-service is per-tenant and its `api.*` subjects resolve inside
+tenant accounts, so the tenant connection is the correct one and **needs no
+change**. No `auth-service`/`accounts-service` edit, no new BR-AC rule, no
+token-minting test churn. Also verified: scoped signing keys are *not* in play
+(`provisioner.go` uses the unscoped `SigningKeys.Add`; the resolver JWTs carry
+flat key arrays), so nothing silently overrides a user JWT's own permissions —
+`.claude/memory/nats_scoped_signing_keys.md` describes proposed future work,
+not current state.
+
+The remaining gap is purely frontend: `connectionFactory.js` has no
+`request()` surface, by an explicit design note ("adding one before anything
+needs it would be exactly the speculative feature CLAUDE.md warns against").
+This phase is that need arriving.
+- [x] `connectionFactory.js` grew a `request()` surface; its doc comment now
+      records that Phase 26h is the need arriving, rather than deleting the
+      original non-speculative rationale. Also documents that `request()` is
+      tenant-connection-only, since the PLATFORM credential is publish-denied.
+- [x] `internal/browserrpc` endpoint constants + handlers for all 14
+      operations, replacing 26g's zero-endpoint registration. Mirrors
+      pricing-service's plumbing (`contextFromSubject`,
+      `reply`/`respond`/`respondError`, `Nats-Responder`, `obs.api.*`
+      side-channel). 26g's zero-endpoint spec was *replaced*, as it said it
+      should be, not deleted.
+- [x] **Two properties the api.* path enforces that REST cannot**, both now
+      spec'd over the wire: `{context}` comes from the subject (a body
+      `context` field cannot redirect a write), and BR-TP14's tenant comes from
+      the adapter's own connection (a body `tenant` field is ignored). The
+      second is why REST's `fleetAssetRequest.tenant` has no api.* equivalent —
+      HTTP had no tenant identity, NATS does.
+- [x] Dependency-cycle resolution: `Startup` needs the tenant Manager for
+      BR-TP14's validator, while the adapter needs the handlers `Startup`
+      builds. Split into a third pass — `MountTenants` → `Startup` →
+      `MountAPI` — with `tenants.Manager.apiDeps` nil until `MountAPI` runs and
+      every `adapter` teardown path nil-guarded. pricing-service doesn't hit
+      this because it has no refdata dependency.
+- [x] `admin/src/api.js`'s trading-partner functions moved from `fetch` to NATS
+      request; `TradingPartnersPanel.vue` unchanged (signatures held).
+      `tpSubject` throws rather than emit a malformed subject if a context
+      contains a dot/space/wildcard — a dot would shift every later token and
+      silently resolve the wrong context.
+- [x] REST retained and still wired in `cmd/main.go`. **Decision: the
+      nginx/vite proxy entries and BasicAuth secret stay.** This diverges from
+      pricing-service (which has REST but no browser proxy route) on purpose —
+      keeping port 7100's `/api/trading-partners/` path preserves the exact
+      curl surface used to verify 26d, at the cost of some now-unused browser
+      reachability. Revisit if that path ever drifts from the api.* behaviour.
+- [x] `ARCHITECTURE-COMMUNICATIONS.md` (new § 3.1 adapter matrix + the
+      registration-vs-endpoints and no-rpc-without-a-backend-caller notes),
+      `BUSINESS_RULES-TRADING-PARTNER.md`, and this plan updated together.
+- [x] **Bug found by live verification, not by the specs:** the first migration
+      of `addFleetAsset` dropped the partner `id`, which REST had carried as a
+      URL path segment — Postgres rejected it with `invalid input syntax for
+      type uuid: ""`. The frontend spec had asserted what was *removed*
+      (`tenant`) but never what had to be *kept* (`id`). Fixed, and the spec now
+      blanket-asserts every per-partner operation sends its id; confirmed
+      red-on-bug then green-after-fix rather than assumed.
+- [x] Tests: backend 52 Ginkgo specs (was 43) — registration, subject shape,
+      and wire round-trips including context-spoofing, tenant resolution,
+      404 mapping, `Nats-Responder`, and the `obs.api.*` mirror, against an
+      embedded NATS server with in-memory fakes. Frontend 13 new Vitest specs
+      (46 total passing).
+- [x] Live-verified in-browser against the real stack: Services panel 0 → 14
+      endpoints; Transporters list, all three expansion sub-tables, fleet-asset
+      add (with BR-TP14 refdata validation passing), and a Reactivate all over
+      NATS with **zero** REST calls to `/api/trading-partners/*` recorded. Data
+      confirmed in Postgres, including the audit row's
+      `nats:admin-tenant/<id>` provenance. REST and api.* cross-checked
+      agreeing on the same records.
+
+### Phase 27 (IMPLEMENTED, 2026-08-14) — Admin UI: Account Activity Panel (/accstatz)
+
+#### Goal
+
+Surface the NATS server's per-account traffic (`/accstatz`) in the Admin UI —
+nothing showed it before: Connections lists raw sockets one at a time,
+Accounts shows JetStream storage/consumer *limits*, not wire activity.
+Follows a design-recommendation request (frontend-design skill) that
+compared three placements — a new panel (chosen), columns on the existing
+Accounts table, and an alert-only banner — and picked the new panel because
+`/accstatz` comes off the same `:8222` monitor port as `/connz`/`/varz`
+(Connections' Phase 17c proxy pattern), not from accounts-service.
+
+- [x] Backend: `GET /api/nats/account-activity` in
+      `dictionary/internal/rest/nats_ops.go` — `listNatsAccountActivity`
+      proxies `/accstatz` (primary read, 502 on failure) and resolves
+      `tenantLabel` via a secondary, best-effort `/connz` probe reusing
+      `tenantLabelsByAccount` (BR-028's exact mechanism). Swagger docs
+      (`docs/docs.go`, `swagger.json`, `swagger.yaml`) hand-patched per the
+      established convention (`swag_regen_diff_noise.md`).
+- [x] Frontend: `AccountActivityPanel.vue`, modeled on `ServicesPanel.vue`'s
+      `.svc-card` pattern (dot · name · inline stat pairs · chevron) rather
+      than inventing a new row shape. New nav entry under SYSTEM → NATS
+      (`IconActivity.vue`), between Services and Log.
+- [x] **The one deliberate design move:** `slow_consumers` gets no routine
+      tile. At zero it's silent — same `.dot.ok` convention `ServicesPanel`
+      already uses — matching the "facts that only matter in an exceptional
+      state get rendered only in that state" rule established for
+      Connections' paged-note (`admin_stat_card_one_ratio_rule.md`). Nonzero
+      turns the dot red, tints the card border, swaps the "subs" stat for a
+      red "slow" stat, and opens the expansion on a named alarm line; a
+      summary-row banner appears under the same condition. See BR-034
+      (BUSINESS_RULES-SHIPPING.md).
+- [x] Tests: 5 new Go tests (`nats_ops_test.go`) covering reshaping/sorting,
+      tenant-label resolution off the secondary `/connz` probe, and 502s;
+      10 new Vitest specs (`AccountActivityPanel.spec.js`) covering the
+      silent-at-zero / alarm-at-nonzero contrast specifically. Full backend
+      (`ginkgo ./...`) and frontend (`vitest run`) suites green.
 
 ### Phase 100 (PROPOSED — awaiting approval) — Ship Container Capacity Limit
 

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 
@@ -254,6 +255,25 @@ func isShipSubject(subject string) bool {
 	}
 }
 
+// dropConsumer deletes a hydration consumer once its replay is done.
+//
+// An ordered consumer is ephemeral, but "ephemeral" only means the server
+// reaps it after InactiveThreshold (5m by default) — it is NOT removed when
+// the client stops pulling. Since every write command hydrates, leaving them
+// to expire burns one consumer slot per command for five minutes, and the
+// account's JetStream MaxConsumers limit (20 for a tenant account, four of
+// which are the durable projectors) is exhausted after ~16 writes. Deleting
+// explicitly keeps hydration slot-neutral.
+//
+// It runs on its own context: the caller's is typically already cancelled or
+// about to be by the time this is deferred, which would skip the delete and
+// reinstate the leak.
+func dropConsumer(js jetstream.JetStream, consumer jetstream.Consumer) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = js.DeleteConsumer(ctx, domain.StreamName, consumer.CachedInfo().Name)
+}
+
 // replayFiltered folds an aggregate instance's history. Unlike a full-stream
 // replay, completion is detected from the filtered consumer's pending count.
 func replayFiltered(ctx context.Context, js jetstream.JetStream, filter string, fn func(string, []byte)) error {
@@ -264,6 +284,7 @@ func replayFiltered(ctx context.Context, js jetstream.JetStream, filter string, 
 	if err != nil {
 		return fmt.Errorf("hydrate: create filtered consumer: %w", err)
 	}
+	defer dropConsumer(js, consumer)
 	if consumer.CachedInfo().NumPending == 0 {
 		return nil
 	}
@@ -321,6 +342,7 @@ func replayStream(
 	if err != nil {
 		return fmt.Errorf("hydrate: create consumer: %w", err)
 	}
+	defer dropConsumer(js, consumer)
 	msgs, err := consumer.Messages()
 	if err != nil {
 		return fmt.Errorf("hydrate: messages: %w", err)

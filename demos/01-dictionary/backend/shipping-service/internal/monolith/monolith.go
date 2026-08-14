@@ -27,6 +27,25 @@ type Monolith interface {
 	// rest.Handlers; this one is limited to admin inspection/replay and
 	// $SRV discovery. DB/JS/NC here never change after Startup.
 	NC() *nats.Conn
+	// PlatformFullJS is a SECOND, unrestricted PLATFORM-account JetStream
+	// context — connected with platform.creds (the same broad-access
+	// credential refdata-service and accounts-service already use), not
+	// shipping-admin.creds like JS()/NC() above. Deliberately kept separate:
+	// shipping-admin is intentionally locked out of $JS.API.> ("Do not grant
+	// $JS.API.> or access to tenant streams/KV" — nats/bootstrap-operator.sh,
+	// enforced by TestShippingAdminCanOnlyUseNarrowOrderedConsumerAccess), so
+	// widening JS()/NC() themselves would erode that boundary for every
+	// existing caller. This exists solely so the Admin UI's two cross-account
+	// panels can enumerate PLATFORM ($JS.API.STREAM.LIST): listKVBuckets for
+	// refdata-service's KV_* streams, and listStreams for REFDATA/RPCTRACE.
+	// Read-only cross-account introspection, nothing else should use it —
+	// note that *replaying* REFDATA/RPCTRACE does not need it, since
+	// bootstrap-operator.sh grants shipping-admin the ordered-consumer API for
+	// exactly those two streams (see rpcTraceReplayOnce). Nil
+	// if NATS_PLATFORM_CREDS_PATH/platform.creds isn't configured (e.g. local
+	// dev outside Docker) or the connection failed at Startup — callers must
+	// handle nil rather than treating it as always available.
+	PlatformFullJS() jetstream.JetStream
 	// NatsURL is needed by rest.Handlers.SwitchTenant (Phase 13b) to open a
 	// tenant-credentialed connection independent of the admin NC() above.
 	NatsURL() string

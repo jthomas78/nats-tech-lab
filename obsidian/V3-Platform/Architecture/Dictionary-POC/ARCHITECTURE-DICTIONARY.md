@@ -272,6 +272,18 @@ one service reaching into another's internal datastore — and was removed
 (BR-D08/BR-D28). Cross-service reads go through `rpc.*` exclusively; the
 cache tier still serves them, but invisibly, from inside refdata-service.
 
+> **Not contradicted by the Admin UI's cross-account panels (Phase 24).**
+> `shipping-service` does enumerate these buckets and the `REFDATA` stream, and
+> will return their contents, via `GET /api/kv/buckets` and
+> `GET /api/jetstream/streams|replay` (see
+> [ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) § 12). That
+> is an **operator diagnostic surface, not a retrieval path**: nothing in the
+> shipping domain reads it, no business logic depends on it, and removing it
+> would change no behaviour. BR-D08/BR-D28's rule is about where a service gets
+> the reference data it acts on — that answer is still `rpc.*` only. The
+> distinction to hold onto is *who is asking*: a human inspecting a deployment
+> is not a bounded context.
+
 ### KV Key Layout
 
 Keys are subject tokens, and the layout uses that (BR-D31):
@@ -324,22 +336,44 @@ while assembling a response.
 
 That consumption works because **both services connect to the same NATS
 server** — `NATS_URL=nats://nats:4222` for both `shipping-service` and
-`refdata-service` in `docker-compose.yml`. A JetStream KV bucket lives on
-the NATS server itself, not inside whichever process created it, so:
+`refdata-service` in `docker-compose.yml`. What they no longer share is an
+*account*: `refdata-service` authenticates on **PLATFORM**, while
+`shipping-service` opens one connection per tenant account (plus its
+restricted PLATFORM admin connection). So the `refdata-{context}` buckets live
+on PLATFORM, and a tenant connection cannot address them at all.
 
 - `refdata-service` owns and writes the `refdata-{context}` bucket (via its
   `kvcache.Projector`, on every mutation).
-- The shipping backend's `refdataconsumer` opens a `KeyValue` handle to that
-  *same* bucket name over its own JetStream connection and reads it
-  directly — no call into refdata-service's process for a cache hit.
+- The shipping backend reaches reference data over `rpc.*` only
+  (`refdataconsumer`, BR-D08/BR-D28 — the `Deps.Refdata` field is annotated
+  "no KV dep" precisely so this doesn't regress).
 
-There's no NATS-level access control separating the two services (no
-accounts/permissions configured) — "refdata-service owns this bucket" is a
-codebase convention (see the comment in `backend/shipping-service/dictionary/composition.go`),
-not an enforced boundary. Postgres, by contrast, *is* genuinely isolated:
-the backend has no access to the `refdata` schema at all; every refdata read
-that isn't served from the shared KV cache must go through refdata-service's
-REST API.
+> **Superseded — this was once a convention, and is now an enforced boundary.**
+> Through Phase 12.11 the shipping backend's `refdataconsumer` opened a
+> `KeyValue` handle to that same bucket name over its own connection and read
+> it directly, and this section correctly noted that nothing at the NATS level
+> stopped it: "refdata-service owns this bucket" was a codebase convention, no
+> accounts or permissions were configured, and only a comment in
+> `composition.go` marked the line. Two changes since then made it real. Phase
+> 12.12 removed the direct read (BR-D08/BR-D28) as a bounded-context
+> violation, and **operator mode put the two services in different NATS
+> accounts**, which the server enforces — a tenant-credentialed connection
+> asking for `refdata-acme` does not get a permission warning about someone
+> else's bucket, it gets nothing, because that bucket is not in its account's
+> namespace. The convention is now the weaker of the two guarantees.
+>
+> The one place this is visible from shipping-service is the Admin UI's
+> cross-account KV/Streams panels, and only because they were given a
+> *separate, unrestricted PLATFORM credential* to do it with — see § 12 of
+> [ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md). That the
+> panels needed a second credential at all is the clearest demonstration that
+> the boundary holds: the ordinary connections genuinely cannot see across it.
+
+Postgres is isolated more strongly still, and by a second mechanism: since the
+database-per-service split, `refdata` is not a schema in the shared Postgres
+but its **own Postgres instance** (`lb-refdata-postgres`, host port 5433). The
+shipping backend has no credential for it and no network path to its data that
+isn't `rpc.*`.
 
 ```mermaid
 flowchart TB

@@ -85,7 +85,11 @@ function mountPanel() {
 describe('ConnectionsPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getNatsConnections.mockResolvedValue({ connections: CONNECTIONS })
+    getNatsConnections.mockResolvedValue({
+      connections: CONNECTIONS,
+      page: { numConnections: 3, total: 3, offset: 0, limit: 1024 },
+      server: { maxConnections: 65536 },
+    })
   })
 
   it('BR-028: renders the resolved tenantLabel as a tag instead of the raw account NKey', async () => {
@@ -100,7 +104,9 @@ describe('ConnectionsPanel', () => {
     const wrapper = mountPanel()
     await flushPromises()
 
-    const raw = wrapper.findAll('.acct')
+    // `.acct[title]` narrows to the Account cell — the Host cell shares the
+    // .acct type style but carries no title.
+    const raw = wrapper.findAll('.acct[title]')
     expect(raw).toHaveLength(1)
     expect(raw[0].text()).toBe('AB56H4HBPU…')
     expect(raw[0].attributes('title')).toBe(CONNECTIONS[1].account)
@@ -112,10 +118,116 @@ describe('ConnectionsPanel', () => {
 
     expect(wrapper.text()).toContain('3') // total
     // nats: refdata-service + accounts-service = 2; websocket: 1
-    const values = wrapper.findAll('.summary-value').map((el) => el.text())
-    expect(values[0]).toBe('3')
+    const values = wrapper.findAll('.summary-value').map((el) => el.text().replace(/\s+/g, ' '))
+    expect(values[0]).toBe('3 / 65,536') // total, against the server ceiling
     expect(values[1]).toBe('2')
     expect(values[2]).toBe('1')
+  })
+
+  it('gives every card value one type treatment, pairs included', async () => {
+    getNatsConnections.mockResolvedValue({
+      connections: CONNECTIONS,
+      page: { numConnections: 3, total: 3, offset: 0, limit: 1024 },
+      server: { maxConnections: 65536 },
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    // No card opts out with a smaller font: the old `.small` modifier on the
+    // msgs pair put three value sizes in one row.
+    const values = wrapper.findAll('.summary-value')
+    expect(values).toHaveLength(4)
+    values.forEach((v) => expect(v.classes()).toEqual(['summary-value']))
+  })
+
+  it('shortens a runaway counter instead of letting it set the card width', async () => {
+    const busy = CONNECTIONS.map((c) => ({ ...c, inMsgs: 411_522, outMsgs: 2_967_078 }))
+    getNatsConnections.mockResolvedValue({
+      connections: busy,
+      page: { numConnections: 3, total: 3, offset: 0, limit: 1024 },
+      server: { maxConnections: 65536 },
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const msgs = wrapper.findAll('.summary-value')[3]
+    expect(msgs.text().replace(/\s+/g, ' ')).toBe('1.2M / 8.9M')
+    // The exact figures stay reachable rather than being lost to rounding.
+    expect(msgs.attributes('title')).toBe('1,234,566 in / 8,901,234 out')
+  })
+
+  it('reads Total as connections over max_connections, the ceiling from /varz', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const total = wrapper.findAll('.summary-value')[0]
+    expect(total.text().replace(/\s+/g, ' ')).toBe('3 / 65,536')
+    expect(total.attributes('title')).toContain('max_connections')
+    // True proportion (3 of 65,536); .gauge-fill's min-width keeps it visible.
+    expect(wrapper.find('.gauge-fill').attributes('style')).toContain('width: 0%')
+    expect(wrapper.find('.gauge').classes()).not.toContain('hot')
+  })
+
+  it('warns on the capacity bar once connections reach 80% of max_connections', async () => {
+    getNatsConnections.mockResolvedValue({
+      connections: CONNECTIONS,
+      page: { numConnections: 3, total: 80, offset: 0, limit: 1024 },
+      server: { maxConnections: 100 },
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.findAll('.summary-value')[0].text().replace(/\s+/g, ' ')).toBe('80 / 100')
+    expect(wrapper.find('.gauge').classes()).toContain('hot')
+    expect(wrapper.find('.gauge-fill').attributes('style')).toContain('width: 80%')
+  })
+
+  it('counts every connection the server reported, not just the rows on this page', async () => {
+    getNatsConnections.mockResolvedValue({
+      connections: CONNECTIONS, // one page of rows…
+      page: { numConnections: 1024, total: 2100, offset: 0, limit: 1024 },
+      server: { maxConnections: 65536 },
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.findAll('.summary-value')[0].text().replace(/\s+/g, ' ')).toBe('2,100 / 65,536')
+  })
+
+  it('drops the ceiling and the bar when /varz reported no max_connections', async () => {
+    getNatsConnections.mockResolvedValue({
+      connections: CONNECTIONS,
+      page: { numConnections: 3, total: 3, offset: 0, limit: 1024 },
+      server: { maxConnections: 0 },
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.findAll('.summary-value')[0].text()).toBe('3')
+    expect(wrapper.find('.gauge').exists()).toBe(false)
+  })
+
+  it('says nothing about /connz paging while the snapshot is complete', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    // On a server under one page there is nothing to warn about, and a
+    // permanent "nothing hidden" line is the noise this replaced.
+    expect(wrapper.find('.paged-note').exists()).toBe(false)
+  })
+
+  it('flags a paged /connz snapshot as showing only one page of several', async () => {
+    getNatsConnections.mockResolvedValue({
+      connections: CONNECTIONS,
+      page: { numConnections: 1024, total: 2100, offset: 0, limit: 1024 },
+      server: { maxConnections: 65536 },
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const note = wrapper.find('.paged-note')
+    expect(note.text()).toBe('1,024 of 2,100 shown · page 1 of 3')
+    expect(note.attributes('title')).toContain('not a limit on connections')
   })
 
   it('filters rows by tenantLabel text', async () => {

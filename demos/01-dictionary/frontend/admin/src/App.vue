@@ -5,6 +5,7 @@ import Toast from 'primevue/toast'
 import { useI18n } from 'vue-i18n'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
+import AccountActivityPanel from './components/AccountActivityPanel.vue'
 import AccountsView from './components/AccountsView.vue'
 import ConnectionsPanel from './components/ConnectionsPanel.vue'
 import JetStreamPanel from './components/JetStreamPanel.vue'
@@ -18,7 +19,9 @@ import SettingsPanel from './components/SettingsPanel.vue'
 import ShapeCPanel from './components/ShapeCPanel.vue'
 import ShapePanel from './components/ShapePanel.vue'
 import TelemetryStrip from './components/TelemetryStrip.vue'
+import TradingPartnersPanel from './components/TradingPartnersPanel.vue'
 import IconAccounts from './components/icons/IconAccounts.vue'
+import IconActivity from './components/icons/IconActivity.vue'
 import IconConnections from './components/icons/IconConnections.vue'
 import IconKv from './components/icons/IconKv.vue'
 import IconLog from './components/icons/IconLog.vue'
@@ -27,8 +30,10 @@ import IconRpc from './components/icons/IconRpc.vue'
 import IconServices from './components/icons/IconServices.vue'
 import IconSettings from './components/icons/IconSettings.vue'
 import IconShapes from './components/icons/IconShapes.vue'
+import IconShippers from './components/icons/IconShippers.vue'
 import IconStreams from './components/icons/IconStreams.vue'
 import IconTables from './components/icons/IconTables.vue'
+import IconTransporters from './components/icons/IconTransporters.vue'
 import { useDictionaryStore } from './stores/dictionary'
 import { useTenantStore } from './stores/tenant'
 import { useUiStore } from './stores/ui'
@@ -61,32 +66,63 @@ const { t } = useI18n()
 const platformConnection = usePlatformConnection()
 
 // ── View selection (grouped activity bar) — one view rendered at a time, no
-// router. The NATS group holds the four NATS surfaces (request/reply,
-// streams, KV, the shape read models); Postgres holds the canonical tables.
-// Extend by pushing onto a section's items.
+// router. Two top-level groups, PLATFORM before SYSTEM, split by what the
+// view is *of* rather than which backend serves it: PLATFORM configures and
+// inspects the business layer (who is on the platform and how it is set up),
+// SYSTEM is low-level infrastructure diagnostics (NATS internals, canonical
+// Postgres tables). Overview stays ungrouped above both — it reads across
+// the whole stack, so it belongs to neither.
+//
+// Extend by pushing onto a section's items; add a nav level with a nested
+// `eyebrow` section rather than a third level, which NavList.vue doesn't
+// render (see shared/unifi-theme/LAYOUT.md).
 const activeView = ref('overview')
 const sections = [
   { items: [{ key: 'overview', label: 'Overview', icon: IconOverview }] },
   {
-    eyebrow: 'NATS',
-    items: [
-      { key: 'accounts', label: 'Accounts', icon: IconAccounts },
-      { key: 'connections', label: 'Connections', icon: IconConnections },
-      { key: 'services', label: 'Services', icon: IconServices },
-      { key: 'log', label: 'Log', icon: IconLog },
-      { key: 'rpc', label: 'Request/Reply', icon: IconRpc },
-      { key: 'streams', label: 'Streams', icon: IconStreams },
-      { key: 'kv', label: 'KV Buckets', icon: IconKv },
-      { key: 'shapes', label: 'CQRS Shapes', icon: IconShapes, badge: 3 },
+    group: 'Platform',
+    sections: [
+      // Accounts is a tenant (NATS account) roster — a platform-membership
+      // question, so it sits here rather than under SYSTEM's NATS group where
+      // it used to live purely because NATS accounts are its mechanism.
+      { items: [{ key: 'accounts', label: 'Accounts', icon: IconAccounts }] },
+      {
+        // Phase 26 — own nav category (linebooker_registration_ui_placement.md):
+        // organisation-owned master data that *consumes* refdata lookups
+        // (VehicleType), not a vocabulary itself, so it belongs here, not in
+        // frontend/refdata. Split per role rather than one combined list
+        // because shipper- and transporter-specific fields diverge from here
+        // on (fleet assets and GOODS_IN_TRANSIT are already transporter-only).
+        eyebrow: 'Trading partners',
+        items: [
+          { key: 'shippers', label: 'Shippers', icon: IconShippers },
+          { key: 'transporters', label: 'Transporters', icon: IconTransporters },
+        ],
+      },
+      { items: [{ key: 'settings', label: 'Settings', icon: IconSettings }] },
     ],
   },
   {
-    eyebrow: 'Postgres',
-    items: [{ key: 'tables', label: 'Tables', icon: IconTables }],
-  },
-  {
-    eyebrow: 'System',
-    items: [{ key: 'settings', label: 'Settings', icon: IconSettings }],
+    group: 'System',
+    sections: [
+      {
+        eyebrow: 'NATS',
+        items: [
+          { key: 'connections', label: 'Connections', icon: IconConnections },
+          { key: 'services', label: 'Services', icon: IconServices },
+          { key: 'account-activity', label: 'Account Activity', icon: IconActivity },
+          { key: 'log', label: 'Log', icon: IconLog },
+          { key: 'rpc', label: 'Request/Reply', icon: IconRpc },
+          { key: 'streams', label: 'Streams', icon: IconStreams },
+          { key: 'kv', label: 'KV Buckets', icon: IconKv },
+          { key: 'shapes', label: 'CQRS Shapes', icon: IconShapes, badge: 3 },
+        ],
+      },
+      {
+        eyebrow: 'Postgres',
+        items: [{ key: 'tables', label: 'Tables', icon: IconTables }],
+      },
+    ],
   },
 ]
 
@@ -98,9 +134,12 @@ const SUBTITLES = {
   rpc: 'rpc.* + api.* request/reply traffic · rpc.* replays last 10 min, api.* live only',
   connections: 'nats connections · all accounts',
   services: 'nats micro services · $SRV.* discovery',
+  'account-activity': 'per-account traffic + slow-consumer health · /accstatz',
   log: 'nats server log · level + text filter, no rotation',
   tables: 'canonical Postgres tables by schema',
   settings: 'platform-global system configuration',
+  shippers: 'shipper registration · KYC documents',
+  transporters: 'transporter registration · KYC documents · fleet assets',
 }
 // accounts has two tabs (AccountsView.vue) with distinct enough subject
 // matter — provisioning vs. the export/import graph — that one subtitle for
@@ -250,6 +289,15 @@ onUnmounted(() => {
       </div>
     </section>
 
+    <!-- Account Activity — per-account traffic + slow-consumer health from
+         /accstatz (Phase 27). Manages its own internal scroll regions, so the
+         section is flush, same as Connections/Services above. -->
+    <section v-else-if="activeView === 'account-activity'" class="group group--flush" data-testid="account-activity-view">
+      <div class="lab-panel streams-panel">
+        <AccountActivityPanel />
+      </div>
+    </section>
+
     <!-- Log — tails NATS's own log_file, level + text filter, no rotation -->
     <section v-else-if="activeView === 'log'" class="group" data-testid="log-view">
       <LogPanel />
@@ -263,6 +311,21 @@ onUnmounted(() => {
     <!-- System — platform-global configuration (BR-AC20) -->
     <section v-else-if="activeView === 'settings'" class="group" data-testid="settings-view">
       <SettingsPanel />
+    </section>
+
+    <!-- Trading Partners — Shipper/Transporter registration (Phase 26). One
+         panel per role rather than one combined list, keyed so switching
+         roles remounts it instead of leaving the previous role's rows and
+         open dialogs behind. -->
+    <section
+      v-else-if="activeView === 'shippers' || activeView === 'transporters'"
+      class="group"
+      :data-testid="`${activeView}-view`"
+    >
+      <TradingPartnersPanel
+        :key="activeView"
+        :partner-type="activeView === 'shippers' ? 'SHIPPER' : 'TRANSPORTER'"
+      />
     </section>
 
     <!-- Accounts — provisioning (Phase 14c) + the declared export/import

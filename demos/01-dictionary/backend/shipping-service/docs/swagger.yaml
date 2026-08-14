@@ -180,6 +180,48 @@ definitions:
       updatedAt:
         type: string
     type: object
+  rest.accountActivity:
+    properties:
+      account:
+        type: string
+      connections:
+        type: integer
+      inBytes:
+        type: integer
+      inMsgs:
+        type: integer
+      leafNodes:
+        type: integer
+      outBytes:
+        type: integer
+      outMsgs:
+        type: integer
+      slowConsumers:
+        description: |-
+          SlowConsumers is the one field on this endpoint an operator has to act
+          on — a subscriber on this account isn't draining fast enough and the
+          server is dropping messages to it. Every other field here is routine
+          traffic; the Admin UI renders this one as an alarm, not a stat (see
+          AccountActivityPanel.vue).
+        type: integer
+      subscriptions:
+        type: integer
+      tenantLabel:
+        type: string
+      totalConnections:
+        type: integer
+    type: object
+  rest.connzPage:
+    properties:
+      limit:
+        type: integer
+      numConnections:
+        type: integer
+      offset:
+        type: integer
+      total:
+        type: integer
+    type: object
   rest.containerResponse:
     properties:
       container:
@@ -224,6 +266,13 @@ definitions:
       values:
         items:
           type: string
+        type: array
+    type: object
+  rest.natsAccountActivityResponse:
+    properties:
+      accounts:
+        items:
+          $ref: '#/definitions/rest.accountActivity'
         type: array
     type: object
   rest.natsConnection:
@@ -285,6 +334,10 @@ definitions:
         items:
           $ref: '#/definitions/rest.natsConnection'
         type: array
+      page:
+        $ref: '#/definitions/rest.connzPage'
+      server:
+        $ref: '#/definitions/rest.natsServerLimits'
     type: object
   rest.natsEndpoint:
     properties:
@@ -302,6 +355,11 @@ definitions:
         type: string
       subject:
         type: string
+    type: object
+  rest.natsServerLimits:
+    properties:
+      maxConnections:
+        type: integer
     type: object
   rest.natsService:
     properties:
@@ -743,12 +801,44 @@ paths:
       summary: Known container IDs
       tags:
       - meta
+  /api/nats/account-activity:
+    get:
+      description: 'Per-account traffic and health, proxying the server''s own /accstatz
+        monitoring endpoint, reshaped to camelCase. Complements Connections (every
+        raw socket) and Services (every registered endpoint) with the account-level
+        rollup: connection/subscription counts, message/byte volume, and slowConsumers,
+        the one field here that means a subscriber on that account is not draining
+        fast enough and the server is dropping messages to it. tenantLabel is resolved
+        the same best-effort way Connections/Services do (BR-028) from a secondary
+        /connz read: present when this process can identify the account, empty otherwise,
+        and never something a failed /connz probe costs the caller the activity rollup
+        over.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.natsAccountActivityResponse'
+        "502":
+          description: NATS monitoring endpoint unreachable or returned an unexpected
+            body
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: List NATS account activity
+      tags:
+      - nats
   /api/nats/connections:
     get:
       description: 'Every active connection on the NATS server, across all accounts
         — proxies the server''s own /connz monitoring endpoint (subs=true&auth=true),
         reshaped to camelCase. Independent of the active tenant: this is server-wide,
-        not fleet-context-scoped.'
+        not fleet-context-scoped. The page object passes through /connz''s paging
+        envelope (total/offset/limit/numConnections) so a caller can tell a complete
+        snapshot from one page of several; limit there is the server''s page size
+        (default 1024), not max_connections. The server object carries the real
+        ceiling, maxConnections, read from /varz — 0 when /varz was unreachable,
+        which is a secondary read this endpoint absorbs rather than failing on.'
       produces:
       - application/json
       responses:

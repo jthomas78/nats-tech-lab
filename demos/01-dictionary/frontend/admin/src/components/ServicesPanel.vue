@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import { getNatsServices } from '../api'
+import { compactCount, exactCount } from '../format'
 
 // Services panel (Phase 17c) — every service registered via nats.go/micro
 // (see ARCHITECTURE-COMMUNICATIONS.md §4), discovered by broadcasting
@@ -26,10 +27,13 @@ async function refresh() {
     const res = await getNatsServices()
     services.value = res?.services ?? []
     errorMsg.value = ''
-    // Auto-expand the first load so the panel isn't just a wall of collapsed bars.
-    if (expanded.value.size === 0 && services.value.length) {
-      expanded.value = new Set([services.value[0].name])
-    }
+    // Deliberately no auto-expand. An earlier version opened the first card
+    // whenever `expanded` was empty "so the panel isn't just a wall of
+    // collapsed bars" — but because refresh() is on a REFRESH_MS poll, that
+    // condition was re-tested every 10s, so collapsing every card made the
+    // first one silently re-open on the next tick. Expansion is the user's to
+    // control; the summary tiles above already carry the at-a-glance signal
+    // the auto-expand was reaching for.
   } catch (err) {
     errorMsg.value = err.message || 'Failed to load services'
   } finally {
@@ -99,9 +103,11 @@ function volumePct(e, instance) {
       </div>
       <div class="summary-card">
         <div class="summary-label">Requests / Errors</div>
-        <div class="summary-value small">
-          {{ totals.requests.toLocaleString() }} /
-          <span :class="{ errv: totals.errors > 0 }">{{ totals.errors.toLocaleString() }}</span>
+        <div
+          class="summary-value"
+          :title="`${exactCount(totals.requests)} requests / ${exactCount(totals.errors)} errors`"
+        >{{ compactCount(totals.requests) }} /
+          <span :class="{ errv: totals.errors > 0 }">{{ compactCount(totals.errors) }}</span>
         </div>
       </div>
     </div>
@@ -192,7 +198,9 @@ function volumePct(e, instance) {
 .summary-row {
   flex: none;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* Wrap rather than squeeze a card below the width its value needs — see the
+     same rule in ConnectionsPanel for the measurements behind 165px. */
+  grid-template-columns: repeat(auto-fit, minmax(min(165px, 100%), 1fr));
   gap: 0.5rem;
 }
 .summary-card {
@@ -208,14 +216,13 @@ function volumePct(e, instance) {
   text-transform: uppercase;
   color: var(--p-text-disabled-color);
 }
+/* One size for every value in the row, pairs included — long counters shorten
+   via compactCount rather than dropping a type size (../format.js). */
 .summary-value {
   font-size: 20px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   margin-top: 2px;
-}
-.summary-value.small {
-  font-size: 15px;
 }
 .err-line {
   flex: none;

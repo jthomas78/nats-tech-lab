@@ -36,6 +36,7 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 	handlers := rest.NewHandlers(rest.Deps{
 		Ports:          commands.NewPortHandler(portRepo),
 		PlatformJS:     mono.JS(),
+		PlatformFullJS: mono.PlatformFullJS(),
 		NC:             mono.NC(),
 		Log:            log,
 		ShipRepo:       shipRepo,

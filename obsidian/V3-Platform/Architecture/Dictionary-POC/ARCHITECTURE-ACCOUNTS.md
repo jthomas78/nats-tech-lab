@@ -83,6 +83,31 @@ tenant data; RPCTRACE replay is likewise not imported because it contains
 cross-tenant observability traffic. The normal tenant import carries refdata
 change events instead.
 
+**Two PLATFORM connections, not one (Phase 24).** `shipping-admin` never
+receives `$JS.API.>`. Its grant is an explicit allow-list
+(`nats/bootstrap-operator.sh`) naming only the ordered-consumer subjects —
+`CONSUMER.{CREATE,INFO,DELETE,MSG.NEXT}` for `REFDATA` and `RPCTRACE`
+specifically — so every other JetStream API subject is denied by omission, a
+restriction `TestShippingAdminCanOnlyUseNarrowOrderedConsumerAccess` pins in
+place. That is enough to **replay** those two streams, but not to
+**enumerate** them: listing needs `$JS.API.STREAM.LIST`, which no entry
+covers. So the Admin UI's
+cross-account introspection panels (§ 12 of
+[ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md)) required a
+*second*, unrestricted PLATFORM connection on `platform.creds` —
+`monolith.PlatformFullJS`, read only by `introspectableAccounts()` — rather
+than widening `shipping-admin` and eroding the boundary for every existing
+caller. The capability split is the thing to keep straight when touching
+either: **list** needs `PlatformFullJS`, **replay** works on either, and
+attempting a list on `shipping-admin` doesn't fail fast — the request hangs
+until the client timeout, because a denied publish to `$JS.API.STREAM.LIST`
+simply never produces a reply. The credential resolves from
+`NATS_PLATFORM_CREDS_PATH`, falling back to `platform.creds` inside
+`NATS_CREDS_DIR` (which is why `docker-compose.yml` sets no explicit var for
+it); with neither configured — local dev outside operator mode —
+`PlatformFullJS` is nil, so every consumer treats PLATFORM as an account that
+may legitimately be absent rather than as an error.
+
 Account JWT updates replace the entire claim, so `accounts/provisioner.go`
 preserves existing exports/imports whenever it re-signs a claim; freshly
 minted runtime accounts receive the same imports as ACME/GLOBEX.
@@ -253,6 +278,26 @@ permission grant and why it's issued outside the tenant `Status`/
 `SigningKeySeed` lifecycle this section otherwise documents, and
 `ARCHITECTURE-COMMUNICATIONS.md` § 6 for how the Request/Reply panel splits
 `obs.rpc.*`/`obs.api.*` across these two connections.
+
+**What the tenant connection can and cannot reach (Phase 24).** The tenant
+connection is authenticated into exactly one account at a time, and NATS
+enforces account isolation at the server — so a browser connected as ACME
+cannot subscribe to GLOBEX's or PLATFORM's `notify.*`, full stop. There is no
+cross-account workaround at this layer, nor should there be: this is the same
+boundary that makes the account the tenancy primitive in the first place. The
+consequence for UI design is a hard split the cross-account panels have to
+make explicit, because the two halves of a panel no longer share a scope:
+
+| | Reaches every account | Mechanism |
+|---|---|---|
+| Contents / history snapshot | **yes** | backend-mediated REST — `shipping-service` holds a connection per account and fetches on the browser's behalf |
+| Live tail | **no** | browser's own NATS connection, one account only |
+
+A panel that shows another account's snapshot must therefore *say* the live
+feed is unavailable and why, rather than leaving a feed that silently never
+fires — `KvInspector.vue`'s `liveUnavailableReason` and `StreamView.vue`'s
+`snapshotReason` are that message. See § 12 of
+[ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md).
 
 #### Runtime — browser JWT expiry & reconnect
 

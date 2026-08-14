@@ -11,14 +11,12 @@
             "id": "c50d6372ff085bfe",
             "type": "leaf",
             "state": {
-              "type": "markdown",
+              "type": "image",
               "state": {
-                "file": "V3-Platform/Architecture/Pricing/Effective-dated-diesel-poc-sequence.md",
-                "mode": "source",
-                "source": false
+                "file": "POC-Dictionaries/Summary/Diagrams 2/dictionary-data-types-and-retrieval.png"
               },
-              "icon": "lucide-file",
-              "title": "Effective-dated-diesel-poc-sequence"
+              "icon": "lucide-image",
+              "title": "dictionary-data-types-and-retrieval"
             }
           }
         ]
@@ -80,7 +78,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 299.4182891845703
+    "width": 291.15538024902344
   },
   "right": {
     "id": "0e936b3f4ebbe464",
@@ -185,18 +183,39 @@
       "bases:Create new base": false
     }
   },
-  "active": "398f933131b9a7a9",
+  "active": "c50d6372ff085bfe",
   "lastOpenFiles": [
-    "V3-Platform/Architecture/Pricing/Effective-dated-diesel-pre-design.md",
-    "V3-Platform/Architecture/Pricing/Effective-dated-diesel-sequence.md",
+    "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ADMIN.md",
+    "POC-Dictionaries/Summary/Diagrams 2/3. POC Design and Architecture 1.md",
+    "V3-Platform/Architecture/Dictionary-POC/images/docker-compose-network.png",
+    "POC-Dictionaries/Summary/Diagrams 2/dictionary-data-types-and-retrieval.png",
+    "V3-Platform/System Design - V3 Logistics Platform.md",
+    "V3-Platform/Architecture/v3-platform-building-blocks.svg",
     "V3-Platform/Architecture/v3-platform-building-blocks.png",
-    "V3-Platform/Architecture/Pricing/Effective-dated-diesel-poc-sequence.md",
+    "V3-Platform/Architecture/Pricing/Effective-dated-diesel-sequence.md",
+    "V3-Platform/Architecture/Pricing/Effective-dated-diesel-pre-design.md",
+    "V3-Platform/Architecture/Pricing/images/diesel-overlay-service-map.png",
     "V3-Platform/Architecture/Pricing/images/diesel-overlay-sequence.png",
+    "V3-Platform/Architecture/Pricing/images/diesel-overlay-resolution-flow.png",
+    "V3-Platform/Architecture/Pricing/Effective-dated-diesel-poc-sequence.md",
+    "V3-Platform/Architecture/Dictionary-POC/images/shipping-ui-dictionary-sequence.png",
+    "V3-Platform/Architecture/Dictionary-POC/images/rpc-proposed-dual-transport.png",
+    "V3-Platform/Architecture/Dictionary-POC/images/shipping-ui-dictionary-map.png",
+    "POC-Dictionaries/3. Findings - Dictionary Service (Phase 11).md",
+    "POC-Dictionaries/2. Research - Dictionary - OpenCode.md",
+    "POC-Dictionaries/1. Problem Statement - Dictionary.md",
+    "POC-Dictionaries/Summary/5. Data Types.md",
+    "POC-Dictionaries/Summary/4. Outstanding POC Tasks.md",
+    "POC-Dictionaries/Summary/3. POC Design and Architecture.md",
+    "POC-Dictionaries/Summary/2. Requirements and Constraints.md",
+    "POC-Dictionaries/Summary/1. Problem Space.md",
+    "POC-Dictionaries/Summary/Diagrams 2",
+    "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ACCOUNTS.md",
+    "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md",
+    "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-DICTIONARY.md",
+    "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md",
     "V3-Platform/Architecture/Pricing/pricing-diesel-overlay.drawio",
     "V3-Platform/Architecture/Untitled.md",
-    "V3-Platform/Architecture/Pricing/images/diesel-overlay-service-map.png",
-    "V3-Platform/Architecture/Pricing/images/diesel-overlay-schema.png",
-    "V3-Platform/Architecture/Pricing/images/diesel-overlay-resolution-flow.png",
     "V3-Platform/Architecture/Pricing/images",
     "V3-Platform/Architecture/Pricing",
     "V3-Platform/Architecture/Dictionary-POC/t/Pricing Service — Effective-Dated Diesel Overlay.mhtml",
@@ -205,29 +224,10 @@
     "V3-Platform/Architecture/Dictionary-POC/t/Pricing Service — Effective-Dated Diesel Overlay_files/saved_resource(1).html",
     "V3-Platform/Architecture/Dictionary-POC/t/Pricing Service — Effective-Dated Diesel Overlay_files/frame-shell-Be0w9FNP.js",
     "V3-Platform/Architecture/Dictionary-POC/t/Pricing Service — Effective-Dated Diesel Overlay_files",
-    "V3-Platform/Architecture/Dictionary-POC/t",
-    "V3-Platform/Architecture/v3-platform-building-blocks.svg",
-    "V3-Platform/System Design - V3 Logistics Platform.md",
-    "POC-Dictionaries/3. Findings - Dictionary Service (Phase 11).md",
-    "POC-Dictionaries/2. Research - Dictionary - OpenCode.md",
     "POC-Dictionaries/2. Research - Dictionary - Claude.md",
-    "POC-Dictionaries/1. Problem Statement - Dictionary.md",
-    "POC-Dictionaries/Architecture/system-architecture.png",
-    "POC-Dictionaries/Architecture/localized-rendering-lifecycle.png",
-    "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-DICTIONARY.md",
-    "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md",
-    "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ACCOUNTS.md",
     "Checklist.md",
-    "V3-Platform/Architecture/Dictionary-POC/images/jwt-minting-sequence.png",
-    "V3-Platform/Architecture/Dictionary-POC/images/rpc-proposed-dual-transport.png",
-    "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md",
     "Event sourcing/4. Design - Event Sourcing + CQRS.md",
-    "POC-Dictionaries/Summary/3. POC Design and Architecture.md",
-    "POC-Dictionaries/Summary/2. Requirements and Constraints.md",
-    "POC-Dictionaries/Summary/1. Problem Space.md",
     "POC-Dictionaries/PERFORMANCE.md",
-    "POC-Dictionaries/Summary/4. Outstanding POC Tasks.md",
-    "POC-Dictionaries/Summary/5. Data Types.md",
     "POC-Dictionaries/Summary/0. Overview.md",
     "POC-Dictionaries/CLAUDE.md",
     "POC-Dictionaries/_archive/TODO.md"

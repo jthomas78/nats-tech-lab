@@ -97,10 +97,12 @@ The `ARCHITECTURE*.md` reference docs — `ARCHITECTURE.md` (CQRS shape taxonomy
 event sourcing vs. plain CRUD), `ARCHITECTURE-DICTIONARY.md` (refdata-service's
 seeding, Postgres schema/ER diagram, data access paths, cross-service
 consumption), `ARCHITECTURE-COMMUNICATIONS.md` (REST/Swagger + NATS
-`rpc.*` dual-transport design, subject taxonomy), and
+`rpc.*` dual-transport design, subject taxonomy),
 `ARCHITECTURE-ACCOUNTS.md` (NATS operator-mode trust chain, tenant account
-create/suspend/reactivate lifecycle, user auth and token lifecycle) — live
-in the obsidian vault
+create/suspend/reactivate lifecycle, user auth and token lifecycle), and
+`ARCHITECTURE-ADMIN.md` (the Admin UI's SYSTEM → NATS navbar group —
+per-panel architecture and data-flow patterns, plus the shared UI design
+system these panels draw from) — live in the obsidian vault
 under `obsidian/V3-Platform/Architecture/Dictionary-POC/`, not in the repo
 tree, alongside the editable `architecture-dictionary.drawio` workbook and its
 exported PNGs (`images/`). This is a different vault location from

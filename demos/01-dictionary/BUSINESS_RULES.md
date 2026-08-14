@@ -20,14 +20,19 @@ Split by domain so a rule add/edit only requires reading its own file:
   immediately, closing the created/suspended/reactivated lifecycle triple;
   see BR-AC10, ACCOUNTS file), and the Phase 16k connection-honesty rule
   (BR-033 — the status badge reflects the NATS connection, and command
-  failures name the cause rather than the transport symptom).
+  failures name the cause rather than the transport symptom), and the
+  Phase 27 Admin UI presentation rule (BR-034 — the new Account Activity
+  panel proxies `/accstatz` per account and renders `slow_consumers` as a
+  silent-until-nonzero alarm, not a routine stat).
   Rules live in `dictionary/internal/domain/` (BR-001–022),
   `dictionary/internal/browserrpc/` + `dictionary/internal/eventhandler/`
   (BR-023–024, 026–028), `internal/refdataconsumer/` (BR-025, 027),
   `frontend/seafreight-app/src/stores/port.js` (BR-029),
   `dictionary/internal/rest/tenant.go` + `dictionary/composition.go`
-  (BR-030–032), and `frontend/seafreight-app/src/App.vue` +
-  `src/nats/useNatsConnection.js` (BR-031, BR-033).
+  (BR-030–032), `frontend/seafreight-app/src/App.vue` +
+  `src/nats/useNatsConnection.js` (BR-031, BR-033), and
+  `dictionary/internal/rest/nats_ops.go` +
+  `frontend/admin/src/components/AccountActivityPanel.vue` (BR-034).
 - **[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)** — Reference Data
   Service (BR-D01–BR-D28). Rules live in
   `backend/refdata-service/refdata/internal/domain/dictionary.go`.
@@ -88,8 +93,22 @@ Split by domain so a rule add/edit only requires reading its own file:
   instead. Rules live in
   `backend/pricing-service/pricing/internal/domain/fee_scale.go`,
   `rate_sheet.go`, and `fixed_rate.go`.
+- **[BUSINESS_RULES-TRADING-PARTNER.md](BUSINESS_RULES-TRADING-PARTNER.md)**
+  — Trading Partner Service (BR-TP01–BR-TP14, confirmed 2026-08-13): Shipper/Transporter registration in a new
+  `trading-partner-service`, ported from V2's `BusinessEntity`/
+  `TransporterProfileEntity`/`TransporterDocumentEntity`/`FleetAssetEntity`.
+  Covers only the `TradingPartner` aggregate's
+  `Register`→`Activate`→`Suspend`→`Reactivate` lifecycle (mirrors
+  accounts-service's create/suspend/reactivate triple, BR-AC08–AC10) and its
+  append-only audit trail (mirrors BR-AC11's conventions verbatim). Plain
+  Postgres CRUD, not event-sourced. Compliance documents and Transporter
+  fleet assets (with refdata-validated `vehicleTypeCode`, requiring
+  `trading-partner-service` to hold a tenant-scoped `rpc.*` client per
+  BR-D28) get their own BR-TP numbers once Phase 26's later sub-phases
+  start. Rules will live in
+  `trading-partner-service/tradingpartner/internal/domain/`.
 
 When CLAUDE.md's Quality Rule #4 says "update `BUSINESS_RULES.md`," it means:
-add/edit the rule in whichever of the four files above matches the domain
+add/edit the rule in whichever of the domain files above matches the domain
 the change touches. This index file itself should stay a pointer — don't add
 rule detail here.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 
@@ -49,6 +50,16 @@ func (q *ShapeC) ReconstructFleet(ctx context.Context) (FleetReconstruction, err
 	if err != nil {
 		return empty, fmt.Errorf("ordered consumer: %w", err)
 	}
+	// An ordered consumer is ephemeral but is only reaped after its 5m
+	// InactiveThreshold, not when the client stops pulling — so a
+	// reconstruction per Fleet-view refresh would hold a consumer slot each
+	// time and exhaust the account's JetStream MaxConsumers. Delete it on the
+	// way out, on a context of its own so a cancelled request still cleans up.
+	defer func() {
+		dropCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = q.js.DeleteConsumer(dropCtx, domain.StreamName, consumer.CachedInfo().Name)
+	}()
 	// Completion is measured against the filtered consumer's pending count, not
 	// the stream's LastSeq. After a subject migration the stream can still hold
 	// messages that no longer match StreamSubjects() (e.g. pre-Phase-9 events);

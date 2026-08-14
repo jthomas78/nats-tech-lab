@@ -479,9 +479,35 @@
                 }
             }
         },
+        "/api/nats/account-activity": {
+            "get": {
+                "description": "Per-account traffic and health, proxying the server's own /accstatz monitoring endpoint, reshaped to camelCase. Complements Connections (every raw socket) and Services (every registered endpoint) with the account-level rollup: connection/subscription counts, message/byte volume, and slowConsumers, the one field here that means a subscriber on that account is not draining fast enough and the server is dropping messages to it. tenantLabel is resolved the same best-effort way Connections/Services do (BR-028) from a secondary /connz read: present when this process can identify the account, empty otherwise, and never something a failed /connz probe costs the caller the activity rollup over.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "nats"
+                ],
+                "summary": "List NATS account activity",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/rest.natsAccountActivityResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "NATS monitoring endpoint unreachable or returned an unexpected body",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/nats/connections": {
             "get": {
-                "description": "Every active connection on the NATS server, across all accounts — proxies the server's own /connz monitoring endpoint (subs=true\u0026auth=true), reshaped to camelCase. Independent of the active tenant: this is server-wide, not fleet-context-scoped.",
+                "description": "Every active connection on the NATS server, across all accounts — proxies the server's own /connz monitoring endpoint (subs=true\u0026auth=true), reshaped to camelCase. Independent of the active tenant: this is server-wide, not fleet-context-scoped. The page object passes through /connz's paging envelope (total/offset/limit/numConnections) so a caller can tell a complete snapshot from one page of several; limit there is the server's page size (default 1024), not max_connections. The server object carries the real ceiling, maxConnections, read from /varz — 0 when /varz was unreachable, which is a secondary read this endpoint absorbs rather than failing on.",
                 "produces": [
                     "application/json"
                 ],
@@ -1536,6 +1562,62 @@
                 }
             }
         },
+        "rest.accountActivity": {
+            "type": "object",
+            "properties": {
+                "account": {
+                    "type": "string"
+                },
+                "connections": {
+                    "type": "integer"
+                },
+                "inBytes": {
+                    "type": "integer"
+                },
+                "inMsgs": {
+                    "type": "integer"
+                },
+                "leafNodes": {
+                    "type": "integer"
+                },
+                "outBytes": {
+                    "type": "integer"
+                },
+                "outMsgs": {
+                    "type": "integer"
+                },
+                "slowConsumers": {
+                    "description": "SlowConsumers is the one field on this endpoint an operator has to act\non — a subscriber on this account isn't draining fast enough and the\nserver is dropping messages to it. Every other field here is routine\ntraffic; the Admin UI renders this one as an alarm, not a stat (see\nAccountActivityPanel.vue).",
+                    "type": "integer"
+                },
+                "subscriptions": {
+                    "type": "integer"
+                },
+                "tenantLabel": {
+                    "type": "string"
+                },
+                "totalConnections": {
+                    "type": "integer"
+                }
+            }
+        },
+        "rest.connzPage": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer"
+                },
+                "numConnections": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
         "rest.containerResponse": {
             "type": "object",
             "properties": {
@@ -1604,6 +1686,17 @@
                     "type": "array",
                     "items": {
                         "type": "string"
+                    }
+                }
+            }
+        },
+        "rest.natsAccountActivityResponse": {
+            "type": "object",
+            "properties": {
+                "accounts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/rest.accountActivity"
                     }
                 }
             }
@@ -1686,6 +1779,12 @@
                     "items": {
                         "$ref": "#/definitions/rest.natsConnection"
                     }
+                },
+                "page": {
+                    "$ref": "#/definitions/rest.connzPage"
+                },
+                "server": {
+                    "$ref": "#/definitions/rest.natsServerLimits"
                 }
             }
         },
@@ -1712,6 +1811,14 @@
                 },
                 "subject": {
                     "type": "string"
+                }
+            }
+        },
+        "rest.natsServerLimits": {
+            "type": "object",
+            "properties": {
+                "maxConnections": {
+                    "type": "integer"
                 }
             }
         },

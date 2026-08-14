@@ -430,6 +430,31 @@ Wire `rpc.*` for every operation another service calls synchronously — see
 see the diagram in § 1 above for the concrete shipping-service →
 refdata-service example.
 
+### 3.1 Which services have which adapters (as built, 2026-08-13)
+
+| Service | REST | `api.*` (browser) | `rpc.*` (backend callers) | `micro.AddService` |
+|---|---|---|---|---|
+| `shipping-service` | yes | yes (`internal/browserrpc`) | — | yes |
+| `refdata-service` | yes | — | yes (`internal/natsrpc`) | yes |
+| `pricing-service` | yes (no browser proxy route) | yes (`internal/browserrpc`) | — | yes |
+| `accounts-service` | yes | — | — | no |
+| `trading-partner-service` | yes | yes (`internal/browserrpc`, Phase 26h) | — | yes (Phase 26g) |
+
+Two notes worth carrying forward from Phase 26g/26h:
+
+- **`micro.AddService` is what makes a service visible in the Admin UI's
+  Services panel**, and it wires the `$SRV.PING/INFO/STATS` responders
+  independently of `AddEndpoint`. A service that only makes *outbound* `rpc.*`
+  requests answers nothing on `$SRV` and is invisible there even while running
+  — which is exactly how `trading-partner-service` sat unlisted until Phase
+  26g registered it. Registration and endpoints are separable: 26g shipped the
+  registration with zero endpoints, 26h added the endpoints.
+- **A service gets `rpc.*` endpoints only once a backend caller exists.**
+  `trading-partner-service` has none yet: the Admin UI is its only caller, and
+  a browser credential is never granted `rpc.>` (§ 2.4). Its `rpc.*` surface
+  arrives with the marketplace/tender phase that first calls it from another
+  backend.
+
 ## 4. Discovery & documentation
 
 ### What `nats.go/micro` provides
@@ -994,3 +1019,75 @@ fall back to the raw NKey exactly as before this existed. This also
 generalizes past SYS: any future connection on an account shipping-service
 holds no connection on (a runtime-provisioned tenant it hasn't connected to
 yet, for instance) resolves the same way, with no code change required.
+
+---
+
+## 12. Cross-account introspection — the diagnostic axis is not the tenant axis (Phase 24)
+
+The Admin UI's **KV Buckets** and **Streams** panels each answer "what exists
+on this deployment?". Both were originally scoped to whichever tenant the
+topbar had selected, which made them answer a different and much less useful
+question — "what exists in one account?" — and hid PLATFORM entirely. Both are
+now cross-account, grouped by account.
+
+**Why the tenant selector was the wrong scope.** `Deps.JS` and the other
+mirror fields exist so a *command or query* runs against one tenant's
+resources; that is the correct scope for anything that reads or writes
+business data, and `SwitchTenant` swapping them is the whole tenancy
+mechanism. A read-only diagnostic view has no such affinity: the operator
+asking "is GLOBEX's SHIPPING stream provisioned?" or "did refdata-service's
+KV caches get built?" is asking about the deployment, and forcing that
+question through a tenant switch answers it one account at a time. These two
+endpoints therefore read `introspectableAccounts()` — every entry in
+`Deps.TenantResources` plus PLATFORM — and never consult `Deps.Tenant`/
+`Deps.JS` at all.
+
+```
+GET /api/kv/buckets        → {"buckets":[{"bucket":"dict-a","account":"acme", …}]}
+GET /api/jetstream/streams → {"streams":[{"stream":"SHIPPING","account":"acme", …}]}
+```
+
+**Names are unique only within an account, so every row carries its account.**
+Every tenant provisions its own `dict-a`/`dict-b`/`container`/`meta` and its
+own `SHIPPING`. A bare-name response would collapse three tenants' `SHIPPING`
+into one indistinguishable row, so both endpoints return objects tagged with
+the account, sorted by (account, name) — deterministic despite
+`TenantResources` being a map, which matters because the frontend re-renders
+the rail from a 15s poll. Any endpoint keyed by one of those names needs the
+account too, which is why `/api/kv/buckets/{account}/{bucket}/entries` takes
+it as a path segment and `/api/jetstream/replay` takes `?account=`, both
+resolving through the same `jsForAccount()` helper. Replay's `?account=`
+defaults to the active tenant, which is exactly the behaviour it had when it
+read `Deps.JS` directly.
+
+**The `KV_` exclusion is a rule, not a detail.** NATS backs every KV bucket
+with a `KV_<bucket>` JetStream stream. Without the prefix filter the Streams
+panel would list all of them and simply duplicate the KV Buckets panel next
+door, so the filter is what keeps the two panels answering different
+questions. With current seed data the Streams panel shows exactly four rows
+across three accounts — `SHIPPING` under `acme` and `globex`, `REFDATA` and
+`RPCTRACE` under `platform` — and no `KV_*`.
+
+**Which PLATFORM credential does what.** Listing needs
+`$JS.API.STREAM.LIST`, which `shipping-admin` is deliberately denied, so both
+list endpoints go through the second unrestricted PLATFORM connection
+(`PlatformFullJS`); replaying `REFDATA`/`RPCTRACE` works on either, since
+`shipping-admin` holds ordered-consumer grants for exactly those two streams.
+See [ARCHITECTURE-ACCOUNTS.md](ARCHITECTURE-ACCOUNTS.md) § "Two PLATFORM
+connections, not one" for the full split and its failure mode.
+
+**Snapshot crosses accounts; live tail cannot.** The snapshot half of each
+panel is backend-mediated, so it reaches every account. The live half is the
+browser's own NATS connection, which is authenticated into one account and
+server-isolated from the rest — no workaround exists, and the panels state the
+reason in place of the feed rather than leaving it silently empty. See
+[ARCHITECTURE-ACCOUNTS.md](ARCHITECTURE-ACCOUNTS.md) § "What the tenant
+connection can and cannot reach".
+
+**The generalizable shape.** Two axes that look like one: *tenant scope*
+(which account's data a business operation acts on — hard, server-enforced,
+the thing `SwitchTenant` moves) and *diagnostic scope* (which accounts an
+operator is inspecting — read-only, deliberately unbounded). Whenever a panel
+answers "what exists?" rather than "what is this tenant's data?", it belongs
+on the second axis, and the row shape has to carry the account because names
+are only unique within one.

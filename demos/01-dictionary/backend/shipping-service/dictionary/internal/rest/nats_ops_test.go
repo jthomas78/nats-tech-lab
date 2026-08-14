@@ -34,13 +34,17 @@ func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
 
 func TestListNatsConnectionsReshapesAndSortsConnz(t *testing.T) {
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/varz" {
+			_ = json.NewEncoder(w).Encode(varzResponse{MaxConnections: 65536})
+			return
+		}
 		if got := r.URL.Query().Get("subs"); got != "true" {
 			t.Errorf("expected subs=true query param, got %q", got)
 		}
 		if got := r.URL.Query().Get("auth"); got != "true" {
 			t.Errorf("expected auth=true query param, got %q", got)
 		}
-		_ = json.NewEncoder(w).Encode(connzResponse{Connections: []connzConnection{
+		_ = json.NewEncoder(w).Encode(connzResponse{NumConnections: 2, Total: 2, Offset: 0, Limit: 1024, Connections: []connzConnection{
 			{CID: 2, Type: "websocket", Name: "", Lang: "nats.ws", Version: "3.4.0", Account: "ACME", RTT: "1ms", Uptime: "1m", Idle: "1m"},
 			{CID: 1, Type: "nats", Name: "refdata-service", Lang: "go", Version: "1.52.0", Account: "PLATFORM", RTT: "300µs", Uptime: "56m", Idle: "10s", InMsgs: 208, OutMsgs: 560, Subscriptions: 16, SubscriptionsList: []string{"rpc.*.refdata.type.list.v1"}},
 		}})
@@ -77,6 +81,78 @@ func TestListNatsConnectionsReshapesAndSortsConnz(t *testing.T) {
 	ws := body.Connections[1]
 	if ws.Type != "websocket" || ws.Lang != "nats.ws" {
 		t.Fatalf("unexpected reshaping of websocket connection: %+v", ws)
+	}
+	// /connz's paging envelope is passed through, not recomputed from the row
+	// count — limit especially, which the panel shows and no amount of
+	// counting rows could reveal.
+	if body.Page.Limit != 1024 || body.Page.Total != 2 || body.Page.NumConnections != 2 || body.Page.Offset != 0 {
+		t.Fatalf("expected connz paging envelope passed through (total 2, offset 0, limit 1024), got %+v", body.Page)
+	}
+	// The server's real ceiling comes from a second endpoint (/varz), not from
+	// /connz — the panel draws a capacity rail from it.
+	if body.Server.MaxConnections != 65536 {
+		t.Fatalf("expected maxConnections 65536 read from /varz, got %d", body.Server.MaxConnections)
+	}
+}
+
+// /varz is a secondary read: an unreachable or erroring /varz costs the caller
+// the capacity ceiling, not the connection list. A zero ceiling is the signal
+// the panel uses to draw no capacity rail.
+func TestListNatsConnectionsSurvivesVarzFailure(t *testing.T) {
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/varz" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(connzResponse{NumConnections: 1, Total: 1, Limit: 1024, Connections: []connzConnection{
+			{CID: 1, Type: "nats", Name: "shipping-service", Account: "PLATFORM"},
+		}})
+	}))
+	defer mock.Close()
+
+	h := NewHandlers(Deps{Log: discardLogger(), NatsMonitorURL: mock.URL})
+	w := httptest.NewRecorder()
+	h.listNatsConnections(w, httptest.NewRequest(http.MethodGet, "/api/nats/connections", nil))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 despite /varz failing, got %d: %s", w.Code, w.Body.String())
+	}
+	var body natsConnectionsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Connections) != 1 || body.Page.Limit != 1024 {
+		t.Fatalf("expected the connection list and paging envelope intact, got %d rows / page %+v", len(body.Connections), body.Page)
+	}
+	if body.Server.MaxConnections != 0 {
+		t.Fatalf("expected maxConnections 0 when /varz fails, got %d", body.Server.MaxConnections)
+	}
+}
+
+// A /connz response that paged (total > offset+num_connections) must report
+// the server's own numbers untouched, so the panel can say "one page of
+// several" instead of implying the list it drew is every connection.
+func TestListNatsConnectionsPassesThroughTruncatedConnzPage(t *testing.T) {
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(connzResponse{NumConnections: 1, Total: 2100, Offset: 0, Limit: 1, Connections: []connzConnection{
+			{CID: 1, Type: "nats", Name: "shipping-service", Account: "PLATFORM"},
+		}})
+	}))
+	defer mock.Close()
+
+	h := NewHandlers(Deps{Log: discardLogger(), NatsMonitorURL: mock.URL})
+	w := httptest.NewRecorder()
+	h.listNatsConnections(w, httptest.NewRequest(http.MethodGet, "/api/nats/connections", nil))
+
+	var body natsConnectionsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Connections) != 1 {
+		t.Fatalf("expected the single paged row, got %d", len(body.Connections))
+	}
+	if body.Page.Total != 2100 || body.Page.NumConnections != 1 || body.Page.Limit != 1 {
+		t.Fatalf("expected total 2100 / num 1 / limit 1 preserved, got %+v", body.Page)
 	}
 }
 
@@ -190,6 +266,158 @@ func TestListNatsConnectionsReturns502OnMalformedBody(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	h.listNatsConnections(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── Account Activity ───────────────────────────────────────────────────────
+
+func TestListNatsAccountActivityReshapesAndSortsAccstatz(t *testing.T) {
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/connz" {
+			_ = json.NewEncoder(w).Encode(connzResponse{}) // no accounts resolvable; not under test here
+			return
+		}
+		_ = json.NewEncoder(w).Encode(accstatzResponse{AccountStatz: []accstatzAccount{
+			{Account: "SYS", Conns: 1, LeafNodes: 0, TotalConns: 1, NumSubs: 42, Sent: accstatzDataStats{Msgs: 100, Bytes: 2000}, Received: accstatzDataStats{Msgs: 90, Bytes: 1800}, SlowConsumers: 0},
+			{Account: "ACME", Conns: 3, LeafNodes: 1, TotalConns: 4, NumSubs: 12, Sent: accstatzDataStats{Msgs: 500, Bytes: 9000}, Received: accstatzDataStats{Msgs: 480, Bytes: 8800}, SlowConsumers: 2},
+		}})
+	}))
+	defer mock.Close()
+
+	h := NewHandlers(Deps{Log: discardLogger(), NatsMonitorURL: mock.URL})
+	w := httptest.NewRecorder()
+	h.listNatsAccountActivity(w, httptest.NewRequest(http.MethodGet, "/api/nats/account-activity", nil))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var body natsAccountActivityResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Accounts) != 2 {
+		t.Fatalf("expected 2 accounts, got %d", len(body.Accounts))
+	}
+	// Sorted by account name ascending ("ACME" < "SYS"), not declaration order.
+	if body.Accounts[0].Account != "ACME" || body.Accounts[1].Account != "SYS" {
+		t.Fatalf("expected accounts sorted [ACME, SYS], got [%s, %s]", body.Accounts[0].Account, body.Accounts[1].Account)
+	}
+	acme := body.Accounts[0]
+	if acme.Connections != 3 || acme.LeafNodes != 1 || acme.TotalConnections != 4 || acme.Subscriptions != 12 {
+		t.Fatalf("unexpected reshaping of ACME's connection counters: %+v", acme)
+	}
+	// received -> In, sent -> Out, matching natsConnection's naming.
+	if acme.InMsgs != 480 || acme.InBytes != 8800 || acme.OutMsgs != 500 || acme.OutBytes != 9000 {
+		t.Fatalf("expected received->In / sent->Out reshaping, got %+v", acme)
+	}
+	if acme.SlowConsumers != 2 {
+		t.Fatalf("expected slowConsumers 2 passed through, got %d", acme.SlowConsumers)
+	}
+	if body.Accounts[1].SlowConsumers != 0 {
+		t.Fatalf("expected SYS's slowConsumers to stay 0, got %d", body.Accounts[1].SlowConsumers)
+	}
+}
+
+// TestListNatsAccountActivityResolvesTenantLabel proves the secondary /connz
+// read actually reaches accountActivity.TenantLabel — the same
+// tenantLabelsByAccount fan-out Connections/Services use (BR-028), keyed off
+// /accstatz's own "acc" identifier this time instead of a connz row's account
+// field.
+func TestListNatsAccountActivityResolvesTenantLabel(t *testing.T) {
+	nc, cleanup := newTestNATS(t)
+	defer cleanup()
+
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/connz" {
+			ip, portStr, err := net.SplitHostPort(nc.LocalAddr())
+			if err != nil {
+				t.Fatalf("split local addr: %v", err)
+			}
+			port, _ := strconv.Atoi(portStr)
+			_ = json.NewEncoder(w).Encode(connzResponse{Connections: []connzConnection{
+				{CID: 1, IP: ip, Port: port, Account: "AAAPLATFORM"},
+			}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(accstatzResponse{AccountStatz: []accstatzAccount{
+			{Account: "AAAPLATFORM", Conns: 1},
+			{Account: "AAASYS", Conns: 1},
+		}})
+	}))
+	defer mock.Close()
+
+	h := NewHandlers(Deps{Log: discardLogger(), NatsMonitorURL: mock.URL, NC: nc})
+	w := httptest.NewRecorder()
+	h.listNatsAccountActivity(w, httptest.NewRequest(http.MethodGet, "/api/nats/account-activity", nil))
+
+	var body natsAccountActivityResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	byAccount := map[string]accountActivity{}
+	for _, a := range body.Accounts {
+		byAccount[a.Account] = a
+	}
+	if got := byAccount["AAAPLATFORM"].TenantLabel; got != "PLATFORM" {
+		t.Fatalf("expected AAAPLATFORM labeled PLATFORM, got %q", got)
+	}
+	if got := byAccount["AAASYS"].TenantLabel; got != "" {
+		t.Fatalf("expected the unrelated SYS account to have no label, got %q", got)
+	}
+}
+
+// Account labeling is a secondary read here too: a failed /connz probe must
+// not cost the caller the activity rollup itself, matching /varz's role for
+// Connections.
+func TestListNatsAccountActivitySurvivesConnzProbeFailure(t *testing.T) {
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/connz" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(accstatzResponse{AccountStatz: []accstatzAccount{{Account: "ACME", Conns: 1}}})
+	}))
+	defer mock.Close()
+
+	h := NewHandlers(Deps{Log: discardLogger(), NatsMonitorURL: mock.URL})
+	w := httptest.NewRecorder()
+	h.listNatsAccountActivity(w, httptest.NewRequest(http.MethodGet, "/api/nats/account-activity", nil))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 despite /connz probe failing, got %d: %s", w.Code, w.Body.String())
+	}
+	var body natsAccountActivityResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Accounts) != 1 || body.Accounts[0].TenantLabel != "" {
+		t.Fatalf("expected the activity rollup intact with no label, got %+v", body.Accounts)
+	}
+}
+
+func TestListNatsAccountActivityReturns502WhenMonitoringEndpointUnreachable(t *testing.T) {
+	h := NewHandlers(Deps{Log: discardLogger(), NatsMonitorURL: "http://127.0.0.1:1"}) // port 1: connection refused
+	w := httptest.NewRecorder()
+
+	h.listNatsAccountActivity(w, httptest.NewRequest(http.MethodGet, "/api/nats/account-activity", nil))
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestListNatsAccountActivityReturns502OnMalformedBody(t *testing.T) {
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("not json"))
+	}))
+	defer mock.Close()
+
+	h := NewHandlers(Deps{Log: discardLogger(), NatsMonitorURL: mock.URL})
+	w := httptest.NewRecorder()
+	h.listNatsAccountActivity(w, httptest.NewRequest(http.MethodGet, "/api/nats/account-activity", nil))
 
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d: %s", w.Code, w.Body.String())

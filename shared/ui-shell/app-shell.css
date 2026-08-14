@@ -125,6 +125,64 @@
 .eyebrow svg { transition: transform 0.15s ease; opacity: 0.7; }
 .eyebrow.is-open svg { transform: rotate(90deg); }
 
+/* Outer banding above `.eyebrow` — the System/Platform groups rendered by
+   NavList.vue's `{ group, sections }` entry form. Reuses `.eyebrow` for the
+   uppercase micro-type and the chevron-rotate rule above, then overrides the
+   parts that differ: button resets, a faint accent tint so the banner reads
+   as a level up from the plain eyebrows nested under it, and chevron-first
+   ordering (`.eyebrow`'s space-between would push the label to the far
+   edge). Hiding it on the icon rail is inherited from
+   `.sidebar.collapsed .eyebrow`. */
+.nav-group-toggle {
+  justify-content: flex-start;
+  gap: 6px;
+  width: 100%;
+  margin: 14px 0 4px;
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--lab-accent) 9%, transparent);
+  border: none;
+  border-radius: 5px;
+  color: color-mix(in srgb, var(--lab-accent) 60%, var(--p-text-disabled-color));
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  appearance: none;
+}
+.nav-group-toggle:first-child { margin-top: 0; }
+.nav-group-toggle:hover { background: color-mix(in srgb, var(--lab-accent) 15%, transparent); }
+.nav-group-toggle svg { width: 12px; height: 12px; flex-shrink: 0; }
+
+/* max-height is a bounded stand-in for `auto`, which can't be transitioned —
+   any value past the tallest group's height works. `visibility` (not just
+   opacity) so collapsed items leave the tab order. The icon rail overrides
+   the collapse entirely: its group toggles are hidden, so a group left
+   collapsed there would be unreachable. */
+.nav-group-body {
+  display: flex; flex-direction: column; gap: 14px;
+  overflow: hidden;
+  max-height: 1200px;
+  transition: max-height 0.18s ease, opacity 0.15s ease;
+}
+/* 18px is the toggle's chevron (12px) plus its gap (6px), so a group's
+   contents start on the group *label's* text edge rather than its chevron's —
+   the tree-view convention, where the disclosure control hangs to the left of
+   the column its children align to. Only grouped bodies indent; an ungrouped
+   section (admin's Overview) has no parent to sit under. */
+.nav-group-body.is-grouped { padding-left: 18px; }
+.sidebar.collapsed .nav-group-body.is-grouped { padding-left: 0; }
+.nav-group-body.is-collapsed {
+  max-height: 0;
+  opacity: 0;
+  visibility: hidden;
+}
+.sidebar.collapsed .nav-group-body.is-collapsed {
+  max-height: none;
+  opacity: 1;
+  visibility: visible;
+}
+
 .nav-item {
   display: flex; align-items: center; gap: 9px;
   width: 100%;

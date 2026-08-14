@@ -88,8 +88,11 @@ const stats = computed(() => [
 }
 .stat-v {
   font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
-  font-size: 22px;
-  line-height: 28px;
+  /* 20px matches the card values in ConnectionsPanel/ServicesPanel — a reading
+     in a card is the same tier of number wherever it appears. The monospace
+     face stays: that's this panel's own treatment, and it isn't a size. */
+  font-size: 20px;
+  line-height: 26px;
   font-variant-numeric: tabular-nums;
   margin-top: 2px;
 }

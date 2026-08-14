@@ -27,18 +27,20 @@
 - [Phase 18 Requestor/Responder headers](phase18_requestor_responder_headers.md) — DONE; also fixed micro.Config.Name vs nats.Name mismatch
 - [Ports tenant scoping (pending)](project-ports-tenant-scoping.md) — ports/refdata should scope to tenant not BU; temp hack uses `_default_bu`
 - [Phase 25i diesel overlay](phase25i_diesel_overlay.md) — DONE; fixed BR-P24 zero-baseline corruption + a DatePicker UTC date-shift bug; 25j not started
-- [V3 tenancy axes decision](v3_tenancy_axes_decision.md) — tenant = marketplace-operating business, not region; 5 axes; discussion only, nothing built
+- [V3 tenancy axes decision](v3_tenancy_axes_decision.md) — tenant = marketplace-operating business, not region; 5 axes; discussion only except the Organisation axis (Shipper|Transporter|…), settled by Phase 26
 - [NATS scoped signing keys](nats_scoped_signing_keys.md) — server enforces the key's permission template, discards user JWT's own; check JWT bloat
 - [Linebooker V2 refdata candidates](linebooker_v2_refdata_candidates.md) — enum+table duplicates (VehicleType etc) are tier 1; versioning+l10n are net-new
 - [Linebooker refdata layering model](linebooker_refdata_layering_model.md) — Codex's platform/tenant/org 3-layer framework; flags snapshot-onto-history as a gap
 - [refdata cross-tenant stream import](refdata_cross_tenant_stream_import.md) — open bug: tenants import `evt.*.refdata.*.changed` unbounded, see each other's metadata
 - [Platform/Marketplace/Tenant diagram](linebooker_platform_marketplace_tenant_diagram.md) — draft: Marketplace under PLATFORM; Trips per-tenant; 2 UIs per tenant
-- [BusinessType vs BusinessEntityType](linebooker_business_type_vs_entity_type.md) — "Company" is a legal-structure value, not a 3rd role; roles are Customer/Transporter/Operator/Integrator
+- [BusinessType vs BusinessEntityType](linebooker_business_type_vs_entity_type.md) — "Company" is a legal-structure value, not a 3rd role; V2's roles are Customer/Transporter/Operator/Integrator (V3 renames Customer→Shipper)
 - [Bid/Tender allocation rules](linebooker_bid_tender_allocation_rules.md) — Bid/Tender are unconnected tracks (no FK), map to "Submission/Bidding Tenders" UI tabs; lowest-bid wins at expiry
-- [Shipper vs Customer naming](linebooker_shipper_vs_customer_naming.md) — "Customer" implies buying, but role submits tenders; "Shipper" pairs correctly with "Transporter"
+- [Shipper vs Customer naming](linebooker_shipper_vs_customer_naming.md) — ADOPTED: "Shipper" is the V3 term, pairs with "Transporter"; V2's `CUSTOMER` renames at the port boundary
 - [Transport execution phase naming](linebooker_transport_execution_phase_naming.md) — term for post-marketplace loads/trucks/POD/collection; 4 stages: dispatch→collection→in-transit→delivery
 - [Payments/settlement phase](linebooker_payments_settlement_phase.md) — 3rd end-to-end phase; real V2 entities: PaymentEntity, InvoiceSplitType, EarlySettlementRequest (factoring)
 - [Platform vs tenant service split](linebooker_platform_vs_tenant_service_split.md) — Refdata+Accounts/Auth are platform; Marketplace/Payments likely tenant-scoped (corrects original diagram)
 - [Registration UI placement](linebooker_registration_ui_placement.md) — Trading-partner Registration belongs in Admin UI ("Trading partners"), not RefData UI — master data, not a vocabulary
 - [Trading partners term + fleet cardinality](linebooker_trading_partners_term_and_fleet_cardinality.md) — collective term "Trading partners"; Transporter→truck is one-to-many via FleetAssetEntity FK
-- [Trading Partner phase v1 scope](linebooker_trading_partner_phase_v1_scope.md) — confirmed: single record (no platform/tenant split yet), 2-state lifecycle (CQRS/temporal explore flagged), docs+fleet in v1, both roles together
+- [Trading Partner phase v1 scope](linebooker_trading_partner_phase_v1_scope.md) — Phase 26 IMPLEMENTED end-to-end (trading-partner-service + Admin UI), live-verified; BR-TP01-14
+- [Admin stat card conventions](admin_stat_card_one_ratio_rule.md) — one `value / max` + bar per card, one 20px value size per row; long counters shorten, rows wrap
+- [/connz limit vs max_connections](connz_limit_is_page_size_not_capacity.md) — `/connz` limit 1024 is a page size; the real ceiling is `/varz` max_connections

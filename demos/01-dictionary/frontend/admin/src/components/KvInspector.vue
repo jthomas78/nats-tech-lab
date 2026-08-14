@@ -7,30 +7,70 @@ import { getKvBucketEntries, listKVBuckets } from '../api'
 import { useNatsConnection } from '../nats/useNatsConnection.js'
 import { parseKvNotifySubject } from '../nats/kvNotifySubject.js'
 
-// KV inspector: every registered KV bucket in a left rail, the selected
-// bucket's current contents + live update feed on the right. Phase 23: a
-// one-shot GET /api/kv/buckets/{bucket}/entries fetches the current contents
-// snapshot, then a notify.*.kv.{bucket}.> subscribe on the tenant NATS
-// connection drives the "recent updates" feed — replacing the single
-// SSE/WatchAll connection that used to serve both. Cross-context by design
-// (matching the old SSE handler): the subscribe wildcards the context token
-// since this panel inspects every business unit in the bucket, not just the
-// one currently selected in the topbar. Only the selected bucket is
-// subscribed at a time, mirroring the old "one connection at a time" intent.
+// KV inspector: every registered KV bucket across every NATS account this
+// backend reaches (listKVBuckets — not scoped to the topbar's tenant
+// selector, which only ever showed the active tenant's 3-4 buckets and hid
+// PLATFORM's refdata-service buckets entirely), grouped by account in a
+// left rail. Selected bucket's current contents + live update feed on the
+// right.
+//
+// Bucket names collide across accounts (every tenant provisions its own
+// dict-a/container/meta), so the rail keys selection on {account, bucket},
+// not bucket alone — see listKVBuckets' doc comment server-side.
+//
+// Live "recent updates" only works for the account the browser's own
+// tenant NATS connection is currently authenticated as: NATS enforces
+// account isolation at the server, so a browser connected to ACME's
+// account cannot subscribe to GLOBEX's or PLATFORM's subjects, full stop —
+// there is no cross-account workaround, nor should there be. Buckets in any
+// other account still get a contents snapshot (that's backend-mediated,
+// not subject to the browser's own account boundary); the live feed panel
+// says why it's unavailable instead of just sitting empty. PLATFORM
+// buckets never get a live feed at all yet, for a different reason:
+// refdata-service doesn't publish notify.*.kv.{bucket}.{key}.changed for
+// its own writes the way shipping-service's kvstore.Store.EnableNotify
+// does — see liveUnavailableReason below.
 const REFRESH_MS = 15000
 const FEED_CAP = 40
 
 const OP_SEVERITY = { PUT: 'success', DEL: 'warn', PURGE: 'danger' }
 
 // ── Bucket rail ───────────────────────────────────────────────────────────────
-const buckets = ref([]) // [{ bucket, values, history, bytes, ttlSeconds }]
+const buckets = ref([]) // [{ bucket, account, values, history, bytes, ttlSeconds }]
+const activeAccount = ref(null)
 const activeBucket = ref(null)
+const bucketFilter = ref('')
 
-// The literal bucket name as it exists in NATS — what you want when
-// cross-referencing a `nats kv ls` or a curl against /api/kv/buckets (flat
-// was always the more useful default; the grouped-by-CQRS-family view was
-// dropped in favor of always showing this).
-const flatBuckets = computed(() => [...buckets.value].sort((a, b) => a.bucket.localeCompare(b.bucket)))
+// Which account groups are collapsed — absence means expanded, so every
+// account starts open (the whole point of this rail is to see everything
+// at once; collapsing is an opt-in way to tuck an account away, not a
+// default that hides buckets from view).
+const collapsedAccounts = reactive(new Set())
+function toggleAccount(account) {
+  if (collapsedAccounts.has(account)) collapsedAccounts.delete(account)
+  else collapsedAccounts.add(account)
+}
+
+const filteredBuckets = computed(() => {
+  const q = bucketFilter.value.trim().toLowerCase()
+  const all = [...buckets.value].sort((a, b) => a.bucket.localeCompare(b.bucket))
+  return q
+    ? all.filter((b) => b.bucket.toLowerCase().includes(q) || b.account.toLowerCase().includes(q))
+    : all
+})
+
+// Grouped by account (alphabetical, matching the order listKVBuckets
+// already returns) so the rail reads as "every account, every bucket" —
+// still a flat list within each account for now; collapsing PLATFORM's
+// larger group by refdata context is a deliberate follow-up, not done here.
+const groupedByAccount = computed(() => {
+  const groups = new Map()
+  for (const b of filteredBuckets.value) {
+    if (!groups.has(b.account)) groups.set(b.account, [])
+    groups.get(b.account).push(b)
+  }
+  return [...groups.entries()]
+})
 
 async function refreshBuckets() {
   let list
@@ -41,21 +81,44 @@ async function refreshBuckets() {
     return // best-effort; keep last known
   }
   buckets.value = list
-  if (!activeBucket.value || !list.some((b) => b.bucket === activeBucket.value)) {
+  const stillExists = list.some((b) => b.account === activeAccount.value && b.bucket === activeBucket.value)
+  if (!activeBucket.value || !stillExists) {
     // Prefer a ship read model as the opening view, else the first bucket.
-    const first = list.find((b) => b.bucket === 'dict-a' || b.bucket.startsWith('dict-a-')) ?? list[0]
+    const first = list.find((b) => b.bucket === 'dict-a') ?? list[0]
+    activeAccount.value = first?.account ?? null
     activeBucket.value = first?.bucket ?? null
   }
 }
 
-const activeStatus = computed(() => buckets.value.find((b) => b.bucket === activeBucket.value))
+const activeStatus = computed(() =>
+  buckets.value.find((b) => b.account === activeAccount.value && b.bucket === activeBucket.value),
+)
+
+function selectBucket(account, bucket) {
+  activeAccount.value = account
+  activeBucket.value = bucket
+}
 
 // ── Selected bucket: contents snapshot + live feed ─────────────────────────────
-const { connected: tenantConnected, subscribe } = useNatsConnection()
+const { connected: tenantConnected, tenant, subscribe } = useNatsConnection()
 const entries = reactive(new Map()) // key → { key, value, revision, created }
 const feed = ref([]) // live changes only, newest first
 const loading = ref(false)
 let unsubscribe = null
+
+// null when the selected bucket's account IS the browser's currently
+// connected tenant (live feed works normally); otherwise the reason it
+// doesn't, shown in place of the feed.
+const liveUnavailableReason = computed(() => {
+  if (!activeAccount.value) return null
+  if (activeAccount.value === 'platform') {
+    return "refdata-service doesn't publish live KV change notifications yet — showing a point-in-time snapshot only."
+  }
+  if (activeAccount.value !== tenant.value) {
+    return `Switch the topbar tenant to "${activeAccount.value}" to watch this account's live changes.`
+  }
+  return null
+})
 
 function resetBucketState() {
   entries.clear()
@@ -63,29 +126,30 @@ function resetBucketState() {
   loading.value = true
 }
 
-async function connectBucket(bucket) {
+async function connectBucket(account, bucket) {
   disconnectBucket()
   resetBucketState()
 
-  if (!tenantConnected.value) return // watch(tenantConnected) below retries once it's up
-
-  unsubscribe = subscribe(`notify.*.kv.${bucket}.>`, (value, subject) => {
-    const parsed = parseKvNotifySubject(subject)
-    if (!parsed) return
-    const { key } = parsed
-    const change = value === null
-      ? { key, op: 'DEL' }
-      : { key, op: 'PUT', value, revision: undefined, created: new Date().toISOString() }
-    if (change.op === 'PUT') {
-      entries.set(key, { key, value: change.value, revision: change.revision, created: change.created })
-    } else {
-      entries.delete(key)
-    }
-    feed.value = [{ ...change, at: new Date().toLocaleTimeString() }, ...feed.value].slice(0, FEED_CAP)
-  })
+  const canWatchLive = account === tenant.value && tenantConnected.value
+  if (canWatchLive) {
+    unsubscribe = subscribe(`notify.*.kv.${bucket}.>`, (value, subject) => {
+      const parsed = parseKvNotifySubject(subject)
+      if (!parsed) return
+      const { key } = parsed
+      const change = value === null
+        ? { key, op: 'DEL' }
+        : { key, op: 'PUT', value, revision: undefined, created: new Date().toISOString() }
+      if (change.op === 'PUT') {
+        entries.set(key, { key, value: change.value, revision: change.revision, created: change.created })
+      } else {
+        entries.delete(key)
+      }
+      feed.value = [{ ...change, at: new Date().toLocaleTimeString() }, ...feed.value].slice(0, FEED_CAP)
+    })
+  }
 
   try {
-    const rows = await getKvBucketEntries(bucket)
+    const rows = await getKvBucketEntries(account, bucket)
     for (const row of rows ?? []) {
       entries.set(row.key, { key: row.key, value: row.value, revision: row.revision, created: row.created })
     }
@@ -111,20 +175,20 @@ onUnmounted(() => {
   disconnectBucket()
 })
 
-// On tenant switch: re-fetch the bucket list immediately (REFRESH_MS's poll
-// would otherwise leave the rail showing the previous tenant's buckets for
-// up to 15s) and retry the active bucket's subscription — this also covers
-// the mount-order race, since activeBucket can be set before connect()
-// finishes authenticating.
-watch(tenantConnected, (isConnected) => {
+// On tenant (re)connect: re-fetch the bucket list immediately (the rail no
+// longer depends on this for WHICH buckets show, but a fresh connection is
+// still worth a re-check) and retry the active bucket's subscription — its
+// live-watch eligibility depends on which tenant the browser is now
+// authenticated as.
+watch([tenantConnected, tenant], ([isConnected]) => {
   if (!isConnected) return
   refreshBuckets()
-  if (activeBucket.value) connectBucket(activeBucket.value)
+  if (activeAccount.value && activeBucket.value) connectBucket(activeAccount.value, activeBucket.value)
 })
 
 // Switch the single live connection whenever the selected bucket changes.
-watch(activeBucket, (bucket) => {
-  if (bucket) connectBucket(bucket)
+watch([activeAccount, activeBucket], ([account, bucket]) => {
+  if (account && bucket) connectBucket(account, bucket)
   else disconnectBucket()
 })
 
@@ -166,26 +230,45 @@ function ttlLabel(seconds) {
 
 <template>
   <div class="kv-inspector">
-    <!-- Bucket rail -->
-    <aside class="rail" aria-label="KV buckets">
-      <div class="rail-header">
-        <span>Bucket ID</span>
-        <span>Keys</span>
+    <!-- Bucket rail, grouped by account -->
+    <aside class="rail" aria-label="KV buckets, grouped by account">
+      <div class="rail-summary">
+        <strong>{{ buckets.length }}</strong> buckets
+        <span class="lab-muted">· {{ groupedByAccount.length }} accounts</span>
       </div>
-      <div class="rail-group">
+      <InputText v-model="bucketFilter" size="small" placeholder="filter buckets or accounts…" class="rail-filter" />
+
+      <div v-for="[account, accountBuckets] in groupedByAccount" :key="account" class="account-group">
         <button
-          v-for="b in flatBuckets"
-          :key="b.bucket"
           type="button"
-          class="rail-item"
-          :class="{ active: b.bucket === activeBucket }"
-          @click="activeBucket = b.bucket"
+          class="account-head"
+          :class="{ collapsed: collapsedAccounts.has(account) }"
+          :aria-expanded="!collapsedAccounts.has(account)"
+          @click="toggleAccount(account)"
         >
-          <code class="rail-name">{{ b.bucket }}</code>
-          <span class="rail-count">{{ b.values }}</span>
+          <span class="caret">▶</span>
+          <span class="account-dot" :class="{ ro: account === 'platform' }"></span>
+          <span class="account-name">{{ account }}</span>
+          <span class="account-kind">{{ account === 'platform' ? 'read-only' : 'tenant' }}</span>
+          <span class="account-count lab-muted">{{ accountBuckets.length }}</span>
         </button>
+        <div v-if="!collapsedAccounts.has(account)" class="account-body">
+          <button
+            v-for="b in accountBuckets"
+            :key="account + '::' + b.bucket"
+            type="button"
+            class="rail-item"
+            :class="{ active: b.account === activeAccount && b.bucket === activeBucket }"
+            @click="selectBucket(b.account, b.bucket)"
+          >
+            <code class="rail-name">{{ b.bucket }}</code>
+            <span class="rail-count">{{ b.values }}</span>
+          </button>
+        </div>
       </div>
+
       <p v-if="!buckets.length" class="lab-muted rail-empty">No KV buckets registered yet.</p>
+      <p v-else-if="!filteredBuckets.length" class="lab-muted rail-empty">No buckets match "{{ bucketFilter }}".</p>
     </aside>
 
     <!-- Detail -->
@@ -193,7 +276,13 @@ function ttlLabel(seconds) {
       <header class="detail-head">
         <div class="detail-title">
           <code class="bucket-name">{{ activeBucket }}</code>
-          <Tag :severity="tenantConnected ? 'success' : 'danger'" :value="tenantConnected ? 'watching' : 'off'" />
+          <Tag severity="secondary" :value="activeAccount" />
+          <Tag
+            v-if="!liveUnavailableReason"
+            :severity="tenantConnected ? 'success' : 'danger'"
+            :value="tenantConnected ? 'watching' : 'off'"
+          />
+          <Tag v-else severity="secondary" value="snapshot only" />
         </div>
         <div class="detail-meta lab-muted">
           <span><strong>{{ entries.size }}</strong> keys</span>
@@ -247,7 +336,8 @@ function ttlLabel(seconds) {
       <div class="feed">
         <h4>Recent updates <span class="lab-muted feed-sub">— live KV changes since you opened this bucket</span></h4>
         <div class="feed-scroll">
-          <p v-if="!feed.length" class="lab-muted feed-empty">
+          <p v-if="liveUnavailableReason" class="lab-muted feed-empty">{{ liveUnavailableReason }}</p>
+          <p v-else-if="!feed.length" class="lab-muted feed-empty">
             No changes yet. Dispatch a command (or edit reference data) to watch it land here.
           </p>
           <ul v-else class="feed-list">
@@ -272,33 +362,110 @@ function ttlLabel(seconds) {
   gap: 0.75rem;
 }
 /* ── Rail ── */
+/* 340px, not the old 240: refdata-service's longest bucket names
+   (refdata-acme-atlantic-fleet-v1) were ellipsizing, which defeats the
+   point of a panel whose job is telling near-identical names apart. */
 .rail {
-  width: 220px;
+  width: 340px;
   flex-shrink: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  padding-right: 0.25rem;
+  gap: 0.5rem;
+  padding-right: 0.5rem;
   border-right: 1px solid var(--lab-panel-border);
 }
-.rail-header {
+.rail-summary {
   flex-shrink: 0;
+  padding: 0 8px;
+  font-size: 11px;
+}
+.rail-summary strong {
+  font-variant-numeric: tabular-nums;
+}
+.rail-filter {
+  flex-shrink: 0;
+  width: 100%;
+}
+.account-group {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--lab-panel-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+/* The account band is the rail's one piece of visual weight: it separates
+   "which NATS account" (a hard, server-enforced boundary) from "which
+   bucket" (a choice within it), so the two never read as one flat list. */
+.account-head {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0 8px;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 6px 9px;
+  background: var(--lab-nested-bg);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--p-text-muted-color);
+  color: var(--p-text-color);
 }
-.rail-group {
+.account-head:hover {
+  background: var(--lab-nested-bg-hover);
+}
+.account-head:focus-visible {
+  outline: 2px solid var(--lab-accent);
+  outline-offset: -2px;
+}
+.caret {
+  flex-shrink: 0;
+  font-size: 8px;
+  color: var(--p-text-muted-color);
+  transform: rotate(90deg);
+  transition: transform 0.12s ease;
+}
+.account-head.collapsed .caret {
+  transform: rotate(0deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .caret { transition: none; }
+}
+/* Green = a live tenant connection the browser can actually watch; gray =
+   PLATFORM, which this UI only ever reads snapshots from. Same distinction
+   the detail pane's watching/snapshot-only tag makes, shown one level up. */
+.account-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--p-green-500, #3ecb85);
+}
+.account-dot.ro {
+  background: var(--p-text-disabled-color);
+}
+.account-kind {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--p-text-muted-color);
+  border: 1px solid var(--lab-panel-border);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+.account-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.account-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
 }
 .rail-item {
   all: unset;
@@ -308,18 +475,18 @@ function ttlLabel(seconds) {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 5px 8px;
-  border-radius: 4px;
+  padding: 5px 9px 5px 22px;
+  border-top: 1px solid var(--lab-panel-border);
   border-left: 2px solid transparent;
   font-size: 12px;
   color: var(--p-text-muted-color);
 }
 .rail-item:hover {
-  background: var(--lab-panel-border);
+  background: var(--lab-nested-bg);
   color: var(--p-text-color);
 }
 .rail-item.active {
-  background: var(--lab-panel-border);
+  background: var(--lab-nested-bg);
   border-left-color: var(--lab-accent);
   color: var(--p-text-color);
   font-weight: 600;
@@ -345,6 +512,7 @@ function ttlLabel(seconds) {
 }
 .rail-empty {
   font-size: 12px;
+  padding: 0 8px;
 }
 /* ── Detail ── */
 .detail {
@@ -522,8 +690,6 @@ function ttlLabel(seconds) {
     width: auto;
     border-right: none;
     border-bottom: 1px solid var(--lab-panel-border);
-    flex-direction: row;
-    flex-wrap: wrap;
   }
 }
 </style>

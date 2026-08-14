@@ -60,7 +60,7 @@ describe('ServicesPanel', () => {
     getNatsServices.mockResolvedValue({ services: SERVICES })
   })
 
-  it('auto-expands the first service and shows the summary totals', async () => {
+  it('shows the summary totals', async () => {
     const wrapper = mountPanel()
     await flushPromises()
 
@@ -70,16 +70,51 @@ describe('ServicesPanel', () => {
     expect(values[2]).toBe('3') // endpoints (2 + 1)
     expect(values[3]).toContain('7') // requests: 4 + 0 + 3
     expect(values[3]).toContain('1') // errors: 0 + 0 + 1
+  })
 
-    expect(wrapper.find('.svc-card.expanded .svc-name').text()).toBe('refdata-service')
+  it('starts with every card collapsed — expansion is click-only', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.findAll('.svc-card')).not.toHaveLength(0)
+    expect(wrapper.findAll('.svc-card.expanded')).toHaveLength(0)
+  })
+
+  it('does not re-open a card on the refresh poll after the user collapses it', async () => {
+    // The regression this replaces: refresh() used to auto-expand the first
+    // card whenever `expanded` was empty, and refresh() runs on a 10s poll —
+    // so collapsing every card silently re-opened one on the next tick.
+    vi.useFakeTimers()
+    try {
+      const wrapper = mountPanel()
+      await flushPromises()
+
+      await wrapper.findAll('.svc-head')[0].trigger('click')
+      await flushPromises()
+      expect(wrapper.findAll('.svc-card.expanded')).toHaveLength(1)
+
+      await wrapper.findAll('.svc-head')[0].trigger('click')
+      await flushPromises()
+      expect(wrapper.findAll('.svc-card.expanded')).toHaveLength(0)
+
+      await vi.advanceTimersByTimeAsync(30000)
+      await flushPromises()
+
+      expect(wrapper.findAll('.svc-card.expanded')).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('BR-028: shows the tenant tag on an instance with metadata, and omits it when absent', async () => {
     const wrapper = mountPanel()
     await flushPromises()
 
-    // Expand shipping-service (only refdata-service is auto-expanded).
+    // Nothing expands on its own, so both cards are opened explicitly here —
+    // refdata-service too, since its instance-head has to be rendered before
+    // we can assert it carries no tag.
     const headers = wrapper.findAll('.svc-head')
+    await headers[0].trigger('click')
     await headers[1].trigger('click')
     await flushPromises()
 

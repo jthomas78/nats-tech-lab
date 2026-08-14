@@ -21,14 +21,45 @@ by all four apps (`lab-shell`, `admin`, `refdata`, `seafreight-app`) via a
 - `#sidebar` — optional; omit entirely for an app with no nav (the
   `.sidebar` element doesn't render at all if nothing is passed). Sidebar
   content should be styled against the shared `.nav-group` / `.eyebrow` /
-  `.nav-item` / `.nav-badge` / `.label-fade` classes from `app-shell.css`.
+  `.nav-group-toggle` / `.nav-group-body` / `.nav-item` / `.nav-badge` /
+  `.label-fade` classes from `app-shell.css`.
   `shared/ui-shell/NavList.vue` is a ready-made data-driven renderer for
-  the common case — a `sections` prop shaped
-  `[{ eyebrow?: string, items: [{ key, label, icon, badge? }] }]` — used
-  by `admin` and `seafreight-app`; use it directly rather than
-  hand-rolling another nav component unless your nav is bespoke enough
-  that it doesn't fit (see `refdata`'s `TypeNavigator.vue`, which renders
-  its own markup against the same CSS classes instead).
+  the common case, used by `admin` and `seafreight-app`; use it directly
+  rather than hand-rolling another nav component unless your nav is
+  bespoke enough that it doesn't fit (see `refdata`'s
+  `TypeNavigator.vue`, which renders its own markup against the same CSS
+  classes instead). Its `sections` prop takes an ordered array whose
+  entries are either of:
+
+  ```
+  { eyebrow?: string, items: [{ key, label, icon?, badge? }] }
+  { group: string, sections: [ <the entry above> ] }
+  ```
+
+  giving **two** nav levels — an optional `eyebrow` over a run of items —
+  plus optional outer banding via the `group` form: an accent-tinted,
+  clickable banner (`admin`'s PLATFORM / SYSTEM) wrapping one or more
+  ordinary sections. There is no third level; a would-be third tier is
+  expressed as another `eyebrow` section inside the same group. Both
+  entry forms mix freely and render in array order, so a flat ungrouped
+  section can sit above the grouped ones (`admin`'s Overview does). A
+  group with no `eyebrow` on its inner section puts items directly under
+  the group banner, which is how a single-screen area reads as one entry
+  rather than a nested tier (`admin`'s Accounts and Settings).
+
+  A group's contents are indented 18px so they read as nested beneath the
+  banner. That figure is the banner's chevron (12px) plus its gap (6px),
+  which lands the contents on the group *label's* text column rather than
+  its chevron's — the tree-view convention, where the disclosure control
+  hangs to the left of the column its children align to. Ungrouped
+  sections don't indent (no parent to sit under), and the collapsed icon
+  rail zeroes the indent so icons stay centred.
+
+  Which groups are expanded is `NavList`'s own state — like the sidebar
+  collapse below, no app reads or drives it. All groups start expanded,
+  and on the collapsed icon rail the banners hide and every group renders
+  expanded regardless (a collapsed group would otherwise be unreachable,
+  since its banner is the only way to reopen it).
 - Default slot — main content, rendered inside `.main` / `.main-inner`
   (scrollable, padded).
 - `#footer` — optional; a status/telemetry bar pinned below `.main-inner`,
@@ -88,11 +119,15 @@ buildable version of the same structure.
   "Tools" eyebrow group for Localization/Versioning. Breadcrumb is plain
   text (no fleet concept). Previously had its own 2-column grid shell —
   now just ordinary content inside `.main-inner`.
-- **admin** — sidebar via `NavList.vue` fed its existing eyebrow-grouped
-  `sections` data. Breadcrumb is plain text; the fleet-context select
-  stayed in `#topbar-right` rather than moving into the breadcrumb
-  dropdown shown in the reference mockup — a deferred polish item, not a
-  functional gap.
+- **admin** — sidebar via `NavList.vue`, and the only app so far using the
+  `group` form: an ungrouped Overview, then PLATFORM (Accounts, a Trading
+  partners eyebrow over Shippers/Transporters, Settings), then SYSTEM
+  (NATS, Postgres). The split is by what a view is *of*, not which backend
+  serves it — business layer vs. infrastructure diagnostics — which is why
+  Accounts sits under PLATFORM despite NATS accounts being its mechanism.
+  Breadcrumb is plain text; the fleet-context select stayed in
+  `#topbar-right` rather than moving into the breadcrumb dropdown shown in
+  the reference mockup — a deferred polish item, not a functional gap.
 - **seafreight-app** — sidebar via the same `NavList.vue`, fed a single
   ungrouped section (its `views` were already flat). Same breadcrumb
   treatment as admin.

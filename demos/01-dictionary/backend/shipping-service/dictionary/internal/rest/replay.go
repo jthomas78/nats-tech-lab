@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -24,12 +25,13 @@ type jsEvent struct {
 // jetstreamReplayOnce godoc
 //
 // @Summary      JetStream one-shot replay (Phase 23)
-// @Description  Returns every currently-retained raw JetStream message from stream as a single JSON array, snapshotted at request time. Replaces replayJetStream's SSE full-history half — the Admin UI now does one bootstrap fetch here, then subscribes to notify.{context}.shipping.raw.{entity}.{event} (eventhandler.publishRawNotify) for anything published afterward, instead of holding an SSE connection open.
+// @Description  Returns every currently-retained raw JetStream message from one account's stream as a single JSON array, snapshotted at request time. Replaces replayJetStream's SSE full-history half — the Admin UI now does one bootstrap fetch here, then subscribes to notify.{context}.shipping.raw.{entity}.{event} (eventhandler.publishRawNotify) for anything published afterward, instead of holding an SSE connection open. Because this snapshot is backend-mediated it works for ANY account listStreams reports, not just the browser's own — but the notify.* live tail does not: NATS enforces account isolation at the server, so a browser can only subscribe within the account its own connection authenticated as.
 // @Tags         streams
 // @Produce      json
+// @Param        account query     string  false  "NATS account (a known tenant name, or \"platform\") — defaults to the currently active tenant"
 // @Param        stream  query     string  false  "Stream name (default SHIPPING)"
 // @Success      200  {array}   jsEvent
-// @Failure      400  {object}  errorResponse  "Unknown stream"
+// @Failure      400  {object}  errorResponse  "Unknown account or stream"
 // @Failure      500  {object}  errorResponse
 // @Router       /api/jetstream/replay [get]
 func (h *Handlers) jetstreamReplayOnce(w http.ResponseWriter, r *http.Request) {
@@ -38,16 +40,33 @@ func (h *Handlers) jetstreamReplayOnce(w http.ResponseWriter, r *http.Request) {
 	if streamName == "" {
 		streamName = domain.StreamName
 	}
+	// Stream names are only unique within an account (every tenant has its own
+	// SHIPPING), so a bare ?stream= is ambiguous — ?account= resolves it,
+	// exactly as the {account} path segment does for the KV entries endpoint.
+	// Omitted means "the currently active tenant", preserving the behaviour
+	// this endpoint had when it read Deps.JS directly (SwitchTenant sets
+	// Deps.Tenant and Deps.JS from one and the same tenantResources bundle).
+	account := r.URL.Query().Get("account")
+	if account == "" {
+		account = h.deps().Tenant
+	}
+	js, ok := h.jsForAccount(account)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "unknown account: "+account)
+		return
+	}
 
 	// Same two-aggregate filter as streamJetStream (watchJetStream/
-	// replayJetStream) — SHIPPING carries ship.* and container.* together;
-	// any other stream gets no filter.
+	// replayJetStream) — a tenant's SHIPPING carries ship.* and container.*
+	// together. Every other stream gets no filter: PLATFORM's REFDATA and
+	// RPCTRACE carry unrelated subject taxonomies that the ship/container
+	// filters would exclude entirely, leaving a permanently empty panel.
 	cfg := jetstream.OrderedConsumerConfig{DeliverPolicy: jetstream.DeliverAllPolicy}
-	if streamName == domain.StreamName {
+	if account != platformAccount && streamName == domain.StreamName {
 		cfg.FilterSubjects = domain.StreamSubjects()
 	}
 
-	consumer, err := h.deps().JS.OrderedConsumer(ctx, streamName, cfg)
+	consumer, err := js.OrderedConsumer(ctx, streamName, cfg)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrStreamNotFound) {
 			writeError(w, http.StatusBadRequest, "unknown stream: "+streamName)
@@ -57,6 +76,14 @@ func (h *Handlers) jetstreamReplayOnce(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	// Ephemeral only means "reaped after InactiveThreshold" (5m), not "removed
+	// when the client stops pulling" — one replay request per consumer slot
+	// would otherwise walk the account's JetStream MaxConsumers limit up.
+	defer func() {
+		dropCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = js.DeleteConsumer(dropCtx, streamName, consumer.CachedInfo().Name)
+	}()
 
 	events := []jsEvent{}
 	// See queries/shape_c.go's ReconstructFleet for why completion is

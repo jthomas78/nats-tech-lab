@@ -367,6 +367,19 @@ Both are fixed at the source rather than per-panel: `watching` is now `natsConne
 
 ---
 
+### BR-034 (Phase 27) — The Admin UI's Account Activity panel shows per-account NATS traffic, and renders slow_consumers as a silent-until-nonzero alarm rather than a routine stat
+
+**A presentation rule, scoped to the Admin UI only** — it governs what the new Account Activity panel *displays*, proxying the NATS server's own `/accstatz` monitoring endpoint (`GET /api/nats/account-activity`), same family as Connections' `/connz`/`/varz` and Services' `$SRV.STATS` (BR-028). `/accstatz` reports, per account: connection/subscription counts, sent/received message and byte volume, and `slow_consumers` — a count of subscriptions the server is currently dropping messages to because the client isn't draining fast enough. Every field except the last is routine traffic; `slow_consumers` is the one number an operator has to act on.
+
+The rule: at `slow_consumers: 0` (every account, all day, on a healthy stack) the row says nothing about it at all — no permanent "0 slow" tile competing with real numbers, matching the "facts that only matter in an exceptional state get rendered only in that state" precedent `ConnectionsPanel`'s paged-note already established (`admin_stat_card_one_ratio_rule.md`). The moment an account's `slow_consumers` is nonzero: its status dot turns from green to red, its card border tints red, its "subs" stat is replaced by a red "slow" stat, and expanding the card opens on a named alarm line ("N slow consumers on this account right now…") instead of a bare column. A summary-row banner above the card list appears under the same condition, naming the total slow-consumer count and how many accounts are affected — also absent while every account is healthy.
+
+Account labeling reuses BR-028's mechanism exactly: `/accstatz`'s `acc` identifier is resolved to a friendly tenant label via a secondary, best-effort `/connz` probe (`tenantLabelsByAccount`), falling back to the raw identifier when this process can't identify the account — a failed probe costs the caller the label, never the activity rollup itself, the same secondary-read pattern `/varz` uses for Connections' capacity ceiling.
+
+- **Enforced in:** `dictionary/internal/rest/nats_ops.go`'s `listNatsAccountActivity`; `frontend/admin/src/components/AccountActivityPanel.vue`
+- **Test:** `TestListNatsAccountActivityReshapesAndSortsAccstatz`, `TestListNatsAccountActivityResolvesTenantLabel`, `TestListNatsAccountActivitySurvivesConnzProbeFailure`, `TestListNatsAccountActivityReturns502WhenMonitoringEndpointUnreachable`, `TestListNatsAccountActivityReturns502OnMalformedBody` (`dictionary/internal/rest/nats_ops_test.go`) — reshaping/sorting, tenant-label resolution off a secondary `/connz` read, and that a failed label probe doesn't cost the activity rollup. `AccountActivityPanel.spec.js` (`frontend/admin/src/components/`) — the silent-at-zero / alarm-at-nonzero contrast: no banner/crit-styling/slow-stat while healthy, and all four (banner, red dot, tinted card, slow stat, alarm line) present the moment `slowConsumers > 0`.
+
+---
+
 ## Guards (not numbered rules)
 
 - **Unregistered container** — load/unload of a container with no `.registered`

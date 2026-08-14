@@ -45,6 +45,14 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/platform/, '/api'),
         headers: { Authorization: 'Basic YWRtaW46YWNjb3VudHMtc3Bpa2UtcGFzcw==' },
       },
+      // Phase 26 — trading-partner-service. Context-scoped, so (like
+      // nginx.conf's production rule) no prefix rewrite is needed, just a
+      // passthrough with the shared BasicAuth secret injected.
+      '/api/trading-partners': {
+        target: 'http://localhost:7204',
+        changeOrigin: true,
+        headers: { Authorization: 'Basic YWRtaW46dHJhZGluZy1wYXJ0bmVyLXNwaWtlLXBhc3M=' },
+      },
       '/api': {
         target: 'http://localhost:7200',
         changeOrigin: true,

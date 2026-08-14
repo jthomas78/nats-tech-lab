@@ -117,6 +117,28 @@ services:
       timeout: 2s
       retries: 15
 
+  # trading-partner-service's own Postgres instance (Phase 26) — same
+  # database-per-service isolation as refdata-postgres/accounts-postgres/
+  # pricing-postgres.
+  trading-partner-postgres:
+    image: postgres:16-alpine
+    container_name: lb-trading-partner-postgres
+    environment:
+      POSTGRES_USER: trading_partner
+      POSTGRES_PASSWORD: trading_partner
+      POSTGRES_DB: trading_partner
+    ports:
+      - "5436:5432"
+    networks:
+      - backend
+    volumes:
+      - pg-trading-partner-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading_partner -d trading_partner"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
   shipping-service:
     build: ./backend/shipping-service
     container_name: lb-shipping-service
@@ -285,6 +307,41 @@ services:
       pricing-postgres:
         condition: service_healthy
 
+  # Phase 26 — Shipper/Transporter registration, ported from Linebooker
+  # (BusinessEntity/TransporterProfileEntity/TransporterDocumentEntity/
+  # FleetAssetEntity). Own Postgres + REST, same isolation level as
+  # accounts-service/pricing-service. It holds a tenant-scoped NATS
+  # connection per known tenant (same NATS_CREDS_DIR mount as
+  # pricing-service), used for BR-TP14's vehicleTypeCode rpc.* validation
+  # against refdata-service, and — as of Phase 26g — a micro-service
+  # registration per connection so it's discoverable in the Admin UI's
+  # Services panel. The Admin UI still reaches its data over REST: the
+  # api.* endpoints that will replace that are Phase 26h, and REST stays
+  # afterwards as a dual transport (pricing-service's pattern).
+  trading-partner-service:
+    build: ./backend/trading-partner-service
+    container_name: lb-trading-partner-service
+    networks:
+      - backend
+      - frontend
+    environment:
+      DATABASE_URL: postgres://trading_partner:trading_partner@trading-partner-postgres:5432/trading_partner?sslmode=disable
+      HTTP_ADDR: ":8080"
+      NATS_URL: nats://nats:4222
+      NATS_CREDS_DIR: /etc/nats/creds
+      # Spike-only shared secret (see accounts-service's ACCOUNTS_AUTH_SECRET
+      # precedent) — WorkOS-backed human auth is a later phase.
+      TRADING_PARTNER_AUTH_SECRET: trading-partner-spike-pass
+    ports:
+      - "7204:8080"
+    volumes:
+      - ./nats/creds:/etc/nats/creds:ro
+    depends_on:
+      nats:
+        condition: service_started
+      trading-partner-postgres:
+        condition: service_healthy
+
   admin-frontend:
     build:
       # Context is the repo root so the build can copy the shared UniFi
@@ -300,6 +357,7 @@ services:
     depends_on:
       - shipping-service
       - accounts-service
+      - trading-partner-service
 
   shipping-frontend:
     build:
@@ -409,5 +467,6 @@ volumes:
   pg-refdata-data:
   pg-accounts-data:
   pg-pricing-data:
+  pg-trading-partner-data:
   nui-data:
   nats-tower-data:

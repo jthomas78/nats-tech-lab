@@ -29,7 +29,7 @@ describe('useDictionaryStore.connect (context guard)', () => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     subscribe = vi.fn(() => () => {})
-    useNatsConnection.mockReturnValue({ connected: { value: true }, subscribe })
+    useNatsConnection.mockReturnValue({ connected: { value: true }, subscribe, tenant: { value: 'acme' } })
   })
 
   it('does nothing when context is empty — no subscribe, no bootstrap fetch, stays disconnected', async () => {
@@ -54,6 +54,11 @@ describe('useDictionaryStore.connect (context guard)', () => {
 
     expect(subscribe).toHaveBeenCalledWith('notify.acme.kv.dict-a.>', expect.any(Function))
     expect(subscribe).toHaveBeenCalledWith('notify.acme.kv.dict-b.>', expect.any(Function))
+    // Bootstrap fetch is account-aware (the KV inspector's cross-account fix
+    // made bucket names alone ambiguous) — must pass the connected NATS
+    // account, not just the business-unit context.
+    expect(getKvBucketEntries).toHaveBeenCalledWith('acme', 'dict-a')
+    expect(getKvBucketEntries).toHaveBeenCalledWith('acme', 'dict-b')
     expect(store.connected).toBe(true)
   })
 })
