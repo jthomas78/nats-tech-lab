@@ -63,14 +63,25 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 		return err
 	}
 
-	// Phase 23: permanent PLATFORM-account background bridges replacing
-	// dictionary/internal/rest/sse.go's watchRefdata/watchRPCObs per-request
-	// OrderedConsumers — see eventhandler.RegisterRefdataNotify's doc comment
-	// for why these run unconditionally for the process lifetime rather than
-	// per tenant. Both are nil-safe on mono.JS()/mono.NC(), the same
-	// convention PlatformJS/NC already follow elsewhere in this Deps.
+	// Phase 23: permanent PLATFORM-account background bridge replacing
+	// dictionary/internal/rest/sse.go's watchRefdata per-request
+	// OrderedConsumer — see eventhandler.RegisterRefdataNotify's doc comment
+	// for why this runs unconditionally for the process lifetime rather than
+	// per tenant. Nil-safe on mono.JS()/mono.NC(), the same convention
+	// PlatformJS/NC already follow elsewhere in this Deps. Its RPCTrace
+	// counterpart (watchRPCObs's bridge) was retired in Phase 28g — see
+	// eventhandler.RegisterRPCTraceNotify's doc comment (kept as a removal
+	// note, not a function).
 	eventhandler.RegisterRefdataNotify(ctx, mono.JS(), mono.NC(), log)
-	eventhandler.RegisterRPCTraceNotify(ctx, mono.JS(), mono.NC(), log)
+
+	// Phase 28f: the cross-account trace store. Provisioning (not just
+	// consuming) TRACES/traces requires the unrestricted PLATFORM
+	// connection, never shipping-admin's mono.JS() — see
+	// eventhandler.RegisterTraceStore's doc comment. Nil-safe exactly like
+	// the two notify bridges above when platform.creds isn't configured.
+	if _, err := eventhandler.RegisterTraceStore(ctx, mono.PlatformFullJS(), mono.NC(), log); err != nil {
+		return err
+	}
 
 	handlers.Mount(mono.Mux())
 	return nil

@@ -18,8 +18,9 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-)
 
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
+)
 
 // Store manages a single KV bucket per Store instance. All operations accept
 // a kvContext string that is prepended to the key internally, so multiple
@@ -28,7 +29,7 @@ type Store struct {
 	js     jetstream.JetStream
 	prefix string // also the bucket name
 
-	notifyNC  *nats.Conn    // optional (nil until EnableNotify) — see Put's notify publish
+	notifyNC  *nats.Conn // optional (nil until EnableNotify) — see Put's notify publish
 	notifyLog *slog.Logger
 
 	mu sync.Mutex
@@ -84,7 +85,7 @@ func (s *Store) Put(ctx context.Context, kvContext, key string, value []byte) (u
 	}
 	rev, err := kv.Put(ctx, internalKey(kvContext, key), value)
 	if err == nil {
-		s.publishNotify(kvContext, key, value)
+		s.publishNotify(ctx, kvContext, key, value)
 	}
 	return rev, err
 }
@@ -97,12 +98,25 @@ func (s *Store) Put(ctx context.Context, kvContext, key string, value []byte) (u
 // nil for a Delete (the wire message carries zero bytes) — the KV inspector
 // distinguishes PUT from DEL by whether the notify payload is empty, since
 // this repo's own KV values are always non-empty JSON.
-func (s *Store) publishNotify(kvContext, key string, value []byte) {
+//
+// ctx carries the span (Phase 28d, BR-037) that caused the Put/Delete this
+// notify follows, attached via natstrace.ContextWithSpan by whichever
+// caller had one in scope (e.g. eventhandler's projectors). A NATS KV entry
+// itself can never carry a traceparent — jetstream.KeyValue.Put takes no
+// headers — so this derived notify is what lets the trace waterfall show
+// the write's async tail; SpanFromContext/Traceparent are both nil-safe, so
+// a ctx with no span attached publishes with no header at all, unchanged
+// from pre-28d behavior.
+func (s *Store) publishNotify(ctx context.Context, kvContext, key string, value []byte) {
 	if s.notifyNC == nil {
 		return
 	}
 	subject := "notify." + kvContext + ".kv." + s.prefix + "." + key + ".changed"
-	if err := s.notifyNC.Publish(subject, value); err != nil && s.notifyLog != nil {
+	msg := &nats.Msg{Subject: subject, Data: value}
+	if tp := natstrace.SpanFromContext(ctx).Traceparent(); tp != "" {
+		msg.Header = nats.Header{natstrace.TraceparentHeader: []string{tp}}
+	}
+	if err := s.notifyNC.PublishMsg(msg); err != nil && s.notifyLog != nil {
 		s.notifyLog.Warn("kv notify publish failed", "subject", subject, "err", err)
 	}
 }
@@ -130,7 +144,7 @@ func (s *Store) Delete(ctx context.Context, kvContext, key string) error {
 	if err := kv.Delete(ctx, internalKey(kvContext, key)); err != nil {
 		return err
 	}
-	s.publishNotify(kvContext, key, nil)
+	s.publishNotify(ctx, kvContext, key, nil)
 	return nil
 }
 
@@ -171,7 +185,7 @@ func (s *Store) Watch(ctx context.Context, kvContext string) (jetstream.KeyWatch
 // from entry keys before forwarding them, keeping the caller interface stable.
 type contextFilteredWatcher struct {
 	inner     jetstream.KeyWatcher
-	kvContext  string
+	kvContext string
 	ch        chan jetstream.KeyValueEntry
 	once      sync.Once
 }

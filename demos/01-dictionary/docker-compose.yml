@@ -452,6 +452,56 @@ services:
     volumes:
       - nats-tower-data:/pb_data
 
+  # Phase 28g — the OTLP exporter pair (ARCHITECTURE-COMMUNICATIONS.md § 6).
+  # Both behind the `otlp` profile so a bare `docker compose up` is
+  # unaffected: `docker compose --profile otlp up` starts them together,
+  # `docker compose up` (no profile) leaves both off. This is the "no-code
+  # toggling" the design calls for — two services added or removed, not an
+  # env flag threaded through five service binaries.
+  #
+  # Jaeger keeps its own widely-recognized conventional ports (16686 UI,
+  # 4318 OTLP/HTTP receiver) rather than the 7100-7199/7200-7299 pool —
+  # same rationale CLAUDE.md already gives NATS/Postgres for staying on
+  # their own conventional ports.
+  jaeger:
+    image: jaegertracing/all-in-one:1.68.0
+    container_name: lb-jaeger
+    profiles: ["otlp"]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686" # web UI
+      - "4318:4318"   # OTLP/HTTP receiver
+    networks:
+      - backend
+
+  otlp-bridge:
+    build: ./backend/otlp-bridge
+    container_name: lb-otlp-bridge
+    profiles: ["otlp"]
+    networks:
+      - backend
+    environment:
+      NATS_URL: nats://nats:4222
+      # otlp-bridge only ever reads (JetStream consume on TRACES) — reusing
+      # platform.creds rather than minting a dedicated credential mirrors
+      # refdata-service's own PLATFORM connection (docker-compose.yml above)
+      # rather than adding new NATS account provisioning for a demo-only
+      # exporter.
+      NATS_CREDS_PATH: /etc/nats/creds/platform.creds
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      # OTLP_BRIDGE_REPLAY=true re-exports the whole TRACES retained window
+      # (the "start the collector late" case) instead of live-tailing —
+      # see otlp-bridge/cmd/main.go's openConsumer doc comment.
+      OTLP_BRIDGE_REPLAY: "false"
+    volumes:
+      - ./nats/creds/platform.creds:/etc/nats/creds/platform.creds:ro
+    depends_on:
+      nats:
+        condition: service_started
+      jaeger:
+        condition: service_started
+
 networks:
   # Trust-tier split (not per-service-pair): anything needing NATS/Postgres
   # joins `backend`; anything the browser talks to joins `frontend`.

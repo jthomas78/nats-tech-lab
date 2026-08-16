@@ -275,3 +275,10 @@ exploration, `ComplianceDocument`'s temporal classification,
 document-expiry-driven status, real file storage, terminal/offboarding
 state, platform-identity vs tenant-membership split, and `notify.*`
 publication once a marketplace consumer exists.
+
+### BR-TP15 (Phase 28) — The same `obs.trace.*` wire contract as `BUSINESS_RULES-SHIPPING.md`'s BR-036, on trading-partner-service's publisher side
+
+Mirrors `BUSINESS_RULES-SHIPPING.md`'s BR-036 for this service's own tracing publisher — prototyped here first (Phase 28a), since this service already has `observe`/`reply`/`actor` helpers and no JetStream, before being copied to pricing, shipping, and refdata (Phase 28b). `browserrpc.Adapter`'s `traceSpan` is a strict superset of its existing `obsEnvelope` — no field renamed or retyped, every addition (`traceId`, `spanId`, `parentSpanId`, `service`/`entity`/`action`, `statusCode`/`statusMessage`, `attributes`, `redacted`, `truncated`) `omitempty` — and every `obs.trace.{context}.trading-partner.{entity}.{action}` publish goes to the PLATFORM account only, with the same redact-before-truncate ordering and 4 KiB cap BR-036 establishes. Never blocks or fails a business path.
+
+- **Enforced in:** `tradingpartner/internal/natstrace` (new package, Phase 28a) — the prototype `Tracer.publish()` redaction-then-truncate ordering and `traceSpan` struct that Phase 28b's clones mirror field-for-field; the `AddEndpoint` decorator that starts a span per request without a hand-pasted `publishObs` call at each of the 14 handler sites.
+- **Test:** `tradingpartner/internal/natstrace/natstrace_test.go` — the shared cross-service contract test (BR-036's clone) asserting the `traceSpan` JSON shape, and that an old-shape `obsEnvelope` still decodes; `browserrpc_roundtrip_test.go`'s `obs.*` side-channel context gains a decoding assertion (the existing test only checks the raw subject string, not the envelope shape).

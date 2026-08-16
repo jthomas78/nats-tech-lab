@@ -23,6 +23,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/auth"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/internal/natstrace"
 )
 
 func main() {
@@ -149,6 +150,14 @@ func run(log *slog.Logger) error {
 	}
 
 	auditLog := accounts.NewAuditLog(db)
+	// Phase 28e: the same PLATFORM connection notify.accounts.* already
+	// publishes on (BR-036 requires obs.trace.* publish to the PLATFORM
+	// account only) — natstrace.New(nil) is safe if platformNC is unset
+	// (NATS_PLATFORM_CREDS_PATH not configured): Span.finish() is
+	// panic-recover-wrapped, so a nil connection just means spans silently
+	// don't publish, the same "optional, degrades gracefully" contract
+	// platformNC already has for notify.accounts.*.
+	tracer := natstrace.New(platformNC)
 	handlers := accounts.NewHandlers(store, provisioner, credsDir, log, platformNC, auditLog)
 	if natsMonitorURL != "" {
 		handlers.UsageFetcher = accounts.NewUsageFetcher(natsMonitorURL, store)
@@ -164,7 +173,10 @@ func run(log *slog.Logger) error {
 	authHandlers := auth.NewHandlers(store, natsWSUrl, log)
 	authHandlers.Mount(mux)
 
-	server := &http.Server{Addr: httpAddr, Handler: mux}
+	// Phase 28e — one http.Handler decorator wrapping the whole mux covers
+	// every accounts/auth REST endpoint, symmetric to the other four
+	// services' micro.Handler Middleware wrapping every svc.AddEndpoint call.
+	server := &http.Server{Addr: httpAddr, Handler: tracer.HTTPMiddleware(mux)}
 	errCh := make(chan error, 1)
 	go func() {
 		log.Info("accounts-service: http server listening", "addr", httpAddr)

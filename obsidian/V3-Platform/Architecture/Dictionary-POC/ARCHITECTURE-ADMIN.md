@@ -1,8 +1,8 @@
 # Admin UI — SYSTEM → NATS Navbar Group
 
 Scope: the eight panels nested under `frontend/admin`'s SYSTEM → NATS nav
-group — Connections, Services, Account Activity, Log, Request/Reply,
-Streams, KV Buckets, CQRS Shapes (`frontend/admin/src/App.vue`'s `sections`
+group — Connections, Services, Account Activity, Log, Request/Reply &
+Traces, Streams, KV Buckets, CQRS Shapes (`frontend/admin/src/App.vue`'s `sections`
 array, `eyebrow: 'NATS'`). These are the Admin UI's *observability* surface:
 every one of them is read-only, reaches across every NATS account this
 backend can see rather than just the active tenant, and exists so an
@@ -14,7 +14,10 @@ specifically — it complements, rather than replaces, the docs that already
 own deeper pieces of it:
 
 - [ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) §6 owns
-  the `obs.rpc.*`/`obs.api.*` wire protocol Request/Reply observes, §11 owns
+  the `obs.trace.*` wire protocol Request/Reply & Traces observes (the
+  predecessor `obs.rpc.*`/`obs.api.*` channel this panel used before Phase
+  28g is retired — §6's Phase 28g amendment) — including the W3C
+  `traceparent` propagation the trace view is built on (§2.2) — §11 owns
   Connections' account-label resolution, §12 owns the cross-account
   diagnostic-scope argument Streams/KV Buckets (and Connections/Services)
   all share.
@@ -27,9 +30,9 @@ own deeper pieces of it:
 What's genuinely new here, and not written down anywhere else: the shared
 **UI design system** these eight panels all draw from (§2), the three
 recurring **backend data-flow archetypes** they mix and match (§3), and —
-for the two panels where a real design argument happened — the **design
+for the three panels where a real design argument happened — the **design
 history** of how each panel arrived at its shipped shape, including the
-alternatives that were rejected and why (§4.1, §4.3).
+alternatives that were rejected and why (§4.1, §4.3, §4.5).
 
 ---
 
@@ -41,12 +44,12 @@ alternatives that were rejected and why (§4.1, §4.3).
 | Services | `services` | `ServicesPanel.vue` | `GET /api/nats/services` |
 | Account Activity | `account-activity` | `AccountActivityPanel.vue` | `GET /api/nats/account-activity` |
 | Log | `log` | `LogPanel.vue` | `GET /api/nats/log` |
-| Request/Reply | `rpc` | `RpcPanel.vue`, `SubjectPath.vue` | `GET /api/rpctrace/replay` + live `obs.api.>`/`notify._platform.rpctrace.entry` |
+| Request/Reply & Traces | `rpc` | `RpcPanel.vue`, `TraceWaterfall.vue`, `SubjectPath.vue` | `GET /api/kv/buckets/platform/trace-request-reply/entries` + live `notify._platform.kv.trace-request-reply.>` — both tabs read the same feed (traces: grouped by trace; messages: flattened one row per span, Phase 28g retirement; bucket renamed `traces` → `trace-request-reply` in Phase 28l) |
 | Streams | `streams` | `JetStreamPanel.vue`, `StreamView.vue` | `GET /api/jetstream/streams`, `GET /api/jetstream/replay` |
 | KV Buckets | `kv` | `KvInspector.vue` | `GET /api/kv/buckets`, `GET /api/kv/buckets/{account}/{bucket}/entries` + live `notify.*.kv.{bucket}.>` |
 | CQRS Shapes | `shapes` | `ShapePanel.vue` ×2, `ShapeCPanel.vue` | KV notify (A/B), `GET /api/shape-b/ships/*`, `GET /api/shape-c/fleet` |
 
-All eight are wired in `App.vue`'s `<template>` as `v-else-if="activeView === '<key>'"` sections; the six that manage their own internal scroll region (Connections, Services, Account Activity, Request/Reply, Streams, KV Buckets) render inside `class="group group--flush"` so their content fills the remaining viewport instead of being capped at page height. Log and CQRS Shapes render as plain (non-flush) `group` sections.
+All eight are wired in `App.vue`'s `<template>` as `v-else-if="activeView === '<key>'"` sections; the six that manage their own internal scroll region (Connections, Services, Account Activity, Request/Reply & Traces, Streams, KV Buckets) render inside `class="group group--flush"` so their content fills the remaining viewport instead of being capped at page height. Log and CQRS Shapes render as plain (non-flush) `group` sections.
 
 ---
 
@@ -69,9 +72,11 @@ summary-card rule, and one color vocabulary.
    each with a few live counters, worth expanding for detail" — is the same
    shape both times; Account Activity's card is deliberately a copy of
    Services' `.svc-card`, not a new pattern (§4.3).
-2. **Rail + detail split-pane** — Streams, KV Buckets (and, in its own
-   idiom, Request/Reply's row-list + bottom detail). A left rail lists every
-   item — streams for Streams, buckets for KV Buckets — grouped into
+2. **Rail + detail split-pane** — Streams, KV Buckets, Request/Reply &
+   Traces' *traces* view (and, in its own idiom, that panel's *messages*
+   row-list + bottom detail). A left rail lists every
+   item — streams for Streams, buckets for KV Buckets, traces for the trace
+   view — grouped into
    collapsible `.account-group` bands, with a colored `.account-dot` (green =
    the browser's own authenticated tenant account, gray = a read-only/other
    account); selecting a row fills a detail pane on the right.
@@ -79,11 +84,11 @@ summary-card rule, and one color vocabulary.
    (`.account-group`/`.account-dot`/`.rail-item`) so the two "pick one thing
    from a list, inspect it on the right" panels read as one pattern rather
    than two.
-3. **Plain table** — Connections, CQRS Shapes' Shape A/B/C tables, and
-   Request/Reply's top row-list. A PrimeVue `DataTable`, filterable, one row
-   per entity; no card, no expansion (Connections' detail opens as a bottom
-   panel instead, closer to Request/Reply's pattern than to a card's inline
-   expansion).
+3. **Plain table** — Connections, CQRS Shapes' Shape A/B/C tables, and the
+   *messages* view of Request/Reply & Traces. A PrimeVue `DataTable`,
+   filterable, one row per entity; no card, no expansion (Connections' detail
+   opens as a bottom panel instead, closer to that messages view's pattern
+   than to a card's inline expansion).
 4. **Tail view** — Log, and (as a secondary element) KV Buckets' "Recent
    updates" feed below its Contents table. A scrolling, append-only list —
    full-height monospace lines for Log, a compact reverse-chronological
@@ -147,8 +152,19 @@ them. Naming them once here avoids re-deriving "is this live?" per panel:
 | Archetype | Description | Panels |
 |---|---|---|
 | **Poll-only** | A REST endpoint re-fetched on an interval; no NATS subscription backs it at all. | Log (4s poll), Connections/Services/Account Activity (10s poll), Streams' rail and KV Buckets' rail (15s poll) |
-| **Snapshot + live notify** | One-shot REST bootstrap, immediately followed by a live NATS subscription (`notify.*` or a raw `obs.*`/`rpctrace` subject) for anything published afterward. | KV Buckets' selected-bucket detail (`notify.*.kv.{bucket}.>`), Request/Reply's `rpc.*` half (`RPCTRACE` replay → `notify._platform.rpctrace.entry`), CQRS Shape A/B rows (reuses `dictionary.js`'s existing `dict-a`/`dict-b` snapshot+notify store) |
-| **Live-only** | A direct NATS subscription with no REST snapshot/replay at all — nothing to catch up on, or catching up was deliberately out of scope. | Request/Reply's `api.*` half (`obs.api.>`, live-only by design — Layer isolation means only the active tenant's traffic is visible anyway) |
+| **Snapshot + live notify** | One-shot REST bootstrap, immediately followed by a live NATS subscription (`notify.*` for anything published afterward. | KV Buckets' selected-bucket detail (`notify.*.kv.{bucket}.>`), Request/Reply & Traces (both tabs — `GET /api/kv/buckets/platform/trace-request-reply/entries` + `notify._platform.kv.trace-request-reply.>`, Phase 28g retirement), CQRS Shape A/B rows (reuses `dictionary.js`'s existing `dict-a`/`dict-b` snapshot+notify store) |
+| **Live-only** | A direct NATS subscription with no REST snapshot/replay at all — nothing to catch up on, or catching up was deliberately out of scope. | No panel currently instantiates this archetype — Request/Reply & Traces' old `api.*` half (`obs.api.>`) was the one example, retired in Phase 28g along with the rest of that channel. Kept here as a named shape in case a future panel needs it, not as a claim that one exists today. |
+
+**The trace view is a variant of snapshot+notify, not a fourth archetype**
+(Phase 28). A NATS **KV watch** replays every existing key and then stays
+live on one subscription, so bootstrap and live feed are the same mechanism
+rather than a REST fetch raced against a subscribe. That collapses the one
+known weakness of the archetype: the two-mechanism form has a documented
+duplicate/gap window between "replay returned" and "subscription
+established" (BR-D29's consumer note — acceptable for a debug feed, not for
+anything load-bearing), and the KV form structurally cannot have one. Worth
+preferring wherever the panel's data can be modelled as keyed current state
+instead of a message log.
 
 **Streams is the one documented gap.** `StreamView.vue`'s own comment states
 plainly that it has no live tail — a stream's message table is a plain
@@ -177,7 +193,9 @@ that the request fails on (502) if it's unreachable, and zero or more
 **secondary** reads whose failure the caller absorbs rather than propagates.
 
 ```mermaid
+
 flowchart LR
+
     subgraph Connections["GET /api/nats/connections"]
         C1["/connz (primary)"] -->|"502 on failure"| C2[response]
         C3["/varz (secondary)"] -.->|"maxConnections: 0 on failure"| C2
@@ -360,52 +378,146 @@ explicitly as a deliberate scope cut: REST-polled like every other panel
 here rather than a push/follow transport, no general grep DSL, "a lab
 convenience, not a production log pipeline."
 
-### 4.5 Request/Reply
+### 4.5 Request/Reply & Traces
 
-**What it shows.** Live `rpc.*` (backend-to-backend) and `api.*`
-(browser-to-service) request/reply traffic, paired into one row per
-`correlationId` so a call's request and reply — headers, payload, latency,
-size, errors — read together instead of as two unrelated events.
+**What it shows.** Two views of the same traffic behind a
+`[traces] [messages]` toggle. *Traces* (the default, Phase 28) shows one row
+per **trace** — every hop one originating request caused, across services,
+NATS accounts, and the asynchronous CQRS tail. *Messages* is the original
+flat view: one row per `correlationId`, pairing a single request with its
+single reply — headers, payload, latency, size, errors — so the two read
+together instead of as two unrelated events.
 
-**Backend + data flow.** A genuine hybrid, one family per NATS account
-(§3.1):
+Both views are kept because they answer different questions. A trace
+answers "what did this request cause, and where did the time go"; the flat
+list answers "is anything at all arriving on this subject," which a trace
+list is worse at.
 
-- `api.*` — **live-only**: the browser subscribes directly to `obs.api.>`
-  on its own tenant connection (the JWT already grants it); no replay, no
-  backend involvement at all.
-- `rpc.*` — **snapshot + live notify**: `GET /api/rpctrace/replay` bootstraps
-  every currently-retained `RPCTRACE` entry, then a live subscribe to
-  `notify._platform.rpctrace.entry` on the platform connection picks up
-  anything published afterward.
+Before Phase 28 only the flat view existed, and its correlation key was
+`req.Reply()` — the requestor's `_INBOX` subject, which is generated fresh
+by each requestor and never propagated onward. A
+`browser → shipping-service → refdata-service` call therefore rendered as
+**two unrelated rows**, and `evt.*` / `notify.*` / KV writes rendered as
+none at all: with no reply inbox there is no correlation id even in
+principle, so the entire async tail was unjoinable to the command that
+caused it. Traces key on a W3C `traceId` minted in the browser and carried
+in a `traceparent` header through every hop
+([ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) §2.2, §6;
+BR-036/BR-D39 for the envelope, BR-037 for propagation). `correlationId` is
+retained as a per-hop detail field — it is *not* the span id, and it stays
+useful for tying a span back to a `/connz` row or a server log line.
 
-This SSE-free two-subscription design (Phase 23) replaced an earlier single
-merged SSE stream — see [ARCHITECTURE-COMMUNICATIONS.md §6](ARCHITECTURE-COMMUNICATIONS.md)
-for the full evolution (obs.rpc.* fire-and-forget design, the `RPCTRACE`
-JetStream stream added under BR-D29, headers/timestamp/payloadBytes added
-under BR-D36/BR-026, `Nats-Requestor`/`Nats-Responder` identity headers
-under BR-027) — that section owns the wire protocol; this one owns the
-panel built on top of it.
+**Backend + data flow.** Snapshot + live notify (§3.1) in the **KV-watch
+variant**, so the bootstrap and the live feed are one subscription and the
+flat view's duplicate/gap window (BR-D29) does not apply. Services publish
+spans to `obs.trace.>` on the PLATFORM account; a **single** durable
+consumer on the `TRACES` stream (LimitsPolicy, `MaxAge` 1h, `MaxBytes`
+capped) assembles each trace into the `traces` bucket keyed
+`_platform.trace.{traceId}`, and the panel watches that bucket. One writer by
+construction, so there is no read-modify-write race on a partially
+assembled trace. Tenant-account services reach PLATFORM through a per-tenant
+`obs.trace.>` stream export imported into PLATFORM (BR-AC30) — closing the
+cross-account gap the old, now-retired `obs.api.*` channel could never
+close (it was published on the tenant account itself, so it was only ever
+visible for whichever tenant was active, never cross-account).
 
-**UI design.** Hybrid of plain table and split-pane: a filterable row-list
-(Status/Family/Subject/Time/Latency/Size) on top; selecting a row opens a
-bottom detail split into paired **Request** / **Reply** panes, each with a
-headers table and a syntax-tinted JSON body — mirroring the channel's
-actual two-message structure rather than a single-message drawer. Subjects
-render via `SubjectPath.vue` as dot-separated clickable chips (the last
-token styled as the "verb," bold and accented; the second-to-last as an
-"id" chip), exploiting the fixed 6-token subject arity
-(ARCHITECTURE-COMMUNICATIONS.md §2.2) — clicking a token adds a positional
-facet-filter chip to the toolbar. Toolbar also carries free-text search,
-family toggle chips (`rpc` purple / `api` blue), status toggle chips (ok
-success-green / error crit-red / pending warn-amber, §2.3), and a
-Pause/Resume control that freezes the *visible* row set without stopping
-ingestion underneath.
+The store split is itself a worked example of the question this demo exists
+to ask ([ARCHITECTURE.md](ARCHITECTURE.md) § "Event Sourcing vs Plain
+CRUD"): the raw span log lives in JetStream because it must be replayable,
+the assembled trace lives in KV because every read is a lookup by id and
+wants a free `watch`, and Postgres is not involved at all because nothing
+here is transactional and everything expires. That is Shape A, applied to
+the lab's own telemetry.
+
+*Messages* reads the same spans rather than a second feed: a `traceSpan` is
+a strict superset of the pre-Phase-28 `obsEnvelope`, which is also why the
+flat view survived the migration unchanged.
+
+**UI design.** Rail + detail split-pane (§2.1.2) for *traces* — a trace list
+rail on the left (status dot, subject, time, accounts crossed, duration,
+span count), a waterfall to its right, and a span detail pane beneath.
+*Messages* keeps the plain-table + paired **Request** / **Reply** detail it
+already had, each pane with a headers table and a syntax-tinted JSON body,
+mirroring the channel's actual two-message structure rather than a
+single-message drawer. Subjects render via `SubjectPath.vue` in both views
+as dot-separated clickable chips (last token as the "verb," bold and
+accented; second-to-last as an "id" chip), exploiting the fixed 6-token
+subject arity (ARCHITECTURE-COMMUNICATIONS.md §2.2) — clicking a token adds
+a positional facet chip to the toolbar. The toolbar also carries free-text
+search, family toggles, status toggles (ok success-green / error crit-red /
+pending warn-amber, §2.3), and a Pause/Resume that freezes the *visible*
+rows without stopping ingestion underneath.
+
+![Request/Reply & Traces — the traces view](images/admin-traces-panel.png)
+
+The mockup above is the reviewed design, showing the trace from this section's
+running example: a ship arrival that crosses ACME → PLATFORM for a reference
+-data lookup, replies at 41ms, and reaches read-model consistency at 58ms. The
+selected span is the `SELECT` that accounts for 17 of those 41ms — and its
+attributes separate `pool.wait.ms` from actual query time, which is the kind of
+answer the flat view cannot give at all. Editable source:
+[admin-traces-panel.html](../../../../demos/01-dictionary/diagrams/admin-traces-panel.html);
+re-export with `node diagrams/export-html-png.mjs` (see
+ARCHITECTURE-COMMUNICATIONS.md §6 for the full command form — this one adds
+`--clip=".wrap > .panel,.strip"` so only the panel chrome is captured, not the
+mockup's explanatory tables).
+
+Two devices in the waterfall carry information rather than decoration, and
+both show something a general-purpose tracing UI structurally cannot:
+
+- **The account swimlane.** A left gutter names the NATS account each span
+  executed in, and a `⇥` marks any span whose account differs from its
+  parent's. In an operator-mode deployment where tenancy *is* the account
+  boundary and services reach each other only through JWT
+  imports/exports, "which account did this run in, and where did it cross"
+  is the question hardest to answer from application logs — and the one
+  the Topology panel already reads statically from account JWTs. This is
+  the same information observed dynamically, from real traffic.
+- **The reply-ack rule.** A dashed band splits the waterfall at the point
+  the reply was sent: synchronous work above (the client is blocked),
+  eventual work below (the projection, the KV write, the notify). The
+  header therefore states **two** durations — `reply` and `read model
+  consistent` — because in a CQRS system those are different numbers and
+  the gap between them is the thing worth watching. Following §2.2's
+  exceptional-state rule, a trace with no async tail renders no ack line
+  at all rather than an empty band; a rejected command legitimately has no
+  tail, and that absence is itself the information.
+
+Span bars reuse §2.3's vocabulary and extend it only where §2.3 has no
+existing meaning: interactive accent `--lab-accent` for synchronous
+application work, crit-red for failed spans, plus two additions — a
+datastore teal and an outlined eventual-amber. Those two encode *kind* of
+work, not health, so they are deliberately not health colors and do not
+compete with §2.3's green/amber/red axis. Server-hop spans (Phase 29) render
+as a grey hairline tick rather than a bar, because they have no meaningful
+duration. Rows are 26px, matching this group's DataTable density.
+
+**Design history — the viewer, then the placement.**
+
+| Option | Shape | Why not chosen |
+|---|---|---|
+| Jaeger or Grafana Tempo as the viewer | OTel SDK in each service → OTLP → Jaeger/Grafana UI | A second UI, and one that cannot show the account swimlane or the reply-ack boundary — it has no concept of a NATS account or a read model. Jaeger is still adopted, but as a dev-time correctness oracle for this panel (Phase 28g), not as the product. |
+| Jaeger UI embedded via `?uiEmbed=v0` | iframe inside the Admin UI | Nominally one UI; actually a different theme, nav, and auth inside a frame. Jaeger's JSON API is also explicitly undocumented and subject to change. |
+| A ninth panel alongside Request/Reply | new `traces` nav key + its own component | Two panels reading overlapping data, and a ninth nav entry, to show two views of one feed. |
+| Replace Request/Reply outright | flat view retired | Loses "has this subject seen any traffic at all," which the flat list answers better than a trace list does. |
+| **A view toggle inside this panel** | **`[traces] [messages]`, nav unchanged at eight** | **Chosen.** The `traceSpan` superset means both views read one feed, §2.1.2 already existed so no fifth layout was invented, and the nav is untouched. |
+
+The one deliberate omission: **no aggregation, and therefore no
+`.summary-row` at all.** No calls/sec, error-rate, or p95 cards. Every other
+panel in this group that opens with summary cards is reporting a *current
+level* — connections against a ceiling, storage against a limit, slow
+consumers right now — whereas a trace list is a log of discrete past events,
+and a p95 computed over whatever happens to fall inside a 1h retention
+window is a number that looks authoritative and isn't. Aggregation belongs
+to the metrics axis, where `$SRV.STATS` already reports `numRequests`,
+`numErrors`, and `averageProcessingTime` per endpoint (§4.2).
 
 ### 4.6 Streams
 
 **What it shows.** Every JetStream stream registered across every account
 this backend reaches — each tenant's `SHIPPING` plus PLATFORM's `REFDATA`
-and `RPCTRACE` — with full retained-message inspection per stream.
+and `TRACES` (`RPCTRACE`'s successor, Phase 28f; `RPCTRACE` itself was
+retired in Phase 28g) — with full retained-message inspection per stream.
 
 **Backend + data flow.** Rail: poll-only, `GET /api/jetstream/streams`
 (15s). Detail: **snapshot-only** — `GET /api/jetstream/replay?account=&stream=`,
@@ -504,7 +616,9 @@ from the reference-data text describing them.
 Adding a ninth panel to this navbar group means, in order: (1) decide which
 of the three data-flow archetypes in §3.1 fits — poll-only is the default,
 reach for snapshot+notify only if genuinely-live matters and a `notify.*`
-subject already exists or is worth adding; (2) if it proxies a NATS
+subject already exists or is worth adding, and prefer its KV-watch variant
+when the data can be modelled as keyed current state, since one watch gives
+bootstrap and live feed together with no gap window; (2) if it proxies a NATS
 monitoring endpoint, follow §3.2's primary/secondary split rather than
 letting one flaky secondary read fail the whole panel; (3) pick a layout
 from §2.1 by matching the data's shape — a handful of named things with a

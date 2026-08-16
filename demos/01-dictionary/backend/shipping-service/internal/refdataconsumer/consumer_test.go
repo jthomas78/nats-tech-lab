@@ -11,6 +11,8 @@ import (
 
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
+
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
 )
 
 // newTestNATS starts an embedded in-process NATS server for the rpc.*
@@ -627,5 +629,234 @@ func TestListContextsReturnsErrRPCUnavailableWhenNoResponder(t *testing.T) {
 	_, err := c.ListContexts(context.Background(), "acme")
 	if !errors.Is(err, ErrRPCUnavailable) {
 		t.Fatalf("expected ErrRPCUnavailable, got %v", err)
+	}
+}
+
+// ─── BR-037: trace context propagates on every outbound rpc.* call ─────────
+
+// fullTraceSpan decodes natstrace's traceSpan wire shape (BR-036) — this
+// package has no dependency on internal/natstrace's own test helpers, so it
+// mirrors just the fields these specs assert on.
+type fullTraceSpan struct {
+	Subject       string            `json:"subject"`
+	TraceID       string            `json:"traceId"`
+	SpanID        string            `json:"spanId"`
+	ParentSpanID  string            `json:"parentSpanId,omitempty"`
+	Service       string            `json:"service"`
+	Entity        string            `json:"entity"`
+	Action        string            `json:"action"`
+	StatusCode    string            `json:"statusCode"`
+	StatusMessage string            `json:"statusMessage,omitempty"`
+	Attributes    map[string]string `json:"attributes,omitempty"`
+}
+
+func TestLookupPublishesOneSpanCarryingATraceparentHeader(t *testing.T) {
+	nc, cleanupNC := newTestNATS(t)
+	defer cleanupNC()
+
+	spans := make(chan *nats.Msg, 4)
+	spanSub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer spanSub.Unsubscribe() //nolint:errcheck
+
+	var gotTraceparent string
+	sub, err := nc.Subscribe("rpc.acme-test.refdata.item.get.v1", func(msg *nats.Msg) {
+		gotTraceparent = msg.Header.Get(natstrace.TraceparentHeader)
+		data, _ := json.Marshal(rpcItemGetResponse{})
+		_ = msg.Respond(data)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Unsubscribe() //nolint:errcheck
+
+	c := New(nc)
+	if _, err := c.Lookup(context.Background(), "acme-test", "hazard-class", "3", "en"); err != nil {
+		t.Fatal(err)
+	}
+	if gotTraceparent == "" {
+		t.Fatal("expected the outbound rpc.* request to carry a traceparent header")
+	}
+
+	select {
+	case msg := <-spans:
+		if msg.Subject != "obs.trace.acme-test.refdata.item.get" {
+			t.Fatalf("unexpected span subject %q", msg.Subject)
+		}
+		var span fullTraceSpan
+		if err := json.Unmarshal(msg.Data, &span); err != nil {
+			t.Fatal(err)
+		}
+		if span.ParentSpanID != "" {
+			t.Fatalf("expected a root span (no parent attached via ctx), got parentSpanId=%q", span.ParentSpanID)
+		}
+		if span.Service != "refdata" || span.Entity != "item" || span.Action != "get" {
+			t.Fatalf("expected service/entity/action refdata/item/get, got %s/%s/%s", span.Service, span.Entity, span.Action)
+		}
+		if span.StatusCode != "OK" {
+			t.Fatalf("expected statusCode OK, got %s", span.StatusCode)
+		}
+		if span.Attributes["rpc.retry_count"] != "0" {
+			t.Fatalf("expected rpc.retry_count 0 on first-attempt success, got %q", span.Attributes["rpc.retry_count"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for obs.trace.* span")
+	}
+}
+
+func TestLookupContinuesParentSpanAttachedViaContext(t *testing.T) {
+	nc, cleanupNC := newTestNATS(t)
+	defer cleanupNC()
+
+	spans := make(chan *nats.Msg, 4)
+	spanSub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer spanSub.Unsubscribe() //nolint:errcheck
+
+	respondItemGet(t, nc, "acme-test", "3", "Flammable Liquids")
+
+	// Simulate the inbound span a browserrpc handler would have started —
+	// StartOutbound stands in for natstrace.Start (which needs a real
+	// micro.Request); what matters here is only that the parent has a
+	// traceId/spanId to continue.
+	parentTracer := natstrace.New(nc)
+	parentSpan := parentTracer.StartOutbound(nil, "api.acme-test.shipping.ship.list.v1", nil,
+		"acme-test", "shipping", "ship", "list")
+
+	c := New(nc)
+	ctx := natstrace.ContextWithSpan(context.Background(), parentSpan)
+	if _, err := c.Lookup(ctx, "acme-test", "hazard-class", "3", "en"); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case msg := <-spans:
+		var span fullTraceSpan
+		if err := json.Unmarshal(msg.Data, &span); err != nil {
+			t.Fatal(err)
+		}
+		if span.ParentSpanID == "" {
+			t.Fatal("expected a continued span (non-empty parentSpanId)")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for obs.trace.* span")
+	}
+}
+
+// TestLookupSharesTraceIdAcrossShippingAndRefdataHops is the final
+// verification checklist's "one assertion that matters most" (Main-POC-Plan
+// § Tests): shipping's outbound rpc.* call and refdata's inbound handling of
+// that same call must agree on one traceId, with refdata's span correctly
+// chained as a child of shipping's via parentSpanId. This package can't
+// literally import refdata-service's natstrace (separate Go module), so the
+// rpc.* responder below stands in for refdata's real inbound handler using
+// this package's own natstrace.StartFromHeaders — the same stand-in pattern
+// TestLookupContinuesParentSpanAttachedViaContext already uses for a
+// browserrpc-side parent, applied here to the callee side instead. Both
+// copies are the identical Phase 28b `natstrace` package, so the header
+// parsing/traceId propagation behavior under test is the real one.
+func TestLookupSharesTraceIdAcrossShippingAndRefdataHops(t *testing.T) {
+	nc, cleanupNC := newTestNATS(t)
+	defer cleanupNC()
+
+	spans := make(chan *nats.Msg, 4)
+	spanSub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer spanSub.Unsubscribe() //nolint:errcheck
+
+	refdataTracer := natstrace.New(nc)
+	sub, err := nc.Subscribe("rpc.acme-test.refdata.item.get.v1", func(msg *nats.Msg) {
+		span := refdataTracer.StartFromHeaders(msg.Header, msg.Subject, msg.Data, "acme-test", "refdata", "item", "get")
+		var resp rpcItemGetResponse
+		resp.Item.Code = "3"
+		resp.Item.Status = "active"
+		resp.Label = "Flammable Liquids"
+		data, _ := json.Marshal(resp)
+		span.End(data, nil)
+		_ = msg.Respond(data)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Unsubscribe() //nolint:errcheck
+
+	c := New(nc)
+	if _, err := c.Lookup(context.Background(), "acme-test", "hazard-class", "3", "en"); err != nil {
+		t.Fatal(err)
+	}
+
+	var shippingSpan, refdataSpan fullTraceSpan
+	for i := 0; i < 2; i++ {
+		select {
+		case msg := <-spans:
+			var span fullTraceSpan
+			if err := json.Unmarshal(msg.Data, &span); err != nil {
+				t.Fatal(err)
+			}
+			if span.ParentSpanID == "" {
+				shippingSpan = span
+			} else {
+				refdataSpan = span
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for both hops' obs.trace.* spans")
+		}
+	}
+
+	if shippingSpan.TraceID == "" || refdataSpan.TraceID == "" {
+		t.Fatalf("expected both spans to carry a traceId, got shipping=%q refdata=%q", shippingSpan.TraceID, refdataSpan.TraceID)
+	}
+	if shippingSpan.TraceID != refdataSpan.TraceID {
+		t.Fatalf("expected one shared traceId across both hops, got shipping=%q refdata=%q", shippingSpan.TraceID, refdataSpan.TraceID)
+	}
+	if refdataSpan.ParentSpanID != shippingSpan.SpanID {
+		t.Fatalf("expected refdata's span to chain as a child of shipping's (parentSpanId=%q), got parentSpanId=%q", shippingSpan.SpanID, refdataSpan.ParentSpanID)
+	}
+}
+
+func TestLookupPublishesOneErrorSpanWithRetryCountWhenNoResponder(t *testing.T) {
+	nc, cleanupNC := newTestNATS(t)
+	defer cleanupNC()
+	// Deliberately no subscriber on the rpc.* subject.
+
+	spans := make(chan *nats.Msg, 4)
+	spanSub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer spanSub.Unsubscribe() //nolint:errcheck
+
+	c := New(nc, WithRPCTimeout(100*time.Millisecond), WithRPCRetries(2), WithRPCBackoff(10*time.Millisecond))
+	if _, err := c.Lookup(context.Background(), "acme-test", "hazard-class", "3", "en"); !errors.Is(err, ErrRPCUnavailable) {
+		t.Fatalf("expected ErrRPCUnavailable, got %v", err)
+	}
+
+	select {
+	case msg := <-spans:
+		var span fullTraceSpan
+		if err := json.Unmarshal(msg.Data, &span); err != nil {
+			t.Fatal(err)
+		}
+		if span.StatusCode != "ERROR" {
+			t.Fatalf("expected statusCode ERROR, got %s", span.StatusCode)
+		}
+		if span.Attributes["rpc.retry_count"] != "2" {
+			t.Fatalf("expected rpc.retry_count 2 (WithRPCRetries(2), all failed), got %q", span.Attributes["rpc.retry_count"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for obs.trace.* span")
+	}
+
+	// Only one span total for this whole call, not one per attempt.
+	select {
+	case extra := <-spans:
+		t.Fatalf("expected exactly one span for the whole call, got a second: %s", extra.Subject)
+	case <-time.After(100 * time.Millisecond):
 	}
 }

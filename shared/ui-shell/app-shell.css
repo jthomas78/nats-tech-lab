@@ -238,7 +238,12 @@
 
 /* ---------- main content ---------- */
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-.main-inner { width: 100%; flex: 1; min-height: 0; overflow-y: auto; padding: 22px 28px 40px; display: flex; flex-direction: column; gap: 22px; }
+/* Horizontal inset matches the topbar's own left padding (16px) so a panel's
+   edge lines up with the brandmark above it, rather than the wider 28px
+   inherited from app-shell-reference.html's centered, max-width mockup —
+   this shell renders full-bleed (no max-width), so that inset was just
+   unclaimed space next to the sidebar rather than a deliberate margin. */
+.main-inner { width: 100%; flex: 1; min-height: 0; overflow-y: auto; padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 18px; }
 
 /* An optional #footer (a status/telemetry bar) renders full-bleed below
    main-inner's own padding — flush to the viewport edges like the topbar,

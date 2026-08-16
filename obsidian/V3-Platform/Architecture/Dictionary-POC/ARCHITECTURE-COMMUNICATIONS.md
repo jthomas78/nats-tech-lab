@@ -127,7 +127,7 @@ families; both were stale — see § 2.3 and the Phase 16 decision record in
 
 ### 2.1 Subject families
 
-Five families, grouped by role. **Core** families carry business traffic;
+Six families, grouped by role. **Core** families carry business traffic;
 **Supportive** families exist so diagnostics never share a subject with the
 operations they observe — a slow or absent debugging subscriber must never be
 able to add latency to, or apply backpressure against, a subject in the Core
@@ -140,6 +140,7 @@ group.
 | Core | `api.*` | **Frontend-to-service** synchronous calls | NATS core request/reply (Micro), reached over WebSocket |
 | Core | `notify.*` | Service-side change notification to interested subscribers | Core pub/sub, fire-and-forget |
 | Supportive | `obs.rpc.*` / `obs.api.*` | Debugging/observability side-channel for RPC and API traffic; consumed by Admin and technical tooling only | Core pub/sub (+ `RPCTRACE` retention, BR-D29) |
+| Supportive | `obs.trace.*` | Distributed-trace spans — the same envelope enriched with W3C trace identity, joined across hops by `traceId` (Phase 28, BR-036/BR-D39) | Core pub/sub on the **PLATFORM account only** (+ `TRACES` retention, 1h) |
 
 `cmd.*` remains **reserved, not in use**: durable asynchronous intent —
 publish, then observe the result via events or a status/read model. Named
@@ -165,6 +166,7 @@ api.{context}.{service}.{entity}.{action}.v{n}
 notify.{context}.{service}.{entity}.changed
 obs.rpc.{context}.{service}.{entity}.{action}
 obs.api.{context}.{service}.{entity}.{action}
+obs.trace.{context}.{service}.{entity}.{action}
 ```
 
 - The leading token is always a **fixed literal**, never a wildcard — a stream
@@ -348,7 +350,9 @@ does this service's data belong to, and does it have a dedicated per-tenant
 NATS account to lean on?**
 
 ```mermaid
+
 flowchart TD
+
     Q1{"Does this operation administer\nthe tenant/account axis itself?\n(create/suspend account, mint token)"}
     Q1 -->|yes| A["No {context} token at all.\nrpc.accounts.account.create.v1\nTenant name, if needed, travels as an\nordinary payload field — never as {context}."]
     Q1 -->|no| Q2{"Does this service run on a\ndedicated per-tenant NATS account?\n(tenant already implicit in the connection)"}
@@ -643,6 +647,113 @@ a JetStream concern — it's a separate, best-effort side-channel off the
 > SSE streams too: dictionary KV watch, KV inspector, and JetStream raw
 > watch).
 
+> **Extended again (Phase 28) — `obs.trace.*`, W3C `traceparent`
+> propagation, and the exporter as a consumer rather than a library.** The
+> envelope above pairs a request with *its own* reply and nothing more: its
+> correlation key is `req.Reply()`, an inbox subject generated fresh by each
+> requestor and never propagated, so a `browser → shipping → refdata` call
+> emits two unrelated envelopes and a fire-and-forget publish (`evt.*`,
+> `notify.*`, a KV write) emits none at all — with no reply inbox there is no
+> correlation id even in principle. `obs.trace.*` (§ 2.1, § 2.2) adds W3C
+> trace identity: a `traceId` minted at the browser and carried in a
+> `traceparent` header across every hop, plus `spanId`/`parentSpanId` for the
+> tree. `traceSpan` is a **strict superset** of the `obsEnvelope` above — no
+> field is renamed or retyped, every addition is `omitempty` — which is why
+> the flat Request/Reply view keeps working unchanged and why both views read
+> one feed (`ARCHITECTURE-ADMIN.md` § 4.5). `correlationId` is retained as a
+> per-hop field; it is **not** the span id.
+>
+> ![Span envelope — what is already carried, what Phase 28 adds, and which surfaces emit it](images/traces-span-envelope.png)
+>
+> `HAVE` is what the `obsEnvelope` above already carries; `NEW` is what turns a
+> flat message log into a trace. In the second table the **gaps matter more
+> than the coverage** — an `rpc.*` call that times out currently produces no
+> record at either end, from either side. `SERVER` rows need no service code at
+> all (Phase 29). Editable source:
+> [admin-traces-panel.html](../../../../demos/01-dictionary/diagrams/admin-traces-panel.html),
+> re-exported with `--clip="section.cap"`.
+>
+> Instrumentation is structural rather than by convention: all four micro
+> adapters register endpoints through a single `svc.AddEndpoint` call inside a
+> table loop, and both `micro.Handler` and `micro.Request` are interfaces, so
+> one decorator at that call site replaces the 58 hand-pasted request-side
+> `publishObs` lines. Outcome still comes from the existing
+> `respond`/`respondError` tails, which already hold the typed error and its
+> 404/500 classification — the span is reached there by upcast, not by a
+> correlation map.
+>
+> ![How the OTLP bridge ingests span data](images/otlp-bridge-ingest.png)
+>
+> Editable source: [otlp-bridge-ingest.html](../../../../demos/01-dictionary/diagrams/otlp-bridge-ingest.html)
+> — hand-authored inline SVG rather than a Draw.io workbook page, so
+> `./diagrams/export-png.sh` does **not** regenerate it. Re-export with
+> `node diagrams/export-html-png.mjs diagrams/otlp-bridge-ingest.html \`
+> `  ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/otlp-bridge-ingest.png 1024`
+> from `demos/01-dictionary/`. The 1024px width is the geometry the page was
+> reviewed at; changing it changes the layout.
+>
+> **The exporter is a consumer, not a library, and that is a capability
+> decision rather than a cost one.** No service imports
+> `go.opentelemetry.io/*`. The OTel Go API is `context.Context`-based —
+> `tracer.Start(ctx, …)` returns a new ctx and children are found via
+> `trace.SpanFromContext` — but every adapter here hands the application layer
+> a fresh `context.Background()` at roughly 60 call sites, so real nesting
+> would mean changing every command and query signature it reaches, down
+> through the domain layer Quality Rule 3 keeps framework-free. Adopting OTel
+> only at the adapter boundary would pay that dependency cost for a *flat*
+> trace. Meanwhile the SDK's bulk — exporters, batching, retry — solves span
+> *delivery*, which `obs.*` already solves, with retention for replay.
+>
+> So `natstrace` is hand-rolled (~250 lines, duplicated per service like
+> `obsEnvelope` already is, because each service's Dockerfile uses its own
+> directory as build context), W3C-compatible on the wire, and its field names
+> mirror the OTLP `Span` message 1:1 so the bridge is a field-for-field copy
+> with no interpretation. Four things follow from the bridge being a stream
+> consumer:
+>
+> - **Retroactive export.** An in-process batch exporter can only ship spans
+>   it currently holds in memory; if the collector is down, or Jaeger is
+>   started *after* something odd is noticed, those spans are gone. A
+>   `DeliverAll` consumer re-exports the retained window on demand.
+> - **Toggling costs no code.** Two `docker-compose.yml` services added or
+>   removed. Not an env flag threaded through five binaries.
+> - **One copy of the OTLP mapping.** `natstrace` is duplicated five times;
+>   the bridge is the only component that ever needs to know OTLP exists, so a
+>   format bug is one fix.
+> - **It cannot touch a business path.** An in-process exporter shares the
+>   service's memory and failure modes, and a slow OTLP endpoint makes the
+>   batch processor block or drop *inside* the service. A separate consumer
+>   makes the `obs.*` isolation invariant (§ 2.1) structurally true instead of
+>   carefully maintained.
+>
+> Revisit the real SDK if this POC graduates — `otelpgx`/`otelhttp`
+> auto-instrumentation is the genuine loss, and because the wire format is
+> already OTLP-shaped, adopting it later is additive rather than a rewrite.
+> Recorded as an explicit deferred decision, not a silent one.
+>
+> **Implemented (Phase 28g).** `backend/otlp-bridge/` landed as designed
+> above — a standalone `~230`-line module (not hexagonal; a translation
+> utility has no domain layer), `internal/otlpmap` doing the pure
+> field-for-field mapping and `cmd/main.go` wiring the `TRACES` consumer,
+> the size/interval batcher, and the ack-only-on-2xx HTTP POST.
+> `docker-compose.yml`'s `jaeger` + `otlp-bridge` pair sits behind Compose's
+> `otlp` profile, exactly the "two services added or removed" toggle this
+> section calls for. **One correction made against a live rejection, not
+> assumed up front:** trace/span ids are passed through as the same hex
+> `natstrace` emits, not re-encoded to base64. Generic protobuf JSON
+> mapping would base64-encode a `bytes` field (which is what `trace_id`/
+> `span_id` are declared as in `opentelemetry-proto`), and that was this
+> bridge's first implementation — but Jaeger's OTLP/HTTP receiver decodes
+> ids through OTel collector's `pdata` codec, whose `TraceID`/`SpanID`
+> types marshal as hex specifically, not generic `bytes`. A base64-encoded
+> id came back rejected with `"invalid length for ID"` against the real
+> running container; since `natstrace`'s ids are already hex of the exact
+> byte lengths OTLP requires, the fix was to delete the encoding step
+> entirely rather than add a different one — one less thing to get wrong,
+> pinned by `otlpmap`'s `TestMarshalExportRequestPassesIdsThroughAsHex`.
+> Verified live: real `refdata`/`accounts` spans, correctly parented,
+> visible in Jaeger's UI and `/api/traces` query API.
+
 **No dedicated stream (original decision, since revised — see below).** A
 `RPCTRACE`-style JetStream stream (`LimitsPolicy`, short `MaxAge`) was
 considered as a way to give a reconnecting tab a few seconds of catch-up
@@ -711,6 +822,24 @@ func (a *Adapter) getItemHandler(req micro.Request) {
   elsewhere; not expected to be an issue for the reference-data lookups this
   repo currently scopes `rpc.*` to, but worth checking per-operation as new
   `rpc.*` endpoints are added.
+
+  **Amended (Phase 28) — advisory becomes enforced.** The paragraph above was
+  guidance that nothing implemented, and the exposure was wider than it
+  states: `obs.api.*` is published on the *tenant* account and the tenant
+  browser JWT carries a matching `obs.api.>` subscribe grant
+  (`auth/token.go`'s `MintBrowserToken`), so every `api.*` payload was
+  duplicated verbatim onto a subject the browser could read. Three changes
+  make the rule real for `obs.trace.*` (BR-036/BR-D39): it publishes to the
+  **PLATFORM account only** and no browser credential is granted
+  `obs.trace.>`; a `Redactor` hook runs at publish time, listing what it
+  replaced in `redacted[]` so a reader can tell "field was empty" from "field
+  was withheld"; and payloads are capped at 4 KiB with `truncated: true`
+  rather than cut silently. Redaction runs *before* the cap, and the
+  `Redactor` is a per-adapter dependency rather than a package global, because
+  three of the four adapters are constructed per tenant. Note that truncation
+  must re-marshal the prefix as a JSON string — `Payload` is a
+  `json.RawMessage`, so a naked byte slice produces an envelope the consumer
+  cannot decode — while `payloadBytes` keeps the true pre-truncation length.
 
 ## 7. `rpc.*` as the sole backend-to-backend transport (Phase 12.11, IMPLEMENTED 2026-07-24)
 

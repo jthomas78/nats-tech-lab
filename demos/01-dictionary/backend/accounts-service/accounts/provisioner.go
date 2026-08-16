@@ -109,6 +109,21 @@ func (p *Provisioner) CreateAccount(ctx context.Context, limits JSLimits, tenant
 		return MintedAccount{}, err
 	}
 
+	// Phase 28f: PLATFORM's own account claims are a separate JWT that no
+	// tenant-side push can touch — the new tenant's obs.trace.> export
+	// (just wired into claims.Exports above via newAccountClaims, gated on
+	// the same platformPublicKey != "" condition) is inert until
+	// PLATFORM's claims are re-signed with a matching Stream import naming
+	// this account. See addPlatformTraceImport's doc comment. Skipped
+	// entirely when platformPublicKey is empty — the caller has opted out
+	// of cross-account wiring altogether (e.g. low-level provisioner tests
+	// that mint bare, unconnected accounts).
+	if platformPublicKey != "" {
+		if err := p.addPlatformTraceImport(ctx, platformPublicKey, accountPub); err != nil {
+			return MintedAccount{}, fmt.Errorf("register platform trace import for new tenant: %w", err)
+		}
+	}
+
 	return MintedAccount{PublicKey: accountPub, SigningKeySeed: string(signingSeed)}, nil
 }
 
@@ -167,6 +182,7 @@ func newAccountClaims(accountPub, signingPub string, limits JSLimits, prior *jwt
 		if prior != nil {
 			claims.Exports = append(jwt.Exports(nil), prior.Exports...)
 		}
+		claims.Exports.Add(tenantExports()...)
 		claims.Imports = tenantImports(crossAccount.TenantName, crossAccount.PlatformPublicKey)
 	case prior != nil:
 		// prior exists but no PLATFORM key — copy whatever is there; caller
@@ -198,6 +214,25 @@ func tenantImports(tenantName, platformPublicKey string) jwt.Imports {
 		service("rpc._platform.refdata.context.list.v1", "rpc._platform.refdata.context.list.v1"),
 		stream("notify.accounts.account.*"),
 		stream("evt.*.refdata.*.changed"),
+	}
+}
+
+// traceExportSubject is the one subject a tenant exports back to PLATFORM
+// (Phase 28f) — the reverse leg of tenantImports's PLATFORM-to-tenant
+// contract, needed so PLATFORM's cross-account trace store
+// (dictionary/composition.go's TRACES consumer) can subscribe to this
+// tenant's own obs.trace.* spans. Declared once so tenantExports and
+// addPlatformTraceImport's idempotency check can't drift apart.
+const traceExportSubject = "obs.trace.>"
+
+// tenantExports is the tenant-to-PLATFORM export declaration. AllowTrace is
+// deliberately omitted here — jwt.Export.Validate rejects it on anything but
+// a Service-type export, and this is a Stream export; the AllowTrace flag
+// that actually matters for this pipeline belongs on PLATFORM's Stream
+// *import* of it instead (addPlatformTraceImport below).
+func tenantExports() jwt.Exports {
+	return jwt.Exports{
+		{Subject: jwt.Subject(traceExportSubject), Type: jwt.Stream},
 	}
 }
 
@@ -316,6 +351,42 @@ func (p *Provisioner) pushClaimsUpdate(ctx context.Context, accountJWT string) e
 		return fmt.Errorf("claims update rejected: %s", parsed.Error.Description)
 	}
 	return nil
+}
+
+// addPlatformTraceImport re-signs and re-pushes PLATFORM's own account JWT
+// so it imports the newly-minted tenant's obs.trace.> export (Phase 28f).
+// This is the one leg tenantImports's "complete PLATFORM-to-tenant contract"
+// comment doesn't cover: everything else in this file grants a tenant
+// account access to PLATFORM's exports, but a cross-account trace store
+// needs the opposite direction too — PLATFORM importing a stream *from*
+// each tenant. There's no wildcard cross-account import in NATS's
+// decentralized JWT model, so this has to be a live per-tenant claims
+// update, mirroring the same $SYS.REQ.CLAIMS.UPDATE mechanism the rest of
+// this file already uses (see pushClaimsUpdate). Idempotent: if PLATFORM's
+// claims already import tenantAccountPub's obs.trace.>, this is a no-op —
+// safe to call unconditionally from CreateAccount without checking whether
+// a prior attempt already succeeded.
+func (p *Provisioner) addPlatformTraceImport(ctx context.Context, platformPublicKey, tenantAccountPub string) error {
+	claims, err := p.LookupAccountClaims(ctx, platformPublicKey)
+	if err != nil {
+		return fmt.Errorf("lookup platform account claims: %w", err)
+	}
+	for _, imp := range claims.Imports {
+		if imp.Account == tenantAccountPub && imp.Subject == jwt.Subject(traceExportSubject) {
+			return nil
+		}
+	}
+	claims.Imports.Add(&jwt.Import{
+		Account:    tenantAccountPub,
+		Subject:    jwt.Subject(traceExportSubject),
+		Type:       jwt.Stream,
+		AllowTrace: true,
+	})
+	token, err := claims.Encode(p.operatorSigningKey)
+	if err != nil {
+		return fmt.Errorf("encode platform account jwt: %w", err)
+	}
+	return p.pushClaimsUpdate(ctx, token)
 }
 
 // CreateUser mints a user JWT for accountPub, signed by that account's

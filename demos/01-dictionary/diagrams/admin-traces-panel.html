@@ -1,0 +1,742 @@
+<script>document.documentElement.setAttribute("data-theme","dark")</script>
+<title>Traces panel — Admin UI mockup</title>
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Tokens. Values are lifted verbatim from shared/unifi-theme/unifi.css
+   so this mockup is measurably the same visual system as the four
+   existing lab frontends. Dark is the base (as in unifi.css, where
+   :root is dark and :root:not(.p-dark) is the light override).
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --text:          #dee0e3;
+  --muted:         #b7bcc2;
+  --dim:           #737c87;
+  --bg:            #14171b;
+  --panel:         #1a1e23;
+  --border:        #2c3138;
+  --accent:        #006fff;
+  --nested:        #171c29;
+  --nested-hover:  #1d2336;
+  --raise:         rgba(255, 255, 255, 0.04);
+  --raise-2:       rgba(255, 255, 255, 0.07);
+
+  /* Span classes. Semantic, deliberately separate from --accent:
+     blue = synchronous app work, teal = datastore, amber = eventual,
+     red = failed, grey = NATS infrastructure hop. */
+  --sync:   #006fff;
+  --store:  #2dd4bf;
+  --evtl:   #f0b429;
+  --bad:    #f87171;
+  --hop:    #8b93a1;
+
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Light override — same token names, re-pointed. Guarded so an explicit
+   dark choice still wins over a light OS setting. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --text:  #1e2328;
+    --muted: #4e5560;
+    --dim:   #9aa1a9;
+    --bg:     #f4f5f7;
+    --panel:  #ffffff;
+    --border: #d1d5db;
+    --accent: #005fdb;
+    --nested: #eef1f7;
+    --nested-hover: #e3e8f2;
+    --raise:   rgba(0, 0, 0, 0.05);
+    --raise-2: rgba(0, 0, 0, 0.09);
+    --sync:  #005fdb;
+    --store: #0d9488;
+    --evtl:  #b45309;
+    --bad:   #dc2626;
+    --hop:   #6b7280;
+  }
+}
+:root[data-theme="light"] {
+  --text:  #1e2328;
+  --muted: #4e5560;
+  --dim:   #9aa1a9;
+  --bg:     #f4f5f7;
+  --panel:  #ffffff;
+  --border: #d1d5db;
+  --accent: #005fdb;
+  --nested: #eef1f7;
+  --nested-hover: #e3e8f2;
+  --raise:   rgba(0, 0, 0, 0.05);
+  --raise-2: rgba(0, 0, 0, 0.09);
+  --sync:  #005fdb;
+  --store: #0d9488;
+  --evtl:  #b45309;
+  --bad:   #dc2626;
+  --hop:   #6b7280;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 1260px;
+  margin: 0 auto;
+  padding: 22px 18px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ── page head ── */
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; }
+.sub { margin: 0; color: var(--muted); max-width: 66ch; }
+
+.theme-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+.theme-btn:hover { color: var(--text); border-color: var(--dim); }
+
+/* ── panel chrome ── */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.panel-h {
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.panel-h .note { font-weight: 400; color: var(--dim); font-family: var(--mono); font-size: 10px; }
+
+/* ── toolbar ── */
+.toolbar {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 8px 10px; border-bottom: 1px solid var(--border);
+}
+.tag {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em;
+  padding: 1px 7px; border-radius: 3px;
+  background: color-mix(in srgb, var(--store) 18%, transparent);
+  color: var(--store);
+  border: 1px solid color-mix(in srgb, var(--store) 34%, transparent);
+}
+.search {
+  flex: 1; min-width: 170px; display: flex; align-items: center; gap: 6px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 3px;
+  padding: 2px 8px; font-family: var(--mono); font-size: 11px; color: var(--dim);
+}
+.search span.q { color: var(--text); }
+.chip {
+  font-family: var(--sans); font-size: 11px; line-height: 16px;
+  padding: 1px 8px; border-radius: 3px;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--muted); cursor: pointer;
+}
+.chip.on { background: color-mix(in srgb, var(--accent) 20%, transparent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--text); }
+.chip.on.err { background: color-mix(in srgb, var(--bad) 18%, transparent); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+.chip.facet { font-family: var(--mono); font-size: 10px; }
+.chip.facet .k { color: var(--dim); margin-right: 3px; }
+.chip.facet .x { color: var(--dim); margin-left: 5px; }
+
+/* ── split body ── */
+.split { display: grid; grid-template-columns: 316px minmax(0, 1fr); }
+@media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+
+/* ── trace list ── */
+.tlist { border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+@media (max-width: 900px) { .tlist { border-right: none; border-bottom: 1px solid var(--border); } }
+.tlist-h {
+  font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--dim);
+  padding: 5px 10px; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between;
+}
+.trace {
+  display: grid; grid-template-columns: 7px minmax(0,1fr) auto;
+  gap: 8px; align-items: start;
+  width: 100%; text-align: left;
+  padding: 7px 10px;
+  background: transparent; border: none; border-bottom: 1px solid var(--border);
+  color: inherit; font: inherit; cursor: pointer;
+}
+.trace:hover { background: var(--nested); }
+.trace[aria-current="true"] { background: var(--nested-hover); }
+.trace[aria-current="true"] .t-dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.t-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 6px; }
+.t-dot.ok  { background: var(--store); }
+.t-dot.err { background: var(--bad); }
+.t-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.t-meta { font-family: var(--mono); font-size: 10px; color: var(--dim); display: flex; gap: 7px; flex-wrap: wrap; }
+.t-right { text-align: right; font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+.t-dur { color: var(--text); display: block; }
+.t-dur.err { color: var(--bad); }
+.t-spans { color: var(--dim); font-size: 10px; }
+
+/* subject rendered as tokens — mirrors SubjectPath.vue */
+/* Tokens are separate spans, so normal wrapping breaks at the dots rather
+   than mid-token — "…register" / ".v1", never "…regist" / "er.v1". */
+.subj { font-family: var(--mono); font-size: 11px; display: inline; overflow-wrap: normal; }
+.subj .s { color: var(--muted); }
+.subj .d { color: var(--dim); }
+.subj .verb { color: var(--accent); font-weight: 600; }
+.subj .id { color: var(--text); background: var(--raise); border-radius: 3px; padding: 0 4px; }
+
+/* ── waterfall ── */
+.wf { display: flex; flex-direction: column; min-width: 0; }
+.wf-head {
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+}
+.wf-tid { font-family: var(--mono); font-size: 10px; color: var(--dim); flex-basis: 100%; }
+.wf-tid b { color: var(--muted); font-weight: 400; }
+.stat { display: flex; flex-direction: column; }
+.stat .k {
+  font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--dim);
+}
+.stat .v { font-family: var(--mono); font-size: 14px; font-variant-numeric: tabular-nums; color: var(--text); }
+.stat .v.evtl { color: var(--evtl); }
+.stat .v.bad  { color: var(--bad); }
+.stat .v small { font-size: 10px; color: var(--dim); }
+
+/* row grid — one definition, reused by axis and every span row */
+.grid {
+  display: grid;
+  grid-template-columns: 78px minmax(250px, 1.75fr) 56px minmax(110px, 1.4fr);
+  gap: 8px;
+  align-items: center;
+  padding: 0 12px;
+}
+.axis {
+  height: 22px; border-bottom: 1px solid var(--border);
+  font-family: var(--mono); font-size: 10px; color: var(--dim);
+}
+.axis .ticks { position: relative; height: 100%; }
+.axis .tk { position: absolute; top: 5px; transform: translateX(-50%); white-space: nowrap; }
+.axis .tk:first-child { transform: none; }
+.axis .tk:last-child  { transform: translateX(-100%); }
+
+.rows { display: flex; flex-direction: column; }
+.row {
+  width: 100%; text-align: left; font: inherit; color: inherit;
+  background: transparent; border: none; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  height: 26px; cursor: pointer;
+}
+.row:hover { background: var(--nested); }
+.row[aria-current="true"] { background: var(--nested-hover); }
+
+/* account gutter — the swimlane */
+.acct {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.04em;
+  color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  border-left: 2px solid var(--border); padding-left: 6px;
+}
+.acct.platform { border-left-color: color-mix(in srgb, var(--accent) 65%, transparent); }
+.acct.tenant   { border-left-color: color-mix(in srgb, var(--evtl) 55%, transparent); }
+.acct.cross    { color: var(--accent); font-weight: 600; }
+
+.nm { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.nm .rail { flex: none; border-left: 1px solid var(--border); align-self: stretch; }
+.nm .txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nm .svc { font-family: var(--mono); font-size: 9px; color: var(--dim); flex: none; }
+.nm .op  { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+.dur { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; color: var(--muted); }
+.dur.bad { color: var(--bad); }
+
+.track { position: relative; height: 100%; }
+.track .gl { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--border) 60%, transparent); }
+.bar {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  height: 8px; border-radius: 2px; min-width: 2px;
+}
+.bar.sync  { background: var(--sync); }
+.bar.store { background: var(--store); }
+.bar.evtl  { background: color-mix(in srgb, var(--evtl) 26%, transparent); border: 1px solid var(--evtl); }
+.bar.bad   { background: var(--bad); }
+.bar.hop   { background: var(--hop); height: 12px; width: 2px !important; border-radius: 0; }
+.bar.hop.bad { background: var(--bad); }
+
+/* the reply-ack rule — the signature element */
+.ack {
+  display: flex; align-items: center; gap: 10px;
+  padding: 5px 12px;
+  background: color-mix(in srgb, var(--evtl) 8%, transparent);
+  border-top: 1px dashed color-mix(in srgb, var(--evtl) 55%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--evtl) 55%, transparent);
+  font-family: var(--mono); font-size: 10px;
+}
+.ack .l { color: var(--evtl); letter-spacing: 0.04em; text-transform: uppercase; }
+.ack .r { color: var(--dim); margin-left: auto; text-align: right; }
+
+/* ── span detail ── */
+.det { border-top: 1px solid var(--border); }
+.det-h {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 7px 12px; border-bottom: 1px solid var(--border);
+}
+.det-h .kindtag {
+  font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 1px 6px; border-radius: 3px; border: 1px solid var(--border); color: var(--muted);
+}
+.det-cols { display: grid; grid-template-columns: 1fr 1fr; }
+@media (max-width: 760px) { .det-cols { grid-template-columns: 1fr; } }
+.det-col { padding: 9px 12px 12px; min-width: 0; }
+.det-col + .det-col { border-left: 1px solid var(--border); }
+@media (max-width: 760px) { .det-col + .det-col { border-left: none; border-top: 1px solid var(--border); } }
+.sect-l {
+  font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--dim); margin-bottom: 4px; display: flex; gap: 7px; align-items: baseline;
+}
+.sect-l .new {
+  color: var(--evtl); border: 1px solid color-mix(in srgb, var(--evtl) 45%, transparent);
+  border-radius: 3px; padding: 0 4px; letter-spacing: 0.04em;
+}
+.kv { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 1px 10px; font-family: var(--mono); font-size: 11px; }
+.kv .k { color: var(--dim); white-space: nowrap; }
+.kv .v { color: var(--text); overflow-wrap: anywhere; }
+.kv .v.hi  { color: var(--accent); }
+.kv .v.err { color: var(--bad); }
+pre.json {
+  margin: 0; padding: 7px 9px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 3px;
+  font-family: var(--mono); font-size: 11px; line-height: 17px;
+  overflow-x: auto; color: var(--muted);
+}
+pre.json .s { color: var(--store); }
+pre.json .n { color: var(--evtl); }
+pre.json .k { color: var(--text); }
+.errbox {
+  font-family: var(--mono); font-size: 11px; color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--bad) 38%, transparent);
+  border-radius: 3px; padding: 5px 8px; margin-bottom: 9px; overflow-wrap: anywhere;
+}
+.det-note { grid-column: 1 / -1; }
+
+/* ── footer strip — matches TelemetryStrip.vue ── */
+.strip {
+  display: flex; align-items: center; flex-wrap: wrap;
+  padding: 5px 0; border-top: 1px solid var(--border);
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+}
+.strip .cell { display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; white-space: nowrap; }
+.strip .cell + .cell { border-left: 1px solid var(--border); }
+.strip .lbl { color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; }
+.strip .val { color: var(--text); font-variant-numeric: tabular-nums; }
+.strip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--store); animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* ── capture-model section ── */
+.cap { display: flex; flex-direction: column; gap: 14px; }
+.cap-h { display: flex; flex-direction: column; gap: 3px; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; }
+.tbl-scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 12px; }
+th, td { text-align: left; padding: 4px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th {
+  font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--dim); font-weight: 400;
+  border-bottom: 1px solid var(--border);
+}
+td.f { font-family: var(--mono); font-size: 11px; color: var(--text); white-space: nowrap; }
+td.d { color: var(--muted); }
+.st {
+  font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 1px 6px; border-radius: 3px; white-space: nowrap;
+}
+.st.have { color: var(--store); border: 1px solid color-mix(in srgb, var(--store) 40%, transparent); }
+.st.new  { color: var(--evtl);  border: 1px solid color-mix(in srgb, var(--evtl) 45%, transparent); }
+.st.srv  { color: var(--hop);   border: 1px solid color-mix(in srgb, var(--hop) 45%, transparent); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--mono); font-size: 10px; color: var(--muted); padding: 8px 12px; }
+.legend .it { display: inline-flex; align-items: center; gap: 6px; }
+.legend .sw { width: 16px; height: 8px; border-radius: 2px; flex: none; }
+.legend .sw.hop { width: 2px; height: 12px; border-radius: 0; }
+
+.foot { color: var(--muted); font-size: 12px; max-width: 74ch; }
+.foot code { font-family: var(--mono); font-size: 11px; background: var(--raise); border-radius: 3px; padding: 0 4px; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) { .strip .dot { animation: none; } }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <span class="eyebrow">Admin UI · system → nats · mockup</span>
+      <h1>Traces</h1>
+      <p class="sub">One row per <em>request</em>, not per message — every hop it caused, which NATS account each hop ran in, and what kept happening after the client already had its reply.</p>
+    </div>
+    <button class="theme-btn" id="tt" type="button">light / dark</button>
+  </div>
+
+  <div class="panel">
+    <div class="toolbar">
+      <span class="tag">live</span>
+      <span class="search">filter traces — <span class="q">ship.arrive</span></span>
+      <button class="chip on" type="button">rpc</button>
+      <button class="chip on" type="button">api</button>
+      <button class="chip on" type="button">evt</button>
+      <button class="chip" type="button">notify</button>
+      <button class="chip on err" type="button">errors</button>
+      <button class="chip" type="button">slow &gt;100ms</button>
+      <button class="chip facet" type="button"><span class="k">context:</span>acme<span class="x">✕</span></button>
+      <button class="chip" type="button">⏸ pause</button>
+    </div>
+
+    <div class="split">
+      <div class="tlist">
+        <div class="tlist-h"><span>traces</span><span id="tcount"></span></div>
+        <div id="tl"></div>
+      </div>
+
+      <div class="wf">
+        <div class="wf-head" id="wfh"></div>
+        <div class="grid axis" id="ax"></div>
+        <div id="wfb"></div>
+        <div class="legend">
+          <span class="it"><span class="sw" style="background:var(--sync)"></span>synchronous — client waiting</span>
+          <span class="it"><span class="sw" style="background:var(--store)"></span>datastore</span>
+          <span class="it"><span class="sw" style="background:color-mix(in srgb,var(--evtl) 26%,transparent);border:1px solid var(--evtl)"></span>eventual — after reply</span>
+          <span class="it"><span class="sw" style="background:var(--bad)"></span>failed</span>
+          <span class="it"><span class="sw hop" style="background:var(--hop)"></span>NATS server hop</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="det" id="det"></div>
+  </div>
+
+  <div class="strip">
+    <span class="cell"><span class="dot"></span><span class="lbl">conn</span><span class="val">watching</span></span>
+    <span class="cell"><span class="lbl">stream</span><span class="val">TRACES</span></span>
+    <span class="cell"><span class="lbl">retention</span><span class="val">1h</span></span>
+    <span class="cell"><span class="lbl">traces</span><span class="val">1,204</span></span>
+    <span class="cell"><span class="lbl">spans/s</span><span class="val">37</span></span>
+    <span class="cell"><span class="lbl">dropped</span><span class="val">0</span></span>
+    <span class="cell"><span class="lbl">sampling</span><span class="val">100%</span></span>
+  </div>
+
+  <section class="cap">
+    <div class="cap-h">
+      <span class="eyebrow">what it captures</span>
+      <h2>Span envelope</h2>
+      <p class="sub">Today's <code style="font-family:var(--mono);font-size:11px">obsEnvelope</code> already carries the eight fields marked <span class="st have">have</span>. The rest is what turns a flat message log into a trace.</p>
+    </div>
+    <div class="panel tbl-scroll">
+      <table>
+        <thead><tr><th style="width:74px">Status</th><th style="width:150px">Field</th><th>What it gives you in the panel</th></tr></thead>
+        <tbody id="env"></tbody>
+      </table>
+    </div>
+
+    <div class="cap-h" style="margin-top:6px">
+      <h2>Instrumented surfaces</h2>
+      <p class="sub">Where spans come from. The gaps matter more than the coverage: a <code style="font-family:var(--mono);font-size:11px">rpc.*</code> call that times out currently produces no record at either end.</p>
+    </div>
+    <div class="panel tbl-scroll">
+      <table>
+        <thead><tr><th style="width:74px">Status</th><th style="width:210px">Surface</th><th>Emits</th></tr></thead>
+        <tbody id="cov"></tbody>
+      </table>
+    </div>
+
+    <p class="foot">Server-hop spans come from NATS 2.11 message tracing in <code>traceparent</code> mode, which stamps <em>your</em> trace id onto the server's own hop events — so app spans and infrastructure hops land on one waterfall. Crossing an account boundary needs <code>allow_trace: true</code> on the service export and stream import, which means <code>accounts-service</code> has to emit it in the account JWTs it mints.</p>
+  </section>
+</div>
+
+<script>
+// ── data ─────────────────────────────────────────────────────────────
+// k: bar class. kind: OTel span kind. acct: NATS account the span ran in.
+// x: true where this span crosses an account boundary from its parent.
+// async: true for spans that ran after the reply was already sent.
+const TRACES = [
+  {
+    id: '4bf92f3577b34da6a3ce929d0e0e4736',
+    root: 'api.acme.shipping.ship.arrive.v1',
+    ok: true, total: 58, reply: 41, consistent: 58, accts: 2,
+    at: '14:22:08.114',
+    spans: [
+      { d:0, s:0,  ms:41, k:'sync',  op:'api.acme.shipping.ship.arrive.v1', svc:'admin-ui', acct:'ACME', kind:'client',
+        hdr:{'traceparent':'00-4bf92f3577b34da6a3ce929d0e0e4736-a1c2e3f405060708-01','Nats-Requestor':'admin-ui/tab-7f3a'},
+        body:'{"shipId":"MV-AURELIA","terminal":"NLRTM-EMX","eta":"2026-08-14T14:20:00Z"}' },
+      { d:1, s:3,  ms:36, k:'sync',  op:'api.acme.shipping.ship.arrive.v1', svc:'shipping-service', acct:'ACME', kind:'server',
+        hdr:{'Nats-Responder':'shipping-service/01JQ7X2K'},
+        body:'{"accepted":true,"revision":1182}' },
+      { d:2, s:5,  ms:1,  k:'sync',  op:'Ship.Arrive · validate', svc:'domain', acct:'ACME', kind:'internal',
+        note:'BR-001 — cannot arrive at a port already docked at. BR-017 also applies: the port must be registered.' },
+      { d:2, s:7,  ms:24, k:'sync',  op:'rpc._platform.refdata.item.get.v1', svc:'shipping-service', acct:'ACME → PLATFORM', x:true, kind:'client',
+        hdr:{'traceparent':'00-4bf92f3577b34da6a3ce929d0e0e4736-c3d4e5f607080910-01','Nats-Requestor':'shipping-service/01JQ7X2K'},
+        body:'{"typeKey":"terminal","code":"NLRTM-EMX"}',
+        note:'Caller-side span. This is the one that is invisible today — refdataconsumer.requestRPC emits nothing.' },
+      { d:3, s:9,  ms:21, k:'sync',  op:'rpc._platform.refdata.item.get.v1', svc:'refdata-service', acct:'PLATFORM', kind:'server',
+        hdr:{'Nats-Responder':'refdata-service/01JQ7X31'},
+        body:'{"code":"NLRTM-EMX","label":"Rotterdam · Euromax","active":true}' },
+      { d:4, s:11, ms:17, k:'store', op:'SELECT refdata.item WHERE type_key=$1 AND code=$2', svc:'postgres', acct:'PLATFORM', kind:'client',
+        attrs:{'db.rows':'1','db.statement.hash':'a91f34','pool.wait.ms':'12'},
+        note:'17 of the request\'s 41ms. Pool wait, not query time — the panel shows you which.' },
+      { d:2, s:33, ms:5,  k:'sync',  op:'evt.acme.shipping.ship.MV-AURELIA.arrived', svc:'shipping-service', acct:'ACME', kind:'producer',
+        attrs:{'messaging.nats.stream':'SHIPPING','messaging.nats.sequence':'4821'},
+        body:'{"shipId":"MV-AURELIA","terminal":"NLRTM-EMX","at":"2026-08-14T14:22:08.147Z"}' },
+      { ack:true },
+      { d:1, s:43, ms:11, k:'evtl',  op:'evt.acme.shipping.ship.MV-AURELIA.arrived', svc:'shipping-service', acct:'ACME', kind:'consumer', async:true,
+        attrs:{'messaging.nats.consumer':'shape-b-projector','messaging.nats.sequence':'4821','delivery.attempt':'1'},
+        note:'Shape B projection — upserts the Postgres read table, then overwrites the KV entry.' },
+      { d:2, s:54, ms:3,  k:'evtl',  op:'KV put dict-b-acme/ship.MV-AURELIA', svc:'shipping-service', acct:'ACME', kind:'client', async:true,
+        attrs:{'nats.kv.bucket':'dict-b-acme','nats.kv.revision':'1182'} },
+      { d:1, s:57, ms:1,  k:'evtl',  op:'notify.acme.shipping.ship.changed', svc:'shipping-service', acct:'ACME', kind:'producer', async:true,
+        note:'The reactive-UI path. Entirely unmeasured today.' },
+    ],
+    sel: 5,
+  },
+  {
+    id: '9c4e1a08b7d2f6350ab1cc47e2d9f118',
+    root: 'api.acme.shipping.container.register.v1',
+    ok: false, total: 19, reply: 19, consistent: null, accts: 2,
+    at: '14:21:56.902',
+    spans: [
+      { d:0, s:0, ms:19, k:'bad',   op:'api.acme.shipping.container.register.v1', svc:'admin-ui', acct:'ACME', kind:'client',
+        err:'container type not found: REEFER-45',
+        body:'{"containerType":"REEFER-45","shipId":"MV-AURELIA"}' },
+      { d:1, s:2, ms:16, k:'bad',   op:'api.acme.shipping.container.register.v1', svc:'shipping-service', acct:'ACME', kind:'server',
+        err:'container type not found: REEFER-45',
+        hdr:{'Nats-Service-Error':'container type not found: REEFER-45','Nats-Service-Error-Code':'404'} },
+      { d:2, s:4, ms:12, k:'bad',   op:'rpc._platform.refdata.item.get.v1', svc:'shipping-service', acct:'ACME → PLATFORM', x:true, kind:'client',
+        err:'404 from refdata-service',
+        body:'{"typeKey":"container_type","code":"REEFER-45"}' },
+      { d:3, s:6, ms:9,  k:'bad',   op:'rpc._platform.refdata.item.get.v1', svc:'refdata-service', acct:'PLATFORM', kind:'server',
+        err:'item not found: container_type/REEFER-45',
+        hdr:{'Nats-Service-Error':'item not found: container_type/REEFER-45','Nats-Service-Error-Code':'404'} },
+      { d:4, s:8, ms:5,  k:'store', op:'SELECT refdata.item WHERE type_key=$1 AND code=$2', svc:'postgres', acct:'PLATFORM', kind:'client',
+        attrs:{'db.rows':'0'},
+        note:'0 rows — the 404 is legitimate, not a plumbing failure.' },
+    ],
+    sel: 3,
+  },
+  {
+    id: 'e17b3ca9d0f44b628c5a71fe3b0d92aa',
+    root: 'api.acme.pricing.quote.calculate.v1',
+    ok: false, total: 5004, reply: 5004, consistent: null, accts: 2,
+    at: '14:19:31.008',
+    spans: [
+      { d:0, s:0, ms:5004, k:'bad', op:'api.acme.pricing.quote.calculate.v1', svc:'pricing-app', acct:'ACME', kind:'client',
+        err:'upstream timeout' },
+      { d:1, s:2, ms:5001, k:'bad', op:'api.acme.pricing.quote.calculate.v1', svc:'pricing-service', acct:'ACME', kind:'server',
+        err:'rate lookup failed: no responders' },
+      { d:2, s:4, ms:5000, k:'bad', op:'rpc._platform.refdata.rate.get.v1', svc:'pricing-service', acct:'ACME → PLATFORM', x:true, kind:'client',
+        err:'nats: no responders available for request (503)',
+        note:'Zero rows for this entire trace today. Nothing is emitted when a request gets no reply.' },
+      { d:3, s:5, ms:0, k:'hop', op:'ingress · CLIENT → nats-1', svc:'nats-server', acct:'ACME', kind:'hop',
+        attrs:{'server.name':'nats-1','conn.kind':'CLIENT'} },
+      { d:3, s:5, ms:0, k:'hop', op:'service import · ACME → PLATFORM — denied', svc:'nats-server', acct:'ACME → PLATFORM', x:true, kind:'hop', hoperr:true,
+        err:'no matching service export for subject "rpc._platform.refdata.rate.get.v1"',
+        attrs:{'server.name':'nats-1','event.type':'si','allow_trace':'true'},
+        note:'The answer, in words, from the server itself: the ACME account has no import for this subject. No app-level tracing tool can tell you this.' },
+    ],
+    sel: 4,
+  },
+];
+
+const ENV = [
+  ['have','timestamp','Row time, and the axis origin.'],
+  ['have','subject','The six positional tokens — family · context · service · entity · action · version — stay clickable as facets.'],
+  ['have','payload / payloadBytes','Request and reply bodies, size column. Needs a redaction pass before retention goes past today\'s 10 minutes.'],
+  ['have','headers','Full header table, with Nats-Service-Error highlighted.'],
+  ['have','error','Error banner and the red row treatment.'],
+  ['have','direction','Folded into spanKind — request/reply becomes client/server.'],
+  ['have','correlationId','Kept, but demoted to a per-hop detail field.'],
+  ['new','traceId','The whole panel. One id shared by every hop, minted at the browser as W3C traceparent.'],
+  ['new','spanId / parentSpanId','The tree. This is what turns two unrelated rows into a parent and its child.'],
+  ['new','spanKind','client · server · producer · consumer · internal — drives the bar treatment.'],
+  ['new','durationMs','Measured at the span, not subtracted from two timestamps in the browser. Gives real self-time.'],
+  ['new','account','The swimlane gutter, and boundary-crossing detection.'],
+  ['new','service / instance','Which replica served it, when more than one is running.'],
+  ['new','attrs','Typed extras: stream + sequence, KV bucket + revision, db rows, pool wait, delivery attempt.'],
+  ['srv','server hops','From NATS 2.11 message tracing: ingress, egress, subject mapping, stream export, service import, JetStream store — each with the server\'s own error string.'],
+];
+
+const COV = [
+  ['have','api.* responder','Request and reply, per tenant. No retention today, and only the active tenant is visible.'],
+  ['have','rpc.* responder','Request and reply. Retained 10 min on the RPCTRACE stream.'],
+  ['new','rpc.* caller','The missing half. Closes the invisible-timeout gap and gives true client-observed latency.'],
+  ['new','evt.* publish + consume','Projection lag, consumer lag, redelivery count, ack failures — the async tail.'],
+  ['new','notify.*','The reactive-UI path, from publish to browser delivery.'],
+  ['new','KV put / get','Bucket and revision, so a projection links to the exact KV write it produced.'],
+  ['new','Postgres queries','Row counts and pool wait, separated from query time.'],
+  ['new','accounts + auth','Tenant provisioning and token minting. Emits nothing on obs.* today.'],
+  ['srv','NATS server hops','Zero code in your services. Needs server 2.11 and allow_trace on exports and imports.'],
+];
+
+// ── render ───────────────────────────────────────────────────────────
+let cur = 0, sel = TRACES[0].sel;
+
+const esc = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const ms = (v) => v >= 1000 ? (v/1000).toFixed(2) + 's' : v + 'ms';
+
+// subject-token rendering, same heuristic as SubjectPath.vue: last token is
+// the verb, the one before it is the entity id.
+function subj(s) {
+  if (!/^[a-z_]+(\.[A-Za-z0-9_\-]+)+$/.test(s)) return '<span class="s">' + esc(s) + '</span>';
+  const p = s.split('.');
+  return p.map((t, i) => {
+    const cls = i === p.length - 1 ? 'verb' : (i === p.length - 2 ? 'id' : 's');
+    // <wbr> after each separator is the only thing that gives a long subject a
+    // wrap opportunity: adjacent inline spans with no whitespace between them
+    // are one word to the line breaker, so without it the subject overflows its
+    // grid cell and collides with the duration column. overflow-wrap alone
+    // can't help — 'normal' never breaks, 'anywhere' breaks mid-token.
+    return (i ? '<span class="d">.</span><wbr>' : '') + '<span class="' + cls + '">' + esc(t) + '</span>';
+  }).join('');
+}
+
+function jsonl(s) {
+  if (!s) return '—';
+  return esc(s)
+    .replace(/&quot;([^&]*?)&quot;(\s*:)/g, '<span class="k">"$1"</span>$2')
+    .replace(/:\s*&quot;([^&]*?)&quot;/g, ': <span class="s">"$1"</span>')
+    .replace(/:\s*(\d+|true|false|null)/g, ': <span class="n">$1</span>');
+}
+
+function acctCls(a) { return a.includes('→') ? 'cross' : (a === 'PLATFORM' ? 'platform' : 'tenant'); }
+
+function renderList() {
+  document.getElementById('tcount').textContent = TRACES.length + ' of 1,204';
+  document.getElementById('tl').innerHTML = TRACES.map((t, i) => `
+    <button class="trace" type="button" aria-current="${i === cur}" data-t="${i}">
+      <span class="t-dot ${t.ok ? 'ok' : 'err'}"></span>
+      <span class="t-main">
+        <span class="subj">${subj(t.root)}</span>
+        <span class="t-meta"><span>${t.at}</span><span>${t.accts} accounts</span></span>
+      </span>
+      <span class="t-right">
+        <span class="t-dur ${t.ok ? '' : 'err'}">${ms(t.total)}</span>
+        <span class="t-spans">${t.spans.filter(s => !s.ack).length} spans</span>
+      </span>
+    </button>`).join('');
+}
+
+function renderTrace() {
+  const t = TRACES[cur];
+  const scale = t.total || 1;
+
+  document.getElementById('wfh').innerHTML = `
+    <span class="wf-tid">trace <b>${t.id}</b></span>
+    <span class="stat"><span class="k">reply</span><span class="v ${t.ok ? '' : 'bad'}">${ms(t.reply)}</span></span>
+    <span class="stat"><span class="k">read model consistent</span><span class="v ${t.consistent ? 'evtl' : ''}">${
+      t.consistent ? ms(t.consistent) + ' <small>· +' + (t.consistent - t.reply) + 'ms</small>' : '<small>never — command rejected</small>'}</span></span>
+    <span class="stat"><span class="k">spans</span><span class="v">${t.spans.filter(s => !s.ack).length}</span></span>
+    <span class="stat"><span class="k">accounts</span><span class="v">${t.accts}</span></span>`;
+
+  const ticks = [0, .25, .5, .75, 1];
+  document.getElementById('ax').innerHTML =
+    `<span></span><span></span><span></span><span class="ticks">` +
+    ticks.map(f => `<span class="tk" style="left:${f * 100}%">${ms(Math.round(scale * f))}</span>`).join('') +
+    `</span>`;
+
+  const gl = ticks.map(f => `<span class="gl" style="left:${f * 100}%"></span>`).join('');
+
+  document.getElementById('wfb').innerHTML = t.spans.map((s, i) => {
+    if (s.ack) return `<div class="ack">
+        <span class="l">reply sent · ${ms(t.reply)} — client unblocked</span>
+        <span class="r">everything below is eventual · read model catches up ${t.consistent - t.reply}ms later</span>
+      </div>`;
+    const left = (s.s / scale) * 100;
+    const w = Math.max((s.ms / scale) * 100, 0.4);
+    const rails = Array.from({ length: s.d }, () => '<span class="rail" style="margin-left:5px"></span>').join('');
+    return `<button class="row grid" type="button" aria-current="${i === sel}" data-s="${i}">
+      <span class="acct ${acctCls(s.acct)} ${s.x ? 'cross' : ''}" title="${esc(s.acct)}">${
+        s.x ? '⇥ ' + esc(s.acct.split('→').pop().trim()) : esc(s.acct)}</span>
+      <span class="nm">${rails}<span class="txt"><span class="op">${subj(s.op)}</span></span><span class="svc">${esc(s.svc)}</span></span>
+      <span class="dur ${s.err ? 'bad' : ''}">${s.k === 'hop' ? '·' : ms(s.ms)}</span>
+      <span class="track">${gl}<span class="bar ${s.k}${s.hoperr ? ' bad' : ''}" style="left:${left}%;width:${w}%"></span></span>
+    </button>`;
+  }).join('');
+
+  renderDetail();
+}
+
+function renderDetail() {
+  const s = TRACES[cur].spans[sel];
+  const hdr = s.hdr ? Object.entries(s.hdr) : [];
+  const at = s.attrs ? Object.entries(s.attrs) : [];
+  document.getElementById('det').innerHTML = `
+    <div class="det-h">
+      <span class="kindtag">${esc(s.kind)}</span>
+      <span class="subj">${subj(s.op)}</span>
+      <span class="dur" style="color:var(--muted)">${s.k === 'hop' ? 'infrastructure' : ms(s.ms)}</span>
+      <span class="acct ${acctCls(s.acct)}" style="border-left-width:2px">${esc(s.acct)}</span>
+    </div>
+    <div class="det-cols">
+      <div class="det-col">
+        ${s.err ? `<div class="errbox">${esc(s.err)}</div>` : ''}
+        <div class="sect-l">Headers ${hdr.length ? `<span>(${hdr.length})</span>` : ''}</div>
+        ${hdr.length ? `<div class="kv">${hdr.map(([k, v]) =>
+          `<span class="k">${esc(k)}</span><span class="v ${k === 'traceparent' ? 'hi' : (k.startsWith('Nats-Service-Error') ? 'err' : '')}">${esc(v)}</span>`).join('')}</div>`
+          : '<span class="sub" style="font-size:11px;font-family:var(--mono)">no headers</span>'}
+      </div>
+      <div class="det-col">
+        ${at.length ? `<div class="sect-l">Attributes <span class="new">new</span></div>
+          <div class="kv">${at.map(([k, v]) => `<span class="k">${esc(k)}</span><span class="v">${esc(v)}</span>`).join('')}</div>` : ''}
+        ${s.body ? `<div class="sect-l" style="margin-top:${at.length ? '10px' : '0'}">Body</div><pre class="json">${jsonl(s.body)}</pre>` : ''}
+      </div>
+      ${s.note ? `<div class="det-col det-note" style="border-top:1px solid var(--border)">
+        <div class="sect-l">Why this row matters</div>
+        <p class="sub" style="margin:0;font-size:12px">${esc(s.note)}</p></div>` : ''}
+    </div>`;
+}
+
+function renderTables() {
+  const row = ([st, f, d]) => `<tr><td><span class="st ${st}">${st === 'srv' ? 'server' : st}</span></td><td class="f">${esc(f)}</td><td class="d">${esc(d)}</td></tr>`;
+  document.getElementById('env').innerHTML = ENV.map(row).join('');
+  document.getElementById('cov').innerHTML = COV.map(row).join('');
+}
+
+document.getElementById('tl').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-t]'); if (!b) return;
+  cur = +b.dataset.t; sel = TRACES[cur].sel;
+  renderList(); renderTrace();
+});
+document.getElementById('wfb').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-s]'); if (!b) return;
+  sel = +b.dataset.s; renderTrace();
+});
+document.getElementById('tt').addEventListener('click', () => {
+  const dark = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() === '#14171b';
+  document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+});
+
+renderList(); renderTrace(); renderTables();
+</script>

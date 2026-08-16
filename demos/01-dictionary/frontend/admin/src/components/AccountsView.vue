@@ -13,7 +13,10 @@ const ui = useUiStore()
 </script>
 
 <template>
-  <Tabs v-model:value="ui.accountsTab">
+  <Tabs
+    v-model:value="ui.accountsTab"
+    class="panel-tabs"
+  >
     <TabList>
       <Tab value="provisioning">Provisioning</Tab>
       <Tab value="topology">Topology</Tab>
@@ -32,9 +35,3 @@ const ui = useUiStore()
     </TabPanels>
   </Tabs>
 </template>
-
-<style scoped>
-:deep(.p-tabs) {
-  --p-tabs-tablist-border-width: 0 0 1px 0;
-}
-</style>

@@ -1546,6 +1546,717 @@ Accounts table, and an alert-only banner — and picked the new panel because
       silent-at-zero / alarm-at-nonzero contrast specifically. Full backend
       (`ginkgo ./...`) and frontend (`vitest run`) suites green.
 
+### Phase 28 (business rules confirmed 2026-08-15; implementation in progress) — Distributed Tracing for Inter-Service Comms
+
+#### Goal
+
+The Request/Reply panel renders a *message log*, not a trace. Its correlation
+key is `req.Reply()` — an `_INBOX` subject generated fresh by each requestor
+and never propagated — so a `browser → shipping-service → refdata-service`
+call shows as two unrelated rows, and `evt.*`/`notify.*`/KV writes show as
+none at all (no reply inbox means no correlation id even in principle, so the
+whole async CQRS tail is unjoinable to the command that caused it). A
+`refdataconsumer` call that times out or finds no responder currently emits
+**zero** records at either end.
+
+Introduce `obs.trace.*`: one W3C `traceId` minted in the browser and carried
+in a `traceparent` header through every hop, service, NATS account, and async
+boundary; spans assembled server-side into a KV bucket; and a waterfall in
+the Admin UI that shows what a request *caused*, including the account
+boundaries it crossed and the read-model work that continued after the client
+was already unblocked. Approved UI mockup and ingest-topology design visual
+were reviewed before this phase was written.
+
+#### Decisions locked (with user, 2026-08-14)
+
+- **Evolve §4.5 in place**, don't add a ninth panel. Nav key `rpc` and the
+  8-entry nav are unchanged; the panel becomes *Request/Reply & Traces* with a
+  `[traces] [messages]` view toggle. The flat view survives because it answers
+  "is anything arriving on this subject" better than a trace list does.
+- **Payloads stay on spans**, but published to the **PLATFORM account only**,
+  with a redaction denylist and a 4 KiB cap (truncation flagged, never
+  silent). No browser credential is granted `obs.trace.>`.
+- **Full rollout in one phase** — all four RPC adapters plus accounts-service
+  and the auth surface. Wider than was recommended; mitigated by the
+  independently landable sub-phases below.
+- **`TRACES` stream + KV bucket keyed by trace id**, assembled by a single
+  durable consumer so there is no read-modify-write race. That store split is
+  Shape A applied to the lab's own telemetry — replayable log in JetStream,
+  keyed current state in KV, Postgres deliberately absent.
+
+#### Design
+
+- **Wire format** — `obs.trace.{context}.{service}.{entity}.{action}`, fixed
+  6-token arity so `SubjectPath.vue`'s positional faceting keeps working.
+  `traceSpan` is a **strict superset** of `obsEnvelope`: no field renamed or
+  retyped, every addition `omitempty`. `RpcPanel.vue` keys rows on
+  `correlationId` and `browserrpc_test.go` pins backward-compatible decoding
+  of the pre-BR-D36 shape, so a rename breaks the panel. Field names mirror the
+  OTLP `Span` message 1:1. `correlationId` is retained as a per-hop field — it
+  is **not** the span id.
+- **One decorator, not 58 edits.** All four adapters register endpoints
+  through a table loop with a single `svc.AddEndpoint` call, and both
+  `micro.Handler` and `micro.Request` are interfaces, so one wrap at that call
+  site replaces every hand-pasted request-side `publishObs` line (8 shipping,
+  5 refdata, 33 pricing, 12 trading-partner). Safe against micro's own stats:
+  `service.reqHandler` holds the original `*request` and the wrapper delegates
+  `Respond` to it, so `$SRV.STATS` keeps counting errors and the Services
+  panel is unaffected. Outcome comes from the existing
+  `respond`/`respondError` tails via `natstrace.SpanFrom(req)` (nil-safe for
+  unwrapped requests in tests) because those already hold the typed error and
+  its 404/500 classification.
+- **Tracer is per-adapter, never a package singleton** — shipping, pricing,
+  and trading-partner construct one adapter *per tenant NATS account*
+  (`rest/tenant.go`, `tenants.go` ×2); only refdata is per-process. `obs.*`
+  must not cross an account boundary except via the sanctioned export.
+- **`natstrace` is duplicated per service, not shared.** Five independent
+  `go.mod` files, no `go.work`, and each Dockerfile builds with its own
+  directory as build context, so a `replace`-based local module is simply
+  absent from the image; widening the context to `./backend` would invalidate
+  all five services' Docker layer caches on any single edit, regressing the
+  documented `docker compose up --build` workflow. This matches how
+  `obsEnvelope`, `errorResponse`, `obsSubjectFor`, and `contextFromSubject` are
+  already duplicated on purpose. Drift is pinned by the §6 wire spec plus a
+  per-service contract test.
+- **No `go.opentelemetry.io/*` dependency, and the OTLP exporter is a
+  container, not a library.** The OTel Go API is `context.Context`-based, but
+  every adapter hands the application layer a fresh `context.Background()` at
+  ~60 call sites, so real span nesting would mean changing every command and
+  query signature it reaches — through the domain layer Quality Rule 3 keeps
+  framework-free. Adopting OTel only at the adapter boundary would pay the
+  dependency cost for a *flat* trace. `natstrace` is therefore hand-rolled,
+  W3C-compatible on the wire and OTLP-shaped in its fields, and the exporter
+  is a ~150-line service consuming `obs.trace.>`. That buys retroactive
+  export (start the collector late, replay the retained hour — impossible for
+  an in-process exporter), no-code toggling, one copy of the OTLP mapping, and
+  makes the `obs.*` isolation invariant structural rather than maintained.
+  Revisiting the real SDK for `otelpgx`/`otelhttp` auto-instrumentation is
+  recorded as an explicit deferred decision.
+
+#### Sub-phases (each independently landable)
+
+- [x] **28a — `natstrace` + decorator, prototyped in trading-partner.** It
+      already has `observe`/`reply`/`actor` helpers and no JetStream, so the
+      diff is 12 lines deleted, 1 wrap added. Validates the decorator and the
+      `SpanFrom(req)` upcast end to end against the live panel before the
+      pattern is copied anywhere.
+- [x] **28b — Copy to pricing, shipping, refdata.** Reply-side `publishObs` in
+      `respond`/`respondOK`/`respondError` becomes `sp.End()` / `sp.Fail()`.
+      All three done, `natstrace` verified byte-identical in logic across all
+      four services (trading-partner/pricing/shipping/refdata — doc comments
+      only differ), `ginkgo ./...` green in every service:
+      - **shipping:** `dictionary/internal/natstrace` wired into
+        `dictionary/internal/browserrpc/adapter.go`; 8 request-side
+        `publishObs` lines and `obsEnvelope`/`obsSubjectFor`/`versionSuffix`
+        gone. Retires shipping's `obs.api.*` publish outright (BR-026/BR-027
+        amended in `BUSINESS_RULES-SHIPPING.md`) rather than running it
+        alongside `obs.trace.*` — `[messages]` view goes dark for shipping
+        traffic until 28g, an accepted gap per "full rollout in one phase."
+        114/114 `dictionary` suite + 5/5 `natstrace` specs.
+      - **pricing:** same wiring, 33 request-side `publishObs` lines removed
+        (matching the plan's count exactly); no pre-existing round-trip test
+        existed for this adapter, so none needed updating. 43/43 `Pricing`
+        suite + 5/5 `natstrace` specs.
+      - **refdata:** wired into `refdata/internal/natsrpc/adapter.go` (this
+        service's adapter package, `natsrpc` not `browserrpc`); 5 request-side
+        `publishObs` lines removed; `Deps.JS`/`RPCTRACE` JetStream-replay
+        branch (BR-D29) removed from `publishObs`'s replacement since
+        natstrace only does plain `nc.Publish` — BR-D29's catch-up replay is
+        deferred to 28f's TRACES stream. Found and fixed a **pre-existing,
+        unrelated test bug** while getting this suite green: `ItemGetRequest`/
+        `TypeListRequest`/`ItemGetVersionedRequest`/`LocalesListRequest` all
+        carry `Context` in the body (Phase 21 design — subject position 2 is
+        the caller's NATS account public key here, not the context name), but
+        9 existing tests never set it, so every rpc.* success-path assertion
+        silently resolved against context `""` instead of the seeded
+        `"acme-test"` and got back zero-value replies — confirmed pre-existing
+        via `git stash` against this exact commit (same failures with
+        natstrace entirely absent). Fixed by adding `Context: itemCtx` (test
+        file only, zero production-code risk). All 141 refdata specs +
+        5/5 `natstrace` specs now green, comprehensively fixing what was
+        previously an 11-failure suite.
+      `gofmt` clean across all four `natstrace` copies (fixed one map-literal
+      alignment diff in shipping's/refdata's copies).
+- [x] **28c — Outbound inject.** `refdataconsumer.requestRPC` and
+      `refdataclient.Client` — the `nats.Header` already exists for
+      `Nats-Requestor`, so it is one line each. **One span per logical call
+      with a `rpc.retry_count` attribute, not one per retry attempt**:
+      generate the child span id before the retry loop, or a 3-attempt failure
+      yields three parentless siblings. First hop crossing both a service and
+      an account boundary.
+      Added `natstrace.ContextWithSpan`/`SpanFromContext` (the only ctx.Value
+      use in this codebase — deliberately narrow, costs the domain layer
+      nothing since ctx is already threaded everywhere) so a browserrpc
+      handler's inbound span rides down through the application/command layer
+      to the outbound rpc.* call unchanged. Added `Tracer.StartOutbound` for
+      client-side spans. **Design correction made mid-implementation:**
+      `StartOutbound` cannot parse `{context}/{entity}/{action}` positionally
+      off the subject the way `Start` does for inbound requests — an outbound
+      caller's subject is a tenant-account **local alias**
+      (`refdata.item.get.v1`) that accounts-service's `provisioner.go` remaps
+      server-side to the real `rpc.{tenant}.refdata.item.get.v1`
+      (`jwt.RenamingSubject` — the account's own identity lands at that
+      token, deliberately never a caller-supplied value). An earlier draft
+      assumed the bare local alias was itself a bug, rewrote it to construct
+      the full subject directly, and only caught the mistake before landing
+      it by checking accounts-service's actual import/export declarations —
+      that would have both broken routing and put a caller-controlled value
+      where the import exists specifically to prevent one. `StartOutbound`
+      now takes the label fields as explicit parameters instead. Also moved
+      shipping-service's `natstrace` package from `dictionary/internal/` to
+      top-level `internal/` — `internal/refdataconsumer` sits outside
+      `dictionary/`'s subtree, so Go's internal-visibility rule blocked the
+      import from its original location. `ginkgo ./...` green in all four
+      services (trading-partner/pricing/shipping/refdata), including a new
+      `refdataclient` suite (this package had no tests at all before Phase
+      28c) and three new `refdataconsumer` BR-037 specs.
+- [x] **28d — Async tail.** `jstream.Publisher` (both services — the sole
+      `evt.*` funnels, needing `PublishMsg` plus a `PublishWithTrace` method
+      since the ctx is empty today), the three `Consume` callbacks
+      (per-message spans only — `handler.go` uses `context.WithoutCancel`, so
+      the message ctx is process-lifetime), and `kvstore.publishNotify`. Note
+      `jetstream.KeyValue.Put` takes no headers, so a KV entry cannot carry
+      trace context — the derived notify does, and trace data must not go in
+      the body because the KV inspector distinguishes PUT from DEL by empty
+      payload. This sub-phase is what makes the reply-ack line real.
+      **shipping-service done** (`jstream.Publisher`/`kvstore.publishNotify`
+      were already landed as foundational pieces before this pass): wired the
+      remaining 9 `dictionary/internal/browserrpc/adapter.go` handlers'
+      `context.Background()` call sites to
+      `natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req))`
+      so an inbound api.* request's span rides down through
+      `commands.ShipHandler.publish`/`commands.ContainerHandler.publish`
+      (both now call the widened `Publisher.PublishWithTrace`, `Publisher`
+      itself widened to require it) onto the resulting evt.* JetStream
+      publish. `dictionary/internal/eventhandler/handler.go`'s shared
+      `register()` (used by both `RegisterShapeA`/`RegisterShapeB`),
+      `container_handler.go`'s `RegisterContainers`, and `meta_handler.go`'s
+      `RegisterMeta` each now mint one span per message via
+      `Tracer.StartFromHeaders` (labeled from the subject fields each
+      callback already parses — never re-derived positionally, same
+      six-token-vs-five-token reasoning as 28c's `StartOutbound` amendment),
+      record `entity_id`, thread it via `natstrace.ContextWithSpan` into the
+      KV write and `publishNotify`/`publishRawNotify`, and close it with
+      `sp.End`/`sp.Fail` on Ack/Nak. `RegisterShapeB` gained an `nc *nats.Conn`
+      parameter purely so `register()`'s shared Consume callback can build a
+      `Tracer` for it too (Shape B has no notify.* publish of its own).
+      `ginkgo ./...` green (129 dictionary-adjacent specs: 120 in
+      `dictionary`, plus `natstrace`/`kvstore`/`jstream`/`eventhandler`
+      suites) — new specs added in `dictionary/trace_async_test.go` (evt.*
+      publish shares its traceId with the reply-side span, including the
+      no-inbound-traceparent root-span case; each of the four
+      `RegisterShapeA`/`RegisterShapeB`/`RegisterContainers`/`RegisterMeta`
+      Consume callbacks publishes exactly one span per message with the
+      correct `entity`/`action`/`entity_id`), `dictionary/internal/eventhandler/publish_notify_test.go`
+      (white-box `publishNotify`/`publishRawNotify` traceparent
+      attach/omit/nil-`nc` cases), and two new specs in `internal/kvstore/kv_test.go`
+      (`Store.Put`'s derived notify attaches/omits the `Traceparent` header
+      per whether `ctx` carries a span).
+- [x] **28e — accounts-service + auth.** `auth/token.go` has no NATS publish
+      at all (it is pure JWT minting), so instrument one `http.Handler`
+      decorator at `Mount` — symmetric to the micro decorator, covering every
+      accounts REST endpoint — plus `publishAccountEvent`, which all four
+      notify publishes already funnel through. Also the 9 `notify.accounts.*`
+      subscriber call sites across 3 files.
+      accounts-service had no `natstrace` at all (a new service for Phase 28)
+      — new `internal/natstrace` package, same core span/redact/truncate
+      mechanism as the other four services (byte-identical logic), but
+      trading the micro.Request-shaped `Start`/`Middleware`/`SpanFrom` for an
+      `HTTPMiddleware(next http.Handler) http.Handler`, since this service's
+      transport is REST, not NATS micro. Wired once around the whole
+      `*http.ServeMux` in `cmd/main.go` (`server.Handler =
+      tracer.HTTPMiddleware(mux)`), covering both `accounts.Handlers.Mount`
+      and `auth.Handlers.Mount`'s routes from one point — even more literally
+      "one decorator" than the per-`AddEndpoint` wrap the other four services
+      use. Span labels: `context="_platform"` (this service administers the
+      tenant axis itself, no `{context}` of its own — CLAUDE.md's "context-free
+      services" note), `service="accounts"`, `entity` from the first `/api/`
+      path segment, `action` the lowercased HTTP method; exact path/method/
+      status land as span attributes instead. A `>=400` response finishes the
+      span as `Fail`, matching how a NATS reply's error path already does.
+      `publishAccountEvent` (all four lifecycle publishers funnel through it)
+      now mints its own outbound span via `Tracer.StartOutbound`, continuing
+      whatever span the HTTP request carried, and attaches its `Traceparent`
+      to the `notify.accounts.*` publish — required all four publishers
+      (`publishAccountCreated`/`Suspended`/`Reactivated`/`JSLimitsUpdated`)
+      to gain a `ctx` parameter (mechanical, `r.Context()` was already in
+      scope at each of their 4 call sites). The 9 subscriber call sites
+      (`shipping-service/dictionary/internal/rest/tenant.go`,
+      `trading-partner-service/tradingpartner/internal/tenants/tenants.go`,
+      `pricing-service/pricing/internal/tenants/tenants.go` — 3 subscriptions
+      each) now start a per-message span via `StartFromHeaders`, continuing
+      the inbound `Traceparent`, before calling `EnsureByName`/`TeardownByName`
+      — the "created" closure is reused verbatim for "reactivated" in all
+      three files, so the span's action label reads the actual subject's
+      trailing token rather than a hardcoded string. **Design correction
+      caught mid-implementation:** `publishAccountEvent`'s first draft simply
+      forwarded the HTTP request's own span's `Traceparent()` unchanged onto
+      the notify publish — a test written to assert "the notify's span id
+      differs from the inbound request's span id" caught that this collapsed
+      two hops into one span, inconsistent with how every other outbound
+      publish in this phase (rpc.* clients, JetStream publishes) mints its
+      own child span via `StartOutbound` first; fixed before landing.
+      `ginkgo ./...`/`go test ./...` green in all five services (new
+      `natstrace` suite in accounts-service, new BR-037 test in
+      `accounts/handler_test.go`, new subscriber-side test in shipping-service's
+      `dictionary/internal/rest/tenant_lifecycle_trace_test.go`).
+- [x] **28f — Trace store + cross-account plumbing.** `TRACES` stream
+      (LimitsPolicy, MaxAge 1h, MaxBytes capped), single-writer projector into
+      `traces-_platform` keyed `trace.{traceId}`, per-tenant `obs.trace.>`
+      stream export imported into PLATFORM, and `allow_trace: true` on service
+      exports / stream imports in minted account JWTs. This closes the
+      cross-account gap documented at `browserrpc/adapter.go`'s `Deps` comment.
+      **Cross-account plumbing (accounts-service):** the design gap found
+      mid-implementation — PLATFORM's own account JWT has to explicitly
+      import each tenant's `obs.trace.>` export (no wildcard cross-account
+      import exists in NATS's decentralized JWT model) — is solved with a
+      fully dynamic re-signing mechanism, not a bootstrap-only one.
+      `accounts/provisioner.go` gained: `tenantExports()` (a Stream export of
+      `obs.trace.>` on the tenant's own claims — no `allow_trace` here,
+      `jwt.Export.Validate` rejects that flag on anything but a Service
+      export), wired into `newAccountClaims`'s cross-account branch via
+      `claims.Exports.Add(tenantExports()...)`; and `addPlatformTraceImport`,
+      which looks up PLATFORM's current claims via the already-generic
+      `LookupAccountClaims`, idempotently appends a Stream import (`{Account:
+      <tenant pubkey>, Subject: "obs.trace.>", Type: Stream, AllowTrace:
+      true}` — legal here since `AllowTrace` requires a **Stream** import,
+      the mirror image of the export-side restriction), and re-signs/re-pushes
+      via the existing `pushClaimsUpdate` ($SYS.REQ.CLAIMS.UPDATE). Wired into
+      `CreateAccount` right after the new tenant's own claims push succeeds,
+      guarded by `platformPublicKey != ""` so the existing low-level
+      provisioner tests (which pass an empty platform key and exercise no
+      cross-account wiring at all) are unaffected. `nats/bootstrap-operator.sh`
+      gained the day-0 nsc equivalent for the two pre-seeded tenants: each of
+      ACME/GLOBEX now runs `nsc add export --account $account --subject
+      "obs.trace.>"`, and PLATFORM imports both via `nsc add import
+      --account PLATFORM --src-account $account_pub --remote-subject
+      "obs.trace.>" --local-subject "obs.trace.>" --allow-trace` — verified by
+      actually running the script against real `nsc` in a scratch copy (not
+      the committed `nats/` artifacts) and decoding the resulting JWTs: ACME's
+      export has `type: stream` with no `allow_trace`; PLATFORM's imports for
+      both ACME and GLOBEX have `type: stream, allow_trace: true`, scoped to
+      the correct account each. Tested against an embedded operator-mode NATS
+      server (`accounts/provisioner_test.go`'s new spec): `CreateAccount` for
+      two tenants leaves PLATFORM importing both without one overwriting the
+      other, and a repeated `addPlatformTraceImport` call for an
+      already-imported tenant (exposed to the black-box Ginkgo spec via a
+      standard `export_test.go` bridge, `provisioner_export_test.go`) is a
+      no-op, not a duplicate import — plus a white-box unit test
+      (`provisioner_claims_test.go`) asserting the tenant-side export survives
+      a plain re-sign. BR-AC30 amended with the concrete file/function names
+      (the original text referenced a speculative `accounts/jwt.go`'s
+      `MintTenantAccount`, which was never how this landed — the real grant
+      is account-level, in `provisioner.go`, not a user-JWT `Sub.Allow` entry).
+      **Trace store (shipping-service):** new
+      `dictionary/internal/eventhandler/trace_store.go`'s `RegisterTraceStore`
+      provisions the `TRACES` stream (`obs.trace.>`, `LimitsPolicy`, 1h
+      `MaxAge`, 64 MiB `MaxBytes`) and a `traces` KV bucket (wrapped in
+      `internal/kvstore.Store`, not raw `jetstream.KeyValue` — bare bucket
+      name matching `kvstore`'s "named by the prefix alone" convention, with
+      the platform scope folded into the key instead, `_platform.trace.
+      {traceId}`; this was a design correction made while starting 28g's
+      panel work, before any panel code was written — the original 28f
+      landing used a raw-KV `traces-_platform` bucket, replaced here because
+      wrapping it in `kvstore.Store` and calling `EnableNotify` gets the
+      trace waterfall panel's entire bootstrap+live feed for free via
+      mechanisms every other KV panel already uses, eliminating what would
+      otherwise have been a bespoke KV-watch bridge goroutine and a new REST
+      endpoint), then runs a durable consumer (`trace-store-projector`)
+      whose `appendSpan` mirrors `container_handler.go`'s read-then-write
+      pattern: read the existing KV record, skip the write if the incoming
+      `spanId` is already present (redelivery-safe), else append the raw
+      span JSON to the record's `spans` array and write back — merge, never
+      overwrite-with-latest. Must run on `mono.PlatformFullJS()` (creating a
+      stream/KV bucket is a `$JS.API.>` write, which shipping-admin's
+      restricted `mono.JS()` is deliberately locked out of), so
+      `monolith.Monolith.PlatformFullJS`'s doc comment was widened from
+      "read-only cross-account introspection, nothing else should use it" to
+      note this second, write-capable use; `platformNC` (`mono.NC()`, the
+      restricted shipping-admin connection) is passed too, for
+      `EnableNotify`'s publish — its existing `notify._platform.>`
+      `--allow-pub` grant (`nats/bootstrap-operator.sh`) already covers the
+      new `notify._platform.kv.traces.>` subject, no bootstrap script change
+      needed. `accounts-service/auth/token.go`'s `MintAdminToken` gained that
+      subject in its `Sub.Allow` list (the browser's admin connection
+      previously had no KV-notify grant at all), with `token_test.go`'s
+      pinned assertion updated to match. Nil-safe exactly like
+      `RegisterRefdataNotify`/`RegisterRPCTraceNotify` when `platform.creds`
+      isn't configured. Wired into `dictionary/composition.go` right after
+      those two bridges. Tested against an embedded JetStream-enabled NATS
+      server: `trace_store_test.go` (black-box) proves a published span lands
+      in the KV bucket and that two spans sharing a `traceId` merge into one
+      entry instead of one overwriting the other, plus the nil-safe no-op;
+      `trace_store_appendspan_test.go` (white-box) proves same-`spanId`
+      redelivery dedup and that two different traces never cross-contaminate
+      each other's KV record. BR-036 amended (Phase 28f amendment) naming the
+      concrete stream/bucket/functions behind "PLATFORM's cross-account trace
+      store." `ginkgo ./...`/`go test ./...` green in both accounts-service and
+      shipping-service.
+- [x] **28g — Panel + OTLP bridge + retirement.** `[traces] [messages]` toggle
+      in `RpcPanel.vue`, new `TraceWaterfall.vue`, the `otlp-bridge` container
+      plus env-flagged `jaeger:all-in-one`, then retire `obs.rpc.*`/`obs.api.*`
+      once the messages view derives from trace spans.
+      **Panel piece landed (checked in with the user before continuing to the
+      OTLP bridge/Jaeger/retirement piece):** `stores/ui.js` gained `rpcTab`
+      (defaults `'traces'`, same App.vue-remount-survival pattern as
+      `accountsTab`). `RpcPanel.vue` wraps its existing messages-view markup
+      in `v-else` behind a small `.view-toggle` chip pair
+      (`[traces]`/`[messages]`, matching ARCHITECTURE-ADMIN.md §4.5's
+      design-history call for "a toggle inside this panel," not a page-level
+      `Tabs` bar or a ninth nav item) and renders the new
+      `TraceWaterfall.vue` for the traces tab. New `jsonHighlight.js`
+      extracts `escapeHtml`/`highlightJson` out of `RpcPanel.vue` so both
+      panels share one implementation. `TraceWaterfall.vue` bootstraps via
+      the *existing* generic `GET /api/kv/buckets/platform/traces/entries`
+      (no new REST endpoint — see BR-036's Phase 28g amendment for why) and
+      subscribes live to `notify._platform.kv.traces.>` on the PLATFORM
+      connection; per-trace summaries (root span, reply/consistent
+      durations, ok/error, account count) and per-span waterfall rows
+      (depth, offset, duration, account, crossing, sync/evtl/bad kind, the
+      ack-line insertion point) are computed client-side from the KV
+      record's raw `spans` array. Two known simplifications versus the
+      approved mockup (`diagrams/admin-traces-panel.html`), both because the
+      wire span has no field for them: the account gutter is a coarse
+      PLATFORM/TENANT split, not a real per-tenant label (see BR-035's Phase
+      28g amendment); the mockup's OTel `spanKind` tag is omitted rather
+      than faked. `TraceWaterfall.spec.js` covers BR-035's four required
+      assertions (5 specs, all green). Building this required a **prerequisite
+      backend change, confirmed with the user first**: `natstrace.Span` in
+      all five services gained `startedAt`/`traceSpan` gained `durationMs`
+      (BR-036 Phase 28g amendment) — without it there was no wire signal for
+      a span's own duration, only two different spans' finish timestamps,
+      which the waterfall's proportional bars need to not be meaningless.
+      Landed via 4 parallel agents (one per service, after doing
+      shipping-service directly myself as the reference diff) plus one
+      direct edit each to `BUSINESS_RULES-SHIPPING.md`. Verified live against
+      the running docker-compose stack (all containers rebuilt), which
+      surfaced and required fixing a real, unrelated capacity issue:
+      PLATFORM's account was already at its 20-stream JetStream ceiling from
+      11h of accumulated demo usage, so `shipping-service` crash-looped
+      creating `TRACES`/`traces`. Fixed live and non-destructively — **the
+      user ran a small one-off Go script** (using `nats/keys/operator-
+      signing-key.nk`, the same `$SYS.REQ.CLAIMS.UPDATE` re-sign mechanism
+      `accounts-service`'s own `Provisioner.UpdateAccountLimits` uses for
+      tenants, just applied directly to PLATFORM since it isn't a tenant in
+      the Store) to bump the limit 20→100 — the auto-mode classifier
+      correctly declined to let the agent run this itself, since it directly
+      wields the operator signing key outside the normal application code
+      path. After that, real `obs.trace.*` traffic (refdata-service,
+      accounts-service, the Admin UI's own `api.*`/auth calls) was observed
+      flowing end-to-end: bootstrap fetch, live KV-notify updates (trace
+      count grew live with the panel open, no reload), waterfall bar
+      rendering, and the span detail pane (headers + syntax-highlighted
+      body) all confirmed working in the browser. Real cross-account
+      (ACME→PLATFORM) trace assembly was **not** verified on this live
+      stack — the running `nats.conf`'s resolver still has the pre-28f
+      tenant JWTs (no `obs.trace.>` export/import), and regenerating it
+      would need a full `docker compose down -v`, which was deliberately
+      not done to avoid destroying 11h of accumulated demo data; that gap is
+      covered structurally by 28f's own Go integration tests instead. The
+      `[messages]` view and its `obs.rpc.*`/`obs.api.*` traffic were
+      confirmed unaffected (not yet retired — that's still pending below).
+      **OTLP bridge + Jaeger landed:** new standalone module
+      `backend/otlp-bridge/` (own `go.mod`, own `Dockerfile`, ~230 lines
+      across `cmd/main.go` and `internal/otlpmap/map.go` — not hexagonal
+      like the five instrumented services, since it's a translation utility
+      with no domain layer or business rules of its own). Per
+      ARCHITECTURE-COMMUNICATIONS.md § 6's already-approved design: a
+      `TRACES` JetStream consumer, never an in-process SDK — `openConsumer`
+      switches between a durable, `DeliverNewPolicy` live-tailing consumer
+      (default, resumes across restarts) and an ephemeral `DeliverAllPolicy`
+      consumer (`OTLP_BRIDGE_REPLAY=true`, re-exports the whole retained
+      window on demand); a `batcher` accumulates spans until `batchSize`
+      (100) or `batchInterval` (2s), POSTs one OTLP/HTTP export request, and
+      only Acks the batch on a 2xx response — a failed POST Naks every
+      message in it, so nothing is lost while Jaeger is unreachable (the
+      span stays on `TRACES`, redelivered next attempt). `internal/otlpmap`
+      is the pure field-for-field mapping (7 unit tests, no NATS
+      dependency): `WireSpan` mirrors only the subset of `natstrace.go`'s
+      `traceSpan` the bridge needs (mirroring `trace_store.go`'s own
+      `traceSpanKey` precedent for "just enough, not the full shape");
+      `spanKind` is never set (OTLP's `SPAN_KIND_UNSPECIFIED` zero value) —
+      inventing one would be interpretation, not mapping, matching BR-035's
+      documented spanKind omission. **Corrected against a live Jaeger
+      rejection, not assumed:** trace/span ids are passed through as the
+      same hex `natstrace` already emits, *not* re-encoded to base64 —
+      generic protobuf JSON mapping would base64-encode a `bytes` field,
+      but Jaeger's OTLP/HTTP receiver decodes ids through OTel collector's
+      `pdata` codec, which expects hex specifically (confirmed live: a
+      base64-encoded id was rejected with `"invalid length for ID"`); fixed
+      and pinned with a test (`TestMarshalExportRequestPassesIdsThroughAsHex`)
+      before moving on. `docker-compose.yml` adds `jaeger` (image
+      `jaegertracing/all-in-one:1.68.0`, conventional ports 16686/4318 — same
+      "keep the widely-recognized port" precedent as NATS/Postgres) and
+      `otlp-bridge` (reuses `platform.creds` — read-only JetStream consume
+      needs no dedicated credential), both behind Compose's `otlp` profile
+      so a bare `docker compose up` is unaffected: two services added or
+      removed, no env flag threaded through five service binaries, per the
+      design's own "no-code toggling" rationale. Verified live against the
+      running stack: real `refdata`/`accounts` spans (correct parent/child
+      references, `subject`/`entity`/`action`/`direction`/`correlationId`
+      tags) confirmed via both Jaeger's `/api/traces` query API and its UI.
+      `go vet`/`gofmt`/`go test ./...` all clean; `ginkgo ./...` re-run in
+      shipping-service afterward to confirm zero effect on the five
+      instrumented services (9/9 suites still green, as expected — nothing
+      in any of them changed). README.md's port table and Docker instructions
+      updated with the `--profile otlp` command.
+      **Retirement landed.** Investigated before touching anything (a
+      dedicated Explore pass, not assumption): the publish side of
+      `obs.rpc.*`/`obs.api.*` was already fully dead everywhere — Phase
+      28a-28e had already replaced every adapter's `publishObs` call with a
+      natstrace span, so what remained was dead/no-op plumbing plus stale
+      docs, not live traffic to migrate. What actually changed:
+      - **Frontend:** `RpcPanel.vue`'s `[messages]` tab no longer subscribes
+        `obs.rpc.>`/`obs.api.>` (both already carrying nothing for any
+        service) — it now derives from the same `obs.trace.*`/`traces` KV
+        bucket feed `TraceWaterfall.vue` reads, flattened to one row per
+        *span* instead of one row per *trace*. Real, unavoidable UX
+        difference: a span carries only the reply side (BR-037), so the old
+        two-pane Request | Reply detail split is gone in favor of one
+        Body/Headers section, and the three-state status model
+        (pending/ok/error) becomes two (ok/error) — a span is only ever seen
+        already-finished. `getRpcTraceReplay` removed from `api.js`. New
+        `RpcPanel.spec.js` (5 specs) covers the flattening, family/status
+        filtering, and the single-pane detail view — this component had no
+        prior test coverage at all.
+      - **shipping-service:** `eventhandler.RegisterRPCTraceNotify` and its
+        call site removed; `rpcTraceReplayOnce`/`GET /api/rpctrace/replay`
+        removed; the synthetic-RPCTRACE-traffic tests that existed only to
+        exercise this now-removed bridge/endpoint deleted with a removal
+        note (`platform_notify_test.go`, `replay_test.go`); Swagger
+        regenerated (`swag init`), confirmed zero `rpctrace` references
+        remain.
+      - **refdata-service:** `RPCTraceStreamName`/`RPCTraceMaxAge` consts and
+        the `RPCTRACE` stream provisioning removed from `composition.go`;
+        `natsrpc.ObsSubjectWildcard` (kept post-28b only to back that
+        provisioning) removed now that nothing needs it.
+      - **accounts-service:** `MintBrowserToken`'s `obs.api.>` subscribe
+        grant dropped. Also caught and fixed a bug the investigation
+        surfaced but I hadn't planned to touch yet: `MintAdminToken` still
+        granted `notify._platform.rpctrace.>`, a subject nothing publishes
+        to anymore post-retirement — dropped that too, with
+        `token_test.go`'s assertions updated for both functions (ginkgo
+        re-run confirmed both catches: 84/84 + 19/19 + 6/6 specs green).
+      - **`nats/bootstrap-operator.sh`:** `shipping-admin`'s RPCTRACE
+        `$JS.API.CONSUMER.*` grants dropped, REFDATA's kept. Verified live
+        against real `nsc` in a scratch environment (same rigor as 28f's
+        script verification) — decoded the resulting JWT and confirmed the
+        exact expected grant set, no RPCTRACE remnants.
+      - **Docs:** `BUSINESS_RULES-SHIPPING.md` (BR-026 retired, BR-027
+        tightened), `BUSINESS_RULES-REFDATA.md` (BR-D29/BR-D36 retired,
+        BR-D37 tightened — BR-D29/BR-D36 had never recorded their Phase 28b
+        supersession in the markdown at all, a pre-existing doc gap fixed
+        retroactively alongside the Phase 28g retirement), `BUSINESS_RULES-
+        ACCOUNTS.md` (BR-AC18 amended for both token functions), and
+        `ARCHITECTURE-ADMIN.md`/`ARCHITECTURE-ACCOUNTS.md`/`ARCHITECTURE.md`
+        (panel index, archetype table, credential mermaid diagram, and two
+        historical connection-purpose tables corrected — several referenced
+        the stale `traces-_platform` bucket name from before 28g's own
+        bucket rename, caught and fixed in passing).
+      Verified live against the running stack (all four affected containers
+      rebuilt): `[messages]` renders real flattened spans with working
+      status/family filters and the single-pane detail view; `[traces]`
+      confirmed unaffected (159 live traces, unchanged); all API calls
+      200 OK, no new console errors. Full backend re-sweep after every
+      change: shipping-service 9/9, refdata-service 3/3, accounts-service
+      3/3 suites green; frontend `vitest run` 11/11 files, 81/81 specs
+      green (76 → 81: `RpcPanel.spec.js`'s 5 new specs, this component's
+      first test coverage); `go vet`/`gofmt` clean on all three touched Go
+      services.
+      **Final verification pass — complete.** Surveyed existing coverage
+      first (Explore agent) rather than assuming what was missing; found two
+      real gaps and closed both:
+      - **Cross-hop single-traceId assertion** (the checklist's "one
+        assertion that matters most") was genuinely missing — no test drove
+        shipping's `api.*` through to refdata's `rpc.*` and checked one
+        shared `traceId`. Added
+        `TestLookupSharesTraceIdAcrossShippingAndRefdataHops` in
+        `shipping-service/internal/refdataconsumer/consumer_test.go`: a
+        simulated refdata inbound responder (`natstrace.StartFromHeaders`,
+        the same stand-in-for-the-other-service's-copy pattern the existing
+        `TestLookupContinuesParentSpanAttachedViaContext` already uses)
+        proves shipping's outbound span and refdata's inbound span agree on
+        one `traceId` with `refdataSpan.ParentSpanID == shippingSpan.SpanID`.
+      - **Redaction/truncation contract** was cloned into 4/5 services but
+        silently absent from accounts-service's HTTP-middleware copy —
+        traced to a real (if narrow) gap: `HTTPMiddleware` always calls
+        `sp.End(nil, nil)`/`sp.Fail(err, nil, nil)`, never threading a
+        request/response body through, so BR-036's redaction/truncation path
+        was reachable only via `publishAccountEvent`'s outbound notify span,
+        never the inbound HTTP span, and untested either way. Added an
+        `It` in `accounts-service/internal/natstrace/natstrace_test.go`
+        exercising `StartFromHeaders`+`End` directly (mirroring the other
+        four services' `It`) to pin the shared `finish()` mechanics; did
+        **not** change `HTTPMiddleware` to capture HTTP bodies — that's a
+        separate buffering-cost/risk tradeoff, not this checklist's scope.
+      - Invisible-timeout regression, redaction/truncation (4/5 services),
+        and account-isolation (no `Sub.Allow` for `obs.trace.>` in a browser
+        JWT) were already covered — confirmed by inspection, not re-written.
+      - **No-regression check**, live: Services panel (`$SRV.STATS`) — 4
+        services/64 endpoints, request/error counters intact; `[traces]` —
+        196 live traces, waterfall detail renders; `[messages]` — flattened
+        span rows render per the retirement design; zero console errors.
+      - **Live cross-account (ACME→PLATFORM) e2e** — deferred earlier in
+        this session because it needs `docker compose down -v` (destroys
+        accumulated demo data) so `bootstrap-operator.sh`'s edited grants
+        take effect from a truly fresh boot, not just the long-running dev
+        stack. Confirmed with the user before running it. Ran
+        `down -v` + `up --build`, drove a real ACME-tenant page load
+        (shipping-frontend → its own `api.*` → refdata's `rpc.*`), and
+        confirmed in the Admin UI (viewed as tenant `acme`) that the
+        resulting trace correctly shows a `PLATFORM`-account span
+        (`rpc.acme.refdata.type.list.v1`, spans:1, accounts:1).
+        **Correction, found later the same session:** this check was
+        insufficient — refdata-service always connects natively *as*
+        PLATFORM (BR-D08), so its spans never actually cross an account
+        boundary regardless of whether ACME's export/import is wired at
+        all; the `PLATFORM` label proved nothing about the cross-account
+        hop. The real test is a service that publishes `obs.trace.*` from
+        a genuinely per-tenant connection — shipping/pricing's own
+        `browserrpc`-instrumented `api.*` spans. Driving a real
+        `api.acme-atlantic-fleet.shipping.ship.*` call and raw-subscribing
+        `obs.trace.>` as PLATFORM (`nats sub`, bypassing the Admin UI/KV
+        layer entirely to isolate the account boundary) showed **zero**
+        shipping spans arriving, while the same raw subscribe as ACME
+        showed them publishing correctly on ACME's own account. Root
+        cause: decoding the live `nats/resolver/{ACME,PLATFORM}.jwt`
+        showed ACME's account JWT had **no `obs.trace.>` export at all**,
+        and PLATFORM had no matching import — `bootstrap-operator.sh`'s
+        Phase 28f export/import lines exist in the script but were never
+        applied, because the script is idempotent from a scratch `nsc`
+        store ("exits early if `operator.jwt` exists, unless `--force`")
+        and nobody had re-run it with `--force` since those lines were
+        added; the checked-in JWTs simply predated them. Fixed by running
+        `bootstrap-operator.sh --force` (confirmed via the same JWT-decode
+        that `ACME.exports`/`PLATFORM.imports` now include `obs.trace.>`)
+        followed by another `down -v` + `up --build` + `otlp-bridge`
+        restart, then re-ran the identical raw-subscribe-as-PLATFORM test
+        live: a real ship command's full span chain
+        (`ship.register`/`ship.arrive`/`ship.registered`/`ship.arrived`,
+        5 spans) now arrives and renders correctly in the Admin UI's
+        `[traces]` panel from the ACME tenant view. `ginkgo ./...` in
+        shipping-service re-run green after the fix (9/9 — this was a
+        NATS-config-only change, no Go code touched).
+      - **OTLP-bridge-oracle-vs-Jaeger** — re-confirmed post-rebuild: the
+        bridge reconnected through the NATS restart with no re-deploy, and a
+        live Jaeger UI search (service `refdata`) shows real spans.
+      All test suites re-run green after the rebuild: shipping-service 9/9
+      (10 specs added net across the two new tests), accounts-service
+      84/84 + 19/19 + 7/7 (natstrace 6→7).
+- [x] **Tests:** per sub-phase, one Ginkgo `Context` per business rule
+      (Quality Rule 1) and `ginkgo ./...` green in every touched service
+      (Quality Rule 2); `vitest run` for 28g. The contract test asserting the
+      `traceSpan` JSON shape *and* that an old-shape `obsEnvelope` still
+      decodes is cloned into all five services — that test is what makes the
+      duplication safe. **The one assertion that matters most:** drive
+      shipping's `api.*` → refdata's `rpc.*` and assert a single `traceId`
+      across both `obs.*` families with a correct parent/child `spanId` chain.
+      Plus the invisible-timeout regression (no responder → a span with
+      `statusCode: error`, which today produces no record at all), truncation
+      and redaction behaviour, and that a tenant browser JWT has **no**
+      `Sub.Allow` for `obs.trace.>`.
+
+#### Business rules (confirmed 2026-08-15, written into domain files)
+
+No new `BR-` prefix: cross-cutting observability rules are paired across
+existing domain files (precedent BR-D36/BR-026, BR-D37/BR-027), and Admin-UI
+presentation rules go to `BUSINESS_RULES-SHIPPING.md` as bare `BR-0NN` even
+when not about ships.
+
+- **BR-036** (SHIPPING) — the `obs.trace.*` envelope is a strict superset of
+  the `obs.rpc.*`/`obs.api.*` envelope, carrying W3C trace identity and
+  OTLP-shaped span fields; it publishes to the PLATFORM account only, applies
+  a redaction denylist before a 4 KiB payload cap, and flags truncation rather
+  than cutting silently. Inherits BR-D26: never blocks or fails a business path.
+- **BR-D39** (REFDATA) — the same wire contract on refdata-service's `natsrpc`
+  publisher side, mirroring BR-036 as BR-D36 mirrors BR-026.
+- **BR-037** (SHIPPING) — trace context propagates on every outbound NATS
+  message (`rpc.*` request, `evt.*` publish, `notify.*` publish). One span per
+  *logical* RPC call with a retry-count attribute, never one per attempt. A KV
+  entry cannot carry trace context; the derived notify does.
+- **BR-035** (SHIPPING) — presentation rule for the Request/Reply & Traces
+  panel: one row per trace; the reply-ack boundary separates synchronous from
+  eventual work; the account gutter marks boundary crossings; the header states
+  both *reply* and *read-model-consistent* durations. Obeys §2.2's
+  exceptional-state rule — a trace with no async tail renders no ack line, and
+  a rejected command legitimately has no tail.
+- **BR-AC30** (ACCOUNTS) — minted account JWTs carry `allow_trace: true` on
+  service exports and stream imports, plus a per-tenant `obs.trace.>` stream
+  export imported into PLATFORM. Without this, traces stop dead at the account
+  boundary.
+
+*To verify before writing these:* whether `BUSINESS_RULES-PRICING.md` and
+`-TRADING-PARTNER.md` already carry obs-envelope rules; if so they need
+parallel `BR-P25`/`BR-TP15` entries for symmetry. Also note
+`BUSINESS_RULES.md`'s index ranges are already stale (says REFDATA
+`BR-D01–D28`, actually D38; ACCOUNTS `AC01–AC13`, actually AC29) — worth
+correcting in the same pass.
+
+#### Docs (done ahead of implementation, 2026-08-14)
+
+- [x] `ARCHITECTURE-ADMIN.md` — §1 panel row retitled, §2.1 layout 2 credited,
+      §3.1 gains the KV-watch *variant* of snapshot+notify (explicitly **not** a
+      fourth archetype — a KV watch replays then goes live on one subscription,
+      so it structurally cannot have BR-D29's bootstrap duplicate/gap window),
+      §4.5 rewritten with the UI design and a `Design history` table covering
+      the viewer and placement arguments.
+- [x] `ARCHITECTURE-COMMUNICATIONS.md` — §2.1 gains the `obs.trace.*`
+      Supportive row (and the "Five families" count corrected to six), §2.2
+      gains the grammar line, §6 gains a Phase 28 blockquote amendment
+      embedding `images/otlp-bridge-ingest.png` (ingest topology, per-message
+      handling inside the bridge, and the in-process-vs-consumer contrast), and
+      the closing payload-sensitivity bullet is amended from advisory to
+      enforced.
+- [x] Three PNGs exported and embedded: `otlp-bridge-ingest.png` (§6 — ingest
+      topology, per-message handling, in-process-vs-consumer contrast),
+      `traces-span-envelope.png` (§6 — the HAVE/NEW envelope table and the
+      instrumented-surfaces coverage table), and `admin-traces-panel.png`
+      (ARCHITECTURE-ADMIN.md §4.5 — the reviewed panel mockup).
+- [x] New diagram tooling: `diagrams/export-html-png.mjs` renders a
+      hand-authored inline-SVG or mockup HTML page to PNG, alongside the
+      existing `export-png.sh` for Draw.io workbook pages. Supports
+      `--clip="<selectors>"` to capture one component out of a page that also
+      carries prose — used to lift the panel chrome and the capture tables out
+      of the mockup separately. These are the first PNGs in `images/`
+      **without** a Draw.io source, so `export-png.sh` does not regenerate
+      them; editable sources are `diagrams/otlp-bridge-ingest.html` and
+      `diagrams/admin-traces-panel.html`, with re-export commands recorded
+      beside each embed. Worth folding into the workbook if that divergence
+      becomes annoying.
+- [ ] `obsidian/POC-Dictionaries/` — findings note on correlation-id vs trace-id
+      and why the trace store is Shape A.
+
+### Phase 29 (PROPOSED) — NATS 2.11 Server-Hop Tracing ("Trace this subject")
+
+#### Goal
+
+Phase 28 answers "shipping called refdata and it took 40ms." It cannot answer
+"the message was dropped at the account import boundary" — which, in an
+operator-mode deployment where every cross-service call goes through a JWT
+export/import, is the failure mode that is hardest to diagnose and produces
+the least evidence.
+
+NATS 2.11's distributed message tracing reports, per server hop: ingress
+(`in`), egress (`eg`), subject mapping (`sm`), stream export (`se`), service
+import (`si`), and JetStream store (`js`) — each with the server's own error
+string. Add a "Trace this subject" control that publishes with
+`Nats-Trace-Dest` and renders the returned hop tree, interleaved into the same
+waterfall as Phase 28's application spans.
+
+- [ ] Backend: publish with `Nats-Trace-Dest` (+ `Nats-Trace-Only` for the
+      dry-run default, as `nats trace` itself defaults to) and collect trace
+      events off the destination subject.
+- [ ] Frontend: render hop events as grey hairline ticks rather than duration
+      bars — they have no meaningful duration (already specified in
+      ARCHITECTURE-ADMIN.md §4.5's UI design).
+- [ ] **Why this is worth its own phase:** zero code in any service and no
+      per-message cost, so it shares nothing with Phase 28's implementation.
+      Requires server 2.11+ and `allow_trace: true` (landed in 28f/BR-AC30).
+- [ ] **The payoff for having chosen `traceparent` in Phase 28:** in
+      trace-context mode the NATS server stamps *our* trace id onto its own hop
+      events, so application spans and infrastructure hops land on one
+      waterfall keyed identically. No off-the-shelf tool does this.
+
 ### Phase 100 (PROPOSED — awaiting approval) — Ship Container Capacity Limit
 
 #### Goal

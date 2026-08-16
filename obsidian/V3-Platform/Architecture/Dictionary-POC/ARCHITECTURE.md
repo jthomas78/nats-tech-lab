@@ -687,8 +687,10 @@ switched-away tenant's durable and lose its stream position — asserted directl
 holds **two** long-lived NATS connections instead of one:
 
 - **The permanent `PLATFORM`-account connection** (today's original unauthenticated
-  `nats.Connect`, unchanged) — used only for refdata-service's `rpc.*` calls, its
-  `REFDATA` change-event stream, and the `obs.rpc.>` observability bridge. These were
+  `nats.Connect`, unchanged) — used only for refdata-service's `rpc.*` calls and its
+  `REFDATA` change-event stream (the `obs.rpc.>` observability bridge this connection
+  also carried at the time this was written was retired in Phase 28g — see
+  `BUSINESS_RULES-REFDATA.md`'s BR-D29 amendment). These were
   already, quietly, PLATFORM-account concerns before Phase 13 existed (refdata-service
   isn't tenant-scoped at all) — the accounts spike just made that fact visible enough to
   require separating the field that carries it (`rest.Deps.PlatformJS`) from the one that
@@ -906,7 +908,7 @@ bootstrap-seeded accounts and runtime-minted ones:
 
 | Service | Creds file | Account | Purpose |
 |---|---|---|---|
-| **shipping-service** | `platform.creds` | PLATFORM | Permanent connection for cross-tenant concerns (refdata `rpc.*`, `REFDATA` stream, `obs.rpc.>` observability) |
+| **shipping-service** | `platform.creds` | PLATFORM | Permanent connection for cross-tenant concerns (refdata `rpc.*`, `REFDATA` stream; the `obs.rpc.>` observability bridge this row once also named was retired in Phase 28g) |
 | **shipping-service** | `<tenant>.creds` | Per-tenant | Tenant-scoped connection, reconnected on `POST /api/tenant/switch` — all JetStream/KV for that tenant's `SHIPPING` stream, projectors, and KV buckets |
 | **refdata-service** | `platform.creds` | PLATFORM | Single cross-tenant connection (BR-D08) — refdata is not tenant-scoped |
 | **accounts-service** | `sys.creds` | SYS | System account — the only way to reach `$SYS.REQ.CLAIMS.UPDATE`/`DELETE` for minting/revoking accounts |

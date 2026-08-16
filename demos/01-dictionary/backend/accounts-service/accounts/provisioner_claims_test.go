@@ -84,3 +84,45 @@ func TestNewAccountClaimsAddsTenantImportsAndPreservesPriorCrossAccountWiring(t 
 		t.Fatalf("missing service imports: %#v", want)
 	}
 }
+
+// BR-AC30 (Phase 28f amendment) — a tenant account's own claims must export
+// obs.trace.> back to PLATFORM, or PLATFORM's cross-account trace store has
+// no way to ever see that tenant's spans (see addPlatformTraceImport, the
+// PLATFORM-side counterpart exercised by TestAddPlatformTraceImportIsIdempotent
+// in provisioner_test.go).
+func TestNewAccountClaimsAddsTenantTraceExport(t *testing.T) {
+	const tenant = "ATENANTPUBLICKEY"
+	const tenantName = "acme"
+	const platform = "APLATFORMPUBLICKEY"
+
+	fresh := newAccountClaims(tenant, "", JSLimits{}, nil, CrossAccountOpts{PlatformPublicKey: platform, TenantName: tenantName})
+	var traceExport *jwt.Export
+	for _, exp := range fresh.Exports {
+		if string(exp.Subject) == traceExportSubject {
+			traceExport = exp
+		}
+	}
+	if traceExport == nil {
+		t.Fatalf("expected an obs.trace.> export on a freshly-minted tenant's own claims, got %#v", fresh.Exports)
+	}
+	if traceExport.Type != jwt.Stream {
+		t.Fatalf("obs.trace.> export must be a Stream export (AllowTrace is only legal on a Service export), got type %v", traceExport.Type)
+	}
+	if traceExport.AllowTrace {
+		t.Fatal("AllowTrace must not be set on this Stream export — jwt.Export.Validate rejects it on anything but a Service export")
+	}
+
+	// The trace export must survive a plain re-sign (happy path, prior has
+	// imports already) exactly like every other export/import — it must not
+	// require crossAccount.PlatformPublicKey to be supplied again.
+	preserved := newAccountClaims(tenant, "", JSLimits{}, fresh, CrossAccountOpts{})
+	found := false
+	for _, exp := range preserved.Exports {
+		if string(exp.Subject) == traceExportSubject {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("obs.trace.> export was dropped on re-sign: %#v", preserved.Exports)
+	}
+}

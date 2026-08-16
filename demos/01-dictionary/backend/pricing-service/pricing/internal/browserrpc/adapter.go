@@ -28,7 +28,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strings"
 	"time"
 
@@ -37,6 +36,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing/internal/natstrace"
 )
 
 // Subject constants — {context} is a wildcard token resolved per-request
@@ -82,16 +82,10 @@ const (
 	FixedRateDropsChargeSubject = "api.*.pricing.fixed-rate.drops-charge.v1"
 
 	// Diesel price index and overlay (Phase 25i, BR-P17–BR-P23).
-	DieselPriceIndexSubject       = "api.*.pricing.diesel-price.index.v1"
-	DieselPriceListSubject        = "api.*.pricing.diesel-price.list.v1"
-	RateSheetApplyOverlaySubject  = "api.*.pricing.rate-sheet.apply-overlay.v1"
+	DieselPriceIndexSubject      = "api.*.pricing.diesel-price.index.v1"
+	DieselPriceListSubject       = "api.*.pricing.diesel-price.list.v1"
+	RateSheetApplyOverlaySubject = "api.*.pricing.rate-sheet.apply-overlay.v1"
 )
-
-// ObsSubjectWildcard is the subject filter for the obs.api.* observability
-// side-channel (BR-D26 parity) — events published under this wildcard from
-// a TENANT connection stay inside that tenant's isolated NATS account, same
-// caveat as shipping-service's adapter doc comment.
-const ObsSubjectWildcard = "obs.api.>"
 
 // Deps are Adapter's collaborators — the exact same command handlers
 // composition.go's Startup already builds once and shares across every
@@ -117,6 +111,7 @@ type Adapter struct {
 	fixedRates *commands.FixedRateHandler
 	log        *slog.Logger
 	svc        micro.Service
+	tracer     *natstrace.Tracer
 }
 
 // errorResponse is the wire shape for every failed api.* call — same shape
@@ -278,6 +273,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		rateSheets: deps.RateSheets,
 		fixedRates: deps.FixedRates,
 		log:        deps.Log,
+		tracer:     natstrace.New(nc),
 	}
 
 	svc, err := micro.AddService(nc, micro.Config{
@@ -337,7 +333,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"rate-sheet-apply-overlay", a.handleRateSheetApplyOverlay, RateSheetApplyOverlaySubject},
 	}
 	for _, ep := range endpoints {
-		if err := svc.AddEndpoint(ep.name, ep.handler, micro.WithEndpointSubject(ep.subject)); err != nil {
+		if err := svc.AddEndpoint(ep.name, a.tracer.Middleware(ep.handler), micro.WithEndpointSubject(ep.subject)); err != nil {
 			_ = svc.Stop()
 			return nil, err
 		}
@@ -357,7 +353,6 @@ func (a *Adapter) Stop() error {
 
 func (a *Adapter) handleFeeScaleRegister(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in feeScaleRegisterRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -372,14 +367,12 @@ func (a *Adapter) handleFeeScaleRegister(req micro.Request) {
 // excludes soft-deleted fee scales.
 func (a *Adapter) handleFeeScaleList(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	feeScales, err := a.feeScales.List(context.Background(), contextFromSubject(subject))
 	a.reply(req, feeScalesResponse{FeeScales: feeScales}, err)
 }
 
 func (a *Adapter) handleFeeScaleGet(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in nameRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -391,7 +384,6 @@ func (a *Adapter) handleFeeScaleGet(req micro.Request) {
 
 func (a *Adapter) handleFeeScaleCreateDraft(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in nameRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -403,7 +395,6 @@ func (a *Adapter) handleFeeScaleCreateDraft(req micro.Request) {
 
 func (a *Adapter) handleFeeScaleAddRange(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in feeScaleAddRangeRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -415,7 +406,6 @@ func (a *Adapter) handleFeeScaleAddRange(req micro.Request) {
 
 func (a *Adapter) handleFeeScalePublish(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in nameRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -427,7 +417,6 @@ func (a *Adapter) handleFeeScalePublish(req micro.Request) {
 
 func (a *Adapter) handleFeeScaleRollback(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in feeScaleRollbackRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -439,7 +428,6 @@ func (a *Adapter) handleFeeScaleRollback(req micro.Request) {
 
 func (a *Adapter) handleFeeScaleVersions(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in nameRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -451,7 +439,6 @@ func (a *Adapter) handleFeeScaleVersions(req micro.Request) {
 
 func (a *Adapter) handleFeeScaleActive(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in nameRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -463,7 +450,6 @@ func (a *Adapter) handleFeeScaleActive(req micro.Request) {
 
 func (a *Adapter) handleFeeScaleCalculateFee(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in feeScaleCalculateFeeRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -477,7 +463,6 @@ func (a *Adapter) handleFeeScaleCalculateFee(req micro.Request) {
 
 func (a *Adapter) handleRateSheetRegister(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in rateSheetRegisterRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -491,14 +476,12 @@ func (a *Adapter) handleRateSheetRegister(req micro.Request) {
 // handleRateSheetList takes no input beyond {context}.
 func (a *Adapter) handleRateSheetList(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	rateSheets, err := a.rateSheets.List(context.Background(), contextFromSubject(subject))
 	a.reply(req, rateSheetsResponse{RateSheets: rateSheets}, err)
 }
 
 func (a *Adapter) handleRateSheetGet(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in nameRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -510,7 +493,6 @@ func (a *Adapter) handleRateSheetGet(req micro.Request) {
 
 func (a *Adapter) handleRateSheetCreateDraft(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in nameRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -522,7 +504,6 @@ func (a *Adapter) handleRateSheetCreateDraft(req micro.Request) {
 
 func (a *Adapter) handleRateSheetAddEntry(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in rateSheetAddEntryRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -534,7 +515,6 @@ func (a *Adapter) handleRateSheetAddEntry(req micro.Request) {
 
 func (a *Adapter) handleRateSheetSetFeeScaleOverride(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in rateSheetFeeScaleOverrideRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -546,7 +526,6 @@ func (a *Adapter) handleRateSheetSetFeeScaleOverride(req micro.Request) {
 
 func (a *Adapter) handleRateSheetPublish(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in nameRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -558,7 +537,6 @@ func (a *Adapter) handleRateSheetPublish(req micro.Request) {
 
 func (a *Adapter) handleRateSheetRollback(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in rateSheetRollbackRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -570,7 +548,6 @@ func (a *Adapter) handleRateSheetRollback(req micro.Request) {
 
 func (a *Adapter) handleRateSheetVersions(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in nameRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -582,7 +559,6 @@ func (a *Adapter) handleRateSheetVersions(req micro.Request) {
 
 func (a *Adapter) handleRateSheetActive(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in nameRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -594,7 +570,6 @@ func (a *Adapter) handleRateSheetActive(req micro.Request) {
 
 func (a *Adapter) handleRateSheetDropsCharge(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in rateSheetDropsChargeRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -608,7 +583,6 @@ func (a *Adapter) handleRateSheetDropsCharge(req micro.Request) {
 
 func (a *Adapter) handleFixedRateRegister(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in fixedRateRegisterRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -622,14 +596,12 @@ func (a *Adapter) handleFixedRateRegister(req micro.Request) {
 // handleFixedRateList takes no input beyond {context}.
 func (a *Adapter) handleFixedRateList(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	fixedRates, err := a.fixedRates.List(context.Background(), contextFromSubject(subject))
 	a.reply(req, fixedRatesResponse{FixedRates: fixedRates}, err)
 }
 
 func (a *Adapter) handleFixedRateGet(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in nameRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -641,7 +613,6 @@ func (a *Adapter) handleFixedRateGet(req micro.Request) {
 
 func (a *Adapter) handleFixedRateCreateDraft(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in fixedRateCreateDraftRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -653,7 +624,6 @@ func (a *Adapter) handleFixedRateCreateDraft(req micro.Request) {
 
 func (a *Adapter) handleFixedRatePublish(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in nameRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -665,7 +635,6 @@ func (a *Adapter) handleFixedRatePublish(req micro.Request) {
 
 func (a *Adapter) handleFixedRateRollback(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in fixedRateRollbackRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -677,7 +646,6 @@ func (a *Adapter) handleFixedRateRollback(req micro.Request) {
 
 func (a *Adapter) handleFixedRateVersions(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in nameRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -689,7 +657,6 @@ func (a *Adapter) handleFixedRateVersions(req micro.Request) {
 
 func (a *Adapter) handleFixedRateActive(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in nameRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -701,7 +668,6 @@ func (a *Adapter) handleFixedRateActive(req micro.Request) {
 
 func (a *Adapter) handleFixedRateDropsCharge(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in fixedRateDropsChargeRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -715,7 +681,6 @@ func (a *Adapter) handleFixedRateDropsCharge(req micro.Request) {
 
 func (a *Adapter) handleDieselPriceIndex(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in dieselPriceIndexRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -728,14 +693,12 @@ func (a *Adapter) handleDieselPriceIndex(req micro.Request) {
 
 func (a *Adapter) handleDieselPriceList(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	prices, err := a.rateSheets.ListDieselPrices(context.Background(), contextFromSubject(subject))
 	a.reply(req, dieselPricesResponse{Prices: prices}, err)
 }
 
 func (a *Adapter) handleRateSheetApplyOverlay(req micro.Request) {
 	subject := req.Subject()
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
 	var in rateSheetApplyOverlayRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -780,6 +743,12 @@ func (a *Adapter) responderIdentity() string {
 	return fmt.Sprintf("%s/%s", info.Name, info.ID)
 }
 
+// respond and respondError are the two request-tail exit points every
+// handler reaches through reply(). Both finish this request's natstrace span
+// (BR-036/BR-037/BR-P25) via natstrace.SpanFrom — nil-safe, so a handler
+// invoked directly (not through Tracer.Middleware, e.g. a unit test calling
+// a.handleX(req) with a bare micro.Request) still replies correctly, it just
+// publishes no span.
 func (a *Adapter) respond(req micro.Request, subject, correlationID string, out any) {
 	data, err := json.Marshal(out)
 	if err != nil {
@@ -787,7 +756,7 @@ func (a *Adapter) respond(req micro.Request, subject, correlationID string, out 
 		return
 	}
 	headers := map[string][]string{responderHeader: {a.responderIdentity()}}
-	a.publishObs(subject, correlationID, "reply", headers, data, "")
+	natstrace.SpanFrom(req).End(data, headers)
 	if err := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); err != nil && a.log != nil {
 		a.log.Error("browserrpc: respond failed", "subject", subject, "err", err)
 	}
@@ -804,54 +773,8 @@ func (a *Adapter) respondError(req micro.Request, subject, correlationID string,
 		micro.ErrorCodeHeader: {code},
 		responderHeader:       {a.responderIdentity()},
 	}
-	a.publishObs(subject, correlationID, "reply", headers, data, err.Error())
+	natstrace.SpanFrom(req).Fail(err, data, headers)
 	if respErr := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); respErr != nil && a.log != nil {
 		a.log.Error("browserrpc: respond failed", "subject", subject, "err", respErr)
-	}
-}
-
-var versionSuffix = regexp.MustCompile(`\.v\d+$`)
-
-func obsSubjectFor(apiSubject string) string {
-	return "obs." + versionSuffix.ReplaceAllString(apiSubject, "")
-}
-
-type obsEnvelope struct {
-	Direction     string              `json:"direction"`
-	CorrelationID string              `json:"correlationId"`
-	Subject       string              `json:"subject"`
-	Payload       json.RawMessage     `json:"payload,omitempty"`
-	Error         string              `json:"error,omitempty"`
-	Headers       map[string][]string `json:"headers,omitempty"`
-	Timestamp     time.Time           `json:"timestamp"`
-	PayloadBytes  int                 `json:"payloadBytes"`
-}
-
-// publishObs fire-and-forget publishes an observability event (BR-D26
-// parity) — must never block or fail the real API reply. pricing-service
-// has no JetStream, so this is always a plain nc.Publish (no RPCTRACE
-// replay retention, unlike shipping-service's/refdata-service's adapters
-// when JetStream is configured).
-func (a *Adapter) publishObs(apiSubject, correlationID, direction string, headers map[string][]string, payload []byte, errMsg string) {
-	defer func() {
-		if r := recover(); r != nil && a.log != nil {
-			a.log.Error("browserrpc: obs publish panicked", "recovered", r)
-		}
-	}()
-	data, err := json.Marshal(obsEnvelope{
-		Direction:     direction,
-		CorrelationID: correlationID,
-		Subject:       apiSubject,
-		Payload:       payload,
-		Error:         errMsg,
-		Headers:       headers,
-		Timestamp:     time.Now().UTC(),
-		PayloadBytes:  len(payload),
-	})
-	if err != nil {
-		return
-	}
-	if pubErr := a.nc.Publish(obsSubjectFor(apiSubject), data); pubErr != nil && a.log != nil {
-		a.log.Warn("browserrpc: obs publish failed", "err", pubErr)
 	}
 }

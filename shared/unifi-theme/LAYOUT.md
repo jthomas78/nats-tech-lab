@@ -109,6 +109,58 @@ buildable version of the same structure.
   then panels using the shared `.lab-panel` treatment (the reference
   file's `.panel` is the same shape, spelled out in full for copy-paste).
 
+## Panel top tabs
+
+Any tab strip positioned at the top of a right-side detail panel (the panels
+next to the left navbar — `AccountsView.vue`'s Provisioning/Topology,
+`RpcPanel.vue`'s Traces/Messages) must be a real PrimeVue `Tabs`
+(`Tab`/`TabList`/`TabPanels`/`TabPanel`) with `class="panel-tabs"` on the
+`<Tabs>` root — never a custom chip/pill toggle for this role. `.panel-tabs`
+in `unifi.css` is the one place that styles it, so every panel's top tabs
+stay identical without each component repeating the override. Ordinary
+filter/facet toggles inside a panel body (errors-only, slow-only, family
+chips) keep using the plain `.chip` treatment — that's a different UI role
+(a filter, not a view switch) and isn't affected by this rule.
+
+**Placement — the `<Tabs>` sits flush on the page, never inside a `.lab-panel`
+card.** `AccountsView.vue` is the reference: `App.vue` renders it directly
+inside the section's `.group`, with no wrapping card, so the tab strip and
+its hairline sit right on the page background. The card treatment (border,
+background, padding — `.lab-panel`) belongs on each `TabPanel`'s *content*,
+not around the `<Tabs>` itself — `AccountsPanel.vue` wraps its own root in
+`<div class="lab-panel accounts-panel">`; `RpcPanel.vue` wraps each
+`TabPanel`'s content in `<div class="lab-panel rpc-card">`. Getting this
+backwards (wrapping the whole `<Tabs>` in a card, as `RpcPanel.vue` first
+did) nests the tablist inside a different background than it expects and
+forces a pile of compensating overrides — don't reach for those; move the
+card down a level instead.
+
+**Don't strip `.p-tabpanels`' default padding.** Aura's own `tabpanels`
+padding (not something this repo sets) is exactly what creates the gap
+between the tab hairline and the panel/card below on `AccountsView.vue` —
+overriding it to `0` (as `RpcPanel.vue` first did, chasing a "make full
+height" goal that had nothing to do with padding) pulls the content flush
+against the tab strip, so the tablist's hairline visually merges with the
+card's own top border into what reads as one line instead of two. Leave
+`.p-tabpanels` padding alone; only touch `flex`/`min-height`/`display` on it
+if the tab's content needs to fill the panel's remaining height.
+
+If the tabbed content needs the full panel height (a `DataTable` with
+`scroll-height="flex"`, an internally-split view like `TraceWaterfall`), the
+consuming component's `<style scoped>` must flex the PrimeVue-rendered
+`.p-tabs`/`.p-tabpanels`/`.p-tabpanel` down to the active panel via `:deep()`
+— see `RpcPanel.vue` for the pattern. `AccountsView.vue`'s tab content
+scrolls with the page instead, so it needs no such override. **Watch for the
+same-element `:deep()` gotcha**: `<Tabs class="panel-tabs rpc-tabs">` puts
+`rpc-tabs` on the *same* root element PrimeVue renders as `.p-tabs` — so
+`.rpc-tabs :deep(.p-tabs) {...}` (a descendant combinator) silently matches
+nothing, since there's no ancestor/descendant relationship between two
+classes on one node. Use a plain compound selector for that one level
+(`.rpc-tabs.p-tabs {...}`, no `:deep()`) — it still gets the component's
+scope attribute automatically since the class is applied from that
+component's own template. `:deep()` is correctly needed for true descendants
+rendered by PrimeVue itself (`.p-tablist`, `.p-tabpanels`, `.p-tabpanel`).
+
 ## Per-app notes
 
 - **lab-shell** — topbar only (brand + tagline-as-breadcrumb), no

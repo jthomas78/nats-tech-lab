@@ -176,8 +176,8 @@ func TestJetstreamReplayOnceReturns400ForAnUnknownAccount(t *testing.T) {
 
 // The two-aggregate FilterSubjects filter belongs to the tenant SHIPPING
 // stream alone — PLATFORM's streams carry unrelated subject taxonomies
-// (evt.*.refdata.*.changed, obs.rpc.>) that the ship/container filters would
-// exclude entirely, leaving a permanently empty panel.
+// (evt.*.refdata.*.changed, obs.trace.>) that the ship/container filters
+// would exclude entirely, leaving a permanently empty panel.
 func TestJetstreamReplayOnceAppliesNoSubjectFilterToPlatformStreams(t *testing.T) {
 	ctx := context.Background()
 	_, js, cleanup := newTestNATSJS(t)
@@ -252,51 +252,8 @@ func TestJetstreamReplayOnceReturns400ForAnUnknownStream(t *testing.T) {
 	}
 }
 
-func TestRPCTraceReplayOnceReturnsAllRetainedEntries(t *testing.T) {
-	_, js, cleanup := newTestNATSJS(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	if _, err := jstream.CreateStream(ctx, js, "RPCTRACE", []string{"obs.rpc.>"}); err != nil {
-		t.Fatal(err)
-	}
-	backlog := `{"direction":"request","correlationId":"backlog-1"}`
-	if _, err := js.Publish(ctx, "obs.rpc.acme.refdata.item.get.v1", []byte(backlog)); err != nil {
-		t.Fatal(err)
-	}
-
-	h := NewHandlers(Deps{PlatformJS: js, Log: slog.New(slog.DiscardHandler)})
-
-	req := httptest.NewRequest(http.MethodGet, "/api/rpctrace/replay", nil)
-	rec := httptest.NewRecorder()
-	h.rpcTraceReplayOnce(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var entries []json.RawMessage
-	if err := json.Unmarshal(rec.Body.Bytes(), &entries); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 entry, got %d: %s", len(entries), rec.Body.String())
-	}
-	if string(entries[0]) != backlog {
-		t.Fatalf("expected backlog entry verbatim, got: %s", entries[0])
-	}
-}
-
-func TestRPCTraceReplayOnceReturnsEmptyArrayWhenPlatformJSNil(t *testing.T) {
-	h := NewHandlers(Deps{Log: slog.New(slog.DiscardHandler)})
-
-	req := httptest.NewRequest(http.MethodGet, "/api/rpctrace/replay", nil)
-	rec := httptest.NewRecorder()
-	h.rpcTraceReplayOnce(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if rec.Body.String() != "[]\n" {
-		t.Fatalf("expected an empty JSON array, got: %s", rec.Body.String())
-	}
-}
+// TestRPCTraceReplayOnceReturnsAllRetainedEntries and
+// TestRPCTraceReplayOnceReturnsEmptyArrayWhenPlatformJSNil covered
+// rpcTraceReplayOnce/GET /api/rpctrace/replay, retired in Phase 28g along
+// with the RPCTRACE stream itself — see replay.go's retirement note.
+// Removed rather than left red.

@@ -19,6 +19,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvstore"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/natstrace"
 )
 
 // ChangeStreamName is the bounded JetStream stream carrying change-event
@@ -93,8 +94,14 @@ type ChangeEvent struct {
 }
 
 // Publisher publishes raw bytes to a subject — satisfied by jstream.Publisher.
+// PublishWithTrace (Phase 28d) additionally carries a traceparent header
+// derived from an in-flight *natstrace.Span, so the change-event pointer a
+// mutation causes rides the same trace as the rpc.*/REST request that caused
+// it (BR-037, BR-D39) — nil-safe, matching jstream.Publisher's own
+// nil-sp-means-plain-Publish behavior.
 type Publisher interface {
 	Publish(ctx context.Context, subject string, data []byte) error
+	PublishWithTrace(ctx context.Context, sp *natstrace.Span, subject string, data []byte) error
 }
 
 // Projector rebuilds an item's KV cache entry and the type's _meta on every
@@ -135,7 +142,8 @@ func (p *Projector) NotifyItemChanged(ctx context.Context, itemContext, typeKey,
 	if err != nil {
 		return err
 	}
-	return p.pub.Publish(ctx, ChangeSubject(itemContext, typeKey), event)
+	sp := natstrace.SpanFromContext(ctx)
+	return p.pub.PublishWithTrace(ctx, sp, ChangeSubject(itemContext, typeKey), event)
 }
 
 // Backfill rebuilds an item's cache entry at the type's CURRENT version,

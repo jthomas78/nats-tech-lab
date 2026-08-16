@@ -7,7 +7,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
 )
 
 // CreateStream creates or updates a stream with the supplied production-form
@@ -40,4 +43,27 @@ func (p *Publisher) Publish(ctx context.Context, subject string, data []byte) er
 		return fmt.Errorf("publish %s: %w", subject, err)
 	}
 	return nil
+}
+
+// PublishMsg publishes data to subject carrying headers — jetstream.JetStream's
+// header-carrying publish, unlike the plain-payload Publish above (JetStream's
+// own Publish convenience method takes no headers). Phase 28d: this is what
+// lets an evt.* publish carry a traceparent.
+func (p *Publisher) PublishMsg(ctx context.Context, subject string, headers nats.Header, data []byte) error {
+	msg := &nats.Msg{Subject: subject, Data: data, Header: headers}
+	if _, err := p.js.PublishMsg(ctx, msg); err != nil {
+		return fmt.Errorf("publish %s: %w", subject, err)
+	}
+	return nil
+}
+
+// PublishWithTrace publishes data to subject the same way Publish does, plus
+// a traceparent header derived from sp (BR-037) — nil-safe: a nil sp (no
+// span reachable at the call site, e.g. ctx carried none) publishes with no
+// traceparent header at all, identical to a plain Publish.
+func (p *Publisher) PublishWithTrace(ctx context.Context, sp *natstrace.Span, subject string, data []byte) error {
+	if sp == nil {
+		return p.Publish(ctx, subject, data)
+	}
+	return p.PublishMsg(ctx, subject, nats.Header{natstrace.TraceparentHeader: []string{sp.Traceparent()}}, data)
 }

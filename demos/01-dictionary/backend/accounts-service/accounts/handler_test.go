@@ -17,6 +17,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/internal/natstrace"
 )
 
 // Decode shapes for GET /api/accounts/topology — see topology.go's
@@ -328,6 +329,40 @@ var _ = Describe("Handlers", func() {
 		}
 		Expect(json.Unmarshal(msg.Data, &evt)).To(Succeed())
 		Expect(evt.Name).To(Equal("notify-tenant"))
+	})
+
+	It("BR-037: notify.accounts.account.created carries the HTTP request's traceparent when the mux is wrapped in natstrace.HTTPMiddleware", func() {
+		notifyNC := ots.ConnectSys(GinkgoT())
+		defer notifyNC.Close()
+		sub, err := notifyNC.SubscribeSync("notify.accounts.account.created")
+		Expect(err).NotTo(HaveOccurred())
+		defer sub.Unsubscribe() //nolint:errcheck
+
+		notifyHandlers := accounts.NewHandlers(store, provisioner, GinkgoT().TempDir(), slog.New(slog.DiscardHandler), notifyNC, auditLog)
+		mux := http.NewServeMux()
+		notifyHandlers.Mount(mux, authSecret)
+		tracer := natstrace.New(notifyNC)
+		notifyServer := httptest.NewServer(tracer.HTTPMiddleware(mux))
+		defer notifyServer.Close()
+
+		parentTraceID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		parentSpanID := "bbbbbbbbbbbbbbbb"
+		req, err := http.NewRequest(http.MethodPost, notifyServer.URL+"/api/accounts", bytes.NewReader([]byte(`{"name":"traced-tenant"}`)))
+		Expect(err).NotTo(HaveOccurred())
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("traceparent", "00-"+parentTraceID+"-"+parentSpanID+"-01")
+		req.SetBasicAuth(accounts.BasicAuthUser, authSecret)
+		resp, err := notifyServer.Client().Do(req)
+		Expect(err).NotTo(HaveOccurred())
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		msg, err := sub.NextMsg(2 * time.Second)
+		Expect(err).NotTo(HaveOccurred())
+		tp := msg.Header.Get(natstrace.TraceparentHeader)
+		Expect(tp).NotTo(BeEmpty(), "the notify publish must carry a traceparent")
+		Expect(tp).To(HavePrefix("00-" + parentTraceID + "-"))
+		Expect(tp).NotTo(ContainSubstring(parentSpanID), "the notify's own span mints a fresh child span id, not the inbound request's own span id")
 	})
 
 	It("does not fail account creation when NotifyNC is unset", func() {

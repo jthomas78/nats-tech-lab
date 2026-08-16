@@ -52,7 +52,7 @@ definitions:
         description: ISO 6346 natural key, e.g. TCKU1234567
         type: string
       context:
-        description: fleet / KV-bucket qualifier
+        description: fleet / KV-key-prefix qualifier
         type: string
       destPort:
         type: string
@@ -96,7 +96,7 @@ definitions:
   domain.ShipState:
     properties:
       context:
-        description: fleet / KV-bucket qualifier
+        description: fleet / KV-key-prefix qualifier
         type: string
       currentPort:
         description: '"" = at sea'
@@ -156,7 +156,7 @@ definitions:
   queries.ShipWithManifest:
     properties:
       context:
-        description: fleet / KV-bucket qualifier
+        description: fleet / KV-key-prefix qualifier
         type: string
       currentPort:
         description: '"" = at sea'
@@ -239,8 +239,47 @@ definitions:
       error:
         type: string
     type: object
+  rest.jsEvent:
+    properties:
+      payload:
+        type: object
+      seq:
+        type: integer
+      subject:
+        type: string
+      timestamp:
+        type: string
+    type: object
+  rest.jsStream:
+    properties:
+      account:
+        type: string
+      bytes:
+        type: integer
+      consumers:
+        type: integer
+      firstSeq:
+        type: integer
+      lastSeq:
+        type: integer
+      messages:
+        type: integer
+      stream:
+        type: string
+      subjects:
+        type: integer
+    type: object
+  rest.jsStreamsResponse:
+    properties:
+      streams:
+        items:
+          $ref: '#/definitions/rest.jsStream'
+        type: array
+    type: object
   rest.kvBucket:
     properties:
+      account:
+        type: string
       backingStore:
         type: string
       bucket:
@@ -260,6 +299,20 @@ definitions:
         items:
           $ref: '#/definitions/rest.kvBucket'
         type: array
+    type: object
+  rest.kvChange:
+    properties:
+      created:
+        type: string
+      key:
+        type: string
+      op:
+        description: PUT, DEL, PURGE
+        type: string
+      revision:
+        type: integer
+      value:
+        type: object
     type: object
   rest.metaValuesResponse:
     properties:
@@ -355,6 +408,19 @@ definitions:
         type: string
       subject:
         type: string
+    type: object
+  rest.natsLogResponse:
+    properties:
+      lines:
+        items:
+          type: string
+        type: array
+      truncated:
+        description: |-
+          Truncated is true when more matching lines existed than natsLogMaxTail
+          (or the caller's smaller ?tail=) could return — lets the UI say "showing
+          the most recent N" instead of implying this is the complete history.
+        type: boolean
     type: object
   rest.natsServerLimits:
     properties:
@@ -619,47 +685,66 @@ paths:
       summary: Unload container from ship
       tags:
       - containers
-  /api/jetstream/stream:
+  /api/jetstream/replay:
     get:
-      description: Server-Sent Events stream of raw emea.events.acme.> messages from
-        SHIPPING using DeliverAll policy — replays from seq=1, then continues live.
-        Each event is a JSON-encoded jsEvent object.
+      description: 'Returns every currently-retained raw JetStream message from one
+        account''s stream as a single JSON array, snapshotted at request time. Replaces
+        replayJetStream''s SSE full-history half — the Admin UI now does one bootstrap
+        fetch here, then subscribes to notify.{context}.shipping.raw.{entity}.{event}
+        (eventhandler.publishRawNotify) for anything published afterward, instead
+        of holding an SSE connection open. Because this snapshot is backend-mediated
+        it works for ANY account listStreams reports, not just the browser''s own
+        — but the notify.* live tail does not: NATS enforces account isolation at
+        the server, so a browser can only subscribe within the account its own connection
+        authenticated as.'
       parameters:
+      - description: NATS account (a known tenant name, or \
+        in: query
+        name: account
+        type: string
       - description: Stream name (default SHIPPING)
         in: query
         name: stream
         type: string
-      produces:
-      - text/event-stream
-      responses:
-        "200":
-          description: 'SSE stream — data: {jsEvent JSON}'
-          schema:
-            type: string
-        "400":
-          description: Unknown stream
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: JetStream full replay + live stream (SSE)
-      tags:
-      - streams
-  /api/jetstream/streams:
-    get:
-      description: Names of every event stream registered on the NATS server (not
-        just SHIPPING) — lets the frontend's stream picker reflect what's actually
-        provisioned. KV_* streams are NATS' internal storage for KV buckets, not event
-        streams a client watches for messages, so they're excluded.
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/rest.metaValuesResponse'
+            items:
+              $ref: '#/definitions/rest.jsEvent'
+            type: array
+        "400":
+          description: Unknown account or stream
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: JetStream one-shot replay (Phase 23)
+      tags:
+      - streams
+  /api/jetstream/streams:
+    get:
+      description: 'Every event stream registered across every NATS account this backend
+        holds a connection to — each known tenant''s SHIPPING plus the PLATFORM account''s
+        REFDATA/RPCTRACE — tagged with its account and carrying run-time status (message
+        count, bytes, configured subject count, first/last sequence, consumer count).
+        Deliberately NOT scoped to the topbar''s currently-selected tenant: a tenant
+        switch reconnects Deps.JS for command/query traffic, but this is a read-only
+        cross-account diagnostic view (same rationale as /api/kv/buckets). KV_* streams
+        are NATS'' internal backing storage for KV buckets, not event streams a client
+        watches for messages, so they''re excluded — /api/kv/buckets reports those
+        as buckets instead.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.jsStreamsResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -667,42 +752,14 @@ paths:
       summary: List registered streams
       tags:
       - streams
-  /api/jetstream/watch:
-    get:
-      description: Server-Sent Events stream of raw emea.events.acme.> messages from
-        SHIPPING using DeliverNew policy — only messages published after connection.
-        Each event is a JSON-encoded jsEvent object.
-      parameters:
-      - description: Stream name (default SHIPPING)
-        in: query
-        name: stream
-        type: string
-      produces:
-      - text/event-stream
-      responses:
-        "200":
-          description: 'SSE stream — data: {jsEvent JSON}'
-          schema:
-            type: string
-        "400":
-          description: Unknown stream
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: JetStream live watch (SSE)
-      tags:
-      - streams
   /api/kv/buckets:
     get:
-      description: 'Every Key-Value bucket registered on the NATS server, with run-time
-        status (value count, history depth, size, TTL, backing store). Backs the KV
-        inspector''s bucket rail — the raw NATS KV stores this lab provisions (one
-        per role per tenant: dict-a, dict-b, container, meta; plus refdata-service''s
-        cache). Each bucket holds keys for all business-unit contexts, prefixed as
-        {context}.{entityType}.{id}.'
+      description: 'Every Key-Value bucket registered across every NATS account this
+        backend holds a connection to — every known tenant (dict-a, dict-b, container,
+        meta) plus the PLATFORM account (refdata-service''s versioned caches) — each
+        tagged with its account. Deliberately NOT scoped to the topbar''s currently-selected
+        tenant: a tenant switch reconnects Deps.JS for command/query traffic, but
+        this is a read-only cross-account diagnostic view.'
       produces:
       - application/json
       responses:
@@ -717,35 +774,42 @@ paths:
       summary: List KV buckets
       tags:
       - kv
-  /api/kv/buckets/{bucket}/watch:
+  /api/kv/buckets/{account}/{bucket}/entries:
     get:
-      description: Server-Sent Events stream for one KV bucket by full name. Replays
-        the bucket's current entries first (Live=false), sends an INIT_DONE control
-        event, then streams live changes (Live=true). One connection drives both the
-        contents snapshot and the live update feed — the same WatchAll semantics the
-        NATS KV watch model is built on.
+      description: Returns every current entry in one KV bucket as a single JSON array,
+        snapshotted at request time — the bootstrap half of watchKVBucket's old SSE
+        stream (Live=false entries only). Live changes after this snapshot arrive
+        via notify.{context}.kv.{bucket}.{key}.changed (internal/kvstore.Store.EnableNotify)
+        instead of holding a connection open.
       parameters:
-      - description: KV bucket name (e.g. dict-a, dict-b, container, meta, refdata-acme)
+      - description: NATS account (a known tenant name, or \
+        in: path
+        name: account
+        required: true
+        type: string
+      - description: KV bucket name (e.g. dict-a, dict-b, container, meta)
         in: path
         name: bucket
         required: true
         type: string
       produces:
-      - text/event-stream
+      - application/json
       responses:
         "200":
-          description: 'SSE stream — data: {kvChange JSON}'
+          description: OK
           schema:
-            type: string
+            items:
+              $ref: '#/definitions/rest.kvChange'
+            type: array
         "400":
-          description: Unknown bucket
+          description: Unknown account or bucket
           schema:
             $ref: '#/definitions/rest.errorResponse'
         "500":
           description: Internal Server Error
           schema:
             $ref: '#/definitions/rest.errorResponse'
-      summary: Watch a KV bucket (SSE)
+      summary: One-shot KV bucket entries (Phase 23)
       tags:
       - kv
   /api/manifest/{context}/{shipID}:
@@ -836,9 +900,9 @@ paths:
         not fleet-context-scoped. The page object passes through /connz''s paging
         envelope (total/offset/limit/numConnections) so a caller can tell a complete
         snapshot from one page of several; limit there is the server''s page size
-        (default 1024), not max_connections. The server object carries the real
-        ceiling, maxConnections, read from /varz — 0 when /varz was unreachable,
-        which is a secondary read this endpoint absorbs rather than failing on.'
+        (default 1024), not max_connections. The server object carries the real ceiling,
+        maxConnections, read from /varz — 0 when /varz was unreachable, which is a
+        secondary read this endpoint absorbs rather than failing on.'
       produces:
       - application/json
       responses:
@@ -852,6 +916,41 @@ paths:
           schema:
             $ref: '#/definitions/rest.errorResponse'
       summary: List NATS connections
+      tags:
+      - nats
+  /api/nats/log:
+    get:
+      description: The last N lines of NATS's own log_file, optionally filtered by
+        level ([ERR]/[WRN]/[INF]/[DBG]/[TRC]) and/or a free-text substring — REST-polled,
+        not a push/follow transport. tail is capped server-side at 1000 regardless
+        of what's requested. Returns 503 if NatsLogPath was never configured (e.g.
+        running outside Docker).
+      parameters:
+      - description: error|warn|info|debug|trace — omit for all levels
+        in: query
+        name: level
+        type: string
+      - description: case-insensitive substring filter, applied in addition to level
+        in: query
+        name: q
+        type: string
+      - description: number of matching lines to return (default 200, hard-capped
+          at 1000)
+        in: query
+        name: tail
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.natsLogResponse'
+        "503":
+          description: log tailing not configured
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Tail the NATS server log
       tags:
       - nats
   /api/nats/services:
@@ -1057,32 +1156,6 @@ paths:
       summary: Resolve all items of a reference-data type (Phase 11.6)
       tags:
       - refdata
-  /api/rpc-watch:
-    get:
-      description: 'Server-Sent Events stream of the best-effort request/reply observability
-        side-channels: refdata-service''s obs.rpc.* (backend-to-backend, PLATFORM
-        account) and shipping-service''s obs.api.* (browser-to-service, the ACTIVE
-        tenant''s account only). Replays whatever the RPCTRACE stream currently retains
-        for obs.rpc.* (up to the last 10 minutes, BR-D29) first, then continues live
-        via core NATS subscribe; obs.api.* is live-only — RPCTRACE lives on the PLATFORM
-        account and does not capture tenant-account traffic. Each event carries direction
-        ("request"|"reply"), a correlationId pairing a request with its reply, the
-        real rpc.*/api.* subject, and the payload. See ARCHITECTURE-COMMUNICATIONS.md
-        §6.'
-      produces:
-      - text/event-stream
-      responses:
-        "200":
-          description: 'SSE stream — data: {obs.rpc.*/obs.api.* JSON}'
-          schema:
-            type: string
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: obs.rpc.* + obs.api.* request/reply traffic stream (SSE, Phase 12.10)
-      tags:
-      - streams
   /api/shape-b/cache/{context}/{shipID}:
     delete:
       description: Deletes the KV cache entry for a ship in the Shape B bucket. The
@@ -1366,55 +1439,4 @@ paths:
       summary: Containers in a terminal yard
       tags:
       - terminal
-  /api/watch-terminal/{context}:
-    get:
-      description: Server-Sent Events stream of NATS KV changes for the container
-        projection bucket and the meta.* lookup bucket in the given context. Replays
-        current state first, then delivers live updates. Shape is "CONTAINER" or "META".
-      parameters:
-      - description: Fleet context (e.g. acme)
-        in: path
-        name: context
-        required: true
-        type: string
-      produces:
-      - text/event-stream
-      responses:
-        "200":
-          description: 'SSE stream — data: {watchEvent JSON}'
-          schema:
-            type: string
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: Terminal KV watch stream (SSE)
-      tags:
-      - streams
-  /api/watch/{context}:
-    get:
-      description: Server-Sent Events stream of NATS KV changes for both the Shape
-        A and Shape B ship buckets in the given context. Replays current bucket state
-        first (snapshot), then delivers live updates. Each event is a JSON-encoded
-        watchEvent object.
-      parameters:
-      - description: Fleet context (e.g. acme, acme-atlantic-fleet)
-        in: path
-        name: context
-        required: true
-        type: string
-      produces:
-      - text/event-stream
-      responses:
-        "200":
-          description: 'SSE stream — data: {watchEvent JSON}'
-          schema:
-            type: string
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: Ship KV watch stream (SSE)
-      tags:
-      - streams
 swagger: "2.0"

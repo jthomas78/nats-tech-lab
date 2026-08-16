@@ -267,11 +267,12 @@ onUnmounted(() => {
       <ShapeCPanel />
     </section>
 
-    <!-- Request/Reply — obs.rpc.* + obs.api.* request/reply traffic (Phase 12.10; api.* added Phase 16) -->
+    <!-- Request/Reply — obs.rpc.* + obs.api.* request/reply traffic (Phase 12.10; api.* added Phase 16).
+         No lab-panel wrapper here (unlike the other group--flush views below) — RpcPanel's own
+         Traces/Messages Tabs sit flush on the page, same as AccountsView's tabs, with the card
+         treatment applied only to each tab's content (see RpcPanel.vue's .rpc-card). -->
     <section v-else-if="activeView === 'rpc'" class="group group--flush" data-testid="rpc-view">
-      <div class="lab-panel streams-panel">
-        <RpcPanel />
-      </div>
+      <RpcPanel />
     </section>
 
     <!-- Connections — every active NATS connection, server-wide (Phase 17c).

@@ -25,6 +25,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvstore"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/natstrace"
 )
 
 func newRefdataJetStream() jetstream.JetStream {
@@ -144,6 +145,61 @@ var _ = Describe("KV cache + versioned-read protocol (Phase 11.3)", func() {
 		Expect(json.Unmarshal(msg.Data(), &event)).To(Succeed())
 		Expect(event.TypeKey).To(Equal("currency"))
 		Expect(event.Version).To(Equal(1))
+	})
+
+	It("BR-037/BR-D39: the change-event pointer carries the traceparent of the span attached to the mutation's ctx", func() {
+		consumer, err := js.CreateOrUpdateConsumer(ctx, kvcache.ChangeStreamName, jetstream.ConsumerConfig{
+			DeliverPolicy: jetstream.DeliverAllPolicy,
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		// natstrace.New(nil): the tracer's nc is only dereferenced by
+		// Span.End/Fail (obs.trace.* publish) — this test never calls
+		// either, only StartOutbound to mint the span and Traceparent() to
+		// read it back, so no live connection is needed here.
+		tracer := natstrace.New(nil)
+		// StartOutbound with a nil parent mints a fresh root span — standing
+		// in for the inbound rpc.*/REST request's span that a real
+		// natsrpc handler would attach via natstrace.ContextWithSpan before
+		// calling down into ItemHandler.RegisterItem (Piece 1 of Phase 28d).
+		sp := tracer.StartOutbound(nil, "rpc.acme-test.refdata.item.register.v1", nil, itemCtx, "refdata", "currency", "register")
+		ctxWithSpan := natstrace.ContextWithSpan(ctx, sp)
+
+		_, err = itemH.RegisterItem(ctxWithSpan, commands.ItemInput{TypeKey: "currency", Code: "EUR", Context: itemCtx})
+		Expect(err).NotTo(HaveOccurred())
+
+		msgs, err := consumer.Fetch(1, jetstream.FetchMaxWait(5*time.Second))
+		Expect(err).NotTo(HaveOccurred())
+		var msg jetstream.Msg
+		for m := range msgs.Messages() {
+			msg = m
+		}
+		Expect(msg).NotTo(BeNil())
+		Expect(msg.Headers().Get(natstrace.TraceparentHeader)).To(Equal(sp.Traceparent()),
+			"the evt.* change-event pointer must carry the same traceparent as the ctx-attached span so a future consumer (or the OTLP bridge, Phase 28g) can join it to the request that caused it")
+	})
+
+	It("BR-037/BR-D39: a mutation with no span on ctx publishes cleanly with no traceparent header", func() {
+		consumer, err := js.CreateOrUpdateConsumer(ctx, kvcache.ChangeStreamName, jetstream.ConsumerConfig{
+			DeliverPolicy: jetstream.DeliverAllPolicy,
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		// ctx here carries no span at all (natstrace.SpanFromContext(ctx)
+		// returns nil) — PublishWithTrace must fall through to a plain
+		// Publish with no Traceparent header, exactly like jstream.Publisher's
+		// own nil-sp behavior, and must not error.
+		_, err = itemH.RegisterItem(ctx, commands.ItemInput{TypeKey: "currency", Code: "EUR", Context: itemCtx})
+		Expect(err).NotTo(HaveOccurred())
+
+		msgs, err := consumer.Fetch(1, jetstream.FetchMaxWait(5*time.Second))
+		Expect(err).NotTo(HaveOccurred())
+		var msg jetstream.Msg
+		for m := range msgs.Messages() {
+			msg = m
+		}
+		Expect(msg).NotTo(BeNil())
+		Expect(msg.Headers().Get(natstrace.TraceparentHeader)).To(BeEmpty())
 	})
 
 	It("cold start — the KV bucket does not exist yet, and the first mutation creates it", func() {

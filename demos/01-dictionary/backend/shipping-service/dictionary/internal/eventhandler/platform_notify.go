@@ -13,7 +13,6 @@ import (
 
 const (
 	refdataChangeStreamName = "REFDATA"
-	rpcTraceStreamName      = "RPCTRACE"
 
 	// platformBridgeRetryDelay bounds how long a platform notify bridge waits
 	// before retrying consumer setup after a transient failure (e.g.
@@ -23,12 +22,13 @@ const (
 )
 
 // runPlatformNotifyBridge is the shared retry/consume loop behind
-// RegisterRefdataNotify and RegisterRPCTraceNotify (Phase 23): both bridge a
-// PLATFORM-account JetStream stream shipping-admin's restricted permissions
-// can reach only via the ordered-consumer API (bootstrap-operator.sh denies
-// raw core-NATS subscribe on evt.>/obs.rpc.> for that user) onto a
-// notify.* subject the Admin UI's browser-held PLATFORM connection can
-// subscribe to directly. Runs for the life of the process — ctx cancellation
+// RegisterRefdataNotify (Phase 23) — and, until Phase 28g's retirement,
+// RegisterRPCTraceNotify too: it bridges a PLATFORM-account JetStream stream
+// shipping-admin's restricted permissions can reach only via the
+// ordered-consumer API (bootstrap-operator.sh denies raw core-NATS
+// subscribe on evt.> for that user) onto a notify.* subject the Admin UI's
+// browser-held PLATFORM connection can subscribe to directly. Runs for the
+// life of the process — ctx cancellation
 // (process shutdown) is the only way out. A stream that doesn't exist yet,
 // or a Messages() feed that ends (server restart, consumer deleted
 // underneath it), is retried after platformBridgeRetryDelay rather than
@@ -124,34 +124,13 @@ func RegisterRefdataNotify(ctx context.Context, platformJS jetstream.JetStream, 
 	})
 }
 
-// RegisterRPCTraceNotify starts a permanent background bridge (Phase 23):
-// refdata-service's RPCTRACE JetStream stream (PLATFORM account, BR-D29)
-// republished onto notify._platform.rpctrace.entry, live-only
-// (DeliverNewPolicy) — replacing the live-tail half of
-// dictionary/internal/rest/sse.go's watchRPCObs. Historical replay ("last N
-// minutes", bounded by RPCTRACE's own retention) moves to a one-shot REST
-// bootstrap endpoint (Phase 23 task 5) instead of being folded into this
-// bridge, matching the bootstrap-then-subscribe shape every other panel
-// under this phase uses.
-//
-// The obs.api.> half of the old combined feed is NOT bridged here: it lives
-// on the tenant account (not PLATFORM), and the tenant browser JWT already
-// carries a direct obs.api.> subscribe permission (auth/token.go,
-// MintBrowserToken) — the browser subscribes to it directly on its own
-// tenant connection instead of through a backend bridge.
-//
-// Nil-safe on both platformJS and platformNC — see RegisterRefdataNotify's
-// doc comment.
-func RegisterRPCTraceNotify(ctx context.Context, platformJS jetstream.JetStream, platformNC *nats.Conn, log *slog.Logger) {
-	if platformJS == nil || platformNC == nil {
-		return
-	}
-	runPlatformNotifyBridge(ctx, platformJS, rpcTraceStreamName, jetstream.OrderedConsumerConfig{
-		DeliverPolicy: jetstream.DeliverNewPolicy,
-	}, log, func(msg jetstream.Msg) {
-		const subject = "notify._platform.rpctrace.entry"
-		if err := platformNC.Publish(subject, msg.Data()); err != nil {
-			log.Warn("rpctrace notify publish failed", "subject", subject, "err", err)
-		}
-	})
-}
+// RegisterRPCTraceNotify (Phase 23) was retired in Phase 28g: it bridged
+// refdata-service's RPCTRACE stream (obs.rpc.*, BR-D29) onto
+// notify._platform.rpctrace.entry for the Admin UI's old [messages] tab.
+// Nothing had published to obs.rpc.* since Phase 28a-28e replaced every
+// adapter's publishObs call with a natstrace span — this bridge was a live
+// pipe carrying nothing. The [messages] tab now derives from obs.trace.*/
+// the trace-request-reply KV bucket instead (BR-026's Phase 28g amendment,
+// BUSINESS_RULES-SHIPPING.md). See platform_notify_test.go's removed
+// specs and BUSINESS_RULES-REFDATA.md's BR-D29 for the corresponding
+// retirement on the publish/stream-provisioning side.

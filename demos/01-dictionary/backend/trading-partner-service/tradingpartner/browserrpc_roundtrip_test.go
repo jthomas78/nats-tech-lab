@@ -337,18 +337,81 @@ var _ = Describe("api.* round trips (Phase 26h)", func() {
 		})
 	})
 
-	Context("obs.* side-channel", func() {
-		It("mirrors each call onto obs.api.* without the version suffix", func() {
-			obs := make(chan *nats.Msg, 8)
-			sub, err := nc.Subscribe("obs.api.>", func(m *nats.Msg) { obs <- m })
+	Context("obs.trace.* side-channel (BR-036/BR-037/BR-TP15)", func() {
+		// traceSpan is a strict superset of the pre-Phase-28 obsEnvelope: this
+		// decodes it into the old shape (ignoring every new field) to assert
+		// backward compatibility, then again into the full shape for the new
+		// tracing fields.
+		type legacyEnvelope struct {
+			Direction     string              `json:"direction"`
+			CorrelationID string              `json:"correlationId"`
+			Subject       string              `json:"subject"`
+			Payload       json.RawMessage     `json:"payload,omitempty"`
+			Error         string              `json:"error,omitempty"`
+			Headers       map[string][]string `json:"headers,omitempty"`
+			Timestamp     time.Time           `json:"timestamp"`
+			PayloadBytes  int                 `json:"payloadBytes"`
+		}
+		type traceSpan struct {
+			legacyEnvelope
+			TraceID       string            `json:"traceId,omitempty"`
+			SpanID        string            `json:"spanId,omitempty"`
+			ParentSpanID  string            `json:"parentSpanId,omitempty"`
+			Service       string            `json:"service,omitempty"`
+			Entity        string            `json:"entity,omitempty"`
+			Action        string            `json:"action,omitempty"`
+			StatusCode    string            `json:"statusCode,omitempty"`
+			StatusMessage string            `json:"statusMessage,omitempty"`
+			Attributes    map[string]string `json:"attributes,omitempty"`
+			Redacted      []string          `json:"redacted,omitempty"`
+			Truncated     bool              `json:"truncated,omitempty"`
+		}
+
+		It("publishes one span per call to obs.trace.{context}.trading-partner.{entity}.{action}, decodable both as the old envelope shape and the new one", func() {
+			spans := make(chan *nats.Msg, 8)
+			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(func() { _ = sub.Unsubscribe() })
 			Expect(nc.Flush()).To(Succeed())
 
 			request("api.acme.trading-partner.partner.list.v1", map[string]any{}, nil)
 
-			Eventually(obs).Should(Receive(HaveField("Subject",
-				Equal("obs.api.acme.trading-partner.partner.list"))))
+			var msg *nats.Msg
+			Eventually(spans).Should(Receive(&msg))
+			Expect(msg.Subject).To(Equal("obs.trace.acme.trading-partner.partner.list"))
+
+			var legacy legacyEnvelope
+			Expect(json.Unmarshal(msg.Data, &legacy)).To(Succeed())
+			Expect(legacy.Subject).To(Equal("api.acme.trading-partner.partner.list.v1"))
+			Expect(legacy.PayloadBytes).To(BeNumerically(">", 0))
+
+			var span traceSpan
+			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+			Expect(span.TraceID).NotTo(BeEmpty())
+			Expect(span.SpanID).NotTo(BeEmpty())
+			Expect(span.ParentSpanID).To(BeEmpty(), "a call with no inbound traceparent is a root span")
+			Expect(span.Service).To(Equal("trading-partner"))
+			Expect(span.Entity).To(Equal("partner"))
+			Expect(span.Action).To(Equal("list"))
+			Expect(span.StatusCode).To(Equal("OK"))
+		})
+
+		It("marks a failed call with statusCode ERROR and the error message", func() {
+			spans := make(chan *nats.Msg, 8)
+			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = sub.Unsubscribe() })
+			Expect(nc.Flush()).To(Succeed())
+
+			request("api.acme.trading-partner.partner.get.v1", map[string]any{"id": "does-not-exist"}, nil)
+
+			var msg *nats.Msg
+			Eventually(spans).Should(Receive(&msg))
+
+			var span traceSpan
+			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+			Expect(span.StatusCode).To(Equal("ERROR"))
+			Expect(span.StatusMessage).NotTo(BeEmpty())
 		})
 	})
 })

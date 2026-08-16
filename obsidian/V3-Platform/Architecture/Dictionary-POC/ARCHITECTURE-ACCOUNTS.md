@@ -77,17 +77,18 @@ different remote subject; its import simply has no such mapping.
 `shipping-service` still opens one connection per tenant for that tenant's
 own SHIPPING stream and KV buckets. Its permanent PLATFORM connection is now
 the restricted `shipping-admin` user, used only for `$SRV.>` discovery and
-ordered-consumer inspection/replay of REFDATA and RPCTRACE. `$SRV.>` is not
-exported to tenants because server topology is platform administration, not
-tenant data; RPCTRACE replay is likewise not imported because it contains
-cross-tenant observability traffic. The normal tenant import carries refdata
+ordered-consumer inspection/replay of REFDATA. (`shipping-admin` held the
+matching grant for RPCTRACE too until Phase 28g retired that stream and its
+consumer bridge — see `BUSINESS_RULES-REFDATA.md`'s BR-D29 amendment.)
+`$SRV.>` is not exported to tenants because server topology is platform
+administration, not tenant data. The normal tenant import carries refdata
 change events instead.
 
 **Two PLATFORM connections, not one (Phase 24).** `shipping-admin` never
 receives `$JS.API.>`. Its grant is an explicit allow-list
 (`nats/bootstrap-operator.sh`) naming only the ordered-consumer subjects —
-`CONSUMER.{CREATE,INFO,DELETE,MSG.NEXT}` for `REFDATA` and `RPCTRACE`
-specifically — so every other JetStream API subject is denied by omission, a
+`CONSUMER.{CREATE,INFO,DELETE,MSG.NEXT}` for `REFDATA` specifically — so
+every other JetStream API subject is denied by omission, a
 restriction `TestShippingAdminCanOnlyUseNarrowOrderedConsumerAccess` pins in
 place. That is enough to **replay** those two streams, but not to
 **enumerate** them: listing needs `$JS.API.STREAM.LIST`, which no entry
@@ -252,8 +253,8 @@ flowchart TB
     end
     Tenant -- "GET /api/auth/connectInfo?tenant=" --> MintBrowser["MintBrowserToken<br/>(tenant account signing key)"]
     Platform -- "GET /api/auth/adminConnectInfo" --> MintAdmin["MintAdminToken<br/>(PLATFORM signing key)"]
-    MintBrowser -.->|"api.&gt;/notify.&gt;/obs.api.&gt;<br/>reconnects on tenant switch"| Tenant
-    MintAdmin -.->|"sub-only: notify.accounts.account.&gt;,<br/>notify._platform.refdata.&gt;,<br/>notify._platform.rpctrace.&gt;<br/>publish denied entirely"| Platform
+    MintBrowser -.->|"api.&gt;/notify.&gt;<br/>reconnects on tenant switch"| Tenant
+    MintAdmin -.->|"sub-only: notify.accounts.account.&gt;,<br/>notify._platform.refdata.&gt;,<br/>notify._platform.kv.trace-request-reply.&gt;<br/>publish denied entirely"| Platform
 ```
 
 The two connections are not symmetric, and deliberately so:
@@ -261,9 +262,9 @@ The two connections are not symmetric, and deliberately so:
 - **Tenant** (`useNatsConnection.js`) reconnects on every tenant switch —
   same `MintBrowserToken` credential and permission profile Sea Freight Flow
   already used (Phase 15c), just reused by a second app. Carries the
-  dictionary/KV/JetStream-raw `notify.*` subjects plus a direct `obs.api.>`
-  subscribe (added this phase for the Request/Reply panel's live tenant-side
-  tail).
+  dictionary/KV/JetStream-raw `notify.*` subjects. (A direct `obs.api.>`
+  subscribe was added this phase for the Request/Reply panel's live
+  tenant-side tail; retired in Phase 28g along with that channel.)
 - **Admin/Platform** (`usePlatformConnection.js`) connects once at boot and
   never reconnects on tenant/BU switch — PLATFORM has no tenant lifecycle to
   switch against (see `MintAdminToken`'s doc comment, `auth/token.go`). This
@@ -276,8 +277,10 @@ The two connections are not symmetric, and deliberately so:
 See `BUSINESS_RULES-ACCOUNTS.md` BR-AC18 for `MintAdminToken`'s exact
 permission grant and why it's issued outside the tenant `Status`/
 `SigningKeySeed` lifecycle this section otherwise documents, and
-`ARCHITECTURE-COMMUNICATIONS.md` § 6 for how the Request/Reply panel splits
-`obs.rpc.*`/`obs.api.*` across these two connections.
+`ARCHITECTURE-COMMUNICATIONS.md` § 6 for how the Request/Reply panel used to
+split `obs.rpc.*`/`obs.api.*` across these two connections before Phase 28g
+retired that channel in favor of both tabs reading `obs.trace.*` (the
+`traces` KV bucket) over the Platform connection alone.
 
 **What the tenant connection can and cannot reach (Phase 24).** The tenant
 connection is authenticated into exactly one account at a time, and NATS

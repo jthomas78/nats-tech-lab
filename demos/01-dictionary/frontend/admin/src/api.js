@@ -129,10 +129,6 @@ export function getJetstreamReplay(account, stream = 'SHIPPING') {
   return request(`/api/jetstream/replay?${query}`)
 }
 
-export function getRpcTraceReplay() {
-  return request('/api/rpctrace/replay')
-}
-
 // ── Tenant switch (Phase 13b) ─────────────────────────────────────────────────
 // Distinct from fleet context (getPorts above): this reconnects
 // shipping-service's NATS connection under a different account entirely, so

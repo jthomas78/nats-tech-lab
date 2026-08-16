@@ -9,6 +9,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
 )
 
 // ContainerInput carries the caller-supplied fields for a container command.
@@ -233,5 +234,6 @@ func (h *ContainerHandler) publish(ctx context.Context, subject string, event do
 	if err != nil {
 		return fmt.Errorf("marshal event: %w", err)
 	}
-	return h.pub.Publish(ctx, subject, data)
+	sp := natstrace.SpanFromContext(ctx)
+	return h.pub.PublishWithTrace(ctx, sp, subject, data)
 }

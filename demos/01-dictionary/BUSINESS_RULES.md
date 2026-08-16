@@ -23,21 +23,28 @@ Split by domain so a rule add/edit only requires reading its own file:
   failures name the cause rather than the transport symptom), and the
   Phase 27 Admin UI presentation rule (BR-034 — the new Account Activity
   panel proxies `/accstatz` per account and renders `slow_consumers` as a
-  silent-until-nonzero alarm, not a routine stat).
+  silent-until-nonzero alarm, not a routine stat), and the Phase 28
+  distributed-tracing rules (BR-035 — the Request/Reply & Traces panel's
+  `[traces]` presentation; BR-036 — the `obs.trace.*` envelope contract,
+  PLATFORM-only publishing, redact-before-truncate; BR-037 — trace
+  propagation on every outbound message, one span per logical RPC call).
   Rules live in `dictionary/internal/domain/` (BR-001–022),
   `dictionary/internal/browserrpc/` + `dictionary/internal/eventhandler/`
   (BR-023–024, 026–028), `internal/refdataconsumer/` (BR-025, 027),
   `frontend/seafreight-app/src/stores/port.js` (BR-029),
   `dictionary/internal/rest/tenant.go` + `dictionary/composition.go`
   (BR-030–032), `frontend/seafreight-app/src/App.vue` +
-  `src/nats/useNatsConnection.js` (BR-031, BR-033), and
+  `src/nats/useNatsConnection.js` (BR-031, BR-033),
   `dictionary/internal/rest/nats_ops.go` +
-  `frontend/admin/src/components/AccountActivityPanel.vue` (BR-034).
+  `frontend/admin/src/components/AccountActivityPanel.vue` (BR-034), and
+  `dictionary/internal/natstrace/` + `frontend/admin/src/components/
+  TraceWaterfall.vue` (BR-035–037).
 - **[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)** — Reference Data
-  Service (BR-D01–BR-D28). Rules live in
+  Service (BR-D01–BR-D39, the last being the Phase 28 `obs.trace.*` mirror of
+  BR-036). Rules live in
   `backend/refdata-service/refdata/internal/domain/dictionary.go`.
 - **[BUSINESS_RULES-ACCOUNTS.md](BUSINESS_RULES-ACCOUNTS.md)** — Accounts
-  Service (BR-AC01–BR-AC13): NATS account provisioning, suspension,
+  Service (BR-AC01–BR-AC30): NATS account provisioning, suspension,
   reactivation, reserved-name protection via decentralized JWTs, (BR-AC08)
   publishing `notify.accounts.account.created` so shipping-service can react
   to a newly-minted tenant immediately (see BR-030, SHIPPING file, for the
@@ -46,13 +53,18 @@ Split by domain so a rule add/edit only requires reading its own file:
   `notify.accounts.account.reactivated` (BR-AC10, see BR-032) completing the
   lifecycle triple, and (BR-AC11) an append-only Postgres audit trail
   (`accounts.audit_events`) recording actor/outcome/metadata for every
-  lifecycle action, and (BR-AC12) runtime update of a tenant's JetStream
+  lifecycle action, (BR-AC12) runtime update of a tenant's JetStream
   resource limits via `POST /api/accounts/{name}/jslimits`, re-minting the
-  account JWT via `$SYS.REQ.CLAIMS.UPDATE` and persisting to Postgres. Rules
-  live in `backend/accounts-service/accounts/handler.go`, `provisioner.go`,
-  `store.go`, and `audit.go`.
+  account JWT via `$SYS.REQ.CLAIMS.UPDATE` and persisting to Postgres, and
+  (BR-AC14–BR-AC29) business-unit registration, context-slug immutability,
+  JWT TTL policy, and import/export health reporting added Phases 21-22.
+  BR-AC30 (Phase 28) adds `allow_trace: true` and a per-tenant `obs.trace.>`
+  stream export to every minted tenant account JWT, never to a browser JWT.
+  Rules live in `backend/accounts-service/accounts/handler.go`,
+  `provisioner.go`, `store.go`, `audit.go`, and `jwt.go`.
 - **[BUSINESS_RULES-PRICING.md](BUSINESS_RULES-PRICING.md)** — Pricing
-  Service (BR-P01–BR-P24): all three of the ported source aggregates —
+  Service (BR-P01–BR-P25, the last being the Phase 28 `obs.trace.*` mirror of
+  BR-036): all three of the ported source aggregates —
   `FeeScale` (BR-P01–BR-P06), `RateSheet` (BR-P07–BR-P12, BR-P17–BR-P24),
   `FixedRate` (BR-P13–BR-P15) — now have a domain model, each following the
   same draft/published/rolled-back version lifecycle (reusing
@@ -94,7 +106,9 @@ Split by domain so a rule add/edit only requires reading its own file:
   `backend/pricing-service/pricing/internal/domain/fee_scale.go`,
   `rate_sheet.go`, and `fixed_rate.go`.
 - **[BUSINESS_RULES-TRADING-PARTNER.md](BUSINESS_RULES-TRADING-PARTNER.md)**
-  — Trading Partner Service (BR-TP01–BR-TP14, confirmed 2026-08-13): Shipper/Transporter registration in a new
+  — Trading Partner Service (BR-TP01–BR-TP15, confirmed 2026-08-13; BR-TP15
+  added Phase 28 as the `obs.trace.*` mirror of BR-036, prototyped in this
+  service first): Shipper/Transporter registration in a new
   `trading-partner-service`, ported from V2's `BusinessEntity`/
   `TransporterProfileEntity`/`TransporterDocumentEntity`/`FleetAssetEntity`.
   Covers only the `TradingPartner` aggregate's

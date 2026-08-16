@@ -33,11 +33,11 @@ const SupersededVersionTTL = 30 * 24 * time.Hour
 // — no label/description on the item; BR-D30 guarantees the default
 // locale's localization is present in Localizations whenever any exist.
 type VersionedEntry struct {
-	Item          CacheItem                            `json:"item"`
-	Localizations map[string]domain.LocalizationValue  `json:"localizations,omitempty"`
-	SourceContext string                               `json:"sourceContext"`
-	IsOverride    bool                                 `json:"isOverride"`
-	Version       int                                  `json:"version"`
+	Item          CacheItem                           `json:"item"`
+	Localizations map[string]domain.LocalizationValue `json:"localizations,omitempty"`
+	SourceContext string                              `json:"sourceContext"`
+	IsOverride    bool                                `json:"isOverride"`
+	Version       int                                 `json:"version"`
 }
 
 // VersionedMeta is the "_meta" key inside a version's own bucket.

@@ -71,7 +71,7 @@ func newShippingTestServer(t *testing.T) *shippingTestServer {
 			AccountLimits: jwt.AccountLimits{
 				Imports: jwt.NoLimit, Exports: jwt.NoLimit,
 				WildcardExports: wildcardExports,
-				Conn: jwt.NoLimit, LeafNodeConn: jwt.NoLimit,
+				Conn:            jwt.NoLimit, LeafNodeConn: jwt.NoLimit,
 			},
 			JetStreamLimits: jwt.JetStreamLimits{
 				MemoryStorage: jwt.NoLimit,

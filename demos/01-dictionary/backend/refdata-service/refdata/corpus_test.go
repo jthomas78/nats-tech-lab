@@ -14,7 +14,7 @@ var _ = Describe("Corpus Versioning and Template Inheritance Rules", func() {
 		It("returns a child-first ancestor chain and rejects a cycle", func() {
 			contexts := map[string]domain.Context{
 				"_platform":           {Context: "_platform"},
-				"acme-pacific-fleet":                {Context: "acme-pacific-fleet", Parent: "_platform"},
+				"acme-pacific-fleet":  {Context: "acme-pacific-fleet", Parent: "_platform"},
 				"acme-atlantic-fleet": {Context: "acme-atlantic-fleet", Parent: "acme-pacific-fleet"},
 			}
 			chain, err := domain.AncestorChain("acme-atlantic-fleet", contexts)
@@ -48,8 +48,8 @@ var _ = Describe("Corpus Versioning and Template Inheritance Rules", func() {
 		It("propagates a grandparent change unless an intermediate context overrides it", func() {
 			chain := []string{"acme-atlantic-fleet", "acme-pacific-fleet", "_platform"}
 			locals := map[string][]domain.DictionaryItem{
-				"_platform": {{TypeKey: "currency", Code: "EUR", Context: "_platform", Attrs: map[string]any{"symbol": "€"}}},
-				"acme-pacific-fleet":      {{TypeKey: "currency", Code: "USD", Context: "acme-pacific-fleet"}},
+				"_platform":          {{TypeKey: "currency", Code: "EUR", Context: "_platform", Attrs: map[string]any{"symbol": "€"}}},
+				"acme-pacific-fleet": {{TypeKey: "currency", Code: "USD", Context: "acme-pacific-fleet"}},
 			}
 			flat := domain.FlattenCorpus(chain, locals)
 			Expect(flat).To(ContainElement(And(HaveField("Code", "EUR"), HaveField("SourceContext", "_platform"), HaveField("IsOverride", false))))

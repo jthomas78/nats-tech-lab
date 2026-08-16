@@ -59,7 +59,7 @@ func (h *Handlers) jetstreamReplayOnce(w http.ResponseWriter, r *http.Request) {
 	// Same two-aggregate filter as streamJetStream (watchJetStream/
 	// replayJetStream) — a tenant's SHIPPING carries ship.* and container.*
 	// together. Every other stream gets no filter: PLATFORM's REFDATA and
-	// RPCTRACE carry unrelated subject taxonomies that the ship/container
+	// TRACES carry unrelated subject taxonomies that the ship/container
 	// filters would exclude entirely, leaving a permanently empty panel.
 	cfg := jetstream.OrderedConsumerConfig{DeliverPolicy: jetstream.DeliverAllPolicy}
 	if account != platformAccount && streamName == domain.StreamName {
@@ -126,63 +126,13 @@ func (h *Handlers) jetstreamReplayOnce(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, events)
 }
 
-// rpcTraceReplayOnce godoc
-//
-// @Summary      RPCTRACE one-shot replay (Phase 23, BR-D29)
-// @Description  Returns every currently-retained obs.rpc.* trace entry from the RPCTRACE stream (PLATFORM account) as a single JSON array, snapshotted at request time. Replaces the replay half of watchRPCObs's combined SSE feed — the Admin UI now does one bootstrap fetch here, then subscribes to notify._platform.rpctrace.entry (eventhandler.RegisterRPCTraceNotify) for anything published afterward. The obs.api.> (tenant-side, live-only) half of the old feed isn't part of this endpoint at all — the browser subscribes to obs.api.> directly on its own tenant connection (auth/token.go's MintBrowserToken already grants it).
-// @Tags         streams
-// @Produce      json
-// @Success      200  {array}   object
-// @Failure      500  {object}  errorResponse
-// @Router       /api/rpctrace/replay [get]
-func (h *Handlers) rpcTraceReplayOnce(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	entries := []json.RawMessage{}
-
-	platformJS := h.deps().PlatformJS
-	if platformJS == nil {
-		writeJSON(w, http.StatusOK, entries)
-		return
-	}
-
-	consumer, err := platformJS.OrderedConsumer(ctx, "RPCTRACE", jetstream.OrderedConsumerConfig{
-		DeliverPolicy: jetstream.DeliverAllPolicy,
-	})
-	if err != nil {
-		if errors.Is(err, jetstream.ErrStreamNotFound) {
-			// RPCTRACE not existing yet (no obs.rpc.* traffic since boot) is
-			// a legitimate race, not an error — same tolerance
-			// watchRPCObs/watchRefdata give it.
-			writeJSON(w, http.StatusOK, entries)
-			return
-		}
-		h.deps().Log.Warn("rpctrace replay: create consumer", "err", err)
-		writeJSON(w, http.StatusOK, entries)
-		return
-	}
-	if consumer.CachedInfo().NumPending == 0 {
-		writeJSON(w, http.StatusOK, entries)
-		return
-	}
-	msgs, err := consumer.Messages()
-	if err != nil {
-		h.deps().Log.Warn("rpctrace replay: consume messages", "err", err)
-		writeJSON(w, http.StatusOK, entries)
-		return
-	}
-	defer msgs.Stop()
-
-	for {
-		msg, err := msgs.Next()
-		if err != nil {
-			break
-		}
-		entries = append(entries, json.RawMessage(msg.Data()))
-		meta, metaErr := msg.Metadata()
-		if metaErr == nil && meta.NumPending == 0 {
-			break
-		}
-	}
-
-	writeJSON(w, http.StatusOK, entries)
-}
+// rpcTraceReplayOnce (Phase 23, BR-D29) was retired in Phase 28g along with
+// the RPCTRACE stream and its notify bridge (eventhandler's now-removed
+// RegisterRPCTraceNotify — see that file's retirement note). It served
+// obs.rpc.* replay for the Admin UI's old [messages] tab; nothing had
+// published to obs.rpc.* since Phase 28a-28e replaced every adapter's
+// publishObs call with a natstrace span, so this endpoint had been
+// returning an empty array since then. The [messages] tab now bootstraps
+// from GET /api/kv/buckets/platform/trace-request-reply/entries instead — the same
+// generic KV endpoint TraceWaterfall.vue already uses, no dedicated
+// replay endpoint needed.

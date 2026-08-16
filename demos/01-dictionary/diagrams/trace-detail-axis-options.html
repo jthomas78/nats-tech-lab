@@ -1,0 +1,415 @@
+<meta charset="utf-8">
+<script>document.documentElement.setAttribute("data-theme","dark")</script>
+<title>Trace detail — request/response axis options</title>
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Tokens lifted verbatim from shared/unifi-theme/unifi.css and
+   diagrams/trace-detail-request-response.html — same visual system as the
+   real TraceWaterfall.vue, not a new one. This mockup only reworks the
+   detail pane's internal axis; nothing above it changes.
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --text:   #dee0e3;
+  --muted:  #b7bcc2;
+  --dim:    #737c87;
+  --bg:     #14171b;
+  --panel:  #1a1e23;
+  --border: #2c3138;
+  --accent: #006fff;
+  --raise:  rgba(255, 255, 255, 0.02);
+
+  --req:  #006fff;  /* .tw-arrow      — existing */
+  --resp: #7fd8a4;  /* .tw-arrow.resp — existing */
+  --bad:  #f87171;
+
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --text: #1e2328; --muted: #4e5560; --dim: #9aa1a9;
+    --bg: #f4f5f7; --panel: #ffffff; --border: #d1d5db; --accent: #005fdb;
+    --raise: rgba(0,0,0,0.03);
+    --req: #005fdb; --resp: #0d8a55; --bad: #dc2626;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 28px 24px 64px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 20px;
+}
+.wrap { max-width: 1180px; margin: 0 auto; }
+
+h1 {
+  font-size: 19px; font-weight: 600; letter-spacing: -0.01em;
+  margin: 0 0 4px;
+}
+.sub { color: var(--muted); margin: 0 0 30px; max-width: 68ch; }
+
+h2 {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.09em; color: var(--dim);
+  margin: 0 0 10px; padding-bottom: 7px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: baseline; gap: 9px;
+}
+h2 .tag {
+  text-transform: none; letter-spacing: 0; font-weight: 500;
+  font-size: 11px; color: var(--resp);
+  border: 1px solid var(--resp); border-radius: 2px;
+  padding: 0 5px;
+}
+section { margin-bottom: 34px; }
+.note { color: var(--muted); margin: 0 0 14px; max-width: 74ch; }
+.note b { color: var(--text); font-weight: 600; }
+code {
+  font-family: var(--mono); font-size: 12px;
+  background: var(--raise); border-radius: 2px; padding: 0 3px;
+}
+
+/* ── the shared detail-pane chrome (unchanged from today) ───────── */
+.pane {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.pane-head {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono); font-size: 12px;
+}
+.pane-head .dur { color: var(--muted); }
+.pane-head .acct {
+  margin-left: auto;
+  font-size: 10px; letter-spacing: 0.06em;
+  color: var(--dim);
+  border: 1px solid var(--border); border-radius: 2px;
+  padding: 0 5px;
+}
+
+.lbl {
+  font-size: 10px; font-weight: 600;
+  letter-spacing: 0.04em; color: var(--muted);
+  margin-bottom: 3px;
+  display: flex; align-items: center; gap: 6px;
+}
+.lbl .count { color: var(--dim); font-weight: 400; }
+
+.ident {
+  font-family: var(--mono); font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.ident.none { color: var(--dim); font-style: italic; font-size: 12px; }
+
+.kv {
+  font-family: var(--mono); font-size: 11px;
+  border: 1px solid var(--border); border-radius: 3px;
+  overflow: hidden;
+}
+.kv .r { display: grid; grid-template-columns: minmax(96px, 38%) 1fr; }
+.kv .r:nth-child(odd) { background: var(--raise); }
+.kv .k { color: var(--muted); padding: 2px 8px; overflow-wrap: anywhere; }
+.kv .v { color: var(--text); padding: 2px 8px; overflow-wrap: anywhere; }
+.none-txt { font-size: 11px; color: var(--dim); }
+
+pre.json {
+  font-family: var(--mono); font-size: 11px; line-height: 17px;
+  margin: 0; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 3px;
+  overflow: auto;
+  max-height: 190px;
+}
+.jk { color: #7fb2ff; }
+.js { color: #9ad4a8; }
+
+/* ── OPTION A — one unbroken vertical axis ──────────────────────── */
+.axis {
+  display: grid;
+  grid-template-columns: 1fr 1px 1fr;
+}
+/* the single continuous centre rule: one element, full height, so the
+   split reads as one seam rather than three stacked borders */
+.axis .seam {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  background: var(--border);
+}
+.axis .cap {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.09em;
+  display: flex; align-items: center; gap: 6px;
+}
+.axis .cap.q { grid-column: 1; color: var(--req); }
+.axis .cap.a { grid-column: 3; color: var(--resp); }
+.axis .cell { padding: 9px 12px 12px; min-width: 0; }
+.axis .cell.q { grid-column: 1; }
+.axis .cell.a { grid-column: 3; }
+.axis .row-sep {
+  grid-column: 1 / -1;
+  height: 1px; background: var(--border);
+}
+
+/* ── OPTION B — stacked full-width bands ────────────────────────── */
+.band { padding: 9px 12px 12px; }
+.band + .band { border-top: 1px solid var(--border); }
+.band-cap {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.09em;
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 9px;
+}
+.band-cap.q { color: var(--req); }
+.band-cap.a { color: var(--resp); }
+.band-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+/* ── the "before" sketch ────────────────────────────────────────── */
+.before { display: grid; grid-template-columns: 1fr 1fr; }
+.before .b {
+  padding: 9px 12px; min-width: 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px; color: var(--muted);
+}
+.before .b + .b { border-left: 1px solid var(--border); }
+.before .full {
+  grid-column: 1 / -1;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px; color: var(--muted);
+}
+.before .full:last-child { border-bottom: 0; }
+.flag {
+  color: var(--bad); font-family: var(--mono); font-size: 11px;
+}
+
+.q-mark { color: var(--req); }
+.a-mark { color: var(--resp); }
+
+@media (max-width: 860px) {
+  .axis { grid-template-columns: 1fr; }
+  .axis .seam { display: none; }
+  .axis .cap.a, .axis .cell.a, .axis .cap.q, .axis .cell.q { grid-column: 1; }
+  .band-grid { grid-template-columns: 1fr; }
+}
+</style>
+
+<div class="wrap">
+
+  <h1>Trace detail — request/response axis</h1>
+  <p class="sub">
+    Two layout options for the span detail pane. Everything above the pane
+    (toolbar, trace list, waterfall) is unchanged; so are the palette, type
+    scale, and component styles — these come from
+    <code>shared/unifi-theme</code> as-is.
+  </p>
+
+  <section>
+    <h2>The problem today</h2>
+    <p class="note">
+      The pane splits <b>left/right</b> for identity and headers, then switches
+      to <b>top/bottom</b> for the bodies. The <span class="q-mark">→</span> and
+      <span class="a-mark">←</span> markers keep asserting a horizontal axis that
+      the bodies have already abandoned, so the eye changes direction halfway
+      down. That switch is the awkwardness — not the sections themselves.
+    </p>
+    <div class="pane before">
+      <div class="b"><span class="q-mark">→</span> requested by</div>
+      <div class="b"><span class="a-mark">←</span> responded by</div>
+      <div class="b"><span class="q-mark">→</span> Request headers</div>
+      <div class="b"><span class="a-mark">←</span> Response headers</div>
+      <div class="full"><span class="q-mark">→</span> Request body <span class="flag">← axis breaks here</span></div>
+      <div class="full"><span class="a-mark">←</span> Response body</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Option A — one unbroken axis <span class="tag">recommended</span></h2>
+    <p class="note">
+      Carry the split all the way down, so request is <b>always</b> left and
+      response <b>always</b> right, joined by a single continuous seam. Two
+      consequences worth having: the pairs stay row-aligned (a long response
+      body can't drag its request counterpart out of line — each body scrolls
+      inside its own cell), and because position is now reliable, the axis only
+      has to be named <b>once</b>, in the column captions. Every sub-label then
+      drops its prefix — <code>Request headers</code> becomes
+      <code>headers</code> — taking the words "request"/"response" from six
+      repetitions down to two.
+    </p>
+    <div class="pane">
+      <div class="pane-head">
+        <span>rpc.acme.refdata.type.list.v1</span>
+        <span class="dur">13ms</span>
+        <span class="acct">PLATFORM</span>
+      </div>
+      <div class="axis">
+        <div class="seam"></div>
+
+        <div class="cap q">→ REQUEST</div>
+        <div class="cap a">← RESPONSE</div>
+
+        <div class="cell q">
+          <div class="lbl">identity</div>
+          <div class="ident">shipping-service/P0B4Ckhpow8pypbvwf4Jv4</div>
+        </div>
+        <div class="cell a">
+          <div class="lbl">identity</div>
+          <div class="ident">refdata-service/MpIVgPUJVfL3vmFOZlbRnx</div>
+        </div>
+
+        <div class="row-sep"></div>
+
+        <div class="cell q">
+          <div class="lbl">headers <span class="count">(2)</span></div>
+          <div class="kv">
+            <div class="r"><span class="k">Nats-Requestor</span><span class="v">shipping-service/P0B4Ck…</span></div>
+            <div class="r"><span class="k">Traceparent</span><span class="v">00-3e0ccd55…-a1f2-01</span></div>
+          </div>
+          <div class="lbl" style="margin-top:9px">attributes</div>
+          <div class="kv">
+            <div class="r"><span class="k">rpc.retry_count</span><span class="v">0</span></div>
+          </div>
+        </div>
+        <div class="cell a">
+          <div class="lbl">headers <span class="count">(1)</span></div>
+          <div class="kv">
+            <div class="r"><span class="k">Nats-Responder</span><span class="v">refdata-service/MpIVgP…</span></div>
+          </div>
+        </div>
+
+        <div class="row-sep"></div>
+
+        <div class="cell q">
+          <div class="lbl">body</div>
+<pre class="json">{
+  <span class="jk">"typeKey"</span>: <span class="js">"ship-status"</span>,
+  <span class="jk">"context"</span>: <span class="js">"acme"</span>,
+  <span class="jk">"locale"</span>: <span class="js">"en"</span>
+}</pre>
+        </div>
+        <div class="cell a">
+          <div class="lbl">body</div>
+<pre class="json">{
+  <span class="jk">"items"</span>: [
+    { <span class="jk">"code"</span>: <span class="js">"at-anchor"</span> },
+    { <span class="jk">"code"</span>: <span class="js">"docked"</span> },
+    { <span class="jk">"code"</span>: <span class="js">"in-transit"</span> }
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:14px">
+      <b>Empty identity, stated by transport.</b> Now that every NATS span
+      records its requestor, a blank one means the hop genuinely has no NATS
+      caller — an HTTP entry point. Say that, rather than reporting a missing
+      header:
+    </p>
+    <div class="pane">
+      <div class="pane-head">
+        <span>/api/accounts/topology</span>
+        <span class="dur">28ms</span>
+        <span class="acct">PLATFORM</span>
+      </div>
+      <div class="axis">
+        <div class="seam"></div>
+        <div class="cap q">→ REQUEST</div>
+        <div class="cap a">← RESPONSE</div>
+        <div class="cell q">
+          <div class="lbl">identity</div>
+          <div class="ident none">HTTP entry point — no NATS requestor</div>
+        </div>
+        <div class="cell a">
+          <div class="lbl">identity</div>
+          <div class="ident">accounts-service</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Option B — stacked bands</h2>
+    <p class="note">
+      The opposite resolution: drop the columns entirely so the pane reads
+      strictly top-to-bottom, one full-width band per direction, each holding
+      its own identity, headers, and body. Bodies get the full pane width —
+      better if payloads are ever wide or deeply nested. The cost is losing
+      side-by-side comparison: you can no longer read request and response
+      headers against each other without scrolling.
+    </p>
+    <div class="pane">
+      <div class="pane-head">
+        <span>rpc.acme.refdata.type.list.v1</span>
+        <span class="dur">13ms</span>
+        <span class="acct">PLATFORM</span>
+      </div>
+
+      <div class="band">
+        <div class="band-cap q">→ REQUEST · shipping-service/P0B4Ckhpow8pypbvwf4Jv4</div>
+        <div class="band-grid">
+          <div>
+            <div class="lbl">headers <span class="count">(2)</span></div>
+            <div class="kv">
+              <div class="r"><span class="k">Nats-Requestor</span><span class="v">shipping-service/P0B4Ck…</span></div>
+              <div class="r"><span class="k">Traceparent</span><span class="v">00-3e0ccd55…-a1f2-01</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="lbl">body</div>
+<pre class="json">{ <span class="jk">"typeKey"</span>: <span class="js">"ship-status"</span>, <span class="jk">"context"</span>: <span class="js">"acme"</span>, <span class="jk">"locale"</span>: <span class="js">"en"</span> }</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="band">
+        <div class="band-cap a">← RESPONSE · refdata-service/MpIVgPUJVfL3vmFOZlbRnx</div>
+        <div class="band-grid">
+          <div>
+            <div class="lbl">headers <span class="count">(1)</span></div>
+            <div class="kv">
+              <div class="r"><span class="k">Nats-Responder</span><span class="v">refdata-service/MpIVgP…</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="lbl">body</div>
+<pre class="json">{
+  <span class="jk">"items"</span>: [
+    { <span class="jk">"code"</span>: <span class="js">"at-anchor"</span> },
+    { <span class="jk">"code"</span>: <span class="js">"docked"</span> },
+    { <span class="jk">"code"</span>: <span class="js">"in-transit"</span> }
+  ]
+}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Why A</h2>
+    <p class="note">
+      Both fix the axis break. A is the smaller change from where you are —
+      the two columns you already have simply continue instead of stopping —
+      and it keeps the side-by-side comparison that makes a request/reply pane
+      worth reading. Payloads here are capped at 4&nbsp;KiB (BR-036) and the
+      pane is wide, so a half-width body column is rarely the constraint. Below
+      860px both options collapse to the same stacked order, which is
+      effectively B — so B is already the narrow-viewport behaviour of A rather
+      than a competing direction.
+    </p>
+  </section>
+
+</div>

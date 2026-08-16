@@ -235,17 +235,23 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/jetstream/stream": {
+        "/api/jetstream/replay": {
             "get": {
-                "description": "Server-Sent Events stream of raw emea.events.acme.\u003e messages from SHIPPING using DeliverAll policy — replays from seq=1, then continues live. Each event is a JSON-encoded jsEvent object.",
+                "description": "Returns every currently-retained raw JetStream message from one account's stream as a single JSON array, snapshotted at request time. Replaces replayJetStream's SSE full-history half — the Admin UI now does one bootstrap fetch here, then subscribes to notify.{context}.shipping.raw.{entity}.{event} (eventhandler.publishRawNotify) for anything published afterward, instead of holding an SSE connection open. Because this snapshot is backend-mediated it works for ANY account listStreams reports, not just the browser's own — but the notify.* live tail does not: NATS enforces account isolation at the server, so a browser can only subscribe within the account its own connection authenticated as.",
                 "produces": [
-                    "text/event-stream"
+                    "application/json"
                 ],
                 "tags": [
                     "streams"
                 ],
-                "summary": "JetStream full replay + live stream (SSE)",
+                "summary": "JetStream one-shot replay (Phase 23)",
                 "parameters": [
+                    {
+                        "type": "string",
+                        "description": "NATS account (a known tenant name, or \\",
+                        "name": "account",
+                        "in": "query"
+                    },
                     {
                         "type": "string",
                         "description": "Stream name (default SHIPPING)",
@@ -255,13 +261,16 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "SSE stream — data: {jsEvent JSON}",
+                        "description": "OK",
                         "schema": {
-                            "type": "string"
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/rest.jsEvent"
+                            }
                         }
                     },
                     "400": {
-                        "description": "Unknown stream",
+                        "description": "Unknown account or stream",
                         "schema": {
                             "$ref": "#/definitions/rest.errorResponse"
                         }
@@ -277,7 +286,7 @@ const docTemplate = `{
         },
         "/api/jetstream/streams": {
             "get": {
-                "description": "Names of every event stream registered on the NATS server (not just SHIPPING) — lets the frontend's stream picker reflect what's actually provisioned. KV_* streams are NATS' internal storage for KV buckets, not event streams a client watches for messages, so they're excluded.",
+                "description": "Every event stream registered across every NATS account this backend holds a connection to — each known tenant's SHIPPING plus the PLATFORM account's REFDATA/RPCTRACE — tagged with its account and carrying run-time status (message count, bytes, configured subject count, first/last sequence, consumer count). Deliberately NOT scoped to the topbar's currently-selected tenant: a tenant switch reconnects Deps.JS for command/query traffic, but this is a read-only cross-account diagnostic view (same rationale as /api/kv/buckets). KV_* streams are NATS' internal backing storage for KV buckets, not event streams a client watches for messages, so they're excluded — /api/kv/buckets reports those as buckets instead.",
                 "produces": [
                     "application/json"
                 ],
@@ -289,47 +298,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/rest.metaValuesResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/jetstream/watch": {
-            "get": {
-                "description": "Server-Sent Events stream of raw emea.events.acme.\u003e messages from SHIPPING using DeliverNew policy — only messages published after connection. Each event is a JSON-encoded jsEvent object.",
-                "produces": [
-                    "text/event-stream"
-                ],
-                "tags": [
-                    "streams"
-                ],
-                "summary": "JetStream live watch (SSE)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Stream name (default SHIPPING)",
-                        "name": "stream",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "SSE stream — data: {jsEvent JSON}",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "400": {
-                        "description": "Unknown stream",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
+                            "$ref": "#/definitions/rest.jsStreamsResponse"
                         }
                     },
                     "500": {
@@ -343,7 +312,7 @@ const docTemplate = `{
         },
         "/api/kv/buckets": {
             "get": {
-                "description": "Every Key-Value bucket registered on the NATS server, with run-time status (value count, history depth, size, TTL, backing store). Backs the KV inspector's bucket rail — the raw NATS KV stores this lab provisions (one per role per tenant: dict-a, dict-b, container, meta; plus refdata-service's cache). Each bucket holds keys for all business-unit contexts, prefixed as {context}.{entityType}.{id}.",
+                "description": "Every Key-Value bucket registered across every NATS account this backend holds a connection to — every known tenant (dict-a, dict-b, container, meta) plus the PLATFORM account (refdata-service's versioned caches) — each tagged with its account. Deliberately NOT scoped to the topbar's currently-selected tenant: a tenant switch reconnects Deps.JS for command/query traffic, but this is a read-only cross-account diagnostic view.",
                 "produces": [
                     "application/json"
                 ],
@@ -367,20 +336,27 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/kv/buckets/{bucket}/watch": {
+        "/api/kv/buckets/{account}/{bucket}/entries": {
             "get": {
-                "description": "Server-Sent Events stream for one KV bucket by full name. Replays the bucket's current entries first (Live=false), sends an INIT_DONE control event, then streams live changes (Live=true). One connection drives both the contents snapshot and the live update feed — the same WatchAll semantics the NATS KV watch model is built on.",
+                "description": "Returns every current entry in one KV bucket as a single JSON array, snapshotted at request time — the bootstrap half of watchKVBucket's old SSE stream (Live=false entries only). Live changes after this snapshot arrive via notify.{context}.kv.{bucket}.{key}.changed (internal/kvstore.Store.EnableNotify) instead of holding a connection open.",
                 "produces": [
-                    "text/event-stream"
+                    "application/json"
                 ],
                 "tags": [
                     "kv"
                 ],
-                "summary": "Watch a KV bucket (SSE)",
+                "summary": "One-shot KV bucket entries (Phase 23)",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "KV bucket name (e.g. dict-a, dict-b, container, meta, refdata-acme)",
+                        "description": "NATS account (a known tenant name, or \\",
+                        "name": "account",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "KV bucket name (e.g. dict-a, dict-b, container, meta)",
                         "name": "bucket",
                         "in": "path",
                         "required": true
@@ -388,13 +364,16 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "SSE stream — data: {kvChange JSON}",
+                        "description": "OK",
                         "schema": {
-                            "type": "string"
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/rest.kvChange"
+                            }
                         }
                     },
                     "400": {
-                        "description": "Unknown bucket",
+                        "description": "Unknown account or bucket",
                         "schema": {
                             "$ref": "#/definitions/rest.errorResponse"
                         }
@@ -530,6 +509,52 @@ const docTemplate = `{
                     },
                     "502": {
                         "description": "NATS monitoring endpoint unreachable or returned an unexpected body",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/nats/log": {
+            "get": {
+                "description": "The last N lines of NATS's own log_file, optionally filtered by level ([ERR]/[WRN]/[INF]/[DBG]/[TRC]) and/or a free-text substring — REST-polled, not a push/follow transport. tail is capped server-side at 1000 regardless of what's requested. Returns 503 if NatsLogPath was never configured (e.g. running outside Docker).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "nats"
+                ],
+                "summary": "Tail the NATS server log",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "error|warn|info|debug|trace — omit for all levels",
+                        "name": "level",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "case-insensitive substring filter, applied in addition to level",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "number of matching lines to return (default 200, hard-capped at 1000)",
+                        "name": "tail",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/rest.natsLogResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "log tailing not configured",
                         "schema": {
                             "$ref": "#/definitions/rest.errorResponse"
                         }
@@ -795,32 +820,6 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/rest.refdataItemsResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/rpc-watch": {
-            "get": {
-                "description": "Server-Sent Events stream of the best-effort request/reply observability side-channels: refdata-service's obs.rpc.* (backend-to-backend, PLATFORM account) and shipping-service's obs.api.* (browser-to-service, the ACTIVE tenant's account only). Replays whatever the RPCTRACE stream currently retains for obs.rpc.* (up to the last 10 minutes, BR-D29) first, then continues live via core NATS subscribe; obs.api.* is live-only — RPCTRACE lives on the PLATFORM account and does not capture tenant-account traffic. Each event carries direction (\"request\"|\"reply\"), a correlationId pairing a request with its reply, the real rpc.*/api.* subject, and the payload. See ARCHITECTURE-COMMUNICATIONS.md §6.",
-                "produces": [
-                    "text/event-stream"
-                ],
-                "tags": [
-                    "streams"
-                ],
-                "summary": "obs.rpc.* + obs.api.* request/reply traffic stream (SSE, Phase 12.10)",
-                "responses": {
-                    "200": {
-                        "description": "SSE stream — data: {obs.rpc.*/obs.api.* JSON}",
-                        "schema": {
-                            "type": "string"
                         }
                     },
                     "500": {
@@ -1238,76 +1237,6 @@ const docTemplate = `{
                     }
                 }
             }
-        },
-        "/api/watch-terminal/{context}": {
-            "get": {
-                "description": "Server-Sent Events stream of NATS KV changes for the container projection bucket and the meta.* lookup bucket in the given context. Replays current state first, then delivers live updates. Shape is \"CONTAINER\" or \"META\".",
-                "produces": [
-                    "text/event-stream"
-                ],
-                "tags": [
-                    "streams"
-                ],
-                "summary": "Terminal KV watch stream (SSE)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Fleet context (e.g. acme)",
-                        "name": "context",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "SSE stream — data: {watchEvent JSON}",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/watch/{context}": {
-            "get": {
-                "description": "Server-Sent Events stream of NATS KV changes for both the Shape A and Shape B ship buckets in the given context. Replays current bucket state first (snapshot), then delivers live updates. Each event is a JSON-encoded watchEvent object.",
-                "produces": [
-                    "text/event-stream"
-                ],
-                "tags": [
-                    "streams"
-                ],
-                "summary": "Ship KV watch stream (SSE)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Fleet context (e.g. acme, acme-atlantic-fleet)",
-                        "name": "context",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "SSE stream — data: {watchEvent JSON}",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
         }
     },
     "definitions": {
@@ -1385,7 +1314,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "context": {
-                    "description": "fleet / KV-bucket qualifier",
+                    "description": "fleet / KV-key-prefix qualifier",
                     "type": "string"
                 },
                 "destPort": {
@@ -1448,7 +1377,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "context": {
-                    "description": "fleet / KV-bucket qualifier",
+                    "description": "fleet / KV-key-prefix qualifier",
                     "type": "string"
                 },
                 "currentPort": {
@@ -1531,7 +1460,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "context": {
-                    "description": "fleet / KV-bucket qualifier",
+                    "description": "fleet / KV-key-prefix qualifier",
                     "type": "string"
                 },
                 "currentPort": {
@@ -1651,9 +1580,69 @@ const docTemplate = `{
                 }
             }
         },
+        "rest.jsEvent": {
+            "type": "object",
+            "properties": {
+                "payload": {
+                    "type": "object"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
+        "rest.jsStream": {
+            "type": "object",
+            "properties": {
+                "account": {
+                    "type": "string"
+                },
+                "bytes": {
+                    "type": "integer"
+                },
+                "consumers": {
+                    "type": "integer"
+                },
+                "firstSeq": {
+                    "type": "integer"
+                },
+                "lastSeq": {
+                    "type": "integer"
+                },
+                "messages": {
+                    "type": "integer"
+                },
+                "stream": {
+                    "type": "string"
+                },
+                "subjects": {
+                    "type": "integer"
+                }
+            }
+        },
+        "rest.jsStreamsResponse": {
+            "type": "object",
+            "properties": {
+                "streams": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/rest.jsStream"
+                    }
+                }
+            }
+        },
         "rest.kvBucket": {
             "type": "object",
             "properties": {
+                "account": {
+                    "type": "string"
+                },
                 "backingStore": {
                     "type": "string"
                 },
@@ -1682,6 +1671,27 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/rest.kvBucket"
                     }
+                }
+            }
+        },
+        "rest.kvChange": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "op": {
+                    "description": "PUT, DEL, PURGE",
+                    "type": "string"
+                },
+                "revision": {
+                    "type": "integer"
+                },
+                "value": {
+                    "type": "object"
                 }
             }
         },
@@ -1817,6 +1827,21 @@ const docTemplate = `{
                 },
                 "subject": {
                     "type": "string"
+                }
+            }
+        },
+        "rest.natsLogResponse": {
+            "type": "object",
+            "properties": {
+                "lines": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "truncated": {
+                    "description": "Truncated is true when more matching lines existed than natsLogMaxTail\n(or the caller's smaller ?tail=) could return — lets the UI say \"showing\nthe most recent N\" instead of implying this is the complete history.",
+                    "type": "boolean"
                 }
             }
         },

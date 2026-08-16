@@ -147,7 +147,7 @@ var _ = Describe("Shape B — KV cache in front of Postgres", func() {
 		kvB := kvstore.New(js, "dict-b")
 		repo := newFakeRepo()
 		log := slog.New(slog.DiscardHandler)
-		consume, err := eventhandler.RegisterShapeB(ctx, js, kvB, repo, log)
+		consume, err := eventhandler.RegisterShapeB(ctx, js, kvB, nil, repo, log)
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(consume.Stop)
 		ship = commands.NewShipHandler(jstream.NewPublisher(js), js, newFakePortRepo())

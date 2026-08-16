@@ -1,0 +1,473 @@
+<meta charset="utf-8">
+<script>document.documentElement.setAttribute("data-theme","dark")</script>
+<title>Trace detail — Request/Response split mockup</title>
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Tokens lifted verbatim from shared/unifi-theme/unifi.css and
+   demos/01-dictionary/diagrams/admin-traces-panel.html — same visual
+   system as the real TraceWaterfall.vue, not a new one. This mockup only
+   redesigns the detail pane (below the waterfall rows); the toolbar,
+   trace list, and waterfall are carried over unchanged for context.
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --text:          #dee0e3;
+  --muted:         #b7bcc2;
+  --dim:           #737c87;
+  --bg:            #14171b;
+  --panel:         #1a1e23;
+  --border:        #2c3138;
+  --accent:        #006fff;
+  --nested:        #171c29;
+  --nested-hover:  #1d2336;
+  --raise:         rgba(255, 255, 255, 0.04);
+
+  --sync:   #006fff;
+  --store:  #2dd4bf;
+  --evtl:   #f0b429;
+  --bad:    #f87171;
+  --hop:    #8b93a1;
+
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --text: #1e2328; --muted: #4e5560; --dim: #9aa1a9;
+    --bg: #f4f5f7; --panel: #ffffff; --border: #d1d5db; --accent: #005fdb;
+    --nested: #eef1f7; --nested-hover: #e3e8f2; --raise: rgba(0,0,0,0.05);
+    --sync: #005fdb; --store: #0d9488; --evtl: #b45309; --bad: #dc2626; --hop: #6b7280;
+  }
+}
+:root[data-theme="light"] {
+  --text: #1e2328; --muted: #4e5560; --dim: #9aa1a9;
+  --bg: #f4f5f7; --panel: #ffffff; --border: #d1d5db; --accent: #005fdb;
+  --nested: #eef1f7; --nested-hover: #e3e8f2; --raise: rgba(0,0,0,0.05);
+  --sync: #005fdb; --store: #0d9488; --evtl: #b45309; --bad: #dc2626; --hop: #6b7280;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 22px 18px 56px; display: flex; flex-direction: column; gap: 18px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; }
+.sub { margin: 0; color: var(--muted); max-width: 74ch; }
+.theme-btn {
+  font-family: var(--mono); font-size: 11px; padding: 3px 10px; border-radius: 3px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--muted); cursor: pointer;
+}
+.theme-btn:hover { color: var(--text); border-color: var(--dim); }
+
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+
+.toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.tag {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; padding: 1px 7px; border-radius: 3px;
+  background: color-mix(in srgb, var(--store) 18%, transparent); color: var(--store);
+  border: 1px solid color-mix(in srgb, var(--store) 34%, transparent);
+}
+.search {
+  flex: 1; min-width: 170px; display: flex; align-items: center; gap: 6px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 3px;
+  padding: 2px 8px; font-family: var(--mono); font-size: 11px; color: var(--dim);
+}
+.search span.q { color: var(--text); }
+
+.split { display: grid; grid-template-columns: 300px minmax(0, 1fr); }
+@media (max-width: 860px) { .split { grid-template-columns: 1fr; } }
+.tlist { border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+.tlist-h {
+  font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim);
+  padding: 5px 10px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between;
+}
+.trace {
+  display: grid; grid-template-columns: 7px minmax(0,1fr) auto; gap: 8px; align-items: start;
+  width: 100%; text-align: left; padding: 7px 10px;
+  background: transparent; border: none; border-bottom: 1px solid var(--border); color: inherit; font: inherit; cursor: pointer;
+}
+.trace:hover { background: var(--nested); }
+.trace[aria-current="true"] { background: var(--nested-hover); }
+.t-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 6px; }
+.t-dot.ok  { background: var(--store); }
+.t-dot.err { background: var(--bad); }
+.t-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.t-meta { font-family: var(--mono); font-size: 10px; color: var(--dim); display: flex; gap: 7px; flex-wrap: wrap; }
+.t-right { text-align: right; font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+.t-dur { color: var(--text); display: block; }
+.t-dur.err { color: var(--bad); }
+.t-spans { color: var(--dim); font-size: 10px; }
+
+.subj { font-family: var(--mono); font-size: 11px; display: inline; overflow-wrap: normal; }
+.subj .s { color: var(--muted); }
+.subj .d { color: var(--dim); }
+.subj .verb { color: var(--accent); font-weight: 600; }
+.subj .id { color: var(--text); background: var(--raise); border-radius: 3px; padding: 0 4px; }
+
+.wf { display: flex; flex-direction: column; min-width: 0; }
+.wf-head { padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; }
+.wf-tid { font-family: var(--mono); font-size: 10px; color: var(--dim); flex-basis: 100%; }
+.wf-tid b { color: var(--muted); font-weight: 400; }
+.stat { display: flex; flex-direction: column; }
+.stat .k { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); }
+.stat .v { font-family: var(--mono); font-size: 14px; font-variant-numeric: tabular-nums; color: var(--text); }
+.stat .v.bad { color: var(--bad); }
+
+.grid { display: grid; grid-template-columns: 78px minmax(220px, 1.7fr) 56px minmax(90px, 1.2fr); gap: 8px; align-items: center; padding: 0 12px; }
+.axis { height: 22px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 10px; color: var(--dim); }
+.axis .ticks { position: relative; height: 100%; }
+.axis .tk { position: absolute; top: 5px; transform: translateX(-50%); white-space: nowrap; }
+.axis .tk:first-child { transform: none; }
+.axis .tk:last-child { transform: translateX(-100%); }
+
+.rows { display: flex; flex-direction: column; }
+.row {
+  width: 100%; text-align: left; font: inherit; color: inherit;
+  background: transparent; border: none; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  height: 26px; cursor: pointer;
+}
+.row:hover { background: var(--nested); }
+.row[aria-current="true"] { background: var(--nested-hover); }
+
+.acct {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.04em; color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  border-left: 2px solid var(--border); padding-left: 6px;
+}
+.acct.platform { border-left-color: color-mix(in srgb, var(--accent) 65%, transparent); }
+.acct.tenant   { border-left-color: color-mix(in srgb, var(--evtl) 55%, transparent); }
+.acct.cross    { color: var(--accent); font-weight: 600; }
+
+.nm { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.nm .rail { flex: none; border-left: 1px solid var(--border); align-self: stretch; }
+.nm .txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nm .svc { font-family: var(--mono); font-size: 9px; color: var(--dim); flex: none; }
+
+.dur { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; color: var(--muted); }
+.dur.bad { color: var(--bad); }
+
+.track { position: relative; height: 100%; }
+.track .gl { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--border) 60%, transparent); }
+.bar { position: absolute; top: 50%; transform: translateY(-50%); height: 8px; border-radius: 2px; min-width: 2px; }
+.bar.sync  { background: var(--sync); }
+.bar.store { background: var(--store); }
+.bar.bad   { background: var(--bad); }
+
+/* ── span detail — the redesigned part ── */
+.det { border-top: 1px solid var(--border); }
+.det-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 7px 12px; border-bottom: 1px solid var(--border); }
+.det-h .kindtag {
+  font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 1px 6px; border-radius: 3px; border: 1px solid var(--border); color: var(--muted);
+}
+
+/* who-called-who strip — the signature element. Two identity chips joined
+   by the same directional glyph the account gutter already uses for a
+   cross-account hop (⇥), so "who" reads as a continuation of the existing
+   trace vocabulary rather than a new one. */
+.who { display: flex; align-items: stretch; border-bottom: 1px solid var(--border); }
+.who-side { flex: 1; min-width: 0; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; }
+.who-side + .who-side { border-left: 1px solid var(--border); }
+.who-lbl {
+  font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--dim); display: flex; align-items: center; gap: 5px;
+}
+.who-lbl .arrow { color: var(--accent); }
+.who-side.resp .who-lbl .arrow { color: var(--store); }
+.who-id { font-family: var(--mono); font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+.who-id.unknown { color: var(--dim); font-style: italic; }
+
+.det-cols { display: grid; grid-template-columns: 1fr 1fr; }
+@media (max-width: 760px) { .det-cols { grid-template-columns: 1fr; } }
+.det-col { padding: 9px 12px 12px; min-width: 0; }
+.det-col + .det-col { border-left: 1px solid var(--border); }
+@media (max-width: 760px) { .det-col + .det-col { border-left: none; border-top: 1px solid var(--border); } }
+.det-col.resp .sect-l .arrow { color: var(--store); }
+.det-col.req  .sect-l .arrow { color: var(--accent); }
+
+.sect-l {
+  font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--dim); margin-bottom: 4px; display: flex; gap: 6px; align-items: baseline;
+}
+.kv { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 1px 10px; font-family: var(--mono); font-size: 11px; margin-bottom: 10px; }
+.kv .k { color: var(--dim); white-space: nowrap; }
+.kv .v { color: var(--text); overflow-wrap: anywhere; }
+.kv .v.hi  { color: var(--accent); }
+.kv .v.err { color: var(--bad); }
+.no-kv { font-family: var(--mono); font-size: 11px; color: var(--dim); margin-bottom: 10px; display: block; }
+
+.body-full { padding: 9px 12px 12px; border-top: 1px solid var(--border); }
+pre.json {
+  margin: 0; padding: 7px 9px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px;
+  font-family: var(--mono); font-size: 11px; line-height: 17px; overflow-x: auto; color: var(--muted);
+}
+pre.json .s { color: var(--store); }
+pre.json .n { color: var(--evtl); }
+pre.json .k { color: var(--text); }
+.errbox {
+  font-family: var(--mono); font-size: 11px; color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--bad) 38%, transparent);
+  border-radius: 3px; padding: 5px 8px; margin: 0 12px 10px; overflow-wrap: anywhere;
+}
+.pending {
+  font-family: var(--mono); font-size: 11px; color: var(--dim);
+  border: 1px dashed var(--border); border-radius: 3px; padding: 7px 9px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.pending .t { color: var(--muted); }
+
+.note-strip {
+  display: flex; gap: 8px; align-items: baseline; padding: 7px 12px;
+  border-top: 1px dashed var(--border); font-family: var(--mono); font-size: 10px; color: var(--dim);
+}
+.note-strip b { color: var(--muted); font-weight: 400; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--mono); font-size: 10px; color: var(--muted); padding: 8px 12px; }
+.legend .it { display: inline-flex; align-items: center; gap: 6px; }
+.legend .sw { width: 16px; height: 8px; border-radius: 2px; flex: none; }
+
+.foot { color: var(--muted); font-size: 12px; max-width: 76ch; }
+.foot code { font-family: var(--mono); font-size: 11px; background: var(--raise); border-radius: 3px; padding: 0 4px; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <span class="eyebrow">Admin UI · system → nats → request/reply → traces · detail pane mockup</span>
+      <h1>Who called this, and who answered</h1>
+      <p class="sub">Today's detail pane shows one flat Headers list per span, so <code style="font-family:var(--mono);font-size:11px">Nats-Requestor</code> and <code style="font-family:var(--mono);font-size:11px">Nats-Responder</code> sit in the same undifferentiated table — indistinguishable at a glance. This splits the pane in two: a <b style="color:var(--text)">requested by</b> / <b style="color:var(--text)">responded by</b> strip up top, then the same headers classified into Request and Response columns underneath. Body stays a single section, since natstrace still only ever captures the reply payload — that gap is called out rather than papered over.</p>
+    </div>
+    <button class="theme-btn" id="tt" type="button">light / dark</button>
+  </div>
+
+  <div class="panel">
+    <div class="toolbar">
+      <span class="tag">live</span>
+      <span class="search">filter traces — <span class="q">ship.arrive</span></span>
+    </div>
+
+    <div class="split">
+      <div class="tlist">
+        <div class="tlist-h"><span>traces</span><span id="tcount"></span></div>
+        <div id="tl"></div>
+      </div>
+
+      <div class="wf">
+        <div class="wf-head" id="wfh"></div>
+        <div class="grid axis" id="ax"></div>
+        <div id="wfb"></div>
+      </div>
+    </div>
+
+    <div class="det" id="det"></div>
+  </div>
+
+  <section>
+    <p class="foot">This reuses data already on the wire after the <code>mergeHeaders(sp.reqHeaders, headers)</code> fix in <code>natstrace.go</code> — the requester's headers (<code>Nats-Requestor</code>, <code>traceparent</code>, <code>http.method</code>/<code>http.path</code>) and the responder's (<code>Nats-Responder</code>, <code>Nats-Service-Error*</code>, <code>http.status_code</code>) now both live in one span's <code>headers</code>/<code>attributes</code> maps — this pane classifies them client-side by key name, no further backend change needed. A genuine request-body field would need a new <code>traceSpan.RequestPayload</code> captured at <code>Start()</code>/<code>StartFromHeaders()</code> time — that's the one item still flagged "not captured yet" below.</p>
+  </section>
+</div>
+
+<script>
+// ── data — same fixture shape as admin-traces-panel.html's TRACES, with
+// headers pre-merged the way mergeHeaders() now produces them (both
+// Nats-Requestor and Nats-Responder on one span, where applicable). ──
+const TRACES = [
+  {
+    id: '4bf92f3577b34da6a3ce929d0e0e4736',
+    root: 'api.acme.shipping.ship.arrive.v1',
+    ok: true, total: 58, accts: 2, at: '14:22:08.114',
+    spans: [
+      { d:0, s:0,  ms:41, k:'sync', op:'api.acme.shipping.ship.arrive.v1', svc:'shipping-service', acct:'ACME', kind:'server',
+        hdr:{'traceparent':'00-4bf92f3577b34da6a3ce929d0e0e4736-a1c2e3f405060708-01','Nats-Requestor':'admin-ui/tab-7f3a','Nats-Responder':'shipping-service/01JQ7X2K','http.method':'POST','http.path':'/api/shipping/ship/arrive'},
+        body:'{"accepted":true,"revision":1182}' },
+      { d:1, s:7,  ms:24, k:'sync', op:'rpc._platform.refdata.item.get.v1', svc:'shipping-service', acct:'ACME → PLATFORM', x:true, kind:'client',
+        hdr:{'traceparent':'00-4bf92f3577b34da6a3ce929d0e0e4736-c3d4e5f607080910-01','Nats-Requestor':'shipping-service/01JQ7X2K'},
+        attrs:{'rpc.retry_count':'0'},
+        body:'{"code":"NLRTM-EMX","label":"Rotterdam · Euromax","active":true}' },
+      { d:2, s:9,  ms:21, k:'sync', op:'rpc._platform.refdata.item.get.v1', svc:'refdata-service', acct:'PLATFORM', kind:'server',
+        hdr:{'Nats-Requestor':'shipping-service/01JQ7X2K','Nats-Responder':'refdata-service/01JQ7X31'},
+        body:'{"code":"NLRTM-EMX","label":"Rotterdam · Euromax","active":true}' },
+    ],
+    sel: 0,
+  },
+  {
+    id: '9c4e1a08b7d2f6350ab1cc47e2d9f118',
+    root: 'api.acme.shipping.container.register.v1',
+    ok: false, total: 19, accts: 2, at: '14:21:56.902',
+    spans: [
+      { d:0, s:0, ms:16, k:'bad', op:'api.acme.shipping.container.register.v1', svc:'shipping-service', acct:'ACME', kind:'server',
+        err:'container type not found: REEFER-45',
+        hdr:{'Nats-Requestor':'admin-ui/tab-7f3a','Nats-Responder':'shipping-service/01JQ7X2K','Nats-Service-Error':'container type not found: REEFER-45','Nats-Service-Error-Code':'404','http.method':'POST','http.path':'/api/shipping/container/register'} },
+      { d:1, s:2, ms:12, k:'bad', op:'rpc._platform.refdata.item.get.v1', svc:'shipping-service', acct:'ACME → PLATFORM', x:true, kind:'client',
+        err:'404 from refdata-service',
+        hdr:{'Nats-Requestor':'shipping-service/01JQ7X2K'} },
+    ],
+    sel: 0,
+  },
+];
+
+const esc = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const ms = (v) => v >= 1000 ? (v/1000).toFixed(2) + 's' : v + 'ms';
+
+function subj(s) {
+  if (!/^[a-z_]+(\.[A-Za-z0-9_\-]+)+$/.test(s)) return '<span class="s">' + esc(s) + '</span>';
+  const p = s.split('.');
+  return p.map((t, i) => {
+    const cls = i === p.length - 1 ? 'verb' : (i === p.length - 2 ? 'id' : 's');
+    return (i ? '<span class="d">.</span><wbr>' : '') + '<span class="' + cls + '">' + esc(t) + '</span>';
+  }).join('');
+}
+function jsonl(s) {
+  if (!s) return '—';
+  return esc(s)
+    .replace(/&quot;([^&]*?)&quot;(\s*:)/g, '<span class="k">"$1"</span>$2')
+    .replace(/:\s*&quot;([^&]*?)&quot;/g, ': <span class="s">"$1"</span>')
+    .replace(/:\s*(\d+|true|false|null)/g, ': <span class="n">$1</span>');
+}
+function acctCls(a) { return a.includes('→') ? 'cross' : (a === 'PLATFORM' ? 'platform' : 'tenant'); }
+
+// ── the classification this mockup demonstrates: split ONE span's already-
+// merged headers/attributes map by key name, no new wire field required. ──
+const REQ_HDR_KEYS = new Set(['Nats-Requestor', 'traceparent', 'http.method', 'http.path']);
+const REQ_ATTR_KEYS = new Set(['http.method', 'http.path', 'rpc.retry_count']);
+function splitEntries(obj, reqKeys) {
+  const req = [], resp = [];
+  Object.entries(obj || {}).forEach(([k, v]) => (reqKeys.has(k) ? req : resp).push([k, v]));
+  return { req, resp };
+}
+
+let cur = 0, sel = TRACES[0].sel;
+
+function renderList() {
+  document.getElementById('tcount').textContent = TRACES.length + ' of 1,204';
+  document.getElementById('tl').innerHTML = TRACES.map((t, i) => `
+    <button class="trace" type="button" aria-current="${i === cur}" data-t="${i}">
+      <span class="t-dot ${t.ok ? 'ok' : 'err'}"></span>
+      <span class="t-main">
+        <span class="subj">${subj(t.root)}</span>
+        <span class="t-meta"><span>${t.at}</span><span>${t.accts} accounts</span></span>
+      </span>
+      <span class="t-right">
+        <span class="t-dur ${t.ok ? '' : 'err'}">${ms(t.total)}</span>
+        <span class="t-spans">${t.spans.length} spans</span>
+      </span>
+    </button>`).join('');
+}
+
+function renderTrace() {
+  const t = TRACES[cur];
+  const scale = t.total || 1;
+
+  document.getElementById('wfh').innerHTML = `
+    <span class="wf-tid">trace <b>${t.id}</b></span>
+    <span class="stat"><span class="k">reply</span><span class="v ${t.ok ? '' : 'bad'}">${ms(t.total)}</span></span>
+    <span class="stat"><span class="k">spans</span><span class="v">${t.spans.length}</span></span>
+    <span class="stat"><span class="k">accounts</span><span class="v">${t.accts}</span></span>`;
+
+  const ticks = [0, .25, .5, .75, 1];
+  document.getElementById('ax').innerHTML =
+    `<span></span><span></span><span></span><span class="ticks">` +
+    ticks.map(f => `<span class="tk" style="left:${f * 100}%">${ms(Math.round(scale * f))}</span>`).join('') +
+    `</span>`;
+  const gl = ticks.map(f => `<span class="gl" style="left:${f * 100}%"></span>`).join('');
+
+  document.getElementById('wfb').innerHTML = t.spans.map((s, i) => {
+    const left = (s.s / scale) * 100;
+    const w = Math.max((s.ms / scale) * 100, 0.4);
+    const rails = Array.from({ length: s.d }, () => '<span class="rail" style="margin-left:5px"></span>').join('');
+    return `<button class="row grid" type="button" aria-current="${i === sel}" data-s="${i}">
+      <span class="acct ${acctCls(s.acct)} ${s.x ? 'cross' : ''}" title="${esc(s.acct)}">${
+        s.x ? '⇥ ' + esc(s.acct.split('→').pop().trim()) : esc(s.acct)}</span>
+      <span class="nm">${rails}<span class="txt"><span class="op">${subj(s.op)}</span></span><span class="svc">${esc(s.svc)}</span></span>
+      <span class="dur ${s.err ? 'bad' : ''}">${ms(s.ms)}</span>
+      <span class="track">${gl}<span class="bar ${s.k}" style="left:${left}%;width:${w}%"></span></span>
+    </button>`;
+  }).join('');
+
+  renderDetail();
+}
+
+function kvList(entries, cls) {
+  if (!entries.length) return '<span class="no-kv">none</span>';
+  return `<div class="kv">${entries.map(([k, v]) =>
+    `<span class="k">${esc(k)}</span><span class="v ${k === 'traceparent' ? 'hi' : (k.startsWith('Nats-Service-Error') ? 'err' : '')}">${esc(v)}</span>`
+  ).join('')}</div>`;
+}
+
+function renderDetail() {
+  const t = TRACES[cur];
+  const s = t.spans[sel];
+  const hdrSplit = splitEntries(s.hdr, REQ_HDR_KEYS);
+  const attrSplit = splitEntries(s.attrs, REQ_ATTR_KEYS);
+  const reqBy = s.hdr && s.hdr['Nats-Requestor'];
+  const respBy = s.hdr && s.hdr['Nats-Responder'];
+
+  document.getElementById('det').innerHTML = `
+    <div class="det-h">
+      <span class="kindtag">${esc(s.kind)}</span>
+      <span class="subj">${subj(s.op)}</span>
+      <span class="dur" style="color:var(--muted)">${ms(s.ms)}</span>
+      <span class="acct ${acctCls(s.acct)}" style="border-left-width:2px">${esc(s.acct)}</span>
+    </div>
+
+    <div class="who">
+      <div class="who-side req">
+        <span class="who-lbl"><span class="arrow">→</span> requested by</span>
+        <span class="who-id ${reqBy ? '' : 'unknown'}">${reqBy ? esc(reqBy) : '— (no Nats-Requestor on this span)'}</span>
+      </div>
+      <div class="who-side resp">
+        <span class="who-lbl"><span class="arrow">←</span> responded by</span>
+        <span class="who-id ${respBy ? '' : 'unknown'}">${respBy ? esc(respBy) : '— (span not yet finished)'}</span>
+      </div>
+    </div>
+
+    ${s.err ? `<div class="errbox" style="margin-top:10px">${esc(s.err)}</div>` : ''}
+
+    <div class="det-cols">
+      <div class="det-col req">
+        <div class="sect-l"><span class="arrow">→</span> Request headers ${hdrSplit.req.length ? `(${hdrSplit.req.length})` : ''}</div>
+        ${kvList(hdrSplit.req)}
+        ${attrSplit.req.length ? `<div class="sect-l" style="margin-top:2px"><span class="arrow">→</span> Request attributes</div>${kvList(attrSplit.req)}` : ''}
+      </div>
+      <div class="det-col resp">
+        <div class="sect-l"><span class="arrow">←</span> Response headers ${hdrSplit.resp.length ? `(${hdrSplit.resp.length})` : ''}</div>
+        ${kvList(hdrSplit.resp)}
+        ${attrSplit.resp.length ? `<div class="sect-l" style="margin-top:2px"><span class="arrow">←</span> Response attributes</div>${kvList(attrSplit.resp)}` : ''}
+      </div>
+    </div>
+
+    <div class="body-full">
+      <div class="sect-l"><span class="arrow" style="color:var(--store)">←</span> Response body</div>
+      <pre class="json">${jsonl(s.body)}</pre>
+    </div>
+
+    <div class="note-strip">
+      <span class="arrow" style="color:var(--accent)">→</span>
+      <span><b>Request body</b> — not captured yet. natstrace publishes only the reply payload (BR-037, one span per call); showing the request body here needs a new <code style="font-family:inherit">traceSpan.RequestPayload</code> field captured at <code style="font-family:inherit">Start()</code>/<code style="font-family:inherit">StartFromHeaders()</code>, not yet wired.</span>
+    </div>
+  `;
+}
+
+document.getElementById('tl').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-t]'); if (!b) return;
+  cur = +b.dataset.t; sel = TRACES[cur].sel;
+  renderList(); renderTrace();
+});
+document.getElementById('wfb').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-s]'); if (!b) return;
+  sel = +b.dataset.s; renderTrace();
+});
+document.getElementById('tt').addEventListener('click', () => {
+  const dark = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() === '#14171b';
+  document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+});
+
+renderList(); renderTrace();
+</script>

@@ -37,7 +37,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strings"
 	"time"
 
@@ -46,6 +45,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/natstrace"
 )
 
 // Subject constants. The {context} token is a wildcard here and resolved
@@ -102,9 +102,10 @@ type Deps struct {
 
 // Adapter owns one tenant connection's micro service registration + endpoints.
 type Adapter struct {
-	nc  *nats.Conn
-	svc micro.Service
-	log *slog.Logger
+	nc     *nats.Conn
+	svc    micro.Service
+	log    *slog.Logger
+	tracer *natstrace.Tracer
 
 	tradingPartners *commands.TradingPartnerHandler
 	documents       *commands.ComplianceDocumentHandler
@@ -122,6 +123,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 	a := &Adapter{
 		nc:              nc,
 		log:             deps.Log,
+		tracer:          natstrace.New(nc),
 		tradingPartners: deps.TradingPartners,
 		documents:       deps.Documents,
 		fleetAssets:     deps.FleetAssets,
@@ -163,7 +165,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"fleet-asset-list", a.handleFleetAssetList, FleetAssetListSubject},
 	}
 	for _, ep := range endpoints {
-		if err := svc.AddEndpoint(ep.name, ep.handler, micro.WithEndpointSubject(ep.subject)); err != nil {
+		if err := svc.AddEndpoint(ep.name, a.tracer.Middleware(ep.handler), micro.WithEndpointSubject(ep.subject)); err != nil {
 			_ = svc.Stop()
 			return nil, err
 		}
@@ -269,7 +271,6 @@ func isNotFoundErr(err error) bool {
 
 func (a *Adapter) handlePartnerRegister(req micro.Request) {
 	subject := req.Subject()
-	a.observe(req, subject)
 	var in registerRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -283,14 +284,11 @@ func (a *Adapter) handlePartnerRegister(req micro.Request) {
 
 func (a *Adapter) handlePartnerList(req micro.Request) {
 	subject := req.Subject()
-	a.observe(req, subject)
 	partners, err := a.tradingPartners.List(context.Background(), contextFromSubject(subject))
 	a.reply(req, tradingPartnersResponse{TradingPartners: partners}, err)
 }
 
 func (a *Adapter) handlePartnerGet(req micro.Request) {
-	subject := req.Subject()
-	a.observe(req, subject)
 	var in partnerIDRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -301,8 +299,6 @@ func (a *Adapter) handlePartnerGet(req micro.Request) {
 }
 
 func (a *Adapter) handlePartnerActivate(req micro.Request) {
-	subject := req.Subject()
-	a.observe(req, subject)
 	var in partnerIDRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -313,8 +309,6 @@ func (a *Adapter) handlePartnerActivate(req micro.Request) {
 }
 
 func (a *Adapter) handlePartnerSuspend(req micro.Request) {
-	subject := req.Subject()
-	a.observe(req, subject)
 	var in suspendRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -325,8 +319,6 @@ func (a *Adapter) handlePartnerSuspend(req micro.Request) {
 }
 
 func (a *Adapter) handlePartnerReactivate(req micro.Request) {
-	subject := req.Subject()
-	a.observe(req, subject)
 	var in partnerIDRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -337,8 +329,6 @@ func (a *Adapter) handlePartnerReactivate(req micro.Request) {
 }
 
 func (a *Adapter) handlePartnerAudit(req micro.Request) {
-	subject := req.Subject()
-	a.observe(req, subject)
 	var in partnerIDRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -363,8 +353,6 @@ func (a *Adapter) handlePartnerAudit(req micro.Request) {
 // --- ComplianceDocument handlers (BR-TP07-BR-TP11) ---
 
 func (a *Adapter) handleDocumentAdd(req micro.Request) {
-	subject := req.Subject()
-	a.observe(req, subject)
 	var in documentRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -375,8 +363,6 @@ func (a *Adapter) handleDocumentAdd(req micro.Request) {
 }
 
 func (a *Adapter) handleDocumentList(req micro.Request) {
-	subject := req.Subject()
-	a.observe(req, subject)
 	var in partnerIDRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -405,7 +391,6 @@ func (a *Adapter) documentTransition(
 	req micro.Request,
 	fn func(context.Context, string, domain.DocumentType) (domain.ComplianceDocument, error),
 ) {
-	a.observe(req, req.Subject())
 	var in documentRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -418,8 +403,6 @@ func (a *Adapter) documentTransition(
 // --- FleetAsset handlers (BR-TP12-BR-TP14) ---
 
 func (a *Adapter) handleFleetAssetAdd(req micro.Request) {
-	subject := req.Subject()
-	a.observe(req, subject)
 	var in fleetAssetRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -427,16 +410,21 @@ func (a *Adapter) handleFleetAssetAdd(req micro.Request) {
 	}
 	// a.tenant, not a body field: BR-TP14's refdata lookup rides the tenant's
 	// own account import, and this adapter *is* that tenant's connection.
+	// natstrace.ContextWithSpan (BR-037) carries this request's span down to
+	// FleetAssetHandler -> Manager.Exists -> refdataclient.Client's outbound
+	// rpc.* call, so that call's span continues this trace instead of
+	// starting a disconnected root — the only place in this codebase ctx
+	// carries a value beyond cancellation, and it costs the command/domain
+	// layer nothing (ctx is already threaded everywhere unchanged).
+	ctx := natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req))
 	asset, err := a.fleetAssets.AddFleetAsset(
-		context.Background(), in.ID, a.tenant,
+		ctx, in.ID, a.tenant,
 		in.RegistrationNo, in.VIN, in.Make, in.Model, in.VehicleTypeCode,
 	)
 	a.reply(req, fleetAssetResponse{asset}, err)
 }
 
 func (a *Adapter) handleFleetAssetList(req micro.Request) {
-	subject := req.Subject()
-	a.observe(req, subject)
 	var in partnerIDRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -515,11 +503,12 @@ func (a *Adapter) responderIdentity() string {
 	return fmt.Sprintf("%s/%s", info.Name, info.ID)
 }
 
-// observe publishes the inbound half of the obs.* debugging side-channel.
-func (a *Adapter) observe(req micro.Request, subject string) {
-	a.publishObs(subject, req.Reply(), "request", map[string][]string(req.Headers()), req.Data(), "")
-}
-
+// respond and respondError are the two request-tail exit points every
+// handler reaches through reply(). Both finish this request's natstrace span
+// (BR-036/BR-037/BR-TP15) via natstrace.SpanFrom — nil-safe, so a handler
+// invoked directly (not through Tracer.Middleware, e.g. a unit test calling
+// a.handleX(req) with a bare micro.Request) still replies correctly, it just
+// publishes no span.
 func (a *Adapter) respond(req micro.Request, subject, correlationID string, out any) {
 	data, err := json.Marshal(out)
 	if err != nil {
@@ -527,7 +516,7 @@ func (a *Adapter) respond(req micro.Request, subject, correlationID string, out 
 		return
 	}
 	headers := map[string][]string{responderHeader: {a.responderIdentity()}}
-	a.publishObs(subject, correlationID, "reply", headers, data, "")
+	natstrace.SpanFrom(req).End(data, headers)
 	if err := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); err != nil && a.log != nil {
 		a.log.Error("browserrpc: respond failed", "subject", subject, "err", err)
 	}
@@ -544,53 +533,8 @@ func (a *Adapter) respondError(req micro.Request, subject, correlationID string,
 		micro.ErrorCodeHeader: {code},
 		responderHeader:       {a.responderIdentity()},
 	}
-	a.publishObs(subject, correlationID, "reply", headers, data, err.Error())
+	natstrace.SpanFrom(req).Fail(err, data, headers)
 	if respErr := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); respErr != nil && a.log != nil {
 		a.log.Error("browserrpc: respond failed", "subject", subject, "err", respErr)
-	}
-}
-
-var versionSuffix = regexp.MustCompile(`\.v\d+$`)
-
-func obsSubjectFor(apiSubject string) string {
-	return "obs." + versionSuffix.ReplaceAllString(apiSubject, "")
-}
-
-type obsEnvelope struct {
-	Direction     string              `json:"direction"`
-	CorrelationID string              `json:"correlationId"`
-	Subject       string              `json:"subject"`
-	Payload       json.RawMessage     `json:"payload,omitempty"`
-	Error         string              `json:"error,omitempty"`
-	Headers       map[string][]string `json:"headers,omitempty"`
-	Timestamp     time.Time           `json:"timestamp"`
-	PayloadBytes  int                 `json:"payloadBytes"`
-}
-
-// publishObs fire-and-forget publishes an observability event (BR-D26 parity)
-// — must never block or fail the real API reply. trading-partner-service has
-// no JetStream, so this is always a plain nc.Publish (no RPCTRACE replay
-// retention), same as pricing-service's adapter.
-func (a *Adapter) publishObs(apiSubject, correlationID, direction string, headers map[string][]string, payload []byte, errMsg string) {
-	defer func() {
-		if r := recover(); r != nil && a.log != nil {
-			a.log.Error("browserrpc: obs publish panicked", "recovered", r)
-		}
-	}()
-	data, err := json.Marshal(obsEnvelope{
-		Direction:     direction,
-		CorrelationID: correlationID,
-		Subject:       apiSubject,
-		Payload:       payload,
-		Error:         errMsg,
-		Headers:       headers,
-		Timestamp:     time.Now().UTC(),
-		PayloadBytes:  len(payload),
-	})
-	if err != nil {
-		return
-	}
-	if pubErr := a.nc.Publish(obsSubjectFor(apiSubject), data); pubErr != nil && a.log != nil {
-		a.log.Warn("browserrpc: obs publish failed", "err", pubErr)
 	}
 }

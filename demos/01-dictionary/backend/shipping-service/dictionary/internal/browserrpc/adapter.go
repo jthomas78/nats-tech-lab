@@ -39,9 +39,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strings"
-	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -50,6 +48,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/queries"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
 )
 
 // Subject constants — {context} is a wildcard token resolved per-request
@@ -76,37 +75,26 @@ const (
 	MetaKnownContainersSubject = "api.*.shipping.meta.known-containers.v1"
 )
 
-// ObsSubjectWildcard is the subject filter for the obs.api.* observability
-// side-channel (same BR-D26 mechanism refdata-service's adapter uses, under
-// its own rpc.*-family obs.rpc.* wildcard).
-// Unlike refdata-service's adapter, events published under this wildcard
-// from a TENANT connection stay inside that tenant's isolated NATS account.
-// The Admin UI's Request/Reply panel (watchRPCObs, rest/sse.go) sees the
-// ACTIVE tenant's events by additionally subscribing on Deps.TenantNC —
-// live-only, and only for that one tenant; see the "KNOWN GAP" doc comment
-// on Deps below for what remains invisible.
-const ObsSubjectWildcard = "obs.api.>"
-
 // Deps are Adapter's collaborators — the exact same application-layer
 // structs rest/handlers.go's Deps already holds (see composition via
 // tenant.go), so a call over api.* and a call over REST run identical
-// domain logic. JS is optional (nil-safe, mirroring refdata's adapter):
-// when configured, publishObs retains events on RPCTRACE (BR-D29) instead
-// of just fire-and-forget core-NATS publishing.
+// domain logic. JS is currently unused by this adapter (Phase 28b retired
+// the obs.api.* fire-and-forget/RPCTRACE publishing that used to consult
+// it — see natstrace's package doc comment) but is left on Deps rather than
+// threaded out of composition.go/tenant.go, since a future call site inside
+// this adapter may still want it.
 //
-// KNOWN GAP (narrowed Phase 16, originally Main-POC-Plan.md Phase 15a):
-// unlike refdata-service's adapter, which always runs on the single
-// permanent PLATFORM-account connection, THIS adapter's obs.api.* events
-// publish onto whichever TENANT account the Adapter is registered on (see
-// New's doc comment) — a fully separate NATS account with no
-// exports/imports configured. The Admin UI's Request/Reply panel
-// (watchRPCObs, rest/sse.go) now also subscribes obs.api.> on the ACTIVE
-// tenant's connection, so that one tenant's traffic is visible live; what
-// remains invisible is (a) every non-active tenant's obs.api.* traffic and
-// (b) any replay — RPCTRACE lives on the PLATFORM account and cannot retain
-// tenant-account events. Publishing them anyway is a deliberate choice so a
-// later cross-account-imports phase (explicitly out of scope for Phase 15)
-// closes the rest with zero changes to this adapter.
+// Phase 28b superseded this adapter's old obs.api.* observability
+// side-channel (BR-026/BR-027) with natstrace's obs.trace.* one (BR-036/
+// BR-037): every api.* call now publishes exactly one reply-side span to
+// obs.trace.{context}.shipping.{entity}.{action} — PLATFORM account only —
+// instead of the old two-event (request + reply) obs.api.* pair. The Admin
+// UI's Request/Reply panel still reads the old obs.api.>/obs.rpc.> subjects
+// for its [messages] flat log until Phase 28g switches that view to derive
+// from trace spans instead, so that view goes dark for shipping-service
+// traffic in the interim — an accepted, phase-scoped gap (Main-POC-Plan.md
+// Phase 28's "full rollout in one phase" tradeoff), not a bug in this
+// adapter.
 type Deps struct {
 	Ships      *commands.ShipHandler
 	Containers *commands.ContainerHandler
@@ -139,6 +127,7 @@ type Adapter struct {
 	js         jetstream.JetStream
 	log        *slog.Logger
 	svc        micro.Service
+	tracer     *natstrace.Tracer
 }
 
 // errorResponse is the wire shape for every failed api.* call — same shape
@@ -209,6 +198,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		shapeA:     deps.ShapeA,
 		js:         deps.JS,
 		log:        deps.Log,
+		tracer:     natstrace.New(nc),
 	}
 
 	svc, err := micro.AddService(nc, micro.Config{
@@ -252,7 +242,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"meta-known-containers", a.handleMetaKnownContainers, MetaKnownContainersSubject},
 	}
 	for _, ep := range endpoints {
-		if err := svc.AddEndpoint(ep.name, ep.handler, micro.WithEndpointSubject(ep.subject)); err != nil {
+		if err := svc.AddEndpoint(ep.name, a.tracer.Middleware(ep.handler), micro.WithEndpointSubject(ep.subject)); err != nil {
 			_ = svc.Stop()
 			return nil, err
 		}
@@ -289,7 +279,6 @@ func (a *Adapter) shipCommand(req micro.Request, cmd func(context.Context, comma
 	subject := req.Subject()
 	itemContext := contextFromSubject(subject)
 	correlationID := req.Reply()
-	a.publishObs(subject, correlationID, "request", map[string][]string(req.Headers()), req.Data(), "")
 
 	var in commands.ShipInput
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
@@ -298,7 +287,7 @@ func (a *Adapter) shipCommand(req micro.Request, cmd func(context.Context, comma
 	}
 	in.Context = itemContext
 
-	state, err := cmd(context.Background(), in)
+	state, err := cmd(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), in)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -310,7 +299,6 @@ func (a *Adapter) handleShipCorrectID(req micro.Request) {
 	subject := req.Subject()
 	itemContext := contextFromSubject(subject)
 	correlationID := req.Reply()
-	a.publishObs(subject, correlationID, "request", map[string][]string(req.Headers()), req.Data(), "")
 
 	var in commands.ShipCorrectionInput
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
@@ -319,7 +307,7 @@ func (a *Adapter) handleShipCorrectID(req micro.Request) {
 	}
 	in.Context = itemContext
 
-	state, err := a.ships.CorrectShipID(context.Background(), in)
+	state, err := a.ships.CorrectShipID(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), in)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -337,9 +325,8 @@ func (a *Adapter) handleShipList(req micro.Request) {
 	subject := req.Subject()
 	itemContext := contextFromSubject(subject)
 	correlationID := req.Reply()
-	a.publishObs(subject, correlationID, "request", map[string][]string(req.Headers()), req.Data(), "")
 
-	ships, err := a.shapeA.ListShips(context.Background(), itemContext)
+	ships, err := a.shapeA.ListShips(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -364,7 +351,6 @@ func (a *Adapter) containerCommand(req micro.Request, cmd func(context.Context, 
 	subject := req.Subject()
 	itemContext := contextFromSubject(subject)
 	correlationID := req.Reply()
-	a.publishObs(subject, correlationID, "request", map[string][]string(req.Headers()), req.Data(), "")
 
 	var in commands.ContainerInput
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
@@ -373,7 +359,7 @@ func (a *Adapter) containerCommand(req micro.Request, cmd func(context.Context, 
 	}
 	in.Context = itemContext
 
-	state, err := cmd(context.Background(), in)
+	state, err := cmd(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), in)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -388,9 +374,8 @@ func (a *Adapter) handleContainerList(req micro.Request) {
 	subject := req.Subject()
 	itemContext := contextFromSubject(subject)
 	correlationID := req.Reply()
-	a.publishObs(subject, correlationID, "request", map[string][]string(req.Headers()), req.Data(), "")
 
-	containers, err := a.terminal.List(context.Background(), itemContext)
+	containers, err := a.terminal.List(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -403,9 +388,8 @@ func (a *Adapter) handlePortList(req micro.Request) {
 	subject := req.Subject()
 	itemContext := contextFromSubject(subject)
 	correlationID := req.Reply()
-	a.publishObs(subject, correlationID, "request", map[string][]string(req.Headers()), req.Data(), "")
 
-	ports, err := a.ports.List(context.Background(), itemContext)
+	ports, err := a.ports.List(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -431,7 +415,6 @@ func (a *Adapter) handlePortRegister(req micro.Request) {
 	subject := req.Subject()
 	itemContext := contextFromSubject(subject)
 	correlationID := req.Reply()
-	a.publishObs(subject, correlationID, "request", map[string][]string(req.Headers()), req.Data(), "")
 
 	var in portRegisterRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
@@ -439,11 +422,12 @@ func (a *Adapter) handlePortRegister(req micro.Request) {
 		return
 	}
 
-	if err := a.ports.Register(context.Background(), itemContext, in.Name); err != nil {
+	spanCtx := natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req))
+	if err := a.ports.Register(spanCtx, itemContext, in.Name); err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	a.publishPortsChanged(itemContext)
+	a.publishPortsChanged(spanCtx, itemContext)
 	a.respond(req, subject, correlationID, portRegisterResponse{Port: in.Name})
 }
 
@@ -457,8 +441,8 @@ func (a *Adapter) handlePortRegister(req micro.Request) {
 // — same contract as eventhandler.publishNotify (Phase 15b): a failed
 // publish or list read is logged, never returned, since it must not fail
 // the command that already succeeded.
-func (a *Adapter) publishPortsChanged(kvContext string) {
-	ports, err := a.ports.List(context.Background(), kvContext)
+func (a *Adapter) publishPortsChanged(ctx context.Context, kvContext string) {
+	ports, err := a.ports.List(ctx, kvContext)
 	if err != nil {
 		if a.log != nil {
 			a.log.Warn("browserrpc: read port list for notify failed", "context", kvContext, "err", err)
@@ -480,9 +464,8 @@ func (a *Adapter) handleMetaKnownContainers(req micro.Request) {
 	subject := req.Subject()
 	itemContext := contextFromSubject(subject)
 	correlationID := req.Reply()
-	a.publishObs(subject, correlationID, "request", map[string][]string(req.Headers()), req.Data(), "")
 
-	values, err := a.meta.KnownContainers(context.Background(), itemContext)
+	values, err := a.meta.KnownContainers(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -506,11 +489,14 @@ func (a *Adapter) responderIdentity() string {
 	return fmt.Sprintf("%s/%s", info.Name, info.ID)
 }
 
-// respond marshals out, fires the reply-side obs.api.* event, and sends the
-// reply — the shared tail end of every handler above. responderHeader is
-// attached to both the real wire reply and its observability copy
-// (mirroring how respondError attaches the real error headers to both,
-// BR-D36).
+// respond marshals out, finishes this request's natstrace span (BR-036/
+// BR-037), and sends the reply — the shared tail end of every handler
+// above. responderHeader is attached to both the real wire reply and the
+// span's headers (mirroring how respondError attaches the real error
+// headers to both). natstrace.SpanFrom is nil-safe, so a handler invoked
+// directly (not through Tracer.Middleware, e.g. a unit test calling
+// a.handleX(req) with a bare micro.Request) still replies correctly, it
+// just publishes no span.
 func (a *Adapter) respond(req micro.Request, subject, correlationID string, out any) {
 	data, err := json.Marshal(out)
 	if err != nil {
@@ -518,19 +504,19 @@ func (a *Adapter) respond(req micro.Request, subject, correlationID string, out 
 		return
 	}
 	headers := map[string][]string{responderHeader: {a.responderIdentity()}}
-	a.publishObs(subject, correlationID, "reply", headers, data, "")
+	natstrace.SpanFrom(req).End(data, headers)
 	if err := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); err != nil && a.log != nil {
 		a.log.Error("browserrpc: respond failed", "subject", subject, "err", err)
 	}
 }
 
-// respondError also fires the reply-side obs.api.* event on failure (BR-D26
-// parity with refdata-service's adapter — a failed call must still be
-// visible in the Admin UI's Request/Reply panel). The reply carries real
-// Nats-Service-Error/Nats-Service-Error-Code headers (micro's own
-// error-header convention, BR-D36) via WithHeaders — additive to the
-// existing JSON error body, so no client that reads the body (NotFound
-// bool, error string) needs to change.
+// respondError also finishes this request's natstrace span on failure
+// (BR-036/BR-037 parity with refdata-service's adapter — a failed call must
+// still be visible in the Admin UI's tracing side-channel). The reply
+// carries real Nats-Service-Error/Nats-Service-Error-Code headers (micro's
+// own error-header convention) via WithHeaders — additive to the existing
+// JSON error body, so no client that reads the body (NotFound bool, error
+// string) needs to change.
 func (a *Adapter) respondError(req micro.Request, subject, correlationID string, err error) {
 	data, _ := json.Marshal(errorResponse{Error: err.Error(), NotFound: isNotFoundErr(err)})
 	code := "500"
@@ -542,21 +528,10 @@ func (a *Adapter) respondError(req micro.Request, subject, correlationID string,
 		micro.ErrorCodeHeader: {code},
 		responderHeader:       {a.responderIdentity()},
 	}
-	a.publishObs(subject, correlationID, "reply", headers, data, err.Error())
+	natstrace.SpanFrom(req).Fail(err, data, headers)
 	if respErr := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); respErr != nil && a.log != nil {
 		a.log.Error("browserrpc: respond failed", "subject", subject, "err", respErr)
 	}
-}
-
-var versionSuffix = regexp.MustCompile(`\.v\d+$`)
-
-// obsSubjectFor derives the observability subject from a real api.* subject
-// (e.g. api.acme-atlantic-fleet.shipping.ship.arrive.v1 ->
-// obs.api.acme-atlantic-fleet.shipping.ship.arrive),
-// identical convention to refdata-service's adapter (which does the same
-// for its own rpc.* family).
-func obsSubjectFor(apiSubject string) string {
-	return "obs." + versionSuffix.ReplaceAllString(apiSubject, "")
 }
 
 // contextFromSubject extracts the {context} token from an api.{context}....
@@ -576,60 +551,4 @@ func contextFromSubject(subject string) string {
 		return ""
 	}
 	return parts[1]
-}
-
-// obsEnvelope's Headers/Timestamp/PayloadBytes (BR-D36, Phase 17a) are
-// additive to the original BR-D26 shape — every field is optional to decode,
-// so events already retained (or produced by older code) still parse; a
-// consumer must treat their absence as "unknown", not an error.
-type obsEnvelope struct {
-	Direction     string              `json:"direction"`
-	CorrelationID string              `json:"correlationId"`
-	Subject       string              `json:"subject"`
-	Payload       json.RawMessage     `json:"payload,omitempty"`
-	Error         string              `json:"error,omitempty"`
-	Headers       map[string][]string `json:"headers,omitempty"`
-	Timestamp     time.Time           `json:"timestamp"`
-	PayloadBytes  int                 `json:"payloadBytes"`
-}
-
-// publishObs fire-and-forget publishes an observability event (BR-D26
-// parity) — must never block or fail the real API reply. Identical
-// mechanics to refdata-service's adapter: PublishAsync onto RPCTRACE when
-// a.js is configured (BR-D29 replay), otherwise a plain nc.Publish.
-//
-// headers is the real headers carried by this message — the caller's
-// req.Headers() on the request side, or nil on a success reply (this
-// adapter attaches no custom headers there); respondError builds and passes
-// the actual Nats-Service-Error/-Code headers it also sends on the wire
-// (BR-D36), never fabricated ones.
-func (a *Adapter) publishObs(apiSubject, correlationID, direction string, headers map[string][]string, payload []byte, errMsg string) {
-	defer func() {
-		if r := recover(); r != nil && a.log != nil {
-			a.log.Error("browserrpc: obs publish panicked", "recovered", r)
-		}
-	}()
-	data, err := json.Marshal(obsEnvelope{
-		Direction:     direction,
-		CorrelationID: correlationID,
-		Subject:       apiSubject,
-		Payload:       payload,
-		Error:         errMsg,
-		Headers:       headers,
-		Timestamp:     time.Now().UTC(),
-		PayloadBytes:  len(payload),
-	})
-	if err != nil {
-		return
-	}
-	subject := obsSubjectFor(apiSubject)
-	if a.js != nil {
-		if _, pubErr := a.js.PublishAsync(subject, data); pubErr != nil && a.log != nil {
-			a.log.Warn("browserrpc: obs publish failed", "err", pubErr)
-		}
-		return
-	}
-	if pubErr := a.nc.Publish(subject, data); pubErr != nil && a.log != nil {
-		a.log.Warn("browserrpc: obs publish failed", "err", pubErr)
-	}
 }

@@ -456,3 +456,10 @@ adjusted normally.
 
 - **Enforced in:** `domain.RateSheetVersion.AppendDieselOverlay()`
 - **Test:** `RateSheet Diesel Overlay Rules / BR-P24`
+
+### BR-P25 (Phase 28) — The same `obs.trace.*` wire contract as `BUSINESS_RULES-SHIPPING.md`'s BR-036, on pricing-service's publisher side
+
+Mirrors `BUSINESS_RULES-SHIPPING.md`'s BR-036 for this service's own tracing publisher. `browserrpc.Adapter`'s `traceSpan` is a strict superset of its existing `obsEnvelope` — no field renamed or retyped, every addition (`traceId`, `spanId`, `parentSpanId`, `service`/`entity`/`action`, `statusCode`/`statusMessage`, `attributes`, `redacted`, `truncated`) `omitempty` — and every `obs.trace.{context}.pricing.{entity}.{action}` publish goes to the PLATFORM account only, with the same redact-before-truncate ordering and 4 KiB cap BR-036 establishes. Never blocks or fails a business path.
+
+- **Enforced in:** `pricing/internal/natstrace` (new package, Phase 28b) — mirrors `dictionary/internal/natstrace`'s `Tracer.publish()` redaction-then-truncate ordering and `traceSpan` struct field-for-field.
+- **Test:** `pricing/internal/natstrace/natstrace_test.go` — the shared cross-service contract test (BR-036's clone) asserting the `traceSpan` JSON shape decodes identically to shipping-service's, and that an old-shape `obsEnvelope` with none of the Phase 28 fields still decodes.

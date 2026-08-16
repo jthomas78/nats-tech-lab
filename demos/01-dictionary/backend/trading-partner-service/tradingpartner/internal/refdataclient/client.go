@@ -19,10 +19,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
+
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/natstrace"
 )
 
 // ErrRPCUnavailable is returned when every retry against rpc.* fails — there
@@ -46,10 +49,15 @@ const requestorHeader = "Nats-Requestor"
 type Client struct {
 	nc          *nats.Conn
 	requestorID string
+	tracer      *natstrace.Tracer
 }
 
 func New(nc *nats.Conn) *Client {
-	return &Client{nc: nc, requestorID: fmt.Sprintf("%s/%s", nc.Opts.Name, nuid.Next())}
+	return &Client{
+		nc:          nc,
+		requestorID: fmt.Sprintf("%s/%s", nc.Opts.Name, nuid.Next()),
+		tracer:      natstrace.New(nc),
+	}
 }
 
 // rpcItemGetRequest/rpcItemGetResponse mirror refdata-service's
@@ -83,7 +91,16 @@ func (c *Client) Exists(ctx context.Context, contextKey, code string) (bool, err
 	if err != nil {
 		return false, err
 	}
-	data, err := c.requestRPC(ctx, "refdata.item.get.v1", reqBody)
+	// "refdata.item.get.v1" is this tenant account's *local* alias, not the
+	// real wire subject — accounts-service's provisioner.go mints every
+	// tenant account with a service import remapping this local subject to
+	// "rpc.{tenant}.refdata.item.get.v1" entirely inside the NATS server
+	// (jwt.RenamingSubject), so the account's own identity lands at that
+	// token, never a caller-supplied value. Publishing the real subject
+	// directly here would neither route (it doesn't match the account's
+	// LocalSubject) nor be safe (contextKey is a business-unit context, not
+	// the tenant, and must never be the value that lands there).
+	data, err := c.requestRPC(ctx, "refdata.item.get.v1", contextKey, "item", "get", reqBody)
 	if err != nil {
 		return false, err
 	}
@@ -103,18 +120,37 @@ func (c *Client) Exists(ctx context.Context, contextKey, code string) (bool, err
 	return resp.Item.Code == code, nil
 }
 
-func (c *Client) requestRPC(ctx context.Context, subject string, body []byte) ([]byte, error) {
+// requestRPC makes one logical rpc.* call, retrying up to defaultRPCRetries
+// times. BR-037: exactly one natstrace span covers the whole call — minted
+// before the retry loop starts, not one per attempt, so a 3-attempt failure
+// is one span with rpc.retry_count=2, not three parentless siblings. The
+// span continues whatever parent natstrace.ContextWithSpan attached to ctx
+// (e.g. the browserrpc handler's own inbound span), or mints a root span if
+// ctx carries none. contextValue/entity/action label the span explicitly
+// (see StartOutbound's doc comment on why subject can't be parsed for this)
+// — service is always "refdata", the only thing this package ever calls.
+func (c *Client) requestRPC(ctx context.Context, subject, contextValue, entity, action string, body []byte) ([]byte, error) {
+	sp := c.tracer.StartOutbound(natstrace.SpanFromContext(ctx), subject, body, contextValue, "refdata", entity, action)
 	msg := &nats.Msg{
 		Subject: subject,
 		Data:    body,
-		Header:  nats.Header{requestorHeader: []string{c.requestorID}},
+		Header: nats.Header{
+			requestorHeader:             []string{c.requestorID},
+			natstrace.TraceparentHeader: []string{sp.Traceparent()},
+		},
 	}
+	// See refdataconsumer's identical call: an outbound span predates its own
+	// headers, so it has to be handed them rather than capturing them.
+	sp.SetRequestHeaders(map[string][]string(msg.Header))
 	var lastErr error
-	for attempt := 0; attempt <= defaultRPCRetries; attempt++ {
+	attempt := 0
+	for ; attempt <= defaultRPCRetries; attempt++ {
 		if attempt > 0 {
 			select {
 			case <-time.After(defaultRPCBackoff * time.Duration(attempt)):
 			case <-ctx.Done():
+				sp.SetAttribute("rpc.retry_count", strconv.Itoa(attempt))
+				sp.Fail(ctx.Err(), nil, nil)
 				return nil, ctx.Err()
 			}
 		}
@@ -122,9 +158,14 @@ func (c *Client) requestRPC(ctx context.Context, subject string, body []byte) ([
 		reply, err := c.nc.RequestMsgWithContext(rctx, msg)
 		cancel()
 		if err == nil {
+			sp.SetAttribute("rpc.retry_count", strconv.Itoa(attempt))
+			sp.End(reply.Data, map[string][]string(reply.Header))
 			return reply.Data, nil
 		}
 		lastErr = err
 	}
-	return nil, fmt.Errorf("%w (subject %s): %v", ErrRPCUnavailable, subject, lastErr)
+	sp.SetAttribute("rpc.retry_count", strconv.Itoa(attempt-1))
+	finalErr := fmt.Errorf("%w (subject %s): %v", ErrRPCUnavailable, subject, lastErr)
+	sp.Fail(finalErr, nil, nil)
+	return nil, finalErr
 }

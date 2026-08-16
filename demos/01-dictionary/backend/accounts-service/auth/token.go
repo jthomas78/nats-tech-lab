@@ -79,12 +79,14 @@ type ConnectInfo struct {
 // vs. SUB and rule out $KV.>/$JS.API.>/evt.> within that already-isolated
 // account.
 //
-// Sub also includes obs.api.> (Phase 23) — the "supportive" observability
-// side-channel that traces api.* request/reply traffic (never on a business
-// path, ARCHITECTURE-COMMUNICATIONS.md § 2). This is distinct from rpc.*,
-// which stays excluded per the rpc.* discussion above: obs.api.> only
-// observes traffic this same credential is already permitted to originate
-// (api.>), it doesn't grant reach into any new business subject.
+// Sub no longer includes obs.api.> (Phase 23 granted it; Phase 28g retires
+// it) — that "supportive" observability side-channel was already dead
+// before the retirement: Phase 28a-28e replaced browserrpc's publishObs
+// call with a natstrace span, so nothing has published to obs.api.> since,
+// and the Admin UI's [messages] tab (the sole consumer of this grant) now
+// derives from obs.trace.*/the trace-request-reply KV bucket instead (BR-026's Phase
+// 28g amendment, BUSINESS_RULES-SHIPPING.md). obs.trace.* itself is never
+// granted here — it publishes to the PLATFORM account only, per BR-036.
 func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string, ttl time.Duration) (ConnectInfo, error) {
 	signingKP, err := nkeys.FromSeed([]byte(accountSigningKeySeed))
 	if err != nil {
@@ -108,7 +110,7 @@ func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string, t
 	claims.Name = "browser-" + tenant
 	claims.IssuerAccount = accountPub
 	claims.Permissions.Pub.Allow.Add("api.>", "_INBOX.>")
-	claims.Permissions.Sub.Allow.Add("api.>", "notify.>", "obs.api.>", "_INBOX.>")
+	claims.Permissions.Sub.Allow.Add("api.>", "notify.>", "_INBOX.>")
 	claims.Expires = time.Now().Add(ttl).Unix()
 
 	token, err := claims.Encode(signingKP)
@@ -130,12 +132,19 @@ func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string, t
 // MintBrowserToken's tenant-shaped one, not a parameterization of it.
 // PLATFORM is not a tenant (no Status/Suspend/Reactivate lifecycle), so this
 // deliberately isn't "MintBrowserToken with tenant=platform": it has its own
-// subscribe-only subject set (notify.accounts.account.> plus the
-// REFDATA/RPCTRACE notify.* subjects Phase 23 adds) and, unlike
-// MintBrowserToken, no publish grant at all — this connection only watches,
-// it never issues commands. Pub is explicitly denied (Deny.Add(">")) rather
-// than left unset, because an empty/unset Allow list means "allow
-// everything" in NATS permission semantics, not "allow nothing".
+// subscribe-only subject set (notify.accounts.account.> plus the REFDATA
+// notify.* subject Phase 23 adds, plus notify._platform.kv.trace-request-reply.> for the
+// Admin UI's trace waterfall/messages panel, Phase 28g —
+// internal/kvstore.Store.EnableNotify's existing
+// notify.{context}.kv.{bucket}.{key}.changed publish, reused unchanged for
+// the trace-request-reply KV bucket rather than a bespoke trace-notify subject) and,
+// unlike MintBrowserToken, no publish grant at all — this connection only
+// watches, it never issues commands. Pub is explicitly denied
+// (Deny.Add(">")) rather than left unset, because an empty/unset Allow list
+// means "allow everything" in NATS permission semantics, not "allow
+// nothing". notify._platform.rpctrace.> (Phase 23) was retired in Phase
+// 28g along with the RPCTRACE stream and its notify bridge
+// (eventhandler.RegisterRPCTraceNotify) — nothing publishes there anymore.
 func MintAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl time.Duration) (ConnectInfo, error) {
 	signingKP, err := nkeys.FromSeed([]byte(accountSigningKeySeed))
 	if err != nil {
@@ -159,7 +168,7 @@ func MintAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl time.Du
 	claims.Name = "admin-platform"
 	claims.IssuerAccount = accountPub
 	claims.Permissions.Pub.Deny.Add(">")
-	claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.rpctrace.>")
+	claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.kv.trace-request-reply.>")
 	claims.Expires = time.Now().Add(ttl).Unix()
 
 	token, err := claims.Encode(signingKP)

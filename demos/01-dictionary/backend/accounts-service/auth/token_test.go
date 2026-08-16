@@ -48,12 +48,17 @@ var _ = Describe("MintBrowserToken", func() {
 		// comment. "acme" would never match a real subject, silently
 		// breaking every browser call.
 		Expect(claims.Permissions.Pub.Allow).To(ConsistOf("api.>", "_INBOX.>"))
-		Expect(claims.Permissions.Sub.Allow).To(ConsistOf("api.>", "notify.>", "obs.api.>", "_INBOX.>"))
+		Expect(claims.Permissions.Sub.Allow).To(ConsistOf("api.>", "notify.>", "_INBOX.>"))
 		Expect(claims.Permissions.Pub.Allow).NotTo(ContainElement(ContainSubstring("evt.")))
-		// obs.api.> is allowed (Phase 23, RPC panel live tail); obs.rpc.>
-		// and bare rpc.> are not — this credential must still never observe
-		// or reach service-to-service rpc.* traffic.
-		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("obs.rpc.")))
+		// obs.api.> (Phase 23) is retired (Phase 28g) — it was the RPC
+		// panel's old live-tail grant, dead since Phase 28a-28e replaced
+		// browserrpc's publishObs call with a natstrace span; the panel's
+		// [messages] tab now derives from obs.trace.*/the trace-request-reply KV bucket
+		// instead, which this credential is never granted (BR-036:
+		// obs.trace.* publishes to PLATFORM only). obs.rpc.> and bare
+		// rpc.> stay excluded too — this credential must never observe or
+		// reach service-to-service rpc.* traffic.
+		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("obs.")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(Equal("rpc.>")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("$KV")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("$JS.API")))
@@ -132,9 +137,11 @@ var _ = Describe("MintAdminToken", func() {
 	})
 
 	// BR-AC18: subscribe-only, scoped to notify.accounts.account.> plus the
-	// REFDATA/RPCTRACE notify.* subjects Phase 23 adds — no publish grant,
-	// no $JS.API.>/$KV.>, no tenant-shaped api.>/notify.{tenant}.* access.
-	It("mints a sub-only JWT scoped to notify.accounts.account.> and the REFDATA/RPCTRACE notify subjects, with publish denied entirely", func() {
+	// REFDATA notify.* subject Phase 23 adds and notify._platform.kv.trace-request-reply.>
+	// (Phase 28g) — no publish grant, no $JS.API.>/$KV.>, no tenant-shaped
+	// api.>/notify.{tenant}.* access. notify._platform.rpctrace.> (Phase 23)
+	// was retired in Phase 28g along with the RPCTRACE stream itself.
+	It("mints a sub-only JWT scoped to notify.accounts.account.>, notify._platform.refdata.>, and notify._platform.kv.trace-request-reply.>, with publish denied entirely", func() {
 		info, err := auth.MintAdminToken(accountPub, accountSigningSeed, "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(info.WSUrl).To(Equal("ws://localhost:9222"))
@@ -147,8 +154,9 @@ var _ = Describe("MintAdminToken", func() {
 		Expect(claims.IssuerAccount).To(Equal(accountPub))
 
 		Expect(claims.Permissions.Sub.Allow).To(ConsistOf(
-			"notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.rpctrace.>",
+			"notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.kv.trace-request-reply.>",
 		))
+		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("rpctrace")))
 		Expect(claims.Permissions.Pub.Allow).To(BeEmpty())
 		Expect(claims.Permissions.Pub.Deny).To(ConsistOf(">"))
 

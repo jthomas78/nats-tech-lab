@@ -4,7 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/nats-io/nkeys"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -149,5 +151,54 @@ var _ = Describe("Provisioner", func() {
 		accInfo, err := js.AccountInfo(tctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(accInfo.Limits.MaxMemory).To(BeEquivalentTo(limits.MaxMem), "reactivation must restore the account's original JetStream limits, not defaults")
+	})
+
+	// BR-AC30 (Phase 28f amendment): CreateAccount must re-sign PLATFORM's
+	// own claims to import each new tenant's obs.trace.> export — the one
+	// leg of the cross-account trace pipeline that touches an account
+	// CreateAccount didn't itself just mint.
+	It("re-signs PLATFORM's own claims to import each new tenant's obs.trace.>, without disturbing other tenants' imports or duplicating on retry", func() {
+		platformKP, err := nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		platformPub, err := platformKP.PublicKey()
+		Expect(err).NotTo(HaveOccurred())
+
+		sysNC := ots.ConnectSys(GinkgoT())
+		defer sysNC.Close()
+		ots.PushAccountClaims(sysNC, ots.OperatorSigningKeySeed, jwt.NewAccountClaims(platformPub))
+
+		limits := accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5}
+
+		mintedA, err := provisioner.CreateAccount(ctx, limits, "acme", platformPub)
+		Expect(err).NotTo(HaveOccurred())
+
+		afterFirst, err := provisioner.LookupAccountClaims(ctx, platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(afterFirst.Imports).To(HaveLen(1))
+		Expect(afterFirst.Imports[0].Account).To(Equal(mintedA.PublicKey))
+		Expect(string(afterFirst.Imports[0].Subject)).To(Equal("obs.trace.>"))
+		Expect(afterFirst.Imports[0].Type).To(Equal(jwt.Stream))
+		Expect(afterFirst.Imports[0].AllowTrace).To(BeTrue(), "AllowTrace must be set on PLATFORM's Stream import — that's the flag that actually enables trace propagation")
+
+		mintedB, err := provisioner.CreateAccount(ctx, limits, "globex", platformPub)
+		Expect(err).NotTo(HaveOccurred())
+
+		afterSecond, err := provisioner.LookupAccountClaims(ctx, platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(afterSecond.Imports).To(HaveLen(2), "a second tenant's import must be added alongside the first, not replace it")
+		accountsImported := map[string]bool{}
+		for _, imp := range afterSecond.Imports {
+			accountsImported[imp.Account] = true
+		}
+		Expect(accountsImported).To(HaveKey(mintedA.PublicKey))
+		Expect(accountsImported).To(HaveKey(mintedB.PublicKey))
+
+		// A repeated call for a tenant PLATFORM already imports (simulating
+		// a caller retry after some unrelated transient failure) must be a
+		// no-op, not append a duplicate entry.
+		Expect(provisioner.AddPlatformTraceImportForTest(ctx, platformPub, mintedA.PublicKey)).To(Succeed())
+		afterRetry, err := provisioner.LookupAccountClaims(ctx, platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(afterRetry.Imports).To(HaveLen(2), "re-registering an already-imported tenant must not duplicate the import")
 	})
 })

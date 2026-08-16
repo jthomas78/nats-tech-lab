@@ -17,6 +17,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
 )
 
 func newJSForKV() (jetstream.JetStream, *nats.Conn) {
@@ -225,6 +226,45 @@ var _ = Describe("KVStore — per-tenant bucket with context-prefixed keys", fun
 			Expect(err).NotTo(HaveOccurred())
 			Expect(msg.Subject).To(Equal("notify.acme-pacific-fleet.kv.dict-a.ship.SHIP1.changed"))
 			Expect(msg.Data).To(BeEmpty())
+		})
+
+		// Phase 28d (BR-037): a NATS KV entry itself can never carry a
+		// traceparent (jetstream.KeyValue.Put takes no headers), so the
+		// derived notify is what lets a trace waterfall show the write's
+		// async tail. ctx carries the span the same way commands.go's
+		// publish and eventhandler's projectors do, via
+		// natstrace.ContextWithSpan.
+		It("attaches a Traceparent header to the notify publish when ctx carries a span", func() {
+			store.EnableNotify(nc, nil)
+			tracer := natstrace.New(nc)
+			sp := tracer.StartFromHeaders(nil, "evt.acme-pacific-fleet.shipping.ship.SHIP1.arrived", nil, "acme-pacific-fleet", "shipping", "ship", "arrived")
+			spanCtx := natstrace.ContextWithSpan(ctx, sp)
+
+			sub, err := nc.SubscribeSync("notify.>")
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(sub.Unsubscribe)
+
+			_, err = store.Put(spanCtx, "acme-pacific-fleet", "ship.SHIP1", []byte("v1"))
+			Expect(err).NotTo(HaveOccurred())
+
+			msg, err := sub.NextMsg(2 * time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(msg.Header.Get(natstrace.TraceparentHeader)).To(Equal(sp.Traceparent()))
+		})
+
+		It("omits the Traceparent header cleanly when ctx carries no span", func() {
+			store.EnableNotify(nc, nil)
+
+			sub, err := nc.SubscribeSync("notify.>")
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(sub.Unsubscribe)
+
+			_, err = store.Put(ctx, "acme-pacific-fleet", "ship.SHIP1", []byte("v1"))
+			Expect(err).NotTo(HaveOccurred())
+
+			msg, err := sub.NextMsg(2 * time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(msg.Header.Get(natstrace.TraceparentHeader)).To(BeEmpty())
 		})
 	})
 })

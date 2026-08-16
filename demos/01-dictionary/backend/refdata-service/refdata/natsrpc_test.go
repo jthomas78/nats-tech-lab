@@ -83,7 +83,7 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 
 	Context("BR-D25: an rpc.* operation must exist as a commands/queries method already exposed via REST", func() {
 		It("resolves the same item via rpc.* that ResolveItem (the REST handler's method) returns directly", func() {
-			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "EUR", Locale: "en"})
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{Context: itemCtx, TypeKey: "currency", Code: "EUR", Locale: "en"})
 			Expect(err).NotTo(HaveOccurred())
 
 			msg, err := nc.Request(rpcSubject, reqBody, 2*time.Second)
@@ -101,7 +101,7 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 		})
 
 		It("marks an rpc.* response as a fallback when the locale falls back to the code, same as ResolveItem", func() {
-			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "GBP", Locale: "ja-jp"})
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{Context: itemCtx, TypeKey: "currency", Code: "GBP", Locale: "ja-jp"})
 			Expect(err).NotTo(HaveOccurred())
 
 			msg, err := nc.Request(rpcSubject, reqBody, 2*time.Second)
@@ -114,7 +114,7 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 		})
 
 		It("marks an rpc.* response as a fallback (not an exact match) when a nonsense locale falls through to the default locale's real data", func() {
-			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "EUR", Locale: "e"})
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{Context: itemCtx, TypeKey: "currency", Code: "EUR", Locale: "e"})
 			Expect(err).NotTo(HaveOccurred())
 
 			msg, err := nc.Request(rpcSubject, reqBody, 2*time.Second)
@@ -128,7 +128,7 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 		})
 
 		It("surfaces the same not-found condition ResolveItem itself returns", func() {
-			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "does-not-exist", Locale: "en"})
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{Context: itemCtx, TypeKey: "currency", Code: "does-not-exist", Locale: "en"})
 			Expect(err).NotTo(HaveOccurred())
 
 			msg, err := nc.Request(rpcSubject, reqBody, 2*time.Second)
@@ -150,7 +150,7 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 		typeListSubject := "rpc." + itemCtx + ".refdata.type.list.v1"
 
 		It("resolves every assignable item of a type via rpc.* identically to ListAssignable + ResolveItem called directly", func() {
-			reqBody, err := json.Marshal(natsrpc.TypeListRequest{TypeKey: "currency", Locale: "en"})
+			reqBody, err := json.Marshal(natsrpc.TypeListRequest{Context: itemCtx, TypeKey: "currency", Locale: "en"})
 			Expect(err).NotTo(HaveOccurred())
 
 			msg, err := nc.Request(typeListSubject, reqBody, 2*time.Second)
@@ -182,7 +182,9 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 			Expect(locH.AddLocale(ctx, itemCtx, "en", true)).To(Succeed())
 			Expect(locH.AddLocale(ctx, itemCtx, "fr", false)).To(Succeed())
 
-			msg, err := nc.Request(localesListSubject, nil, 2*time.Second)
+			reqBody, err := json.Marshal(natsrpc.LocalesListRequest{Context: itemCtx})
+			Expect(err).NotTo(HaveOccurred())
+			msg, err := nc.Request(localesListSubject, reqBody, 2*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			var resp natsrpc.LocalesListResponse
@@ -198,227 +200,111 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 		})
 	})
 
-	Context("BR-D26: an obs.rpc.* publish must never block or fail the real RPC reply", func() {
-		It("still returns the real reply promptly with no obs.rpc.> subscriber at all", func() {
-			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "EUR", Locale: "en"})
-			Expect(err).NotTo(HaveOccurred())
+	Context("obs.trace.* side-channel (BR-036/BR-D39)", func() {
+		// traceSpan is a strict superset of the pre-Phase-28 obsEnvelope:
+		// this decodes it into the old shape (ignoring every new field) to
+		// assert backward compatibility, then again into the full shape for
+		// the new tracing fields. Mirrors trading-partner-service's
+		// browserrpc_roundtrip_test.go, which this test was cloned from —
+		// Phase 28b replaced this adapter's publishObs side-channel
+		// (obs.rpc.*, BR-D26/BR-D36/BR-D37) with natstrace's obs.trace.*
+		// spans the same way Phase 28a did for browserrpc's obs.api.*.
+		type legacyEnvelope struct {
+			Direction     string              `json:"direction"`
+			CorrelationID string              `json:"correlationId"`
+			Subject       string              `json:"subject"`
+			Payload       json.RawMessage     `json:"payload,omitempty"`
+			Error         string              `json:"error,omitempty"`
+			Headers       map[string][]string `json:"headers,omitempty"`
+			Timestamp     time.Time           `json:"timestamp"`
+			PayloadBytes  int                 `json:"payloadBytes"`
+		}
+		type traceSpan struct {
+			legacyEnvelope
+			TraceID       string            `json:"traceId,omitempty"`
+			SpanID        string            `json:"spanId,omitempty"`
+			ParentSpanID  string            `json:"parentSpanId,omitempty"`
+			Service       string            `json:"service,omitempty"`
+			Entity        string            `json:"entity,omitempty"`
+			Action        string            `json:"action,omitempty"`
+			StatusCode    string            `json:"statusCode,omitempty"`
+			StatusMessage string            `json:"statusMessage,omitempty"`
+			Attributes    map[string]string `json:"attributes,omitempty"`
+			Redacted      []string          `json:"redacted,omitempty"`
+			Truncated     bool              `json:"truncated,omitempty"`
+		}
 
-			start := time.Now()
-			msg, err := nc.Request(rpcSubject, reqBody, 2*time.Second)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(time.Since(start)).To(BeNumerically("<", 500*time.Millisecond))
-
-			var resp natsrpc.ItemGetResponse
-			Expect(json.Unmarshal(msg.Data, &resp)).To(Succeed())
-			Expect(resp.Label).To(Equal("Euro"))
-		})
-
-		It("still returns the real reply promptly even with a slow obs.rpc.> subscriber", func() {
-			sub, err := nc.Subscribe("obs.rpc.>", func(*nats.Msg) {
-				time.Sleep(2 * time.Second) // deliberately slower than the RPC timeout below
-			})
+		It("publishes one span per call to obs.trace.{context}.refdata.{entity}.{action}, decodable both as the old envelope shape and the new one", func() {
+			spans := make(chan *nats.Msg, 8)
+			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
+			Expect(nc.Flush()).To(Succeed())
 
-			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "EUR", Locale: "en"})
-			Expect(err).NotTo(HaveOccurred())
-
-			start := time.Now()
-			msg, err := nc.Request(rpcSubject, reqBody, 2*time.Second)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(time.Since(start)).To(BeNumerically("<", 500*time.Millisecond))
-
-			var resp natsrpc.ItemGetResponse
-			Expect(json.Unmarshal(msg.Data, &resp)).To(Succeed())
-			Expect(resp.Label).To(Equal("Euro"))
-		})
-
-		It("still publishes the reply-side obs.rpc.* event when the real call errors", func() {
-			obsMsgs := make(chan *nats.Msg, 4)
-			sub, err := nc.Subscribe("obs.rpc.>", func(m *nats.Msg) { obsMsgs <- m })
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
-
-			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "does-not-exist", Locale: "en"})
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{Context: itemCtx, TypeKey: "currency", Code: "EUR", Locale: "en"})
 			Expect(err).NotTo(HaveOccurred())
 			_, err = nc.Request(rpcSubject, reqBody, 2*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
-			var sawErroredReply bool
-			for i := 0; i < 2; i++ {
-				select {
-				case m := <-obsMsgs:
-					var env struct {
-						Direction string `json:"direction"`
-						Error     string `json:"error"`
-					}
-					Expect(json.Unmarshal(m.Data, &env)).To(Succeed())
-					if env.Direction == "reply" && env.Error != "" {
-						sawErroredReply = true
-					}
-				case <-time.After(2 * time.Second):
-					Fail("timed out waiting for obs.rpc.* events")
-				}
-			}
-			Expect(sawErroredReply).To(BeTrue(), "expected the reply-side obs event to carry the error even on failure")
+			var msg *nats.Msg
+			Eventually(spans).Should(Receive(&msg))
+			Expect(msg.Subject).To(Equal("obs.trace." + itemCtx + ".refdata.item.get"))
+
+			var legacy legacyEnvelope
+			Expect(json.Unmarshal(msg.Data, &legacy)).To(Succeed())
+			Expect(legacy.Subject).To(Equal(rpcSubject))
+			Expect(legacy.PayloadBytes).To(BeNumerically(">", 0))
+
+			var span traceSpan
+			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+			Expect(span.TraceID).NotTo(BeEmpty())
+			Expect(span.SpanID).NotTo(BeEmpty())
+			Expect(span.ParentSpanID).To(BeEmpty(), "a call with no inbound traceparent is a root span")
+			Expect(span.Service).To(Equal("refdata"))
+			Expect(span.Entity).To(Equal("item"))
+			Expect(span.Action).To(Equal("get"))
+			Expect(span.StatusCode).To(Equal("OK"))
+		})
+
+		It("marks a failed call with statusCode ERROR and the error message", func() {
+			spans := make(chan *nats.Msg, 8)
+			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
+			Expect(nc.Flush()).To(Succeed())
+
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{Context: itemCtx, TypeKey: "currency", Code: "does-not-exist", Locale: "en"})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = nc.Request(rpcSubject, reqBody, 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			var msg *nats.Msg
+			Eventually(spans).Should(Receive(&msg))
+
+			var span traceSpan
+			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+			Expect(span.StatusCode).To(Equal("ERROR"))
+			Expect(span.StatusMessage).NotTo(BeEmpty())
 		})
 	})
 
-	Context("BR-D36: every obs.rpc.* event carries its headers, a publisher-side timestamp, and its payload size", func() {
-		type obsEnvelope struct {
-			Direction     string              `json:"direction"`
-			Error         string              `json:"error,omitempty"`
-			Headers       map[string][]string `json:"headers,omitempty"`
-			Timestamp     time.Time           `json:"timestamp"`
-			PayloadBytes  int                 `json:"payloadBytes"`
-			CorrelationID string              `json:"correlationId"`
-		}
-
-		It("stamps the request-side event with the caller's real headers, a non-zero timestamp, and the true payload size", func() {
-			obsMsgs := make(chan *nats.Msg, 4)
-			sub, err := nc.Subscribe("obs.rpc.>", func(m *nats.Msg) { obsMsgs <- m })
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
-
-			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "EUR", Locale: "en"})
-			Expect(err).NotTo(HaveOccurred())
-
-			msg := nats.NewMsg(rpcSubject)
-			msg.Data = reqBody
-			msg.Header = nats.Header{"X-Client": []string{"admin-ui-test"}}
-			before := time.Now()
-			reply, err := nc.RequestMsg(msg, 2*time.Second)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(reply).NotTo(BeNil())
-
-			var reqEnv obsEnvelope
-			Eventually(func() bool {
-				select {
-				case m := <-obsMsgs:
-					Expect(json.Unmarshal(m.Data, &reqEnv)).To(Succeed())
-					return reqEnv.Direction == "request"
-				default:
-					return false
-				}
-			}, 2*time.Second).Should(BeTrue(), "expected a request-side obs.rpc.* event")
-
-			Expect(reqEnv.Headers).To(HaveKeyWithValue("X-Client", []string{"admin-ui-test"}))
-			Expect(reqEnv.Timestamp).To(BeTemporally(">=", before))
-			Expect(reqEnv.PayloadBytes).To(Equal(len(reqBody)))
-		})
-
-		It("attaches real Nats-Service-Error/-Code headers to a failed reply, on both the obs event and the actual wire reply", func() {
-			obsMsgs := make(chan *nats.Msg, 4)
-			sub, err := nc.Subscribe("obs.rpc.>", func(m *nats.Msg) { obsMsgs <- m })
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
-
-			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "does-not-exist", Locale: "en"})
+	Context("BR-D37: every reply carries a Nats-Responder header identifying the answering service instance", func() {
+		// The obs.rpc.*-event assertions this Context used to make (forwarding
+		// Nats-Requestor into a request-side event) have no analog under
+		// natstrace: a span is a single reply-side publish, not a
+		// request/reply pair, so there is no separate "request event" left to
+		// assert against — only the real wire reply, checked here.
+		It("attaches a Nats-Responder header (service name/instance ID) to a successful reply", func() {
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{Context: itemCtx, TypeKey: "currency", Code: "EUR", Locale: "en"})
 			Expect(err).NotTo(HaveOccurred())
 			reply, err := nc.Request(rpcSubject, reqBody, 2*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(reply.Header.Get("Nats-Service-Error")).NotTo(BeEmpty(), "the real wire reply must carry the error header, not just the obs event")
-			Expect(reply.Header.Get("Nats-Service-Error-Code")).To(Equal("404"))
-
-			var sawErrorHeaders bool
-			for i := 0; i < 2; i++ {
-				select {
-				case m := <-obsMsgs:
-					var env obsEnvelope
-					Expect(json.Unmarshal(m.Data, &env)).To(Succeed())
-					if env.Direction == "reply" {
-						Expect(env.Headers).To(HaveKeyWithValue("Nats-Service-Error-Code", []string{"404"}))
-						sawErrorHeaders = true
-					}
-				case <-time.After(2 * time.Second):
-					Fail("timed out waiting for obs.rpc.* events")
-				}
-			}
-			Expect(sawErrorHeaders).To(BeTrue())
-		})
-
-		It("still decodes an old-shape obs event with no headers/timestamp/payloadBytes fields at all", func() {
-			var env obsEnvelope
-			old := []byte(`{"direction":"reply","correlationId":"legacy-1","subject":"rpc.acme-test.refdata.item.get.v1","payload":{"item":{}}}`)
-			Expect(json.Unmarshal(old, &env)).To(Succeed())
-			Expect(env.Direction).To(Equal("reply"))
-			Expect(env.Headers).To(BeNil())
-			Expect(env.Timestamp).To(BeZero())
-		})
-	})
-
-	Context("BR-D37: every rpc.* request carries a Nats-Requestor header identifying its caller, and every reply a Nats-Responder header identifying the answering service instance", func() {
-		type obsEnvelope struct {
-			Direction     string              `json:"direction"`
-			Error         string              `json:"error,omitempty"`
-			Headers       map[string][]string `json:"headers,omitempty"`
-			Timestamp     time.Time           `json:"timestamp"`
-			PayloadBytes  int                 `json:"payloadBytes"`
-			CorrelationID string              `json:"correlationId"`
-		}
-
-		It("forwards the caller's Nats-Requestor header into the obs.rpc.* request event, same as any other caller-supplied header", func() {
-			obsMsgs := make(chan *nats.Msg, 4)
-			sub, err := nc.Subscribe("obs.rpc.>", func(m *nats.Msg) { obsMsgs <- m })
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
-
-			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "EUR", Locale: "en"})
-			Expect(err).NotTo(HaveOccurred())
-
-			msg := nats.NewMsg(rpcSubject)
-			msg.Data = reqBody
-			// Instance-qualified "<service>/<instance ID>" — the same
-			// name/instance split Nats-Responder uses (BR-D37).
-			msg.Header = nats.Header{"Nats-Requestor": []string{"shipping-service/test-instance-1"}}
-			reply, err := nc.RequestMsg(msg, 2*time.Second)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(reply).NotTo(BeNil())
-
-			var reqEnv obsEnvelope
-			Eventually(func() bool {
-				select {
-				case m := <-obsMsgs:
-					Expect(json.Unmarshal(m.Data, &reqEnv)).To(Succeed())
-					return reqEnv.Direction == "request"
-				default:
-					return false
-				}
-			}, 2*time.Second).Should(BeTrue(), "expected a request-side obs.rpc.* event")
-
-			Expect(reqEnv.Headers).To(HaveKeyWithValue("Nats-Requestor", []string{"shipping-service/test-instance-1"}))
-		})
-
-		It("attaches a Nats-Responder header (service name/instance ID) to a successful reply, on both the real wire reply and the obs.rpc.* event", func() {
-			obsMsgs := make(chan *nats.Msg, 4)
-			sub, err := nc.Subscribe("obs.rpc.>", func(m *nats.Msg) { obsMsgs <- m })
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(func() { Expect(sub.Unsubscribe()).To(Succeed()) })
-
-			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "EUR", Locale: "en"})
-			Expect(err).NotTo(HaveOccurred())
-			reply, err := nc.Request(rpcSubject, reqBody, 2*time.Second)
-			Expect(err).NotTo(HaveOccurred())
-
-			responder := reply.Header.Get("Nats-Responder")
-			Expect(responder).To(HavePrefix("refdata-service/"), "the real wire reply must carry the responder header, not just the obs event")
-
-			var replyEnv obsEnvelope
-			Eventually(func() bool {
-				select {
-				case m := <-obsMsgs:
-					Expect(json.Unmarshal(m.Data, &replyEnv)).To(Succeed())
-					return replyEnv.Direction == "reply"
-				default:
-					return false
-				}
-			}, 2*time.Second).Should(BeTrue(), "expected a reply-side obs.rpc.* event")
-			Expect(replyEnv.Headers).To(HaveKeyWithValue("Nats-Responder", []string{responder}))
+			Expect(reply.Header.Get("Nats-Responder")).To(HavePrefix("refdata-service/"))
 		})
 
 		It("attaches a Nats-Responder header to a failed reply too", func() {
-			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "does-not-exist", Locale: "en"})
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{Context: itemCtx, TypeKey: "currency", Code: "does-not-exist", Locale: "en"})
 			Expect(err).NotTo(HaveOccurred())
 			reply, err := nc.Request(rpcSubject, reqBody, 2*time.Second)
 			Expect(err).NotTo(HaveOccurred())
@@ -472,7 +358,7 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(func() { Expect(backfillAdapter.Stop()).To(Succeed()) })
 
-			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "EUR", Locale: "en"})
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{Context: itemCtx, TypeKey: "currency", Code: "EUR", Locale: "en"})
 			Expect(err).NotTo(HaveOccurred())
 			_, err = jsNC.Request(rpcSubject, reqBody, 2*time.Second)
 			Expect(err).NotTo(HaveOccurred())
@@ -534,7 +420,7 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(func() { Expect(kvFirstAdapter.Stop()).To(Succeed()) })
 
-			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "EUR", Locale: "en"})
+			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{Context: itemCtx, TypeKey: "currency", Code: "EUR", Locale: "en"})
 			Expect(err).NotTo(HaveOccurred())
 			msg, err := jsNC.Request(rpcSubject, reqBody, 2*time.Second)
 			Expect(err).NotTo(HaveOccurred())
@@ -594,7 +480,7 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 			DeferCleanup(func() { Expect(kvFirstAdapter.Stop()).To(Succeed()) })
 
 			typeListSubject := "rpc." + itemCtx + ".refdata.type.list.v1"
-			reqBody, err := json.Marshal(natsrpc.TypeListRequest{TypeKey: "currency", Locale: "en"})
+			reqBody, err := json.Marshal(natsrpc.TypeListRequest{Context: itemCtx, TypeKey: "currency", Locale: "en"})
 			Expect(err).NotTo(HaveOccurred())
 			msg, err := jsNC.Request(typeListSubject, reqBody, 2*time.Second)
 			Expect(err).NotTo(HaveOccurred())
@@ -610,84 +496,14 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 		})
 	})
 
-	Context("BR-D29: obs.rpc.* is retained on RPCTRACE so a reconnecting Admin UI can catch up on the last 10 minutes", func() {
-		It("persists both the request and reply obs.rpc.* events, replayable after the RPC call completes, while still delivering them live", func() {
-			// This adapter needs its own JetStream-backed nc (unlike the
-			// plain core-NATS nc used by the rest of this file) — same
-			// embedded-server convention as the BR-D27 backfill test above.
-			opts := &server.Options{JetStream: true, StoreDir: GinkgoT().TempDir(), Port: -1}
-			srv, err := server.NewServer(opts)
-			Expect(err).NotTo(HaveOccurred())
-			srv.Start()
-			DeferCleanup(srv.Shutdown)
-			Expect(srv.ReadyForConnections(10 * time.Second)).To(BeTrue())
-
-			jsNC, err := nats.Connect(srv.ClientURL(), nats.Name("refdata-service-natsrpc-rpctrace-test"))
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(jsNC.Close)
-
-			js, err := jetstream.New(jsNC)
-			Expect(err).NotTo(HaveOccurred())
-			_, err = jstream.CreateChangeStream(ctx, js, "RPCTRACE", []string{natsrpc.ObsSubjectWildcard}, time.Hour)
-			Expect(err).NotTo(HaveOccurred())
-
-			// A live core subscriber must still see both events — BR-D26's
-			// existing live-tail contract is unaffected by JetStream
-			// retention (a JetStream publish is still an ordinary NATS
-			// message on the wire).
-			liveMsgs := make(chan *nats.Msg, 8)
-			liveSub, err := jsNC.Subscribe(natsrpc.ObsSubjectWildcard, func(m *nats.Msg) { liveMsgs <- m })
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(func() { Expect(liveSub.Unsubscribe()).To(Succeed()) })
-
-			rtAdapter, err := natsrpc.New(jsNC, natsrpc.Deps{Localizations: locH, Items: itemH, JS: js})
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(func() { Expect(rtAdapter.Stop()).To(Succeed()) })
-
-			reqBody, err := json.Marshal(natsrpc.ItemGetRequest{TypeKey: "currency", Code: "EUR", Locale: "en"})
-			Expect(err).NotTo(HaveOccurred())
-			_, err = jsNC.Request(rpcSubject, reqBody, 2*time.Second)
-			Expect(err).NotTo(HaveOccurred())
-
-			for i := 0; i < 2; i++ {
-				select {
-				case <-liveMsgs:
-				case <-time.After(2 * time.Second):
-					Fail("timed out waiting for live obs.rpc.* events")
-				}
-			}
-
-			// The stream is what makes catch-up-on-reconnect possible: a
-			// fresh ordered consumer with DeliverAllPolicy, created well
-			// after the call completed (as a reconnecting tab would),
-			// must still see both events. PublishAsync's server ack isn't
-			// on the RPC reply's critical path, so this polls briefly
-			// rather than asserting synchronously.
-			Eventually(func() ([]string, error) {
-				consumer, err := js.OrderedConsumer(ctx, "RPCTRACE", jetstream.OrderedConsumerConfig{
-					DeliverPolicy: jetstream.DeliverAllPolicy,
-				})
-				if err != nil {
-					return nil, err
-				}
-				batch, err := consumer.FetchNoWait(10)
-				if err != nil {
-					return nil, err
-				}
-				var directions []string
-				for msg := range batch.Messages() {
-					var env struct {
-						Direction string `json:"direction"`
-					}
-					if err := json.Unmarshal(msg.Data(), &env); err != nil {
-						return nil, err
-					}
-					directions = append(directions, env.Direction)
-				}
-				return directions, batch.Error()
-			}, 2*time.Second, 20*time.Millisecond).Should(ConsistOf("request", "reply"))
-		})
-	})
+	// BR-D29 ("obs.rpc.* is retained on RPCTRACE so a reconnecting Admin UI
+	// can catch up") had its dedicated test here. Phase 28b retired the
+	// publishObs side-channel this RPCTRACE retention depended on (see the
+	// obs.trace.* Context above) — nothing publishes to obs.rpc.* anymore.
+	// Phase 28g removed the RPCTRACE stream/consumer provisioning itself
+	// (composition.go's Startup, this adapter's now-removed
+	// ObsSubjectWildcard) now that the TRACES stream/KV design supersedes
+	// it. Removed rather than left red.
 })
 
 // item.get-versioned needs a JetStream-backed KV bucket (VersionReader has
@@ -728,7 +544,7 @@ var _ = Describe("BR-D25/BR-D28: item.get-versioned is the rpc.* counterpart of 
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(func() { Expect(adapter.Stop()).To(Succeed()) })
 
-		reqBody, err := json.Marshal(natsrpc.ItemGetVersionedRequest{TypeKey: "currency", Code: "EUR", Version: 1})
+		reqBody, err := json.Marshal(natsrpc.ItemGetVersionedRequest{Context: itemCtx, TypeKey: "currency", Code: "EUR", Version: 1})
 		Expect(err).NotTo(HaveOccurred())
 		subject := "rpc." + itemCtx + ".refdata.item.get-versioned.v1"
 		msg, err := nc.Request(subject, reqBody, 2*time.Second)
@@ -765,7 +581,7 @@ var _ = Describe("BR-D25/BR-D28: item.get-versioned is the rpc.* counterpart of 
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(func() { Expect(adapter.Stop()).To(Succeed()) })
 
-		reqBody, err := json.Marshal(natsrpc.ItemGetVersionedRequest{TypeKey: "currency", Code: "EUR", Version: 999})
+		reqBody, err := json.Marshal(natsrpc.ItemGetVersionedRequest{Context: itemCtx, TypeKey: "currency", Code: "EUR", Version: 999})
 		Expect(err).NotTo(HaveOccurred())
 		subject := "rpc." + itemCtx + ".refdata.item.get-versioned.v1"
 		msg, err := nc.Request(subject, reqBody, 2*time.Second)

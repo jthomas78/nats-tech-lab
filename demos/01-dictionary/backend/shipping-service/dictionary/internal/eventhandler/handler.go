@@ -13,6 +13,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
 )
 
 // RegisterShapeA starts the Shape A projector: ship events are projected
@@ -31,7 +32,7 @@ import (
 // duplicate, not new information. See notify_test.go for the payload
 // contract this relies on.
 func RegisterShapeA(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, nc *nats.Conn, log *slog.Logger) (jetstream.ConsumeContext, error) {
-	return register(ctx, js, "ship-shape-a", log, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
+	return register(ctx, js, "ship-shape-a", nc, log, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
 		oldKey := shipKVKey(subject, event)
 		agg := currentAgg(msgCtx, kv, event.Context, oldKey)
 		agg.Apply(subject, event)
@@ -48,10 +49,11 @@ func RegisterShapeA(ctx context.Context, js jetstream.JetStream, kv *kvstore.Sto
 		if _, err := kv.Put(msgCtx, event.Context, newKey, data); err != nil {
 			return err
 		}
-		publishNotify(nc, log, event.Context, "ship", data)
+		sp := natstrace.SpanFromContext(msgCtx)
+		publishNotify(nc, log, event.Context, "ship", data, sp)
 		if _, _, eventType, ok := domain.SubjectDetails(subject); ok {
 			if rawData, err := json.Marshal(event); err == nil {
-				publishRawNotify(nc, log, event.Context, "ship", eventType, rawData)
+				publishRawNotify(nc, log, event.Context, "ship", eventType, rawData, sp)
 			}
 		}
 		return nil
@@ -61,8 +63,14 @@ func RegisterShapeA(ctx context.Context, js jetstream.JetStream, kv *kvstore.Sto
 // RegisterShapeB starts the Shape B projector: events update the canonical
 // Postgres projection first, then eagerly write the result through to the KV
 // cache so subsequent reads are served from KV without hitting Postgres.
-func RegisterShapeB(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, repo domain.ShipRepository, log *slog.Logger) (jetstream.ConsumeContext, error) {
-	return register(ctx, js, "ship-shape-b", log, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
+//
+// nc is nil-safe (Phase 28d) — threaded through only so register()'s shared
+// Consume callback can construct a natstrace.Tracer for this projector's
+// per-message spans too; Shape B has no notify.* publish of its own (only
+// Shape A does, see RegisterShapeA's doc comment), so nc is otherwise unused
+// here.
+func RegisterShapeB(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, nc *nats.Conn, repo domain.ShipRepository, log *slog.Logger) (jetstream.ConsumeContext, error) {
+	return register(ctx, js, "ship-shape-b", nc, log, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
 		oldKey := shipKVKey(subject, event)
 		agg := currentAgg(msgCtx, kv, event.Context, oldKey)
 		agg.Apply(subject, event)
@@ -118,6 +126,7 @@ func register(
 	ctx context.Context,
 	js jetstream.JetStream,
 	durable string,
+	nc *nats.Conn,
 	log *slog.Logger,
 	project func(context.Context, string, domain.ShipEvent) error,
 ) (jetstream.ConsumeContext, error) {
@@ -129,6 +138,12 @@ func register(
 	// leave every future event failing with "context canceled" and stuck
 	// redelivering forever.
 	msgCtx := context.WithoutCancel(ctx)
+	// tracer is constructed once per registration (nc may be nil, same
+	// nil-safe convention as publishNotify — natstrace.New(nil) is safe to
+	// build; only a Span's finish() ever dereferences nc, and that call is
+	// itself panic-recovered) rather than per message, mirroring how
+	// browserrpc.Adapter builds one Tracer per connection (Phase 28b).
+	tracer := natstrace.New(nc)
 	cons, err := js.CreateOrUpdateConsumer(ctx, domain.StreamName, jetstream.ConsumerConfig{
 		Durable: durable,
 		// Ship projectors only consume ship movement events; container.*
@@ -140,7 +155,7 @@ func register(
 		return nil, err
 	}
 	return cons.Consume(func(msg jetstream.Msg) {
-		aggregate, id, _, subjectOK := domain.SubjectDetails(msg.Subject())
+		aggregate, id, eventType, subjectOK := domain.SubjectDetails(msg.Subject())
 		var event domain.ShipEvent
 		if err := json.Unmarshal(msg.Data(), &event); err != nil {
 			log.Error("drop malformed event", "consumer", durable, "subject", msg.Subject(), "err", err)
@@ -156,11 +171,26 @@ func register(
 			return
 		}
 		event.ID = id
-		if err := project(msgCtx, msg.Subject(), event); err != nil {
+
+		// One span per message (BR-037, Phase 28d) — continuing the
+		// traceparent header the evt.* publish carried (PublishWithTrace) if
+		// present, else a fresh root span. context/entity/action come from
+		// the subject fields already parsed above, never re-parsed
+		// positionally by StartFromHeaders itself: evt.*'s six-token shape
+		// (evt.{context}.{service}.{entity}.{entity-id}.{event}) isn't the
+		// rpc.*/api.* shape splitSubject assumes (see StartFromHeaders' doc
+		// comment).
+		sp := tracer.StartFromHeaders(msg.Headers(), msg.Subject(), msg.Data(), event.Context, "shipping", aggregate, eventType)
+		sp.SetAttribute("entity_id", id)
+		spanCtx := natstrace.ContextWithSpan(msgCtx, sp)
+
+		if err := project(spanCtx, msg.Subject(), event); err != nil {
 			log.Error("projection failed, will redeliver", "consumer", durable, "subject", msg.Subject(), "err", err)
+			sp.Fail(err, msg.Data(), nil)
 			_ = msg.Nak()
 			return
 		}
+		sp.End(msg.Data(), nil)
 		_ = msg.Ack()
 	})
 }
@@ -179,12 +209,22 @@ func register(
 // used throughout this repo. A publish error is logged, never returned:
 // notify.* is a best-effort convenience for reactive UIs, not a correctness
 // requirement the projector's own success depends on.
-func publishNotify(nc *nats.Conn, log *slog.Logger, kvContext, entity string, payload []byte) {
+//
+// sp is the per-message span (Phase 28d, BR-037) that caused this notify —
+// nil-safe both ways: a nil sp (or sp.Traceparent() == "", which is the same
+// nil-safe no-op) publishes with no traceparent header at all, identical to
+// the pre-28d behavior. When present, it lets the trace waterfall show the
+// async tail continuing past the KV write the caller already made.
+func publishNotify(nc *nats.Conn, log *slog.Logger, kvContext, entity string, payload []byte, sp *natstrace.Span) {
 	if nc == nil {
 		return
 	}
 	subject := "notify." + kvContext + ".shipping." + entity + ".changed"
-	if err := nc.Publish(subject, payload); err != nil && log != nil {
+	msg := &nats.Msg{Subject: subject, Data: payload}
+	if tp := sp.Traceparent(); tp != "" {
+		msg.Header = nats.Header{natstrace.TraceparentHeader: []string{tp}}
+	}
+	if err := nc.PublishMsg(msg); err != nil && log != nil {
 		log.Warn("notify publish failed", "subject", subject, "err", err)
 	}
 }
@@ -196,13 +236,19 @@ func publishNotify(nc *nats.Conn, log *slog.Logger, kvContext, entity string, pa
 // JetStream watch panel wants the actual verb (arrived/departed/loaded/...),
 // not a projected snapshot, replacing the per-SSE-connection OrderedConsumer
 // dictionary/internal/rest/sse.go's watchJetStream used to create. Same
-// nil-safe, best-effort convention as publishNotify.
-func publishRawNotify(nc *nats.Conn, log *slog.Logger, kvContext, entity, event string, payload []byte) {
+// nil-safe, best-effort convention as publishNotify. sp is the same
+// per-message span publishNotify accepts, and behaves identically
+// (nil-safe, Phase 28d).
+func publishRawNotify(nc *nats.Conn, log *slog.Logger, kvContext, entity, event string, payload []byte, sp *natstrace.Span) {
 	if nc == nil {
 		return
 	}
 	subject := "notify." + kvContext + ".shipping.raw." + entity + "." + event
-	if err := nc.Publish(subject, payload); err != nil && log != nil {
+	msg := &nats.Msg{Subject: subject, Data: payload}
+	if tp := sp.Traceparent(); tp != "" {
+		msg.Header = nats.Header{natstrace.TraceparentHeader: []string{tp}}
+	}
+	if err := nc.PublishMsg(msg); err != nil && log != nil {
 		log.Warn("raw notify publish failed", "subject", subject, "err", err)
 	}
 }

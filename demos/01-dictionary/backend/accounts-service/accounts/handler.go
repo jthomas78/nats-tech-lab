@@ -28,6 +28,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
+
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/internal/natstrace"
 )
 
 // accountResponse omits SigningKeySeed — never serialized to a listing or
@@ -174,16 +176,26 @@ func (h *Handlers) recordAudit(ctx context.Context, entry AuditEntry) {
 // request — the account is already fully minted and persisted by the time
 // this is called; EnsureAllTenants' startup scan or a later Admin UI
 // SwitchTenant remain fallback paths if this specific event is ever missed.
-func (h *Handlers) publishAccountCreated(name string) {
-	h.publishAccountEvent("notify.accounts.account.created", "account-created", name)
+func (h *Handlers) publishAccountCreated(ctx context.Context, name string) {
+	h.publishAccountEvent(ctx, "notify.accounts.account.created", "account-created", name)
 }
 
-// publishAccountEvent is the shared mechanics behind the three lifecycle
+// publishAccountEvent is the shared mechanics behind the four lifecycle
 // publishers above and below — same payload shape, same nil-safe best-effort
 // contract, same context-free subject family. Each caller keeps its own named
 // method because the *reason* each event exists differs (and is documented on
 // each); only the plumbing is shared.
-func (h *Handlers) publishAccountEvent(subject, label, name string) {
+//
+// Phase 28e (BR-037): mints a new outbound span (natstrace.Tracer.
+// StartOutbound) continuing whatever span natstrace.HTTPMiddleware attached
+// to ctx (nil parent, i.e. a fresh root span, if tracing isn't wired or the
+// caller carried none) — this publish is its own hop in the trace, not a
+// re-forward of the HTTP handler's own span id, the same way an outbound
+// rpc.* call mints its own client-side span in refdataclient/refdataconsumer
+// (Phase 28c). The span is published to obs.trace.* (PLATFORM account, same
+// connection as the notify itself) via End/Fail, nil-safe throughout: no
+// NotifyNC means neither the notify nor the span publish happens.
+func (h *Handlers) publishAccountEvent(ctx context.Context, subject, label, name string) {
 	if h.NotifyNC == nil {
 		return
 	}
@@ -194,9 +206,23 @@ func (h *Handlers) publishAccountEvent(subject, label, name string) {
 		h.Log.Error("marshal "+label+" event", "name", name, "err", err)
 		return
 	}
-	if err := h.NotifyNC.Publish(subject, payload); err != nil {
-		h.Log.Error("publish "+label+" event", "name", name, "err", err)
+
+	action := subject
+	if i := strings.LastIndex(subject, "."); i >= 0 {
+		action = subject[i+1:]
 	}
+	sp := natstrace.New(h.NotifyNC).StartOutbound(natstrace.SpanFromContext(ctx), subject, payload, "_platform", "accounts", "account", action)
+	msg := &nats.Msg{Subject: subject, Data: payload}
+	if tp := sp.Traceparent(); tp != "" {
+		msg.Header = nats.Header{natstrace.TraceparentHeader: []string{tp}}
+	}
+	sp.SetRequestHeaders(map[string][]string(msg.Header))
+	if err := h.NotifyNC.PublishMsg(msg); err != nil {
+		h.Log.Error("publish "+label+" event", "name", name, "err", err)
+		sp.Fail(err, payload, nil)
+		return
+	}
+	sp.End(payload, nil)
 }
 
 // publishAccountSuspended is the mirror of publishAccountCreated (BR-AC09):
@@ -212,8 +238,8 @@ func (h *Handlers) publishAccountEvent(subject, label, name string) {
 // account at the resolver by the time this is called — that revoke is the
 // actual security boundary, this is only what makes shipping-service notice
 // promptly rather than eventually.
-func (h *Handlers) publishAccountSuspended(name string) {
-	h.publishAccountEvent("notify.accounts.account.suspended", "account-suspended", name)
+func (h *Handlers) publishAccountSuspended(ctx context.Context, name string) {
+	h.publishAccountEvent(ctx, "notify.accounts.account.suspended", "account-suspended", name)
 }
 
 // publishAccountReactivated completes the lifecycle triple (BR-AC10). Without
@@ -228,16 +254,16 @@ func (h *Handlers) publishAccountSuspended(name string) {
 // signing key persisted, fresh .creds written, status back to active) — the
 // creds file in particular must already exist, since shipping-service's
 // consumer resolves the tenant by scanning that directory (BR-032).
-func (h *Handlers) publishAccountReactivated(name string) {
-	h.publishAccountEvent("notify.accounts.account.reactivated", "account-reactivated", name)
+func (h *Handlers) publishAccountReactivated(ctx context.Context, name string) {
+	h.publishAccountEvent(ctx, "notify.accounts.account.reactivated", "account-reactivated", name)
 }
 
 // publishAccountJSLimitsUpdated notifies interested services that an
 // account's JetStream resource limits have been changed (BR-AC12). Same
 // context-free subject family and best-effort contract as the other three
 // lifecycle publishers.
-func (h *Handlers) publishAccountJSLimitsUpdated(name string) {
-	h.publishAccountEvent("notify.accounts.account.jslimits_updated", "account-jslimits-updated", name)
+func (h *Handlers) publishAccountJSLimitsUpdated(ctx context.Context, name string) {
+	h.publishAccountEvent(ctx, "notify.accounts.account.jslimits_updated", "account-jslimits-updated", name)
 }
 
 func (h *Handlers) Mount(mux *http.ServeMux, authSecret string) {
@@ -419,7 +445,7 @@ func (h *Handlers) createAccount(w http.ResponseWriter, r *http.Request) {
 	// Published only once the account is fully committed (resolver JWT,
 	// creds file, and this Postgres row) — a subscriber reacting to it
 	// should never see a half-provisioned tenant.
-	h.publishAccountCreated(in.Name)
+	h.publishAccountCreated(r.Context(), in.Name)
 
 	stored, err := h.Store.Get(r.Context(), in.Name)
 	if err != nil {
@@ -536,7 +562,7 @@ func (h *Handlers) suspendAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionSuspended, Actor: actor, SourceIP: sourceIP, Outcome: AuditOutcomeSuccess})
-	h.publishAccountSuspended(name)
+	h.publishAccountSuspended(r.Context(), name)
 
 	if h.CredsDir != "" {
 		// Best-effort: remove the shared .creds file so shipping-service's
@@ -649,7 +675,7 @@ func (h *Handlers) reactivateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionReactivated, Actor: actor, SourceIP: sourceIP, Outcome: AuditOutcomeSuccess})
-	h.publishAccountReactivated(name)
+	h.publishAccountReactivated(r.Context(), name)
 
 	stored, err := h.Store.Get(r.Context(), name)
 	if err != nil {
@@ -753,7 +779,7 @@ func (h *Handlers) updateJSLimits(w http.ResponseWriter, r *http.Request) {
 	}
 	h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionJSLimitsUpdated, Actor: actor, SourceIP: sourceIP,
 		Outcome: AuditOutcomeSuccess, Metadata: map[string]any{"previous": previous, "requested": requested}})
-	h.publishAccountJSLimitsUpdated(name)
+	h.publishAccountJSLimitsUpdated(r.Context(), name)
 
 	stored, err := h.Store.Get(r.Context(), name)
 	if err != nil {

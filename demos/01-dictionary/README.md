@@ -93,6 +93,22 @@ docker compose down          # stop and remove containers
 docker compose down -v       # also drop NATS and Postgres data volumes
 ```
 
+**Optional — Jaeger (Phase 28g):** a `docker compose up` above never starts
+Jaeger or `otlp-bridge`; both sit behind the `otlp` profile so toggling them
+costs no code (see `ARCHITECTURE-COMMUNICATIONS.md` § 6). Bring them up
+alongside the rest of the stack with:
+
+```bash
+docker compose --profile otlp up -d jaeger otlp-bridge
+```
+
+Then open **http://localhost:16686** and search by service (`shipping`,
+`refdata`, `accounts`, `pricing`, `trading-partner`) to see the same spans
+the Admin UI's `[traces]` panel shows, re-exported to Jaeger. `otlp-bridge`
+live-tails `obs.trace.>` by default (durable consumer, resumes across
+restarts); set `OTLP_BRIDGE_REPLAY=true` on the `otlp-bridge` service to
+re-export the whole retained hour on the next start instead.
+
 | Service              | Host address                                                 |
 | -------------------- | ------------------------------------------------------------ |
 | Lab shell            | http://localhost:5170                                        |
@@ -117,6 +133,8 @@ docker compose down -v       # also drop NATS and Postgres data volumes
 | Postgres (accounts-service) | localhost:5434                                         |
 | Postgres (pricing-service)  | localhost:5435                                         |
 | Postgres (trading-partner-service) | localhost:5436                                  |
+| Jaeger UI (opt-in, `--profile otlp`) | http://localhost:16686                           |
+| Jaeger OTLP/HTTP receiver (opt-in)   | http://localhost:4318                            |
 
 **Postgres credentials (shipping-service):** host `localhost`, port `5432`, user `dict`, password `dict`, database `dictionary`
 

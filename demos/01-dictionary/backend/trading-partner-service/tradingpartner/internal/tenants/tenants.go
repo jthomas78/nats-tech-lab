@@ -22,6 +22,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/natstrace"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/refdataclient"
 )
 
@@ -275,32 +276,59 @@ func (m *Manager) ensure(ctx context.Context, tenant, credsPath string) (*resour
 // accounts-service's imported PLATFORM lifecycle events directly.
 func (m *Manager) subscribeLifecycle(ctx context.Context, nc *nats.Conn) error {
 	ctx = context.WithoutCancel(ctx)
+	tracer := natstrace.New(nc)
 	type lifecycleEvent struct {
 		Name string `json:"name"`
 	}
+	// spanAction reads the trailing token off a notify.accounts.account.*
+	// subject — "created" below is reused verbatim as the "reactivated"
+	// handler too (same idempotent Ensure operation), so the span's action
+	// label can't be a literal hardcoded per closure.
+	spanAction := func(subject string) string {
+		if i := strings.LastIndex(subject, "."); i >= 0 {
+			return subject[i+1:]
+		}
+		return subject
+	}
 	created := func(msg *nats.Msg) {
+		sp := tracer.StartFromHeaders(msg.Header, msg.Subject, msg.Data, "_platform", "accounts", "account", spanAction(msg.Subject))
+		spanCtx := natstrace.ContextWithSpan(ctx, sp)
 		var evt lifecycleEvent
 		if err := json.Unmarshal(msg.Data, &evt); err != nil || evt.Name == "" {
 			if m.log != nil {
 				m.log.Error("decode notify.accounts.account.created", "err", err)
 			}
+			sp.Fail(err, msg.Data, nil)
 			return
 		}
-		if err := m.EnsureByName(ctx, evt.Name); err != nil && m.log != nil {
-			m.log.Error("ensure tenant connection on provisioning event", "tenant", evt.Name, "err", err)
+		if err := m.EnsureByName(spanCtx, evt.Name); err != nil {
+			if m.log != nil {
+				m.log.Error("ensure tenant connection on provisioning event", "tenant", evt.Name, "err", err)
+			}
+			sp.Fail(err, msg.Data, nil)
+			return
 		}
+		sp.End(msg.Data, nil)
 	}
 	suspended := func(msg *nats.Msg) {
+		sp := tracer.StartFromHeaders(msg.Header, msg.Subject, msg.Data, "_platform", "accounts", "account", spanAction(msg.Subject))
+		spanCtx := natstrace.ContextWithSpan(ctx, sp)
 		var evt lifecycleEvent
 		if err := json.Unmarshal(msg.Data, &evt); err != nil || evt.Name == "" {
 			if m.log != nil {
 				m.log.Error("decode notify.accounts.account.suspended", "err", err)
 			}
+			sp.Fail(err, msg.Data, nil)
 			return
 		}
-		if err := m.TeardownByName(ctx, evt.Name); err != nil && m.log != nil {
-			m.log.Error("tear down tenant connection on suspension event", "tenant", evt.Name, "err", err)
+		if err := m.TeardownByName(spanCtx, evt.Name); err != nil {
+			if m.log != nil {
+				m.log.Error("tear down tenant connection on suspension event", "tenant", evt.Name, "err", err)
+			}
+			sp.Fail(err, msg.Data, nil)
+			return
 		}
+		sp.End(msg.Data, nil)
 	}
 	if _, err := nc.Subscribe("notify.accounts.account.created", created); err != nil {
 		return err

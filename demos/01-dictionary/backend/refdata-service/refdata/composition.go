@@ -33,14 +33,15 @@ import (
 // SHIPPING stream.
 const ChangeStreamMaxAge = 48 * time.Hour
 
-// RPCTraceStreamName / RPCTraceMaxAge back the obs.rpc.* observability
-// side-channel (BR-D26) with a short JetStream-backed replay window (BR-D29)
-// so a reconnecting Admin UI tab can catch up on the last 10 minutes of
-// rpc.* traffic — see ARCHITECTURE-COMMUNICATIONS.md §6.
-const (
-	RPCTraceStreamName = "RPCTRACE"
-	RPCTraceMaxAge     = 10 * time.Minute
-)
+// RPCTraceStreamName/RPCTraceMaxAge (the RPCTRACE stream backing the
+// obs.rpc.* side-channel, BR-D26/BR-D29) were retired in Phase 28g: nothing
+// has published to obs.rpc.* since Phase 28b replaced natsrpc.Adapter's
+// publishObs call with a natstrace span (see natsrpc/adapter.go's
+// ObsSubjectWildcard doc comment), so the stream this const pair
+// provisioned had stood permanently empty. The Admin UI's [messages] tab
+// now derives from obs.trace.*/the traces KV bucket instead (BR-026's
+// Phase 28g amendment, BUSINESS_RULES-SHIPPING.md; corresponding
+// BUSINESS_RULES-REFDATA.md amendments on BR-D29/BR-D36).
 
 // KVBucketPrefix names the versioned-read cache buckets: refdata-{context}.
 const KVBucketPrefix = "refdata"
@@ -89,9 +90,6 @@ func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream, anthropicA
 	var versionReader *kvcache.VersionReader
 	if js != nil {
 		if _, err := jstream.CreateChangeStream(ctx, js, kvcache.ChangeStreamName, []string{kvcache.ChangeSubjectWildcard}, ChangeStreamMaxAge); err != nil {
-			return nil, err
-		}
-		if _, err := jstream.CreateChangeStream(ctx, js, RPCTraceStreamName, []string{natsrpc.ObsSubjectWildcard}, RPCTraceMaxAge); err != nil {
 			return nil, err
 		}
 		kv = kvstore.New(js, KVBucketPrefix)
@@ -148,9 +146,13 @@ func (h *Handlers) Mount(mux *http.ServeMux, log *slog.Logger) {
 
 // MountRPC starts the rpc.* dual-transport adapter (Phase 12.10, extended
 // 12.11) — a second transport onto the same command handlers Mount's REST
-// routes call. js may be nil (mirrors Startup's own nil-safety) — publishObs
-// then falls back to plain core-NATS publish with no RPCTRACE retention
-// (BR-D29). Callers should Stop() the returned adapter on shutdown.
+// routes call. js is accepted for signature symmetry with Startup (and
+// because callers already hold it for the REFDATA/RPCTRACE streams above)
+// but is no longer forwarded into natsrpc.Deps: Phase 28b replaced the
+// natsrpc adapter's publishObs/RPCTRACE side-channel with natstrace's
+// obs.trace.* spans (BR-D39), which publish over the adapter's own
+// connection and need no JetStream handle. Callers should Stop() the
+// returned adapter on shutdown.
 func (h *Handlers) MountRPC(nc *nats.Conn, js jetstream.JetStream, log *slog.Logger) (*natsrpc.Adapter, error) {
 	return natsrpc.New(nc, natsrpc.Deps{
 		Localizations: h.Localizations,
@@ -158,7 +160,6 @@ func (h *Handlers) MountRPC(nc *nats.Conn, js jetstream.JetStream, log *slog.Log
 		VersionReader: h.VersionReader,
 		Projector:     h.Projector,
 		Contexts:      h.Contexts,
-		JS:            js,
 		Log:           log,
 	})
 }

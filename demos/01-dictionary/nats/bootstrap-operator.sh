@@ -136,21 +136,43 @@ for account in ACME GLOBEX; do
   nsc add import --account "$account" --src-account "$platform_pub" \
     --remote-subject "evt.*.refdata.*.changed" \
     --local-subject "evt.*.refdata.*.changed" >/dev/null
+
+  # Phase 28f — the reverse leg of the contract above: this tenant exports
+  # its own obs.trace.> spans back to PLATFORM, so PLATFORM's cross-account
+  # trace store (dictionary/composition.go's TRACES consumer) can subscribe
+  # to them. No --allow-trace here — jwt.Export.Validate rejects that flag
+  # on anything but a service export, and this is a stream export; the flag
+  # that actually matters for this pipeline is on PLATFORM's stream
+  # *import* of it below.
+  nsc add export --account "$account" --subject "obs.trace.>" >/dev/null
+done
+
+echo "==> PLATFORM imports each tenant's obs.trace.> (Phase 28f cross-account trace store)"
+# This is the day-0 nsc equivalent of accounts-service's
+# Provisioner.addPlatformTraceImport, which does the same thing at runtime
+# for accounts minted after boot (see accounts/provisioner.go).
+for account in ACME GLOBEX; do
+  account_pub="$(nsc describe account "$account" --json | jq -r '.sub')"
+  nsc add import --account PLATFORM --src-account "$account_pub" \
+    --remote-subject "obs.trace.>" \
+    --local-subject "obs.trace.>" \
+    --allow-trace >/dev/null
 done
 
 echo "==> restricted PLATFORM shipping-admin creds"
 nsc add user --account PLATFORM shipping-admin >/dev/null
-# Ordered consumers for REFDATA/RPCTRACE require only their create/next API
+# The ordered consumer for REFDATA requires only its create/next API
 # subjects; reply inboxes are necessary for normal NATS request/reply. Do not
-# grant $JS.API.> or access to tenant streams/KV.
+# grant $JS.API.> or access to tenant streams/KV. (RPCTRACE's matching grants
+# were retired in Phase 28g along with the stream itself and
+# eventhandler.RegisterRPCTraceNotify — see that file's retirement note.)
 # notify._platform.> (Phase 23) is this user's own re-publish target: the
-# eventhandler.RegisterRefdataNotify/RegisterRPCTraceNotify background
-# bridges consume REFDATA/RPCTRACE via the ordered-consumer API above and
-# republish onto notify._platform.refdata.>/notify._platform.rpctrace.entry
-# for the Admin UI's PLATFORM-account browser connection (auth/token.go's
-# MintAdminToken) to subscribe to directly — a narrow publish grant, not the
-# broad notify.> a tenant browser credential gets, since this user has no
-# business publishing anywhere else.
+# eventhandler.RegisterRefdataNotify background bridge consumes REFDATA via
+# the ordered-consumer API above and republishes onto
+# notify._platform.refdata.> for the Admin UI's PLATFORM-account browser
+# connection (auth/token.go's MintAdminToken) to subscribe to directly — a
+# narrow publish grant, not the broad notify.> a tenant browser credential
+# gets, since this user has no business publishing anywhere else.
 # $SRV.> was already allow-sub'd (to receive discovery replies) but never
 # allow-pub'd, so the Services panel's $SRV.STATS broadcast (nats_ops.go's
 # listNatsServices, over this same shipping-admin PLATFORM connection) was
@@ -161,8 +183,8 @@ nsc add user --account PLATFORM shipping-admin >/dev/null
 # breadth, so the service-discovery broadcast/reply round-trip actually
 # completes.
 nsc edit user --account PLATFORM --name shipping-admin \
-  --allow-pub '$JS.API.CONSUMER.CREATE.REFDATA.>,$JS.API.CONSUMER.CREATE.RPCTRACE.>,$JS.API.CONSUMER.INFO.REFDATA.>,$JS.API.CONSUMER.INFO.RPCTRACE.>,$JS.API.CONSUMER.DELETE.REFDATA.>,$JS.API.CONSUMER.DELETE.RPCTRACE.>,$JS.API.CONSUMER.MSG.NEXT.REFDATA.>,$JS.API.CONSUMER.MSG.NEXT.RPCTRACE.>,notify._platform.>,$SRV.>' \
-  --allow-sub '$SRV.>,_INBOX.>,$JS.API.CONSUMER.MSG.NEXT.REFDATA.>,$JS.API.CONSUMER.MSG.NEXT.RPCTRACE.>' >/dev/null
+  --allow-pub '$JS.API.CONSUMER.CREATE.REFDATA.>,$JS.API.CONSUMER.INFO.REFDATA.>,$JS.API.CONSUMER.DELETE.REFDATA.>,$JS.API.CONSUMER.MSG.NEXT.REFDATA.>,notify._platform.>,$SRV.>' \
+  --allow-sub '$SRV.>,_INBOX.>,$JS.API.CONSUMER.MSG.NEXT.REFDATA.>' >/dev/null
 nsc generate creds --account PLATFORM --name shipping-admin >"$NATS_DIR/creds/shipping-admin.creds"
 
 echo "==> SYS account user creds (accounts-service, Phase 14b)"

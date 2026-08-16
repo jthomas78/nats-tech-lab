@@ -40,3 +40,9 @@ mismatch will resurface. This is the second time in this codebase that
 verifying "what name does this actually report" (not what a comment or
 prior assumption claims) caught a real inconsistency — see
 [[verify_before_resuming_offloaded_work]] for the general pattern.
+
+**Follow-up (2026-08-15):** the newer Phase 28 `natstrace` tracing spans
+(a separate wire format from this phase's `obsEnvelope`/RpcPanel headers)
+reintroduced the same class of bug — `Nats-Requestor` was captured but
+silently dropped before publish. See
+[[phase28_trace_detail_request_response_split]].

@@ -192,6 +192,19 @@ tests migrated with it (`accounts-service/auth/*_test.go`), now reusing
   that directory. Same best-effort/nil-safe contract as BR-AC08/BR-AC09; a
   rejected reactivation (unknown name, or an account that isn't suspended)
   never publishes anything.
+
+  > **Phase 28e amendment (BR-037):** all four lifecycle publishers (BR-AC08/
+  > BR-AC09/BR-AC10, plus `publishAccountJSLimitsUpdated`, BR-AC12) now go
+  > through `publishAccountEvent`, which mints a `natstrace` outbound span
+  > (continuing whatever span `natstrace.HTTPMiddleware` attached to the
+  > originating HTTP request's `ctx`, or a fresh root span if none) and
+  > attaches its `Traceparent` header to the `notify.accounts.*` publish —
+  > this is what lets a trace initiated by an Admin UI create/suspend/
+  > reactivate/jslimits-update action continue into the reactive-provisioning
+  > work it causes on shipping-service's (and pricing-/trading-partner-
+  > service's) side. Also, per BR-AC30, this happens on the PLATFORM
+  > (`NotifyNC`) connection — the same one already required for the notify
+  > itself — never a tenant connection.
 - **BR-AC11 (2026-08-03):** Every lifecycle state change — create, suspend,
   reactivate — records an immutable row in `accounts.audit_events`: action,
   account name, actor, source IP, an outcome of `success`/`failed`, and a
@@ -539,8 +552,11 @@ looks up the fixed `"platform"` row directly rather than going through
 subscribe-only permissions (no `$JS.API.>`, `$KV.>`, or publish grants at
 all — `Pub.Deny` is set to `>` explicitly, since an unset Allow list means
 "allow everything" in NATS permission semantics, not "allow nothing") scoped
-to `notify.accounts.account.>` and the REFDATA/RPCTRACE `notify.*` subjects
-Phase 23 adds (`notify._platform.refdata.>`, `notify._platform.rpctrace.>`).
+to `notify.accounts.account.>`, the REFDATA `notify.*` subject Phase 23 adds
+(`notify._platform.refdata.>`), and `notify._platform.kv.traces.>` (Phase
+28g, the trace waterfall/messages panel). `notify._platform.rpctrace.>`
+(Phase 23) was retired in Phase 28g along with the RPCTRACE stream and its
+notify bridge — nothing publishes there anymore.
 This is the Admin UI's PLATFORM-account browser connection
 (`frontend/admin/src/nats/usePlatformConnection.js`) — opened once at boot,
 never reconnected on tenant/BU switch, and the one connection the topbar's
@@ -887,3 +903,67 @@ blocking is expected and acceptable.
   every call in this rule is a no-op by `configured()`'s design (BR-AC26's
   "best-effort" contract). A dedicated integration test would need its own
   refdata-service fixture.
+
+## BR-AC30 (Phase 28) — Minted account JWTs carry `allow_trace: true` on service exports and stream imports, plus a per-tenant `obs.trace.>` stream export imported into PLATFORM
+
+Without an explicit grant, distributed tracing (`BUSINESS_RULES-SHIPPING.md`'s
+BR-036/BR-037) stops dead at the account boundary: a tenant account's
+`rpc.*` call into PLATFORM's `refdata-service` crosses accounts today only
+because specific service exports/imports are already declared for `rpc.*`
+and `api.*` — `obs.trace.*` needs the identical treatment or a
+cross-account trace simply has no way to reach the PLATFORM-side trace store
+(BR-036's KV/JetStream projection, Phase 28f) at all. Every tenant account
+JWT minted by `MintTenantAccount` therefore gains `allow_trace: true`
+alongside its existing service exports and stream imports, and a per-tenant
+`obs.trace.>` stream export is declared and imported into PLATFORM the same
+way `rpc.*`'s stream import already is. This is additive to every existing
+export/import declaration — no existing `Sub.Allow`/`Pub.Allow` entry is
+narrowed or removed.
+
+**Critically, no browser-facing JWT gains this grant.** `MintBrowserToken`
+(the credential seafreight/admin tenant connections use) is unaffected —
+`obs.trace.>` is a service-to-service and PLATFORM-only concern
+(BR-036), so a tenant browser credential must never carry `Sub.Allow` for
+it, the same way it is never granted `rpc.>` at all.
+
+- **Enforced in:** `accounts/jwt.go`'s `MintTenantAccount` (adds
+  `allow_trace: true` and the `obs.trace.>` stream export/import
+  declarations); `accounts/jwt.go`'s `MintBrowserToken` (unchanged — no new
+  grant added here, asserted by omission in the test below).
+- **Test:** a minted tenant account JWT decodes with `allow_trace: true` and
+  an `obs.trace.>` stream export/import present; a minted browser JWT's
+  `Sub.Allow` list does **not** contain `obs.trace.>` (mirrors the existing
+  `rpc.>`-exclusion assertion for browser tokens).
+
+  > **Phase 28f amendment:** this grant is account-level (a NATS
+  > Export/Import declaration on the account claims, resolved server-side —
+  > not a user-JWT `Sub.Allow`/`Pub.Allow` permission entry the way `rpc.>`
+  > is), so it lives in `accounts/provisioner.go`, not
+  > `accounts/jwt.go`, and there is no `MintTenantAccount` function — the
+  > actual entry point is `Provisioner.CreateAccount`. Concretely:
+  > `newAccountClaims`'s cross-account branch adds a Stream **export** of
+  > `obs.trace.>` to the new tenant's own claims via the new
+  > `tenantExports()` helper (no `allow_trace` here — `jwt.Export.Validate`
+  > rejects that flag on anything but a Service export, and this is a Stream
+  > export); `CreateAccount` then calls the new `addPlatformTraceImport`,
+  > which looks up PLATFORM's own current claims (`LookupAccountClaims`),
+  > idempotently appends a matching Stream **import** — `{Account:
+  > <new tenant's pubkey>, Subject: "obs.trace.>", Type: Stream,
+  > AllowTrace: true}` — skipping the append if PLATFORM already imports that
+  > exact `(Account, Subject)` pair, and re-signs/re-pushes PLATFORM's claims
+  > via the same `pushClaimsUpdate` ($SYS.REQ.CLAIMS.UPDATE) mechanism every
+  > other claims mutation in this file uses. This is the one leg
+  > `tenantImports`'s doc comment doesn't cover: every other declaration in
+  > this file grants a tenant account access to something PLATFORM exports;
+  > this is the reverse — PLATFORM importing a stream *from* each tenant —
+  > which NATS's decentralized JWT model has no wildcard shorthand for, so it
+  > has to be minted per tenant at `CreateAccount` time. `MintBrowserToken`'s
+  > exclusion premise is unaffected: the browser-facing user JWT (`auth/
+  > token.go`'s `MintBrowserToken`/`MintAdminToken`) never gains `obs.trace.>`
+  > in its `Sub.Allow`/`Pub.Allow` lists, since this whole mechanism operates
+  > one layer up, on the account claims those user JWTs are issued under.
+  > Covered by `TestNewAccountClaimsAddsTenantImportsAndPreservesPriorCrossAccountWiring`
+  > (unit, tenant-side export) and `TestAddPlatformTraceImportIsIdempotent`
+  > (integration, against an embedded operator-mode NATS server — PLATFORM-side
+  > import + idempotent re-push), both in `accounts/provisioner_claims_test.go`
+  > / `accounts/provisioner_test.go`.

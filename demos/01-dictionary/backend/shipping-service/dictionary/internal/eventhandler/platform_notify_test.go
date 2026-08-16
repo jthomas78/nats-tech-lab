@@ -94,20 +94,8 @@ var _ = Describe("RegisterRefdataNotify (Phase 23)", func() {
 	})
 })
 
-var _ = Describe("RegisterRPCTraceNotify (Phase 23)", func() {
-	It("republishes RPCTRACE stream messages onto notify._platform.rpctrace.entry", func() {
-		nc, js := newPlatformNotifyTestNATS()
-		ctx, cancel := context.WithCancel(context.Background())
-		DeferCleanup(cancel)
-
-		_, err := jstream.CreateStream(ctx, js, "RPCTRACE", []string{"obs.rpc.>"})
-		Expect(err).NotTo(HaveOccurred())
-
-		eventhandler.RegisterRPCTraceNotify(ctx, js, nc, discardLogger())
-
-		notifyCh := subscribeSync(nc, "notify._platform.rpctrace.entry")
-
-		payload := publishUntilReceived(nc, "obs.rpc.acme.shipping.ship.arrive.v1", []byte(`{"subject":"rpc.acme.shipping.ship.arrive.v1"}`), notifyCh)
-		Expect(string(payload)).To(ContainSubstring("rpc.acme.shipping.ship.arrive.v1"))
-	})
-})
+// RegisterRPCTraceNotify (Phase 23) had its dedicated Describe block here,
+// covering the RPCTRACE-stream-to-notify bridge. Retired in Phase 28g along
+// with the function itself and RPCTRACE's provisioning in refdata-service's
+// composition.go — see platform_notify.go's retirement note. Removed rather
+// than left red.

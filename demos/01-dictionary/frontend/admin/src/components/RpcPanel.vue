@@ -1,43 +1,57 @@
 <script setup>
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
+import Tab from 'primevue/tab'
+import TabList from 'primevue/tablist'
+import TabPanel from 'primevue/tabpanel'
+import TabPanels from 'primevue/tabpanels'
+import Tabs from 'primevue/tabs'
 import Tag from 'primevue/tag'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
 import SubjectPath from './SubjectPath.vue'
-import { getRpcTraceReplay } from '../api'
-import { useNatsConnection } from '../nats/useNatsConnection.js'
+import TraceWaterfall from './TraceWaterfall.vue'
+import { getKvBucketEntries } from '../api'
+import { highlightJson } from '../jsonHighlight.js'
+import { parseKvNotifySubject } from '../nats/kvNotifySubject.js'
 import { usePlatformConnection } from '../nats/usePlatformConnection.js'
+import { useUiStore } from '../stores/ui.js'
 
-// Request/Reply panel v2 (Main-POC-Plan.md Phase 17b) — rebuilt to match the
-// approved static reference, frontend/admin/request-reply-reference.html.
-// Traffic: obs.rpc.* (backend-to-backend, Phase 12.10) plus obs.api.*
-// (browser-to-service, Phase 16). Phase 23 replaces the merged SSE stream
-// with two direct subscriptions, one per connection: obs.api.* on the
-// tenant NATS connection (the tenant browser JWT already carries a direct
-// obs.api.> subscribe grant, auth/token.go's MintBrowserToken — this app
-// subscribes to it straight, no backend relay needed) and a one-shot
-// GET /api/rpctrace/replay bootstrap + notify._platform.rpctrace.entry live
-// subscribe on the PLATFORM connection (obs.rpc.*/RPCTRACE, BR-D29 — see
-// eventhandler.RegisterRPCTraceNotify). Request and reply arrive as two
-// separate messages sharing a correlationId (the request's reply-to inbox);
-// this pairs them into one row per call instead of two unrelated list
-// entries.
-//
-// The tenant connection reconnects on tenant switch (useNatsConnection.js's
-// switchTenant, called from stores/tenant.js) — this component re-subscribes
-// obs.api.> whenever that connection's `connected` ref flips back to true,
-// the same defensive pattern KvInspector.vue/StreamView.vue use, rather than
-// watching the tenant store directly.
-//
-// Headers/timestamp/payloadBytes (BR-D36/BR-026, Phase 17a) are optional on
-// the wire — an event retained before that change, or ever missing them,
-// must render with "—" placeholders rather than break.
+const ui = useUiStore()
 
-// Keyed by correlationId so a reply can update its request's row in place
-// without an index shifting under a prepend (order tracked separately).
-const rowsById = reactive({})
-const order = ref([]) // correlationIds, newest first
+// [messages] tab retired obs.rpc.*/obs.api.* (Phase 28g) — see BR-026's
+// Phase 28g amendment in BUSINESS_RULES-SHIPPING.md. Both channels were
+// already dead before this retirement even started: Phase 28a-28e replaced
+// every adapter's publishObs call with a natstrace span, so this view had
+// shown nothing for any of the five services since then — retiring it is
+// deleting a live pipe carrying nothing, not migrating working traffic.
+//
+// It now derives from the exact same obs.trace.* data [traces]
+// (TraceWaterfall.vue) reads — the trace-request-reply KV bucket, bootstrap fetch plus
+// notify._platform.kv.trace-request-reply.> live subscribe on the PLATFORM connection —
+// flattened to one row per SPAN instead of one row per TRACE. This is the
+// flat "is anything arriving on this subject" view BR-035 always intended
+// this tab to keep being, just fed by the new pipe instead of the retired
+// one. Bootstrap/subscribe logic is duplicated from TraceWaterfall.vue
+// rather than shared, matching this codebase's general comfort with
+// duplicating a small adapter over two components with different
+// aggregation needs (grouped-by-trace vs. flat-by-span) — see natstrace's
+// own per-service duplication for the same tradeoff at a larger scale.
+//
+// One real, unavoidable difference from the old paired Request/Reply view:
+// a natstrace span carries only the REPLY side (BR-037's one-span-per-call
+// design — natstrace.go's Span.finish always publishes Direction: "reply";
+// there is no wire signal for the request side at all, confirmed against
+// the live code before this migration was written). The detail pane below
+// is therefore a single Body/Headers section, not the old two-pane
+// Request | Reply split — an eternally-empty "Request" pane would
+// misrepresent absence-of-data as a value that just hasn't arrived yet.
+// There is also no more "pending" status: a span row only ever appears
+// already finished (natstrace publishes once, at End/Fail), so the
+// three-state status model (pending/ok/error) becomes two (ok/error).
+
+const spansById = reactive({})
+const order = ref([]) // spanIds, newest first
 const MAX_ROWS = 500
 
 // api.*/rpc.* subjects have fixed 6-token arity — family, context, service,
@@ -46,103 +60,59 @@ const MAX_ROWS = 500
 // Facet filtering below is purely positional for that reason.
 const FACET_POSITION_NAMES = ['family', 'context', 'service', 'entity', 'action', 'version']
 
-function upsertRow(event) {
-  let row = rowsById[event.correlationId]
-  if (!row) {
-    row = {
-      correlationId: event.correlationId,
-      subject: event.subject,
-      family: event.subject?.split('.')[0] || '',
-      requestPayload: null,
-      requestHeaders: null,
-      requestTimestamp: null, // ms epoch, server-side (BR-D36/BR-026); null until a real timestamp arrives
-      requestBytes: null,
-      replyPayload: null,
-      replyHeaders: null,
-      replyTimestamp: null,
-      replyBytes: null,
-      error: '',
-      status: 'pending',
-      time: Date.now(), // arrival-clock fallback for display when no server timestamp exists yet
-    }
-    rowsById[event.correlationId] = row
-    order.value = [event.correlationId, ...order.value]
+function upsertSpan(span) {
+  if (!span?.spanId) return
+  if (!(span.spanId in spansById)) {
+    order.value = [span.spanId, ...order.value]
     if (order.value.length > MAX_ROWS) {
-      for (const id of order.value.slice(MAX_ROWS)) delete rowsById[id]
+      for (const id of order.value.slice(MAX_ROWS)) delete spansById[id]
       order.value = order.value.slice(0, MAX_ROWS)
     }
   }
-  const serverTs = event.timestamp ? new Date(event.timestamp).getTime() : null
-  if (event.direction === 'request') {
-    row.requestPayload = event.payload
-    row.requestHeaders = event.headers || null
-    row.requestTimestamp = serverTs
-    row.requestBytes = typeof event.payloadBytes === 'number' ? event.payloadBytes : null
-  } else {
-    row.replyPayload = event.payload
-    row.replyHeaders = event.headers || null
-    row.replyTimestamp = serverTs
-    row.replyBytes = typeof event.payloadBytes === 'number' ? event.payloadBytes : null
-    row.error = event.error || ''
-    row.status = event.error ? 'error' : 'ok'
-  }
+  spansById[span.spanId] = span
 }
 
-const { connected: tenantConnected, subscribe: subscribeTenant } = useNatsConnection()
-const { connected: platformConnected, subscribe: subscribePlatform } = usePlatformConnection()
-const connected = computed(() => tenantConnected.value || platformConnected.value)
-
-let unsubscribeApi = null
-let unsubscribeRpcTrace = null
-
-function connectApi() {
-  if (!tenantConnected.value) return
-  unsubscribeApi = subscribeTenant('obs.api.>', upsertRow)
+function upsertTraceRecord(record) {
+  for (const span of record?.spans ?? []) upsertSpan(span)
 }
 
-function disconnectApi() {
-  unsubscribeApi?.()
-  unsubscribeApi = null
-}
+const { connected, subscribe: subscribePlatform } = usePlatformConnection()
+let unsubscribe = null
 
-async function connectRpcTrace() {
+async function bootstrap() {
+  let entries
   try {
-    const entries = await getRpcTraceReplay()
-    for (const raw of entries ?? []) upsertRow(raw)
+    entries = await getKvBucketEntries('platform', 'trace-request-reply')
   } catch {
-    // best-effort replay — live subscribe below still works even if this fails
+    return // best-effort bootstrap — live subscribe below still works even if this fails
   }
-  if (!platformConnected.value) return
-  unsubscribeRpcTrace = subscribePlatform('notify._platform.rpctrace.entry', upsertRow)
+  for (const entry of entries ?? []) {
+    if (entry?.op !== 'PUT' || !entry.value) continue
+    upsertTraceRecord(entry.value)
+  }
 }
 
-function disconnectRpcTrace() {
-  unsubscribeRpcTrace?.()
-  unsubscribeRpcTrace = null
+function connectLive() {
+  if (!connected.value) return
+  unsubscribe = subscribePlatform('notify._platform.kv.trace-request-reply.>', (payload, subject) => {
+    if (!parseKvNotifySubject(subject)) return
+    upsertTraceRecord(payload)
+  })
+}
+function disconnectLive() {
+  unsubscribe?.()
+  unsubscribe = null
 }
 
 onMounted(() => {
-  connectApi()
-  connectRpcTrace()
+  bootstrap()
+  connectLive()
 })
-onUnmounted(() => {
-  disconnectApi()
-  disconnectRpcTrace()
-})
-
-// Re-subscribe whenever either connection (re)establishes — tenant switch,
-// a dropped WebSocket reconnecting, or the initial connect landing after
-// mount all flip these refs the same way. Rows already collected are kept;
-// rowsById upserts by correlationId, so a replayed/re-delivered duplicate
-// collapses in place rather than duplicating a row.
-watch(tenantConnected, (isConnected) => {
-  disconnectApi()
-  if (isConnected) connectApi()
-})
-watch(platformConnected, (isConnected) => {
+onUnmounted(disconnectLive)
+watch(connected, (isConnected) => {
   if (isConnected) {
-    disconnectRpcTrace()
-    unsubscribeRpcTrace = subscribePlatform('notify._platform.rpctrace.entry', upsertRow)
+    disconnectLive()
+    connectLive()
   }
 })
 
@@ -161,7 +131,7 @@ const displayedOrder = computed(() => (paused.value ? frozenOrder.value : order.
 // ── Filtering ────────────────────────────────────────────────────────────
 const searchText = ref('')
 const familyOn = reactive({ rpc: true, api: true })
-const statusOn = reactive({ ok: true, error: true, pending: true })
+const statusOn = reactive({ ok: true, error: true })
 const facets = ref([]) // [{ index, name, value }] — at most one per position
 
 function toggleFamily(fam) {
@@ -188,12 +158,19 @@ function onTokenClick({ index, text }) {
   facets.value = [...facets.value.filter((f) => f.index !== index), { index, name: FACET_POSITION_NAMES[index] || `pos${index}`, value: text }]
 }
 
-function rowMatchesFilters(row) {
-  if (!familyOn[row.family]) return false
-  if (!statusOn[row.status]) return false
-  if (searchText.value && !row.subject.toLowerCase().includes(searchText.value.toLowerCase())) return false
+function spanFamily(span) {
+  return span.subject?.split('.')[0] || ''
+}
+function spanStatus(span) {
+  return span.statusCode === 'ERROR' ? 'error' : 'ok'
+}
+
+function rowMatchesFilters(span) {
+  if (!familyOn[spanFamily(span)]) return false
+  if (!statusOn[spanStatus(span)]) return false
+  if (searchText.value && !span.subject?.toLowerCase().includes(searchText.value.toLowerCase())) return false
   if (facets.value.length) {
-    const tokens = row.subject.split('.')
+    const tokens = span.subject?.split('.') || []
     for (const f of facets.value) {
       if (tokens[f.index] !== f.value) return false
     }
@@ -201,19 +178,19 @@ function rowMatchesFilters(row) {
   return true
 }
 
-const rows = computed(() => displayedOrder.value.map((id) => rowsById[id]).filter((r) => r && rowMatchesFilters(r)))
+const rows = computed(() => displayedOrder.value.map((id) => spansById[id]).filter((r) => r && rowMatchesFilters(r)))
 
 // ── Selection / detail pane ─────────────────────────────────────────────
 const selectedId = ref(null)
-const selectedRow = computed(() => (selectedId.value ? rowsById[selectedId.value] : null))
-function selectRow(row) {
+const selectedSpan = computed(() => (selectedId.value ? spansById[selectedId.value] : null))
+function selectRow(span) {
   // A click-drag to select row text (e.g. to copy the subject or a value)
   // still fires a native 'click' on mouseup. Without this guard that click
   // toggles the row's selection off from underneath the drag, leaving the
   // detail panel closed even though the user only meant to select text.
   const selection = window.getSelection()
   if (selection && selection.toString().length > 0) return
-  selectedId.value = selectedId.value === row.correlationId ? null : row.correlationId
+  selectedId.value = selectedId.value === span.spanId ? null : span.spanId
 }
 function closeDetail() {
   selectedId.value = null
@@ -221,9 +198,7 @@ function closeDetail() {
 
 // ── Formatting helpers ──────────────────────────────────────────────────
 function statusSeverity(status) {
-  if (status === 'ok') return 'success'
-  if (status === 'error') return 'danger'
-  return 'warn'
+  return status === 'error' ? 'danger' : 'success'
 }
 
 function formatTimeMs(ms) {
@@ -235,13 +210,11 @@ function formatTimeMs(ms) {
   const msPart = String(d.getMilliseconds()).padStart(3, '0')
   return `${hh}:${mm}:${ss}.${msPart}`
 }
-
-function rowLatency(row) {
-  if (row.requestTimestamp == null || row.replyTimestamp == null) return null
-  return row.replyTimestamp - row.requestTimestamp
+function spanTimeMs(span) {
+  return span.timestamp ? new Date(span.timestamp).getTime() : null
 }
-function formatLatency(row) {
-  const ms = rowLatency(row)
+
+function formatDuration(ms) {
   return ms == null ? '—' : `${ms} ms`
 }
 
@@ -250,9 +223,6 @@ function formatBytes(n) {
   if (n < 1024) return `${n} B`
   return `${(n / 1024).toFixed(1)} KB`
 }
-function formatSizes(row) {
-  return `${formatBytes(row.requestBytes)} ⁄ ${formatBytes(row.replyBytes)}`
-}
 
 function headerCount(headers) {
   return headers ? Object.keys(headers).length : 0
@@ -260,30 +230,6 @@ function headerCount(headers) {
 function headerRows(headers) {
   if (!headers) return []
   return Object.entries(headers).map(([k, v]) => ({ k, v: Array.isArray(v) ? v.join(', ') : String(v) }))
-}
-
-// Pretty-printed, syntax-tinted JSON for the detail panes. Escapes HTML
-// first, then tints via regex over the already-escaped string — the
-// standard safe pattern (tinting never introduces raw user content into the
-// DOM, only wraps already-escaped text in <span>).
-function escapeHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-function highlightJson(value) {
-  if (value === null || value === undefined) return ''
-  const json = escapeHtml(JSON.stringify(value, null, 2))
-  return json.replace(
-    /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
-    (match) => {
-      let cls = 'jn'
-      if (/^"/.test(match)) {
-        cls = /:$/.test(match) ? 'jk' : 'js'
-      } else if (/true|false|null/.test(match)) {
-        cls = 'jp'
-      }
-      return `<span class="${cls}">${match}</span>`
-    },
-  )
 }
 
 async function copyText(text) {
@@ -306,145 +252,285 @@ function copyHeaders(headers) {
 
 <template>
   <div class="rpc-panel">
-    <div class="rpc-toolbar">
-      <Tag :severity="connected ? 'success' : 'danger'" :value="connected ? 'live' : 'disconnected'" />
-      <span class="search-box">
-        <i class="pi pi-search" />
-        <input v-model="searchText" type="text" placeholder="filter subjects — or click any subject token below" />
-      </span>
-      <button
-        v-for="fam in ['rpc', 'api']"
-        :key="fam"
-        type="button"
-        class="chip"
-        :class="{ on: familyOn[fam] }"
-        @click="toggleFamily(fam)"
-      >{{ fam }}</button>
-      <button
-        v-for="st in ['ok', 'error', 'pending']"
-        :key="st"
-        type="button"
-        class="chip"
-        :class="{ on: statusOn[st], err: st === 'error' }"
-        @click="toggleStatus(st)"
-      >{{ st }}</button>
-      <button
-        v-for="f in facets"
-        :key="f.index"
-        type="button"
-        class="chip facet"
-        @click="removeFacet(f.index)"
-      ><span class="facet-key">{{ f.name }}:</span>{{ f.value }}<span class="facet-x">✕</span></button>
-      <button type="button" class="pause-btn" @click="togglePause">{{ paused ? '▶ resume' : '⏸ pause' }}</button>
-    </div>
-
-    <DataTable
-      :value="rows"
-      size="small"
-      scrollable
-      scroll-height="flex"
-      class="rpc-table"
-      resizableColumns
-      columnResizeMode="expand"
-      data-key="correlationId"
-      selectionMode="single"
-      :metaKeySelection="false"
-      @row-click="selectRow($event.data)"
+    <Tabs
+      v-model:value="ui.rpcTab"
+      class="panel-tabs rpc-tabs"
     >
-      <template #empty>
-        <span class="lab-muted">Waiting for rpc.*/api.* traffic — trigger a shipping-service → refdata-service item lookup, or a Sea Freight Flow action, to see it here.</span>
-      </template>
-      <Column header="Status" style="width:80px">
-        <template #body="{ data }">
-          <Tag :severity="statusSeverity(data.status)" :value="data.status" />
-        </template>
-      </Column>
-      <Column header="Fam" style="width:50px">
-        <template #body="{ data }"><span class="fam-badge" :class="data.family">{{ data.family }}</span></template>
-      </Column>
-      <Column header="Subject">
-        <template #body="{ data }">
-          <SubjectPath :subject="data.subject" clickable @token-click="onTokenClick" />
-        </template>
-      </Column>
-      <Column header="Time" style="width:100px;font-variant-numeric:tabular-nums">
-        <template #body="{ data }">{{ formatTimeMs(data.requestTimestamp ?? data.time) }}</template>
-      </Column>
-      <Column header="Latency" style="width:70px" bodyClass="num-cell">
-        <template #body="{ data }">{{ formatLatency(data) }}</template>
-      </Column>
-      <Column header="Size" style="width:110px" bodyClass="num-cell">
-        <template #body="{ data }">{{ formatSizes(data) }}</template>
-      </Column>
-    </DataTable>
-
-    <section v-if="selectedRow" class="detail">
-      <div class="detail-head">
-        <SubjectPath :subject="selectedRow.subject" clickable @token-click="onTokenClick" />
-        <span class="meta">
-          <Tag :severity="statusSeverity(selectedRow.status)" :value="selectedRow.status" />
-          <span>latency <b>{{ formatLatency(selectedRow) }}</b></span>
-          <span>corr <b :title="selectedRow.correlationId">{{ selectedRow.correlationId }}</b></span>
+      <TabList>
+        <Tab value="traces">Traces</Tab>
+        <Tab value="messages">Messages</Tab>
+      </TabList>
+      <TabPanels>
+        <TabPanel value="traces">
+          <div class="lab-panel rpc-card">
+            <KeepAlive>
+              <TraceWaterfall v-if="ui.rpcTab === 'traces'" />
+            </KeepAlive>
+          </div>
+        </TabPanel>
+        <TabPanel value="messages">
+          <div
+            v-if="ui.rpcTab === 'messages'"
+            class="lab-panel rpc-card"
+          >
+            <div class="rpc-toolbar">
+        <Tag
+          :severity="connected ? 'success' : 'danger'"
+          :value="connected ? 'live' : 'disconnected'"
+        />
+        <span class="search-box">
+          <i class="pi pi-search" />
+          <input
+            v-model="searchText"
+            type="text"
+            placeholder="filter subjects — or click any subject token below"
+          >
         </span>
-        <span class="close" title="Close" @click="closeDetail">✕</span>
+        <button
+          v-for="fam in ['rpc', 'api']"
+          :key="fam"
+          type="button"
+          class="chip"
+          :class="{ on: familyOn[fam] }"
+          @click="toggleFamily(fam)"
+        >
+          {{ fam }}
+        </button>
+        <button
+          v-for="st in ['ok', 'error']"
+          :key="st"
+          type="button"
+          class="chip"
+          :class="{ on: statusOn[st], err: st === 'error' }"
+          @click="toggleStatus(st)"
+        >
+          {{ st }}
+        </button>
+        <button
+          v-for="f in facets"
+          :key="f.index"
+          type="button"
+          class="chip facet"
+          @click="removeFacet(f.index)"
+        >
+          <span class="facet-key">{{ f.name }}:</span>{{ f.value }}<span class="facet-x">✕</span>
+        </button>
+        <button
+          type="button"
+          class="pause-btn"
+          @click="togglePause"
+        >
+          {{ paused ? '▶ resume' : '⏸ pause' }}
+        </button>
       </div>
-      <div class="panes">
-        <div class="pane">
-          <div class="pane-title">
-            <span class="dir req">→</span> Request
-            <span class="pane-subtitle lab-muted">{{ formatBytes(selectedRow.requestBytes) }} · {{ formatTimeMs(selectedRow.requestTimestamp) }}</span>
+
+      <DataTable
+        :value="rows"
+        size="small"
+        scrollable
+        scroll-height="flex"
+        class="rpc-table"
+        resizable-columns
+        column-resize-mode="expand"
+        data-key="spanId"
+        selection-mode="single"
+        :meta-key-selection="false"
+        @row-click="selectRow($event.data)"
+      >
+        <template #empty>
+          <span class="lab-muted">Waiting for rpc.*/api.* traffic — trigger a shipping-service → refdata-service item lookup, or a Sea Freight Flow action, to see it here.</span>
+        </template>
+        <Column
+          header="Status"
+          style="width:80px"
+        >
+          <template #body="{ data }">
+            <Tag
+              :severity="statusSeverity(spanStatus(data))"
+              :value="spanStatus(data)"
+            />
+          </template>
+        </Column>
+        <Column
+          header="Fam"
+          style="width:50px"
+        >
+          <template #body="{ data }">
+            <span
+              class="fam-badge"
+              :class="spanFamily(data)"
+            >{{ spanFamily(data) }}</span>
+          </template>
+        </Column>
+        <Column header="Subject">
+          <template #body="{ data }">
+            <SubjectPath
+              :subject="data.subject"
+              clickable
+              @token-click="onTokenClick"
+            />
+          </template>
+        </Column>
+        <Column
+          header="Time"
+          style="width:100px;font-variant-numeric:tabular-nums"
+        >
+          <template #body="{ data }">
+            {{ formatTimeMs(spanTimeMs(data)) }}
+          </template>
+        </Column>
+        <Column
+          header="Duration"
+          style="width:80px"
+          body-class="num-cell"
+        >
+          <template #body="{ data }">
+            {{ formatDuration(data.durationMs) }}
+          </template>
+        </Column>
+        <Column
+          header="Size"
+          style="width:80px"
+          body-class="num-cell"
+        >
+          <template #body="{ data }">
+            {{ formatBytes(data.payloadBytes) }}
+          </template>
+        </Column>
+      </DataTable>
+
+      <section
+        v-if="selectedSpan"
+        class="detail"
+      >
+        <div class="detail-head">
+          <SubjectPath
+            :subject="selectedSpan.subject"
+            clickable
+            @token-click="onTokenClick"
+          />
+          <span class="meta">
+            <Tag
+              :severity="statusSeverity(spanStatus(selectedSpan))"
+              :value="spanStatus(selectedSpan)"
+            />
+            <span>duration <b>{{ formatDuration(selectedSpan.durationMs) }}</b></span>
+            <span>trace <b :title="selectedSpan.traceId">{{ selectedSpan.traceId }}</b></span>
+          </span>
+          <span
+            class="close"
+            title="Close"
+            @click="closeDetail"
+          >✕</span>
+        </div>
+        <div class="pane-body">
+          <div
+            v-if="selectedSpan.error"
+            class="err-banner"
+          >
+            {{ selectedSpan.error }}
           </div>
-          <div class="pane-body">
-            <div class="sect">
-              <div class="sect-label">
-                Headers <span class="count">({{ headerCount(selectedRow.requestHeaders) }})</span>
-                <span v-if="headerCount(selectedRow.requestHeaders)" class="copy" @click="copyHeaders(selectedRow.requestHeaders)">copy</span>
-              </div>
-              <div v-if="headerCount(selectedRow.requestHeaders)" class="kv">
-                <div class="row" v-for="h in headerRows(selectedRow.requestHeaders)" :key="h.k">
-                  <span class="k">{{ h.k }}</span><span class="v">{{ h.v }}</span>
-                </div>
-              </div>
-              <span v-else class="lab-muted no-headers">no headers</span>
+          <div class="sect">
+            <div class="sect-label">
+              Headers <span class="count">({{ headerCount(selectedSpan.headers) }})</span>
+              <span
+                v-if="headerCount(selectedSpan.headers)"
+                class="copy"
+                @click="copyHeaders(selectedSpan.headers)"
+              >copy</span>
             </div>
-            <div class="sect">
-              <div class="sect-label">Body <span class="copy" @click="copyPayload(selectedRow.requestPayload)">copy</span></div>
-              <pre class="json" v-html="highlightJson(selectedRow.requestPayload) || '—'"></pre>
+            <div
+              v-if="headerCount(selectedSpan.headers)"
+              class="kv"
+            >
+              <div
+                v-for="h in headerRows(selectedSpan.headers)"
+                :key="h.k"
+                class="row"
+              >
+                <span class="k">{{ h.k }}</span><span
+                  class="v"
+                  :class="{ errv: h.k.startsWith('Nats-Service-Error') }"
+                >{{ h.v }}</span>
+              </div>
             </div>
+            <span
+              v-else
+              class="lab-muted no-headers"
+            >no headers</span>
+          </div>
+          <div class="sect">
+            <div class="sect-label">
+              Body <span
+                class="copy"
+                @click="copyPayload(selectedSpan.payload)"
+              >copy</span>
+            </div>
+            <pre
+              class="json"
+              v-html="highlightJson(selectedSpan.payload) || '—'"
+            />
           </div>
         </div>
-        <div class="pane">
-          <div class="pane-title">
-            <span class="dir rep">←</span> Reply
-            <span class="pane-subtitle lab-muted">{{ formatBytes(selectedRow.replyBytes) }} · {{ formatTimeMs(selectedRow.replyTimestamp) }}</span>
+      </section>
           </div>
-          <div class="pane-body">
-            <div v-if="selectedRow.error" class="err-banner">{{ selectedRow.error }}</div>
-            <div class="sect">
-              <div class="sect-label">
-                Headers <span class="count">({{ headerCount(selectedRow.replyHeaders) }})</span>
-                <span v-if="headerCount(selectedRow.replyHeaders)" class="copy" @click="copyHeaders(selectedRow.replyHeaders)">copy</span>
-              </div>
-              <div v-if="headerCount(selectedRow.replyHeaders)" class="kv">
-                <div class="row" v-for="h in headerRows(selectedRow.replyHeaders)" :key="h.k">
-                  <span class="k">{{ h.k }}</span><span class="v" :class="{ errv: h.k.startsWith('Nats-Service-Error') }">{{ h.v }}</span>
-                </div>
-              </div>
-              <span v-else class="lab-muted no-headers">no headers</span>
-            </div>
-            <div class="sect">
-              <div class="sect-label">Body <span class="copy" @click="copyPayload(selectedRow.replyPayload)">copy</span></div>
-              <pre class="json" v-html="highlightJson(selectedRow.replyPayload) || '—'"></pre>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
+        </TabPanel>
+      </TabPanels>
+    </Tabs>
   </div>
 </template>
 
 <style scoped>
 .rpc-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── [traces]/[messages] tabs (Phase 28g, BR-035; real Tabs since Phase 28j
+   — see the "panel top tabs" rule in shared/unifi-theme/LAYOUT.md) — the
+   panel below the tab strip needs the full height a page-level Tabs
+   normally isn't asked to fill (TraceWaterfall's own rail/waterfall split,
+   the messages table's scroll-height="flex"), so p-tabs/p-tabpanels/
+   p-tabpanel all stay flex columns down to the active panel rather than
+   PrimeVue's plain block default. */
+.rpc-tabs.p-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* Flush on the page, same as AccountsView's Tabs — no card wraps the tab
+   strip itself, so no background/margin override is needed here (that was
+   only necessary while the Tabs sat nested inside a .lab-panel card). The
+   card treatment now applies per-tab, below, via .rpc-card. */
+.rpc-tabs :deep(.p-tablist) {
+  flex: none;
+}
+/* Keeps Aura's default TOP padding (the same gap AccountsView's tabpanels
+   get, unmodified there) — without it the .rpc-card below sits flush against
+   the tablist's hairline, and the two borders visually merge into one line.
+   The default's horizontal padding is zeroed globally instead, in
+   `.panel-tabs.p-tabs .p-tabpanels` (shared/unifi-theme/unifi.css) — it was
+   stacking on top of the shell's own `.main-inner` inset. */
+.rpc-tabs :deep(.p-tabpanels) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rpc-tabs :deep(.p-tabpanel) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* The card each tab's content lives in — .lab-panel's own border/background/
+   padding, plus the flex sizing .lab-panel itself doesn't provide (this
+   panel fills all remaining height, unlike a typical page-scrolled
+   .lab-panel). */
+.rpc-card {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -623,60 +709,11 @@ function copyHeaders(headers) {
   color: var(--p-text-color);
   background: rgba(255, 255, 255, 0.05);
 }
-.panes {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-}
-.pane {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.pane + .pane {
-  border-left: 1px solid var(--lab-panel-border);
-}
-.pane-title {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--p-text-disabled-color);
-  padding: 5px 10px 3px;
-}
-.pane-subtitle {
-  text-transform: none;
-  font-weight: 400;
-  letter-spacing: normal;
-}
-.dir {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 9px;
-}
-.dir.req {
-  background: rgba(56, 178, 255, 0.15);
-  color: #4cc2ff;
-}
-.dir.rep {
-  background: rgba(47, 191, 113, 0.14);
-  color: #2fbf71;
-}
 .pane-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 0 10px 8px;
+  padding: 6px 10px 8px;
 }
 .sect {
   margin-top: 6px;

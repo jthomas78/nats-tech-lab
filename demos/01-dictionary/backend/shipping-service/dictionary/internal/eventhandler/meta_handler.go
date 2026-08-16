@@ -12,6 +12,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/queries"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
 )
 
 // metaEvent carries the fields the meta projector needs from a
@@ -42,6 +43,9 @@ func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store
 	// be tied to whatever short-lived context the caller used to register it
 	// (e.g. an HTTP request context, Phase 13b's tenant switch).
 	msgCtx := context.WithoutCancel(ctx)
+	// See handler.go's register() for the same nil-safe-nc construction
+	// rationale.
+	tracer := natstrace.New(nc)
 	cons, err := js.CreateOrUpdateConsumer(ctx, domain.StreamName, jetstream.ConsumerConfig{
 		Durable:       "meta-projector",
 		FilterSubject: domain.SubjectContainerWildcard,
@@ -57,20 +61,31 @@ func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store
 			return
 		}
 
-		aggregate, eventType, ok := domain.SubjectTokens(msg.Subject())
+		// SubjectDetails (not the id-discarding SubjectTokens) so the span
+		// below can record the container's surrogate id as entity_id.
+		aggregate, id, eventType, ok := domain.SubjectDetails(msg.Subject())
 		if !ok || aggregate != "container" || eventType != domain.ContainerRegisteredEvent {
 			_ = msg.Ack()
 			return
 		}
-		data, err := mergeSet(msgCtx, kv, event.Context, queries.MetaKeyKnownContainers, event.ContainerID)
+
+		// One span per message (BR-037, Phase 28d) — see handler.go's
+		// register() for the full rationale.
+		sp := tracer.StartFromHeaders(msg.Headers(), msg.Subject(), msg.Data(), event.Context, "shipping", aggregate, eventType)
+		sp.SetAttribute("entity_id", id)
+		spanCtx := natstrace.ContextWithSpan(msgCtx, sp)
+
+		data, err := mergeSet(spanCtx, kv, event.Context, queries.MetaKeyKnownContainers, event.ContainerID)
 		if err != nil {
 			log.Error("meta projection failed, will redeliver", "subject", msg.Subject(), "err", err)
+			sp.Fail(err, msg.Data(), nil)
 			_ = msg.Nak()
 			return
 		}
 		if data != nil {
-			publishNotify(nc, log, event.Context, "meta", data)
+			publishNotify(nc, log, event.Context, "meta", data, sp)
 		}
+		sp.End(msg.Data(), nil)
 		_ = msg.Ack()
 	})
 }

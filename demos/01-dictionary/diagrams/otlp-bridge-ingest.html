@@ -1,0 +1,322 @@
+<script>document.documentElement.setAttribute("data-theme","dark")</script>
+<title>OTLP bridge — ingest and handling design</title>
+<style>
+/* Tokens lifted from shared/unifi-theme/unifi.css. Dark is the base, as there. */
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --text: #1e2328; --muted: #4e5560; --dim: #9aa1a9;
+    --bg: #f4f5f7; --panel: #ffffff; --border: #d1d5db;
+    --accent: #005fdb; --nested: #eef1f7;
+    --sync: #005fdb; --store: #0d9488; --evtl: #b45309; --bad: #dc2626; --hop: #6b7280;
+  }
+}
+:root[data-theme="light"] {
+  --text: #1e2328; --muted: #4e5560; --dim: #9aa1a9;
+  --bg: #f4f5f7; --panel: #ffffff; --border: #d1d5db;
+  --accent: #005fdb; --nested: #eef1f7;
+  --sync: #005fdb; --store: #0d9488; --evtl: #b45309; --bad: #dc2626; --hop: #6b7280;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+.theme-btn {
+  font-family: var(--mono); font-size: 11px; padding: 3px 10px; border-radius: 3px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--muted); cursor: pointer;
+}
+.theme-btn:hover { color: var(--text); border-color: var(--dim); }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width:0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+
+/* SVG text and shape conventions */
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <span class="eyebrow">Phase 28 · ARCHITECTURE-COMMUNICATIONS §6</span>
+      <h1>How the OTLP bridge ingests span data</h1>
+      <p class="sub">The bridge is a second, independent consumer of a stream that already exists. No service imports an OTel library, and nothing in a service knows whether the bridge is running.</p>
+    </div>
+    <button class="theme-btn" id="tt" type="button">light / dark</button>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 312" role="img"
+        aria-label="Spans published on obs.trace.> from three per-tenant adapters and async producers cross the NATS account boundary via a JWT stream export into the PLATFORM account, where refdata-service and accounts-service publish directly. All land on the TRACES stream, which feeds two independent consumers: a single-writer trace projector that assembles traces into a KV bucket watched by the Admin UI, and the otlp-bridge container that posts to Jaeger over OTLP and can also replay the retained window.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="a-proj" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--store)"/>
+          </marker>
+          <marker id="a-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--evtl)"/>
+          </marker>
+        </defs>
+
+        <!-- account boundary -->
+        <line class="nb" x1="298" y1="26" x2="298" y2="268"/>
+        <text class="grp" x="298" y="18" text-anchor="middle">NATS ACCOUNT BOUNDARY</text>
+
+        <!-- tenant accounts -->
+        <rect class="nb" x="14" y="34" width="268" height="200" rx="4"/>
+        <text class="grp" x="26" y="50">TENANT ACCOUNTS — ONE PER TENANT</text>
+        <rect class="n" x="26" y="60" width="176" height="30" rx="3"/>
+        <text class="lbl" x="34" y="79">shipping-service</text>
+        <rect class="n" x="26" y="96" width="176" height="30" rx="3"/>
+        <text class="lbl" x="34" y="115">pricing-service</text>
+        <rect class="n" x="26" y="132" width="176" height="30" rx="3"/>
+        <text class="lbl" x="34" y="151">trading-partner-svc</text>
+        <rect class="n" x="26" y="168" width="176" height="46" rx="3"/>
+        <text class="lbl" x="34" y="186">async producers</text>
+        <text class="lbl2" x="34" y="200">jstream · kv notify</text>
+
+        <!-- export node — width is set by its longest label, not the other way round -->
+        <path class="n" d="M210 118 L251 104 L292 118 L292 152 L251 166 L210 152 Z"/>
+        <text class="lbl2" x="251" y="132" text-anchor="middle">export</text>
+        <text class="lbl2" x="251" y="145" text-anchor="middle">obs.trace.&gt;</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M202 75 L208 120"/>
+        <path class="flow" marker-end="url(#a-sync)" d="M202 111 L208 129"/>
+        <path class="flow" marker-end="url(#a-sync)" d="M202 147 L208 141"/>
+        <path class="flow" marker-end="url(#a-sync)" d="M202 191 L208 150"/>
+
+        <!-- platform account -->
+        <rect class="nb" x="322" y="34" width="248" height="200" rx="4"/>
+        <text class="grp" x="334" y="50">PLATFORM ACCOUNT</text>
+        <rect class="n" x="334" y="60" width="110" height="44" rx="3"/>
+        <text class="lbl" x="389" y="79" text-anchor="middle">refdata-svc</text>
+        <text class="lbl2" x="389" y="92" text-anchor="middle">natsrpc</text>
+        <rect class="n" x="452" y="60" width="106" height="44" rx="3"/>
+        <text class="lbl" x="505" y="79" text-anchor="middle">accounts-svc</text>
+        <text class="lbl2" x="505" y="92" text-anchor="middle">http mw</text>
+
+        <!-- TRACES stream cylinder -->
+        <path class="n" d="M334 158 L334 208 A112 9 0 0 0 558 208 L558 158"/>
+        <ellipse class="n" cx="446" cy="158" rx="112" ry="9"/>
+        <text class="lbl" x="446" y="180" text-anchor="middle">TRACES stream</text>
+        <text class="lbl2" x="446" y="194" text-anchor="middle">LimitsPolicy · MaxAge 1h</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M389 104 L389 147"/>
+        <path class="flow" marker-end="url(#a-sync)" d="M505 104 L505 147"/>
+        <path class="flow" marker-end="url(#a-sync)" d="M292 137 L332 176"/>
+        <text class="edge" x="300" y="248" text-anchor="middle">import · allow_trace</text>
+        <text class="edge" x="300" y="260" text-anchor="middle">BR-AC30</text>
+
+        <!-- consumers -->
+        <rect class="n" x="622" y="52" width="176" height="52" rx="3"/>
+        <text class="lbl" x="632" y="71">trace projector</text>
+        <text class="lbl2" x="632" y="85">ONE durable consumer</text>
+        <text class="lbl2" x="632" y="97">= single writer, no race</text>
+
+        <rect class="n" x="622" y="196" width="176" height="52" rx="3"/>
+        <text class="lbl" x="632" y="215">otlp-bridge</text>
+        <text class="lbl2" x="632" y="229">separate container</text>
+        <text class="lbl2" x="632" y="241">~150 lines, no service code</text>
+
+        <path class="proj" marker-end="url(#a-proj)" d="M558 172 L620 84"/>
+        <text class="edge" x="600" y="120" text-anchor="middle">live</text>
+        <path class="flow" marker-end="url(#a-sync)" d="M558 190 L620 214"/>
+        <text class="edge" x="586" y="212">live</text>
+        <path class="rep" marker-end="url(#a-rep)" d="M470 217 C 500 292, 600 294, 690 250"/>
+        <text class="edge" x="576" y="290" text-anchor="middle">DeliverAll replay — start late, re-export the retained hour</text>
+
+        <!-- sinks -->
+        <path class="n" d="M842 62 L842 100 A72 8 0 0 0 986 100 L986 62"/>
+        <ellipse class="n" cx="914" cy="62" rx="72" ry="8"/>
+        <text class="lbl" x="914" y="82" text-anchor="middle">traces-_platform</text>
+        <text class="lbl2" x="914" y="95" text-anchor="middle">KV · keyed by trace id</text>
+
+        <rect class="n" x="842" y="140" width="144" height="44" rx="3"/>
+        <text class="lbl" x="914" y="159" text-anchor="middle">Admin UI</text>
+        <text class="lbl2" x="914" y="172" text-anchor="middle">traces waterfall</text>
+
+        <rect class="n" x="842" y="200" width="144" height="44" rx="3"/>
+        <text class="lbl" x="914" y="219" text-anchor="middle">Jaeger</text>
+        <text class="lbl2" x="914" y="232" text-anchor="middle">dev-time oracle</text>
+
+        <path class="proj" marker-end="url(#a-proj)" d="M798 78 L840 78"/>
+        <path class="proj" marker-end="url(#a-proj)" d="M914 108 L914 138"/>
+        <text class="edge" x="922" y="128">watch</text>
+        <path class="flow" marker-end="url(#a-sync)" d="M798 222 L840 222"/>
+        <text class="edge" x="819" y="214" text-anchor="middle">OTLP</text>
+      </svg>
+    </div>
+    <figcaption><b>Ingest topology.</b> Every span reaches one stream, and the bridge is simply the second consumer on it. Tenant-account services cannot publish onto PLATFORM directly — spans cross via a JWT stream export/import, which is the one piece of new account plumbing (<code>BR-AC30</code>). The projector and the bridge share no state and neither knows the other exists; deleting the bridge changes nothing upstream of it.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 196" role="img"
+        aria-label="Inside the bridge, each message flows through six steps: consume from the TRACES stream, decode the traceSpan JSON, map field-for-field to an OTLP span, batch, POST over OTLP HTTP, then acknowledge. If the POST fails the message is not acknowledged and is redelivered from the stream, so nothing is lost while the collector is down.">
+        <defs>
+          <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="b-err" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--bad)"/>
+          </marker>
+        </defs>
+
+        <text class="grp" x="16" y="16">PER-MESSAGE HANDLING INSIDE THE BRIDGE</text>
+
+        <rect class="n" x="16" y="40" width="140" height="50" rx="3"/>
+        <text class="lbl" x="86" y="62" text-anchor="middle">consume</text>
+        <text class="lbl2" x="86" y="76" text-anchor="middle">obs.trace.&gt;</text>
+
+        <rect class="n" x="188" y="40" width="140" height="50" rx="3"/>
+        <text class="lbl" x="258" y="62" text-anchor="middle">decode</text>
+        <text class="lbl2" x="258" y="76" text-anchor="middle">traceSpan JSON</text>
+
+        <rect class="n" x="360" y="40" width="152" height="50" rx="3"/>
+        <text class="lbl" x="436" y="62" text-anchor="middle">map → OTLP Span</text>
+        <text class="lbl2" x="436" y="76" text-anchor="middle">field-for-field, no logic</text>
+
+        <rect class="n" x="544" y="40" width="130" height="50" rx="3"/>
+        <text class="lbl" x="609" y="62" text-anchor="middle">batch</text>
+        <text class="lbl2" x="609" y="76" text-anchor="middle">size or interval</text>
+
+        <rect class="n" x="706" y="40" width="130" height="50" rx="3"/>
+        <text class="lbl" x="771" y="62" text-anchor="middle">POST</text>
+        <text class="lbl2" x="771" y="76" text-anchor="middle">OTLP/HTTP</text>
+
+        <rect class="n" x="868" y="40" width="116" height="50" rx="3"/>
+        <text class="lbl" x="926" y="62" text-anchor="middle">ack</text>
+        <text class="lbl2" x="926" y="76" text-anchor="middle">advance cursor</text>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M156 65 L186 65"/>
+        <path class="flow" marker-end="url(#b-sync)" d="M328 65 L358 65"/>
+        <path class="flow" marker-end="url(#b-sync)" d="M512 65 L542 65"/>
+        <path class="flow" marker-end="url(#b-sync)" d="M674 65 L704 65"/>
+        <path class="flow" marker-end="url(#b-sync)" d="M836 65 L866 65"/>
+
+        <path class="err" marker-end="url(#b-err)" d="M771 90 L771 138 L86 138 L86 92"/>
+        <text class="edge" x="430" y="132" text-anchor="middle">POST fails → no ack → redelivered from the stream</text>
+        <text class="lbl2" x="16" y="170">Nothing is lost while the collector is down: the span is still on TRACES, and the cursor has not moved.</text>
+        <text class="lbl2" x="16" y="186">Start position is the only switch — DeliverNew for live tailing, DeliverAll to re-export the retained window.</text>
+      </svg>
+    </div>
+    <figcaption><b>What the bridge does to each message.</b> The mapping step carries no interpretation because <code>traceSpan</code>'s field names already mirror the OTLP <code>Span</code> message — that is the reason for shaping the envelope that way rather than inventing our own field names. Delivery guarantees come from JetStream, not from retry code in the bridge.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 208" role="img"
+        aria-label="Comparison of where backpressure lands. With an in-process SDK exporter, a slow collector pushes back into the batch processor inside the service, so the service blocks or drops. With a stream consumer, the service has already published and moved on; a slow collector only backs up inside the bridge container, and the account boundary and stream sit between them.">
+        <defs>
+          <marker id="c-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="c-err" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--bad)"/>
+          </marker>
+        </defs>
+
+        <text class="grp" x="16" y="16">NOT CHOSEN — IN-PROCESS SDK EXPORTER</text>
+        <rect class="nb" x="16" y="30" width="250" height="88" rx="4"/>
+        <text class="lbl2" x="26" y="46">service process</text>
+        <rect class="n" x="28" y="54" width="104" height="50" rx="3"/>
+        <text class="lbl" x="80" y="76" text-anchor="middle">handler</text>
+        <text class="lbl2" x="80" y="90" text-anchor="middle">business path</text>
+        <rect class="n" x="150" y="54" width="104" height="50" rx="3"/>
+        <text class="lbl" x="202" y="76" text-anchor="middle">batch proc</text>
+        <text class="lbl2" x="202" y="90" text-anchor="middle">in-memory</text>
+        <path class="flow" marker-end="url(#c-sync)" d="M132 79 L148 79"/>
+        <rect class="n" x="316" y="54" width="104" height="50" rx="3"/>
+        <text class="lbl" x="368" y="83" text-anchor="middle">collector</text>
+        <path class="flow" marker-end="url(#c-sync)" d="M254 79 L314 79"/>
+        <path class="err" marker-end="url(#c-err)" d="M368 104 L368 148 L202 148 L202 106"/>
+        <text class="edge" x="286" y="166" text-anchor="middle">slow collector blocks or drops</text>
+        <text class="edge" x="286" y="178" text-anchor="middle"><tspan fill="var(--bad)">inside the service</tspan></text>
+
+        <line class="nb" x1="500" y1="24" x2="500" y2="188"/>
+
+        <text class="grp" x="536" y="16">CHOSEN — STREAM CONSUMER</text>
+        <rect class="nb" x="536" y="30" width="130" height="88" rx="4"/>
+        <text class="lbl2" x="546" y="46">service process</text>
+        <rect class="n" x="548" y="54" width="106" height="50" rx="3"/>
+        <text class="lbl" x="601" y="76" text-anchor="middle">handler</text>
+        <text class="lbl2" x="601" y="90" text-anchor="middle">publish, done</text>
+
+        <path class="n" d="M700 62 L700 96 A34 7 0 0 0 768 96 L768 62"/>
+        <ellipse class="n" cx="734" cy="62" rx="34" ry="7"/>
+        <text class="lbl2" x="734" y="84" text-anchor="middle">TRACES</text>
+
+        <rect class="nb" x="806" y="30" width="178" height="88" rx="4"/>
+        <text class="lbl2" x="816" y="46">bridge container</text>
+        <rect class="n" x="818" y="54" width="72" height="50" rx="3"/>
+        <text class="lbl2" x="854" y="83" text-anchor="middle">bridge</text>
+        <rect class="n" x="902" y="54" width="70" height="50" rx="3"/>
+        <text class="lbl2" x="937" y="83" text-anchor="middle">collector</text>
+        <path class="flow" marker-end="url(#c-sync)" d="M890 79 L900 79"/>
+
+        <path class="flow" marker-end="url(#c-sync)" d="M654 79 L698 79"/>
+        <path class="flow" marker-end="url(#c-sync)" d="M768 79 L816 79"/>
+        <path class="err" marker-end="url(#c-err)" d="M937 104 L937 148 L854 148 L854 106"/>
+        <text class="edge" x="838" y="166" text-anchor="middle">slow collector backs up</text>
+        <text class="edge" x="838" y="178" text-anchor="middle"><tspan fill="var(--bad)">only inside the bridge</tspan></text>
+      </svg>
+    </div>
+    <figcaption><b>The one edge that differs.</b> Both designs POST to a collector; what changes is where the return arrow lands. An in-process exporter shares the service's memory and failure modes, so <code>obs.*</code> isolation becomes something to maintain carefully. A stream consumer puts a durable log and an account boundary in between, which makes the same invariant structural.</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>Consequences worth stating plainly</h2>
+    <ul>
+      <li><b>No service imports an OTel library.</b> Not behind a build tag, not behind an env flag. Turning tracing export on or off is two <code>docker-compose.yml</code> services.</li>
+      <li><b>The bridge can be wrong without costing anything.</b> If the OTLP mapping has a bug, the spans are still on <code>TRACES</code> and in KV — fix the bridge and replay. An in-process exporter would have already dropped them.</li>
+      <li><b>One copy of the OTLP mapping.</b> <code>natstrace</code> is duplicated into all five services because each Dockerfile builds from its own directory; the bridge is the only component that knows OTLP exists, so that duplication never touches the export format.</li>
+      <li><b>Ordering is per-trace, not global.</b> A single durable consumer feeds the projector, so a trace is assembled by one writer. The bridge makes no ordering assumption at all — OTLP spans carry their own parent pointers.</li>
+      <li><b>The account boundary is the real work.</b> Everything else here is a consumer on a stream. The piece that needs care is the per-tenant <code>obs.trace.&gt;</code> export and the <code>allow_trace</code> grant, because without it spans never leave the tenant account and the whole picture stops at the dashed line.</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+document.getElementById('tt').addEventListener('click', () => {
+  const dark = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() === '#14171b';
+  document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+});
+</script>

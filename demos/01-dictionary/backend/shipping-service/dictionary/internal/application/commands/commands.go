@@ -13,11 +13,18 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
 )
 
-// Publisher is the outbound port to the event backbone.
+// Publisher is the outbound port to the event backbone. PublishWithTrace
+// (Phase 28d, BR-037) attaches a traceparent header derived from sp when one
+// is reachable via the ctx a browserrpc handler seeded with
+// natstrace.ContextWithSpan — nil-safe, matching jstream.Publisher's own
+// PublishWithTrace exactly (that concrete type already satisfies this
+// interface unchanged).
 type Publisher interface {
 	Publish(ctx context.Context, subject string, data []byte) error
+	PublishWithTrace(ctx context.Context, sp *natstrace.Span, subject string, data []byte) error
 }
 
 // ShipInput carries the caller-supplied fields for a ship command.
@@ -312,7 +319,8 @@ func (h *ShipHandler) publish(ctx context.Context, subject string, event domain.
 	if err != nil {
 		return fmt.Errorf("marshal event: %w", err)
 	}
-	return h.pub.Publish(ctx, subject, data)
+	sp := natstrace.SpanFromContext(ctx)
+	return h.pub.PublishWithTrace(ctx, sp, subject, data)
 }
 
 // replayStream folds every message in the SHIPPING stream through fn, in

@@ -10,6 +10,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
 )
 
 // RegisterContainers starts the container projector: container events update
@@ -35,6 +36,9 @@ func RegisterContainers(
 	// be tied to whatever short-lived context the caller used to register it
 	// (e.g. an HTTP request context, Phase 13b's tenant switch).
 	msgCtx := context.WithoutCancel(ctx)
+	// See handler.go's register() for the same nil-safe-nc construction
+	// rationale.
+	tracer := natstrace.New(nc)
 	cons, err := js.CreateOrUpdateConsumer(ctx, domain.StreamName, jetstream.ConsumerConfig{
 		Durable:       "container-projector",
 		FilterSubject: domain.SubjectContainerWildcard,
@@ -58,31 +62,43 @@ func RegisterContainers(
 		}
 		event.ID = id
 
-		agg := currentContainerAgg(msgCtx, kv, event)
+		// One span per message (BR-037, Phase 28d) — see handler.go's
+		// register() for the full rationale on why context/entity/action
+		// come from the already-parsed subject fields rather than being
+		// re-derived by StartFromHeaders itself.
+		sp := tracer.StartFromHeaders(msg.Headers(), msg.Subject(), msg.Data(), event.Context, "shipping", aggregate, eventType)
+		sp.SetAttribute("entity_id", id)
+		spanCtx := natstrace.ContextWithSpan(msgCtx, sp)
+
+		agg := currentContainerAgg(spanCtx, kv, event)
 		agg.Apply(msg.Subject(), event)
 		state := agg.State(event.Context)
 
-		persisted, err := repo.Upsert(msgCtx, state)
+		persisted, err := repo.Upsert(spanCtx, state)
 		if err != nil {
 			log.Error("container projection failed, will redeliver", "subject", msg.Subject(), "err", err)
+			sp.Fail(err, msg.Data(), nil)
 			_ = msg.Nak()
 			return
 		}
 		data, err := json.Marshal(persisted)
 		if err != nil {
 			log.Error("marshal container state", "err", err)
+			sp.Fail(err, msg.Data(), nil)
 			_ = msg.Nak()
 			return
 		}
-		if _, err := kv.Put(msgCtx, event.Context, state.KVKey(), data); err != nil {
+		if _, err := kv.Put(spanCtx, event.Context, state.KVKey(), data); err != nil {
 			log.Error("container kv write failed, will redeliver", "subject", msg.Subject(), "err", err)
+			sp.Fail(err, msg.Data(), nil)
 			_ = msg.Nak()
 			return
 		}
-		publishNotify(nc, log, event.Context, "container", data)
+		publishNotify(nc, log, event.Context, "container", data, sp)
 		if rawData, err := json.Marshal(event); err == nil {
-			publishRawNotify(nc, log, event.Context, "container", eventType, rawData)
+			publishRawNotify(nc, log, event.Context, "container", eventType, rawData, sp)
 		}
+		sp.End(msg.Data(), nil)
 		_ = msg.Ack()
 	})
 }

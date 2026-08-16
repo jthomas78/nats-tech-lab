@@ -54,7 +54,7 @@ func newAPIServer() *apiServer {
 	Expect(err).NotTo(HaveOccurred())
 	DeferCleanup(consumeA.Stop)
 
-	consumeB, err := eventhandler.RegisterShapeB(ctx, js, kvB, repo, log)
+	consumeB, err := eventhandler.RegisterShapeB(ctx, js, kvB, nil, repo, log)
 	Expect(err).NotTo(HaveOccurred())
 	DeferCleanup(consumeB.Stop)
 

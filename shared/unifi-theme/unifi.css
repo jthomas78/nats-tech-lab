@@ -81,6 +81,31 @@ body {
   color: var(--p-text-muted-color);
 }
 
+/* ── Panel top tabs — the ONE tab style for any top-position tab strip on a
+   right-side detail panel (the panels next to the left navbar), e.g.
+   Accounts' Provisioning/Topology and the NATS Request/Reply panel's
+   traces/messages. Apply `class="panel-tabs"` to a real PrimeVue
+   `<Tabs>` (`Tab`/`TabList`/`TabPanels`/`TabPanel`) — never a custom
+   chip/pill toggle for this role; chips stay reserved for filters. Centralized
+   here so every panel's top tabs match without repeating the override. */
+.panel-tabs.p-tabs {
+  --p-tabs-tablist-border-width: 0 0 1px 0;
+}
+/* Aura's own tabpanels padding is left alone vertically (LAYOUT.md — it's
+   what keeps the tablist's hairline from visually merging into the content
+   card's own top border below it) but zeroed horizontally: that left/right
+   inset stacked on top of the shell's own `.main-inner` padding, so every
+   panel-tabs consumer (RpcPanel's Traces/Messages, AccountsView's
+   Provisioning/Topology) sat noticeably further from the sidebar than every
+   non-tabbed panel does. Each TabPanel's own content still supplies its own
+   horizontal breathing room via `.lab-panel`'s padding, same as it always
+   did — this only removes the second, redundant inset PrimeVue added
+   underneath it. */
+.panel-tabs.p-tabs .p-tabpanels {
+  padding-left: 0;
+  padding-right: 0;
+}
+
 /* ── Dialog close button — UniFi style: small, angular, plain × ── */
 /* Dialogs teleport to <body>, so this lives in the shared theme rather
    than component-scoped CSS. PrimeVue v4 injects its own styles at runtime
