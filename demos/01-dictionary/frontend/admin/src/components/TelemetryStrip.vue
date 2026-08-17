@@ -8,15 +8,13 @@ import { useDictionaryStore } from '../stores/dictionary'
 // read model the panels use; nothing is faked.
 const store = useDictionaryStore()
 
-// Highest KV revision seen across both shapes — the freshest projected write.
+// Highest KV revision seen — the freshest projected write.
 const kvRev = computed(() => {
-  const revs = [...store.shapeARows, ...store.shapeBRows]
-    .map((r) => r.revision)
-    .filter((r) => typeof r === 'number')
+  const revs = store.shipRows.map((r) => r.revision).filter((r) => typeof r === 'number')
   return revs.length ? Math.max(...revs) : 0
 })
 
-const ships = computed(() => store.shapeARows.length)
+const ships = computed(() => store.shipRows.length)
 const lastAt = computed(() => store.events[0]?.at ?? '—')
 </script>
 

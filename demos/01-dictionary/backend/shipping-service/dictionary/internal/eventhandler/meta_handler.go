@@ -33,7 +33,7 @@ type metaEvent struct {
 // sequentially, so the read-merge-write below has no concurrent writers.
 // (known-ports was retired — ports are now the Postgres reference table.)
 //
-// nc is optional (nil-safe, Phase 15b) — see RegisterShapeA's doc comment;
+// nc is optional (nil-safe, Phase 15b) — see RegisterShips's doc comment;
 // after every KV write that actually changes the set, this fire-and-forget
 // publishes notify.{context}.shipping.meta.changed carrying the full,
 // updated known-containers array.

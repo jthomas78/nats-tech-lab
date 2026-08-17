@@ -52,13 +52,11 @@ describe('useDictionaryStore.connect (context guard)', () => {
     store.setContext('acme')
     await Promise.resolve() // let the fire-and-forget connect() microtask settle
 
-    expect(subscribe).toHaveBeenCalledWith('notify.acme.kv.dict-a.>', expect.any(Function))
-    expect(subscribe).toHaveBeenCalledWith('notify.acme.kv.dict-b.>', expect.any(Function))
+    expect(subscribe).toHaveBeenCalledWith('notify.acme.kv.ships.>', expect.any(Function))
     // Bootstrap fetch is account-aware (the KV inspector's cross-account fix
     // made bucket names alone ambiguous) — must pass the connected NATS
     // account, not just the business-unit context.
-    expect(getKvBucketEntries).toHaveBeenCalledWith('acme', 'dict-a')
-    expect(getKvBucketEntries).toHaveBeenCalledWith('acme', 'dict-b')
+    expect(getKvBucketEntries).toHaveBeenCalledWith('acme', 'ships')
     expect(store.connected).toBe(true)
   })
 })

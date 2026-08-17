@@ -1,10 +1,10 @@
 // Package kvstore wraps NATS KV with the lab's tenant-scoped bucket
 // convention: one bucket per application role per tenant, named by the
-// prefix alone (e.g. "dict-a", "dict-b", "container", "meta"). Context
+// prefix alone (e.g. "ships", "container", "meta"). Context
 // (business-unit scope) is folded into the KV key as a prefix:
 // {context}.{entityType}.{id}. The NATS account boundary enforces tenant
 // isolation; {context} scopes within a tenant. Before this design, the
-// bucket was per-(role, context) pair, e.g. "dict-a-acme-northdiv", which
+// bucket was per-(role, context) pair, e.g. "ships-acme-northdiv", which
 // consumed one stream per context per role and exhausted js_max_streams as
 // business-unit count grew.
 package kvstore

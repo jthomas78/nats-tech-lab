@@ -83,7 +83,7 @@ func (h *Handlers) introspectableAccounts(ctx context.Context) []introspectAccou
 // jsForAccount resolves the JetStream context for one named account (a
 // {account} path/query param) — either "platform" or a tenant name
 // accounts-service currently recognizes. Bucket and stream names both
-// collide across accounts (every tenant provisions its own dict-a/
+// collide across accounts (every tenant provisions its own ships/
 // container/meta and its own SHIPPING), so any endpoint keyed by a bare
 // bucket or stream name needs this to know which account's store to open.
 func (h *Handlers) jsForAccount(ctx context.Context, account string) (jetstream.JetStream, bool) {
@@ -199,7 +199,7 @@ func opString(op jetstream.KeyValueOp) string {
 // @Tags         kv
 // @Produce      json
 // @Param        account  path  string  true  "NATS account (a known tenant name, or \"platform\")"
-// @Param        bucket   path  string  true  "KV bucket name (e.g. dict-a, dict-b, container, meta)"
+// @Param        bucket   path  string  true  "KV bucket name (e.g. ships, container, meta)"
 // @Success      200  {array}   kvChange
 // @Failure      400  {object}  errorResponse  "Unknown account or bucket"
 // @Failure      500  {object}  errorResponse

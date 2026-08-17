@@ -4,7 +4,7 @@
 //
 // @title           EventSourcing CQRS POC — Shipping API
 // @version         1.0
-// @description     Shipping domain backend for the NATS Tech Lab POC. Demonstrates JetStream event sourcing, NATS KV projections (Shape A / Shape B), and pure event reconstruction (Shape C).
+// @description     Shipping domain backend for the NATS Tech Lab POC. Demonstrates JetStream event sourcing with a NATS KV cache in front of a canonical Postgres projection.
 // @host            localhost:7200
 // @BasePath        /
 package main

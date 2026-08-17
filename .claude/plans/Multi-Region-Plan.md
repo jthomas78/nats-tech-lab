@@ -120,9 +120,12 @@ Open questions to resolve before design work starts:
    refdata is naturally regional — `emea-acme`, `apac-orient`, etc. from
    `Refdata-Versioning-Tenancy-Design.md`) or is this `02-multi-region`, a standalone demo?
 4. **Which data needs to cross regions vs. stay local?**
-   - Reference/dictionary data (Shape A/B read models) — read-mostly, good replication candidate.
-   - Ship/Container event streams (Shape C, event-sourced) — write locality and ordering matter
-     more; replication semantics are harder.
+   - Reference/dictionary data (KV read models) — read-mostly, good replication candidate.
+   - Ship/Container event streams (JetStream-backed) — write locality and ordering matter
+     more; replication semantics are harder. (Phase 31 retired the demo's KV-as-read-model and
+     event-sourced-reconstruction shapes in favor of a single Postgres-plus-KV-cache shape — see
+     `obsidian/POC-Dictionaries/` — but the underlying question here, read-mostly vs.
+     write-locality-sensitive data, is unaffected by which shape backs the reads.)
 5. **Consistency requirements** — for each data class in scope, is eventual consistency
    acceptable, or does anything require a single source of truth with synchronous cross-region
    confirmation?
@@ -173,7 +176,7 @@ Decisions to make once requirements land:
   regional autonomy, KV mirrors for cross-region reference-data replication).
 - Which streams/buckets are mirrored (source of truth stays regional) vs. sourced (aggregated
   centrally) vs. purely local (never leaves the region).
-- How context-scoped KV keys (`{entityType}.{id}` under `dict-a-{context}`, etc.) map onto
+- How context-scoped KV keys (`{context}.{entityType}.{id}` under the `ships`/`container`/`meta` buckets, etc.) map onto
   region boundaries — is `context` already the right partition key, or does region need to be
   a separate dimension?
 

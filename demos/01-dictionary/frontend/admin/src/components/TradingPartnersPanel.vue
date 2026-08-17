@@ -31,7 +31,7 @@ import { useTenantStore } from '../stores/tenant'
 
 // Phase 26 — Shipper/Transporter registration, ported from Linebooker
 // (BusinessEntity/TransporterProfileEntity/TransporterDocumentEntity/
-// FleetAssetEntity). Context-scoped like Ports/Shape B (not account-scoped
+// FleetAssetEntity). Context-scoped like Ports/Ships (not account-scoped
 // like AccountsPanel.vue) — trading-partner-service's own REST API lives
 // under /api/trading-partners/{context}/....
 //

@@ -103,7 +103,7 @@
   <text x="80" y="750" fill="#b7bcc2" font-size="11.5"><tspan font-family="ui-monospace,Menlo,monospace" fill="#dee0e3">REFDATA</tspan> — LimitsPolicy + 48h MaxAge, bounded</text>
   <text x="80" y="766" fill="#b7bcc2" font-size="11.5">change-notification feed only (never a source of truth)</text>
   <text x="80" y="798" fill="#dee0e3" font-size="12.5" font-weight="600">KV buckets</text>
-  <text x="80" y="816" fill="#b7bcc2" font-size="11.5"><tspan font-family="ui-monospace,Menlo,monospace" fill="#dee0e3">dict-a/b-{context}</tspan> · <tspan font-family="ui-monospace,Menlo,monospace" fill="#dee0e3">container-{context}</tspan> · <tspan font-family="ui-monospace,Menlo,monospace" fill="#dee0e3">meta-{context}</tspan></text>
+  <text x="80" y="816" fill="#b7bcc2" font-size="11.5"><tspan font-family="ui-monospace,Menlo,monospace" fill="#dee0e3">ships</tspan> · <tspan font-family="ui-monospace,Menlo,monospace" fill="#dee0e3">container</tspan> · <tspan font-family="ui-monospace,Menlo,monospace" fill="#dee0e3">meta</tspan></text>
   <text x="80" y="832" fill="#b7bcc2" font-size="11.5"><tspan font-family="ui-monospace,Menlo,monospace" fill="#006fff">refdata-{context}</tspan> — written only by refdata-service,</text>
   <text x="80" y="848" fill="#b7bcc2" font-size="11.5">mirror-read by the shipping backend</text>
 

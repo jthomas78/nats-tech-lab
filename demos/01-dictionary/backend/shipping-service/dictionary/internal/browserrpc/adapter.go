@@ -101,7 +101,7 @@ type Deps struct {
 	Ports      *commands.PortHandler
 	Terminal   *queries.Terminal
 	Meta       *queries.Meta
-	ShapeA     *queries.ShapeA
+	ShipReads  *queries.Ships
 	JS         jetstream.JetStream
 	Log        *slog.Logger
 	// Tenant is the friendly tenant name this connection belongs to (e.g.
@@ -123,7 +123,7 @@ type Adapter struct {
 	ports      *commands.PortHandler
 	terminal   *queries.Terminal
 	meta       *queries.Meta
-	shapeA     *queries.ShapeA
+	shipReads  *queries.Ships
 	js         jetstream.JetStream
 	log        *slog.Logger
 	svc        micro.Service
@@ -195,7 +195,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		ports:      deps.Ports,
 		terminal:   deps.Terminal,
 		meta:       deps.Meta,
-		shapeA:     deps.ShapeA,
+		shipReads:  deps.ShipReads,
 		js:         deps.JS,
 		log:        deps.Log,
 		tracer:     natstrace.New(nc),
@@ -316,17 +316,17 @@ func (a *Adapter) handleShipCorrectID(req micro.Request) {
 }
 
 // handleShipList serves api.*.shipping.ship.list.v1 — the browser's
-// bootstrap/reconnect query for the Shape A fleet view (Main-POC-Plan.md
-// Phase 15d). No REST endpoint ever needed "every ship in the context" as a
-// single call, but queries.ShapeA.ListShips already existed (used by the
-// demo frontend's Shape A panel) — this just reuses it instead of adding a
-// second, duplicate query type.
+// bootstrap/reconnect query for the fleet view (Main-POC-Plan.md Phase 15d).
+// Reads Shape B's Postgres-backed ListShips (BR-038, Phase 31), not KV: the
+// KV cache is per-entity and never guaranteed to hold every ship, so a
+// list built by enumerating it could silently omit an evicted or
+// never-cached entry.
 func (a *Adapter) handleShipList(req micro.Request) {
 	subject := req.Subject()
 	itemContext := contextFromSubject(subject)
 	correlationID := req.Reply()
 
-	ships, err := a.shapeA.ListShips(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext)
+	ships, err := a.shipReads.ListShips(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return

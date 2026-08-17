@@ -60,10 +60,9 @@ npm run build
 
 ### What it demonstrates
 
-Two side-by-side shapes for serving dictionary/reference data (dropdowns, enums, locale config, CQRS read-model lookup):
+CQRS read-model lookup for dictionary/reference data (dropdowns, enums, locale config):
 
-- **Shape A — KV as read model**: JetStream event handlers project directly into NATS KV; reads go straight to KV with no Postgres read table.
-- **Shape B — KV as cache in front of Postgres**: canonical CQRS projection in Postgres; KV is an eager write-through cache — the same JetStream event handler that upserts Postgres also overwrites the KV entry; cache miss falls through to Postgres.
+- **KV as a cache in front of Postgres**: canonical CQRS projection in Postgres; KV is an eager write-through cache — the same JetStream event handler that upserts Postgres also overwrites the KV entry; cache miss falls through to Postgres. Phase 31 retired an earlier KV-as-read-model shape once the POC's shape comparison was decided in favor of this one — see `obsidian/POC-Dictionaries/` for the findings write-up.
 
 ### Stream / KV design
 
@@ -72,8 +71,8 @@ Stream:   DICTIONARY
 Subjects: DICTIONARY.entry.created, DICTIONARY.entry.updated
 Retention: LimitsPolicy (enables replay — NOT InterestPolicy)
 
-KV buckets: dict-a-{context} (Shape A read model), dict-b-{context} (Shape B cache)
-Key format: {entityType}.{id}   — NATS KV keys only allow [-/_=.a-zA-Z0-9]; ':' is illegal
+KV buckets: ships, container, meta — one bucket per role per NATS account
+Key format: {context}.{entityType}.{id}   — NATS KV keys only allow [-/_=.a-zA-Z0-9]; ':' is illegal
 Value: JSON-encoded DictionaryEntry
 ```
 
@@ -89,8 +88,8 @@ dictionary/
   internal/
     domain/                       # DictionaryEntry entity, events, repo interface
     application/commands/         # CreateEntry, UpdateEntry
-    application/queries/          # GetEntry (Shape A: KV; Shape B: KV→Postgres)
-    postgres/                     # repo impl + migration (Shape B only)
+    application/queries/          # GetEntry (KV cache → Postgres)
+    postgres/                     # repo impl + migration
     eventhandler/                 # JetStream consumer → projects into KV
     rest/                         # HTTP handlers
 ```

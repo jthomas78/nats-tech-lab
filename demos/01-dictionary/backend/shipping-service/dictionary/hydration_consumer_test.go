@@ -2,13 +2,12 @@ package dictionary
 
 // Regression tests for hydration consumer cleanup.
 //
-// Every write command replays the SHIPPING stream through an OrderedConsumer,
-// and Shape C does the same on every read. Ordered consumers are ephemeral,
-// but "ephemeral" only means the server reaps them after their 5m
-// InactiveThreshold — stopping the client-side pull does NOT remove them. Left
-// alone, each command therefore holds a consumer slot for five minutes, and a
-// tenant account's JetStream MaxConsumers limit (20, four of which are the
-// durable projectors) is exhausted after ~16 writes:
+// Every write command replays the SHIPPING stream through an OrderedConsumer.
+// Ordered consumers are ephemeral, but "ephemeral" only means the server
+// reaps them after their 5m InactiveThreshold — stopping the client-side pull
+// does NOT remove them. Left alone, each command therefore holds a consumer
+// slot for five minutes, and a tenant account's JetStream MaxConsumers limit
+// (20, three of which are the durable projectors) is exhausted after ~17 writes:
 //
 //	nats: API error: code=400 err_code=10026 description=maximum consumers limit reached
 //
@@ -24,7 +23,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/queries"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/jstream"
 )
@@ -114,34 +112,6 @@ var _ = Describe("Hydration consumer cleanup", func() {
 				_, err = containers.LoadContainer(ctx, commands.ContainerInput{
 					Context: "acme-atlantic-fleet", ContainerID: containerID, ShipID: "MV-NORDWIND",
 				})
-				Expect(err).NotTo(HaveOccurred())
-			}
-
-			Expect(consumerCount(ctx, js)).To(Equal(0))
-		})
-	})
-
-	Context("Shape C reconstruction", func() {
-		It("leaves no consumer behind per read", func() {
-			_, err := ship.ArrivePort(ctx, commands.ShipInput{
-				Context: "acme-atlantic-fleet", ShipID: "MV-NORDWIND",
-				ShipName: "MV Nordwind", Port: "Hamburg",
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			shapeC := queries.NewShapeC(js)
-			for i := 0; i < 25; i++ {
-				_, err := shapeC.ReconstructFleet(ctx)
-				Expect(err).NotTo(HaveOccurred())
-			}
-
-			Expect(consumerCount(ctx, js)).To(Equal(0))
-		})
-
-		It("leaves no consumer behind when the stream is empty", func() {
-			shapeC := queries.NewShapeC(js)
-			for i := 0; i < 5; i++ {
-				_, err := shapeC.ReconstructFleet(ctx)
 				Expect(err).NotTo(HaveOccurred())
 			}
 

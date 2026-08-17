@@ -185,6 +185,7 @@
   },
   "active": "c50d6372ff085bfe",
   "lastOpenFiles": [
+    "POC-Dictionaries/5. Findings - Shape B Consolidation (Phase 31).md",
     "POC-Dictionaries/4. Findings - Distributed Tracing (Phase 28).md",
     "V3-Platform/Architecture/Dictionary-POC/images/tenants-manager-extraction.png",
     "V3-Platform/Architecture/Dictionary-POC/images/traces-span-envelope.png",
@@ -229,7 +230,6 @@
     "Checklist.md",
     "Event sourcing/4. Design - Event Sourcing + CQRS.md",
     "POC-Dictionaries/PERFORMANCE.md",
-    "POC-Dictionaries/Summary/0. Overview.md",
-    "POC-Dictionaries/CLAUDE.md"
+    "POC-Dictionaries/Summary/0. Overview.md"
   ]
 }

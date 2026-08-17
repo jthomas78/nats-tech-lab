@@ -4,7 +4,7 @@
 // item's KV cache entry, and publishes a bounded change-event pointer so
 // consumers know to re-pull a stale type. Nothing here is ever read back as
 // truth — a cache rebuild from Postgres is always correct, same guarantee
-// Shape B's write-through cache already relies on.
+// the shipping backend's own write-through KV cache already relies on.
 package kvcache
 
 import (
@@ -149,7 +149,7 @@ func (p *Projector) NotifyItemChanged(ctx context.Context, itemContext, typeKey,
 // Backfill rebuilds an item's cache entry at the type's CURRENT version,
 // without bumping it or publishing an event — the read-path repair for a
 // cache miss or a cold start (Q5's "cache miss falls through... back-fills
-// KV" — identical in spirit to Shape B's miss path).
+// KV" — identical in spirit to the shipping backend's own KV-cache-then-Postgres miss path).
 func (p *Projector) Backfill(ctx context.Context, itemContext, typeKey, code string) error {
 	version, err := p.versions.Current(ctx, itemContext, typeKey)
 	if err != nil {

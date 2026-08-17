@@ -15,7 +15,7 @@ import { parseKvNotifySubject } from '../nats/kvNotifySubject.js'
 // right.
 //
 // Bucket names collide across accounts (every tenant provisions its own
-// dict-a/container/meta), so the rail keys selection on {account, bucket},
+// ships/container/meta), so the rail keys selection on {account, bucket},
 // not bucket alone — see listKVBuckets' doc comment server-side.
 //
 // Live "recent updates" only works for the account the browser's own
@@ -106,8 +106,8 @@ async function refreshBuckets() {
   accounts.value = res?.accounts ?? []
   const stillExists = list.some((b) => b.account === activeAccount.value && b.bucket === activeBucket.value)
   if (!activeBucket.value || !stillExists) {
-    // Prefer a ship read model as the opening view, else the first bucket.
-    const first = list.find((b) => b.bucket === 'dict-a') ?? list[0]
+    // Prefer the ship read model as the opening view, else the first bucket.
+    const first = list.find((b) => b.bucket === 'ships') ?? list[0]
     activeAccount.value = first?.account ?? null
     activeBucket.value = first?.bucket ?? null
   }

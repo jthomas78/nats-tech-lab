@@ -49,7 +49,7 @@ var _ = Describe("KVStore — per-tenant bucket with context-prefixed keys", fun
 	BeforeEach(func() {
 		ctx = context.Background()
 		js, nc = newJSForKV()
-		store = kvstore.New(js, "dict-a")
+		store = kvstore.New(js, "ships")
 	})
 
 	Describe("Put / Get", func() {
@@ -102,8 +102,8 @@ var _ = Describe("KVStore — per-tenant bucket with context-prefixed keys", fun
 				names = append(names, status.Bucket())
 			}
 			Expect(buckets.Error()).NotTo(HaveOccurred())
-			Expect(names).To(ConsistOf("dict-a"),
-				"two contexts must share the tenant-scoped dict-a bucket")
+			Expect(names).To(ConsistOf("ships"),
+				"two contexts must share the tenant-scoped ships bucket")
 
 			pacificKeys, err := store.Keys(ctx, "acme-pacific-fleet")
 			Expect(err).NotTo(HaveOccurred())
@@ -207,7 +207,7 @@ var _ = Describe("KVStore — per-tenant bucket with context-prefixed keys", fun
 
 			msg, err := sub.NextMsg(2 * time.Second)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(msg.Subject).To(Equal("notify.acme-pacific-fleet.kv.dict-a.ship.SHIP1.changed"))
+			Expect(msg.Subject).To(Equal("notify.acme-pacific-fleet.kv.ships.ship.SHIP1.changed"))
 			Expect(msg.Data).To(Equal([]byte("v1")))
 		})
 
@@ -224,7 +224,7 @@ var _ = Describe("KVStore — per-tenant bucket with context-prefixed keys", fun
 
 			msg, err := sub.NextMsg(2 * time.Second)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(msg.Subject).To(Equal("notify.acme-pacific-fleet.kv.dict-a.ship.SHIP1.changed"))
+			Expect(msg.Subject).To(Equal("notify.acme-pacific-fleet.kv.ships.ship.SHIP1.changed"))
 			Expect(msg.Data).To(BeEmpty())
 		})
 

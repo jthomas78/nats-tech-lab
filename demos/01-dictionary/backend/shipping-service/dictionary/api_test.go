@@ -43,18 +43,13 @@ func newAPIServer() *apiServer {
 	js := newJetStream()
 	log := slog.New(slog.DiscardHandler)
 
-	kvA := kvstore.New(js, "dict-a")
-	kvB := kvstore.New(js, "dict-b")
+	kvB := kvstore.New(js, "ships")
 	kvContainers := kvstore.New(js, "container")
 	kvMeta := kvstore.New(js, "meta")
 	repo := newFakeRepo()
 	portRepo := newFakePortRepo()
 
-	consumeA, err := eventhandler.RegisterShapeA(ctx, js, kvA, nil, log)
-	Expect(err).NotTo(HaveOccurred())
-	DeferCleanup(consumeA.Stop)
-
-	consumeB, err := eventhandler.RegisterShapeB(ctx, js, kvB, nil, repo, log)
+	consumeB, err := eventhandler.RegisterShips(ctx, js, kvB, nil, repo, log)
 	Expect(err).NotTo(HaveOccurred())
 	DeferCleanup(consumeB.Stop)
 
@@ -71,12 +66,9 @@ func newAPIServer() *apiServer {
 		Ships:      commands.NewShipHandler(pub, js, portRepo),
 		Containers: commands.NewContainerHandler(pub, js, portRepo),
 		Ports:      commands.NewPortHandler(portRepo),
-		ShapeB:     queries.NewShapeB(kvB, repo),
-		ShapeC:     queries.NewShapeC(js),
+		ShipReads:  queries.NewShips(kvB, repo),
 		Terminal:   queries.NewTerminal(kvContainers),
 		Meta:       queries.NewMeta(kvMeta),
-		KVA:        kvA,
-		KVB:        kvB,
 		KVCont:     kvContainers,
 		KVMeta:     kvMeta,
 		JS:         js,
@@ -700,37 +692,4 @@ var _ = Describe("HTTP API", func() {
 		})
 	})
 
-	// ── Shape C ───────────────────────────────────────────────────────────────
-
-	Describe("Shape C — fleet reconstruction from event replay", func() {
-		It("GET /api/shape-c/fleet returns fleet and containers rebuilt from JetStream", func() {
-			api.fire("/api/ships/arrive", map[string]any{
-				"context": ctx, "shipID": "shapec-ship", "shipName": "Shape C", "port": "Hamburg",
-			})
-			api.fire("/api/containers/register", map[string]any{
-				"context": ctx, "containerID": "TCKU4000001",
-				"cargo": "Electronics", "originPort": "Hamburg", "destPort": "Singapore",
-			})
-			api.fire("/api/containers/load", map[string]any{
-				"context": ctx, "containerID": "TCKU4000001", "shipID": "shapec-ship",
-			})
-
-			// Shape C replays JetStream directly — no async projection involved.
-			resp := api.get("/api/shape-c/fleet")
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-			body := readBody(resp)
-			fleet, ok := body["fleet"].([]any)
-			Expect(ok).To(BeTrue(), "fleet field must be an array")
-			Expect(fleet).To(HaveLen(1))
-			containers, ok := body["containers"].([]any)
-			Expect(ok).To(BeTrue(), "containers field must be an array")
-			Expect(containers).To(HaveLen(1))
-
-			ship := fleet[0].(map[string]any)
-			Expect(ship["shipID"]).To(Equal("shapec-ship"))
-			manifest := ship["manifest"].([]any)
-			Expect(manifest).To(HaveLen(1))
-			Expect(manifest[0].(map[string]any)["containerID"]).To(Equal("TCKU4000001"))
-		})
-	})
 })

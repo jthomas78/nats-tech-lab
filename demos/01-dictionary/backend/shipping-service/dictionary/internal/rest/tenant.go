@@ -71,8 +71,8 @@ func discoverTenants(credsDir string) (map[string]TenantCredentials, error) {
 }
 
 // tenantResources bundles everything scoped to ONE tenant NATS account: its
-// own connection, JetStream context, the four KV stores, the ship/container
-// command handlers, the query handlers, the four durable projector
+// own connection, JetStream context, the three KV stores, the ship/container
+// command handlers, the query handlers, the three durable projector
 // ConsumeContexts, and its browserrpc.Adapter (Phase 15a, renamed from
 // natsrpc in Phase 16b).
 //
@@ -93,19 +93,17 @@ func discoverTenants(credsDir string) (map[string]TenantCredentials, error) {
 // anything; it only changes which tenant's *already-running* bundle REST/
 // SSE's Deps fields point at.
 type tenantResources struct {
-	nc                             *nats.Conn
-	js                             jetstream.JetStream
-	kvA, kvB, kvContainers, kvMeta *kvstore.Store
-	ships                          *commands.ShipHandler
-	containers                     *commands.ContainerHandler
-	shapeB                         *queries.ShapeB
-	shapeC                         *queries.ShapeC
-	terminal                       *queries.Terminal
-	meta                           *queries.Meta
-	shapeA                         *queries.ShapeA
-	refdata                        *refdataconsumer.Consumer
-	projectors                     []jetstream.ConsumeContext
-	rpcAdapter                     *browserrpc.Adapter
+	nc                            *nats.Conn
+	js                            jetstream.JetStream
+	kvShips, kvContainers, kvMeta *kvstore.Store
+	ships                         *commands.ShipHandler
+	containers                    *commands.ContainerHandler
+	shipReads                     *queries.Ships
+	terminal                      *queries.Terminal
+	meta                          *queries.Meta
+	refdata                       *refdataconsumer.Consumer
+	projectors                    []jetstream.ConsumeContext
+	rpcAdapter                    *browserrpc.Adapter
 }
 
 // SwitchTenant points REST/SSE's Deps fields at tenant's persistent resource
@@ -144,11 +142,10 @@ func (h *Handlers) SwitchTenant(ctx context.Context, tenant string) error {
 	next := h.deps()
 	next.Ships = res.ships
 	next.Containers = res.containers
-	next.ShapeB = res.shapeB
-	next.ShapeC = res.shapeC
+	next.ShipReads = res.shipReads
 	next.Terminal = res.terminal
 	next.Meta = res.meta
-	next.KVA, next.KVB, next.KVCont, next.KVMeta = res.kvA, res.kvB, res.kvContainers, res.kvMeta
+	next.KVCont, next.KVMeta = res.kvContainers, res.kvMeta
 	next.Refdata = res.refdata
 	next.JS = res.js
 	next.Tenant = tenant
@@ -196,18 +193,17 @@ func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath 
 		return nil, fmt.Errorf("create stream for tenant %q: %w", tenant, err)
 	}
 
-	kvA := kvstore.New(js, domain.ShapeABucketPrefix)
-	kvB := kvstore.New(js, domain.ShapeBBucketPrefix)
+	kvShips := kvstore.New(js, domain.ShipBucketPrefix)
 	kvContainers := kvstore.New(js, domain.ContainerBucketPrefix)
 	kvMeta := kvstore.New(js, domain.MetaBucketPrefix)
 	// Phase 23: the Admin UI's KV inspector watches these over
 	// notify.{context}.kv.{bucket}.{key}.changed instead of the SSE
 	// watchKVBucket handler it replaces.
-	for _, kv := range []*kvstore.Store{kvA, kvB, kvContainers, kvMeta} {
+	for _, kv := range []*kvstore.Store{kvShips, kvContainers, kvMeta} {
 		kv.EnableNotify(nc, prev.Log)
 	}
 
-	projectors, err := registerProjectors(ctx, js, kvA, kvB, kvContainers, kvMeta, nc, prev.ShipRepo, prev.ContainerRepo, prev.Log)
+	projectors, err := registerProjectors(ctx, js, kvShips, kvContainers, kvMeta, nc, prev.ShipRepo, prev.ContainerRepo, prev.Log)
 	if err != nil {
 		nc.Close()
 		return nil, fmt.Errorf("register projectors for tenant %q: %w", tenant, err)
@@ -218,7 +214,7 @@ func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath 
 	containers := commands.NewContainerHandler(pub, js, prev.PortRepo)
 	terminal := queries.NewTerminal(kvContainers)
 	meta := queries.NewMeta(kvMeta)
-	shapeA := queries.NewShapeA(kvA)
+	shipReads := queries.NewShips(kvShips, prev.ShipRepo)
 	refdata := refdataconsumer.New(nc)
 
 	rpcAdapter, err := browserrpc.New(nc, browserrpc.Deps{
@@ -227,7 +223,7 @@ func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath 
 		Ports:      prev.Ports, // static: Postgres-backed, not account-scoped — shared across every tenant's adapter
 		Terminal:   terminal,
 		Meta:       meta,
-		ShapeA:     shapeA,
+		ShipReads:  shipReads,
 		Log:        prev.Log,
 		Tenant:     tenant,
 	})
@@ -240,17 +236,14 @@ func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath 
 	res := &tenantResources{
 		nc:           nc,
 		js:           js,
-		kvA:          kvA,
-		kvB:          kvB,
+		kvShips:      kvShips,
 		kvContainers: kvContainers,
 		kvMeta:       kvMeta,
 		ships:        ships,
 		containers:   containers,
-		shapeB:       queries.NewShapeB(kvB, prev.ShipRepo),
-		shapeC:       queries.NewShapeC(js),
+		shipReads:    shipReads,
 		terminal:     terminal,
 		meta:         meta,
-		shapeA:       shapeA,
 		refdata:      refdata,
 		projectors:   projectors,
 		rpcAdapter:   rpcAdapter,
@@ -465,11 +458,11 @@ func (h *Handlers) TeardownTenantByName(_ context.Context, tenant string) error 
 	return nil
 }
 
-// registerProjectors starts the four projector durables against js and
+// registerProjectors starts the three projector durables against js and
 // returns their ConsumeContexts. Unlike before Phase 15, the caller never
 // stops these — see tenantResources's doc comment.
 //
-// nc is this tenant's own connection, threaded through to RegisterShapeA/
+// nc is this tenant's own connection, threaded through to RegisterShips/
 // RegisterContainers/RegisterMeta (Phase 15b) so their notify.* publishes
 // land on the SAME account a browser connected to this tenant is listening
 // on — never a shared/PLATFORM connection, which would publish into the
@@ -477,7 +470,7 @@ func (h *Handlers) TeardownTenantByName(_ context.Context, tenant string) error 
 func registerProjectors(
 	ctx context.Context,
 	js jetstream.JetStream,
-	kvA, kvB, kvContainers, kvMeta *kvstore.Store,
+	kvShips, kvContainers, kvMeta *kvstore.Store,
 	nc *nats.Conn,
 	shipRepo domain.ShipRepository,
 	containerRepo domain.ContainerRepository,
@@ -485,18 +478,11 @@ func registerProjectors(
 ) ([]jetstream.ConsumeContext, error) {
 	var out []jetstream.ConsumeContext
 
-	ccA, err := eventhandler.RegisterShapeA(ctx, js, kvA, nc, log)
+	ccShips, err := eventhandler.RegisterShips(ctx, js, kvShips, nc, shipRepo, log)
 	if err != nil {
 		return nil, err
 	}
-	out = append(out, ccA)
-
-	ccB, err := eventhandler.RegisterShapeB(ctx, js, kvB, nc, shipRepo, log)
-	if err != nil {
-		stopAll(out)
-		return nil, err
-	}
-	out = append(out, ccB)
+	out = append(out, ccShips)
 
 	ccCont, err := eventhandler.RegisterContainers(ctx, js, kvContainers, nc, containerRepo, log)
 	if err != nil {

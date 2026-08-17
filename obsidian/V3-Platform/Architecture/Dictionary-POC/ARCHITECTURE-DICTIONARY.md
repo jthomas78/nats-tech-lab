@@ -327,8 +327,8 @@ How the shipping backend (`demos/01-dictionary/backend/shipping-service/`) reads
 service's reference data — read-side only. Reference-data lookups
 (resolving a display label, a hazard-class name, a port's country) are
 never part of the shipping domain's write path — commands validate against
-fixed business rules, not against refdata — and today's Shape A/B/C
-**reconstruction queries don't depend on refdata at all** (see
+fixed business rules, not against refdata — and today's ship/container
+**read-model queries don't depend on refdata at all** (see
 `backend/shipping-service/dictionary/internal/application/queries/` and
 `internal/eventhandler/` — neither references it). The one place the
 backend does consume refdata is its standalone demo route, `GET
@@ -380,7 +380,7 @@ isn't `rpc.*`.
 ```mermaid
 flowchart TB
     subgraph "Shipping backend (backend)"
-        RQ["Shape A/B/C query<br/>(read side, reconstruction)"]
+        RQ["Ship/container read-model query<br/>(read side)"]
         RC["refdataconsumer.Lookup"]
         RQ -.->|"not wired in today —<br/>demo route only"| RC
     end

@@ -19,7 +19,7 @@ import (
 // read model served by the terminal queries). One durable consumer, positioned
 // independently of the ship projectors.
 //
-// nc is optional (nil-safe, Phase 15b) — see RegisterShapeA's doc comment;
+// nc is optional (nil-safe, Phase 15b) — see RegisterShips's doc comment;
 // after every successful KV write this fire-and-forget publishes
 // notify.{context}.shipping.container.changed carrying the full persisted
 // ContainerState.

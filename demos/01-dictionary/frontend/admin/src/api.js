@@ -88,12 +88,6 @@ export function evictShipCache(context, shipID) {
   return request(`/api/shape-b/cache/${context}/${shipID}`, { method: 'DELETE' })
 }
 
-// ── Shape C fleet reconstruction ─────────────────────────────────────────────
-
-export function getFleet() {
-  return request('/api/shape-c/fleet')
-}
-
 // Every event stream across every account this backend reaches (tagged with
 // its account), with run-time status — backs the Streams view's stream rail.
 // Deliberately NOT scoped to the topbar's active tenant, same as

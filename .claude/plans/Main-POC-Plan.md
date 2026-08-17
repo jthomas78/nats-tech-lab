@@ -357,7 +357,7 @@ consolidates them.
 
 ---
 
-### Phase 31 (PROPOSED 2026-08-17) — Consolidate to Shape B: Retire Shapes A and C
+### Phase 31 (IMPLEMENTED 2026-08-17) — Consolidate to Shape B: Retire Shapes A and C
 
 #### Goal
 
@@ -486,18 +486,19 @@ need rehoming rather than the handlers changing.
 
 #### Checklist
 
-- [ ] 31.1 ship `notify.*` block moved into the Shape B projector; `handleShipList` repointed
-- [ ] 31.1 `notify_test.go` + `trace_async_test.go` rewritten against Shape B; `ginkgo ./...` green
-- [ ] 31.2 Shape A deleted (queries, projector, durable, bucket prefix, `kvA`/`KVA`/`KVB` wiring, specs)
-- [ ] 31.3 Shape C deleted (query file, REST handler + route, Deps/wiring, specs, perf scenario)
-- [ ] 31.3 verified: aggregate `Apply()`/`FromState()` replay machinery untouched and write-side hydrate still green
-- [ ] 31.4 neutral rename landed; `docker compose down -v && up --build` confirms the `ships` bucket rebuilds from JetStream
-- [ ] 31.5 frontend: panels, store, spec, `TelemetryStrip`/`OverviewPanel` repointed; both frontend builds green
-- [ ] 31.6 BR-024 rewritten; BR-020/BR-019 amended; new ship-list rule added with its test
-- [ ] 31.7 docs, diagrams, swagger regenerated; no `dict-a`/`Shape A`/`Shape C` references left outside the archive and narrative vault
-- [ ] 31.7 Phases 100/103/104 each carry a note that their A/B/C rationale changed
-- [ ] 31.8 findings note written in `obsidian/POC-Dictionaries/`
-- [ ] Live verification: full `down -v && up --build`, Sea Freight Flow fleet panel populates on connect **and** updates live on arrive/depart (the two Shape-A-owned paths)
+- [x] 31.1 ship `notify.*` block moved into the Shape B projector; `handleShipList` repointed
+- [x] 31.1 `notify_test.go` + `trace_async_test.go` rewritten against Shape B; `ginkgo ./...` green
+- [x] 31.2 Shape A deleted (queries, projector, durable, bucket prefix, `kvA`/`KVA`/`KVB` wiring, specs)
+- [x] 31.3 Shape C deleted (query file, REST handler + route, Deps/wiring, specs, perf scenario)
+- [x] 31.3 verified: aggregate `Apply()`/`FromState()` replay machinery untouched and write-side hydrate still green
+- [x] 31.4 neutral rename landed
+- [x] 31.4 `docker compose down -v && up --build` confirms the `ships` bucket rebuilds from JetStream
+- [x] 31.5 frontend: panels, store, spec, `TelemetryStrip`/`OverviewPanel` repointed; both frontend builds green
+- [x] 31.6 BR-024 rewritten; BR-020/BR-019 amended; new ship-list rule added with its test (confirmed already pre-written to target state)
+- [x] 31.7 docs, diagrams, swagger regenerated; no `dict-a`/`Shape A`/`Shape C` references left outside the archive and narrative vault
+- [x] 31.7 Phases 100/103/104 each carry a note that their A/B/C rationale changed
+- [x] 31.8 findings note written in `obsidian/POC-Dictionaries/`
+- [x] Live verification: full `down -v && up --build`, Sea Freight Flow fleet panel populates on connect **and** updates live on arrive/depart (the two Shape-A-owned paths) — verified 2026-08-17: registered `phase31-verify-ship` at Hamburg, appeared live immediately and survived a page reload (bootstrap); Admin UI's KV Buckets panel confirms ACME's tenant buckets are exactly `container`/`meta`/`ships`, no `dict-a`/`dict-b`; CQRS Shapes nav badge reads `1`, single consolidated panel renders correctly
 
 ---
 
@@ -670,6 +671,14 @@ already scoped.
 
 Ships currently have no maximum container capacity — a ship can be loaded with an unbounded number of containers. Add a fixed `Capacity` to the Ship aggregate and enforce it as a load-time domain rule (BR-019), plus surface a load-capacity indicator column in `frontend-port` ("SeaFreight Flow") so the constraint is visible, not just enforced.
 
+> **Flagged 2026-08-17 (Phase 31).** This phase's design below still reasons
+> about "Shape A/B" as two read models to keep in sync. Phase 31 retired
+> Shape A (and Shape C) — there is now one shape (`queries.Ships`, the `ships`
+> KV bucket). The trade-off in point 2 below ("event-replay count vs.
+> read-model query") still applies, just against one read model instead of a
+> choice between two; re-scoping this phase's design to the post-31
+> vocabulary is deferred to implementation time, not done here.
+
 #### Design
 
 - **`Ship` domain model** (`dictionary/internal/domain/ship.go`): add `Capacity int` to `ShipState` (ship.go:46-53) and `ShipAggregate` (ship.go:65-70), threaded through `Apply()`/`State()`/`FromState()`.
@@ -751,6 +760,13 @@ Make projections safe under redelivery and reordering **by engineering, not by a
 
 ### Phase 103 — Stream Split + Cross-Aggregate Consistency
 
+> **Flagged 2026-08-17 (Phase 31).** Option 1 below ("read-model guard")
+> reasons about "the ship's KV projection (Shape A/B)" as a choice between
+> two read models. Phase 31 retired Shape A (and Shape C) — there is now one
+> KV projection (`queries.Ships`, the `ships` bucket) backing that guard.
+> The stale-read trade-off this phase measures is unchanged; re-scoping the
+> wording to the post-31 vocabulary is deferred to implementation time.
+
 #### Goal
 
 Extract container events from the shared `SHIPPING` stream into a dedicated `TERMINAL` stream, turning the two aggregates into two independent bounded contexts. This is a **single-variable change** on top of Phases 8–14: the aggregates, rules, and frontends are unchanged — only the stream topology moves. Post-Phase 9 this is even cleaner than originally planned: **the subjects themselves do not change** — a subject can belong to only one stream, so the split is purely moving the `…container.>` binding from `SHIPPING` to `TERMINAL`. The purpose is to make the **invariant-spanning-two-aggregates problem** concrete and demonstrate the solution options.
@@ -786,6 +802,20 @@ The demo implements **option 1** as the default and documents the trade-offs of 
 
 
 ### Phase 104 — Performance & Load Testing (full suite)
+
+> **Flagged 2026-08-17 (Phase 31) — this phase's Shape C scope is now moot,
+> not just stale wording.** Phase 31 retired Shape C along with its
+> `GET /api/shape-c/fleet` endpoint and `perf/scenarios/shape-c-reconstruction.js`
+> harness — there is nothing left to re-measure for the "Shape C — full
+> replay on every call" gap this phase's Goal names, or for the "Shape C
+> fleet reconstruction under load" scenario and "Shape C reconstruction time"
+> baseline metric below. Phase 10's baseline #1 numbers remain the
+> historical record (see `PERFORMANCE.md`'s Phase 31 note). The write-side
+> hydration gap (point 2 below) is unaffected and still needs measuring here.
+> Re-scoping this phase to drop the Shape C scenario (or replace it with
+> something else worth measuring) is deferred to implementation time, not
+> done here — Phase 103's "Shape A/B" wording in the projection-lag row below
+> has the same lighter staleness as Phases 100/103.
 
 #### Goal
 
@@ -1112,7 +1142,7 @@ Cross-reference sweep (same commit):
 
 ## Working Assumptions
 
-- JetStream is the source of truth: commands hydrate aggregates by replaying the stream, and Postgres (Shape B) and KV (Shapes A/B) are downstream projections populated only by event consumers — never written directly by the command path. (Superseded earlier assumption that Postgres was the source of truth for Shape B.)
+- JetStream is the source of truth: commands hydrate aggregates by replaying the stream, and Postgres and KV are downstream projections populated only by event consumers — never written directly by the command path. (Superseded earlier assumption that Postgres was the source of truth. Also superseded: this assumption used to distinguish "Postgres (Shape B) and KV (Shapes A/B)" — Phase 31 retired Shapes A and C, so there is one shape and the parenthetical no longer applies.)
 - NATS KV is appropriate for low-latency lookup and watch-based invalidation
 - A context key is always present in the KV key — no global/unscoped lookups. **Amended Phase 16a:**
   `{context}` is the **company / business-unit** scope only. Tenant is the **NATS account** (never in

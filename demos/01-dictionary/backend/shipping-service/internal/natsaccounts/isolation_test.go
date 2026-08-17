@@ -174,7 +174,7 @@ func TestJetStreamStreamIsolation(t *testing.T) {
 
 // TestKVBucketIsolation mirrors the stream test for NATS KV. The demo's
 // shipped bucket-naming convention — one bucket per role per tenant (e.g.
-// "dict-a", not "dict-a-{context}") — is what Phase 13 argued for, and it is
+// "ships", not "ships-{context}") — is what Phase 13 argued for, and it is
 // now the actual implementation: kvstore.Store holds one bucket per prefix,
 // and context is a key prefix inside that bucket ({context}.{entityType}.{id}).
 // This test proves the NATS account boundary makes that design safe: two
@@ -193,7 +193,7 @@ func TestKVBucketIsolation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	const bucket = "dict-a" // tenant-scoped: account boundary is the isolation layer
+	const bucket = "ships" // tenant-scoped: account boundary is the isolation layer
 
 	kvAcme, err := jsAcme.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: bucket})
 	g.Expect(err).NotTo(HaveOccurred())

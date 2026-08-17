@@ -1,5 +1,5 @@
 // Package postgres implements the canonical projection repositories for the
-// shipping domain (Shape B ships table, containers table).
+// shipping domain (ships table, containers table).
 package postgres
 
 import (

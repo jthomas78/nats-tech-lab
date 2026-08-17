@@ -12,7 +12,6 @@ import { useDictionaryStore } from '../stores/dictionary'
 import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
 
 const props = defineProps({
-  shape: { type: String, required: true }, // 'A' | 'B'
   title: { type: String, required: true },
 })
 
@@ -20,27 +19,25 @@ const store = useDictionaryStore()
 const toast = useToast()
 const { statusLabel: resolveStatusLabel } = useRefdataLabels()
 
-const rows = computed(() => (props.shape === 'A' ? store.shapeARows : store.shapeBRows))
+const rows = computed(() => store.shipRows)
 
 // key → result of the last explicit read ({ source, cacheHit? })
 const lastRead = ref({})
 
-// Shape B only: canonical Postgres projection rows (same as KV rows but sourced
-// from the DB — refreshes when shapeBRows changes)
+// Canonical Postgres projection rows (same as KV rows but sourced from the
+// DB — refreshes when shipRows changes)
 const pgRows = ref([])
 
 async function refreshPgRows() {
-  if (props.shape !== 'B') return
-  // Use the KV rows as a proxy: the shape B projector writes Postgres + KV
+  // Use the KV rows as a proxy: the ship projector writes Postgres + KV
   // atomically so the KV data mirrors Postgres for display purposes.
-  pgRows.value = store.shapeBRows
+  pgRows.value = store.shipRows
 }
 
 watch(() => store.context, refreshPgRows, { immediate: true })
-watch(() => store.shapeBRows, refreshPgRows)
+watch(() => store.shipRows, refreshPgRows)
 
 async function readShip(row) {
-  if (props.shape !== 'B') return
   try {
     const res = await getShipShapeB(store.context, row.shipID)
     lastRead.value[row.key] = { source: res.source, cacheHit: res.cacheHit }
@@ -56,7 +53,7 @@ async function evict(row) {
     toast.add({
       severity: 'warn',
       summary: 'Cache evicted',
-      detail: `${row.shipID} removed from dict-b (key ${store.context}.ship.${row.shipID}) — read it to see the miss`,
+      detail: `${row.shipID} removed from ships (key ${store.context}.ship.${row.shipID}) — read it to see the miss`,
       life: 3500,
     })
   } catch (err) {
@@ -105,8 +102,7 @@ function portLabel(row) {
           <span>{{ portLabel(data) }}</span>
         </template>
       </Column>
-      <Column v-if="shape === 'A'" field="revision" header="KV rev" style="width:70px;font-variant-numeric:tabular-nums" />
-      <Column v-if="shape === 'B'" header="Last read" style="width:140px">
+      <Column header="Last read" style="width:140px">
         <template #body="{ data }">
           <Tag
             v-if="lastRead[data.key]"
@@ -116,7 +112,7 @@ function portLabel(row) {
           <span v-else class="lab-muted">—</span>
         </template>
       </Column>
-      <Column v-if="shape === 'B'" header="" style="width:130px">
+      <Column header="" style="width:130px">
         <template #body="{ data }">
           <div class="actions">
             <Button label="Read" size="small" text @click="readShip(data)" />
@@ -126,7 +122,7 @@ function portLabel(row) {
       </Column>
     </DataTable>
 
-    <template v-if="shape === 'B' && pgRows.length > 0">
+    <template v-if="pgRows.length > 0">
       <Divider />
       <div class="pg-header">
         <span class="pg-title">Postgres Projection</span>

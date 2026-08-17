@@ -57,54 +57,50 @@ property of the surface, so it isn't repeated in the code.
 
 ### Phase-9 inventory
 
+> **Phase 31 note.** The POC's shape comparison is decided — Shape B won.
+> Phase 31 retired Shape A (`Proj.KV`, plus the unwired `Read.KV`) and Shape C
+> (`Read.FR.AGG`), along with the legacy `A`/`B`/`C` alias map this inventory
+> used to carry. The "we evaluated three and chose one" record now lives in
+> `obsidian/POC-Dictionaries/` as a findings note; this inventory only
+> describes what the code runs today. `Main-POC-Plan-ARCHIVE.md` has the
+> retired shapes' original design detail if you need it.
+
 **Write (command) surface** — publish reliability is `DP` throughout.
 
-| Id | Path / fn | Distinguishing mechanism | Scope | Legacy | File |
-|---|---|---|---|---|---|
-| `Write.FR` | ship arrive/depart (`hydrate`) | full replay, filtered per-ship | single | — | commands.go:84 |
-| `Write.FR` | container register (`hydrateByNaturalKey`) | full replay, per-container | single | — | container.go:185 |
-| `Write.FR.AGG` | container load/unload (`hydratePair`) | one replay folds **ship + container** | multi | — | container.go:148 |
-| `Write.CRUD` | port register | Postgres INSERT (idempotent) | ref data | — | port.go:23 |
+| Id | Path / fn | Distinguishing mechanism | Scope | File |
+|---|---|---|---|---|
+| `Write.FR` | ship arrive/depart (`hydrate`) | full replay, filtered per-ship | single | commands.go:84 |
+| `Write.FR` | container register (`hydrateByNaturalKey`) | full replay, per-container | single | container.go:185 |
+| `Write.FR.AGG` | container load/unload (`hydratePair`) | one replay folds **ship + container** | multi | container.go:148 |
+| `Write.CRUD` | port register | Postgres INSERT (idempotent) | ref data | port.go:23 |
 
 **Proj (projection/consumer) surface** — consumer reliability is `AL1` throughout.
 
-| Id | Consumer (durable) | Writes to | Scope | Legacy | File |
-|---|---|---|---|---|---|
-| `Proj.KV` | `ship-shape-a` | `dict-a` KV (IS the read model) | per-ship | **Shape A** | handler.go:21 |
-| `Proj.PG` | `ship-shape-b` | Postgres `ships` → `dict-b` KV cache | per-ship | **Shape B** | handler.go:37 |
-| `Proj.PG` | `container-projector` | Postgres `containers` → `container` KV | per-container | — | container_handler.go:19 |
-| `Proj.KV.AGG` | `meta-projector` | `meta` KV `known-containers` (merge-set) | derived set | — | meta_handler.go:32 |
+| Id | Consumer (durable) | Writes to | Scope | File |
+|---|---|---|---|---|
+| `Proj.PG` | `ship-projector` | Postgres `ships` → `ships` KV cache | per-ship | handler.go:37 |
+| `Proj.PG` | `container-projector` | Postgres `containers` → `container` KV | per-container | container_handler.go:19 |
+| `Proj.KV.AGG` | `meta-projector` | `meta` KV `known-containers` (merge-set) | derived set | meta_handler.go:32 |
 
 **Read (query) surface**
 
-| Id | Route | Mechanism | Scope | Legacy | File |
-|---|---|---|---|---|---|
-| `Read.PG` | `GET /api/shape-b/ships/{ctx}/{id}` | KV cache → Postgres fallback | single | Shape B (read) | get_entry.go:67 |
-| `Read.FR.AGG` | `GET /api/shape-c/fleet` | full replay: fold all + join manifest | multi | **Shape C** | shape_c.go:42 |
-| `Read.KV.AGG` | `GET /api/manifest/{ctx}/{ship}` | filter `container` KV (join) | multi/join | — | terminal.go:65 |
-| `Read.KV.AGG` | `GET /api/terminal/{ctx}/{port}` | filter `container` KV (group) | multi/group | — | terminal.go:49 |
-| `Read.KV.AGG` | `GET /api/containers/{ctx}` | scan `container` KV | multi/set | — | terminal.go:25 |
-| `Read.KV.AGG` | `GET /api/meta/{ctx}/known-containers` | get `meta` KV set | derived set | — | meta.go:34 |
-| `Read.CRUD` | `GET /api/ports/{ctx}`, `GET /api/admin/ports/{ctx}` | Postgres SELECT | ref data | — | port_repository.go |
-| `Read.KV` | *(single-ship KV lookup)* | KV | single | Shape A | get_entry.go:22 — defined, **unwired** |
+| Id | Route | Mechanism | Scope | File |
+|---|---|---|---|---|
+| `Read.PG` | `GET /api/shape-b/ships/{ctx}/{id}` | KV cache → Postgres fallback | single | get_entry.go:67 |
+| `Read.KV.AGG` | `GET /api/manifest/{ctx}/{ship}` | filter `container` KV (join) | multi/join | terminal.go:65 |
+| `Read.KV.AGG` | `GET /api/terminal/{ctx}/{port}` | filter `container` KV (group) | multi/group | terminal.go:49 |
+| `Read.KV.AGG` | `GET /api/containers/{ctx}` | scan `container` KV | multi/set | terminal.go:25 |
+| `Read.KV.AGG` | `GET /api/meta/{ctx}/known-containers` | get `meta` KV set | derived set | meta.go:34 |
+| `Read.CRUD` | `GET /api/ports/{ctx}`, `GET /api/admin/ports/{ctx}` | Postgres SELECT | ref data | port_repository.go |
 
 *(Out of scheme — observability, no read model: the raw `/api/jetstream/*` and `/api/kv/buckets*` introspection endpoints. The `/api/watch*` SSE streams that used to sit here were deleted in Phase 23; their replacements are a one-shot REST bootstrap plus a `notify.*` subscription held by the browser, so the live half is no longer an HTTP endpoint at all.)*
 
-### Legacy `A`/`B`/`C` alias map
-
-The old letters straddled **surfaces**, which is why they read as overlapping —
-`A`/`B` are mostly *projection* strategies, `C` a *read* strategy:
-
-| Legacy | Maps to | Note |
-|---|---|---|
-| Shape A | `Proj.KV` (+ unwired `Read.KV`) | "KV as read model" is a projection choice |
-| Shape B | `Proj.PG` + `Read.PG` | the projection **and** its cached read (two surfaces) |
-| Shape C | `Read.FR.AGG` | read-time reconstruction across all aggregates |
-
-The ids are a **documentation / measurement layer**: HTTP route slugs
-(`/api/shape-b`, `/api/shape-c`) and existing code are unchanged. Aggregation
-(`.AGG`) now appears explicitly on all three surfaces — `Write.FR.AGG`
-(`hydratePair`), `Proj.KV.AGG` (`meta-projector`), and the `Read.*.AGG` queries.
+The ids are a **documentation / measurement layer**: the HTTP route slug
+`/api/shape-b` and existing code are unchanged (Phase 31 deliberately left
+that route alone — see BUSINESS_RULES-SHIPPING.md's Phase 31 notes).
+Aggregation (`.AGG`) appears explicitly on all three surfaces —
+`Write.FR.AGG` (`hydratePair`), `Proj.KV.AGG` (`meta-projector`), and the
+`Read.*.AGG` queries.
 
 ---
 
@@ -157,7 +153,7 @@ CRUD" below.
 
 **`dictionary/internal/domain/ship.go` / `container.go`**
 
-- Command methods enforce invariants and return domain events; `Apply()` folds one event into state (used by write side, projectors via `FromState()`, and Shape C)
+- Command methods enforce invariants and return domain events; `Apply()` folds one event into state (used by the write side and by projectors via `FromState()`)
 - Cargo is no longer part of the ship aggregate — a ship's manifest is the container join (`onShipID == shipID`)
 - `ContainerState` models location as two explicit nullable fields (`terminalPort` / `onShipID`, exactly one non-nil) so queries never branch on status
 
@@ -169,7 +165,7 @@ CRUD" below.
 
 **`dictionary/internal/eventhandler/`**
 
-- `RegisterShapeA()` / `RegisterShapeB()` consume `evt.*.shipping.ship.>`
+- `RegisterShips()` consumes `evt.*.shipping.ship.>`
 - `RegisterContainers()` consumes `evt.*.shipping.container.>`
 - `RegisterMeta()` consumes `evt.*.shipping.container.>` and maintains the `meta.*` lookup sets
 - `currentAgg()` / `currentContainerAgg()` — read current KV state into an aggregate via `FromState()` before applying one delta, so projectors never replay the full stream
@@ -180,24 +176,24 @@ Each consumer is independently position-tracked and can lag, replay, or rebuild 
 
 ### Read Models
 
-| Shape | Read model | Query type | Key file |
+| Entity | Read model | Query type | Key file |
 |---|---|---|---|
-| A | KV bucket `dict-a-{context}` (authoritative) | `ShapeA.ListShips()` | `queries/get_entry.go` |
-| B | Postgres (canonical) + KV `dict-b-{context}` (write-through cache) | `ShapeB.GetShip()` / `ShapeB.ListShips()` | `queries/get_entry.go` |
-| C | None — full JetStream replay on every call | `ShapeC.ReconstructFleet()` | `queries/shape_c.go` |
+| Ships | Postgres (canonical) + KV `ships` (write-through cache) | `Ships.GetShip()` / `Ships.ListShips()` | `queries/get_entry.go` |
 | Terminal | KV bucket `container-{context}` | `Terminal.ListByPort()` (yard) / `Terminal.ListByShip()` (manifest) | `queries/terminal.go` |
 | Meta | KV bucket `meta-{context}` | `Meta.KnownContainers()` | `queries/meta.go` |
 | Ports | Postgres `ports` table (not KV, not event-sourced) | `PortHandler.List()` | `postgres/port_repository.go` |
 
-Shape B also exposes `EvictCacheShip()` to force the KV miss → Postgres → backfill path.
-Shape C now folds **both** aggregate types from the same replay and returns each
-ship with its manifest (`ShipWithManifest`) plus every reconstructed container.
+`Ships` also exposes `EvictCacheShip()` to force the KV miss → Postgres →
+backfill path. (Phase 31 retired two other shapes that once lived here — KV
+as the sole read model with no Postgres, and a full-JetStream-replay fleet
+reconstruction with no KV/Postgres at all — once the POC's shape comparison
+was decided; see `obsidian/POC-Dictionaries/` for the findings.)
 
 ---
 
 ### Materialized Views
 
-- **KV buckets** (`internal/kvstore/kv.go`) — all context-scoped: `dict-a-{context}` (Shape A ships), `dict-b-{context}` (Shape B cache), `container-{context}` (container projection), `meta-{context}` (lookup sets)
+- **KV buckets** (`internal/kvstore/kv.go`) — one per role per NATS account, `{context}` folded into the key rather than the bucket name: `ships` (write-through cache), `container` (container projection), `meta` (lookup sets)
 - **Postgres `ships` + `containers` tables** (`postgres/`) — canonical projections; upserted via `INSERT … ON CONFLICT DO UPDATE` (containers conflict on the surrogate key `(context, id)`; `container_id` is `UNIQUE`)
 - **Postgres `ports` table** (`postgres/port_repository.go`) — plain reference data, not a projection: no JetStream event ever writes it. Written directly by `POST /api/ports`; read by `ShipHandler`/`ContainerHandler` (BR-017/BR-018), `GET /api/ports/{context}` (names, for dropdowns), and `GET /api/admin/ports/{context}` (raw rows — name + `createdAt` — for the admin Postgres Tables panel, below). See "Event Sourcing vs Plain CRUD" below.
 - **`ShipState` / `ContainerState` structs** (`domain/`) — shared projected value types stored in both KV and Postgres
@@ -209,11 +205,11 @@ ship with its manifest (`ShipWithManifest`) plus every reconstructed container.
 
 Beyond per-entity state, the KV store holds a namespace for cross-cutting derived lookup sets that any part of the UI may need. The working superset of KV namespaces is:
 
-| Namespace | Bucket family | Purpose | Status |
+| Namespace | Bucket | Purpose | Status |
 |---|---|---|---|
-| `ship.*` | `dict-a-*` / `dict-b-*` | Per-ship current state (Shape A/B projections) | implemented |
-| `container.*` | `container-*` | Per-container current state (terminal projection) | implemented (Phase 8) |
-| `meta.*` | `meta-*` | Cross-cutting derived lookup sets | implemented (Phase 8) |
+| `ship.*` | `ships` | Per-ship current state (write-through cache) | implemented |
+| `container.*` | `container` | Per-container current state (terminal projection) | implemented (Phase 8) |
+| `meta.*` | `meta` | Cross-cutting derived lookup sets | implemented (Phase 8) |
 | `locale.*` | — | Localisation config per context | future |
 | `tenant.*` | — | Tenant-specific configuration | future |
 
@@ -256,7 +252,7 @@ state," not "does it change over time."**
 |---|---|---|
 | Write path | `ArrivePort`/`Register` etc. publish a JetStream event | `POST /api/ports` writes straight to Postgres, no event |
 | State machine | Yes — `arrived → docked → departed`, `registered → loaded → unloaded`, with cross-aggregate rules that need a point-in-time replay of both aggregates together (BR-008, BR-012, BR-014) | No — a port is either registered or not; there is no transition to get wrong |
-| Reconstructable from history? | Yes, and exercised directly — Shape C (`ReconstructFleet`) rebuilds ships **and** containers from `seq=1` with no KV/Postgres involved | No consumer ever asks "what ports existed as of sequence N" — Shape C's reconstructed fleet doesn't need a reconstructed ports list; the registry is looked up live at command time |
+| Reconstructable from history? | Yes — the write-side `hydrate()` path replays an aggregate's own events before applying a new command (`ship.go`/`container.go`'s `Apply()`/`FromState()`). A retired shape (Phase 31) once exercised whole-fleet reconstruction directly, rebuilding every ship **and** container from `seq=1` with no KV/Postgres involved, purely to compare it against the shape that won. | No consumer ever asks "what ports existed as of sequence N" — the registry is looked up live at command time |
 | Audit need | The sequence of transitions *is* the domain fact (BR-015's duplicate check is resolved against the authoritative log, not a projection) | Satisfied by a plain `created_at` column — no one needs to replay to answer "when was this port added" |
 
 Before event-sourcing a new entity in this lab, check whether it actually
@@ -287,7 +283,7 @@ JetStream shows the raw event log, this panel shows a raw Postgres table that
 has **no** event log at all. It's the concrete UI counterpart to "Event
 Sourcing vs Plain CRUD" above.
 
-- Collapsible, same hand-rolled header/collapse pattern as `JetStreamPanel`/`ShapeCPanel` (no shared composable — copy-pasted per existing convention).
+- Collapsible, same hand-rolled header/collapse pattern as `JetStreamPanel` (no shared composable — copy-pasted per existing convention).
 - Contents are grouped under a heading (currently one: **Reference Data**), each group a `Tabs` block with one tab per table. Today that's just **Ports**. Adding another Postgres table later (e.g. a "Projections" group with the `ships`/`containers` tables) means adding another heading + `Tabs` block, not a redesign.
 - Data source: `GET /api/admin/ports/{context}` (`rest/handlers.go` → `commands.PortHandler.ListRecords` → `domain.PortRepository.ListRecords` → `postgres/port_repository.go`), returning raw rows (`name`, `createdAt`) — distinct from `GET /api/ports/{context}`, which returns names only and backs the dropdowns.
 - No live push channel (unlike KV, Postgres writes here aren't watched) — a manual refresh button re-fetches, and the table also refetches when the Fleet context changes.
@@ -300,7 +296,7 @@ Each demo frontend has its own Pinia store — all are browser-side equivalents 
 
 | Frontend | Store | Live-update transport |
 |---|---|---|
-| `frontend/admin/` (admin, :7100) | `stores/dictionary.js` | **NATS WebSocket** (Phase 23) — `notify.{context}.kv.{dict-a,dict-b}.>` on the tenant connection, bootstrapped by `GET /api/kv/buckets/{account}/{bucket}/entries`. **No SSE.** |
+| `frontend/admin/` (admin, :7100) | `stores/dictionary.js` | **NATS WebSocket** (Phase 23) — `notify.{context}.kv.ships.>` on the tenant connection, bootstrapped by `GET /api/kv/buckets/{account}/{bucket}/entries`. **No SSE.** |
 | `frontend/seafreight-app/` (Port Management, :7101) | `stores/port.js` | **NATS WebSocket** (Phase 15d) — `notify.{context}.shipping.{ship,container,meta,port}.changed`, bootstrapped by `api.*` list calls. **No SSE.** |
 | `frontend/refdata/` (reference data, :7102) | `stores/dictionary.js` | SSE — `/api/refdata-watch/{context}`, served by **refdata-service** |
 
@@ -327,11 +323,11 @@ follows this pattern for transport — only for the client-side joins
 
 ```
 connect()                                        ← no context ⇒ return early (see below)
-  ├─ subscribe(notify.{context}.kv.dict-a.>)     ← tenant NATS WebSocket, one per shape
-  │  subscribe(notify.{context}.kv.dict-b.>)        payload IS the value; key comes
-  │    └─ applyWatchEvent({shape, key, op, value})  from the subject (kvNotifySubject.js)
-  └─ getKvBucketEntries(tenant, dict-a|dict-b)   ← one-shot REST bootstrap, AFTER subscribing
-       └─ applyWatchEvent({shape, key, op:'PUT', revision, value})
+  ├─ subscribe(notify.{context}.kv.ships.>)      ← tenant NATS WebSocket
+  │    └─ applyWatchEvent({key, op, value})         payload IS the value; key comes
+  │                                                  from the subject (kvNotifySubject.js)
+  └─ getKvBucketEntries(tenant, 'ships')          ← one-shot REST bootstrap, AFTER subscribing
+       └─ applyWatchEvent({key, op:'PUT', revision, value})
 ```
 
 `connect()` is called on app mount and whenever the Fleet context dropdown
@@ -352,13 +348,13 @@ details are load-bearing:
 Bootstrap rows arrive with the `{context}.` key prefix still attached, because
 `kvBucketEntriesOnce` reads the raw bucket, unlike the deleted SSE handler's
 `kvstore.Store.Watch`, which stripped it. The store filters and strips it so
-`shapeA`/`shapeB` keep the bare-key shape (`ship.SHIP1`) that `ShapePanel`'s
-columns expect.
+`ships` keeps the bare-key shape (`ship.SHIP1`) that `ShapePanel`'s columns
+expect.
 
 #### Server push path
 
 ```
-NATS KV write (Shape A or B projector)
+NATS KV write (ship projector)
   └─ kvstore.Store.EnableNotify publishes         ← backend re-publishes each KV change
        notify.{context}.kv.{bucket}.{key}.changed    as a core NATS message
        └─ browser subscription fires               ← tenant NATS WebSocket, in the store
@@ -376,17 +372,15 @@ bootstrap rows carry one.
 
 #### `applyWatchEvent` — what it does
 
-Every applied event — from either the live subscription or the bootstrap fetch — is normalized to the same five fields before reaching this method: `shape` (A or B), `op` (PUT / DEL / PURGE), `key`, `value` (the `ShipState` JSON), and `revision` (NATS KV sequence number; `undefined` on the live path). That normalization is what let the transport change underneath in Phase 23 without touching this method at all.
+Every applied event — from either the live subscription or the bootstrap fetch — is normalized to the same four fields before reaching this method: `op` (PUT / DEL / PURGE), `key`, `value` (the `ShipState` JSON), and `revision` (NATS KV sequence number; `undefined` on the live path). That normalization is what let the transport change underneath in Phase 23 without touching this method at all. (Before Phase 31 retired the second shape this store watched, the event also carried a `shape` field selecting which of two state objects to mutate; with one shape left, `applyWatchEvent` mutates `this.ships` directly.)
 
 ```js
 applyWatchEvent(event) {
-  const target = event.shape === 'A' ? this.shapeA : this.shapeB
-
   if (event.op === 'PUT') {
-    target[event.key] = { state: event.value, revision: event.revision }
+    this.ships[event.key] = { state: event.value, revision: event.revision }
     // also merges any new port into seenPorts for the dropdown
   } else {
-    delete target[event.key]   // DEL or PURGE — ship removed from view
+    delete this.ships[event.key]   // DEL or PURGE — ship removed from view
   }
 
   this.events.unshift({ ...event, at: new Date().toLocaleTimeString() })
@@ -420,7 +414,7 @@ The original argument for the admin store was that `EventSource` (SSE) suits a o
 
 #### Context scoping
 
-The Fleet dropdown sets `store.context`. Changing it calls `connect()`, which re-subscribes to `notify.{newContext}.kv.{dict-a,dict-b}.>` and re-runs the bootstrap fetch. Isolation now comes from the subject filter and the key-prefix check rather than from a per-context backend endpoint: `{context}` is a token in the subject, so the server only delivers that context's changes, and bootstrap rows outside the `{context}.` key prefix are skipped client-side. `shapeA` and `shapeB` are cleared on reconnect so stale data from the previous context does not bleed through.
+The Fleet dropdown sets `store.context`. Changing it calls `connect()`, which re-subscribes to `notify.{newContext}.kv.ships.>` and re-runs the bootstrap fetch. Isolation now comes from the subject filter and the key-prefix check rather than from a per-context backend endpoint: `{context}` is a token in the subject, so the server only delivers that context's changes, and bootstrap rows outside the `{context}.` key prefix are skipped client-side. `ships` is cleared on reconnect so stale data from the previous context does not bleed through.
 
 Note that context and **account** are different scopes here, and only one of them is enforced: `{context}` is a business-unit token the subscription filters on, while the tenant account is the hard, server-enforced boundary the connection itself authenticates into. See [ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) § 2.3.
 
@@ -495,8 +489,8 @@ Every mutation (`ItemHandler`/`ReferenceHandler`/`LocalizationHandler`, via the 
 **Cache miss / cold start.** `Projector.Backfill` performs the same rebuild at the type's *current*
 version, without bumping it or publishing an event — used by the REST `GET` item handler as a
 best-effort side effect after every successful read, so a consumer that hit a miss and fell
-through to the API leaves the cache warm for the next reader (identical in spirit to Shape B's
-miss path).
+through to the API leaves the cache warm for the next reader (identical in spirit to the shipping
+backend's own KV-cache-then-Postgres miss path).
 
 **Consumer demo (shipping backend).** `backend/shipping-service/internal/refdataconsumer` reads the
 `refdata-{context}` KV bucket directly — the shipping backend has no dependency on
@@ -629,7 +623,7 @@ collapses the taxonomy this POC originally built for soft isolation:
 | | Shared account (pre-Phase 13) | Account per tenant (**current**) |
 |---|---|---|
 | Event subject | `evt.{context}.shipping.ship.{id}.{event}` — `{context}` does the isolation work | `evt.{context}.shipping.ship.{id}.{event}` — `{context}` is redundant *for tenancy*; the account is the boundary. It still scopes company/business unit. |
-| KV bucket | `{prefix}-{context}`, e.g. `dict-a-acme` where the suffix was the tenant — suffix does the isolation work | `{prefix}` alone, e.g. `dict-a`, where a tenant needs no suffix; a suffix reappears only to separate business units (`dict-a-northdiv`), never tenants |
+| KV bucket | `{prefix}-{context}`, e.g. `ships-acme` where the suffix was the tenant — suffix does the isolation work | `{prefix}` alone, e.g. `ships`, where a tenant needs no suffix; a suffix reappears only to separate business units (`ships-northdiv`), never tenants |
 | Enforcement | convention; a bug can cross tenants silently | the NATS server itself; a bug *cannot* cross tenants |
 | `max_streams`/`max_consumers` | one shared ceiling across every tenant | one ceiling *per tenant*, independent of every other tenant |
 
@@ -657,14 +651,15 @@ had built before Phase 13:
    for partitioning by **company/business unit** *within* one account. Note the filter token
    is a `{context}` value, never a tenant name.
 3. **Account per tenant (Phase 13b's shape — current)** — durables are per-account by
-   construction, so tenancy needs no filter token at all; always exactly 4 durables per
-   account, regardless of tenant count. A `{context}` filter can still be layered on top to
-   partition business units within the account.
+   construction, so tenancy needs no filter token at all; always exactly 3 durables per
+   account (Phase 31 retired a fourth — see that phase's notes), regardless of tenant
+   count. A `{context}` filter can still be layered on top to partition business units
+   within the account.
 
 The measured difference between shapes 2 and 3: `max_consumers` (like `max_streams`,
-`max_mem`, `max_file`) is a **per-account** limit. Shape 2 accumulates every tenant's 4
-durables against one account's ceiling (N tenants × 4, one shared budget); shape 3 is
-always 4 per account, independent of how many tenants exist. This is a concrete scaling
+`max_mem`, `max_file`) is a **per-account** limit. Shape 2 accumulates every tenant's 3
+durables against one account's ceiling (N tenants × 3, one shared budget); shape 3 is
+always 3 per account, independent of how many tenants exist. This is a concrete scaling
 argument for account-per-tenant, not just a philosophical one — **and it means that even
 if this POC's answer to "are accounts required" turns out to be no, shape 1 above (the
 current tenant-agnostic wildcard projector) should still change to shape 2** once real
@@ -697,7 +692,7 @@ holds **two** long-lived NATS connections instead of one:
   swaps (`rest.Deps.JS`).
 - **One tenant-scoped connection**, reconnected under a different account's credentials
   on every `POST /api/tenant/switch`. Everything derived from it — the `SHIPPING` stream,
-  the four KV buckets, the four projector durables' client-side subscriptions, and the
+  the three KV buckets, the three projector durables' client-side subscriptions, and the
   ship/container command/query handlers — is rebuilt as one unit and swapped into the
   REST layer atomically (`rest.Handlers.SetDeps`, backed by `atomic.Pointer[Deps]`), so no
   in-flight request ever observes a mix of old and new tenant resources.

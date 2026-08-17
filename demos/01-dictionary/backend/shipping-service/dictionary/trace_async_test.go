@@ -5,7 +5,7 @@ package dictionary
 // reply-side span (natstrace.ContextWithSpan/SpanFromContext riding ctx down
 // through commands.go/container.go's publish, Piece 1/2 of this phase), and
 // each of the three eventhandler Consume callbacks (handler.go's shared
-// register(), used by both RegisterShapeA/RegisterShapeB; container_handler.go's
+// register(), used by RegisterShips; container_handler.go's
 // RegisterContainers; meta_handler.go's RegisterMeta) publishes exactly one
 // obs.trace.* span per message it processes, labeled with the entity/action
 // parsed off the evt.* subject plus an entity_id attribute (Piece 3). Uses
@@ -83,17 +83,17 @@ var _ = Describe("BR-037 (Phase 28d): async tail carries the originating request
 	})
 
 	It("propagates the api.* request's traceId onto the resulting evt.* JetStream publish", func() {
-		kvA := kvstore.New(js, "dict-a")
-		ccA, err := eventhandler.RegisterShapeA(ctx, js, kvA, nc, log)
+		kvB := kvstore.New(js, "ships")
+		ccB, err := eventhandler.RegisterShips(ctx, js, kvB, nc, newFakeRepo(), log)
 		Expect(err).NotTo(HaveOccurred())
-		DeferCleanup(ccA.Stop)
+		DeferCleanup(ccB.Stop)
 
 		ships := commands.NewShipHandler(jstream.NewPublisher(js), js, newFakePortRepo())
 		adapter, err := browserrpc.New(nc, browserrpc.Deps{
-			Ships:  ships,
-			ShapeA: queries.NewShapeA(kvA),
-			Log:    log,
-			Tenant: fleetCtx,
+			Ships:     ships,
+			ShipReads: queries.NewShips(kvB, newFakeRepo()),
+			Log:       log,
+			Tenant:    fleetCtx,
 		})
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(func() { Expect(adapter.Stop()).To(Succeed()) })
@@ -125,17 +125,17 @@ var _ = Describe("BR-037 (Phase 28d): async tail carries the originating request
 	})
 
 	It("still propagates a traceId with no inbound traceparent header at all (a root span minted by browserrpc.Adapter)", func() {
-		kvA := kvstore.New(js, "dict-a")
-		ccA, err := eventhandler.RegisterShapeA(ctx, js, kvA, nc, log)
+		kvB := kvstore.New(js, "ships")
+		ccB, err := eventhandler.RegisterShips(ctx, js, kvB, nc, newFakeRepo(), log)
 		Expect(err).NotTo(HaveOccurred())
-		DeferCleanup(ccA.Stop)
+		DeferCleanup(ccB.Stop)
 
 		ships := commands.NewShipHandler(jstream.NewPublisher(js), js, newFakePortRepo())
 		adapter, err := browserrpc.New(nc, browserrpc.Deps{
-			Ships:  ships,
-			ShapeA: queries.NewShapeA(kvA),
-			Log:    log,
-			Tenant: fleetCtx,
+			Ships:     ships,
+			ShipReads: queries.NewShips(kvB, newFakeRepo()),
+			Log:       log,
+			Tenant:    fleetCtx,
 		})
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(func() { Expect(adapter.Stop()).To(Succeed()) })
@@ -216,31 +216,9 @@ var _ = Describe("BR-037 (Phase 28d): each JetStream projector Consume callback 
 		}, 300*time.Millisecond, 20*time.Millisecond).Should(BeFalse())
 	}
 
-	It("handler.go's shared register() (RegisterShapeA) publishes exactly one span for the .arrived event, labeled ship/arrived with an entity_id", func() {
-		kvA := kvstore.New(js, "dict-a")
-		ccA, err := eventhandler.RegisterShapeA(ctx, js, kvA, nc, log)
-		Expect(err).NotTo(HaveOccurred())
-		DeferCleanup(ccA.Stop)
-
-		spans := subscribeMsgs(nc, "obs.trace.>")
-		Expect(nc.Flush()).To(Succeed())
-
-		ships := commands.NewShipHandler(jstream.NewPublisher(js), js, newFakePortRepo())
-		_, err = ships.ArrivePort(ctx, commands.ShipInput{Context: fleetCtx, ShipID: "span-ship", ShipName: "Span Ship", Port: "Hamburg"})
-		Expect(err).NotTo(HaveOccurred())
-
-		span := firstMatching(spans, "arrived")
-		Expect(span.Service).To(Equal("shipping"))
-		Expect(span.Entity).To(Equal("ship"))
-		Expect(span.Attributes).NotTo(BeEmpty())
-		Expect(span.Attributes["entity_id"]).NotTo(BeEmpty())
-
-		noMoreMatching(spans, "arrived")
-	})
-
-	It("handler.go's shared register() (RegisterShapeB) also publishes exactly one span for the .arrived event", func() {
-		kvB := kvstore.New(js, "dict-b")
-		ccB, err := eventhandler.RegisterShapeB(ctx, js, kvB, nc, newFakeRepo(), log)
+	It("handler.go's shared register() (RegisterShips) publishes exactly one span for the .arrived event, labeled ship/arrived with an entity_id", func() {
+		kvB := kvstore.New(js, "ships")
+		ccB, err := eventhandler.RegisterShips(ctx, js, kvB, nc, newFakeRepo(), log)
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(ccB.Stop)
 
@@ -254,6 +232,7 @@ var _ = Describe("BR-037 (Phase 28d): each JetStream projector Consume callback 
 		span := firstMatching(spans, "arrived")
 		Expect(span.Service).To(Equal("shipping"))
 		Expect(span.Entity).To(Equal("ship"))
+		Expect(span.Attributes).NotTo(BeEmpty())
 		Expect(span.Attributes["entity_id"]).NotTo(BeEmpty())
 
 		noMoreMatching(spans, "arrived")

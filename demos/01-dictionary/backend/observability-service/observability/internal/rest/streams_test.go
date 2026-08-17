@@ -26,7 +26,7 @@ func TestListStreamsReportsPlatformStreamsExcludingKVBackingStreams(t *testing.T
 	}
 	// A KV bucket is backed by a KV_<bucket> stream — must be excluded from
 	// the Streams panel (it's reported by /api/kv/buckets instead).
-	if _, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "dict-a"}); err != nil {
+	if _, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "ships"}); err != nil {
 		t.Fatalf("create kv bucket: %v", err)
 	}
 
@@ -42,7 +42,7 @@ func TestListStreamsReportsPlatformStreamsExcludingKVBackingStreams(t *testing.T
 		t.Fatalf("decode response: %v", err)
 	}
 	if len(body.Streams) != 1 {
-		t.Fatalf("expected 1 stream (REFDATA only, KV_dict-a excluded), got %d: %+v", len(body.Streams), body.Streams)
+		t.Fatalf("expected 1 stream (REFDATA only, KV_ships excluded), got %d: %+v", len(body.Streams), body.Streams)
 	}
 	if body.Streams[0].Stream != "REFDATA" || body.Streams[0].Account != platformAccount {
 		t.Fatalf("unexpected stream: %+v", body.Streams[0])

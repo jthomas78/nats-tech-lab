@@ -18,7 +18,6 @@
 //	GET    /api/meta/{context}/known-containers       every container ID ever registered
 //	GET    /api/shape-b/ships/{context}/{shipID}      read ship via KV cache → Postgres
 //	DELETE /api/shape-b/cache/{context}/{shipID}      evict cache key (demo the miss path)
-//	GET    /api/shape-c/fleet                         reconstruct fleet + containers from JetStream replay
 //	GET    /api/tenant                                 active tenant + switchable tenant list (Phase 13b)
 //	POST   /api/tenant/switch                          reconnect under a different tenant's NATS account (Phase 13b)
 //
@@ -103,8 +102,8 @@ type TenantCredentials struct {
 //
 // Phase 13b splits this into two lifetimes. Ports, Refdata, PlatformJS, NC,
 // ShipRepo, ContainerRepo, PortRepo, NatsURL, CredsDir, and Log are set
-// once at Startup and never change. Ships, Containers, ShapeB, ShapeC,
-// Terminal, Meta, KVA, KVB, KVCont, KVMeta, JS, TenantNC, and Tenant mirror
+// once at Startup and never change. Ships, Containers, ShipReads,
+// Terminal, Meta, KVCont, KVMeta, JS, TenantNC, and Tenant mirror
 // whichever tenant is currently REST/SSE's active selection — SwitchTenant
 // points all of them at that tenant's persistent bundle (TenantResources,
 // Phase 15, see tenant.go's tenantResources doc comment) and replaces the
@@ -118,12 +117,9 @@ type Deps struct {
 	Ships      *commands.ShipHandler
 	Containers *commands.ContainerHandler
 	Ports      *commands.PortHandler
-	ShapeB     *queries.ShapeB
-	ShapeC     *queries.ShapeC
+	ShipReads  *queries.Ships
 	Terminal   *queries.Terminal
 	Meta       *queries.Meta
-	KVA        *kvstore.Store            // Shape A ship read model
-	KVB        *kvstore.Store            // Shape B ship cache
 	KVCont     *kvstore.Store            // container projection
 	KVMeta     *kvstore.Store            // meta.* lookup sets
 	Refdata    *refdataconsumer.Consumer // rpc.*-only cross-service consumer (BR-D08) — no KV dep
@@ -141,7 +137,7 @@ type Deps struct {
 	// browserrpc.Adapter (Phase 15a, renamed from natsrpc in Phase 16b) —
 	// keyed by tenant name, created once via tenant.go's
 	// ensureTenantResources and never torn down. SwitchTenant only changes
-	// which entry the Ships/Containers/ShapeB/.../JS/TenantNC fields above
+	// which entry the Ships/Containers/ShipReads/.../JS/TenantNC fields above
 	// mirror; every other tenant's bundle keeps running so its
 	// browser-facing api.*/notify.* traffic keeps working regardless of
 	// which single tenant REST/SSE currently has active.
@@ -205,7 +201,6 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	handle("GET /api/meta/{context}/known-containers", h.knownContainers)
 	handle("GET /api/shape-b/ships/{context}/{shipID}", h.getShipShapeB)
 	handle("DELETE /api/shape-b/cache/{context}/{shipID}", h.evictShipCache)
-	handle("GET /api/shape-c/fleet", h.getFleet)
 	handle("GET /api/refdata-demo/{context}/{type}/{code}", h.getRefdataDemo)
 	handle("GET /api/refdata/types/{type}", h.listRefdataType)
 	handle("GET /api/refdata/locales", h.listRefdataLocales)
@@ -557,7 +552,7 @@ func (h *Handlers) knownContainers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"values": ids})
 }
 
-// ─── Shape B / Shape C ────────────────────────────────────────────────────────
+// ─── Shape B ──────────────────────────────────────────────────────────────────
 
 // getShipShapeB godoc
 //
@@ -572,7 +567,7 @@ func (h *Handlers) knownContainers(w http.ResponseWriter, r *http.Request) {
 // @Failure      500      {object}  errorResponse
 // @Router       /api/shape-b/ships/{context}/{shipID} [get]
 func (h *Handlers) getShipShapeB(w http.ResponseWriter, r *http.Request) {
-	state, cacheHit, err := h.deps().ShapeB.GetShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
+	state, cacheHit, err := h.deps().ShipReads.GetShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
 	if err != nil {
 		h.writeQueryError(w, err)
 		return
@@ -740,31 +735,12 @@ func (h *Handlers) listRefdataContexts(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  errorResponse
 // @Router       /api/shape-b/cache/{context}/{shipID} [delete]
 func (h *Handlers) evictShipCache(w http.ResponseWriter, r *http.Request) {
-	err := h.deps().ShapeB.EvictCacheShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
+	err := h.deps().ShipReads.EvictCacheShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
 	if err != nil {
 		h.writeQueryError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// getFleet godoc
-//
-// @Summary      Reconstruct fleet (Shape C — pure event sourcing)
-// @Description  Replays the full JetStream event log from seq=1 and reconstructs current state: ship.* events fold into ShipAggregates, container.* events into ContainerAggregates, and each ship's manifest is the onShipID join. No KV or Postgres involved.
-// @Tags         shape-c
-// @Produce      json
-// @Success      200  {object}  queries.FleetReconstruction
-// @Failure      500  {object}  errorResponse
-// @Router       /api/shape-c/fleet [get]
-func (h *Handlers) getFleet(w http.ResponseWriter, r *http.Request) {
-	result, err := h.deps().ShapeC.ReconstructFleet(r.Context())
-	if err != nil {
-		h.deps().Log.Error("reconstruct fleet", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
 }
 
 // ─── Error mapping ────────────────────────────────────────────────────────────

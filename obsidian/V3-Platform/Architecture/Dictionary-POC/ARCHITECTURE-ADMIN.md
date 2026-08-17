@@ -47,7 +47,7 @@ alternatives that were rejected and why (§4.1, §4.3, §4.5).
 | Request/Reply & Traces | `rpc` | `RpcPanel.vue`, `TraceWaterfall.vue`, `SubjectPath.vue` | `GET /api/kv/buckets/platform/trace-request-reply/entries` + live `notify._platform.kv.trace-request-reply.>` — both tabs read the same feed (traces: grouped by trace; messages: flattened one row per span, Phase 28g retirement; bucket renamed `traces` → `trace-request-reply` in Phase 28l) |
 | Streams | `streams` | `JetStreamPanel.vue`, `StreamView.vue` | `GET /api/jetstream/streams`, `GET /api/jetstream/replay` |
 | KV Buckets | `kv` | `KvInspector.vue` | `GET /api/kv/buckets`, `GET /api/kv/buckets/{account}/{bucket}/entries` + live `notify.*.kv.{bucket}.>` |
-| CQRS Shapes | `shapes` | `ShapePanel.vue` ×2, `ShapeCPanel.vue` | KV notify (A/B), `GET /api/shape-b/ships/*`, `GET /api/shape-c/fleet` |
+| CQRS Shapes | `shapes` | `ShapePanel.vue` | KV notify (`ships`), `GET /api/shape-b/ships/*` |
 
 All eight are wired in `App.vue`'s `<template>` as `v-else-if="activeView === '<key>'"` sections; the six that manage their own internal scroll region (Connections, Services, Account Activity, Request/Reply & Traces, Streams, KV Buckets) render inside `class="group group--flush"` so their content fills the remaining viewport instead of being capped at page height. Log and CQRS Shapes render as plain (non-flush) `group` sections.
 
@@ -84,7 +84,7 @@ summary-card rule, and one color vocabulary.
    (`.account-group`/`.account-dot`/`.rail-item`) so the two "pick one thing
    from a list, inspect it on the right" panels read as one pattern rather
    than two.
-3. **Plain table** — Connections, CQRS Shapes' Shape A/B/C tables, and the
+3. **Plain table** — Connections, CQRS Shapes' table, and the
    *messages* view of Request/Reply & Traces. A PrimeVue `DataTable`,
    filterable, one row per entity; no card, no expansion (Connections' detail
    opens as a bottom panel instead, closer to that messages view's pattern
@@ -152,7 +152,7 @@ them. Naming them once here avoids re-deriving "is this live?" per panel:
 | Archetype | Description | Panels |
 |---|---|---|
 | **Poll-only** | A REST endpoint re-fetched on an interval; no NATS subscription backs it at all. | Log (4s poll), Connections/Services/Account Activity (10s poll), Streams' rail and KV Buckets' rail (15s poll) |
-| **Snapshot + live notify** | One-shot REST bootstrap, immediately followed by a live NATS subscription (`notify.*` for anything published afterward. | KV Buckets' selected-bucket detail (`notify.*.kv.{bucket}.>`), Request/Reply & Traces (both tabs — `GET /api/kv/buckets/platform/trace-request-reply/entries` + `notify._platform.kv.trace-request-reply.>`, Phase 28g retirement), CQRS Shape A/B rows (reuses `dictionary.js`'s existing `dict-a`/`dict-b` snapshot+notify store) |
+| **Snapshot + live notify** | One-shot REST bootstrap, immediately followed by a live NATS subscription (`notify.*` for anything published afterward. | KV Buckets' selected-bucket detail (`notify.*.kv.{bucket}.>`), Request/Reply & Traces (both tabs — `GET /api/kv/buckets/platform/trace-request-reply/entries` + `notify._platform.kv.trace-request-reply.>`, Phase 28g retirement), CQRS Shapes' table (reuses `dictionary.js`'s existing `ships`-bucket snapshot+notify store) |
 | **Live-only** | A direct NATS subscription with no REST snapshot/replay at all — nothing to catch up on, or catching up was deliberately out of scope. | No panel currently instantiates this archetype — Request/Reply & Traces' old `api.*` half (`obs.api.>`) was the one example, retired in Phase 28g along with the rest of that channel. Kept here as a named shape in case a future panel needs it, not as a claim that one exists today. |
 
 **The trace view is a variant of snapshot+notify, not a fourth archetype**
@@ -177,13 +177,16 @@ live" becomes a real requirement; until then, Streams is poll-only in
 practice, and its detail header's `snapshot` tag (§2.3) is telling the
 truth, not a hedge.
 
-CQRS Shape C is the deliberate exception to "give everything a live feed":
-it's a **manual, on-demand** replay (`GET /api/shape-c/fleet`, fired on
-mount and again only when the operator clicks "Reconstruct") because the
-whole point of the panel is to demonstrate Fowler's Event Sourcing property
-— that current state derives entirely from history — and a Reconstruct
-button that visibly redoes the full replay makes that demonstration
-concrete in a way a silently-live view wouldn't.
+**Historical note (retired Phase 31):** CQRS Shapes used to have a
+deliberate exception to "give everything a live feed" — a **manual,
+on-demand** replay (`GET /api/shape-c/fleet`, fired on mount and again only
+when the operator clicked "Reconstruct"), because the point of that shape
+was to demonstrate Fowler's Event Sourcing property — that current state
+derives entirely from history — and a Reconstruct button that visibly
+redoes the full replay made that demonstration concrete in a way a
+silently-live view wouldn't. Phase 31 retired that shape once the POC's
+comparison was decided; the remaining CQRS Shapes table is entirely
+snapshot+live-notify (§ table above), with no manual-replay exception left.
 
 ### 3.2 Primary/secondary monitoring reads
 
@@ -426,8 +429,9 @@ to ask ([ARCHITECTURE.md](ARCHITECTURE.md) § "Event Sourcing vs Plain
 CRUD"): the raw span log lives in JetStream because it must be replayable,
 the assembled trace lives in KV because every read is a lookup by id and
 wants a free `watch`, and Postgres is not involved at all because nothing
-here is transactional and everything expires. That is Shape A, applied to
-the lab's own telemetry.
+here is transactional and everything expires — KV as the read model
+directly, applied to the lab's own telemetry (the same pattern the retired
+Shape A once demonstrated for ships, before Phase 31).
 
 *Messages* reads the same spans rather than a second feed: a `traceSpan` is
 a strict superset of the pre-Phase-28 `obsEnvelope`, which is also why the
@@ -545,7 +549,7 @@ credential the listing call uses.
 ### 4.7 KV Buckets
 
 **What it shows.** Every registered KV bucket across every account reached
-— every tenant's `dict-a`/`dict-b`/`container`/`meta` plus PLATFORM's
+— every tenant's `ships`/`container`/`meta` plus PLATFORM's
 refdata caches — contents snapshot plus a genuinely live "recent updates"
 feed for the selected bucket.
 
@@ -573,42 +577,36 @@ color-coded (PUT ok-green, DEL warn-amber, PURGE crit-red, §2.3).
 
 ### 4.8 CQRS Shapes
 
-**What it shows.** The same read model — a ship's current state — built
-three different ways side by side: **Shape A** (KV as the read model
-directly, no Postgres), **Shape B** (KV as a write-through cache in front
-of canonical Postgres, with explicit Read/Evict controls to demonstrate
-cache-hit vs. miss→Postgres→backfill), and **Shape C** (pure event
-sourcing — current fleet and container state reconstructed by replaying the
-entire `SHIPPING` stream from `seq=1`, no KV, no Postgres at all). The shape
-taxonomy itself — what A/B/C mean, and the event-sourcing-vs-CRUD design
-heuristic behind picking one — is owned by
-[ARCHITECTURE.md](ARCHITECTURE.md) §"CQRS Pattern — Code Mapping"; this
-section covers only the Admin UI panel built on top of it.
+**What it shows.** A ship's current state served from **KV as a
+write-through cache in front of canonical Postgres**, with explicit
+Read/Evict controls to demonstrate cache-hit vs. miss→Postgres→backfill.
+Phase 31 retired the two shapes this panel used to compare it against — KV
+as the read model directly (no Postgres), and pure event sourcing (current
+fleet and container state reconstructed by replaying the entire `SHIPPING`
+stream from `seq=1`, no KV, no Postgres at all) — once the POC's shape
+comparison was decided in favor of the one this panel now shows exclusively.
+See `obsidian/POC-Dictionaries/` for the findings write-up on why it won.
+The shape taxonomy itself is owned by [ARCHITECTURE.md](ARCHITECTURE.md)
+§"Shape Classification — Variant Identifiers"; this section covers only the
+Admin UI panel built on top of it.
 
-**Backend + data flow.** Three different archetypes, one per shape (§3.1):
-Shape A/B rows reuse the same snapshot+notify KV store (`dictionary.js`)
-KV Buckets is built on, pre-wired to `dict-a`/`dict-b` specifically; Shape
-B's Read/Evict buttons are one-shot REST calls (`GET
+**Backend + data flow.** The panel's rows reuse the same snapshot+notify KV
+store (`dictionary.js`) KV Buckets is built on, pre-wired to the `ships`
+bucket specifically; its Read/Evict buttons are one-shot REST calls (`GET
 /api/shape-b/ships/{context}/{shipID}`, `DELETE
-/api/shape-b/cache/{context}/{shipID}`); Shape C is a **manual, on-demand**
-replay (`GET /api/shape-c/fleet`), fired on mount and again only when the
-operator clicks "Reconstruct" — deliberately not live, because the panel's
-whole pedagogical point is that current state derives entirely from
-history, and a button that visibly redoes the full replay makes that
-demonstration concrete: "Clear KV / Postgres, click Reconstruct: the
-correct fleet still appears."
+/api/shape-b/cache/{context}/{shipID}` — these routes keep their pre-Phase-31
+`/api/shape-b/...` path; Phase 31 deliberately left renaming/reclassifying
+them to Phase 33, since renaming twice would be churn).
 
-**UI design.** Plain tables (§2.1.3): Shape A and B render side by side in
-a flex row (`ShapePanel.vue`, one component reused via a `shape` prop),
-Shape C full-width below (`ShapeCPanel.vue`, its own collapsible section).
-Shape B additionally shows a second table below a divider — the canonical
-Postgres projection, which persists even after the KV cache above it is
-evicted, making the cache-miss path visible rather than asserted. Ship
-status color-coding (in-transit blue, docked green, at-anchor amber,
-not-under-command red, restricted-manoeuvrability orange) is one map shared
-verbatim across all three shapes' components, with label text resolved via
-refdata rather than hardcoded — colors are a frontend concern, decoupled
-from the reference-data text describing them.
+**UI design.** A single plain table (§2.1.3, `ShapePanel.vue`, no longer
+parameterized by a `shape` prop now that only one shape remains) additionally
+shows a second table below a divider — the canonical Postgres projection,
+which persists even after the KV cache above it is evicted, making the
+cache-miss path visible rather than asserted. Ship status color-coding
+(in-transit blue, docked green, at-anchor amber, not-under-command red,
+restricted-manoeuvrability orange) is resolved via refdata rather than
+hardcoded — colors are a frontend concern, decoupled from the reference-data
+text describing them.
 
 ---
 

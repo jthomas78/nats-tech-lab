@@ -70,7 +70,9 @@ var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
 		containers *commands.ContainerHandler
 		ports      *commands.PortHandler
 		portRepo   *fakePortRepo
-		kvA        *kvstore.Store
+		kvB        *kvstore.Store
+		shipRepo   *fakeRepo
+		shipReads  *queries.Ships
 		adapter    *browserrpc.Adapter
 	)
 
@@ -79,14 +81,15 @@ var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
 		var js jetstream.JetStream
 		nc, js = newNatsConnAndJS()
 
-		kvA = kvstore.New(js, "dict-a")
+		kvB = kvstore.New(js, "ships")
 		kvContainers := kvstore.New(js, "container")
 		kvMeta := kvstore.New(js, "meta")
 		log := slog.New(slog.DiscardHandler)
 
-		ccA, err := eventhandler.RegisterShapeA(ctx, js, kvA, nc, log)
+		shipRepo = newFakeRepo()
+		ccB, err := eventhandler.RegisterShips(ctx, js, kvB, nc, shipRepo, log)
 		Expect(err).NotTo(HaveOccurred())
-		DeferCleanup(ccA.Stop)
+		DeferCleanup(ccB.Stop)
 
 		ccCont, err := eventhandler.RegisterContainers(ctx, js, kvContainers, nc, newFakeContainerRepo(), log)
 		Expect(err).NotTo(HaveOccurred())
@@ -101,6 +104,7 @@ var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
 		ships = commands.NewShipHandler(pub, js, portRepo)
 		containers = commands.NewContainerHandler(pub, js, portRepo)
 		ports = commands.NewPortHandler(portRepo)
+		shipReads = queries.NewShips(kvB, shipRepo)
 
 		adapter, err = browserrpc.New(nc, browserrpc.Deps{
 			Ships:      ships,
@@ -108,7 +112,7 @@ var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
 			Ports:      ports,
 			Terminal:   queries.NewTerminal(kvContainers),
 			Meta:       queries.NewMeta(kvMeta),
-			ShapeA:     queries.NewShapeA(kvA),
+			ShipReads:  shipReads,
 			Log:        log,
 			Tenant:     fleetCtx,
 		})
@@ -145,13 +149,13 @@ var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
 			Expect(resp.Ship.Context).To(Equal(fleetCtx))
 
 			// The api.* reply returns once the event is published, not once
-			// the Shape A projector has consumed it and written KV — same
+			// the Shape B projector has consumed it and persisted it — same
 			// publish/project race the bootstrap-query tests below guard
 			// against with eventually().
 			var direct []domain.ShipState
 			eventually(func() error {
 				var err error
-				direct, err = queries.NewShapeA(kvA).ListShips(ctx, fleetCtx)
+				direct, err = shipRepo.List(ctx, fleetCtx)
 				if err != nil {
 					return err
 				}
@@ -160,7 +164,7 @@ var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
 				}
 				return nil
 			})
-			Expect(direct[0].ShipID).To(Equal("orient-express"), "the api.* call's projected event must land in the SAME KV bucket a direct call would use")
+			Expect(direct[0].ShipID).To(Equal("orient-express"), "the api.* call's projected event must land in the SAME projection a direct call would use")
 		})
 
 		It("departs a docked ship via api.*", func() {
@@ -233,12 +237,12 @@ var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
 	})
 
 	Context("BR parity: api.* bootstrap queries back the browser's reconnect flow (Phase 15d)", func() {
-		It("ship.list.v1 returns every ship in the context, identical to queries.ShapeA.ListShips called directly", func() {
+		It("ship.list.v1 returns every ship in the context, identical to the Postgres-backed ShipRepository.List called directly (BR-038)", func() {
 			request("api."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg"})
 			request("api."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "north-star", ShipName: "North Star", Port: "Rotterdam"})
 
 			// The api.* reply returns once the event is published, not once
-			// the Shape A projector has consumed it and written KV — same
+			// the Shape B projector has consumed it and persisted it — same
 			// publish/project race integration_test.go's eventually() helper
 			// guards against.
 			var resp struct {
@@ -255,9 +259,37 @@ var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
 				return nil
 			})
 
-			direct, err := queries.NewShapeA(kvA).ListShips(ctx, fleetCtx)
+			direct, err := shipRepo.List(ctx, fleetCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Ships).To(ConsistOf(direct))
+		})
+
+		It("ship.list.v1 still returns a ship whose KV cache entry was evicted (BR-038: list is Postgres-backed, KV is never a list source)", func() {
+			request("api."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg"})
+
+			eventually(func() error {
+				_, cacheHit, err := shipReads.GetShip(ctx, fleetCtx, "orient-express")
+				if err != nil {
+					return err
+				}
+				if !cacheHit {
+					return fmt.Errorf("cache not warmed yet")
+				}
+				return nil
+			})
+
+			Expect(shipReads.EvictCacheShip(ctx, fleetCtx, "orient-express")).To(Succeed())
+
+			msg := request("api."+fleetCtx+".shipping.ship.list.v1", map[string]any{})
+			var resp struct {
+				Ships []domain.ShipState `json:"ships"`
+			}
+			Expect(json.Unmarshal(msg.Data, &resp)).To(Succeed())
+			ids := make([]string, len(resp.Ships))
+			for i, s := range resp.Ships {
+				ids[i] = s.ShipID
+			}
+			Expect(ids).To(ContainElement("orient-express"), "an evicted-from-KV ship must still appear in the list")
 		})
 
 		It("container.list.v1 and meta.known-containers.v1 match queries.Terminal.List/Meta.KnownContainers called directly", func() {

@@ -5,29 +5,33 @@ config, CQRS read-model lookups) needs to be derived from an event source,
 scoped to an application context (the company / business-unit scope — the
 tenant is the NATS account and the region a separate regional deployment;
 neither appears in a context value, see `ARCHITECTURE-COMMUNICATIONS.md`
-§ 2.3), with locale resolved at read time, and served with low latency. This demo compares three shapes for doing that with NATS,
-side by side.
+§ 2.3), with locale resolved at read time, and served with low latency. This
+demo originally compared three shapes for doing that with NATS side by side;
+Phase 31 retired two of them once the comparison was decided (see
+"Why this shape won" below) — the demo now runs on the winner.
 
-## Shape A — NATS KV as the read model
-
-Events on the `SHIPPING` JetStream stream are projected **directly into a
-context-scoped KV bucket** (`dict-a-{context}`). Reads go straight to KV.
-There is no Postgres read table at all — the KV bucket *is* the read model,
-and the KV revision number is the entry's version.
-
-## Shape B — NATS KV as a cache in front of Postgres
+## NATS KV as a cache in front of Postgres
 
 The canonical CQRS projection lives in **Postgres** (source of truth for
 governed data). The same events update the Postgres row first, then refresh
-the KV cache bucket (`dict-b-{context}`). Reads check KV first; a **cache
-miss falls through to Postgres and backfills KV**. The demo UI has an
-"evict" action so you can watch the miss → Postgres → backfill path happen.
+a KV cache bucket (`ships`, keyed `{context}.ship.{shipID}`). Reads check KV
+first; a **cache miss falls through to Postgres and backfills KV**. The demo
+UI has an "evict" action so you can watch the miss → Postgres → backfill
+path happen.
 
-## Shape C — Event Sourcing Reconstruction
+### Why this shape won
 
-No KV bucket, no Postgres table. Current fleet state is derived entirely from
-replaying the JetStream event log from `seq=1`. Demonstrates the defining
-property of pure event sourcing: correct state with no persistent read model.
+Two other shapes were built side by side and retired once the comparison
+was decided: **KV as the read model** (events projected directly into KV,
+no Postgres table at all — fast, but a cache miss meant a permanently
+missing row, not a fallback) and **event-sourced reconstruction** (current
+state rebuilt by replaying the full JetStream log on every read — correct
+with no persistent read model, but latency grew with stream depth). The
+KV-cache-in-front-of-Postgres shape above won because it gets the KV shapes'
+read latency on a hit without their availability gap, and never pays the
+full-replay cost the event-sourced shape did. See
+`obsidian/POC-Dictionaries/` for the full findings write-up and
+`Main-POC-Plan-ARCHIVE.md` for the retired shapes' original design detail.
 
 ## Two aggregates, one stream (Phase 8)
 
@@ -42,7 +46,7 @@ aggregates. See [BUSINESS_RULES.md](BUSINESS_RULES.md) for BR-001 … BR-015.
 
 | App | URL | Role |
 |---|---|---|
-| Admin / NATS debug | http://localhost:7100 | Raw stream feed, KV buckets, Shape A/B/C projections |
+| Admin / NATS debug | http://localhost:7100 | Raw stream feed, KV buckets, CQRS shape panel |
 | Port Management | http://localhost:7101 | One port at a time: terminal yard, docked ships + manifests, container operations |
 | Dictionary | http://localhost:7102 | Reference-data admin: type navigator, item grid, localization/reference editor, locales panel, cache status widget (Phase 11) |
 
@@ -67,16 +71,15 @@ The demo screen maps vertically to the pipeline:
 
 1. **Shipping Operations** — dispatch a command (Arrive / Depart / Register / Load / Unload container); the backend validates domain rules, publishes to JetStream, and returns immediately.
 2. **JetStream panel** — live feed of raw `evt.*.shipping.>` messages as they arrive on `SHIPPING`: subject, sequence number, timestamp, payload. Click a row to expand the full payload.
-3. **Shape A | Shape B | Shape C** — projections side by side. Shape B also shows the canonical **Postgres projection** below the KV cache rows. Shape C reconstructs ships **and** containers, joining each ship's manifest.
-4. **KV Watch Stream** — every KV change event from both buckets. Filter by shape (A / B), operation (PUT / DEL / PURGE), or key text to isolate the event you're interested in.
+3. **CQRS Shapes panel** — the KV cache rows, plus the canonical **Postgres projection** below them.
+4. **KV Watch Stream** — every KV change event from the `ships` bucket. Filter by operation (PUT / DEL / PURGE) or key text to isolate the event you're interested in.
 
 ## What to watch
 
-- Both Shape A and B panels update reactively: KV watch → SSE → Pinia store. The Pinia stores in the browser are the same idea as server-side projections — read models derived from an event stream, one layer further out.
-- The stream uses **LimitsPolicy** retention, so events are kept after acknowledgement: wipe a KV bucket and the projector can rebuild it from replay.
-- Evict a Shape B cache key, then hit Read — watch the **miss → Postgres → backfill** path: the JetStream panel stays quiet (no new event), but the KV Watch stream shows a new PUT as the cache backfills.
-- Hit **Reconstruct** on Shape C — it replays from `seq=1` every time; clear the KV and Postgres data and it still returns correct state from the event log alone.
-- Every key is context-scoped. Switch context in the topbar to see each shape's isolated bucket.
+- The panel updates reactively: KV watch → notify.* → Pinia store. The Pinia stores in the browser are the same idea as server-side projections — read models derived from an event stream, one layer further out.
+- The stream uses **LimitsPolicy** retention, so events are kept after acknowledgement: wipe the KV bucket and the projector can rebuild it from replay.
+- Evict a cache key, then hit Read — watch the **miss → Postgres → backfill** path: the JetStream panel stays quiet (no new event), but the KV Watch stream shows a new PUT as the cache backfills.
+- Every key is context-scoped. Switch context in the topbar to see the isolated bucket contents.
 
 ## Run it
 

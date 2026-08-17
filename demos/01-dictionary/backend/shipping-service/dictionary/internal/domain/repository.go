@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// ShipRepository is the port for the Shape B canonical projection in Postgres.
+// ShipRepository is the port for the canonical ship projection in Postgres.
 type ShipRepository interface {
 	// Upsert inserts or updates the ship row and returns the stored state.
 	Upsert(ctx context.Context, state ShipState) (ShipState, error)

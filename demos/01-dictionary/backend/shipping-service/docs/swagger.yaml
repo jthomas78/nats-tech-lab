@@ -142,44 +142,6 @@ definitions:
     - StatusAtAnchor
     - StatusNotUnderCommand
     - StatusRestrictedManoeuvrability
-  queries.FleetReconstruction:
-    properties:
-      containers:
-        items:
-          $ref: '#/definitions/domain.ContainerState'
-        type: array
-      fleet:
-        items:
-          $ref: '#/definitions/queries.ShipWithManifest'
-        type: array
-    type: object
-  queries.ShipWithManifest:
-    properties:
-      context:
-        description: fleet / KV-key-prefix qualifier
-        type: string
-      currentPort:
-        description: '"" = at sea'
-        type: string
-      id:
-        description: surrogate key (UUID) — aggregate identity
-        type: string
-      manifest:
-        items:
-          $ref: '#/definitions/domain.ContainerState'
-        type: array
-      shipID:
-        description: mutable natural key (call-sign / fleet code)
-        type: string
-      shipName:
-        type: string
-      status:
-        allOf:
-        - $ref: '#/definitions/domain.ShipStatus'
-        description: AIS navigational status
-      updatedAt:
-        type: string
-    type: object
   rest.containerResponse:
     properties:
       container:
@@ -272,8 +234,7 @@ host: localhost:7200
 info:
   contact: {}
   description: Shipping domain backend for the NATS Tech Lab POC. Demonstrates JetStream
-    event sourcing, NATS KV projections (Shape A / Shape B), and pure event reconstruction
-    (Shape C).
+    event sourcing with a NATS KV cache in front of a canonical Postgres projection.
   title: EventSourcing CQRS POC — Shipping API
   version: "1.0"
 paths:
@@ -728,26 +689,6 @@ paths:
       summary: Get ship (Shape B — KV cache → Postgres)
       tags:
       - shape-b
-  /api/shape-c/fleet:
-    get:
-      description: 'Replays the full JetStream event log from seq=1 and reconstructs
-        current state: ship.* events fold into ShipAggregates, container.* events
-        into ContainerAggregates, and each ship''s manifest is the onShipID join.
-        No KV or Postgres involved.'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/queries.FleetReconstruction'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: Reconstruct fleet (Shape C — pure event sourcing)
-      tags:
-      - shape-c
   /api/ships/arrive:
     post:
       consumes:

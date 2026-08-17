@@ -5,7 +5,7 @@
 // SSE channels (/api/watch/{context}, /api/watch-terminal/{context}) the
 // pre-Phase-15 store used. The ship manifest is still a client-side join:
 // containers with onShipID == shipID — the same join the backend terminal
-// queries and Shape C perform.
+// queries perform.
 import { defineStore } from 'pinia'
 
 import {

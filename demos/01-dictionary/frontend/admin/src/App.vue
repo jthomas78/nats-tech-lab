@@ -16,7 +16,6 @@ import PostgresTablesPanel from './components/PostgresTablesPanel.vue'
 import RpcPanel from './components/RpcPanel.vue'
 import ServicesPanel from './components/ServicesPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
-import ShapeCPanel from './components/ShapeCPanel.vue'
 import ShapePanel from './components/ShapePanel.vue'
 import TelemetryStrip from './components/TelemetryStrip.vue'
 import TradingPartnersPanel from './components/TradingPartnersPanel.vue'
@@ -115,7 +114,7 @@ const sections = [
           { key: 'rpc', label: 'Request/Reply', icon: IconRpc },
           { key: 'streams', label: 'Streams', icon: IconStreams },
           { key: 'kv', label: 'KV Buckets', icon: IconKv },
-          { key: 'shapes', label: 'CQRS Shapes', icon: IconShapes, badge: 3 },
+          { key: 'shapes', label: 'CQRS Shapes', icon: IconShapes, badge: 1 },
         ],
       },
       {
@@ -130,7 +129,7 @@ const SUBTITLES = {
   overview: 'pipeline health · dispatch a test command',
   streams: 'raw NATS messages · live tail and full replay',
   kv: 'every registered bucket · contents and live changes',
-  shapes: 'three CQRS read-model shapes, side by side',
+  shapes: 'the KV-cache-in-front-of-Postgres read path',
   rpc: 'rpc.* + api.* request/reply traffic · rpc.* replays last 10 min, api.* live only',
   connections: 'nats connections · all accounts',
   services: 'nats micro services · $SRV.* discovery',
@@ -249,22 +248,17 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <!-- CQRS Shapes — A (KV read model) | B (KV cache + Postgres) | C (replay) -->
+    <!-- CQRS Shapes — KV cache in front of the canonical Postgres projection.
+         Phase 31 retired Shape A (KV-as-read-model) and Shape C (event-sourced
+         reconstruction) once the POC's shape comparison was decided in favor
+         of this one. -->
     <section v-else-if="activeView === 'shapes'" class="group" data-testid="shapes-view">
-      <div class="panels">
-        <ShapePanel shape="A" title="Shape A — KV as read model">
-          Ship events are projected into <code>dict-a</code> under the
-          <code>{{ store.context }}.ship.*</code> key prefix. Reads go to KV
-          only; the KV revision is the version. No Postgres involved.
-        </ShapePanel>
-        <ShapePanel shape="B" title="Shape B — KV cache in front of Postgres">
-          Events update the canonical Postgres projection, then refresh
-          <code>dict-b</code> under the <code>{{ store.context }}.ship.*</code>
-          key prefix. Evict a ship, then read it to watch the miss → Postgres →
-          backfill path.
-        </ShapePanel>
-      </div>
-      <ShapeCPanel />
+      <ShapePanel title="KV cache in front of Postgres">
+        Events update the canonical Postgres projection, then refresh
+        <code>ships</code> under the <code>{{ store.context }}.ship.*</code>
+        key prefix. Evict a ship, then read it to watch the miss → Postgres →
+        backfill path.
+      </ShapePanel>
     </section>
 
     <!-- Request/Reply — obs.rpc.* + obs.api.* request/reply traffic (Phase 12.10; api.* added Phase 16).
@@ -360,15 +354,5 @@ onUnmounted(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-.panels {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.625rem;
-}
-@media (max-width: 900px) {
-  .panels {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

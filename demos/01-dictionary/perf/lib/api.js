@@ -49,15 +49,6 @@ export function unload(containerID, shipID) {
   return post('/api/containers/unload', { context: CONTEXT, containerID, shipID }, 'unload');
 }
 
-// --- queries (200) ---
-
-// Shape C — event-sourced whole-fleet reconstruction. Replays the entire
-// stream from seq=1 on every call, so latency grows with stream depth. This is
-// strongly consistent (unlike the async KV/Postgres projections).
-export function shapeCFleet() {
-  return http.get(`${BASE_URL}/api/shape-c/fleet`, { tags: { name: 'shapeCFleet' } });
-}
-
 // --- readiness ---
 
 // Poll /healthz until it returns 200. Call from setup() so a scenario fails

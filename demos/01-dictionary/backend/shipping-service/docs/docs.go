@@ -651,32 +651,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/shape-c/fleet": {
-            "get": {
-                "description": "Replays the full JetStream event log from seq=1 and reconstructs current state: ship.* events fold into ShipAggregates, container.* events into ContainerAggregates, and each ship's manifest is the onShipID join. No KV or Postgres involved.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "shape-c"
-                ],
-                "summary": "Reconstruct fleet (Shape C — pure event sourcing)",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/queries.FleetReconstruction"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/api/ships/arrive": {
             "post": {
                 "description": "Ship arrives at a port. Validates domain rules (must not already be docked), then publishes a ship.arrived event to JetStream.",
@@ -1169,64 +1143,6 @@ const docTemplate = `{
                 "StatusRestrictedManoeuvrability"
             ]
         },
-        "queries.FleetReconstruction": {
-            "type": "object",
-            "properties": {
-                "containers": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/domain.ContainerState"
-                    }
-                },
-                "fleet": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/queries.ShipWithManifest"
-                    }
-                }
-            }
-        },
-        "queries.ShipWithManifest": {
-            "type": "object",
-            "properties": {
-                "context": {
-                    "description": "fleet / KV-key-prefix qualifier",
-                    "type": "string"
-                },
-                "currentPort": {
-                    "description": "\"\" = at sea",
-                    "type": "string"
-                },
-                "id": {
-                    "description": "surrogate key (UUID) — aggregate identity",
-                    "type": "string"
-                },
-                "manifest": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/domain.ContainerState"
-                    }
-                },
-                "shipID": {
-                    "description": "mutable natural key (call-sign / fleet code)",
-                    "type": "string"
-                },
-                "shipName": {
-                    "type": "string"
-                },
-                "status": {
-                    "description": "AIS navigational status",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/domain.ShipStatus"
-                        }
-                    ]
-                },
-                "updatedAt": {
-                    "type": "string"
-                }
-            }
-        },
         "rest.containerResponse": {
             "type": "object",
             "properties": {
@@ -1374,7 +1290,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/",
 	Schemes:          []string{},
 	Title:            "EventSourcing CQRS POC — Shipping API",
-	Description:      "Shipping domain backend for the NATS Tech Lab POC. Demonstrates JetStream event sourcing, NATS KV projections (Shape A / Shape B), and pure event reconstruction (Shape C).",
+	Description:      "Shipping domain backend for the NATS Tech Lab POC. Demonstrates JetStream event sourcing with a NATS KV cache in front of a canonical Postgres projection.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

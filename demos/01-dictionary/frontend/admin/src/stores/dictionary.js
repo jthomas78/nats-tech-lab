@@ -13,9 +13,8 @@ export const useDictionaryStore = defineStore('dictionary', {
   state: () => ({
     context: '',
     availableContexts: [], // Phase 22: populated by loadContexts(); empty until fetched
-    // key (ship.{shipID}) → { state: ShipState, revision } per shape
-    shapeA: {},
-    shapeB: {},
+    // key (ship.{shipID}) → { state: ShipState, revision }
+    ships: {},
     // rolling log of raw watch events, newest first
     events: [],
     connected: false,
@@ -27,10 +26,8 @@ export const useDictionaryStore = defineStore('dictionary', {
   getters: {
     // Each row spreads all ShipState fields so ShapePanel columns can reference
     // data.shipName, data.currentPort, data.cargo etc. directly.
-    shapeARows: (state) =>
-      Object.entries(state.shapeA).map(([key, v]) => ({ key, revision: v.revision, ...v.state })),
-    shapeBRows: (state) =>
-      Object.entries(state.shapeB).map(([key, v]) => ({ key, revision: v.revision, ...v.state })),
+    shipRows: (state) =>
+      Object.entries(state.ships).map(([key, v]) => ({ key, revision: v.revision, ...v.state })),
   },
 
   actions: {
@@ -57,13 +54,13 @@ export const useDictionaryStore = defineStore('dictionary', {
     },
 
     // Phase 23: replaces the /api/watch/{context} EventSource with a
-    // one-shot bootstrap fetch (getKvBucketEntries, both dict-a and dict-b)
-    // plus notify.{context}.kv.dict-a/dict-b.> subscribes on the tenant NATS
+    // one-shot bootstrap fetch (getKvBucketEntries against the ships bucket)
+    // plus a notify.{context}.kv.ships.> subscribe on the tenant NATS
     // connection. Bootstrap entries come back with the {context}. key prefix
     // still attached (kv.go's kvBucketEntriesOnce reads the raw bucket,
     // unlike the old SSE handler's kvstore.Store.Watch, which stripped it) —
-    // filtered and stripped here so shapeA/shapeB keep the same bare-key
-    // shape (e.g. "ship.SHIP1") ShapePanel's columns already expect.
+    // filtered and stripped here so ships keeps the same bare-key shape
+    // (e.g. "ship.SHIP1") ShapePanel's columns already expect.
     async connect() {
       this.disconnect()
       // No context means no valid subject to subscribe on — App.vue calls
@@ -74,8 +71,7 @@ export const useDictionaryStore = defineStore('dictionary', {
       // server correctly rejected as a Subscription Violation — a real
       // failure mode this Log panel first surfaced, not just log noise.
       if (!this.context) return
-      this.shapeA = {}
-      this.shapeB = {}
+      this.ships = {}
       this.events = []
       this.seenPorts = []
 
@@ -93,36 +89,32 @@ export const useDictionaryStore = defineStore('dictionary', {
       // before the subscribe took effect could in principle be re-applied by
       // the bootstrap fetch below, which is harmless (applyWatchEvent is
       // idempotent per key) — the alternative order risks losing it entirely.
-      const buckets = [['A', 'dict-a'], ['B', 'dict-b']]
-      const unsubs = tenantConnected.value
-        ? buckets.map(([shape, bucket]) =>
-            subscribe(`notify.${this.context}.kv.${bucket}.>`, (value, subject) => {
-              const parsed = parseKvNotifySubject(subject)
-              if (!parsed) return
-              this.applyWatchEvent(
-                value === null
-                  ? { shape, key: parsed.key, op: 'DEL' }
-                  : { shape, key: parsed.key, op: 'PUT', revision: undefined, value },
-              )
-            }),
-          )
-        : []
-      this._unsubscribe = () => unsubs.forEach((u) => u())
+      const bucket = 'ships'
+      const unsub = tenantConnected.value
+        ? subscribe(`notify.${this.context}.kv.${bucket}.>`, (value, subject) => {
+            const parsed = parseKvNotifySubject(subject)
+            if (!parsed) return
+            this.applyWatchEvent(
+              value === null
+                ? { key: parsed.key, op: 'DEL' }
+                : { key: parsed.key, op: 'PUT', revision: undefined, value },
+            )
+          })
+        : null
+      this._unsubscribe = unsub
       this.connected = tenantConnected.value
 
-      for (const [shape, bucket] of buckets) {
-        try {
-          const rows = await getKvBucketEntries(tenant.value, bucket)
-          const prefix = this.context + '.'
-          for (const row of rows ?? []) {
-            if (!row.key.startsWith(prefix)) continue
-            this.applyWatchEvent({
-              shape, key: row.key.slice(prefix.length), op: 'PUT', revision: row.revision, value: row.value,
-            })
-          }
-        } catch {
-          // best-effort snapshot — live subscribe above still works even if this fails
+      try {
+        const rows = await getKvBucketEntries(tenant.value, bucket)
+        const prefix = this.context + '.'
+        for (const row of rows ?? []) {
+          if (!row.key.startsWith(prefix)) continue
+          this.applyWatchEvent({
+            key: row.key.slice(prefix.length), op: 'PUT', revision: row.revision, value: row.value,
+          })
         }
+      } catch {
+        // best-effort snapshot — live subscribe above still works even if this fails
       }
     },
 
@@ -138,15 +130,14 @@ export const useDictionaryStore = defineStore('dictionary', {
     },
 
     applyWatchEvent(event) {
-      const target = event.shape === 'A' ? this.shapeA : this.shapeB
       if (event.op === 'PUT') {
-        target[event.key] = { state: event.value, revision: event.revision }
+        this.ships[event.key] = { state: event.value, revision: event.revision }
         const port = event.value?.currentPort
         if (port) this.mergePorts([port])
       } else {
-        // Delete/purge: Shape A ships disappear; Shape B keys reappear on
-        // the next read via the Postgres fallthrough + backfill.
-        delete target[event.key]
+        // Delete/purge: an evicted cache key reappears on the next read via
+        // the Postgres fallthrough + backfill.
+        delete this.ships[event.key]
       }
       this.events.unshift({ ...event, at: new Date().toLocaleTimeString() })
       if (this.events.length > 50) this.events.pop()

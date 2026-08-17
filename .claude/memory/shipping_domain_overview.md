@@ -1,9 +1,11 @@
 ---
 name: shipping-domain-overview
-description: Current shipping domain state (Phase 8, updated Phase 12.8/12.9) — Ship + Container aggregates on the SHIPPING stream, both now surrogate-UUID-keyed — how it got here from Phase 6, and the architecture decisions that still govern it
+description: Current shipping domain state (Phase 8, updated Phase 12.8/12.9, Phase 31) — Ship + Container aggregates on the SHIPPING stream, both now surrogate-UUID-keyed, single-shape (Shape B/"Ships") read model since Phase 31 — how it got here from Phase 6, and the architecture decisions that still govern it
 metadata:
   type: project
 ---
+
+**Phase 31 update (2026-08-17):** Shape A (KV-as-read-model) and Shape C (event-sourced fleet reconstruction, `queries/shape_c.go`) are **retired** — the POC's three-way shape comparison was decided in favor of Shape B, now the sole ship read path. `RegisterShapeA`/`RegisterShapeB` in `eventhandler/handler.go` collapsed into one `RegisterShips()` (durable renamed `ship-shape-a`/`ship-shape-b` → `ship-projector`); `queries.ShapeA`/`queries.ShapeB` collapsed into `queries.Ships`; the `dict-a`/`dict-b` KV buckets collapsed into one `ships` bucket. See `obsidian/POC-Dictionaries/` for the findings write-up and `BUSINESS_RULES-SHIPPING.md`'s BR-038 for the resulting ship-list read-path rule. The two bullets below about "Shape A/B event handlers" and "Shape C" are superseded by this — read them as history of what used to govern this code, not current fact.
 
 **Phase 12.8/12.9 update (2026-07-23):** two things changed after this file was first written — read this block before trusting anything below about subjects or Ship's identity.
 

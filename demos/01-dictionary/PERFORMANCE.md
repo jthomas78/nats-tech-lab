@@ -34,6 +34,22 @@ suite is finalised in Phase 104. See
 
 ## Phase 10 baselines (captured on current architecture)
 
+> **Phase 31 note.** These baselines were captured against the pre-Phase-31
+> architecture, which ran three CQRS shapes side by side (Shape A: KV as the
+> read model; Shape B: KV cache in front of Postgres; Shape C: event-sourced
+> reconstruction). Phase 31 retired Shape A and Shape C once the POC's shape
+> comparison was decided in favor of Shape B — `GET /api/shape-c/fleet`,
+> `perf/scenarios/shape-c-reconstruction.js`, and the `ship-shape-a` consumer
+> referenced below no longer exist in the current codebase. The diagrams and
+> numbers below are left as an accurate historical record of what was
+> measured, not a description of the current write/read path (which now runs
+> a single `ship-projector` consumer, upserting Postgres then the KV cache in
+> one step, and has no equivalent to baseline #1's full-replay read path).
+> Baseline #1's degradation curve remains the documented rationale for Phase
+> 104's snapshotting mitigation — see that phase's notes for why it still
+> matters even with Shape C gone (any future event-sourced reconstruction
+> path would hit the same wall).
+
 Each baseline is labelled by the side of the CQRS split it exercises:
 
 | # | Baseline | Side | Replays / scales with |
@@ -207,16 +223,20 @@ away when the gating phase lands:
 | Cross-aggregate stale-read window | staleness of the read-model guard under load | **Phase 103** (stream split) |
 | SSE fan-out | concurrent watch clients before lag | **Phase 104** (streaming, not request-shaped) |
 
-When Phase 101 and Phase 103 land, Phase 104 also **re-measures the three
-baselines above** against the final architecture and records the before/after
+When Phase 101 and Phase 103 land, Phase 104 also **re-measures baselines #2
+and #3 above** against the final architecture and records the before/after
 delta — in particular, what the Phase 101 sequence guard costs on the write
-path relative to this pre-guard baseline.
+path relative to this pre-guard baseline. Baseline #1 (Shape C reconstruction)
+has no re-measurement target: Phase 31 retired the endpoint it measured.
 
 ---
 
 ## How to reproduce
 
-See [`perf/README.md`](perf/README.md) for full detail and knobs. In short:
+See [`perf/README.md`](perf/README.md) for full detail and knobs. Baseline #1
+(`shape-c-reconstruction.js`) was removed in Phase 31 along with the Shape C
+endpoint it measured — its numbers above are historical and not
+reproducible against the current codebase. Baselines #2 and #3 still run:
 
 ```bash
 brew install k6
@@ -224,7 +244,6 @@ docker compose -f demos/01-dictionary/docker-compose.yml up --build -d
 
 cd demos/01-dictionary
 # reset the stream between scenarios: docker compose down -v && docker compose up -d
-k6 run perf/scenarios/shape-c-reconstruction.js                  # depths 100/1k/10k
 MAX_EVENTS=10000 k6 run perf/scenarios/hydration-single-ship.js  # single-ship curve
 for v in 10 100 250 500; do                                      # throughput ladder
   VUS=$v k6 run --summary-export=throughput-$v.json \

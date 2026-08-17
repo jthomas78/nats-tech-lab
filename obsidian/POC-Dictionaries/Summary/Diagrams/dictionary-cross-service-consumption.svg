@@ -32,8 +32,8 @@
 
   <!-- ================= Shipping backend boxes ================= -->
   <rect x="70" y="160" width="360" height="110" rx="10" fill="#1a1e23" stroke="#4a515b" stroke-width="1.5"/>
-  <text x="250" y="188" fill="#dee0e3" font-size="14" font-weight="700" text-anchor="middle">Shape A/B/C query</text>
-  <text x="250" y="208" fill="#b7bcc2" font-size="11.5" text-anchor="middle">(read side, reconstruction)</text>
+  <text x="250" y="188" fill="#dee0e3" font-size="14" font-weight="700" text-anchor="middle">Ship/container read-model query</text>
+  <text x="250" y="208" fill="#b7bcc2" font-size="11.5" text-anchor="middle">(read side)</text>
   <text x="250" y="238" fill="#8b929b" font-size="10.5" text-anchor="middle">queries/, eventhandler/ — neither</text>
   <text x="250" y="254" fill="#8b929b" font-size="10.5" text-anchor="middle">package references refdata at all</text>
 

@@ -161,11 +161,11 @@ npm run build
 
 ### What it demonstrates
 
-Three side-by-side CQRS/event-sourcing shapes over a shipping domain with Ship and Container aggregates:
+The POC evaluated three side-by-side CQRS/event-sourcing shapes over a shipping domain with Ship and Container aggregates — **Shape A** (KV as the read model), **Shape B** (Postgres projection + KV write-through cache), and **Shape C** (event-sourced reconstruction from JetStream replay) — before settling on one:
 
-- **Shape A — KV as read model**: JetStream event handlers project directly into NATS KV; reads go straight to KV with no Postgres read table.
-- **Shape B — KV as cache in front of Postgres**: canonical CQRS projection in Postgres; KV is an eager write-through cache — the same JetStream event handler that upserts Postgres also overwrites the KV entry; cache miss falls through to Postgres.
-- **Shape C — event-sourced reconstruction**: ship and container state is rebuilt directly from JetStream history.
+- **KV as a cache in front of Postgres** (the former "Shape B"): canonical CQRS projection in Postgres; KV is an eager write-through cache — the same JetStream event handler that upserts Postgres also overwrites the KV entry; cache miss falls through to Postgres. This is the shape the code runs today.
+
+Phase 31 retired Shape A (KV-as-read-model) and Shape C (event-sourced reconstruction) once the comparison was decided — see `obsidian/POC-Dictionaries/` for the findings write-up on why Shape B won and `Main-POC-Plan-ARCHIVE.md` for the retired shapes' original design detail.
 
 ### Stream / KV design
 
@@ -183,8 +183,10 @@ evt.{context}.{service}.{entity}.{entity-id}.{event} taxonomy — refdata-servic
 publishes under evt.{context}.refdata.{typeKey}.changed on its own REFDATA
 stream.
 
-KV buckets: dict-a-{context}, dict-b-{context}, container-{context}, meta-{context}
-Key format: {entityType}.{id}   — NATS KV keys only allow [-/_=.a-zA-Z0-9]; ':' is illegal
+KV buckets: ships, container, meta — one bucket per role per NATS account
+(tenant-scoped by the account boundary itself, not by a per-context bucket
+suffix); {context} lives in the key instead (see below), not the bucket name.
+Key format: {context}.{entityType}.{id}   — NATS KV keys only allow [-/_=.a-zA-Z0-9]; ':' is illegal
 Value: JSON-encoded ShipState / ContainerState / metadata
 ```
 
@@ -245,7 +247,7 @@ dictionary/
 - **Context-scoped KV keys**: every lookup includes a context prefix — no global unscoped lookups. `{context}` is the **company / business-unit** scope; the tenant is the **NATS account** and the region is a **separate regional deployment**, and neither ever appears in a key or subject (Phase 16a — see "Subject families and `{context}`" above).
 - The demo frontend updates reactively via KV watch → SSE (or WebSocket) → frontend panels.
 - **Every `nats.Connect` call must set `nats.Name(...)`** with the service name (e.g. `"shipping-service"`, `"refdata-service"`) — anonymous connections are indistinguishable in `nats server list connections` / `/connz` when debugging a running stack. This is testable: assert `nc.Opts.Name != ""` (or equals the expected name) on the returned `*nats.Conn` in any test that calls `nats.Connect` directly.
-- **Event sourcing vs plain CRUD — the deciding question is "does anything need to replay this," not "does it change."** Event-source an entity when its *history* is itself a domain concern: something needs to reconstruct state from the log (Shape C), enforce rules against a point-in-time replay (Ship/Container cross-aggregate checks), or audit a sequence of transitions. Use plain Postgres CRUD when only *current state* matters and nothing ever reconstructs it from history — typically reference/master data with no state machine (lookup tables, config, enums). Don't let "is it reference data" be the whole test, though: some reference-looking data secretly needs history (a rate table where "what was in effect on date X" matters), and some lifecycle-looking entities are simple enough for plain CRUD if nothing ever replays them. See `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md` § "Event Sourcing vs Plain CRUD" for the worked example (Ship/Container vs the ports registry).
+- **Event sourcing vs plain CRUD — the deciding question is "does anything need to replay this," not "does it change."** Event-source an entity when its *history* is itself a domain concern: something needs to reconstruct state from the log (the write-side `hydrate()` path replays an aggregate's own events before applying a new command — see `ship.go`/`container.go`'s `Apply()`/`FromState()`), enforce rules against a point-in-time replay (Ship/Container cross-aggregate checks), or audit a sequence of transitions. Use plain Postgres CRUD when only *current state* matters and nothing ever reconstructs it from history — typically reference/master data with no state machine (lookup tables, config, enums). Don't let "is it reference data" be the whole test, though: some reference-looking data secretly needs history (a rate table where "what was in effect on date X" matters), and some lifecycle-looking entities are simple enough for plain CRUD if nothing ever replays them. See `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE.md` § "Event Sourcing vs Plain CRUD" for the worked example (Ship/Container vs the ports registry).
 
 ## Quality Rules
 

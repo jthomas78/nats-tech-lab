@@ -2,9 +2,7 @@ package dictionary
 
 // Integration tests running against an embedded in-process NATS server (real
 // JetStream, real KV). Covers:
-//   - Shape A: ship command → event → projector → KV → query
 //   - Shape B: ship command → event → Postgres (fake) + KV → cache hit/miss
-//   - Shape C: ships + containers → full JetStream replay → fleet reconstruction
 //   - Ship domain rules: BR-001 … BR-003, BR-017 (container rules live in container_test.go)
 
 import (
@@ -61,97 +59,26 @@ func eventually(fn func() error) {
 	Eventually(fn, 5*time.Second, 25*time.Millisecond).Should(Succeed())
 }
 
-// ─── Shape A ─────────────────────────────────────────────────────────────────
-
-var _ = Describe("Shape A — KV as read model", func() {
-	var (
-		ctx  context.Context
-		ship *commands.ShipHandler
-		kvA  *kvstore.Store
-	)
-
-	BeforeEach(func() {
-		ctx = context.Background()
-		js := newJetStream()
-		kvA = kvstore.New(js, "dict-a")
-		log := slog.New(slog.DiscardHandler)
-		consume, err := eventhandler.RegisterShapeA(ctx, js, kvA, nil, log)
-		Expect(err).NotTo(HaveOccurred())
-		DeferCleanup(consume.Stop)
-		ship = commands.NewShipHandler(jstream.NewPublisher(js), js, newFakePortRepo())
-	})
-
-	It("projects ship state into KV after arrive / depart", func() {
-		const fleetCtx = "acme-pacific-fleet"
-
-		By("arriving at Hamburg")
-		_, err := ship.ArrivePort(ctx, commands.ShipInput{
-			Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg",
-		})
-		Expect(err).NotTo(HaveOccurred())
-
-		By("verifying KV reflects the docked state")
-		eventually(func() error {
-			q := queries.NewShapeA(kvA)
-			ships, err := q.ListShips(ctx, fleetCtx)
-			if err != nil {
-				return err
-			}
-			if len(ships) != 1 {
-				return errors.New("waiting for KV entry")
-			}
-			s := ships[0]
-			if s.CurrentPort != "Hamburg" || s.Status != domain.StatusDocked {
-				return errors.New("docked state not projected yet")
-			}
-			return nil
-		})
-
-		By("departing Hamburg")
-		_, err = ship.DepartPort(ctx, commands.ShipInput{
-			Context: fleetCtx, ShipID: "orient-express", Port: "Hamburg",
-		})
-		Expect(err).NotTo(HaveOccurred())
-
-		By("verifying KV reflects the at-sea state")
-		eventually(func() error {
-			q := queries.NewShapeA(kvA)
-			ships, err := q.ListShips(ctx, fleetCtx)
-			if err != nil {
-				return err
-			}
-			if len(ships) != 1 {
-				return errors.New("no ships in KV")
-			}
-			s := ships[0]
-			if s.CurrentPort != "" || s.Status != domain.StatusInTransit {
-				return errors.New("at-sea state not projected yet")
-			}
-			return nil
-		})
-	})
-})
-
 // ─── Shape B ─────────────────────────────────────────────────────────────────
 
 var _ = Describe("Shape B — KV cache in front of Postgres", func() {
 	var (
 		ctx  context.Context
 		ship *commands.ShipHandler
-		q    *queries.ShapeB
+		q    *queries.Ships
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
 		js := newJetStream()
-		kvB := kvstore.New(js, "dict-b")
+		kvB := kvstore.New(js, "ships")
 		repo := newFakeRepo()
 		log := slog.New(slog.DiscardHandler)
-		consume, err := eventhandler.RegisterShapeB(ctx, js, kvB, nil, repo, log)
+		consume, err := eventhandler.RegisterShips(ctx, js, kvB, nil, repo, log)
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(consume.Stop)
 		ship = commands.NewShipHandler(jstream.NewPublisher(js), js, newFakePortRepo())
-		q = queries.NewShapeB(kvB, repo)
+		q = queries.NewShips(kvB, repo)
 	})
 
 	It("warms the cache on arrive and falls through to Postgres on eviction", func() {
@@ -201,85 +128,6 @@ var _ = Describe("Shape B — KV cache in front of Postgres", func() {
 		By("expecting ErrNotFound for an unknown ship")
 		_, _, err = q.GetShip(ctx, fleetCtx, "unknown-vessel")
 		Expect(errors.Is(err, domain.ErrNotFound)).To(BeTrue())
-	})
-})
-
-// ─── Shape C ─────────────────────────────────────────────────────────────────
-
-var _ = Describe("Shape C — pure event sourcing reconstruction", func() {
-	It("reconstructs ships, containers, and manifests by replaying JetStream from seq=1", func() {
-		ctx := context.Background()
-		js := newJetStream()
-		pub := jstream.NewPublisher(js)
-		portRepo := newFakePortRepo()
-		ships := commands.NewShipHandler(pub, js, portRepo)
-		containers := commands.NewContainerHandler(pub, js, portRepo)
-		const fleetCtx = "acme-pacific-fleet"
-
-		steps := []func() error{
-			func() error {
-				_, err := ships.ArrivePort(ctx, commands.ShipInput{
-					Context: fleetCtx, ShipID: "orient-express", ShipName: "Orient Express", Port: "Hamburg",
-				})
-				return err
-			},
-			func() error {
-				_, err := ships.ArrivePort(ctx, commands.ShipInput{
-					Context: fleetCtx, ShipID: "pacific-star", ShipName: "Pacific Star", Port: "Rotterdam",
-				})
-				return err
-			},
-			func() error {
-				_, err := containers.RegisterContainer(ctx, commands.ContainerInput{
-					Context: fleetCtx, ContainerID: "TCKU1234567",
-					Cargo: "Electronics", OriginPort: "Hamburg", DestPort: "Singapore",
-				})
-				return err
-			},
-			func() error {
-				_, err := containers.LoadContainer(ctx, commands.ContainerInput{
-					Context: fleetCtx, ContainerID: "TCKU1234567", ShipID: "orient-express",
-				})
-				return err
-			},
-			func() error {
-				_, err := ships.DepartPort(ctx, commands.ShipInput{
-					Context: fleetCtx, ShipID: "orient-express", Port: "Hamburg",
-				})
-				return err
-			},
-		}
-		for _, step := range steps {
-			Expect(step()).To(Succeed())
-		}
-
-		q := queries.NewShapeC(js)
-		result, err := q.ReconstructFleet(ctx)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(result.Fleet).To(HaveLen(2))
-		Expect(result.Containers).To(HaveLen(1))
-
-		byID := make(map[string]queries.ShipWithManifest)
-		for _, s := range result.Fleet {
-			byID[s.ShipID] = s
-		}
-
-		By("orient-express is at sea, still carrying the loaded container")
-		oe := byID["orient-express"]
-		Expect(oe.CurrentPort).To(BeEmpty())
-		Expect(oe.Manifest).To(HaveLen(1))
-		Expect(oe.Manifest[0].ContainerID).To(Equal("TCKU1234567"))
-
-		By("pacific-star is docked at Rotterdam with an empty manifest")
-		ps := byID["pacific-star"]
-		Expect(ps.CurrentPort).To(Equal("Rotterdam"))
-		Expect(ps.Manifest).To(BeEmpty())
-
-		By("the container is on-ship, reconstructed from events alone")
-		c := result.Containers[0]
-		Expect(c.Status).To(Equal(domain.ContainerOnShip))
-		Expect(c.OnShipID).To(HaveValue(Equal("orient-express")))
-		Expect(c.TerminalPort).To(BeNil())
 	})
 })
 

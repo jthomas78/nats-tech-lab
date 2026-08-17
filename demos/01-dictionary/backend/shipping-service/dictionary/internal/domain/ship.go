@@ -41,9 +41,9 @@ const (
 
 // ─── Read model (projected into KV and Postgres) ─────────────────────────────
 
-// ShipState is the materialised view stored in NATS KV (Shape A/B read model)
-// and in Postgres (Shape B canonical projection). The container manifest is
-// NOT part of ship state — it is a join over the container projection
+// ShipState is the materialised view stored in NATS KV (write-through cache)
+// and in Postgres (canonical projection). The container manifest is NOT part
+// of ship state — it is a join over the container projection
 // (OnShipID == ShipID).
 type ShipState struct {
 	Context     string     `json:"context"` // fleet / KV-key-prefix qualifier
@@ -62,13 +62,13 @@ type ShipState struct {
 // identity on the write side is still the ID.
 func (s ShipState) KVKey() string { return "ship." + s.ShipID }
 
-// ─── Aggregate (command validation + Shape C reconstruction) ──────────────────
+// ─── Aggregate (command validation + projector state folding) ─────────────────
 
 // ShipAggregate reconstructs ship state by replaying events. It is the single
-// place where the ship rules are enforced (write side) and where Shape C reads
-// derive their fleet view (read side). The Hydrate / ReconstructFleet helpers
-// that feed events into the aggregate live in the application layer so the
-// domain stays free of JetStream imports.
+// place where the ship rules are enforced (write side) and where the
+// projector folds one event's delta into current state (read side). The
+// Hydrate helper that feeds events into the aggregate lives in the
+// application layer so the domain stays free of JetStream imports.
 type ShipAggregate struct {
 	ID          string // surrogate key (UUID) — the immutable aggregate identity
 	ShipID      string // mutable natural key (call-sign / fleet code)

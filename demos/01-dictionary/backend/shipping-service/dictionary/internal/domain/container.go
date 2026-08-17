@@ -62,7 +62,7 @@ type ContainerState struct {
 // identity on the write side is still the ID.
 func (c ContainerState) KVKey() string { return "container." + c.ContainerID }
 
-// ─── Aggregate (command validation + Shape C reconstruction) ──────────────────
+// ─── Aggregate (command validation + projector state folding) ─────────────────
 
 // ContainerAggregate reconstructs container state by replaying events. It is
 // the single place where the container rules (BR-008 … BR-016) are enforced.

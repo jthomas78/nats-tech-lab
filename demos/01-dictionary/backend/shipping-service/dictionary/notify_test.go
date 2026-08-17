@@ -75,9 +75,9 @@ var _ = Describe("notify.* publishes (Phase 15b)", func() {
 		log = slog.New(slog.DiscardHandler)
 	})
 
-	It("publishes notify.{context}.shipping.ship.changed with the full ShipState after Shape A projects an arrive", func() {
-		kvA := kvstore.New(js, "dict-a")
-		cc, err := eventhandler.RegisterShapeA(ctx, js, kvA, nc, log)
+	It("publishes notify.{context}.shipping.ship.changed with the full ShipState after Shape B projects an arrive", func() {
+		kvB := kvstore.New(js, "ships")
+		cc, err := eventhandler.RegisterShips(ctx, js, kvB, nc, newFakeRepo(), log)
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(cc.Stop)
 
@@ -97,8 +97,8 @@ var _ = Describe("notify.* publishes (Phase 15b)", func() {
 	})
 
 	It("publishes notify.{context}.shipping.raw.ship.{event} with the raw event alongside the projected-state notify (Phase 23)", func() {
-		kvA := kvstore.New(js, "dict-a")
-		cc, err := eventhandler.RegisterShapeA(ctx, js, kvA, nc, log)
+		kvB := kvstore.New(js, "ships")
+		cc, err := eventhandler.RegisterShips(ctx, js, kvB, nc, newFakeRepo(), log)
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(cc.Stop)
 
@@ -188,9 +188,9 @@ var _ = Describe("notify.* publishes (Phase 15b)", func() {
 	})
 
 	It("does not publish or panic when nc is nil (nil-safe, matching this repo's Deps convention)", func() {
-		kvA := kvstore.New(js, "dict-a")
+		kvB := kvstore.New(js, "ships")
 		var noNC *nats.Conn
-		cc, err := eventhandler.RegisterShapeA(ctx, js, kvA, noNC, log)
+		cc, err := eventhandler.RegisterShips(ctx, js, kvB, noNC, newFakeRepo(), log)
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(cc.Stop)
 

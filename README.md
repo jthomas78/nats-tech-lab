@@ -91,12 +91,12 @@ npm run dev          # → http://localhost:7100
 
 ## Demo 01 — Dictionary POC
 
-Two shapes for serving context-scoped reference data, side by side:
-
-- **Shape A** — NATS KV *is* the read model: events project straight into
-  `dict-a-{context}`; reads never touch Postgres.
-- **Shape B** — KV as cache in front of a canonical Postgres projection:
-  cache miss falls through to Postgres and backfills `dict-b-{context}`.
+Serves context-scoped reference data with NATS KV as a cache in front of a
+canonical Postgres projection: a cache miss falls through to Postgres and
+backfills the `ships` KV bucket. (Two other shapes — KV as the read model,
+and event-sourced reconstruction — were built side by side and retired in
+Phase 31 once the comparison was decided; see
+`obsidian/POC-Dictionaries/` for the findings.)
 
 See `demos/01-dictionary/README.md` for the full intro (also rendered inside
 the lab shell).

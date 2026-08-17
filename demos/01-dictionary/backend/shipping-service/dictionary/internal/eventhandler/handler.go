@@ -1,6 +1,6 @@
-// Package eventhandler contains the JetStream consumers that project shipping
-// events into the two read-side shapes. Each shape has its own durable consumer
-// so the projections replay and advance independently.
+// Package eventhandler contains the JetStream consumers that project
+// shipping events into their read-side projections: ships (Postgres +
+// write-through KV cache), containers, and meta.
 package eventhandler
 
 import (
@@ -16,61 +16,21 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
 )
 
-// RegisterShapeA starts the Shape A projector: ship events are projected
-// directly into the tenant-scoped KV bucket under its context key prefix,
-// which IS the read model.
-// On each event the projector reads the current KV state, applies the event
-// delta via ShipAggregate, and writes the new ShipState back.
-//
-// nc is optional (nil-safe, Phase 15b): when set, a fire-and-forget
-// notify.{context}.shipping.ship.changed event carrying the full new
-// ShipState is published after every successful KV write, letting a browser
-// connected directly to this tenant's NATS account (Main-POC-Plan.md
-// Phase 15d) react without KV watch or SSE. Only Shape A publishes this —
-// Shape B projects the same events into its own cache but the browser
-// doesn't distinguish shapes, so a second notify per event would be a
-// duplicate, not new information. See notify_test.go for the payload
-// contract this relies on.
-func RegisterShapeA(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, nc *nats.Conn, log *slog.Logger) (jetstream.ConsumeContext, error) {
-	return register(ctx, js, "ship-shape-a", nc, log, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
-		oldKey := shipKVKey(subject, event)
-		agg := currentAgg(msgCtx, kv, event.Context, oldKey)
-		agg.Apply(subject, event)
-		newKey := "ship." + agg.ShipID
-		data, err := json.Marshal(agg.State(event.Context))
-		if err != nil {
-			return err
-		}
-		if oldKey != newKey {
-			if err := kv.Delete(msgCtx, event.Context, oldKey); err != nil {
-				return err
-			}
-		}
-		if _, err := kv.Put(msgCtx, event.Context, newKey, data); err != nil {
-			return err
-		}
-		sp := natstrace.SpanFromContext(msgCtx)
-		publishNotify(nc, log, event.Context, "ship", data, sp)
-		if _, _, eventType, ok := domain.SubjectDetails(subject); ok {
-			if rawData, err := json.Marshal(event); err == nil {
-				publishRawNotify(nc, log, event.Context, "ship", eventType, rawData, sp)
-			}
-		}
-		return nil
-	})
-}
-
-// RegisterShapeB starts the Shape B projector: events update the canonical
+// RegisterShips starts the ship projector: events update the canonical
 // Postgres projection first, then eagerly write the result through to the KV
 // cache so subsequent reads are served from KV without hitting Postgres.
 //
-// nc is nil-safe (Phase 28d) — threaded through only so register()'s shared
-// Consume callback can construct a natstrace.Tracer for this projector's
-// per-message spans too; Shape B has no notify.* publish of its own (only
-// Shape A does, see RegisterShapeA's doc comment), so nc is otherwise unused
-// here.
-func RegisterShapeB(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, nc *nats.Conn, repo domain.ShipRepository, log *slog.Logger) (jetstream.ConsumeContext, error) {
-	return register(ctx, js, "ship-shape-b", nc, log, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
+// nc is optional (nil-safe, Phase 15b — moved here Phase 31 from the retired
+// Shape A projector): when set, a fire-and-forget
+// notify.{context}.shipping.ship.changed event carrying the full new
+// ShipState is published after every successful KV write, letting a browser
+// connected directly to this tenant's NATS account (Main-POC-Plan.md
+// Phase 15d) react without KV watch or SSE. This projector is the ship
+// entity's sole notify.* publisher (BR-024's "exactly one publisher per
+// event" invariant). See notify_test.go for the payload contract this
+// relies on.
+func RegisterShips(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, nc *nats.Conn, repo domain.ShipRepository, log *slog.Logger) (jetstream.ConsumeContext, error) {
+	return register(ctx, js, "ship-projector", nc, log, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
 		oldKey := shipKVKey(subject, event)
 		agg := currentAgg(msgCtx, kv, event.Context, oldKey)
 		agg.Apply(subject, event)
@@ -90,8 +50,17 @@ func RegisterShapeB(ctx context.Context, js jetstream.JetStream, kv *kvstore.Sto
 				return err
 			}
 		}
-		_, err = kv.Put(msgCtx, event.Context, newKey, data)
-		return err
+		if _, err := kv.Put(msgCtx, event.Context, newKey, data); err != nil {
+			return err
+		}
+		sp := natstrace.SpanFromContext(msgCtx)
+		publishNotify(nc, log, event.Context, "ship", data, sp)
+		if _, _, eventType, ok := domain.SubjectDetails(subject); ok {
+			if rawData, err := json.Marshal(event); err == nil {
+				publishRawNotify(nc, log, event.Context, "ship", eventType, rawData, sp)
+			}
+		}
+		return nil
 	})
 }
 

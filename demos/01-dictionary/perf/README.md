@@ -26,13 +26,12 @@ suite. See `.claude/plans/Main-POC-Plan.md` for scope.
 perf/
   lib/
     config.js   # BASE_URL, CONTEXT, PORTS — all env-overridable
-    api.js      # thin endpoint wrappers (arrive/depart/register/load/shapeCFleet…)
+    api.js      # thin endpoint wrappers (arrive/depart/register/load…)
     ids.js      # ISO 6346 container IDs (TCKU + 7 digits), ship-id slugs
   seed.js       # optional: pre-populate a container pool + arrived ships
   scenarios/
-    hydration-single-ship.js        # baseline #2 — write-side replay-per-command
+    hydration-single-ship.js        # write-side replay-per-command baseline
     throughput-concurrent-ships.js  # raw command-throughput ceiling
-    shape-c-reconstruction.js       # baseline #1 — full-replay-per-call vs depth
 ```
 
 ## Running
@@ -43,9 +42,8 @@ Every script polls `/healthz` in `setup()` and fails fast if the stack is down.
 # optional seed
 k6 run demos/01-dictionary/perf/seed.js
 
-# baseline scenarios (smoke defaults)
+# baseline scenario (smoke defaults)
 k6 run demos/01-dictionary/perf/scenarios/hydration-single-ship.js
-k6 run demos/01-dictionary/perf/scenarios/shape-c-reconstruction.js
 
 # throughput: run once per concurrency level (the 10 → 500 ramp is these points)
 for v in 10 100 250 500; do
@@ -77,15 +75,11 @@ k6 run --summary-export=hydration.json \
 | `MAX_EVENTS` | `2000` | hydration | set `10000` for the full 1k–10k band |
 | `VUS` | `100` | throughput | concurrent command senders (run per level: 10/100/250/500) |
 | `DURATION` | `45s` | throughput | hold time at that concurrency |
-| `DEPTHS` | `100,1000,10000` | shape-c | stream depths to sample at |
-| `SAMPLES` | `10` | shape-c | reconstruction samples per depth |
-| `SHIPS` | `10` | shape-c | ship pool used to grow the stream |
 | `SEED_CONTAINERS` / `SEED_SHIPS` | `20` / `5` | seed | pool sizes |
 
 **Smoke first**, then scale up:
 
 ```bash
-DEPTHS=100,500 SAMPLES=5 k6 run demos/01-dictionary/perf/scenarios/shape-c-reconstruction.js
 MAX_EVENTS=200 k6 run demos/01-dictionary/perf/scenarios/hydration-single-ship.js
 ```
 
@@ -93,7 +87,6 @@ MAX_EVENTS=200 k6 run demos/01-dictionary/perf/scenarios/hydration-single-ship.j
 
 - `hydration_cmd_latency` — tagged by `events` band (`0000-0100` … `10000+`) and `op`.
 - `throughput_cmd_latency` + `throughput_errors` — p95 latency and error rate at the run's `VUS` level (also read `http_reqs` rate for cmd/s and `http_req_failed`).
-- `shape_c_recon_latency` — tagged by `depth` (`100`, `1000`, `10000`).
 
 ## Not in this harness (deferred to Phase 104)
 

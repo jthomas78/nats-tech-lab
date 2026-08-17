@@ -21,7 +21,7 @@ func TestListKVBucketsReportsPlatformBuckets(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "dict-a"}); err != nil {
+	if _, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "ships"}); err != nil {
 		t.Fatalf("create kv bucket: %v", err)
 	}
 
@@ -41,7 +41,7 @@ func TestListKVBucketsReportsPlatformBuckets(t *testing.T) {
 	if len(body.Buckets) != 1 {
 		t.Fatalf("expected 1 bucket, got %d: %+v", len(body.Buckets), body.Buckets)
 	}
-	if body.Buckets[0].Bucket != "dict-a" || body.Buckets[0].Account != platformAccount {
+	if body.Buckets[0].Bucket != "ships" || body.Buckets[0].Account != platformAccount {
 		t.Fatalf("unexpected bucket: %+v", body.Buckets[0])
 	}
 	if len(body.Accounts) != 1 || body.Accounts[0].Name != platformAccount || body.Accounts[0].Status != platformAccountStatus {
@@ -64,7 +64,7 @@ func TestListKVBucketsSkipsUnreachableAccountRatherThanFailingWholeResponse(t *t
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "dict-a"}); err != nil {
+	if _, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "ships"}); err != nil {
 		t.Fatalf("create kv bucket: %v", err)
 	}
 
@@ -81,7 +81,7 @@ func TestListKVBucketsSkipsUnreachableAccountRatherThanFailingWholeResponse(t *t
 		t.Fatalf("decode response: %v", err)
 	}
 	if len(body.Buckets) != 1 || body.Buckets[0].Account != platformAccount {
-		t.Fatalf("expected platform's dict-a to survive acme's failure, got %+v", body.Buckets)
+		t.Fatalf("expected platform's ships to survive acme's failure, got %+v", body.Buckets)
 	}
 	got := map[string]string{}
 	for _, a := range body.Accounts {
@@ -125,7 +125,7 @@ func TestKVBucketEntriesOnceReturnsSnapshot(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	kv, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "dict-a"})
+	kv, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "ships"})
 	if err != nil {
 		t.Fatalf("create kv bucket: %v", err)
 	}
@@ -141,9 +141,9 @@ func TestKVBucketEntriesOnceReturnsSnapshot(t *testing.T) {
 	}
 
 	h := New(Deps{NC: nc, Log: discardLogger(), Accounts: &AccountsClient{}})
-	req := httptest.NewRequest(http.MethodGet, "/api/kv/buckets/platform/dict-a/entries", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/kv/buckets/platform/ships/entries", nil)
 	req.SetPathValue("account", "platform")
-	req.SetPathValue("bucket", "dict-a")
+	req.SetPathValue("bucket", "ships")
 	w := httptest.NewRecorder()
 
 	h.kvBucketEntriesOnce(w, req)
@@ -175,9 +175,9 @@ func TestKVBucketEntriesOnceReturns400ForUnknownAccount(t *testing.T) {
 	defer cleanup()
 
 	h := New(Deps{NC: nc, Log: discardLogger(), Accounts: &AccountsClient{}})
-	req := httptest.NewRequest(http.MethodGet, "/api/kv/buckets/nope/dict-a/entries", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/kv/buckets/nope/ships/entries", nil)
 	req.SetPathValue("account", "nope")
-	req.SetPathValue("bucket", "dict-a")
+	req.SetPathValue("bucket", "ships")
 	w := httptest.NewRecorder()
 
 	h.kvBucketEntriesOnce(w, req)

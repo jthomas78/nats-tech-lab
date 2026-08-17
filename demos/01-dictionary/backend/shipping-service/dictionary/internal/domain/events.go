@@ -24,8 +24,7 @@ const (
 	// so both the composition root and rest.SwitchTenant (Phase 13b) can build
 	// a kvstore.Store for the currently active NATS account without an import
 	// cycle between them.
-	ShapeABucketPrefix    = "dict-a"    // Shape A ship read model
-	ShapeBBucketPrefix    = "dict-b"    // Shape B ship cache
+	ShipBucketPrefix      = "ships"     // ship write-through KV cache in front of Postgres
 	ContainerBucketPrefix = "container" // container projection (terminal queries read model)
 	MetaBucketPrefix      = "meta"      // cross-cutting lookup sets (known-containers)
 
@@ -50,9 +49,9 @@ const (
 	// position, not just a leading prefix).
 	SubjectWildcard = "evt.*." + Domain + ".>"
 	// SubjectShipWildcard matches ship movement events for every context —
-	// Shape A/B/meta projectors are intentionally tenant-agnostic: each
-	// tenant's NATS account has its own shared KV buckets, and event.Context
-	// becomes the key prefix inside those buckets.
+	// projectors are intentionally tenant-agnostic: each tenant's NATS
+	// account has its own shared KV buckets, and event.Context becomes the
+	// key prefix inside those buckets.
 	SubjectShipWildcard = "evt.*." + Domain + ".ship.>"
 	// SubjectContainerWildcard matches container lifecycle events for every context.
 	SubjectContainerWildcard = "evt.*." + Domain + ".container.>"

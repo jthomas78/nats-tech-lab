@@ -1208,12 +1208,12 @@ endpoints therefore read `introspectableAccounts()` — every entry in
 `Deps.JS` at all.
 
 ```
-GET /api/kv/buckets        → {"buckets":[{"bucket":"dict-a","account":"acme", …}]}
+GET /api/kv/buckets        → {"buckets":[{"bucket":"ships","account":"acme", …}]}
 GET /api/jetstream/streams → {"streams":[{"stream":"SHIPPING","account":"acme", …}]}
 ```
 
 **Names are unique only within an account, so every row carries its account.**
-Every tenant provisions its own `dict-a`/`dict-b`/`container`/`meta` and its
+Every tenant provisions its own `ships`/`container`/`meta` and its
 own `SHIPPING`. A bare-name response would collapse three tenants' `SHIPPING`
 into one indistinguishable row, so both endpoints return objects tagged with
 the account, sorted by (account, name) — deterministic despite

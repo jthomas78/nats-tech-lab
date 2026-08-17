@@ -7,17 +7,14 @@ import { useDictionaryStore } from '../stores/dictionary'
 const store = useDictionaryStore()
 
 const kvRev = computed(() => {
-  const revs = [...store.shapeARows, ...store.shapeBRows]
-    .map((r) => r.revision)
-    .filter((r) => typeof r === 'number')
+  const revs = store.shipRows.map((r) => r.revision).filter((r) => typeof r === 'number')
   return revs.length ? Math.max(...revs) : 0
 })
 
 const stats = computed(() => [
-  { k: 'Shape A entries', v: store.shapeARows.length, m: `KV read model · context ${store.context}` },
+  { k: 'Ship entries', v: store.shipRows.length, m: `KV cache (ships) · context ${store.context}` },
   { k: 'KV rev', v: kvRev.value, m: store.events[0] ? `last write ${store.events[0].at}` : 'no writes yet' },
   { k: 'Watch buffer', v: store.events.length, m: 'recent KV changes held' },
-  { k: 'Shape B entries', v: store.shapeBRows.length, m: 'KV cache (dict-b) entries' },
 ])
 </script>
 

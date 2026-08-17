@@ -21,9 +21,11 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/rest"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 )
 
 var _ = Describe("Phase 13b — tenant switch", func() {
@@ -65,23 +67,19 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 		Expect(resp.StatusCode).To(Equal(http.StatusAccepted))
 	}
 
-	fleetShipIDs := func() []string {
+	// shipExists reports whether shipID is reachable through the currently
+	// active tenant's Shape B read path (KV cache, falling through to
+	// Postgres) — a single-ship existence probe that, unlike a fleet-wide
+	// listing, doesn't require replaying any account's full event history to
+	// answer, and is scoped only by fleet context (never by tenant/account
+	// identity, which is implicit in whichever tenant REST's Deps currently
+	// mirror).
+	shipExists := func(shipID string) bool {
 		GinkgoHelper()
-		resp, err := client.Client().Get(client.URL + "/api/shape-c/fleet")
+		resp, err := client.Client().Get(client.URL + "/api/shape-b/ships/acme-pacific-fleet/" + shipID)
 		Expect(err).NotTo(HaveOccurred())
 		defer resp.Body.Close()
-		Expect(resp.StatusCode).To(Equal(http.StatusOK))
-		var fleet struct {
-			Fleet []struct {
-				ShipID string `json:"shipID"`
-			} `json:"fleet"`
-		}
-		Expect(json.NewDecoder(resp.Body).Decode(&fleet)).To(Succeed())
-		var ids []string
-		for _, s := range fleet.Fleet {
-			ids = append(ids, s.ShipID)
-		}
-		return ids
+		return resp.StatusCode == http.StatusOK
 	}
 
 	switchTo := func(tenant string) {
@@ -96,11 +94,11 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 	It("makes tenant A's ships unreachable after switching to tenant B, with the isolation originating server-side, and recovers on switching back", func() {
 		By("registering a ship while acme is active")
 		arriveShip("acme-spike-ship", "Hamburg")
-		Expect(fleetShipIDs()).To(ContainElement("acme-spike-ship"))
+		Eventually(func() bool { return shipExists("acme-spike-ship") }, 3*time.Second, 50*time.Millisecond).Should(BeTrue())
 
 		By("confirming no InactiveThreshold is set on the projector durables — a durable with one is reaped after inactivity and would lose its position across a long tenant switch")
 		_, acmeJS := synthSrv.connectAs("acme")
-		cons, err := acmeJS.Consumer(ctx, "SHIPPING", "ship-shape-a")
+		cons, err := acmeJS.Consumer(ctx, "SHIPPING", "ship-projector")
 		Expect(err).NotTo(HaveOccurred())
 		info, err := cons.Info(ctx)
 		Expect(err).NotTo(HaveOccurred())
@@ -108,11 +106,23 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 
 		By("switching to globex")
 		switchTo("globex")
-		Expect(fleetShipIDs()).NotTo(ContainElement("acme-spike-ship"),
-			"tenant B must not see tenant A's ship through the same API call")
+
+		// Not shipExists()/GET /api/shape-b/ships here: Shape B's read falls
+		// through to Postgres on a KV miss (BR-038), and Postgres is a single
+		// shared instance scoped only by the {context} business-unit string,
+		// never by NATS account — a fleet-context collision across two
+		// tenants (both using "acme-pacific-fleet") would fall through and
+		// find the row regardless of which account is active, which would
+		// make this assertion pass for the wrong reason. The KV bucket
+		// itself, unlike Postgres, genuinely is one-per-account, so it's the
+		// resource that actually proves server-side isolation post-Shape C.
+		_, globexJS := synthSrv.connectAs("globex")
+		globexKV := kvstore.New(globexJS, "ships")
+		_, _, err = globexKV.Get(ctx, "acme-pacific-fleet", "ship.acme-spike-ship")
+		Expect(err).To(MatchError(jetstream.ErrKeyNotFound),
+			"tenant B's own KV cache must never contain tenant A's ship")
 
 		By("proving that's a server-side isolation fact, not an application filter: globex's own SHIPPING stream — independently created by SwitchTenant — genuinely has zero messages")
-		_, globexJS := synthSrv.connectAs("globex")
 		globexStream, err := globexJS.Stream(ctx, "SHIPPING")
 		Expect(err).NotTo(HaveOccurred(), "SwitchTenant must create SHIPPING in every tenant account it connects to")
 		globexInfo, err := globexStream.Info(ctx)
@@ -121,11 +131,11 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 
 		By("switching back to acme recovers the ship — the durable's stream position was never lost")
 		switchTo("acme")
-		Expect(fleetShipIDs()).To(ContainElement("acme-spike-ship"))
+		Expect(shipExists("acme-spike-ship")).To(BeTrue())
 
 		By("regression: a switch triggered over HTTP must not leave the new tenant's projectors permanently broken — POST /api/tenant/switch's r.Context() is canceled the instant that response is sent, so a projector wired to it (not context.WithoutCancel'd) would fail every event it processes afterward with \"context canceled\" and redeliver forever")
 		arriveShip("acme-post-switch-ship", "Rotterdam")
-		Eventually(fleetShipIDs, 3*time.Second, 50*time.Millisecond).Should(ContainElement("acme-post-switch-ship"),
+		Eventually(func() bool { return shipExists("acme-post-switch-ship") }, 3*time.Second, 50*time.Millisecond).Should(BeTrue(),
 			"an event published after a REST-triggered switch must still reach its projector and land in the read model")
 	})
 
