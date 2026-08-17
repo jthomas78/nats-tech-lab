@@ -2257,6 +2257,570 @@ waterfall as Phase 28's application spans.
       events, so application spans and infrastructure hops land on one
       waterfall keyed identically. No off-the-shelf tool does this.
 
+### Phase 30 (PROPOSED) — observability-service: Extract Cross-Account Diagnostics from shipping-service
+
+#### Goal
+
+The NATS/SYSTEM diagnostic endpoints (`/api/nats/connections`,
+`/api/nats/account-activity`, `/api/nats/log`, `/api/jetstream/streams`,
+`/api/jetstream/replay`, `/api/kv/buckets*`) and the `TRACES` stream
+consumer (`RegisterTraceStore`, projecting into the `trace-request-reply` KV
+bucket) all live in `shipping-service` today for one reason: it is
+currently the only service holding live NATS connections into PLATFORM
+*and* every tenant account (Main-POC-Plan.md:308's Phase 21 note), so it
+was the only place that could answer them. None of this is shipping domain
+logic. Extract it into a new PLATFORM-account service,
+**`observability-service`**, matching the `obs.*` subject family CLAUDE.md
+already reserves for this purpose, and the natural landing spot for the
+system/performance telemetry (memory, CPU, JetStream/consumer lag) this
+phase's discussion flagged as the next thing wanted here.
+
+#### Decisions locked (with user, 2026-08-16)
+
+- New service on the PLATFORM account, port **7205** (next free in the
+  7200–7299 backend range per CLAUDE.md's port allocation table).
+- Absorbs, lifted verbatim except where noted: `dictionary/internal/rest/
+  {nats_ops,nats_log,streams,kv,replay}.go`'s six handlers, and
+  `dictionary/internal/eventhandler/trace_store.go`'s `RegisterTraceStore` +
+  `trace-request-reply` KV projection.
+- `otlp-bridge` stays a separate deployable — already correctly scoped as a
+  translator with no REST API of its own; not folded in.
+- **Chose the export/import extension over duplicating shipping-service's
+  raw per-tenant connection fan-out** (`TenantResources`/
+  `ensureTenantResources`): a second service holding a live credential into
+  every tenant account would be a second instance of exactly the pattern
+  Phase 21's "target partitioning" note already flagged for retirement, with
+  a strictly broader permission surface than an explicit, enumerable
+  account-JWT export. `observability-service` ends up holding exactly one
+  NATS connection — PLATFORM-scoped, restricted like `shipping-admin` — no
+  `.creds` file of its own into any tenant account.
+
+#### Design
+
+- **Two new per-tenant export/import pairs**, wired the identical way
+  BR-AC30/`addPlatformTraceImport` already wires `obs.trace.>` — this is
+  generalizing a proven mechanism, not inventing one:
+  1. **`$SRV` discovery** — each tenant account exports `$SRV.PING`/
+     `$SRV.INFO`/`$SRV.STATS` as a service export; PLATFORM imports it per
+     tenant with a local remap (e.g. local `monitor.{tenant}.srv.>`),
+     letting `observability-service` broadcast `$SRV.STATS` and receive
+     replies across the account boundary the same way the `rpc.*` service
+     imports already do (ARCHITECTURE-ACCOUNTS.md:83's "`$SRV.>` is not
+     exported to tenants" is the opposite direction — PLATFORM's own $SRV
+     kept private from tenants — and does not block this reverse export).
+  2. **`$JS.API` subset for JetStream/KV introspection** — each tenant
+     exports a narrow, explicit subject list, deliberately **not**
+     `$JS.API.>` (ARCHITECTURE-ACCOUNTS.md:87–101's caveat: the full
+     namespace grants stream *management* — create, delete, purge — not
+     just visibility). **This is not a pure read-only grant** — traced
+     against the exact call chain in `dictionary/internal/rest/{kv,replay}.go`
+     and the `$JS.API` subject constants in the pinned `nats.go@v1.52.0`
+     (`go.mod`), `/api/jetstream/replay` and the KV-entries watch both
+     create (and in replay's case, explicitly delete) real ephemeral
+     JetStream consumers — there is no way to serve them from list/info
+     subjects alone:
+     - `STREAM.LIST` — bucket + stream listing (`listKVBuckets`,
+       `listStreams`; stream consumer *count* rides inside this response's
+       `State.Consumers`, so `CONSUMER.LIST`/`NAMES` are never called and
+       are excluded)
+     - `STREAM.INFO.*` — resolves a named bucket's backing stream
+       (`kvBucketEntriesOnce`'s `js.KeyValue()` call)
+     - `CONSUMER.CREATE.*` — the legacy nameless-ephemeral form the KV-watch
+       path uses (`kv.go`'s `WatchAll` → core-nats `nats.OrderedConsumer()`
+       push subscribe); server assigns the name, so this 5-token subject
+       can never collide with a caller-chosen durable name
+     - `CONSUMER.CREATE.*.*` — the named-ephemeral form
+       `jetstreamReplayOnce`'s `js.OrderedConsumer()` uses; the name is
+       always a nuid `generateConsName()` value (confirmed: `replay.go`
+       sets `FilterSubjects` plural, which `consumer.go:319`'s branch
+       condition routes away from the 7-token filter-in-subject form, so
+       that variant is excluded as unused)
+     - `CONSUMER.MSG.NEXT.*.*` — pulling messages off the replay consumer
+     - `CONSUMER.DELETE.*.*` — cleanup for both paths (`replay.go:85`'s
+       explicit delete; the KV-watch path's `Stop()`/`Unsubscribe()` — not
+       yet empirically confirmed to round-trip a delete rather than rely on
+       `InactiveThreshold` reaping, worth pinning with a live trace when 30b
+       lands)
+
+     `STREAM.MSG.GET.*` is excluded — no current handler calls it (can be
+     added later if a "jump to sequence" feature needs a direct single-
+     message fetch).
+
+     **`CONSUMER.DELETE.*.*` is the one export that isn't fully closed by
+     subject scoping.** NATS wildcards match any single token regardless of
+     content, so this subject permits deleting *any* consumer on *any*
+     stream in the tenant account — including a business-critical durable
+     one — not just an ephemeral one this connection created. That has to be
+     an application-layer invariant, not a JWT-scope one:
+     `observability-service` must only ever call `DeleteConsumer` with a
+     name it just received from its own preceding `CREATE` response in the
+     same request (exactly what `replay.go:85` already does today via
+     `consumer.CachedInfo().Name`, never a caller-supplied value) — 30b adds
+     a test enforcing that discipline, not just a happy-path spec.
+- Both declared in the same two places `obs.trace.>` already is: the day-0
+  `nsc` equivalent in `nats/bootstrap-operator.sh`, and
+  `accounts/provisioner.go`'s `CreateAccount` — tenant-side via
+  `tenantExports()`, PLATFORM-side via a new `addPlatformMonitorImport`-
+  style helper mirroring `addPlatformTraceImport` (re-signs PLATFORM's
+  claims through `pushClaimsUpdate`/`$SYS.REQ.CLAIMS.UPDATE`, idempotent per
+  `(account, subject)` pair).
+- Admin UI: `admin/src/api.js` client functions + dev-mode Vite proxy
+  entries for the six diagnostic endpoints repoint from shipping-service's
+  port to `observability-service`'s (7205). The NATS/SYSTEM nav panels
+  themselves (components, props) are unchanged — only where they fetch from
+  moves.
+- Migration is additive-then-subtractive within the phase: stand up
+  `observability-service` answering the same endpoints, flip the Admin UI's
+  proxy, verify parity live, then delete the moved code from
+  `shipping-service` — not left dual-registered past this phase.
+
+#### Sub-phases (each independently landable)
+
+- [x] **30a — accounts-service: `$SRV` discovery export/import.** (DONE
+      2026-08-16) Not quite BR-AC30's mechanism exactly — discovered
+      mid-implementation that `$SRV` needs a **Service** export/import
+      (`ResponseType: jwt.ResponseTypeStream`, not the library default
+      `Singleton` — `$SRV.STATS` is answered by every registered instance,
+      not one), unlike `obs.trace.>`'s **Stream** export, and no `$SRV`
+      subject had ever crossed an account boundary in this codebase before
+      this rule (confirmed via `go doc`/source on the pinned
+      `nats.go@v1.52.0`/`jwt/v2@v2.8.2`, and via `nsc add export --help` for
+      the `--response-type` flag). Live cross-account reply-fanout routing
+      is accordingly *not* proven by this sub-phase's tests — deferred to
+      Phase 30i's live verification, per the user's explicit choice not to
+      spike-test it first. Landed: BR-AC31 (`BUSINESS_RULES-ACCOUNTS.md`,
+      `BUSINESS_RULES.md` index bump); `tenantExports()` +
+      `addPlatformMonitorImport` + `CreateAccount` wiring
+      (`accounts/provisioner.go`); day-0 `$SRV.>` export/import block
+      (`nats/bootstrap-operator.sh`); `TestNewAccountClaimsAddsTenantMonitorExport`
+      + the PLATFORM-side idempotency spec (`provisioner_claims_test.go`/
+      `provisioner_test.go`) — the latter also fixed to filter by subject
+      instead of asserting PLATFORM's raw `Imports` length, which this
+      phase's own second import broke; browser-exclusion covered by
+      pre-existing `auth/token_test.go` `ConsistOf` assertions, no new test
+      needed since `auth/token.go` is untouched. `ginkgo -r ./...` green,
+      85/85 specs (accounts-service).
+- [x] **30b — accounts-service: `$JS.API` introspection export/import.**
+      (DONE 2026-08-16) The six-subject list from Design, wired via the same
+      mechanism as 30a, with per-subject `ResponseType` (five `Singleton`,
+      `CONSUMER.MSG.NEXT.*.*` alone `Stream` — a batch pull yields multiple
+      replies per request, the same not-yet-proven-live mechanism as
+      BR-AC31's `$SRV.>`). Landed: BR-AC32 (`BUSINESS_RULES-ACCOUNTS.md`,
+      `BUSINESS_RULES.md` index bump); `jsAPIExportSubjects` +
+      `addPlatformJSAPIImport` + `CreateAccount` wiring
+      (`accounts/provisioner.go`); day-0 six-subject export/import block
+      (`nats/bootstrap-operator.sh`); `TestNewAccountClaimsAddsTenantJSAPIExports`
+      (positive six-subject + `ResponseType` check + negative "no other
+      `$JS.API` subject leaked in" check) and the PLATFORM-side idempotency
+      spec, both in `provisioner_claims_test.go`/`provisioner_test.go`. The
+      `DeleteConsumer`-name-provenance code-level test/lint is **not** part
+      of this sub-phase — `DeleteConsumer` doesn't exist yet in
+      `observability-service` until 30e lifts the JetStream/KV handlers;
+      carried forward as a 30e checklist item instead. `ginkgo -r ./...`
+      green, 86/86 specs (accounts-service).
+- [x] **30c — scaffold `observability-service`.** (DONE 2026-08-16) Deviated
+      from the original `refdata-service`-mirroring description in one
+      respect: `observability/internal/{natsops,tracestore}` were **not**
+      pre-created as empty packages — CLAUDE.md's own guidance against
+      premature scaffolding — and will be created by 30f/30g when they have
+      real content. What landed: `go.mod`/`cmd/main.go` (NATS connect only,
+      no Postgres — mirrors `refdata-service`'s `cmd/main.go` minus its DB
+      wiring), `observability/composition.go` +
+      `observability/internal/rest` with a `GET /healthz` only (every real
+      endpoint is 30d–30g), `Dockerfile` (mirrors `otlp-bridge`'s), Docker
+      Compose entry on port 7205. Also minted a dedicated restricted
+      PLATFORM credential (`nsc add user --account PLATFORM observability`,
+      `nats/bootstrap-operator.sh`) rather than reusing the unrestricted
+      `platform.creds` `refdata-service`/`otlp-bridge` use — narrow
+      `allow-pub`/`allow-sub` of `monitor.>,$SRV.>` (+ `_INBOX.>` sub) is
+      everything BR-AC31/BR-AC32's imports resolve to; PLATFORM-native
+      `$JS.API` access is deliberately not yet granted, added when 30e/30f
+      need it. `go build ./...`/`go vet ./...` clean; `docker compose build
+      observability-service` and `docker compose config -q` both clean.
+- [x] **30d — lift the pure HTTP-proxy panels.** (DONE 2026-08-16)
+      `/api/nats/connections`, `/api/nats/account-activity`,
+      `/api/nats/log` — no dependency on 30a/30b confirmed true, but a real
+      dependency surfaced mid-implementation that the original sub-phase
+      description didn't anticipate: both panels' `tenantLabel` resolution
+      (`tenantLabelsByAccount` in the original) worked by matching `/connz`
+      rows against the `LocalAddr` of connections **shipping-service itself
+      held** — one per tenant, via `TenantResources`. `observability-service`
+      holds exactly one connection (PLATFORM), so there is nothing to
+      match against; labeling would have silently gone dark. Fixed by
+      adding a new `AccountsClient` (`observability/internal/rest/
+      accounts_client.go`) that calls accounts-service's existing
+      `GET /api/accounts` (already serving the Admin UI's Accounts panel,
+      already carrying `{name, publicKey}`) for a direct pubkey→name
+      lookup — mirrors accounts-service's own `RefdataClient` pattern
+      (`accounts/refdata.go`), needs no new NATS grant, and is simpler than
+      the two-stage trick it replaces (no more "which connections are ours"
+      matching). New env vars `ACCOUNTS_URL`/`ACCOUNTS_AUTH_SECRET`
+      (`docker-compose.yml`, `cmd/main.go`, `observability/composition.go`'s
+      new `Config`); `NATS_MONITOR_URL`/`NATS_LOG_PATH` also wired
+      (`nats-logs` volume mounted read-only, mirroring shipping-service's
+      own mount). Handlers lifted into
+      `observability/internal/rest/{nats_connections,nats_log}.go`,
+      `Services` (the third original panel in `nats_ops.go`) deliberately
+      left for 30f. Tests ported/adapted from `nats_ops_test.go`/
+      `nats_log_test.go`, the label specs rewritten against a mocked
+      accounts-service instead of real embedded-NATS `LocalAddr`s; `go
+      test ./...` 20/20 green, `go vet ./...` clean, `docker compose build
+      observability-service` and `docker compose config -q` both clean.
+- [x] **30e — lift JetStream/KV introspection.** (DONE 2026-08-16)
+      `/api/jetstream/streams`, `/api/jetstream/replay`, `/api/kv/buckets*`
+      — the "code-level `DeleteConsumer` lint" carried forward from 30b is
+      satisfied by construction, not a separate lint pass: `replay.go`'s
+      only `DeleteConsumer` call site uses `consumer.CachedInfo().Name` (the
+      server-assigned name from this handler's own preceding `CREATE`),
+      never a request-derived value, and a new test
+      (`TestJetstreamReplayOnceReturnsAllRetainedMessages`) asserts the
+      consumer is actually gone afterward via `ConsumerNames`.
+
+      A mechanism discovery changed the implementation shape from what the
+      sub-phase description assumed: rather than hand-rolling `$JS.API`
+      requests against `monitor.{tenant}.js.*`, the pinned `nats.go`'s
+      `jetstream.NewWithAPIPrefix` transparently honors a custom API prefix
+      for every operation these handlers need — confirmed by reading
+      `apiSubject()`'s prefix-concatenation and `legacyJetStream()`'s
+      prefix propagation to the KV-watch path in the actual `nats.go`
+      source, not assumed. So `introspectableAccounts`/`jsForAccount`
+      (`kv.go`) construct one `jetstream.JetStream` per account —
+      `jetstream.New(nc)` for `"platform"`, `jetstream.NewWithAPIPrefix(nc,
+      "monitor."+name+".js")` per tenant, tenant names from
+      `AccountsClient.TenantNames` (new method, same accounts-service
+      `GET /api/accounts` call 30d already added) — replacing
+      shipping-service's `TenantResources` map iteration entirely, and the
+      REST handlers themselves (`streams.go`/`kv.go`/`replay.go`) are
+      otherwise a close port.
+
+      Two more deliberate deviations, both documented in `replay.go`'s
+      package doc comment: (1) no ship/container-specific subject filter —
+      domain knowledge that doesn't belong in a domain-agnostic tool, and
+      `domain.StreamSubjects()` isn't reachable from a separate `go.mod`
+      anyway; every stream now replays unfiltered (cosmetic effect only).
+      (2) `account`/`stream` are both required query params for replay, not
+      defaulted — the original defaulted to shipping-service's own
+      "currently active tenant" session concept, which doesn't exist here.
+
+      `nats/bootstrap-operator.sh`'s `observability` user gained the same
+      six-subject `$JS.API` grant BR-AC32 already defines, applied directly
+      to its own PLATFORM account (not through any `monitor.*` remap) —
+      the deferred item from 30c's scaffold, closed here rather than
+      speculatively ahead of this content. Deliberately not
+      shipping-service's `PlatformFullJS` pattern (a second, broader-access
+      connection) — one connection, narrowly scoped, per this phase's
+      design throughout.
+
+      Tests use a real embedded single-account JetStream-enabled NATS
+      server (`testutil_test.go`), which fully exercises the `"platform"`
+      path (identical mechanism in test and production) and the
+      client-side half of the tenant path (`jsForAccount` correctly
+      resolves known vs. unknown tenant names), but not the server-side
+      half of BR-AC32's actual cross-account import resolution — that,
+      like `CONSUMER.MSG.NEXT`'s multi-reply mechanism risk (BR-AC32's own
+      design note), is exercised at Phase 30i's live `docker compose`
+      verification, not by this sub-phase's own coverage; documented
+      explicitly in `testutil_test.go` rather than left implicit.
+      `go test ./...` 33/33 green, `go vet ./...` clean, `docker compose
+      build observability-service` and `docker compose config -q` both
+      clean.
+- [x] **30f — lift service discovery.** (DONE 2026-08-16) `/api/nats/services`
+      — the shape of this one changed more than 30d/30e's proxies did. The
+      original queried two live *connections* it happened to hold
+      (`deps.NC` for PLATFORM, `deps.TenantNC` for whichever tenant session
+      was active), explicitly documented as blind to every other tenant.
+      This service holds one connection but gets a distinct discovery
+      *subject* per account instead — PLATFORM's bare `$SRV.STATS` (via
+      `micro.ControlSubject`, confirmed to literally equal `"$SRV.STATS"`
+      by reading `micro.APIPrefix`'s value) plus, for every tenant
+      `AccountsClient.TenantNames` reports, BR-AC31's remapped
+      `monitor.{tenant}.srv.STATS` — so the fan-out moved from "N
+      connections, one subject" to "one connection, N+1 subjects," same
+      concurrency rationale (`collectStats` always blocks for the full
+      `srvDiscoveryWindow`, so N+1 subjects queried sequentially would cost
+      N+1 windows). **Net capability gain, not just a port**: this panel
+      now sees every known tenant's services at once, where the original
+      only ever saw one active tenant. Landed in
+      `observability/internal/rest/nats_services.go`; `discoverySubjects`
+      and `collectStats` (now subject-parameterized rather than deriving
+      the subject internally) are the two functions that actually changed,
+      everything downstream of the reply collection (dedup, endpoint
+      reshaping, sorting) is an unchanged port.
+
+      Tests: the real-registration specs (stats/endpoint counters, metadata
+      pass-through, empty-when-nothing) are lifted verbatim against the
+      platform path. The dedup/concurrency spec is rewritten to prove the
+      new subject-fan-out mechanism specifically — a hand-rolled responder
+      on `monitor.faux.srv.STATS` simulates what a real tenant reply would
+      look like, so the test proves this file's own fan-out/dedup logic
+      without claiming to prove BR-AC31's actual cross-account remap
+      resolves on the wire (that's still Phase 30i, per BR-AC31's design
+      note — documented again in this file's own package doc comment
+      rather than left implicit). `go test ./...` 40/40 green, `go vet
+      ./...` clean, `docker compose build observability-service` and
+      `docker compose config -q` both clean.
+- [x] **30g — lift the trace store.** (DONE 2026-08-16) `RegisterTraceStore`
+      + `trace-request-reply` KV projection — the projection logic itself
+      really is unchanged, but two things around it weren't as simple as
+      "moved":
+
+      **No `internal/kvstore.Store` port.** Shipping-service's version
+      wrapped its own general-purpose KV package (Keys/Watch/Delete/multi-
+      context, plus a `natstrace`-header-on-notify path). This projector
+      only ever calls two of that package's methods (`Get`/`Put`), and the
+      natstrace branch was always a no-op here (the consume callback never
+      attaches a span to its context) — so
+      `observability/internal/tracestore/tracestore.go` inlines just the
+      Get/Put-with-notify slice actually used, rather than porting an
+      abstraction most of which would sit unused. New package (30c's
+      original scaffold deliberately left `tracestore` uncreated until it
+      had real content — this is that content landing).
+
+      **A real permissions tension, resolved without breaking the
+      one-connection design.** Provisioning is a `$JS.API` *write*
+      (`STREAM.CREATE`/`UPDATE` for `TRACES` and `KV_trace-request-reply`)
+      — shipping-service's original solved this by using a second,
+      unrestricted connection (`PlatformFullJS`) specifically because its
+      narrow `shipping-admin` connection was denied it. Kept this service's
+      one-connection design instead: granted `$JS.API.STREAM.CREATE`/
+      `UPDATE` scoped to exactly those two resource names (never a
+      wildcard), plus publish on `$KV.trace-request-reply.>` (what
+      `kv.Put` actually publishes to — confirmed via `nats.go`'s
+      `kvSubjectsTmpl` source, not assumed) and
+      `notify._platform.kv.trace-request-reply.>`. This is a different risk
+      shape than BR-AC31/BR-AC32's grants (which are read-only access into
+      *other* accounts) — it's create/update access to two specifically-
+      named resources in this account, the same resource-scoped-by-name
+      pattern `shipping-admin`'s own REFDATA grants already establish.
+      Consumer create/pull for the durable `trace-store-projector` needed
+      no new grant — the existing `CONSUMER.CREATE.*.*`/
+      `CONSUMER.MSG.NEXT.*.*` wildcards already cover any consumer name,
+      durable or ephemeral (NATS wildcards don't distinguish the two).
+      `nats/bootstrap-operator.sh`'s `observability` user updated
+      accordingly.
+
+      Wired into `observability/composition.go`'s `Startup` (now
+      `ctx`-aware, builds its own `jetstream.JetStream`, holds the returned
+      `jetstream.ConsumeContext` for a new `Handlers.Stop()` `cmd/main.go`
+      defers). Tests are new (no direct prior-art file — shipping-service
+      covered this indirectly through its `eventhandler` suite): multi-span
+      merge, redelivery dedup, the notify publish, malformed-span drop, and
+      `Register` idempotency across two calls, all against a real embedded
+      JetStream-enabled NATS server. `go test ./...` green across both
+      packages, `go vet ./...` clean, `docker compose build
+      observability-service` and `docker compose config -q` both clean.
+
+      Left as an accepted interim state until 30h: shipping-service's own
+      `RegisterTraceStore` is still active too (uses `platform.creds`,
+      unaffected by this phase's grants), so both services independently
+      ensure the same `TRACES`/`KV_trace-request-reply` resources exist at
+      startup — harmless since `CreateOrUpdate*` is idempotent, but not a
+      final state; 30h removes shipping-service's copy.
+- [x] **30h — Admin UI cutover + cleanup.** (DONE 2026-08-16) `api.js` needed
+      no change — it already used relative `fetch()` paths, routed entirely
+      by proxy config. Repointed the proxy layer instead: `admin/vite.config.js`
+      gained three more-specific rules (`/api/nats`, `/api/kv`,
+      `/api/jetstream` → `localhost:7205`) ahead of the general `/api` rule
+      (unchanged, still shipping-service); `admin/nginx.conf` mirrors this
+      with `location /api/nats/` / `/api/kv/` / `/api/jetstream/` blocks
+      pointed at `observability-service:8080`, the NATS one carrying the
+      same SSE buffering/timeout settings as the general block since
+      `/api/nats/log` is still a long-lived stream.
+
+      Deleted from `shipping-service`: the four lifted REST files
+      (`nats_ops.go`, `nats_log.go`, `kv.go`, `replay.go`) and their six
+      test files, plus `dictionary/internal/eventhandler/trace_store.go`
+      and its two test files (13 files total). `listStreams` (never its own
+      file — it lived in `handlers.go`) removed alongside its
+      `introspectableAccounts` dependency (which was `kv.go`'s, not
+      separately named in the original plan text).
+
+      **Deviation — this also removed the entire `PlatformFullJS` second
+      connection from shipping-service, not just its callers.** Once the
+      diagnostic/trace-store code was gone, nothing else in the process
+      used `mono.PlatformFullJS()`/`NatsMonitorURL()`/`NatsLogPath()`
+      (confirmed via `grep` before touching anything) — so rather than
+      leave a dead, unused connection and three dead `Monolith` interface
+      methods, removed all of it: the `platform.creds`-backed second
+      connection and its fallback/error-handling in `cmd/main.go`, the
+      three methods from `internal/monolith/monolith.go`'s interface (and
+      their long doc comments — `PlatformFullJS`'s explained a boundary
+      that no longer exists in this service), and the corresponding `Deps`
+      fields/wiring in `handlers.go`/`composition.go`. `docker-compose.yml`'s
+      `shipping-service` block lost `NATS_MONITOR_URL`/`NATS_LOG_PATH` (now
+      dead) and the `nats-logs` volume mount (still used by
+      `observability-service`'s own block, untouched). `shipping-admin`'s
+      restricted connection (`NC()`/`JS()`) is unaffected — still used for
+      `$SRV` discovery *of shipping-service's own instances* via
+      `browserrpc.Adapter`'s `micro.AddService`, tenant switching, and
+      admin ordered-consumer replay of `SHIPPING`.
+
+      One test-helper casualty: `discardLogger`/`discardWriter` had lived
+      in the now-deleted `nats_ops_test.go` but were also used by the
+      unrelated `trace_middleware_test.go` (BR-037's HTTP tracing specs,
+      Phase 28m) — moved into the package's existing `testutil_test.go`
+      rather than left orphaned or duplicated.
+
+      Regenerated `docs/docs.go`/`swagger.json`/`swagger.yaml` via
+      `swag init -g cmd/main.go -o docs` (swag was already installed) —
+      1769 lines net deleted across the three generated files, confirmed
+      none of the removed routes remain. `go build ./...`, `go vet ./...`,
+      and `ginkgo ./...` (9 suites) all green in `shipping-service`;
+      `ginkgo ./...` (3 suites, 117 specs) green in `accounts-service`;
+      `go build`/`go vet`/`go test ./...` (2 packages) green in
+      `observability-service` — the full three-service combined pass the
+      plan's closing checklist calls for. `docker compose config -q` and
+      `docker compose build shipping-service` both clean.
+
+      Updated `BUSINESS_RULES-SHIPPING.md`: BR-028's "Enforced in"/"Test"
+      lines repointed to `observability-service`, plus a Phase 30h
+      amendment paragraph — the label-resolution *mechanism* changed, not
+      just its file (`tenantLabelsByAccount`'s `LocalAddr`-matching, which
+      only worked because shipping-service held one connection per tenant,
+      replaced by `AccountsClient.Labels`' direct `GET /api/accounts` call,
+      Phase 30d, since `observability-service` holds only the one PLATFORM
+      connection). BR-034 (Account Activity) got the same file/mechanism
+      update. The trace-store rule (Phase 28f/28g/28l's amendments) got its
+      own Phase 30h amendment paragraph plus new "Enforced in"/"Test"
+      lines, covering the `PlatformFullJS` → narrowly-scoped-grant
+      permissions change and the deliberate non-port of `internal/kvstore.Store`.
+      `BUSINESS_RULES.md`'s index line for BR-034 repointed off the deleted
+      `nats_ops.go` path. No new BR numbers were needed — every 30h doc
+      change is an amendment to an existing rule, not a new one.
+
+      Deliberately deferred to a spawned follow-up task, not done as part
+      of 30h: `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ADMIN.md`
+      (630 lines) still describes the pre-30h shipping-service-only backend
+      for this exact Admin UI navbar group in detail (§ 3.1–3.4's shared
+      backend patterns, § 4.1–4.7's per-panel sections, § 4.5's trace
+      example) — a genuine content correction this phase's scope didn't
+      originally call out, and large enough to warrant its own pass rather
+      than folding into an already-large 30h diff.
+- [x] **30i — Live verification.** (DONE 2026-08-16) `docker compose down -v
+      && up --build`, repeated several times across the fix cycle below.
+      Every panel in the NATS/SYSTEM nav group (Connections, Services,
+      Account Activity, Streams, KV Buckets, Log, Request/Reply Traces)
+      confirmed rendering correctly against `observability-service`
+      (screenshots taken of each); a tenant (`initech`) created through the
+      Admin UI got working Connections/Services visibility immediately, with
+      zero restart of any service — BR-030's reactive-provisioning bar,
+      confirmed live for the first time against the full Phase 30 split.
+      This step existed specifically to prove or disprove the mechanism
+      risks BR-AC31/BR-AC32 had flagged as unproven-by-unit-tests since
+      30a/30b — it found six real, previously-undetected bugs, none of them
+      the flagged multi-reply mechanism itself (which turned out to work
+      correctly once everything else was fixed):
+
+      1. **`observability.creds` was never actually generated.** The day-0
+         `bootstrap-operator.sh` gained its `observability` user step in
+         30c, but this machine's `nats/operator.jwt` already existed from
+         before that, and the script exits early ("already exists — skip")
+         unless `--force` is passed — so the step had literally never run.
+         Docker's bind mount then silently created an empty *directory* at
+         the missing host path on first `docker compose up`, and
+         `observability-service` looped forever inside `waitForNATS` with
+         zero log output (that inner loop logs nothing on failure) trying
+         to open it as a file. Fixed by running `--force` — which, being a
+         full operator/account/JWT regen, was also the only way for the
+         day-0 ACME/GLOBEX tenants to actually pick up every export/import
+         this phase had added to `bootstrap-operator.sh` since (BR-AC31,
+         BR-AC32, the trace-store grants) — those were equally unproven
+         until this same regen.
+      2. **`$JS.API.INFO` missing from the `observability` user's grant.**
+         `jetstream.CreateOrUpdateKeyValue` (trace-store bucket
+         provisioning) calls `AccountInfo()` first; without this the very
+         first startup call failed closed.
+      3. **Filtered `CONSUMER.CREATE` needs a different, wider subject than
+         the unfiltered form.** nats.go embeds a set `FilterSubject`
+         directly into the *published* `$JS.API` subject
+         (`apiConsumerCreateWithFilterSubjectT`) rather than the request
+         body — both the trace-store's durable consumer (filtered to
+         `obs.trace.>`) and, more consequentially, the KV Buckets panel's
+         `WatchAll` (filtered to `$KV.<bucket>.>`, for *any* bucket in *any*
+         account) hit this. Fixed with a new `$JS.API.CONSUMER.CREATE.*.*.>`
+         subject — added as BR-AC32's seventh subject (not
+         PLATFORM-native-only, since the KV panel needs it for tenant
+         buckets too), superseding what was initially a narrower
+         TRACES-only fix.
+      4. **`$JS.API.DIRECT.GET` missing for the trace store's own KV
+         reads.** `appendSpan`'s `kv.Get` uses nats.go's direct-get
+         optimization (`apiDirectMsgGetLastBySubjectT`), a different
+         subject family than `DIRECT.GET`'s no-filter form, same
+         literal-subject-folding shape as #3. PLATFORM-native, scoped to
+         `KV_trace-request-reply` only (this service's own resource, not a
+         BR-AC32 cross-account concern).
+      5. **`$JS.ACK` missing entirely.** Every delivered JetStream message's
+         Ack publishes to a *server-generated* reply subject
+         (`$JS.ACK.TRACES.trace-store-projector.<numDelivered>...`), not
+         one the client constructs — without this grant, Acks silently
+         failed and JetStream redelivered the same messages forever.
+         PLATFORM-native, scoped to `TRACES`/`trace-store-projector`.
+      6. **`AccountsClient.TenantNames` excluded `"PLATFORM"` and assumed
+         `"SYS"` needed no exclusion — both wrong against the real,
+         running `accounts-service`.** It stores and returns these with
+         lowercase names (`"platform"`, `"sys"` —
+         `accounts/handler.go`'s `h.Store.Get(ctx, "platform")`), and SYS
+         *does* get a Postgres row despite the original comment assuming
+         otherwise. The case-sensitive `==` check let both slip through
+         into `introspectableAccounts`, which then built a bogus
+         `monitor.platform.js`/`monitor.sys.js`-prefixed JetStream context
+         for each — no matching cross-account import exists for either, so
+         the very next `$JS.API` call through it failed closed with
+         "no responders," aborting `listKVBuckets`/`listStreams`'s entire
+         response (discarding every real tenant's already-successful
+         results) the moment either bogus entry was reached. This is the
+         bug a long, initially-wrong investigation chased — a first false
+         lead blamed bug #5's redelivery storm for client-side
+         slow-consumer pressure on unrelated `$JS.API` calls; isolating the
+         actual trigger required a from-scratch Go repro that couldn't
+         reproduce it at all until it exactly mirrored `introspectableAccounts`'
+         real call order, at which point per-account debug logging pinned
+         the two bogus "platform"/"sys" entries directly. Fixed by matching
+         `accounts-service`'s own `reservedAccountNames`
+         `strings.ToUpper()` comparison exactly, with a new
+         `TestTenantNamesExcludesPlatformAndSysCaseInsensitively` pinning
+         the real (lowercase) shape.
+      7. **`shipping-service`'s tenant-discovery treated
+         `observability.creds` as a switchable tenant.** `nonTenantCredsFiles`
+         (`dictionary/internal/rest/tenant.go`) was never updated when
+         `observability.creds` first landed in the same shared `nats/creds/`
+         directory back in 30c — every `shipping-service` startup from that
+         point tried (and failed) to provision `SHIPPING`-stream resources
+         for a nonexistent "observability" tenant. Fixed by adding it to
+         the exclusion set; `TestDiscoverTenantsExcludesReservedNamesCaseInsensitively`
+         extended to cover `shipping-admin`/`observability` alongside the
+         existing platform/sys cases.
+
+      All fixes verified together in one final clean
+      `docker compose down -v && up --build`: zero permission-violation log
+      lines anywhere in the stack, all five `observability-service` REST
+      endpoints 200, every Admin UI NATS/SYSTEM panel screenshotted
+      working (Connections showing resolved account labels including a
+      freshly-created tenant; Services showing live `$SRV.>` fan-out counts
+      increase for it; KV Buckets' live-entries view rendering real
+      contents; Streams showing cross-account `SHIPPING`/`REFDATA`/`TRACES`;
+      Request/Reply showing 25 live traces). `go build`/`go vet`/`ginkgo`
+      (or `go test`) green across all three touched services (shipping-service
+      9 suites, accounts-service 3 suites/86+19+12 specs,
+      observability-service 2 packages) as a final combined pass, not just
+      per-phase. `docker compose config -q` clean.
+
+      `BUSINESS_RULES-ACCOUNTS.md`'s BR-AC32 and `BUSINESS_RULES-SHIPPING.md`'s
+      trace-store rule (Phase 30h's own amendment) both updated with Phase
+      30i amendments documenting the new seventh subject and its rationale;
+      `nats/bootstrap-operator.sh` carries matching inline comments at each
+      fix point, including one explicit correction of its own earlier
+      (wrong) diagnosis for bug #6.
+- [x] `BUSINESS_RULES-ACCOUNTS.md` gets the new BR-AC rule(s) for the two
+      export/import grants (BR-AC31/BR-AC32, done incrementally in 30a/30b);
+      `BUSINESS_RULES.md` index bump (done same phases).
+- [x] `ginkgo ./...` green in `accounts-service` (3 suites) and the new
+      `observability-service` (`go test ./...`, 2 packages — no Ginkgo suite
+      in this service, matching how shipping-service's own `rest` package
+      tests); `ginkgo ./...` green in `shipping-service` (9 suites) after the
+      30h deletions — all three re-verified together as part of 30h's
+      closing pass (2026-08-16).
+
 ### Phase 100 (PROPOSED — awaiting approval) — Ship Container Capacity Limit
 
 #### Goal

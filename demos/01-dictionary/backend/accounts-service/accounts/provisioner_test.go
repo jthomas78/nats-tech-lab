@@ -172,22 +172,36 @@ var _ = Describe("Provisioner", func() {
 		mintedA, err := provisioner.CreateAccount(ctx, limits, "acme", platformPub)
 		Expect(err).NotTo(HaveOccurred())
 
+		// Filtered to obs.trace.> imports specifically — CreateAccount also
+		// mints a $SRV.> Service import per tenant now (BR-AC31), so a raw
+		// Imports-length assertion would couple this test to that unrelated
+		// rule; see the "$SRV.> service discovery" spec below for that one.
+		traceImportsFor := func(claims *jwt.AccountClaims) []*jwt.Import {
+			var out []*jwt.Import
+			for _, imp := range claims.Imports {
+				if imp.Type == jwt.Stream && string(imp.Subject) == "obs.trace.>" {
+					out = append(out, imp)
+				}
+			}
+			return out
+		}
+
 		afterFirst, err := provisioner.LookupAccountClaims(ctx, platformPub)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(afterFirst.Imports).To(HaveLen(1))
-		Expect(afterFirst.Imports[0].Account).To(Equal(mintedA.PublicKey))
-		Expect(string(afterFirst.Imports[0].Subject)).To(Equal("obs.trace.>"))
-		Expect(afterFirst.Imports[0].Type).To(Equal(jwt.Stream))
-		Expect(afterFirst.Imports[0].AllowTrace).To(BeTrue(), "AllowTrace must be set on PLATFORM's Stream import — that's the flag that actually enables trace propagation")
+		firstTrace := traceImportsFor(afterFirst)
+		Expect(firstTrace).To(HaveLen(1))
+		Expect(firstTrace[0].Account).To(Equal(mintedA.PublicKey))
+		Expect(firstTrace[0].AllowTrace).To(BeTrue(), "AllowTrace must be set on PLATFORM's Stream import — that's the flag that actually enables trace propagation")
 
 		mintedB, err := provisioner.CreateAccount(ctx, limits, "globex", platformPub)
 		Expect(err).NotTo(HaveOccurred())
 
 		afterSecond, err := provisioner.LookupAccountClaims(ctx, platformPub)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(afterSecond.Imports).To(HaveLen(2), "a second tenant's import must be added alongside the first, not replace it")
+		secondTrace := traceImportsFor(afterSecond)
+		Expect(secondTrace).To(HaveLen(2), "a second tenant's import must be added alongside the first, not replace it")
 		accountsImported := map[string]bool{}
-		for _, imp := range afterSecond.Imports {
+		for _, imp := range secondTrace {
 			accountsImported[imp.Account] = true
 		}
 		Expect(accountsImported).To(HaveKey(mintedA.PublicKey))
@@ -199,6 +213,145 @@ var _ = Describe("Provisioner", func() {
 		Expect(provisioner.AddPlatformTraceImportForTest(ctx, platformPub, mintedA.PublicKey)).To(Succeed())
 		afterRetry, err := provisioner.LookupAccountClaims(ctx, platformPub)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(afterRetry.Imports).To(HaveLen(2), "re-registering an already-imported tenant must not duplicate the import")
+		Expect(traceImportsFor(afterRetry)).To(HaveLen(2), "re-registering an already-imported tenant must not duplicate the import")
+	})
+
+	// BR-AC31 (Phase 30a): CreateAccount must also re-sign PLATFORM's own
+	// claims to import each new tenant's $SRV.> service export — the
+	// cross-account service-discovery counterpart to BR-AC30's trace import
+	// above, minted the same way (per-tenant claims update, since NATS has
+	// no wildcard cross-account import).
+	It("re-signs PLATFORM's own claims to import each new tenant's $SRV.> service discovery, without disturbing other tenants' imports or duplicating on retry", func() {
+		platformKP, err := nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		platformPub, err := platformKP.PublicKey()
+		Expect(err).NotTo(HaveOccurred())
+
+		sysNC := ots.ConnectSys(GinkgoT())
+		defer sysNC.Close()
+		ots.PushAccountClaims(sysNC, ots.OperatorSigningKeySeed, jwt.NewAccountClaims(platformPub))
+
+		limits := accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5}
+
+		mintedA, err := provisioner.CreateAccount(ctx, limits, "acme", platformPub)
+		Expect(err).NotTo(HaveOccurred())
+
+		afterFirst, err := provisioner.LookupAccountClaims(ctx, platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		var srvImport *jwt.Import
+		for _, imp := range afterFirst.Imports {
+			if imp.Type == jwt.Service && imp.Account == mintedA.PublicKey {
+				srvImport = imp
+			}
+		}
+		Expect(srvImport).NotTo(BeNil(), "expected a Service import for acme's $SRV.> export alongside the trace import")
+		Expect(string(srvImport.Subject)).To(Equal("$SRV.>"))
+		Expect(string(srvImport.LocalSubject)).To(Equal("monitor.acme.srv.>"), "must remap to a tenant-scoped local subject so a second tenant's import can't collide with this one")
+
+		mintedB, err := provisioner.CreateAccount(ctx, limits, "globex", platformPub)
+		Expect(err).NotTo(HaveOccurred())
+
+		afterSecond, err := provisioner.LookupAccountClaims(ctx, platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		srvImportsByAccount := map[string]*jwt.Import{}
+		for _, imp := range afterSecond.Imports {
+			if imp.Type == jwt.Service && string(imp.Subject) == "$SRV.>" {
+				srvImportsByAccount[imp.Account] = imp
+			}
+		}
+		Expect(srvImportsByAccount).To(HaveLen(2), "a second tenant's $SRV.> import must be added alongside the first, not replace it")
+		Expect(srvImportsByAccount).To(HaveKey(mintedA.PublicKey))
+		Expect(srvImportsByAccount).To(HaveKey(mintedB.PublicKey))
+		Expect(string(srvImportsByAccount[mintedB.PublicKey].LocalSubject)).To(Equal("monitor.globex.srv.>"))
+
+		// A repeated call for a tenant PLATFORM already imports (simulating a
+		// caller retry after some unrelated transient failure) must be a
+		// no-op, not append a duplicate entry.
+		Expect(provisioner.AddPlatformMonitorImportForTest(ctx, platformPub, mintedA.PublicKey, "acme")).To(Succeed())
+		afterRetry, err := provisioner.LookupAccountClaims(ctx, platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		retryCount := 0
+		for _, imp := range afterRetry.Imports {
+			if imp.Type == jwt.Service && string(imp.Subject) == "$SRV.>" {
+				retryCount++
+			}
+		}
+		Expect(retryCount).To(Equal(2), "re-registering an already-imported tenant must not duplicate the import")
+	})
+
+	// BR-AC32 (Phase 30b/30i): CreateAccount must also re-sign PLATFORM's
+	// own claims to import each new tenant's seven $JS.API introspection
+	// exports — the JetStream/KV-introspection counterpart to BR-AC30's
+	// trace import and BR-AC31's $SRV.> import above, minted the same way.
+	It("re-signs PLATFORM's own claims to import each new tenant's $JS.API introspection subjects, without disturbing other tenants' imports or duplicating on retry", func() {
+		wantSubjects := []string{
+			"$JS.API.STREAM.LIST",
+			"$JS.API.STREAM.INFO.*",
+			"$JS.API.CONSUMER.CREATE.*",
+			"$JS.API.CONSUMER.CREATE.*.*",
+			"$JS.API.CONSUMER.CREATE.*.*.>",
+			"$JS.API.CONSUMER.MSG.NEXT.*.*",
+			"$JS.API.CONSUMER.DELETE.*.*",
+		}
+		wantLocal := func(tenantName, subject string) string {
+			return "monitor." + tenantName + ".js." + subject[len("$JS.API."):]
+		}
+
+		platformKP, err := nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		platformPub, err := platformKP.PublicKey()
+		Expect(err).NotTo(HaveOccurred())
+
+		sysNC := ots.ConnectSys(GinkgoT())
+		defer sysNC.Close()
+		ots.PushAccountClaims(sysNC, ots.OperatorSigningKeySeed, jwt.NewAccountClaims(platformPub))
+
+		limits := accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5}
+
+		jsAPIImportsFor := func(claims *jwt.AccountClaims, account string) map[string]*jwt.Import {
+			out := map[string]*jwt.Import{}
+			for _, imp := range claims.Imports {
+				if imp.Type == jwt.Service && imp.Account == account {
+					for _, want := range wantSubjects {
+						if string(imp.Subject) == want {
+							out[want] = imp
+						}
+					}
+				}
+			}
+			return out
+		}
+
+		mintedA, err := provisioner.CreateAccount(ctx, limits, "acme", platformPub)
+		Expect(err).NotTo(HaveOccurred())
+
+		afterFirst, err := provisioner.LookupAccountClaims(ctx, platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		importsA := jsAPIImportsFor(afterFirst, mintedA.PublicKey)
+		Expect(importsA).To(HaveLen(len(wantSubjects)), "expected all seven $JS.API imports for acme alongside the trace/$SRV imports")
+		for _, subject := range wantSubjects {
+			imp, ok := importsA[subject]
+			Expect(ok).To(BeTrue(), "missing import for %s", subject)
+			Expect(string(imp.LocalSubject)).To(Equal(wantLocal("acme", subject)))
+		}
+
+		mintedB, err := provisioner.CreateAccount(ctx, limits, "globex", platformPub)
+		Expect(err).NotTo(HaveOccurred())
+
+		afterSecond, err := provisioner.LookupAccountClaims(ctx, platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		importsA2 := jsAPIImportsFor(afterSecond, mintedA.PublicKey)
+		importsB := jsAPIImportsFor(afterSecond, mintedB.PublicKey)
+		Expect(importsA2).To(HaveLen(len(wantSubjects)), "acme's imports must survive globex's own CreateAccount call")
+		Expect(importsB).To(HaveLen(len(wantSubjects)), "a second tenant's imports must be added alongside the first, not replace it")
+		Expect(string(importsB["$JS.API.STREAM.LIST"].LocalSubject)).To(Equal("monitor.globex.js.STREAM.LIST"))
+
+		// A repeated call for a tenant PLATFORM already imports (simulating a
+		// caller retry after some unrelated transient failure) must be a
+		// no-op, not append duplicate entries.
+		Expect(provisioner.AddPlatformJSAPIImportForTest(ctx, platformPub, mintedA.PublicKey, "acme")).To(Succeed())
+		afterRetry, err := provisioner.LookupAccountClaims(ctx, platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(jsAPIImportsFor(afterRetry, mintedA.PublicKey)).To(HaveLen(len(wantSubjects)), "re-registering an already-imported tenant must not duplicate any of the seven imports")
 	})
 })

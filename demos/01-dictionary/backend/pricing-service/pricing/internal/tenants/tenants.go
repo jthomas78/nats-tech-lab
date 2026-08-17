@@ -25,7 +25,13 @@ import (
 
 // nonTenantCredsFiles mirrors shipping-service's own list (rest/tenant.go)
 // — these .creds stems in the shared creds directory are never tenants.
-var nonTenantCredsFiles = map[string]bool{"platform": true, "shipping-admin": true, "sys": true}
+// "observability" (observability-service's restricted PLATFORM connection,
+// Phase 30c) was missing here — the same gap found live in
+// trading-partner-service's identical list: without it, Discover offers
+// observability.creds as a switchable tenant, opening a phantom connection
+// under a PLATFORM-account user that was never granted tenant-shaped
+// permissions.
+var nonTenantCredsFiles = map[string]bool{"platform": true, "shipping-admin": true, "sys": true, "observability": true}
 
 // Credentials is one discovered tenant's creds file path.
 type Credentials struct {

@@ -18,7 +18,7 @@
 - [NATS Tower operator-mode tradeoff](nats_tower_operator_mode_tradeoff.md) — resolved 2026-07-28: server is operator mode; Tower→sys.creds via its own UI not done yet
 - [Tenant-service separation decision](tenant_service_separation_decision.md) — implemented: accounts-service is its own service/DB, separate from refdata-service; Admin UI merges both
 - [Accounts service plan](accounts_service_plan.md) — Phase 14 dynamic tenant provisioning; BR-032/033 fixed reactivation bug; open gap: unrestricted service creds
-- [Phase 21 account exports/imports](phase21_account_exports_imports.md) — approved: PLATFORM/tenant two-account partitioning via NATS exports/imports; not implemented
+- [Phase 21 account exports/imports](phase21_account_exports_imports.md) — IMPLEMENTED 2026-08-03 + Phase 28f trace leg; PLATFORM/tenant two-account partitioning via NATS exports/imports
 - [$SYS.REQ.CLAIMS reference](nats_sys_claims_subjects.md) — core NATS request-reply (not JetStream), for JWT resolver mgmt in operator mode
 - [refdata database-per-service](refdata_database_per_service.md) — refdata-service moved off shared postgres to its own instance (port 5433)
 - [Admin UI realtime transport options](admin_ui_realtime_transport_options.md) — Phase 15+23 IMPLEMENTED; live docker verification of Phase 23 pending

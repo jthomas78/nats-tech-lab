@@ -1,6 +1,7 @@
 package accounts
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/nats-io/jwt/v2"
@@ -124,5 +125,110 @@ func TestNewAccountClaimsAddsTenantTraceExport(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("obs.trace.> export was dropped on re-sign: %#v", preserved.Exports)
+	}
+}
+
+// BR-AC31 (Phase 30a) — a tenant account's own claims must export $SRV.>
+// back to PLATFORM, or cross-account service discovery
+// (observability-service's Services panel, Phase 30f) has no way to ever
+// see that tenant's registered services (see addPlatformMonitorImport, the
+// PLATFORM-side counterpart exercised by the "re-signs PLATFORM's own
+// claims to import each new tenant's $SRV.>" spec in provisioner_test.go).
+func TestNewAccountClaimsAddsTenantMonitorExport(t *testing.T) {
+	const tenant = "ATENANTPUBLICKEY"
+	const tenantName = "acme"
+	const platform = "APLATFORMPUBLICKEY"
+
+	fresh := newAccountClaims(tenant, "", JSLimits{}, nil, CrossAccountOpts{PlatformPublicKey: platform, TenantName: tenantName})
+	var srvExport *jwt.Export
+	for _, exp := range fresh.Exports {
+		if string(exp.Subject) == srvExportSubject {
+			srvExport = exp
+		}
+	}
+	if srvExport == nil {
+		t.Fatalf("expected a $SRV.> export on a freshly-minted tenant's own claims, got %#v", fresh.Exports)
+	}
+	if srvExport.Type != jwt.Service {
+		t.Fatalf("$SRV.> export must be a Service export (reply routing is only meaningful for services), got type %v", srvExport.Type)
+	}
+	if srvExport.ResponseType != jwt.ResponseTypeStream {
+		t.Fatalf("$SRV.> export must set ResponseType Stream — the default Singleton is documented for a service that sends exactly one reply, but $SRV.STATS is answered by every registered instance, got %q", srvExport.ResponseType)
+	}
+
+	// Must survive a plain re-sign exactly like the trace export does.
+	preserved := newAccountClaims(tenant, "", JSLimits{}, fresh, CrossAccountOpts{})
+	found := false
+	for _, exp := range preserved.Exports {
+		if string(exp.Subject) == srvExportSubject {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("$SRV.> export was dropped on re-sign: %#v", preserved.Exports)
+	}
+}
+
+// BR-AC32 (Phase 30b/30i) — a tenant account's own claims must export the
+// seven narrow $JS.API introspection subjects back to PLATFORM, or
+// observability-service's JetStream/KV panels (Phase 30e) have no way to
+// ever reach that tenant's streams/consumers (see addPlatformJSAPIImport,
+// the PLATFORM-side counterpart exercised by the "$JS.API introspection
+// subjects" spec in provisioner_test.go).
+func TestNewAccountClaimsAddsTenantJSAPIExports(t *testing.T) {
+	const tenant = "ATENANTPUBLICKEY"
+	const tenantName = "acme"
+	const platform = "APLATFORMPUBLICKEY"
+
+	fresh := newAccountClaims(tenant, "", JSLimits{}, nil, CrossAccountOpts{PlatformPublicKey: platform, TenantName: tenantName})
+
+	bySubject := map[string]*jwt.Export{}
+	for _, exp := range fresh.Exports {
+		bySubject[string(exp.Subject)] = exp
+	}
+	for _, want := range jsAPIExportSubjects {
+		exp, ok := bySubject[want.subject]
+		if !ok {
+			t.Fatalf("expected a %s export on a freshly-minted tenant's own claims, got %#v", want.subject, fresh.Exports)
+		}
+		if exp.Type != jwt.Service {
+			t.Fatalf("%s export must be a Service export, got type %v", want.subject, exp.Type)
+		}
+		if exp.ResponseType != want.responseType {
+			t.Fatalf("%s export ResponseType = %q, want %q — CONSUMER.MSG.NEXT needs Stream (a batch pull can yield multiple replies per request), every other one of the seven is a plain single-reply Singleton", want.subject, exp.ResponseType, want.responseType)
+		}
+	}
+
+	// Negative check: no mutating $JS.API subject (STREAM.CREATE/DELETE/
+	// PURGE/UPDATE/RESTORE, STREAM.MSG.GET, any CONSUMER.CREATE/DELETE form
+	// beyond the two/one listed) ever leaks onto a tenant's own claims.
+	for subj := range bySubject {
+		if !strings.HasPrefix(subj, jsAPIExportPrefix) {
+			continue
+		}
+		allowed := false
+		for _, want := range jsAPIExportSubjects {
+			if subj == want.subject {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			t.Fatalf("unexpected $JS.API export present on tenant claims: %q", subj)
+		}
+	}
+
+	// Must survive a plain re-sign exactly like the other two exports do.
+	preserved := newAccountClaims(tenant, "", JSLimits{}, fresh, CrossAccountOpts{})
+	preservedCount := 0
+	for _, exp := range preserved.Exports {
+		for _, want := range jsAPIExportSubjects {
+			if string(exp.Subject) == want.subject {
+				preservedCount++
+			}
+		}
+	}
+	if preservedCount != len(jsAPIExportSubjects) {
+		t.Fatalf("expected all %d $JS.API exports to survive re-sign, found %d: %#v", len(jsAPIExportSubjects), preservedCount, preserved.Exports)
 	}
 }

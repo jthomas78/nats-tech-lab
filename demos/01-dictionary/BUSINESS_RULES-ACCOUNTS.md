@@ -56,6 +56,29 @@ tests migrated with it (`accounts-service/auth/*_test.go`), now reusing
   endpoint, because tenant data spans multiple services and NATS
   account-scoped streams, and regulatory retention requirements in logistics
   make true deletion unsafe.
+
+  > **Follow-on to Phase 30 (2026-08-17):** the Admin UI's Streams and KV
+  > Buckets panels (`observability-service`, `JetStreamPanel.vue` and
+  > `KvInspector.vue`) surface every known account's status (`GET
+  > /api/accounts`'s `status` field, via `AccountsClient.TenantStatuses`) as
+  > a dimmed dot on that account's group header — replacing an earlier,
+  > unrelated client-side signal (Streams compared the group's name against
+  > the browser's own connected tenant; KV Buckets just hardcoded "gray iff
+  > PLATFORM"). Because a suspended account's connections are force-evicted
+  > (this entry's own correction above), its cross-account `$JS.API` access
+  > via BR-AC32's `monitor.{tenant}.js` remap always fails "no responders" —
+  > `listStreams`/`listKVBuckets` (`streams.go`/`kv.go`) treat that as
+  > per-account and non-fatal (log + skip that account's rows) rather than
+  > aborting the whole response the way they used to, and both handlers
+  > additionally report every account (name + status) in a dedicated
+  > `accounts` field independent of whether any of its streams/buckets were
+  > listable, so a suspended tenant still gets a (empty, dimmed) group in
+  > both panels instead of vanishing entirely. **Test:**
+  > `TestTenantStatusesReturnsStatusPerTenantExcludingPlatformAndSys`,
+  > `TestIntrospectableAccountsTagsPlatformAndTenantStatus`,
+  > `TestListStreamsSkipsUnreachableAccountRatherThanFailingWholeResponse`,
+  > `TestListKVBucketsSkipsUnreachableAccountRatherThanFailingWholeResponse`
+  > (`observability-service/observability/internal/rest/`).
 - **BR-AC04:** Only a suspended account may be reactivated
   (`POST /api/accounts/{name}/reactivate`); calling it on an account that is
   not currently suspended is rejected (`409 Conflict`), and an unknown
@@ -967,3 +990,192 @@ it, the same way it is never granted `rpc.>` at all.
   > (integration, against an embedded operator-mode NATS server — PLATFORM-side
   > import + idempotent re-push), both in `accounts/provisioner_claims_test.go`
   > / `accounts/provisioner_test.go`.
+
+## BR-AC31 (Phase 30a) — Minted account JWTs carry a `$SRV.>` Service export back to PLATFORM, imported per tenant with a tenant-scoped local remap, so cross-account service discovery can reach every tenant account
+
+Without this grant, `$SRV.PING`/`$SRV.INFO`/`$SRV.STATS` discovery — the
+same `nats.go/micro` control protocol `nats micro stats` uses, and what
+`observability-service`'s Services panel (Phase 30f) broadcasts to find
+every registered service — stops dead at the account boundary exactly the
+way distributed tracing did before BR-AC30: a tenant account's own
+registered services (shipping/pricing/trading-partner's `browserrpc`
+adapters) are invisible to a PLATFORM-only connection unless the tenant
+explicitly exports its `$SRV.>` control subjects and PLATFORM imports them.
+Every tenant account JWT minted by `CreateAccount` therefore gains a
+`$SRV.>` **Service** export on its own claims, and PLATFORM's claims gain a
+matching per-tenant **Service** import, remapped to a tenant-scoped local
+subject (`monitor.{tenantName}.srv.>`) so a caller on PLATFORM can address
+one tenant's discovery traffic without colliding with another's — the same
+shape `tenantImports`'s `service()` helper already uses for the
+PLATFORM-to-tenant refdata imports, just with exporter and importer
+reversed. This is additive to every existing export/import declaration —
+no existing grant is narrowed or removed.
+
+**This is a Service export, not a Stream export like BR-AC30's
+`obs.trace.>`, and it needs `ResponseType: Stream`, not the library default
+of `Singleton`.** `$SRV.STATS` is a broadcast: every registered service
+instance in the account replies independently to the same request. A
+`Singleton` response type (`jwt.Export`'s documented "a service that sends a
+single response only") is written for classic 1:1 request/reply — the
+`rpc.*.refdata.*` exports use it correctly, since exactly one reply is
+expected per request. `ResponseType: Stream` ("a service that will send
+multiple responses") is what keeps the cross-account reply route open long
+enough for more than one instance's reply to cross back; the exact
+mechanics of a multi-repliers-to-one-broadcast pattern specifically (as
+opposed to one responder streaming several messages) are unproven in this
+codebase — no `$SRV` subject has ever crossed an account boundary here
+before this rule — and are exercised for the first time in this rule's own
+Ginkgo coverage plus Phase 30i's live verification, not assumed correct in
+advance.
+
+**Critically, no browser-facing JWT gains this grant**, the same premise as
+BR-AC30: `MintBrowserToken`/`MintAdminToken` (`auth/token.go`) are
+unaffected — `$SRV.>` cross-account discovery is a PLATFORM-only,
+service-to-service concern, so a tenant browser credential must never carry
+it.
+
+- **Enforced in:** `accounts/provisioner.go`'s `tenantExports()` (adds the
+  `$SRV.>` Service export, `ResponseType: jwt.ResponseTypeStream`, to every
+  tenant's own claims — no `AllowTrace`, that flag is `obs.trace.>`'s alone)
+  and a new `addPlatformMonitorImport` (PLATFORM-side, mirrors
+  `addPlatformTraceImport`'s re-sign-via-`pushClaimsUpdate` mechanism and its
+  idempotency check, but keyed on `(Account, Subject)` for a Service import
+  carrying `LocalSubject: monitor.{tenantName}.srv.>` instead of a bare
+  Stream import); called from `CreateAccount` alongside
+  `addPlatformTraceImport`, gated on the same `platformPublicKey != ""`
+  condition.
+- **Test:** a freshly-minted tenant's own claims decode with a `$SRV.>`
+  Service export whose `ResponseType` is `Stream`; PLATFORM's claims, after
+  `CreateAccount`, decode with a matching per-tenant Service import
+  (`Subject: "$SRV.>"`, `LocalSubject: "monitor.{tenantName}.srv.>"`),
+  accumulating correctly across multiple tenants without disturbing each
+  other's entries and without duplicating on a retried call. Covered by
+  `TestNewAccountClaimsAddsTenantMonitorExport` (unit, tenant-side export) and
+  the "re-signs PLATFORM's own claims to import each new tenant's `$SRV.>`
+  service discovery" spec (integration, against an embedded operator-mode
+  NATS server), both in `accounts/provisioner_claims_test.go` /
+  `accounts/provisioner_test.go`. The browser-exclusion premise needs no new
+  test of its own: `auth/token_test.go`'s existing `ConsistOf` assertions on
+  `MintBrowserToken`/`MintAdminToken`'s exact `Sub.Allow`/`Pub.Allow` lists
+  already fail on any unlisted subject, `auth/token.go` is untouched by this
+  rule, and the suite stays green — so `$SRV.>`/`monitor.*.srv.>` staying out
+  of a browser JWT is a pre-existing, still-enforced guarantee, not a gap
+  this rule had to newly close. Live cross-account reply routing itself —
+  the part this rule's design note above flags as unproven by claims-shape
+  tests alone — is exercised at Phase 30i's live `docker compose`
+  verification, not by this rule's own (claims-only) test coverage.
+
+## BR-AC32 (Phase 30b, extended 30i) — Minted account JWTs carry seven narrow, explicit `$JS.API` Service exports back to PLATFORM, imported per tenant with a tenant-scoped local remap, for read-oriented JetStream/KV introspection
+
+The third tenant-to-PLATFORM export (after `obs.trace.>`, BR-AC30, and
+`$SRV.>`, BR-AC31), needed so `observability-service`'s JetStream/KV
+introspection panels (Phase 30e — Streams, KV Buckets, KV Entries, Replay)
+can reach every tenant account without a raw per-tenant connection. Traced
+directly against the exact call chain in `dictionary/internal/rest/{kv,
+replay}.go` and the `$JS.API` subject constants in the pinned
+`nats.go@v1.52.0` (Phase 30's own Design section has the full trace) —
+**not** a blanket `$JS.API.>` export, which would grant stream
+*management* (create, delete, purge), not just visibility
+(ARCHITECTURE-ACCOUNTS.md:87–101). Every tenant account JWT minted by
+`CreateAccount` gains exactly seven Service exports on its own claims, and
+PLATFORM's claims gain seven matching per-tenant Service imports, each
+remapped to `monitor.{tenantName}.js.<same-suffix>` so a caller on PLATFORM
+can address one tenant's introspection traffic without colliding with
+another's — same shape as BR-AC31's `$SRV.>` grant, applied to seven
+subjects instead of one wildcard, since `STREAM.LIST`, `STREAM.INFO.*`,
+`CONSUMER.CREATE.*`, `CONSUMER.CREATE.*.*`, `CONSUMER.CREATE.*.*.>`,
+`CONSUMER.MSG.NEXT.*.*`, and `CONSUMER.DELETE.*.*` have different wildcard
+arities and cannot be merged into a single pattern without either
+overreaching or excluding one of them.
+
+> **Phase 30i amendment — `CONSUMER.CREATE.*.*.>` added as a seventh
+> subject, caught only once this ran against a real multi-account
+> deployment.** `CONSUMER.CREATE.*.*` (no filter) covers a plain named
+> consumer create, but nats.go's `CreateOrUpdateConsumer` embeds a
+> `FilterSubject` directly into the *published* `$JS.API` subject rather
+> than the request body whenever one is set
+> (`apiConsumerCreateWithFilterSubjectT`, `"CONSUMER.CREATE.%s.%s.%s"`) —
+> and `jetstream.KeyValue.WatchAll` (the KV Buckets panel's live-entries
+> view, `kv.go`'s `kvBucketEntriesOnce`) always sets one, filtered to the
+> bucket's own `$KV.<bucket>.>` subject. The literal wire subject is
+> therefore `$JS.API.CONSUMER.CREATE.<stream>.<ephemeral-name>.$KV.<bucket>.>`
+> — a variable-length tail no fixed two-wildcard pattern can match. Unit
+> tests never exercise this (an embedded test server has no account
+> permissions to violate), so it surfaced only once observability-service
+> ran under BR-AC31/BR-AC32's real cross-account grants — the entire
+> premise of Phase 30i's live-verification step. Applies equally to a
+> tenant's own KV buckets (once one exists — a fresh docker-compose stack's
+> ACME/GLOBEX have none until a ship or container is first registered) as
+> to PLATFORM's own (`refdata-service`'s KV caches, `trace-request-reply`),
+> which is why this is a `jsAPIExportSubjects` addition (both sides of the
+> tenant-to-PLATFORM grant) rather than a PLATFORM-native-only fix — see
+> `BUSINESS_RULES-SHIPPING.md`'s Phase 30i amendment to the trace-store rule
+> for the PLATFORM-native counterpart (`nats/bootstrap-operator.sh`'s
+> `observability` user), which needed the identical addition for the exact
+> same reason.
+
+**Response types are not uniform across the seven** — each is set to match
+what the underlying `$JS.API` operation actually does, not copied
+blindly from BR-AC31:
+
+- `STREAM.LIST`, `STREAM.INFO.*`, `CONSUMER.CREATE.*`,
+  `CONSUMER.CREATE.*.*`, `CONSUMER.CREATE.*.*.>`, `CONSUMER.DELETE.*.*` —
+  library default `Singleton` (exactly one reply per request: a list page,
+  a stream's info, a created consumer's info — filtered or not, still one
+  reply — a delete acknowledgement).
+- `CONSUMER.MSG.NEXT.*.*` — **`Stream`**, for the same reason BR-AC31's
+  `$SRV.>` needed it: a single pull request with a batch size greater than
+  one yields *multiple* individual JetStream messages delivered back to the
+  requester, not one reply. This is a second, independent instance of the
+  same not-yet-proven-in-this-codebase mechanism BR-AC31 flagged — whether a
+  NATS service import correctly keeps the cross-account reply route open for
+  more than one message per request — so `CONSUMER.MSG.NEXT`'s live
+  behavior is exercised at Phase 30i's live verification alongside
+  BR-AC31's, not assumed correct from BR-AC31 having been implemented.
+
+**`CONSUMER.DELETE.*.*` carries the same residual risk BR-AC32's design
+predecessor flagged and this rule does not attempt to close at the JWT
+layer**: the wildcard matches any consumer name on any stream in the tenant
+account, not just one `observability-service` itself created. That stays an
+application-layer invariant (`observability-service` must only ever call
+delete with a name it just received from its own preceding create, in the
+same request — Phase 30's own checklist item 30b requires a code-level
+test/lint for this, not just a claims-shape spec), never something this
+account-JWT rule can enforce by narrowing the subject further — NATS
+wildcards match by token position, not by "who created this."
+
+**Critically, no browser-facing JWT gains this grant** — same premise as
+BR-AC30/BR-AC31; `MintBrowserToken`/`MintAdminToken` are unaffected.
+
+- **Enforced in:** `accounts/provisioner.go`'s `jsAPIExportSubjects` (the
+  seven-subject list, shared by both `tenantExports()` and
+  `addPlatformJSAPIImport` so they can't drift apart), `tenantExports()`
+  (adds them, `ResponseType` set per-subject as above, to every tenant's
+  own claims), and `addPlatformJSAPIImport` (PLATFORM-side, mirrors
+  `addPlatformMonitorImport`'s re-sign/idempotency mechanism, looping the
+  seven `(remote, local)` subject pairs); called from `CreateAccount`
+  alongside `addPlatformTraceImport`/`addPlatformMonitorImport`, gated on
+  the same `platformPublicKey != ""` condition. `nats/bootstrap-operator.sh`
+  carries the day-0 nsc equivalent for the pre-seeded ACME/GLOBEX tenants.
+- **Test:** a freshly-minted tenant's own claims decode with all seven
+  `$JS.API` Service exports present, `CONSUMER.MSG.NEXT.*.*`'s
+  `ResponseType` equal to `Stream` and every other one of the seven left at
+  the library default `Singleton`; PLATFORM's claims, after `CreateAccount`,
+  decode with seven matching per-tenant Service imports
+  (`LocalSubject: monitor.{tenantName}.js.<suffix>`), accumulating correctly
+  across multiple tenants without disturbing each other's entries and
+  without duplicating on a retried call; a negative assertion that no
+  mutating `$JS.API` subject (`STREAM.CREATE`/`DELETE`/`PURGE`/`UPDATE`/
+  `RESTORE`, `STREAM.MSG.GET`, any `CONSUMER.CREATE`/`DELETE` form beyond
+  the two/one listed) is present on either side. Covered by
+  `TestNewAccountClaimsAddsTenantJSAPIExports` (unit, tenant-side export) and
+  the "re-signs PLATFORM's own claims to import each new tenant's `$JS.API`
+  introspection subjects" spec (integration, against an embedded
+  operator-mode NATS server), both in `accounts/provisioner_claims_test.go` /
+  `accounts/provisioner_test.go`. As with BR-AC31, the browser-exclusion
+  premise is covered by `auth/token_test.go`'s pre-existing `ConsistOf`
+  assertions, not a new test — `auth/token.go` is untouched by this rule.
+  Live cross-account reply routing for `CONSUMER.MSG.NEXT` and the
+  `DeleteConsumer`-name-provenance invariant are both exercised outside this
+  rule's own claims-only coverage — see the design note and Phase 30b's
+  checklist item, respectively.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nats-io/jwt/v2"
@@ -122,6 +123,16 @@ func (p *Provisioner) CreateAccount(ctx context.Context, limits JSLimits, tenant
 		if err := p.addPlatformTraceImport(ctx, platformPublicKey, accountPub); err != nil {
 			return MintedAccount{}, fmt.Errorf("register platform trace import for new tenant: %w", err)
 		}
+		// BR-AC31 (Phase 30a): same re-sign, same gate, for the new
+		// tenant's $SRV.> service-discovery export.
+		if err := p.addPlatformMonitorImport(ctx, platformPublicKey, accountPub, tenantName); err != nil {
+			return MintedAccount{}, fmt.Errorf("register platform monitor import for new tenant: %w", err)
+		}
+		// BR-AC32 (Phase 30b): same re-sign, same gate, for the new
+		// tenant's six $JS.API introspection exports.
+		if err := p.addPlatformJSAPIImport(ctx, platformPublicKey, accountPub, tenantName); err != nil {
+			return MintedAccount{}, fmt.Errorf("register platform js api import for new tenant: %w", err)
+		}
 	}
 
 	return MintedAccount{PublicKey: accountPub, SigningKeySeed: string(signingSeed)}, nil
@@ -225,15 +236,98 @@ func tenantImports(tenantName, platformPublicKey string) jwt.Imports {
 // addPlatformTraceImport's idempotency check can't drift apart.
 const traceExportSubject = "obs.trace.>"
 
-// tenantExports is the tenant-to-PLATFORM export declaration. AllowTrace is
-// deliberately omitted here — jwt.Export.Validate rejects it on anything but
-// a Service-type export, and this is a Stream export; the AllowTrace flag
-// that actually matters for this pipeline belongs on PLATFORM's Stream
-// *import* of it instead (addPlatformTraceImport below).
+// srvExportSubject is the second tenant-to-PLATFORM export (BR-AC31,
+// Phase 30a) — the reverse leg needed so cross-account service discovery
+// (observability-service's Services panel, Phase 30f) can reach every
+// tenant's registered nats.go/micro services, the same $SRV.PING/INFO/STATS
+// control protocol `nats micro stats` uses. Declared once so tenantExports
+// and addPlatformMonitorImport's idempotency check can't drift apart, same
+// convention as traceExportSubject above.
+const srvExportSubject = "$SRV.>"
+
+// monitorLocalSubjectTmpl is the tenant-scoped local subject PLATFORM's
+// $SRV.> import remaps to (BR-AC31) — every tenant exports the identical
+// literal "$SRV.>" subject, so without a per-tenant remap PLATFORM's import
+// of a second tenant would collide with the first. Mirrors tenantImports'
+// service() helper's remap direction, just reversed (tenant exports,
+// PLATFORM imports, vs. PLATFORM exports, tenant imports).
+const monitorLocalSubjectTmpl = "monitor.%s.srv.>"
+
+// jsAPIExportPrefix is stripped from each jsAPIExportSubjects entry to build
+// its tenant-scoped local remap (jsAPILocalSubjectTmpl) — declared once so
+// tenantExports, addPlatformJSAPIImport, and their tests can't drift apart.
+const jsAPIExportPrefix = "$JS.API."
+
+// jsAPILocalSubjectTmpl is PLATFORM's per-tenant remap for each
+// jsAPIExportSubjects entry (BR-AC32) — %s/%s is (tenantName, subject minus
+// jsAPIExportPrefix). Every tenant exports the identical literal $JS.API.*
+// subjects, so without this remap a second tenant's import would collide
+// with the first, same rationale as monitorLocalSubjectTmpl above.
+const jsAPILocalSubjectTmpl = "monitor.%s.js.%s"
+
+// jsAPIExportSubjects is BR-AC32's seven-subject list for read-oriented
+// JetStream/KV introspection — traced directly against the exact $JS.API
+// calls dictionary/internal/rest/{kv,replay}.go makes (Main-POC-Plan.md's
+// Phase 30 Design section has the full call-chain trace against the pinned
+// nats.go@v1.52.0), not a blanket $JS.API.> export (ARCHITECTURE-ACCOUNTS.md:
+// the full namespace grants stream management — create, delete, purge — not
+// just visibility). Seven separate wildcard arities, not one pattern,
+// because STREAM.LIST/STREAM.INFO.*/CONSUMER.CREATE.*/CONSUMER.CREATE.*.*/
+// CONSUMER.CREATE.*.*.>/CONSUMER.MSG.NEXT.*.*/CONSUMER.DELETE.*.* can't be
+// merged into fewer patterns without either overreaching or excluding one
+// of them.
+//
+// CONSUMER.CREATE.*.*.> (Phase 30i live-verification fix) is distinct from
+// CONSUMER.CREATE.*.* above, not redundant with it: nats.go's
+// CreateOrUpdateConsumer embeds a FilterSubject directly into the published
+// $JS.API subject when one is set
+// (apiConsumerCreateWithFilterSubjectT = "CONSUMER.CREATE.%s.%s.%s") rather
+// than putting it in the request body — jetstream.KeyValue.WatchAll (the KV
+// Buckets panel's live-entries view, kv.go's kvBucketEntriesOnce) always
+// creates its ephemeral consumer this way, filtered to the bucket's own
+// $KV.<bucket>.> subject, so the wire subject is literally
+// $JS.API.CONSUMER.CREATE.<stream>.<random-name>.$KV.<bucket>.> — a
+// variable-length tail no fixed two-wildcard pattern can match, caught only
+// once this ran against a real multi-account deployment (unit tests never
+// exercise real NATS subject permissions). CONSUMER.CREATE.*.* (no filter)
+// stays separate and necessary on its own: replay.go's OrderedConsumer
+// call sets no FilterSubject, so it still publishes the plain two-token
+// form.
+//
+// responseType is not uniform: CONSUMER.MSG.NEXT.*.* needs Stream, the same
+// reason $SRV.> (BR-AC31) does — a single pull request with a batch size
+// greater than one yields multiple individual replies, not one. Every other
+// entry is a plain single-reply Singleton (list page / stream info /
+// created-consumer info / delete ack).
+var jsAPIExportSubjects = []struct {
+	subject      string
+	responseType jwt.ResponseType
+}{
+	{jsAPIExportPrefix + "STREAM.LIST", jwt.ResponseTypeSingleton},
+	{jsAPIExportPrefix + "STREAM.INFO.*", jwt.ResponseTypeSingleton},
+	{jsAPIExportPrefix + "CONSUMER.CREATE.*", jwt.ResponseTypeSingleton},
+	{jsAPIExportPrefix + "CONSUMER.CREATE.*.*", jwt.ResponseTypeSingleton},
+	{jsAPIExportPrefix + "CONSUMER.CREATE.*.*.>", jwt.ResponseTypeSingleton},
+	{jsAPIExportPrefix + "CONSUMER.MSG.NEXT.*.*", jwt.ResponseTypeStream},
+	{jsAPIExportPrefix + "CONSUMER.DELETE.*.*", jwt.ResponseTypeSingleton},
+}
+
+// tenantExports is the tenant-to-PLATFORM export declaration. The obs.trace.>
+// Stream export's AllowTrace is deliberately omitted here — jwt.Export.
+// Validate rejects it on anything but a Service-type export; the AllowTrace
+// flag that actually matters for that pipeline belongs on PLATFORM's Stream
+// *import* of it instead (addPlatformTraceImport below). The $SRV.> and
+// $JS.API.* Service exports set ResponseType explicitly per BR-AC31/BR-AC32's
+// design notes rather than leaving the library default unstated.
 func tenantExports() jwt.Exports {
-	return jwt.Exports{
+	exports := jwt.Exports{
 		{Subject: jwt.Subject(traceExportSubject), Type: jwt.Stream},
+		{Subject: jwt.Subject(srvExportSubject), Type: jwt.Service, ResponseType: jwt.ResponseTypeStream},
 	}
+	for _, e := range jsAPIExportSubjects {
+		exports = append(exports, &jwt.Export{Subject: jwt.Subject(e.subject), Type: jwt.Service, ResponseType: e.responseType})
+	}
+	return exports
 }
 
 // ReactivateAccount restores a previously-suspended account under its
@@ -382,6 +476,81 @@ func (p *Provisioner) addPlatformTraceImport(ctx context.Context, platformPublic
 		Type:       jwt.Stream,
 		AllowTrace: true,
 	})
+	token, err := claims.Encode(p.operatorSigningKey)
+	if err != nil {
+		return fmt.Errorf("encode platform account jwt: %w", err)
+	}
+	return p.pushClaimsUpdate(ctx, token)
+}
+
+// addPlatformMonitorImport re-signs and re-pushes PLATFORM's own account JWT
+// so it imports the newly-minted tenant's $SRV.> export (BR-AC31, Phase
+// 30a) — the service-discovery counterpart to addPlatformTraceImport above,
+// same mechanism, same idempotency contract (safe to call unconditionally
+// from CreateAccount). Unlike the trace import, this is a Service import and
+// needs a tenant-scoped LocalSubject remap (monitorLocalSubjectTmpl): every
+// tenant exports the identical literal "$SRV.>" subject, so PLATFORM's
+// import of a second tenant would otherwise collide with the first.
+func (p *Provisioner) addPlatformMonitorImport(ctx context.Context, platformPublicKey, tenantAccountPub, tenantName string) error {
+	claims, err := p.LookupAccountClaims(ctx, platformPublicKey)
+	if err != nil {
+		return fmt.Errorf("lookup platform account claims: %w", err)
+	}
+	for _, imp := range claims.Imports {
+		if imp.Account == tenantAccountPub && imp.Subject == jwt.Subject(srvExportSubject) {
+			return nil
+		}
+	}
+	claims.Imports.Add(&jwt.Import{
+		Account:      tenantAccountPub,
+		Subject:      jwt.Subject(srvExportSubject),
+		LocalSubject: jwt.RenamingSubject(fmt.Sprintf(monitorLocalSubjectTmpl, tenantName)),
+		Type:         jwt.Service,
+	})
+	token, err := claims.Encode(p.operatorSigningKey)
+	if err != nil {
+		return fmt.Errorf("encode platform account jwt: %w", err)
+	}
+	return p.pushClaimsUpdate(ctx, token)
+}
+
+// addPlatformJSAPIImport re-signs and re-pushes PLATFORM's own account JWT
+// so it imports the newly-minted tenant's six $JS.API exports (BR-AC32,
+// Phase 30b) — the JetStream/KV-introspection counterpart to
+// addPlatformMonitorImport above, same mechanism. Unlike that function this
+// checks each of the six subjects independently (not one all-or-nothing
+// flag) so a prior partial failure — some of the six already imported,
+// others not — is recovered by adding only what's missing, and issues at
+// most one re-sign/push for whatever is newly needed rather than one round
+// trip per subject.
+func (p *Provisioner) addPlatformJSAPIImport(ctx context.Context, platformPublicKey, tenantAccountPub, tenantName string) error {
+	claims, err := p.LookupAccountClaims(ctx, platformPublicKey)
+	if err != nil {
+		return fmt.Errorf("lookup platform account claims: %w", err)
+	}
+	existing := map[string]bool{}
+	for _, imp := range claims.Imports {
+		if imp.Account == tenantAccountPub {
+			existing[string(imp.Subject)] = true
+		}
+	}
+	added := false
+	for _, e := range jsAPIExportSubjects {
+		if existing[e.subject] {
+			continue
+		}
+		suffix := strings.TrimPrefix(e.subject, jsAPIExportPrefix)
+		claims.Imports.Add(&jwt.Import{
+			Account:      tenantAccountPub,
+			Subject:      jwt.Subject(e.subject),
+			LocalSubject: jwt.RenamingSubject(fmt.Sprintf(jsAPILocalSubjectTmpl, tenantName, suffix)),
+			Type:         jwt.Service,
+		})
+		added = true
+	}
+	if !added {
+		return nil
+	}
 	token, err := claims.Encode(p.operatorSigningKey)
 	if err != nil {
 		return fmt.Errorf("encode platform account jwt: %w", err)

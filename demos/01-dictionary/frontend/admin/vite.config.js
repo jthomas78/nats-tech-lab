@@ -53,6 +53,23 @@ export default defineConfig({
         changeOrigin: true,
         headers: { Authorization: 'Basic YWRtaW46dHJhZGluZy1wYXJ0bmVyLXNwaWtlLXBhc3M=' },
       },
+      // Phase 30h — the cross-account NATS/JetStream diagnostic endpoints
+      // (Connections, Services, Account Activity, Log, KV, Streams/Replay)
+      // moved to observability-service. More specific than the general
+      // '/api' rule below, so Vite's prefix match picks these first —
+      // mirrors nginx.conf's production rule.
+      '/api/nats': {
+        target: 'http://localhost:7205',
+        changeOrigin: true,
+      },
+      '/api/kv': {
+        target: 'http://localhost:7205',
+        changeOrigin: true,
+      },
+      '/api/jetstream': {
+        target: 'http://localhost:7205',
+        changeOrigin: true,
+      },
       '/api': {
         target: 'http://localhost:7200',
         changeOrigin: true,

@@ -19,15 +19,15 @@
 //	GET    /api/shape-b/ships/{context}/{shipID}      read ship via KV cache → Postgres
 //	DELETE /api/shape-b/cache/{context}/{shipID}      evict cache key (demo the miss path)
 //	GET    /api/shape-c/fleet                         reconstruct fleet + containers from JetStream replay
-//	GET    /api/kv/buckets                             every KV bucket across every account this backend reaches, tagged by account (+ status) — not scoped to the active tenant
-//	GET    /api/kv/buckets/{account}/{bucket}/entries   one-shot JSON array of current bucket contents (Phase 23 bootstrap; live changes arrive via notify.{context}.kv.{bucket}.{key}.changed)
-//	GET    /api/jetstream/streams                      every event stream across every account this backend reaches, tagged by account (+ status) — not scoped to the active tenant; KV_* excluded
-//	GET    /api/jetstream/replay                      one-shot JSON array of all currently-retained messages in ?account=&stream= (Phase 23 bootstrap; live tail arrives via notify.{context}.shipping.raw.*, tenant account only)
 //	GET    /api/tenant                                 active tenant + switchable tenant list (Phase 13b)
 //	POST   /api/tenant/switch                          reconnect under a different tenant's NATS account (Phase 13b)
-//	GET    /api/nats/connections                       every active NATS connection (proxies the server's /connz, Phase 17c)
-//	GET    /api/nats/services                          every micro-registered service + instance + endpoint stats ($SRV.PING/STATS, Phase 17c)
-//	GET    /api/nats/account-activity                  per-account traffic + slow-consumer health (proxies the server's /accstatz, Phase 27)
+//
+// Phase 30h moved the cross-account NATS/JetStream diagnostic routes
+// (/api/kv/buckets*, /api/jetstream/streams, /api/jetstream/replay,
+// /api/nats/connections, /api/nats/services, /api/nats/account-activity,
+// /api/nats/log) to observability-service — none of it was shipping domain
+// logic, and this service only ever held it because it was the one service
+// with cross-account NATS reach at the time (Main-POC-Plan.md Phase 30).
 package rest
 
 import (
@@ -36,8 +36,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"sort"
-	"strings"
 	"sync/atomic"
 
 	httpSwagger "github.com/swaggo/http-swagger"
@@ -129,19 +127,10 @@ type Deps struct {
 	KVCont     *kvstore.Store            // container projection
 	KVMeta     *kvstore.Store            // meta.* lookup sets
 	Refdata    *refdataconsumer.Consumer // rpc.*-only cross-service consumer (BR-D08) — no KV dep
-	JS         jetstream.JetStream       // tenant-scoped: SHIPPING stream, ship/container KV, KV+JetStream inspector panels
+	JS         jetstream.JetStream       // tenant-scoped: SHIPPING stream, ship/container KV
 	PlatformJS jetstream.JetStream       // permanent PLATFORM-account JS — only for watchRefdata's REFDATA-stream consumer
-	// PlatformFullJS is the SECOND, unrestricted PLATFORM-account JS
-	// (platform.creds, not shipping-admin.creds like PlatformJS above) — read
-	// by introspectableAccounts, so listKVBuckets and listStreams can see
-	// refdata-service's KV_* streams and PLATFORM's REFDATA/RPCTRACE
-	// ($JS.API.STREAM.LIST, which shipping-admin is deliberately denied). See
-	// monolith.Monolith.PlatformFullJS' doc comment. May be nil (local dev
-	// outside Docker, or the connection failed at Startup) —
-	// introspectableAccounts skips the "platform" account entirely when nil.
-	PlatformFullJS jetstream.JetStream
-	NC             *nats.Conn // permanent PLATFORM-account conn (Phase 12.10 — obs.rpc.* SSE bridge)
-	Log            *slog.Logger
+	NC         *nats.Conn                // permanent PLATFORM-account conn (Phase 12.10 — obs.rpc.* SSE bridge)
+	Log        *slog.Logger
 
 	// Tenant-switch plumbing (Phase 13b) — shipping-service only; refdata-service
 	// stays on PLATFORM (see Main-POC-Plan.md Phase 13b, cost #3).
@@ -168,13 +157,6 @@ type Deps struct {
 	// minted by accounts-service after this process started ever becomes
 	// visible without a restart.
 	CredsDir string
-	// NatsMonitorURL is the NATS server's HTTP monitoring endpoint (Phase
-	// 17c) — GET /api/nats/connections proxies its /connz.
-	NatsMonitorURL string
-	// NatsLogPath is the local path to NATS's log_file — GET /api/nats/log
-	// tails it. Empty outside Docker; the handler reports 503 rather than
-	// erroring when unset.
-	NatsLogPath string
 }
 
 type Handlers struct {
@@ -224,28 +206,20 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	handle("GET /api/shape-b/ships/{context}/{shipID}", h.getShipShapeB)
 	handle("DELETE /api/shape-b/cache/{context}/{shipID}", h.evictShipCache)
 	handle("GET /api/shape-c/fleet", h.getFleet)
-	handle("GET /api/kv/buckets", h.listKVBuckets)
-	handle("GET /api/kv/buckets/{account}/{bucket}/entries", h.kvBucketEntriesOnce)
-	handle("GET /api/jetstream/streams", h.listStreams)
-	handle("GET /api/jetstream/replay", h.jetstreamReplayOnce)
 	handle("GET /api/refdata-demo/{context}/{type}/{code}", h.getRefdataDemo)
 	handle("GET /api/refdata/types/{type}", h.listRefdataType)
 	handle("GET /api/refdata/locales", h.listRefdataLocales)
 	handle("GET /api/refdata/contexts", h.listRefdataContexts)
 	handle("GET /api/tenant", h.getTenant)
 	handle("POST /api/tenant/switch", h.switchTenant)
-	handle("GET /api/nats/connections", h.listNatsConnections)
-	handle("GET /api/nats/services", h.listNatsServices)
-	handle("GET /api/nats/account-activity", h.listNatsAccountActivity)
-	// /api/refdata-watch and /api/nats/log are long-lived SSE streams that
-	// block for the connection's lifetime, not a single request/reply —
-	// wrapping them would hold a span open for however long the browser tab
-	// stays on the page (sometimes indefinitely) rather than the one-span-
-	// per-call shape BR-037 assumes, so they stay unwrapped alongside
-	// /healthz and /swagger/ below (infra/introspection paths, not
-	// business-meaningful spans).
+	// /api/refdata-watch is a long-lived SSE stream that blocks for the
+	// connection's lifetime, not a single request/reply — wrapping it would
+	// hold a span open for however long the browser tab stays on the page
+	// (sometimes indefinitely) rather than the one-span-per-call shape
+	// BR-037 assumes, so it stays unwrapped alongside /healthz and
+	// /swagger/ below (infra/introspection paths, not business-meaningful
+	// spans).
 	mux.HandleFunc("GET /api/refdata-watch", h.watchRefdata)
-	mux.HandleFunc("GET /api/nats/log", h.tailNatsLog)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -791,88 +765,6 @@ func (h *Handlers) getFleet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
-}
-
-// ─── JetStream introspection ──────────────────────────────────────────────────
-
-// jsStream is one registered JetStream stream's run-time status — the stream
-// rail's row shape, and the direct analogue of kv.go's kvBucket.
-//
-// Account is the NATS account this stream lives in (a known tenant name, or
-// "platform"). Stream names are only unique WITHIN an account — every tenant
-// provisions its own SHIPPING — so this is what lets the rail group streams
-// correctly instead of collapsing same-named rows from different accounts into
-// one, and it's what /api/jetstream/replay needs to know which account's
-// stream to replay.
-//
-// Subjects counts the stream's *configured* subject filters, not the distinct
-// subjects it has happened to receive: the former says what the stream
-// captures (stable, and the interesting fact about a stream's design), the
-// latter just tracks traffic, which Messages already covers.
-type jsStream struct {
-	Stream    string `json:"stream"`
-	Account   string `json:"account"`
-	Subjects  int    `json:"subjects"`
-	Messages  uint64 `json:"messages"`
-	Bytes     uint64 `json:"bytes"`
-	FirstSeq  uint64 `json:"firstSeq"`
-	LastSeq   uint64 `json:"lastSeq"`
-	Consumers int    `json:"consumers"`
-}
-
-type jsStreamsResponse struct {
-	Streams []jsStream `json:"streams"`
-}
-
-// listStreams godoc
-//
-// @Summary      List registered streams
-// @Description  Every event stream registered across every NATS account this backend holds a connection to — each known tenant's SHIPPING plus the PLATFORM account's REFDATA/RPCTRACE — tagged with its account and carrying run-time status (message count, bytes, configured subject count, first/last sequence, consumer count). Deliberately NOT scoped to the topbar's currently-selected tenant: a tenant switch reconnects Deps.JS for command/query traffic, but this is a read-only cross-account diagnostic view (same rationale as /api/kv/buckets). KV_* streams are NATS' internal backing storage for KV buckets, not event streams a client watches for messages, so they're excluded — /api/kv/buckets reports those as buckets instead.
-// @Tags         streams
-// @Produce      json
-// @Success      200  {object}  jsStreamsResponse
-// @Failure      500  {object}  errorResponse
-// @Router       /api/jetstream/streams [get]
-func (h *Handlers) listStreams(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	streams := []jsStream{}
-	for _, acct := range h.introspectableAccounts() {
-		lister := acct.js.ListStreams(ctx)
-		for info := range lister.Info() {
-			// Every KV bucket is backed by a KV_<bucket> stream. Without this
-			// filter the panel would list all of them and simply duplicate the
-			// KV Buckets panel next door.
-			if strings.HasPrefix(info.Config.Name, "KV_") {
-				continue
-			}
-			streams = append(streams, jsStream{
-				Stream:    info.Config.Name,
-				Account:   acct.name,
-				Subjects:  len(info.Config.Subjects),
-				Messages:  info.State.Msgs,
-				Bytes:     info.State.Bytes,
-				FirstSeq:  info.State.FirstSeq,
-				LastSeq:   info.State.LastSeq,
-				Consumers: info.State.Consumers,
-			})
-		}
-		if err := lister.Err(); err != nil {
-			h.deps().Log.Error("list streams", "account", acct.name, "err", err)
-			writeError(w, http.StatusInternalServerError, "internal error")
-			return
-		}
-	}
-	// Stable order (account, then stream name) so the rail's groups and rows
-	// don't reshuffle between the frontend's polls — TenantResources is a map,
-	// so introspectableAccounts' own order is random.
-	sort.Slice(streams, func(i, j int) bool {
-		if streams[i].Account != streams[j].Account {
-			return streams[i].Account < streams[j].Account
-		}
-		return streams[i].Stream < streams[j].Stream
-	})
-	writeJSON(w, http.StatusOK, jsStreamsResponse{Streams: streams})
 }
 
 // ─── Error mapping ────────────────────────────────────────────────────────────

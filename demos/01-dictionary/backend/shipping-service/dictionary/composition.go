@@ -34,18 +34,15 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 	portRepo := postgres.NewPortRepository(mono.DB())
 
 	handlers := rest.NewHandlers(rest.Deps{
-		Ports:          commands.NewPortHandler(portRepo),
-		PlatformJS:     mono.JS(),
-		PlatformFullJS: mono.PlatformFullJS(),
-		NC:             mono.NC(),
-		Log:            log,
-		ShipRepo:       shipRepo,
-		ContainerRepo:  containerRepo,
-		PortRepo:       portRepo,
-		NatsURL:        mono.NatsURL(),
-		CredsDir:       mono.CredsDir(),
-		NatsMonitorURL: mono.NatsMonitorURL(),
-		NatsLogPath:    mono.NatsLogPath(),
+		Ports:         commands.NewPortHandler(portRepo),
+		PlatformJS:    mono.JS(),
+		NC:            mono.NC(),
+		Log:           log,
+		ShipRepo:      shipRepo,
+		ContainerRepo: containerRepo,
+		PortRepo:      portRepo,
+		NatsURL:       mono.NatsURL(),
+		CredsDir:      mono.CredsDir(),
 	})
 
 	// The initial tenant connect and every later switch are the same code
@@ -72,16 +69,13 @@ func (Module) Startup(ctx context.Context, mono monolith.Monolith) error {
 	// counterpart (watchRPCObs's bridge) was retired in Phase 28g — see
 	// eventhandler.RegisterRPCTraceNotify's doc comment (kept as a removal
 	// note, not a function).
+	//
+	// Phase 30h: the cross-account trace store (formerly
+	// eventhandler.RegisterTraceStore, using the second unrestricted
+	// PLATFORM connection this service held only for that purpose) moved to
+	// observability-service's tracestore package — see Main-POC-Plan.md
+	// Phase 30g/30h.
 	eventhandler.RegisterRefdataNotify(ctx, mono.JS(), mono.NC(), log)
-
-	// Phase 28f: the cross-account trace store. Provisioning (not just
-	// consuming) TRACES/traces requires the unrestricted PLATFORM
-	// connection, never shipping-admin's mono.JS() — see
-	// eventhandler.RegisterTraceStore's doc comment. Nil-safe exactly like
-	// the two notify bridges above when platform.creds isn't configured.
-	if _, err := eventhandler.RegisterTraceStore(ctx, mono.PlatformFullJS(), mono.NC(), log); err != nil {
-		return err
-	}
 
 	handlers.Mount(mono.Mux())
 	return nil

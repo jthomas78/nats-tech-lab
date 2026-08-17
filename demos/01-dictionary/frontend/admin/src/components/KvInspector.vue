@@ -29,7 +29,10 @@ import { parseKvNotifySubject } from '../nats/kvNotifySubject.js'
 // buckets never get a live feed at all yet, for a different reason:
 // refdata-service doesn't publish notify.*.kv.{bucket}.{key}.changed for
 // its own writes the way shipping-service's kvstore.Store.EnableNotify
-// does — see liveUnavailableReason below.
+// does — see liveUnavailableReason below. That's unrelated to the rail's
+// account-dot (see .account-dot below), which reflects the account's own
+// active/suspended lifecycle status from accounts-service, not anything
+// about the browser's connection or live-feed eligibility.
 const REFRESH_MS = 15000
 const FEED_CAP = 40
 
@@ -37,6 +40,13 @@ const OP_SEVERITY = { PUT: 'success', DEL: 'warn', PURGE: 'danger' }
 
 // ── Bucket rail ───────────────────────────────────────────────────────────────
 const buckets = ref([]) // [{ bucket, account, values, history, bytes, ttlSeconds }]
+// Accounts is the authoritative account list (every account this backend
+// knows about, including ones whose buckets couldn't be listed — e.g. a
+// suspended tenant, whose cross-account $JS.API access always fails). The
+// rail is built from this, not from `buckets`, so a suspended account with
+// zero listable buckets still gets a dimmed group header instead of
+// disappearing entirely.
+const accounts = ref([]) // [{ name, status }]
 const activeAccount = ref(null)
 const activeBucket = ref(null)
 const bucketFilter = ref('')
@@ -63,24 +73,37 @@ const filteredBuckets = computed(() => {
 // already returns) so the rail reads as "every account, every bucket" —
 // still a flat list within each account for now; collapsing PLATFORM's
 // larger group by refdata context is a deliberate follow-up, not done here.
+//
+// Built from `accounts` (every known account), not derived purely from
+// `filteredBuckets` — otherwise a suspended account with zero listable
+// buckets would have no group at all. When a search filter is active,
+// accounts with no matching buckets are still dropped, matching the filter's
+// own intent (an account name match already pulls its whole bucket list
+// through, see filteredBuckets above).
 const groupedByAccount = computed(() => {
-  const groups = new Map()
+  const byAccount = new Map()
   for (const b of filteredBuckets.value) {
-    if (!groups.has(b.account)) groups.set(b.account, [])
-    groups.get(b.account).push(b)
+    if (!byAccount.has(b.account)) byAccount.set(b.account, [])
+    byAccount.get(b.account).push(b)
   }
-  return [...groups.entries()]
+  const filtering = bucketFilter.value.trim().length > 0
+  return accounts.value
+    .filter((a) => !filtering || byAccount.has(a.name))
+    .map((a) => [a.name, a.status, byAccount.get(a.name) ?? []])
 })
 
+const hasAccounts = computed(() => accounts.value.length > 0)
+
 async function refreshBuckets() {
-  let list
+  let res
   try {
-    const res = await listKVBuckets()
-    list = res?.buckets ?? []
+    res = await listKVBuckets()
   } catch {
     return // best-effort; keep last known
   }
+  const list = res?.buckets ?? []
   buckets.value = list
+  accounts.value = res?.accounts ?? []
   const stillExists = list.some((b) => b.account === activeAccount.value && b.bucket === activeBucket.value)
   if (!activeBucket.value || !stillExists) {
     // Prefer a ship read model as the opening view, else the first bucket.
@@ -238,7 +261,7 @@ function ttlLabel(seconds) {
       </div>
       <InputText v-model="bucketFilter" size="small" placeholder="filter buckets or accounts…" class="rail-filter" />
 
-      <div v-for="[account, accountBuckets] in groupedByAccount" :key="account" class="account-group">
+      <div v-for="[account, accountStatus, accountBuckets] in groupedByAccount" :key="account" class="account-group">
         <button
           type="button"
           class="account-head"
@@ -247,7 +270,7 @@ function ttlLabel(seconds) {
           @click="toggleAccount(account)"
         >
           <span class="caret">▶</span>
-          <span class="account-dot" :class="{ ro: account === 'platform' }"></span>
+          <span class="account-dot" :class="{ ro: accountStatus !== 'active' }" :title="`account status: ${accountStatus}`"></span>
           <span class="account-name">{{ account }}</span>
           <span class="account-kind">{{ account === 'platform' ? 'read-only' : 'tenant' }}</span>
           <span class="account-count lab-muted">{{ accountBuckets.length }}</span>
@@ -267,8 +290,8 @@ function ttlLabel(seconds) {
         </div>
       </div>
 
-      <p v-if="!buckets.length" class="lab-muted rail-empty">No KV buckets registered yet.</p>
-      <p v-else-if="!filteredBuckets.length" class="lab-muted rail-empty">No buckets match "{{ bucketFilter }}".</p>
+      <p v-if="!hasAccounts" class="lab-muted rail-empty">No KV buckets registered yet.</p>
+      <p v-else-if="bucketFilter.trim() && !filteredBuckets.length" class="lab-muted rail-empty">No buckets match "{{ bucketFilter }}".</p>
     </aside>
 
     <!-- Detail -->
@@ -433,9 +456,12 @@ function ttlLabel(seconds) {
 @media (prefers-reduced-motion: reduce) {
   .caret { transition: none; }
 }
-/* Green = a live tenant connection the browser can actually watch; gray =
-   PLATFORM, which this UI only ever reads snapshots from. Same distinction
-   the detail pane's watching/snapshot-only tag makes, shown one level up. */
+/* Green = accountStatus === 'active' (accounts-service's own lifecycle
+   state, PLATFORM always active); gray = suspended. This is the account's
+   own status, not anything about the browser's connection or live-feed
+   eligibility (the detail pane's watching/snapshot-only tag, a separate
+   concern — see liveUnavailableReason above) — a suspended tenant still
+   lists its buckets here, just dimmed. */
 .account-dot {
   flex-shrink: 0;
   width: 6px;

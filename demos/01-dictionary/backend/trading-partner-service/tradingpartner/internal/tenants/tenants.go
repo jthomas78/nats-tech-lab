@@ -33,7 +33,17 @@ var _ domain.VehicleTypeValidator = (*Manager)(nil)
 
 // nonTenantCredsFiles mirrors shipping-service's/pricing-service's own list
 // — these .creds stems in the shared creds directory are never tenants.
-var nonTenantCredsFiles = map[string]bool{"platform": true, "shipping-admin": true, "sys": true}
+// "observability" (observability-service's restricted PLATFORM connection,
+// Phase 30c) was missing here: Discover treated it as a switchable tenant,
+// so this service opened a phantom "tenant" connection using
+// observability.creds (a PLATFORM-account user with a narrow, non-tenant
+// permission set) and then tried to run full tenant machinery over it — the
+// notify.accounts.account.* subscription and the browserrpc adapter's
+// api.*.trading-partner.* registration — both denied with a Subscription
+// Violation, since the observability user was never meant to carry tenant
+// grants. Same bug, same fix shipping-service's rest/tenant.go already
+// applied (Phase 30h); this file was never updated to match.
+var nonTenantCredsFiles = map[string]bool{"platform": true, "shipping-admin": true, "sys": true, "observability": true}
 
 // Credentials is one discovered tenant's creds file path.
 type Credentials struct {

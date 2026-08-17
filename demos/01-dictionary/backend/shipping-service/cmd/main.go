@@ -34,28 +34,22 @@ import (
 )
 
 type app struct {
-	db             *sql.DB
-	js             jetstream.JetStream
-	nc             *nats.Conn
-	platformFullJS jetstream.JetStream
-	natsURL        string
-	credsDir       string
-	natsMonitorURL string
-	natsLogPath    string
-	mux            *http.ServeMux
-	logger         *slog.Logger
+	db       *sql.DB
+	js       jetstream.JetStream
+	nc       *nats.Conn
+	natsURL  string
+	credsDir string
+	mux      *http.ServeMux
+	logger   *slog.Logger
 }
 
-func (a *app) DB() *sql.DB                         { return a.db }
-func (a *app) JS() jetstream.JetStream             { return a.js }
-func (a *app) NC() *nats.Conn                      { return a.nc }
-func (a *app) PlatformFullJS() jetstream.JetStream { return a.platformFullJS }
-func (a *app) NatsURL() string                     { return a.natsURL }
-func (a *app) CredsDir() string                    { return a.credsDir }
-func (a *app) NatsMonitorURL() string              { return a.natsMonitorURL }
-func (a *app) NatsLogPath() string                 { return a.natsLogPath }
-func (a *app) Mux() *http.ServeMux                 { return a.mux }
-func (a *app) Logger() *slog.Logger                { return a.logger }
+func (a *app) DB() *sql.DB             { return a.db }
+func (a *app) JS() jetstream.JetStream { return a.js }
+func (a *app) NC() *nats.Conn          { return a.nc }
+func (a *app) NatsURL() string         { return a.natsURL }
+func (a *app) CredsDir() string        { return a.credsDir }
+func (a *app) Mux() *http.ServeMux     { return a.mux }
+func (a *app) Logger() *slog.Logger    { return a.logger }
 
 var _ monolith.Monolith = (*app)(nil)
 
@@ -83,20 +77,6 @@ func run(log *slog.Logger) error {
 	if adminCredsPath == "" && credsDir != "" {
 		adminCredsPath = filepath.Join(credsDir, "shipping-admin.creds")
 	}
-	// PlatformFullJS's credential — see monolith.Monolith.PlatformFullJS'
-	// doc comment for why this is deliberately NOT adminCredsPath.
-	platformFullCredsPath := envOr("NATS_PLATFORM_CREDS_PATH", "")
-	if platformFullCredsPath == "" && credsDir != "" {
-		platformFullCredsPath = filepath.Join(credsDir, "platform.creds")
-	}
-	// Phase 17c — Connections panel proxies the NATS server's HTTP
-	// monitoring port (distinct from natsURL's client port 4222).
-	natsMonitorURL := envOr("NATS_MONITOR_URL", "http://localhost:8222")
-	// Admin UI Log panel — path to NATS's log_file, mounted read-only from
-	// the same volume NATS writes into (see docker-compose.yml). Empty
-	// outside Docker; the Log panel's endpoint reports unavailable rather
-	// than erroring.
-	natsLogPath := envOr("NATS_LOG_PATH", "")
 
 	startupCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -123,24 +103,6 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	// Second, unrestricted PLATFORM connection (platform.creds) — see
-	// monolith.Monolith.PlatformFullJS' doc comment. Non-fatal if it can't be
-	// established: this only degrades cross-account KV bucket introspection
-	// (listKVBuckets skips PLATFORM), not Startup itself.
-	var platformFullJS jetstream.JetStream
-	if platformFullCredsPath != "" {
-		pnc, err := nats.Connect(natsURL, nats.Name("shipping-service-platform-full"), nats.UserCredentials(platformFullCredsPath))
-		if err != nil {
-			log.Error("connect platform-full NATS; cross-account KV introspection will skip PLATFORM", "err", err)
-		} else {
-			defer pnc.Drain() //nolint:errcheck
-			if platformFullJS, err = jetstream.New(pnc); err != nil {
-				log.Error("jetstream context for platform-full connection; cross-account KV introspection will skip PLATFORM", "err", err)
-				platformFullJS = nil
-			}
-		}
-	}
-
 	// Postgres
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
@@ -151,7 +113,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	a := &app{db: db, js: js, nc: nc, platformFullJS: platformFullJS, natsURL: natsURL, credsDir: credsDir, natsMonitorURL: natsMonitorURL, natsLogPath: natsLogPath, mux: http.NewServeMux(), logger: log}
+	a := &app{db: db, js: js, nc: nc, natsURL: natsURL, credsDir: credsDir, mux: http.NewServeMux(), logger: log}
 
 	modules := []monolith.Module{dictionary.Module{}}
 	for _, m := range modules {

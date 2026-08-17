@@ -1,9 +1,9 @@
 package rest
 
-// Log panel — the real risk is the tail/filter/cap logic (readLastLines'
-// byte-window seek, level+q filtering, the hard natsLogMaxTail ceiling),
-// not the HTTP plumbing, so these write a real temp file rather than
-// mocking anything.
+// Log panel — lifted verbatim from shipping-service's nats_log_test.go. The
+// real risk is the tail/filter/cap logic (readLastLines' byte-window seek,
+// level+q filtering, the hard natsLogMaxTail ceiling), not the HTTP
+// plumbing, so these write a real temp file rather than mocking anything.
 
 import (
 	"encoding/json"
@@ -27,7 +27,7 @@ func writeTestLog(t *testing.T, lines []string) string {
 }
 
 func TestTailNatsLogReturns503WhenUnconfigured(t *testing.T) {
-	h := NewHandlers(Deps{Log: discardLogger(), NatsLogPath: ""})
+	h := New(Deps{Log: discardLogger(), NatsLogPath: ""})
 	req := httptest.NewRequest(http.MethodGet, "/api/nats/log", nil)
 	w := httptest.NewRecorder()
 
@@ -45,7 +45,7 @@ func TestTailNatsLogDefaultTailReturnsMostRecentLinesInOrder(t *testing.T) {
 		`[1] 2026/08/05 10:00:02.000000 [WRN] Publish Violation - Subject "$SRV.STATS"`,
 	}
 	path := writeTestLog(t, lines)
-	h := NewHandlers(Deps{Log: discardLogger(), NatsLogPath: path})
+	h := New(Deps{Log: discardLogger(), NatsLogPath: path})
 	req := httptest.NewRequest(http.MethodGet, "/api/nats/log", nil)
 	w := httptest.NewRecorder()
 
@@ -79,7 +79,7 @@ func TestTailNatsLogFiltersByLevel(t *testing.T) {
 		`[1] 10:00:03 [INF] Server is ready`,
 	}
 	path := writeTestLog(t, lines)
-	h := NewHandlers(Deps{Log: discardLogger(), NatsLogPath: path})
+	h := New(Deps{Log: discardLogger(), NatsLogPath: path})
 	req := httptest.NewRequest(http.MethodGet, "/api/nats/log?level=error", nil)
 	w := httptest.NewRecorder()
 
@@ -101,7 +101,7 @@ func TestTailNatsLogFiltersByFreeTextSubstringCaseInsensitive(t *testing.T) {
 		`[1] 10:00:02 [WRN] Publish Violation - Subject "other.subject"`,
 	}
 	path := writeTestLog(t, lines)
-	h := NewHandlers(Deps{Log: discardLogger(), NatsLogPath: path})
+	h := New(Deps{Log: discardLogger(), NatsLogPath: path})
 	req := httptest.NewRequest(http.MethodGet, "/api/nats/log?q=SRV.STATS", nil)
 	w := httptest.NewRecorder()
 
@@ -123,7 +123,7 @@ func TestTailNatsLogLevelAndQCombineWithAnd(t *testing.T) {
 		`[1] 10:00:02 [ERR] some other error`,
 	}
 	path := writeTestLog(t, lines)
-	h := NewHandlers(Deps{Log: discardLogger(), NatsLogPath: path})
+	h := New(Deps{Log: discardLogger(), NatsLogPath: path})
 	req := httptest.NewRequest(http.MethodGet, "/api/nats/log?level=error&q=ACME", nil)
 	w := httptest.NewRecorder()
 
@@ -144,7 +144,7 @@ func TestTailNatsLogCallerTailIsHonoredUnderTheHardCap(t *testing.T) {
 		lines[i] = `[1] 10:00:0` + strconv.Itoa(i) + ` [INF] line ` + strconv.Itoa(i)
 	}
 	path := writeTestLog(t, lines)
-	h := NewHandlers(Deps{Log: discardLogger(), NatsLogPath: path})
+	h := New(Deps{Log: discardLogger(), NatsLogPath: path})
 	req := httptest.NewRequest(http.MethodGet, "/api/nats/log?tail=3", nil)
 	w := httptest.NewRecorder()
 
@@ -171,7 +171,7 @@ func TestTailNatsLogCallerTailIsHonoredUnderTheHardCap(t *testing.T) {
 func TestTailNatsLogRequestedTailAboveHardCapIsClamped(t *testing.T) {
 	lines := []string{`[1] 10:00:00 [INF] only line`}
 	path := writeTestLog(t, lines)
-	h := NewHandlers(Deps{Log: discardLogger(), NatsLogPath: path})
+	h := New(Deps{Log: discardLogger(), NatsLogPath: path})
 	req := httptest.NewRequest(http.MethodGet, "/api/nats/log?tail=999999", nil)
 	w := httptest.NewRecorder()
 

@@ -186,11 +186,11 @@ func register(
 
 		if err := project(spanCtx, msg.Subject(), event); err != nil {
 			log.Error("projection failed, will redeliver", "consumer", durable, "subject", msg.Subject(), "err", err)
-			sp.Fail(err, msg.Data(), nil)
+			sp.Fail(err, nil, nil)
 			_ = msg.Nak()
 			return
 		}
-		sp.End(msg.Data(), nil)
+		sp.End(nil, nil)
 		_ = msg.Ack()
 	})
 }

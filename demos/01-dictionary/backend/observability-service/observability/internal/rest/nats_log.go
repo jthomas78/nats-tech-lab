@@ -1,10 +1,12 @@
 package rest
 
-// Log panel — tails NATS's own log_file (nats/nats.conf), REST-polled like
-// every other Admin UI NATS panel rather than a push/follow transport (see
-// the design discussion this implements: level/q are the only filters,
-// tail has a hard server-side ceiling, no log rotation is handled — this is
-// a lab convenience, not a production log pipeline).
+// Log panel — lifted verbatim from shipping-service's
+// dictionary/internal/rest/nats_log.go (no tenant-labeling dependency, so
+// nothing about it changes in the move to observability-service).
+// Tails NATS's own log_file (nats/nats.conf), REST-polled like every other
+// Admin UI NATS panel rather than a push/follow transport: level/q are the
+// only filters, tail has a hard server-side ceiling, no log rotation is
+// handled — this is a lab convenience, not a production log pipeline.
 import (
 	"bufio"
 	"io"
@@ -24,10 +26,7 @@ const natsLogMaxTail = 1000
 const natsLogDefaultTail = 200
 
 // natsLogMaxReadBytes bounds how much of the file is ever read from disk,
-// seeking to the last N bytes first — without this, a log file that grew
-// large between the occasional restarts this feature assumes (see
-// nats.conf's log_file comment: no rotation) would make every poll read
-// the whole file just to keep the last few hundred lines.
+// seeking to the last N bytes first.
 const natsLogMaxReadBytes = 8 * 1024 * 1024 // 8MB
 
 var natsLogLevels = map[string]string{
@@ -41,8 +40,7 @@ var natsLogLevels = map[string]string{
 type natsLogResponse struct {
 	Lines []string `json:"lines"`
 	// Truncated is true when more matching lines existed than natsLogMaxTail
-	// (or the caller's smaller ?tail=) could return — lets the UI say "showing
-	// the most recent N" instead of implying this is the complete history.
+	// (or the caller's smaller ?tail=) could return.
 	Truncated bool `json:"truncated"`
 }
 
@@ -59,7 +57,7 @@ type natsLogResponse struct {
 // @Failure      503  {object}  errorResponse  "log tailing not configured"
 // @Router       /api/nats/log [get]
 func (h *Handlers) tailNatsLog(w http.ResponseWriter, r *http.Request) {
-	deps := h.deps()
+	deps := h.deps
 	if deps.NatsLogPath == "" {
 		writeError(w, http.StatusServiceUnavailable, "log tailing not configured (NATS_LOG_PATH unset)")
 		return
@@ -113,8 +111,7 @@ func (h *Handlers) tailNatsLog(w http.ResponseWriter, r *http.Request) {
 
 // readLastLines reads at most natsLogMaxReadBytes from the end of path and
 // splits it into lines. The first line of that window may be a partial
-// line (cut mid-way by the seek) — dropped rather than returned truncated,
-// since it's discarded before any filtering happens anyway.
+// line (cut mid-way by the seek) — dropped rather than returned truncated.
 func readLastLines(path string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {

@@ -27,30 +27,6 @@ type Monolith interface {
 	// rest.Handlers; this one is limited to admin inspection/replay and
 	// $SRV discovery. DB/JS/NC here never change after Startup.
 	NC() *nats.Conn
-	// PlatformFullJS is a SECOND, unrestricted PLATFORM-account JetStream
-	// context — connected with platform.creds (the same broad-access
-	// credential refdata-service and accounts-service already use), not
-	// shipping-admin.creds like JS()/NC() above. Deliberately kept separate:
-	// shipping-admin is intentionally locked out of $JS.API.> ("Do not grant
-	// $JS.API.> or access to tenant streams/KV" — nats/bootstrap-operator.sh,
-	// enforced by TestShippingAdminCanOnlyUseNarrowOrderedConsumerAccess), so
-	// widening JS()/NC() themselves would erode that boundary for every
-	// existing caller. Originally read-only cross-account introspection only
-	// (the Admin UI's two cross-account panels: listKVBuckets for
-	// refdata-service's KV_* streams, and listStreams for REFDATA/RPCTRACE —
-	// note that *replaying* REFDATA/RPCTRACE does not need it, since
-	// bootstrap-operator.sh grants shipping-admin the ordered-consumer API for
-	// exactly those two streams, see rpcTraceReplayOnce). Phase 28f adds a
-	// second, non-introspection use: eventhandler.RegisterTraceStore uses
-	// this same connection to create the TRACES stream and trace-request-reply
-	// KV bucket and run the durable consumer that projects into it — genuine
-	// stream/KV *writes*, not just $JS.API.STREAM.LIST enumeration, which is
-	// exactly why this needs to stay the unrestricted connection rather than
-	// shipping-admin's. Nil if NATS_PLATFORM_CREDS_PATH/platform.creds isn't
-	// configured (e.g. local dev outside Docker) or the connection failed at
-	// Startup — callers must handle nil rather than treating it as always
-	// available.
-	PlatformFullJS() jetstream.JetStream
 	// NatsURL is needed by rest.Handlers.SwitchTenant (Phase 13b) to open a
 	// tenant-credentialed connection independent of the admin NC() above.
 	NatsURL() string
@@ -59,17 +35,6 @@ type Monolith interface {
 	// NATS credentials. Empty when running locally outside Docker without
 	// operator mode configured.
 	CredsDir() string
-	// NatsMonitorURL is the NATS server's HTTP monitoring endpoint (default
-	// port 8222) — used by the admin Connections panel (Phase 17c) to proxy
-	// GET /connz. Distinct from NatsURL, which is the client (4222) port.
-	NatsMonitorURL() string
-	// NatsLogPath is the local filesystem path to NATS's log_file (see
-	// nats/nats.conf), mounted read-only into this container from the same
-	// volume NATS writes into — used by the admin Log panel to tail it.
-	// Empty when running locally outside Docker without a log_file
-	// configured; the Log panel's endpoint reports unavailable rather than
-	// erroring.
-	NatsLogPath() string
 	Mux() *http.ServeMux
 	Logger() *slog.Logger
 }

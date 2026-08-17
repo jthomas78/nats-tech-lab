@@ -77,20 +77,20 @@ func RegisterContainers(
 		persisted, err := repo.Upsert(spanCtx, state)
 		if err != nil {
 			log.Error("container projection failed, will redeliver", "subject", msg.Subject(), "err", err)
-			sp.Fail(err, msg.Data(), nil)
+			sp.Fail(err, nil, nil)
 			_ = msg.Nak()
 			return
 		}
 		data, err := json.Marshal(persisted)
 		if err != nil {
 			log.Error("marshal container state", "err", err)
-			sp.Fail(err, msg.Data(), nil)
+			sp.Fail(err, nil, nil)
 			_ = msg.Nak()
 			return
 		}
 		if _, err := kv.Put(spanCtx, event.Context, state.KVKey(), data); err != nil {
 			log.Error("container kv write failed, will redeliver", "subject", msg.Subject(), "err", err)
-			sp.Fail(err, msg.Data(), nil)
+			sp.Fail(err, nil, nil)
 			_ = msg.Nak()
 			return
 		}
@@ -98,7 +98,7 @@ func RegisterContainers(
 		if rawData, err := json.Marshal(event); err == nil {
 			publishRawNotify(nc, log, event.Context, "container", eventType, rawData, sp)
 		}
-		sp.End(msg.Data(), nil)
+		sp.End(nil, nil)
 		_ = msg.Ack()
 	})
 }

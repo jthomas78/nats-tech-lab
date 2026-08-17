@@ -22,12 +22,19 @@ import { useNatsConnection } from '../nats/useNatsConnection.js'
 // live-connection concept the way a NATS client does — it's either registered
 // on the server or it isn't, and listStreams() already only returns
 // registered ones. The account-level dot is a different claim (see
-// .account-dot below): whether the browser could watch that account live at
-// all, which is a property of the NATS account boundary, not of any one
-// stream.
+// .account-dot below): the owning account's own active/suspended lifecycle
+// status from accounts-service, not anything about the browser's own
+// connection.
 const REFRESH_MS = 15000
 
 const streams = ref([]) // [{ stream, account, subjects, messages, bytes, firstSeq, lastSeq, consumers }]
+// Accounts is the authoritative account list (every account this backend
+// knows about, including ones whose streams couldn't be listed — e.g. a
+// suspended tenant, whose cross-account $JS.API access always fails). The
+// rail is built from this, not from `streams`, so a suspended account with
+// zero listable streams still gets a dimmed group header instead of
+// disappearing entirely.
+const accounts = ref([]) // [{ name, status }]
 const activeAccount = ref(null)
 const activeStream = ref(null)
 
@@ -54,23 +61,24 @@ function sortStreams(list) {
 }
 
 const groupedByAccount = computed(() => {
-  const groups = new Map()
+  const byAccount = new Map()
   for (const s of streams.value) {
-    if (!groups.has(s.account)) groups.set(s.account, [])
-    groups.get(s.account).push(s)
+    if (!byAccount.has(s.account)) byAccount.set(s.account, [])
+    byAccount.get(s.account).push(s)
   }
-  return [...groups.entries()].map(([account, list]) => [account, sortStreams(list)])
+  return accounts.value.map((a) => [a.name, a.status, sortStreams(byAccount.get(a.name) ?? [])])
 })
 
 async function refresh() {
-  let list
+  let res
   try {
-    const res = await listStreams()
-    list = res?.streams ?? []
+    res = await listStreams()
   } catch {
     return // Best-effort — keep showing whatever was last known.
   }
+  const list = res?.streams ?? []
   streams.value = list
+  accounts.value = res?.accounts ?? []
   const stillExists = list.some((s) => s.account === activeAccount.value && s.stream === activeStream.value)
   if (!activeStream.value || !stillExists) {
     // Prefer a SHIPPING stream as the opening view, else the first stream.
@@ -101,12 +109,12 @@ onUnmounted(() => clearInterval(refreshTimer))
 // streams show, but a switch can bring a previously-unseen tenant's resources
 // into existence server-side (ensureTenantResources), which does change the
 // list — and a fresh connection is worth a re-check regardless.
-const { connected: tenantConnected, tenant } = useNatsConnection()
+const { connected: tenantConnected } = useNatsConnection()
 watch(tenantConnected, (isConnected) => {
   if (isConnected) refresh()
 })
 
-const hasStreams = computed(() => streams.value.length > 0)
+const hasAccounts = computed(() => accounts.value.length > 0)
 </script>
 
 <template>
@@ -117,7 +125,7 @@ const hasStreams = computed(() => streams.value.length > 0)
         <span class="lab-muted">· {{ groupedByAccount.length }} accounts</span>
       </div>
 
-      <div v-for="[account, accountStreams] in groupedByAccount" :key="account" class="account-group">
+      <div v-for="[account, accountStatus, accountStreams] in groupedByAccount" :key="account" class="account-group">
         <button
           type="button"
           class="account-head"
@@ -126,7 +134,7 @@ const hasStreams = computed(() => streams.value.length > 0)
           @click="toggleAccount(account)"
         >
           <span class="caret">▶</span>
-          <span class="account-dot" :class="{ ro: account !== tenant }"></span>
+          <span class="account-dot" :class="{ ro: accountStatus !== 'active' }" :title="`account status: ${accountStatus}`"></span>
           <span class="account-name">{{ account }}</span>
           <span class="account-kind">{{ account === 'platform' ? 'read-only' : 'tenant' }}</span>
           <span class="account-count lab-muted">{{ accountStreams.length }}</span>
@@ -146,7 +154,7 @@ const hasStreams = computed(() => streams.value.length > 0)
         </div>
       </div>
 
-      <p v-if="!hasStreams" class="lab-muted rail-empty">No streams registered on the server yet.</p>
+      <p v-if="!hasAccounts" class="lab-muted rail-empty">No streams registered on the server yet.</p>
     </aside>
 
     <StreamView
@@ -234,10 +242,10 @@ const hasStreams = computed(() => streams.value.length > 0)
 @media (prefers-reduced-motion: reduce) {
   .caret { transition: none; }
 }
-/* Green = the account the browser's own NATS connection is authenticated as,
-   the only one whose notify.* live tail it could ever subscribe to; gray =
-   every other account, which this panel reads backend-mediated snapshots
-   from. Same distinction StreamView's header tag makes, shown one level up. */
+/* Green = accountStatus === 'active' (accounts-service's own lifecycle
+   state, PLATFORM always active); gray = suspended. This is the account's
+   own status, not anything about the browser's current connection — a
+   suspended tenant still lists its streams here, just dimmed. */
 .account-dot {
   flex-shrink: 0;
   width: 6px;

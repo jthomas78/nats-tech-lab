@@ -27,9 +27,16 @@ import (
 
 // nonTenantCredsFiles are the .creds stems (checked case-insensitively —
 // see below) in the shared creds directory that are never switchable
-// tenants — PLATFORM/shipping-admin are permanent PLATFORM credentials and
-// SYS is accounts-service's own credential; none are ship/container tenants.
-var nonTenantCredsFiles = map[string]bool{"platform": true, "shipping-admin": true, "sys": true}
+// tenants — PLATFORM/shipping-admin are permanent PLATFORM credentials,
+// SYS is accounts-service's own credential, and observability is
+// observability-service's restricted PLATFORM connection (Phase 30c); none
+// are ship/container tenants. Phase 30i live verification caught this list
+// not being updated when observability.creds first landed in this same
+// shared directory: discoverTenants treated "observability" as a
+// switchable tenant name, and EnsureAllTenants then failed trying to
+// provision SHIPPING-stream resources for it at every shipping-service
+// startup from that point on.
+var nonTenantCredsFiles = map[string]bool{"platform": true, "shipping-admin": true, "sys": true, "observability": true}
 
 // discoverTenants scans credsDir (the shared volume accounts-service also
 // writes into, Phase 14b) for *.creds files and returns the known-tenant map

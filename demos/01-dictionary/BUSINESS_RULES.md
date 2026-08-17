@@ -35,8 +35,10 @@ Split by domain so a rule add/edit only requires reading its own file:
   `dictionary/internal/rest/tenant.go` + `dictionary/composition.go`
   (BR-030–032), `frontend/seafreight-app/src/App.vue` +
   `src/nats/useNatsConnection.js` (BR-031, BR-033),
-  `dictionary/internal/rest/nats_ops.go` +
-  `frontend/admin/src/components/AccountActivityPanel.vue` (BR-034), and
+  `observability-service/observability/internal/rest/nats_connections.go`
+  (moved from shipping-service's `dictionary/internal/rest/nats_ops.go`,
+  Phase 30h) + `frontend/admin/src/components/AccountActivityPanel.vue`
+  (BR-034), and
   `dictionary/internal/natstrace/` + `frontend/admin/src/components/
   TraceWaterfall.vue` (BR-035–037).
 - **[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)** — Reference Data
@@ -44,7 +46,7 @@ Split by domain so a rule add/edit only requires reading its own file:
   BR-036). Rules live in
   `backend/refdata-service/refdata/internal/domain/dictionary.go`.
 - **[BUSINESS_RULES-ACCOUNTS.md](BUSINESS_RULES-ACCOUNTS.md)** — Accounts
-  Service (BR-AC01–BR-AC30): NATS account provisioning, suspension,
+  Service (BR-AC01–BR-AC32): NATS account provisioning, suspension,
   reactivation, reserved-name protection via decentralized JWTs, (BR-AC08)
   publishing `notify.accounts.account.created` so shipping-service can react
   to a newly-minted tenant immediately (see BR-030, SHIPPING file, for the
@@ -60,6 +62,13 @@ Split by domain so a rule add/edit only requires reading its own file:
   JWT TTL policy, and import/export health reporting added Phases 21-22.
   BR-AC30 (Phase 28) adds `allow_trace: true` and a per-tenant `obs.trace.>`
   stream export to every minted tenant account JWT, never to a browser JWT.
+  BR-AC31 (Phase 30a) adds a per-tenant `$SRV.>` service export (imported by
+  PLATFORM with a `monitor.{tenant}.srv.>` local remap) so cross-account
+  service discovery for `observability-service` can reach every tenant.
+  BR-AC32 (Phase 30b) adds six narrow, explicit `$JS.API` service exports
+  (imported by PLATFORM with a `monitor.{tenant}.js.>` local remap) for
+  read-oriented JetStream/KV introspection, deliberately excluding stream
+  management subjects.
   Rules live in `backend/accounts-service/accounts/handler.go`,
   `provisioner.go`, `store.go`, `audit.go`, and `jwt.go`.
 - **[BUSINESS_RULES-PRICING.md](BUSINESS_RULES-PRICING.md)** — Pricing

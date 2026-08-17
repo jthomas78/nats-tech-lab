@@ -263,6 +263,36 @@ describe('TraceWaterfall (Phase 28g, BR-035)', () => {
     expect(consistent.text()).toContain('never — no async tail')
   })
 
+  it('labels a missing responder by why it is missing, not as "not yet finished" (Phase 28r) — an evt.* consumer span never had one to record', async () => {
+    // Every span in the trace store already finished (natstrace.go's finish()
+    // is the only obs.trace.* publish point, called exclusively from End/Fail)
+    // — a missing Nats-Responder header is never an in-flight state. ASYNC_TAIL
+    // (a3, evt.acme.shipping.ship.MV-AURELIA.arrived) is a JetStream consumer
+    // reacting to a message, not answering a request, so it carries no
+    // Nats-Responder header by design.
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const rows = wrapper.findAll('.tw-row')
+    await rows[2].trigger('click')
+    await flushPromises()
+
+    const identities = wrapper.findAll('.tw-who-id')
+    expect(identities[1].text()).toBe('async event — no NATS responder')
+  })
+
+  it('labels a missing responder on a failed call as "no reply received", not "not yet finished" (Phase 28r)', async () => {
+    // t2 (FAILED_ROOT) finished via Fail with no reply ever received — a real,
+    // permanent outcome, not an incomplete one.
+    const wrapper = mountPanel()
+    await flushPromises()
+    await wrapper.findAll('.tw-trace')[1].trigger('click')
+    await flushPromises()
+
+    const identities = wrapper.findAll('.tw-who-id')
+    expect(identities[1].text()).toBe('call failed — no reply received')
+  })
+
   it('renders a request body and a response body in the same request|response split as identity/headers (Phase 28i)', async () => {
     const wrapper = mountPanel()
     await flushPromises()

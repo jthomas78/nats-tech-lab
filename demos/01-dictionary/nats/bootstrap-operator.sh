@@ -145,6 +145,47 @@ for account in ACME GLOBEX; do
   # that actually matters for this pipeline is on PLATFORM's stream
   # *import* of it below.
   nsc add export --account "$account" --subject "obs.trace.>" >/dev/null
+
+  # BR-AC31 (Phase 30a) — a second reverse leg: this tenant exports its own
+  # $SRV.> control subjects (nats.go/micro's PING/INFO/STATS discovery
+  # protocol) back to PLATFORM, so observability-service's Services panel
+  # can broadcast discovery into this account instead of needing its own
+  # raw per-tenant connection. --response-type Stream (not the nsc default
+  # Singleton) because $SRV.STATS is answered by every registered service
+  # instance in the account, not just one — see BR-AC31's design note in
+  # BUSINESS_RULES-ACCOUNTS.md for why Singleton would silently drop every
+  # reply after the first.
+  nsc add export --account "$account" --service --subject '$SRV.>' \
+    --response-type Stream >/dev/null
+
+  # BR-AC32 (Phase 30b, extended 30i) — a third reverse leg: seven narrow,
+  # explicit $JS.API exports (never the $JS.API.> wildcard, which would
+  # grant stream management — create/delete/purge — not just visibility),
+  # so observability-service's JetStream/KV panels can introspect this
+  # tenant's streams/consumers. Traced directly against the exact $JS.API
+  # calls dictionary/internal/rest/{kv,replay}.go makes — see
+  # Main-POC-Plan.md's Phase 30 Design section and BUSINESS_RULES-
+  # ACCOUNTS.md's BR-AC32 for the full call-chain trace. Five of the seven
+  # are plain single-reply Singleton (the nsc default, so no
+  # --response-type flag); CONSUMER.MSG.NEXT.*.* alone needs
+  # --response-type Stream, same reason $SRV.> above does — a batch pull
+  # can yield multiple replies for one request. CONSUMER.CREATE.*.*.>
+  # (Phase 30i live-verification fix) is a separate, necessary pattern
+  # alongside CONSUMER.CREATE.*.* — nats.go's CreateOrUpdateConsumer
+  # embeds a FilterSubject directly into the published $JS.API subject
+  # rather than the request body whenever one is set
+  # (apiConsumerCreateWithFilterSubjectT), and jetstream.KeyValue.WatchAll
+  # (the KV Buckets panel's live-entries view) always sets one — caught
+  # only once this ran against a real multi-account deployment, since unit
+  # tests never exercise real NATS subject permissions.
+  nsc add export --account "$account" --service --subject '$JS.API.STREAM.LIST' >/dev/null
+  nsc add export --account "$account" --service --subject '$JS.API.STREAM.INFO.*' >/dev/null
+  nsc add export --account "$account" --service --subject '$JS.API.CONSUMER.CREATE.*' >/dev/null
+  nsc add export --account "$account" --service --subject '$JS.API.CONSUMER.CREATE.*.*' >/dev/null
+  nsc add export --account "$account" --service --subject '$JS.API.CONSUMER.CREATE.*.*.>' >/dev/null
+  nsc add export --account "$account" --service --subject '$JS.API.CONSUMER.MSG.NEXT.*.*' \
+    --response-type Stream >/dev/null
+  nsc add export --account "$account" --service --subject '$JS.API.CONSUMER.DELETE.*.*' >/dev/null
 done
 
 echo "==> PLATFORM imports each tenant's obs.trace.> (Phase 28f cross-account trace store)"
@@ -157,6 +198,37 @@ for account in ACME GLOBEX; do
     --remote-subject "obs.trace.>" \
     --local-subject "obs.trace.>" \
     --allow-trace >/dev/null
+done
+
+echo "==> PLATFORM imports each tenant's \$SRV.> (BR-AC31 cross-account service discovery)"
+# Day-0 nsc equivalent of accounts-service's Provisioner.addPlatformMonitorImport
+# (accounts/provisioner.go), which does the same thing at runtime for accounts
+# minted after boot. Every tenant exports the identical literal "$SRV.>"
+# subject, so — unlike the obs.trace.> import above — this needs a
+# tenant-scoped --local-subject remap: without it, GLOBEX's import would
+# collide with ACME's on the same local subject.
+for account in ACME GLOBEX; do
+  account_pub="$(nsc describe account "$account" --json | jq -r '.sub')"
+  account_name="$(echo "$account" | tr '[:upper:]' '[:lower:]')"
+  nsc add import --account PLATFORM --service --src-account "$account_pub" \
+    --remote-subject '$SRV.>' \
+    --local-subject "monitor.${account_name}.srv.>" >/dev/null
+done
+
+echo "==> PLATFORM imports each tenant's \$JS.API introspection subjects (BR-AC32)"
+# Day-0 nsc equivalent of accounts-service's Provisioner.addPlatformJSAPIImport
+# (accounts/provisioner.go), which does the same thing at runtime for accounts
+# minted after boot. Same tenant-scoped --local-subject remap rationale as
+# the $SRV.> import above — every tenant exports the identical literal
+# $JS.API.* subjects.
+for account in ACME GLOBEX; do
+  account_pub="$(nsc describe account "$account" --json | jq -r '.sub')"
+  account_name="$(echo "$account" | tr '[:upper:]' '[:lower:]')"
+  for suffix in STREAM.LIST STREAM.INFO.\* CONSUMER.CREATE.\* CONSUMER.CREATE.\*.\* CONSUMER.CREATE.\*.\*.\> CONSUMER.MSG.NEXT.\*.\* CONSUMER.DELETE.\*.\*; do
+    nsc add import --account PLATFORM --service --src-account "$account_pub" \
+      --remote-subject "\$JS.API.${suffix}" \
+      --local-subject "monitor.${account_name}.js.${suffix}" >/dev/null
+  done
 done
 
 echo "==> restricted PLATFORM shipping-admin creds"
@@ -186,6 +258,137 @@ nsc edit user --account PLATFORM --name shipping-admin \
   --allow-pub '$JS.API.CONSUMER.CREATE.REFDATA.>,$JS.API.CONSUMER.INFO.REFDATA.>,$JS.API.CONSUMER.DELETE.REFDATA.>,$JS.API.CONSUMER.MSG.NEXT.REFDATA.>,notify._platform.>,$SRV.>' \
   --allow-sub '$SRV.>,_INBOX.>,$JS.API.CONSUMER.MSG.NEXT.REFDATA.>' >/dev/null
 nsc generate creds --account PLATFORM --name shipping-admin >"$NATS_DIR/creds/shipping-admin.creds"
+
+echo "==> restricted PLATFORM observability creds (Phase 30c)"
+# observability-service's one connection — narrowly scoped the same way
+# shipping-admin above is, deliberately not platform.creds' unrestricted
+# access (refdata-service/otlp-bridge's pattern): this phase's whole design
+# rationale (Main-POC-Plan.md's Phase 30) is precise, enumerable grants
+# instead of a broad credential, and it would be inconsistent to abandon
+# that at the connection layer after BR-AC31/BR-AC32 went to the trouble of
+# scoping the account-level exports/imports precisely.
+#
+# monitor.>/$SRV.> is everything this phase's own account-level imports
+# resolve to (BR-AC31's per-tenant $SRV.> import, BR-AC32's six per-tenant
+# $JS.API imports, all remapped under monitor.{tenant}.*) plus PLATFORM's
+# own native $SRV.> (refdata-service registers there, same as
+# shipping-admin's grant above needs for the same reason).
+#
+# Phase 30e — PLATFORM-native $JS.API access (this service's own
+# REFDATA/TRACES stream introspection, not routed through any monitor.*
+# remap) is the exact same seven-subject BR-AC32 list, applied directly to
+# this account instead of imported from a tenant: same read-oriented
+# rationale (STREAM.LIST/STREAM.INFO for listing, CONSUMER.CREATE/
+# CONSUMER.MSG.NEXT/CONSUMER.DELETE for the replay panel's ephemeral
+# consumer), same exclusion of $JS.API.> wildcard (no STREAM.CREATE/
+# DELETE/PURGE/UPDATE). Deliberately not shipping-service's PlatformFullJS
+# pattern (a second, broader-access connection) — one connection, narrowly
+# scoped, consistent with this whole phase's design.
+#
+# Phase 30g — the trace store needs to CREATE/UPDATE two resources it owns
+# outright: the TRACES stream and its KV_trace-request-reply backing stream
+# (a KV bucket is a stream under the hood). This is a genuinely different
+# risk than BR-AC31/BR-AC32's cross-account introspection grants above —
+# those are read-only access into OTHER accounts' data; this is
+# create/update access to two specifically-named resources in THIS
+# account, the same shape shipping-admin's own REFDATA-scoped grants
+# already use (resource-scoped by name, never a wildcard). Consumer
+# create/pull for the durable trace-store-projector consumer needs no new
+# grant — the existing CONSUMER.CREATE.*.*/CONSUMER.MSG.NEXT.*.* wildcards
+# already cover any consumer name on any stream, durable or ephemeral (NATS
+# wildcards don't distinguish the two). $KV.trace-request-reply.> is the KV
+# bucket's own underlying publish subject (kv.Put is a plain JetStream
+# publish, not a $JS.API call) and notify._platform.kv.trace-request-reply.>
+# is this store's live-update publish, the same notify.* mechanism every
+# other KV panel's writes already use.
+#
+# Deliberately not shipping-service's PlatformFullJS pattern (a second,
+# unrestricted connection) even for this — one connection, every grant
+# still enumerable and resource-scoped, consistent with this whole phase's
+# design.
+#
+# Phase 30i live-verification fix — $JS.API.INFO was missing. nats.go's
+# jetstream.CreateOrUpdateKeyValue (tracestore.Register's KV bucket
+# provisioning) calls js.AccountInfo() first, which publishes to
+# $JS.API.INFO before ever touching STREAM.CREATE — without this grant the
+# very first startup call fails closed with a permissions violation and
+# the KV bucket creation call above it times out waiting on a reply that
+# was never going to arrive. Account-wide (not resource-scoped) since
+# AccountInfo carries no resource name to scope against; it's a read of
+# this account's own JetStream limits/usage, not a create/update on a
+# named resource, so this doesn't reopen the enumerable-resource-grants
+# rationale above.
+#
+# Phase 30i live-verification fix #2 — the durable trace-store-projector
+# consumer is created WITH a FilterSubject (tracestore.go's
+# CreateOrUpdateConsumer(ctx, "TRACES", ...FilterSubject: "obs.trace.>")),
+# so nats.go publishes to apiConsumerCreateWithFilterSubjectT
+# ("CONSUMER.CREATE.%s.%s.%s", the filter subject's own dots and trailing
+# > folded straight into the published subject) rather than the plain
+# two-wildcard apiConsumerCreateT the existing
+# $JS.API.CONSUMER.CREATE.*.* grant above covers — so the literal wire
+# subject is $JS.API.CONSUMER.CREATE.TRACES.trace-store-projector.obs.trace.>,
+# which that grant's fixed two-wildcard shape cannot match no matter how
+# many wildcards, since a filter subject's own token count varies by
+# design. Superseded by fix #5 below, which generalizes this exact gap
+# (BR-AC32's own CONSUMER.CREATE.*.*.> subject already covers this
+# specific stream+consumer, so no separate resource-scoped grant remains
+# here) — kept as a comment for the trail of why fix #5 exists, not as a
+# separate active grant.
+#
+# Phase 30i live-verification fix #3 — appendSpan's read side (kv.Get) uses
+# nats.go's JetStream direct-get optimization (apiDirectMsgGetLastBySubjectT,
+# "$JS.API.DIRECT.GET.%s.%s"), not a plain consumer pull — and like the
+# filter-subject case above, the second %s is the literal KV subject
+# ($KV.trace-request-reply._platform.trace.<traceId>, itself multi-token),
+# folded straight into the published subject rather than a single wildcard
+# token. Scoped to the KV_trace-request-reply stream only.
+#
+# Phase 30i live-verification fix #4 — every delivered message's Ack is a
+# publish to whatever reply subject the SERVER stamped on it
+# ($JS.ACK.TRACES.trace-store-projector.<numDelivered>.<streamSeq>.
+# <consumerSeq>.<timestamp>.<numPending>, server-generated per message, not
+# something the client constructs from a fixed template) — without this
+# grant every Ack silently fails permissions, so JetStream just keeps
+# redelivering the same messages forever (never registers the Ack). Scoped
+# to the TRACES stream + this consumer name only. (An earlier version of
+# this comment blamed a co-occurring "no responders" on STREAM.LIST/
+# KeyValueStores on client-side slow-consumer pressure from the resulting
+# redelivery storm — that diagnosis was wrong. The actual cause, found
+# afterward: AccountsClient.TenantNames compared account names
+# case-sensitively against "PLATFORM", but accounts-service stores and
+# returns them lowercase ("platform", "sys" — see fix in
+# accounts_client.go's TenantNames), so introspectableAccounts built a
+# bogus monitor.platform.js/monitor.sys.js-prefixed JetStream context with
+# no matching import, and the very next request through it failed closed —
+# aborting the whole handler on whichever of the two came first. Unrelated
+# to Acks entirely.)
+#
+# Phase 30i live-verification fix #5 — the KV Buckets panel's live-entries
+# view (kv.go's kvBucketEntriesOnce, via jetstream.KeyValue.WatchAll) always
+# creates its ephemeral consumer WITH a FilterSubject (the bucket's own
+# $KV.<bucket>.> subject) — the same apiConsumerCreateWithFilterSubjectT
+# gap as fix #2, but for ANY bucket this account owns, not just TRACES/
+# trace-store-projector, so this needs the general BR-AC32 pattern
+# (mirrored into jsAPIExportSubjects/tenantExports above and
+# accounts/provisioner.go's jsAPIExportSubjects for tenant accounts) rather
+# than a one-off resource-scoped grant.
+#
+# Fix #6 (found after Phase 30i, live) — nats.go's KeyValue.WatchAll
+# creates a push consumer with FlowControl enabled, so the client
+# periodically PUBLISHES a flow-control ack to a server-generated
+# $JS.FC.<stream>.<inbox> subject to keep delivery going (distinct from,
+# and in addition to, the $JS.ACK grant in fix #4 above — FC acks aren't
+# message Acks). Without this grant those acks fail closed; the visible
+# symptom isn't an immediate error but a stall once the consumer's
+# flow-control window fills, since the server simply stops pushing further
+# updates rather than erroring the request. Scoped to the
+# KV_trace-request-reply backing stream, mirroring fix #3/#4's scoping.
+nsc add user --account PLATFORM observability >/dev/null
+nsc edit user --account PLATFORM --name observability \
+  --allow-pub 'monitor.>,$SRV.>,$JS.API.INFO,$JS.API.STREAM.LIST,$JS.API.STREAM.INFO.*,$JS.API.CONSUMER.CREATE.*,$JS.API.CONSUMER.CREATE.*.*,$JS.API.CONSUMER.CREATE.*.*.>,$JS.API.CONSUMER.MSG.NEXT.*.*,$JS.API.CONSUMER.DELETE.*.*,$JS.API.STREAM.CREATE.TRACES,$JS.API.STREAM.UPDATE.TRACES,$JS.API.STREAM.CREATE.KV_trace-request-reply,$JS.API.STREAM.UPDATE.KV_trace-request-reply,$JS.API.DIRECT.GET.KV_trace-request-reply.>,$JS.ACK.TRACES.trace-store-projector.>,$JS.FC.KV_trace-request-reply.>,$KV.trace-request-reply.>,notify._platform.kv.trace-request-reply.>' \
+  --allow-sub 'monitor.>,$SRV.>,_INBOX.>' >/dev/null
+nsc generate creds --account PLATFORM --name observability >"$NATS_DIR/creds/observability.creds"
 
 echo "==> SYS account user creds (accounts-service, Phase 14b)"
 nsc generate creds --account SYS --name sys >"$NATS_DIR/creds/sys.creds"

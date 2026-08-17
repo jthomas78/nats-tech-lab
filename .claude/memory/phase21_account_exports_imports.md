@@ -1,27 +1,31 @@
 ---
 name: phase21-account-exports-imports
-description: Plan approved 2026-08-03 to replace cross-account "second .creds connection" pattern with NATS-native exports/imports; two-account partitioning (PLATFORM cross-cutting, tenant data-plane); not yet implemented
+description: IMPLEMENTED 2026-08-03 (extended Phase 28f 2026-08-xx) — PLATFORM/tenant two-account partitioning via NATS-native account-JWT exports/imports, replacing the old "second .creds connection" pattern
 metadata:
   type: project
 ---
 
-**Decision (plan approved 2026-08-03):** move cross-account communication from "open a second connection authenticated as the other account" to NATS's own account-JWT-declared exports/imports. Today `accounts-service` holds SYS+PLATFORM and `shipping-service` holds PLATFORM + every tenant account — the boundary is enforced only by which `.creds` file happens to be mounted, not by anything declared in the JWTs. This was flagged and deferred twice already: Phase 13's completion note ("refdata-service excluded — needs exports/imports for cross-tenant sharing — deferred") and `ARCHITECTURE-ACCOUNTS.md`'s "Production-scale fix" sketch. No phase number existed for it until now — it's Phase 21 in `Main-POC-Plan.md`.
+**Status: IMPLEMENTED 2026-08-03, `ginkgo ./...` green in both `accounts-service` and `shipping-service`.** Replaced the cross-account "open a second connection authenticated as the other account" pattern with NATS-native account-JWT-declared exports/imports. This was flagged and deferred twice before landing (Phase 13's completion note, `ARCHITECTURE-ACCOUNTS.md`'s "Production-scale fix" sketch).
 
-**Target partitioning, user-specified:** PLATFORM holds cross-cutting services (`accounts-service`, `refdata-service`) and declares exports; tenant accounts (`acme`, `globex`, runtime-minted) hold the data plane (`shipping-service`'s per-tenant `SHIPPING` stream + KV, the browser) and declare matching imports.
+**Partitioning:** PLATFORM holds cross-cutting services (`accounts-service`, `refdata-service`) and declares exports; tenant accounts (`acme`, `globex`, runtime-minted) hold the data plane (`shipping-service`'s per-tenant `SHIPPING` stream + KV, the browser) and declare matching imports.
 
-**Four export/import declarations:**
-1. Stream export `notify.accounts.account.*` (accounts-service → tenant), no remap
-2. Service export ×4, `rpc.*.refdata.{op}.v1` with a subject remap — tenant imports as a bare local subject (`refdata.item.get.v1` etc.); the server, not the caller, stamps the tenant's own account identity into the subject
-3. Fixed-subject service import `rpc._platform.refdata.context.list.v1` — deliberately NOT remapped, this one endpoint is intentionally cross-tenant/admin-facing
-4. Stream export `evt.*.refdata.*.changed` (REFDATA's business-path change feed), no remap
+**Forward leg — PLATFORM exports / tenant imports (`nats/bootstrap-operator.sh` at day-0, `accounts/provisioner.go`'s `tenantImports`/`tenantExports` at runtime for accounts minted after boot):**
+1. Service export ×4, `rpc.*.refdata.{item.get,type.list,item.get-versioned,locales.list}.v1` — tenant imports each with a subject remap to a bare local subject (`refdata.item.get.v1` etc.); the remote subject carries the tenant's own human-readable name (`rpc.acme.refdata.item.get.v1`), stamped server-side, not client-supplied.
+2. Fixed-subject service import `rpc._platform.refdata.context.list.v1` — deliberately NOT remapped, this one endpoint is intentionally cross-tenant/admin-facing.
+3. Stream export `notify.accounts.account.*` (accounts-service → tenant), no remap.
+4. Stream export `evt.*.refdata.*.changed` (REFDATA's business-path change feed), no remap. See [[refdata_cross_tenant_stream_import]] — this one is still unbounded/unscoped by tenant, a known open gap distinct from this phase.
 
-**Bonus, not just aesthetic:** the remap closes a real gap — today `refdataconsumer` interpolates `{context}` from caller-held application state, so nothing stops a client connected as `acme` from asking for `globex`'s data by constructing the subject. After the remap, that subject cannot exist in `acme`'s imported subject space at all — enforced by the server via the account's own import declaration, not by the caller behaving.
+**Reverse leg — Phase 28f, tenant exports / PLATFORM imports:** each tenant exports its own `obs.trace.>` spans (stream export, no `AllowTrace` — that flag is rejected on stream exports); PLATFORM imports each tenant's `obs.trace.>` with `--allow-trace`, feeding PLATFORM's cross-account trace store (`dictionary/composition.go`'s TRACES consumer). Wired both in `bootstrap-operator.sh` (day-0) and `provisioner.go`'s `addPlatformTraceImport` (runtime, for accounts minted after boot).
+
+**Enforcement:** import declarations live inside the operator-signed account JWT — a tenant cannot rewrite its own import to substitute another tenant's name, since that requires re-signing with the operator's private key, which the tenant never holds. The remap closes a real gap: pre-Phase-21, `refdataconsumer` interpolated `{context}` from caller-held state, so nothing stopped a client connected as `acme` from constructing a subject to read `globex`'s data. After the remap, that subject doesn't exist in `acme`'s imported subject space at all.
+
+**Preservation on re-sign (real gap this phase had to close):** account JWT updates replace the entire claim wholesale, so `provisioner.go`'s `newAccountClaims` explicitly copies `prior.Exports`/`prior.Imports` forward verbatim on every re-sign (suspend, reactivate, limits change) — without this, any account mutation after initial creation would silently drop the Phase 21 wiring. A recovery path rebuilds imports from scratch only when a prior claim has zero imports (stale pre-Phase-21 JWT, or first-time mint).
 
 **What does NOT collapse to imports** (confirmed via exploration, not assumed):
 - `$SYS.REQ.CLAIMS.*` is system-account-internal, not exportable — `accounts-service` keeps its SYS connection unchanged.
 - `$SRV.>` micro-service discovery does not cross accounts via export/import at all.
-- A stream export delivers live core messages only, not `$JS.API` access to the exporter's stream — so JetStream *replay* of another account's stream isn't obtainable this way.
+- A stream export delivers live core messages only, not `$JS.API` access to the exporter's stream — so JetStream *replay*/listing of another account's stream isn't obtainable this way.
 
-**shipping-service still keeps a second PLATFORM connection** (user's explicit choice, not full elimination) — narrowed to a new permission-restricted user (`shipping-admin`, not the existing unrestricted `platform` user) scoped to just `$SRV.>` + narrow `$JS.API` for `REFDATA`/`RPCTRACE`, used only by the admin/observability endpoints (`nats_ops.go`'s Connections/Services panels, `sse.go`'s RPC-trace replay). The Services panel and the RPCTRACE 10-minute replay are the two things that don't survive a full move to imports.
+**shipping-service still keeps a second PLATFORM connection** (user's explicit choice, not full elimination) — narrowed to a permission-restricted `shipping-admin` user (allow-list of only the ordered-consumer subjects for REFDATA replay, no `$JS.API.>`), used only by admin/observability endpoints. A *third*, unrestricted `platform` full-JS connection also exists for the Admin UI's stream-listing panels (`$JS.API.STREAM.LIST` isn't covered by `shipping-admin`'s allow-list) — listing needs `PlatformFullJS`, replay works on either.
 
-**How to apply:** full design + checklist is Phase 21 in `.claude/plans/Main-POC-Plan.md` (added 2026-08-03, same session as this note) — read that before implementing, it has the exact file:line call sites for every change (`accounts/provisioner.go`'s `newAccountClaims` needs to *preserve* existing `Exports`/`Imports` across a re-push, which it doesn't do today — a real gap independent of this phase; `refdataconsumer/consumer.go`'s four `fetch*ViaRPC` methods; `bootstrap-operator.sh`'s new `nsc add export`/`nsc add import` calls). Not yet implemented as of this note.
+**How to apply:** full design + checklist is Phase 21 in `.claude/plans/Main-POC-Plan.md`; exact call sites: `nats/bootstrap-operator.sh` (day-0 `nsc add export`/`nsc add import`), `accounts/provisioner.go`'s `newAccountClaims`/`tenantImports`/`tenantExports`/`addPlatformTraceImport` (runtime), `refdataconsumer/consumer.go`'s four `fetch*ViaRPC` methods (consume the remapped local subjects).

@@ -507,6 +507,20 @@ const requestedByEmptyLabel = computed(() =>
     ? 'HTTP entry point — no NATS requestor'
     : '— (no Nats-Requestor on this span)',
 )
+// A span only ever reaches the trace store already finished — natstrace.go's
+// finish() is the sole obs.trace.* publish point, called exclusively from
+// End/Fail, so there is no "in-flight" representation on the wire at all. A
+// missing Nats-Responder is therefore never "not yet finished"; it's one of
+// two real cases: an evt.* span is a JetStream consumer reacting to a
+// message, not answering a request, so it never had a responder to record
+// (same shape as requestedByEmptyLabel's HTTP case above); a failed rpc.*/
+// api.* call (statusCode 'ERROR') finished via Fail with no reply ever
+// received, so there's genuinely no responder to report, not an omission.
+const respondedByEmptyLabel = computed(() => {
+  if (selectedSpan.value?.subject?.startsWith('evt.')) return 'async event — no NATS responder'
+  if (selectedSpan.value?.statusCode === 'ERROR') return 'call failed — no reply received'
+  return '— (no Nats-Responder on this span)'
+})
 const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
 </script>
 
@@ -875,7 +889,7 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
                 <span
                   class="tw-who-id"
                   :class="{ unknown: !respondedBy }"
-                >{{ respondedBy || '— (span not yet finished)' }}</span>
+                >{{ respondedBy || respondedByEmptyLabel }}</span>
               </div>
 
               <div class="tw-rr-sep" />

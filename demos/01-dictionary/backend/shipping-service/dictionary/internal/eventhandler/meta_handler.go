@@ -78,14 +78,14 @@ func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store
 		data, err := mergeSet(spanCtx, kv, event.Context, queries.MetaKeyKnownContainers, event.ContainerID)
 		if err != nil {
 			log.Error("meta projection failed, will redeliver", "subject", msg.Subject(), "err", err)
-			sp.Fail(err, msg.Data(), nil)
+			sp.Fail(err, nil, nil)
 			_ = msg.Nak()
 			return
 		}
 		if data != nil {
 			publishNotify(nc, log, event.Context, "meta", data, sp)
 		}
-		sp.End(msg.Data(), nil)
+		sp.End(nil, nil)
 		_ = msg.Ack()
 	})
 }
