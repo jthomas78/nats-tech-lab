@@ -9,7 +9,7 @@ Decided 2026-08-17: all business-domain communication (frontend or backend) must
 
 **Phases (Main-POC-Plan.md), sequenced deliberately:**
 - **Phase 31** — Consolidate to Shape B: retire Shapes A and C first, so every later phase inherits one shape's worth of read paths instead of three. See [phase31_shape_b_consolidation](phase31_shape_b_consolidation.md) — in progress.
-- **Phase 32** — `refdata-service` gains its own per-tenant `api.*` adapter (it's the one service still relying on shipping-service as a REST relay) — see [tenants_manager_triplication](tenants_manager_triplication.md).
+- **Phase 32** — DONE (2026-08-17). `refdata-service` gained its own per-tenant + PLATFORM `api.*` adapter (it was the one service still relying on shipping-service as a REST relay); shipping-service's 5 refdata relay routes retired; `frontend/refdata` and the shared `useRefdataLabels.js`/`useL10nCopy.js` composables (used by admin + seafreight-app) all migrated off REST/SSE onto `api.*`/`notify.*`. See [tenants_manager_triplication](tenants_manager_triplication.md) and [phase32_refdata_platform_credential](phase32_refdata_platform_credential.md).
 - **Phase 33** — Retire business REST across all four services (shipping, pricing, trading-partner, refdata); add the one missing `api.*.shipping.manifest.get.v1` subject first.
 - **Phase 34** — Enforce the boundary: per-service REST-mux admin-allowlist tests, a client-supplied (non-authoritative) `requester` header for the Admin UI's trace filter, admin subjects namespaced separately from business subjects (e.g. `api.*.refdata.admin.*` vs `api.*.refdata.item.*`) so permission grants can scope by subject prefix.
 

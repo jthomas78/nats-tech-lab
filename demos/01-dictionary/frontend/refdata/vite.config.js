@@ -23,10 +23,25 @@ export default defineConfig({
       allow: [fileURLToPath(new URL('../../../..', import.meta.url))],
     },
     proxy: {
+      // Phase 32 — accounts-service's auth routes (refdataAdminConnectInfo
+      // mints this app's PLATFORM-account NATS credential). More specific
+      // than '/api' below, so Vite's prefix match picks this one first —
+      // mirrors frontend/admin's vite.config.js and nginx.conf's production
+      // rule. Without this, /api/auth/* would silently fall through to the
+      // general '/api' rule (refdata-service) and 404, since these routes
+      // only exist on accounts-service.
+      '/api/auth': {
+        target: 'http://localhost:7202',
+        changeOrigin: true,
+      },
       // refdata-service (not the shipping backend). Its code defaults to
       // :8080 too, which collides if the shipping backend is also running
       // locally — run refdata-service with HTTP_ADDR=:8081 (see README.md's
-      // dev-mode instructions) while iterating on this frontend.
+      // dev-mode instructions) while iterating on this frontend. Business
+      // reads and corpus/item administration now go over NATS (api.js) —
+      // this proxy remains only for whatever REST this app hasn't yet been
+      // weaned off (Phase 33 retires refdata-service's REST surface
+      // entirely).
       '/api': {
         target: 'http://localhost:7201',
         changeOrigin: true,

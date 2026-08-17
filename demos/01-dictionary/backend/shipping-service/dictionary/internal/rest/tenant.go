@@ -22,7 +22,6 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/refdataconsumer"
 )
 
 // nonTenantCredsFiles are the .creds stems (checked case-insensitively —
@@ -101,7 +100,6 @@ type tenantResources struct {
 	shipReads                     *queries.Ships
 	terminal                      *queries.Terminal
 	meta                          *queries.Meta
-	refdata                       *refdataconsumer.Consumer
 	projectors                    []jetstream.ConsumeContext
 	rpcAdapter                    *browserrpc.Adapter
 }
@@ -146,7 +144,6 @@ func (h *Handlers) SwitchTenant(ctx context.Context, tenant string) error {
 	next.Terminal = res.terminal
 	next.Meta = res.meta
 	next.KVCont, next.KVMeta = res.kvContainers, res.kvMeta
-	next.Refdata = res.refdata
 	next.JS = res.js
 	next.Tenant = tenant
 	next.TenantNC = res.nc
@@ -215,7 +212,6 @@ func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath 
 	terminal := queries.NewTerminal(kvContainers)
 	meta := queries.NewMeta(kvMeta)
 	shipReads := queries.NewShips(kvShips, prev.ShipRepo)
-	refdata := refdataconsumer.New(nc)
 
 	rpcAdapter, err := browserrpc.New(nc, browserrpc.Deps{
 		Ships:      ships,
@@ -244,7 +240,6 @@ func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath 
 		shipReads:    shipReads,
 		terminal:     terminal,
 		meta:         meta,
-		refdata:      refdata,
 		projectors:   projectors,
 		rpcAdapter:   rpcAdapter,
 	}

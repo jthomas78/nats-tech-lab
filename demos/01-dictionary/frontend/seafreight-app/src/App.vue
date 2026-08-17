@@ -19,7 +19,7 @@ import TerminalPanel from './components/TerminalPanel.vue'
 import { usePortStore } from './stores/port'
 import { usePricingStore } from './stores/pricing'
 import { useTenantStore } from './stores/tenant'
-import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
+import { setRefdataTransport, useRefdataLabels } from '@refdata/useRefdataLabels.js'
 import { useL10nCopy } from '@refdata/useL10nCopy.js'
 import { useNatsConnection } from './nats/useNatsConnection'
 import { i18n } from './i18n.js'
@@ -36,7 +36,19 @@ const {
   disconnect: disconnectRefdata,
 } = useRefdataLabels()
 const { usingFallback, partialFallback, switching, connect: connectL10nCopy, disconnect: disconnectL10nCopy } = useL10nCopy()
-const { connected: natsConnected, lastError, disconnect: disconnectNats } = useNatsConnection()
+const {
+  connected: natsConnected,
+  lastError,
+  disconnect: disconnectNats,
+  request: natsRequest,
+  subscribe: natsSubscribe,
+} = useNatsConnection()
+
+// Phase 32: refdata labels/UI copy read refdata-service directly over api.*
+// instead of shipping-service's retired REST relay. shared/ can't import
+// @nats-io/nats-core itself (see useRefdataLabels' doc comment), so this app
+// lends it this connection's request/subscribe.
+setRefdataTransport({ request: natsRequest, subscribe: natsSubscribe })
 
 // "Watching" requires BOTH the NATS connection to be live and the port store
 // to have subscribed — they are independent flags and only the former reacts
@@ -107,14 +119,17 @@ async function submitNewPort() {
 }
 
 onMounted(async () => {
-  connectRefdata()
-  connectL10nCopy(i18n)
   try {
     // Authenticates the browser's single NATS WebSocket connection (Phase
     // 15c/15d) before the port store's api.*/notify.* bootstrap can run —
     // unlike the pre-Phase-15 SSE stores, store.connect() now depends on a
     // live NATS connection rather than being independently openable.
     await tenantStore.init()
+    // Phase 32: refdata now rides that same connection, so its connect must
+    // follow init() rather than precede it — its api.* request and notify.*
+    // subscribe both need a live connection.
+    connectRefdata()
+    connectL10nCopy(i18n)
     await store.connect()
     pricingStore.setContext(store.context)
   } catch (err) {

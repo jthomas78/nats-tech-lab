@@ -1,16 +1,27 @@
-// Shared refdata-label composable for the shipping frontends (Phase 11.6).
+// Shared refdata-label composable for the shipping frontends (Phase 11.6,
+// moved onto NATS in Phase 32).
 //
-// The shipping backend resolves ship-status labels from the refdata-service
-// KV cache (KV-first, REST fallback — BR-D08) and exposes them at
-// /api/refdata/types/ship-status?locale=. This composable fetches that
-// code→label map for a chosen locale, keeps it fresh via the
-// /api/refdata-watch SSE stream (the same KV-watch→SSE→refetch pattern the
-// dictionary UI uses), and hands components a statusLabel(code) helper that
-// degrades gracefully to a built-in English map if refdata is unreachable.
+// Reads refdata-service directly over api._platform.refdata.type.list.v1 /
+// .locales.list.v1 (BR-D41's business subjects) and keeps the map fresh via
+// a notify._platform.refdata.*.changed subscription (BR-D42). Before Phase
+// 32 this went browser → REST → shipping-service → rpc.* → refdata-service,
+// with shipping-service acting as an API conduit for another service's data;
+// those five relay routes are gone. Hands components a statusLabel(code)
+// helper that degrades gracefully to a built-in English map when refdata is
+// unreachable.
+//
+// The NATS transport is INJECTED via setRefdataTransport rather than imported:
+// this file lives in shared/, outside every app's node_modules, and
+// Vite/Rollup resolves the bare @nats-io/nats-core specifier relative to the
+// importing file — the same constraint that made each app duplicate
+// connectionFactory.js instead of sharing one. Each app calls
+// setRefdataTransport() with its own connection's { request, subscribe }
+// before connect(). With no transport set, every read simply fails soft and
+// statusLabel() serves the built-in fallback (BR-D11's existing degradation
+// path, unchanged).
 //
 // State is module-level so the topbar locale <Select> and every panel in an
-// app share one instance and one SSE connection. All paths are relative, so
-// the vite dev proxy / nginx routes them to the backend.
+// app share one instance and one subscription.
 //
 // selectedLocale persists to localStorage (per-origin, so frontend-port and
 // frontend on their different dev ports don't share a choice) — no backend
@@ -34,6 +45,28 @@ import { localeSelectOptions } from './locales.js'
 const TYPE_KEY = 'ship-status'
 const LOCALE_STORAGE_KEY = 'refdata.locale'
 const LABELS_CACHE_KEY = 'refdata.shipStatusLabelsCache'
+
+// The refdata context these UI-chrome reads resolve against — always
+// _platform (refdata-service's reserved root), never a tenant- or
+// fleet-derived value: ship-status is a fixed AIS vocabulary and `string` is
+// fixed frontend chrome text, shared by every business unit of every tenant.
+// This is the same value shipping-service's now-deleted refdataCompanyContext
+// helper always returned.
+const REFDATA_CONTEXT = '_platform'
+const TYPE_LIST_SUBJECT = `api.${REFDATA_CONTEXT}.refdata.type.list.v1`
+const LOCALES_LIST_SUBJECT = `api.${REFDATA_CONTEXT}.refdata.locales.list.v1`
+const CHANGE_SUBJECT = `notify.${REFDATA_CONTEXT}.refdata.*.changed`
+
+// transport is { request(subject, payload), subscribe(subject, cb) } — see
+// this file's doc comment for why it's injected rather than imported.
+let transport = null
+
+// setRefdataTransport wires this module to an app's own NATS connection.
+// Call it before connect(). Passing null detaches (used by tests and by an
+// app tearing its connection down).
+export function setRefdataTransport(next) {
+  transport = next
+}
 
 function readStoredLocale() {
   try {
@@ -78,14 +111,17 @@ const defaultLocale = ref('') // the context's default locale (BR-D32: shown fir
 const selectedLocale = ref(initialLocale) // '' would mean raw codes; defaults to the persisted choice, then English
 const connected = ref(false)
 
-let source = null
+let unsubscribeChange = null
 let started = false
 // Other composables (useL10nCopy) need the same "something in refdata
-// changed" signal but must not open a second EventSource to
-// /api/refdata-watch — every persistent connection permanently occupies one
-// of the browser's ~6-per-origin slots, and this app already needs several
-// (KV watch, JetStream tabs). subscribeToChange() lets them react to this
-// module's one shared connection instead.
+// changed" signal but should not open a second notify.* subscription —
+// subscribeToChange() lets them react to this module's one shared
+// subscription instead. (Pre-Phase-32 this mattered more acutely: the feed
+// was an EventSource, and every persistent HTTP connection permanently
+// occupied one of the browser's ~6-per-origin slots. A NATS subscription
+// multiplexes over the single WebSocket, so the constraint is now tidiness
+// rather than a hard limit — but one shared refetch trigger is still the
+// right shape.)
 const changeListeners = new Set()
 
 export function subscribeToChange(fn) {
@@ -98,21 +134,40 @@ export function subscribeToChange(fn) {
 // responses aren't guaranteed to resolve in request order.
 let requestToken = 0
 
-async function fetchJSON(path) {
-  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' } })
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
-  return body
+// requestRefdata is the single NATS entry point — throws (rather than
+// returning a sentinel) when no transport is wired, so every caller's
+// existing catch already handles "refdata unreachable" identically to a
+// genuine request failure.
+async function requestRefdata(subject, payload) {
+  if (!transport) throw new Error('refdata transport not configured')
+  return transport.request(subject, payload)
+}
+
+// requestTypeList is exported for useL10nCopy, which needs the same
+// api.*.type.list.v1 call for its own `string` type key.
+//
+// The api.* reply nests the item — { item: { typeKey, code, context, status },
+// label, locale, description, isFallback } per entry — where the retired REST
+// shape flattened code/label into one object. flattenTypeList normalizes that
+// back to { code, label } so both callers keep the shape they already parse.
+export async function requestTypeList(typeKey, locale) {
+  return requestRefdata(TYPE_LIST_SUBJECT, { context: REFDATA_CONTEXT, typeKey, locale })
+}
+
+export function flattenTypeList(data) {
+  return (data.items || []).map((entry) => ({
+    code: entry.item?.code ?? '',
+    label: entry.label || entry.item?.code || '',
+  }))
 }
 
 async function refreshLabels() {
   const myToken = ++requestToken
   try {
-    const q = selectedLocale.value ? `?locale=${encodeURIComponent(selectedLocale.value)}` : ''
-    const data = await fetchJSON(`/api/refdata/types/${TYPE_KEY}${q}`)
+    const data = await requestTypeList(TYPE_KEY, selectedLocale.value)
     if (myToken !== requestToken) return // a newer request has since started — discard this stale result
     const map = {}
-    for (const item of data.items || []) map[item.code] = item.label || item.code
+    for (const { code, label } of flattenTypeList(data)) map[code] = label
     labels.value = map
     writeLabelsCacheEntry(selectedLocale.value, map)
   } catch {
@@ -122,7 +177,7 @@ async function refreshLabels() {
 
 async function loadLocales() {
   try {
-    const data = await fetchJSON('/api/refdata/locales')
+    const data = await requestRefdata(LOCALES_LIST_SUBJECT, { context: REFDATA_CONTEXT })
     locales.value = data.locales || []
     defaultLocale.value = data.defaultLocale || ''
   } catch {
@@ -136,26 +191,34 @@ function connect() {
   started = true
   loadLocales()
   refreshLabels()
-  source = new EventSource('/api/refdata-watch')
-  source.onopen = () => {
-    connected.value = true
-  }
-  source.onerror = () => {
+  if (!transport) {
+    // No NATS connection wired — labels stay on the built-in fallback map
+    // (BR-D11). Deliberately not an error: an app can mount before its
+    // connection is up, then call connect() again once setRefdataTransport
+    // has run.
+    started = false
     connected.value = false
+    return
   }
-  // The SSE feed is a "something changed" signal (no payload we rely on) —
-  // any refdata KV change re-fetches the label map for the current locale.
-  source.onmessage = () => {
-    refreshLabels()
-    for (const fn of changeListeners) fn()
+  try {
+    // The notify.* feed is a "something changed" signal (no payload we rely
+    // on) — any refdata change re-fetches the label map for the current
+    // locale. Wildcard across typeKey: this module cares about ship-status
+    // and useL10nCopy about `string`, and one subscription serves both.
+    unsubscribeChange = transport.subscribe(CHANGE_SUBJECT, () => {
+      refreshLabels()
+      for (const fn of changeListeners) fn()
+    })
+    connected.value = true
+  } catch {
+    started = false
+    connected.value = false
   }
 }
 
 function disconnect() {
-  if (source) {
-    source.close()
-    source = null
-  }
+  unsubscribeChange?.()
+  unsubscribeChange = null
   started = false
   connected.value = false
 }

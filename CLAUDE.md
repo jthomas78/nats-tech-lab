@@ -265,8 +265,9 @@ Any exploration touching more than 3 files should be delegated to an Explore sub
 When updating or implementing a plan phase, the agent should follow this sequence:
 
 1. **Ask for business rules first.** Before writing any code or updating a plan, ask the user to confirm or supply the applicable business rules for the feature. If rules are already documented (see `BUSINESS_RULES.md`'s index for which domain file), confirm they are complete and up to date.
-2. **Derive tests from rules, not from implementation.** Each business rule maps to one `Context` block in Ginkgo with one or more `It` assertions. Write the specs before writing the implementation (red → green → refactor).
-3. **Update the relevant `BUSINESS_RULES-*.md` and the plan together.** New rules go into the matching domain file and the plan checklist in the same commit.
+2. **Design gate.** Phase entries in `Main-POC-Plan.md` must include a "Design decisions" section, and the phase stays PROPOSED — no tasks, tests, or code written — until the user approves it.
+3. **Derive tests from rules, not from implementation.** Each business rule maps to one `Context` block in Ginkgo with one or more `It` assertions. Write the specs before writing the implementation (red → green → refactor).
+4. **Update the relevant `BUSINESS_RULES-*.md` and the plan together.** New rules go into the matching domain file and the plan checklist in the same commit.
 
 ## AI Skill Roles (Future, not yet implemented)
 

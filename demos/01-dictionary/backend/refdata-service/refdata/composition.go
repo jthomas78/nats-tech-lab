@@ -18,13 +18,16 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/anthropic"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/application/commands"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvstore"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/natsrpc"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/notifybridge"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/postgres"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/rest"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/tenants"
 )
 
 // ChangeStreamMaxAge bounds the REFDATA change-event feed — it is a
@@ -162,4 +165,68 @@ func (h *Handlers) MountRPC(nc *nats.Conn, js jetstream.JetStream, log *slog.Log
 		Contexts:      h.Contexts,
 		Log:           log,
 	})
+}
+
+// browserrpcDeps builds the browserrpc.Deps shared by every tenant
+// connection's Adapter (Tenant is overwritten per-connection by
+// tenants.Manager) — the exact same command handlers Mount's REST routes
+// and MountRPC's rpc.* adapter already call (BR-D40/BR-D41).
+func (h *Handlers) browserrpcDeps(log *slog.Logger) browserrpc.Deps {
+	return browserrpc.Deps{
+		Types:         h.Types,
+		Items:         h.Items,
+		References:    h.References,
+		Localizations: h.Localizations,
+		Contexts:      h.Contexts,
+		Corpus:        h.Corpus,
+		VersionReader: h.VersionReader,
+		Projector:     h.Projector,
+		Versions:      h.Versions,
+		Translations:  h.Translations,
+		Log:           log,
+	}
+}
+
+// MountAPI starts refdata-service's per-tenant api.* surface (Phase 32,
+// BR-D40) — one browserrpc.Adapter per tenant discovered in credsDir,
+// kept in sync with accounts-service's notify.accounts.account.* lifecycle
+// events. This is additive to MountRPC's single PLATFORM-connection rpc.*
+// adapter, not a replacement for it. Callers should Close() the returned
+// Manager on shutdown.
+// platformJS is passed so MountAPI can also start the BR-D42 notify bridge —
+// see internal/notifybridge for why the fan-out has to cross from the
+// PLATFORM connection's evt.* feed onto the per-tenant connections.
+func (h *Handlers) MountAPI(ctx context.Context, natsURL, credsDir string, platformJS jetstream.JetStream, log *slog.Logger) (*tenants.Manager, error) {
+	mgr := tenants.NewManager(natsURL, credsDir, log, h.browserrpcDeps(log))
+	if err := mgr.EnsureAll(ctx); err != nil {
+		return nil, err
+	}
+	notifybridge.Run(ctx, platformJS, mgr, log)
+	return mgr, nil
+}
+
+// MountPlatformAPI additionally registers the api.* adapter on
+// refdata-service's own PLATFORM connection (the same nc MountRPC's rpc.*
+// adapter already runs on) — not a per-tenant connection at all. This is
+// what lets the cross-tenant refdata-admin credential
+// (accounts-service/auth's MintRefdataAdminToken) reach both the business
+// and admin api.* subjects: frontend/refdata is a platform-operator tool
+// with no tenant/account concept of its own (unlike Sea Freight Flow), so
+// its browser connects to the SAME account this service's rpc.* adapter
+// already lives on, rather than any one tenant's account.
+//
+// deps.Tenant is set to "_platform" purely as micro registration metadata
+// (Admin UI Services-panel label) — it is unrelated to, and must not be
+// confused with, the {context} routing token a caller's subject carries
+// (BR-D40/BR-D41): this one physical adapter still serves every {context}
+// value, tenant-owned or not, exactly like every other PLATFORM-mounted
+// capability in this service (internal/natsrpc's own ContextListSubject
+// uses the identical "_platform" literal for the same non-per-context
+// reason).
+//
+// Callers should Stop() the returned Adapter on shutdown.
+func (h *Handlers) MountPlatformAPI(nc *nats.Conn, log *slog.Logger) (*browserrpc.Adapter, error) {
+	deps := h.browserrpcDeps(log)
+	deps.Tenant = "_platform"
+	return browserrpc.New(nc, deps)
 }

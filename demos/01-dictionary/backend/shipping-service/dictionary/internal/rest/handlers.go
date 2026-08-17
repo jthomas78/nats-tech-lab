@@ -43,7 +43,6 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/queries"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/refdataconsumer"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -76,18 +75,6 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-type refdataDemoResponse struct {
-	Code        string `json:"code"`
-	Status      string `json:"status"`
-	Label       string `json:"label,omitempty"`
-	Description string `json:"description,omitempty"`
-	Source      string `json:"source"` // "kv-cache" | "api-refetch"
-}
-
-type refdataItemsResponse struct {
-	Items []refdataDemoResponse `json:"items"`
-}
-
 // TenantCredentials is one tenant's NATS account login: a path to a .creds
 // file (Phase 14a — operator mode; must match a JWT/user minted into
 // nats/creds/ by nats/bootstrap-operator.sh). Replaces Phase 13b's bare
@@ -100,7 +87,7 @@ type TenantCredentials struct {
 // Deps bundles everything the HTTP layer needs; keeps NewHandlers readable as
 // the module grows.
 //
-// Phase 13b splits this into two lifetimes. Ports, Refdata, PlatformJS, NC,
+// Phase 13b splits this into two lifetimes. Ports, NC,
 // ShipRepo, ContainerRepo, PortRepo, NatsURL, CredsDir, and Log are set
 // once at Startup and never change. Ships, Containers, ShipReads,
 // Terminal, Meta, KVCont, KVMeta, JS, TenantNC, and Tenant mirror
@@ -120,12 +107,10 @@ type Deps struct {
 	ShipReads  *queries.Ships
 	Terminal   *queries.Terminal
 	Meta       *queries.Meta
-	KVCont     *kvstore.Store            // container projection
-	KVMeta     *kvstore.Store            // meta.* lookup sets
-	Refdata    *refdataconsumer.Consumer // rpc.*-only cross-service consumer (BR-D08) — no KV dep
-	JS         jetstream.JetStream       // tenant-scoped: SHIPPING stream, ship/container KV
-	PlatformJS jetstream.JetStream       // permanent PLATFORM-account JS — only for watchRefdata's REFDATA-stream consumer
-	NC         *nats.Conn                // permanent PLATFORM-account conn (Phase 12.10 — obs.rpc.* SSE bridge)
+	KVCont     *kvstore.Store      // container projection
+	KVMeta     *kvstore.Store      // meta.* lookup sets
+	JS         jetstream.JetStream // tenant-scoped: SHIPPING stream, ship/container KV
+	NC         *nats.Conn          // permanent PLATFORM-account conn (Phase 12.10 — obs.rpc.* SSE bridge)
 	Log        *slog.Logger
 
 	// Tenant-switch plumbing (Phase 13b) — shipping-service only; refdata-service
@@ -201,20 +186,15 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	handle("GET /api/meta/{context}/known-containers", h.knownContainers)
 	handle("GET /api/shape-b/ships/{context}/{shipID}", h.getShipShapeB)
 	handle("DELETE /api/shape-b/cache/{context}/{shipID}", h.evictShipCache)
-	handle("GET /api/refdata-demo/{context}/{type}/{code}", h.getRefdataDemo)
-	handle("GET /api/refdata/types/{type}", h.listRefdataType)
-	handle("GET /api/refdata/locales", h.listRefdataLocales)
-	handle("GET /api/refdata/contexts", h.listRefdataContexts)
 	handle("GET /api/tenant", h.getTenant)
 	handle("POST /api/tenant/switch", h.switchTenant)
-	// /api/refdata-watch is a long-lived SSE stream that blocks for the
-	// connection's lifetime, not a single request/reply — wrapping it would
-	// hold a span open for however long the browser tab stays on the page
-	// (sometimes indefinitely) rather than the one-span-per-call shape
-	// BR-037 assumes, so it stays unwrapped alongside /healthz and
-	// /swagger/ below (infra/introspection paths, not business-meaningful
-	// spans).
-	mux.HandleFunc("GET /api/refdata-watch", h.watchRefdata)
+	// Phase 32 removed this service's five refdata relay routes
+	// (/api/refdata-demo, /api/refdata/types, /api/refdata/locales,
+	// /api/refdata/contexts, and the /api/refdata-watch SSE stream).
+	// shipping-service was acting as an API conduit for another service's
+	// data; refdata-service now serves browsers directly over its own
+	// api.*.refdata.* subjects (BR-D41) with change notification over
+	// notify.* (BR-D42).
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -579,154 +559,6 @@ func (h *Handlers) getShipShapeB(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ship": state, "cacheHit": cacheHit, "source": source})
 }
 
-// getRefdataDemo godoc
-//
-// @Summary      Get a reference-data item (Phase 11.3 cross-service consumer demo)
-// @Description  Demonstrates the Q5 versioned-read protocol from the consuming side: reads the refdata-service's KV cache directly, falling through to its REST API (which also backfills the cache) on a miss or a stale entry.
-// @Tags         refdata-demo
-// @Produce      json
-// @Param        context  path      string  true  "company/business-unit context (e.g. acme)"
-// @Param        type     path      string  true  "dictionary type key (e.g. hazard-class)"
-// @Param        code     path      string  true  "item code"
-// @Success      200      {object}  refdataDemoResponse
-// @Failure      404      {object}  errorResponse
-// @Failure      500      {object}  errorResponse
-// @Router       /api/refdata-demo/{context}/{type}/{code} [get]
-func (h *Handlers) getRefdataDemo(w http.ResponseWriter, r *http.Request) {
-	if h.deps().Refdata == nil {
-		writeError(w, http.StatusInternalServerError, "refdata consumer not configured")
-		return
-	}
-	result, err := h.deps().Refdata.Lookup(r.Context(), r.PathValue("context"), r.PathValue("type"), r.PathValue("code"), r.URL.Query().Get("locale"))
-	if err != nil {
-		writeRefdataError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, refdataDemoResponse{Code: result.Code, Status: result.Status, Label: result.Label, Description: result.Description, Source: result.Source})
-}
-
-// writeRefdataError maps a refdataconsumer error to an HTTP response. Phase
-// 12.11 (BR-D28) made rpc.* the consumer's only transport — no REST fallback
-// inside refdataconsumer — so a sustained rpc.* outage on a cache miss now
-// surfaces as ErrRPCUnavailable rather than always eventually succeeding via
-// REST. That's a "the dependency is down, try again" condition, distinct
-// from a genuine internal fault, so it maps to 503, not the generic 500.
-func writeRefdataError(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, refdataconsumer.ErrNotFound):
-		writeError(w, http.StatusNotFound, "item not found")
-	case errors.Is(err, refdataconsumer.ErrRPCUnavailable):
-		writeError(w, http.StatusServiceUnavailable, "reference data temporarily unavailable")
-	default:
-		writeError(w, http.StatusInternalServerError, err.Error())
-	}
-}
-
-// refdataCompanyContext returns the refdata-service context this tenant's
-// UI-chrome reference-data reads (ship-status enum labels, string/l10n
-// copy, locales) resolve against — deliberately independent of the fleet
-// context selector (acme-pacific-fleet, acme-atlantic-fleet, …), which
-// scopes ship/container data, not reference data.
-//
-// Always resolves to "_platform" (refdata-service's reserved root context),
-// not a tenant-derived value: this data is universal UI copy shared by
-// every business unit of every tenant (ship-status is a fixed AIS
-// vocabulary; string is fixed frontend chrome text), not something that
-// varies by company or business unit. There is deliberately no per-tenant
-// "company context" anymore — Phase 16's flattened context tree (see
-// BUSINESS_RULES-REFDATA.md's Phase 16 amendments) has no context that sits
-// between _platform and a tenant's individual business units, so a
-// tenant-derived company context no longer has anything meaningful to
-// resolve to.
-func refdataCompanyContext(_ string) string {
-	return "_platform"
-}
-
-// listRefdataType godoc
-//
-// @Summary      Resolve all items of a reference-data type (Phase 11.6)
-// @Description  Returns every item of a dictionary type under the active tenant's refdata company context (Phase 16f), each with its label resolved for the requested locale (BR-D03 fallback). Read KV-first via the Q5 protocol; per-item source is "kv-cache" or "api-refetch".
-// @Tags         refdata
-// @Produce      json
-// @Param        type    path   string  true   "dictionary type key (e.g. ship-status)"
-// @Param        locale  query  string  false  "locale to resolve labels in (e.g. en, es)"
-// @Success      200     {object}  refdataItemsResponse
-// @Failure      500     {object}  errorResponse
-// @Router       /api/refdata/types/{type} [get]
-func (h *Handlers) listRefdataType(w http.ResponseWriter, r *http.Request) {
-	deps := h.deps()
-	if deps.Refdata == nil {
-		writeError(w, http.StatusInternalServerError, "refdata consumer not configured")
-		return
-	}
-	results, err := deps.Refdata.ResolveType(r.Context(), refdataCompanyContext(deps.Tenant), r.PathValue("type"), r.URL.Query().Get("locale"))
-	if err != nil {
-		writeRefdataError(w, err)
-		return
-	}
-	items := make([]refdataDemoResponse, 0, len(results))
-	for _, res := range results {
-		items = append(items, refdataDemoResponse{Code: res.Code, Status: res.Status, Label: res.Label, Description: res.Description, Source: res.Source})
-	}
-	writeJSON(w, http.StatusOK, refdataItemsResponse{Items: items})
-}
-
-// listRefdataLocales godoc
-//
-// @Summary      List reference-data locales (Phase 11.6)
-// @Description  Returns the locales registered for the active tenant's refdata company context (Phase 16f), for the frontend locale switcher.
-// @Tags         refdata
-// @Produce      json
-// @Success      200  {object}  metaValuesResponse
-// @Failure      500  {object}  errorResponse
-// @Router       /api/refdata/locales [get]
-func (h *Handlers) listRefdataLocales(w http.ResponseWriter, r *http.Request) {
-	deps := h.deps()
-	if deps.Refdata == nil {
-		writeError(w, http.StatusInternalServerError, "refdata consumer not configured")
-		return
-	}
-	result, err := deps.Refdata.Locales(r.Context(), refdataCompanyContext(deps.Tenant))
-	if err != nil {
-		writeRefdataError(w, err)
-		return
-	}
-	// defaultLocale travels with the list — BR-D32: the frontend switcher has
-	// to show the default first and mark it, which it can't do without knowing
-	// which one is default.
-	writeJSON(w, http.StatusOK, map[string]any{
-		"locales":       result.Locales,
-		"defaultLocale": result.DefaultLocale,
-	})
-}
-
-// listRefdataContexts godoc
-//
-// @Summary      List this tenant's reference-data contexts (Phase 16f)
-// @Description  Returns the context values visible to the currently active tenant — its own contexts plus the shared "_"-reserved platform roots — replacing the frontend's previously hardcoded context list.
-// @Tags         refdata
-// @Produce      json
-// @Success      200  {object}  metaValuesResponse
-// @Failure      500  {object}  errorResponse
-// @Router       /api/refdata/contexts [get]
-func (h *Handlers) listRefdataContexts(w http.ResponseWriter, r *http.Request) {
-	deps := h.deps()
-	if deps.Refdata == nil {
-		writeError(w, http.StatusInternalServerError, "refdata consumer not configured")
-		return
-	}
-	contexts, err := deps.Refdata.ListContexts(r.Context(), deps.Tenant)
-	if err != nil {
-		writeRefdataError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, metaValuesResponse{Values: contexts})
-}
-
-// evictShipCache godoc
-//
-// @Summary      Evict Shape B cache entry
-// @Description  Deletes the KV cache entry for a ship in the Shape B bucket. The next read will miss and fall through to Postgres, demonstrating the cache-miss path.
 // @Tags         shape-b
 // @Param        context  path  string  true  "Fleet context"
 // @Param        shipID   path  string  true  "Ship identifier"

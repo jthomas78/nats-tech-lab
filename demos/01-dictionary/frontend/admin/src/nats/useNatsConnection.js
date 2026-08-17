@@ -7,9 +7,9 @@
 // reconnects.
 //
 // Credentials come from GET /api/auth/connectInfo?tenant=... (unchanged from
-// Phase 15c) — subscribe-only use here even though that JWT also carries
-// api.>/_INBOX.> publish permission: this app has no command surface of its
-// own to exercise it with.
+// Phase 15c). Originally subscribe-only here; Phase 26h's Trading Partners
+// screens and Phase 32's refdata label/UI-copy reads both use its api.>
+// publish permission too.
 
 import { ref } from 'vue'
 import { createConnectionState } from './connectionFactory.js'

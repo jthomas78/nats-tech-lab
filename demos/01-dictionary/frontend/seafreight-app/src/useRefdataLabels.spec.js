@@ -11,9 +11,6 @@ describe('useRefdataLabels locale persistence', () => {
   beforeEach(() => {
     vi.resetModules()
     localStorage.clear()
-    global.fetch = vi.fn(() =>
-      Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], locales: [] }) }),
-    )
   })
 
   afterEach(() => {
@@ -51,10 +48,19 @@ describe('useRefdataLabels locale persistence', () => {
   })
 })
 
-class FakeEventSource {
-  constructor() {}
-  close() {}
+// fakeTransport stands in for an app's NATS connection (Phase 32) — the
+// { request, subscribe } pair setRefdataTransport expects. reply is keyed by
+// subject so one transport can serve both the type.list and locales.list
+// calls connect() makes.
+function fakeTransport(reply = {}) {
+  return {
+    request: vi.fn((subject) => Promise.resolve(reply[subject] ?? {})),
+    subscribe: vi.fn(() => () => {}),
+  }
 }
+
+const TYPE_LIST = 'api._platform.refdata.type.list.v1'
+const LOCALES_LIST = 'api._platform.refdata.locales.list.v1'
 
 // BR-D19 regression: cold paint must render the persisted locale's
 // last-known-good ship-status labels immediately, not the hardcoded English
@@ -65,10 +71,6 @@ describe('useRefdataLabels ship-status label cache', () => {
   beforeEach(() => {
     vi.resetModules()
     localStorage.clear()
-    global.EventSource = FakeEventSource
-    global.fetch = vi.fn(() =>
-      Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [], locales: [] }) }),
-    )
   })
 
   afterEach(() => {
@@ -88,14 +90,16 @@ describe('useRefdataLabels ship-status label cache', () => {
 
   it('caches a successfully fetched label map so the next load can prime from it', async () => {
     localStorage.setItem(STORAGE_KEY, 'af-za')
-    global.fetch = vi.fn(() =>
-      Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ items: [{ code: 'docked', label: 'Vasgemeer' }] }),
+
+    const { setRefdataTransport, useRefdataLabels } = await import('@refdata/useRefdataLabels.js')
+    // api.* nests the item, unlike the flat shape the retired REST relay
+    // returned — flattenTypeList is what normalizes it back.
+    setRefdataTransport(
+      fakeTransport({
+        [TYPE_LIST]: { items: [{ item: { code: 'docked' }, label: 'Vasgemeer' }] },
+        [LOCALES_LIST]: { locales: [], defaultLocale: '' },
       }),
     )
-
-    const { useRefdataLabels } = await import('@refdata/useRefdataLabels.js')
     const { connect } = useRefdataLabels()
     connect()
     await new Promise((r) => setTimeout(r, 0))

@@ -19,6 +19,10 @@ import { useNatsConnection } from './nats/useNatsConnection.js'
 vi.mock('@refdata/useRefdataLabels.js', () => {
   const selectedLocale = ref('en')
   return {
+    // Phase 32: App.vue lends the composable its NATS transport at setup
+    // time. Mocked as a no-op — these specs assert rendered chrome, and the
+    // composable itself is mocked out anyway.
+    setRefdataTransport: vi.fn(),
     useRefdataLabels: () => ({
       selectedLocale,
       locales: ref(['en', 'es']),

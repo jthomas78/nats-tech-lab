@@ -180,14 +180,21 @@ services:
       # (refdata-{context}) and the bounded REFDATA change-event stream,
       # never as this service's source of truth (Q6).
       NATS_URL: nats://nats:4222
-      # Phase 14a — refdata-service is cross-tenant (BR-D08), so it always
-      # connects as PLATFORM, never a per-tenant account.
+      # Phase 14a — refdata-service's rpc.* adapter is cross-tenant
+      # (BR-D08), so it always connects as PLATFORM, never a per-tenant
+      # account, over this one connection.
       NATS_CREDS_PATH: /etc/nats/creds/platform.creds
+      # Phase 32 (BR-D40) — additive per-tenant connections for the new
+      # api.* surface: one NATS connection per known tenant, discovered from
+      # the same shared creds directory pricing-service/trading-partner-service
+      # already read (read-only here — refdata-service never mints creds
+      # itself).
+      NATS_CREDS_DIR: /etc/nats/creds
       HTTP_ADDR: ":8080"
     ports:
       - "7201:8080"
     volumes:
-      - ./nats/creds/platform.creds:/etc/nats/creds/platform.creds:ro
+      - ./nats/creds:/etc/nats/creds:ro
     depends_on:
       nats:
         condition: service_started
@@ -407,12 +414,18 @@ services:
       context: ../..
       dockerfile: demos/01-dictionary/frontend/refdata/Dockerfile
     container_name: lb-refdata-frontend
+    # Phase 32: nginx.conf now also proxies /api/auth/ to accounts-service,
+    # which nginx resolves at startup (a static proxy_pass, not a variable)
+    # — restart if that DNS name isn't ready yet, same race admin-frontend's
+    # own restart: on-failure already guards against.
+    restart: on-failure
     ports:
       - "7102:80"
     networks:
       - frontend
     depends_on:
       - refdata-service
+      - accounts-service
 
   # Under review — third-party NATS monitoring UI, not part of the demo's
   # own frontend set. Uses the published image directly: the upstream

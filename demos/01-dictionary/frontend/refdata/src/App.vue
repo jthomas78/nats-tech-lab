@@ -10,13 +10,27 @@ import ItemGrid from './components/ItemGrid.vue'
 import LocalizationView from './components/LocalizationView.vue'
 import TypeNavigator from './components/TypeNavigator.vue'
 import VersioningPanel from './components/VersioningPanel.vue'
+import { useRefdataAdminConnection } from './nats/useRefdataAdminConnection.js'
 import { useDictionaryStore } from './stores/dictionary'
 import AppShell from '@ui-shell/AppShell.vue'
 
 const store = useDictionaryStore()
+const connection = useRefdataAdminConnection()
 
-onMounted(() => store.connect())
-onUnmounted(() => store.disconnect())
+// Phase 32: the NATS connection's own lifecycle (mount once, never
+// reconnect on a context switch) is owned here, mirroring frontend/admin's
+// App.vue — store.connect()/disconnect() is the data-refresh cycle, called
+// again on every context switch, and must not tear down the transport each
+// time. connect() is awaited so store.connect() below (which subscribes and
+// makes its first api.* calls) doesn't race the WebSocket handshake.
+onMounted(async () => {
+  await connection.connect().catch(() => {})
+  store.connect()
+})
+onUnmounted(() => {
+  store.disconnect()
+  connection.disconnect()
+})
 </script>
 
 <template>

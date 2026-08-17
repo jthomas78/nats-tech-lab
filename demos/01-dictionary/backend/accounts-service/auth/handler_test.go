@@ -182,6 +182,50 @@ var _ = Describe("Handlers", func() {
 		})
 	})
 
+	Describe("GET /api/auth/refdataAdminConnectInfo", func() {
+		// Sibling to adminConnectInfo above — same fixed "platform" row
+		// lookup, same clean-slate need (Phase 32).
+		BeforeEach(func() {
+			if testUnavailable != "" {
+				return
+			}
+			_, err := testDB.ExecContext(context.Background(), `DELETE FROM accounts.accounts WHERE name = 'platform'`)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("mints refdata-admin connect info for the seeded platform account with a signing key on record", func() {
+			Expect(seedAccount("platform", "APLATFORM", signingSeedFor(), "active")).To(Succeed())
+
+			req := httptest.NewRequest(http.MethodGet, "/api/auth/refdataAdminConnectInfo", nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			Expect(rec.Code).To(Equal(http.StatusOK))
+			var info auth.ConnectInfo
+			Expect(json.Unmarshal(rec.Body.Bytes(), &info)).To(Succeed())
+			Expect(info.Tenant).To(Equal("platform"))
+			Expect(info.WSUrl).To(Equal("ws://localhost:9222"))
+			Expect(info.JWT).NotTo(BeEmpty())
+			Expect(info.NKeySeed).NotTo(BeEmpty())
+		})
+
+		It("returns 404 when the platform account has not been seeded", func() {
+			req := httptest.NewRequest(http.MethodGet, "/api/auth/refdataAdminConnectInfo", nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			Expect(rec.Code).To(Equal(http.StatusNotFound))
+		})
+
+		It("returns 409 when the platform account has no signing key on record", func() {
+			Expect(seedAccount("platform", "APLATFORM", "", "active")).To(Succeed())
+
+			req := httptest.NewRequest(http.MethodGet, "/api/auth/refdataAdminConnectInfo", nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			Expect(rec.Code).To(Equal(http.StatusConflict))
+		})
+	})
+
 	Describe("GET /api/auth/tenants", func() {
 		It("lists active tenant names", func() {
 			name := uniqueName("visible")

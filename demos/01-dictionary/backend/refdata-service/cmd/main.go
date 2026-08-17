@@ -46,6 +46,11 @@ func run(log *slog.Logger) error {
 	// so it always connects as PLATFORM, never a per-tenant account. Empty
 	// when running locally outside Docker without operator mode configured.
 	natsCredsPath := envOr("NATS_CREDS_PATH", "")
+	// Phase 32 (BR-D40): per-tenant connections for the new api.* surface,
+	// additive to the single PLATFORM connection above. Empty when running
+	// locally outside Docker without operator mode configured — MountAPI then
+	// simply finds no tenants to connect.
+	natsCredsDir := envOr("NATS_CREDS_DIR", "")
 	httpAddr := envOr("HTTP_ADDR", ":8080")
 	anthropicAPIKey := envOr("ANTHROPIC_API_KEY", "")
 
@@ -86,6 +91,26 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	defer rpcAdapter.Stop() //nolint:errcheck
+
+	// Phase 32 (BR-D40): one api.* adapter per known tenant, additive to the
+	// rpc.* adapter above — see refdata/internal/tenants.
+	tenantMgr, err := h.MountAPI(ctx, natsURL, natsCredsDir, js, log)
+	if err != nil {
+		return err
+	}
+	defer tenantMgr.Close()
+
+	// Phase 32 (BR-D41 amendment): the api.* adapter also runs on this
+	// connection's own PLATFORM account, alongside rpcAdapter above — this
+	// is what the refdata admin UI's cross-tenant MintRefdataAdminToken
+	// credential reaches (frontend/refdata has no tenant/account concept;
+	// it is a platform-operator tool, not a Sea Freight Flow-style tenant
+	// app — see composition.go's MountPlatformAPI doc comment).
+	platformAPIAdapter, err := h.MountPlatformAPI(nc, log)
+	if err != nil {
+		return err
+	}
+	defer platformAPIAdapter.Stop() //nolint:errcheck
 
 	mux := http.NewServeMux()
 	h.Mount(mux, log)

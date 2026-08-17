@@ -13,10 +13,10 @@
             "state": {
               "type": "image",
               "state": {
-                "file": "POC-Dictionaries/Summary/Diagrams 2/dictionary-data-types-and-retrieval.png"
+                "file": "AI Design Gate and Workflow.png"
               },
               "icon": "lucide-image",
-              "title": "dictionary-data-types-and-retrieval"
+              "title": "AI Design Gate and Workflow"
             }
           }
         ]
@@ -78,7 +78,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 291.15538024902344
+    "width": 447.75270080566406
   },
   "right": {
     "id": "0e936b3f4ebbe464",
@@ -183,8 +183,13 @@
       "bases:Create new base": false
     }
   },
-  "active": "c50d6372ff085bfe",
+  "active": "398f933131b9a7a9",
   "lastOpenFiles": [
+    "Checklist.md",
+    "AI Design Gate and Workflow.png",
+    "POC-Dictionaries/Summary/Diagrams 2/dictionary-data-types-and-retrieval.png",
+    "POC-Dictionaries/Summary/Diagrams 2/3. POC Design and Architecture 1.md",
+    "POC-Dictionaries/Summary/Diagrams 2/dictionary-runtime-sequence 1.png",
     "POC-Dictionaries/5. Findings - Shape B Consolidation (Phase 31).md",
     "POC-Dictionaries/4. Findings - Distributed Tracing (Phase 28).md",
     "V3-Platform/Architecture/Dictionary-POC/images/tenants-manager-extraction.png",
@@ -192,16 +197,12 @@
     "V3-Platform/Architecture/Dictionary-POC/images/admin-traces-panel.png",
     "V3-Platform/Architecture/Dictionary-POC/images/otlp-bridge-ingest.png",
     "V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ADMIN.md",
-    "POC-Dictionaries/Summary/Diagrams 2/3. POC Design and Architecture 1.md",
     "V3-Platform/Architecture/Dictionary-POC/images/docker-compose-network.png",
-    "POC-Dictionaries/Summary/Diagrams 2/dictionary-data-types-and-retrieval.png",
     "V3-Platform/System Design - V3 Logistics Platform.md",
     "V3-Platform/Architecture/v3-platform-building-blocks.svg",
     "V3-Platform/Architecture/v3-platform-building-blocks.png",
     "V3-Platform/Architecture/Pricing/Effective-dated-diesel-sequence.md",
     "V3-Platform/Architecture/Pricing/Effective-dated-diesel-pre-design.md",
-    "V3-Platform/Architecture/Pricing/images/diesel-overlay-service-map.png",
-    "V3-Platform/Architecture/Pricing/images/diesel-overlay-sequence.png",
     "V3-Platform/Architecture/Pricing/Effective-dated-diesel-poc-sequence.md",
     "POC-Dictionaries/3. Findings - Dictionary Service (Phase 11).md",
     "POC-Dictionaries/2. Research - Dictionary - OpenCode.md",
@@ -227,9 +228,7 @@
     "V3-Platform/Architecture/Dictionary-POC/t/Pricing Service — Effective-Dated Diesel Overlay_files/frame-shell-Be0w9FNP.js",
     "V3-Platform/Architecture/Dictionary-POC/t/Pricing Service — Effective-Dated Diesel Overlay_files",
     "POC-Dictionaries/2. Research - Dictionary - Claude.md",
-    "Checklist.md",
     "Event sourcing/4. Design - Event Sourcing + CQRS.md",
-    "POC-Dictionaries/PERFORMANCE.md",
-    "POC-Dictionaries/Summary/0. Overview.md"
+    "POC-Dictionaries/PERFORMANCE.md"
   ]
 }

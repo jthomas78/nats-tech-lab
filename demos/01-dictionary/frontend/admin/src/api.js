@@ -136,12 +136,27 @@ export function switchTenant(tenant) {
   return request('/api/tenant/switch', { method: 'POST', body: JSON.stringify({ tenant }) })
 }
 
-// ── Refdata contexts (Phase 16f) ───────────────────────────────────────────────
-// Replaces the previously hardcoded CONTEXTS array in stores/dictionary.js —
-// scoped to whichever tenant switchTenant above last selected.
-
+// ── Refdata contexts (Phase 16f; moved onto api.* in Phase 32) ────────────────
+// Replaces the previously hardcoded CONTEXTS array in stores/dictionary.js.
+//
+// Phase 32 repointed this from shipping-service's retired /api/refdata/contexts
+// relay to refdata-service's own api.* subject — this call is the reason that
+// relay route existed, and removing the conduit is the point of the phase.
+// context.list is a business subject, not an admin one (BR-D41): reading the
+// context tree for a dropdown is a plain read, so a browser credential
+// reaches it without the denied api.*.refdata.admin.> prefix.
+//
+// The tenant filter travels in the request body (BR-D35) — refdata-service
+// has no server-supplied caller identity to derive it from (BR-D34), and the
+// per-tenant connection only proves which ACCOUNT the caller is in, which is
+// a different axis from the `tenant` column contexts are tagged with.
+// Returns bare context names, matching the shape the REST relay returned so
+// stores/dictionary.js's loadContexts() is unchanged.
 export function getRefdataContexts() {
-  return request('/api/refdata/contexts').then((body) => body.values ?? [])
+  const { request: natsRequest, tenant } = useNatsConnection()
+  return natsRequest('api._platform.refdata.context.list.v1', { tenant: tenant.value }).then((body) =>
+    (body.contexts ?? []).map((c) => c.context),
+  )
 }
 
 // ── Accounts (Phase 14c) ───────────────────────────────────────────────────────

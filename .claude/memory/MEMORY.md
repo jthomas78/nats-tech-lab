@@ -48,4 +48,5 @@
 - [Vue toDisplayString array gotcha](vue_todisplaystring_array_gotcha.md) — `{{ }}` JSON-stringifies arrays; join NATS header values before binding
 - [REST→NATS transport consolidation](rest_nats_transport_consolidation.md) — Phases 31-34: business comms NATS-only, REST for admin/health only; `.v1` suffix stays
 - [Phase 31 Shape B consolidation](phase31_shape_b_consolidation.md) — implemented 2026-08-17; Shapes A/C retired, `queries.Ships`/`ships` bucket/`ship-projector` are the neutral names now
-- [tenants.Manager triplication](tenants_manager_triplication.md) — pricing/trading-partner duplicated; refdata needs it next (Phase 32); extraction deferred (Go module blocker)
+- [tenants.Manager triplication](tenants_manager_triplication.md) — now 4 copies (pricing/trading-partner/shipping/refdata, Phase 32 DONE); extraction still deferred (Go module blocker)
+- [Phase 32 refdata PLATFORM credential](phase32_refdata_platform_credential.md) — frontend/refdata is cross-tenant, needed its own MintRefdataAdminToken + MountPlatformAPI; also fixed a context-from-subject convention bug

@@ -111,6 +111,14 @@ func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string, t
 	claims.IssuerAccount = accountPub
 	claims.Permissions.Pub.Allow.Add("api.>", "_INBOX.>")
 	claims.Permissions.Sub.Allow.Add("api.>", "notify.>", "_INBOX.>")
+	// BR-D41 (Phase 32): refdata-service's api.*.refdata.admin.* namespace is
+	// corpus/context/type/locale/item/reference/localization administration —
+	// never a browser operation. Deny wins over the broader api.> Allow above
+	// on both directions, so a browser credential can reach every other
+	// api.*.refdata.* subject but never this prefix, regardless of which
+	// tenant account it authenticates into.
+	claims.Permissions.Pub.Deny.Add("api.*.refdata.admin.>")
+	claims.Permissions.Sub.Deny.Add("api.*.refdata.admin.>")
 	claims.Expires = time.Now().Add(ttl).Unix()
 
 	token, err := claims.Encode(signingKP)
@@ -169,6 +177,73 @@ func MintAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl time.Du
 	claims.IssuerAccount = accountPub
 	claims.Permissions.Pub.Deny.Add(">")
 	claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.kv.trace-request-reply.>")
+	claims.Expires = time.Now().Add(ttl).Unix()
+
+	token, err := claims.Encode(signingKP)
+	if err != nil {
+		return ConnectInfo{}, fmt.Errorf("encode user jwt: %w", err)
+	}
+
+	return ConnectInfo{
+		WSUrl:    wsURL,
+		JWT:      token,
+		NKeySeed: string(userSeed),
+		Tenant:   "platform",
+	}, nil
+}
+
+// MintRefdataAdminToken mints an ephemeral NATS user JWT under the PLATFORM
+// account for the refdata admin UI's (frontend/refdata) cross-tenant
+// operator connection (Phase 32, BR-D40/BR-D41 amendment). frontend/refdata
+// has no tenant/account concept of its own — like the Admin UI, it is a
+// platform-operator tool, not a Sea Freight Flow-style tenant app — so it
+// gets its own mint function under the SAME PLATFORM account MintAdminToken
+// uses, rather than a MintBrowserToken variant scoped to one tenant: a
+// tenant token would either need the api.*.refdata.admin.> deny lifted
+// (conflating refdata-admin rights with tenant membership, so any tenant
+// could edit shared _platform standards) or would have no natural tenant to
+// authenticate as in the first place.
+//
+// Unlike MintAdminToken (subscribe-only, no publish grant at all — that
+// connection only watches), this credential DOES publish: it is the one
+// that actually drives refdata-service's api.*.refdata.> business AND
+// admin endpoints (corpus draft/publish/rollback, item/type/locale/
+// reference/localization registration, business reads alike) — mounted on
+// refdata-service's PLATFORM connection precisely so this credential can
+// reach them (refdata/composition.go's browserrpc-on-PLATFORM mount). The
+// grant is scoped to exactly api.*.refdata.> (refdata's own second subject
+// token) — not api.> — so this credential cannot reach any other service's
+// api.* surface, mirroring the least-privilege principle BR-D41's
+// browser-token deny already establishes in the other direction.
+//
+// Sub additionally allows notify._platform.refdata.> — the BR-D42 notify
+// bridge frontend/refdata subscribes to in place of the retired
+// /api/refdata-watch SSE stream, the same subject MintAdminToken already
+// grants the Admin UI for the identical reason.
+func MintRefdataAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl time.Duration) (ConnectInfo, error) {
+	signingKP, err := nkeys.FromSeed([]byte(accountSigningKeySeed))
+	if err != nil {
+		return ConnectInfo{}, fmt.Errorf("load account signing key: %w", err)
+	}
+
+	userKP, err := nkeys.CreateUser()
+	if err != nil {
+		return ConnectInfo{}, fmt.Errorf("generate user key: %w", err)
+	}
+	userPub, err := userKP.PublicKey()
+	if err != nil {
+		return ConnectInfo{}, fmt.Errorf("user public key: %w", err)
+	}
+	userSeed, err := userKP.Seed()
+	if err != nil {
+		return ConnectInfo{}, fmt.Errorf("user seed: %w", err)
+	}
+
+	claims := jwt.NewUserClaims(userPub)
+	claims.Name = "refdata-admin-platform"
+	claims.IssuerAccount = accountPub
+	claims.Permissions.Pub.Allow.Add("api.*.refdata.>", "_INBOX.>")
+	claims.Permissions.Sub.Allow.Add("api.*.refdata.>", "notify._platform.refdata.>", "_INBOX.>")
 	claims.Expires = time.Now().Add(ttl).Unix()
 
 	token, err := claims.Encode(signingKP)

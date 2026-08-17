@@ -36,8 +36,9 @@ import IconTransporters from './components/icons/IconTransporters.vue'
 import { useDictionaryStore } from './stores/dictionary'
 import { useTenantStore } from './stores/tenant'
 import { useUiStore } from './stores/ui'
-import { useRefdataLabels } from '@refdata/useRefdataLabels.js'
+import { setRefdataTransport, useRefdataLabels } from '@refdata/useRefdataLabels.js'
 import { useL10nCopy } from '@refdata/useL10nCopy.js'
+import { useNatsConnection } from './nats/useNatsConnection.js'
 import { i18n } from './i18n.js'
 import AppShell from '@ui-shell/AppShell.vue'
 import NavList from '@ui-shell/NavList.vue'
@@ -54,6 +55,18 @@ const {
 } = useRefdataLabels()
 const { usingFallback, partialFallback, connect: connectL10nCopy, disconnect: disconnectL10nCopy } = useL10nCopy()
 const { t } = useI18n()
+
+// Phase 32: refdata labels/UI copy read refdata-service directly over api.*
+// instead of shipping-service's retired REST relay. This uses the TENANT
+// connection, not platformConnection below — MintAdminToken denies all
+// publish (Pub.Deny = ">"), so an api.* request can only go out on the
+// tenant credential. shared/ can't import @nats-io/nats-core itself (see
+// useRefdataLabels' doc comment), so this app lends it request/subscribe.
+const tenantConnection = useNatsConnection()
+setRefdataTransport({
+  request: tenantConnection.request,
+  subscribe: tenantConnection.subscribe,
+})
 
 // Phase 23: the topbar connection indicator below is driven by this
 // PLATFORM-account connection specifically, not the tenant one — PLATFORM

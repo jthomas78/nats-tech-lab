@@ -11,6 +11,7 @@
 //
 //	GET   /api/auth/connectInfo?tenant={name}   mint a browser NATS user JWT for tenant
 //	GET   /api/auth/adminConnectInfo            mint a browser NATS user JWT under PLATFORM (Phase 23, BR-AC18)
+//	GET   /api/auth/refdataAdminConnectInfo     mint a refdata-admin-UI NATS user JWT under PLATFORM (Phase 32)
 //	GET   /api/auth/tenants                     list switchable tenant names
 //	POST  /api/auth/login                       placeholder for the future WorkOS flow (BR-UA01) — 501
 package auth
@@ -75,6 +76,7 @@ const platformAccountName = "platform"
 func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/auth/connectInfo", h.connectInfo)
 	mux.HandleFunc("GET /api/auth/adminConnectInfo", h.adminConnectInfo)
+	mux.HandleFunc("GET /api/auth/refdataAdminConnectInfo", h.refdataAdminConnectInfo)
 	mux.HandleFunc("GET /api/auth/tenants", h.tenants)
 	mux.HandleFunc("POST /api/auth/login", h.login)
 }
@@ -154,6 +156,39 @@ func (h *Handlers) adminConnectInfo(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.Log.Error("mint admin token", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to mint admin credential")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, info)
+}
+
+// refdataAdminConnectInfo mints and returns a fresh NATS credential for the
+// refdata admin UI's (frontend/refdata) own PLATFORM-account connection
+// (Phase 32) — sibling to adminConnectInfo above, same fixed "platform" row
+// lookup, but MintRefdataAdminToken's publish-capable, refdata-scoped
+// permission profile instead of MintAdminToken's subscribe-only one (see
+// MintRefdataAdminToken's doc comment for why this needs its own PLATFORM
+// credential rather than reusing either MintAdminToken or MintBrowserToken).
+func (h *Handlers) refdataAdminConnectInfo(w http.ResponseWriter, r *http.Request) {
+	acc, err := h.Store.Get(r.Context(), platformAccountName)
+	if errors.Is(err, accounts.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "platform account not seeded")
+		return
+	}
+	if err != nil {
+		h.Log.Error("look up platform account", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if acc.SigningKeySeed == "" {
+		writeError(w, http.StatusConflict, "platform account has no signing key on record")
+		return
+	}
+
+	info, err := MintRefdataAdminToken(acc.PublicKey, acc.SigningKeySeed, h.WSUrl, h.tokenTTL(r.Context()))
+	if err != nil {
+		h.Log.Error("mint refdata admin token", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to mint refdata admin credential")
 		return
 	}
 

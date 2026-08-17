@@ -1,8 +1,10 @@
 // Shared l10n composable (Phase 11.7) — loads vue-i18n's message catalog
 // for the `string` dictionary type from refdata, live via the same
-// KV-cached pipeline as domain labels (/api/refdata/types/string, BR-D08),
-// sharing `selectedLocale` with useRefdataLabels so one switcher drives both
-// domain labels and UI copy.
+// KV-cached pipeline as domain labels (BR-D08), sharing `selectedLocale`
+// with useRefdataLabels so one switcher drives both domain labels and UI
+// copy. Reads over api._platform.refdata.type.list.v1 as of Phase 32 —
+// useRefdataLabels owns the NATS transport and exposes requestTypeList/
+// flattenTypeList, so this file needs no transport wiring of its own.
 //
 // connect(i18n) takes the app's own vue-i18n instance rather than importing
 // one — this file has no 'vue-i18n' import so it stays resolvable from
@@ -38,7 +40,12 @@
 import { ref, watch } from 'vue'
 
 import { l10nFallbackEn } from './l10nFallback.en.js'
-import { subscribeToChange, useRefdataLabels } from './useRefdataLabels.js'
+import {
+  flattenTypeList,
+  requestTypeList,
+  subscribeToChange,
+  useRefdataLabels,
+} from './useRefdataLabels.js'
 
 const TYPE_KEY = 'string'
 const CATALOG_CACHE_KEY = 'refdata.stringCache'
@@ -75,26 +82,19 @@ let started = false
 // clobbering a locale the user has since switched to.
 let requestToken = 0
 
-async function fetchJSON(path) {
-  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' } })
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
-  return body
-}
-
 async function refreshCatalog() {
   if (!i18n) return
   const locale = selectedLocale.value || 'en'
   const myToken = ++requestToken
   switching.value = true
   try {
-    const data = await fetchJSON(`/api/refdata/types/${TYPE_KEY}?locale=${encodeURIComponent(locale)}`)
+    const data = await requestTypeList(TYPE_KEY, locale)
     if (myToken !== requestToken) return // a newer request has since started — discard this stale result
     const messages = { ...l10nFallbackEn }
     let fellThrough = false
-    for (const item of data.items || []) {
-      if (item.label && item.label !== item.code) {
-        messages[item.code] = item.label
+    for (const { code, label } of flattenTypeList(data)) {
+      if (label && label !== code) {
+        messages[code] = label
       } else {
         fellThrough = true
       }
@@ -134,8 +134,8 @@ function connect(i18nInstance) {
   }
   started = true
   refreshCatalog()
-  // Reuses useRefdataLabels' single /api/refdata-watch connection rather than
-  // opening a second one — see subscribeToChange's doc comment for why.
+  // Reuses useRefdataLabels' single notify.* subscription rather than opening
+  // a second one — see subscribeToChange's doc comment for why.
   unsubscribeChange = subscribeToChange(refreshCatalog)
 }
 

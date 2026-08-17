@@ -5280,3 +5280,130 @@ It also retires the shared `_default_bu` *as a tenant's context*. Today every ac
 Phase 22b is now fully complete: code, tests, both `BUSINESS_RULES-*.md` files, both architecture docs, and the Admin UI's BU table width follow-up (widened from a 36rem cap to a proportioned, full-width layout once the Context column made it cramped) are all done and verified live.
 
 ---
+
+## Phase 32 — Completed (archived 2026-08-17)
+
+### Phase 32 (PROPOSED 2026-08-17) — refdata-service Serves Browsers Directly: per-tenant `api.*`, admin/business subject split, `nats.ws` in the refdata UI
+
+#### Goal
+
+`refdata-service` is the last service a browser cannot reach directly. Today the
+path is `browser → REST → shipping-service → rpc.* → refdata-service`, using
+five relay routes on shipping-service's mux (`/api/refdata-demo/{context}/{type}/{code}`,
+`/api/refdata/types/{type}`, `/api/refdata/locales`, `/api/refdata/contexts`,
+`/api/refdata-watch`) — shipping-service acting as an API conduit for another
+service's data, which is exactly the coupling Phase 33 exists to remove. The
+`frontend/refdata` admin UI meanwhile still talks plain REST + SSE end to end
+(`frontend/refdata/src/api.js`), the only frontend that never migrated.
+
+This phase gives `refdata-service` its own per-tenant NATS connections and
+`api.*` adapter, so both the refdata UI and any business app reach it directly
+inside the account they authenticated into.
+
+**Prerequisite for Phase 33.** refdata's REST surface cannot be retired before
+its `api.*` replacement exists.
+
+#### Design decisions
+
+- **Copy the `pricing-service`/`trading-partner-service` per-tenant connection
+  pattern**, not a new design: one `nats.Connect` per provisioned tenant
+  discovered from `NATS_CREDS_DIR`, kept in sync via
+  `notify.accounts.account.{created,suspended,reactivated}`, with the `api.*`
+  adapter mounted per connection. refdata data is scoped by `{context}`, not by
+  account, so every tenant's adapter shares one set of handlers — the same
+  property `pricing-service`'s `internal/tenants` already relies on.
+  **Include the `nonTenantCredsFiles` exclusion** (`observability.creds`,
+  `sys.creds`, `shipping-admin.creds`, `platform.creds`) from the outset — its
+  omission is the bug that has already cost three separate fixes; see
+  `ARCHITECTURE-ACCOUNTS.md` § "Three services now open per-tenant connections".
+- **This is knowingly the fourth copy of that manager.** Extraction into a
+  shared `natstenants` package is the documented recommendation, blocked on a
+  Go-module strategy (7 modules, no `go.work`). Either extract first and have
+  this phase consume it, or paste the fourth copy and delete it later — but
+  record which was chosen, and do not treat the duplication as resolved.
+- **Admin and business subjects are split by namespace, not just by convention:**
+  `api.{context}.refdata.admin.*` for corpus drafting/publish/rollback/diff and
+  context/type/locale/item registration; `api.{context}.refdata.{item,type,locales}.*`
+  for the plain reads a business app needs. The split exists so **permission
+  grants can scope by subject prefix** — `MintBrowserToken` must never carry
+  `api.*.refdata.admin.>`. This is the mechanism that replaces the old
+  "admin lives on a different transport" separation, and it is what makes
+  Phase 34's requester filter meaningful ("omit all admin requests" becomes a
+  subject-prefix filter, which is trustworthy, rather than a header filter,
+  which is self-declared).
+- **`rpc.*` is untouched.** `refdata-service`'s existing `internal/natsrpc`
+  backend-to-backend surface (consumed by `shipping-service`'s
+  `refdataconsumer` and `trading-partner-service`'s `refdataclient`) stays
+  exactly as-is. Adding `api.*` is additive; per
+  `ARCHITECTURE-COMMUNICATIONS.md` § 2.4 the two registrations are independent
+  adapters over the same handlers.
+- **Subjects keep the `.v1` suffix**, consistent with every existing subject.
+- **`/api/refdata-watch` SSE is replaced by `notify.*`**, following Phase 23's
+  precedent for the Admin UI — `refdata-service` already publishes
+  `evt.{context}.refdata.{typeKey}.changed`, so the notify bridge has a source.
+
+#### Sub-phases
+
+- **32.1 — Business rules.** New BRs in `BUSINESS_RULES-REFDATA.md`: the
+  per-tenant connection contract, the admin/business subject split and its
+  permission consequence, and the notify-replaces-SSE rule. Rules before code.
+- **32.2 — `internal/tenants`.** Per-tenant connection manager (or consumption
+  of an extracted shared package), incl. the creds-exclusion list and
+  lifecycle subscription. `nats.Name("refdata-service")` on every connection
+  (CLAUDE.md's rule; assert it in a test).
+- **32.3 — `internal/browserrpc` business subjects.** `item.get`, `item.get-versioned`,
+  `type.list`, `locales.list`, `completeness`, `cache-status` — the `api.*`
+  counterparts of the non-admin REST reads, calling the same query methods.
+- **32.4 — `internal/browserrpc` admin subjects.** `api.{context}.refdata.admin.*`
+  covering corpus draft/publish/rollback/versions/diff, and context/type/locale/
+  item/reference/localization registration.
+- **32.5 — Account exports/imports: confirmed no change needed.** Grepped
+  `bootstrap-operator.sh` and `provisioner.go` for `pricing`/`trading-partner`/
+  `api.*` — zero matches. `api.*` business subjects need no NATS account
+  export/import declaration at all: a tenant's own `.creds` file already
+  carries full pub/sub permissions within its own account (that's what lets
+  `pricing-service`'s and `trading-partner-service`'s per-tenant connections
+  reach `api.*` with no operator-level plumbing), and the admin/business split
+  is enforced entirely by `MintBrowserToken`'s subject-prefix Deny (BR-D41),
+  not by account-level imports. No trust-chain regeneration or `down -v` reset
+  is required for this sub-phase — superseding this bullet's original text.
+- **32.6 — `frontend/refdata` gains `nats.ws`.** Mirror `frontend/admin`'s
+  `useNatsConnection.js` + `connectionFactory.js`; swap `src/api.js` from
+  `fetch()` to NATS request/reply; replace the `/api/refdata-watch` EventSource
+  with a `notify.*` subscription. Vitest specs updated.
+- **32.7 — Retire shipping-service's five refdata relay routes** and the
+  `refdataconsumer`-backed handlers behind them, plus `frontend/admin`'s
+  `/api/refdata/contexts` call (`admin/src/api.js`) — repointed at refdata's
+  own `api.*`. This is the coupling the phase exists to remove, so it lands
+  here rather than being deferred to Phase 33.
+- **32.8 — Tests.** One `Context` block per new BR. Include a **permission
+  test** asserting a browser token cannot reach `api.*.refdata.admin.>` — the
+  rule is only real if a denied grant proves it.
+
+#### Checklist
+
+- [x] 32.1 BR-D40/41/42 written in `BUSINESS_RULES-REFDATA.md` and confirmed; BR-D34 amended (its "per-tenant accounts" candidate is now taken, for the `api.*` surface only)
+- [x] 32.2 per-tenant manager (`refdata/internal/tenants`) + creds exclusion + `nats.Name("refdata-service")`. **Decision recorded: fourth copy pasted, not extracted** — a shared `natstenants` package stays blocked on the missing `go.work` across 7 modules, and `trading-partner-service`'s copy had already diverged (two-pass `MountAPI`), so there was no clean template to extract. Recorded in BR-D40.
+- [x] 32.3 business `api.*` subjects registered, reusing the same query methods `natsrpc`/`rest` call (incl. BR-D08's KV-first item/type resolution). `context.list`/`context.get` classified as business, not admin — REST only nests them under `/admin/` to dodge a Go `ServeMux` ambiguity.
+- [x] 32.4 admin `api.*` subjects registered (21 subjects: corpus draft/publish/rollback/versions/diff + context/type/locale/item/reference/localization/translation)
+- [x] 32.5 **no exports/imports change needed** — verified by grep that `api.*` needs no operator-level plumbing (same as pricing/trading-partner); the split is enforced by `MintBrowserToken`'s subject-prefix Deny. No trust-chain regen or `down -v` required. See the sub-phase bullet above.
+- [x] 32.6 **scope corrected and widened.** `frontend/refdata` turned out not to use the refdata composables at all; the live consumers of the retired routes were `shared/refdata/useRefdataLabels.js` + `useL10nCopy.js`, shared by **admin and seafreight-app**. Both migrated to `api.*` + `notify.*` via an injected transport (`setRefdataTransport`) — `shared/` can't import `@nats-io/nats-core` itself, the same constraint that already forced `connectionFactory.js` to be duplicated per app. Added `refdata/internal/notifybridge` (BR-D42) since no `notify.*` source existed yet.
+- [x] 32.7 shipping-service's 5 refdata relay routes deleted, plus `refdata_watch.go`, the dead response types, and the now-unused `Deps.Refdata`/`Deps.PlatformJS` wiring
+- [x] 32.8 BR-D41 permission tests green (JWT deny-grant assertion in accounts-service; subject-pattern coverage in refdata-service, verified to fail when an admin subject escapes the prefix). `ginkgo ./...` green (9 suites, 115 specs) in shipping-service; `go test ./...` green in refdata-service (incl. new `internal/tenants/tenants_test.go` — `nats.Name` assertion, discover exclusion, idempotent ensure/teardown/close, all against a real embedded NATS server) and accounts-service; admin 89/89, seafreight-app 26/33 (7 pre-existing `localStorage`-undefined failures in `useL10nCopy.spec.js`/`useRefdataLabels.spec.js`, confirmed present on `HEAD` before any Phase 32 change — a vitest/happy-dom environment issue, not a regression), and refdata 33/33 Vitest green; all frontends build clean.
+- [x] Live verification: **`frontend/refdata` itself was still on REST** when this checkbox was first reached — 32.6's original scope (migrate the shared label composables) never actually touched the refdata admin UI's own `src/api.js`, so Phase 33.6's premise ("both business reads and `/api/refdata/admin/*` moved to `api.*` in Phase 32") was false until this pass. Closed out:
+  - **Bug fix — context-from-subject convention.** `internal/browserrpc/adapter.go` originally carried `{context}` as a request-body field on every endpoint, copying `internal/natsrpc`'s (rpc.*-specific) convention instead of `pricing-service`'s/`trading-partner-service`'s established `api.*` convention (`{context}` read off the subject via `contextFromSubject`). Fixed across all ~29 endpoints; `TypesListSubject`/`TypeRegisterSubject`/`ContextListSubject`/`ContextRegisterSubject` stay fixed-literal `_platform` (types and the context registry are genuinely global, not context-scoped).
+  - **New subjects discovered missing while building the frontend client:** `types.list` (REST's `listTypes` — distinct from the existing, confusingly-named `type.list` which lists a type's *items*), `item.localizations-list`, `item.references-list` (both actively used by `ItemDetailPanel.vue`/`TranslationMatrix.vue`), and `type.list`'s `all` flag (BR-D06 deprecated-inclusive listing — bypasses the KV cache, mirroring REST). All added with adapter tests updated.
+  - **PLATFORM refdata-admin credential.** `frontend/refdata` turned out to be a cross-tenant, platform-operator tool (no tenant/account concept — edits `_platform` standards and every tenant's contexts alike), so it cannot use a `MintBrowserToken`-shaped tenant credential (denied from `admin.>`) or a business tenant token (wrong trust model — any tenant could then edit shared standards). Added `accounts-service`'s `MintRefdataAdminToken` (PLATFORM account, `Pub`+`Sub` scoped to exactly `api.*.refdata.>`, plus `Sub` on `notify._platform.refdata.>`) and `GET /api/auth/refdataAdminConnectInfo`; refdata-service's `composition.go` gained `MountPlatformAPI` mounting `browserrpc.Adapter` on the same PLATFORM connection `MountRPC`'s `rpc.*` adapter already runs on (confirmed live: refdata-service shows 4 `$SRV` instances — 2 tenant + `rpc.*` PLATFORM + this new `api.*` PLATFORM one).
+  - **`frontend/refdata` migrated**: `src/nats/{connectionFactory.js,useRefdataAdminConnection.js}` added (single connection, never reconnects on context switch — owned by `App.vue`'s mount lifecycle, mirroring `admin`'s `usePlatformConnection.js`); `src/api.js` fully rewritten onto `api.*`; the SSE watch replaced by a subscription to `notify._platform.refdata.>` (the **existing** Phase-23 `shipping-service` bridge, not the new tenant-fanout `internal/notifybridge` — the two are different, incompatible subject shapes for different account scopes, see `stores/dictionary.js`'s doc comment).
+  - **Live-verified against the running docker stack**: create-draft → publish → rollback all succeeded end-to-end through the UI (v1 published → v2 drafted/published → v3 rollback, all real toasts, zero console errors); `admin`'s Services panel confirmed refdata-service's 4 live `$SRV` instances; `admin`'s own dashboard (shared composables) still renders clean.
+  - `refdata-frontend`'s docker-compose entry needed `restart: on-failure` (nginx resolves the new `/api/auth` upstream at startup — same DNS-ordering race `admin-frontend` already guards against) and a `depends_on: accounts-service`.
+
+#### Follow-ups left open by this phase
+
+- **`internal/refdataconsumer` is now unused by shipping-service production code.** Deleting the five relay routes removed its only callers, so shipping-service no longer consumes refdata at all. The package (and its BR-D08/BR-D28/BR-D37 tests) was deliberately left in place rather than deleted in this phase — whether shipping-service should keep an `rpc.*` path to refdata is a Phase 33 transport-contract decision, not a side effect of deleting REST routes.
+- **BR-D42 has no automated test yet** — the notify bridge is covered by live verification only. Needs an integration test asserting a synthetic `evt.*` event reaches a tenant-connection subscriber on the matching `notify.*` subject.
+- **The pre-existing seafreight-app `localStorage`-undefined Vitest failures** (7 specs, `useL10nCopy.spec.js`/`useRefdataLabels.spec.js`) predate Phase 32 (confirmed reproducible on `HEAD`) and were not introduced or fixed here — a vitest/happy-dom environment gap, not a Phase 32 regression. Worth a dedicated fix, out of scope for this phase.
+- **`references.list`/`localizations.list`-style reads on the admin subjects for corpus versions** (e.g. inspecting a rolled-back version's references) were not added — only the plain business-item equivalents exist. Not currently blocking any UI flow.
+- **BR-D41 has no live-server test** — `accounts-service` has no embedded operator-mode NATS harness (only `shipping-service`'s `internal/natsaccounts` does, scoped to that module). Both halves of the contract are asserted statically; the server actually rejecting the publish is live-verification only.
+- **Pre-existing, unrelated:** `seafreight-app`'s Vitest run has 7 failures from `happy-dom@20.10.6` + `vitest@4.1.10` leaving `localStorage` undefined. Confirmed present before this phase (baseline 7 failures, unchanged after). Not touched here — the fix is a dependency change that should be decided on its own.
+

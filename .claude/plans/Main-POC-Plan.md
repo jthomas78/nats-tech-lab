@@ -502,6 +502,180 @@ need rehoming rather than the handlers changing.
 
 ---
 
+### Phase 32 — Completed (archived 2026-08-17)
+
+Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
+(not read into context by default — open only when you need original
+rationale or checklist detail).
+
+- [x] Phase 32 (IMPLEMENTED 2026-08-17) — refdata-service Serves Browsers
+      Directly: per-tenant `api.*` connections (`refdata/internal/tenants`),
+      admin/business subject split enforced by `MintBrowserToken`'s
+      subject-prefix Deny (BR-D41), `notify.*` replacing `/api/refdata-watch`
+      SSE (`internal/notifybridge`, BR-D42), and shipping-service's five
+      refdata relay routes retired. `frontend/refdata` migrated onto
+      `nats.ws` end to end (discovered mid-phase to be a cross-tenant
+      platform-operator tool, not a tenant app — needed its own PLATFORM
+      credential, `MintRefdataAdminToken`; see
+      [phase32_refdata_platform_credential](../memory/phase32_refdata_platform_credential.md)).
+      Prerequisite for Phase 33 (retiring business REST) satisfied.
+
+---
+
+### Phase 33 (PROPOSED 2026-08-17) — Retire Business REST: NATS-Only Business Transport, REST Reserved for Admin and Bootstrap
+
+#### Goal
+
+Delete the REST surface for business operations across all four domain services,
+so `api.*`/`rpc.*` is the only way business data moves. REST remains for admin
+operations, infra health, and the auth bootstrap that cannot itself run over
+NATS. The point is not merely fewer routes — it is that **admin calls and
+business calls stop overlapping**, so the Admin UI's live views can distinguish
+them structurally rather than by guesswork.
+
+Most of this is deletion, not migration: `seafreight-app` already runs ships,
+containers and ports entirely over `api.*` (Phase 15d), and `pricing-service`
+and `trading-partner-service` already have full `api.*` parity with their REST
+routes. The REST handlers are a parallel exposure of the same handlers
+(`ARCHITECTURE-COMMUNICATIONS.md` § 2.4) that no live frontend depends on.
+
+#### Design decisions
+
+- **One genuine gap to fill first:** `GET /api/manifest/{context}/{shipID}`
+  (containers-on-a-ship) has no `api.*` counterpart. Add
+  `api.*.shipping.manifest.get.v1` before deleting the route.
+- **Three categories of REST survive, and the distinction is architectural, not
+  taste:**
+  1. **Infra** — `/healthz`.
+  2. **Auth bootstrap — structurally exempt.** `accounts-service`'s
+     `GET /api/auth/connectInfo`, `/api/auth/adminConnectInfo`,
+     `/api/auth/tenants` mint the browser's NATS credential. A browser cannot
+     fetch its NATS credential over NATS, so these can never move. Same for
+     `seafreight-app`'s `/api/platform/accounts/{tenant}/business-units`
+     bootstrap read. Document this as a named exemption class so it is not
+     mistaken for un-migrated business REST later.
+  3. **Admin/operator** — `/api/tenant` + `/api/tenant/switch` (which NATS
+     account to connect under: an operator action, and the Admin UI is its only
+     caller), `/api/admin/ports/{context}` (raw table rows for the Postgres
+     Tables panel), `accounts-service`'s and `trading-partner-service`'s
+     BasicAuth-gated operator endpoints, and `observability-service`'s
+     diagnostic surface.
+- **`/api/shape-b/*` decision, deferred here from Phase 31.**
+  `GET /api/shape-b/ships/{context}/{shipID}` and
+  `DELETE /api/shape-b/cache/{context}/{shipID}` back the Admin UI's read-path
+  panel and its cache-evict button — diagnostics, not business CRUD. They are
+  **kept and reclassified as admin**, renamed to `/api/admin/read-path/...` so
+  the surviving name no longer references a shape taxonomy Phase 31 deleted.
+  (Phase 31 deliberately left the rename until now to avoid renaming twice.)
+- **Swagger becomes the admin API's documentation.** After this phase Swagger UI
+  should show only admin + bootstrap routes. That is the visible acceptance
+  test: if a business operation is still browsable in Swagger, the phase is not
+  done.
+
+#### Sub-phases
+
+- **33.1 — Business rules.** The transport-contract rule: business operations
+  are reachable only over `api.*`/`rpc.*`; REST is admin, infra, or bootstrap.
+  Name the three surviving categories explicitly, since a rule that says only
+  "no business REST" gives no guidance on the next new route.
+- **33.2 — Add `api.*.shipping.manifest.get.v1`** (reuses `Terminal.ListByShip`).
+- **33.3 — shipping-service:** delete `/api/ships/*`, `/api/containers/*`,
+  `/api/terminal/*`, `/api/manifest/*`, `/api/ports/*` (GET + POST),
+  `/api/meta/*` and their swagger annotations; rename `/api/shape-b/*` to
+  `/api/admin/read-path/*`; repoint `frontend/admin`'s `api.js` accordingly.
+- **33.4 — pricing-service:** delete `/api/pricing/*` (34 routes, already 1:1
+  with `api.*`).
+- **33.5 — trading-partner-service:** delete `/api/trading-partners/*` (14
+  routes); confirm `frontend/admin`'s `TradingPartnersPanel.vue` is fully on
+  `api.*` first.
+- **33.6 — refdata-service:** delete `/api/refdata/*` — both the business reads
+  and the `/api/refdata/admin/*` half, since Phase 32 moved both onto `api.*`.
+  REST reduces to `/healthz`.
+- **33.7 — Swagger regeneration** across all services (`swag init`; note
+  `swag_regen_diff_noise` — it rewrites `$ref` names repo-wide, so review the
+  diff rather than trusting it). Verify Swagger UI lists only admin/bootstrap.
+- **33.8 — Frontend sweep.** Any remaining business `fetch()` in
+  `frontend/admin` repointed at `api.*`; confirm `seafreight-app` and
+  `frontend/refdata` retain only the exempt bootstrap calls.
+
+#### Checklist
+
+- [ ] 33.1 transport-contract BR written, naming the three surviving REST categories
+- [ ] 33.2 `api.*.shipping.manifest.get.v1` registered and tested
+- [ ] 33.3 shipping-service business routes deleted; `/api/shape-b/*` → `/api/admin/read-path/*`; admin UI repointed
+- [ ] 33.4 pricing-service `/api/pricing/*` deleted
+- [ ] 33.5 trading-partner-service `/api/trading-partners/*` deleted
+- [ ] 33.6 refdata-service `/api/refdata/*` deleted; REST is `/healthz` only
+- [ ] 33.7 swagger regenerated everywhere; Swagger UI shows no business operation
+- [ ] 33.8 no business `fetch()` left in any frontend; only the documented bootstrap exemptions remain
+- [ ] `ginkgo ./...` + `go test ./...` + all frontend suites green
+- [ ] Live verification: every frontend exercises its full happy path with business REST gone
+
+---
+
+### Phase 34 (PROPOSED 2026-08-17) — Enforce the Boundary: Admin-Allowlist Mux Tests, Requester Attribution, Admin-Traffic Filter
+
+#### Goal
+
+Phase 33 removes today's business REST. Nothing stops a future business route
+being added back to a `rest/handlers.go`, and nothing yet lets the Admin UI
+answer "show me only business-app traffic". This phase makes the boundary
+enforced rather than merely achieved, and makes it observable.
+
+#### Design decisions
+
+- **The mux allowlist test is the enforcement mechanism.** Per service, walk the
+  registered route set and assert every route matches the admin/infra/bootstrap
+  allowlist from Phase 33's rule. A new business route then fails a test rather
+  than quietly shipping. This is the pattern
+  `TestShippingAdminCanOnlyUseNarrowOrderedConsumerAccess` already establishes
+  for permission grants, applied to HTTP routes.
+- **Requester attribution is observability, never authorization.** A
+  client-supplied `Nats-Requestor`-style header (BR-027 already carries one) is
+  **self-declared and must never gate anything** — core NATS request/reply
+  carries no server-attested caller identity. The Admin UI may filter on it;
+  no handler may branch on it. State this in the rule, because a header that
+  looks like identity invites exactly that mistake.
+- **The trustworthy filter axis is the subject prefix, not the header.** This is
+  why Phase 32 split `api.*.refdata.admin.*` from the business subjects: "omit
+  all admin requests" is a subject-prefix filter, which the server itself
+  enforced by permission grant, whereas a header filter merely reflects what the
+  caller claimed. Offer both in the UI, and label which is which.
+- **Business tests use `api.*`/`rpc.*` only.** Confirmed requirement: no
+  integration test may exercise a business operation over REST, since a test
+  doing so would keep a retired path alive.
+
+#### Sub-phases
+
+- **34.1 — Business rules.** The route-allowlist rule (with its per-service
+  allowlist as data, not prose) and the requester-attribution rule including its
+  explicit non-authorization clause.
+- **34.2 — Per-service allowlist tests:** shipping-service, refdata-service,
+  pricing-service, trading-partner-service, accounts-service,
+  observability-service.
+- **34.3 — Requester attribution on `api.*`/`rpc.*`,** surfaced as a span field
+  in the `obs.trace.*` envelope (BR-036's shape) so the Admin UI can read it
+  from existing trace data rather than a new channel.
+- **34.4 — Admin UI filter** in the Request/Reply & Traces panel: by subject
+  prefix (trustworthy) and by requester (self-declared), visibly distinguished.
+- **34.5 — Test-suite audit:** assert no business integration test drives a REST
+  route.
+- **34.6 — Docs:** `ARCHITECTURE-COMMUNICATIONS.md` § 1's transport table
+  rewritten — REST is no longer "frontend/edge clients, full CRUD surface",
+  which is the framing this whole 31–34 group replaced.
+
+#### Checklist
+
+- [ ] 34.1 allowlist + requester-attribution BRs written
+- [ ] 34.2 allowlist test per service; each fails when a business route is added
+- [ ] 34.3 requester attribution carried on `api.*`/`rpc.*` and visible in trace spans
+- [ ] 34.4 Admin UI filter shipped, subject-prefix and requester axes labeled distinctly
+- [ ] 34.5 no business integration test exercises REST
+- [ ] 34.6 `ARCHITECTURE-COMMUNICATIONS.md` § 1 transport table updated; `ARCHITECTURE-ADMIN.md` documents the new filter
+- [ ] Live verification: adding a throwaway business REST route fails its service's allowlist test
+
+---
+
 ### Phase 40 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning
 
 > **Renumbered 2026-08-17** from Phase 24 to Phase 40, alongside Phase
