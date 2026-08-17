@@ -459,6 +459,15 @@ Two notes worth carrying forward from Phase 26g/26h:
   arrives with the marketplace/tender phase that first calls it from another
   backend.
 
+A third note, on what every `api.*` row in that table costs: an `api.*` adapter
+has to be registered on a connection authenticated *as* the tenant whose
+browsers will call it, so each of the three services above independently grew a
+per-tenant connection manager to mount its adapter on. Those three managers are
+near-duplicates of one another and are a standing extraction candidate — see
+[ARCHITECTURE-ACCOUNTS.md](ARCHITECTURE-ACCOUNTS.md) § "Three services now open
+per-tenant connections" for the duplication map, the bug it has already caused,
+and the Go-module prerequisite that keeps it deferred.
+
 ## 4. Discovery & documentation
 
 ### What `nats.go/micro` provides
@@ -669,7 +678,8 @@ a JetStream concern — it's a separate, best-effort side-channel off the
 > flat message log into a trace. In the second table the **gaps matter more
 > than the coverage** — an `rpc.*` call that times out currently produces no
 > record at either end, from either side. `SERVER` rows need no service code at
-> all (Phase 29). Editable source:
+> all (Phase 41, renumbered 2026-08-17 from Phase 29 — still not started).
+> Editable source:
 > [admin-traces-panel.html](../../../../demos/01-dictionary/diagrams/admin-traces-panel.html),
 > re-exported with `--clip="section.cap"`.
 >
@@ -1082,7 +1092,7 @@ and its tests.
 
 ---
 
-## 11. Admin UI account-name resolution — two-tier fallback, composed in the browser (Phase 24)
+## 11. Admin UI account-name resolution — two-tier fallback, composed in the browser (historical — see Phase 30d amendment below)
 
 The Connections panel (`ConnectionsPanel.vue`) shows a friendly account name
 ("PLATFORM", "acme", "sys"...) next to every live NATS connection instead of
@@ -1149,9 +1159,35 @@ generalizes past SYS: any future connection on an account shipping-service
 holds no connection on (a runtime-provisioned tenant it hasn't connected to
 yet, for instance) resolves the same way, with no code change required.
 
+> **Phase 30d amendment — the server-side resolver moved services and
+> changed shape; it is no longer connection-matching.** This mechanism
+> (BR-028) shipped on `shipping-service` (§ 12 below explains why it grew a
+> second connection in the first place) and moved to `observability-service`
+> in Phase 30d, alongside Connections/Services/Account Activity/Log. The
+> move also **simplified** the server-side half rather than just relocating
+> it: `observability-service` holds exactly one PLATFORM connection (no
+> per-tenant fan-out the way `shipping-service`'s `TenantResources` gave
+> it), so the old `tenantLabelsByAccount()` — matching an NKey against
+> connections *this process itself* holds — had nothing left to compare
+> against. It was replaced outright by `AccountsClient.Labels()`
+> (`observability-service/observability/internal/rest/accounts_client.go`),
+> which does the same `GET /api/accounts` lookup the browser's own
+> `accountNameByKey` tier already made, but server-side — so `tenantLabel`
+> now arrives on every `/connz`/`/accstatz` row pre-resolved via a single
+> accounts-service-backed source, not two independent ones. The mermaid
+> diagram above still describes the *shape* accurately (one server-side
+> resolver, one client-side, composed via `resolveLabel()`) — only
+> participant `S` is now `observability-service`, and its box no longer
+> reads a live-connection table, it calls the same endpoint `A` already
+> answers. `ConnectionsPanel.vue`'s `resolveLabel()` composition itself was
+> not simplified away in this phase even though it's now closer to
+> belt-and-suspenders than two genuinely independent sources — left as-is
+> since it's still correct and free, just no longer strictly necessary; a
+> candidate cleanup for whoever next touches that file, not done here.
+
 ---
 
-## 12. Cross-account introspection — the diagnostic axis is not the tenant axis (Phase 24)
+## 12. Cross-account introspection — the diagnostic axis is not the tenant axis (Phase 30, moved from shipping-service — was Phase 24 pre-2026-08-16)
 
 The Admin UI's **KV Buckets** and **Streams** panels each answer "what exists
 on this deployment?". Both were originally scoped to whichever tenant the
@@ -1220,3 +1256,49 @@ operator is inspecting — read-only, deliberately unbounded). Whenever a panel
 answers "what exists?" rather than "what is this tenant's data?", it belongs
 on the second axis, and the row shape has to carry the account because names
 are only unique within one.
+
+> **Phase 30 amendment — everything above describes where this lived before
+> 2026-08-16; it now lives on `observability-service`, not
+> `shipping-service`, and the credential story changed with it.** The whole
+> diagnostic surface this section describes — both endpoints, `KV_`
+> exclusion, account-tagging, the snapshot/live-tail split — was extracted
+> into a new, separate PLATFORM-account service (Phase 30e/30f), for the
+> same reason Connections/Services/Account Activity/Log moved alongside it
+> (§ 11's own Phase 30d amendment): none of this is shipping domain logic,
+> and `shipping-service` was only ever the host because it happened to be
+> the one service already holding live connections into every account
+> (Phase 21's partitioning note). Concretely:
+> - `GET /api/kv/buckets*` and `GET /api/jetstream/streams|replay` now live
+>   on `observability-service`'s own port (7205), not `shipping-service`'s;
+>   the Admin UI's dev-mode proxy and `nginx.conf` repoint there.
+> - `introspectableAccounts()` and `jsForAccount()` moved with them
+>   (`observability-service/observability/internal/rest/{kv,streams,replay}.go`),
+>   reading `AccountsClient.TenantNames` (a `GET /api/accounts` call, Phase
+>   30e) in place of `Deps.TenantResources` — `observability-service` never
+>   held a live per-tenant connection fan-out the way `shipping-service`
+>   did, so there was no map to iterate; it asks accounts-service which
+>   tenants exist instead.
+> - **"Which PLATFORM credential does what" changed shape entirely.**
+>   `PlatformFullJS` — the second, unrestricted connection this section
+>   originally pointed to for `STREAM.LIST` — is gone; `cmd/main.go` and
+>   `internal/monolith` no longer construct it, and `shipping-service` is
+>   back to its one `shipping-admin` connection (see
+>   [ARCHITECTURE-ACCOUNTS.md](ARCHITECTURE-ACCOUNTS.md) § "Two PLATFORM
+>   connections, not one" for that side of the story). Listing now goes
+>   through `observability-service`'s own PLATFORM connection instead — also
+>   restricted, but via an explicit, narrower `$JS.API` subject allow-list
+>   (BR-AC32, `BUSINESS_RULES-ACCOUNTS.md`) scoped to exactly the subjects
+>   `kv.go`/`streams.go`/`replay.go` actually call, not the unrestricted
+>   namespace `PlatformFullJS` had. Getting that allow-list right took a full
+>   live-verification pass to find every subject actually needed —
+>   `$JS.API.INFO`, the filtered-`CONSUMER.CREATE` wildcard form,
+>   `$JS.API.DIRECT.GET`, `$JS.ACK`, and `$JS.FC.KV_trace-request-reply.>` —
+>   documented in `BUSINESS_RULES-SHIPPING.md`'s trace-store rule and this
+>   plan's Phase 30i/Phase 42 notes.
+> - The **design itself — cross-account vs. tenant-scoped as two different
+>   axes, snapshot-crosses/live-tail-cannot, account-tagged rows** — carried
+>   over unchanged; only *which process* answers the two endpoints changed.
+>   Nothing about the account-isolation argument in "Snapshot crosses
+>   accounts; live tail cannot" above needed to change, since that's a
+>   property of the browser's own NATS connection, not of which backend
+>   process the snapshot half talks to.

@@ -185,6 +185,8 @@
   },
   "active": "c50d6372ff085bfe",
   "lastOpenFiles": [
+    "POC-Dictionaries/4. Findings - Distributed Tracing (Phase 28).md",
+    "V3-Platform/Architecture/Dictionary-POC/images/tenants-manager-extraction.png",
     "V3-Platform/Architecture/Dictionary-POC/images/traces-span-envelope.png",
     "V3-Platform/Architecture/Dictionary-POC/images/admin-traces-panel.png",
     "V3-Platform/Architecture/Dictionary-POC/images/otlp-bridge-ingest.png",
@@ -199,9 +201,7 @@
     "V3-Platform/Architecture/Pricing/Effective-dated-diesel-pre-design.md",
     "V3-Platform/Architecture/Pricing/images/diesel-overlay-service-map.png",
     "V3-Platform/Architecture/Pricing/images/diesel-overlay-sequence.png",
-    "V3-Platform/Architecture/Pricing/images/diesel-overlay-resolution-flow.png",
     "V3-Platform/Architecture/Pricing/Effective-dated-diesel-poc-sequence.md",
-    "V3-Platform/Architecture/Dictionary-POC/images/shipping-ui-dictionary-sequence.png",
     "POC-Dictionaries/3. Findings - Dictionary Service (Phase 11).md",
     "POC-Dictionaries/2. Research - Dictionary - OpenCode.md",
     "POC-Dictionaries/1. Problem Statement - Dictionary.md",

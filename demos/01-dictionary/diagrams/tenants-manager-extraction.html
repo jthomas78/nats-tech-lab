@@ -1,0 +1,224 @@
+<script>document.documentElement.setAttribute("data-theme","dark")</script>
+<title>Per-tenant connection manager — duplication today, shared package after</title>
+<style>
+/* Tokens lifted from shared/unifi-theme/unifi.css. Dark is the base, as there. */
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --text: #1e2328; --muted: #4e5560; --dim: #9aa1a9;
+    --bg: #f4f5f7; --panel: #ffffff; --border: #d1d5db;
+    --accent: #005fdb; --nested: #eef1f7;
+    --sync: #005fdb; --store: #0d9488; --evtl: #b45309; --bad: #dc2626; --hop: #6b7280;
+  }
+}
+:root[data-theme="light"] {
+  --text: #1e2328; --muted: #4e5560; --dim: #9aa1a9;
+  --bg: #f4f5f7; --panel: #ffffff; --border: #d1d5db;
+  --accent: #005fdb; --nested: #eef1f7;
+  --sync: #005fdb; --store: #0d9488; --evtl: #b45309; --bad: #dc2626; --hop: #6b7280;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+.theme-btn {
+  font-family: var(--mono); font-size: 11px; padding: 3px 10px; border-radius: 3px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--muted); cursor: pointer;
+}
+.theme-btn:hover { color: var(--text); border-color: var(--dim); }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+
+/* SVG conventions */
+.bx   { fill: var(--nested); stroke: var(--border); stroke-width: 1; }
+.bxd  { fill: none; stroke: var(--dim); stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.7; }
+.bx-bad   { fill: color-mix(in srgb, var(--bad) 9%, var(--nested)); stroke: var(--bad); stroke-width: 1; }
+.bx-store { fill: color-mix(in srgb, var(--store) 9%, var(--nested)); stroke: var(--store); stroke-width: 1; }
+.bx-sync  { fill: color-mix(in srgb, var(--sync) 9%, var(--nested)); stroke: var(--sync); stroke-width: 1; }
+.bx-evtl  { fill: color-mix(in srgb, var(--evtl) 9%, var(--nested)); stroke: var(--evtl); stroke-width: 1; }
+.hr   { stroke: var(--border); stroke-width: 1; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.lblm { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.dup  { font-family: var(--mono); font-size: 9.5px; fill: var(--bad); }
+.arw  { fill: none; stroke: var(--hop); stroke-width: 1.2; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <span class="eyebrow">ARCHITECTURE-ACCOUNTS § Scaling note</span>
+      <h1>Per-tenant connection manager — duplicated today, one package after</h1>
+      <p class="sub">Three services independently re-implement the same five behaviours over their own per-tenant NATS connections. <code>refdata-service</code> is about to need them too. Extracting them is a Go package, not a service — nothing gains a network hop.</p>
+    </div>
+    <button class="theme-btn" id="tt" type="button">light / dark</button>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 940 762" role="img" aria-label="Duplicated per-tenant connection managers today versus one shared package after extraction">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+        </defs>
+
+        <text class="grp" x="10" y="14">TODAY — THE SAME MANAGER, COPIED PER SERVICE</text>
+
+        <!-- shipping-service -->
+        <rect class="bx" x="10" y="30" width="285" height="176" rx="4"/>
+        <text class="lbl"  x="24" y="52">shipping-service</text>
+        <text class="lbl2" x="24" y="66">internal/rest/tenant.go · 577 lines</text>
+        <line class="hr" x1="24" y1="76" x2="281" y2="76"/>
+        <text class="dup" x="24" y="92">Discover creds files</text>
+        <text class="dup" x="24" y="106">Connect per tenant</text>
+        <text class="dup" x="24" y="120">Subscribe accounts lifecycle</text>
+        <text class="dup" x="24" y="134">Teardown on suspend</text>
+        <text class="dup" x="24" y="148">Close on shutdown</text>
+        <line class="hr" x1="24" y1="158" x2="281" y2="158"/>
+        <text class="lbl2" x="24" y="174">Own: JetStream + KV per tenant,</text>
+        <text class="lbl2" x="24" y="186">projectors, REST tenant switch</text>
+
+        <!-- pricing-service -->
+        <rect class="bx" x="325" y="30" width="285" height="176" rx="4"/>
+        <text class="lbl"  x="339" y="52">pricing-service</text>
+        <text class="lbl2" x="339" y="66">internal/tenants/tenants.go · 288 lines</text>
+        <line class="hr" x1="339" y1="76" x2="596" y2="76"/>
+        <text class="dup" x="339" y="92">Discover creds files</text>
+        <text class="dup" x="339" y="106">Connect per tenant</text>
+        <text class="dup" x="339" y="120">Subscribe accounts lifecycle</text>
+        <text class="dup" x="339" y="134">Teardown on suspend</text>
+        <text class="dup" x="339" y="148">Close on shutdown</text>
+        <line class="hr" x1="339" y1="158" x2="596" y2="158"/>
+        <text class="lbl2" x="339" y="174">Own: nothing beyond its adapter —</text>
+        <text class="lbl2" x="339" y="186">the leanest of the three copies</text>
+
+        <!-- trading-partner-service -->
+        <rect class="bx" x="640" y="30" width="285" height="176" rx="4"/>
+        <text class="lbl"  x="654" y="52">trading-partner-service</text>
+        <text class="lbl2" x="654" y="66">internal/tenants/tenants.go · 368 lines</text>
+        <line class="hr" x1="654" y1="76" x2="911" y2="76"/>
+        <text class="dup" x="654" y="92">Discover creds files</text>
+        <text class="dup" x="654" y="106">Connect per tenant</text>
+        <text class="dup" x="654" y="120">Subscribe accounts lifecycle</text>
+        <text class="dup" x="654" y="134">Teardown on suspend</text>
+        <text class="dup" x="654" y="148">Close on shutdown</text>
+        <line class="hr" x1="654" y1="158" x2="911" y2="158"/>
+        <text class="lbl2" x="654" y="174">Own: refdata client (BR-TP14),</text>
+        <text class="lbl2" x="654" y="186">two-pass MountAPI for its dep cycle</text>
+
+        <!-- refdata-service: the prospective fourth copy -->
+        <rect class="bxd" x="10" y="224" width="915" height="48" rx="4"/>
+        <text class="lbl"  x="24" y="244">refdata-service — the fourth copy, if the pattern is pasted again</text>
+        <text class="lbl2" x="24" y="260">Has none of it today: one PLATFORM connection, no per-tenant manager, no api.* adapter</text>
+
+        <!-- cost callout -->
+        <rect class="bx-bad" x="10" y="288" width="915" height="62" rx="4"/>
+        <text class="lbl"  x="24" y="308">Cost already paid: one bug, found live, fixed three times</text>
+        <text class="lblm" x="24" y="324">The observability.creds exclusion was missing from two copies, so Discover offered it as a switchable tenant —</text>
+        <text class="lblm" x="24" y="338">each opened a phantom connection as a PLATFORM user with no tenant grants, denied with subscription violations</text>
+
+        <path class="arw" d="M467 360V392" marker-end="url(#ah)"/>
+
+        <text class="grp" x="10" y="420">AFTER — ONE PACKAGE, IMPORTED BY EACH SERVICE</text>
+
+        <!-- shared package -->
+        <rect class="bx-store" x="10" y="436" width="915" height="106" rx="4"/>
+        <text class="lbl"  x="24" y="456">shared/natstenants — a Go package, not a service</text>
+        <text class="lblm" x="24" y="472">Compiled into each binary. No new container, no network hop, no runtime dependency between services.</text>
+        <line class="hr" x1="24" y1="484" x2="911" y2="484"/>
+        <text class="lbl2" x="24" y="502">Discover creds files · Connect per tenant · Subscribe accounts lifecycle · Teardown on suspend · Close on shutdown</text>
+        <text class="lbl2" x="24" y="520">Each service supplies its own adapter constructor as a callback, so the package never imports a service's browserrpc</text>
+
+        <path class="arw" d="M152 542V572" marker-end="url(#ah)"/>
+        <path class="arw" d="M467 542V572" marker-end="url(#ah)"/>
+        <path class="arw" d="M782 542V572" marker-end="url(#ah)"/>
+
+        <rect class="bx-sync" x="10" y="574" width="285" height="94" rx="4"/>
+        <text class="lbl"  x="24" y="594">pricing-service</text>
+        <text class="lbl2" x="24" y="612">Keeps: its browserrpc adapter</text>
+        <text class="lbl2" x="24" y="626">and Deps, nothing else</text>
+        <text class="lblm" x="24" y="650">tenants.go deleted</text>
+
+        <rect class="bx-sync" x="325" y="574" width="285" height="94" rx="4"/>
+        <text class="lbl"  x="339" y="594">trading-partner-service</text>
+        <text class="lbl2" x="339" y="612">Keeps: refdata client and its</text>
+        <text class="lbl2" x="339" y="626">VehicleTypeValidator</text>
+        <text class="lblm" x="339" y="650">tenants.go deleted</text>
+
+        <rect class="bx-sync" x="640" y="574" width="285" height="94" rx="4"/>
+        <text class="lbl"  x="654" y="594">refdata-service</text>
+        <text class="lbl2" x="654" y="612">Gains per-tenant api.* support</text>
+        <text class="lbl2" x="654" y="626">without a fourth copy</text>
+        <text class="lblm" x="654" y="650">wiring only</text>
+
+        <!-- prerequisite -->
+        <rect class="bx-evtl" x="10" y="686" width="915" height="62" rx="4"/>
+        <text class="lbl"  x="24" y="706">Prerequisite: each service is its own Go module</text>
+        <text class="lblm" x="24" y="722">Seven separate go.mod files, no go.work, and Dockerfiles whose build context is one service directory —</text>
+        <text class="lblm" x="24" y="736">so extraction needs a module strategy (go.work, or a shared module plus replace directives) before any code moves</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>The five red lines are the duplication.</b> They are byte-for-byte equivalent across the three
+      copies apart from the service name passed to <code>nats.Name</code> and the adapter type
+      constructed per connection. Everything below each divider is genuinely service-specific and
+      stays where it is. <code>shipping-service</code>'s copy is the outlier: its per-tenant work
+      includes JetStream consumers and KV buckets, so it would adopt the package for connection
+      lifecycle only.
+    </figcaption>
+  </figure>
+
+  <div class="sec">
+    <h2>Why this is a recommendation, not a phase</h2>
+    <ul>
+      <li><b>The duplication is already load-bearing.</b> The <code>observability.creds</code> omission
+        was a real production-shaped bug: two of the three copies treated a restricted PLATFORM
+        credential as a tenant and opened a connection that could not legally subscribe. It was found
+        by reading NATS server logs, not by a test, and fixed in each file separately.</li>
+      <li><b>But the module boundary makes it non-trivial.</b> Nothing shares code across services
+        today — there is no <code>go.work</code> and no <code>replace</code> directive anywhere. The
+        first shared package is also the decision about how this repo does shared Go code at all,
+        including the Docker build-context change that follows from it.</li>
+      <li><b>Sequencing.</b> Doing extraction <em>before</em> <code>refdata-service</code> needs the
+        pattern avoids writing a fourth copy; doing it after means one more file to delete. Either
+        order works — what does not work is pasting the fourth copy and calling extraction done.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  const root = document.documentElement
+  document.getElementById('tt').addEventListener('click', () => {
+    root.setAttribute('data-theme', root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark')
+  })
+</script>

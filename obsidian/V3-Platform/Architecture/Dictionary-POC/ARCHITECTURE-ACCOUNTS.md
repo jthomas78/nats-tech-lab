@@ -84,7 +84,8 @@ consumer bridge — see `BUSINESS_RULES-REFDATA.md`'s BR-D29 amendment.)
 administration, not tenant data. The normal tenant import carries refdata
 change events instead.
 
-**Two PLATFORM connections, not one (Phase 24).** `shipping-admin` never
+**Two PLATFORM connections, not one (historical — see Phase 30h amendment
+below).** `shipping-admin` never
 receives `$JS.API.>`. Its grant is an explicit allow-list
 (`nats/bootstrap-operator.sh`) naming only the ordered-consumer subjects —
 `CONSUMER.{CREATE,INFO,DELETE,MSG.NEXT}` for `REFDATA` specifically — so
@@ -109,9 +110,100 @@ it); with neither configured — local dev outside operator mode —
 `PlatformFullJS` is nil, so every consumer treats PLATFORM as an account that
 may legitimately be absent rather than as an error.
 
+> **Phase 30h amendment — `shipping-service` is back down to one PLATFORM
+> connection; the second one described above no longer exists.** The whole
+> reason `shipping-service` grew a second, unrestricted `PlatformFullJS`
+> connection was to serve the Admin UI's cross-account introspection panels
+> (§ 12 of `ARCHITECTURE-COMMUNICATIONS.md`) and the `TRACES` stream
+> consumer (§ "PLATFORM's cross-account trace store" in
+> `BUSINESS_RULES-SHIPPING.md`) — neither job belongs to the shipping
+> domain. Phase 30 extracted both into a new, separate PLATFORM-account
+> service, `observability-service`, which holds its own single restricted
+> connection (`nats/bootstrap-operator.sh`'s `observability` user,
+> BR-AC31/BR-AC32) — narrower even than `shipping-admin`'s, scoped to an
+> explicit `$JS.API` subject subset rather than the full unrestricted
+> namespace `PlatformFullJS` had. `dictionary/composition.go`'s call to
+> `RegisterTraceStore` and `monolith.PlatformFullJS()` itself were deleted
+> outright (`cmd/main.go`, `internal/monolith`) — `shipping-service` now
+> holds exactly the one restricted `shipping-admin` connection described
+> above, doing exactly what it always did ($SRV discovery, REFDATA
+> ordered-consumer replay), nothing more. The six lifted REST endpoints
+> (`GET /api/kv/buckets*`, `GET /api/jetstream/streams|replay`, plus
+> Connections/Services/Account Activity/Log) now live on
+> `observability-service`'s own port (7205); the Admin UI's proxy repoints
+> there, not to `shipping-service`, for every one of them. See § 12's own
+> Phase 30 amendment in `ARCHITECTURE-COMMUNICATIONS.md` for the full
+> before/after.
+
 Account JWT updates replace the entire claim, so `accounts/provisioner.go`
 preserves existing exports/imports whenever it re-signs a claim; freshly
 minted runtime accounts receive the same imports as ACME/GLOBEX.
+
+### Three services now open per-tenant connections — and each wrote its own manager (RECOMMENDATION)
+
+The paragraphs above describe the per-tenant connection model as
+`shipping-service`'s, which is how it started. It no longer is:
+`pricing-service` (Phase 25f) and `trading-partner-service` (Phase 26) each
+open one connection per provisioned tenant as well, so that a browser
+authenticated into any tenant's account can reach them directly over `api.*`
+rather than through `shipping-service` as a conduit. `refdata-service` is the
+one holdout — it still runs a single PLATFORM connection — and the moment it
+gains browser-facing `api.*` support it needs the same machinery.
+
+All three existing implementations independently re-derived the same five
+behaviours, and only the fifth line of each differs in any meaningful way:
+
+![Per-tenant connection manager — duplicated today, one shared package after](images/tenants-manager-extraction.png)
+
+Editable source:
+[tenants-manager-extraction.html](../../../../demos/01-dictionary/diagrams/tenants-manager-extraction.html)
+— regenerate with, from `demos/01-dictionary/`:
+
+`node diagrams/export-html-png.mjs diagrams/tenants-manager-extraction.html \`
+`  ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/tenants-manager-extraction.png 1024 --clip=figure`
+
+**What is duplicated.** Creds-directory discovery (including the
+`nonTenantCredsFiles` exclusion list), `nats.Connect` per tenant, the
+`notify.accounts.account.{created,suspended,reactivated}` lifecycle
+subscription that provisions and tears down connections reactively, and
+shutdown. In `pricing-service` and `trading-partner-service` these are
+near-identical file-scoped copies (`internal/tenants/tenants.go`, 288 and 368
+lines); `shipping-service`'s equivalent lives inside
+`internal/rest/tenant.go` alongside per-tenant JetStream and KV provisioning,
+so its connection-lifecycle portion is the same logic embedded in a larger
+file rather than a standalone copy.
+
+**Why it matters — this has already cost a real bug.** `observability.creds`
+(the restricted PLATFORM user added in Phase 30c) was missing from the
+`nonTenantCredsFiles` exclusion list in two of the three copies. Both
+therefore treated it as a switchable tenant and opened a connection under a
+PLATFORM-account user that was never granted tenant-shaped permissions — the
+`notify.accounts.account.*` subscription and the `browserrpc` registration
+both denied with subscription violations. It was diagnosed from NATS server
+logs rather than caught by a test, and fixed three separate times, in three
+separate files, at three separate points in time (see each file's own comment
+recording its instance of the fix). The failure mode is the defining one for
+copied infrastructure code: the copies do not drift *visibly*, they drift in
+whichever branch nobody re-read.
+
+**Recommendation.** Extract the five behaviours into one shared Go package
+(working name `natstenants`), with each service supplying its own adapter
+constructor as a callback so the package never imports any service's
+`browserrpc`. This is a **code package compiled into each binary — not a new
+service**: no additional container, no network hop, and no runtime dependency
+introduced between services. `shipping-service` would adopt it for connection
+lifecycle only, keeping its JetStream/KV provisioning where it is.
+
+**Prerequisite, and why this is deferred rather than scheduled.** Nothing in
+this repo shares Go code across services today: there are seven independent
+modules (one `go.mod` per service), no `go.work`, and no `replace` directive
+anywhere, and each Dockerfile's build context is a single service directory
+(`build: ./backend/pricing-service`). The first shared package is therefore
+also the decision about how this repo does shared Go code at all, plus the
+Docker build-context change that follows — which is why this is recorded here
+as a recommendation with a known cost rather than folded into a feature phase.
+The one thing to avoid in the meantime: pasting a fourth copy into
+`refdata-service` and treating the problem as unchanged.
 
 ### Business unit registration (Phase 22, name/context split + per-tenant default Phase 22b)
 
@@ -246,6 +338,7 @@ credential" model (previously Sea Freight Flow only) to the Admin UI's own
 EventSource/SSE streams:
 
 ```mermaid
+
 flowchart TB
     subgraph Browser["frontend/admin (one browser tab)"]
         Tenant["useNatsConnection.js<br/>tenant connection"]
@@ -282,7 +375,7 @@ split `obs.rpc.*`/`obs.api.*` across these two connections before Phase 28g
 retired that channel in favor of both tabs reading `obs.trace.*` (the
 `traces` KV bucket) over the Platform connection alone.
 
-**What the tenant connection can and cannot reach (Phase 24).** The tenant
+**What the tenant connection can and cannot reach (Phase 23).** The tenant
 connection is authenticated into exactly one account at a time, and NATS
 enforces account isolation at the server — so a browser connected as ACME
 cannot subscribe to GLOBEX's or PLATFORM's `notify.*`, full stop. There is no

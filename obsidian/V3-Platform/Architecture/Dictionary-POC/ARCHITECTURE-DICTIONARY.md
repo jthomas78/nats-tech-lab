@@ -272,17 +272,19 @@ one service reaching into another's internal datastore — and was removed
 (BR-D08/BR-D28). Cross-service reads go through `rpc.*` exclusively; the
 cache tier still serves them, but invisibly, from inside refdata-service.
 
-> **Not contradicted by the Admin UI's cross-account panels (Phase 24).**
-> `shipping-service` does enumerate these buckets and the `REFDATA` stream, and
-> will return their contents, via `GET /api/kv/buckets` and
-> `GET /api/jetstream/streams|replay` (see
-> [ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) § 12). That
-> is an **operator diagnostic surface, not a retrieval path**: nothing in the
-> shipping domain reads it, no business logic depends on it, and removing it
-> would change no behaviour. BR-D08/BR-D28's rule is about where a service gets
-> the reference data it acts on — that answer is still `rpc.*` only. The
-> distinction to hold onto is *who is asking*: a human inspecting a deployment
-> is not a bounded context.
+> **Not contradicted by the Admin UI's cross-account panels (Phase 30, moved
+> from shipping-service — was Phase 24 pre-2026-08-16).**
+> `observability-service` (not `shipping-service`, since Phase 30h) enumerates
+> these buckets and the `REFDATA` stream, and returns their contents, via
+> `GET /api/kv/buckets` and `GET /api/jetstream/streams|replay` on its own
+> port (see [ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md)
+> § 12, and that section's own Phase 30 amendment for the extraction detail).
+> That is an **operator diagnostic surface, not a retrieval path**: nothing in
+> the shipping domain reads it, no business logic depends on it, and removing
+> it would change no behaviour — true before and after the Phase 30 move.
+> BR-D08/BR-D28's rule is about where a service gets the reference data it
+> acts on — that answer is still `rpc.*` only. The distinction to hold onto is
+> *who is asking*: a human inspecting a deployment is not a bounded context.
 
 ### KV Key Layout
 

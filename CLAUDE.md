@@ -273,3 +273,30 @@ Intent, for later: introduce `.claude/skills/` personas (`product-owner`, `techn
 ## Implementation Status
 
 See `.claude/plans/Main-POC-Plan.md` for the full phased plan and checkbox tracking.
+
+### Archiving completed phases
+
+`Main-POC-Plan.md` is read every session, so completed phases must not be left
+to accumulate in it. **When a phase is complete, move its full detail to
+`.claude/plans/Main-POC-Plan-ARCHIVE.md` and leave a one-line `- [x]` stub
+behind in the live plan.** Follow the shape the existing "Phases 0–11",
+"Phases 12–14", and "Phases 15–19" sections already use: a short
+`### Phases N–M — Completed` heading, the standing note that full detail is
+archived and *not read into context by default*, then one checked bullet per
+phase naming what it delivered.
+
+Rules that matter when doing this:
+
+- **Archive by completion, not by number.** Completed phases are rarely a
+  contiguous block — a later phase is often finished while an earlier one is
+  still `PROPOSED`. Never archive an unfinished phase just because it sits
+  between two finished ones.
+- **Never edit the archive's existing content.** It is a set of frozen
+  snapshots. Append new sections; don't rewrite old ones, and don't update
+  their phase numbers during a renumbering (the renumbering tables at the
+  bottom of the live plan record why).
+- **Keep the stub bullet self-describing.** Someone should be able to tell what
+  a phase did from the live plan alone, and only need the archive for original
+  rationale or checklist detail.
+- **Candidate/deferred phases move to the 100+ block**, at the end of the live
+  plan — they are not archived, since they were never implemented.

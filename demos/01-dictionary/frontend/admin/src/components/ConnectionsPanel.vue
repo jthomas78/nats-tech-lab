@@ -39,17 +39,19 @@ const serverLimits = ref({ maxConnections: 0 })
 // accounts-service's own account list (name ↔ publicKey) is the naming
 // AUTHORITY here, not a fallback: accounts-service's whole job is knowing
 // what an account is called, so whenever it's reachable its name wins —
-// resolveLabel() checks it first. nats_ops.go's tenantLabelsByAccount()
-// (row.tenantLabel) only steps in when accounts-service's list doesn't
-// cover a row, which happens in exactly one situation: accounts-service
-// itself is unreachable/erroring, so `accounts` below is empty or stale.
-// tenantLabelsByAccount() can resolve PLATFORM/acme/globex independently
-// (shipping-service already holds live connections on those, § 11 of
-// ARCHITECTURE-COMMUNICATIONS.md) — so the panel degrades to "still
-// mostly named" rather than "all raw NKeys" if accounts-service is down.
-// It can never resolve SYS on its own (accounts-service's own connection —
-// shipping-service holds no connection on that account by design), so
-// that row specifically depends on accounts-service being reachable.
+// resolveLabel() checks it first. row.tenantLabel is observability-service's
+// own server-side resolution (AccountsClient.Labels(), Phase 30d — see § 11
+// of ARCHITECTURE-COMMUNICATIONS.md, and that section's own Phase 30d
+// amendment) and only steps in when accounts-service's list doesn't cover a
+// row. Historical note: before Phase 30, this backend-side label came from
+// shipping-service independently matching live connections it held
+// (tenantLabelsByAccount()), which stayed resolvable even if
+// accounts-service itself was down. That resilience is gone post-Phase-30 —
+// observability-service's own resolver now calls accounts-service too, so
+// both tiers degrade together, not independently. resolveLabel() itself is
+// unaffected (still checks accountNameByKey first, falls back to
+// row.tenantLabel), but if accounts-service is unreachable, neither tier
+// resolves anything and every row falls back to its raw NKey.
 const accounts = ref([])
 const accountNameByKey = computed(() =>
   Object.fromEntries(accounts.value.map((a) => [a.publicKey, a.name])),
