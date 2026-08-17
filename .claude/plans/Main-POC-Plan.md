@@ -357,6 +357,150 @@ consolidates them.
 
 ---
 
+### Phase 31 (PROPOSED 2026-08-17) — Consolidate to Shape B: Retire Shapes A and C
+
+#### Goal
+
+The POC's founding question was which CQRS read-model shape to build V3 on, so
+three were built side by side: **Shape A** (KV as the read model), **Shape B**
+(Postgres projection + KV write-through cache), **Shape C** (event-sourced
+reconstruction from JetStream replay). That question is now answered —
+**Shape B is the chosen shape** — and the other two have stopped being evidence
+and started being maintenance: three projector durables where one is needed,
+three query types over the same aggregates, and a comparison UI whose only
+purpose was the comparison.
+
+This phase retires Shapes A and C. It is deliberately sequenced **first** in the
+REST→NATS group (Phases 31–34) because everything downstream inherits less
+surface: one shape's read paths to migrate off REST instead of three.
+
+**This is not a pure deletion — that is the trap.** Shape A owns two
+*production* browser paths, both of which must move to Shape B before anything
+is deleted:
+
+| Shape-A-owned | Consumed by | Symptom if deleted naively |
+|---|---|---|
+| `publishNotify`/`publishRawNotify` for `entity="ship"` — fired **only** from `RegisterShapeA` (`eventhandler/handler.go:53,56`); `RegisterShapeB` explicitly does not publish | Sea Freight Flow live fleet updates (`seafreight-app/src/stores/port.js`), Admin raw-watch panel | Ship rows silently go stale until page reload |
+| `queries.ShapeA.ListShips` (reads the `dict-a` bucket) — backs `api.*.shipping.ship.list.v1` (`browserrpc/adapter.go:318-335`) | Sea Freight Flow bootstrap and reconnect (`seafreight-app/src/api.js`) | Fleet panel empty on connect |
+
+The second carries a **real behaviour change**: `ShapeB.ListShips` reads
+Postgres, not KV, so the fleet bootstrap leaves the KV read path entirely. That
+is correct per Shape B's own definition (KV is a per-entity cache, never a list
+index) but it is a latency-characteristic change, which is why it gets its own
+business rule rather than being left as an implementation detail.
+
+#### Design decisions (confirmed 2026-08-17)
+
+- **Identifiers are renamed to neutral terms.** "Shape B" only ever meant
+  anything in contrast to A and C. `RegisterShapeB` → `RegisterShips`,
+  `queries.ShapeB` → `queries.Ships`, and the KV bucket `dict-b` → `ships`.
+- **The KV bucket rename is a data migration.** KV bucket names are immutable,
+  so `dict-b` → `ships` means creating the new bucket and abandoning the old
+  one. For this POC the accepted approach is a `docker compose down -v` reset
+  rather than a dual-read migration path — the buckets are projections,
+  rebuildable from JetStream by definition. Anything that hardcodes `dict-a`
+  as a *test fixture* bucket name (`internal/kvstore/kv_test.go`,
+  `internal/natsaccounts/isolation_test.go`,
+  `observability-service/.../kv_test.go`) is infrastructure, not shape logic —
+  rename to a neutral name, don't delete the test.
+- **The REST route `/api/shape-b/ships/...` is NOT renamed in this phase.**
+  Renaming it here and then reclassifying it in Phase 33 (business REST
+  retirement) is churn for a route that changes twice. Phase 31 leaves it
+  alone; Phase 33 decides whether it becomes an admin-allowlisted diagnostic
+  route or is deleted. Same for `/api/shape-c/fleet` — except that one *is*
+  deleted here, since its query type ceases to exist.
+- **The Admin UI keeps a single-shape panel.** `ShapeCPanel.vue` is deleted;
+  `ShapePanel.vue` loses its `shape: 'A' | 'B'` prop and becomes the Shape B
+  read-path panel (nav badge `3` → `1`). The KV-cache-vs-Postgres read path is
+  still the interesting mechanism to show, even with nothing to compare it to.
+- **`ARCHITECTURE.md`'s retired variant ids are deleted, not tombstoned.**
+  `Proj.KV`, `Read.FR.AGG`, `Read.KV` and the legacy `A`/`B`/`C` alias map come
+  out, notwithstanding the doc's "frozen once assigned" note — the narrative
+  vault (`obsidian/POC-Dictionaries/`) is where the "we evaluated three and
+  chose one" record lives, so the taxonomy doc doesn't also need to carry it.
+- **Phases 100/103/104 are flagged, not re-scoped.** Each reasons about A/B/C
+  trade-offs to justify itself, and Phase 104 (snapshotting) exists
+  specifically because Shape C degrades with stream depth. This phase adds a
+  note to each that its rationale changed; re-scoping is a follow-up, so that
+  three speculative phases aren't rewritten mid-deletion.
+
+**Confirmed out of scope — `container` and `meta` survive untouched.** They look
+Shape-A-adjacent but are independent: `RegisterContainers` upserts Postgres
+*first*, then writes KV (structurally the Shape B pattern), and `ARCHITECTURE.md`
+classifies both with no shape letter. Their doc comments cross-reference
+`RegisterShapeA` for the nil-safe-`nc` convention only, and those references
+need rehoming rather than the handlers changing.
+
+#### Sub-phases
+
+- **31.1 — Migrate Shape A's two production responsibilities to Shape B.** Move
+  the `publishNotify`/`publishRawNotify` ship block into the surviving ship
+  projector; repoint `browserrpc.handleShipList` at the Postgres-backed query.
+  Nothing is deleted yet. Rewrite `notify_test.go`'s three Shape-A-driven specs
+  and `trace_async_test.go`'s Shape-A span fixtures against Shape B. This
+  sub-phase must land green on its own — after it, Shape A is genuinely unused.
+- **31.2 — Delete Shape A.** `queries.ShapeA`, `RegisterShapeA`, the
+  `ship-shape-a` durable, `ShapeABucketPrefix`, `kvA` wiring through
+  `rest/tenant.go`, the `KVA` Deps field (and dead `KVB` alongside it), and the
+  Shape A blocks in `integration_test.go`/`api_test.go`/`browserrpc_test.go`.
+- **31.3 — Delete Shape C.** `queries/shape_c.go` whole file, the `getFleet`
+  REST handler and its `GET /api/shape-c/fleet` route, `ShapeC` Deps field and
+  `tenant.go` wiring, the Shape C spec blocks in
+  `integration_test.go`/`api_test.go`/`hydration_consumer_test.go`, and
+  `perf/scenarios/shape-c-reconstruction.js` + its `shapeCFleet()` helper.
+  **Do not touch the aggregate replay machinery** (`ship.go`/`container.go`'s
+  `Apply()`/`FromState()`) — the write-side `hydrate()` path still needs it;
+  only the "Shape C reconstruction" section banners are stale.
+- **31.4 — Rename to neutral identifiers.** `RegisterShapeB` → `RegisterShips`,
+  `queries.ShapeB` → `queries.Ships`, KV bucket `dict-b` → `ships`, and the
+  neutral-naming pass over fixture bucket names. Excludes the REST route (see
+  Design decisions).
+- **31.5 — Frontend.** Delete `ShapeCPanel.vue` and `api.js`'s `getFleet()`;
+  collapse `ShapePanel.vue` to single-shape; `stores/dictionary.js` drops
+  `shapeA` state, `shapeARows`, and the two-bucket subscribe loop, and the
+  `{shape, key, op, value, revision}` event envelope becomes single-valued.
+  **Repoint `TelemetryStrip.vue` and `OverviewPanel.vue`** — these are shared
+  dashboard panels, not part of the shapes view, and `TelemetryStrip` computes
+  its headline ship count from `shapeARows.length`. Fix
+  `stores/dictionary.spec.js`'s dual-bucket assertions and `KvInspector.vue`'s
+  `dict-a` default selection.
+- **31.6 — Business rules.** BR-024 rewrite, BR-020 and BR-019 amendments, and
+  the new ship-list read-path rule. See `BUSINESS_RULES-SHIPPING.md`.
+- **31.7 — Documentation and diagrams.** `CLAUDE.md` (incl. its already-stale
+  `dict-a-{context}` bucket list — Phase 20b moved `{context}` into the key),
+  `AGENTS.md`, root + demo `README.md`, `PERFORMANCE.md` (§1 "Shape C vs
+  stream depth" is a whole measured section), `ARCHITECTURE.md` taxonomy,
+  `ARCHITECTURE-ADMIN.md`'s CQRS Shapes view write-up,
+  `ARCHITECTURE-DICTIONARY.md`/`-COMMUNICATIONS.md` bucket references, this
+  plan's own `## Working Assumptions`, `.claude/memory/shipping_domain_overview.md`,
+  and the narrative vault. Regenerate `system-architecture.png` (**source
+  generator not found in-repo — locate it first**) and the two
+  `POC-Dictionaries/Summary/Diagrams/*.svg` that name `Shape A`/`dict-a/b`.
+  Regenerate `docs/` swagger rather than hand-editing.
+- **31.8 — Write the finding up.** "Why Shape B won" belongs in
+  `obsidian/POC-Dictionaries/` as a findings note — the POC's actual
+  deliverable, and the reason the taxonomy doc can afford to drop the alias
+  map. Note that `4. Findings - Distributed Tracing (Phase 28).md` argues *from*
+  Shape A/C's existence ("Why the trace store is Shape A"); its vocabulary
+  needs an authorial pass, not a find-and-replace.
+
+#### Checklist
+
+- [ ] 31.1 ship `notify.*` block moved into the Shape B projector; `handleShipList` repointed
+- [ ] 31.1 `notify_test.go` + `trace_async_test.go` rewritten against Shape B; `ginkgo ./...` green
+- [ ] 31.2 Shape A deleted (queries, projector, durable, bucket prefix, `kvA`/`KVA`/`KVB` wiring, specs)
+- [ ] 31.3 Shape C deleted (query file, REST handler + route, Deps/wiring, specs, perf scenario)
+- [ ] 31.3 verified: aggregate `Apply()`/`FromState()` replay machinery untouched and write-side hydrate still green
+- [ ] 31.4 neutral rename landed; `docker compose down -v && up --build` confirms the `ships` bucket rebuilds from JetStream
+- [ ] 31.5 frontend: panels, store, spec, `TelemetryStrip`/`OverviewPanel` repointed; both frontend builds green
+- [ ] 31.6 BR-024 rewritten; BR-020/BR-019 amended; new ship-list rule added with its test
+- [ ] 31.7 docs, diagrams, swagger regenerated; no `dict-a`/`Shape A`/`Shape C` references left outside the archive and narrative vault
+- [ ] 31.7 Phases 100/103/104 each carry a note that their A/B/C rationale changed
+- [ ] 31.8 findings note written in `obsidian/POC-Dictionaries/`
+- [ ] Live verification: full `down -v && up --build`, Sea Freight Flow fleet panel populates on connect **and** updates live on arrive/depart (the two Shape-A-owned paths)
+
+---
+
 ### Phase 40 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning
 
 > **Renumbered 2026-08-17** from Phase 24 to Phase 40, alongside Phase

@@ -61,8 +61,11 @@ export const createUnifiPreset = (definePreset, Aura) =>
           500: '#3a4049',
           600: '#2c3138',
           700: '#22262c', // panel / card background
-          800: '#1a1e23', // content background
-          900: '#14171b', // app background
+          800: '#1a1e23', // hover / border accent
+          // Aura's own {content.background} token resolves to this same
+          // surface step, so PrimeVue's real DataTable/Dialog fill moves
+          // with it — keep this in sync with unifi.css's --lab-bg.
+          900: '#131416', // app background
           950: '#0f1114',
         },
         text: {

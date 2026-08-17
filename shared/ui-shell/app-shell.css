@@ -106,7 +106,7 @@
   border-radius: 6px;
 }
 .sidebar.collapsed .nav-item.active {
-  background: color-mix(in srgb, var(--lab-accent) 16%, var(--lab-panel-bg));
+  background: color-mix(in srgb, var(--lab-accent) 16%, var(--lab-nav-active-bg));
   color: var(--lab-accent);
 }
 .sidebar.collapsed .nav-badge { display: none; }
@@ -128,21 +128,21 @@
 /* Outer banding above `.eyebrow` — the System/Platform groups rendered by
    NavList.vue's `{ group, sections }` entry form. Reuses `.eyebrow` for the
    uppercase micro-type and the chevron-rotate rule above, then overrides the
-   parts that differ: button resets, a faint accent tint so the banner reads
-   as a level up from the plain eyebrows nested under it, and chevron-first
-   ordering (`.eyebrow`'s space-between would push the label to the far
-   edge). Hiding it on the icon rail is inherited from
-   `.sidebar.collapsed .eyebrow`. */
+   parts that differ: button resets, a hairline + full-strength text color so
+   the banner reads as a level up from the plain (disabled-color) eyebrows
+   nested under it, and chevron-first ordering (`.eyebrow`'s space-between
+   would push the label to the far edge). Hiding it on the icon rail is
+   inherited from `.sidebar.collapsed .eyebrow`. */
 .nav-group-toggle {
   justify-content: flex-start;
   gap: 6px;
   width: 100%;
-  margin: 14px 0 4px;
-  padding: 6px 8px;
-  background: color-mix(in srgb, var(--lab-accent) 9%, transparent);
+  margin: 10px 0 4px;
+  padding: 10px 8px 6px;
+  background: none;
   border: none;
-  border-radius: 5px;
-  color: color-mix(in srgb, var(--lab-accent) 60%, var(--p-text-disabled-color));
+  border-top: 1px solid var(--lab-panel-border);
+  color: var(--p-text-color);
   font: inherit;
   font-size: 10px;
   font-weight: 800;
@@ -150,8 +150,7 @@
   text-transform: uppercase;
   appearance: none;
 }
-.nav-group-toggle:first-child { margin-top: 0; }
-.nav-group-toggle:hover { background: color-mix(in srgb, var(--lab-accent) 15%, transparent); }
+.nav-group-toggle:hover { color: var(--lab-accent); }
 .nav-group-toggle svg { width: 12px; height: 12px; flex-shrink: 0; }
 
 /* max-height is a bounded stand-in for `auto`, which can't be transitioned —
@@ -203,7 +202,7 @@
 .nav-item svg { flex-shrink: 0; opacity: 0.85; }
 .nav-item:hover { color: var(--p-text-color); }
 .nav-item.active {
-  background: var(--lab-panel-bg);
+  background: var(--lab-nav-active-bg);
   color: var(--p-text-color);
   border-left-color: var(--lab-accent);
   font-weight: 600;

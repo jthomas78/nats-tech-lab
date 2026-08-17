@@ -11,6 +11,7 @@
     --lab-panel-border: #d1d5db;
     --lab-accent: #005fdb;
     --lab-accent-ink: #ffffff;
+    --lab-nav-active-bg: #ffffff;
     --p-text-color: #1e2328;
     --p-text-muted-color: #4e5560;
     --p-text-disabled-color: #9aa1a9;
@@ -20,11 +21,12 @@
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --lab-bg: #14171b;
-      --lab-panel-bg: #1a1e23;
+      --lab-bg: #131416;
+      --lab-panel-bg: #131416;
       --lab-panel-border: #2c3138;
       --lab-accent: #2b8fff;
       --lab-accent-ink: #06121f;
+      --lab-nav-active-bg: #1c1d1f;
       --p-text-color: #dee0e3;
       --p-text-muted-color: #b7bcc2;
       --p-text-disabled-color: #737c87;
@@ -34,11 +36,12 @@
     }
   }
   :root[data-theme="dark"] {
-    --lab-bg: #14171b;
-    --lab-panel-bg: #1a1e23;
+    --lab-bg: #131416;
+    --lab-panel-bg: #131416;
     --lab-panel-border: #2c3138;
     --lab-accent: #2b8fff;
     --lab-accent-ink: #06121f;
+    --lab-nav-active-bg: #1c1d1f;
     --p-text-color: #dee0e3;
     --p-text-muted-color: #b7bcc2;
     --p-text-disabled-color: #737c87;
@@ -52,6 +55,7 @@
     --lab-panel-border: #d1d5db;
     --lab-accent: #005fdb;
     --lab-accent-ink: #ffffff;
+    --lab-nav-active-bg: #ffffff;
     --p-text-color: #1e2328;
     --p-text-muted-color: #4e5560;
     --p-text-disabled-color: #9aa1a9;
@@ -168,7 +172,7 @@
     border-radius: 6px;
   }
   .sidebar.collapsed .nav-item.active {
-    background: color-mix(in srgb, var(--lab-accent) 16%, var(--lab-panel-bg));
+    background: color-mix(in srgb, var(--lab-accent) 16%, var(--lab-nav-active-bg));
     color: var(--lab-accent);
   }
   .sidebar.collapsed .nav-badge { display: none; }
@@ -187,6 +191,28 @@
   .eyebrow svg { transition: transform 0.15s ease; opacity: 0.7; }
   .eyebrow.is-open svg { transform: rotate(90deg); }
 
+  .nav-group-toggle {
+    justify-content: flex-start;
+    gap: 6px;
+    width: 100%;
+    margin: 10px 0 4px;
+    padding: 10px 8px 6px;
+    background: none;
+    border: none;
+    border-top: 1px solid var(--lab-panel-border);
+    color: var(--p-text-color);
+    font: inherit;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    appearance: none;
+    display: flex;
+    cursor: pointer;
+  }
+  .nav-group-toggle:hover { color: var(--lab-accent); }
+  .nav-group-toggle svg { width: 12px; height: 12px; flex-shrink: 0; }
+
   .nav-item {
     display: flex; align-items: center; gap: 9px;
     padding: 7px 8px;
@@ -201,7 +227,7 @@
   .nav-item svg { flex-shrink: 0; opacity: 0.85; }
   .nav-item:hover { color: var(--p-text-color); }
   .nav-item.active {
-    background: var(--lab-panel-bg);
+    background: var(--lab-nav-active-bg);
     color: var(--p-text-color);
     border-left-color: var(--lab-accent);
     font-weight: 600;

@@ -27,7 +27,9 @@ Split by domain so a rule add/edit only requires reading its own file:
   distributed-tracing rules (BR-035 — the Request/Reply & Traces panel's
   `[traces]` presentation; BR-036 — the `obs.trace.*` envelope contract,
   PLATFORM-only publishing, redact-before-truncate; BR-037 — trace
-  propagation on every outbound message, one span per logical RPC call).
+  propagation on every outbound message, one span per logical RPC call), and
+  the Phase 31 Shape B consolidation rule (BR-038 — the ship list is served
+  from the Postgres projection; KV is a per-entity cache, never a list source).
   Rules live in `dictionary/internal/domain/` (BR-001–022),
   `dictionary/internal/browserrpc/` + `dictionary/internal/eventhandler/`
   (BR-023–024, 026–028), `internal/refdataconsumer/` (BR-025, 027),

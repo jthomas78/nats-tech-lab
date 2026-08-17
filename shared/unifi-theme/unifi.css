@@ -5,10 +5,18 @@
   --p-text-color: #dee0e3;
   --p-text-muted-color: #b7bcc2;
   --p-text-disabled-color: #737c87;
-  --lab-bg: #14171b;
-  --lab-panel-bg: #1a1e23;
+  /* Sampled directly off the real UniFi OS controller — one flat tone runs
+     behind the sidebar, content, and panels/tables; --lab-panel-bg matches
+     --lab-bg exactly so there's no raised "card" surface, only the
+     --lab-panel-border hairline doing the separating. */
+  --lab-bg: #131416;
+  --lab-panel-bg: #131416;
   --lab-panel-border: #2c3138;
   --lab-accent: #006fff;
+  /* Selected sidebar nav item — sampled directly off the real controller.
+     Distinct from --lab-panel-bg (which now matches --lab-bg exactly) since
+     this is the one deliberate highlight surface left in the sidebar. */
+  --lab-nav-active-bg: #1c1d1f;
   /* Disabled buttons: a flat gray, lighter than the panel background so the
      control is still clearly visible, but obviously inactive. */
   --lab-disabled-bg: #3a4049;
@@ -29,6 +37,7 @@
   --lab-panel-bg: #ffffff;
   --lab-panel-border: #d1d5db;
   --lab-accent: #005fdb;
+  --lab-nav-active-bg: #ffffff;
   --lab-disabled-bg: #e2e5e9;
   --lab-disabled-text: #9aa1a9;
   --lab-nested-bg: #eef1f7;
@@ -75,6 +84,9 @@ body {
 :root {
   --p-datatable-sm-body-cell-padding: 2px 8px;
   --p-datatable-sm-header-cell-padding: 4px 8px;
+  /* UniFi's own tables set column labels in full bold, not Aura's default
+     600 — matched here lab-wide rather than per-panel. */
+  --p-datatable-column-title-font-weight: 700;
 }
 
 .lab-muted {

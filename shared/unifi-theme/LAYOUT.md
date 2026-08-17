@@ -37,7 +37,7 @@ by all four apps (`lab-shell`, `admin`, `refdata`, `seafreight-app`) via a
   ```
 
   giving **two** nav levels — an optional `eyebrow` over a run of items —
-  plus optional outer banding via the `group` form: an accent-tinted,
+  plus optional outer banding via the `group` form: a hairline-divided,
   clickable banner (`admin`'s PLATFORM / SYSTEM) wrapping one or more
   ordinary sections. There is no third level; a would-be third tier is
   expressed as another `eyebrow` section inside the same group. Both
