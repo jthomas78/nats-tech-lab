@@ -289,3 +289,14 @@ All 14 `/api/trading-partners/{context}/...` REST routes (TradingPartner registr
 
 - **Enforced in:** `tradingpartner/internal/rest/handlers.go` (now just `Mount()` registering `/healthz`); `tradingpartner/composition.go`'s `Handlers.Mount(mux)` no longer takes command-handler dependencies or an auth secret since the REST layer has none left to wire; `cmd/main.go` serves the mux directly, unauthenticated, instead of wrapping it in a BasicAuth gate that no longer protects anything.
 - **Test:** N/A — this is a route-deletion/transport-contract rule, not a domain rule; correctness is covered by `go build ./...` compiling cleanly with `internal/rest` down to zero business handlers, and the full `ginkgo ./...` suite staying green since `api.*`/`rpc.*` and the domain layer are untouched.
+
+### BR-TP17 (Phase 34) — This service's mirror of `BUSINESS_RULES-SHIPPING.md`'s BR-040 mux allowlist rule
+
+`tradingpartner/internal/rest/handlers.go`'s package-level `Mount(mux)`
+returns `[]string` — exactly `["GET /healthz"]`, the one route BR-TP16 left
+standing.
+
+- **Enforced in:** `tradingpartner/internal/rest/handlers.go`'s `Mount`.
+- **Test:** `tradingpartner/internal/rest/handlers_allowlist_test.go` —
+  `TestMountRoutesMatchAdminAllowlist` asserts `Mount(mux)`'s returned route
+  list `ConsistOf("GET /healthz")`.

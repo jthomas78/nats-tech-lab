@@ -5521,3 +5521,89 @@ before this exemption could be retired.
 - [x] 33.8 no business `fetch()` left in any frontend; `frontend/admin`'s `api.js`/`ShippingForm.vue` migrated onto `api.*`; `seafreight-app`/`frontend/refdata` were already clean
 - [x] `ginkgo ./...` + `go test ./...` + all frontend suites green — shipping (9 suites), refdata (5 suites), accounts-service, pricing (3 suites), trading-partner (4 suites) all pass; `frontend/admin` 91/91 Vitest + build; `frontend/refdata` and `frontend/seafreight-app` builds clean (untouched by this phase, baseline unaffected)
 - [x] Live verification: `docker compose up --build` — all services and frontends started clean, no restart loops; deleted routes confirmed 404 (`/api/ships/*`, `/api/pricing/*`, `/api/trading-partners/*`); surviving admin routes confirmed reachable (`/api/admin/read-path/*`, `/api/refdata/admin/*`); all three frontends serve 200. (Full manual UI happy-path click-through not performed — route-level smoke test only.)
+
+---
+
+### Phase 34 (IMPLEMENTED 2026-08-17) — Enforce the Boundary: Admin-Allowlist Mux Tests, Requester Attribution, Admin-Traffic Filter
+
+#### Goal
+
+Phase 33 removes today's business REST. Nothing stops a future business route
+being added back to a `rest/handlers.go`, and nothing yet lets the Admin UI
+answer "show me only business-app traffic". This phase makes the boundary
+enforced rather than merely achieved, and makes it observable.
+
+#### Design decisions
+
+- **The mux allowlist test is the enforcement mechanism.** Per service, walk the
+  registered route set and assert every route matches the admin/infra/bootstrap
+  allowlist from Phase 33's rule. A new business route then fails a test rather
+  than quietly shipping. This is the pattern
+  `TestShippingAdminCanOnlyUseNarrowOrderedConsumerAccess` already establishes
+  for permission grants, applied to HTTP routes.
+- **Requester attribution is observability, never authorization.** A
+  client-supplied `Nats-Requestor`-style header (BR-027 already carries one) is
+  **self-declared and must never gate anything** — core NATS request/reply
+  carries no server-attested caller identity. The Admin UI may filter on it;
+  no handler may branch on it. State this in the rule, because a header that
+  looks like identity invites exactly that mistake.
+- **The trustworthy filter axis is the subject prefix, not the header.** This is
+  why Phase 32 split `api.*.refdata.admin.*` from the business subjects: "omit
+  all admin requests" is a subject-prefix filter, which the server itself
+  enforced by permission grant, whereas a header filter merely reflects what the
+  caller claimed. Offer both in the UI, and label which is which.
+- **Business tests use `api.*`/`rpc.*` only.** Confirmed requirement: no
+  integration test may exercise a business operation over REST, since a test
+  doing so would keep a retired path alive.
+
+#### Sub-phases
+
+- **34.1 — Business rules.** The route-allowlist rule (with its per-service
+  allowlist as data, not prose) and the requester-attribution rule including its
+  explicit non-authorization clause.
+- **34.2 — Per-service allowlist tests:** shipping-service, refdata-service,
+  pricing-service, trading-partner-service, accounts-service,
+  observability-service.
+- **34.3 — Requester attribution on `api.*`/`rpc.*`,** surfaced as a span field
+  in the `obs.trace.*` envelope (BR-036's shape) so the Admin UI can read it
+  from existing trace data rather than a new channel.
+- **34.4 — Admin UI filter** in the Request/Reply & Traces panel: by subject
+  prefix (trustworthy) and by requester (self-declared), visibly distinguished.
+- **34.5 — Test-suite audit:** assert no business integration test drives a REST
+  route.
+- **34.6 — Docs:** `ARCHITECTURE-COMMUNICATIONS.md` § 1's transport table
+  rewritten — REST is no longer "frontend/edge clients, full CRUD surface",
+  which is the framing this whole 31–34 group replaced.
+
+#### Implementation notes
+
+`Mount` in every service's `internal/rest/handlers.go` (and, for
+accounts-service, both `accounts/handler.go` and `auth/handler.go`) now
+returns `[]string` — the exact "METHOD /pattern" strings it registers,
+including bare-prefix mounts like `/swagger/`. Each service gained a
+`TestMountRoutesMatchAdminAllowlist`-named test (accounts-service:
+`TestAccountsMountRoutesMatchAdminAllowlist` and
+`TestAuthMountRoutesMatchAdminAllowlist`, one per its two independent
+`Mount` calls) asserting that returned list `ConsistOf` a hardcoded
+allowlist — exact match, not a subset check, so both an added and a removed
+route fail the test. `traceSpan` (BR-036's envelope, `internal/natstrace`,
+all 5 copies: shipping/refdata/pricing/trading-partner/accounts-service)
+gained a `Requester string` field populated in `finish()` from the
+already-merged `Nats-Requestor` header via a small `firstHeaderValue`
+helper — additive, `omitempty`, no wire-contract break. The work was
+parallelized across 6 worktree-isolated agents (one per service) plus a
+research/audit pass, then merged back file-by-file since each agent's
+worktree started from an unrelated stub commit rather than the branch tip
+(a worktree-setup quirk, not a code issue) and had to `git reset --hard`/
+`checkout` the real branch content before editing — worth remembering if
+worktree isolation is used again for a similar fan-out.
+
+#### Checklist
+
+- [x] 34.1 allowlist + requester-attribution BRs written — BR-040/BR-041 canonical in `BUSINESS_RULES-SHIPPING.md`; mirrors BR-D44 (refdata), BR-P27 (pricing), BR-TP17 (trading-partner), BR-AC33 (accounts); observability-service's allowlist documented directly inside BR-040 (its BRs already live in the SHIPPING file per the BR-034 precedent, no separate BUSINESS_RULES-OBSERVABILITY.md)
+- [x] 34.2 allowlist test per service; each fails when a business route is added — all 6 services + accounts-service's 2 sub-mounts, 7 tests total
+- [x] 34.3 requester attribution carried on `api.*`/`rpc.*` and visible in trace spans — `traceSpan.Requester`, all 5 `natstrace` copies
+- [x] 34.4 Admin UI filter shipped, subject-prefix and requester axes labeled distinctly — `TraceWaterfall.vue` toolbar, shield icon "server-enforced" vs person icon "self-declared" with explanatory `title` tooltips, live-verified in browser (subject-prefix filter narrowed 186→29 traces, requester filter narrowed 186→34 traces on real traffic)
+- [x] 34.5 no business integration test exercises REST — audited across all 6 services, zero violations; two harmless mentions found (a stale-rename comment, a doc-comment path example) and confirmed non-live
+- [x] 34.6 `ARCHITECTURE-COMMUNICATIONS.md` § 1 transport table rewritten + § 6 amendment added; `ARCHITECTURE-ADMIN.md` § 4.5 documents the new filter
+- [x] Live verification: added a throwaway `POST /api/pricing/{context}/fee-scales` route to pricing-service's `Mount` — `TestMountRoutesMatchAdminAllowlist` failed with a clear `ConsistOf` diff naming the extra route; reverted, test green again. All 6 services' full suites green post-merge (`ginkgo ./...` for shipping-service: 9 suites passed; `go test ./...` for refdata/pricing/trading-partner/accounts-service/observability-service: all packages ok).

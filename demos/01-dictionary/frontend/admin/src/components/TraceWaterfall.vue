@@ -262,6 +262,23 @@ function setKindFilter(kind) {
   kindFilter.value = kind
 }
 
+// BR-041 (Phase 34.4): two visibly-distinguished filter axes, deliberately
+// separate from `searchText` above (which substring-matches anywhere in the
+// root subject) —
+//   - subjectPrefixFilter matches the trustworthy axis: the root subject is
+//     data the NATS server itself enforces by permission grant (BR-D41's
+//     api.*.refdata.admin.* vs api.*.refdata.item.* split is the canonical
+//     example), so a prefix match here reflects a boundary NATS actually
+//     polices, not merely what a caller claims.
+//   - requesterFilter matches the Nats-Requestor header (BR-027/BR-041):
+//     self-declared by the caller, useful for "show me what service X was
+//     doing" during a demo, but never proof of who actually called — nothing
+//     stops a caller from putting any string it likes there.
+// The toolbar labels/icons these distinctly so neither reads as more
+// authoritative than it is.
+const subjectPrefixFilter = ref('')
+const requesterFilter = ref('')
+
 const paused = ref(false)
 const frozenOrder = ref([])
 function togglePause() {
@@ -277,6 +294,11 @@ const displayedSummaries = computed(() => {
     if (filters.slowOnly && t.total <= 100) return false
     if (kindFilter.value !== 'all' && t.kind !== kindFilter.value) return false
     if (searchText.value && !(t.root?.subject || '').toLowerCase().includes(searchText.value.toLowerCase())) return false
+    if (subjectPrefixFilter.value && !(t.root?.subject || '').startsWith(subjectPrefixFilter.value)) return false
+    if (requesterFilter.value) {
+      const requester = (headerValue(t.root?.headers, 'Nats-Requestor') || '').toLowerCase()
+      if (!requester.includes(requesterFilter.value.toLowerCase())) return false
+    }
     return true
   })
 })
@@ -537,6 +559,28 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
           v-model="searchText"
           type="text"
           placeholder="filter traces by root subject"
+        >
+      </span>
+      <span
+        class="search-box"
+        title="Subject prefix — enforced by NATS permission grants, e.g. BR-D41's api.*.refdata.admin.* vs api.*.refdata.item.* split. Trustworthy: the server itself refuses to serve a subject outside a connection's grant."
+      >
+        <i class="pi pi-shield" />
+        <input
+          v-model="subjectPrefixFilter"
+          type="text"
+          placeholder="subject prefix (server-enforced)"
+        >
+      </span>
+      <span
+        class="search-box"
+        title="Nats-Requestor header (BR-027/BR-041) — self-declared by the calling client. Useful for filtering, never authoritative: nothing stops a caller from putting any value here."
+      >
+        <i class="pi pi-user" />
+        <input
+          v-model="requesterFilter"
+          type="text"
+          placeholder="requester (self-declared)"
         >
       </span>
       <button

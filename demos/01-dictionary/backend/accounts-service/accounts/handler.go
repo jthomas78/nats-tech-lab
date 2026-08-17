@@ -266,27 +266,40 @@ func (h *Handlers) publishAccountJSLimitsUpdated(ctx context.Context, name strin
 	h.publishAccountEvent(ctx, "notify.accounts.account.jslimits_updated", "account-jslimits-updated", name)
 }
 
-func (h *Handlers) Mount(mux *http.ServeMux, authSecret string) {
-	mux.Handle("POST /api/accounts", BasicAuth(authSecret, http.HandlerFunc(h.createAccount)))
-	mux.Handle("GET /api/accounts", BasicAuth(authSecret, http.HandlerFunc(h.listAccounts)))
-	mux.Handle("GET /api/accounts/usage", BasicAuth(authSecret, http.HandlerFunc(h.listJSUsage)))
-	mux.Handle("GET /api/accounts/topology", BasicAuth(authSecret, http.HandlerFunc(h.listTopology)))
-	mux.Handle("GET /api/accounts/{name}", BasicAuth(authSecret, http.HandlerFunc(h.getAccount)))
-	mux.Handle("POST /api/accounts/{name}/suspend", BasicAuth(authSecret, http.HandlerFunc(h.suspendAccount)))
-	mux.Handle("POST /api/accounts/{name}/reactivate", BasicAuth(authSecret, http.HandlerFunc(h.reactivateAccount)))
-	mux.Handle("POST /api/accounts/{name}/jslimits", BasicAuth(authSecret, http.HandlerFunc(h.updateJSLimits)))
+// Mount registers this service's BasicAuth-gated /api/accounts* routes and
+// returns the exact list of "METHOD /pattern" strings registered, in
+// registration order (BR-040/BR-AC33) — so a test can assert this list
+// ConsistOf a hardcoded allowlist and catch a future business route sneaking
+// onto this mux, not just a code-review miss.
+func (h *Handlers) Mount(mux *http.ServeMux, authSecret string) []string {
+	var routes []string
+	handle := func(pattern string, fn http.HandlerFunc) {
+		mux.Handle(pattern, BasicAuth(authSecret, fn))
+		routes = append(routes, pattern)
+	}
+
+	handle("POST /api/accounts", h.createAccount)
+	handle("GET /api/accounts", h.listAccounts)
+	handle("GET /api/accounts/usage", h.listJSUsage)
+	handle("GET /api/accounts/topology", h.listTopology)
+	handle("GET /api/accounts/{name}", h.getAccount)
+	handle("POST /api/accounts/{name}/suspend", h.suspendAccount)
+	handle("POST /api/accounts/{name}/reactivate", h.reactivateAccount)
+	handle("POST /api/accounts/{name}/jslimits", h.updateJSLimits)
 
 	// BR-AC20: platform-global system config (not account-scoped — sits under
 	// the /api/accounts prefix alongside the other collection-level endpoints
 	// /usage and /topology so it reuses the existing /api/platform/accounts
 	// proxy rewrite; the {name} route above never matches the literal
 	// "system-config" segment).
-	mux.Handle("GET /api/accounts/system-config", BasicAuth(authSecret, http.HandlerFunc(h.getSystemConfig)))
-	mux.Handle("PUT /api/accounts/system-config", BasicAuth(authSecret, http.HandlerFunc(h.updateSystemConfig)))
+	handle("GET /api/accounts/system-config", h.getSystemConfig)
+	handle("PUT /api/accounts/system-config", h.updateSystemConfig)
 	// Phase 22: business unit management (BR-AC15/BR-AC16/BR-AC17)
-	mux.Handle("GET /api/accounts/{name}/business-units", BasicAuth(authSecret, http.HandlerFunc(h.listBusinessUnits)))
-	mux.Handle("POST /api/accounts/{name}/business-units", BasicAuth(authSecret, http.HandlerFunc(h.createBusinessUnit)))
-	mux.Handle("PATCH /api/accounts/{name}/business-units/{buContext}", BasicAuth(authSecret, http.HandlerFunc(h.updateBusinessUnit)))
+	handle("GET /api/accounts/{name}/business-units", h.listBusinessUnits)
+	handle("POST /api/accounts/{name}/business-units", h.createBusinessUnit)
+	handle("PATCH /api/accounts/{name}/business-units/{buContext}", h.updateBusinessUnit)
+
+	return routes
 }
 
 func (h *Handlers) listJSUsage(w http.ResponseWriter, r *http.Request) {

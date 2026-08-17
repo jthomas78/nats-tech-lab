@@ -470,3 +470,13 @@ All 34 `/api/pricing/{context}/...` REST routes (FeeScale, RateSheet, FixedRate,
 
 - **Enforced in:** `pricing/internal/rest/handlers.go` (now just `Mount()` registering `/healthz`); `pricing/composition.go`'s `Handlers.Mount(mux)` no longer takes command-handler dependencies since the REST layer has none left to wire.
 - **Test:** N/A — this is a route-deletion/transport-contract rule, not a domain rule; correctness is covered by `go build ./...` compiling cleanly with `internal/rest` down to zero business handlers, and the full `ginkgo ./...` suite staying green since `api.*`/`rpc.*` and the domain layer are untouched.
+
+### BR-P27 (Phase 34) — This service's mirror of `BUSINESS_RULES-SHIPPING.md`'s BR-040 mux allowlist rule
+
+`pricing/internal/rest/handlers.go`'s package-level `Mount(mux)` returns
+`[]string` — exactly `["GET /healthz"]`, the one route BR-P26 left standing.
+
+- **Enforced in:** `pricing/internal/rest/handlers.go`'s `Mount`.
+- **Test:** `pricing/internal/rest/handlers_allowlist_test.go` —
+  `TestMountRoutesMatchAdminAllowlist` asserts `Mount(mux)`'s returned route
+  list `ConsistOf("GET /healthz")`.

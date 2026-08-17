@@ -612,3 +612,17 @@ Every business read `internal/rest` used to serve directly — item get, type/lo
 
 - **Enforced in:** `refdata/internal/rest/handlers.go` (package doc comment records the retirement and the routes remaining); `refdata/internal/rest/sse.go` deleted entirely (the `/api/refdata-watch` handler it held). `docs/docs.go`/`docs/swagger.json`/`docs/swagger.yaml` regenerated (`swag init`) — the surface now documents only `/api/refdata/admin/*`.
 - **Test:** no REST-handler-level test package existed for `internal/rest` before or after this change (coverage for these query paths lives at the domain/command layer and in `internal/browserrpc/adapter_test.go`'s BR-D41 classification tests); `go build ./...` and the full `ginkgo ./...` suite stay green with the routes removed, confirming nothing else in the module still called them.
+
+### BR-D44 (Phase 34) — This service's mirror of `BUSINESS_RULES-SHIPPING.md`'s BR-040 mux allowlist rule
+
+`refdata/internal/rest/handlers.go`'s `Mount` returns `[]string` — the 23
+`/api/refdata/admin/*` routes (BR-D43's exemption) plus `/swagger/`, exactly.
+No `GET /healthz` exists on this service today (confirmed by grepping
+`cmd/main.go` for any `mux.HandleFunc`/`mux.Handle` outside `Mount` — none
+found); BR-040 records this as a pre-existing gap this phase surfaces but
+does not fix.
+
+- **Enforced in:** `refdata/internal/rest/handlers.go`'s `Mount`.
+- **Test:** `refdata/internal/rest/handlers_allowlist_test.go` —
+  `TestMountRoutesMatchAdminAllowlist` asserts `Mount(mux)`'s returned route
+  list `ConsistOf` the 24-entry allowlist above.

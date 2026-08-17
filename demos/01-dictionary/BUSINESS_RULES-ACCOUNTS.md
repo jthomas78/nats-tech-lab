@@ -1179,3 +1179,28 @@ BR-AC30/BR-AC31; `MintBrowserToken`/`MintAdminToken` are unaffected.
   `DeleteConsumer`-name-provenance invariant are both exercised outside this
   rule's own claims-only coverage — see the design note and Phase 30b's
   checklist item, respectively.
+
+### BR-AC33 (Phase 34) — This service's mirror of `BUSINESS_RULES-SHIPPING.md`'s BR-040 mux allowlist rule
+
+accounts-service mounts two independent route sets onto one mux, each
+covered by its own allowlist test since they live in separate packages:
+
+- `accounts/handler.go`'s `Handlers.Mount(mux, authSecret)` returns
+  `[]string` — the 13 `BasicAuth`-gated `/api/accounts*` routes (account
+  create/list/get, usage, topology, suspend/reactivate, jslimits,
+  system-config get/put, business-unit list/create/update).
+- `auth/handler.go`'s `Handlers.Mount(mux)` returns `[]string` — the 5
+  deliberately ungated `/api/auth/*` routes (connectInfo,
+  adminConnectInfo, refdataAdminConnectInfo, tenants, login). Every route in
+  both sets is inherently admin/bootstrap — accounts-service administers the
+  tenant axis itself and has no business domain to separate REST from, so
+  unlike the other five services there is no "business route" category this
+  allowlist is guarding against, only future scope creep beyond
+  account/tenant lifecycle.
+
+- **Enforced in:** `accounts/handler.go`'s `Mount`, `auth/handler.go`'s
+  `Mount`.
+- **Test:** `accounts/handler_allowlist_test.go` —
+  `TestAccountsMountRoutesMatchAdminAllowlist`; `auth/handler_allowlist_test.go`
+  — `TestAuthMountRoutesMatchAdminAllowlist`. Each asserts its `Mount`'s
+  returned route list `ConsistOf` its 13- or 5-entry allowlist above.

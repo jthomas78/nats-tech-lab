@@ -82,24 +82,40 @@ Two transports serve different purposes and are not interchangeable:
 
 | Transport | Use for | Feature |
 |---|---|---|
-| REST + Swagger | Frontend/edge clients (UIs, third parties), full CRUD surface. **Inbound only** — a service exposes REST for callers outside the backend, but never acts as an HTTP *client* to another backend service (see amendment below) | Existing `rest/` adapter per service |
-| NATS core request/reply (`rpc.*`) | **Sole transport for backend-to-backend synchronous calls** — no REST fallback (Phase 12.11, proposed) | `natsrpc/` adapter (Phase 12.10, extending to full coverage in 12.11) |
-| NATS core request/reply (`api.*`) | **Frontend-to-service** synchronous calls, reached over WebSocket — replaces REST for a NATS-native browser client (Phase 15/16) | `browserrpc/` adapter (`shipping-service`; Sea Freight Flow only so far) |
+| REST + Swagger | **Admin/operator and infra concerns only** — health checks, cross-account NATS/JetStream/KV diagnostics, tenant provisioning, and the one deliberately-documented server-to-server exemption (`refdata-service`'s `/api/refdata/admin/*`, BR-D43). **Never business CRUD** as of Phases 31–34 (BR-039/BR-P26/BR-TP16/BR-D43 retired it service by service; BR-040 now enforces the boundary per service with a mux-allowlist test, not just a one-time cleanup). **Inbound only** — a service exposes REST for callers outside the backend, but never acts as an HTTP *client* to another backend service (see amendment below) | `rest/` adapter per service; allowlist test per BR-040 |
+| NATS core request/reply (`rpc.*`) | **Sole transport for backend-to-backend synchronous calls**, business and admin alike — no REST fallback (Phase 12.11) | `natsrpc/` adapter |
+| NATS core request/reply (`api.*`) | **Sole transport for frontend-to-service synchronous calls**, reached over WebSocket — the full business CRUD surface REST used to carry, plus each service's own admin subject group where one exists (e.g. `api.*.refdata.admin.*`, permission-isolated from the business group per BR-D41) | `browserrpc/` adapter, one per service as of Phase 32–33 |
 | NATS core pub/sub (`notify.*`) | Service-side change notification carrying current state — replaces SSE for a NATS-native browser client (Phase 15b) | Published by projectors; see BR-024 |
 | JetStream (`cmd.*` / `evt.*`) | Durable async commands and immutable domain facts | Existing — see [ARCHITECTURE.md](ARCHITECTURE.md) and CLAUDE.md's stream/subject rules |
 
 **Backend-to-backend vs. frontend-to-backend.** These are separate families
 with separate rules — see § 2.4. `rpc.*` is service-to-service only; a
-frontend never calls it. Frontends reach the backend either over REST/Swagger
-(+ SSE for live views) — still the case for `frontend/admin` and
-`frontend/refdata` — or, since Phase 15d, over a single NATS WebSocket
-connection using `api.*` + `notify.*`, which is what `frontend/seafreight-app`
-now does. Since Phase 12.12
+frontend never calls it. As of Phase 33, every frontend — `frontend/admin`,
+`frontend/refdata`, and `frontend/seafreight-app` — reaches business
+operations over a single NATS WebSocket connection using `api.*` +
+`notify.*` only; REST/Swagger (+ the old SSE) is no longer a business
+transport for any of them, only an admin/diagnostics one. Since Phase 12.12
 (BR-D08, § 9), the KV-first cache-read pattern lives entirely inside
 refdata-service's own `rpc.*` handler — a consumer's `rpc.*` call may still
 be served from a warm cache without a Postgres round-trip, but that cache
 tier is internal to refdata-service and invisible to the caller; no other
 service ever reads refdata-service's KV bucket directly.
+
+**The boundary is enforced, not just achieved (Phase 34, BR-040/BR-041).**
+Phases 31–33 deleted today's business REST; nothing stopped a *future*
+business route being added back to a `rest/handlers.go`. Phase 34 closes
+that gap two ways: (1) each service's `Mount` function returns the exact list
+of routes it registers, and a test asserts that list `ConsistOf` a hardcoded
+admin/infra allowlist — an added business route fails the test, not just a
+future code review (BR-040, one mirror BR per service). (2) A client-supplied
+`Nats-Requestor` header (BR-027) is carried for Admin UI observability only —
+self-declared, never authoritative, and no handler anywhere reads it for
+authorization (BR-041). The trustworthy filtering axis for "is this an admin
+request" stays the **subject prefix**, which the NATS server itself enforces
+by permission grant (BR-D41) — a header filter merely reflects what the
+caller claimed. See § 6's amendment and
+[ARCHITECTURE-ADMIN.md](ARCHITECTURE-ADMIN.md) § 4.5 for the two filter axes
+this adds to the Request/Reply & Traces panel.
 
 **Backend services should only be aware of NATS.** For inter-service calls, a
 backend service holds a NATS connection and nothing else — no HTTP client, no
@@ -832,6 +848,21 @@ func (a *Adapter) getItemHandler(req micro.Request) {
   elsewhere; not expected to be an issue for the reference-data lookups this
   repo currently scopes `rpc.*` to, but worth checking per-operation as new
   `rpc.*` endpoints are added.
+
+  **Amended (Phase 34.3, BR-041) — the trace envelope gets a first-class
+  `Requester` field.** `Nats-Requestor` (BR-027) had been reachable only by
+  digging through a span's raw `headers` map. `traceSpan` (BR-036's wire
+  envelope, `internal/natstrace/natstrace.go`, all 5 service copies) now
+  also carries `requester string` (`omitempty`), populated in `finish()`
+  from the same merged/redacted headers `Headers` is built from — a strict
+  superset addition, not a wire-contract change; a pre-Phase-34 consumer
+  decoding the envelope is unaffected. This is purely so the Admin UI (§ 4.5
+  of [ARCHITECTURE-ADMIN.md](ARCHITECTURE-ADMIN.md)) can filter/display it
+  without parsing headers by hand — it changes nothing about BR-041's core
+  constraint: the field is self-declared by the caller and no handler in
+  any service may read it for authorization. The trustworthy filtering axis
+  remains the subject prefix, which the NATS server itself enforces by
+  permission grant.
 
   **Amended (Phase 28) — advisory becomes enforced.** The paragraph above was
   guidance that nothing implemented, and the exposure was wider than it

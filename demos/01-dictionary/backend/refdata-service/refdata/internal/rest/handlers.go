@@ -195,9 +195,19 @@ type Handlers struct {
 
 func NewHandlers(deps Deps) *Handlers { return &Handlers{deps: deps} }
 
-func (h *Handlers) Mount(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/refdata/admin/contexts", h.registerContext)
-	mux.HandleFunc("GET /api/refdata/admin/contexts", h.listContexts)
+// Mount registers every route this service exposes on mux and returns the
+// exact list of patterns registered, in registration order — BR-040/BR-D44's
+// mux allowlist test (handlers_allowlist_test.go) asserts this list
+// ConsistOf a hardcoded allowlist, so a future business route added here
+// fails that test rather than only a code review.
+func (h *Handlers) Mount(mux *http.ServeMux) []string {
+	var routes []string
+	handle := func(pattern string, fn http.HandlerFunc) {
+		routes = append(routes, pattern)
+		mux.HandleFunc(pattern, fn)
+	}
+	handle("POST /api/refdata/admin/contexts", h.registerContext)
+	handle("GET /api/refdata/admin/contexts", h.listContexts)
 	// Trailing /detail (not bare .../contexts/{context}) is deliberate: a
 	// bare 3-segment admin/contexts/{context} is structurally ambiguous
 	// against the pre-existing {context}/{type}/completeness and
@@ -205,30 +215,32 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// a real context key at the same wildcard position, so it panics at
 	// startup rather than silently misrouting. A 4th literal segment can
 	// never collide with any 3-segment {context}/{type}/action pattern.
-	mux.HandleFunc("GET /api/refdata/admin/contexts/{context}/detail", h.getContext)
+	handle("GET /api/refdata/admin/contexts/{context}/detail", h.getContext)
 	// Phase 22: visibility toggle called by accounts-service when the operator
 	// hides or shows _default_bu via the Admin UI (BR-D38).
-	mux.HandleFunc("PATCH /api/refdata/admin/contexts/{context}/visible", h.setContextVisible)
-	mux.HandleFunc("POST /api/refdata/admin/corpus/{context}/draft", h.createDraft)
-	mux.HandleFunc("GET /api/refdata/admin/corpus/{context}/draft", h.getDraft)
-	mux.HandleFunc("PUT /api/refdata/admin/corpus/{context}/draft/items", h.putDraftItem)
-	mux.HandleFunc("PUT /api/refdata/admin/corpus/{context}/draft/localizations", h.putDraftLocalization)
-	mux.HandleFunc("POST /api/refdata/admin/corpus/{context}/publish", h.publishCorpus)
-	mux.HandleFunc("POST /api/refdata/admin/corpus/{context}/rollback/{version}", h.rollbackCorpus)
-	mux.HandleFunc("GET /api/refdata/admin/corpus/{context}/versions", h.listCorpusVersions)
-	mux.HandleFunc("GET /api/refdata/admin/corpus/{context}/versions/{version}", h.getCorpusVersion)
-	mux.HandleFunc("GET /api/refdata/admin/corpus/{context}/diff/{from}/{to}", h.diffCorpus)
-	mux.HandleFunc("POST /api/refdata/admin/types", h.registerType)
-	mux.HandleFunc("POST /api/refdata/admin/locales", h.addLocale)
-	mux.HandleFunc("POST /api/refdata/admin/items", h.registerItem)
-	mux.HandleFunc("POST /api/refdata/admin/items/{type}/{context}/{code}/deprecate", h.deprecateItem)
-	mux.HandleFunc("POST /api/refdata/admin/items/{type}/{context}/{code}/reactivate", h.reactivateItem)
-	mux.HandleFunc("PATCH /api/refdata/admin/items/{type}/{context}/{code}/attrs", h.updateItemAttrs)
-	mux.HandleFunc("DELETE /api/refdata/admin/items/{type}/{context}/{code}", h.deleteItem)
-	mux.HandleFunc("POST /api/refdata/admin/references", h.createReference)
-	mux.HandleFunc("POST /api/refdata/admin/localizations", h.setLocalization)
-	mux.HandleFunc("POST /api/refdata/admin/{type}/{code}/translate", h.draftTranslation)
+	handle("PATCH /api/refdata/admin/contexts/{context}/visible", h.setContextVisible)
+	handle("POST /api/refdata/admin/corpus/{context}/draft", h.createDraft)
+	handle("GET /api/refdata/admin/corpus/{context}/draft", h.getDraft)
+	handle("PUT /api/refdata/admin/corpus/{context}/draft/items", h.putDraftItem)
+	handle("PUT /api/refdata/admin/corpus/{context}/draft/localizations", h.putDraftLocalization)
+	handle("POST /api/refdata/admin/corpus/{context}/publish", h.publishCorpus)
+	handle("POST /api/refdata/admin/corpus/{context}/rollback/{version}", h.rollbackCorpus)
+	handle("GET /api/refdata/admin/corpus/{context}/versions", h.listCorpusVersions)
+	handle("GET /api/refdata/admin/corpus/{context}/versions/{version}", h.getCorpusVersion)
+	handle("GET /api/refdata/admin/corpus/{context}/diff/{from}/{to}", h.diffCorpus)
+	handle("POST /api/refdata/admin/types", h.registerType)
+	handle("POST /api/refdata/admin/locales", h.addLocale)
+	handle("POST /api/refdata/admin/items", h.registerItem)
+	handle("POST /api/refdata/admin/items/{type}/{context}/{code}/deprecate", h.deprecateItem)
+	handle("POST /api/refdata/admin/items/{type}/{context}/{code}/reactivate", h.reactivateItem)
+	handle("PATCH /api/refdata/admin/items/{type}/{context}/{code}/attrs", h.updateItemAttrs)
+	handle("DELETE /api/refdata/admin/items/{type}/{context}/{code}", h.deleteItem)
+	handle("POST /api/refdata/admin/references", h.createReference)
+	handle("POST /api/refdata/admin/localizations", h.setLocalization)
+	handle("POST /api/refdata/admin/{type}/{code}/translate", h.draftTranslation)
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
+	routes = append(routes, "/swagger/")
+	return routes
 }
 
 func (h *Handlers) createDraft(w http.ResponseWriter, r *http.Request) {

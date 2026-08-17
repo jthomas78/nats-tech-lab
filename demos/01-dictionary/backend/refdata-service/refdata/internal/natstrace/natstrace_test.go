@@ -56,6 +56,10 @@ type legacyEnvelope struct {
 
 type fullSpan struct {
 	legacyEnvelope
+	// Requester is BR-041's lift of the self-declared Nats-Requestor header
+	// onto its own field (Phase 28b mirror of trading-partner-service's
+	// Phase 28a original).
+	Requester     string            `json:"requester,omitempty"`
 	TraceID       string            `json:"traceId,omitempty"`
 	SpanID        string            `json:"spanId,omitempty"`
 	ParentSpanID  string            `json:"parentSpanId,omitempty"`
@@ -371,6 +375,41 @@ var _ = Describe("natstrace (Phase 28b — BR-036/BR-D39)", func() {
 			Expect(span.Headers).NotTo(HaveKey("Authorization"))
 			Expect(span.Headers).To(HaveKey("Nats-Requestor"), "only the denylisted header is stripped")
 			Expect(span.Redacted).To(ContainElement("headers.Authorization"))
+		})
+
+		It("lifts an inbound Nats-Requestor header onto its own Requester field (BR-041)", func() {
+			spans := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = sub.Unsubscribe() })
+			Expect(nc.Flush()).To(Succeed())
+
+			inbound := nats.Header{"Nats-Requestor": []string{"some-service/abc123"}}
+			sp := natstrace.New(nc).StartFromHeaders(inbound, "evt.acme.thing.1.happened", nil, "acme", "thing", "thing", "happened")
+			sp.End(nil, nil)
+
+			var msg *nats.Msg
+			Eventually(spans).Should(Receive(&msg))
+			var span fullSpan
+			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+			Expect(span.Requester).To(Equal("some-service/abc123"))
+		})
+
+		It("leaves Requester empty when no Nats-Requestor header was present", func() {
+			spans := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = sub.Unsubscribe() })
+			Expect(nc.Flush()).To(Succeed())
+
+			sp := natstrace.New(nc).StartFromHeaders(nats.Header{}, "evt.acme.thing.1.happened", nil, "acme", "thing", "thing", "happened")
+			sp.End(nil, nil)
+
+			var msg *nats.Msg
+			Eventually(spans).Should(Receive(&msg))
+			var span fullSpan
+			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+			Expect(span.Requester).To(Equal(""))
 		})
 	})
 

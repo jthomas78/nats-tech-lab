@@ -73,12 +73,25 @@ func (h *Handlers) tokenTTL(ctx context.Context) time.Duration {
 // same identity ensureSigningKey establishes a signing key for at startup.
 const platformAccountName = "platform"
 
-func (h *Handlers) Mount(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/auth/connectInfo", h.connectInfo)
-	mux.HandleFunc("GET /api/auth/adminConnectInfo", h.adminConnectInfo)
-	mux.HandleFunc("GET /api/auth/refdataAdminConnectInfo", h.refdataAdminConnectInfo)
-	mux.HandleFunc("GET /api/auth/tenants", h.tenants)
-	mux.HandleFunc("POST /api/auth/login", h.login)
+// Mount registers this service's deliberately ungated /api/auth/* routes and
+// returns the exact list of "METHOD /pattern" strings registered, in
+// registration order (BR-040/BR-AC33) — so a test can assert this list
+// ConsistOf a hardcoded allowlist and catch a future route sneaking onto this
+// mux, not just a code-review miss.
+func (h *Handlers) Mount(mux *http.ServeMux) []string {
+	routes := []string{
+		"GET /api/auth/connectInfo",
+		"GET /api/auth/adminConnectInfo",
+		"GET /api/auth/refdataAdminConnectInfo",
+		"GET /api/auth/tenants",
+		"POST /api/auth/login",
+	}
+	mux.HandleFunc(routes[0], h.connectInfo)
+	mux.HandleFunc(routes[1], h.adminConnectInfo)
+	mux.HandleFunc(routes[2], h.refdataAdminConnectInfo)
+	mux.HandleFunc(routes[3], h.tenants)
+	mux.HandleFunc(routes[4], h.login)
+	return routes
 }
 
 // connectInfo mints and returns a fresh browser NATS credential for the

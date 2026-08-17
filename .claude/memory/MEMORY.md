@@ -51,3 +51,4 @@
 - [tenants.Manager triplication](tenants_manager_triplication.md) — now 4 copies (pricing/trading-partner/shipping/refdata, Phase 32 DONE); extraction scheduled as Phase 35 (PROPOSED), bundled with natstrace + browserrpc infra tail
 - [Phase 32 refdata PLATFORM credential](phase32_refdata_platform_credential.md) — frontend/refdata is cross-tenant, needed its own MintRefdataAdminToken + MountPlatformAPI; also fixed a context-from-subject convention bug
 - [Phase 33 refdata admin REST exemption](phase33_refdata_admin_rest_exemption.md) — /api/refdata/admin/* stays REST permanently; accounts-service calls it server-to-server, no NATS path exists
+- [Phase 34 boundary enforcement](phase34_boundary_enforcement.md) — IMPLEMENTED 2026-08-17; mux allowlist tests (BR-040) + traceSpan.Requester (BR-041) + Admin UI 2-axis filter

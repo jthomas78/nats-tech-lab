@@ -43,17 +43,29 @@ func New(deps Deps) *Handlers {
 	return &Handlers{deps: deps}
 }
 
-// Mount registers every route this service currently serves.
-func (h *Handlers) Mount(mux *http.ServeMux) {
-	mux.HandleFunc("GET /healthz", h.healthz)
-	mux.HandleFunc("GET /api/nats/connections", h.listNatsConnections)
-	mux.HandleFunc("GET /api/nats/account-activity", h.listNatsAccountActivity)
-	mux.HandleFunc("GET /api/nats/log", h.tailNatsLog)
-	mux.HandleFunc("GET /api/kv/buckets", h.listKVBuckets)
-	mux.HandleFunc("GET /api/kv/buckets/{account}/{bucket}/entries", h.kvBucketEntriesOnce)
-	mux.HandleFunc("GET /api/jetstream/streams", h.listStreams)
-	mux.HandleFunc("GET /api/jetstream/replay", h.jetstreamReplayOnce)
-	mux.HandleFunc("GET /api/nats/services", h.listNatsServices)
+// Mount registers every route this service currently serves, returning the
+// exact list of registered patterns in registration order. BR-040's
+// allowlist test asserts this list against a hardcoded admin/infra allowlist
+// so a future business route added here can't slip past the REST boundary
+// unnoticed.
+func (h *Handlers) Mount(mux *http.ServeMux) []string {
+	var routes []string
+	handle := func(pattern string, fn http.HandlerFunc) {
+		routes = append(routes, pattern)
+		mux.HandleFunc(pattern, fn)
+	}
+
+	handle("GET /healthz", h.healthz)
+	handle("GET /api/nats/connections", h.listNatsConnections)
+	handle("GET /api/nats/account-activity", h.listNatsAccountActivity)
+	handle("GET /api/nats/log", h.tailNatsLog)
+	handle("GET /api/kv/buckets", h.listKVBuckets)
+	handle("GET /api/kv/buckets/{account}/{bucket}/entries", h.kvBucketEntriesOnce)
+	handle("GET /api/jetstream/streams", h.listStreams)
+	handle("GET /api/jetstream/replay", h.jetstreamReplayOnce)
+	handle("GET /api/nats/services", h.listNatsServices)
+
+	return routes
 }
 
 // errorResponse is the JSON shape writeError produces — mirrors

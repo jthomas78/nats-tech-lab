@@ -12,9 +12,12 @@ package rest
 
 import "net/http"
 
-// Mount registers the routes this service still serves over REST.
-func Mount(mux *http.ServeMux) {
+// Mount registers the routes this service still serves over REST. It
+// returns the exact "METHOD /pattern" list it registered so BR-TP17's
+// allowlist test can assert the mux surface never grows a business route.
+func Mount(mux *http.ServeMux) []string {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+	return []string{"GET /healthz"}
 }

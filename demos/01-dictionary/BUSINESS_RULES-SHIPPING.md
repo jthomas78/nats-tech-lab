@@ -539,6 +539,104 @@ What remains under `/api/*` is infra (`/healthz`) and admin/operator concerns: t
 
 ---
 
+### BR-040 (Phase 34, canonical — mirrored per service below) — Each service's registered REST route set is asserted to exactly match a hardcoded admin/infra/bootstrap allowlist; a business route added later fails the test, not just the code review
+
+BR-039 (and its per-service siblings, BR-P26/BR-TP16/BR-D43) retired today's
+business REST. Nothing in the code itself stops a *future* business route
+being registered on a `rest/handlers.go` `Mount` — the boundary was achieved,
+not enforced. This rule closes that gap: every service's `Mount` function is
+changed to return the exact list of `"METHOD /pattern"` strings it registers
+(plus any bare-prefix `Handle` mount like `/swagger/`), and a test asserts
+that returned list is `ConsistOf` a hardcoded allowlist — exact match, not a
+subset check, so the test catches both an unexpectedly *added* route (extra
+entry not in the allowlist) and an unexpectedly *removed* one (missing entry,
+signalling the allowlist itself is now stale and needs a deliberate edit).
+This is the same "prove the boundary is exactly where it should be" intent as
+`TestShippingAdminCanOnlyUseNarrowOrderedConsumerAccess`
+(`internal/natsaccounts/isolation_test.go`), adapted from a permission-grant
+pair (positive narrow access + negative blanket-access rejection) to a route
+set, where the bidirectional `ConsistOf` equality plays both roles at once: no
+extra route can sneak in, and no allowlist entry can silently stop being
+served.
+
+The allowlist is data, not prose, checked into each test file. Current
+allowlists (post–Phase 33, one per service):
+
+- **shipping-service** (`dictionary/internal/rest/handlers.go`): `GET
+  /api/admin/ports/{context}`, `GET
+  /api/admin/read-path/ships/{context}/{shipID}`, `DELETE
+  /api/admin/read-path/cache/{context}/{shipID}`, `GET /api/tenant`, `POST
+  /api/tenant/switch`, `GET /healthz`, `/swagger/`.
+- **refdata-service** (`refdata/internal/rest/handlers.go`): the 23
+  `/api/refdata/admin/*` routes (BR-D43's permanent exemption) plus
+  `/swagger/`. No `GET /healthz` is registered on this service today — a
+  pre-existing gap this phase surfaces but does not fix (out of scope: BR-040
+  enforces the boundary as it exists, it doesn't add routes).
+- **pricing-service** (`pricing/internal/rest/handlers.go`): `GET /healthz`
+  only (BR-P26).
+- **trading-partner-service** (`tradingpartner/internal/rest/handlers.go`):
+  `GET /healthz` only (BR-TP16).
+- **observability-service** (`observability/internal/rest/handlers.go`): `GET
+  /healthz`, `GET /api/nats/connections`, `GET /api/nats/account-activity`,
+  `GET /api/nats/log`, `GET /api/kv/buckets`, `GET
+  /api/kv/buckets/{account}/{bucket}/entries`, `GET /api/jetstream/streams`,
+  `GET /api/jetstream/replay`, `GET /api/nats/services` — never touched by
+  Phase 33 since these were always admin/infra diagnostics (moved from
+  shipping-service in Phase 30h), not business REST.
+- **accounts-service** — two independent `Mount` calls onto one mux, each
+  gets its own test against its own sub-allowlist: `accounts/handler.go`'s 13
+  `BasicAuth`-gated `/api/accounts*` routes (account/business-unit lifecycle),
+  and `auth/handler.go`'s 5 deliberately ungated `/api/auth/*` routes (this
+  service *is* the tenant axis; there is no business domain to separate REST
+  from here — every route is inherently admin/bootstrap).
+
+- **Enforced in:** `internal/rest` (or `accounts/`, `auth/`) package's
+  `Mount` function per service, each changed to return `[]string`.
+- **Test:** one allowlist test per service/sub-mux — see BR-040's mirror
+  entry in each service's own `BUSINESS_RULES-*.md` file for the exact test
+  name.
+
+### BR-041 (Phase 34, canonical — mirrored per service below) — A client-supplied requester identity is carried for observability only; it is never read for authorization by any handler
+
+BR-027 already has shipping-service's `refdataconsumer` set a
+`Nats-Requestor: <name>/<instance-id>` header on outbound `rpc.*` requests,
+and the browser sets the same header on `api.*` calls
+(`useNatsConnection.js`). Both predate this rule; BR-041 makes the
+constraint explicit and platform-wide rather than leaving it implicit in one
+service's transport doc: **this header (and any header like it) is
+self-declared by the caller and must never gate anything.** Core NATS
+request/reply carries no server-attested caller identity — unlike a mux
+route, which the server itself enforces by refusing to serve an unregistered
+pattern, nothing stops a caller from putting any string it likes in
+`Nats-Requestor`. The only legitimate use is observability: the Admin UI's
+Request/Reply & Traces panel may filter or display it, clearly labeled as
+self-declared, but no handler in any service may branch on its value, and no
+future rule may propose using it as an authorization signal. The trustworthy
+axis for filtering "is this an admin request" is the **subject prefix**
+(`api.*.refdata.admin.*` vs `api.*.refdata.item.*`, BR-D41) — the server
+enforces that split by permission grant; a header filter merely reflects
+what the caller claimed.
+
+Phase 34.3 carries this header's value as a first-class `Requester` field on
+the `obs.trace.*` envelope (BR-036's `traceSpan` struct) — populated from the
+already-merged `Headers["Nats-Requestor"]` at span-`finish()` time, across
+all 5 `natstrace` copies — purely so the Admin UI can read it from existing
+trace data instead of a new channel. This is additive to BR-036, not a
+change to its wire contract's redaction/truncation ordering.
+
+- **Enforced in:** nowhere (deliberately) — grep audit confirms zero
+  `Header.Get("Nats-Requestor")` / `Header["Nats-Requestor"]` reads outside
+  the setting/forwarding code itself, across every service's Go source.
+  `internal/natstrace/natstrace.go`'s `finish()` (all 5 copies) now also
+  populates `traceSpan.Requester`.
+- **Test:** `internal/natstrace/natstrace_test.go` (each of the 5 copies) —
+  asserts a span whose captured request headers include `Nats-Requestor`
+  produces a `traceSpan.Requester` equal to that header's value, and a span
+  with no such header produces an empty `Requester` (never a placeholder
+  that could be mistaken for a real identity).
+
+---
+
 ## Guards (not numbered rules)
 
 - **Unregistered container** — load/unload of a container with no `.registered`

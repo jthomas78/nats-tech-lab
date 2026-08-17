@@ -149,8 +149,14 @@ func (h *Handlers) SetDeps(deps Deps) {
 	h.depsPtr.Store(&deps)
 }
 
-func (h *Handlers) Mount(mux *http.ServeMux) {
+// Mount registers this package's routes on mux and returns the exact list of
+// patterns registered (BR-040) — a hardcoded allowlist test asserts this
+// list ConsistOf its expected contents, so a business route added later to
+// this function fails that test rather than only a code review.
+func (h *Handlers) Mount(mux *http.ServeMux) []string {
+	var routes []string
 	handle := func(pattern string, fn http.HandlerFunc) {
+		routes = append(routes, pattern)
 		mux.HandleFunc(pattern, h.httpTraceMiddleware(fn))
 	}
 	handle("GET /api/admin/ports/{context}", h.adminPortsTable)
@@ -170,12 +176,15 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// /api/manifest/*, /api/ports/* (GET+POST), and /api/meta/* outright —
 	// see the package doc comment above (BR-039) — and renamed
 	// /api/shape-b/* to /api/admin/read-path/* above.
+	routes = append(routes, "GET /healthz")
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+	routes = append(routes, "/swagger/")
 	mux.Handle("/swagger/", httpSwagger.Handler(
 		httpSwagger.URL("/swagger/doc.json"),
 	))
+	return routes
 }
 
 // ─── Admin — ports table ──────────────────────────────────────────────────────

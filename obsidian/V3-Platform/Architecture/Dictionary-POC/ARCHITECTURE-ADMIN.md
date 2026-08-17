@@ -517,6 +517,35 @@ window is a number that looks authoritative and isn't. Aggregation belongs
 to the metrics axis, where `$SRV.STATS` already reports `numRequests`,
 `numErrors`, and `averageProcessingTime` per endpoint (§4.2).
 
+**Amended (Phase 34.4) — two more toolbar filters, deliberately distinguished
+by trust level.** Alongside the existing free-text search (substring match
+on the root span's subject), the *Traces* toolbar gained two more inputs:
+
+- **Subject prefix** (`api._platform.refdata.admin` etc.) — a prefix match
+  on the root subject. Labeled "server-enforced": the subject a connection
+  may actually publish/subscribe to is a NATS permission grant
+  ([ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) §2.4,
+  BR-D41's `api.*.refdata.admin.*` split), so this axis reflects a boundary
+  the server itself polices, not merely what a caller claims.
+- **Requester** (`seafreight-app`, `shipping-service/<instance-id>`, ...) —
+  a substring match on the `Nats-Requestor` header (BR-027/BR-041), now read
+  from the span's own `requester` field (Phase 34.3 added this to the
+  `traceSpan` wire envelope specifically so the UI wouldn't need to parse
+  `headers` by hand). Labeled "self-declared": useful for filtering by which
+  service or app caused a trace, but this is never proof — nothing on the
+  wire stops a caller from putting any string here, and no handler treats it
+  as identity (see the header rows in the span detail pane below, which
+  already showed `Nats-Requestor`/`Nats-Responder` this same way before this
+  phase).
+
+Both render as a `.search-box`-styled input with a distinct icon
+(shield / person) and a `title` tooltip spelling out the trust distinction —
+deliberately not styled identically to the plain free-text search, so a
+reader scanning the toolbar sees three visually similar but not identical
+controls and has reason to ask what the difference is, rather than treating
+"subject prefix" and "requester" as interchangeable ways to search the same
+thing.
+
 ### 4.6 Streams
 
 **What it shows.** Every JetStream stream registered across every account

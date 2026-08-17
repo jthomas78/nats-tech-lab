@@ -74,8 +74,12 @@ type traceSpan struct {
 	Payload       json.RawMessage     `json:"payload,omitempty"`
 	Error         string              `json:"error,omitempty"`
 	Headers       map[string][]string `json:"headers,omitempty"`
-	Timestamp     time.Time           `json:"timestamp"`
-	PayloadBytes  int                 `json:"payloadBytes"`
+	// Requester lifts BR-041's self-declared Nats-Requestor header onto its
+	// own field so the Admin UI can read it without treating it as
+	// authorization — see BUSINESS_RULES-SHIPPING.md BR-041.
+	Requester    string    `json:"requester,omitempty"`
+	Timestamp    time.Time `json:"timestamp"`
+	PayloadBytes int       `json:"payloadBytes"`
 
 	TraceID       string            `json:"traceId,omitempty"`
 	SpanID        string            `json:"spanId,omitempty"`
@@ -376,6 +380,7 @@ func (sp *Span) finish(statusCode, errMsg string, payload []byte, headers map[st
 		Payload:       respPayload,
 		Error:         errMsg,
 		Headers:       mergedHeaders,
+		Requester:     firstHeaderValue(mergedHeaders, "Nats-Requestor"),
 		Timestamp:     time.Now().UTC(),
 		PayloadBytes:  payloadBytes,
 
@@ -447,6 +452,15 @@ func mergeHeaders(reqHeaders, headers map[string][]string) map[string][]string {
 		merged[k] = v
 	}
 	return merged
+}
+
+// firstHeaderValue returns the first value for key, or "" if absent.
+func firstHeaderValue(headers map[string][]string, key string) string {
+	vals := headers[key]
+	if len(vals) == 0 {
+		return ""
+	}
+	return vals[0]
 }
 
 func newTraceID() string { return randomHex(16) }

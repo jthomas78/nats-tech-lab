@@ -52,6 +52,7 @@ type legacyEnvelope struct {
 
 type fullSpan struct {
 	legacyEnvelope
+	Requester     string            `json:"requester,omitempty"`
 	TraceID       string            `json:"traceId,omitempty"`
 	SpanID        string            `json:"spanId,omitempty"`
 	ParentSpanID  string            `json:"parentSpanId,omitempty"`
@@ -367,6 +368,66 @@ var _ = Describe("natstrace requestor identity (Phase 28h)", func() {
 		var span fullSpan
 		Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
 		Expect(span.Headers).To(HaveKeyWithValue("Nats-Requestor", []string{"accounts-service/abc"}))
+	})
+
+	// Phase 34.3 (BR-041): traceSpan.Requester lifts the self-declared
+	// Nats-Requestor header onto its own field, populated from the same
+	// merged headers Headers itself already carries — purely so the Admin
+	// UI can read it directly instead of digging through Headers, and
+	// never as an authorization signal (BR-041 forbids that outright).
+	It("populates Requester from an inbound Nats-Requestor header", func() {
+		nc := newTestConn()
+
+		spans := make(chan *nats.Msg, 4)
+		sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() { _ = sub.Unsubscribe() })
+		Expect(nc.Flush()).To(Succeed())
+
+		tracer := natstrace.New(nc)
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /api/accounts", func(w http.ResponseWriter, r *http.Request) {})
+		srv := httptest.NewServer(tracer.HTTPMiddleware(mux))
+		DeferCleanup(srv.Close)
+
+		req, err := http.NewRequest(http.MethodGet, srv.URL+"/api/accounts", nil)
+		Expect(err).NotTo(HaveOccurred())
+		req.Header.Set("Nats-Requestor", "browser/session-123")
+		resp, err := http.DefaultClient.Do(req)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var msg *nats.Msg
+		Eventually(spans).Should(Receive(&msg))
+		var span fullSpan
+		Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+		Expect(span.Requester).To(Equal("browser/session-123"))
+	})
+
+	It("leaves Requester empty when no Nats-Requestor header was captured — never a placeholder that could be mistaken for a real identity", func() {
+		nc := newTestConn()
+
+		spans := make(chan *nats.Msg, 4)
+		sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() { _ = sub.Unsubscribe() })
+		Expect(nc.Flush()).To(Succeed())
+
+		tracer := natstrace.New(nc)
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /api/accounts", func(w http.ResponseWriter, r *http.Request) {})
+		srv := httptest.NewServer(tracer.HTTPMiddleware(mux))
+		DeferCleanup(srv.Close)
+
+		resp, err := http.Get(srv.URL + "/api/accounts")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var msg *nats.Msg
+		Eventually(spans).Should(Receive(&msg))
+		var span fullSpan
+		Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+		Expect(span.Requester).To(BeEmpty())
 	})
 })
 

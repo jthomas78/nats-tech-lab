@@ -543,66 +543,26 @@ rationale or checklist detail).
       routes work. Prerequisite for Phase 34 (mux allowlist enforcement)
       satisfied for the routes that actually got deleted.
 
-### Phase 34 (PROPOSED 2026-08-17) — Enforce the Boundary: Admin-Allowlist Mux Tests, Requester Attribution, Admin-Traffic Filter
+### Phase 34 — Completed (archived 2026-08-17)
 
-#### Goal
+Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
+(not read into context by default — open only when you need original
+rationale or checklist detail).
 
-Phase 33 removes today's business REST. Nothing stops a future business route
-being added back to a `rest/handlers.go`, and nothing yet lets the Admin UI
-answer "show me only business-app traffic". This phase makes the boundary
-enforced rather than merely achieved, and makes it observable.
-
-#### Design decisions
-
-- **The mux allowlist test is the enforcement mechanism.** Per service, walk the
-  registered route set and assert every route matches the admin/infra/bootstrap
-  allowlist from Phase 33's rule. A new business route then fails a test rather
-  than quietly shipping. This is the pattern
-  `TestShippingAdminCanOnlyUseNarrowOrderedConsumerAccess` already establishes
-  for permission grants, applied to HTTP routes.
-- **Requester attribution is observability, never authorization.** A
-  client-supplied `Nats-Requestor`-style header (BR-027 already carries one) is
-  **self-declared and must never gate anything** — core NATS request/reply
-  carries no server-attested caller identity. The Admin UI may filter on it;
-  no handler may branch on it. State this in the rule, because a header that
-  looks like identity invites exactly that mistake.
-- **The trustworthy filter axis is the subject prefix, not the header.** This is
-  why Phase 32 split `api.*.refdata.admin.*` from the business subjects: "omit
-  all admin requests" is a subject-prefix filter, which the server itself
-  enforced by permission grant, whereas a header filter merely reflects what the
-  caller claimed. Offer both in the UI, and label which is which.
-- **Business tests use `api.*`/`rpc.*` only.** Confirmed requirement: no
-  integration test may exercise a business operation over REST, since a test
-  doing so would keep a retired path alive.
-
-#### Sub-phases
-
-- **34.1 — Business rules.** The route-allowlist rule (with its per-service
-  allowlist as data, not prose) and the requester-attribution rule including its
-  explicit non-authorization clause.
-- **34.2 — Per-service allowlist tests:** shipping-service, refdata-service,
-  pricing-service, trading-partner-service, accounts-service,
-  observability-service.
-- **34.3 — Requester attribution on `api.*`/`rpc.*`,** surfaced as a span field
-  in the `obs.trace.*` envelope (BR-036's shape) so the Admin UI can read it
-  from existing trace data rather than a new channel.
-- **34.4 — Admin UI filter** in the Request/Reply & Traces panel: by subject
-  prefix (trustworthy) and by requester (self-declared), visibly distinguished.
-- **34.5 — Test-suite audit:** assert no business integration test drives a REST
-  route.
-- **34.6 — Docs:** `ARCHITECTURE-COMMUNICATIONS.md` § 1's transport table
-  rewritten — REST is no longer "frontend/edge clients, full CRUD surface",
-  which is the framing this whole 31–34 group replaced.
-
-#### Checklist
-
-- [ ] 34.1 allowlist + requester-attribution BRs written
-- [ ] 34.2 allowlist test per service; each fails when a business route is added
-- [ ] 34.3 requester attribution carried on `api.*`/`rpc.*` and visible in trace spans
-- [ ] 34.4 Admin UI filter shipped, subject-prefix and requester axes labeled distinctly
-- [ ] 34.5 no business integration test exercises REST
-- [ ] 34.6 `ARCHITECTURE-COMMUNICATIONS.md` § 1 transport table updated; `ARCHITECTURE-ADMIN.md` documents the new filter
-- [ ] Live verification: adding a throwaway business REST route fails its service's allowlist test
+- [x] Phase 34 (IMPLEMENTED 2026-08-17) — Enforce the Boundary: every
+      service's `Mount` now returns the exact route list it registers,
+      asserted `ConsistOf` a hardcoded admin/infra allowlist per service
+      (BR-040, mirrored as BR-D44/BR-P27/BR-TP17/BR-AC33) so a future
+      business route fails a test instead of quietly shipping; `traceSpan`
+      (all 5 `natstrace` copies) gained a `Requester` field lifting the
+      self-declared, never-authoritative `Nats-Requestor` header onto the
+      wire envelope (BR-041); the Admin UI's Request/Reply & Traces panel
+      gained two visibly-distinguished toolbar filters (subject-prefix,
+      server-enforced; requester, self-declared); a full test-suite audit
+      confirmed no business integration test exercises REST anywhere.
+      Live-verified: a throwaway business route added to pricing-service's
+      `Mount` failed its allowlist test with a clear diff; all 6 services'
+      full suites green post-merge.
 
 ---
 
