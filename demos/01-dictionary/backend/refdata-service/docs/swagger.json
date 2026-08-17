@@ -9,41 +9,6 @@
     "host": "localhost:7201",
     "basePath": "/",
     "paths": {
-        "/api/refdata-watch/{context}": {
-            "get": {
-                "description": "Server-Sent Events stream of NATS KV changes in the refdata-{context} cache bucket — item entries and {type}._meta version bumps. Replays current state first, then live updates. Live invalidation feed for a frontend cache-status widget.",
-                "produces": [
-                    "text/event-stream"
-                ],
-                "tags": [
-                    "streams"
-                ],
-                "summary": "Cache KV watch stream (SSE)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "tenant/region context",
-                        "name": "context",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "SSE stream — data: {watchEvent JSON}",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/api/refdata/admin/items": {
             "post": {
                 "description": "Registers a new dictionary item (BR-D01: the code must be free within its type+context).",
@@ -405,7 +370,7 @@
         },
         "/api/refdata/admin/types": {
             "post": {
-                "description": "Registers (or updates the name/description/category of) a dictionary type, e.g. \"currency\". Category (BR-D09) must be one of \"standards\", \"domain-enum\", \"l10n\", \"config\".",
+                "description": "Registers (or updates the name/description/category of) a dictionary type, e.g. \"currency\". Category (BR-D09) must be one of \"standards\", \"domain-enum\", \"domain-string\", \"config\".",
                 "consumes": [
                     "application/json"
                 ],
@@ -502,380 +467,6 @@
                     }
                 }
             }
-        },
-        "/api/refdata/{context}/locales": {
-            "get": {
-                "description": "Lists locales registered for a context, including which one is the default.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "localization"
-                ],
-                "summary": "List locales",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "tenant/region context",
-                        "name": "context",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/rest.localesResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/refdata/{context}/types": {
-            "get": {
-                "description": "Lists every registered dictionary type (currency, country, incoterm, …).",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "types"
-                ],
-                "summary": "List dictionary types",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "tenant/region context",
-                        "name": "context",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/rest.typesResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/refdata/{context}/{type}": {
-            "get": {
-                "description": "Lists items of a dictionary type in a context, optionally locale-resolved (BR-D03). Excludes deprecated items unless ?all=true is passed (BR-D06).",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "items"
-                ],
-                "summary": "List items",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "tenant/region context",
-                        "name": "context",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "dictionary type key",
-                        "name": "type",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "include deprecated items",
-                        "name": "all",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "resolve each item's label in this locale",
-                        "name": "locale",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/rest.itemsResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/refdata/{context}/{type}/cache-status": {
-            "get": {
-                "description": "Compares Postgres's current set version (BR-D04) against the refdata-{context} KV cache's {type}._meta version — the Q5 versioned-read protocol made visible for a cache status widget.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "localization"
-                ],
-                "summary": "Cache status",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "tenant/region context",
-                        "name": "context",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "dictionary type key",
-                        "name": "type",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/rest.cacheStatusResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/refdata/{context}/{type}/completeness": {
-            "get": {
-                "description": "Reports how many of a type's items have a localization for the given locale.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "localization"
-                ],
-                "summary": "Localization completeness",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "tenant/region context",
-                        "name": "context",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "dictionary type key",
-                        "name": "type",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "locale to check completeness for",
-                        "name": "locale",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/rest.completenessResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/refdata/{context}/{type}/{code}": {
-            "get": {
-                "description": "Resolves a single item regardless of status (BR-D06: deprecated items still resolve). ?locale= resolves a label via BR-D03's fallback chain (response includes \"isFallback\": true/false — false means the exact requested locale matched, true means a default-locale substitution or code-echo); ?expand= inlines the item a named relation points to.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "items"
-                ],
-                "summary": "Get an item",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "tenant/region context",
-                        "name": "context",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "dictionary type key",
-                        "name": "type",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "item code",
-                        "name": "code",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "resolve the label in this locale (BR-D03)",
-                        "name": "locale",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "relation name to expand into the response",
-                        "name": "expand",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/rest.resolvedItemResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/refdata/{context}/{type}/{code}/localizations": {
-            "get": {
-                "description": "Every locale's localization recorded for one item — the editor's Localizations tab.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "localization"
-                ],
-                "summary": "List an item's localizations",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "tenant/region context",
-                        "name": "context",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "dictionary type key",
-                        "name": "type",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "item code",
-                        "name": "code",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/rest.localizationsResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/refdata/{context}/{type}/{code}/references": {
-            "get": {
-                "description": "Every typed reference recorded from one item — the editor's References tab.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "references"
-                ],
-                "summary": "List an item's outbound references",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "tenant/region context",
-                        "name": "context",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "dictionary type key",
-                        "name": "type",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "item code",
-                        "name": "code",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/rest.referencesResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
         }
     },
     "definitions": {
@@ -900,46 +491,6 @@
                 }
             }
         },
-        "domain.DictionaryReference": {
-            "type": "object",
-            "properties": {
-                "context": {
-                    "type": "string"
-                },
-                "fromCode": {
-                    "type": "string"
-                },
-                "fromTypeKey": {
-                    "type": "string"
-                },
-                "relation": {
-                    "type": "string"
-                },
-                "toCode": {
-                    "type": "string"
-                },
-                "toTypeKey": {
-                    "type": "string"
-                }
-            }
-        },
-        "domain.DictionaryType": {
-            "type": "object",
-            "properties": {
-                "category": {
-                    "$ref": "#/definitions/domain.TypeCategory"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "typeKey": {
-                    "type": "string"
-                }
-            }
-        },
         "domain.ItemStatus": {
             "type": "string",
             "enum": [
@@ -950,37 +501,6 @@
                 "StatusActive",
                 "StatusDeprecated"
             ]
-        },
-        "domain.Localization": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "string"
-                },
-                "context": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "isFallback": {
-                    "description": "IsFallback is only meaningful on a value returned from ResolveLabel\n(BR-D03): false when the requested locale (or its bare language)\nmatched exactly; true for either of the other two tiers — a\ndefault-locale substitution (nothing requested matched, but the\ncontext's default locale had real data) or the terminal code-echo\n(nothing matched at all, Label degraded to the code itself). Zero-value\n(false) on a Localization read any other way (e.g. from a repository\nlisting), since resolution never happened for those.",
-                    "type": "boolean"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "locale": {
-                    "type": "string"
-                },
-                "source": {
-                    "description": "\"manual\" | \"ai\" (BR-D07)",
-                    "type": "string"
-                },
-                "typeKey": {
-                    "type": "string"
-                }
-            }
         },
         "domain.TypeCategory": {
             "type": "string",
@@ -1005,43 +525,6 @@
                 "CategoryDomainString",
                 "CategoryConfig"
             ]
-        },
-        "rest.cacheStatusResponse": {
-            "type": "object",
-            "properties": {
-                "inSync": {
-                    "type": "boolean"
-                },
-                "kvItemCount": {
-                    "type": "integer"
-                },
-                "kvVersion": {
-                    "type": "integer"
-                },
-                "postgresVersion": {
-                    "type": "integer"
-                },
-                "typeKey": {
-                    "type": "string"
-                }
-            }
-        },
-        "rest.completenessResponse": {
-            "type": "object",
-            "properties": {
-                "locale": {
-                    "type": "string"
-                },
-                "localized": {
-                    "type": "integer"
-                },
-                "total": {
-                    "type": "integer"
-                },
-                "typeKey": {
-                    "type": "string"
-                }
-            }
         },
         "rest.errorResponse": {
             "type": "object",
@@ -1077,17 +560,6 @@
                 }
             }
         },
-        "rest.itemsResponse": {
-            "type": "object",
-            "properties": {
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/domain.DictionaryItem"
-                    }
-                }
-            }
-        },
         "rest.localeRequest": {
             "type": "object",
             "properties": {
@@ -1099,21 +571,6 @@
                 },
                 "locale": {
                     "type": "string"
-                }
-            }
-        },
-        "rest.localesResponse": {
-            "type": "object",
-            "properties": {
-                "defaultLocale": {
-                    "description": "DefaultLocale is \"\" when no locale is marked default for the context.",
-                    "type": "string"
-                },
-                "locales": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
                 }
             }
         },
@@ -1144,17 +601,6 @@
                 }
             }
         },
-        "rest.localizationsResponse": {
-            "type": "object",
-            "properties": {
-                "localizations": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/domain.Localization"
-                    }
-                }
-            }
-        },
         "rest.referenceRequest": {
             "type": "object",
             "properties": {
@@ -1177,41 +623,6 @@
                     "type": "string"
                 },
                 "toTypeKey": {
-                    "type": "string"
-                }
-            }
-        },
-        "rest.referencesResponse": {
-            "type": "object",
-            "properties": {
-                "references": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/domain.DictionaryReference"
-                    }
-                }
-            }
-        },
-        "rest.resolvedItemResponse": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "expanded": {
-                    "$ref": "#/definitions/domain.DictionaryItem"
-                },
-                "isFallback": {
-                    "description": "IsFallback is nil when no ?locale= resolution was attempted at all (the\nplain item branch below) — a pointer so that case omits it entirely,\ndistinct from the zero-value \"false\" once resolution was attempted.\nWhen resolution was attempted (BR-D03): false means the requested\nlocale (or its bare language) matched exactly; true means either a\ndefault-locale substitution or the terminal code-echo.",
-                    "type": "boolean"
-                },
-                "item": {
-                    "$ref": "#/definitions/domain.DictionaryItem"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "locale": {
                     "type": "string"
                 }
             }
@@ -1273,17 +684,6 @@
                 },
                 "typeKey": {
                     "type": "string"
-                }
-            }
-        },
-        "rest.typesResponse": {
-            "type": "object",
-            "properties": {
-                "types": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/domain.DictionaryType"
-                    }
                 }
             }
         },

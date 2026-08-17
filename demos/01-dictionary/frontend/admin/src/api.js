@@ -1,7 +1,14 @@
 // Thin client over the demo backend. Most of this file is REST — relative
 // paths so the vite dev proxy (dev) or nginx (docker) routes them to the
-// backend. The trading-partner functions at the bottom are the exception:
-// Phase 26h moved those onto NATS api.* subjects.
+// backend. The ship/container/port/meta functions below and the
+// trading-partner functions further down are the exceptions: Phase 26h moved
+// trading-partner calls onto NATS api.* subjects, and Phase 33.8 did the same
+// for shipping-service's ship/container/port/meta business calls once its
+// REST routes were retired (Phase 33, BR-039) — shipTerminal/getTerminal's
+// Terminal.ListByPort query has no api.* equivalent (browserrpc/adapter.go
+// only exposes container-list/container-manifest) and was unused by any
+// component, so it was dropped rather than migrated; add an api.* endpoint
+// first if a by-port terminal view is ever built.
 
 import { useNatsConnection } from './nats/useNatsConnection.js'
 
@@ -20,72 +27,88 @@ async function request(path, options = {}) {
   return body
 }
 
+// shippingSubject builds one shipping-service api.* subject
+// (api.{context}.shipping.{entity}.{action}.v1 — browserrpc/adapter.go),
+// failing loudly if context isn't a legal single subject token. Mirrors
+// tpSubject below for trading-partner-service.
+function shippingSubject(context, entity, action) {
+  if (!context || /[.\s*>]/.test(context)) {
+    throw new Error(`invalid context for a NATS subject token: ${JSON.stringify(context)}`)
+  }
+  return `api.${context}.shipping.${entity}.${action}.v1`
+}
+
+function shippingRequest(context, entity, action, payload) {
+  return useNatsConnection().request(shippingSubject(context, entity, action), payload)
+}
+
 // ── Ship commands ─────────────────────────────────────────────────────────────
 
 export function arrivePort(input) {
-  return request('/api/ships/arrive', { method: 'POST', body: JSON.stringify(input) })
+  return shippingRequest(input.context, 'ship', 'arrive', input)
 }
 
 export function departPort(input) {
-  return request('/api/ships/depart', { method: 'POST', body: JSON.stringify(input) })
+  return shippingRequest(input.context, 'ship', 'depart', input)
 }
 
 // ── Container commands ────────────────────────────────────────────────────────
 
 export function registerContainer(input) {
-  return request('/api/containers/register', { method: 'POST', body: JSON.stringify(input) })
+  return shippingRequest(input.context, 'container', 'register', input)
 }
 
 export function loadContainer(input) {
-  return request('/api/containers/load', { method: 'POST', body: JSON.stringify(input) })
+  return shippingRequest(input.context, 'container', 'load', input)
 }
 
 export function unloadContainer(input) {
-  return request('/api/containers/unload', { method: 'POST', body: JSON.stringify(input) })
+  return shippingRequest(input.context, 'container', 'unload', input)
 }
 
 // ── Terminal / meta queries ───────────────────────────────────────────────────
 
 export function listContainers(context) {
-  return request(`/api/containers/${context}`)
-}
-
-export function getTerminal(context, port) {
-  return request(`/api/terminal/${context}/${encodeURIComponent(port)}`)
+  return shippingRequest(context, 'container', 'list')
 }
 
 export function getManifest(context, shipID) {
-  return request(`/api/manifest/${context}/${shipID}`)
+  return shippingRequest(context, 'container', 'manifest', { shipID })
 }
 
 // ── Ports (Postgres-backed reference table, BR-017/BR-018) ───────────────────
 
 export function getPorts(context) {
-  return request(`/api/ports/${context}`)
+  return shippingRequest(context, 'port', 'list')
 }
 
 export function registerPort(context, name) {
-  return request('/api/ports', { method: 'POST', body: JSON.stringify({ context, name }) })
+  return shippingRequest(context, 'port', 'register', { name })
 }
 
 // Raw ports table rows (name + createdAt) for the admin Postgres Tables
 // panel — distinct from getPorts, which returns names only for dropdowns.
+// Stays on REST: an admin diagnostics route (/api/admin/ports/{context}),
+// never a business one — see BR-039/Phase 33's admin vs. business split.
 export function getPortsTable(context) {
   return request(`/api/admin/ports/${context}`)
 }
 
 export function getKnownContainers(context) {
-  return request(`/api/meta/${context}/known-containers`)
+  return shippingRequest(context, 'meta', 'known-containers')
 }
 
-// ── Shape B reads (KV cache → Postgres) ──────────────────────────────────────
+// ── Admin read-path diagnostics (Shape B: KV cache → Postgres) ──────────────
+// Renamed from /api/shape-b/* in Phase 33 (BR-039) — these back the Admin
+// UI's read-path diagnostics panel and cache-evict button; they were always
+// admin diagnostics, not a business route, just misclassified by name.
 
 export function getShipShapeB(context, shipID) {
-  return request(`/api/shape-b/ships/${context}/${shipID}`)
+  return request(`/api/admin/read-path/ships/${context}/${shipID}`)
 }
 
 export function evictShipCache(context, shipID) {
-  return request(`/api/shape-b/cache/${context}/${shipID}`, { method: 'DELETE' })
+  return request(`/api/admin/read-path/cache/${context}/${shipID}`, { method: 'DELETE' })
 }
 
 // Every event stream across every account this backend reaches (tagged with

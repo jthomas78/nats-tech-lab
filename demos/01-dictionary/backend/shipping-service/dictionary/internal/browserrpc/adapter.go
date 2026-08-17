@@ -70,6 +70,7 @@ const (
 	ContainerLoadSubject       = "api.*.shipping.container.load.v1"
 	ContainerUnloadSubject     = "api.*.shipping.container.unload.v1"
 	ContainerListSubject       = "api.*.shipping.container.list.v1"
+	ContainerManifestSubject   = "api.*.shipping.container.manifest.v1"
 	PortListSubject            = "api.*.shipping.port.list.v1"
 	PortRegisterSubject        = "api.*.shipping.port.register.v1"
 	MetaKnownContainersSubject = "api.*.shipping.meta.known-containers.v1"
@@ -179,6 +180,16 @@ type portRegisterResponse struct {
 	Port string `json:"port"`
 }
 
+// containerManifestRequest is the api.{context}.shipping.container.manifest.v1
+// request payload — the one query endpoint in this adapter that needs an
+// argument beyond {context} (every other query here — container-list,
+// port-list, meta-known-containers — takes none). Since the subject scheme
+// carries no second wildcard segment, shipID travels in the body like a
+// command's fields do, even though this handler performs no mutation.
+type containerManifestRequest struct {
+	ShipID string `json:"shipID"`
+}
+
 // New starts the browserrpc microservice on nc and registers every endpoint.
 // nc is expected to be a single tenant's NATS connection (see tenant.go) —
 // every subject registered here only ever resolves within that connection's
@@ -237,6 +248,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"container-load", a.handleContainerLoad, ContainerLoadSubject},
 		{"container-unload", a.handleContainerUnload, ContainerUnloadSubject},
 		{"container-list", a.handleContainerList, ContainerListSubject},
+		{"container-manifest", a.handleContainerManifest, ContainerManifestSubject},
 		{"port-list", a.handlePortList, PortListSubject},
 		{"port-register", a.handlePortRegister, PortRegisterSubject},
 		{"meta-known-containers", a.handleMetaKnownContainers, MetaKnownContainersSubject},
@@ -376,6 +388,31 @@ func (a *Adapter) handleContainerList(req micro.Request) {
 	correlationID := req.Reply()
 
 	containers, err := a.terminal.List(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext)
+	if err != nil {
+		a.respondError(req, subject, correlationID, err)
+		return
+	}
+	a.respond(req, subject, correlationID, containerListResponse{Containers: containers})
+}
+
+// handleContainerManifest serves api.*.shipping.container.manifest.v1 — the
+// containers currently on the named ship (the onShipID join;
+// queries.Terminal.ListByShip IS the manifest, since the ship aggregate no
+// longer carries one itself). Phase 33.2's api.* equivalent of the now-REST-only
+// GET /api/manifest/{context}/{shipID} (BR-039: business operations are
+// reachable only over api.*/rpc.*, never REST).
+func (a *Adapter) handleContainerManifest(req micro.Request) {
+	subject := req.Subject()
+	itemContext := contextFromSubject(subject)
+	correlationID := req.Reply()
+
+	var in containerManifestRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		a.respondError(req, subject, correlationID, err)
+		return
+	}
+
+	containers, err := a.terminal.ListByShip(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext, in.ShipID)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return

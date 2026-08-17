@@ -58,17 +58,21 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 		DeferCleanup(client.Close)
 	})
 
-	arriveShip := func(shipID, port string) {
+	// arriveShip creates a ship via the tenant's own api.* adapter (BR-039:
+	// REST no longer exposes any way to create one) — a plain NATS request
+	// against the named tenant's own account connection, same subject a
+	// browser client would use.
+	arriveShip := func(tenant, shipID, port string) {
 		GinkgoHelper()
-		body := `{"context":"acme-pacific-fleet","shipID":"` + shipID + `","shipName":"Tenant Spike","port":"` + port + `"}`
-		resp, err := client.Client().Post(client.URL+"/api/ships/arrive", "application/json", strings.NewReader(body))
+		nc, _ := synthSrv.connectAs(tenant)
+		body, err := json.Marshal(commands.ShipInput{Context: "acme-pacific-fleet", ShipID: shipID, ShipName: "Tenant Spike", Port: port})
 		Expect(err).NotTo(HaveOccurred())
-		defer resp.Body.Close()
-		Expect(resp.StatusCode).To(Equal(http.StatusAccepted))
+		_, err = nc.Request("api.acme-pacific-fleet.shipping.ship.arrive.v1", body, 2*time.Second)
+		Expect(err).NotTo(HaveOccurred())
 	}
 
 	// shipExists reports whether shipID is reachable through the currently
-	// active tenant's Shape B read path (KV cache, falling through to
+	// active tenant's admin read-path (Shape B; KV cache, falling through to
 	// Postgres) — a single-ship existence probe that, unlike a fleet-wide
 	// listing, doesn't require replaying any account's full event history to
 	// answer, and is scoped only by fleet context (never by tenant/account
@@ -76,7 +80,7 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 	// mirror).
 	shipExists := func(shipID string) bool {
 		GinkgoHelper()
-		resp, err := client.Client().Get(client.URL + "/api/shape-b/ships/acme-pacific-fleet/" + shipID)
+		resp, err := client.Client().Get(client.URL + "/api/admin/read-path/ships/acme-pacific-fleet/" + shipID)
 		Expect(err).NotTo(HaveOccurred())
 		defer resp.Body.Close()
 		return resp.StatusCode == http.StatusOK
@@ -93,7 +97,7 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 
 	It("makes tenant A's ships unreachable after switching to tenant B, with the isolation originating server-side, and recovers on switching back", func() {
 		By("registering a ship while acme is active")
-		arriveShip("acme-spike-ship", "Hamburg")
+		arriveShip("acme", "acme-spike-ship", "Hamburg")
 		Eventually(func() bool { return shipExists("acme-spike-ship") }, 3*time.Second, 50*time.Millisecond).Should(BeTrue())
 
 		By("confirming no InactiveThreshold is set on the projector durables — a durable with one is reaped after inactivity and would lose its position across a long tenant switch")
@@ -107,7 +111,7 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 		By("switching to globex")
 		switchTo("globex")
 
-		// Not shipExists()/GET /api/shape-b/ships here: Shape B's read falls
+		// Not shipExists()/GET /api/admin/read-path/ships here: Shape B's read falls
 		// through to Postgres on a KV miss (BR-038), and Postgres is a single
 		// shared instance scoped only by the {context} business-unit string,
 		// never by NATS account — a fleet-context collision across two
@@ -134,7 +138,7 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 		Expect(shipExists("acme-spike-ship")).To(BeTrue())
 
 		By("regression: a switch triggered over HTTP must not leave the new tenant's projectors permanently broken — POST /api/tenant/switch's r.Context() is canceled the instant that response is sent, so a projector wired to it (not context.WithoutCancel'd) would fail every event it processes afterward with \"context canceled\" and redeliver forever")
-		arriveShip("acme-post-switch-ship", "Rotterdam")
+		arriveShip("acme", "acme-post-switch-ship", "Rotterdam")
 		Eventually(func() bool { return shipExists("acme-post-switch-ship") }, 3*time.Second, 50*time.Millisecond).Should(BeTrue(),
 			"an event published after a REST-triggered switch must still reach its projector and land in the read model")
 	})

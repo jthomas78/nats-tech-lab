@@ -1,26 +1,42 @@
-// Package rest exposes the reference-data module over HTTP.
+// Package rest exposes the reference-data module's admin/operator surface
+// over HTTP.
+//
+// BR-D43 (Phase 33): every business (browser-facing) read this package used
+// to serve — item get, type/locales list, completeness, cache-status,
+// item localizations/references, versioned reads, and the /api/refdata-watch
+// SSE stream — was retired here. Each has full parity on api.* (see
+// internal/browserrpc), which every live frontend already used exclusively;
+// none of them had any remaining REST caller. What remains below is
+// /api/refdata/admin/* — a deliberate, permanent exemption (not un-migrated
+// business REST): accounts-service's server-to-server RefdataClient
+// (accounts-service/accounts/refdata.go) calls these routes directly and has
+// no NATS path of its own for refdata admin writes yet.
 //
 // Routes:
 //
-//	GET    /api/refdata/{context}/types                  list registered dictionary types
 //	POST   /api/refdata/admin/types                       register a dictionary type
-//	GET    /api/refdata/{context}/{type}                  list items, optionally locale-resolved (?locale=), assignable only; ?all=true includes deprecated (BR-D06)
-//	GET    /api/refdata/{context}/{type}/{code}            get one item, any status (BR-D06); ?locale= resolves a label (BR-D03); ?expand= inlines a reference target
-//	GET    /api/refdata/{context}/{type}/{code}/localizations  every locale's localization recorded for the item
-//	GET    /api/refdata/{context}/{type}/{code}/references     every outbound reference recorded from the item
-//	GET    /api/refdata/{context}/{type}/completeness      localization completeness for a locale (?locale=)
-//	GET    /api/refdata/{context}/{type}/cache-status      Postgres set version vs KV _meta version (cache status widget)
 //	POST   /api/refdata/admin/items                        register an item (BR-D01)
 //	POST   /api/refdata/admin/items/{type}/{context}/{code}/deprecate  deprecate an item
 //	POST   /api/refdata/admin/items/{type}/{context}/{code}/reactivate reactivate a deprecated item (BR-D12)
 //	PATCH  /api/refdata/admin/items/{type}/{context}/{code}/attrs      replace an item's attrs map (BR-D18)
 //	DELETE /api/refdata/admin/items/{type}/{context}/{code} delete an unreferenced item (BR-D02)
 //	POST   /api/refdata/admin/references                   create a typed reference (BR-D05)
-//	GET    /api/refdata/{context}/locales                  locales known to this context
 //	POST   /api/refdata/admin/locales                      register a locale for a context
 //	POST   /api/refdata/admin/localizations                 set an item's label/description in one locale
 //	POST   /api/refdata/admin/{type}/{code}/translate        draft AI-assisted translations, unsaved (BR-D07)
-//	GET    /api/refdata-watch/{context}                     SSE stream of refdata-{context} KV cache changes
+//	POST   /api/refdata/admin/contexts                      register a context
+//	GET    /api/refdata/admin/contexts                      list contexts (optional ?tenant=)
+//	GET    /api/refdata/admin/contexts/{context}/detail      get one context, with ancestors/descendants
+//	PATCH  /api/refdata/admin/contexts/{context}/visible     toggle a context's visibility (BR-D38)
+//	POST   /api/refdata/admin/corpus/{context}/draft         open a corpus draft
+//	GET    /api/refdata/admin/corpus/{context}/draft         read the open draft's contents
+//	PUT    /api/refdata/admin/corpus/{context}/draft/items         upsert one draft item
+//	PUT    /api/refdata/admin/corpus/{context}/draft/localizations upsert one draft localization
+//	POST   /api/refdata/admin/corpus/{context}/publish       publish the open draft
+//	POST   /api/refdata/admin/corpus/{context}/rollback/{version}  roll back to a prior published version
+//	GET    /api/refdata/admin/corpus/{context}/versions      list corpus versions
+//	GET    /api/refdata/admin/corpus/{context}/versions/{version}  get one corpus version's contents
+//	GET    /api/refdata/admin/corpus/{context}/diff/{from}/{to}    diff two corpus versions
 package rest
 
 import (
@@ -94,14 +110,6 @@ type corpusContentsResponse struct {
 type corpusDiffResponse struct {
 	Entries []domain.CorpusDiffEntry `json:"entries"`
 }
-type versionedItemsResponse struct {
-	Items []kvcache.VersionedEntry `json:"items"`
-}
-
-type typesResponse struct {
-	Types []domain.DictionaryType `json:"types"`
-}
-
 type itemRequest struct {
 	TypeKey string         `json:"typeKey"`
 	Code    string         `json:"code"`
@@ -115,18 +123,6 @@ type itemResponse struct {
 
 type updateAttrsRequest struct {
 	Attrs map[string]any `json:"attrs"`
-}
-
-type itemsResponse struct {
-	Items []domain.DictionaryItem `json:"items"`
-}
-
-type localizationsResponse struct {
-	Localizations []domain.Localization `json:"localizations"`
-}
-
-type referencesResponse struct {
-	References []domain.DictionaryReference `json:"references"`
 }
 
 type referenceRequest struct {
@@ -177,42 +173,6 @@ type localeRequest struct {
 	IsDefault bool   `json:"isDefault"`
 }
 
-type localesResponse struct {
-	Locales []string `json:"locales"`
-	// DefaultLocale is "" when no locale is marked default for the context.
-	DefaultLocale string `json:"defaultLocale"`
-}
-
-type resolvedItemResponse struct {
-	Item        domain.DictionaryItem `json:"item"`
-	Locale      string                `json:"locale,omitempty"`
-	Label       string                `json:"label,omitempty"`
-	Description string                `json:"description,omitempty"`
-	// IsFallback is nil when no ?locale= resolution was attempted at all (the
-	// plain item branch below) — a pointer so that case omits it entirely,
-	// distinct from the zero-value "false" once resolution was attempted.
-	// When resolution was attempted (BR-D03): false means the requested
-	// locale (or its bare language) matched exactly; true means either a
-	// default-locale substitution or the terminal code-echo.
-	IsFallback *bool                  `json:"isFallback,omitempty"`
-	Expanded   *domain.DictionaryItem `json:"expanded,omitempty"`
-}
-
-type completenessResponse struct {
-	TypeKey   string `json:"typeKey"`
-	Locale    string `json:"locale"`
-	Total     int    `json:"total"`
-	Localized int    `json:"localized"`
-}
-
-type cacheStatusResponse struct {
-	TypeKey         string `json:"typeKey"`
-	PostgresVersion int    `json:"postgresVersion"`
-	KVVersion       int    `json:"kvVersion"`
-	KVItemCount     int    `json:"kvItemCount"`
-	InSync          bool   `json:"inSync"`
-}
-
 // Deps bundles everything the HTTP layer needs.
 type Deps struct {
 	Types         *commands.TypeHandler
@@ -258,35 +218,8 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/refdata/admin/corpus/{context}/versions", h.listCorpusVersions)
 	mux.HandleFunc("GET /api/refdata/admin/corpus/{context}/versions/{version}", h.getCorpusVersion)
 	mux.HandleFunc("GET /api/refdata/admin/corpus/{context}/diff/{from}/{to}", h.diffCorpus)
-	// "latest" is a valid dynamic value of {version}, not a second route —
-	// registering it as its own literal-prefixed pattern (`v/latest/...`)
-	// alongside `v/{version}/...` created two DIFFERENT ambiguity panics in a
-	// row against Go's net/http ServeMux (each only surfaces once a route
-	// with a literal in a position the other treats as wildcard is combined
-	// with a third route that has ITS literal at yet another position — see
-	// the design doc's "Versioned Read" section for the specifics). One
-	// pattern per shape, with the handler branching on the literal string
-	// "latest", sidesteps the whole class of conflict.
-	//
-	// "/items" (not a bare .../v/{version}/{context}/{type}) is deliberate
-	// too: a bare 4-segment shape there is structurally ambiguous against
-	// the pre-existing {context}/{type}/{code}/localizations and
-	// .../references routes for the same reason as the contexts/{context}
-	// fix above. The trailing literal is a strict specialization of the
-	// get-one route's shape (only one position differs, and only one side
-	// is a literal there), which Go's mux does allow.
-	mux.HandleFunc("GET /api/refdata/v/{version}/{context}/{type}/{code}", h.getVersionedItem)
-	mux.HandleFunc("GET /api/refdata/v/{version}/{context}/{type}/items", h.listVersionedItems)
-	mux.HandleFunc("GET /api/refdata/{context}/types", h.listTypes)
 	mux.HandleFunc("POST /api/refdata/admin/types", h.registerType)
-	mux.HandleFunc("GET /api/refdata/{context}/locales", h.listLocales)
 	mux.HandleFunc("POST /api/refdata/admin/locales", h.addLocale)
-	mux.HandleFunc("GET /api/refdata/{context}/{type}/completeness", h.completeness)
-	mux.HandleFunc("GET /api/refdata/{context}/{type}/cache-status", h.cacheStatus)
-	mux.HandleFunc("GET /api/refdata/{context}/{type}", h.listItems)
-	mux.HandleFunc("GET /api/refdata/{context}/{type}/{code}", h.getItem)
-	mux.HandleFunc("GET /api/refdata/{context}/{type}/{code}/localizations", h.listItemLocalizations)
-	mux.HandleFunc("GET /api/refdata/{context}/{type}/{code}/references", h.listItemReferences)
 	mux.HandleFunc("POST /api/refdata/admin/items", h.registerItem)
 	mux.HandleFunc("POST /api/refdata/admin/items/{type}/{context}/{code}/deprecate", h.deprecateItem)
 	mux.HandleFunc("POST /api/refdata/admin/items/{type}/{context}/{code}/reactivate", h.reactivateItem)
@@ -295,7 +228,6 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/refdata/admin/references", h.createReference)
 	mux.HandleFunc("POST /api/refdata/admin/localizations", h.setLocalization)
 	mux.HandleFunc("POST /api/refdata/admin/{type}/{code}/translate", h.draftTranslation)
-	mux.HandleFunc("GET /api/refdata-watch/{context}", h.watch)
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 }
 
@@ -486,89 +418,6 @@ func (h *Handlers) diffCorpus(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, corpusDiffResponse{Entries: entries})
 }
 
-// getVersionedItem and listVersionedItems are the versioned-read surface
-// (§7 "Versioned Read") — the consumer-facing counterpart to the admin
-// corpus endpoints above. Every read is rewrite-on-read
-// (kvcache.VersionReader), keeping a pinned old version warm. {version}
-// accepts either a number or the literal "latest" — see resolveVersion.
-func (h *Handlers) getVersionedItem(w http.ResponseWriter, r *http.Request) {
-	if h.deps.VersionReader == nil {
-		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "versioned reads are not configured"})
-		return
-	}
-	version, err := h.resolveVersion(r)
-	if err != nil {
-		h.writeError(w, err)
-		return
-	}
-	entry, err := h.deps.VersionReader.Get(r.Context(), r.PathValue("context"), version, r.PathValue("type"), r.PathValue("code"))
-	if err != nil {
-		h.writeVersionedError(w, err)
-		return
-	}
-	h.writeJSON(w, http.StatusOK, entry)
-}
-
-func (h *Handlers) listVersionedItems(w http.ResponseWriter, r *http.Request) {
-	if h.deps.VersionReader == nil {
-		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "versioned reads are not configured"})
-		return
-	}
-	version, err := h.resolveVersion(r)
-	if err != nil {
-		h.writeError(w, err)
-		return
-	}
-	entries, err := h.deps.VersionReader.List(r.Context(), r.PathValue("context"), version, r.PathValue("type"))
-	if err != nil {
-		h.writeVersionedError(w, err)
-		return
-	}
-	h.writeJSON(w, http.StatusOK, versionedItemsResponse{Items: entries})
-}
-
-var errInvalidVersion = errors.New("invalid version")
-
-// resolveVersion parses {version}. The literal "latest" resolves to the
-// highest-numbered version currently in 'published' status — versions
-// coexist indefinitely (version pinning), so this is deliberately not just
-// MAX(version): a rolled-back version must not win.
-func (h *Handlers) resolveVersion(r *http.Request) (int, error) {
-	raw := r.PathValue("version")
-	if raw != "latest" {
-		var version int
-		if _, err := fmt.Sscanf(raw, "%d", &version); err != nil {
-			return 0, fmt.Errorf("%w: %q", errInvalidVersion, raw)
-		}
-		return version, nil
-	}
-	if h.deps.Corpus == nil {
-		return 0, domain.ErrContextNotFound
-	}
-	versions, err := h.deps.Corpus.Versions(r.Context(), r.PathValue("context"))
-	if err != nil {
-		return 0, err
-	}
-	latest := -1
-	for _, v := range versions {
-		if v.Status == domain.CorpusPublished && v.Version > latest {
-			latest = v.Version
-		}
-	}
-	if latest < 0 {
-		return 0, domain.ErrContextNotFound
-	}
-	return latest, nil
-}
-
-func (h *Handlers) writeVersionedError(w http.ResponseWriter, err error) {
-	if errors.Is(err, kvcache.ErrVersionedKeyNotFound) {
-		h.writeJSON(w, http.StatusNotFound, errorResponse{Error: err.Error()})
-		return
-	}
-	h.writeError(w, err)
-}
-
 func (h *Handlers) registerContext(w http.ResponseWriter, r *http.Request) {
 	if h.deps.Contexts == nil {
 		h.writeJSON(w, http.StatusNotImplemented, errorResponse{Error: "context hierarchy is not configured"})
@@ -659,23 +508,6 @@ func (h *Handlers) setContextVisible(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// @Summary      List dictionary types
-// @Description  Lists every registered dictionary type (currency, country, incoterm, …).
-// @Tags         types
-// @Produce      json
-// @Param        context  path      string  true  "tenant/region context"
-// @Success      200      {object}  typesResponse
-// @Failure      500      {object}  errorResponse
-// @Router       /api/refdata/{context}/types [get]
-func (h *Handlers) listTypes(w http.ResponseWriter, r *http.Request) {
-	types, err := h.deps.Types.ListTypes(r.Context())
-	if err != nil {
-		h.writeError(w, err)
-		return
-	}
-	h.writeJSON(w, http.StatusOK, typesResponse{Types: types})
-}
-
 // @Summary      Register a dictionary type
 // @Description  Registers (or updates the name/description/category of) a dictionary type, e.g. "currency". Category (BR-D09) must be one of "standards", "domain-enum", "domain-string", "config".
 // @Tags         types
@@ -699,233 +531,6 @@ func (h *Handlers) registerType(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
-}
-
-// @Summary      List items
-// @Description  Lists items of a dictionary type in a context, optionally locale-resolved (BR-D03). Excludes deprecated items unless ?all=true is passed (BR-D06).
-// @Tags         items
-// @Produce      json
-// @Param        context  path      string  true   "tenant/region context"
-// @Param        type     path      string  true   "dictionary type key"
-// @Param        all      query     bool    false  "include deprecated items"
-// @Param        locale   query     string  false  "resolve each item's label in this locale"
-// @Success      200      {object}  itemsResponse
-// @Failure      500      {object}  errorResponse
-// @Router       /api/refdata/{context}/{type} [get]
-func (h *Handlers) listItems(w http.ResponseWriter, r *http.Request) {
-	typeKey := r.PathValue("type")
-	itemContext := r.PathValue("context")
-
-	var items []domain.DictionaryItem
-	var err error
-	if r.URL.Query().Get("all") == "true" {
-		items, err = h.deps.Items.ListAll(r.Context(), typeKey, itemContext)
-	} else {
-		items, err = h.deps.Items.ListAssignable(r.Context(), typeKey, itemContext)
-	}
-	if err != nil {
-		h.writeError(w, err)
-		return
-	}
-
-	locale := r.URL.Query().Get("locale")
-	if locale == "" || h.deps.Localizations == nil {
-		h.writeJSON(w, http.StatusOK, itemsResponse{Items: items})
-		return
-	}
-
-	resolved := make([]resolvedItemResponse, 0, len(items))
-	for _, item := range items {
-		res, err := h.deps.Localizations.ResolveItem(r.Context(), typeKey, itemContext, item.Code, locale)
-		if err != nil {
-			h.writeError(w, err)
-			return
-		}
-		isFallback := res.Localization.IsFallback
-		resolved = append(resolved, resolvedItemResponse{
-			Item: res.Item, Locale: res.Localization.Locale,
-			Label: res.Localization.Label, Description: res.Localization.Description,
-			IsFallback: &isFallback,
-		})
-	}
-	h.writeJSON(w, http.StatusOK, struct {
-		Items []resolvedItemResponse `json:"items"`
-	}{Items: resolved})
-}
-
-// @Summary      Get an item
-// @Description  Resolves a single item regardless of status (BR-D06: deprecated items still resolve). ?locale= resolves a label via BR-D03's fallback chain (response includes "isFallback": true/false — false means the exact requested locale matched, true means a default-locale substitution or code-echo); ?expand= inlines the item a named relation points to.
-// @Tags         items
-// @Produce      json
-// @Param        context  path      string  true   "tenant/region context"
-// @Param        type     path      string  true   "dictionary type key"
-// @Param        code     path      string  true   "item code"
-// @Param        locale   query     string  false  "resolve the label in this locale (BR-D03)"
-// @Param        expand   query     string  false  "relation name to expand into the response"
-// @Success      200      {object}  resolvedItemResponse
-// @Failure      404      {object}  errorResponse
-// @Router       /api/refdata/{context}/{type}/{code} [get]
-func (h *Handlers) getItem(w http.ResponseWriter, r *http.Request) {
-	typeKey, itemContext, code := r.PathValue("type"), r.PathValue("context"), r.PathValue("code")
-
-	resp := resolvedItemResponse{}
-	locale := r.URL.Query().Get("locale")
-	if locale != "" && h.deps.Localizations != nil {
-		resolved, err := h.deps.Localizations.ResolveItem(r.Context(), typeKey, itemContext, code, locale)
-		if err != nil {
-			h.writeError(w, err)
-			return
-		}
-		resp.Item = resolved.Item
-		resp.Locale = resolved.Localization.Locale
-		resp.Label = resolved.Localization.Label
-		resp.Description = resolved.Localization.Description
-		isFallback := resolved.Localization.IsFallback
-		resp.IsFallback = &isFallback
-	} else {
-		item, err := h.deps.Items.Get(r.Context(), typeKey, itemContext, code)
-		if err != nil {
-			h.writeError(w, err)
-			return
-		}
-		resp.Item = item
-	}
-
-	if relation := r.URL.Query().Get("expand"); relation != "" {
-		expanded, err := h.deps.References.Expand(r.Context(), itemContext, typeKey, code, relation)
-		if err != nil {
-			h.writeError(w, err)
-			return
-		}
-		resp.Expanded = &expanded
-	}
-
-	// Best-effort cache backfill (Q5's miss path): a consumer calling this
-	// REST endpoint after a KV miss should find the cache warm next time.
-	// Never fails the response — Postgres already has the authoritative answer.
-	if h.deps.Projector != nil {
-		if err := h.deps.Projector.Backfill(r.Context(), itemContext, typeKey, code); err != nil && h.deps.Log != nil {
-			h.deps.Log.Warn("cache backfill failed", "type", typeKey, "code", code, "err", err)
-		}
-	}
-
-	h.writeJSON(w, http.StatusOK, resp)
-}
-
-// @Summary      List an item's localizations
-// @Description  Every locale's localization recorded for one item — the editor's Localizations tab.
-// @Tags         localization
-// @Produce      json
-// @Param        context  path      string  true  "tenant/region context"
-// @Param        type     path      string  true  "dictionary type key"
-// @Param        code     path      string  true  "item code"
-// @Success      200      {object}  localizationsResponse
-// @Failure      500      {object}  errorResponse
-// @Router       /api/refdata/{context}/{type}/{code}/localizations [get]
-func (h *Handlers) listItemLocalizations(w http.ResponseWriter, r *http.Request) {
-	locs, err := h.deps.Localizations.ListForItem(r.Context(), r.PathValue("type"), r.PathValue("context"), r.PathValue("code"))
-	if err != nil {
-		h.writeError(w, err)
-		return
-	}
-	h.writeJSON(w, http.StatusOK, localizationsResponse{Localizations: locs})
-}
-
-// @Summary      List an item's outbound references
-// @Description  Every typed reference recorded from one item — the editor's References tab.
-// @Tags         references
-// @Produce      json
-// @Param        context  path      string  true  "tenant/region context"
-// @Param        type     path      string  true  "dictionary type key"
-// @Param        code     path      string  true  "item code"
-// @Success      200      {object}  referencesResponse
-// @Failure      500      {object}  errorResponse
-// @Router       /api/refdata/{context}/{type}/{code}/references [get]
-func (h *Handlers) listItemReferences(w http.ResponseWriter, r *http.Request) {
-	refs, err := h.deps.References.ListFrom(r.Context(), r.PathValue("context"), r.PathValue("type"), r.PathValue("code"))
-	if err != nil {
-		h.writeError(w, err)
-		return
-	}
-	h.writeJSON(w, http.StatusOK, referencesResponse{References: refs})
-}
-
-// @Summary      Localization completeness
-// @Description  Reports how many of a type's items have a localization for the given locale.
-// @Tags         localization
-// @Produce      json
-// @Param        context  path      string  true  "tenant/region context"
-// @Param        type     path      string  true  "dictionary type key"
-// @Param        locale   query     string  true  "locale to check completeness for"
-// @Success      200      {object}  completenessResponse
-// @Failure      500      {object}  errorResponse
-// @Router       /api/refdata/{context}/{type}/completeness [get]
-func (h *Handlers) completeness(w http.ResponseWriter, r *http.Request) {
-	typeKey, itemContext := r.PathValue("type"), r.PathValue("context")
-	locale := r.URL.Query().Get("locale")
-	total, localized, err := h.deps.Localizations.Completeness(r.Context(), typeKey, itemContext, locale)
-	if err != nil {
-		h.writeError(w, err)
-		return
-	}
-	h.writeJSON(w, http.StatusOK, completenessResponse{TypeKey: typeKey, Locale: locale, Total: total, Localized: localized})
-}
-
-// @Summary      Cache status
-// @Description  Compares Postgres's current set version (BR-D04) against the refdata-{context} KV cache's {type}._meta version — the Q5 versioned-read protocol made visible for a cache status widget.
-// @Tags         localization
-// @Produce      json
-// @Param        context  path      string  true  "tenant/region context"
-// @Param        type     path      string  true  "dictionary type key"
-// @Success      200      {object}  cacheStatusResponse
-// @Failure      500      {object}  errorResponse
-// @Router       /api/refdata/{context}/{type}/cache-status [get]
-func (h *Handlers) cacheStatus(w http.ResponseWriter, r *http.Request) {
-	typeKey, itemContext := r.PathValue("type"), r.PathValue("context")
-
-	if h.deps.Versions == nil {
-		h.writeJSON(w, http.StatusOK, cacheStatusResponse{TypeKey: typeKey})
-		return
-	}
-	pgVersion, err := h.deps.Versions.Current(r.Context(), itemContext, typeKey)
-	if err != nil {
-		h.writeError(w, err)
-		return
-	}
-
-	resp := cacheStatusResponse{TypeKey: typeKey, PostgresVersion: pgVersion}
-	// Via the projector, not a direct KV.Get: it owns the BR-D31 key
-	// namespace, so the enum types' _meta is found where it actually lives.
-	if h.deps.Projector != nil {
-		if meta, err := h.deps.Projector.ReadMeta(r.Context(), itemContext, typeKey); err == nil && meta != nil {
-			resp.KVVersion = meta.Version
-			resp.KVItemCount = meta.ItemCount
-		}
-	}
-	resp.InSync = resp.KVVersion == resp.PostgresVersion
-	h.writeJSON(w, http.StatusOK, resp)
-}
-
-// @Summary      List locales
-// @Description  Lists locales registered for a context, including which one is the default.
-// @Tags         localization
-// @Produce      json
-// @Param        context  path      string  true  "tenant/region context"
-// @Success      200      {object}  localesResponse
-// @Failure      500      {object}  errorResponse
-// @Router       /api/refdata/{context}/locales [get]
-func (h *Handlers) listLocales(w http.ResponseWriter, r *http.Request) {
-	locales, err := h.deps.Localizations.ListLocales(r.Context(), r.PathValue("context"))
-	if err != nil {
-		h.writeError(w, err)
-		return
-	}
-	defaultLocale, err := h.deps.Localizations.DefaultLocale(r.Context(), r.PathValue("context"))
-	if err != nil {
-		h.writeError(w, err)
-		return
-	}
-	h.writeJSON(w, http.StatusOK, localesResponse{Locales: locales, DefaultLocale: defaultLocale})
 }
 
 // @Summary      Register a locale
@@ -1178,8 +783,6 @@ func (h *Handlers) writeError(w http.ResponseWriter, err error) {
 		status = http.StatusConflict
 	case errors.Is(err, domain.ErrDraftNotFound):
 		status = http.StatusNotFound
-	case errors.Is(err, errInvalidVersion):
-		status = http.StatusBadRequest
 	}
 	if h.deps.Log != nil && status == http.StatusInternalServerError {
 		h.deps.Log.Error("refdata request failed", "err", err)

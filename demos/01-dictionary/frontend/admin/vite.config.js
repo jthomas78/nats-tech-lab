@@ -45,14 +45,11 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/platform/, '/api'),
         headers: { Authorization: 'Basic YWRtaW46YWNjb3VudHMtc3Bpa2UtcGFzcw==' },
       },
-      // Phase 26 — trading-partner-service. Context-scoped, so (like
-      // nginx.conf's production rule) no prefix rewrite is needed, just a
-      // passthrough with the shared BasicAuth secret injected.
-      '/api/trading-partners': {
-        target: 'http://localhost:7204',
-        changeOrigin: true,
-        headers: { Authorization: 'Basic YWRtaW46dHJhZGluZy1wYXJ0bmVyLXNwaWtlLXBhc3M=' },
-      },
+      // Phase 33.5 removed trading-partner-service's REST proxy rule —
+      // `/api/trading-partners/*` was deleted outright once
+      // TradingPartnersPanel.vue's api.* parity was confirmed; the only
+      // route trading-partner-service still serves over HTTP is /healthz,
+      // which the Admin UI never calls through this proxy.
       // Phase 30h — the cross-account NATS/JetStream diagnostic endpoints
       // (Connections, Services, Account Activity, Log, KV, Streams/Replay)
       // moved to observability-service. More specific than the general

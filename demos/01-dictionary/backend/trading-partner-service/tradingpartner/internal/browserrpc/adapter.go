@@ -15,9 +15,11 @@
 //     marketplace/tender phase that finally gives BR-TP04's Suspend an
 //     enforcement consumer — not speculatively now.
 //
-//   - REST (internal/rest) stays wired and serving the same operations: this
-//     is a dual transport, matching pricing-service, not a replacement. The
-//     REST layer remains the curl-friendly surface used to verify Phase 26.
+//   - REST (internal/rest) used to stay wired and serve the same operations
+//     as a dual transport, matching pricing-service — but Phase 33.5 deleted
+//     that business REST outright (no admin/operator routes existed to
+//     reclassify), so api.* is now the only business transport. REST is
+//     /healthz only.
 //
 //   - Two things a handler here must never take from the request body, because
 //     the transport already carries them authoritatively:
@@ -453,17 +455,18 @@ func contextFromSubject(subject string) string {
 const (
 	// actorHeader is the api.* equivalent of REST's X-Actor header.
 	actorHeader = "X-Actor"
-	// defaultActor mirrors rest.BasicAuthUser's value rather than importing it:
-	// both are placeholders for the same not-yet-existent human identity, and
-	// coupling the two transport adapters to share a constant would outlive the
-	// placeholder itself.
+	// defaultActor is a placeholder for the not-yet-existent human identity
+	// this service will eventually carry once WorkOS-backed human auth lands
+	// for the whole POC. Pre-Phase-33.5 this mirrored REST's BasicAuthUser
+	// value ("admin"); that REST layer is gone, but the placeholder name is
+	// kept unchanged since nothing about the identity it stands in for has
+	// changed.
 	defaultActor = "admin"
 )
 
-// actor builds BR-TP06's audit actor. Deliberately at exactly the same
-// (low) trust level as REST's auditActor: an optional client-supplied header
-// over a fixed placeholder, neither authenticated, both standing in until
-// WorkOS-backed human auth lands for the whole POC.
+// actor builds BR-TP06's audit actor: an optional client-supplied header
+// over a fixed placeholder, neither authenticated — a standing placeholder
+// until WorkOS-backed human auth lands for the whole POC.
 //
 // SourceIP has no NATS equivalent — micro.Request exposes no client address —
 // so it carries the caller's Nats-Requestor identity instead, prefixed to make

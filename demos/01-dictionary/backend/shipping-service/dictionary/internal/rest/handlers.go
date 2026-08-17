@@ -1,25 +1,16 @@
-// Package rest exposes the shipping module over HTTP.
+// Package rest exposes shipping-service's infra/admin HTTP surface — never
+// business operations. BR-039 (Phase 33): every business operation (ship/
+// container/terminal/manifest/ports/meta) is reachable only over
+// api.*/rpc.* (see internal/browserrpc), never REST — this package now
+// carries only health, admin diagnostics, and tenant-switch.
 //
 // Routes:
 //
-//	POST   /api/ships/arrive                          arrive at port (fires ship.arrived event; mints a surrogate id implicitly on first arrival)
-//	POST   /api/ships/depart                          depart from port (fires ship.departed event)
-//	POST   /api/ships/register                        mint a ship's surrogate id explicitly (BR-021, optional — see arrive)
-//	POST   /api/ships/correct-id                      rename a ship's shipID, preserving its surrogate id (BR-022)
-//	POST   /api/containers/register                   register container in origin terminal (container.registered)
-//	POST   /api/containers/load                       load container onto docked ship (container.loaded)
-//	POST   /api/containers/unload                     unload container at destination (container.unloaded)
-//	GET    /api/containers/{context}                  all containers in the context
-//	GET    /api/terminal/{context}/{port}             containers in the terminal yard at a port
-//	GET    /api/manifest/{context}/{shipID}           containers on a ship (the manifest join)
-//	GET    /api/ports/{context}                       every port registered for the fleet context
-//	POST   /api/ports                                 register a new port (context, name)
-//	GET    /api/admin/ports/{context}                 raw ports table rows (name + createdAt) — admin Postgres Tables panel
-//	GET    /api/meta/{context}/known-containers       every container ID ever registered
-//	GET    /api/shape-b/ships/{context}/{shipID}      read ship via KV cache → Postgres
-//	DELETE /api/shape-b/cache/{context}/{shipID}      evict cache key (demo the miss path)
-//	GET    /api/tenant                                 active tenant + switchable tenant list (Phase 13b)
-//	POST   /api/tenant/switch                          reconnect under a different tenant's NATS account (Phase 13b)
+//	GET    /api/admin/ports/{context}                       raw ports table rows (name + createdAt) — admin Postgres Tables panel
+//	GET    /api/admin/read-path/ships/{context}/{shipID}    read ship via KV cache → Postgres (Shape B diagnostics)
+//	DELETE /api/admin/read-path/cache/{context}/{shipID}    evict cache key (demo the miss path)
+//	GET    /api/tenant                                       active tenant + switchable tenant list (Phase 13b)
+//	POST   /api/tenant/switch                                reconnect under a different tenant's NATS account (Phase 13b)
 //
 // Phase 30h moved the cross-account NATS/JetStream diagnostic routes
 // (/api/kv/buckets*, /api/jetstream/streams, /api/jetstream/replay,
@@ -27,10 +18,18 @@
 // /api/nats/log) to observability-service — none of it was shipping domain
 // logic, and this service only ever held it because it was the one service
 // with cross-account NATS reach at the time (Main-POC-Plan.md Phase 30).
+//
+// Phase 33 deleted this package's business routes (/api/ships/*,
+// /api/containers/*, /api/terminal/*, /api/manifest/*, /api/ports/*,
+// /api/meta/*) outright — every one of them already had an api.* equivalent
+// in internal/browserrpc (the last gap, GET /api/manifest/{context}/{shipID},
+// was closed by adding api.*.shipping.container.manifest.v1 in the same
+// phase, BR-039) — and renamed /api/shape-b/* to /api/admin/read-path/* to
+// reflect that it was always an admin diagnostics panel, not a business
+// route, just misclassified by name.
 package rest
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -49,26 +48,10 @@ import (
 
 // Swagger response envelope types — used only for OpenAPI schema generation.
 
-type shipResponse struct {
-	Ship domain.ShipState `json:"ship"`
-}
-
 type shipBResponse struct {
 	Ship     domain.ShipState `json:"ship"`
 	CacheHit bool             `json:"cacheHit"`
 	Source   string           `json:"source"` // "kv-cache" or "postgres"
-}
-
-type containerResponse struct {
-	Container domain.ContainerState `json:"container"`
-}
-
-type containersResponse struct {
-	Containers []domain.ContainerState `json:"containers"`
-}
-
-type metaValuesResponse struct {
-	Values []string `json:"values"`
 }
 
 type errorResponse struct {
@@ -170,22 +153,9 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	handle := func(pattern string, fn http.HandlerFunc) {
 		mux.HandleFunc(pattern, h.httpTraceMiddleware(fn))
 	}
-	handle("POST /api/ships/arrive", h.arrivePort)
-	handle("POST /api/ships/depart", h.departPort)
-	handle("POST /api/ships/register", h.registerShip)
-	handle("POST /api/ships/correct-id", h.correctShipID)
-	handle("POST /api/containers/register", h.registerContainer)
-	handle("POST /api/containers/load", h.loadContainer)
-	handle("POST /api/containers/unload", h.unloadContainer)
-	handle("GET /api/containers/{context}", h.listContainers)
-	handle("GET /api/terminal/{context}/{port}", h.terminalByPort)
-	handle("GET /api/manifest/{context}/{shipID}", h.manifestByShip)
-	handle("GET /api/ports/{context}", h.listPorts)
-	handle("POST /api/ports", h.registerPort)
 	handle("GET /api/admin/ports/{context}", h.adminPortsTable)
-	handle("GET /api/meta/{context}/known-containers", h.knownContainers)
-	handle("GET /api/shape-b/ships/{context}/{shipID}", h.getShipShapeB)
-	handle("DELETE /api/shape-b/cache/{context}/{shipID}", h.evictShipCache)
+	handle("GET /api/admin/read-path/ships/{context}/{shipID}", h.getShipShapeB)
+	handle("DELETE /api/admin/read-path/cache/{context}/{shipID}", h.evictShipCache)
 	handle("GET /api/tenant", h.getTenant)
 	handle("POST /api/tenant/switch", h.switchTenant)
 	// Phase 32 removed this service's five refdata relay routes
@@ -195,6 +165,11 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	// data; refdata-service now serves browsers directly over its own
 	// api.*.refdata.* subjects (BR-D41) with change notification over
 	// notify.* (BR-D42).
+	//
+	// Phase 33 deleted /api/ships/*, /api/containers/*, /api/terminal/*,
+	// /api/manifest/*, /api/ports/* (GET+POST), and /api/meta/* outright —
+	// see the package doc comment above (BR-039) — and renamed
+	// /api/shape-b/* to /api/admin/read-path/* above.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -203,291 +178,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	))
 }
 
-// ─── Ship commands ────────────────────────────────────────────────────────────
-
-// arrivePort godoc
-//
-// @Summary      Arrive at port
-// @Description  Ship arrives at a port. Validates domain rules (must not already be docked), then publishes a ship.arrived event to JetStream.
-// @Tags         ships
-// @Accept       json
-// @Produce      json
-// @Param        body  body      commands.ShipInput  true  "context, shipID, shipName (first arrival only), port"
-// @Success      202   {object}  shipResponse
-// @Failure      400   {object}  errorResponse
-// @Failure      422   {object}  errorResponse  "Domain rule violation"
-// @Router       /api/ships/arrive [post]
-func (h *Handlers) arrivePort(w http.ResponseWriter, r *http.Request) {
-	var in commands.ShipInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	state, err := h.deps().Ships.ArrivePort(r.Context(), in)
-	if err != nil {
-		h.writeCommandError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"ship": state})
-}
-
-// departPort godoc
-//
-// @Summary      Depart from port
-// @Description  Ship departs from a port. Validates that the ship is currently docked at the named port, then publishes a ship.departed event.
-// @Tags         ships
-// @Accept       json
-// @Produce      json
-// @Param        body  body      commands.ShipInput  true  "context, shipID, port"
-// @Success      202   {object}  shipResponse
-// @Failure      400   {object}  errorResponse
-// @Failure      422   {object}  errorResponse  "Domain rule violation"
-// @Router       /api/ships/depart [post]
-func (h *Handlers) departPort(w http.ResponseWriter, r *http.Request) {
-	var in commands.ShipInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	state, err := h.deps().Ships.DepartPort(r.Context(), in)
-	if err != nil {
-		h.writeCommandError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"ship": state})
-}
-
-// registerShip godoc
-//
-// @Summary      Register ship
-// @Description  Mints a ship's surrogate identity explicitly (BR-021: a shipID can only be registered once). Optional — ArrivePort mints one implicitly on a ship's first arrival. Publishes a ship.registered event.
-// @Tags         ships
-// @Accept       json
-// @Produce      json
-// @Param        body  body      commands.ShipInput  true  "context, shipID, shipName"
-// @Success      202   {object}  shipResponse
-// @Failure      400   {object}  errorResponse
-// @Failure      422   {object}  errorResponse  "Domain rule violation"
-// @Router       /api/ships/register [post]
-func (h *Handlers) registerShip(w http.ResponseWriter, r *http.Request) {
-	var in commands.ShipInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	state, err := h.deps().Ships.RegisterShip(r.Context(), in)
-	if err != nil {
-		h.writeCommandError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"ship": state})
-}
-
-// correctShipID godoc
-//
-// @Summary      Correct a ship's shipID
-// @Description  Renames a registered ship's natural key (BR-022: newShipID must be valid and not currently in use by another ship in the context), preserving its surrogate identity. Publishes a ship.corrected event.
-// @Tags         ships
-// @Accept       json
-// @Produce      json
-// @Param        body  body      commands.ShipCorrectionInput  true  "context, shipID, newShipID"
-// @Success      202   {object}  shipResponse
-// @Failure      400   {object}  errorResponse
-// @Failure      422   {object}  errorResponse  "Domain rule violation"
-// @Router       /api/ships/correct-id [post]
-func (h *Handlers) correctShipID(w http.ResponseWriter, r *http.Request) {
-	var in commands.ShipCorrectionInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	state, err := h.deps().Ships.CorrectShipID(r.Context(), in)
-	if err != nil {
-		h.writeCommandError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"ship": state})
-}
-
-// ─── Container commands ───────────────────────────────────────────────────────
-
-// registerContainer godoc
-//
-// @Summary      Register container
-// @Description  Registers a new container in its origin port's terminal yard (BR-015: a container ID can only be registered once; BR-016: container ID must be TCKU + 7 digits). Publishes a container.registered event.
-// @Tags         containers
-// @Accept       json
-// @Produce      json
-// @Param        body  body      commands.ContainerInput  true  "context, containerID (ISO 6346), cargo, originPort, destPort"
-// @Success      202   {object}  containerResponse
-// @Failure      400   {object}  errorResponse
-// @Failure      422   {object}  errorResponse  "Domain rule violation"
-// @Router       /api/containers/register [post]
-func (h *Handlers) registerContainer(w http.ResponseWriter, r *http.Request) {
-	h.containerCommand(w, r, h.deps().Containers.RegisterContainer)
-}
-
-// loadContainer godoc
-//
-// @Summary      Load container onto ship
-// @Description  Crane-loads a container onto a docked ship. Enforces BR-008, BR-010, BR-012 and BR-014 from one atomic replay of the SHIPPING stream (both aggregates share it in Phase 8). Publishes a container.loaded event.
-// @Tags         containers
-// @Accept       json
-// @Produce      json
-// @Param        body  body      commands.ContainerInput  true  "context, containerID, shipID"
-// @Success      202   {object}  containerResponse
-// @Failure      400   {object}  errorResponse
-// @Failure      404   {object}  errorResponse  "Container not registered"
-// @Failure      422   {object}  errorResponse  "Domain rule violation"
-// @Router       /api/containers/load [post]
-func (h *Handlers) loadContainer(w http.ResponseWriter, r *http.Request) {
-	h.containerCommand(w, r, h.deps().Containers.LoadContainer)
-}
-
-// unloadContainer godoc
-//
-// @Summary      Unload container from ship
-// @Description  Crane-unloads a container into the terminal at the ship's current port. Enforces BR-009, BR-011, BR-012 and BR-013. Publishes a container.unloaded event.
-// @Tags         containers
-// @Accept       json
-// @Produce      json
-// @Param        body  body      commands.ContainerInput  true  "context, containerID, shipID"
-// @Success      202   {object}  containerResponse
-// @Failure      400   {object}  errorResponse
-// @Failure      404   {object}  errorResponse  "Container not registered"
-// @Failure      422   {object}  errorResponse  "Domain rule violation"
-// @Router       /api/containers/unload [post]
-func (h *Handlers) unloadContainer(w http.ResponseWriter, r *http.Request) {
-	h.containerCommand(w, r, h.deps().Containers.UnloadContainer)
-}
-
-func (h *Handlers) containerCommand(
-	w http.ResponseWriter,
-	r *http.Request,
-	cmd func(context.Context, commands.ContainerInput) (domain.ContainerState, error),
-) {
-	var in commands.ContainerInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	state, err := cmd(r.Context(), in)
-	if err != nil {
-		h.writeCommandError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"container": state})
-}
-
-// ─── Terminal / meta queries ──────────────────────────────────────────────────
-
-// listContainers godoc
-//
-// @Summary      List all containers
-// @Description  Returns every container state in the context's KV projection.
-// @Tags         terminal
-// @Produce      json
-// @Param        context  path      string  true  "Fleet context (e.g. acme)"
-// @Success      200      {object}  containersResponse
-// @Failure      500      {object}  errorResponse
-// @Router       /api/containers/{context} [get]
-func (h *Handlers) listContainers(w http.ResponseWriter, r *http.Request) {
-	containers, err := h.deps().Terminal.List(r.Context(), r.PathValue("context"))
-	if err != nil {
-		h.writeQueryError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"containers": containers})
-}
-
-// terminalByPort godoc
-//
-// @Summary      Containers in a terminal yard
-// @Description  Returns the containers currently in-terminal at the given port (terminalPort match — no status branching).
-// @Tags         terminal
-// @Produce      json
-// @Param        context  path      string  true  "Fleet context"
-// @Param        port     path      string  true  "Port name (e.g. Hamburg)"
-// @Success      200      {object}  containersResponse
-// @Failure      500      {object}  errorResponse
-// @Router       /api/terminal/{context}/{port} [get]
-func (h *Handlers) terminalByPort(w http.ResponseWriter, r *http.Request) {
-	containers, err := h.deps().Terminal.ListByPort(r.Context(), r.PathValue("context"), r.PathValue("port"))
-	if err != nil {
-		h.writeQueryError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"containers": containers})
-}
-
-// manifestByShip godoc
-//
-// @Summary      Ship manifest
-// @Description  Returns the containers currently on the named ship (onShipID join) — the ship aggregate no longer carries a manifest itself.
-// @Tags         terminal
-// @Produce      json
-// @Param        context  path      string  true  "Fleet context"
-// @Param        shipID   path      string  true  "Ship identifier"
-// @Success      200      {object}  containersResponse
-// @Failure      500      {object}  errorResponse
-// @Router       /api/manifest/{context}/{shipID} [get]
-func (h *Handlers) manifestByShip(w http.ResponseWriter, r *http.Request) {
-	containers, err := h.deps().Terminal.ListByShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
-	if err != nil {
-		h.writeQueryError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"containers": containers})
-}
-
-// listPorts godoc
-//
-// @Summary      List registered ports
-// @Description  Every port registered for the fleet context. Backed by the Postgres ports reference table (BR-017, BR-018) — plain master data, not event-derived.
-// @Tags         ports
-// @Produce      json
-// @Param        context  path      string  true  "Fleet context"
-// @Success      200      {object}  metaValuesResponse
-// @Failure      500      {object}  errorResponse
-// @Router       /api/ports/{context} [get]
-func (h *Handlers) listPorts(w http.ResponseWriter, r *http.Request) {
-	ports, err := h.deps().Ports.List(r.Context(), r.PathValue("context"))
-	if err != nil {
-		h.writeQueryError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"values": ports})
-}
-
-// registerPortInput is the request body for registerPort.
-type registerPortInput struct {
-	Context string `json:"context"`
-	Name    string `json:"name"`
-}
-
-// registerPort godoc
-//
-// @Summary      Register a port
-// @Description  Adds a port to the fleet context's ports registry. Direct Postgres write, not an event — ports are reference data, not an event-sourced aggregate. Idempotent.
-// @Tags         ports
-// @Accept       json
-// @Produce      json
-// @Param        body  body      registerPortInput  true  "context, name"
-// @Success      201   {object}  metaValuesResponse
-// @Failure      400   {object}  errorResponse
-// @Router       /api/ports [post]
-func (h *Handlers) registerPort(w http.ResponseWriter, r *http.Request) {
-	var in registerPortInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	if err := h.deps().Ports.Register(r.Context(), in.Context, in.Name); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]any{"port": in.Name})
-}
+// ─── Admin — ports table ──────────────────────────────────────────────────────
 
 // portsTableResponse is the Swagger response envelope for adminPortsTable.
 type portsTableResponse struct {
@@ -513,39 +204,20 @@ func (h *Handlers) adminPortsTable(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"rows": rows})
 }
 
-// knownContainers godoc
-//
-// @Summary      Known container IDs
-// @Description  Every container ID ever registered in the context. Backed by the meta.known-containers KV projection.
-// @Tags         meta
-// @Produce      json
-// @Param        context  path      string  true  "Fleet context"
-// @Success      200      {object}  metaValuesResponse
-// @Failure      500      {object}  errorResponse
-// @Router       /api/meta/{context}/known-containers [get]
-func (h *Handlers) knownContainers(w http.ResponseWriter, r *http.Request) {
-	ids, err := h.deps().Meta.KnownContainers(r.Context(), r.PathValue("context"))
-	if err != nil {
-		h.writeQueryError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"values": ids})
-}
-
-// ─── Shape B ──────────────────────────────────────────────────────────────────
+// ─── Admin — read-path diagnostics (Shape B; renamed from /api/shape-b/*) ─────
 
 // getShipShapeB godoc
 //
-// @Summary      Get ship (Shape B — KV cache → Postgres)
-// @Description  Returns current ship state from the Shape B read model: checks KV cache first, falls through to Postgres on a miss and backfills the cache.
-// @Tags         shape-b
+// @Summary      Get ship (admin read-path diagnostics — KV cache → Postgres)
+// @Description  Returns current ship state from the Shape B read model: checks KV cache first, falls through to Postgres on a miss and backfills the cache. Admin diagnostics only, not a business route.
+// @Tags         admin
 // @Produce      json
 // @Param        context  path      string  true  "Fleet context (e.g. acme, acme-atlantic-fleet)"
 // @Param        shipID   path      string  true  "Ship identifier (e.g. orient-express)"
 // @Success      200      {object}  shipBResponse
 // @Failure      404      {object}  errorResponse
 // @Failure      500      {object}  errorResponse
-// @Router       /api/shape-b/ships/{context}/{shipID} [get]
+// @Router       /api/admin/read-path/ships/{context}/{shipID} [get]
 func (h *Handlers) getShipShapeB(w http.ResponseWriter, r *http.Request) {
 	state, cacheHit, err := h.deps().ShipReads.GetShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
 	if err != nil {
@@ -559,13 +231,17 @@ func (h *Handlers) getShipShapeB(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ship": state, "cacheHit": cacheHit, "source": source})
 }
 
-// @Tags         shape-b
+// evictShipCache godoc
+//
+// @Summary      Evict ship cache entry (admin read-path diagnostics)
+// @Description  Evicts the ship's KV cache entry to demonstrate the cache-miss → Postgres fallthrough → backfill path. Admin diagnostics only, not a business route.
+// @Tags         admin
 // @Param        context  path  string  true  "Fleet context"
 // @Param        shipID   path  string  true  "Ship identifier"
 // @Success      204  "Cache entry evicted"
 // @Failure      404  {object}  errorResponse
 // @Failure      500  {object}  errorResponse
-// @Router       /api/shape-b/cache/{context}/{shipID} [delete]
+// @Router       /api/admin/read-path/cache/{context}/{shipID} [delete]
 func (h *Handlers) evictShipCache(w http.ResponseWriter, r *http.Request) {
 	err := h.deps().ShipReads.EvictCacheShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
 	if err != nil {
@@ -576,33 +252,6 @@ func (h *Handlers) evictShipCache(w http.ResponseWriter, r *http.Request) {
 }
 
 // ─── Error mapping ────────────────────────────────────────────────────────────
-
-// writeCommandError maps domain rule violations to 422 so the frontend can
-// distinguish them from schema errors (400) and missing entities (404).
-func (h *Handlers) writeCommandError(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, domain.ErrContainerNotFound), errors.Is(err, domain.ErrNotFound):
-		writeError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, domain.ErrAlreadyDocked),
-		errors.Is(err, domain.ErrMustDepart),
-		errors.Is(err, domain.ErrNotDocked),
-		errors.Is(err, domain.ErrNotInPort),
-		errors.Is(err, domain.ErrContainerAtDestination),
-		errors.Is(err, domain.ErrWrongDestination),
-		errors.Is(err, domain.ErrContainerNotInTerminal),
-		errors.Is(err, domain.ErrContainerNotOnShip),
-		errors.Is(err, domain.ErrWrongShip),
-		errors.Is(err, domain.ErrContainerNotAtPort),
-		errors.Is(err, domain.ErrContainerExists),
-		errors.Is(err, domain.ErrInvalidContainerID),
-		errors.Is(err, domain.ErrUnknownPort),
-		errors.Is(err, domain.ErrShipExists),
-		errors.Is(err, domain.ErrShipIDInUse):
-		writeError(w, http.StatusUnprocessableEntity, err.Error())
-	default:
-		writeError(w, http.StatusBadRequest, err.Error())
-	}
-}
 
 func (h *Handlers) writeQueryError(w http.ResponseWriter, err error) {
 	if errors.Is(err, domain.ErrNotFound) || errors.Is(err, domain.ErrContainerNotFound) {

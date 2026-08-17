@@ -1,9 +1,10 @@
 // Command main bootstraps trading-partner-service: Postgres connection,
-// schema migration, the HTTP API for TradingPartner/ComplianceDocument/
-// FleetAsset, and BR-TP14's tenant-scoped NATS connections (one per known
-// tenant, discovered from NATS_CREDS_DIR) used only to validate
-// vehicleTypeCode against refdata-service. See tradingpartner/composition.go's
-// doc comment.
+// schema migration, BR-TP14's tenant-scoped NATS connections (one per known
+// tenant, discovered from NATS_CREDS_DIR) used to validate vehicleTypeCode
+// against refdata-service and to serve TradingPartner/ComplianceDocument/
+// FleetAsset over api.* (Phase 33.5 retired the equivalent business REST —
+// the HTTP server now answers /healthz only). See
+// tradingpartner/composition.go's doc comment.
 package main
 
 import (
@@ -39,7 +40,6 @@ func run(log *slog.Logger) error {
 	httpAddr := envOr("HTTP_ADDR", ":8080")
 	natsURL := envOr("NATS_URL", nats.DefaultURL)
 	credsDir := envOr("NATS_CREDS_DIR", "")
-	authSecret := envOr("TRADING_PARTNER_AUTH_SECRET", "trading-partner-spike-pass")
 
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
@@ -75,14 +75,14 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
+	// Phase 33.5: this service has no admin/operator REST left to gate — its
+	// business routes were deleted outright rather than reclassified as
+	// admin. Mount serves /healthz only, unauthenticated like every other
+	// service's infra check.
 	mux := http.NewServeMux()
-	h.Mount(mux, log)
+	h.Mount(mux)
 
-	// Mirrors accounts-service's BasicAuth gate — operator-admin work, same
-	// shared-secret placeholder until WorkOS-backed human auth lands.
-	protected := tradingpartner.ProtectedHandler(mux, authSecret)
-
-	server := &http.Server{Addr: httpAddr, Handler: protected}
+	server := &http.Server{Addr: httpAddr, Handler: mux}
 	errCh := make(chan error, 1)
 	go func() {
 		log.Info("trading-partner-service: http server listening", "addr", httpAddr)

@@ -66,7 +66,7 @@ func run(log *slog.Logger) error {
 	defer tenantMgr.Close()
 
 	mux := http.NewServeMux()
-	h.Mount(mux, log)
+	h.Mount(mux)
 
 	server := &http.Server{Addr: httpAddr, Handler: mux}
 	errCh := make(chan error, 1)

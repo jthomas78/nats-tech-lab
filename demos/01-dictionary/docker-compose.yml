@@ -327,9 +327,6 @@ services:
       HTTP_ADDR: ":8080"
       NATS_URL: nats://nats:4222
       NATS_CREDS_DIR: /etc/nats/creds
-      # Spike-only shared secret (see accounts-service's ACCOUNTS_AUTH_SECRET
-      # precedent) — WorkOS-backed human auth is a later phase.
-      TRADING_PARTNER_AUTH_SECRET: trading-partner-spike-pass
     ports:
       - "7204:8080"
     volumes:

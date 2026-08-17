@@ -463,3 +463,10 @@ Mirrors `BUSINESS_RULES-SHIPPING.md`'s BR-036 for this service's own tracing pub
 
 - **Enforced in:** `pricing/internal/natstrace` (new package, Phase 28b) — mirrors `dictionary/internal/natstrace`'s `Tracer.publish()` redaction-then-truncate ordering and `traceSpan` struct field-for-field.
 - **Test:** `pricing/internal/natstrace/natstrace_test.go` — the shared cross-service contract test (BR-036's clone) asserting the `traceSpan` JSON shape decodes identically to shipping-service's, and that an old-shape `obsEnvelope` with none of the Phase 28 fields still decodes.
+
+### BR-P26 (Phase 33.4) — Business operations are reachable only over `api.*`/`rpc.*`; REST reduces to infra health
+
+All 34 `/api/pricing/{context}/...` REST routes (FeeScale, RateSheet, FixedRate, and the diesel price index/overlay endpoints) are deleted now that `internal/browserrpc`'s `api.*` adapter (Phase 25f) has full 1:1 parity with them. Nothing outside pricing-service ever called them: `frontend/seafreight-app`, `frontend/admin`, and every other frontend in the repo already talk to pricing-service exclusively over `api.*`. REST's only remaining surface is `GET /healthz`, mirroring the convention `dictionary/internal/rest` already established. pricing-service has no admin-only or BasicAuth-gated REST routes to carve out an exception for — unlike `refdata-service`'s `/api/refdata/admin/*`, every pricing operation is tenant-facing business data, so there is no third "admin REST" category here, only the two: infra (`/healthz`) and business (`api.*`/`rpc.*`).
+
+- **Enforced in:** `pricing/internal/rest/handlers.go` (now just `Mount()` registering `/healthz`); `pricing/composition.go`'s `Handlers.Mount(mux)` no longer takes command-handler dependencies since the REST layer has none left to wire.
+- **Test:** N/A — this is a route-deletion/transport-contract rule, not a domain rule; correctness is covered by `go build ./...` compiling cleanly with `internal/rest` down to zero business handlers, and the full `ginkgo ./...` suite staying green since `api.*`/`rpc.*` and the domain layer are untouched.

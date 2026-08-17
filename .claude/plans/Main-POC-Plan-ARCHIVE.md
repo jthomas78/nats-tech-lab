@@ -5407,3 +5407,117 @@ its `api.*` replacement exists.
 - **BR-D41 has no live-server test** — `accounts-service` has no embedded operator-mode NATS harness (only `shipping-service`'s `internal/natsaccounts` does, scoped to that module). Both halves of the contract are asserted statically; the server actually rejecting the publish is live-verification only.
 - **Pre-existing, unrelated:** `seafreight-app`'s Vitest run has 7 failures from `happy-dom@20.10.6` + `vitest@4.1.10` leaving `localStorage` undefined. Confirmed present before this phase (baseline 7 failures, unchanged after). Not touched here — the fix is a dependency change that should be decided on its own.
 
+
+## Phase 33 — Completed (archived 2026-08-17)
+
+### Phase 33 (IMPLEMENTED 2026-08-17) — Retire Business REST: NATS-Only Business Transport, REST Reserved for Admin and Bootstrap
+
+#### Goal
+
+Delete the REST surface for business operations across all four domain services,
+so `api.*`/`rpc.*` is the only way business data moves. REST remains for admin
+operations, infra health, and the auth bootstrap that cannot itself run over
+NATS. The point is not merely fewer routes — it is that **admin calls and
+business calls stop overlapping**, so the Admin UI's live views can distinguish
+them structurally rather than by guesswork.
+
+Most of this is deletion, not migration: `seafreight-app` already runs ships,
+containers and ports entirely over `api.*` (Phase 15d), and `pricing-service`
+and `trading-partner-service` already have full `api.*` parity with their REST
+routes. The REST handlers are a parallel exposure of the same handlers
+(`ARCHITECTURE-COMMUNICATIONS.md` § 2.4) that no live frontend depends on.
+
+#### Design decisions
+
+- **One genuine gap to fill first:** `GET /api/manifest/{context}/{shipID}`
+  (containers-on-a-ship) has no `api.*` counterpart. Add
+  `api.*.shipping.manifest.get.v1` before deleting the route.
+- **Three categories of REST survive, and the distinction is architectural, not
+  taste:**
+  1. **Infra** — `/healthz`.
+  2. **Auth bootstrap — structurally exempt.** `accounts-service`'s
+     `GET /api/auth/connectInfo`, `/api/auth/adminConnectInfo`,
+     `/api/auth/tenants` mint the browser's NATS credential. A browser cannot
+     fetch its NATS credential over NATS, so these can never move. Same for
+     `seafreight-app`'s `/api/platform/accounts/{tenant}/business-units`
+     bootstrap read. Document this as a named exemption class so it is not
+     mistaken for un-migrated business REST later.
+  3. **Admin/operator** — `/api/tenant` + `/api/tenant/switch` (which NATS
+     account to connect under: an operator action, and the Admin UI is its only
+     caller), `/api/admin/ports/{context}` (raw table rows for the Postgres
+     Tables panel), `accounts-service`'s and `trading-partner-service`'s
+     BasicAuth-gated operator endpoints, and `observability-service`'s
+     diagnostic surface.
+- **`/api/shape-b/*` decision, deferred here from Phase 31.**
+  `GET /api/shape-b/ships/{context}/{shipID}` and
+  `DELETE /api/shape-b/cache/{context}/{shipID}` back the Admin UI's read-path
+  panel and its cache-evict button — diagnostics, not business CRUD. They are
+  **kept and reclassified as admin**, renamed to `/api/admin/read-path/...` so
+  the surviving name no longer references a shape taxonomy Phase 31 deleted.
+  (Phase 31 deliberately left the rename until now to avoid renaming twice.)
+- **Swagger becomes the admin API's documentation.** After this phase Swagger UI
+  should show only admin + bootstrap routes. That is the visible acceptance
+  test: if a business operation is still browsable in Swagger, the phase is not
+  done.
+
+#### Deviation discovered mid-phase (33.6)
+
+The design above assumed Phase 32 had already moved *both* halves of
+refdata-service's REST surface (business reads and `/api/refdata/admin/*`)
+onto `api.*`, so 33.6 could delete `/api/refdata/*` outright. That assumption
+was wrong: Phase 32's `browserrpc` adapter only covers *browser-facing*
+traffic. `accounts-service` has a separate, live server-to-server HTTP client
+(`accounts/refdata.go`'s `RefdataClient`) that calls `/api/refdata/admin/*`
+directly for account/BU provisioning (context register/visibility, locale add,
+corpus draft/publish) — and refdata-service's NATS surface has no admin-write
+equivalent for that caller. Deleting the route would have broken live tenant
+provisioning.
+
+**Resolution (owner decision):** `/api/refdata/admin/*` becomes a permanent,
+named REST exemption — same category as the auth-bootstrap class above —
+rather than building a new `rpc.*` admin-write path in this phase. Only the
+business (browser-facing) reads under `/api/refdata/*` were deleted; those
+already had full `api.*` parity. Documented as BR-D43 in
+`BUSINESS_RULES-REFDATA.md`. See
+[[phase33_refdata_admin_rest_exemption]] for the full writeup. A future phase
+would need to give `accounts-service` an `rpc.*` path for these admin writes
+before this exemption could be retired.
+
+#### Sub-phases
+
+- **33.1 — Business rules.** The transport-contract rule: business operations
+  are reachable only over `api.*`/`rpc.*`; REST is admin, infra, or bootstrap.
+  Name the three surviving categories explicitly, since a rule that says only
+  "no business REST" gives no guidance on the next new route.
+- **33.2 — Add `api.*.shipping.manifest.get.v1`** (reuses `Terminal.ListByShip`).
+- **33.3 — shipping-service:** delete `/api/ships/*`, `/api/containers/*`,
+  `/api/terminal/*`, `/api/manifest/*`, `/api/ports/*` (GET + POST),
+  `/api/meta/*` and their swagger annotations; rename `/api/shape-b/*` to
+  `/api/admin/read-path/*`; repoint `frontend/admin`'s `api.js` accordingly.
+- **33.4 — pricing-service:** delete `/api/pricing/*` (34 routes, already 1:1
+  with `api.*`).
+- **33.5 — trading-partner-service:** delete `/api/trading-partners/*` (14
+  routes); confirm `frontend/admin`'s `TradingPartnersPanel.vue` is fully on
+  `api.*` first.
+- **33.6 — refdata-service:** delete the business half of `/api/refdata/*`.
+  `/api/refdata/admin/*` kept permanently — see Deviation above.
+- **33.7 — Swagger regeneration** across all services (`swag init`; note
+  `swag_regen_diff_noise` — it rewrites `$ref` names repo-wide, so review the
+  diff rather than trusting it). Verify Swagger UI lists only admin/bootstrap
+  (refdata-service: admin + the retained `/api/refdata/admin/*` exemption).
+- **33.8 — Frontend sweep.** Any remaining business `fetch()` in
+  `frontend/admin` repointed at `api.*`; confirm `seafreight-app` and
+  `frontend/refdata` retain only the exempt bootstrap calls.
+
+#### Checklist
+
+- [x] 33.1 transport-contract BR written, naming the three surviving REST categories — BR-039 (shipping), BR-P26 (pricing), BR-TP16 (trading-partner), BR-D43 (refdata)
+- [x] 33.2 `api.*.shipping.container.manifest.v1` registered and tested (final subject name; reuses `Terminal.ListByShip`)
+- [x] 33.3 shipping-service business routes deleted; `/api/shape-b/*` → `/api/admin/read-path/*`; admin UI repointed
+- [x] 33.4 pricing-service `/api/pricing/*` deleted (34 routes); `/healthz` added (service had none before)
+- [x] 33.5 trading-partner-service `/api/trading-partners/*` deleted (14 routes); frontend already fully on `api.*`
+- [x] 33.6 refdata-service business `/api/refdata/*` reads deleted; `/api/refdata/admin/*` kept as a permanent documented exemption (see Deviation above); REST is `/healthz` + that exemption
+- [x] 33.7 swagger regenerated everywhere (pricing/trading-partner-service had no swagger to regenerate); Swagger UI shows no business operation
+- [x] 33.8 no business `fetch()` left in any frontend; `frontend/admin`'s `api.js`/`ShippingForm.vue` migrated onto `api.*`; `seafreight-app`/`frontend/refdata` were already clean
+- [x] `ginkgo ./...` + `go test ./...` + all frontend suites green — shipping (9 suites), refdata (5 suites), accounts-service, pricing (3 suites), trading-partner (4 suites) all pass; `frontend/admin` 91/91 Vitest + build; `frontend/refdata` and `frontend/seafreight-app` builds clean (untouched by this phase, baseline unaffected)
+- [x] Live verification: `docker compose up --build` — all services and frontends started clean, no restart loops; deleted routes confirmed 404 (`/api/ships/*`, `/api/pricing/*`, `/api/trading-partners/*`); surviving admin routes confirmed reachable (`/api/admin/read-path/*`, `/api/refdata/admin/*`); all three frontends serve 200. (Full manual UI happy-path click-through not performed — route-level smoke test only.)

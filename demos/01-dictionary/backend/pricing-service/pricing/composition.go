@@ -45,14 +45,11 @@ func Startup(ctx context.Context, db *sql.DB) (*Handlers, error) {
 	}, nil
 }
 
-// Mount wires the REST layer's routes onto mux.
-func (h *Handlers) Mount(mux *http.ServeMux, log *slog.Logger) {
-	rest.NewHandlers(rest.Deps{
-		FeeScales:  h.FeeScales,
-		RateSheets: h.RateSheets,
-		FixedRates: h.FixedRates,
-		Log:        log,
-	}).Mount(mux)
+// Mount wires the REST layer's infra-only routes (/healthz) onto mux.
+// Business operations are reachable only over api.*/rpc.* — see
+// internal/rest's package doc and BUSINESS_RULES-PRICING.md's BR-P26.
+func (h *Handlers) Mount(mux *http.ServeMux) {
+	rest.Mount(mux)
 }
 
 // MountAPI starts the api.* frontend-to-service adapter: one browserrpc.Adapter

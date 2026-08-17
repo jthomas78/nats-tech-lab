@@ -6,8 +6,9 @@
 // used only for BR-TP14's vehicleTypeCode validation against
 // refdata-service, and an internal/browserrpc adapter per tenant connection
 // serving the same operations over api.* (Phase 26g's micro registration +
-// Phase 26h's endpoints). REST and api.* are a dual transport, as
-// pricing-service does — neither replaces the other.
+// Phase 26h's endpoints). Phase 33.5 retired the REST half of that dual
+// transport — api.*/rpc.* is now the only way this service's business
+// operations move; REST serves infra health only (internal/rest).
 package tradingpartner
 
 import (
@@ -52,22 +53,19 @@ func Startup(ctx context.Context, db *sql.DB, tenantMgr *tenants.Manager) (*Hand
 	}, nil
 }
 
-// Mount wires the REST layer's routes onto mux.
-func (h *Handlers) Mount(mux *http.ServeMux, log *slog.Logger) {
-	rest.NewHandlers(rest.Deps{
-		TradingPartners: h.TradingPartners,
-		Documents:       h.Documents,
-		FleetAssets:     h.FleetAssets,
-		Audit:           h.audit,
-		Log:             log,
-	}).Mount(mux)
+// Mount wires this service's REST surface onto mux — infra health only,
+// since Phase 33.5 retired the business routes that used to sit alongside
+// api.*.trading-partner.*.
+func (h *Handlers) Mount(mux *http.ServeMux) {
+	rest.Mount(mux)
 }
 
 // MountAPI registers the api.* adapter on every tenant connection tenantMgr
 // holds. Must run after Startup, and Startup must run after MountTenants:
 // Startup needs the Manager for BR-TP14's validator, while the adapter needs
 // the handlers Startup builds (see tenants.Manager's doc comment). Until this
-// runs, the service answers over REST only.
+// runs, the service has no business transport at all — REST no longer
+// carries a fallback (Phase 33.5).
 func (h *Handlers) MountAPI(tenantMgr *tenants.Manager, log *slog.Logger) error {
 	return tenantMgr.MountAPI(browserrpc.Deps{
 		TradingPartners: h.TradingPartners,
@@ -76,16 +74,6 @@ func (h *Handlers) MountAPI(tenantMgr *tenants.Manager, log *slog.Logger) error 
 		Audit:           h.audit,
 		Log:             log,
 	})
-}
-
-// ProtectedHandler wraps mux with the BasicAuth gate every route in this
-// service requires — mirrors accounts-service's own gate (operator-admin
-// work, shared-secret placeholder until WorkOS-backed human auth lands).
-// Exported here (rather than internal/rest) so cmd/main.go, which sits
-// outside this package's internal/ visibility, can wrap the mux it builds
-// from Mount.
-func ProtectedHandler(mux *http.ServeMux, secret string) http.Handler {
-	return rest.BasicAuth(secret, mux)
 }
 
 // MountTenants starts this service's tenant-scoped NATS connections: one per

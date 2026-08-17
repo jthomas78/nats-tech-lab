@@ -522,96 +522,26 @@ rationale or checklist detail).
 
 ---
 
-### Phase 33 (PROPOSED 2026-08-17) — Retire Business REST: NATS-Only Business Transport, REST Reserved for Admin and Bootstrap
+### Phase 33 — Completed (archived 2026-08-17)
 
-#### Goal
+Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
+(not read into context by default — open only when you need original
+rationale or checklist detail).
 
-Delete the REST surface for business operations across all four domain services,
-so `api.*`/`rpc.*` is the only way business data moves. REST remains for admin
-operations, infra health, and the auth bootstrap that cannot itself run over
-NATS. The point is not merely fewer routes — it is that **admin calls and
-business calls stop overlapping**, so the Admin UI's live views can distinguish
-them structurally rather than by guesswork.
-
-Most of this is deletion, not migration: `seafreight-app` already runs ships,
-containers and ports entirely over `api.*` (Phase 15d), and `pricing-service`
-and `trading-partner-service` already have full `api.*` parity with their REST
-routes. The REST handlers are a parallel exposure of the same handlers
-(`ARCHITECTURE-COMMUNICATIONS.md` § 2.4) that no live frontend depends on.
-
-#### Design decisions
-
-- **One genuine gap to fill first:** `GET /api/manifest/{context}/{shipID}`
-  (containers-on-a-ship) has no `api.*` counterpart. Add
-  `api.*.shipping.manifest.get.v1` before deleting the route.
-- **Three categories of REST survive, and the distinction is architectural, not
-  taste:**
-  1. **Infra** — `/healthz`.
-  2. **Auth bootstrap — structurally exempt.** `accounts-service`'s
-     `GET /api/auth/connectInfo`, `/api/auth/adminConnectInfo`,
-     `/api/auth/tenants` mint the browser's NATS credential. A browser cannot
-     fetch its NATS credential over NATS, so these can never move. Same for
-     `seafreight-app`'s `/api/platform/accounts/{tenant}/business-units`
-     bootstrap read. Document this as a named exemption class so it is not
-     mistaken for un-migrated business REST later.
-  3. **Admin/operator** — `/api/tenant` + `/api/tenant/switch` (which NATS
-     account to connect under: an operator action, and the Admin UI is its only
-     caller), `/api/admin/ports/{context}` (raw table rows for the Postgres
-     Tables panel), `accounts-service`'s and `trading-partner-service`'s
-     BasicAuth-gated operator endpoints, and `observability-service`'s
-     diagnostic surface.
-- **`/api/shape-b/*` decision, deferred here from Phase 31.**
-  `GET /api/shape-b/ships/{context}/{shipID}` and
-  `DELETE /api/shape-b/cache/{context}/{shipID}` back the Admin UI's read-path
-  panel and its cache-evict button — diagnostics, not business CRUD. They are
-  **kept and reclassified as admin**, renamed to `/api/admin/read-path/...` so
-  the surviving name no longer references a shape taxonomy Phase 31 deleted.
-  (Phase 31 deliberately left the rename until now to avoid renaming twice.)
-- **Swagger becomes the admin API's documentation.** After this phase Swagger UI
-  should show only admin + bootstrap routes. That is the visible acceptance
-  test: if a business operation is still browsable in Swagger, the phase is not
-  done.
-
-#### Sub-phases
-
-- **33.1 — Business rules.** The transport-contract rule: business operations
-  are reachable only over `api.*`/`rpc.*`; REST is admin, infra, or bootstrap.
-  Name the three surviving categories explicitly, since a rule that says only
-  "no business REST" gives no guidance on the next new route.
-- **33.2 — Add `api.*.shipping.manifest.get.v1`** (reuses `Terminal.ListByShip`).
-- **33.3 — shipping-service:** delete `/api/ships/*`, `/api/containers/*`,
-  `/api/terminal/*`, `/api/manifest/*`, `/api/ports/*` (GET + POST),
-  `/api/meta/*` and their swagger annotations; rename `/api/shape-b/*` to
-  `/api/admin/read-path/*`; repoint `frontend/admin`'s `api.js` accordingly.
-- **33.4 — pricing-service:** delete `/api/pricing/*` (34 routes, already 1:1
-  with `api.*`).
-- **33.5 — trading-partner-service:** delete `/api/trading-partners/*` (14
-  routes); confirm `frontend/admin`'s `TradingPartnersPanel.vue` is fully on
-  `api.*` first.
-- **33.6 — refdata-service:** delete `/api/refdata/*` — both the business reads
-  and the `/api/refdata/admin/*` half, since Phase 32 moved both onto `api.*`.
-  REST reduces to `/healthz`.
-- **33.7 — Swagger regeneration** across all services (`swag init`; note
-  `swag_regen_diff_noise` — it rewrites `$ref` names repo-wide, so review the
-  diff rather than trusting it). Verify Swagger UI lists only admin/bootstrap.
-- **33.8 — Frontend sweep.** Any remaining business `fetch()` in
-  `frontend/admin` repointed at `api.*`; confirm `seafreight-app` and
-  `frontend/refdata` retain only the exempt bootstrap calls.
-
-#### Checklist
-
-- [ ] 33.1 transport-contract BR written, naming the three surviving REST categories
-- [ ] 33.2 `api.*.shipping.manifest.get.v1` registered and tested
-- [ ] 33.3 shipping-service business routes deleted; `/api/shape-b/*` → `/api/admin/read-path/*`; admin UI repointed
-- [ ] 33.4 pricing-service `/api/pricing/*` deleted
-- [ ] 33.5 trading-partner-service `/api/trading-partners/*` deleted
-- [ ] 33.6 refdata-service `/api/refdata/*` deleted; REST is `/healthz` only
-- [ ] 33.7 swagger regenerated everywhere; Swagger UI shows no business operation
-- [ ] 33.8 no business `fetch()` left in any frontend; only the documented bootstrap exemptions remain
-- [ ] `ginkgo ./...` + `go test ./...` + all frontend suites green
-- [ ] Live verification: every frontend exercises its full happy path with business REST gone
-
----
+- [x] Phase 33 (IMPLEMENTED 2026-08-17) — Retire Business REST: deleted business
+      REST across shipping-service (`/api/ships,containers,terminal,manifest,ports,meta`),
+      pricing-service (`/api/pricing/*`, 34 routes), trading-partner-service
+      (`/api/trading-partners/*`, 14 routes), and refdata-service's business
+      reads (`/api/refdata/*`); renamed `/api/shape-b/*` → `/api/admin/read-path/*`;
+      added `api.*.shipping.container.manifest.v1`. Deviation: refdata-service's
+      `/api/refdata/admin/*` could not be deleted — `accounts-service` calls it
+      server-to-server with no NATS equivalent — so it became a permanent
+      documented exemption (BR-D43) instead; see
+      [phase33_refdata_admin_rest_exemption](../memory/phase33_refdata_admin_rest_exemption.md).
+      All backend suites + frontend suites/builds green; live `docker compose`
+      smoke test confirmed deleted routes 404 and surviving admin/exemption
+      routes work. Prerequisite for Phase 34 (mux allowlist enforcement)
+      satisfied for the routes that actually got deleted.
 
 ### Phase 34 (PROPOSED 2026-08-17) — Enforce the Boundary: Admin-Allowlist Mux Tests, Requester Attribution, Admin-Traffic Filter
 
@@ -673,6 +603,108 @@ enforced rather than merely achieved, and makes it observable.
 - [ ] 34.5 no business integration test exercises REST
 - [ ] 34.6 `ARCHITECTURE-COMMUNICATIONS.md` § 1 transport table updated; `ARCHITECTURE-ADMIN.md` documents the new filter
 - [ ] Live verification: adding a throwaway business REST route fails its service's allowlist test
+
+---
+
+### Phase 35 (PROPOSED 2026-08-17) — Shared Go Package Extraction: `natstenants`, `natstrace`, `browserrpc` Infra Tail
+
+#### Goal
+
+Three infrastructure pieces are now duplicated verbatim across services because
+nothing in this repo shares Go code today — 7 independent `go.mod` files, no
+`go.work`, no `replace` directives, and every Dockerfile's build context is a
+single service directory:
+
+| Package | Copies | Size each | Cause found by |
+|---|---|---|---|
+| per-tenant connection manager (`internal/tenants`) | 4 — `pricing-service`, `trading-partner-service`, `refdata-service` (Phase 32), `shipping-service` (embedded in `rest/tenant.go`) | 288–577 lines | A real bug: the `observability.creds` exclusion was missing from two of the first three copies, opening phantom PLATFORM connections that failed with subscription violations — found live via NATS server logs, fixed separately in each file. See BR-D40, [tenants_manager_triplication](../memory/tenants_manager_triplication.md). |
+| `natstrace` (BR-036/BR-037 hand-rolled tracing) | 5 — every service including `accounts-service` | ~250 lines | Documented, not accidental — the package doc and `ARCHITECTURE-COMMUNICATIONS.md` § 6 both explain the duplication, citing the identical build-context blocker this phase addresses. No live bug yet; lower urgency than the other two, but the same fix applies. |
+| `browserrpc` infra tail — `contextFromSubject`, `respond`/`respondError`/`reply`, `responderIdentity`, `responderHeader` | 4 — every `browserrpc/adapter.go` | ~60–90 lines | Byte-identical apart from `refdata-service`'s `respondOK` vs `respond` naming. No documented rationale anywhere — silent duplication like `tenants.Manager`, just smaller. The service-specific handlers in each `adapter.go` (543–1301 lines) are **not** duplication and stay where they are; only this shared tail moves. |
+
+Confirmed 2026-08-17: bundle all three into one phase rather than paying the
+module-strategy decision three separate times.
+
+#### Design decisions
+
+- **The module strategy is the actual deliverable of this phase**, not a
+  prerequisite to work around. Decide `go.work` (workspace mode — each
+  service keeps its own `go.mod`, a top-level `go.work` lists them all, `go
+  build`/`go test` resolve locally without a registry) vs. a shared module
+  consumed via `replace` directives in each service's `go.mod`. `go.work` is
+  the more idiomatic fit for a monorepo of independent binaries and doesn't
+  require every consumer to add a `replace` line, but confirm it doesn't fight
+  each service's Dockerfile build context (a Dockerfile building from
+  `./backend/pricing-service` alone can't see a workspace file at the repo
+  root without adjusting the build context or `COPY`ing the shared package
+  in) — this is exactly the constraint that has kept these three duplicated,
+  so verify it's actually solved, not just moved.
+- **New package location:** `shared/natstenants`, `shared/natstrace`,
+  `shared/browserrpc` — alongside the existing `shared/unifi-theme` and
+  `shared/ui-shell` frontend packages, so "shared Go code lives in `shared/`"
+  becomes a repo-wide convention rather than a frontend-only one.
+- **`shared/browserrpc` is infra only.** It exports the reply-tail helpers and
+  the `Adapter` plumbing they hang off; it must not import any service's
+  domain types or its own `browserrpc` package — direction of dependency is
+  service → `shared/browserrpc`, never the reverse. Each service's existing
+  `adapter.go` keeps its own handlers and just calls the shared reply tail.
+- **`shared/natstenants` takes the adapter constructor as a callback**
+  (already the design in `ARCHITECTURE-ACCOUNTS.md`'s extraction diagram), so
+  the package never imports any service's `browserrpc` — same directional
+  rule as above, and it's what lets `shared/tenants` and `shared/browserrpc`
+  be extracted independently of each other if useful.
+- **`shipping-service` adopts `natstenants` for connection lifecycle only** —
+  its per-tenant work also provisions JetStream streams and KV buckets, which
+  stay where they are.
+- **Order within the phase:** land the module-strategy decision and
+  `shared/natstenants` first (it has an existing extraction diagram and the
+  most-verified rationale — a real bug), then `shared/browserrpc`, then
+  `shared/natstrace` last (lowest urgency, and its doc comments/architecture
+  doc need updating regardless of whether code moves, so there's no harm in
+  going last).
+- **Docs that assert "duplicated per service" become false and must be
+  fixed as code moves, not batched at the end** — each package's own doc
+  comment, `ARCHITECTURE-ACCOUNTS.md` § "Three services now open per-tenant
+  connections" (already stale before this phase — says "three", `refdata-
+  service` makes it four), `ARCHITECTURE-COMMUNICATIONS.md` § 6's `natstrace`
+  passage, and BR-D40.
+
+#### Sub-phases
+
+- **35.1 — Module strategy spike.** Prove `go.work` (or the replace-directive
+  alternative) actually builds in both `go build ./...` from the repo root
+  *and* each service's own `docker compose build`, before extracting anything.
+  This is the sub-phase most likely to surface a reason the chosen approach
+  doesn't work — do it first and cheaply, with a throwaway package if needed.
+- **35.2 — Extract `shared/natstenants`.** Consume it from `pricing-service`
+  and `trading-partner-service` first (their copies are already the leanest
+  and most alike); `refdata-service` and `shipping-service` (lifecycle-only)
+  follow. Delete each service's own `tenants.go` as it's replaced — no
+  compatibility shim.
+- **35.3 — Extract `shared/browserrpc` infra tail.** Consume from all four
+  services; delete the duplicated functions from each `adapter.go`.
+- **35.4 — Extract `shared/natstrace`.** Consume from all five services incl.
+  `accounts-service`; delete each service's own `internal/natstrace` package.
+- **35.5 — Tests move with the code they cover.** `tenants_test.go`'s
+  embedded-NATS-server coverage (currently only `refdata-service` has it, per
+  [tenants_manager_triplication](../memory/tenants_manager_triplication.md))
+  becomes the shared package's test suite, gaining every service as a
+  beneficiary rather than staying refdata-only. Same for `natstrace_test.go`
+  and any `browserrpc` infra-tail tests.
+- **35.6 — Documentation.** Update the "duplicated per service" claims listed
+  above; `ARCHITECTURE-ACCOUNTS.md`'s extraction diagram becomes a record of
+  what happened rather than a recommendation — keep the PNG, update its
+  surrounding prose from recommendation-voice to implemented-voice.
+
+#### Checklist
+
+- [ ] 35.1 module strategy chosen and proven against both `go build ./...` and every service's Docker build
+- [ ] 35.2 `shared/natstenants` extracted; all four services consume it; no service has its own copy left
+- [ ] 35.3 `shared/browserrpc` infra tail extracted; all four `adapter.go` files consume it
+- [ ] 35.4 `shared/natstrace` extracted; all five services consume it
+- [ ] 35.5 shared test coverage (embedded NATS server) benefits every consumer, not just refdata-service
+- [ ] 35.6 `ARCHITECTURE-ACCOUNTS.md`, `ARCHITECTURE-COMMUNICATIONS.md` § 6, BR-D40, and each package's own doc comment updated from recommendation/duplication language to implemented-shared-package language
+- [ ] `ginkgo ./...` + `go test ./...` green in every service; `go build ./...` green from the repo root
+- [ ] Live verification: full `down -v && up --build`, all five services connect and every `api.*`/`rpc.*` path still traces correctly
 
 ---
 

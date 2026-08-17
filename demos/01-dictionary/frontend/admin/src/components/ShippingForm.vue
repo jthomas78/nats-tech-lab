@@ -99,12 +99,11 @@ async function submit() {
     }
     toast.add({ severity: 'success', summary: 'Command accepted', detail, life: 3000 })
   } catch (err) {
-    // 404/422 = domain rule violation — show inline; other errors → toast
-    if (err.message && !err.message.startsWith('5')) {
-      domainError.value = err.message
-    } else {
-      toast.add({ severity: 'error', summary: 'Command failed', detail: err.message, life: 4000 })
-    }
+    // Phase 33.8: these commands moved from REST to NATS api.* (api.js), so
+    // err.message is always the bare domain-error string (browserrpc's
+    // errorResponse), never an HTTP-status-prefixed one — show it inline,
+    // same as TradingPartnersPanel.vue's NATS-backed submitRegister().
+    domainError.value = err.message
   } finally {
     busy.value = false
   }

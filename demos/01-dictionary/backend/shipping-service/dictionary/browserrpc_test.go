@@ -73,6 +73,7 @@ var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
 		kvB        *kvstore.Store
 		shipRepo   *fakeRepo
 		shipReads  *queries.Ships
+		terminal   *queries.Terminal
 		adapter    *browserrpc.Adapter
 	)
 
@@ -105,12 +106,13 @@ var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
 		containers = commands.NewContainerHandler(pub, js, portRepo)
 		ports = commands.NewPortHandler(portRepo)
 		shipReads = queries.NewShips(kvB, shipRepo)
+		terminal = queries.NewTerminal(kvContainers)
 
 		adapter, err = browserrpc.New(nc, browserrpc.Deps{
 			Ships:      ships,
 			Containers: containers,
 			Ports:      ports,
-			Terminal:   queries.NewTerminal(kvContainers),
+			Terminal:   terminal,
 			Meta:       queries.NewMeta(kvMeta),
 			ShipReads:  shipReads,
 			Log:        log,
@@ -327,6 +329,51 @@ var _ = Describe("Browser API Adapter (Phase 15a/16b)", func() {
 				return nil
 			})
 			Expect(metaResp.Values).To(ContainElement("TCKU7654321"))
+		})
+	})
+
+	Context("Phase 33.2: container.manifest.v1 exposes the ship manifest join over api.* (BR-039)", func() {
+		It("returns the containers currently on the named ship, matching Terminal.ListByShip called directly", func() {
+			request("api."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "manifest-ship", ShipName: "Manifest Ship", Port: "Hamburg"})
+			request("api."+fleetCtx+".shipping.container.register.v1", commands.ContainerInput{
+				Context: fleetCtx, ContainerID: "TCKU4000001", Cargo: "coffee", OriginPort: "Hamburg", DestPort: "Rotterdam",
+			})
+			request("api."+fleetCtx+".shipping.container.register.v1", commands.ContainerInput{
+				Context: fleetCtx, ContainerID: "TCKU4000002", Cargo: "tea", OriginPort: "Hamburg", DestPort: "Rotterdam",
+			})
+			request("api."+fleetCtx+".shipping.container.load.v1", commands.ContainerInput{
+				Context: fleetCtx, ContainerID: "TCKU4000001", ShipID: "manifest-ship",
+			})
+
+			var resp struct {
+				Containers []domain.ContainerState `json:"containers"`
+			}
+			eventually(func() error {
+				msg := request("api."+fleetCtx+".shipping.container.manifest.v1", map[string]any{"shipID": "manifest-ship"})
+				if err := json.Unmarshal(msg.Data, &resp); err != nil {
+					return err
+				}
+				if len(resp.Containers) != 1 {
+					return fmt.Errorf("got %d containers on manifest, want 1", len(resp.Containers))
+				}
+				return nil
+			})
+			Expect(resp.Containers[0].ContainerID).To(Equal("TCKU4000001"))
+
+			direct, err := terminal.ListByShip(ctx, fleetCtx, "manifest-ship")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Containers).To(ConsistOf(direct))
+		})
+
+		It("returns an empty list for a ship with no containers loaded, deriving context from the subject not the body", func() {
+			request("api."+fleetCtx+".shipping.ship.arrive.v1", commands.ShipInput{Context: fleetCtx, ShipID: "empty-manifest-ship", ShipName: "Empty", Port: "Hamburg"})
+
+			msg := request("api."+fleetCtx+".shipping.container.manifest.v1", map[string]any{"shipID": "empty-manifest-ship"})
+			var resp struct {
+				Containers []domain.ContainerState `json:"containers"`
+			}
+			Expect(json.Unmarshal(msg.Data, &resp)).To(Succeed())
+			Expect(resp.Containers).To(BeEmpty())
 		})
 	})
 

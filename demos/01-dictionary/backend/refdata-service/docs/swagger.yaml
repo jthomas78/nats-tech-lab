@@ -14,32 +14,6 @@ definitions:
       typeKey:
         type: string
     type: object
-  domain.DictionaryReference:
-    properties:
-      context:
-        type: string
-      fromCode:
-        type: string
-      fromTypeKey:
-        type: string
-      relation:
-        type: string
-      toCode:
-        type: string
-      toTypeKey:
-        type: string
-    type: object
-  domain.DictionaryType:
-    properties:
-      category:
-        $ref: '#/definitions/domain.TypeCategory'
-      description:
-        type: string
-      name:
-        type: string
-      typeKey:
-        type: string
-    type: object
   domain.ItemStatus:
     enum:
     - active
@@ -48,40 +22,11 @@ definitions:
     x-enum-varnames:
     - StatusActive
     - StatusDeprecated
-  domain.Localization:
-    properties:
-      code:
-        type: string
-      context:
-        type: string
-      description:
-        type: string
-      isFallback:
-        description: |-
-          IsFallback is only meaningful on a value returned from ResolveLabel
-          (BR-D03): false when the requested locale (or its bare language)
-          matched exactly; true for either of the other two tiers — a
-          default-locale substitution (nothing requested matched, but the
-          context's default locale had real data) or the terminal code-echo
-          (nothing matched at all, Label degraded to the code itself). Zero-value
-          (false) on a Localization read any other way (e.g. from a repository
-          listing), since resolution never happened for those.
-        type: boolean
-      label:
-        type: string
-      locale:
-        type: string
-      source:
-        description: '"manual" | "ai" (BR-D07)'
-        type: string
-      typeKey:
-        type: string
-    type: object
   domain.TypeCategory:
     enum:
     - standards
     - domain-enum
-    - l10n
+    - domain-string
     - config
     type: string
     x-enum-comments:
@@ -96,30 +41,6 @@ definitions:
     - CategoryDomainEnum
     - CategoryDomainString
     - CategoryConfig
-  rest.cacheStatusResponse:
-    properties:
-      inSync:
-        type: boolean
-      kvItemCount:
-        type: integer
-      kvVersion:
-        type: integer
-      postgresVersion:
-        type: integer
-      typeKey:
-        type: string
-    type: object
-  rest.completenessResponse:
-    properties:
-      locale:
-        type: string
-      localized:
-        type: integer
-      total:
-        type: integer
-      typeKey:
-        type: string
-    type: object
   rest.errorResponse:
     properties:
       error:
@@ -142,13 +63,6 @@ definitions:
       item:
         $ref: '#/definitions/domain.DictionaryItem'
     type: object
-  rest.itemsResponse:
-    properties:
-      items:
-        items:
-          $ref: '#/definitions/domain.DictionaryItem'
-        type: array
-    type: object
   rest.localeRequest:
     properties:
       context:
@@ -157,17 +71,6 @@ definitions:
         type: boolean
       locale:
         type: string
-    type: object
-  rest.localesResponse:
-    properties:
-      defaultLocale:
-        description: DefaultLocale is "" when no locale is marked default for the
-          context.
-        type: string
-      locales:
-        items:
-          type: string
-        type: array
     type: object
   rest.localizationRequest:
     properties:
@@ -188,13 +91,6 @@ definitions:
       typeKey:
         type: string
     type: object
-  rest.localizationsResponse:
-    properties:
-      localizations:
-        items:
-          $ref: '#/definitions/domain.Localization'
-        type: array
-    type: object
   rest.referenceRequest:
     properties:
       context:
@@ -210,35 +106,6 @@ definitions:
       toCode:
         type: string
       toTypeKey:
-        type: string
-    type: object
-  rest.referencesResponse:
-    properties:
-      references:
-        items:
-          $ref: '#/definitions/domain.DictionaryReference'
-        type: array
-    type: object
-  rest.resolvedItemResponse:
-    properties:
-      description:
-        type: string
-      expanded:
-        $ref: '#/definitions/domain.DictionaryItem'
-      isFallback:
-        description: |-
-          IsFallback is nil when no ?locale= resolution was attempted at all (the
-          plain item branch below) — a pointer so that case omits it entirely,
-          distinct from the zero-value "false" once resolution was attempted.
-          When resolution was attempted (BR-D03): false means the requested
-          locale (or its bare language) matched exactly; true means either a
-          default-locale substitution or the terminal code-echo.
-        type: boolean
-      item:
-        $ref: '#/definitions/domain.DictionaryItem'
-      label:
-        type: string
-      locale:
         type: string
     type: object
   rest.translateDraftResponse:
@@ -283,13 +150,6 @@ definitions:
       typeKey:
         type: string
     type: object
-  rest.typesResponse:
-    properties:
-      types:
-        items:
-          $ref: '#/definitions/domain.DictionaryType'
-        type: array
-    type: object
   rest.updateAttrsRequest:
     properties:
       attrs:
@@ -305,294 +165,6 @@ info:
   title: Reference Data Service API
   version: "1.0"
 paths:
-  /api/refdata-watch/{context}:
-    get:
-      description: Server-Sent Events stream of NATS KV changes in the refdata-{context}
-        cache bucket — item entries and {type}._meta version bumps. Replays current
-        state first, then live updates. Live invalidation feed for a frontend cache-status
-        widget.
-      parameters:
-      - description: tenant/region context
-        in: path
-        name: context
-        required: true
-        type: string
-      produces:
-      - text/event-stream
-      responses:
-        "200":
-          description: 'SSE stream — data: {watchEvent JSON}'
-          schema:
-            type: string
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: Cache KV watch stream (SSE)
-      tags:
-      - streams
-  /api/refdata/{context}/{type}:
-    get:
-      description: Lists items of a dictionary type in a context, optionally locale-resolved
-        (BR-D03). Excludes deprecated items unless ?all=true is passed (BR-D06).
-      parameters:
-      - description: tenant/region context
-        in: path
-        name: context
-        required: true
-        type: string
-      - description: dictionary type key
-        in: path
-        name: type
-        required: true
-        type: string
-      - description: include deprecated items
-        in: query
-        name: all
-        type: boolean
-      - description: resolve each item's label in this locale
-        in: query
-        name: locale
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/rest.itemsResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: List items
-      tags:
-      - items
-  /api/refdata/{context}/{type}/{code}:
-    get:
-      description: 'Resolves a single item regardless of status (BR-D06: deprecated
-        items still resolve). ?locale= resolves a label via BR-D03''s fallback chain
-        (response includes "isFallback": true/false — false means the exact requested
-        locale matched, true means a default-locale substitution or code-echo); ?expand=
-        inlines the item a named relation points to.'
-      parameters:
-      - description: tenant/region context
-        in: path
-        name: context
-        required: true
-        type: string
-      - description: dictionary type key
-        in: path
-        name: type
-        required: true
-        type: string
-      - description: item code
-        in: path
-        name: code
-        required: true
-        type: string
-      - description: resolve the label in this locale (BR-D03)
-        in: query
-        name: locale
-        type: string
-      - description: relation name to expand into the response
-        in: query
-        name: expand
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/rest.resolvedItemResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: Get an item
-      tags:
-      - items
-  /api/refdata/{context}/{type}/{code}/localizations:
-    get:
-      description: Every locale's localization recorded for one item — the editor's
-        Localizations tab.
-      parameters:
-      - description: tenant/region context
-        in: path
-        name: context
-        required: true
-        type: string
-      - description: dictionary type key
-        in: path
-        name: type
-        required: true
-        type: string
-      - description: item code
-        in: path
-        name: code
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/rest.localizationsResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: List an item's localizations
-      tags:
-      - localization
-  /api/refdata/{context}/{type}/{code}/references:
-    get:
-      description: Every typed reference recorded from one item — the editor's References
-        tab.
-      parameters:
-      - description: tenant/region context
-        in: path
-        name: context
-        required: true
-        type: string
-      - description: dictionary type key
-        in: path
-        name: type
-        required: true
-        type: string
-      - description: item code
-        in: path
-        name: code
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/rest.referencesResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: List an item's outbound references
-      tags:
-      - references
-  /api/refdata/{context}/{type}/cache-status:
-    get:
-      description: Compares Postgres's current set version (BR-D04) against the refdata-{context}
-        KV cache's {type}._meta version — the Q5 versioned-read protocol made visible
-        for a cache status widget.
-      parameters:
-      - description: tenant/region context
-        in: path
-        name: context
-        required: true
-        type: string
-      - description: dictionary type key
-        in: path
-        name: type
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/rest.cacheStatusResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: Cache status
-      tags:
-      - localization
-  /api/refdata/{context}/{type}/completeness:
-    get:
-      description: Reports how many of a type's items have a localization for the
-        given locale.
-      parameters:
-      - description: tenant/region context
-        in: path
-        name: context
-        required: true
-        type: string
-      - description: dictionary type key
-        in: path
-        name: type
-        required: true
-        type: string
-      - description: locale to check completeness for
-        in: query
-        name: locale
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/rest.completenessResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: Localization completeness
-      tags:
-      - localization
-  /api/refdata/{context}/locales:
-    get:
-      description: Lists locales registered for a context, including which one is
-        the default.
-      parameters:
-      - description: tenant/region context
-        in: path
-        name: context
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/rest.localesResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: List locales
-      tags:
-      - localization
-  /api/refdata/{context}/types:
-    get:
-      description: Lists every registered dictionary type (currency, country, incoterm,
-        …).
-      parameters:
-      - description: tenant/region context
-        in: path
-        name: context
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/rest.typesResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: List dictionary types
-      tags:
-      - types
   /api/refdata/admin/{type}/{code}/translate:
     post:
       consumes:
