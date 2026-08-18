@@ -58,7 +58,7 @@ func run(log *slog.Logger) error {
 
 	// Phase 25f: one api.* adapter per known tenant, so a Sea Freight Flow
 	// browser authenticated into any tenant's account can reach
-	// pricing-service immediately — see pricing/internal/tenants.
+	// pricing-service immediately — see shared/natstenants.
 	tenantMgr, err := h.MountAPI(ctx, natsURL, credsDir, log)
 	if err != nil {
 		return err

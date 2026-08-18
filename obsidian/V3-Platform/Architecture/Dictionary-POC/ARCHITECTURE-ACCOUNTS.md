@@ -139,19 +139,20 @@ Account JWT updates replace the entire claim, so `accounts/provisioner.go`
 preserves existing exports/imports whenever it re-signs a claim; freshly
 minted runtime accounts receive the same imports as ACME/GLOBEX.
 
-### Three services now open per-tenant connections — and each wrote its own manager (RECOMMENDATION)
+### Four services open per-tenant connections through one shared manager (IMPLEMENTED — Phase 35)
 
 The paragraphs above describe the per-tenant connection model as
 `shipping-service`'s, which is how it started. It no longer is:
-`pricing-service` (Phase 25f) and `trading-partner-service` (Phase 26) each
-open one connection per provisioned tenant as well, so that a browser
+`pricing-service` (Phase 25f), `trading-partner-service` (Phase 26), and
+`refdata-service` (once it gained browser-facing `api.*` support) each open
+one connection per provisioned tenant as well, so that a browser
 authenticated into any tenant's account can reach them directly over `api.*`
-rather than through `shipping-service` as a conduit. `refdata-service` is the
-one holdout — it still runs a single PLATFORM connection — and the moment it
-gains browser-facing `api.*` support it needs the same machinery.
+rather than through `shipping-service` as a conduit.
 
-All three existing implementations independently re-derived the same five
-behaviours, and only the fifth line of each differs in any meaningful way:
+Through Phase 34 all four implementations independently re-derived the same
+five behaviours, and only the fifth line of each differed in any meaningful
+way — see the extraction diagram below for that duplication as it stood
+before Phase 35:
 
 ![Per-tenant connection manager — duplicated today, one shared package after](images/tenants-manager-extraction.png)
 
@@ -162,18 +163,18 @@ Editable source:
 `node diagrams/export-html-png.mjs diagrams/tenants-manager-extraction.html \`
 `  ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/tenants-manager-extraction.png 1024 --clip=figure`
 
-**What is duplicated.** Creds-directory discovery (including the
+**What was duplicated.** Creds-directory discovery (including the
 `nonTenantCredsFiles` exclusion list), `nats.Connect` per tenant, the
 `notify.accounts.account.{created,suspended,reactivated}` lifecycle
 subscription that provisions and tears down connections reactively, and
-shutdown. In `pricing-service` and `trading-partner-service` these are
+shutdown. In `pricing-service` and `trading-partner-service` these were
 near-identical file-scoped copies (`internal/tenants/tenants.go`, 288 and 368
-lines); `shipping-service`'s equivalent lives inside
+lines); `shipping-service`'s equivalent lived inside
 `internal/rest/tenant.go` alongside per-tenant JetStream and KV provisioning,
-so its connection-lifecycle portion is the same logic embedded in a larger
+so its connection-lifecycle portion was the same logic embedded in a larger
 file rather than a standalone copy.
 
-**Why it matters — this has already cost a real bug.** `observability.creds`
+**Why it mattered — this had already cost a real bug.** `observability.creds`
 (the restricted PLATFORM user added in Phase 30c) was missing from the
 `nonTenantCredsFiles` exclusion list in two of the three copies. Both
 therefore treated it as a switchable tenant and opened a connection under a
@@ -181,29 +182,37 @@ PLATFORM-account user that was never granted tenant-shaped permissions — the
 `notify.accounts.account.*` subscription and the `browserrpc` registration
 both denied with subscription violations. It was diagnosed from NATS server
 logs rather than caught by a test, and fixed three separate times, in three
-separate files, at three separate points in time (see each file's own comment
-recording its instance of the fix). The failure mode is the defining one for
-copied infrastructure code: the copies do not drift *visibly*, they drift in
-whichever branch nobody re-read.
+separate files, at three separate points in time. The failure mode is the
+defining one for copied infrastructure code: the copies do not drift
+*visibly*, they drift in whichever branch nobody re-read.
 
-**Recommendation.** Extract the five behaviours into one shared Go package
-(working name `natstenants`), with each service supplying its own adapter
-constructor as a callback so the package never imports any service's
-`browserrpc`. This is a **code package compiled into each binary — not a new
-service**: no additional container, no network hop, and no runtime dependency
-introduced between services. `shipping-service` would adopt it for connection
-lifecycle only, keeping its JetStream/KV provisioning where it is.
+**What Phase 35 did.** Extracted the five behaviours into one shared Go
+package, `shared/natstenants` (`natstenants.Manager[R any]`, generic over
+each service's own per-tenant resource shape), with each service supplying
+its own provision/deprovision callbacks so the package never imports any
+service's `browserrpc`. It is a **code package compiled into each binary —
+not a new service**: no additional container, no network hop, and no runtime
+dependency introduced between services. `pricing-service`,
+`trading-partner-service`, and `refdata-service` adopted `Manager[R]`
+directly; `shipping-service` adopted it for connection lifecycle only
+(`natstenants.Discover`/`SubscribeLifecycle`), keeping its JetStream/KV
+provisioning local as planned. `shared/browserrpc` (the `Reply`/`Respond`/
+`RespondError`/`ContextFromSubject` reply-plumbing tail shared by all four
+adapters) and `shared/natstrace` (the BR-036/BR-037 tracer, consumed by all
+five services including `accounts-service`) were extracted alongside it in
+the same phase — see `ARCHITECTURE-COMMUNICATIONS.md` § 6 for the latter.
 
-**Prerequisite, and why this is deferred rather than scheduled.** Nothing in
-this repo shares Go code across services today: there are seven independent
-modules (one `go.mod` per service), no `go.work`, and no `replace` directive
-anywhere, and each Dockerfile's build context is a single service directory
-(`build: ./backend/pricing-service`). The first shared package is therefore
-also the decision about how this repo does shared Go code at all, plus the
-Docker build-context change that follows — which is why this is recorded here
-as a recommendation with a known cost rather than folded into a feature phase.
-The one thing to avoid in the meantime: pasting a fourth copy into
-`refdata-service` and treating the problem as unchanged.
+**What made this possible.** Nothing in this repo shared Go code across
+services before this phase: seven independent modules (one `go.mod` per
+service), no `go.work`, no `replace` directive anywhere, and each
+Dockerfile's build context a single service directory
+(`build: ./backend/pricing-service`). Phase 35 introduced a repo-root
+`go.work` (workspace-mode resolution for local `go build`/editor tooling)
+plus an explicit `replace` directive in each consuming service's `go.mod`
+(the actual resolution mechanism, robust against `go mod tidy` and Docker
+builds) and moved every affected Dockerfile's build context to the repo root
+so it can `COPY shared/<pkg>` ahead of the service's own source — the same
+pattern the frontend Dockerfiles already used for `shared/unifi-theme`.
 
 ### Business unit registration (Phase 22, name/context split + per-tenant default Phase 22b)
 

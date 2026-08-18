@@ -17,7 +17,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/internal/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 // Decode shapes for GET /api/accounts/topology — see topology.go's
@@ -342,7 +342,7 @@ var _ = Describe("Handlers", func() {
 		mux := http.NewServeMux()
 		notifyHandlers.Mount(mux, authSecret)
 		tracer := natstrace.New(notifyNC)
-		notifyServer := httptest.NewServer(tracer.HTTPMiddleware(mux))
+		notifyServer := httptest.NewServer(tracer.HTTPMiddleware("_platform", "accounts", mux))
 		defer notifyServer.Close()
 
 		parentTraceID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

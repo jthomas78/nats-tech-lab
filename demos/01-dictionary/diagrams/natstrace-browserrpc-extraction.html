@@ -1,0 +1,215 @@
+<script>document.documentElement.setAttribute("data-theme","dark")</script>
+<title>natstrace and browserrpc — one shared package each (Phase 35, implemented)</title>
+<style>
+/* Tokens lifted from shared/unifi-theme/unifi.css. Dark is the base, as there. */
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --text: #1e2328; --muted: #4e5560; --dim: #9aa1a9;
+    --bg: #f4f5f7; --panel: #ffffff; --border: #d1d5db;
+    --accent: #005fdb; --nested: #eef1f7;
+    --sync: #005fdb; --store: #0d9488; --evtl: #b45309; --bad: #dc2626; --hop: #6b7280;
+  }
+}
+:root[data-theme="light"] {
+  --text: #1e2328; --muted: #4e5560; --dim: #9aa1a9;
+  --bg: #f4f5f7; --panel: #ffffff; --border: #d1d5db;
+  --accent: #005fdb; --nested: #eef1f7;
+  --sync: #005fdb; --store: #0d9488; --evtl: #b45309; --bad: #dc2626; --hop: #6b7280;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 76ch; }
+.theme-btn {
+  font-family: var(--mono); font-size: 11px; padding: 3px 10px; border-radius: 3px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--muted); cursor: pointer;
+}
+.theme-btn:hover { color: var(--text); border-color: var(--dim); }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+
+/* SVG conventions */
+.bx   { fill: var(--nested); stroke: var(--border); stroke-width: 1; }
+.bxd  { fill: none; stroke: var(--dim); stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.7; }
+.bx-bad   { fill: color-mix(in srgb, var(--bad) 9%, var(--nested)); stroke: var(--bad); stroke-width: 1; }
+.bx-store { fill: color-mix(in srgb, var(--store) 9%, var(--nested)); stroke: var(--store); stroke-width: 1; }
+.bx-sync  { fill: color-mix(in srgb, var(--sync) 9%, var(--nested)); stroke: var(--sync); stroke-width: 1; }
+.bx-evtl  { fill: color-mix(in srgb, var(--evtl) 9%, var(--nested)); stroke: var(--evtl); stroke-width: 1; }
+.hr   { stroke: var(--border); stroke-width: 1; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.lblm { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.dup  { font-family: var(--mono); font-size: 9.5px; fill: var(--bad); }
+.arw  { fill: none; stroke: var(--hop); stroke-width: 1.2; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <span class="eyebrow">ARCHITECTURE-COMMUNICATIONS § 6 · Phase 35 (implemented 2026-08-18)</span>
+      <h1>natstrace and browserrpc — two more packages, one shared source each</h1>
+      <p class="sub"><b>natstrace</b> wraps every <code>rpc.*</code>/<code>api.*</code> call (or HTTP request, for
+        <code>accounts-service</code>) in an OTLP-shaped span and pushes it onto the KV-backed trace store the Admin
+        UI's Request/Reply panel reads. <b>browserrpc</b> is the reply-tail every browser-facing
+        <code>micro.Request</code> handler needs: read <code>{context}</code> off the subject, stamp the
+        <code>Nats-Responder</code>/<code>Nats-Service-Error</code> headers, and shape success/error JSON the same
+        way everywhere. (The third extracted package, <code>natstenants</code> — the per-tenant connection manager —
+        has its own diagram in ARCHITECTURE-ACCOUNTS.md.)</p>
+    </div>
+    <button class="theme-btn" id="tt" type="button">light / dark</button>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 940 520" role="img" aria-label="natstrace was duplicated once per service, five times, before Phase 35 extracted it into shared/natstrace, consumed by all five services including accounts-service via an HTTP middleware variant. browserrpc was duplicated once per browser-facing service, four times, before Phase 35 extracted it into shared/browserrpc, consumed by pricing, trading-partner, refdata and shipping — accounts-service has no browser-facing RPC surface and does not consume it.">
+        <defs>
+          <marker id="ah2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+        </defs>
+
+        <text class="grp" x="10" y="14">BEFORE — natstrace, PASTED ONCE PER SERVICE (~250 LINES EACH)</text>
+
+        <rect class="bx" x="10" y="30" width="168" height="64" rx="4"/>
+        <text class="lbl" x="22" y="50">shipping</text>
+        <line class="hr" x1="22" y1="58" x2="166" y2="58"/>
+        <text class="dup" x="22" y="74">natstrace.go · ~250L</text>
+        <text class="lbl2" x="22" y="88">+ HTTP mw (Phase 28m)</text>
+
+        <rect class="bx" x="194" y="30" width="168" height="64" rx="4"/>
+        <text class="lbl" x="206" y="50">pricing</text>
+        <line class="hr" x1="206" y1="58" x2="350" y2="58"/>
+        <text class="dup" x="206" y="74">natstrace.go · ~250L</text>
+
+        <rect class="bx" x="378" y="30" width="168" height="64" rx="4"/>
+        <text class="lbl" x="390" y="50">trading-partner</text>
+        <line class="hr" x1="390" y1="58" x2="534" y2="58"/>
+        <text class="dup" x="390" y="74">natstrace.go · ~250L</text>
+
+        <rect class="bx" x="562" y="30" width="168" height="64" rx="4"/>
+        <text class="lbl" x="574" y="50">refdata</text>
+        <line class="hr" x1="574" y1="58" x2="718" y2="58"/>
+        <text class="dup" x="574" y="74">natstrace.go · ~250L</text>
+
+        <rect class="bx" x="746" y="30" width="168" height="64" rx="4"/>
+        <text class="lbl" x="758" y="50">accounts</text>
+        <line class="hr" x1="758" y1="58" x2="902" y2="58"/>
+        <text class="dup" x="758" y="74">natstrace.go · ~250L</text>
+        <text class="lbl2" x="758" y="88">REST, not rpc.*/api.*</text>
+
+        <path class="arw" d="M475 94V126" marker-end="url(#ah2)"/>
+
+        <rect class="bx-sync" x="10" y="130" width="920" height="52" rx="4"/>
+        <text class="lbl" x="24" y="150">shared/natstrace — one OTLP-shaped span helper, one KV-backed trace store</text>
+        <text class="lblm" x="24" y="168">Consumed by all five. accounts-service wraps HTTPMiddleware around its REST handlers instead of Start/Middleware.</text>
+
+        <line class="hr" x1="10" y1="204" x2="930" y2="204"/>
+
+        <text class="grp" x="10" y="230">BEFORE — browserrpc, PASTED PER BROWSER-FACING SERVICE</text>
+
+        <rect class="bx" x="10" y="246" width="168" height="64" rx="4"/>
+        <text class="lbl" x="22" y="266">pricing</text>
+        <line class="hr" x1="22" y1="274" x2="166" y2="274"/>
+        <text class="dup" x="22" y="290">adapter.go</text>
+        <text class="lbl2" x="22" y="304">single reply() funnel</text>
+
+        <rect class="bx" x="194" y="246" width="168" height="64" rx="4"/>
+        <text class="lbl" x="206" y="266">trading-partner</text>
+        <line class="hr" x1="206" y1="274" x2="350" y2="274"/>
+        <text class="dup" x="206" y="290">adapter.go</text>
+        <text class="lbl2" x="206" y="304">single reply() funnel</text>
+
+        <rect class="bx" x="378" y="246" width="168" height="64" rx="4"/>
+        <text class="lbl" x="390" y="266">refdata</text>
+        <line class="hr" x1="390" y1="274" x2="534" y2="274"/>
+        <text class="dup" x="390" y="290">adapter.go</text>
+        <text class="lbl2" x="390" y="304">respond/respondError</text>
+
+        <rect class="bx" x="562" y="246" width="168" height="64" rx="4"/>
+        <text class="lbl" x="574" y="266">shipping</text>
+        <line class="hr" x1="574" y1="274" x2="718" y2="274"/>
+        <text class="dup" x="574" y="290">adapter.go</text>
+        <text class="lbl2" x="574" y="304">respond/respondError</text>
+
+        <rect class="bxd" x="746" y="246" width="168" height="64" rx="4"/>
+        <text class="lbl2" x="758" y="270">accounts</text>
+        <text class="lbl2" x="758" y="286">REST only —</text>
+        <text class="lbl2" x="758" y="300">no reply-tail needed</text>
+
+        <path class="arw" d="M390 310V342" marker-end="url(#ah2)"/>
+
+        <rect class="bx-sync" x="10" y="346" width="920" height="52" rx="4"/>
+        <text class="lbl" x="24" y="366">shared/browserrpc — ContextFromSubject, Responder headers, Respond/RespondError, a canonical Reply</text>
+        <text class="lblm" x="24" y="384">Consumed by pricing, trading-partner, refdata, shipping. Call-site signatures were not force-unified — see caption.</text>
+
+        <rect class="bx-evtl" x="10" y="416" width="920" height="62" rx="4"/>
+        <text class="lbl" x="24" y="436">No compatibility shims</text>
+        <text class="lblm" x="24" y="452">Every old per-service package, type, and test file was deleted outright once its shared replacement was wired in —</text>
+        <text class="lblm" x="24" y="466">no aliases, no "removed" comments, nothing left behind to drift again</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>Call sites stayed put; only the bodies moved.</b> <code>pricing-service</code> and
+      <code>trading-partner-service</code> already funneled every reply through one
+      <code>reply(req, result, err)</code> call, so they got a one-line delegating version.
+      <code>refdata-service</code> and <code>shipping-service</code> reply from several early-exit points with no
+      single funnel, so they kept their own <code>(req, subject, correlationID, ...)</code>-shaped wrappers with
+      delegated bodies, rather than forcing a ~90-call-site cosmetic diff in refdata-service.
+    </figcaption>
+  </figure>
+
+  <div class="sec">
+    <h2>Same phase, same blocker as natstenants</h2>
+    <ul>
+      <li><b>One module strategy, three packages.</b> <code>natstrace</code> and <code>browserrpc</code> were
+        bundled into Phase 35 alongside <code>natstenants</code> because all three hit the identical
+        Go-module/Dockerfile-build-context blocker — once <code>go.work</code> plus the per-service
+        <code>replace</code> directive existed for one package, extracting the other two was the same mechanical
+        move repeated.</li>
+      <li><b>accounts-service is the one asymmetry in both packages.</b> It consumes <code>natstrace</code> through
+        a different entry point (<code>HTTPMiddleware</code>, since its transport is REST) and doesn't consume
+        <code>browserrpc</code> at all (no browser-facing RPC surface to reply from) — the diagram's dashed box
+        marks that as a deliberate non-consumer, not a missed migration.</li>
+      <li><b>Verified live.</b> A full <code>docker compose down -v && up --build</code> ran with zero panics,
+        fatals, or auth violations across any container; the Admin UI's Request/Reply trace panel showed 45 live
+        <code>api.*</code>/<code>rpc.*</code> traces at 0 errors, through both refactored adapters end to end.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  const root = document.documentElement
+  document.getElementById('tt').addEventListener('click', () => {
+    root.setAttribute('data-theme', root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark')
+  })
+</script>

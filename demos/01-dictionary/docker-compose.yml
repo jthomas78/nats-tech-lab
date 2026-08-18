@@ -140,7 +140,12 @@ services:
       retries: 15
 
   shipping-service:
-    build: ./backend/shipping-service
+    build:
+      # Phase 35: context is the repo root so the build can copy
+      # shared/natstrace alongside the service source (same pattern the
+      # frontend build blocks already use for shared/unifi-theme).
+      context: ../..
+      dockerfile: demos/01-dictionary/backend/shipping-service/Dockerfile
     container_name: lb-shipping-service
     networks:
       - backend
@@ -165,7 +170,12 @@ services:
         condition: service_healthy
 
   refdata-service:
-    build: ./backend/refdata-service
+    build:
+      # Phase 35: context is the repo root so the build can copy
+      # shared/natstrace alongside the service source (same pattern the
+      # frontend build blocks already use for shared/unifi-theme).
+      context: ../..
+      dockerfile: demos/01-dictionary/backend/refdata-service/Dockerfile
     container_name: lb-refdata-service
     networks:
       - backend
@@ -219,7 +229,12 @@ services:
   # same Store this service already owns, in-process — see
   # BUSINESS_RULES-ACCOUNTS.md's merge note.
   accounts-service:
-    build: ./backend/accounts-service
+    build:
+      # Phase 35: context is the repo root so the build can copy
+      # shared/natstrace alongside the service source (same pattern the
+      # frontend build blocks already use for shared/unifi-theme).
+      context: ../..
+      dockerfile: demos/01-dictionary/backend/accounts-service/Dockerfile
     container_name: lb-accounts-service
     networks:
       - backend
@@ -281,7 +296,12 @@ services:
   # only, since whether shipping-service ever consults it is still
   # undecided (Phase 25e, see BUSINESS_RULES-PRICING.md).
   pricing-service:
-    build: ./backend/pricing-service
+    build:
+      # Phase 35: context is the repo root so the build can copy
+      # shared/natstrace alongside the service source (same pattern the
+      # frontend build blocks already use for shared/unifi-theme).
+      context: ../..
+      dockerfile: demos/01-dictionary/backend/pricing-service/Dockerfile
     container_name: lb-pricing-service
     networks:
       - backend
@@ -317,7 +337,12 @@ services:
   # api.* endpoints that will replace that are Phase 26h, and REST stays
   # afterwards as a dual transport (pricing-service's pattern).
   trading-partner-service:
-    build: ./backend/trading-partner-service
+    build:
+      # Phase 35: context is the repo root so the build can copy
+      # shared/natstrace alongside the service source (same pattern the
+      # frontend build blocks already use for shared/unifi-theme).
+      context: ../..
+      dockerfile: demos/01-dictionary/backend/trading-partner-service/Dockerfile
     container_name: lb-trading-partner-service
     networks:
       - backend

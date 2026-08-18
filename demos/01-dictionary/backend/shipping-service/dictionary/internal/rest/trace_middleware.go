@@ -10,7 +10,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 // httpTraceMiddleware closes the gap where a browser HTTP request into this

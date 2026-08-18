@@ -58,15 +58,6 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-// TenantCredentials is one tenant's NATS account login: a path to a .creds
-// file (Phase 14a — operator mode; must match a JWT/user minted into
-// nats/creds/ by nats/bootstrap-operator.sh). Replaces Phase 13b's bare
-// user/password pair now that nats.conf has no static accounts{} block to
-// match against.
-type TenantCredentials struct {
-	CredsPath string
-}
-
 // Deps bundles everything the HTTP layer needs; keeps NewHandlers readable as
 // the module grows.
 //

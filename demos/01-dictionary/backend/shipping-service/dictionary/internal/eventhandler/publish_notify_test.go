@@ -15,7 +15,7 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 func newPublishNotifyTestConn(t *testing.T) (*nats.Conn, func()) {

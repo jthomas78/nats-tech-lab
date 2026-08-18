@@ -25,7 +25,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
 
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 // ErrRPCUnavailable is returned when every retry against rpc.* fails — there

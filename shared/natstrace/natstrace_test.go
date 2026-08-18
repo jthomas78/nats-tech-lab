@@ -1,17 +1,18 @@
 package natstrace_test
 
-// Contract tests for natstrace (BR-036/BR-D39) — the cross-service contract
-// test BR-D39 requires, cloned from trading-partner-service's Phase 28a
-// natstrace_test.go with only the import path and rpc.* subject/vocabulary
-// adjusted. These exercise the package end to end over a real embedded NATS
+// Contract tests for shared/natstrace (BR-036/BR-037), extracted in Phase 35
+// from the five near-identical per-service copies (see natstrace.go's package
+// doc). These exercise the package end to end over a real embedded NATS
 // server and the actual nats.go/micro machinery — the same integration style
-// natsrpc_test.go uses — rather than calling unexported helpers directly,
-// since the behaviour that matters is what a wrapped endpoint actually
-// publishes on the wire.
+// browserrpc's own tests use — rather than calling unexported helpers
+// directly, since the behaviour that matters is what a wrapped endpoint
+// actually publishes on the wire.
 
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"time"
 
@@ -22,7 +23,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/micro"
 
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 func newTestConn() *nats.Conn {
@@ -40,9 +41,8 @@ func newTestConn() *nats.Conn {
 	return nc
 }
 
-// legacyEnvelope is the pre-Phase-28 obsEnvelope shape (BR-D26/BR-D36):
-// decoding a traceSpan into this must still succeed with no error, per
-// BR-036/BR-D39.
+// legacyEnvelope is the pre-Phase-28 obsEnvelope shape (BR-D26/BR-026):
+// decoding a traceSpan into this must still succeed with no error, per BR-036.
 type legacyEnvelope struct {
 	Direction     string              `json:"direction"`
 	CorrelationID string              `json:"correlationId"`
@@ -56,9 +56,6 @@ type legacyEnvelope struct {
 
 type fullSpan struct {
 	legacyEnvelope
-	// Requester is BR-041's lift of the self-declared Nats-Requestor header
-	// onto its own field (Phase 28b mirror of trading-partner-service's
-	// Phase 28a original).
 	Requester     string            `json:"requester,omitempty"`
 	TraceID       string            `json:"traceId,omitempty"`
 	SpanID        string            `json:"spanId,omitempty"`
@@ -79,13 +76,13 @@ type fullSpan struct {
 	RequestTruncated    bool            `json:"requestTruncated,omitempty"`
 }
 
-var _ = Describe("natstrace (Phase 28b — BR-036/BR-D39)", func() {
+var _ = Describe("natstrace (Phase 35 — shared package — BR-036/BR-037)", func() {
 	var nc *nats.Conn
 
 	// registerEcho wires one endpoint through tracer.Middleware; the handler
-	// finishes the span exactly the way natsrpc.Adapter's respond/respondOK/
-	// respondError do (End on success, Fail on a "fail" request), the real
-	// shape this package is used in once wired into the adapter.
+	// finishes the span exactly the way browserrpc.Adapter's respond/
+	// respondError do (End on success, Fail on a "fail" request) — the real
+	// shape this package is used in once wired into an adapter.
 	registerEcho := func(subject string) {
 		tracer := natstrace.New(nc)
 		svc, err := micro.AddService(nc, micro.Config{Name: "natstrace-test-svc", Version: "0.0.1"})
@@ -110,9 +107,9 @@ var _ = Describe("natstrace (Phase 28b — BR-036/BR-D39)", func() {
 		nc = newTestConn()
 	})
 
-	Context("BR-036/BR-D39 — traceSpan is a strict superset of obsEnvelope", func() {
+	Context("BR-036 — traceSpan is a strict superset of obsEnvelope", func() {
 		It("publishes one span per call, decodable as both the old envelope shape and the new one", func() {
-			registerEcho("rpc.acme.refdata.item.get.v1")
+			registerEcho("api.acme.widget.thing.action.v1")
 
 			spans := make(chan *nats.Msg, 4)
 			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
@@ -120,16 +117,16 @@ var _ = Describe("natstrace (Phase 28b — BR-036/BR-D39)", func() {
 			DeferCleanup(func() { _ = sub.Unsubscribe() })
 			Expect(nc.Flush()).To(Succeed())
 
-			_, err = nc.Request("rpc.acme.refdata.item.get.v1", []byte(`{"ok":true}`), 2*time.Second)
+			_, err = nc.Request("api.acme.widget.thing.action.v1", []byte(`{"ok":true}`), 2*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			var msg *nats.Msg
 			Eventually(spans).Should(Receive(&msg))
-			Expect(msg.Subject).To(Equal("obs.trace.acme.refdata.item.get"))
+			Expect(msg.Subject).To(Equal("obs.trace.acme.widget.thing.action"))
 
 			var legacy legacyEnvelope
 			Expect(json.Unmarshal(msg.Data, &legacy)).To(Succeed(), "an old-shape obsEnvelope consumer must still decode this")
-			Expect(legacy.Subject).To(Equal("rpc.acme.refdata.item.get.v1"))
+			Expect(legacy.Subject).To(Equal("api.acme.widget.thing.action.v1"))
 			Expect(legacy.PayloadBytes).To(BeNumerically(">", 0))
 
 			var span fullSpan
@@ -137,14 +134,25 @@ var _ = Describe("natstrace (Phase 28b — BR-036/BR-D39)", func() {
 			Expect(span.TraceID).To(HaveLen(32))
 			Expect(span.SpanID).To(HaveLen(16))
 			Expect(span.ParentSpanID).To(BeEmpty())
-			Expect(span.Service).To(Equal("refdata"))
-			Expect(span.Entity).To(Equal("item"))
-			Expect(span.Action).To(Equal("get"))
+			Expect(span.Service).To(Equal("widget"))
+			Expect(span.Entity).To(Equal("thing"))
+			Expect(span.Action).To(Equal("action"))
 			Expect(span.StatusCode).To(Equal("OK"))
 		})
 
-		It("marks a failed call with statusCode ERROR and the error message, never blocking the reply", func() {
-			registerEcho("rpc.acme.refdata.item.get.v1")
+		It("records the span's own measured duration (Phase 28g), not derivable from Timestamp alone", func() {
+			tracer := natstrace.New(nc)
+			svc, err := micro.AddService(nc, micro.Config{Name: "natstrace-test-svc", Version: "0.0.1"})
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = svc.Stop() })
+
+			const handlerDelay = 40 * time.Millisecond
+			handler := func(req micro.Request) {
+				time.Sleep(handlerDelay)
+				natstrace.SpanFrom(req).End(req.Data(), nil)
+				_ = req.Respond(req.Data())
+			}
+			Expect(svc.AddEndpoint("echo", tracer.Middleware(handler), micro.WithEndpointSubject("api.acme.widget.thing.slow.v1"))).To(Succeed())
 
 			spans := make(chan *nats.Msg, 4)
 			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
@@ -152,7 +160,27 @@ var _ = Describe("natstrace (Phase 28b — BR-036/BR-D39)", func() {
 			DeferCleanup(func() { _ = sub.Unsubscribe() })
 			Expect(nc.Flush()).To(Succeed())
 
-			reply, err := nc.Request("rpc.acme.refdata.item.get.v1", []byte(`{"fail":true}`), 2*time.Second)
+			_, err = nc.Request("api.acme.widget.thing.slow.v1", []byte(`{"ok":true}`), 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			var msg *nats.Msg
+			Eventually(spans).Should(Receive(&msg))
+
+			var span fullSpan
+			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+			Expect(span.DurationMs).To(BeNumerically(">=", handlerDelay.Milliseconds()), "duration must reflect the handler's own elapsed time, not read as 0 or a value shorter than the deliberate delay")
+		})
+
+		It("marks a failed call with statusCode ERROR and the error message, never blocking the reply", func() {
+			registerEcho("api.acme.widget.thing.action.v1")
+
+			spans := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = sub.Unsubscribe() })
+			Expect(nc.Flush()).To(Succeed())
+
+			reply, err := nc.Request("api.acme.widget.thing.action.v1", []byte(`{"fail":true}`), 2*time.Second)
 			Expect(err).NotTo(HaveOccurred(), "a span publish failure must never block the real reply")
 			Expect(string(reply.Data)).To(ContainSubstring("boom"))
 
@@ -165,7 +193,7 @@ var _ = Describe("natstrace (Phase 28b — BR-036/BR-D39)", func() {
 		})
 
 		It("redacts a denylisted field before applying the 4 KiB cap, and flags truncation with the pre-truncation length", func() {
-			registerEcho("rpc.acme.refdata.item.get.v1")
+			registerEcho("api.acme.widget.thing.action.v1")
 
 			spans := make(chan *nats.Msg, 4)
 			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
@@ -180,7 +208,7 @@ var _ = Describe("natstrace (Phase 28b — BR-036/BR-D39)", func() {
 			body, err := json.Marshal(big)
 			Expect(err).NotTo(HaveOccurred())
 
-			_, err = nc.Request("rpc.acme.refdata.item.get.v1", body, 2*time.Second)
+			_, err = nc.Request("api.acme.widget.thing.action.v1", body, 2*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			var msg *nats.Msg
@@ -213,7 +241,7 @@ var _ = Describe("natstrace (Phase 28b — BR-036/BR-D39)", func() {
 				sp.End([]byte(`{"status":"ok"}`), nil)
 				_ = req.Respond([]byte(`{"status":"ok"}`))
 			}
-			Expect(svc.AddEndpoint("echo", tracer.Middleware(handler), micro.WithEndpointSubject("rpc.acme.refdata.item.get.v1"))).To(Succeed())
+			Expect(svc.AddEndpoint("echo", tracer.Middleware(handler), micro.WithEndpointSubject("api.acme.widget.thing.action.v1"))).To(Succeed())
 
 			spans := make(chan *nats.Msg, 4)
 			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
@@ -228,7 +256,7 @@ var _ = Describe("natstrace (Phase 28b — BR-036/BR-D39)", func() {
 			body, err := json.Marshal(reqBody)
 			Expect(err).NotTo(HaveOccurred())
 
-			_, err = nc.Request("rpc.acme.refdata.item.get.v1", body, 2*time.Second)
+			_, err = nc.Request("api.acme.widget.thing.action.v1", body, 2*time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			var msg *nats.Msg
@@ -249,7 +277,7 @@ var _ = Describe("natstrace (Phase 28b — BR-036/BR-D39)", func() {
 
 	Context("BR-037 — trace context propagates and continues a parent span", func() {
 		It("continues an inbound traceparent header as a child span rather than minting a new root", func() {
-			registerEcho("rpc.acme.refdata.item.get.v1")
+			registerEcho("api.acme.widget.thing.action.v1")
 
 			spans := make(chan *nats.Msg, 4)
 			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
@@ -260,7 +288,7 @@ var _ = Describe("natstrace (Phase 28b — BR-036/BR-D39)", func() {
 			parentTraceID := strings.Repeat("a", 32)
 			parentSpanID := strings.Repeat("b", 16)
 			msg := &nats.Msg{
-				Subject: "rpc.acme.refdata.item.get.v1",
+				Subject: "api.acme.widget.thing.action.v1",
 				Reply:   nats.NewInbox(),
 				Data:    []byte(`{"ok":true}`),
 				Header:  nats.Header{"Traceparent": []string{"00-" + parentTraceID + "-" + parentSpanID + "-01"}},
@@ -278,39 +306,6 @@ var _ = Describe("natstrace (Phase 28b — BR-036/BR-D39)", func() {
 			Expect(span.TraceID).To(Equal(parentTraceID))
 			Expect(span.ParentSpanID).To(Equal(parentSpanID))
 			Expect(span.SpanID).NotTo(Equal(parentSpanID), "a continued span mints its own child span id")
-		})
-	})
-
-	Context("Phase 28g — DurationMs measures the span's own elapsed time", func() {
-		It("records the span's own measured duration (Phase 28g), not derivable from Timestamp alone", func() {
-			tracer := natstrace.New(nc)
-			svc, err := micro.AddService(nc, micro.Config{Name: "natstrace-test-svc", Version: "0.0.1"})
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(func() { _ = svc.Stop() })
-
-			const handlerDelay = 40 * time.Millisecond
-			handler := func(req micro.Request) {
-				time.Sleep(handlerDelay)
-				natstrace.SpanFrom(req).End(req.Data(), nil)
-				_ = req.Respond(req.Data())
-			}
-			Expect(svc.AddEndpoint("echo", tracer.Middleware(handler), micro.WithEndpointSubject("rpc.acme.refdata.item.slow.v1"))).To(Succeed())
-
-			spans := make(chan *nats.Msg, 4)
-			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
-			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(func() { _ = sub.Unsubscribe() })
-			Expect(nc.Flush()).To(Succeed())
-
-			_, err = nc.Request("rpc.acme.refdata.item.slow.v1", []byte(`{"ok":true}`), 2*time.Second)
-			Expect(err).NotTo(HaveOccurred())
-
-			var msg *nats.Msg
-			Eventually(spans).Should(Receive(&msg))
-
-			var span fullSpan
-			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
-			Expect(span.DurationMs).To(BeNumerically(">=", handlerDelay.Milliseconds()), "duration must reflect the handler's own elapsed time, not read as 0 or a value shorter than the deliberate delay")
 		})
 	})
 
@@ -377,7 +372,7 @@ var _ = Describe("natstrace (Phase 28b — BR-036/BR-D39)", func() {
 			Expect(span.Redacted).To(ContainElement("headers.Authorization"))
 		})
 
-		It("lifts an inbound Nats-Requestor header onto its own Requester field (BR-041)", func() {
+		It("lifts an inbound Nats-Requestor header onto span.Requester (BR-041)", func() {
 			spans := make(chan *nats.Msg, 4)
 			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
 			Expect(err).NotTo(HaveOccurred())
@@ -395,21 +390,79 @@ var _ = Describe("natstrace (Phase 28b — BR-036/BR-D39)", func() {
 			Expect(span.Requester).To(Equal("some-service/abc123"))
 		})
 
-		It("leaves Requester empty when no Nats-Requestor header was present", func() {
+		It("leaves span.Requester empty when no Nats-Requestor header was present (BR-041)", func() {
 			spans := make(chan *nats.Msg, 4)
 			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(func() { _ = sub.Unsubscribe() })
 			Expect(nc.Flush()).To(Succeed())
 
-			sp := natstrace.New(nc).StartFromHeaders(nats.Header{}, "evt.acme.thing.1.happened", nil, "acme", "thing", "thing", "happened")
-			sp.End(nil, nil)
+			sp := natstrace.New(nc).StartOutbound(nil, "refdata.type.list.v1", nil, "acme", "refdata", "type", "list")
+			sp.End([]byte(`{}`), nil)
 
 			var msg *nats.Msg
 			Eventually(spans).Should(Receive(&msg))
 			var span fullSpan
 			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
 			Expect(span.Requester).To(Equal(""))
+		})
+	})
+
+	Context("HTTPMiddleware — the REST-transport symmetric counterpart of Middleware", func() {
+		It("wraps an http.Handler, publishing an OK span for a 2xx response", func() {
+			spans := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = sub.Unsubscribe() })
+			Expect(nc.Flush()).To(Succeed())
+
+			tracer := natstrace.New(nc)
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"ok":true}`))
+			})
+			ts := httptest.NewServer(tracer.HTTPMiddleware("_platform", "accounts", next))
+			DeferCleanup(ts.Close)
+
+			resp, err := http.Get(ts.URL + "/api/accounts/acme/suspend")
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = resp.Body.Close() })
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			var msg *nats.Msg
+			Eventually(spans).Should(Receive(&msg))
+			Expect(msg.Subject).To(Equal("obs.trace._platform.accounts.accounts.get"))
+			var span fullSpan
+			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+			Expect(span.StatusCode).To(Equal("OK"))
+		})
+
+		It("finishes the span as Fail for a >=400 response, without altering the real reply", func() {
+			spans := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = sub.Unsubscribe() })
+			Expect(nc.Flush()).To(Succeed())
+
+			tracer := natstrace.New(nc)
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":"bad"}`))
+			})
+			ts := httptest.NewServer(tracer.HTTPMiddleware("_platform", "accounts", next))
+			DeferCleanup(ts.Close)
+
+			resp, err := http.Get(ts.URL + "/api/auth/connectInfo")
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = resp.Body.Close() })
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest), "HTTPMiddleware must never alter the real reply")
+
+			var msg *nats.Msg
+			Eventually(spans).Should(Receive(&msg))
+			var span fullSpan
+			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+			Expect(span.StatusCode).To(Equal("ERROR"))
+			Expect(span.Entity).To(Equal("auth"))
 		})
 	})
 

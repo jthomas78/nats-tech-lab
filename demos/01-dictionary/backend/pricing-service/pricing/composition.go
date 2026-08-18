@@ -4,7 +4,7 @@
 // of Phase 25f) an api.* frontend-to-service adapter for the Sea Freight
 // Flow browser (Phase 25e's resolution: the browser talks to pricing-service
 // directly, not via shipping-service) — see internal/browserrpc and
-// internal/tenants for the per-tenant NATS connection model this requires.
+// shared/natstenants for the per-tenant NATS connection model this requires.
 package pricing
 
 import (
@@ -13,11 +13,13 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/nats-io/nats.go"
+
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing/internal/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing/internal/postgres"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing/internal/rest"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing/internal/tenants"
+	"github.com/jthomas78/nats-tech-lab/shared/natstenants"
 )
 
 // Handlers is the composed set of command handlers a caller (REST layer,
@@ -54,18 +56,28 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 
 // MountAPI starts the api.* frontend-to-service adapter: one browserrpc.Adapter
 // per tenant NATS connection, discovered from credsDir and kept reactively in
-// sync with accounts-service's tenant lifecycle (see internal/tenants). Every
-// tenant's Adapter shares these exact same command handlers — pricing data is
-// scoped by `context`, not by NATS account, so nothing here is per-tenant
-// except the connection itself. Callers should Close() the returned Manager
-// on shutdown.
-func (h *Handlers) MountAPI(ctx context.Context, natsURL, credsDir string, log *slog.Logger) (*tenants.Manager, error) {
-	mgr := tenants.NewManager(natsURL, credsDir, log, browserrpc.Deps{
+// sync with accounts-service's tenant lifecycle (Phase 35: shared/natstenants).
+// Every tenant's Adapter shares these exact same command handlers — pricing
+// data is scoped by `context`, not by NATS account, so nothing here is
+// per-tenant except the connection itself. Callers should Close() the
+// returned Manager on shutdown.
+func (h *Handlers) MountAPI(ctx context.Context, natsURL, credsDir string, log *slog.Logger) (*natstenants.Manager[*browserrpc.Adapter], error) {
+	deps := browserrpc.Deps{
 		FeeScales:  h.FeeScales,
 		RateSheets: h.RateSheets,
 		FixedRates: h.FixedRates,
 		Log:        log,
-	})
+	}
+	mgr := natstenants.NewManager(natsURL, credsDir, "pricing-service", log,
+		func(_ context.Context, nc *nats.Conn, tenant string) (*browserrpc.Adapter, error) {
+			scoped := deps
+			scoped.Tenant = tenant
+			return browserrpc.New(nc, scoped)
+		},
+		func(_ string, adapter *browserrpc.Adapter) error {
+			return adapter.Stop()
+		},
+	)
 	if err := mgr.EnsureAll(ctx); err != nil {
 		return nil, err
 	}

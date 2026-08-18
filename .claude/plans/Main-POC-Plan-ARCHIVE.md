@@ -5607,3 +5607,131 @@ worktree isolation is used again for a similar fan-out.
 - [x] 34.5 no business integration test exercises REST — audited across all 6 services, zero violations; two harmless mentions found (a stale-rename comment, a doc-comment path example) and confirmed non-live
 - [x] 34.6 `ARCHITECTURE-COMMUNICATIONS.md` § 1 transport table rewritten + § 6 amendment added; `ARCHITECTURE-ADMIN.md` § 4.5 documents the new filter
 - [x] Live verification: added a throwaway `POST /api/pricing/{context}/fee-scales` route to pricing-service's `Mount` — `TestMountRoutesMatchAdminAllowlist` failed with a clear `ConsistOf` diff naming the extra route; reverted, test green again. All 6 services' full suites green post-merge (`ginkgo ./...` for shipping-service: 9 suites passed; `go test ./...` for refdata/pricing/trading-partner/accounts-service/observability-service: all packages ok).
+
+---
+
+### Phase 35 (IMPLEMENTED 2026-08-18) — Shared Go Package Extraction: `natstenants`, `natstrace`, `browserrpc` Infra Tail
+
+#### Goal
+
+Three infrastructure pieces were duplicated verbatim across services because
+nothing in this repo shared Go code — 7 independent `go.mod` files, no
+`go.work`, no `replace` directives, and every Dockerfile's build context was
+a single service directory:
+
+| Package | Copies | Size each | Cause found by |
+|---|---|---|---|
+| per-tenant connection manager (`internal/tenants`) | 4 — `pricing-service`, `trading-partner-service`, `refdata-service` (Phase 32), `shipping-service` (embedded in `rest/tenant.go`) | 288–577 lines | A real bug: the `observability.creds` exclusion was missing from two of the first three copies, opening phantom PLATFORM connections that failed with subscription violations — found live via NATS server logs, fixed separately in each file. See BR-D40, [tenants_manager_triplication](../memory/tenants_manager_triplication.md). |
+| `natstrace` (BR-036/BR-037 hand-rolled tracing) | 5 — every service including `accounts-service` | ~250 lines | Documented, not accidental — the package doc and `ARCHITECTURE-COMMUNICATIONS.md` § 6 both explained the duplication, citing the identical build-context blocker this phase addressed. No live bug; lower urgency than the other two, but the same fix applied. |
+| `browserrpc` infra tail — `contextFromSubject`, `respond`/`respondError`/`reply`, `responderIdentity`, `responderHeader` | 4 — every `browserrpc/adapter.go` | ~60–90 lines | Byte-identical apart from `refdata-service`'s `respondOK` vs `respond` naming. No documented rationale anywhere — silent duplication like `tenants.Manager`, just smaller. The service-specific handlers in each `adapter.go` (543–1301 lines) were **not** duplication and stayed where they were; only this shared tail moved. |
+
+Bundled all three into one phase rather than paying the module-strategy
+decision three separate times.
+
+#### Design decisions
+
+- **The module strategy was the actual deliverable of this phase**, not a
+  prerequisite to work around. Chose `go.work` (workspace mode — each
+  service keeps its own `go.mod`, a top-level `go.work` lists them all, `go
+  build`/`go test` resolve locally without a registry) **plus** an explicit
+  `replace` directive in each consuming service's `go.mod` as a
+  belt-and-suspenders pin, since plain `go mod` subcommands (`tidy` in
+  particular) and Docker builds don't reliably honor `go.work`'s implicit
+  local override once the replaced module has its own external
+  dependencies.
+- **New package location:** `shared/natstenants`, `shared/natstrace`,
+  `shared/browserrpc` — alongside the existing `shared/unifi-theme` and
+  `shared/ui-shell` frontend packages, making "shared Go code lives in
+  `shared/`" a repo-wide convention rather than a frontend-only one.
+- **`shared/browserrpc` is infra only.** Exports the reply-tail helpers and
+  the `Adapter` plumbing they hang off; imports no service's domain types —
+  direction of dependency is service → `shared/browserrpc`, never the
+  reverse. Each service's existing `adapter.go` kept its own handlers and
+  just calls the shared reply tail.
+- **`shared/natstenants` takes the adapter constructor as a callback**
+  (`Manager[R any]`, generic over each service's own per-tenant resource
+  shape — a bare `*browserrpc.Adapter` for pricing/refdata, an
+  `Adapter`+`refdataclient.Client` pair for trading-partner-service, or a
+  full JetStream/KV/projector bundle for shipping-service's local
+  `tenantResources`), so the package never imports any service's
+  `browserrpc` — same directional rule as above.
+- **`shipping-service` adopted `natstenants` for connection lifecycle only**
+  (`Discover`/`SubscribeLifecycle`) — its per-tenant JetStream/KV
+  provisioning and its REST `SwitchTenant`/`getTenant` "active tenant"
+  concept stayed local, since it already owned an equivalent per-tenant map
+  (`Deps.TenantResources`) that the full `Manager` would only have
+  duplicated.
+- **Reply-plumbing call-site signatures were kept per-service, not
+  force-unified.** `pricing-service`/`trading-partner-service` (whose
+  existing `reply(req, result, err)` already matched the shared
+  convention) got a one-line delegating `reply`; `refdata-service` and
+  `shipping-service` (neither has a single `reply()` funnel — handlers call
+  `respond`/`respondError` directly, often several times per handler at
+  early-exit validation points) kept their existing `(req, subject,
+  correlationID, ...)`-shaped wrapper methods with delegated bodies rather
+  than forcing a purely cosmetic ~90-call-site diff in refdata-service.
+- **No compatibility shims.** Every old per-service package/type replaced
+  by shared code was deleted outright (`pricing/internal/tenants`,
+  `tradingpartner/internal/tenants`'s old content, `refdata/internal/tenants`,
+  `dictionary/internal/rest/tenant.go`'s local `discoverTenants` body,
+  each service's local `errorResponse`/`responderHeader`/`responderIdentity`),
+  never kept behind aliases.
+- **Docs asserting "duplicated per service" fixed as code moved:** each
+  package's own doc comment, `ARCHITECTURE-ACCOUNTS.md` § "per-tenant
+  connections", `ARCHITECTURE-COMMUNICATIONS.md` § 6's `natstrace` passage,
+  and BR-D40.
+
+#### Sub-phases (all completed)
+
+- **35.1 — Module strategy spike.** Proved `go.work` + per-service `replace`
+  directives against both `go build ./...` from the repo root and every
+  service's Docker build (repo-root build context, `COPY shared/<pkg>`
+  ahead of the service's own source — the same pattern the frontend
+  Dockerfiles already used for `shared/unifi-theme`).
+- **35.2 — Extracted `shared/natstenants`.** Consumed by `pricing-service`
+  and `trading-partner-service` first, then `refdata-service` and
+  `shipping-service` (lifecycle-only). Each service's own `tenants.go`
+  deleted as it was replaced.
+- **35.3 — Extracted `shared/browserrpc` infra tail.** Consumed by all four
+  `adapter.go` files; the duplicated functions deleted from each.
+  `shared/browserrpc.Reply` (the pricing/trading-partner convention) and
+  `Respond`/`RespondError` (the refdata/shipping convention) both ship from
+  the same package.
+- **35.4 — Extracted `shared/natstrace`.** Consumed by all five services
+  incl. `accounts-service`; each service's own `internal/natstrace` package
+  deleted.
+- **35.5 — Tests moved with the code they cover.** `natstenants_test.go`,
+  `natstrace_test.go`, and the new `browserrpc_test.go` (embedded NATS
+  server, `github.com/nats-io/nats-server/v2/server`) became each shared
+  package's own suite — every consuming service benefits from the same
+  coverage instead of only the service that happened to have written it
+  first.
+- **35.6 — Documentation.** `ARCHITECTURE-ACCOUNTS.md`'s per-tenant-
+  connections section rewritten from RECOMMENDATION to IMPLEMENTED voice
+  (extraction diagram PNG kept as a record of what happened);
+  `ARCHITECTURE-COMMUNICATIONS.md` § 6's `natstrace`-duplication passages
+  amended in place; `BUSINESS_RULES-REFDATA.md`'s BR-D40 gained a "Phase 35
+  amendment" paragraph recording the extraction landing and pointing at
+  `shared/natstenants` instead of the deleted `refdata/internal/tenants`.
+
+#### What shipped, one detail worth keeping that isn't obvious from the code
+
+Fixing the mechanical `sed`-based rename of `contextFromSubject(` (and, in
+refdata-service, `decode[`/`spanCtx(`) across each `adapter.go` reliably
+also mangled the identifier's own local `func` definition line into invalid
+Go syntax (e.g. `func sharedbrowserrpc.ContextFromSubject(...)`) — happened
+identically in all four services. Not a design decision, just a repeatable
+gotcha worth remembering if this shared-extraction pattern is used again:
+after a blind rename-by-sed across a file, always check whether the
+renamed identifier's own definition line was in the sed's blast radius.
+
+#### Checklist
+
+- [x] 35.1 module strategy chosen and proven against both `go build ./...` and every service's Docker build
+- [x] 35.2 `shared/natstenants` extracted; all four services (pricing, trading-partner, refdata, shipping) consume it; no service has its own copy left
+- [x] 35.3 `shared/browserrpc` infra tail extracted; all four `adapter.go` files consume it
+- [x] 35.4 `shared/natstrace` extracted; all five services (incl. `accounts-service`) consume it
+- [x] 35.5 shared test coverage (embedded NATS server) benefits every consumer, not just refdata-service
+- [x] 35.6 `ARCHITECTURE-ACCOUNTS.md`, `ARCHITECTURE-COMMUNICATIONS.md` § 6, BR-D40, and each package's own doc comment updated from recommendation/duplication language to implemented-shared-package language
+- [x] `ginkgo ./...` + `go test ./...` green in every service; `go build ./...`/`go vet ./...` green for all 10 workspace modules from the repo root
+- [x] Live verification: full `docker compose down -v && up --build`, all services connected with zero panics/fatals/auth violations across every container's logs, Admin UI's Request/Reply trace panel showed 45 live `api.*`/`rpc.*` traces at 0 errors incl. `api.acme-atlantic-fleet.shipping.port.list.v1` (shipping-service's refactored adapter) and `api._platform.refdata.type.list.v1` (refdata-service's)

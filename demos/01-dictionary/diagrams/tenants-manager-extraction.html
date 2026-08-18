@@ -1,5 +1,5 @@
 <script>document.documentElement.setAttribute("data-theme","dark")</script>
-<title>Per-tenant connection manager — duplication today, shared package after</title>
+<title>Per-tenant connection manager — one shared package (Phase 35, implemented)</title>
 <style>
 /* Tokens lifted from shared/unifi-theme/unifi.css. Dark is the base, as there. */
 :root {
@@ -76,9 +76,9 @@ li b { color: var(--text); font-weight: 600; }
 <div class="wrap">
   <div class="head">
     <div class="head-txt">
-      <span class="eyebrow">ARCHITECTURE-ACCOUNTS § Scaling note</span>
-      <h1>Per-tenant connection manager — duplicated today, one package after</h1>
-      <p class="sub">Three services independently re-implement the same five behaviours over their own per-tenant NATS connections. <code>refdata-service</code> is about to need them too. Extracting them is a Go package, not a service — nothing gains a network hop.</p>
+      <span class="eyebrow">ARCHITECTURE-ACCOUNTS § Phase 35 (implemented 2026-08-18)</span>
+      <h1>Per-tenant connection manager — one shared package, four consumers</h1>
+      <p class="sub"><b>What it does:</b> <code>natstenants.Manager[R]</code> owns per-tenant NATS connection lifecycle — discovering a tenant's <code>.creds</code> file, opening one connection on demand, and closing it reactively off <code>notify.accounts.account.{created,suspended,reactivated}</code> — so a browser authenticated into any tenant's account can reach a service directly over <code>api.*</code>. Four services independently re-implemented the same five behaviours over their own per-tenant connections; Phase 35 extracted them into a Go package, not a service — nothing gains a network hop.</p>
     </div>
     <button class="theme-btn" id="tt" type="button">light / dark</button>
   </div>
@@ -92,7 +92,7 @@ li b { color: var(--text); font-weight: 600; }
           </marker>
         </defs>
 
-        <text class="grp" x="10" y="14">TODAY — THE SAME MANAGER, COPIED PER SERVICE</text>
+        <text class="grp" x="10" y="14">BEFORE PHASE 35 — THE SAME MANAGER, COPIED PER SERVICE</text>
 
         <!-- shipping-service -->
         <rect class="bx" x="10" y="30" width="285" height="176" rx="4"/>
@@ -136,10 +136,10 @@ li b { color: var(--text); font-weight: 600; }
         <text class="lbl2" x="654" y="174">Own: refdata client (BR-TP14),</text>
         <text class="lbl2" x="654" y="186">two-pass MountAPI for its dep cycle</text>
 
-        <!-- refdata-service: the prospective fourth copy -->
+        <!-- refdata-service: the fourth copy, added after the other three -->
         <rect class="bxd" x="10" y="224" width="915" height="48" rx="4"/>
-        <text class="lbl"  x="24" y="244">refdata-service — the fourth copy, if the pattern is pasted again</text>
-        <text class="lbl2" x="24" y="260">Has none of it today: one PLATFORM connection, no per-tenant manager, no api.* adapter</text>
+        <text class="lbl"  x="24" y="244">refdata-service — the fourth copy, added once it gained browser-facing api.* (Phase 32)</text>
+        <text class="lbl2" x="24" y="260">Same five behaviours, pasted a fourth time rather than blocking on the unrelated go.work migration (BR-D40)</text>
 
         <!-- cost callout -->
         <rect class="bx-bad" x="10" y="288" width="915" height="62" rx="4"/>
@@ -177,15 +177,15 @@ li b { color: var(--text); font-weight: 600; }
 
         <rect class="bx-sync" x="640" y="574" width="285" height="94" rx="4"/>
         <text class="lbl"  x="654" y="594">refdata-service</text>
-        <text class="lbl2" x="654" y="612">Gains per-tenant api.* support</text>
-        <text class="lbl2" x="654" y="626">without a fourth copy</text>
-        <text class="lblm" x="654" y="650">wiring only</text>
+        <text class="lbl2" x="654" y="612">Swapped its Phase 32 copy for</text>
+        <text class="lbl2" x="654" y="626">the shared package</text>
+        <text class="lblm" x="654" y="650">internal/tenants deleted</text>
 
-        <!-- prerequisite -->
+        <!-- what made it possible -->
         <rect class="bx-evtl" x="10" y="686" width="915" height="62" rx="4"/>
-        <text class="lbl"  x="24" y="706">Prerequisite: each service is its own Go module</text>
-        <text class="lblm" x="24" y="722">Seven separate go.mod files, no go.work, and Dockerfiles whose build context is one service directory —</text>
-        <text class="lblm" x="24" y="736">so extraction needs a module strategy (go.work, or a shared module plus replace directives) before any code moves</text>
+        <text class="lbl"  x="24" y="706">What made this possible: go.work + a replace directive per service (sub-phase 35.1)</text>
+        <text class="lblm" x="24" y="722">go.work gives local `go build`/editor visibility; each service's go.mod also gets an explicit replace — the actual pin,</text>
+        <text class="lblm" x="24" y="736">since `go mod tidy` and Docker builds don't reliably honor go.work's override once the module has its own deps</text>
       </svg>
     </div>
     <figcaption>
@@ -199,19 +199,21 @@ li b { color: var(--text); font-weight: 600; }
   </figure>
 
   <div class="sec">
-    <h2>Why this is a recommendation, not a phase</h2>
+    <h2>Why this shipped as its own phase</h2>
     <ul>
-      <li><b>The duplication is already load-bearing.</b> The <code>observability.creds</code> omission
-        was a real production-shaped bug: two of the three copies treated a restricted PLATFORM
+      <li><b>The duplication was already load-bearing.</b> The <code>observability.creds</code> omission
+        was a real production-shaped bug: two of the three original copies treated a restricted PLATFORM
         credential as a tenant and opened a connection that could not legally subscribe. It was found
-        by reading NATS server logs, not by a test, and fixed in each file separately.</li>
-      <li><b>But the module boundary makes it non-trivial.</b> Nothing shares code across services
-        today — there is no <code>go.work</code> and no <code>replace</code> directive anywhere. The
-        first shared package is also the decision about how this repo does shared Go code at all,
-        including the Docker build-context change that follows from it.</li>
-      <li><b>Sequencing.</b> Doing extraction <em>before</em> <code>refdata-service</code> needs the
-        pattern avoids writing a fourth copy; doing it after means one more file to delete. Either
-        order works — what does not work is pasting the fourth copy and calling extraction done.</li>
+        by reading NATS server logs, not by a test, and fixed in each file separately, at different
+        times.</li>
+      <li><b>The module boundary made it non-trivial.</b> Nothing shared code across services before
+        Phase 35 — no <code>go.work</code>, no <code>replace</code> directive anywhere. The first
+        shared package was also the decision about how this repo does shared Go code at all, including
+        the repo-root Docker build-context change every affected service's Dockerfile needed.</li>
+      <li><b>Sequencing.</b> Extraction happened <em>after</em> <code>refdata-service</code> had already
+        pasted the fourth copy (Phase 32, deliberately, per BR-D40 — "paste rather than block on the
+        unrelated go.work migration"). Phase 35 was the follow-through on that explicit deferral, not a
+        decision made from scratch.</li>
     </ul>
   </div>
 </div>

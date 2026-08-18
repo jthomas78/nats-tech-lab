@@ -262,22 +262,24 @@ function setKindFilter(kind) {
   kindFilter.value = kind
 }
 
-// BR-041 (Phase 34.4): two visibly-distinguished filter axes, deliberately
-// separate from `searchText` above (which substring-matches anywhere in the
-// root subject) —
-//   - subjectPrefixFilter matches the trustworthy axis: the root subject is
-//     data the NATS server itself enforces by permission grant (BR-D41's
-//     api.*.refdata.admin.* vs api.*.refdata.item.* split is the canonical
-//     example), so a prefix match here reflects a boundary NATS actually
-//     polices, not merely what a caller claims.
-//   - requesterFilter matches the Nats-Requestor header (BR-027/BR-041):
-//     self-declared by the caller, useful for "show me what service X was
-//     doing" during a demo, but never proof of who actually called — nothing
-//     stops a caller from putting any string it likes there.
-// The toolbar labels/icons these distinctly so neither reads as more
-// authoritative than it is.
-const subjectPrefixFilter = ref('')
+// BR-041 (Phase 34.4): requesterFilter matches the Nats-Requestor header
+// (BR-027/BR-041) — self-declared by the caller, useful for "show me what
+// service X was doing" during a demo, but never proof of who actually
+// called: nothing stops a caller from putting any string it likes there.
+// A dropdown, not free text, so the filter can only ever select a value
+// some caller actually declared — options are the unique root-span
+// requesters seen across ALL traces (traceSummaries, not
+// displayedSummaries), so the list doesn't shrink out from under itself as
+// other filters narrow the currently visible set.
 const requesterFilter = ref('')
+const requesterOptions = computed(() => {
+  const seen = new Set()
+  for (const t of traceSummaries.value) {
+    const requester = headerValue(t.root?.headers, 'Nats-Requestor')
+    if (requester) seen.add(requester)
+  }
+  return Array.from(seen).sort()
+})
 
 const paused = ref(false)
 const frozenOrder = ref([])
@@ -294,11 +296,7 @@ const displayedSummaries = computed(() => {
     if (filters.slowOnly && t.total <= 100) return false
     if (kindFilter.value !== 'all' && t.kind !== kindFilter.value) return false
     if (searchText.value && !(t.root?.subject || '').toLowerCase().includes(searchText.value.toLowerCase())) return false
-    if (subjectPrefixFilter.value && !(t.root?.subject || '').startsWith(subjectPrefixFilter.value)) return false
-    if (requesterFilter.value) {
-      const requester = (headerValue(t.root?.headers, 'Nats-Requestor') || '').toLowerCase()
-      if (!requester.includes(requesterFilter.value.toLowerCase())) return false
-    }
+    if (requesterFilter.value && headerValue(t.root?.headers, 'Nats-Requestor') !== requesterFilter.value) return false
     return true
   })
 })
@@ -413,7 +411,6 @@ const waterfallRows = computed(() => {
   const rowById = new Map(
     t.spans.map((span) => {
       const offset = ownStart(span) - t.at
-      const parent = span.parentSpanId ? byId.get(span.parentSpanId) : null
       return [
         span.spanId,
         {
@@ -422,7 +419,6 @@ const waterfallRows = computed(() => {
           offset,
           durationMs: span.durationMs || 0,
           account: accountOf(span),
-          crossing: !!parent && accountOf(span) !== accountOf(parent),
           kind: span.statusCode === 'ERROR' ? 'bad' : offset >= rootReplyMs && span !== t.root ? 'evtl' : 'sync',
         },
       ]
@@ -553,35 +549,40 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
         :severity="platformConnected ? 'success' : 'danger'"
         :value="platformConnected ? 'live' : 'disconnected'"
       />
-      <span class="search-box">
+      <span class="search-box search-box-grow">
         <i class="pi pi-search" />
         <input
           v-model="searchText"
           type="text"
           placeholder="filter traces by root subject"
         >
-      </span>
-      <span
-        class="search-box"
-        title="Subject prefix — enforced by NATS permission grants, e.g. BR-D41's api.*.refdata.admin.* vs api.*.refdata.item.* split. Trustworthy: the server itself refuses to serve a subject outside a connection's grant."
-      >
-        <i class="pi pi-shield" />
-        <input
-          v-model="subjectPrefixFilter"
-          type="text"
-          placeholder="subject prefix (server-enforced)"
+        <button
+          v-if="searchText"
+          type="button"
+          class="search-clear"
+          aria-label="Clear search"
+          @click="searchText = ''"
         >
+          <i class="pi pi-times" />
+        </button>
       </span>
       <span
-        class="search-box"
+        class="search-box requester-select"
         title="Nats-Requestor header (BR-027/BR-041) — self-declared by the calling client. Useful for filtering, never authoritative: nothing stops a caller from putting any value here."
       >
         <i class="pi pi-user" />
-        <input
-          v-model="requesterFilter"
-          type="text"
-          placeholder="requester (self-declared)"
-        >
+        <select v-model="requesterFilter">
+          <option value="">
+            all requesters
+          </option>
+          <option
+            v-for="r in requesterOptions"
+            :key="r"
+            :value="r"
+          >
+            {{ r }}
+          </option>
+        </select>
       </span>
       <button
         type="button"
@@ -798,7 +799,7 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
               </div>
               <div class="tw-panel-scroll">
                 <div class="tw-grid tw-axis">
-                  <span /><span /><span />
+                  <span /><span /><span /><span />
                   <span class="tw-ticks">
                     <span
                       v-for="f in AXIS_TICKS"
@@ -829,21 +830,19 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
                       @click="selectedSpanId = row.span.spanId"
                     >
                       <span
-                        class="tw-acct"
-                        :class="[row.account.toLowerCase(), { cross: row.crossing }]"
+                        class="tw-acctbar"
+                        :class="row.account.toLowerCase()"
                         :title="row.account"
-                      >
-                        {{ row.crossing ? '⇥ ' + row.account : row.account }}
-                      </span>
+                      />
                       <span class="tw-nm">
                         <span
-                          v-for="d in row.depth"
-                          :key="d"
-                          class="tw-rail"
-                        />
+                          v-if="row.depth"
+                          class="tw-child-arrow"
+                          :style="{ paddingLeft: row.depth * 16 + 'px' }"
+                        >↳</span>
                         <span class="tw-txt"><SubjectPath :subject="row.span.subject" /></span>
-                        <span class="tw-svc">{{ row.span.service }}</span>
                       </span>
+                      <span class="tw-acctsvc">{{ row.account }}:{{ row.span.service }}</span>
                       <span
                         class="tw-dur"
                         :class="{ bad: row.span.statusCode === 'ERROR' }"
@@ -1081,7 +1080,7 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
   margin: 0.5rem 0 0;
 }
 .search-box {
-  flex: 1;
+  flex: none;
   min-width: 160px;
   display: flex;
   align-items: center;
@@ -1093,6 +1092,13 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
   font-size: 11px;
   color: var(--p-text-muted-color);
 }
+/* The subject search box is the only toolbar filter that should absorb
+   whatever width the requester dropdown/errors/slow/kind-group/pause
+   controls don't need — those all stay content-sized so the dropdown sits
+   right up against the errors chip, and the search box fills the rest. */
+.search-box-grow {
+  flex: 1;
+}
 .search-box input {
   flex: 1;
   min-width: 0;
@@ -1102,6 +1108,40 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
   color: var(--p-text-color);
   font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
   font-size: 11px;
+}
+.search-clear {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--p-text-disabled-color);
+  font-size: 11px;
+  cursor: pointer;
+}
+.search-clear:hover {
+  color: var(--p-text-color);
+}
+.requester-select {
+  width: 200px;
+}
+.search-box select {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--p-text-color);
+  font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+.search-box select option {
+  background: var(--lab-panel-bg, #10151f);
+  color: var(--p-text-color);
 }
 .chip {
   display: inline-flex;
@@ -1624,7 +1664,7 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
 
 .tw-grid {
   display: grid;
-  grid-template-columns: 78px minmax(200px, 1.75fr) 56px minmax(110px, 1.4fr);
+  grid-template-columns: 2px minmax(220px, 1.9fr) 150px 56px minmax(110px, 1.3fr);
   gap: 8px;
   align-items: center;
   padding: 0 12px;
@@ -1694,9 +1734,23 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
 .tw-acct.tenant {
   border-left-color: rgba(226, 184, 107, 0.55);
 }
-.tw-acct.cross {
-  color: var(--lab-accent);
-  font-weight: 600;
+
+/* Span-list row account marker (Phase 34.x) — a plain color bar flush
+   against the row's own left edge, before the subject/depth-arrow content,
+   rather than .tw-acct's bordered text badge above (still used unchanged
+   by the span-detail header). The account:service label itself moved to
+   .tw-acctsvc on the right, next to duration — this bar is the only place
+   the TENANT/PLATFORM color still lives in the row. */
+.tw-acctbar {
+  align-self: stretch;
+  width: 2px;
+  background: var(--lab-panel-border);
+}
+.tw-acctbar.platform {
+  background: rgba(0, 111, 255, 0.65);
+}
+.tw-acctbar.tenant {
+  background: rgba(226, 184, 107, 0.55);
 }
 
 .tw-nm {
@@ -1705,23 +1759,43 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
   gap: 6px;
   min-width: 0;
 }
-.tw-rail {
+/* Depth indentation (Phase 34.x) — replaces the old per-depth vertical
+   .tw-rail scaffolding lines with a single blue "sub-call" arrow whose
+   own left padding scales with depth, so a child span reads at a glance
+   as "called by the row above" rather than just visually offset. */
+.tw-child-arrow {
   flex: none;
-  border-left: 1px solid var(--lab-panel-border);
-  align-self: stretch;
-  margin-left: 5px;
+  color: var(--lab-accent);
 }
 .tw-txt {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tw-svc {
+/* SubjectPath's own .subject is display:inline-flex; flex-wrap:wrap so it
+   can wrap across lines where that's wanted (trace list, span detail head).
+   Span-list rows are a fixed 26px height (.tw-row below), so a long
+   subject wrapping to a second line there spills outside the row and
+   overlaps the row underneath it instead of truncating. Dropping .subject
+   back to plain inline here (rather than just disabling flex-wrap) makes
+   its segments ordinary inline text again, so .tw-txt's own
+   overflow/white-space/text-overflow above can truncate it with an
+   ellipsis the normal way — an inline-flex box can only be clipped
+   wholesale, never partially ellipsized. */
+.tw-txt :deep(.subject) {
+  display: inline;
+}
+.tw-acctsvc {
   font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
   font-size: 9px;
+  letter-spacing: 0.04em;
   color: var(--p-text-disabled-color);
-  flex: none;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tw-dur {

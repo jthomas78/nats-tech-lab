@@ -37,9 +37,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -47,7 +45,8 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/domain"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/natstrace"
+	sharedbrowserrpc "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 // Subject constants. The {context} token is a wildcard here and resolved
@@ -256,14 +255,6 @@ type auditResponse struct {
 	Events []auditEntryResponse `json:"events"`
 }
 
-// errorResponse is the wire shape for every failed api.* call — same shape as
-// pricing-service's/shipping-service's adapters, so a browser client handles
-// every service's errors identically.
-type errorResponse struct {
-	Error    string `json:"error"`
-	NotFound bool   `json:"notFound,omitempty"`
-}
-
 func isNotFoundErr(err error) bool {
 	return errors.Is(err, domain.ErrTradingPartnerNotFound) ||
 		errors.Is(err, domain.ErrDocumentNotFound)
@@ -279,14 +270,14 @@ func (a *Adapter) handlePartnerRegister(req micro.Request) {
 		return
 	}
 	tp, err := a.tradingPartners.Register(
-		context.Background(), a.actor(req), in.Name, in.Type, contextFromSubject(subject),
+		context.Background(), a.actor(req), in.Name, in.Type, sharedbrowserrpc.ContextFromSubject(subject),
 	)
 	a.reply(req, tradingPartnerResponse{tp}, err)
 }
 
 func (a *Adapter) handlePartnerList(req micro.Request) {
 	subject := req.Subject()
-	partners, err := a.tradingPartners.List(context.Background(), contextFromSubject(subject))
+	partners, err := a.tradingPartners.List(context.Background(), sharedbrowserrpc.ContextFromSubject(subject))
 	a.reply(req, tradingPartnersResponse{TradingPartners: partners}, err)
 }
 
@@ -436,21 +427,7 @@ func (a *Adapter) handleFleetAssetList(req micro.Request) {
 	a.reply(req, fleetAssetsResponse{FleetAssets: assets}, err)
 }
 
-// --- shared plumbing (mirrors pricing-service's browserrpc/adapter.go) ---
-
-// contextFromSubject extracts the {context} token from an api.{context}...
-// subject — the ONLY source of truth for which CONTEXT (company/business-unit
-// scope) a request belongs to. Every handler above derives it this way rather
-// than trusting a request body's own context field, so a client cannot spoof
-// context scoping via the body. Context is NOT the tenant — the tenant
-// boundary is the NATS account this connection authenticated into.
-func contextFromSubject(subject string) string {
-	parts := strings.Split(subject, ".")
-	if len(parts) < 2 {
-		return ""
-	}
-	return parts[1]
-}
+// --- shared plumbing (Phase 35: shared/browserrpc) ---
 
 const (
 	// actorHeader is the api.* equivalent of REST's X-Actor header.
@@ -462,6 +439,11 @@ const (
 	// kept unchanged since nothing about the identity it stands in for has
 	// changed.
 	defaultActor = "admin"
+	// requestorHeader is the caller-identity header shared/browserrpc's own
+	// Nats-Responder mirrors on the reply side — this service is the only one
+	// of the four that reads its own inbound copy (for BR-TP06's audit actor
+	// SourceIP), so it stays local rather than moving to the shared package.
+	requestorHeader = "Nats-Requestor"
 )
 
 // actor builds BR-TP06's audit actor: an optional client-supplied header
@@ -485,59 +467,9 @@ func (a *Adapter) actor(req micro.Request) commands.Actor {
 }
 
 // reply is the shared tail end of every handler above: nil error replies with
-// result, any error replies with the mapped error response.
+// result, any error replies with the mapped error response. Delegates to
+// shared/browserrpc.Reply, which derives subject/correlationID from req
+// itself, marshals, finishes the natstrace span, and stamps Nats-Responder.
 func (a *Adapter) reply(req micro.Request, result any, err error) {
-	subject := req.Subject()
-	correlationID := req.Reply()
-	if err != nil {
-		a.respondError(req, subject, correlationID, err)
-		return
-	}
-	a.respond(req, subject, correlationID, result)
-}
-
-const (
-	responderHeader = "Nats-Responder"
-	requestorHeader = "Nats-Requestor"
-)
-
-func (a *Adapter) responderIdentity() string {
-	info := a.svc.Info()
-	return fmt.Sprintf("%s/%s", info.Name, info.ID)
-}
-
-// respond and respondError are the two request-tail exit points every
-// handler reaches through reply(). Both finish this request's natstrace span
-// (BR-036/BR-037/BR-TP15) via natstrace.SpanFrom — nil-safe, so a handler
-// invoked directly (not through Tracer.Middleware, e.g. a unit test calling
-// a.handleX(req) with a bare micro.Request) still replies correctly, it just
-// publishes no span.
-func (a *Adapter) respond(req micro.Request, subject, correlationID string, out any) {
-	data, err := json.Marshal(out)
-	if err != nil {
-		a.respondError(req, subject, correlationID, err)
-		return
-	}
-	headers := map[string][]string{responderHeader: {a.responderIdentity()}}
-	natstrace.SpanFrom(req).End(data, headers)
-	if err := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); err != nil && a.log != nil {
-		a.log.Error("browserrpc: respond failed", "subject", subject, "err", err)
-	}
-}
-
-func (a *Adapter) respondError(req micro.Request, subject, correlationID string, err error) {
-	data, _ := json.Marshal(errorResponse{Error: err.Error(), NotFound: isNotFoundErr(err)})
-	code := "500"
-	if isNotFoundErr(err) {
-		code = "404"
-	}
-	headers := map[string][]string{
-		micro.ErrorHeader:     {err.Error()},
-		micro.ErrorCodeHeader: {code},
-		responderHeader:       {a.responderIdentity()},
-	}
-	natstrace.SpanFrom(req).Fail(err, data, headers)
-	if respErr := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); respErr != nil && a.log != nil {
-		a.log.Error("browserrpc: respond failed", "subject", subject, "err", respErr)
-	}
+	sharedbrowserrpc.Reply(req, a.svc, a.log, isNotFoundErr, result, err)
 }

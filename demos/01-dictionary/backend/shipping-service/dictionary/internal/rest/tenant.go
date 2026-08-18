@@ -6,10 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -21,52 +18,20 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/eventhandler"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/natstenants"
 )
-
-// nonTenantCredsFiles are the .creds stems (checked case-insensitively —
-// see below) in the shared creds directory that are never switchable
-// tenants — PLATFORM/shipping-admin are permanent PLATFORM credentials,
-// SYS is accounts-service's own credential, and observability is
-// observability-service's restricted PLATFORM connection (Phase 30c); none
-// are ship/container tenants. Phase 30i live verification caught this list
-// not being updated when observability.creds first landed in this same
-// shared directory: discoverTenants treated "observability" as a
-// switchable tenant name, and EnsureAllTenants then failed trying to
-// provision SHIPPING-stream resources for it at every shipping-service
-// startup from that point on.
-var nonTenantCredsFiles = map[string]bool{"platform": true, "shipping-admin": true, "sys": true, "observability": true}
 
 // discoverTenants scans credsDir (the shared volume accounts-service also
 // writes into, Phase 14b) for *.creds files and returns the known-tenant map
 // SwitchTenant and getTenant used to get from a static, hardcoded map
 // (Phase 13b/14a) — this is the only way a tenant minted by accounts-service
 // after this process started becomes visible without a shipping-service
-// restart. Re-scanned on every call rather than cached: the directory is
-// small, and correctness (seeing a just-minted or just-suspended tenant
-// immediately) matters more than avoiding a handful of stat calls.
-func discoverTenants(credsDir string) (map[string]TenantCredentials, error) {
-	entries, err := os.ReadDir(credsDir)
-	if err != nil {
-		return nil, fmt.Errorf("scan creds dir %q: %w", credsDir, err)
-	}
-	out := make(map[string]TenantCredentials)
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".creds") {
-			continue
-		}
-		name := strings.TrimSuffix(e.Name(), ".creds")
-		// Checked case-insensitively — defense in depth against a
-		// differently-cased "Default"/"SYS"/etc. creds file ever reaching
-		// this directory (accounts-service's own reservedAccountNames check,
-		// accounts/handler.go, is meant to prevent that account from being
-		// mintable in the first place; this is the fallback if it isn't).
-		if nonTenantCredsFiles[strings.ToLower(name)] {
-			continue
-		}
-		out[name] = TenantCredentials{CredsPath: filepath.Join(credsDir, e.Name())}
-	}
-	return out, nil
+// restart. Delegates to shared/natstenants.Discover (Phase 35) — the
+// PLATFORM/shipping-admin/SYS/observability exclusion list this used to
+// carry its own copy of lives there now, shared with every other service's
+// per-tenant connection manager.
+func discoverTenants(credsDir string) (map[string]natstenants.Credentials, error) {
+	return natstenants.Discover(credsDir)
 }
 
 // tenantResources bundles everything scoped to ONE tenant NATS account: its
@@ -275,65 +240,14 @@ func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath 
 // through a tenant connection. Each tenant observes the same event, but the
 // Ensure/Teardown operations are idempotent; this keeps the cross-account
 // path entirely in declared imports instead of a second unrestricted creds
-// file on shipping-service.
+// file on shipping-service. Delegates to shared/natstenants.SubscribeLifecycle
+// (Phase 35) for the subscribe/trace/dispatch machinery — only the
+// Ensure/Teardown callbacks are shipping-service's own.
 func (h *Handlers) subscribeTenantLifecycle(ctx context.Context, nc *nats.Conn) error {
-	ctx = context.WithoutCancel(ctx)
-	tracer := natstrace.New(nc)
-	type lifecycleEvent struct {
-		Name string `json:"name"`
-	}
-	// spanAction reads the trailing token off a notify.accounts.account.*
-	// subject — needed because "created" below is reused verbatim as the
-	// "reactivated" handler too (same idempotent Ensure operation for both),
-	// so the span's action label can't be a literal hardcoded per closure.
-	spanAction := func(subject string) string {
-		if i := strings.LastIndex(subject, "."); i >= 0 {
-			return subject[i+1:]
-		}
-		return subject
-	}
-	created := func(msg *nats.Msg) {
-		sp := tracer.StartFromHeaders(msg.Header, msg.Subject, msg.Data, "_platform", "accounts", "account", spanAction(msg.Subject))
-		spanCtx := natstrace.ContextWithSpan(ctx, sp)
-		var evt lifecycleEvent
-		if err := json.Unmarshal(msg.Data, &evt); err != nil || evt.Name == "" {
-			h.deps().Log.Error("decode notify.accounts.account.created", "err", err)
-			sp.Fail(err, msg.Data, nil)
-			return
-		}
-		if err := h.EnsureTenantByName(spanCtx, evt.Name); err != nil {
-			h.deps().Log.Error("ensure tenant resources on provisioning event", "tenant", evt.Name, "err", err)
-			sp.Fail(err, msg.Data, nil)
-			return
-		}
-		sp.End(msg.Data, nil)
-	}
-	suspended := func(msg *nats.Msg) {
-		sp := tracer.StartFromHeaders(msg.Header, msg.Subject, msg.Data, "_platform", "accounts", "account", spanAction(msg.Subject))
-		spanCtx := natstrace.ContextWithSpan(ctx, sp)
-		var evt lifecycleEvent
-		if err := json.Unmarshal(msg.Data, &evt); err != nil || evt.Name == "" {
-			h.deps().Log.Error("decode notify.accounts.account.suspended", "err", err)
-			sp.Fail(err, msg.Data, nil)
-			return
-		}
-		if err := h.TeardownTenantByName(spanCtx, evt.Name); err != nil {
-			h.deps().Log.Error("tear down tenant resources on suspension event", "tenant", evt.Name, "err", err)
-			sp.Fail(err, msg.Data, nil)
-			return
-		}
-		sp.End(msg.Data, nil)
-	}
-	if _, err := nc.Subscribe("notify.accounts.account.created", created); err != nil {
-		return err
-	}
-	if _, err := nc.Subscribe("notify.accounts.account.suspended", suspended); err != nil {
-		return err
-	}
-	if _, err := nc.Subscribe("notify.accounts.account.reactivated", created); err != nil {
-		return err
-	}
-	return nc.Flush()
+	return natstenants.SubscribeLifecycle(ctx, nc, h.deps().Log, natstenants.LifecycleHandlers{
+		Ensure:   h.EnsureTenantByName,
+		Teardown: h.TeardownTenantByName,
+	})
 }
 
 // EnsureAllTenants creates persistent resources (see ensureTenantResources)

@@ -9,5 +9,5 @@ import (
 
 func TestNatstrace(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "natstrace Suite (Phase 28b copy)")
+	RunSpecs(t, "natstrace Suite (Phase 35 — shared/natstrace)")
 }

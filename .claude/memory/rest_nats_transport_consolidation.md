@@ -1,6 +1,6 @@
 ---
 name: rest-nats-transport-consolidation
-description: Program to force all business comms onto rpc.*/api.* only, REST reserved for admin + infra health checks — Phases 31-34, in progress
+description: Program to force all business comms onto rpc.*/api.* only, REST reserved for admin + infra health checks — Phases 31-34 done; Phase 35 (shared Go package extraction, adjacent cleanup) also done
 metadata:
   type: project
 ---
@@ -12,7 +12,7 @@ Decided 2026-08-17: all business-domain communication (frontend or backend) must
 - **Phase 32** — DONE (2026-08-17). `refdata-service` gained its own per-tenant + PLATFORM `api.*` adapter (it was the one service still relying on shipping-service as a REST relay); shipping-service's 5 refdata relay routes retired; `frontend/refdata` and the shared `useRefdataLabels.js`/`useL10nCopy.js` composables (used by admin + seafreight-app) all migrated off REST/SSE onto `api.*`/`notify.*`. See [tenants_manager_triplication](tenants_manager_triplication.md) and [phase32_refdata_platform_credential](phase32_refdata_platform_credential.md).
 - **Phase 33** — Retire business REST across all four services (shipping, pricing, trading-partner, refdata); add the one missing `api.*.shipping.manifest.get.v1` subject first. PROPOSED, not started.
 - **Phase 34** — DONE (2026-08-17). Enforce the boundary: every service's `Mount` returns `[]string`, asserted `ConsistOf` a hardcoded allowlist per service (BR-040/mirrors); `traceSpan.Requester` lifts `Nats-Requestor` onto the trace envelope, all 5 `natstrace` copies (BR-041); Admin UI's Traces panel gained subject-prefix (server-enforced) + requester (self-declared) filters; test-suite audit found zero business-over-REST violations. See [phase34_boundary_enforcement](phase34_boundary_enforcement.md).
-- **Phase 35** — PROPOSED 2026-08-17. Shared Go package extraction: `natstenants` (per-tenant connection manager, 4 copies), `natstrace` (tracing, 5 copies), `browserrpc` infra reply-tail (4 copies) — bundled together on user confirmation since all three share the identical Go-module/Dockerfile-build-context blocker. Module-strategy decision (`go.work` vs. shared module + `replace`) is itself sub-phase 35.1. See [tenants_manager_triplication](tenants_manager_triplication.md).
+- **Phase 35** — DONE (2026-08-18). Shared Go package extraction, adjacent to the REST-removal work but not itself part of it: `natstenants` (per-tenant connection manager, was 4 copies), `natstrace` (tracing, was 5 copies), `browserrpc` infra reply-tail (was 4 copies) — bundled together on user confirmation since all three shared the identical Go-module/Dockerfile-build-context blocker. Module-strategy decision (`go.work` + per-service `replace` directives) was sub-phase 35.1. See [phase35_shared_go_package_extraction](phase35_shared_go_package_extraction.md) and [tenants_manager_triplication](tenants_manager_triplication.md).
 
 **Key design calls, don't re-litigate without new information:**
 - Security boundary = NATS account/user permission grants (distinct browser vs admin tokens, `MintBrowserToken` never gets `rpc.>`). Subject naming and any `requester` header are for observability/filtering only — self-declared, never authoritative, since core NATS request/reply carries no server-attested caller identity.

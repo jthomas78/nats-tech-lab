@@ -24,7 +24,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 // ItemGetSubject is the rpc.* subject pattern for the item.get operation —
@@ -594,22 +594,28 @@ func (a *Adapter) responderIdentity() string {
 	return fmt.Sprintf("%s/%s", info.Name, info.ID)
 }
 
-// respondOK sends a successful reply, attaching responderHeader to both the
-// real wire reply and the natstrace span this request's Tracer.Middleware
-// started (BR-D39). natstrace.SpanFrom is nil-safe, so a handler invoked
-// directly (not through the middleware, e.g. a unit test calling a.handleX(req)
-// with a bare micro.Request) still replies correctly, it just publishes no
-// span.
+// respondOK sends a successful reply and only then finishes the natstrace
+// span this request's Tracer.Middleware started (BR-D39), attaching
+// responderHeader to both. Reply-before-trace is deliberate: End does a
+// redact scan, a full JSON-marshal of the span, and a Publish, and none of
+// that may sit between the caller getting its answer and the caller
+// actually getting it — an rpc.* call's measured duration must not include
+// natstrace's own overhead (mirrors shared/browserrpc.Respond's identical
+// ordering for api.*). natstrace.SpanFrom is nil-safe, so a handler invoked
+// directly (not through the middleware, e.g. a unit test calling
+// a.handleX(req) with a bare micro.Request) still replies correctly, it
+// just publishes no span.
 func (a *Adapter) respondOK(req micro.Request, subject, correlationID string, data []byte) {
 	headers := map[string][]string{responderHeader: {a.responderIdentity()}}
-	natstrace.SpanFrom(req).End(data, headers)
 	if err := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); err != nil && a.log != nil {
 		a.log.Error("natsrpc: respond failed", "subject", subject, "err", err)
 	}
+	natstrace.SpanFrom(req).End(data, headers)
 }
 
-// respondError also finishes the natstrace span on failure (BR-D39 — a
-// failed call must still be visible in the traces view). The reply carries
+// respondError sends the reply and only then finishes the natstrace span on
+// failure (BR-D39 — a failed call must still be visible in the traces
+// view) — same reply-before-trace ordering as respondOK. The reply carries
 // real Nats-Service-Error/Nats-Service-Error-Code headers (micro's own
 // error-header convention, BR-D36) via WithHeaders — additive to the
 // existing JSON error body, so no client that reads the body
@@ -625,10 +631,10 @@ func (a *Adapter) respondError(req micro.Request, subject, correlationID string,
 		micro.ErrorCodeHeader: {code},
 		responderHeader:       {a.responderIdentity()},
 	}
-	natstrace.SpanFrom(req).Fail(err, data, headers)
 	if respErr := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); respErr != nil && a.log != nil {
 		a.log.Error("natsrpc: respond failed", "subject", subject, "err", respErr)
 	}
+	natstrace.SpanFrom(req).Fail(err, data, headers)
 }
 
 func contextFromSubject(subject string) string {

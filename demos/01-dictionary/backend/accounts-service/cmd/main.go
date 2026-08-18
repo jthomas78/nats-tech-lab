@@ -23,7 +23,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/auth"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/internal/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 func main() {
@@ -176,7 +176,7 @@ func run(log *slog.Logger) error {
 	// Phase 28e — one http.Handler decorator wrapping the whole mux covers
 	// every accounts/auth REST endpoint, symmetric to the other four
 	// services' micro.Handler Middleware wrapping every svc.AddEndpoint call.
-	server := &http.Server{Addr: httpAddr, Handler: tracer.HTTPMiddleware(mux)}
+	server := &http.Server{Addr: httpAddr, Handler: tracer.HTTPMiddleware("_platform", "accounts", mux)}
 	errCh := make(chan error, 1)
 	go func() {
 		log.Info("accounts-service: http server listening", "addr", httpAddr)

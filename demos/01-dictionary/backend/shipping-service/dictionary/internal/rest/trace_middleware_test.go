@@ -15,12 +15,26 @@ import (
 
 	"github.com/nats-io/nats.go"
 
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
-// spanWithSubject is fullSpan (tenant_lifecycle_trace_test.go) plus Subject —
-// this file's third test needs to tell the HTTP span and its outbound child
-// apart by subject, which fullSpan doesn't carry.
+// fullSpan decodes an obs.trace.* span payload (Phase 35 moved this here
+// from the now-deleted tenant_lifecycle_trace_test.go — its own trace
+// propagation coverage moved to shared/natstenants, but this file's own
+// tests still need the shape).
+type fullSpan struct {
+	TraceID      string `json:"traceId"`
+	SpanID       string `json:"spanId"`
+	ParentSpanID string `json:"parentSpanId,omitempty"`
+	Service      string `json:"service"`
+	Entity       string `json:"entity"`
+	Action       string `json:"action"`
+	StatusCode   string `json:"statusCode"`
+}
+
+// spanWithSubject is fullSpan plus Subject — this file's third test needs to
+// tell the HTTP span and its outbound child apart by subject, which fullSpan
+// doesn't carry.
 type spanWithSubject struct {
 	fullSpan
 	Subject string `json:"subject"`

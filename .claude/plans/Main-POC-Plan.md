@@ -566,105 +566,32 @@ rationale or checklist detail).
 
 ---
 
-### Phase 35 (PROPOSED 2026-08-17) — Shared Go Package Extraction: `natstenants`, `natstrace`, `browserrpc` Infra Tail
+### Phase 35 — Completed (archived 2026-08-18)
 
-#### Goal
+Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
+(not read into context by default — open only when you need original
+rationale or checklist detail).
 
-Three infrastructure pieces are now duplicated verbatim across services because
-nothing in this repo shares Go code today — 7 independent `go.mod` files, no
-`go.work`, no `replace` directives, and every Dockerfile's build context is a
-single service directory:
-
-| Package | Copies | Size each | Cause found by |
-|---|---|---|---|
-| per-tenant connection manager (`internal/tenants`) | 4 — `pricing-service`, `trading-partner-service`, `refdata-service` (Phase 32), `shipping-service` (embedded in `rest/tenant.go`) | 288–577 lines | A real bug: the `observability.creds` exclusion was missing from two of the first three copies, opening phantom PLATFORM connections that failed with subscription violations — found live via NATS server logs, fixed separately in each file. See BR-D40, [tenants_manager_triplication](../memory/tenants_manager_triplication.md). |
-| `natstrace` (BR-036/BR-037 hand-rolled tracing) | 5 — every service including `accounts-service` | ~250 lines | Documented, not accidental — the package doc and `ARCHITECTURE-COMMUNICATIONS.md` § 6 both explain the duplication, citing the identical build-context blocker this phase addresses. No live bug yet; lower urgency than the other two, but the same fix applies. |
-| `browserrpc` infra tail — `contextFromSubject`, `respond`/`respondError`/`reply`, `responderIdentity`, `responderHeader` | 4 — every `browserrpc/adapter.go` | ~60–90 lines | Byte-identical apart from `refdata-service`'s `respondOK` vs `respond` naming. No documented rationale anywhere — silent duplication like `tenants.Manager`, just smaller. The service-specific handlers in each `adapter.go` (543–1301 lines) are **not** duplication and stay where they are; only this shared tail moves. |
-
-Confirmed 2026-08-17: bundle all three into one phase rather than paying the
-module-strategy decision three separate times.
-
-#### Design decisions
-
-- **The module strategy is the actual deliverable of this phase**, not a
-  prerequisite to work around. Decide `go.work` (workspace mode — each
-  service keeps its own `go.mod`, a top-level `go.work` lists them all, `go
-  build`/`go test` resolve locally without a registry) vs. a shared module
-  consumed via `replace` directives in each service's `go.mod`. `go.work` is
-  the more idiomatic fit for a monorepo of independent binaries and doesn't
-  require every consumer to add a `replace` line, but confirm it doesn't fight
-  each service's Dockerfile build context (a Dockerfile building from
-  `./backend/pricing-service` alone can't see a workspace file at the repo
-  root without adjusting the build context or `COPY`ing the shared package
-  in) — this is exactly the constraint that has kept these three duplicated,
-  so verify it's actually solved, not just moved.
-- **New package location:** `shared/natstenants`, `shared/natstrace`,
-  `shared/browserrpc` — alongside the existing `shared/unifi-theme` and
-  `shared/ui-shell` frontend packages, so "shared Go code lives in `shared/`"
-  becomes a repo-wide convention rather than a frontend-only one.
-- **`shared/browserrpc` is infra only.** It exports the reply-tail helpers and
-  the `Adapter` plumbing they hang off; it must not import any service's
-  domain types or its own `browserrpc` package — direction of dependency is
-  service → `shared/browserrpc`, never the reverse. Each service's existing
-  `adapter.go` keeps its own handlers and just calls the shared reply tail.
-- **`shared/natstenants` takes the adapter constructor as a callback**
-  (already the design in `ARCHITECTURE-ACCOUNTS.md`'s extraction diagram), so
-  the package never imports any service's `browserrpc` — same directional
-  rule as above, and it's what lets `shared/tenants` and `shared/browserrpc`
-  be extracted independently of each other if useful.
-- **`shipping-service` adopts `natstenants` for connection lifecycle only** —
-  its per-tenant work also provisions JetStream streams and KV buckets, which
-  stay where they are.
-- **Order within the phase:** land the module-strategy decision and
-  `shared/natstenants` first (it has an existing extraction diagram and the
-  most-verified rationale — a real bug), then `shared/browserrpc`, then
-  `shared/natstrace` last (lowest urgency, and its doc comments/architecture
-  doc need updating regardless of whether code moves, so there's no harm in
-  going last).
-- **Docs that assert "duplicated per service" become false and must be
-  fixed as code moves, not batched at the end** — each package's own doc
-  comment, `ARCHITECTURE-ACCOUNTS.md` § "Three services now open per-tenant
-  connections" (already stale before this phase — says "three", `refdata-
-  service` makes it four), `ARCHITECTURE-COMMUNICATIONS.md` § 6's `natstrace`
-  passage, and BR-D40.
-
-#### Sub-phases
-
-- **35.1 — Module strategy spike.** Prove `go.work` (or the replace-directive
-  alternative) actually builds in both `go build ./...` from the repo root
-  *and* each service's own `docker compose build`, before extracting anything.
-  This is the sub-phase most likely to surface a reason the chosen approach
-  doesn't work — do it first and cheaply, with a throwaway package if needed.
-- **35.2 — Extract `shared/natstenants`.** Consume it from `pricing-service`
-  and `trading-partner-service` first (their copies are already the leanest
-  and most alike); `refdata-service` and `shipping-service` (lifecycle-only)
-  follow. Delete each service's own `tenants.go` as it's replaced — no
-  compatibility shim.
-- **35.3 — Extract `shared/browserrpc` infra tail.** Consume from all four
-  services; delete the duplicated functions from each `adapter.go`.
-- **35.4 — Extract `shared/natstrace`.** Consume from all five services incl.
-  `accounts-service`; delete each service's own `internal/natstrace` package.
-- **35.5 — Tests move with the code they cover.** `tenants_test.go`'s
-  embedded-NATS-server coverage (currently only `refdata-service` has it, per
-  [tenants_manager_triplication](../memory/tenants_manager_triplication.md))
-  becomes the shared package's test suite, gaining every service as a
-  beneficiary rather than staying refdata-only. Same for `natstrace_test.go`
-  and any `browserrpc` infra-tail tests.
-- **35.6 — Documentation.** Update the "duplicated per service" claims listed
-  above; `ARCHITECTURE-ACCOUNTS.md`'s extraction diagram becomes a record of
-  what happened rather than a recommendation — keep the PNG, update its
-  surrounding prose from recommendation-voice to implemented-voice.
-
-#### Checklist
-
-- [ ] 35.1 module strategy chosen and proven against both `go build ./...` and every service's Docker build
-- [ ] 35.2 `shared/natstenants` extracted; all four services consume it; no service has its own copy left
-- [ ] 35.3 `shared/browserrpc` infra tail extracted; all four `adapter.go` files consume it
-- [ ] 35.4 `shared/natstrace` extracted; all five services consume it
-- [ ] 35.5 shared test coverage (embedded NATS server) benefits every consumer, not just refdata-service
-- [ ] 35.6 `ARCHITECTURE-ACCOUNTS.md`, `ARCHITECTURE-COMMUNICATIONS.md` § 6, BR-D40, and each package's own doc comment updated from recommendation/duplication language to implemented-shared-package language
-- [ ] `ginkgo ./...` + `go test ./...` green in every service; `go build ./...` green from the repo root
-- [ ] Live verification: full `down -v && up --build`, all five services connect and every `api.*`/`rpc.*` path still traces correctly
+- [x] Phase 35 (IMPLEMENTED 2026-08-18) — Shared Go Package Extraction:
+      `natstenants`, `natstrace`, `browserrpc` Infra Tail. Repo-root `go.work`
+      + per-service `replace` directives (belt-and-suspenders) established as
+      the module strategy, proven against both `go build ./...` and every
+      Dockerfile's now-repo-root build context. `shared/natstenants.Manager[R
+      any]` extracted and consumed by `pricing-service`,
+      `trading-partner-service`, and `refdata-service` directly, and by
+      `shipping-service` for connection lifecycle only; `shared/browserrpc`'s
+      reply-tail helpers consumed by all four `adapter.go` files (call-site
+      signatures kept per-service rather than force-unified); `shared/
+      natstrace` consumed by all five services incl. `accounts-service`. Each
+      service's own duplicate package/functions deleted outright — no
+      compatibility shims. `ARCHITECTURE-ACCOUNTS.md`, `ARCHITECTURE-
+      COMMUNICATIONS.md` § 6, and BR-D40 updated from recommendation/
+      duplication language to implemented-shared-package language. All 10
+      workspace modules build/vet clean; every service's full `ginkgo ./...`
+      suite green; live `docker compose down -v && up --build` verified zero
+      panics/fatals/auth violations and the Admin UI's Request/Reply trace
+      panel showing live, error-free `api.*` traffic through the refactored
+      adapters.
 
 ---
 

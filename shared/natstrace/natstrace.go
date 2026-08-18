@@ -1,32 +1,42 @@
-// Package natstrace is trading-partner-service's Phase 28a prototype of
-// hand-rolled distributed tracing (BR-036/BR-037/BR-TP15) — no
-// go.opentelemetry.io/* dependency, W3C-compatible on the wire,
-// OTLP-shaped in its fields. It is deliberately duplicated per service (not a
-// shared module), the same way obsEnvelope/errorResponse/obsSubjectFor/
-// contextFromSubject already are in this codebase — see
-// ARCHITECTURE-COMMUNICATIONS.md § 6 for why.
+// Package natstrace is the shared hand-rolled distributed tracing package
+// (BR-036/BR-037) extracted in Phase 35 from five byte-near-identical
+// per-service copies (shipping/pricing/trading-partner/refdata/accounts —
+// see ARCHITECTURE-COMMUNICATIONS.md § 6) — no go.opentelemetry.io/*
+// dependency, W3C-compatible on the wire, OTLP-shaped in its fields.
 //
 // The pattern: a Tracer (constructed once per Adapter, never a package
-// singleton — Adapter is itself one per tenant NATS connection) wraps every
-// micro.HandlerFunc at its single svc.AddEndpoint call site. The wrap starts a
-// span from the inbound request (continuing an incoming traceparent header if
-// present, otherwise minting a root span) and hands the handler a wrapped
-// micro.Request carrying that span. The handler's existing respond/
-// respondError tail retrieves it via SpanFrom (nil-safe: a request that was
-// never wrapped — e.g. called directly in a unit test — yields a nil *Span,
-// and every Span method is a no-op on nil) and calls End or Fail exactly
-// once, which is what actually publishes the span to
-// obs.trace.{context}.{service}.{entity}.{action} — PLATFORM account only,
-// per BR-036.
+// singleton — an Adapter is itself one per tenant NATS connection in the
+// services that hold one) wraps every micro.HandlerFunc at its single
+// svc.AddEndpoint call site. The wrap starts a span from the inbound request
+// (continuing an incoming traceparent header if present, otherwise minting a
+// root span) and hands the handler a wrapped micro.Request carrying that
+// span. The handler's existing respond/respondError tail retrieves it via
+// SpanFrom (nil-safe: a request that was never wrapped — e.g. called
+// directly in a unit test — yields a nil *Span, and every Span method is a
+// no-op on nil) and calls End or Fail exactly once, which is what actually
+// publishes the span to obs.trace.{context}.{service}.{entity}.{action} —
+// PLATFORM account only, per BR-036.
+//
+// accounts-service has no NATS micro.Service at all (its primary transport
+// is REST, not rpc.*/api.*), so it uses HTTPMiddleware instead of
+// Start/Middleware — the http.Handler-decorator symmetric counterpart,
+// wrapping net/http routes from one wiring point rather than one
+// micro.Request-shaped handler. Both entry points publish the same wire
+// shape and share every other mechanism (redaction, truncation, outbound
+// propagation) below.
 package natstrace
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,11 +45,12 @@ import (
 )
 
 // TraceparentHeader is the header name carrying W3C trace context on the
-// wire: "00-<32 hex trace id>-<16 hex parent span id>-<2 hex flags>".
-// Capitalized to match this codebase's other NATS header names
-// (Nats-Requestor, Nats-Responder, X-Actor) — nats.Header.Get is
-// case-sensitive (unlike net/http.Header), so this must match exactly what
-// callers set.
+// wire: "00-<32 hex trace id>-<16 hex parent span id>-<2 hex flags>". Used
+// both as a NATS header key (nats.Header.Get is case-sensitive, hence the
+// capitalized form, matching Nats-Requestor/Nats-Responder/X-Actor) and as
+// an HTTP header name — net/http.Header canonicalizes any casing of
+// "traceparent" to exactly this string via textproto.CanonicalMIMEHeaderKey,
+// so the same constant is correct on both sides with no special-casing.
 const TraceparentHeader = "Traceparent"
 
 // maxPayloadBytes is BR-036's 4 KiB cap, applied after redaction, never
@@ -96,36 +107,36 @@ type traceSpan struct {
 
 	// RequestPayload closes the gap flagged in TraceWaterfall.vue's "Request
 	// body — not captured yet" note: the inbound request body captured at
-	// Start()/StartFromHeaders()/StartOutbound() construction time, redacted
-	// and truncated the same way Payload (the reply body) already is. Separate
-	// Redacted/Truncated tracking from the reply side since the two payloads
-	// are independently sized/shaped — e.g. a large request with a tiny reply
-	// truncates only RequestPayload.
+	// Start()/StartFromHeaders()/StartOutbound()/HTTPMiddleware construction
+	// time, redacted and truncated the same way Payload (the reply body)
+	// already is. Separate Redacted/Truncated tracking from the reply side
+	// since the two payloads are independently sized/shaped — e.g. a large
+	// request with a tiny reply truncates only RequestPayload.
 	RequestPayload      json.RawMessage `json:"requestPayload,omitempty"`
 	RequestPayloadBytes int             `json:"requestPayloadBytes,omitempty"`
 	RequestRedacted     []string        `json:"requestRedacted,omitempty"`
 	RequestTruncated    bool            `json:"requestTruncated,omitempty"`
 
 	// DurationMs is the span's own measured duration (Phase 28g) — from
-	// Start/StartFromHeaders/StartOutbound's construction moment to
-	// End/Fail's finish() call, never derived by a consumer subtracting two
-	// timestamps (Timestamp above is only the finish moment; there is no
-	// separate wire "start" timestamp — a span's start time is recoverable
-	// as Timestamp minus DurationMs, if ever needed). Not omitempty: 0ms is
-	// meaningful data (a fast span), not absence.
+	// Start/StartFromHeaders/StartOutbound/HTTPMiddleware's construction
+	// moment to End/Fail's finish() call, never derived by a consumer
+	// subtracting two timestamps (Timestamp above is only the finish moment;
+	// there is no separate wire "start" timestamp — a span's start time is
+	// recoverable as Timestamp minus DurationMs, if ever needed). Not
+	// omitempty: 0ms is meaningful data (a fast span), not absence.
 	DurationMs int64 `json:"durationMs"`
 }
 
 // Tracer publishes obs.trace.* spans on one NATS connection. Constructed
-// inside Adapter.New(nc, deps) — never a package-level singleton, since
-// shipping/pricing/trading-partner each hold one Adapter (and connection) per
-// tenant account. It carries no service name of its own: every api.*/rpc.*
-// subject already encodes {context}.{service}.{entity}.{action} by fixed
-// position (CLAUDE.md's subject taxonomy), so Start derives all four from the
-// inbound request rather than needing a constructor argument that could drift
-// from the subject's own token (e.g. this service's $SRV identity is
-// "trading-partner-service", but its subjects use the short form
-// "trading-partner" — deriving from the subject avoids that mismatch).
+// once per Adapter/connection (shipping/pricing/trading-partner hold one
+// per tenant account; refdata/accounts hold one process-wide) — never a
+// package-level singleton. It carries no service name of its own: every
+// api.*/rpc.* subject already encodes {context}.{service}.{entity}.{action}
+// by fixed position (CLAUDE.md's subject taxonomy), so Start derives all
+// four from the inbound request rather than needing a constructor argument
+// that could drift from the subject's own token (e.g. a service's $SRV
+// identity may be "pricing-service" while its subjects use the short form
+// "pricing" — deriving from the subject avoids that mismatch).
 type Tracer struct {
 	nc *nats.Conn
 }
@@ -135,11 +146,12 @@ func New(nc *nats.Conn) *Tracer {
 	return &Tracer{nc: nc}
 }
 
-// Span is one in-flight span, created by Tracer.Start and finished exactly
-// once via End or Fail. All methods are nil-safe: SpanFrom returns nil for a
-// micro.Request that was never wrapped (e.g. a handler called directly in a
-// unit test), and a nil *Span's End/Fail/SetAttribute are no-ops so callers
-// don't need a defensive nil check at every call site.
+// Span is one in-flight span, created by Start/StartFromHeaders/
+// StartOutbound/HTTPMiddleware and finished exactly once via End or Fail.
+// All methods are nil-safe: SpanFrom returns nil for a micro.Request that
+// was never wrapped (e.g. a handler called directly in a unit test), and a
+// nil *Span's End/Fail/SetAttribute are no-ops so callers don't need a
+// defensive nil check at every call site.
 type Span struct {
 	tracer *Tracer
 
@@ -160,8 +172,9 @@ type Span struct {
 	attributes map[string]string
 
 	// startedAt is stamped at construction (Start/StartFromHeaders/
-	// StartOutbound) so finish() can compute DurationMs (Phase 28g) — never
-	// exposed on the wire itself, only the derived duration is.
+	// StartOutbound/HTTPMiddleware) so finish() can compute DurationMs
+	// (Phase 28g) — never exposed on the wire itself, only the derived
+	// duration is.
 	startedAt time.Time
 }
 
@@ -358,13 +371,29 @@ func (sp *Span) SetAttribute(key, value string) {
 
 // End finishes sp successfully, publishing the reply-side span. No-op on a
 // nil Span (an unwrapped request never started one).
+//
+// Contract for every micro.Request-shaped caller: call this AFTER
+// req.Respond, never before. finish() does a redact scan, a full
+// JSON-marshal of the span, and a Publish — real work, not free — and none
+// of it may sit between the caller getting its answer and the caller
+// actually getting it. shared/browserrpc.Respond and refdata-service's own
+// natsrpc.respondOK both order it this way for exactly this reason; a new
+// adapter should match them. (HTTPMiddleware/httpTraceMiddleware are exempt
+// by construction: next.ServeHTTP already writes the response before they
+// call End/Fail, so there's no separate ordering decision to get right
+// there.) This only removes natstrace's own overhead from the caller's
+// measured latency — the redact/marshal/publish work still runs
+// synchronously in the same goroutine afterward, so it can still delay
+// throughput on that goroutine under load. See ARCHITECTURE-COMMUNICATIONS.md
+// § 6's Phase 35 note for why fully decoupling that (an async handoff) was
+// deliberately deferred rather than built speculatively.
 func (sp *Span) End(payload []byte, headers map[string][]string) {
 	sp.finish("OK", "", payload, headers)
 }
 
 // Fail finishes sp as an error, publishing the reply-side span with err's
 // message as both the payload error and the span's statusMessage. No-op on a
-// nil Span.
+// nil Span. Same reply-before-trace contract as End — see its doc comment.
 func (sp *Span) Fail(err error, payload []byte, headers map[string][]string) {
 	msg := ""
 	if err != nil {
@@ -466,7 +495,7 @@ func splitSubject(subject string) (context, service, entity, action string) {
 
 // parseTraceparent extracts (traceId, spanId) from a W3C traceparent header
 // value ("00-<32 hex>-<16 hex>-<2 hex>"). Returns ("", "") for anything
-// malformed or absent, which Start treats as "mint a new root span" — a
+// malformed or absent, which callers treat as "mint a new root span" — a
 // missing or garbled header must never fail the request it arrived on.
 func parseTraceparent(header string) (traceID, spanID string) {
 	parts := strings.Split(header, "-")
@@ -633,4 +662,75 @@ func redactValue(v any, path string, removed *[]string) any {
 	default:
 		return v
 	}
+}
+
+// statusRecorder captures the HTTP status code a wrapped handler writes, so
+// HTTPMiddleware can tell End from Fail after ServeHTTP returns — net/http's
+// ResponseWriter has no built-in way to read back what a handler wrote.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+// httpEntity derives a coarse span "entity" label from a request path —
+// "/api/accounts/{name}/suspend" and "/api/auth/connectInfo" become
+// "accounts" and "auth" respectively. The exact path (which carries the real
+// detail: {name}, the specific sub-route) is recorded as the "http.path"
+// attribute instead of forced into this coarse field.
+func httpEntity(path string) string {
+	trimmed := strings.TrimPrefix(path, "/api/")
+	parts := strings.SplitN(trimmed, "/", 2)
+	if parts[0] == "" {
+		return "root"
+	}
+	return parts[0]
+}
+
+// HTTPMiddleware wraps an http.Handler so every request starts (and
+// finishes) exactly one span — the http.Handler-decorator symmetric
+// counterpart of Middleware, for a service (accounts-service) whose primary
+// transport is REST rather than rpc.*/api.*. Continues an inbound
+// Traceparent header if present (net/http.Header canonicalizes any casing to
+// exactly the form TraceparentHeader already uses), else mints a root span.
+// A response status >= 400 finishes the span as Fail, matching how a
+// natstrace-instrumented NATS reply distinguishes success from error.
+// contextValue/service label every span this middleware produces (a REST
+// service has no per-request {context} token to derive one from the way an
+// api.*/rpc.* subject does).
+func (t *Tracer) HTTPMiddleware(contextValue, service string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entity := httpEntity(r.URL.Path)
+		action := strings.ToLower(r.Method)
+
+		// Body must be re-buffered before next.ServeHTTP consumes the
+		// stream — http.Request.Body is read-once, and the handler
+		// downstream still needs the real bytes to decode its own request,
+		// so this captures a copy for the span and restores an equivalent
+		// io.ReadCloser for the handler rather than diverting the original.
+		var reqBody []byte
+		if r.Body != nil {
+			reqBody, _ = io.ReadAll(r.Body)
+			_ = r.Body.Close()
+			r.Body = io.NopCloser(bytes.NewReader(reqBody))
+		}
+
+		sp := t.StartFromHeaders(nats.Header(r.Header), r.URL.Path, reqBody, contextValue, service, entity, action)
+		sp.SetAttribute("http.method", r.Method)
+		sp.SetAttribute("http.path", r.URL.Path)
+
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r.WithContext(ContextWithSpan(r.Context(), sp)))
+
+		sp.SetAttribute("http.status_code", strconv.Itoa(rec.status))
+		if rec.status >= 400 {
+			sp.Fail(fmt.Errorf("http %d", rec.status), nil, nil)
+			return
+		}
+		sp.End(nil, nil)
+	})
 }

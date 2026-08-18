@@ -93,7 +93,7 @@ func run(log *slog.Logger) error {
 	defer rpcAdapter.Stop() //nolint:errcheck
 
 	// Phase 32 (BR-D40): one api.* adapter per known tenant, additive to the
-	// rpc.* adapter above — see refdata/internal/tenants.
+	// rpc.* adapter above — see shared/natstenants.
 	tenantMgr, err := h.MountAPI(ctx, natsURL, natsCredsDir, js, log)
 	if err != nil {
 		return err

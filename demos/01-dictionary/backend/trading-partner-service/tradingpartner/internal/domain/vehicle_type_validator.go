@@ -10,7 +10,8 @@ import "context"
 // caller must say which tenant's connection to use, since a single REST
 // process serves every tenant and (unlike pricing-service's per-tenant
 // api.* adapter) has no connection-level tenant identity to infer it from.
-// The real implementation is internal/tenants.Manager itself; this
+// The real implementation is internal/tenants.Manager, which wraps
+// shared/natstenants (Phase 35); this
 // interface is what internal/application/commands depends on, so it can be
 // exercised with a fake in tests without a live refdata-service.
 type VehicleTypeValidator interface {

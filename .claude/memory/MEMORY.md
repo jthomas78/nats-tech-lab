@@ -48,7 +48,8 @@
 - [Vue toDisplayString array gotcha](vue_todisplaystring_array_gotcha.md) — `{{ }}` JSON-stringifies arrays; join NATS header values before binding
 - [REST→NATS transport consolidation](rest_nats_transport_consolidation.md) — Phases 31-34: business comms NATS-only, REST for admin/health only; `.v1` suffix stays
 - [Phase 31 Shape B consolidation](phase31_shape_b_consolidation.md) — implemented 2026-08-17; Shapes A/C retired, `queries.Ships`/`ships` bucket/`ship-projector` are the neutral names now
-- [tenants.Manager triplication](tenants_manager_triplication.md) — now 4 copies (pricing/trading-partner/shipping/refdata, Phase 32 DONE); extraction scheduled as Phase 35 (PROPOSED), bundled with natstrace + browserrpc infra tail
+- [tenants.Manager triplication](tenants_manager_triplication.md) — RESOLVED Phase 35 (2026-08-18); historical record only, extracted into shared/natstenants.Manager[R]
 - [Phase 32 refdata PLATFORM credential](phase32_refdata_platform_credential.md) — frontend/refdata is cross-tenant, needed its own MintRefdataAdminToken + MountPlatformAPI; also fixed a context-from-subject convention bug
 - [Phase 33 refdata admin REST exemption](phase33_refdata_admin_rest_exemption.md) — /api/refdata/admin/* stays REST permanently; accounts-service calls it server-to-server, no NATS path exists
 - [Phase 34 boundary enforcement](phase34_boundary_enforcement.md) — IMPLEMENTED 2026-08-17; mux allowlist tests (BR-040) + traceSpan.Requester (BR-041) + Admin UI 2-axis filter
+- [Phase 35 shared Go package extraction](phase35_shared_go_package_extraction.md) — IMPLEMENTED 2026-08-18; shared/natstenants, shared/natstrace, shared/browserrpc extracted; go.work + per-service replace directives

@@ -12,7 +12,7 @@
 //
 // Unlike refdata-service's adapter, which always runs on a single permanent
 // PLATFORM-account connection, an Adapter here is registered once per
-// TENANT connection (see internal/tenants) — a Sea Freight Flow browser
+// TENANT connection (see shared/natstenants) — a Sea Freight Flow browser
 // authenticated into one tenant's account must reach pricing-service's
 // handlers on that same account. Unlike shipping-service's adapter, there is
 // no per-tenant JetStream/KV/projector bundle behind this one: pricing data
@@ -26,9 +26,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -36,7 +34,8 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing/internal/domain"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/pricing-service/pricing/internal/natstrace"
+	sharedbrowserrpc "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 // Subject constants — {context} is a wildcard token resolved per-request
@@ -44,7 +43,7 @@ import (
 // same convention as shipping-service's browserrpc and refdata-service's
 // natsrpc. Context is the company/business-unit scope, a completely
 // separate axis from which tenant NATS account this Adapter is registered
-// on (see internal/tenants) — every context value exists identically
+// on (see shared/natstenants) — every context value exists identically
 // inside every tenant's account; tenant isolation comes entirely from the
 // account boundary, never from anything in this subject pattern.
 const (
@@ -112,14 +111,6 @@ type Adapter struct {
 	log        *slog.Logger
 	svc        micro.Service
 	tracer     *natstrace.Tracer
-}
-
-// errorResponse is the wire shape for every failed api.* call — same shape
-// as shipping-service's/refdata-service's adapters, so a browser client
-// handles every service's errors identically.
-type errorResponse struct {
-	Error    string `json:"error"`
-	NotFound bool   `json:"notFound,omitempty"`
 }
 
 func isNotFoundErr(err error) bool {
@@ -263,7 +254,7 @@ type rateSheetApplyOverlayRequest struct {
 
 // New starts the browserrpc microservice on nc and registers every
 // endpoint. nc is expected to be a single tenant's NATS connection (see
-// internal/tenants) — every subject registered here only ever resolves
+// shared/natstenants) — every subject registered here only ever resolves
 // within that connection's own account. Callers should Stop() the returned
 // Adapter when that tenant connection is torn down.
 func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
@@ -358,7 +349,7 @@ func (a *Adapter) handleFeeScaleRegister(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	fs := domain.FeeScale{Context: contextFromSubject(subject), Name: in.Name}
+	fs := domain.FeeScale{Context: sharedbrowserrpc.ContextFromSubject(subject), Name: in.Name}
 	err := a.feeScales.Register(context.Background(), fs)
 	a.reply(req, feeScaleResponse{FeeScale: fs}, err)
 }
@@ -367,7 +358,7 @@ func (a *Adapter) handleFeeScaleRegister(req micro.Request) {
 // excludes soft-deleted fee scales.
 func (a *Adapter) handleFeeScaleList(req micro.Request) {
 	subject := req.Subject()
-	feeScales, err := a.feeScales.List(context.Background(), contextFromSubject(subject))
+	feeScales, err := a.feeScales.List(context.Background(), sharedbrowserrpc.ContextFromSubject(subject))
 	a.reply(req, feeScalesResponse{FeeScales: feeScales}, err)
 }
 
@@ -378,7 +369,7 @@ func (a *Adapter) handleFeeScaleGet(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	fs, err := a.feeScales.Get(context.Background(), contextFromSubject(subject), in.Name)
+	fs, err := a.feeScales.Get(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, feeScaleResponse{FeeScale: fs}, err)
 }
 
@@ -389,7 +380,7 @@ func (a *Adapter) handleFeeScaleCreateDraft(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.feeScales.CreateDraft(context.Background(), contextFromSubject(subject), in.Name)
+	v, err := a.feeScales.CreateDraft(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, feeScaleVersionResponse{Version: v}, err)
 }
 
@@ -400,7 +391,7 @@ func (a *Adapter) handleFeeScaleAddRange(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	err := a.feeScales.AddRange(context.Background(), contextFromSubject(subject), in.Name, in.Version, in.Range)
+	err := a.feeScales.AddRange(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version, in.Range)
 	a.reply(req, struct{}{}, err)
 }
 
@@ -411,7 +402,7 @@ func (a *Adapter) handleFeeScalePublish(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.feeScales.Publish(context.Background(), contextFromSubject(subject), in.Name)
+	v, err := a.feeScales.Publish(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, feeScaleVersionResponse{Version: v}, err)
 }
 
@@ -422,7 +413,7 @@ func (a *Adapter) handleFeeScaleRollback(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.feeScales.Rollback(context.Background(), contextFromSubject(subject), in.Name, in.Version)
+	v, err := a.feeScales.Rollback(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version)
 	a.reply(req, feeScaleVersionResponse{Version: v}, err)
 }
 
@@ -433,7 +424,7 @@ func (a *Adapter) handleFeeScaleVersions(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	versions, err := a.feeScales.Versions(context.Background(), contextFromSubject(subject), in.Name)
+	versions, err := a.feeScales.Versions(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, feeScaleVersionsResponse{Versions: versions}, err)
 }
 
@@ -444,7 +435,7 @@ func (a *Adapter) handleFeeScaleActive(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.feeScales.ActiveVersion(context.Background(), contextFromSubject(subject), in.Name)
+	v, err := a.feeScales.ActiveVersion(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, feeScaleVersionResponse{Version: v}, err)
 }
 
@@ -455,7 +446,7 @@ func (a *Adapter) handleFeeScaleCalculateFee(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	fee, err := a.feeScales.CalculateFee(context.Background(), contextFromSubject(subject), in.Name, in.CentBid)
+	fee, err := a.feeScales.CalculateFee(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.CentBid)
 	a.reply(req, feeAmountResponse{CentFee: fee}, err)
 }
 
@@ -468,7 +459,7 @@ func (a *Adapter) handleRateSheetRegister(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	rs := domain.RateSheet{Context: contextFromSubject(subject), Name: in.Name, CustomerKey: in.CustomerKey, Type: in.Type, Active: in.Active}
+	rs := domain.RateSheet{Context: sharedbrowserrpc.ContextFromSubject(subject), Name: in.Name, CustomerKey: in.CustomerKey, Type: in.Type, Active: in.Active}
 	err := a.rateSheets.Register(context.Background(), rs)
 	a.reply(req, rateSheetResponse{RateSheet: rs}, err)
 }
@@ -476,7 +467,7 @@ func (a *Adapter) handleRateSheetRegister(req micro.Request) {
 // handleRateSheetList takes no input beyond {context}.
 func (a *Adapter) handleRateSheetList(req micro.Request) {
 	subject := req.Subject()
-	rateSheets, err := a.rateSheets.List(context.Background(), contextFromSubject(subject))
+	rateSheets, err := a.rateSheets.List(context.Background(), sharedbrowserrpc.ContextFromSubject(subject))
 	a.reply(req, rateSheetsResponse{RateSheets: rateSheets}, err)
 }
 
@@ -487,7 +478,7 @@ func (a *Adapter) handleRateSheetGet(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	rs, err := a.rateSheets.Get(context.Background(), contextFromSubject(subject), in.Name)
+	rs, err := a.rateSheets.Get(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, rateSheetResponse{RateSheet: rs}, err)
 }
 
@@ -498,7 +489,7 @@ func (a *Adapter) handleRateSheetCreateDraft(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.rateSheets.CreateDraft(context.Background(), contextFromSubject(subject), in.Name)
+	v, err := a.rateSheets.CreateDraft(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, rateSheetVersionResponse{Version: v}, err)
 }
 
@@ -509,7 +500,7 @@ func (a *Adapter) handleRateSheetAddEntry(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	err := a.rateSheets.AddEntry(context.Background(), contextFromSubject(subject), in.Name, in.Version, in.Entry)
+	err := a.rateSheets.AddEntry(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version, in.Entry)
 	a.reply(req, struct{}{}, err)
 }
 
@@ -520,7 +511,7 @@ func (a *Adapter) handleRateSheetSetFeeScaleOverride(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	err := a.rateSheets.SetFeeScaleOverride(context.Background(), contextFromSubject(subject), in.Name, in.Version, in.FeeScaleName)
+	err := a.rateSheets.SetFeeScaleOverride(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version, in.FeeScaleName)
 	a.reply(req, struct{}{}, err)
 }
 
@@ -531,7 +522,7 @@ func (a *Adapter) handleRateSheetPublish(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.rateSheets.Publish(context.Background(), contextFromSubject(subject), in.Name)
+	v, err := a.rateSheets.Publish(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, rateSheetVersionResponse{Version: v}, err)
 }
 
@@ -542,7 +533,7 @@ func (a *Adapter) handleRateSheetRollback(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.rateSheets.Rollback(context.Background(), contextFromSubject(subject), in.Name, in.Version)
+	v, err := a.rateSheets.Rollback(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version)
 	a.reply(req, rateSheetVersionResponse{Version: v}, err)
 }
 
@@ -553,7 +544,7 @@ func (a *Adapter) handleRateSheetVersions(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	versions, err := a.rateSheets.Versions(context.Background(), contextFromSubject(subject), in.Name)
+	versions, err := a.rateSheets.Versions(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, rateSheetVersionsResponse{Versions: versions}, err)
 }
 
@@ -564,7 +555,7 @@ func (a *Adapter) handleRateSheetActive(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.rateSheets.ActiveVersion(context.Background(), contextFromSubject(subject), in.Name)
+	v, err := a.rateSheets.ActiveVersion(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, rateSheetVersionResponse{Version: v}, err)
 }
 
@@ -575,7 +566,7 @@ func (a *Adapter) handleRateSheetDropsCharge(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	charge, err := a.rateSheets.AdditionalDropsCharge(context.Background(), contextFromSubject(subject), in.Name, in.RouteKey, in.VehicleType, in.AddressCount)
+	charge, err := a.rateSheets.AdditionalDropsCharge(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.RouteKey, in.VehicleType, in.AddressCount)
 	a.reply(req, dropsChargeResponse{CentCharge: charge}, err)
 }
 
@@ -588,7 +579,7 @@ func (a *Adapter) handleFixedRateRegister(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	fr := domain.FixedRate{Context: contextFromSubject(subject), Name: in.Name, CustomerKey: in.CustomerKey, RouteKey: in.RouteKey, Active: in.Active}
+	fr := domain.FixedRate{Context: sharedbrowserrpc.ContextFromSubject(subject), Name: in.Name, CustomerKey: in.CustomerKey, RouteKey: in.RouteKey, Active: in.Active}
 	err := a.fixedRates.Register(context.Background(), fr)
 	a.reply(req, fixedRateResponse{FixedRate: fr}, err)
 }
@@ -596,7 +587,7 @@ func (a *Adapter) handleFixedRateRegister(req micro.Request) {
 // handleFixedRateList takes no input beyond {context}.
 func (a *Adapter) handleFixedRateList(req micro.Request) {
 	subject := req.Subject()
-	fixedRates, err := a.fixedRates.List(context.Background(), contextFromSubject(subject))
+	fixedRates, err := a.fixedRates.List(context.Background(), sharedbrowserrpc.ContextFromSubject(subject))
 	a.reply(req, fixedRatesResponse{FixedRates: fixedRates}, err)
 }
 
@@ -607,7 +598,7 @@ func (a *Adapter) handleFixedRateGet(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	fr, err := a.fixedRates.Get(context.Background(), contextFromSubject(subject), in.Name)
+	fr, err := a.fixedRates.Get(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, fixedRateResponse{FixedRate: fr}, err)
 }
 
@@ -618,7 +609,7 @@ func (a *Adapter) handleFixedRateCreateDraft(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.fixedRates.CreateDraft(context.Background(), contextFromSubject(subject), in.Name, in.CentRate, in.PointCount, in.CentAdditionalDropRate)
+	v, err := a.fixedRates.CreateDraft(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.CentRate, in.PointCount, in.CentAdditionalDropRate)
 	a.reply(req, fixedRateVersionResponse{Version: v}, err)
 }
 
@@ -629,7 +620,7 @@ func (a *Adapter) handleFixedRatePublish(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.fixedRates.Publish(context.Background(), contextFromSubject(subject), in.Name)
+	v, err := a.fixedRates.Publish(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, fixedRateVersionResponse{Version: v}, err)
 }
 
@@ -640,7 +631,7 @@ func (a *Adapter) handleFixedRateRollback(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.fixedRates.Rollback(context.Background(), contextFromSubject(subject), in.Name, in.Version)
+	v, err := a.fixedRates.Rollback(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.Version)
 	a.reply(req, fixedRateVersionResponse{Version: v}, err)
 }
 
@@ -651,7 +642,7 @@ func (a *Adapter) handleFixedRateVersions(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	versions, err := a.fixedRates.Versions(context.Background(), contextFromSubject(subject), in.Name)
+	versions, err := a.fixedRates.Versions(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, fixedRateVersionsResponse{Versions: versions}, err)
 }
 
@@ -662,7 +653,7 @@ func (a *Adapter) handleFixedRateActive(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.fixedRates.ActiveVersion(context.Background(), contextFromSubject(subject), in.Name)
+	v, err := a.fixedRates.ActiveVersion(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name)
 	a.reply(req, fixedRateVersionResponse{Version: v}, err)
 }
 
@@ -673,7 +664,7 @@ func (a *Adapter) handleFixedRateDropsCharge(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	charge, err := a.fixedRates.AdditionalDropsCharge(context.Background(), contextFromSubject(subject), in.Name, in.AddressCount)
+	charge, err := a.fixedRates.AdditionalDropsCharge(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.AddressCount)
 	a.reply(req, dropsChargeResponse{CentCharge: charge}, err)
 }
 
@@ -687,13 +678,13 @@ func (a *Adapter) handleDieselPriceIndex(req micro.Request) {
 		return
 	}
 	price := domain.DieselPrice{ActiveDate: in.ActiveDate, CoastalCents: in.CoastalCents, InlandCents: in.InlandCents}
-	err := a.rateSheets.IndexDieselPrice(context.Background(), contextFromSubject(subject), price)
+	err := a.rateSheets.IndexDieselPrice(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), price)
 	a.reply(req, struct{}{}, err)
 }
 
 func (a *Adapter) handleDieselPriceList(req micro.Request) {
 	subject := req.Subject()
-	prices, err := a.rateSheets.ListDieselPrices(context.Background(), contextFromSubject(subject))
+	prices, err := a.rateSheets.ListDieselPrices(context.Background(), sharedbrowserrpc.ContextFromSubject(subject))
 	a.reply(req, dieselPricesResponse{Prices: prices}, err)
 }
 
@@ -704,77 +695,17 @@ func (a *Adapter) handleRateSheetApplyOverlay(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	v, err := a.rateSheets.ApplyDieselOverlay(context.Background(), contextFromSubject(subject), in.Name, in.ActiveDate)
+	v, err := a.rateSheets.ApplyDieselOverlay(context.Background(), sharedbrowserrpc.ContextFromSubject(subject), in.Name, in.ActiveDate)
 	a.reply(req, rateSheetVersionResponse{Version: v}, err)
 }
 
-// --- shared plumbing (mirrors shipping-service's browserrpc/adapter.go) ---
-
-// contextFromSubject extracts the {context} token from an api.{context}...
-// subject — the ONLY source of truth for which CONTEXT (company/
-// business-unit scope) a request belongs to; every handler above derives
-// it this way rather than trusting a request body's own context field.
-// Context is NOT the tenant — the tenant boundary is the NATS account this
-// connection authenticated into.
-func contextFromSubject(subject string) string {
-	parts := strings.Split(subject, ".")
-	if len(parts) < 2 {
-		return ""
-	}
-	return parts[1]
-}
+// --- shared plumbing (Phase 35: shared/browserrpc) ---
 
 // reply is the shared tail end of every handler above: nil error replies
-// with result, any error replies with the mapped error response.
+// with result, any error replies with the mapped error response. Delegates
+// to shared/browserrpc.Reply, which derives subject/correlationID from req
+// itself, marshals, finishes the natstrace span, and stamps
+// Nats-Responder.
 func (a *Adapter) reply(req micro.Request, result any, err error) {
-	subject := req.Subject()
-	correlationID := req.Reply()
-	if err != nil {
-		a.respondError(req, subject, correlationID, err)
-		return
-	}
-	a.respond(req, subject, correlationID, result)
-}
-
-const responderHeader = "Nats-Responder"
-
-func (a *Adapter) responderIdentity() string {
-	info := a.svc.Info()
-	return fmt.Sprintf("%s/%s", info.Name, info.ID)
-}
-
-// respond and respondError are the two request-tail exit points every
-// handler reaches through reply(). Both finish this request's natstrace span
-// (BR-036/BR-037/BR-P25) via natstrace.SpanFrom — nil-safe, so a handler
-// invoked directly (not through Tracer.Middleware, e.g. a unit test calling
-// a.handleX(req) with a bare micro.Request) still replies correctly, it just
-// publishes no span.
-func (a *Adapter) respond(req micro.Request, subject, correlationID string, out any) {
-	data, err := json.Marshal(out)
-	if err != nil {
-		a.respondError(req, subject, correlationID, err)
-		return
-	}
-	headers := map[string][]string{responderHeader: {a.responderIdentity()}}
-	natstrace.SpanFrom(req).End(data, headers)
-	if err := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); err != nil && a.log != nil {
-		a.log.Error("browserrpc: respond failed", "subject", subject, "err", err)
-	}
-}
-
-func (a *Adapter) respondError(req micro.Request, subject, correlationID string, err error) {
-	data, _ := json.Marshal(errorResponse{Error: err.Error(), NotFound: isNotFoundErr(err)})
-	code := "500"
-	if isNotFoundErr(err) {
-		code = "404"
-	}
-	headers := map[string][]string{
-		micro.ErrorHeader:     {err.Error()},
-		micro.ErrorCodeHeader: {code},
-		responderHeader:       {a.responderIdentity()},
-	}
-	natstrace.SpanFrom(req).Fail(err, data, headers)
-	if respErr := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); respErr != nil && a.log != nil {
-		a.log.Error("browserrpc: respond failed", "subject", subject, "err", respErr)
-	}
+	sharedbrowserrpc.Reply(req, a.svc, a.log, isNotFoundErr, result, err)
 }

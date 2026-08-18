@@ -37,9 +37,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -48,7 +46,8 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/queries"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
+	sharedbrowserrpc "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 // Subject constants — {context} is a wildcard token resolved per-request
@@ -129,14 +128,6 @@ type Adapter struct {
 	log        *slog.Logger
 	svc        micro.Service
 	tracer     *natstrace.Tracer
-}
-
-// errorResponse is the wire shape for every failed api.* call — same shape
-// as refdata-service's adapter, so a browser client handles both services'
-// errors identically.
-type errorResponse struct {
-	Error    string `json:"error"`
-	NotFound bool   `json:"notFound,omitempty"`
 }
 
 // isNotFoundErr mirrors rest/handlers.go's writeCommandError/writeQueryError
@@ -289,7 +280,7 @@ func (a *Adapter) handleShipRegister(req micro.Request) {
 // shipResponse, respond.
 func (a *Adapter) shipCommand(req micro.Request, cmd func(context.Context, commands.ShipInput) (domain.ShipState, error)) {
 	subject := req.Subject()
-	itemContext := contextFromSubject(subject)
+	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	correlationID := req.Reply()
 
 	var in commands.ShipInput
@@ -309,7 +300,7 @@ func (a *Adapter) shipCommand(req micro.Request, cmd func(context.Context, comma
 
 func (a *Adapter) handleShipCorrectID(req micro.Request) {
 	subject := req.Subject()
-	itemContext := contextFromSubject(subject)
+	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	correlationID := req.Reply()
 
 	var in commands.ShipCorrectionInput
@@ -335,7 +326,7 @@ func (a *Adapter) handleShipCorrectID(req micro.Request) {
 // never-cached entry.
 func (a *Adapter) handleShipList(req micro.Request) {
 	subject := req.Subject()
-	itemContext := contextFromSubject(subject)
+	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	correlationID := req.Reply()
 
 	ships, err := a.shipReads.ListShips(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext)
@@ -361,7 +352,7 @@ func (a *Adapter) handleContainerUnload(req micro.Request) {
 // containerCommand mirrors shipCommand for every container.* endpoint.
 func (a *Adapter) containerCommand(req micro.Request, cmd func(context.Context, commands.ContainerInput) (domain.ContainerState, error)) {
 	subject := req.Subject()
-	itemContext := contextFromSubject(subject)
+	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	correlationID := req.Reply()
 
 	var in commands.ContainerInput
@@ -384,7 +375,7 @@ func (a *Adapter) containerCommand(req micro.Request, cmd func(context.Context, 
 // same role as REST's GET /api/containers/{context} (queries.Terminal.List).
 func (a *Adapter) handleContainerList(req micro.Request) {
 	subject := req.Subject()
-	itemContext := contextFromSubject(subject)
+	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	correlationID := req.Reply()
 
 	containers, err := a.terminal.List(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext)
@@ -403,7 +394,7 @@ func (a *Adapter) handleContainerList(req micro.Request) {
 // reachable only over api.*/rpc.*, never REST).
 func (a *Adapter) handleContainerManifest(req micro.Request) {
 	subject := req.Subject()
-	itemContext := contextFromSubject(subject)
+	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	correlationID := req.Reply()
 
 	var in containerManifestRequest
@@ -423,7 +414,7 @@ func (a *Adapter) handleContainerManifest(req micro.Request) {
 // handlePortList is the api.* counterpart of REST's GET /api/ports/{context}.
 func (a *Adapter) handlePortList(req micro.Request) {
 	subject := req.Subject()
-	itemContext := contextFromSubject(subject)
+	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	correlationID := req.Reply()
 
 	ports, err := a.ports.List(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext)
@@ -450,7 +441,7 @@ func (a *Adapter) handlePortList(req micro.Request) {
 // know about.
 func (a *Adapter) handlePortRegister(req micro.Request) {
 	subject := req.Subject()
-	itemContext := contextFromSubject(subject)
+	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	correlationID := req.Reply()
 
 	var in portRegisterRequest
@@ -499,7 +490,7 @@ func (a *Adapter) publishPortsChanged(ctx context.Context, kvContext string) {
 // GET /api/meta/{context}/known-containers.
 func (a *Adapter) handleMetaKnownContainers(req micro.Request) {
 	subject := req.Subject()
-	itemContext := contextFromSubject(subject)
+	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	correlationID := req.Reply()
 
 	values, err := a.meta.KnownContainers(natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req)), itemContext)
@@ -510,82 +501,17 @@ func (a *Adapter) handleMetaKnownContainers(req micro.Request) {
 	a.respond(req, subject, correlationID, valuesResponse{Values: values})
 }
 
-// responderHeader identifies which service — and which running instance,
-// via micro's own auto-generated per-process instance ID — answered a
-// request. Mirrors refdataconsumer's Nats-Requestor (the caller-identity
-// header) on the reply side: NATS doesn't propagate responder identity onto
-// a reply either, and the subject alone doesn't distinguish which replica
-// of a horizontally-scaled service actually handled the call.
-const responderHeader = "Nats-Responder"
-
-// responderIdentity is "<service name>/<instance ID>" — svc.Info().ID is a
-// fresh, unique value per running process (assigned by micro.AddService),
-// so this changes across restarts/replicas without any config of our own.
-func (a *Adapter) responderIdentity() string {
-	info := a.svc.Info()
-	return fmt.Sprintf("%s/%s", info.Name, info.ID)
-}
-
-// respond marshals out, finishes this request's natstrace span (BR-036/
-// BR-037), and sends the reply — the shared tail end of every handler
-// above. responderHeader is attached to both the real wire reply and the
-// span's headers (mirroring how respondError attaches the real error
-// headers to both). natstrace.SpanFrom is nil-safe, so a handler invoked
-// directly (not through Tracer.Middleware, e.g. a unit test calling
-// a.handleX(req) with a bare micro.Request) still replies correctly, it
-// just publishes no span.
+// respond/respondError keep their existing (req, subject, correlationID, ...)
+// signature rather than adopting shared/browserrpc.Reply's own
+// subject/correlationID-derived-from-req convention: like refdata-service,
+// shipping-service has no single reply() funnel — every handler above calls
+// respond/respondError directly at its own tail end. Both methods now just
+// delegate the actual marshal/header/span/error-code work to the shared
+// package (Phase 35).
 func (a *Adapter) respond(req micro.Request, subject, correlationID string, out any) {
-	data, err := json.Marshal(out)
-	if err != nil {
-		a.respondError(req, subject, correlationID, err)
-		return
-	}
-	headers := map[string][]string{responderHeader: {a.responderIdentity()}}
-	natstrace.SpanFrom(req).End(data, headers)
-	if err := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); err != nil && a.log != nil {
-		a.log.Error("browserrpc: respond failed", "subject", subject, "err", err)
-	}
+	sharedbrowserrpc.Respond(req, a.svc, a.log, subject, correlationID, out)
 }
 
-// respondError also finishes this request's natstrace span on failure
-// (BR-036/BR-037 parity with refdata-service's adapter — a failed call must
-// still be visible in the Admin UI's tracing side-channel). The reply
-// carries real Nats-Service-Error/Nats-Service-Error-Code headers (micro's
-// own error-header convention) via WithHeaders — additive to the existing
-// JSON error body, so no client that reads the body (NotFound bool, error
-// string) needs to change.
 func (a *Adapter) respondError(req micro.Request, subject, correlationID string, err error) {
-	data, _ := json.Marshal(errorResponse{Error: err.Error(), NotFound: isNotFoundErr(err)})
-	code := "500"
-	if isNotFoundErr(err) {
-		code = "404"
-	}
-	headers := map[string][]string{
-		micro.ErrorHeader:     {err.Error()},
-		micro.ErrorCodeHeader: {code},
-		responderHeader:       {a.responderIdentity()},
-	}
-	natstrace.SpanFrom(req).Fail(err, data, headers)
-	if respErr := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); respErr != nil && a.log != nil {
-		a.log.Error("browserrpc: respond failed", "subject", subject, "err", respErr)
-	}
-}
-
-// contextFromSubject extracts the {context} token from an api.{context}....
-// subject. This is the ONLY source of truth for which CONTEXT — the company /
-// business-unit scope — a request belongs to: every handler above overwrites
-// any "context" field a request body might carry with this value before
-// calling into the application layer, so scoping can't be spoofed via the
-// body.
-//
-// Context is NOT the tenant. The tenant boundary is the NATS ACCOUNT the
-// connection authenticated into, and the tenant name never appears in this
-// subject (nor does the region, which is a separate regional deployment).
-// See ARCHITECTURE-COMMUNICATIONS.md § 2.3 and BR-023.
-func contextFromSubject(subject string) string {
-	parts := strings.Split(subject, ".")
-	if len(parts) < 2 {
-		return ""
-	}
-	return parts[1]
+	sharedbrowserrpc.RespondError(req, a.svc, a.log, subject, correlationID, err, isNotFoundErr(err))
 }

@@ -27,7 +27,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/notifybridge"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/postgres"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/rest"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/tenants"
+	"github.com/jthomas78/nats-tech-lab/shared/natstenants"
 )
 
 // ChangeStreamMaxAge bounds the REFDATA change-event feed — it is a
@@ -169,7 +169,7 @@ func (h *Handlers) MountRPC(nc *nats.Conn, js jetstream.JetStream, log *slog.Log
 
 // browserrpcDeps builds the browserrpc.Deps shared by every tenant
 // connection's Adapter (Tenant is overwritten per-connection by
-// tenants.Manager) — the exact same command handlers Mount's REST routes
+// natstenants.Manager) — the exact same command handlers Mount's REST routes
 // and MountRPC's rpc.* adapter already call (BR-D40/BR-D41).
 func (h *Handlers) browserrpcDeps(log *slog.Logger) browserrpc.Deps {
 	return browserrpc.Deps{
@@ -190,19 +190,46 @@ func (h *Handlers) browserrpcDeps(log *slog.Logger) browserrpc.Deps {
 // MountAPI starts refdata-service's per-tenant api.* surface (Phase 32,
 // BR-D40) — one browserrpc.Adapter per tenant discovered in credsDir,
 // kept in sync with accounts-service's notify.accounts.account.* lifecycle
-// events. This is additive to MountRPC's single PLATFORM-connection rpc.*
-// adapter, not a replacement for it. Callers should Close() the returned
-// Manager on shutdown.
+// events via shared/natstenants (Phase 35). This is additive to MountRPC's
+// single PLATFORM-connection rpc.* adapter, not a replacement for it.
+// Callers should Close() the returned Manager on shutdown.
 // platformJS is passed so MountAPI can also start the BR-D42 notify bridge —
 // see internal/notifybridge for why the fan-out has to cross from the
 // PLATFORM connection's evt.* feed onto the per-tenant connections.
-func (h *Handlers) MountAPI(ctx context.Context, natsURL, credsDir string, platformJS jetstream.JetStream, log *slog.Logger) (*tenants.Manager, error) {
-	mgr := tenants.NewManager(natsURL, credsDir, log, h.browserrpcDeps(log))
+func (h *Handlers) MountAPI(ctx context.Context, natsURL, credsDir string, platformJS jetstream.JetStream, log *slog.Logger) (*natstenants.Manager[*browserrpc.Adapter], error) {
+	deps := h.browserrpcDeps(log)
+	mgr := natstenants.NewManager(natsURL, credsDir, "refdata-service", log,
+		func(_ context.Context, nc *nats.Conn, tenant string) (*browserrpc.Adapter, error) {
+			scoped := deps
+			scoped.Tenant = tenant
+			return browserrpc.New(nc, scoped)
+		},
+		func(_ string, adapter *browserrpc.Adapter) error {
+			return adapter.Stop()
+		},
+	)
 	if err := mgr.EnsureAll(ctx); err != nil {
 		return nil, err
 	}
-	notifybridge.Run(ctx, platformJS, mgr, log)
+	notifybridge.Run(ctx, platformJS, tenantPublisher{mgr: mgr, log: log}, log)
 	return mgr, nil
+}
+
+// tenantPublisher adapts natstenants.Manager.Range to notifybridge.Publisher
+// (BR-D42's fan-out leg) — a change notification is a best-effort hint to
+// refetch, not a delivery guarantee, so a failed publish on one tenant is
+// logged and skipped rather than propagated.
+type tenantPublisher struct {
+	mgr *natstenants.Manager[*browserrpc.Adapter]
+	log *slog.Logger
+}
+
+func (p tenantPublisher) PublishToAll(subject string, data []byte) {
+	p.mgr.Range(func(tenant string, nc *nats.Conn, _ *browserrpc.Adapter) {
+		if err := nc.Publish(subject, data); err != nil && p.log != nil {
+			p.log.Warn("refdata notify publish failed", "tenant", tenant, "subject", subject, "err", err)
+		}
+	})
 }
 
 // MountPlatformAPI additionally registers the api.* adapter on

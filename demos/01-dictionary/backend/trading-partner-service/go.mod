@@ -4,6 +4,9 @@ go 1.26.5
 
 require (
 	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jthomas78/nats-tech-lab/shared/browserrpc v0.0.0-00010101000000-000000000000
+	github.com/jthomas78/nats-tech-lab/shared/natstenants v0.0.0-00010101000000-000000000000
+	github.com/jthomas78/nats-tech-lab/shared/natstrace v0.0.0-00010101000000-000000000000
 	github.com/nats-io/nats-server/v2 v2.14.5
 	github.com/nats-io/nats.go v1.52.0
 	github.com/nats-io/nuid v1.0.1
@@ -36,3 +39,14 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.48.0 // indirect
 )
+
+// Phase 35: shared/natstrace is a workspace member (see go.work at the repo
+// root) — this replace is a defensive belt-and-suspenders pin, not the
+// primary resolution mechanism, since plain `go mod` subcommands (tidy, in
+// particular) don't reliably honor go.work's implicit local override once
+// the replaced module has its own external dependencies.
+replace github.com/jthomas78/nats-tech-lab/shared/natstrace => ../../../../shared/natstrace
+
+replace github.com/jthomas78/nats-tech-lab/shared/natstenants => ../../../../shared/natstenants
+
+replace github.com/jthomas78/nats-tech-lab/shared/browserrpc => ../../../../shared/browserrpc

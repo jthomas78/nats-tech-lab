@@ -562,6 +562,89 @@ requirement to see history from before the panel was opened. This is **not**
 a JetStream concern — it's a separate, best-effort side-channel off the
 `natsrpc/` adapter.
 
+### `natstrace` and `browserrpc` also moved into `shared/` (Phase 35 — implemented 2026-08-18)
+
+Everything below this point narrates the observability design as it evolved
+service by service, including two pieces that used to be pasted into each
+service individually: `natstrace` (the span helper behind `obs.trace.*`, see
+the OTLP-bridge discussion further down) and `browserrpc`'s reply-tail
+plumbing. Phase 35 — the same phase that extracted `shared/natstenants`, see
+[ARCHITECTURE-ACCOUNTS.md](ARCHITECTURE-ACCOUNTS.md)'s per-tenant-connections
+section — moved both into `shared/` alongside it:
+
+- **`natstrace`** wraps every `rpc.*`/`api.*` call in an OTLP-shaped span —
+  trace id, parent/child span ids, timing, the redacted payload — and hands
+  it to the KV-backed trace store the Admin UI's Request/Reply panel reads
+  and the `otlp-bridge` re-exports from. All five services import it;
+  `accounts-service` is the one exception in *how* — since its primary
+  transport is REST rather than `rpc.*`/`api.*`, it wraps
+  `natstrace.HTTPMiddleware` around its handlers instead of the
+  `Start`/`Middleware` pair the other four use.
+- **`browserrpc`** is the reply-tail every browser-facing `micro.Request`
+  handler needs: read `{context}` off the subject, stamp the
+  `Nats-Responder`/`Nats-Service-Error`/`Nats-Service-Error-Code` headers
+  (§ 4), and shape success/error JSON the same way. `pricing-service` and
+  `trading-partner-service` already funneled every reply through one
+  `reply(req, result, err)` call, so they got a one-line delegating version;
+  `refdata-service` and `shipping-service` reply from multiple early-exit
+  points with no single funnel, so they kept their own
+  `(req, subject, correlationID, ...)`-shaped wrappers with delegated
+  bodies, rather than forcing a ~90-call-site diff for a cosmetic
+  unification. `accounts-service` doesn't consume it — it has no
+  browser-facing RPC surface to reply from.
+
+![natstrace and browserrpc — five and four duplicated copies, each now one shared package](images/natstrace-browserrpc-extraction.png)
+
+Editable source:
+[natstrace-browserrpc-extraction.html](../../../../demos/01-dictionary/diagrams/natstrace-browserrpc-extraction.html)
+— regenerate with, from `demos/01-dictionary/`:
+
+`node diagrams/export-html-png.mjs diagrams/natstrace-browserrpc-extraction.html \`
+`  ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/natstrace-browserrpc-extraction.png 1024 --clip=figure`
+
+The third extracted package, `shared/natstenants` (the per-tenant connection
+manager `pricing-service`/`trading-partner-service`/`refdata-service` use in
+full and `shipping-service` uses for connection lifecycle only), has its own
+before/after diagram in [ARCHITECTURE-ACCOUNTS.md](ARCHITECTURE-ACCOUNTS.md)'s
+per-tenant-connections section — it isn't repeated here since it belongs to
+the account/tenant lifecycle story, not RPC observability. No compatibility
+shims were kept for any of the three packages: every old per-service package,
+type, and test file was deleted outright once its shared replacement was
+wired in.
+
+**Amended (post-Phase-35) — `natstrace`'s span-finish was found to be on the
+caller's critical path, and reordered; full decoupling deliberately
+deferred.** `Span.End`/`Span.Fail` do real synchronous work — a redact
+scan, a full JSON-marshal of the span, then `Publish` — and every
+`micro.Request` responder (`shared/browserrpc.Respond`/`RespondError`, and
+refdata-service's own `internal/natsrpc.respondOK`/`respondError`, which
+predates Phase 35 and was never folded into `browserrpc` since it answers
+`rpc.*` rather than `api.*`) used to call `End`/`Fail` **before**
+`req.Respond`, putting that work between the caller getting its answer and
+the caller actually receiving it. Both were reordered — reply first, finish
+the span after — so an `rpc.*`/`api.*` call's measured duration no longer
+includes `natstrace`'s own overhead (this also makes `DurationMs` itself
+slightly more accurate: it's now stamped after the real reply's send, not
+before). `natstrace.HTTPMiddleware`/shipping-service's own
+`httpTraceMiddleware` needed no change — both already finish their span
+*after* `next.ServeHTTP`/`next` returns, since the HTTP response is written
+inside that call, not by a separate statement after it.
+
+This only removes `natstrace`'s overhead from what the *caller* measures.
+The redact/marshal/publish work still runs synchronously in the same
+goroutine that handled the request, immediately after replying — so it can
+still delay that goroutine picking up its *next* message if
+`nats.go/micro` dispatches an endpoint's messages sequentially. Fully
+decoupling that (an async handoff — either a bare `go func()` per span, or
+a bounded channel + small worker pool owned by `Tracer`, which would need
+a matching `Close()` wired into each service's connection teardown, most
+naturally through `natstenants.Manager`'s deprovision callback now that
+Phase 35 centralized it) was considered and **deliberately deferred**
+rather than built speculatively — there's no evidence yet that the
+in-goroutine tail actually matters at this POC's traffic levels, and the
+lifecycle-wiring cost of a worker pool is real. Revisit if a load test
+shows otherwise.
+
 > **Extended (Phase 16, "Request/Reply" panel):** the same panel now also
 > carries `api.*` request/reply traffic via `obs.api.>` — shipping-service's
 > `browserrpc/` adapter publishes the identical two-message pattern, but on
@@ -730,11 +813,14 @@ a JetStream concern — it's a separate, best-effort side-channel off the
 > trace. Meanwhile the SDK's bulk — exporters, batching, retry — solves span
 > *delivery*, which `obs.*` already solves, with retention for replay.
 >
-> So `natstrace` is hand-rolled (~250 lines, duplicated per service like
-> `obsEnvelope` already is, because each service's Dockerfile uses its own
-> directory as build context), W3C-compatible on the wire, and its field names
-> mirror the OTLP `Span` message 1:1 so the bridge is a field-for-field copy
-> with no interpretation. Four things follow from the bridge being a stream
+> So `natstrace` is hand-rolled (~250 lines), W3C-compatible on the wire, and
+> its field names mirror the OTLP `Span` message 1:1 so the bridge is a
+> field-for-field copy with no interpretation. At the time this section was
+> written it was duplicated per service like `obsEnvelope` was, because each
+> service's Dockerfile used its own directory as build context — Phase 35
+> extracted it into `shared/natstrace`, consumed by all five services, so the
+> paragraph below's "duplicated five times" describes the pre-Phase-35 state
+> the extraction fixed. Four things follow from the bridge being a stream
 > consumer:
 >
 > - **Retroactive export.** An in-process batch exporter can only ship spans
@@ -743,9 +829,10 @@ a JetStream concern — it's a separate, best-effort side-channel off the
 >   `DeliverAll` consumer re-exports the retained window on demand.
 > - **Toggling costs no code.** Two `docker-compose.yml` services added or
 >   removed. Not an env flag threaded through five binaries.
-> - **One copy of the OTLP mapping.** `natstrace` is duplicated five times;
->   the bridge is the only component that ever needs to know OTLP exists, so a
->   format bug is one fix.
+> - **One copy of the OTLP mapping.** `natstrace` was duplicated five times
+>   before Phase 35 extracted it into `shared/natstrace`; the bridge is the
+>   only component that ever needs to know OTLP exists, so a format bug is
+>   one fix.
 > - **It cannot touch a business path.** An in-process exporter shares the
 >   service's memory and failure modes, and a slow OTLP endpoint makes the
 >   batch processor block or drop *inside* the service. A separate consumer
@@ -852,8 +939,10 @@ func (a *Adapter) getItemHandler(req micro.Request) {
   **Amended (Phase 34.3, BR-041) — the trace envelope gets a first-class
   `Requester` field.** `Nats-Requestor` (BR-027) had been reachable only by
   digging through a span's raw `headers` map. `traceSpan` (BR-036's wire
-  envelope, `internal/natstrace/natstrace.go`, all 5 service copies) now
-  also carries `requester string` (`omitempty`), populated in `finish()`
+  envelope — at the time `internal/natstrace/natstrace.go`, all 5 service
+  copies; since Phase 35, `shared/natstrace/natstrace.go`, one copy consumed
+  by all 5 services) now also carries `requester string` (`omitempty`),
+  populated in `finish()`
   from the same merged/redacted headers `Headers` is built from — a strict
   superset addition, not a wire-contract change; a pre-Phase-34 consumer
   decoding the envelope is unaffected. This is purely so the Admin UI (§ 4.5

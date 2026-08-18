@@ -6,7 +6,7 @@
 //
 // Unlike internal/natsrpc, which always runs on refdata-service's single
 // permanent PLATFORM connection, an Adapter here is registered once per
-// TENANT connection (see internal/tenants, BR-D40) — a browser authenticated
+// TENANT connection (see shared/natstenants, BR-D40) — a browser authenticated
 // into one tenant's account must reach refdata-service's handlers on that
 // same account. Every tenant connection's Adapter shares the exact same
 // command handlers built once at Startup; only the NATS connection itself is
@@ -26,11 +26,8 @@ package browserrpc
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/micro"
@@ -38,7 +35,8 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/natstrace"
+	sharedbrowserrpc "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 // Business subjects (BR-D41) — {context} is a real subject token, read off
@@ -167,14 +165,6 @@ type Adapter struct {
 	tracer        *natstrace.Tracer
 }
 
-// errorResponse is the wire shape for every failed api.* call — same shape
-// every adapter in this repo uses, so a browser client handles every
-// service's errors identically.
-type errorResponse struct {
-	Error    string `json:"error"`
-	NotFound bool   `json:"notFound,omitempty"`
-}
-
 func isNotFoundErr(err error) bool {
 	return errors.Is(err, domain.ErrItemNotFound) ||
 		errors.Is(err, domain.ErrTypeNotFound) ||
@@ -301,46 +291,21 @@ func (a *Adapter) Stop() error {
 	return a.svc.Stop()
 }
 
-func contextFromSubject(subject string) string {
-	parts := strings.Split(subject, ".")
-	if len(parts) < 2 {
-		return ""
-	}
-	return parts[1]
-}
-
-// --- reply plumbing (mirrors internal/natsrpc/adapter.go) ---
-
-const responderHeader = "Nats-Responder"
-
-func (a *Adapter) responderIdentity() string {
-	info := a.svc.Info()
-	return fmt.Sprintf("%s/%s", info.Name, info.ID)
-}
-
-func (a *Adapter) respondOK(req micro.Request, subject, correlationID string, data []byte) {
-	headers := map[string][]string{responderHeader: {a.responderIdentity()}}
-	natstrace.SpanFrom(req).End(data, headers)
-	if err := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); err != nil && a.log != nil {
-		a.log.Error("browserrpc: respond failed", "subject", subject, "err", err)
-	}
-}
+// --- reply plumbing (Phase 35: shared/browserrpc) ---
+//
+// reply/respondError keep their existing (req, subject, correlationID, ...)
+// signature rather than adopting shared/browserrpc.Reply's own
+// subject/correlationID-derived-from-req convention: refdata's ~30 handlers
+// call respondError directly at several early-exit validation points each,
+// not only through reply's single funnel (unlike pricing-service's/
+// trading-partner-service's handlers, which always route through reply even
+// on a decode failure) — so migrating every call site's shape would be a
+// much larger, purely cosmetic diff for no behavioral difference. Both
+// methods now just delegate the actual marshal/header/span/error-code work
+// to the shared package.
 
 func (a *Adapter) respondError(req micro.Request, subject, correlationID string, err error) {
-	data, _ := json.Marshal(errorResponse{Error: err.Error(), NotFound: isNotFoundErr(err)})
-	code := "500"
-	if isNotFoundErr(err) {
-		code = "404"
-	}
-	headers := map[string][]string{
-		micro.ErrorHeader:     {err.Error()},
-		micro.ErrorCodeHeader: {code},
-		responderHeader:       {a.responderIdentity()},
-	}
-	natstrace.SpanFrom(req).Fail(err, data, headers)
-	if respErr := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); respErr != nil && a.log != nil {
-		a.log.Error("browserrpc: respond failed", "subject", subject, "err", respErr)
-	}
+	sharedbrowserrpc.RespondError(req, a.svc, a.log, subject, correlationID, err, isNotFoundErr(err))
 }
 
 // reply marshals out and replies OK, or replies with err if non-nil —
@@ -351,26 +316,7 @@ func (a *Adapter) reply(req micro.Request, subject, correlationID string, out an
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	data, merr := json.Marshal(out)
-	if merr != nil {
-		a.respondError(req, subject, correlationID, merr)
-		return
-	}
-	a.respondOK(req, subject, correlationID, data)
-}
-
-func spanCtx(req micro.Request) context.Context {
-	return natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req))
-}
-
-func decode[T any](req micro.Request) (T, error) {
-	var in T
-	if len(req.Data()) > 0 {
-		if err := json.Unmarshal(req.Data(), &in); err != nil {
-			return in, err
-		}
-	}
-	return in, nil
+	sharedbrowserrpc.Respond(req, a.svc, a.log, subject, correlationID, out)
 }
 
 // --- business handlers (BR-D41) ---
@@ -444,12 +390,12 @@ func (a *Adapter) resolveItemKVFirst(ctx context.Context, itemContext, typeKey, 
 
 func (a *Adapter) handleItemGet(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	in, err := decode[ItemGetRequest](req)
+	in, err := sharedbrowserrpc.Decode[ItemGetRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	out, err := a.resolveItemKVFirst(spanCtx(req), contextFromSubject(subject), in.TypeKey, in.Code, in.Locale)
+	out, err := a.resolveItemKVFirst(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.TypeKey, in.Code, in.Locale)
 	a.reply(req, subject, correlationID, out, err)
 }
 
@@ -468,12 +414,12 @@ type ItemLocalizationsListResponse struct {
 
 func (a *Adapter) handleItemLocalizationsList(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	in, err := decode[ItemLocalizationsListRequest](req)
+	in, err := sharedbrowserrpc.Decode[ItemLocalizationsListRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	locs, err := a.localizations.ListForItem(spanCtx(req), in.TypeKey, contextFromSubject(subject), in.Code)
+	locs, err := a.localizations.ListForItem(sharedbrowserrpc.SpanContext(req), in.TypeKey, sharedbrowserrpc.ContextFromSubject(subject), in.Code)
 	a.reply(req, subject, correlationID, ItemLocalizationsListResponse{Localizations: locs}, err)
 }
 
@@ -492,12 +438,12 @@ type ItemReferencesListResponse struct {
 
 func (a *Adapter) handleItemReferencesList(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	in, err := decode[ItemReferencesListRequest](req)
+	in, err := sharedbrowserrpc.Decode[ItemReferencesListRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	refs, err := a.references.ListFrom(spanCtx(req), contextFromSubject(subject), in.TypeKey, in.Code)
+	refs, err := a.references.ListFrom(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.TypeKey, in.Code)
 	a.reply(req, subject, correlationID, ItemReferencesListResponse{References: refs}, err)
 }
 
@@ -518,12 +464,12 @@ func (a *Adapter) handleItemGetVersioned(req micro.Request) {
 		a.respondError(req, subject, correlationID, errVersionedReadsNotConfigured)
 		return
 	}
-	in, err := decode[ItemGetVersionedRequest](req)
+	in, err := sharedbrowserrpc.Decode[ItemGetVersionedRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	entry, err := a.versionReader.Get(spanCtx(req), contextFromSubject(subject), in.Version, in.TypeKey, in.Code)
+	entry, err := a.versionReader.Get(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Version, in.TypeKey, in.Code)
 	a.reply(req, subject, correlationID, entry, err)
 }
 
@@ -606,25 +552,25 @@ func (a *Adapter) resolveTypeKVFirst(ctx context.Context, itemContext, typeKey, 
 
 func (a *Adapter) handleTypeList(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	in, err := decode[TypeListRequest](req)
+	in, err := sharedbrowserrpc.Decode[TypeListRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	itemContext := contextFromSubject(subject)
+	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	if in.All {
 		// BR-D06: ?all=true bypasses the KV cache entirely, same as REST —
 		// deprecated items aren't guaranteed to be cache-warm.
-		items, err := a.items.ListAll(spanCtx(req), in.TypeKey, itemContext)
+		items, err := a.items.ListAll(sharedbrowserrpc.SpanContext(req), in.TypeKey, itemContext)
 		if err != nil {
 			a.respondError(req, subject, correlationID, err)
 			return
 		}
-		out, err := a.resolveItemsResponse(spanCtx(req), itemContext, in.TypeKey, in.Locale, items)
+		out, err := a.resolveItemsResponse(sharedbrowserrpc.SpanContext(req), itemContext, in.TypeKey, in.Locale, items)
 		a.reply(req, subject, correlationID, out, err)
 		return
 	}
-	out, err := a.resolveTypeKVFirst(spanCtx(req), itemContext, in.TypeKey, in.Locale)
+	out, err := a.resolveTypeKVFirst(sharedbrowserrpc.SpanContext(req), itemContext, in.TypeKey, in.Locale)
 	a.reply(req, subject, correlationID, out, err)
 }
 
@@ -637,7 +583,7 @@ type TypesListResponse struct {
 
 func (a *Adapter) handleTypesList(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	types, err := a.types.ListTypes(spanCtx(req))
+	types, err := a.types.ListTypes(sharedbrowserrpc.SpanContext(req))
 	a.reply(req, subject, correlationID, TypesListResponse{Types: types}, err)
 }
 
@@ -650,8 +596,8 @@ type LocalesListResponse struct {
 
 func (a *Adapter) handleLocalesList(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	ctx := spanCtx(req)
-	itemContext := contextFromSubject(subject)
+	ctx := sharedbrowserrpc.SpanContext(req)
+	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	locales, err := a.localizations.ListLocales(ctx, itemContext)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
@@ -677,12 +623,12 @@ type CompletenessResponse struct {
 
 func (a *Adapter) handleCompleteness(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	in, err := decode[CompletenessRequest](req)
+	in, err := sharedbrowserrpc.Decode[CompletenessRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	total, localized, err := a.localizations.Completeness(spanCtx(req), in.TypeKey, contextFromSubject(subject), in.Locale)
+	total, localized, err := a.localizations.Completeness(sharedbrowserrpc.SpanContext(req), in.TypeKey, sharedbrowserrpc.ContextFromSubject(subject), in.Locale)
 	a.reply(req, subject, correlationID, CompletenessResponse{TypeKey: in.TypeKey, Locale: in.Locale, Total: total, Localized: localized}, err)
 }
 
@@ -702,7 +648,7 @@ type CacheStatusResponse struct {
 
 func (a *Adapter) handleCacheStatus(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	in, err := decode[CacheStatusRequest](req)
+	in, err := sharedbrowserrpc.Decode[CacheStatusRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -711,8 +657,8 @@ func (a *Adapter) handleCacheStatus(req micro.Request) {
 		a.reply(req, subject, correlationID, CacheStatusResponse{TypeKey: in.TypeKey}, nil)
 		return
 	}
-	ctx := spanCtx(req)
-	itemContext := contextFromSubject(subject)
+	ctx := sharedbrowserrpc.SpanContext(req)
+	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	pgVersion, err := a.versions.Current(ctx, itemContext, in.TypeKey)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
@@ -750,12 +696,12 @@ func (a *Adapter) handleContextRegister(req micro.Request) {
 		a.respondError(req, subject, correlationID, errContextsNotConfigured)
 		return
 	}
-	in, err := decode[ContextRegisterRequest](req)
+	in, err := sharedbrowserrpc.Decode[ContextRegisterRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	err = a.contexts.Register(spanCtx(req), domain.Context{Context: in.Context, Parent: in.Parent, Name: in.Name, Description: in.Description, Tenant: in.Tenant})
+	err = a.contexts.Register(sharedbrowserrpc.SpanContext(req), domain.Context{Context: in.Context, Parent: in.Parent, Name: in.Name, Description: in.Description, Tenant: in.Tenant})
 	a.reply(req, subject, correlationID, struct{}{}, err)
 }
 
@@ -775,12 +721,12 @@ func (a *Adapter) handleContextList(req micro.Request) {
 		a.reply(req, subject, correlationID, ContextsResponse{Contexts: []domain.Context{}}, nil)
 		return
 	}
-	in, err := decode[ContextListRequest](req)
+	in, err := sharedbrowserrpc.Decode[ContextListRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	ctx := spanCtx(req)
+	ctx := sharedbrowserrpc.SpanContext(req)
 	var contexts []domain.Context
 	if in.Tenant != "" {
 		contexts, err = a.contexts.ListByTenant(ctx, in.Tenant)
@@ -805,8 +751,8 @@ func (a *Adapter) handleContextGet(req micro.Request) {
 		a.respondError(req, subject, correlationID, errContextsNotConfigured)
 		return
 	}
-	ctx := spanCtx(req)
-	value, err := a.contexts.Get(ctx, contextFromSubject(subject))
+	ctx := sharedbrowserrpc.SpanContext(req)
+	value, err := a.contexts.Get(ctx, sharedbrowserrpc.ContextFromSubject(subject))
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -833,12 +779,12 @@ func (a *Adapter) handleContextSetVisible(req micro.Request) {
 		a.respondError(req, subject, correlationID, errContextsNotConfigured)
 		return
 	}
-	in, err := decode[ContextSetVisibleRequest](req)
+	in, err := sharedbrowserrpc.Decode[ContextSetVisibleRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	err = a.contexts.SetVisible(spanCtx(req), contextFromSubject(subject), in.Visible)
+	err = a.contexts.SetVisible(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Visible)
 	a.reply(req, subject, correlationID, struct{}{}, err)
 }
 
@@ -854,12 +800,12 @@ func (a *Adapter) handleCorpusCreateDraft(req micro.Request) {
 		a.respondError(req, subject, correlationID, errCorpusNotConfigured)
 		return
 	}
-	in, err := decode[CorpusContextRequest](req)
+	in, err := sharedbrowserrpc.Decode[CorpusContextRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	version, err := a.corpus.CreateDraft(spanCtx(req), contextFromSubject(subject), in.Notes)
+	version, err := a.corpus.CreateDraft(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Notes)
 	a.reply(req, subject, correlationID, version, err)
 }
 
@@ -869,7 +815,7 @@ func (a *Adapter) handleCorpusPublish(req micro.Request) {
 		a.respondError(req, subject, correlationID, errCorpusNotConfigured)
 		return
 	}
-	version, err := a.corpus.Publish(spanCtx(req), contextFromSubject(subject))
+	version, err := a.corpus.Publish(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject))
 	a.reply(req, subject, correlationID, version, err)
 }
 
@@ -886,12 +832,12 @@ func (a *Adapter) handleCorpusRollback(req micro.Request) {
 		a.respondError(req, subject, correlationID, errCorpusNotConfigured)
 		return
 	}
-	in, err := decode[CorpusVersionRequest](req)
+	in, err := sharedbrowserrpc.Decode[CorpusVersionRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	result, err := a.corpus.Rollback(spanCtx(req), contextFromSubject(subject), in.Version, in.Notes)
+	result, err := a.corpus.Rollback(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Version, in.Notes)
 	a.reply(req, subject, correlationID, result, err)
 }
 
@@ -901,7 +847,7 @@ func (a *Adapter) handleCorpusListVersions(req micro.Request) {
 		a.reply(req, subject, correlationID, CorpusVersionsResponse{Versions: []domain.CorpusVersion{}}, nil)
 		return
 	}
-	versions, err := a.corpus.Versions(spanCtx(req), contextFromSubject(subject))
+	versions, err := a.corpus.Versions(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject))
 	a.reply(req, subject, correlationID, CorpusVersionsResponse{Versions: versions}, err)
 }
 
@@ -934,8 +880,8 @@ func (a *Adapter) handleCorpusGetDraft(req micro.Request) {
 		a.respondError(req, subject, correlationID, errCorpusNotConfigured)
 		return
 	}
-	ctx := spanCtx(req)
-	itemContext := contextFromSubject(subject)
+	ctx := sharedbrowserrpc.SpanContext(req)
+	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	versions, err := a.corpus.Versions(ctx, itemContext)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
@@ -962,13 +908,13 @@ func (a *Adapter) handleCorpusGetVersion(req micro.Request) {
 		a.respondError(req, subject, correlationID, errCorpusNotConfigured)
 		return
 	}
-	in, err := decode[CorpusVersionRequest](req)
+	in, err := sharedbrowserrpc.Decode[CorpusVersionRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	ctx := spanCtx(req)
-	itemContext := contextFromSubject(subject)
+	ctx := sharedbrowserrpc.SpanContext(req)
+	itemContext := sharedbrowserrpc.ContextFromSubject(subject)
 	version, err := a.corpus.GetVersion(ctx, itemContext, in.Version)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
@@ -996,7 +942,7 @@ func (a *Adapter) handleCorpusPutDraftItem(req micro.Request) {
 		a.respondError(req, subject, correlationID, errCorpusNotConfigured)
 		return
 	}
-	in, err := decode[CorpusItemRequest](req)
+	in, err := sharedbrowserrpc.Decode[CorpusItemRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -1006,7 +952,7 @@ func (a *Adapter) handleCorpusPutDraftItem(req micro.Request) {
 		SourceContext:  in.SourceContext,
 		IsOverride:     in.IsOverride,
 	}
-	err = a.corpus.PutDraftItem(spanCtx(req), contextFromSubject(subject), item)
+	err = a.corpus.PutDraftItem(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), item)
 	a.reply(req, subject, correlationID, struct{}{}, err)
 }
 
@@ -1030,7 +976,7 @@ func (a *Adapter) handleCorpusPutDraftLocalization(req micro.Request) {
 		a.respondError(req, subject, correlationID, errCorpusNotConfigured)
 		return
 	}
-	in, err := decode[CorpusLocalizationRequest](req)
+	in, err := sharedbrowserrpc.Decode[CorpusLocalizationRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -1042,7 +988,7 @@ func (a *Adapter) handleCorpusPutDraftLocalization(req micro.Request) {
 		},
 		SourceContext: in.SourceContext,
 	}
-	err = a.corpus.PutDraftLocalization(spanCtx(req), contextFromSubject(subject), loc)
+	err = a.corpus.PutDraftLocalization(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), loc)
 	a.reply(req, subject, correlationID, struct{}{}, err)
 }
 
@@ -1063,12 +1009,12 @@ func (a *Adapter) handleCorpusDiff(req micro.Request) {
 		a.respondError(req, subject, correlationID, errCorpusNotConfigured)
 		return
 	}
-	in, err := decode[CorpusDiffRequest](req)
+	in, err := sharedbrowserrpc.Decode[CorpusDiffRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	entries, err := a.corpus.Diff(spanCtx(req), contextFromSubject(subject), in.From, in.To)
+	entries, err := a.corpus.Diff(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.From, in.To)
 	a.reply(req, subject, correlationID, CorpusDiffResponse{Entries: entries}, err)
 }
 
@@ -1083,12 +1029,12 @@ type TypeRegisterRequest struct {
 
 func (a *Adapter) handleTypeRegister(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	in, err := decode[TypeRegisterRequest](req)
+	in, err := sharedbrowserrpc.Decode[TypeRegisterRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	err = a.types.RegisterType(spanCtx(req), domain.DictionaryType{TypeKey: in.TypeKey, Name: in.Name, Description: in.Description, Category: in.Category})
+	err = a.types.RegisterType(sharedbrowserrpc.SpanContext(req), domain.DictionaryType{TypeKey: in.TypeKey, Name: in.Name, Description: in.Description, Category: in.Category})
 	a.reply(req, subject, correlationID, struct{}{}, err)
 }
 
@@ -1102,12 +1048,12 @@ type LocaleAddRequest struct {
 
 func (a *Adapter) handleLocaleAdd(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	in, err := decode[LocaleAddRequest](req)
+	in, err := sharedbrowserrpc.Decode[LocaleAddRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	err = a.localizations.AddLocale(spanCtx(req), contextFromSubject(subject), in.Locale, in.IsDefault)
+	err = a.localizations.AddLocale(sharedbrowserrpc.SpanContext(req), sharedbrowserrpc.ContextFromSubject(subject), in.Locale, in.IsDefault)
 	a.reply(req, subject, correlationID, struct{}{}, err)
 }
 
@@ -1126,12 +1072,12 @@ type ItemResponse struct {
 
 func (a *Adapter) handleItemRegister(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	in, err := decode[ItemRegisterRequest](req)
+	in, err := sharedbrowserrpc.Decode[ItemRegisterRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	item, err := a.items.RegisterItem(spanCtx(req), commands.ItemInput{TypeKey: in.TypeKey, Code: in.Code, Context: contextFromSubject(subject), Attrs: in.Attrs})
+	item, err := a.items.RegisterItem(sharedbrowserrpc.SpanContext(req), commands.ItemInput{TypeKey: in.TypeKey, Code: in.Code, Context: sharedbrowserrpc.ContextFromSubject(subject), Attrs: in.Attrs})
 	a.reply(req, subject, correlationID, ItemResponse{Item: item}, err)
 }
 
@@ -1145,34 +1091,34 @@ type ItemKeyRequest struct {
 
 func (a *Adapter) handleItemDeprecate(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	in, err := decode[ItemKeyRequest](req)
+	in, err := sharedbrowserrpc.Decode[ItemKeyRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	err = a.items.DeprecateItem(spanCtx(req), in.TypeKey, contextFromSubject(subject), in.Code)
+	err = a.items.DeprecateItem(sharedbrowserrpc.SpanContext(req), in.TypeKey, sharedbrowserrpc.ContextFromSubject(subject), in.Code)
 	a.reply(req, subject, correlationID, struct{}{}, err)
 }
 
 func (a *Adapter) handleItemReactivate(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	in, err := decode[ItemKeyRequest](req)
+	in, err := sharedbrowserrpc.Decode[ItemKeyRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	err = a.items.ReactivateItem(spanCtx(req), in.TypeKey, contextFromSubject(subject), in.Code)
+	err = a.items.ReactivateItem(sharedbrowserrpc.SpanContext(req), in.TypeKey, sharedbrowserrpc.ContextFromSubject(subject), in.Code)
 	a.reply(req, subject, correlationID, struct{}{}, err)
 }
 
 func (a *Adapter) handleItemDelete(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	in, err := decode[ItemKeyRequest](req)
+	in, err := sharedbrowserrpc.Decode[ItemKeyRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	err = a.items.DeleteItem(spanCtx(req), in.TypeKey, contextFromSubject(subject), in.Code)
+	err = a.items.DeleteItem(sharedbrowserrpc.SpanContext(req), in.TypeKey, sharedbrowserrpc.ContextFromSubject(subject), in.Code)
 	a.reply(req, subject, correlationID, struct{}{}, err)
 }
 
@@ -1187,12 +1133,12 @@ type ItemUpdateAttrsRequest struct {
 
 func (a *Adapter) handleItemUpdateAttrs(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	in, err := decode[ItemUpdateAttrsRequest](req)
+	in, err := sharedbrowserrpc.Decode[ItemUpdateAttrsRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	err = a.items.UpdateItemAttrs(spanCtx(req), in.TypeKey, contextFromSubject(subject), in.Code, in.Attrs)
+	err = a.items.UpdateItemAttrs(sharedbrowserrpc.SpanContext(req), in.TypeKey, sharedbrowserrpc.ContextFromSubject(subject), in.Code, in.Attrs)
 	a.reply(req, subject, correlationID, struct{}{}, err)
 }
 
@@ -1210,13 +1156,13 @@ type ReferenceCreateRequest struct {
 
 func (a *Adapter) handleReferenceCreate(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	in, err := decode[ReferenceCreateRequest](req)
+	in, err := sharedbrowserrpc.Decode[ReferenceCreateRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	err = a.references.CreateReference(spanCtx(req), commands.ReferenceInput{
-		Context: contextFromSubject(subject), FromTypeKey: in.FromTypeKey, FromCode: in.FromCode,
+	err = a.references.CreateReference(sharedbrowserrpc.SpanContext(req), commands.ReferenceInput{
+		Context: sharedbrowserrpc.ContextFromSubject(subject), FromTypeKey: in.FromTypeKey, FromCode: in.FromCode,
 		Relation: in.Relation, DeclaredTargetType: in.DeclaredTargetType,
 		ToTypeKey: in.ToTypeKey, ToCode: in.ToCode,
 	})
@@ -1237,13 +1183,13 @@ type LocalizationSetRequest struct {
 
 func (a *Adapter) handleLocalizationSet(req micro.Request) {
 	subject, correlationID := req.Subject(), req.Reply()
-	in, err := decode[LocalizationSetRequest](req)
+	in, err := sharedbrowserrpc.Decode[LocalizationSetRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
 	}
-	err = a.localizations.SetLocalization(spanCtx(req), commands.LocalizationInput{
-		TypeKey: in.TypeKey, Code: in.Code, Context: contextFromSubject(subject),
+	err = a.localizations.SetLocalization(sharedbrowserrpc.SpanContext(req), commands.LocalizationInput{
+		TypeKey: in.TypeKey, Code: in.Code, Context: sharedbrowserrpc.ContextFromSubject(subject),
 		Locale: in.Locale, Label: in.Label, Description: in.Description, Source: in.Source,
 	})
 	a.reply(req, subject, correlationID, struct{}{}, err)
@@ -1277,7 +1223,7 @@ func (a *Adapter) handleTranslationDraft(req micro.Request) {
 		a.respondError(req, subject, correlationID, errTranslationsNotConfigured)
 		return
 	}
-	in, err := decode[TranslationDraftRequest](req)
+	in, err := sharedbrowserrpc.Decode[TranslationDraftRequest](req)
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)
 		return
@@ -1286,8 +1232,8 @@ func (a *Adapter) handleTranslationDraft(req micro.Request) {
 		a.respondError(req, subject, correlationID, errTargetLocalesRequired)
 		return
 	}
-	drafts, err := a.translations.DraftTranslations(spanCtx(req), commands.DraftInput{
-		TypeKey: in.TypeKey, Code: in.Code, Context: contextFromSubject(subject), TargetLocales: in.TargetLocales,
+	drafts, err := a.translations.DraftTranslations(sharedbrowserrpc.SpanContext(req), commands.DraftInput{
+		TypeKey: in.TypeKey, Code: in.Code, Context: sharedbrowserrpc.ContextFromSubject(subject), TargetLocales: in.TargetLocales,
 	})
 	if err != nil {
 		a.respondError(req, subject, correlationID, err)

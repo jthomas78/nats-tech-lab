@@ -12,7 +12,7 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 // newTestNATS starts an embedded in-process NATS server for the rpc.*
@@ -635,7 +635,7 @@ func TestListContextsReturnsErrRPCUnavailableWhenNoResponder(t *testing.T) {
 // ─── BR-037: trace context propagates on every outbound rpc.* call ─────────
 
 // fullTraceSpan decodes natstrace's traceSpan wire shape (BR-036) — this
-// package has no dependency on internal/natstrace's own test helpers, so it
+// package has no dependency on shared/natstrace's own test helpers, so it
 // mirrors just the fields these specs assert on.
 type fullTraceSpan struct {
 	Subject       string            `json:"subject"`
