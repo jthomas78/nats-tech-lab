@@ -492,9 +492,10 @@ existing meaning: interactive accent `--lab-accent` for synchronous
 application work, crit-red for failed spans, plus two additions — a
 datastore teal and an outlined eventual-amber. Those two encode *kind* of
 work, not health, so they are deliberately not health colors and do not
-compete with §2.3's green/amber/red axis. Server-hop spans (Phase 41,
-renumbered 2026-08-17 from Phase 29 — still not started) render as a grey
-hairline tick rather than a bar, because they have no meaningful duration.
+compete with §2.3's green/amber/red axis. Server-hop spans (Phase 36,
+renumbered 2026-08-17 from Phase 29 to Phase 41, then 2026-08-18 to
+Phase 36 — still not started) render as a grey hairline tick rather than a
+bar, because they have no meaningful duration.
 Rows are 26px, matching this group's DataTable density.
 
 **Design history — the viewer, then the placement.**

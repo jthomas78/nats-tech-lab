@@ -595,6 +595,51 @@ rationale or checklist detail).
 
 ---
 
+### Phase 36 (following on from Phase 29, then Phase 41) (PROPOSED — not started) — NATS 2.11 Server-Hop Tracing ("Trace this subject")
+
+> **Renumbered 2026-08-17** from Phase 29 to Phase 41, alongside Phase
+> 24 → Phase 40, when Phases 23/25/25i/26/27/28/30 were archived (see the
+> "Renumbering (2026-08-17)" log near the end of this document). No
+> internal references needed updating — this phase has none.
+
+> **Renumbered again 2026-08-18** from Phase 41 to Phase 36 — the next
+> available number after completed Phase 35, rather than sitting orphaned
+> in the 40s block reserved for Phase 40/42 (see the "Renumbering
+> (2026-08-18)" log near the end of this document). Cross-references in
+> `ARCHITECTURE-COMMUNICATIONS.md` and `ARCHITECTURE-ADMIN.md` updated to
+> match.
+
+#### Goal
+
+Phase 28 answers "shipping called refdata and it took 40ms." It cannot answer
+"the message was dropped at the account import boundary" — which, in an
+operator-mode deployment where every cross-service call goes through a JWT
+export/import, is the failure mode that is hardest to diagnose and produces
+the least evidence.
+
+NATS 2.11's distributed message tracing reports, per server hop: ingress
+(`in`), egress (`eg`), subject mapping (`sm`), stream export (`se`), service
+import (`si`), and JetStream store (`js`) — each with the server's own error
+string. Add a "Trace this subject" control that publishes with
+`Nats-Trace-Dest` and renders the returned hop tree, interleaved into the same
+waterfall as Phase 28's application spans.
+
+- [ ] Backend: publish with `Nats-Trace-Dest` (+ `Nats-Trace-Only` for the
+      dry-run default, as `nats trace` itself defaults to) and collect trace
+      events off the destination subject.
+- [ ] Frontend: render hop events as grey hairline ticks rather than duration
+      bars — they have no meaningful duration (already specified in
+      ARCHITECTURE-ADMIN.md §4.5's UI design).
+- [ ] **Why this is worth its own phase:** zero code in any service and no
+      per-message cost, so it shares nothing with Phase 28's implementation.
+      Requires server 2.11+ and `allow_trace: true` (landed in 28f/BR-AC30).
+- [ ] **The payoff for having chosen `traceparent` in Phase 28:** in
+      trace-context mode the NATS server stamps *our* trace id onto its own hop
+      events, so application spans and infrastructure hops land on one
+      waterfall keyed identically. No off-the-shelf tool does this.
+
+---
+
 ### Phase 40 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning
 
 > **Renumbered 2026-08-17** from Phase 24 to Phase 40, alongside Phase
@@ -668,42 +713,6 @@ Watch for the startup-ordering trap this surfaces: `shipping-service` currently 
 - [ ] 24c: `bootstrap-operator.sh` scope reduced to `operator` + `SYS` + `PLATFORM` only
 - [ ] 24c: `BUSINESS_RULES-ACCOUNTS.md` — rule change documenting PLATFORM-bootstrapped / tenants-runtime as the enforced split
 - [ ] 24c: Live verification — fresh `down -v && up --build` produces working `acme`/`globex` tenants with no bootstrap involvement beyond `PLATFORM`
-
-### Phase 41 (following on from Phase 29) (PROPOSED — not started) — NATS 2.11 Server-Hop Tracing ("Trace this subject")
-
-> **Renumbered 2026-08-17** from Phase 29 to Phase 41, alongside Phase
-> 24 → Phase 40, when Phases 23/25/25i/26/27/28/30 were archived (see the
-> "Renumbering (2026-08-17)" log near the end of this document). No
-> internal references needed updating — this phase has none.
-
-#### Goal
-
-Phase 28 answers "shipping called refdata and it took 40ms." It cannot answer
-"the message was dropped at the account import boundary" — which, in an
-operator-mode deployment where every cross-service call goes through a JWT
-export/import, is the failure mode that is hardest to diagnose and produces
-the least evidence.
-
-NATS 2.11's distributed message tracing reports, per server hop: ingress
-(`in`), egress (`eg`), subject mapping (`sm`), stream export (`se`), service
-import (`si`), and JetStream store (`js`) — each with the server's own error
-string. Add a "Trace this subject" control that publishes with
-`Nats-Trace-Dest` and renders the returned hop tree, interleaved into the same
-waterfall as Phase 28's application spans.
-
-- [ ] Backend: publish with `Nats-Trace-Dest` (+ `Nats-Trace-Only` for the
-      dry-run default, as `nats trace` itself defaults to) and collect trace
-      events off the destination subject.
-- [ ] Frontend: render hop events as grey hairline ticks rather than duration
-      bars — they have no meaningful duration (already specified in
-      ARCHITECTURE-ADMIN.md §4.5's UI design).
-- [ ] **Why this is worth its own phase:** zero code in any service and no
-      per-message cost, so it shares nothing with Phase 28's implementation.
-      Requires server 2.11+ and `allow_trace: true` (landed in 28f/BR-AC30).
-- [ ] **The payoff for having chosen `traceparent` in Phase 28:** in
-      trace-context mode the NATS server stamps *our* trace id onto its own hop
-      events, so application spans and infrastructure hops land on one
-      waterfall keyed identically. No off-the-shelf tool does this.
 
 ### Phase 42 — Close-Out Review: Outstanding Items Carried Forward from Archived Phases
 
@@ -1230,6 +1239,46 @@ Cross-reference sweep (same commit):
       renumbering tables above, `Main-POC-Plan-ARCHIVE.md`,
       `Dictionary-Service-Plan.md`, `.ai-archive/*` — frozen snapshots of
       past events, not live cross-references
+
+---
+
+## Renumbering (2026-08-18 — Phase 41 → Phase 36, close the 36–39 gap)
+
+**Why:** The 2026-08-17 renumbering moved Phase 29 (NATS 2.11 Server-Hop
+Tracing) up to Phase 41 alongside Phase 24 → Phase 40, grouping them as a
+forward-looking pair since both sat orphaned mid-block at the time. That
+grouping is no longer the right shape: Phase 40 (Credential Lifecycle
+Hardening) and the tracing phase have no dependency on each other, and
+Phase 35's completion the next day freed 36–39 as unclaimed space
+immediately following the last completed phase. Moved the tracing phase
+down to Phase 36 — the next available number — rather than leaving it
+sitting in the 40s for no reason once the pairing that justified it no
+longer applies. Phase 40 itself is unaffected and keeps its number.
+
+| Was | Now |
+|---|---|
+| Phase 41 (PROPOSED, not started) — NATS 2.11 Server-Hop Tracing | **Phase 36** |
+
+Cross-reference sweep (same commit):
+
+- [x] Main plan internal references — the 2026-08-17 renumbering table and
+      its cross-reference-sweep entries above document *that* event and are
+      left untouched on purpose, same reasoning as every prior entry in
+      this log — they're a frozen snapshot, not a live reference to this
+      further move.
+- [x] Section physically moved (not just renumbered in place) to sit
+      immediately after Phase 35, ahead of Phase 40, so phase numbers still
+      read ascending top-to-bottom.
+- [x] `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md`
+      §6 ("SERVER rows need no service code at all") — "Phase 41" → "Phase 36"
+- [x] `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ADMIN.md`
+      §4.5 ("Server-hop spans") — "Phase 41" → "Phase 36"
+- [x] `demos/01-dictionary/BUSINESS_RULES-*.md` — no "Phase 41" references
+      found
+- [x] Go/Vue source comments — no "Phase 41" references found
+- [x] `.claude/memory/` — no "Phase 41" references found (phase is
+      PROPOSED/not started, has never landed, so no implementation memory
+      exists yet to update)
 
 ---
 
