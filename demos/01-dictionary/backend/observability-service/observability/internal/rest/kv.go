@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -206,6 +207,7 @@ func opString(op jetstream.KeyValueOp) string {
 // @Router       /api/kv/buckets/{account}/{bucket}/entries [get]
 func (h *Handlers) kvBucketEntriesOnce(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	bucket := r.PathValue("bucket")
 
 	js, ok := h.jsForAccount(ctx, r.PathValue("account"))
 	if !ok {
@@ -213,61 +215,83 @@ func (h *Handlers) kvBucketEntriesOnce(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	kv, err := js.KeyValue(ctx, r.PathValue("bucket"))
+	// Open the KV handle to verify the bucket exists and get its Values() count.
+	// This uses STREAM.INFO.* cross-account (singleton response — works fine).
+	kv, err := js.KeyValue(ctx, bucket)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrBucketNotFound) {
-			writeError(w, http.StatusBadRequest, "unknown bucket: "+r.PathValue("bucket"))
+			writeError(w, http.StatusBadRequest, "unknown bucket: "+bucket)
 			return
 		}
 		h.deps.Log.Error("open kv bucket", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-
-	watcher, err := kv.WatchAll(ctx)
+	status, err := kv.Status(ctx)
 	if err != nil {
-		h.deps.Log.Error("kv watch all", "err", err)
+		h.deps.Log.Error("kv bucket status", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	defer func() { _ = watcher.Stop() }()
+	// Values() is the authoritative current-entry count (excludes DEL markers).
+	// Add a buffer for any outstanding DEL markers not yet reflected in Values().
+	fetchN := int(status.Values()) + 50
+	if fetchN <= 50 {
+		// Bucket is empty; skip consumer creation entirely.
+		writeJSON(w, http.StatusOK, []kvChange{})
+		return
+	}
 
-	// Cross-account KV watch via monitor.{account}.js delivers individual entries
-	// but the INIT_DONE nil never arrives — the "no more messages" 404 status is
-	// not routed back through the export chain. Idle timer is the fallback: if no
-	// new entry arrives for snapshotIdleTimeout after the last one, the snapshot is
-	// assumed complete.
-	const snapshotIdleTimeout = 750 * time.Millisecond
-	idle := time.NewTimer(snapshotIdleTimeout)
-	defer idle.Stop()
+	// kv.WatchAll() cross-account (via monitor.{account}.js NewWithAPIPrefix) does
+	// not deliver messages: its internal subscription/goroutine mechanism relies on
+	// paths that break across the account export boundary. Bypass it by creating an
+	// explicit ephemeral pull consumer and calling FetchNoWait directly — both
+	// CONSUMER.CREATE.* and CONSUMER.MSG.NEXT.*.* are in the tenant export list
+	// (BR-AC32) and work as plain request-reply singletons/streams.
+	streamName := "KV_" + bucket
+	cons, err := js.CreateOrUpdateConsumer(ctx, streamName, jetstream.ConsumerConfig{
+		FilterSubject:     "$KV." + bucket + ".>",
+		DeliverPolicy:     jetstream.DeliverLastPerSubjectPolicy,
+		AckPolicy:         jetstream.AckNonePolicy,
+		MaxDeliver:        1,
+		InactiveThreshold: 10 * time.Second,
+	})
+	if err != nil {
+		h.deps.Log.Error("create kv snapshot consumer", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	consumerName := cons.CachedInfo().Name
+	defer func() {
+		_ = js.DeleteConsumer(context.Background(), streamName, consumerName)
+	}()
+
+	batch, err := cons.FetchNoWait(fetchN)
+	if err != nil {
+		h.deps.Log.Error("kv fetch no wait", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
 
 	entries := []kvChange{}
-outer:
-	for {
-		select {
-		case entry, ok := <-watcher.Updates():
-			if !ok || entry == nil {
-				break outer
-			}
-			if !idle.Stop() {
-				select { case <-idle.C: default: }
-			}
-			idle.Reset(snapshotIdleTimeout)
-			change := kvChange{
-				Key:      entry.Key(),
-				Op:       opString(entry.Operation()),
-				Revision: entry.Revision(),
-				Created:  entry.Created(),
-			}
-			if entry.Operation() == jetstream.KeyValuePut {
-				change.Value = entry.Value()
-			}
-			entries = append(entries, change)
-		case <-idle.C:
-			break outer
-		case <-ctx.Done():
-			break outer
+	for msg := range batch.Messages() {
+		kvOp := msg.Headers().Get("KV-Operation")
+		op := "PUT"
+		if kvOp == "DEL" {
+			op = "DEL"
+		} else if kvOp == "PURGE" {
+			op = "PURGE"
 		}
+		key := strings.TrimPrefix(msg.Subject(), "$KV."+bucket+".")
+		change := kvChange{Key: key, Op: op}
+		if meta, merr := msg.Metadata(); merr == nil {
+			change.Revision = meta.Sequence.Stream
+			change.Created = meta.Timestamp
+		}
+		if op == "PUT" {
+			change.Value = msg.Data()
+		}
+		entries = append(entries, change)
 	}
 
 	writeJSON(w, http.StatusOK, entries)

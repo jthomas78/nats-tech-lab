@@ -1,0 +1,564 @@
+basePath: /
+definitions:
+  rest.accountActivity:
+    properties:
+      account:
+        type: string
+      connections:
+        type: integer
+      inBytes:
+        type: integer
+      inMsgs:
+        type: integer
+      leafNodes:
+        type: integer
+      outBytes:
+        type: integer
+      outMsgs:
+        type: integer
+      slowConsumers:
+        description: |-
+          SlowConsumers is the one field on this endpoint an operator has to act
+          on — the Admin UI renders this one as an alarm, not a stat.
+        type: integer
+      subscriptions:
+        type: integer
+      tenantLabel:
+        type: string
+      totalConnections:
+        type: integer
+    type: object
+  rest.accountHistorySeries:
+    properties:
+      account:
+        type: string
+      buckets:
+        items:
+          $ref: '#/definitions/rest.historyBucket'
+        type: array
+      tenantLabel:
+        type: string
+    type: object
+  rest.accountStatusEntry:
+    properties:
+      name:
+        type: string
+      status:
+        description: accounts.StatusActive ("active") | accounts.StatusSuspended ("suspended")
+        type: string
+    type: object
+  rest.connzPage:
+    properties:
+      limit:
+        type: integer
+      numConnections:
+        type: integer
+      offset:
+        type: integer
+      total:
+        type: integer
+    type: object
+  rest.errorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  rest.historyBucket:
+    properties:
+      connections:
+        type: integer
+      inBytesDelta:
+        type: integer
+      inMsgsDelta:
+        type: integer
+      outBytesDelta:
+        type: integer
+      outMsgsDelta:
+        type: integer
+      subscriptions:
+        type: integer
+      ts:
+        type: string
+    type: object
+  rest.jsEvent:
+    properties:
+      payload:
+        type: object
+      seq:
+        type: integer
+      subject:
+        type: string
+      timestamp:
+        type: string
+    type: object
+  rest.jsStream:
+    properties:
+      account:
+        type: string
+      bytes:
+        type: integer
+      consumers:
+        type: integer
+      firstSeq:
+        type: integer
+      lastSeq:
+        type: integer
+      messages:
+        type: integer
+      stream:
+        type: string
+      subjects:
+        type: integer
+    type: object
+  rest.jsStreamsResponse:
+    properties:
+      accounts:
+        items:
+          $ref: '#/definitions/rest.accountStatusEntry'
+        type: array
+      streams:
+        items:
+          $ref: '#/definitions/rest.jsStream'
+        type: array
+    type: object
+  rest.kvBucket:
+    properties:
+      account:
+        type: string
+      backingStore:
+        type: string
+      bucket:
+        type: string
+      bytes:
+        type: integer
+      history:
+        type: integer
+      ttlSeconds:
+        type: integer
+      values:
+        type: integer
+    type: object
+  rest.kvBucketsResponse:
+    properties:
+      accounts:
+        items:
+          $ref: '#/definitions/rest.accountStatusEntry'
+        type: array
+      buckets:
+        items:
+          $ref: '#/definitions/rest.kvBucket'
+        type: array
+    type: object
+  rest.kvChange:
+    properties:
+      created:
+        type: string
+      key:
+        type: string
+      op:
+        description: PUT, DEL, PURGE
+        type: string
+      revision:
+        type: integer
+      value:
+        type: object
+    type: object
+  rest.natsAccountActivityHistoryResponse:
+    properties:
+      accounts:
+        items:
+          $ref: '#/definitions/rest.accountHistorySeries'
+        type: array
+      bucketSeconds:
+        type: integer
+      duration:
+        type: string
+    type: object
+  rest.natsAccountActivityResponse:
+    properties:
+      accounts:
+        items:
+          $ref: '#/definitions/rest.accountActivity'
+        type: array
+    type: object
+  rest.natsConnection:
+    properties:
+      account:
+        type: string
+      cid:
+        type: integer
+      idle:
+        type: string
+      inBytes:
+        type: integer
+      inMsgs:
+        type: integer
+      ip:
+        type: string
+      lang:
+        type: string
+      lastActivity:
+        type: string
+      name:
+        type: string
+      outBytes:
+        type: integer
+      outMsgs:
+        type: integer
+      port:
+        type: integer
+      rtt:
+        type: string
+      start:
+        type: string
+      subscriptions:
+        type: integer
+      subscriptionsList:
+        items:
+          type: string
+        type: array
+      tenantLabel:
+        description: |-
+          TenantLabel is resolved via AccountsClient.Labels — "PLATFORM" or a
+          tenant's own name when accounts-service recognizes the account,
+          empty for anything it doesn't (a browser tab, the nats CLI, or
+          accounts-service's own SYS-account connection, which has no
+          accounts-service Postgres row to resolve from — see BR-028).
+        type: string
+      type:
+        description: '"nats" | "websocket"'
+        type: string
+      uptime:
+        type: string
+      version:
+        type: string
+    type: object
+  rest.natsConnectionsResponse:
+    properties:
+      connections:
+        items:
+          $ref: '#/definitions/rest.natsConnection'
+        type: array
+      page:
+        $ref: '#/definitions/rest.connzPage'
+      server:
+        $ref: '#/definitions/rest.natsServerLimits'
+    type: object
+  rest.natsEndpoint:
+    properties:
+      averageProcessingTimeMs:
+        type: integer
+      lastError:
+        type: string
+      name:
+        type: string
+      numErrors:
+        type: integer
+      numRequests:
+        type: integer
+      queueGroup:
+        type: string
+      subject:
+        type: string
+    type: object
+  rest.natsLogResponse:
+    properties:
+      lines:
+        items:
+          type: string
+        type: array
+      truncated:
+        description: |-
+          Truncated is true when more matching lines existed than natsLogMaxTail
+          (or the caller's smaller ?tail=) could return.
+        type: boolean
+    type: object
+  rest.natsServerLimits:
+    properties:
+      maxConnections:
+        type: integer
+    type: object
+  rest.natsService:
+    properties:
+      instances:
+        items:
+          $ref: '#/definitions/rest.natsServiceInstance'
+        type: array
+      name:
+        type: string
+      version:
+        type: string
+    type: object
+  rest.natsServiceInstance:
+    properties:
+      endpoints:
+        items:
+          $ref: '#/definitions/rest.natsEndpoint'
+        type: array
+      id:
+        type: string
+      metadata:
+        additionalProperties:
+          type: string
+        type: object
+      started:
+        type: string
+    type: object
+  rest.natsServicesResponse:
+    properties:
+      services:
+        items:
+          $ref: '#/definitions/rest.natsService'
+        type: array
+    type: object
+host: localhost:7205
+info:
+  contact: {}
+  description: Cross-account NATS/JetStream diagnostics for the NATS Tech Lab POC
+    — connections, KV buckets, streams, replay, and trace, read across every tenant
+    account from a single PLATFORM connection.
+  title: Observability Service API
+  version: "1.0"
+paths:
+  /api/jetstream/replay:
+    get:
+      description: Returns every currently-retained raw JetStream message from one
+        account's stream as a single JSON array, snapshotted at request time.
+      parameters:
+      - description: NATS account (a known tenant name, or \
+        in: query
+        name: account
+        required: true
+        type: string
+      - description: Stream name
+        in: query
+        name: stream
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/rest.jsEvent'
+            type: array
+        "400":
+          description: Missing or unknown account/stream
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: JetStream one-shot replay
+      tags:
+      - streams
+  /api/jetstream/streams:
+    get:
+      description: Every event stream registered across every NATS account this backend
+        can introspect — PLATFORM plus every tenant accounts-service currently knows
+        about. KV_* streams are NATS' internal backing storage for KV buckets, not
+        event streams a client watches for messages, so they're excluded — /api/kv/buckets
+        reports those as buckets instead. Accounts is the authoritative account list
+        (every account, including ones whose streams couldn't be listed, e.g. a suspended
+        tenant) — Streams may have zero rows for an account present in Accounts.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.jsStreamsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: List registered streams
+      tags:
+      - streams
+  /api/kv/buckets:
+    get:
+      description: Every Key-Value bucket registered across every NATS account this
+        backend can introspect — PLATFORM plus every tenant accounts-service currently
+        knows about — each tagged with its account. Accounts is the authoritative
+        account list (every account, including ones whose buckets couldn't be listed,
+        e.g. a suspended tenant) — Buckets may have zero rows for an account present
+        in Accounts.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.kvBucketsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: List KV buckets
+      tags:
+      - kv
+  /api/kv/buckets/{account}/{bucket}/entries:
+    get:
+      description: Returns every current entry in one KV bucket as a single JSON array,
+        snapshotted at request time.
+      parameters:
+      - description: NATS account (a known tenant name, or \
+        in: path
+        name: account
+        required: true
+        type: string
+      - description: KV bucket name (e.g. ships, container, meta)
+        in: path
+        name: bucket
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/rest.kvChange'
+            type: array
+        "400":
+          description: Unknown account or bucket
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: One-shot KV bucket entries
+      tags:
+      - kv
+  /api/nats/account-activity:
+    get:
+      description: Per-account traffic and health, proxying the server's own /accstatz
+        monitoring endpoint, reshaped to camelCase. tenantLabel is resolved the same
+        way Connections does (accounts-service's GET /api/accounts, BR-028) — present
+        when accounts-service recognizes the account, empty otherwise, and never something
+        a failed accounts-service probe costs the caller the activity rollup over.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.natsAccountActivityResponse'
+        "502":
+          description: NATS monitoring endpoint unreachable or returned an unexpected
+            body
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: List NATS account activity
+      tags:
+      - nats
+  /api/nats/account-activity/history:
+    get:
+      description: Bucketed trend history for the Overview tab's per-account charts
+        and duration selector (BR-043) — backed by a 60-minute in-memory ring buffer
+        of /accstatz samples, not persisted across restarts. connections/subscriptions
+        are point samples; byte/message counts are per-bucket deltas of accstatz's
+        own cumulative counters, not raw values.
+      parameters:
+      - description: one of 5m, 30m, 1h
+        in: query
+        name: duration
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.natsAccountActivityHistoryResponse'
+        "400":
+          description: duration missing or not one of 5m/30m/1h
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: List NATS account activity history
+      tags:
+      - nats
+  /api/nats/connections:
+    get:
+      description: Every active connection on the NATS server, across all accounts
+        — proxies the server's own /connz monitoring endpoint (subs=true&auth=true),
+        reshaped to camelCase. tenantLabel is resolved against accounts-service's
+        own name<->publicKey mapping (GET /api/accounts), not a live-connection-matching
+        trick — see BR-028 and Phase 30's design note. The page object passes through
+        /connz's paging envelope; the server object carries the real ceiling from
+        /varz.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.natsConnectionsResponse'
+        "502":
+          description: NATS monitoring endpoint unreachable or returned an unexpected
+            body
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: List NATS connections
+      tags:
+      - nats
+  /api/nats/log:
+    get:
+      description: The last N lines of NATS's own log_file, optionally filtered by
+        level ([ERR]/[WRN]/[INF]/[DBG]/[TRC]) and/or a free-text substring — REST-polled,
+        not a push/follow transport. tail is capped server-side at 1000 regardless
+        of what's requested. Returns 503 if NatsLogPath was never configured (e.g.
+        running outside Docker).
+      parameters:
+      - description: error|warn|info|debug|trace — omit for all levels
+        in: query
+        name: level
+        type: string
+      - description: case-insensitive substring filter, applied in addition to level
+        in: query
+        name: q
+        type: string
+      - description: number of matching lines to return (default 200, hard-capped
+          at 1000)
+        in: query
+        name: tail
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.natsLogResponse'
+        "503":
+          description: log tailing not configured
+          schema:
+            $ref: '#/definitions/rest.errorResponse'
+      summary: Tail the NATS server log
+      tags:
+      - nats
+  /api/nats/services:
+    get:
+      description: Every service registered via nats.go/micro, discovered by broadcasting
+        $SRV.STATS and collecting replies for a short window — the same protocol `nats
+        micro stats` uses. Queried on PLATFORM's own $SRV.STATS plus, for every tenant
+        accounts-service currently knows about, that tenant's $SRV.STATS via BR-AC31's
+        monitor.{tenant}.srv.> import — every known tenant at once, not just one active
+        session.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rest.natsServicesResponse'
+      summary: List NATS micro services
+      tags:
+      - nats
+swagger: "2.0"

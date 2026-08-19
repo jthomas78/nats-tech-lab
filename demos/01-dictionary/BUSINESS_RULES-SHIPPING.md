@@ -624,9 +624,11 @@ allowlists (post–Phase 33, one per service):
   /healthz`, `GET /api/nats/connections`, `GET /api/nats/account-activity`,
   `GET /api/nats/log`, `GET /api/kv/buckets`, `GET
   /api/kv/buckets/{account}/{bucket}/entries`, `GET /api/jetstream/streams`,
-  `GET /api/jetstream/replay`, `GET /api/nats/services` — never touched by
-  Phase 33 since these were always admin/infra diagnostics (moved from
-  shipping-service in Phase 30h), not business REST.
+  `GET /api/jetstream/replay`, `GET /api/nats/services`, `/swagger/` — the
+  admin/infra diagnostics were never touched by Phase 33 (moved from
+  shipping-service in Phase 30h, not business REST); `/swagger/` was added
+  later, mirroring shipping-service/refdata-service's existing swaggo setup
+  (browsable at `http://localhost:7205/swagger/index.html`).
 - **accounts-service** — two independent `Mount` calls onto one mux, each
   gets its own test against its own sub-allowlist: `accounts/handler.go`'s 13
   `BasicAuth`-gated `/api/accounts*` routes (account/business-unit lifecycle),

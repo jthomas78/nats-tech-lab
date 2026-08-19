@@ -4,6 +4,12 @@
 // (Main-POC-Plan.md's Phase 30 Goal: none of it is shipping domain logic,
 // and shipping-service only ever held it because it was the one service
 // with the cross-account reach to answer it).
+//
+// @title           Observability Service API
+// @version         1.0
+// @description     Cross-account NATS/JetStream diagnostics for the NATS Tech Lab POC — connections, KV buckets, streams, replay, and trace, read across every tenant account from a single PLATFORM connection.
+// @host            localhost:7205
+// @BasePath        /
 package main
 
 import (
@@ -18,6 +24,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 
+	_ "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/docs"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability"
 )
 

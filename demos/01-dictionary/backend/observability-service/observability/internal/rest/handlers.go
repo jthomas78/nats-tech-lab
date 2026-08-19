@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/nats-io/nats.go"
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
 // Deps is every dependency a handler needs.
@@ -70,6 +71,9 @@ func (h *Handlers) Mount(mux *http.ServeMux) []string {
 	handle("GET /api/jetstream/streams", h.listStreams)
 	handle("GET /api/jetstream/replay", h.jetstreamReplayOnce)
 	handle("GET /api/nats/services", h.listNatsServices)
+
+	mux.Handle("/swagger/", httpSwagger.WrapHandler)
+	routes = append(routes, "/swagger/")
 
 	return routes
 }

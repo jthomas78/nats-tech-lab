@@ -8,8 +8,10 @@ import { getKvBucketEntries, listKVBuckets } from '../api'
 // KV inspector: every registered KV bucket across every NATS account this
 // backend reaches, grouped by account in a left rail. Contents are a
 // point-in-time snapshot fetched via the backend (which holds per-account
-// connections). Live browser subscriptions were removed in Phase 36.2 when
-// the tenant selector was dropped.
+// connections), re-fetched every REFRESH_MS while a bucket stays selected —
+// not a live push (Live browser subscriptions were removed in Phase 36.2
+// when the tenant selector was dropped), just the same snapshot call polled
+// on the same cadence as the bucket rail below.
 //
 // Bucket names collide across accounts (every tenant provisions its own
 // ships/container/meta), so the rail keys selection on {account, bucket},
@@ -109,12 +111,22 @@ function resetBucketState() {
   loading.value = true
 }
 
-async function connectBucket(account, bucket) {
-  resetBucketState()
+// reset=true (a fresh bucket selection) clears the table and shows the
+// loading state; reset=false (the periodic auto-refresh below) replaces
+// entries in place so the table doesn't flash empty every 15s.
+async function connectBucket(account, bucket, reset = true) {
+  if (reset) resetBucketState()
   try {
     const rows = await getKvBucketEntries(account, bucket)
+    const seen = new Set()
     for (const row of rows ?? []) {
       entries.set(row.key, { key: row.key, value: row.value, revision: row.revision, created: row.created })
+      seen.add(row.key)
+    }
+    if (!reset) {
+      for (const key of entries.keys()) {
+        if (!seen.has(key)) entries.delete(key)
+      }
     }
   } catch {
     // best-effort snapshot
@@ -124,12 +136,19 @@ async function connectBucket(account, bucket) {
 }
 
 let refreshTimer = null
+let bucketRefreshTimer = null
 onMounted(() => {
   refreshBuckets()
   refreshTimer = setInterval(refreshBuckets, REFRESH_MS)
+  bucketRefreshTimer = setInterval(() => {
+    if (activeAccount.value && activeBucket.value) {
+      connectBucket(activeAccount.value, activeBucket.value, false)
+    }
+  }, REFRESH_MS)
 })
 onUnmounted(() => {
   clearInterval(refreshTimer)
+  clearInterval(bucketRefreshTimer)
 })
 
 // Load snapshot whenever the selected bucket changes.
