@@ -1,9 +1,7 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed } from 'vue'
 
-import { getKvBucketEntries } from '../api'
-import { parseKvNotifySubject } from '../nats/kvNotifySubject.js'
-import { usePlatformConnection } from '../nats/usePlatformConnection.js'
+import { useTraceFeed } from '../nats/useTraceFeed.js'
 
 // Phase 44 — first tab in the Request/Reply panel (Pulse | Traces |
 // Messages), added to close two gaps design review found: nothing in this
@@ -16,74 +14,24 @@ import { usePlatformConnection } from '../nats/usePlatformConnection.js'
 // TraceWaterfall's own toolbar (Phase 28p) — moved here rather than left in
 // place, per the mockup (diagrams/admin-rpc-overview-mockup.html).
 //
-// Bootstrap/subscribe/trace-grouping below is duplicated from
-// TraceWaterfall.vue rather than shared, matching this panel's existing
-// precedent (RpcPanel.vue's Messages tab already duplicates the same pair
-// for a flat-by-span aggregation — this is a third aggregation shape over
-// the same feed). It's also not simply extractable: unlike the Phase 28p
-// strip it replaces, this reads the FULL unfiltered trace set rather than
-// TraceWaterfall's toolbar-filtered displayedSummaries — once Pulse is a
-// separate tab, it is no longer co-rendered with that toolbar, and sharing
-// its filter state would mean either duplicating that toolbar here too or
-// having Pulse silently reflect filters set on a tab you're not looking at.
-// A tab that always shows the whole buffer is the simpler, more honest
-// choice — the same "don't claim more than what was actually counted"
-// principle the panel already lives by (ARCHITECTURE-ADMIN.md §4.5).
+// Bootstrap/subscribe/trace-grouping lives in useTraceFeed.js, shared with
+// TraceWaterfall.vue and RpcPanel.vue's Messages tab (an architecture
+// review replaced three drifted copies of the same adapter with this one
+// seam). Unlike TraceWaterfall, this aggregates the FULL unfiltered
+// `traces` Map the composable returns, not a toolbar-filtered view — once
+// Pulse is a separate tab, it is no longer co-rendered with that toolbar,
+// and sharing its filter state would mean either duplicating that toolbar
+// here too or having Pulse silently reflect filters set on a tab you're not
+// looking at. A tab that always shows the whole buffer is the simpler, more
+// honest choice — the same "don't claim more than what was actually
+// counted" principle the panel already lives by (ARCHITECTURE-ADMIN.md
+// §4.5).
 
-const traces = ref(new Map()) // traceId -> raw span objects (from the KV record's `spans` array)
+const { traces, bootstrapFailed, everDisconnected } = useTraceFeed()
 
 function isRoot(span) {
   return !span.parentSpanId
 }
-
-function upsertTrace(traceId, spans) {
-  const next = new Map(traces.value)
-  next.set(traceId, spans)
-  traces.value = next
-}
-
-async function bootstrap() {
-  let entries
-  try {
-    entries = await getKvBucketEntries('platform', 'trace-request-reply')
-  } catch {
-    return // best-effort bootstrap — live subscribe below still works even if this fails
-  }
-  for (const entry of entries ?? []) {
-    const record = entry?.value
-    if (entry?.op !== 'PUT' || !record?.traceId || !Array.isArray(record.spans)) continue
-    upsertTrace(record.traceId, record.spans)
-  }
-}
-
-const { connected: platformConnected, subscribe: subscribePlatform } = usePlatformConnection()
-let unsubscribe = null
-
-function connectLive() {
-  if (!platformConnected.value) return
-  unsubscribe = subscribePlatform('notify._platform.kv.trace-request-reply.>', (payload, subject) => {
-    const parsed = parseKvNotifySubject(subject)
-    if (!parsed || !payload?.traceId || !Array.isArray(payload.spans)) return
-    const traceId = parsed.key.startsWith('trace.') ? parsed.key.slice('trace.'.length) : payload.traceId
-    upsertTrace(traceId, payload.spans)
-  })
-}
-function disconnectLive() {
-  unsubscribe?.()
-  unsubscribe = null
-}
-
-onMounted(() => {
-  bootstrap()
-  connectLive()
-})
-onUnmounted(disconnectLive)
-watch(platformConnected, (isConnected) => {
-  if (isConnected) {
-    disconnectLive()
-    connectLive()
-  }
-})
 
 // Trimmed relative to TraceWaterfall.vue's own summarize(): this only needs
 // ok/replyMs/at for bucketing, not the waterfall's sub-millisecond ordering
@@ -177,6 +125,12 @@ const pulse = computed(() => {
 
 <template>
   <div class="pulse-panel">
+    <p
+      v-if="bootstrapFailed || everDisconnected"
+      class="err-line"
+    >
+      {{ bootstrapFailed ? 'Initial trace snapshot failed to load.' : 'Live feed dropped at least once — some traces may be missing.' }}
+    </p>
     <div class="grid-2">
       <div class="card about">
         <h2>What request/reply covers</h2>
@@ -492,6 +446,12 @@ const pulse = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.err-line {
+  flex: none;
+  margin: 0;
+  font-size: 12px;
+  color: #e5484d;
 }
 .grid-2 {
   display: grid;

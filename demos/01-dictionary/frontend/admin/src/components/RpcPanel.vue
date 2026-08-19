@@ -7,15 +7,13 @@ import TabPanel from 'primevue/tabpanel'
 import TabPanels from 'primevue/tabpanels'
 import Tabs from 'primevue/tabs'
 import Tag from 'primevue/tag'
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref } from 'vue'
 
 import PulsePanel from './PulsePanel.vue'
 import SubjectPath from './SubjectPath.vue'
 import TraceWaterfall from './TraceWaterfall.vue'
-import { getKvBucketEntries } from '../api'
 import { highlightJson } from '../jsonHighlight.js'
-import { parseKvNotifySubject } from '../nats/kvNotifySubject.js'
-import { usePlatformConnection } from '../nats/usePlatformConnection.js'
+import { useTraceFeed } from '../nats/useTraceFeed.js'
 import { useUiStore } from '../stores/ui.js'
 
 const ui = useUiStore()
@@ -33,11 +31,13 @@ const ui = useUiStore()
 // flattened to one row per SPAN instead of one row per TRACE. This is the
 // flat "is anything arriving on this subject" view BR-035 always intended
 // this tab to keep being, just fed by the new pipe instead of the retired
-// one. Bootstrap/subscribe logic is duplicated from TraceWaterfall.vue
-// rather than shared, matching this codebase's general comfort with
-// duplicating a small adapter over two components with different
-// aggregation needs (grouped-by-trace vs. flat-by-span) — see natstrace's
-// own per-service duplication for the same tradeoff at a larger scale.
+// one. Bootstrap/subscribe itself lives in useTraceFeed.js (shared with
+// PulsePanel.vue/TraceWaterfall.vue — an architecture review replaced three
+// drifted copies of the same adapter with this one seam); the flattening
+// below (upsertSpan/order/MAX_ROWS) stays local to this tab via
+// useTraceFeed's onUpsert hook, since grouped-by-trace vs. flat-by-span
+// insertion order can't be reconstructed from a plain watch() on the
+// composable's Map.
 //
 // One real, unavoidable difference from the old paired Request/Reply view:
 // a natstrace span carries only the REPLY side (BR-037's one-span-per-call
@@ -54,6 +54,7 @@ const ui = useUiStore()
 const spansById = reactive({})
 const order = ref([]) // spanIds, newest first
 const MAX_ROWS = 500
+const truncated = ref(false) // sticky — set once eviction has happened at least once
 
 // api.*/rpc.* subjects have fixed 6-token arity — family, context, service,
 // entity, action, version (ARCHITECTURE-COMMUNICATIONS.md §2 decision 4) —
@@ -68,53 +69,16 @@ function upsertSpan(span) {
     if (order.value.length > MAX_ROWS) {
       for (const id of order.value.slice(MAX_ROWS)) delete spansById[id]
       order.value = order.value.slice(0, MAX_ROWS)
+      truncated.value = true
     }
   }
   spansById[span.spanId] = span
 }
 
-function upsertTraceRecord(record) {
-  for (const span of record?.spans ?? []) upsertSpan(span)
-}
-
-const { connected, subscribe: subscribePlatform } = usePlatformConnection()
-let unsubscribe = null
-
-async function bootstrap() {
-  let entries
-  try {
-    entries = await getKvBucketEntries('platform', 'trace-request-reply')
-  } catch {
-    return // best-effort bootstrap — live subscribe below still works even if this fails
-  }
-  for (const entry of entries ?? []) {
-    if (entry?.op !== 'PUT' || !entry.value) continue
-    upsertTraceRecord(entry.value)
-  }
-}
-
-function connectLive() {
-  if (!connected.value) return
-  unsubscribe = subscribePlatform('notify._platform.kv.trace-request-reply.>', (payload, subject) => {
-    if (!parseKvNotifySubject(subject)) return
-    upsertTraceRecord(payload)
-  })
-}
-function disconnectLive() {
-  unsubscribe?.()
-  unsubscribe = null
-}
-
-onMounted(() => {
-  bootstrap()
-  connectLive()
-})
-onUnmounted(disconnectLive)
-watch(connected, (isConnected) => {
-  if (isConnected) {
-    disconnectLive()
-    connectLive()
-  }
+const { connected, bootstrapFailed, everDisconnected } = useTraceFeed({
+  onUpsert: (traceId, spans) => {
+    for (const span of spans) upsertSpan(span)
+  },
 })
 
 // ── Pause — freezes which rows are VISIBLE, not the SSE connection itself.
@@ -331,6 +295,20 @@ function copyHeaders(headers) {
         >
           {{ paused ? '▶ resume' : '⏸ pause' }}
         </button>
+      </div>
+
+      <p
+        v-if="bootstrapFailed || everDisconnected"
+        class="err-line"
+      >
+        {{ bootstrapFailed ? 'Initial trace snapshot failed to load.' : 'Live feed dropped at least once — some spans may be missing.' }}
+      </p>
+      <div
+        v-if="truncated"
+        class="paged-note"
+        :title="`Only the most recent ${MAX_ROWS.toLocaleString()} spans are kept in this view — older rows are evicted as new ones arrive.`"
+      >
+        showing the most recent {{ MAX_ROWS.toLocaleString() }} — older rows evicted
       </div>
 
       <DataTable
@@ -633,6 +611,21 @@ function copyHeaders(headers) {
 .pause-btn:hover {
   color: var(--p-text-color);
   border-color: var(--p-text-disabled-color);
+}
+
+.err-line {
+  flex: none;
+  margin: 0;
+  font-size: 12px;
+  color: #e5484d;
+}
+.paged-note {
+  margin-top: 5px;
+  font-size: 10px;
+  line-height: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--p-amber-400, #fbbf24);
+  cursor: help;
 }
 
 /* ── table ── */

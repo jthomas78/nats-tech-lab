@@ -1,11 +1,9 @@
 <script setup>
 import Tag from 'primevue/tag'
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 
-import { getKvBucketEntries } from '../api'
 import { highlightJson } from '../jsonHighlight.js'
-import { parseKvNotifySubject } from '../nats/kvNotifySubject.js'
-import { usePlatformConnection } from '../nats/usePlatformConnection.js'
+import { useTraceFeed } from '../nats/useTraceFeed.js'
 import { useUiStore } from '../stores/ui.js'
 import SubjectPath from './SubjectPath.vue'
 
@@ -18,7 +16,12 @@ import SubjectPath from './SubjectPath.vue'
 // notify._platform.kv.trace-request-reply.> on the PLATFORM connection for live updates
 // (internal/kvstore.Store.EnableNotify, reused unchanged rather than a
 // bespoke trace-notify bridge — see BUSINESS_RULES-SHIPPING.md's BR-036
-// Phase 28g amendment).
+// Phase 28g amendment). Bootstrap/subscribe/trace-grouping itself lives in
+// useTraceFeed.js, shared with PulsePanel.vue and RpcPanel.vue's Messages
+// tab — an architecture review replaced three drifted copies of the same
+// adapter with this one seam (see useTraceFeed.js's doc comment); this
+// component layers its own toolbar filtering (displayedSummaries below) on
+// top of the composable's unfiltered `traces` Map, unchanged.
 //
 // Two known simplifications versus the approved mockup
 // (diagrams/admin-traces-panel.html), both because the wire span
@@ -39,14 +42,8 @@ import SubjectPath from './SubjectPath.vue'
 // Phase 44 moved the request/error/latency pulse strip (Phase 28p) that used
 // to sit above the toolbar here out to its own Pulse tab (PulsePanel.vue) —
 // see this file's git history for the removed `pulse` computed and markup.
-// Pulse duplicates this component's bootstrap/subscribe/trace-grouping
-// rather than sharing it, matching this panel's existing precedent
-// (RpcPanel.vue's Messages tab already duplicates the same pair for a
-// flat-by-span aggregation) — Pulse aggregates the unfiltered trace set,
-// not `displayedSummaries`, so it isn't reading the same derived data this
-// component's toolbar filters produce anyway.
 
-const traces = ref(new Map()) // traceId -> raw span objects (from the KV record's `spans` array)
+const { traces, connected: platformConnected, bootstrapFailed, everDisconnected } = useTraceFeed()
 
 const PLATFORM_SERVICES = new Set(['refdata', 'accounts'])
 function accountOf(span) {
@@ -57,62 +54,11 @@ function isRoot(span) {
   return !span.parentSpanId
 }
 
-function upsertTrace(traceId, spans) {
-  const next = new Map(traces.value)
-  next.set(traceId, spans)
-  traces.value = next
-}
-
-async function bootstrap() {
-  let entries
-  try {
-    entries = await getKvBucketEntries('platform', 'trace-request-reply')
-  } catch {
-    return // best-effort bootstrap — live subscribe below still works even if this fails
-  }
-  for (const entry of entries ?? []) {
-    const record = entry?.value
-    if (entry?.op !== 'PUT' || !record?.traceId || !Array.isArray(record.spans)) continue
-    upsertTrace(record.traceId, record.spans)
-  }
-}
-
-const { connected: platformConnected, subscribe: subscribePlatform } = usePlatformConnection()
-let unsubscribe = null
-
-function connectLive() {
-  if (!platformConnected.value) return
-  unsubscribe = subscribePlatform('notify._platform.kv.trace-request-reply.>', (payload, subject) => {
-    const parsed = parseKvNotifySubject(subject)
-    if (!parsed || !payload?.traceId || !Array.isArray(payload.spans)) return
-    // internal/kvstore's internal key is {kvContext}.{key} — here
-    // "_platform.trace.{traceId}" — so the notify's key segment (everything
-    // after the bucket token) already carries the "trace." prefix baked in.
-    const traceId = parsed.key.startsWith('trace.') ? parsed.key.slice('trace.'.length) : payload.traceId
-    upsertTrace(traceId, payload.spans)
-  })
-}
-function disconnectLive() {
-  unsubscribe?.()
-  unsubscribe = null
-}
-
-onMounted(() => {
-  bootstrap()
-  connectLive()
-})
 onUnmounted(() => {
-  disconnectLive()
   window.removeEventListener('mousemove', onResizeMove)
   window.removeEventListener('mouseup', stopResize)
   window.removeEventListener('mousemove', onSpanListResizeMove)
   window.removeEventListener('mouseup', stopSpanListResize)
-})
-watch(platformConnected, (isConnected) => {
-  if (isConnected) {
-    disconnectLive()
-    connectLive()
-  }
 })
 
 // Draggable trace-list rail — width lives in the ui store (not a local ref)
@@ -565,6 +511,13 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
       </button>
     </div>
 
+    <p
+      v-if="bootstrapFailed || everDisconnected"
+      class="err-line"
+    >
+      {{ bootstrapFailed ? 'Initial trace snapshot failed to load.' : 'Live feed dropped at least once — some traces may be missing.' }}
+    </p>
+
     <div
       class="tw-split"
       :style="{ gridTemplateColumns: `${ui.traceRailWidth}px 6px minmax(0, 1fr)` }"
@@ -938,6 +891,12 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+}
+.err-line {
+  flex: none;
+  margin: 0;
+  font-size: 12px;
+  color: #e5484d;
 }
 
 .tw-toolbar {
