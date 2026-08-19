@@ -101,6 +101,19 @@ func (h *Handlers) Mount(mux *http.ServeMux) []string {
 // step it's a placeholder for — see login below and Main-POC-Plan.md
 // Phase 15c's "known POC trade-offs" for why this is acceptable for a local
 // lab stack and what production would add in front of it.
+//
+// @Summary      Mint a browser NATS credential for a tenant
+// @Description  Deliberately ungated — this endpoint IS how the browser obtains its first credential. Requires the tenant to be active and to have a signing key on record.
+// @Tags         auth
+// @Produce      json
+// @Param        tenant  query     string  true  "Tenant account name"
+// @Success      200     {object}  auth.ConnectInfo
+// @Failure      400     {object}  errorResponse  "Missing tenant"
+// @Failure      403     {object}  errorResponse  "Tenant is not active"
+// @Failure      404     {object}  errorResponse  "Unknown tenant"
+// @Failure      409     {object}  errorResponse  "Tenant has no signing key on record"
+// @Failure      500     {object}  errorResponse
+// @Router       /api/auth/connectInfo [get]
 func (h *Handlers) connectInfo(w http.ResponseWriter, r *http.Request) {
 	tenant := r.URL.Query().Get("tenant")
 	if tenant == "" {
@@ -147,6 +160,16 @@ func (h *Handlers) connectInfo(w http.ResponseWriter, r *http.Request) {
 // Status-gated tenant lookup; it looks up the fixed "platform" row directly
 // and mints via MintAdminToken's own restricted, sub-only permission
 // profile instead of MintBrowserToken's tenant-shaped one.
+//
+// @Summary      Mint a browser NATS credential for the Admin UI
+// @Description  Mints a sub-only PLATFORM-account credential for the Admin UI's own connection (Phase 23, BR-AC18).
+// @Tags         auth
+// @Produce      json
+// @Success      200  {object}  auth.ConnectInfo
+// @Failure      404  {object}  errorResponse  "PLATFORM account not seeded"
+// @Failure      409  {object}  errorResponse  "PLATFORM account has no signing key on record"
+// @Failure      500  {object}  errorResponse
+// @Router       /api/auth/adminConnectInfo [get]
 func (h *Handlers) adminConnectInfo(w http.ResponseWriter, r *http.Request) {
 	acc, err := h.Store.Get(r.Context(), platformAccountName)
 	if errors.Is(err, accounts.ErrNotFound) {
@@ -182,6 +205,16 @@ func (h *Handlers) adminConnectInfo(w http.ResponseWriter, r *http.Request) {
 // permission profile instead of MintAdminToken's subscribe-only one (see
 // MintRefdataAdminToken's doc comment for why this needs its own PLATFORM
 // credential rather than reusing either MintAdminToken or MintBrowserToken).
+//
+// @Summary      Mint a browser NATS credential for the refdata admin UI
+// @Description  Mints a publish-capable, refdata-scoped PLATFORM-account credential for the refdata admin UI's own connection (Phase 32).
+// @Tags         auth
+// @Produce      json
+// @Success      200  {object}  auth.ConnectInfo
+// @Failure      404  {object}  errorResponse  "PLATFORM account not seeded"
+// @Failure      409  {object}  errorResponse  "PLATFORM account has no signing key on record"
+// @Failure      500  {object}  errorResponse
+// @Router       /api/auth/refdataAdminConnectInfo [get]
 func (h *Handlers) refdataAdminConnectInfo(w http.ResponseWriter, r *http.Request) {
 	acc, err := h.Store.Get(r.Context(), platformAccountName)
 	if errors.Is(err, accounts.ErrNotFound) {
@@ -212,6 +245,13 @@ type tenantsResponse struct {
 	Tenants []string `json:"tenants"`
 }
 
+// @Summary      List switchable tenants
+// @Description  Every active tenant account name, for the Admin UI's tenant switcher.
+// @Tags         auth
+// @Produce      json
+// @Success      200  {object}  tenantsResponse
+// @Failure      500  {object}  errorResponse
+// @Router       /api/auth/tenants [get]
 func (h *Handlers) tenants(w http.ResponseWriter, r *http.Request) {
 	names, err := h.Store.ListActiveTenantNames(r.Context())
 	if err != nil {
@@ -225,6 +265,13 @@ func (h *Handlers) tenants(w http.ResponseWriter, r *http.Request) {
 // login is a placeholder for BR-UA01's WorkOS-first JIT-provisioning flow —
 // out of scope for Phase 15c, which only needs connectInfo to let an
 // already-known tenant's browser connect directly to NATS.
+//
+// @Summary      Log in (not yet implemented)
+// @Description  Placeholder for the future WorkOS-backed login flow (BR-UA01).
+// @Tags         auth
+// @Produce      json
+// @Failure      501  {object}  errorResponse
+// @Router       /api/auth/login [post]
 func (h *Handlers) login(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotImplemented, "login is not yet implemented (BR-UA01)")
 }

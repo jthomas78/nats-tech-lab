@@ -2,6 +2,12 @@
 // tenant-provisioning service that mints and revokes NATS accounts at
 // runtime via decentralized JWTs, replacing nats/bootstrap-operator.sh's
 // one-shot nsc invocation (Phase 14a) with a live API.
+//
+// @title           Accounts Service API
+// @version         1.0
+// @description     Dynamic NATS tenant/account provisioning (create/suspend/reactivate, JetStream limits, business units) plus browser NATS credential minting, for the NATS Tech Lab POC.
+// @host            localhost:7202
+// @BasePath        /
 package main
 
 import (
@@ -20,9 +26,11 @@ import (
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
+	httpSwagger "github.com/swaggo/http-swagger"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/auth"
+	_ "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/docs"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
@@ -172,6 +180,11 @@ func run(log *slog.Logger) error {
 	// the same mux the accounts routes above already gate with BasicAuth.
 	authHandlers := auth.NewHandlers(store, natsWSUrl, log)
 	authHandlers.Mount(mux)
+
+	// Swagger UI/spec for both handler packages' routes above — mounted here
+	// rather than inside either Handlers.Mount, since neither accounts.Handlers
+	// nor auth.Handlers owns the whole API surface on its own.
+	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 
 	// Phase 28e — one http.Handler decorator wrapping the whole mux covers
 	// every accounts/auth REST endpoint, symmetric to the other four

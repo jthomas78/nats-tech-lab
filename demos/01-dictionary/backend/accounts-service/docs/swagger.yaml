@@ -1,0 +1,730 @@
+basePath: /
+definitions:
+  accounts.JSCounter:
+    properties:
+      limit:
+        type: integer
+      used:
+        type: integer
+    type: object
+  accounts.JSUsage:
+    properties:
+      consumers:
+        $ref: '#/definitions/accounts.JSCounter'
+      file:
+        $ref: '#/definitions/accounts.JSCounter'
+      mem:
+        $ref: '#/definitions/accounts.JSCounter'
+      name:
+        type: string
+      streams:
+        $ref: '#/definitions/accounts.JSCounter'
+    type: object
+  accounts.accountResponse:
+    properties:
+      createdAt:
+        type: string
+      jsMaxConsumers:
+        type: integer
+      jsMaxFile:
+        type: integer
+      jsMaxMem:
+        type: integer
+      jsMaxStreams:
+        type: integer
+      name:
+        type: string
+      publicKey:
+        type: string
+      status:
+        type: string
+    type: object
+  accounts.businessUnitResponse:
+    properties:
+      context:
+        type: string
+      createdAt:
+        type: string
+      id:
+        type: string
+      isDefault:
+        type: boolean
+      name:
+        type: string
+      visible:
+        type: boolean
+    type: object
+  accounts.createAccountRequest:
+    properties:
+      jsMaxConsumers:
+        type: integer
+      jsMaxFile:
+        type: integer
+      jsMaxMem:
+        type: integer
+      jsMaxStreams:
+        type: integer
+      name:
+        type: string
+    type: object
+  accounts.createAccountResponse:
+    properties:
+      account:
+        $ref: '#/definitions/accounts.accountResponse'
+      creds:
+        description: 'one-time: the newly-minted user''s .creds file content'
+        type: string
+    type: object
+  accounts.createBURequest:
+    properties:
+      context:
+        type: string
+      name:
+        type: string
+    type: object
+  accounts.errorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  accounts.reactivateAccountResponse:
+    properties:
+      account:
+        $ref: '#/definitions/accounts.accountResponse'
+      creds:
+        description: 'one-time: the newly-minted user''s .creds file content (see
+          BR-AC04)'
+        type: string
+    type: object
+  accounts.systemConfigResponse:
+    properties:
+      envelopeMaxMinutes:
+        type: integer
+      envelopeMinMinutes:
+        type: integer
+      tokenTtlMaxMinutes:
+        type: integer
+      tokenTtlMinMinutes:
+        type: integer
+      tokenTtlMinutes:
+        type: integer
+      updatedAt:
+        type: string
+    type: object
+  accounts.topologyEdge:
+    properties:
+      fromAccount:
+        type: string
+      localSubject:
+        type: string
+      status:
+        type: string
+      subject:
+        type: string
+      toAccount:
+        type: string
+      type:
+        description: '"service" | "stream"'
+        type: string
+    type: object
+  accounts.topologyResponse:
+    properties:
+      edges:
+        items:
+          $ref: '#/definitions/accounts.topologyEdge'
+        type: array
+      unconsumedExports:
+        items:
+          $ref: '#/definitions/accounts.unconsumedExport'
+        type: array
+    type: object
+  accounts.unconsumedExport:
+    properties:
+      account:
+        type: string
+      subject:
+        type: string
+      type:
+        type: string
+    type: object
+  accounts.updateBURequest:
+    properties:
+      name:
+        type: string
+      visible:
+        type: boolean
+    type: object
+  accounts.updateJSLimitsRequest:
+    properties:
+      jsMaxConsumers:
+        type: integer
+      jsMaxFile:
+        type: integer
+      jsMaxMem:
+        type: integer
+      jsMaxStreams:
+        type: integer
+    type: object
+  accounts.updateSystemConfigRequest:
+    properties:
+      tokenTtlMaxMinutes:
+        type: integer
+      tokenTtlMinMinutes:
+        type: integer
+      tokenTtlMinutes:
+        type: integer
+    type: object
+  auth.ConnectInfo:
+    properties:
+      jwt:
+        type: string
+      nkeySeed:
+        type: string
+      tenant:
+        type: string
+      wsUrl:
+        type: string
+    type: object
+  auth.errorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  auth.tenantsResponse:
+    properties:
+      tenants:
+        items:
+          type: string
+        type: array
+    type: object
+host: localhost:7202
+info:
+  contact: {}
+  description: Dynamic NATS tenant/account provisioning (create/suspend/reactivate,
+    JetStream limits, business units) plus browser NATS credential minting, for the
+    NATS Tech Lab POC.
+  title: Accounts Service API
+  version: "1.0"
+paths:
+  /api/accounts:
+    get:
+      description: Every known account, without creds or signing key material.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/accounts.accountResponse'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+      summary: List accounts
+      tags:
+      - accounts
+    post:
+      consumes:
+      - application/json
+      description: Mints a new NATS account plus one user, returns the one-time .creds
+        content. JetStream limits default to the standard tenant tier when omitted.
+      parameters:
+      - description: Account name and optional JetStream limits
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/accounts.createAccountRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/accounts.createAccountResponse'
+        "400":
+          description: Missing name
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "409":
+          description: Reserved or already-existing account name
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+      summary: Create an account
+      tags:
+      - accounts
+  /api/accounts/{name}:
+    get:
+      description: One account's details, without creds or signing key material.
+      parameters:
+      - description: Account name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accounts.accountResponse'
+        "404":
+          description: Account not found
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+      summary: Get an account
+      tags:
+      - accounts
+  /api/accounts/{name}/business-units:
+    get:
+      description: Every business unit registered under one account (Phase 22, BR-AC15).
+      parameters:
+      - description: Account name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/accounts.businessUnitResponse'
+            type: array
+        "404":
+          description: Account not found
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+      summary: List an account's business units
+      tags:
+      - business-units
+    post:
+      consumes:
+      - application/json
+      description: Registers a new business unit under an account (Phase 22, BR-AC16),
+        deriving its context slug from the name when one isn't supplied, and best-effort
+        registers it in refdata-service.
+      parameters:
+      - description: Account name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Business unit name and optional context slug
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/accounts.createBURequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/accounts.businessUnitResponse'
+        "400":
+          description: Missing name or invalid context slug
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "404":
+          description: Account not found
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "409":
+          description: Duplicate name or context
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+      summary: Create a business unit
+      tags:
+      - business-units
+  /api/accounts/{name}/business-units/{buContext}:
+    patch:
+      consumes:
+      - application/json
+      description: Renames and/or toggles visibility of one business unit (Phase 22,
+        BR-AC17). The default business unit can never be renamed. No response body
+        on success.
+      parameters:
+      - description: Account name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Business unit context slug
+        in: path
+        name: buContext
+        required: true
+        type: string
+      - description: Fields to update — visible, name, or both
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/accounts.updateBURequest'
+      responses:
+        "204":
+          description: No content
+        "400":
+          description: Invalid body or nothing to update
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "404":
+          description: Business unit not found
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "409":
+          description: Renaming the default business unit, or duplicate name
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+      summary: Update a business unit
+      tags:
+      - business-units
+  /api/accounts/{name}/jslimits:
+    post:
+      consumes:
+      - application/json
+      description: Re-mints the account's resolver JWT with new JetStream resource
+        limits and persists them to Postgres. Works whether the account is active
+        or suspended.
+      parameters:
+      - description: Account name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: New JetStream limits
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/accounts.updateJSLimitsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accounts.accountResponse'
+        "400":
+          description: Invalid body or negative limit
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "404":
+          description: Account not found
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+      summary: Update an account's JetStream limits
+      tags:
+      - accounts
+  /api/accounts/{name}/reactivate:
+    post:
+      description: Re-mints the account's resolver JWT via $SYS.REQ.CLAIMS.UPDATE
+        with its original public key and JetStream limits, and mints a fresh one-time
+        .creds.
+      parameters:
+      - description: Account name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accounts.reactivateAccountResponse'
+        "404":
+          description: Account not found
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "409":
+          description: Account is not suspended
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+      summary: Reactivate a suspended account
+      tags:
+      - accounts
+  /api/accounts/{name}/suspend:
+    post:
+      description: Revokes the account's resolver JWT via $SYS.REQ.CLAIMS.DELETE and
+        marks it suspended. PLATFORM/SYS can never be suspended.
+      parameters:
+      - description: Account name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Account not found
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "409":
+          description: Account is reserved
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+      summary: Suspend an account
+      tags:
+      - accounts
+  /api/accounts/system-config:
+    get:
+      description: The current browser/admin JWT expiry policy (BR-AC20), including
+        the hard BR-UA03 min/max bounds.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accounts.systemConfigResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+      summary: Get system config
+      tags:
+      - system
+    put:
+      consumes:
+      - application/json
+      description: Validates (BR-AC21) and persists a new browser/admin JWT expiry
+        policy. Affects only future token mints — no resolver push, no notify.
+      parameters:
+      - description: New token TTL policy
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/accounts.updateSystemConfigRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accounts.systemConfigResponse'
+        "400":
+          description: Invalid body or out-of-bounds policy
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+      summary: Update system config
+      tags:
+      - system
+  /api/accounts/topology:
+    get:
+      description: Every declared export/import edge across all accounts, read from
+        resolver JWTs, plus exports no known account currently imports (BR-AC23).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/accounts.topologyResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+      summary: Cross-account export/import topology
+      tags:
+      - accounts
+  /api/accounts/usage:
+    get:
+      description: Live per-account JetStream resource usage (streams/consumers/mem/file)
+        joined with each account's configured limits, read from the NATS server's
+        /jsz monitoring endpoint. 503 if NATS_MONITOR_URL is not configured.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/accounts.JSUsage'
+            type: array
+        "502":
+          description: Failed to fetch usage from NATS monitoring endpoint
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+        "503":
+          description: JetStream usage monitoring not configured
+          schema:
+            $ref: '#/definitions/accounts.errorResponse'
+      summary: List JetStream usage
+      tags:
+      - accounts
+  /api/auth/adminConnectInfo:
+    get:
+      description: Mints a sub-only PLATFORM-account credential for the Admin UI's
+        own connection (Phase 23, BR-AC18).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.ConnectInfo'
+        "404":
+          description: PLATFORM account not seeded
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "409":
+          description: PLATFORM account has no signing key on record
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+      summary: Mint a browser NATS credential for the Admin UI
+      tags:
+      - auth
+  /api/auth/connectInfo:
+    get:
+      description: Deliberately ungated — this endpoint IS how the browser obtains
+        its first credential. Requires the tenant to be active and to have a signing
+        key on record.
+      parameters:
+      - description: Tenant account name
+        in: query
+        name: tenant
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.ConnectInfo'
+        "400":
+          description: Missing tenant
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "403":
+          description: Tenant is not active
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "404":
+          description: Unknown tenant
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "409":
+          description: Tenant has no signing key on record
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+      summary: Mint a browser NATS credential for a tenant
+      tags:
+      - auth
+  /api/auth/login:
+    post:
+      description: Placeholder for the future WorkOS-backed login flow (BR-UA01).
+      produces:
+      - application/json
+      responses:
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+      summary: Log in (not yet implemented)
+      tags:
+      - auth
+  /api/auth/refdataAdminConnectInfo:
+    get:
+      description: Mints a publish-capable, refdata-scoped PLATFORM-account credential
+        for the refdata admin UI's own connection (Phase 32).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.ConnectInfo'
+        "404":
+          description: PLATFORM account not seeded
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "409":
+          description: PLATFORM account has no signing key on record
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+      summary: Mint a browser NATS credential for the refdata admin UI
+      tags:
+      - auth
+  /api/auth/tenants:
+    get:
+      description: Every active tenant account name, for the Admin UI's tenant switcher.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.tenantsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/auth.errorResponse'
+      summary: List switchable tenants
+      tags:
+      - auth
+swagger: "2.0"

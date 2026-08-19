@@ -302,6 +302,14 @@ func (h *Handlers) Mount(mux *http.ServeMux, authSecret string) []string {
 	return routes
 }
 
+// @Summary      List JetStream usage
+// @Description  Live per-account JetStream resource usage (streams/consumers/mem/file) joined with each account's configured limits, read from the NATS server's /jsz monitoring endpoint. 503 if NATS_MONITOR_URL is not configured.
+// @Tags         accounts
+// @Produce      json
+// @Success      200  {array}   JSUsage
+// @Failure      502  {object}  errorResponse  "Failed to fetch usage from NATS monitoring endpoint"
+// @Failure      503  {object}  errorResponse  "JetStream usage monitoring not configured"
+// @Router       /api/accounts/usage [get]
 func (h *Handlers) listJSUsage(w http.ResponseWriter, r *http.Request) {
 	if h.UsageFetcher == nil {
 		writeError(w, http.StatusServiceUnavailable, "JetStream usage monitoring is not configured (NATS_MONITOR_URL not set)")
@@ -365,6 +373,17 @@ var reservedAccountNames = map[string]bool{"PLATFORM": true, "SYS": true}
 // minted in the first place.
 const reservedNamePrefix = "_"
 
+// @Summary      Create an account
+// @Description  Mints a new NATS account plus one user, returns the one-time .creds content. JetStream limits default to the standard tenant tier when omitted.
+// @Tags         accounts
+// @Accept       json
+// @Produce      json
+// @Param        body  body      createAccountRequest  true  "Account name and optional JetStream limits"
+// @Success      201   {object}  createAccountResponse
+// @Failure      400   {object}  errorResponse  "Missing name"
+// @Failure      409   {object}  errorResponse  "Reserved or already-existing account name"
+// @Failure      500   {object}  errorResponse
+// @Router       /api/accounts [post]
 func (h *Handlers) createAccount(w http.ResponseWriter, r *http.Request) {
 	var in createAccountRequest
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Name == "" {
@@ -501,6 +520,13 @@ func (h *Handlers) createAccount(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// @Summary      List accounts
+// @Description  Every known account, without creds or signing key material.
+// @Tags         accounts
+// @Produce      json
+// @Success      200  {array}   accountResponse
+// @Failure      500  {object}  errorResponse
+// @Router       /api/accounts [get]
 func (h *Handlers) listAccounts(w http.ResponseWriter, r *http.Request) {
 	accs, err := h.Store.List(r.Context())
 	if err != nil {
@@ -515,6 +541,15 @@ func (h *Handlers) listAccounts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// @Summary      Get an account
+// @Description  One account's details, without creds or signing key material.
+// @Tags         accounts
+// @Produce      json
+// @Param        name  path      string  true  "Account name"
+// @Success      200   {object}  accountResponse
+// @Failure      404   {object}  errorResponse  "Account not found"
+// @Failure      500   {object}  errorResponse
+// @Router       /api/accounts/{name} [get]
 func (h *Handlers) getAccount(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	acc, err := h.Store.Get(r.Context(), name)
@@ -541,6 +576,17 @@ func (h *Handlers) getAccount(w http.ResponseWriter, r *http.Request) {
 // PLATFORM-only literal, since SYS is equally infrastructure-critical
 // (though it never has a Postgres row to suspend in the first place — see
 // seedPreexistingAccounts).
+//
+// @Summary      Suspend an account
+// @Description  Revokes the account's resolver JWT via $SYS.REQ.CLAIMS.DELETE and marks it suspended. PLATFORM/SYS can never be suspended.
+// @Tags         accounts
+// @Produce      json
+// @Param        name  path      string  true  "Account name"
+// @Success      200   {object}  map[string]string
+// @Failure      404   {object}  errorResponse  "Account not found"
+// @Failure      409   {object}  errorResponse  "Account is reserved"
+// @Failure      500   {object}  errorResponse
+// @Router       /api/accounts/{name}/suspend [post]
 func (h *Handlers) suspendAccount(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if reservedAccountNames[strings.ToUpper(name)] {
@@ -602,6 +648,17 @@ type reactivateAccountResponse struct {
 // rather than leaving the account permanently unable to produce creds again
 // (a real gap this closes: an account can otherwise end up "active" with no
 // way to ever get a usable credential).
+//
+// @Summary      Reactivate a suspended account
+// @Description  Re-mints the account's resolver JWT via $SYS.REQ.CLAIMS.UPDATE with its original public key and JetStream limits, and mints a fresh one-time .creds.
+// @Tags         accounts
+// @Produce      json
+// @Param        name  path      string  true  "Account name"
+// @Success      200   {object}  reactivateAccountResponse
+// @Failure      404   {object}  errorResponse  "Account not found"
+// @Failure      409   {object}  errorResponse  "Account is not suspended"
+// @Failure      500   {object}  errorResponse
+// @Router       /api/accounts/{name}/reactivate [post]
 func (h *Handlers) reactivateAccount(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	acc, err := h.Store.Get(r.Context(), name)
@@ -713,6 +770,18 @@ type updateJSLimitsRequest struct {
 // updateJSLimits implements BR-AC12: re-mint the account JWT with new
 // JetStream limits and push it to the resolver, then persist the new limits
 // to Postgres. No status gate — works whether active or suspended.
+// @Summary      Update an account's JetStream limits
+// @Description  Re-mints the account's resolver JWT with new JetStream resource limits and persists them to Postgres. Works whether the account is active or suspended.
+// @Tags         accounts
+// @Accept       json
+// @Produce      json
+// @Param        name  path      string                  true  "Account name"
+// @Param        body  body      updateJSLimitsRequest   true  "New JetStream limits"
+// @Success      200   {object}  accountResponse
+// @Failure      400   {object}  errorResponse  "Invalid body or negative limit"
+// @Failure      404   {object}  errorResponse  "Account not found"
+// @Failure      500   {object}  errorResponse
+// @Router       /api/accounts/{name}/jslimits [post]
 func (h *Handlers) updateJSLimits(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	acc, err := h.Store.Get(r.Context(), name)
@@ -838,6 +907,13 @@ type updateSystemConfigRequest struct {
 
 // getSystemConfig returns the current browser/admin JWT expiry policy
 // (BR-AC20).
+// @Summary      Get system config
+// @Description  The current browser/admin JWT expiry policy (BR-AC20), including the hard BR-UA03 min/max bounds.
+// @Tags         system
+// @Produce      json
+// @Success      200  {object}  systemConfigResponse
+// @Failure      500  {object}  errorResponse
+// @Router       /api/accounts/system-config [get]
 func (h *Handlers) getSystemConfig(w http.ResponseWriter, r *http.Request) {
 	cfg, err := h.Store.GetTokenTTLConfig(r.Context())
 	if err != nil {
@@ -852,6 +928,16 @@ func (h *Handlers) getSystemConfig(w http.ResponseWriter, r *http.Request) {
 // Unlike updateJSLimits it does not touch NATS: the TTL affects only *future*
 // mints (auth.MintBrowserToken/MintAdminToken read it per connect), so there
 // is no resolver push and no notify — the next browser (re)connect picks it up.
+// @Summary      Update system config
+// @Description  Validates (BR-AC21) and persists a new browser/admin JWT expiry policy. Affects only future token mints — no resolver push, no notify.
+// @Tags         system
+// @Accept       json
+// @Produce      json
+// @Param        body  body      updateSystemConfigRequest  true  "New token TTL policy"
+// @Success      200   {object}  systemConfigResponse
+// @Failure      400   {object}  errorResponse  "Invalid body or out-of-bounds policy"
+// @Failure      500   {object}  errorResponse
+// @Router       /api/accounts/system-config [put]
 func (h *Handlers) updateSystemConfig(w http.ResponseWriter, r *http.Request) {
 	var in updateSystemConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -906,6 +992,15 @@ func toBUResponse(bu BusinessUnit) businessUnitResponse {
 	}
 }
 
+// @Summary      List an account's business units
+// @Description  Every business unit registered under one account (Phase 22, BR-AC15).
+// @Tags         business-units
+// @Produce      json
+// @Param        name  path      string  true  "Account name"
+// @Success      200   {array}   businessUnitResponse
+// @Failure      404   {object}  errorResponse  "Account not found"
+// @Failure      500   {object}  errorResponse
+// @Router       /api/accounts/{name}/business-units [get]
 func (h *Handlers) listBusinessUnits(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, err := h.Store.Get(r.Context(), name); errors.Is(err, ErrNotFound) {
@@ -938,6 +1033,19 @@ type createBURequest struct {
 	Context string `json:"context"`
 }
 
+// @Summary      Create a business unit
+// @Description  Registers a new business unit under an account (Phase 22, BR-AC16), deriving its context slug from the name when one isn't supplied, and best-effort registers it in refdata-service.
+// @Tags         business-units
+// @Accept       json
+// @Produce      json
+// @Param        name  path      string            true  "Account name"
+// @Param        body  body      createBURequest   true  "Business unit name and optional context slug"
+// @Success      201   {object}  businessUnitResponse
+// @Failure      400   {object}  errorResponse  "Missing name or invalid context slug"
+// @Failure      404   {object}  errorResponse  "Account not found"
+// @Failure      409   {object}  errorResponse  "Duplicate name or context"
+// @Failure      500   {object}  errorResponse
+// @Router       /api/accounts/{name}/business-units [post]
 func (h *Handlers) createBusinessUnit(w http.ResponseWriter, r *http.Request) {
 	accountName := r.PathValue("name")
 	acc, err := h.Store.Get(r.Context(), accountName)
@@ -1015,6 +1123,19 @@ type updateBURequest struct {
 	Name    *string `json:"name"`
 }
 
+// @Summary      Update a business unit
+// @Description  Renames and/or toggles visibility of one business unit (Phase 22, BR-AC17). The default business unit can never be renamed. No response body on success.
+// @Tags         business-units
+// @Accept       json
+// @Param        name       path  string           true  "Account name"
+// @Param        buContext  path  string           true  "Business unit context slug"
+// @Param        body       body  updateBURequest  true  "Fields to update — visible, name, or both"
+// @Success      204  "No content"
+// @Failure      400  {object}  errorResponse  "Invalid body or nothing to update"
+// @Failure      404  {object}  errorResponse  "Business unit not found"
+// @Failure      409  {object}  errorResponse  "Renaming the default business unit, or duplicate name"
+// @Failure      500  {object}  errorResponse
+// @Router       /api/accounts/{name}/business-units/{buContext} [patch]
 func (h *Handlers) updateBusinessUnit(w http.ResponseWriter, r *http.Request) {
 	accountName := r.PathValue("name")
 	buContext := r.PathValue("buContext")

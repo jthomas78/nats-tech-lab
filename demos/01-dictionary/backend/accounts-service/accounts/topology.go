@@ -103,6 +103,13 @@ func importStatus(imp *jwt.Import, exporterClaims *jwt.AccountClaims, exporterRe
 // an active account, but SYS/PLATFORM/tenants all have one) are skipped
 // with a warning rather than failing the whole response — one account's
 // lookup failure shouldn't blank the diagram for every other account.
+// @Summary      Cross-account export/import topology
+// @Description  Every declared export/import edge across all accounts, read from resolver JWTs, plus exports no known account currently imports (BR-AC23).
+// @Tags         accounts
+// @Produce      json
+// @Success      200  {object}  topologyResponse
+// @Failure      500  {object}  errorResponse
+// @Router       /api/accounts/topology [get]
 func (h *Handlers) listTopology(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	accs, err := h.Store.List(ctx)
