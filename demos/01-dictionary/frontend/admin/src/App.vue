@@ -179,21 +179,7 @@ onUnmounted(() => {
         :severity="platformConnection.connected.value ? 'success' : 'danger'"
         :value="platformConnection.connected.value ? 'watching' : 'disconnected'"
       />
-      <!-- Phase 13b tenant selector — a different NATS account, not a fleet
-           filter (CLAUDE.md/plan: must stay visually + functionally distinct
-           from the Fleet selector below). "warning" severity is deliberate:
-           this is the one control in the topbar that reconnects the backend. -->
-      <label class="lab-muted" for="tenant">{{ t('nav.tenant') }}</label>
-      <Select
-        id="tenant"
-        :model-value="tenantStore.tenant"
-        :options="tenantStore.available"
-        :disabled="tenantStore.switching"
-        size="small"
-        @update:model-value="tenantStore.setTenant($event)"
-      />
-      <Tag v-if="tenantStore.switching" severity="warning" :value="t('tenant.switching')" />
-      <label class="lab-muted" for="locale">{{ t('nav.language') }}</label>
+<label class="lab-muted" for="locale">{{ t('nav.language') }}</label>
       <Select
         id="locale"
         v-model="selectedLocale"

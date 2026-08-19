@@ -1,5 +1,4 @@
 <script setup>
-import Tag from 'primevue/tag'
 import { computed } from 'vue'
 
 import { useDictionaryStore } from '../stores/dictionary'
@@ -22,12 +21,8 @@ const stats = computed(() => [
     <div class="head">
       <div>
         <h2 class="panel-title">Pipeline health</h2>
-        <p class="lab-muted sub">Live from the event stream · {{ store.context }}</p>
+        <p class="lab-muted sub">Snapshot · {{ store.context }}</p>
       </div>
-      <Tag
-        :severity="store.connected ? 'success' : 'danger'"
-        :value="store.connected ? 'watching' : 'disconnected'"
-      />
     </div>
     <div class="cards">
       <div v-for="s in stats" :key="s.k" class="stat">

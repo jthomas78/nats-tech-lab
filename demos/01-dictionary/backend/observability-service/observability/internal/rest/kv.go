@@ -232,21 +232,42 @@ func (h *Handlers) kvBucketEntriesOnce(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = watcher.Stop() }()
 
+	// Cross-account KV watch via monitor.{account}.js delivers individual entries
+	// but the INIT_DONE nil never arrives — the "no more messages" 404 status is
+	// not routed back through the export chain. Idle timer is the fallback: if no
+	// new entry arrives for snapshotIdleTimeout after the last one, the snapshot is
+	// assumed complete.
+	const snapshotIdleTimeout = 750 * time.Millisecond
+	idle := time.NewTimer(snapshotIdleTimeout)
+	defer idle.Stop()
+
 	entries := []kvChange{}
-	for entry := range watcher.Updates() {
-		if entry == nil {
-			break // WatchAll's INIT_DONE marker — snapshot complete
+outer:
+	for {
+		select {
+		case entry, ok := <-watcher.Updates():
+			if !ok || entry == nil {
+				break outer
+			}
+			if !idle.Stop() {
+				select { case <-idle.C: default: }
+			}
+			idle.Reset(snapshotIdleTimeout)
+			change := kvChange{
+				Key:      entry.Key(),
+				Op:       opString(entry.Operation()),
+				Revision: entry.Revision(),
+				Created:  entry.Created(),
+			}
+			if entry.Operation() == jetstream.KeyValuePut {
+				change.Value = entry.Value()
+			}
+			entries = append(entries, change)
+		case <-idle.C:
+			break outer
+		case <-ctx.Done():
+			break outer
 		}
-		change := kvChange{
-			Key:      entry.Key(),
-			Op:       opString(entry.Operation()),
-			Revision: entry.Revision(),
-			Created:  entry.Created(),
-		}
-		if entry.Operation() == jetstream.KeyValuePut {
-			change.Value = entry.Value()
-		}
-		entries = append(entries, change)
 	}
 
 	writeJSON(w, http.StatusOK, entries)

@@ -2,18 +2,12 @@
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
 import Tag from 'primevue/tag'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 import SubjectPath from './SubjectPath.vue'
 import { getJetstreamReplay } from '../api'
-import { useNatsConnection } from '../nats/useNatsConnection.js'
 
-// One stream's content: a DeliverAll replay snapshot (was previously split
-// into "Messages"/live and "Stream"/replay sub-tabs; the live sub-tab was
-// dropped — it only ever worked for the SHIPPING stream, and a snapshot
-// re-fetched on every mount/tenant-switch covers the same "see what's in
-// this stream" need without a second tab).
-//
+// One stream's content: a DeliverAll replay snapshot.
 // account is required alongside stream because a stream name is only unique
 // WITHIN a NATS account — every tenant provisions its own SHIPPING — so the
 // replay fetch would otherwise be ambiguous about which one it means.
@@ -44,37 +38,13 @@ async function connectStream() {
 
 onMounted(connectStream)
 
-// Re-fetch on tenant (re)connect. The snapshot itself is backend-mediated and
-// keyed on props.account, so it no longer goes stale when the topbar tenant
-// changes the way it did when this endpoint read the active tenant's Deps.JS —
-// but a switch can bring a previously-unseen tenant's resources into existence
-// server-side, and a fresh connection is worth a re-read regardless.
-const { connected: tenantConnected, tenant } = useNatsConnection()
-watch(tenantConnected, (isConnected) => {
-  if (isConnected) connectStream()
-})
-
-// This panel has no live tail at all — every stream shows a point-in-time
-// replay snapshot — but WHY differs by account, and saying so beats leaving
-// the operator to wonder why nothing ever arrives. Mirrors
-// KvInspector.vue's liveUnavailableReason.
-//
-// For another account it's a hard boundary, not a missing feature: NATS
-// enforces account isolation at the server, so a browser authenticated into
-// ACME's account cannot subscribe to GLOBEX's or PLATFORM's subjects, full
-// stop. The snapshot still works because the backend holds a connection per
-// account and fetches it on the browser's behalf.
+// Every stream shows a point-in-time replay snapshot; the backend holds a
+// connection per account and fetches it on the browser's behalf.
 const snapshotReason = computed(() => {
-  const isolation = `NATS enforces account isolation at the server, so this browser — authenticated as "${tenant.value || 'none'}" — cannot subscribe to ${props.account}'s subjects.`
-  // PLATFORM isn't a tenant, so unlike another tenant's account there is no
-  // topbar selection that would ever make it live from here.
   if (props.account === 'platform') {
-    return `Point-in-time snapshot, fetched by the backend over the PLATFORM connection. No live tail: ${isolation} PLATFORM isn't a selectable tenant, so this panel only ever reads it as a snapshot.`
+    return 'Point-in-time snapshot, fetched by the backend over the PLATFORM connection.'
   }
-  if (props.account !== tenant.value) {
-    return `Point-in-time snapshot, fetched by the backend. No live tail: ${isolation} Switch the topbar tenant to "${props.account}" to watch it live.`
-  }
-  return 'Point-in-time snapshot, re-fetched when you reselect this stream or reconnect the tenant.'
+  return 'Point-in-time snapshot, re-fetched when you reselect this stream.'
 })
 
 // A stream with exactly one configured subject filter (REFDATA, RPCTRACE) is

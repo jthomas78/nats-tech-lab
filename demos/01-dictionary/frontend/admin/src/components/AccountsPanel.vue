@@ -12,14 +12,7 @@ import { useToast } from 'primevue/usetoast'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { createAccount, createBusinessUnit, getAccountsUsage, listAccounts, listBusinessUnits, reactivateAccount, suspendAccount, updateAccountLimits, updateBusinessUnit } from '../api'
-import { useTenantStore } from '../stores/tenant'
 
-// Phase 14c — dynamic tenant provisioning via accounts-service. Distinct
-// from the topbar tenant selector (stores/tenant.js): that picks which
-// *existing* account shipping-service connects as; this page creates and
-// revokes the accounts themselves.
-
-const tenantStore = useTenantStore()
 const toast = useToast()
 
 const accounts = ref([])
@@ -245,9 +238,6 @@ async function submitCreate() {
     mintedCreds.value = res.creds
     credsOpen.value = true
     await load()
-    // The dropdown accounts-service just made switchable — refresh so an
-    // operator doesn't need to reload the page to see it.
-    await tenantStore.refresh()
     toast.add({ severity: 'success', summary: 'Account created', detail: res.account.name, life: 3000 })
   } catch (e) {
     createError.value = e.message
@@ -260,7 +250,6 @@ async function suspend(name) {
   try {
     await suspendAccount(name)
     await load()
-    await tenantStore.refresh()
     toast.add({ severity: 'success', summary: 'Account suspended', detail: name, life: 3000 })
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed to suspend account', detail: e.message, life: 5000 })
@@ -277,7 +266,6 @@ async function reactivate(name) {
   try {
     const res = await reactivateAccount(name)
     await load()
-    await tenantStore.refresh()
     if (res.creds) {
       mintedName.value = res.account.name
       mintedCreds.value = res.creds

@@ -20,15 +20,9 @@ const lastAt = computed(() => store.events[0]?.at ?? '—')
 
 <template>
   <footer class="telemetry">
-    <span class="cell">
-      <span class="dot" :class="store.connected ? 'ok' : 'bad'" />
-      <span class="lbl">conn</span>
-      <span class="val">{{ store.connected ? 'watching' : 'disconnected' }}</span>
-    </span>
     <span class="cell"><span class="lbl">stream</span><span class="val">SHIPPING</span></span>
     <span class="cell"><span class="lbl">ships</span><span class="val">{{ ships }}</span></span>
     <span class="cell"><span class="lbl">kv rev</span><span class="val">{{ kvRev }}</span></span>
-    <span class="cell"><span class="lbl">watch buffer</span><span class="val">{{ store.events.length }}</span></span>
     <span class="cell"><span class="lbl">last</span><span class="val">{{ lastAt }}</span></span>
   </footer>
 </template>

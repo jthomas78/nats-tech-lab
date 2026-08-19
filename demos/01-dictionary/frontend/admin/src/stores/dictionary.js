@@ -1,13 +1,11 @@
-// Pinia store = the browser-side projected read model. It is deliberately
-// the same idea as the server-side projections: state derived from an event
-// stream (here, Phase 23: KV bootstrap fetch + notify.* subscribe on the
-// tenant NATS connection — previously KV watch → SSE), one layer further
-// out. See CLAUDE.md.
+// Pinia store = the browser-side projected read model derived from a
+// one-shot bootstrap fetch of the tenant's KV bucket at connect time.
+// Live NATS subscriptions were removed in Phase 36.2 (tenant selector
+// dropped; see CLAUDE.md). See CLAUDE.md for the server-side projection analogy.
 import { defineStore } from 'pinia'
 
 import { getKvBucketEntries, getPorts, getRefdataContexts } from '../api'
 import { useNatsConnection } from '../nats/useNatsConnection.js'
-import { parseKvNotifySubject } from '../nats/kvNotifySubject.js'
 
 export const useDictionaryStore = defineStore('dictionary', {
   state: () => ({
@@ -17,8 +15,6 @@ export const useDictionaryStore = defineStore('dictionary', {
     ships: {},
     // rolling log of raw watch events, newest first
     events: [],
-    connected: false,
-    _unsubscribe: null,
     // ports seen across all events so the shipping form can auto-populate
     seenPorts: [],
   }),
@@ -54,59 +50,22 @@ export const useDictionaryStore = defineStore('dictionary', {
       }
     },
 
-    // Phase 23: replaces the /api/watch/{context} EventSource with a
-    // one-shot bootstrap fetch (getKvBucketEntries against the ships bucket)
-    // plus a notify.{context}.kv.ships.> subscribe on the tenant NATS
-    // connection. Bootstrap entries come back with the {context}. key prefix
-    // still attached (kv.go's kvBucketEntriesOnce reads the raw bucket,
-    // unlike the old SSE handler's kvstore.Store.Watch, which stripped it) —
-    // filtered and stripped here so ships keeps the same bare-key shape
-    // (e.g. "ship.SHIP1") shipRows' consumers already expect.
+    // One-shot bootstrap fetch of the tenant's ships KV bucket. No live NATS
+    // subscription — the tenant selector was removed in Phase 36.2.
     async connect() {
-      this.disconnect()
-      // No context means no valid subject to subscribe on — App.vue calls
-      // this unconditionally after loadContexts(), which leaves this.context
-      // at its initial '' when getRefdataContexts() fails (e.g. refdata-service
-      // not yet ready). Subscribing anyway produced a malformed
-      // notify..kv.{bucket}.> subject (empty {context} token) that the NATS
-      // server correctly rejected as a Subscription Violation — a real
-      // failure mode this Log panel first surfaced, not just log noise.
       if (!this.context) return
       this.ships = {}
       this.events = []
       this.seenPorts = []
 
-      const { connected: tenantConnected, subscribe, tenant } = useNatsConnection()
+      const { tenant } = useNatsConnection()
 
-      // Seed the port list from the Postgres-backed ports registry
-      // (BR-017/BR-018) so the dropdown reflects real, arrival-eligible
-      // ports; live ship-arrival events keep merging below.
       getPorts(this.context)
         .then((res) => this.mergePorts(res?.values ?? []))
         .catch(() => {})
 
-      // Subscribe before the bootstrap fetch, same ordering sse.go's own
-      // watchRefdata/watchRPCObs use: a message published in the narrow gap
-      // before the subscribe took effect could in principle be re-applied by
-      // the bootstrap fetch below, which is harmless (applyWatchEvent is
-      // idempotent per key) — the alternative order risks losing it entirely.
-      const bucket = 'ships'
-      const unsub = tenantConnected.value
-        ? subscribe(`notify.${this.context}.kv.${bucket}.>`, (value, subject) => {
-            const parsed = parseKvNotifySubject(subject)
-            if (!parsed) return
-            this.applyWatchEvent(
-              value === null
-                ? { key: parsed.key, op: 'DEL' }
-                : { key: parsed.key, op: 'PUT', revision: undefined, value },
-            )
-          })
-        : null
-      this._unsubscribe = unsub
-      this.connected = tenantConnected.value
-
       try {
-        const rows = await getKvBucketEntries(tenant.value, bucket)
+        const rows = await getKvBucketEntries(tenant.value, 'ships')
         const prefix = this.context + '.'
         for (const row of rows ?? []) {
           if (!row.key.startsWith(prefix)) continue
@@ -115,15 +74,11 @@ export const useDictionaryStore = defineStore('dictionary', {
           })
         }
       } catch {
-        // best-effort snapshot — live subscribe above still works even if this fails
+        // best-effort snapshot
       }
     },
 
-    disconnect() {
-      this._unsubscribe?.()
-      this._unsubscribe = null
-      this.connected = false
-    },
+    disconnect() {},
 
     mergePorts(ports) {
       const merged = new Set([...this.seenPorts, ...ports])

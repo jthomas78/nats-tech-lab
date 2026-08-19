@@ -1,9 +1,8 @@
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 
 import StreamView from './StreamView.vue'
 import { listStreams } from '../api'
-import { useNatsConnection } from '../nats/useNatsConnection.js'
 
 // A rail of every stream actually registered across every NATS account this
 // backend reaches — not a user-managed open set, and deliberately not scoped
@@ -103,16 +102,6 @@ onMounted(() => {
   refreshTimer = setInterval(refresh, REFRESH_MS)
 })
 onUnmounted(() => clearInterval(refreshTimer))
-
-// Re-fetch immediately on tenant (re)connect rather than waiting up to
-// REFRESH_MS. The rail no longer depends on the active tenant for WHICH
-// streams show, but a switch can bring a previously-unseen tenant's resources
-// into existence server-side (ensureTenantResources), which does change the
-// list — and a fresh connection is worth a re-check regardless.
-const { connected: tenantConnected } = useNatsConnection()
-watch(tenantConnected, (isConnected) => {
-  if (isConnected) refresh()
-})
 
 const hasAccounts = computed(() => accounts.value.length > 0)
 </script>

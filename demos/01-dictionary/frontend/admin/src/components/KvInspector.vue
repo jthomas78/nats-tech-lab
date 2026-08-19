@@ -4,39 +4,17 @@ import Tag from 'primevue/tag'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
 import { getKvBucketEntries, listKVBuckets } from '../api'
-import { useNatsConnection } from '../nats/useNatsConnection.js'
-import { parseKvNotifySubject } from '../nats/kvNotifySubject.js'
 
 // KV inspector: every registered KV bucket across every NATS account this
-// backend reaches (listKVBuckets — not scoped to the topbar's tenant
-// selector, which only ever showed the active tenant's 3-4 buckets and hid
-// PLATFORM's refdata-service buckets entirely), grouped by account in a
-// left rail. Selected bucket's current contents + live update feed on the
-// right.
+// backend reaches, grouped by account in a left rail. Contents are a
+// point-in-time snapshot fetched via the backend (which holds per-account
+// connections). Live browser subscriptions were removed in Phase 36.2 when
+// the tenant selector was dropped.
 //
 // Bucket names collide across accounts (every tenant provisions its own
 // ships/container/meta), so the rail keys selection on {account, bucket},
 // not bucket alone — see listKVBuckets' doc comment server-side.
-//
-// Live "recent updates" only works for the account the browser's own
-// tenant NATS connection is currently authenticated as: NATS enforces
-// account isolation at the server, so a browser connected to ACME's
-// account cannot subscribe to GLOBEX's or PLATFORM's subjects, full stop —
-// there is no cross-account workaround, nor should there be. Buckets in any
-// other account still get a contents snapshot (that's backend-mediated,
-// not subject to the browser's own account boundary); the live feed panel
-// says why it's unavailable instead of just sitting empty. PLATFORM
-// buckets never get a live feed at all yet, for a different reason:
-// refdata-service doesn't publish notify.*.kv.{bucket}.{key}.changed for
-// its own writes the way shipping-service's kvstore.Store.EnableNotify
-// does — see liveUnavailableReason below. That's unrelated to the rail's
-// account-dot (see .account-dot below), which reflects the account's own
-// active/suspended lifecycle status from accounts-service, not anything
-// about the browser's connection or live-feed eligibility.
 const REFRESH_MS = 15000
-const FEED_CAP = 40
-
-const OP_SEVERITY = { PUT: 'success', DEL: 'warn', PURGE: 'danger' }
 
 // ── Bucket rail ───────────────────────────────────────────────────────────────
 const buckets = ref([]) // [{ bucket, account, values, history, bytes, ttlSeconds }]
@@ -122,70 +100,27 @@ function selectBucket(account, bucket) {
   activeBucket.value = bucket
 }
 
-// ── Selected bucket: contents snapshot + live feed ─────────────────────────────
-const { connected: tenantConnected, tenant, subscribe } = useNatsConnection()
+// ── Selected bucket: contents snapshot ─────────────────────────────────────────
 const entries = reactive(new Map()) // key → { key, value, revision, created }
-const feed = ref([]) // live changes only, newest first
 const loading = ref(false)
-let unsubscribe = null
-
-// null when the selected bucket's account IS the browser's currently
-// connected tenant (live feed works normally); otherwise the reason it
-// doesn't, shown in place of the feed.
-const liveUnavailableReason = computed(() => {
-  if (!activeAccount.value) return null
-  if (activeAccount.value === 'platform') {
-    return "refdata-service doesn't publish live KV change notifications yet — showing a point-in-time snapshot only."
-  }
-  if (activeAccount.value !== tenant.value) {
-    return `Switch the topbar tenant to "${activeAccount.value}" to watch this account's live changes.`
-  }
-  return null
-})
 
 function resetBucketState() {
   entries.clear()
-  feed.value = []
   loading.value = true
 }
 
 async function connectBucket(account, bucket) {
-  disconnectBucket()
   resetBucketState()
-
-  const canWatchLive = account === tenant.value && tenantConnected.value
-  if (canWatchLive) {
-    unsubscribe = subscribe(`notify.*.kv.${bucket}.>`, (value, subject) => {
-      const parsed = parseKvNotifySubject(subject)
-      if (!parsed) return
-      const { key } = parsed
-      const change = value === null
-        ? { key, op: 'DEL' }
-        : { key, op: 'PUT', value, revision: undefined, created: new Date().toISOString() }
-      if (change.op === 'PUT') {
-        entries.set(key, { key, value: change.value, revision: change.revision, created: change.created })
-      } else {
-        entries.delete(key)
-      }
-      feed.value = [{ ...change, at: new Date().toLocaleTimeString() }, ...feed.value].slice(0, FEED_CAP)
-    })
-  }
-
   try {
     const rows = await getKvBucketEntries(account, bucket)
     for (const row of rows ?? []) {
       entries.set(row.key, { key: row.key, value: row.value, revision: row.revision, created: row.created })
     }
   } catch {
-    // best-effort snapshot — live feed above still works even if this fails
+    // best-effort snapshot
   } finally {
     loading.value = false
   }
-}
-
-function disconnectBucket() {
-  unsubscribe?.()
-  unsubscribe = null
 }
 
 let refreshTimer = null
@@ -195,24 +130,11 @@ onMounted(() => {
 })
 onUnmounted(() => {
   clearInterval(refreshTimer)
-  disconnectBucket()
 })
 
-// On tenant (re)connect: re-fetch the bucket list immediately (the rail no
-// longer depends on this for WHICH buckets show, but a fresh connection is
-// still worth a re-check) and retry the active bucket's subscription — its
-// live-watch eligibility depends on which tenant the browser is now
-// authenticated as.
-watch([tenantConnected, tenant], ([isConnected]) => {
-  if (!isConnected) return
-  refreshBuckets()
-  if (activeAccount.value && activeBucket.value) connectBucket(activeAccount.value, activeBucket.value)
-})
-
-// Switch the single live connection whenever the selected bucket changes.
+// Load snapshot whenever the selected bucket changes.
 watch([activeAccount, activeBucket], ([account, bucket]) => {
   if (account && bucket) connectBucket(account, bucket)
-  else disconnectBucket()
 })
 
 // ── Contents table ─────────────────────────────────────────────────────────────
@@ -300,12 +222,7 @@ function ttlLabel(seconds) {
         <div class="detail-title">
           <code class="bucket-name">{{ activeBucket }}</code>
           <Tag severity="secondary" :value="activeAccount" />
-          <Tag
-            v-if="!liveUnavailableReason"
-            :severity="tenantConnected ? 'success' : 'danger'"
-            :value="tenantConnected ? 'watching' : 'off'"
-          />
-          <Tag v-else severity="secondary" value="snapshot only" />
+          <Tag severity="secondary" value="snapshot only" />
         </div>
         <div class="detail-meta lab-muted">
           <span><strong>{{ entries.size }}</strong> keys</span>
@@ -355,24 +272,6 @@ function ttlLabel(seconds) {
         </div>
       </div>
 
-      <!-- Live update feed -->
-      <div class="feed">
-        <h4>Recent updates <span class="lab-muted feed-sub">— live KV changes since you opened this bucket</span></h4>
-        <div class="feed-scroll">
-          <p v-if="liveUnavailableReason" class="lab-muted feed-empty">{{ liveUnavailableReason }}</p>
-          <p v-else-if="!feed.length" class="lab-muted feed-empty">
-            No changes yet. Dispatch a command (or edit reference data) to watch it land here.
-          </p>
-          <ul v-else class="feed-list">
-            <li v-for="(ev, i) in feed" :key="ev.revision + '-' + i" class="feed-row">
-              <Tag :severity="OP_SEVERITY[ev.op] ?? 'info'" :value="ev.op" />
-              <code class="feed-key">{{ ev.key }}</code>
-              <span class="feed-rev lab-muted">r{{ ev.revision }}</span>
-              <span class="feed-time lab-muted">{{ ev.at }}</span>
-            </li>
-          </ul>
-        </div>
-      </div>
     </section>
   </div>
 </template>
@@ -586,8 +485,7 @@ function ttlLabel(seconds) {
   gap: 0.75rem;
   margin-bottom: 0.4rem;
 }
-.contents-head h4,
-.feed h4 {
+.contents-head h4 {
   margin: 0;
   font-size: 12px;
   letter-spacing: 0.02em;
@@ -652,61 +550,6 @@ function ttlLabel(seconds) {
   text-align: center;
   padding: 1.25rem 0;
   font-size: 12px;
-}
-/* ── Feed ── */
-.feed {
-  flex-shrink: 0;
-  height: 30%;
-  min-height: 120px;
-  display: flex;
-  flex-direction: column;
-}
-.feed h4 {
-  margin-bottom: 0.4rem;
-}
-.feed-sub {
-  font-size: 11px;
-  font-weight: 400;
-}
-.feed-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  border: 1px solid var(--lab-panel-border);
-  border-radius: 6px;
-  padding: 0.4rem 0.5rem;
-}
-.feed-empty {
-  font-size: 12px;
-  margin: 0.25rem 0;
-}
-.feed-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.feed-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 12px;
-  padding: 2px 0;
-}
-.feed-key {
-  font-size: 12px;
-  word-break: break-all;
-}
-.feed-rev,
-.feed-time {
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  margin-left: auto;
-}
-.feed-time {
-  margin-left: 0;
 }
 @media (max-width: 720px) {
   .kv-inspector {
