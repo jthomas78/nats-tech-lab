@@ -1,0 +1,32 @@
+<template>
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    width="1em"
+    height="1em"
+    aria-hidden="true"
+  >
+    <rect
+      x="1"
+      y="7"
+      width="13"
+      height="9"
+      rx="1"
+    />
+    <path d="M14 10h4l3 3v3h-7z" />
+    <circle
+      cx="6"
+      cy="18"
+      r="1.6"
+    />
+    <circle
+      cx="17.5"
+      cy="18"
+      r="1.6"
+    />
+  </svg>
+</template>

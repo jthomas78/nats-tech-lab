@@ -102,7 +102,7 @@ async function submit() {
     // Phase 33.8: these commands moved from REST to NATS api.* (api.js), so
     // err.message is always the bare domain-error string (browserrpc's
     // errorResponse), never an HTTP-status-prefixed one — show it inline,
-    // same as TradingPartnersPanel.vue's NATS-backed submitRegister().
+    // same as frontend/refdata's TradingPartnersPanel.vue's NATS-backed submitRegister().
     domainError.value = err.message
   } finally {
     busy.value = false

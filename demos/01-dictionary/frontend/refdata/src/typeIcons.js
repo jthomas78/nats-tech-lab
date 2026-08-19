@@ -23,7 +23,3 @@ const CATEGORY_ICON = {
 export function typeIcon(typeKey, category) {
   return TYPE_ICON[typeKey] || CATEGORY_ICON[category || 'standards'] || 'pi-tag'
 }
-
-export function categoryIcon(categoryKey) {
-  return CATEGORY_ICON[categoryKey] || 'pi-list'
-}

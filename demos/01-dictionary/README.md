@@ -48,7 +48,7 @@ aggregates. See [BUSINESS_RULES.md](BUSINESS_RULES.md) for BR-001 … BR-015.
 |---|---|---|
 | Admin / NATS debug | http://localhost:7100 | Raw stream feed, KV buckets, CQRS shape panel |
 | Port Management | http://localhost:7101 | One port at a time: terminal yard, docked ships + manifests, container operations |
-| Dictionary | http://localhost:7102 | Reference-data admin: type navigator, item grid, localization/reference editor, locales panel, cache status widget (Phase 11) |
+| Tech Lab Operator | http://localhost:7102 | Reference-data admin: type navigator, item grid, localization/reference editor, locales panel, cache status widget (Phase 11) |
 
 ## Dictionary as a Service (Phase 11)
 
@@ -87,7 +87,7 @@ docker compose up --build    # builds the Go backend + both Vue frontends, then 
 ```
 
 Then open **http://localhost:7100** for the Admin / NATS debug UI,
-**http://localhost:7101** for Port Management, or **http://localhost:7102** for Dictionary.
+**http://localhost:7101** for Port Management, or **http://localhost:7102** for Tech Lab Operator.
 
 ```bash
 docker compose down          # stop and remove containers
@@ -115,7 +115,7 @@ re-export the whole retained hour on the next start instead.
 | Lab shell            | http://localhost:5170                                        |
 | Admin UI              | http://localhost:7100                                        |
 | Port Management       | http://localhost:7101                                        |
-| Dictionary            | http://localhost:7102                                        |
+| Tech Lab Operator     | http://localhost:7102                                        |
 | NATS UI (under review)| http://localhost:7103                                        |
 | NUI (under review)    | http://localhost:7104                                        |
 | NATS Tower (under review) | http://localhost:7105                                    |
@@ -206,7 +206,7 @@ HTTP_ADDR=:8081 \
 go run ./cmd/main.go
 ```
 
-**6. Dictionary frontend** (optional, separate terminal):
+**6. Tech Lab Operator frontend** (optional, separate terminal):
 
 ```bash
 cd demos/01-dictionary/frontend/refdata

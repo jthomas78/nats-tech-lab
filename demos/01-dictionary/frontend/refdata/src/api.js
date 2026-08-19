@@ -18,6 +18,7 @@
 // TypeRegisterSubject, ContextListSubject, ContextRegisterSubject).
 
 import { useRefdataAdminConnection } from './nats/useRefdataAdminConnection.js'
+import { useTenantConnection } from './nats/useTenantConnection.js'
 
 // assertContextToken guards against a context value that isn't a legal
 // single NATS subject token — mirrors frontend/admin's api.js tpSubject:
@@ -201,4 +202,120 @@ export function rollbackCorpus(context, version, notes = '') {
 
 export function diffCorpusVersions(context, fromVersion, toVersion) {
   return request(adminSubject(context, 'corpus.diff'), { from: fromVersion, to: toVersion })
+}
+
+// ── Trading partner tenant scoping (Phase 36.2) ─────────────────────────────────
+// context.list.v1 accepts an explicit `tenant` filter in the body (BR-D35 —
+// refdata-service has no server-supplied caller identity to derive it from,
+// and the per-tenant connection only proves account membership, a different
+// axis from the `tenant` column contexts are tagged with). listContexts()
+// above omits it to browse every tenant's contexts platform-wide; this variant
+// scopes to one tenant for the Trading Partners tenant+context selector.
+// Filters "_"-reserved contexts (platform roots, not real fleet scopes),
+// mirroring frontend/admin's stores/dictionary.js loadContexts().
+export async function listContextsForTenant(tenant) {
+  const { contexts } = await request('api._platform.refdata.context.list.v1', { tenant })
+  return (contexts ?? []).filter((c) => !c.context.startsWith('_'))
+}
+
+// ── Tenant listing (Phase 36.2) ─────────────────────────────────────────────────
+// REST, not NATS — GET /api/auth/tenants (accounts-service, already proxied
+// for the PLATFORM connection's own credential fetch). Deliberately not
+// GET /api/accounts (which frontend/admin uses for its own Accounts admin
+// view): that endpoint returns every account row, including the reserved
+// "platform"/"sys" infrastructure accounts (BR-AC06) — neither is a real
+// tenant, and trading-partner-service has no meaningful Shippers/
+// Transporters list for either. /api/auth/tenants already excludes them
+// (accounts.Store.ListActiveTenantNames), so this reuses that filtering
+// instead of re-implementing it here.
+async function restRequest(path, options = {}) {
+  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
+  return body
+}
+
+export function listAvailableTenants() {
+  return restRequest('/api/auth/tenants').then((body) => body.tenants ?? [])
+}
+
+// ── Trading partners (Phase 26h origin, migrated from frontend/admin in
+// Phase 36.2) ────────────────────────────────────────────────────────────────
+// Ported verbatim from frontend/admin/src/api.js, swapped onto this app's own
+// tenant connection (useTenantConnection.js) — see that module's doc comment
+// for why Tech Lab Operator needs a second, tenant-scoped connection
+// alongside the PLATFORM one every other call in this file uses.
+
+// tpSubject builds one trading-partner api.* subject, failing loudly if
+// context isn't a legal single subject token. Silently producing
+// "api.acme.north.trading-partner..." would shift every later token by one
+// and make the service resolve the wrong context.
+function tpSubject(context, entity, action) {
+  if (!context || /[.\s*>]/.test(context)) {
+    throw new Error(`invalid context for a NATS subject token: ${JSON.stringify(context)}`)
+  }
+  return `api.${context}.trading-partner.${entity}.${action}.v1`
+}
+
+function tpRequest(context, entity, action, payload) {
+  return useTenantConnection().request(tpSubject(context, entity, action), payload)
+}
+
+export function listTradingPartners(context) {
+  return tpRequest(context, 'partner', 'list')
+}
+
+export function registerTradingPartner(context, input) {
+  return tpRequest(context, 'partner', 'register', input)
+}
+
+export function activateTradingPartner(context, id) {
+  return tpRequest(context, 'partner', 'activate', { id })
+}
+
+export function suspendTradingPartner(context, id, reason) {
+  return tpRequest(context, 'partner', 'suspend', { id, reason })
+}
+
+export function reactivateTradingPartner(context, id) {
+  return tpRequest(context, 'partner', 'reactivate', { id })
+}
+
+export function getTradingPartnerAudit(context, id) {
+  return tpRequest(context, 'partner', 'audit', { id })
+}
+
+export function listComplianceDocuments(context, id) {
+  return tpRequest(context, 'document', 'list', { id })
+}
+
+export function addComplianceDocument(context, id, input) {
+  return tpRequest(context, 'document', 'add', { id, ...input })
+}
+
+export function approveComplianceDocument(context, id, type) {
+  return tpRequest(context, 'document', 'approve', { id, type })
+}
+
+export function rejectComplianceDocument(context, id, type) {
+  return tpRequest(context, 'document', 'reject', { id, type })
+}
+
+export function resubmitComplianceDocument(context, id, type) {
+  return tpRequest(context, 'document', 'resubmit', { id, type })
+}
+
+export function listFleetAssets(context, id) {
+  return tpRequest(context, 'fleet-asset', 'list', { id })
+}
+
+// Signature keeps `tenant` so TradingPartnersPanel.vue's call site is
+// unchanged, but the value is deliberately unused: the service derives the
+// tenant from the connection's own NATS account. Dropping the parameter
+// would silently change the meaning of the 4th positional argument (input)
+// at every call site, which is a worse trade than one documented unused
+// parameter.
+ 
+export function addFleetAsset(context, id, tenant, input) {
+  return tpRequest(context, 'fleet-asset', 'add', { id, ...input })
 }

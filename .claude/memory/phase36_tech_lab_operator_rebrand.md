@@ -1,6 +1,6 @@
 ---
 name: phase36-tech-lab-operator-rebrand
-description: APPROVED 2026-08-19 — refdata frontend app rebrands to "Tech Lab Operator" (36.1) then absorbs admin's Trading Partners section (36.2); design gate passed, mockups required before either sub-phase's implementation starts
+description: refdata frontend app rebrands to "Tech Lab Operator" — 36.1 (nav/tab restructure) and 36.2 (absorbs admin's Trading Partners section) both IMPLEMENTED 2026-08-19
 metadata:
   type: project
 ---
@@ -98,3 +98,63 @@ Assets/Audit Trail/Activate-Suspend). Both 36.1 and 36.2 implementation
 checklists are now unblocked on their mockup-gate items; remaining
 checklist items in each (rebrand file changes, LAYOUT.md updates,
 component migration, in-browser verification) are still open.
+
+**36.1 IMPLEMENTED (2026-08-19):** all checklist items done and
+live-verified. `refdata/src/App.vue` now uses `NavList.vue` (`Operations` >
+`Reference Data`, one entry — 36.2 adds `Trading Partners` alongside it)
+instead of `TypeNavigator.vue`, which is deleted. Its content became a new
+`ReferenceDataPanel.vue`: a `panel-tabs` strip (`Reference Data` / `Domain`
+/ `Localization` / `Versioning`) matching `RpcPanel.vue`'s contract exactly,
+including the same-element `:deep()` gotcha fix (`.rd-tabs.p-tabs`, not
+`.rd-tabs :deep(.p-tabs)`) and the `.main-inner > .fill-height` global rule
+having to be re-created locally (`.reference-data-row > .fill-height`,
+`.rd-domain-body > .fill-height`) since `ItemGrid`/`CategoryTypeList` are no
+longer direct children of `.main-inner`. Also first real usage in this repo
+of the already-documented-but-unused `.page-head`/`.eyebrow-static`
+convention from `app-shell-reference.html`/LAYOUT.md's "Main content"
+section — copied verbatim rather than reinvented. One real behavioral gap
+found and fixed during live verification: `store.selectedType` is shared
+between the Reference Data and Domain tabs (`selectCategoryType` sets it
+too), so switching top-level tabs needed an explicit re-sync watcher or the
+tab you land on shows whatever type was last touched in the *other* tab —
+see [[mockup_fidelity_functional_capability]] for why this class of gap
+matters. Domain tab's Enums/Strings switch reuses `CategoryTypeList.vue`
+unchanged behind a bare `Tabs`/`TabList` (no `TabPanels` — confirmed via
+`Tabs.vue` source that PrimeVue doesn't require them; it's a pure nav
+strip, not a second panel-owning tab set), dynamically listing whichever
+`DOMAIN_CATEGORIES` actually have types rather than hardcoding Enums/
+Strings, so a future `config`-category type shows up automatically.
+
+**36.2 IMPLEMENTED (2026-08-19):** `TradingPartnersPanel.vue` +
+`IconShippers.vue`/`IconTransporters.vue` moved from `admin` into `refdata`
+as a `Trading Partners` eyebrow alongside `Reference Data`. A real design gap
+surfaced mid-implementation and was resolved with the user before writing
+code (not silently assumed): the approved stopgap said "same per-tenant
+connection pattern `admin` uses today," but admin's actual mechanism —
+`GET/POST /api/tenant[/switch]` — reconnects a *shared backend* NATS
+connection on shipping-service that `admin`'s own dictionary store also
+depends on. Reusing it from `refdata` too would mean a tenant switch in Tech
+Lab Operator silently reconnects a connection `admin` relies on — a new
+cross-app coupling. User chose (via AskUserQuestion) the alternative:
+`refdata` gained its own second, tenant-scoped browser connection
+(`nats/useTenantConnection.js`, alongside the pre-existing PLATFORM-only
+`useRefdataAdminConnection.js`) that reconnects only the *browser's own*
+NATS credential — no backend endpoint touched at all, so no shared-state
+coupling with `admin`. A new `stores/tenant.js` backs it, populated from
+accounts-service's `GET /api/auth/tenants` (already proxied for the PLATFORM
+connection's own credential fetch — no new proxy rule needed). This first
+attempt used `GET /api/accounts` instead and was caught as wrong during live
+verification: that endpoint includes the reserved `platform`/`sys`
+infrastructure accounts (BR-AC06), which surfaced as bogus selectable
+"tenants" with no real Shippers/Transporters — `/api/auth/tenants`
+(`accounts.Store.ListActiveTenantNames`) already excludes them and is the
+right endpoint. Once a tenant is selected, its own context list comes from
+refdata-service's existing `context.list.v1` subject with an explicit
+`{tenant}` filter in the body (BR-D35) — this already existed for exactly
+this purpose and needed no backend change. Live-verified: registered a real
+shipper against `trading-partner-service` under the `globex` tenant, expanded
+a transporter row (Compliance Documents/Fleet Assets/Audit Trail all
+populated with real data), and switched tenants (`acme` ↔ `globex`)
+confirming each tenant's own fleet-context list loads independently. See
+[[mockup_fidelity_functional_capability]] for why this class of
+during-implementation gap is worth catching rather than assuming.

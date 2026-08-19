@@ -1,5 +1,7 @@
-// Specs for the trading-partner api.* client (Phase 26h) — the one part of
-// api.js that talks NATS rather than REST.
+// Specs for the trading-partner api.* client (Phase 26h; migrated from
+// frontend/admin's own copy in Phase 36.2) — the one part of api.js that
+// talks over the tenant connection rather than the PLATFORM one every other
+// call in this file uses.
 //
 // The subject-building guard is the reason these exist. A context value
 // containing a dot would produce
@@ -11,8 +13,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const request = vi.fn()
 
-vi.mock('./nats/useNatsConnection.js', () => ({
-  useNatsConnection: () => ({ request }),
+vi.mock('./nats/useTenantConnection.js', () => ({
+  useTenantConnection: () => ({ request }),
+}))
+vi.mock('./nats/useRefdataAdminConnection.js', () => ({
+  useRefdataAdminConnection: () => ({ request: vi.fn() }),
 }))
 
 const {

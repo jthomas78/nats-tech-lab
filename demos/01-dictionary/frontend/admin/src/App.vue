@@ -16,7 +16,6 @@ import RpcPanel from './components/RpcPanel.vue'
 import ServicesPanel from './components/ServicesPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import TelemetryStrip from './components/TelemetryStrip.vue'
-import TradingPartnersPanel from './components/TradingPartnersPanel.vue'
 import IconAccounts from './components/icons/IconAccounts.vue'
 import IconConnections from './components/icons/IconConnections.vue'
 import IconKv from './components/icons/IconKv.vue'
@@ -25,10 +24,8 @@ import IconOverview from './components/icons/IconOverview.vue'
 import IconRpc from './components/icons/IconRpc.vue'
 import IconServices from './components/icons/IconServices.vue'
 import IconSettings from './components/icons/IconSettings.vue'
-import IconShippers from './components/icons/IconShippers.vue'
 import IconStreams from './components/icons/IconStreams.vue'
 import IconTables from './components/icons/IconTables.vue'
-import IconTransporters from './components/icons/IconTransporters.vue'
 import { useDictionaryStore } from './stores/dictionary'
 import { useTenantStore } from './stores/tenant'
 import { useUiStore } from './stores/ui'
@@ -90,19 +87,6 @@ const sections = [
   {
     group: 'Platform',
     sections: [
-      {
-        // Phase 26 — own nav category (linebooker_registration_ui_placement.md):
-        // organisation-owned master data that *consumes* refdata lookups
-        // (VehicleType), not a vocabulary itself, so it belongs here, not in
-        // frontend/refdata. Split per role rather than one combined list
-        // because shipper- and transporter-specific fields diverge from here
-        // on (fleet assets and GOODS_IN_TRANSIT are already transporter-only).
-        eyebrow: 'Trading partners',
-        items: [
-          { key: 'shippers', label: 'Shippers', icon: IconShippers },
-          { key: 'transporters', label: 'Transporters', icon: IconTransporters },
-        ],
-      },
       { items: [{ key: 'settings', label: 'Settings', icon: IconSettings }] },
     ],
   },
@@ -144,8 +128,6 @@ const SUBTITLES = {
   log: 'nats server log · level + text filter, no rotation',
   tables: 'canonical Postgres tables by schema',
   settings: 'platform-global system configuration',
-  shippers: 'shipper registration · KYC documents',
-  transporters: 'transporter registration · KYC documents · fleet assets',
 }
 // accounts has three tabs (AccountsView.vue) with distinct enough subject
 // matter — fleet health, provisioning, and the export/import graph — that
@@ -292,21 +274,6 @@ onUnmounted(() => {
     <!-- System — platform-global configuration (BR-AC20) -->
     <section v-else-if="activeView === 'settings'" class="group" data-testid="settings-view">
       <SettingsPanel />
-    </section>
-
-    <!-- Trading Partners — Shipper/Transporter registration (Phase 26). One
-         panel per role rather than one combined list, keyed so switching
-         roles remounts it instead of leaving the previous role's rows and
-         open dialogs behind. -->
-    <section
-      v-else-if="activeView === 'shippers' || activeView === 'transporters'"
-      class="group"
-      :data-testid="`${activeView}-view`"
-    >
-      <TradingPartnersPanel
-        :key="activeView"
-        :partner-type="activeView === 'shippers' ? 'SHIPPER' : 'TRANSPORTER'"
-      />
     </section>
 
     <!-- Accounts — fleet activity overview (Phase 45, absorbing the old

@@ -615,22 +615,32 @@ then migrating the `admin` app's Trading Partners section into it (36.2).
       ARCHITECTURE-PLATFORM.md` as the Tech Lab Operator entry point,
       cross-referenced with `ARCHITECTURE-DICTIONARY.md`; add it to
       CLAUDE.md's "Architecture Docs" index (done 2026-08-19)
-- [ ] Produce mockups of the final nav + tabbed info panel; get explicit
-      user approval on them before starting the items below
-- [ ] Add `Operations` → `Reference Data` nav via `NavList.vue` in
+- [x] Produce mockups of the final nav + tabbed info panel; get explicit
+      user approval on them before starting the items below — APPROVED
+      2026-08-19 (see `.claude/memory/mockup_fidelity_functional_capability.md`)
+- [x] Add `Operations` → `Reference Data` nav via `NavList.vue` in
       `refdata/src/App.vue`, replacing the current `#sidebar` composition
-- [ ] Build the new tabbed info panel (PrimeVue `Tabs`/`TabPanel`, following
+      (done 2026-08-19)
+- [x] Build the new tabbed info panel (PrimeVue `Tabs`/`TabPanel`, following
       `RpcPanel.vue` + LAYOUT.md's "Panel top tabs" contract) housing the
       content currently in `TypeNavigator.vue`/`CategoryTypeList`/
-      `LocalizationView`/`VersioningPanel`
-- [ ] Rebrand: `App.vue` `#brand`, `index.html` `<title>`,
+      `LocalizationView`/`VersioningPanel` — done 2026-08-19 as the new
+      `ReferenceDataPanel.vue` (`TypeNavigator.vue` retired, its
+      reference-data switcher moved into the Reference Data tab, its Domain
+      group became the Domain tab's Enums/Strings sub-tabs, its Tools group
+      became the Localization/Versioning tabs)
+- [x] Rebrand: `App.vue` `#brand`, `index.html` `<title>`,
       `demos/01-dictionary/README.md`'s app-name table rows/heading — leave
       the adjacent "Dictionary as a Service" backend section untouched
-- [ ] Rewrite `shared/unifi-theme/LAYOUT.md`'s `refdata` per-app note to
-      describe the new nav/panel shape
-- [ ] Verify in-browser: nav renders, all previously-reachable views are
+      (done 2026-08-19)
+- [x] Rewrite `shared/unifi-theme/LAYOUT.md`'s `refdata` per-app note to
+      describe the new nav/panel shape (done 2026-08-19)
+- [x] Verify in-browser: nav renders, all previously-reachable views are
       still reachable via tabs, no console errors, dark + light mode both
-      checked (LAYOUT.md/CLAUDE.md verification convention)
+      checked (LAYOUT.md/CLAUDE.md verification convention) — done
+      2026-08-19: all four tabs (Reference Data, Domain incl. Enums/Strings,
+      Localization, Versioning) verified live against the running stack, no
+      console errors, sidebar collapse + light/dark toggle checked
 
 #### Checklist — 36.2
 
@@ -640,15 +650,48 @@ then migrating the `admin` app's Trading Partners section into it (36.2).
 - [x] Confirm the `useTenantStore()` vs. `context` resolution approach with
       the user before writing code (design decision above) — resolved
       2026-08-19: stopgap migration, platform-credential model deferred
-- [ ] Move `TradingPartnersPanel.vue` + icons into `refdata`, wired to the
+- [x] Move `TradingPartnersPanel.vue` + icons into `refdata`, wired to the
       new `Operations` nav (or a new group, TBD at design time) with
-      `Shippers`/`Transporters` entries
-- [ ] Remove the migrated section from `admin`'s `Platform` group once
-      parity is confirmed in Tech Lab Operator
-- [ ] Update `shared/unifi-theme/LAYOUT.md`'s `admin` and `refdata` per-app
-      notes to reflect the moved section
-- [ ] Verify in-browser: Shippers/Transporters CRUD flows work identically
-      post-migration, no regression in `admin`'s remaining Platform items
+      `Shippers`/`Transporters` entries — done 2026-08-19: added as a
+      `Trading Partners` eyebrow alongside `Reference Data`, same as
+      `admin`'s own eyebrow shape. A follow-up design question surfaced
+      during implementation and was resolved with the user before writing
+      code: the tenant selector needed for this panel must not reuse
+      shipping-service's `GET/POST /api/tenant[/switch]` (that reconnects a
+      *shared backend* connection `admin` also depends on — a new cross-app
+      coupling neither app has today). Resolved: `refdata` gained its own
+      second, tenant-scoped NATS connection
+      (`nats/useTenantConnection.js`, alongside the existing PLATFORM one in
+      `useRefdataAdminConnection.js`) that only reconnects the *browser's*
+      own credential — no backend reconnect at all — fed by a new
+      `stores/tenant.js`. Its tenant list comes from accounts-service's
+      `GET /api/auth/tenants` (already proxied for the PLATFORM connection's
+      own credential fetch; no new proxy rule needed) rather than
+      `GET /api/accounts` — the latter includes the reserved
+      `platform`/`sys` infrastructure accounts (BR-AC06), which are not
+      real tenants and were caught surfacing as bogus "tenants" during
+      in-browser verification. Once a tenant is selected, its own context
+      list comes from refdata-service's existing `context.list.v1` subject
+      with an explicit `{tenant}` filter in the body (BR-D35), which already
+      supported exactly this and needed no backend change.
+- [x] Remove the migrated section from `admin`'s `Platform` group once
+      parity is confirmed in Tech Lab Operator — done 2026-08-19
+      (`TradingPartnersPanel.vue`, `IconShippers.vue`, `IconTransporters.vue`,
+      `tradingPartnerApi.spec.js`, and `api.js`'s trading-partner client
+      deleted from/trimmed out of `admin`)
+- [x] Update `shared/unifi-theme/LAYOUT.md`'s `admin` and `refdata` per-app
+      notes to reflect the moved section — done 2026-08-19
+- [x] Verify in-browser: Shippers/Transporters CRUD flows work identically
+      post-migration, no regression in `admin`'s remaining Platform items —
+      done 2026-08-19: registered a shipper live against `trading-partner-
+      service` under the `globex` tenant, expanded a transporter row
+      (Compliance Documents/Fleet Assets/Audit Trail all populated), and
+      switched tenants (`acme` ↔ `globex`) confirming each one's own fleet
+      context list loads independently with no cross-tenant bleed; light
+      and dark mode both checked; no console errors (one transient
+      dev-server-only WebSocket warm-up artifact was investigated and ruled
+      unrelated — reproduces identically on the unmodified `admin` app's own
+      connection code path, not a regression from this change).
 
 ---
 

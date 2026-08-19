@@ -24,12 +24,12 @@ by all four apps (`lab-shell`, `admin`, `refdata`, `seafreight-app`) via a
   `.nav-group-toggle` / `.nav-group-body` / `.nav-item` / `.nav-badge` /
   `.label-fade` classes from `app-shell.css`.
   `shared/ui-shell/NavList.vue` is a ready-made data-driven renderer for
-  the common case, used by `admin` and `seafreight-app`; use it directly
-  rather than hand-rolling another nav component unless your nav is
-  bespoke enough that it doesn't fit (see `refdata`'s
-  `TypeNavigator.vue`, which renders its own markup against the same CSS
-  classes instead). Its `sections` prop takes an ordered array whose
-  entries are either of:
+  the common case, used by `admin`, `seafreight-app`, and (since Phase
+  36.1) `refdata`; use it directly rather than hand-rolling another nav
+  component unless your nav is bespoke enough that it doesn't fit — in
+  which case render your own markup against the same shared CSS classes,
+  the way `refdata`'s retired `TypeNavigator.vue` used to. Its `sections`
+  prop takes an ordered array whose entries are either of:
 
   ```
   { eyebrow?: string, items: [{ key, label, icon?, badge? }] }
@@ -166,20 +166,43 @@ rendered by PrimeVue itself (`.p-tablist`, `.p-tabpanels`, `.p-tabpanel`).
 - **lab-shell** — topbar only (brand + tagline-as-breadcrumb), no
   sidebar; `vue-router`'s `<router-view/>` is ordinary main content, not
   shell-owned.
-- **refdata** — sidebar is `TypeNavigator.vue` grouping dictionary types
-  by `categories.js`'s `CATEGORY_ORDER`/`DOMAIN_CATEGORIES`, plus a
-  "Tools" eyebrow group for Localization/Versioning. Breadcrumb is plain
-  text (no fleet concept). Previously had its own 2-column grid shell —
-  now just ordinary content inside `.main-inner`.
+- **refdata** (branded "Tech Lab Operator", Phase 36.1) — sidebar is
+  `NavList.vue` fed one `Operations` group with two sections: a single
+  `Reference Data` entry, and (Phase 36.2) a `Trading Partners` eyebrow over
+  `Shippers`/`Transporters` — migrated from `admin`'s own `Trading partners`
+  eyebrow, same nesting shape, just relocated. What used to be
+  `TypeNavigator.vue`'s three sidebar groups (the flat reference-data type
+  list, the Domain category list, and a "Tools" group for Localization/
+  Versioning) all moved into `ReferenceDataPanel.vue`, a `panel-tabs` strip
+  (`Reference Data` / `Domain` / `Localization` / `Versioning`) rendered as
+  the `Reference Data` nav entry's content — same "Panel top tabs" contract
+  as `RpcPanel.vue`, above. The `Reference Data` tab keeps a
+  `categories.js`-driven type switcher as its own left-hand nav-item list
+  (reusing the shared `.nav-group`/`.nav-item`/`.nav-badge` classes, same as
+  `TypeNavigator.vue` did) beside `ItemGrid`; the `Domain` tab reuses
+  `CategoryTypeList.vue` unchanged behind a small Enums/Strings sub-tab
+  strip (a bare `Tabs`/`TabList`, no `TabPanels` — it only drives which
+  category `CategoryTypeList` shows, it doesn't own separate panel content,
+  unlike `VersioningPanel.vue`'s own nested tabs). Breadcrumb is a literal
+  `Operations / Reference Data` (or `/ Trading Partners`) nav path rather
+  than descriptive text — this app has no fleet concept of its own for
+  Reference Data, but Trading Partners' `TradingPartnersPanel.vue` does need
+  one (see below), scoped separately from Reference Data's platform-wide
+  `Context` select in `#topbar-right`: a `Tenant` + `Fleet` select pair,
+  shown only while a Trading Partners view is active, backed by a second,
+  tenant-scoped NATS connection (`useTenantConnection.js`) alongside this
+  app's original PLATFORM one — see that module's doc comment for why a
+  second connection was necessary rather than reusing the first.
 - **admin** — sidebar via `NavList.vue`, and the only app so far using the
-  `group` form: an ungrouped Overview, then PLATFORM (Accounts, a Trading
-  partners eyebrow over Shippers/Transporters, Settings), then SYSTEM
-  (NATS, Postgres). The split is by what a view is *of*, not which backend
-  serves it — business layer vs. infrastructure diagnostics — which is why
-  Accounts sits under PLATFORM despite NATS accounts being its mechanism.
-  Breadcrumb is plain text; the fleet-context select stayed in
-  `#topbar-right` rather than moving into the breadcrumb dropdown shown in
-  the reference mockup — a deferred polish item, not a functional gap.
+  `group` form: an ungrouped Overview, then PLATFORM (Accounts, Settings —
+  the former Trading partners eyebrow over Shippers/Transporters moved to
+  `refdata` in Phase 36.2), then SYSTEM (NATS, Postgres). The split is by
+  what a view is *of*, not which backend serves it — business layer vs.
+  infrastructure diagnostics — which is why Accounts sits under PLATFORM
+  despite NATS accounts being its mechanism. Breadcrumb is plain text; the
+  fleet-context select stayed in `#topbar-right` rather than moving into the
+  breadcrumb dropdown shown in the reference mockup — a deferred polish
+  item, not a functional gap.
 - **seafreight-app** — sidebar via the same `NavList.vue`, fed a single
   ungrouped section (its `views` were already flat). Same breadcrumb
   treatment as admin.

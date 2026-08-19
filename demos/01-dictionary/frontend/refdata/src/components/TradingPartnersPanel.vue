@@ -26,14 +26,13 @@ import {
   resubmitComplianceDocument,
   suspendTradingPartner,
 } from '../api'
-import { useDictionaryStore } from '../stores/dictionary'
 import { useTenantStore } from '../stores/tenant'
 
 // Phase 26 — Shipper/Transporter registration, ported from Linebooker
 // (BusinessEntity/TransporterProfileEntity/TransporterDocumentEntity/
-// FleetAssetEntity). Context-scoped like Ports/Ships (not account-scoped
-// like AccountsPanel.vue) — trading-partner-service's own REST API lives
-// under /api/trading-partners/{context}/....
+// FleetAssetEntity). Migrated from frontend/admin in Phase 36.2 — see that
+// phase's design decisions for why this reads tenantStore.context (this
+// app's own tenant-scoped selector) rather than admin's dictionaryStore.context.
 //
 // One instance per role, mounted twice by App.vue's Shippers and Transporters
 // nav entries. Both roles are one aggregate with a type discriminator
@@ -47,7 +46,6 @@ const props = defineProps({
   partnerType: { type: String, required: true },
 })
 
-const dictionaryStore = useDictionaryStore()
 const tenantStore = useTenantStore()
 const toast = useToast()
 
@@ -68,11 +66,11 @@ function documentTypesFor(partnerType) {
 }
 
 async function load() {
-  if (!dictionaryStore.context) return
+  if (!tenantStore.context) return
   loading.value = true
   error.value = ''
   try {
-    const res = await listTradingPartners(dictionaryStore.context)
+    const res = await listTradingPartners(tenantStore.context)
     // Filtered here rather than server-side: GET /api/trading-partners/
     // {context} takes no type filter, and a context's partner list is small
     // enough in this POC that one fetch per role is cheaper than adding a
@@ -86,7 +84,7 @@ async function load() {
   }
 }
 
-watch(() => dictionaryStore.context, load, { immediate: true })
+watch(() => tenantStore.context, load, { immediate: true })
 
 // ── Register ──────────────────────────────────────────────────────────────
 
@@ -108,7 +106,7 @@ async function submitRegister() {
   registering.value = true
   registerError.value = ''
   try {
-    const tp = await registerTradingPartner(dictionaryStore.context, { name: registerForm.name, type: props.partnerType })
+    const tp = await registerTradingPartner(tenantStore.context, { name: registerForm.name, type: props.partnerType })
     registerOpen.value = false
     await load()
     toast.add({ severity: 'success', summary: 'Trading partner registered', detail: tp.name, life: 3000 })
@@ -123,7 +121,7 @@ async function submitRegister() {
 
 async function activate(tp) {
   try {
-    await activateTradingPartner(dictionaryStore.context, tp.id)
+    await activateTradingPartner(tenantStore.context, tp.id)
     await load()
     toast.add({ severity: 'success', summary: 'Activated', detail: tp.name, life: 3000 })
   } catch (e) {
@@ -149,7 +147,7 @@ async function submitSuspend() {
   suspendSaving.value = true
   suspendError.value = ''
   try {
-    await suspendTradingPartner(dictionaryStore.context, suspendPartner.value.id, suspendReason.value)
+    await suspendTradingPartner(tenantStore.context, suspendPartner.value.id, suspendReason.value)
     suspendOpen.value = false
     await load()
     toast.add({ severity: 'success', summary: 'Suspended', detail: suspendPartner.value.name, life: 3000 })
@@ -162,7 +160,7 @@ async function submitSuspend() {
 
 async function reactivate(tp) {
   try {
-    await reactivateTradingPartner(dictionaryStore.context, tp.id)
+    await reactivateTradingPartner(tenantStore.context, tp.id)
     await load()
     toast.add({ severity: 'success', summary: 'Reactivated', detail: tp.name, life: 3000 })
   } catch (e) {
@@ -183,13 +181,13 @@ async function onRowExpand(event) {
   expansionLoading.value = { ...expansionLoading.value, [tp.id]: true }
   try {
     const [docs, audit] = await Promise.all([
-      listComplianceDocuments(dictionaryStore.context, tp.id),
-      getTradingPartnerAudit(dictionaryStore.context, tp.id),
+      listComplianceDocuments(tenantStore.context, tp.id),
+      getTradingPartnerAudit(tenantStore.context, tp.id),
     ])
     documentsByPartner.value = { ...documentsByPartner.value, [tp.id]: docs.documents ?? [] }
     auditByPartner.value = { ...auditByPartner.value, [tp.id]: audit.events ?? [] }
     if (tp.type === 'TRANSPORTER') {
-      const fleet = await listFleetAssets(dictionaryStore.context, tp.id)
+      const fleet = await listFleetAssets(tenantStore.context, tp.id)
       fleetAssetsByPartner.value = { ...fleetAssetsByPartner.value, [tp.id]: fleet.fleetAssets ?? [] }
     }
   } catch (e) {
@@ -200,12 +198,12 @@ async function onRowExpand(event) {
 }
 
 async function refreshDocuments(tp) {
-  const docs = await listComplianceDocuments(dictionaryStore.context, tp.id)
+  const docs = await listComplianceDocuments(tenantStore.context, tp.id)
   documentsByPartner.value = { ...documentsByPartner.value, [tp.id]: docs.documents ?? [] }
 }
 
 async function refreshFleetAssets(tp) {
-  const fleet = await listFleetAssets(dictionaryStore.context, tp.id)
+  const fleet = await listFleetAssets(tenantStore.context, tp.id)
   fleetAssetsByPartner.value = { ...fleetAssetsByPartner.value, [tp.id]: fleet.fleetAssets ?? [] }
 }
 
@@ -230,7 +228,7 @@ async function submitAddDocument() {
   addDocSaving.value = true
   addDocError.value = ''
   try {
-    await addComplianceDocument(dictionaryStore.context, addDocPartner.value.id, { type: addDocForm.type, reference: addDocForm.reference })
+    await addComplianceDocument(tenantStore.context, addDocPartner.value.id, { type: addDocForm.type, reference: addDocForm.reference })
     addDocOpen.value = false
     await refreshDocuments(addDocPartner.value)
     toast.add({ severity: 'success', summary: 'Document registered', detail: addDocForm.type, life: 3000 })
@@ -243,7 +241,7 @@ async function submitAddDocument() {
 
 async function approveDoc(tp, doc) {
   try {
-    await approveComplianceDocument(dictionaryStore.context, tp.id, doc.type)
+    await approveComplianceDocument(tenantStore.context, tp.id, doc.type)
     await refreshDocuments(tp)
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed to approve', detail: e.message, life: 5000 })
@@ -252,7 +250,7 @@ async function approveDoc(tp, doc) {
 
 async function rejectDoc(tp, doc) {
   try {
-    await rejectComplianceDocument(dictionaryStore.context, tp.id, doc.type)
+    await rejectComplianceDocument(tenantStore.context, tp.id, doc.type)
     await refreshDocuments(tp)
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed to reject', detail: e.message, life: 5000 })
@@ -261,7 +259,7 @@ async function rejectDoc(tp, doc) {
 
 async function resubmitDoc(tp, doc) {
   try {
-    await resubmitComplianceDocument(dictionaryStore.context, tp.id, doc.type)
+    await resubmitComplianceDocument(tenantStore.context, tp.id, doc.type)
     await refreshDocuments(tp)
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed to resubmit', detail: e.message, life: 5000 })
@@ -292,7 +290,7 @@ async function submitAddFleetAsset() {
   addFleetSaving.value = true
   addFleetError.value = ''
   try {
-    await addFleetAsset(dictionaryStore.context, addFleetPartner.value.id, tenantStore.tenant, { ...addFleetForm })
+    await addFleetAsset(tenantStore.context, addFleetPartner.value.id, tenantStore.tenant, { ...addFleetForm })
     addFleetOpen.value = false
     await refreshFleetAssets(addFleetPartner.value)
     toast.add({ severity: 'success', summary: 'Fleet asset added', detail: addFleetForm.registrationNo, life: 3000 })
@@ -348,12 +346,20 @@ const rowMenuItems = computed(() => {
     <div class="panel-header">
       <span class="panel-title">{{ roleLabel }}s</span>
       <div class="header-actions">
-        <Button icon="pi pi-refresh" text rounded size="small" :loading="loading" aria-label="Refresh" @click="load" />
+        <Button
+          icon="pi pi-refresh"
+          text
+          rounded
+          size="small"
+          :loading="loading"
+          aria-label="Refresh"
+          @click="load"
+        />
         <Button
           :label="`Register ${roleLabel}`"
           icon="pi pi-plus"
           size="small"
-          :disabled="!dictionaryStore.context"
+          :disabled="!tenantStore.context"
           @click="openRegister"
         />
       </div>
@@ -364,10 +370,18 @@ const rowMenuItems = computed(() => {
       <code>TransporterProfileEntity</code>. Context-scoped to the current fleet context, like Ports.
     </p>
 
-    <p v-if="!dictionaryStore.context" class="lab-muted">
-      Select a fleet context above to manage {{ roleLabel.toLowerCase() }}s.
+    <p
+      v-if="!tenantStore.context"
+      class="lab-muted"
+    >
+      Select a tenant and fleet context above to manage {{ roleLabel.toLowerCase() }}s.
     </p>
-    <p v-if="error" class="error-text">{{ error }}</p>
+    <p
+      v-if="error"
+      class="error-text"
+    >
+      {{ error }}
+    </p>
 
     <DataTable
       v-model:expanded-rows="expandedRows"
@@ -381,31 +395,77 @@ const rowMenuItems = computed(() => {
       <template #empty>
         <span class="lab-muted">No {{ roleLabel.toLowerCase() }}s registered in this context yet.</span>
       </template>
-      <Column expander style="width: 2.5rem" />
+      <Column
+        expander
+        style="width: 2.5rem"
+      />
       <template #expansion="{ data: tp }">
         <div class="expansion">
-          <div v-if="expansionLoading[tp.id]" class="lab-muted">Loading…</div>
+          <div
+            v-if="expansionLoading[tp.id]"
+            class="lab-muted"
+          >
+            Loading…
+          </div>
           <template v-else>
             <!-- Compliance documents (BR-TP07-BR-TP11) -->
             <div class="expansion-section">
               <div class="expansion-header">
                 <span class="expansion-title">Compliance Documents</span>
               </div>
-              <DataTable :value="documentsByPartner[tp.id] ?? []" size="small" class="sub-table">
-                <template #empty><span class="lab-muted">No documents registered yet.</span></template>
-                <Column header="Type" field="type" />
+              <DataTable
+                :value="documentsByPartner[tp.id] ?? []"
+                size="small"
+                class="sub-table"
+              >
+                <template #empty>
+                  <span class="lab-muted">No documents registered yet.</span>
+                </template>
+                <Column
+                  header="Type"
+                  field="type"
+                />
                 <Column header="Status">
                   <template #body="{ data: doc }">
-                    <Tag :severity="docStatusSeverity(doc.status)" :value="doc.status" />
+                    <Tag
+                      :severity="docStatusSeverity(doc.status)"
+                      :value="doc.status"
+                    />
                   </template>
                 </Column>
-                <Column header="Reference" field="reference" class="ref-col" />
-                <Column header="" style="width: 14rem">
+                <Column
+                  header="Reference"
+                  field="reference"
+                  class="ref-col"
+                />
+                <Column
+                  header=""
+                  style="width: 14rem"
+                >
                   <template #body="{ data: doc }">
                     <div class="doc-actions">
-                      <Button v-if="doc.status === 'PENDING'" label="Approve" size="small" text @click="approveDoc(tp, doc)" />
-                      <Button v-if="doc.status === 'PENDING'" label="Reject" size="small" text severity="danger" @click="rejectDoc(tp, doc)" />
-                      <Button v-if="doc.status === 'REJECTED'" label="Resubmit" size="small" text @click="resubmitDoc(tp, doc)" />
+                      <Button
+                        v-if="doc.status === 'PENDING'"
+                        label="Approve"
+                        size="small"
+                        text
+                        @click="approveDoc(tp, doc)"
+                      />
+                      <Button
+                        v-if="doc.status === 'PENDING'"
+                        label="Reject"
+                        size="small"
+                        text
+                        severity="danger"
+                        @click="rejectDoc(tp, doc)"
+                      />
+                      <Button
+                        v-if="doc.status === 'REJECTED'"
+                        label="Resubmit"
+                        size="small"
+                        text
+                        @click="resubmitDoc(tp, doc)"
+                      />
                     </div>
                   </template>
                 </Column>
@@ -413,16 +473,37 @@ const rowMenuItems = computed(() => {
             </div>
 
             <!-- Fleet assets (BR-TP12-BR-TP14, Transporter only) -->
-            <div v-if="tp.type === 'TRANSPORTER'" class="expansion-section">
+            <div
+              v-if="tp.type === 'TRANSPORTER'"
+              class="expansion-section"
+            >
               <div class="expansion-header">
                 <span class="expansion-title">Fleet Assets</span>
               </div>
-              <DataTable :value="fleetAssetsByPartner[tp.id] ?? []" size="small" class="sub-table">
-                <template #empty><span class="lab-muted">No fleet assets registered yet.</span></template>
-                <Column header="Registration No" field="registrationNo" />
-                <Column header="Make" field="make" />
-                <Column header="Model" field="model" />
-                <Column header="Vehicle Type" field="vehicleTypeCode" />
+              <DataTable
+                :value="fleetAssetsByPartner[tp.id] ?? []"
+                size="small"
+                class="sub-table"
+              >
+                <template #empty>
+                  <span class="lab-muted">No fleet assets registered yet.</span>
+                </template>
+                <Column
+                  header="Registration No"
+                  field="registrationNo"
+                />
+                <Column
+                  header="Make"
+                  field="make"
+                />
+                <Column
+                  header="Model"
+                  field="model"
+                />
+                <Column
+                  header="Vehicle Type"
+                  field="vehicleTypeCode"
+                />
               </DataTable>
             </div>
 
@@ -431,15 +512,31 @@ const rowMenuItems = computed(() => {
               <div class="expansion-header">
                 <span class="expansion-title">Audit Trail</span>
               </div>
-              <DataTable :value="auditByPartner[tp.id] ?? []" size="small" class="sub-table">
-                <template #empty><span class="lab-muted">No audit events yet.</span></template>
-                <Column header="Action" field="action" />
-                <Column header="Actor" field="actor" />
+              <DataTable
+                :value="auditByPartner[tp.id] ?? []"
+                size="small"
+                class="sub-table"
+              >
+                <template #empty>
+                  <span class="lab-muted">No audit events yet.</span>
+                </template>
+                <Column
+                  header="Action"
+                  field="action"
+                />
+                <Column
+                  header="Actor"
+                  field="actor"
+                />
                 <Column header="Reason">
-                  <template #body="{ data: e }">{{ e.metadata?.reason ?? '' }}</template>
+                  <template #body="{ data: e }">
+                    {{ e.metadata?.reason ?? '' }}
+                  </template>
                 </Column>
                 <Column header="When">
-                  <template #body="{ data: e }">{{ formatDate(e.createdAt) }}</template>
+                  <template #body="{ data: e }">
+                    {{ formatDate(e.createdAt) }}
+                  </template>
                 </Column>
               </DataTable>
             </div>
@@ -447,20 +544,46 @@ const rowMenuItems = computed(() => {
         </div>
       </template>
       <!-- No Type column — every row in this table is the panel's own role. -->
-      <Column header="Name" field="name" />
+      <Column
+        header="Name"
+        field="name"
+      />
       <Column header="Status">
-        <template #body="{ data }"><Tag :severity="statusSeverity(data.status)" :value="data.status" /></template>
-      </Column>
-      <Column header="" style="width: 2.5rem">
         <template #body="{ data }">
-          <Button icon="pi pi-ellipsis-v" text size="small" aria-label="Trading partner actions" @click.stop="openRowMenu($event, data)" />
+          <Tag
+            :severity="statusSeverity(data.status)"
+            :value="data.status"
+          />
+        </template>
+      </Column>
+      <Column
+        header=""
+        style="width: 2.5rem"
+      >
+        <template #body="{ data }">
+          <Button
+            icon="pi pi-ellipsis-v"
+            text
+            size="small"
+            aria-label="Trading partner actions"
+            @click.stop="openRowMenu($event, data)"
+          />
         </template>
       </Column>
     </DataTable>
 
-    <Menu ref="rowMenu" :model="rowMenuItems" popup />
+    <Menu
+      ref="rowMenu"
+      :model="rowMenuItems"
+      popup
+    />
 
-    <Dialog v-model:visible="registerOpen" :header="`Register ${roleLabel}`" modal :style="{ width: '26rem' }">
+    <Dialog
+      v-model:visible="registerOpen"
+      :header="`Register ${roleLabel}`"
+      modal
+      :style="{ width: '26rem' }"
+    >
       <div class="form-field">
         <label for="tp-name">Name</label>
         <InputText
@@ -470,74 +593,181 @@ const rowMenuItems = computed(() => {
           autofocus
         />
       </div>
-      <p v-if="registerError" class="error-text">{{ registerError }}</p>
+      <p
+        v-if="registerError"
+        class="error-text"
+      >
+        {{ registerError }}
+      </p>
       <template #footer>
-        <Button label="Cancel" text @click="registerOpen = false" />
-        <Button label="Register" :loading="registering" :disabled="!registerForm.name" @click="submitRegister" />
+        <Button
+          label="Cancel"
+          text
+          @click="registerOpen = false"
+        />
+        <Button
+          label="Register"
+          :loading="registering"
+          :disabled="!registerForm.name"
+          @click="submitRegister"
+        />
       </template>
     </Dialog>
 
-    <Dialog v-model:visible="suspendOpen" :header="suspendPartner ? `Suspend — ${suspendPartner.name}` : 'Suspend'" modal :style="{ width: '26rem' }">
+    <Dialog
+      v-model:visible="suspendOpen"
+      :header="suspendPartner ? `Suspend — ${suspendPartner.name}` : 'Suspend'"
+      modal
+      :style="{ width: '26rem' }"
+    >
       <div class="form-field">
         <label for="suspend-reason">Reason</label>
-        <Textarea id="suspend-reason" v-model="suspendReason" rows="3" placeholder="Required — recorded in the audit trail" autofocus />
+        <Textarea
+          id="suspend-reason"
+          v-model="suspendReason"
+          rows="3"
+          placeholder="Required — recorded in the audit trail"
+          autofocus
+        />
       </div>
-      <p v-if="suspendError" class="error-text">{{ suspendError }}</p>
+      <p
+        v-if="suspendError"
+        class="error-text"
+      >
+        {{ suspendError }}
+      </p>
       <template #footer>
-        <Button label="Cancel" text @click="suspendOpen = false" />
-        <Button label="Suspend" severity="danger" :loading="suspendSaving" :disabled="!suspendReason" @click="submitSuspend" />
+        <Button
+          label="Cancel"
+          text
+          @click="suspendOpen = false"
+        />
+        <Button
+          label="Suspend"
+          severity="danger"
+          :loading="suspendSaving"
+          :disabled="!suspendReason"
+          @click="submitSuspend"
+        />
       </template>
     </Dialog>
 
-    <Dialog v-model:visible="addDocOpen" :header="addDocPartner ? `Add Document — ${addDocPartner.name}` : 'Add Document'" modal :style="{ width: '26rem' }">
+    <Dialog
+      v-model:visible="addDocOpen"
+      :header="addDocPartner ? `Add Document — ${addDocPartner.name}` : 'Add Document'"
+      modal
+      :style="{ width: '26rem' }"
+    >
       <div class="form-field">
         <label for="doc-type">Type</label>
-        <Select id="doc-type" v-model="addDocForm.type" :options="addDocPartner ? documentTypesFor(addDocPartner.type) : []" />
+        <Select
+          id="doc-type"
+          v-model="addDocForm.type"
+          :options="addDocPartner ? documentTypesFor(addDocPartner.type) : []"
+        />
       </div>
       <div class="form-field">
         <label for="doc-reference">Reference</label>
-        <InputText id="doc-reference" v-model="addDocForm.reference" placeholder="Opaque external document locator" />
+        <InputText
+          id="doc-reference"
+          v-model="addDocForm.reference"
+          placeholder="Opaque external document locator"
+        />
       </div>
-      <p class="lab-muted" style="font-size: 0.8rem; margin: 0">
+      <p
+        class="lab-muted"
+        style="font-size: 0.8rem; margin: 0"
+      >
         Metadata-only in v1 — this is a reference to the document, not a file upload.
       </p>
-      <p v-if="addDocError" class="error-text">{{ addDocError }}</p>
+      <p
+        v-if="addDocError"
+        class="error-text"
+      >
+        {{ addDocError }}
+      </p>
       <template #footer>
-        <Button label="Cancel" text @click="addDocOpen = false" />
-        <Button label="Add" :loading="addDocSaving" :disabled="!addDocForm.type || !addDocForm.reference" @click="submitAddDocument" />
+        <Button
+          label="Cancel"
+          text
+          @click="addDocOpen = false"
+        />
+        <Button
+          label="Add"
+          :loading="addDocSaving"
+          :disabled="!addDocForm.type || !addDocForm.reference"
+          @click="submitAddDocument"
+        />
       </template>
     </Dialog>
 
-    <Dialog v-model:visible="addFleetOpen" :header="addFleetPartner ? `Add Fleet Asset — ${addFleetPartner.name}` : 'Add Fleet Asset'" modal :style="{ width: '28rem' }">
+    <Dialog
+      v-model:visible="addFleetOpen"
+      :header="addFleetPartner ? `Add Fleet Asset — ${addFleetPartner.name}` : 'Add Fleet Asset'"
+      modal
+      :style="{ width: '28rem' }"
+    >
       <div class="form-field">
         <label for="fleet-reg">Registration No</label>
-        <InputText id="fleet-reg" v-model="addFleetForm.registrationNo" placeholder="e.g. CA123456" autofocus />
+        <InputText
+          id="fleet-reg"
+          v-model="addFleetForm.registrationNo"
+          placeholder="e.g. CA123456"
+          autofocus
+        />
       </div>
       <div class="form-grid">
         <div class="form-field">
           <label for="fleet-make">Make</label>
-          <InputText id="fleet-make" v-model="addFleetForm.make" placeholder="e.g. Volvo" />
+          <InputText
+            id="fleet-make"
+            v-model="addFleetForm.make"
+            placeholder="e.g. Volvo"
+          />
         </div>
         <div class="form-field">
           <label for="fleet-model">Model</label>
-          <InputText id="fleet-model" v-model="addFleetForm.model" placeholder="e.g. FH16" />
+          <InputText
+            id="fleet-model"
+            v-model="addFleetForm.model"
+            placeholder="e.g. FH16"
+          />
         </div>
       </div>
       <div class="form-field">
         <label for="fleet-vin">VIN</label>
-        <InputText id="fleet-vin" v-model="addFleetForm.vin" />
+        <InputText
+          id="fleet-vin"
+          v-model="addFleetForm.vin"
+        />
       </div>
       <div class="form-field">
         <label for="fleet-vtc">Vehicle Type Code</label>
-        <InputText id="fleet-vtc" v-model="addFleetForm.vehicleTypeCode" placeholder="e.g. TAUTLINER" />
+        <InputText
+          id="fleet-vtc"
+          v-model="addFleetForm.vehicleTypeCode"
+          placeholder="e.g. TAUTLINER"
+        />
       </div>
-      <p class="lab-muted" style="font-size: 0.8rem; margin: 0">
+      <p
+        class="lab-muted"
+        style="font-size: 0.8rem; margin: 0"
+      >
         Validated against refdata-service's <code>vehicle-type</code> corpus (BR-TP14) via the
         <strong>{{ tenantStore.tenant }}</strong> tenant's NATS connection.
       </p>
-      <p v-if="addFleetError" class="error-text">{{ addFleetError }}</p>
+      <p
+        v-if="addFleetError"
+        class="error-text"
+      >
+        {{ addFleetError }}
+      </p>
       <template #footer>
-        <Button label="Cancel" text @click="addFleetOpen = false" />
+        <Button
+          label="Cancel"
+          text
+          @click="addFleetOpen = false"
+        />
         <Button
           label="Add"
           :loading="addFleetSaving"
