@@ -171,6 +171,13 @@ func (h *Handlers) listKVBuckets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, kvBucketsResponse{Accounts: accounts, Buckets: buckets})
 }
 
+// kvSnapshotFetchBatch is FetchNoWait's per-call page size when draining
+// kvBucketEntriesOnce's ephemeral snapshot consumer — a paging size, not a
+// bound on bucket size: the fetch loop keeps calling FetchNoWait until a
+// batch comes back short of this, so no bucket, however large, is silently
+// truncated (see kvBucketEntriesOnce's fetch loop comment).
+const kvSnapshotFetchBatch = 256
+
 // kvChange is one KV entry as returned by kvBucketEntriesOnce's bootstrap
 // snapshot.
 type kvChange struct {
@@ -215,30 +222,21 @@ func (h *Handlers) kvBucketEntriesOnce(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Open the KV handle to verify the bucket exists and get its Values() count.
-	// This uses STREAM.INFO.* cross-account (singleton response — works fine).
-	kv, err := js.KeyValue(ctx, bucket)
-	if err != nil {
+	// Open the KV handle only to verify the bucket exists — this uses
+	// STREAM.INFO.* cross-account (singleton response — works fine). Its
+	// Status().Values() count is deliberately not read: a count taken here
+	// and a fetch taken below are two separate round-trips, and a write
+	// landing between them would silently truncate the snapshot at
+	// whatever buffer was sized off the stale count. The fetch loop below
+	// instead drains the consumer to genuine exhaustion, so no count is
+	// needed at all.
+	if _, err := js.KeyValue(ctx, bucket); err != nil {
 		if errors.Is(err, jetstream.ErrBucketNotFound) {
 			writeError(w, http.StatusBadRequest, "unknown bucket: "+bucket)
 			return
 		}
 		h.deps.Log.Error("open kv bucket", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	status, err := kv.Status(ctx)
-	if err != nil {
-		h.deps.Log.Error("kv bucket status", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	// Values() is the authoritative current-entry count (excludes DEL markers).
-	// Add a buffer for any outstanding DEL markers not yet reflected in Values().
-	fetchN := int(status.Values()) + 50
-	if fetchN <= 50 {
-		// Bucket is empty; skip consumer creation entirely.
-		writeJSON(w, http.StatusOK, []kvChange{})
 		return
 	}
 
@@ -266,32 +264,48 @@ func (h *Handlers) kvBucketEntriesOnce(w http.ResponseWriter, r *http.Request) {
 		_ = js.DeleteConsumer(context.Background(), streamName, consumerName)
 	}()
 
-	batch, err := cons.FetchNoWait(fetchN)
-	if err != nil {
-		h.deps.Log.Error("kv fetch no wait", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
 	entries := []kvChange{}
-	for msg := range batch.Messages() {
-		kvOp := msg.Headers().Get("KV-Operation")
-		op := "PUT"
-		if kvOp == "DEL" {
-			op = "DEL"
-		} else if kvOp == "PURGE" {
-			op = "PURGE"
+	// FetchNoWait only returns messages already available at the server —
+	// it never blocks or errors for "none right now" (nats.go's pull.go).
+	// Looping it until a batch comes back short of kvSnapshotFetchBatch is
+	// therefore a safe, terminating drain: the consumer's AckNonePolicy +
+	// MaxDeliver:1 + DeliverLastPerSubjectPolicy make each matching
+	// subject's last message deliverable exactly once, so the loop cannot
+	// spin on redelivery. A short batch means the consumer is drained as of
+	// that call, not that the bucket is empty or capped — any entry written
+	// after that point belongs to a later snapshot, not a truncated one.
+	for {
+		batch, err := cons.FetchNoWait(kvSnapshotFetchBatch)
+		if err != nil {
+			h.deps.Log.Error("kv fetch no wait", "err", err)
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
 		}
-		key := strings.TrimPrefix(msg.Subject(), "$KV."+bucket+".")
-		change := kvChange{Key: key, Op: op}
-		if meta, merr := msg.Metadata(); merr == nil {
-			change.Revision = meta.Sequence.Stream
-			change.Created = meta.Timestamp
+
+		n := 0
+		for msg := range batch.Messages() {
+			n++
+			kvOp := msg.Headers().Get("KV-Operation")
+			op := "PUT"
+			if kvOp == "DEL" {
+				op = "DEL"
+			} else if kvOp == "PURGE" {
+				op = "PURGE"
+			}
+			key := strings.TrimPrefix(msg.Subject(), "$KV."+bucket+".")
+			change := kvChange{Key: key, Op: op}
+			if meta, merr := msg.Metadata(); merr == nil {
+				change.Revision = meta.Sequence.Stream
+				change.Created = meta.Timestamp
+			}
+			if op == "PUT" {
+				change.Value = msg.Data()
+			}
+			entries = append(entries, change)
 		}
-		if op == "PUT" {
-			change.Value = msg.Data()
+		if n < kvSnapshotFetchBatch {
+			break
 		}
-		entries = append(entries, change)
 	}
 
 	writeJSON(w, http.StatusOK, entries)

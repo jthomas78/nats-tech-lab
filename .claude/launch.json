@@ -43,6 +43,13 @@
       "cwd": "lab-shell",
       "port": 5176,
       "autoPort": true
+    },
+    {
+      "name": "docs",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "demos/01-dictionary/docs",
+      "port": 7106
     }
   ]
 }

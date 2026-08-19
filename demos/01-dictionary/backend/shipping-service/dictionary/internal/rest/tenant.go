@@ -52,10 +52,18 @@ func discoverTenants(credsDir string) (map[string]natstenants.Credentials, error
 // KV read model and fire notify.* (Phase 15b), regardless of REST's active
 // selection. So every tenant's resources are now created ONCE, the first
 // time that tenant is seen (either at Startup, via EnsureAllTenants, or the
-// first time an operator switches to it), and then kept alive permanently —
-// see ensureTenantResources. SwitchTenant no longer stops or rebuilds
-// anything; it only changes which tenant's *already-running* bundle REST/
-// SSE's Deps fields point at.
+// first time an operator switches to it), and then kept alive permanently.
+//
+// This bundle is R in Handlers.mgr, a shared/natstenants.Manager[R] (an
+// architecture review reversed Phase 35's original call to keep
+// shipping-service off Manager — see natstenants.go's package doc). Manager
+// owns the per-tenant map, the connect/reconnect, and the lifecycle-event
+// subscription that used to live here as ensureTenantResources/
+// subscribeTenantLifecycle; buildTenantResources/teardownTenantResources
+// below are its provision/deprovision callbacks — everything Manager can't
+// know about a tenant's resources without shipping-service telling it.
+// SwitchTenant still never stops or rebuilds anything; it only changes
+// which tenant's *already-running* bundle REST/SSE's Deps fields point at.
 type tenantResources struct {
 	nc                            *nats.Conn
 	js                            jetstream.JetStream
@@ -70,7 +78,7 @@ type tenantResources struct {
 }
 
 // SwitchTenant points REST/SSE's Deps fields at tenant's persistent resource
-// bundle, creating it first via ensureTenantResources if this is the first
+// bundle, creating it first via h.mgr.EnsureByName if this is the first
 // time tenant has ever been seen. See tenantResources's doc comment for why
 // switching is no longer destructive — this never stops or rebuilds
 // anything that already exists, unlike the pre-Phase-15 version of this
@@ -82,26 +90,25 @@ type tenantResources struct {
 // in sync.
 func (h *Handlers) SwitchTenant(ctx context.Context, tenant string) error {
 	prev := h.deps()
-	known, err := discoverTenants(prev.CredsDir)
-	if err != nil {
-		return err
-	}
-	creds, ok := known[tenant]
-	if !ok {
-		return fmt.Errorf("unknown tenant %q", tenant)
-	}
 	if tenant == prev.Tenant && prev.TenantNC != nil && !prev.TenantNC.IsClosed() {
 		return nil // already active; not an error, just a no-op
 	}
 
-	res, err := h.ensureTenantResources(ctx, tenant, creds.CredsPath)
-	if err != nil {
+	// EnsureByName is a no-op (nil error), not an error, for a tenant name
+	// with no creds file — the Resource lookup below is what turns that
+	// into "unknown tenant", same observable failure as the pre-Manager
+	// version's own discoverTenants+lookup.
+	if err := h.mgr.EnsureByName(ctx, tenant); err != nil {
 		return err
 	}
+	res, ok := h.mgr.Resource(tenant)
+	if !ok {
+		return fmt.Errorf("unknown tenant %q", tenant)
+	}
 
-	// Re-read: ensureTenantResources may have just added tenant to the
-	// shared TenantResources map via its own SetDeps — start from that
-	// latest snapshot rather than the possibly-stale prev.
+	// Re-read: h.mgr.EnsureByName may have just run concurrently with
+	// another switch — start from the latest snapshot rather than the
+	// possibly-stale prev.
 	next := h.deps()
 	next.Ships = res.ships
 	next.Containers = res.containers
@@ -117,17 +124,12 @@ func (h *Handlers) SwitchTenant(ctx context.Context, tenant string) error {
 	return nil
 }
 
-// ensureTenantResources returns tenant's persistent resource bundle,
-// creating it on first sight. Idempotent: a tenant already present in
-// TenantResources is returned as-is — no reconnect, no re-registration, and
-// critically no Stop() of anything, since other tenants' browsers may be
-// actively relying on that bundle's api.* adapter and projectors right now.
-func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath string) (*tenantResources, error) {
-	prev := h.deps()
-	if res, ok := prev.TenantResources[tenant]; ok {
-		return res, nil
-	}
-
+// buildTenantResources is Handlers.mgr's provision callback: it builds one
+// tenant's persistent resource bundle over an already-connected,
+// already-lifecycle-subscribed nc. deps supplies the static (never-changing)
+// fields captured at NewHandlers — ShipRepo/ContainerRepo/PortRepo/Ports/Log
+// — since a provision callback has no access to Handlers.deps() done later.
+func buildTenantResources(ctx context.Context, nc *nats.Conn, tenant string, deps Deps) (*tenantResources, error) {
 	// eventhandler.register() and browserrpc's micro.AddService close over this
 	// ctx (or a derived one) for the *entire remaining lifetime of the
 	// process* now — not just until the next switch, since resources here
@@ -140,18 +142,11 @@ func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath 
 	// canceled" and stuck redelivering forever.
 	ctx = context.WithoutCancel(ctx)
 
-	nc, err := nats.Connect(prev.NatsURL, nats.Name("shipping-service"), nats.UserCredentials(credsPath))
-	if err != nil {
-		return nil, fmt.Errorf("connect as tenant %q: %w", tenant, err)
-	}
-
 	js, err := jetstream.New(nc)
 	if err != nil {
-		nc.Close()
 		return nil, fmt.Errorf("jetstream context for tenant %q: %w", tenant, err)
 	}
 	if _, err := jstream.CreateStream(ctx, js, domain.StreamName, domain.StreamSubjects()); err != nil {
-		nc.Close()
 		return nil, fmt.Errorf("create stream for tenant %q: %w", tenant, err)
 	}
 
@@ -162,39 +157,37 @@ func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath 
 	// notify.{context}.kv.{bucket}.{key}.changed instead of the SSE
 	// watchKVBucket handler it replaces.
 	for _, kv := range []*kvstore.Store{kvShips, kvContainers, kvMeta} {
-		kv.EnableNotify(nc, prev.Log)
+		kv.EnableNotify(nc, deps.Log)
 	}
 
-	projectors, err := registerProjectors(ctx, js, kvShips, kvContainers, kvMeta, nc, prev.ShipRepo, prev.ContainerRepo, prev.Log)
+	projectors, err := registerProjectors(ctx, js, kvShips, kvContainers, kvMeta, nc, deps.ShipRepo, deps.ContainerRepo, deps.Log)
 	if err != nil {
-		nc.Close()
 		return nil, fmt.Errorf("register projectors for tenant %q: %w", tenant, err)
 	}
 
 	pub := jstream.NewPublisher(js)
-	ships := commands.NewShipHandler(pub, js, prev.PortRepo)
-	containers := commands.NewContainerHandler(pub, js, prev.PortRepo)
+	ships := commands.NewShipHandler(pub, js, deps.PortRepo)
+	containers := commands.NewContainerHandler(pub, js, deps.PortRepo)
 	terminal := queries.NewTerminal(kvContainers)
 	meta := queries.NewMeta(kvMeta)
-	shipReads := queries.NewShips(kvShips, prev.ShipRepo)
+	shipReads := queries.NewShips(kvShips, deps.ShipRepo)
 
 	rpcAdapter, err := browserrpc.New(nc, browserrpc.Deps{
 		Ships:      ships,
 		Containers: containers,
-		Ports:      prev.Ports, // static: Postgres-backed, not account-scoped — shared across every tenant's adapter
+		Ports:      deps.Ports, // static: Postgres-backed, not account-scoped — shared across every tenant's adapter
 		Terminal:   terminal,
 		Meta:       meta,
 		ShipReads:  shipReads,
-		Log:        prev.Log,
+		Log:        deps.Log,
 		Tenant:     tenant,
 	})
 	if err != nil {
 		stopAll(projectors)
-		nc.Close()
 		return nil, fmt.Errorf("register rpc adapter for tenant %q: %w", tenant, err)
 	}
 
-	res := &tenantResources{
+	return &tenantResources{
 		nc:           nc,
 		js:           js,
 		kvShips:      kvShips,
@@ -207,74 +200,37 @@ func (h *Handlers) ensureTenantResources(ctx context.Context, tenant, credsPath 
 		meta:         meta,
 		projectors:   projectors,
 		rpcAdapter:   rpcAdapter,
-	}
-
-	if err := h.subscribeTenantLifecycle(ctx, nc); err != nil {
-		if err := rpcAdapter.Stop(); err != nil {
-			prev.Log.Error("stop rpc adapter after lifecycle subscribe failure", "tenant", tenant, "err", err)
-		}
-		stopAll(projectors)
-		nc.Close()
-		return nil, fmt.Errorf("subscribe account lifecycle imports for tenant %q: %w", tenant, err)
-	}
-
-	// Copy-on-write into the shared map, re-reading h.deps() rather than
-	// reusing prev — this call may race a sibling ensureTenantResources call
-	// for a DIFFERENT tenant (e.g. EnsureAllTenants looping over several at
-	// once); starting from the latest snapshot avoids one call's map update
-	// clobbering the other's. This is a lab/POC-scale race window (two
-	// tenants first-seen in the same instant), not a hot path.
-	latest := h.deps()
-	newMap := make(map[string]*tenantResources, len(latest.TenantResources)+1)
-	for k, v := range latest.TenantResources {
-		newMap[k] = v
-	}
-	newMap[tenant] = res
-	latest.TenantResources = newMap
-	h.SetDeps(latest)
-
-	return res, nil
+	}, nil
 }
 
-// subscribeTenantLifecycle consumes the imported PLATFORM lifecycle stream
-// through a tenant connection. Each tenant observes the same event, but the
-// Ensure/Teardown operations are idempotent; this keeps the cross-account
-// path entirely in declared imports instead of a second unrestricted creds
-// file on shipping-service. Delegates to shared/natstenants.SubscribeLifecycle
-// (Phase 35) for the subscribe/trace/dispatch machinery — only the
-// Ensure/Teardown callbacks are shipping-service's own.
-func (h *Handlers) subscribeTenantLifecycle(ctx context.Context, nc *nats.Conn) error {
-	return natstenants.SubscribeLifecycle(ctx, nc, h.deps().Log, natstenants.LifecycleHandlers{
-		Ensure:   h.EnsureTenantByName,
-		Teardown: h.TeardownTenantByName,
-	})
-}
-
-// EnsureAllTenants creates persistent resources (see ensureTenantResources)
-// for every tenant currently discoverable in CredsDir that doesn't already
-// have them — called once at Startup so every tenant present at boot gets
-// working rpc.*/notify.* support immediately, not just the one REST starts
-// out active on. A tenant minted later by accounts-service is instead
-// picked up the first time any SwitchTenant call names it (an operator
-// switching REST to it, e.g.) — there is no background poll for newly
-// minted tenants nobody has referenced yet.
-//
-// Failures are logged and skipped per-tenant rather than aborting Startup:
-// one tenant's bad creds file (or a NATS hiccup while dialing it)
-// shouldn't prevent every other tenant, or the service itself, from coming
-// up.
-func (h *Handlers) EnsureAllTenants(ctx context.Context) error {
-	deps := h.deps()
-	known, err := discoverTenants(deps.CredsDir)
-	if err != nil {
-		return err
-	}
-	for tenant, creds := range known {
-		if _, err := h.ensureTenantResources(ctx, tenant, creds.CredsPath); err != nil {
-			h.deps().Log.Error("ensure tenant resources at startup", "tenant", tenant, "err", err)
-		}
+// teardownTenantResources is Handlers.mgr's deprovision callback: it stops
+// res's projectors and rpc adapter. Manager.TeardownByName closes res.nc
+// itself immediately after this returns — that's what actually stops
+// nats.go's reconnect loop against a .creds file accounts-service has
+// already deleted (see ARCHITECTURE-ACCOUNTS.md § 2t-a); stopping the
+// projectors and adapter first isn't strictly required for that (closing nc
+// alone would stop them eventually via read errors), but avoids each one
+// logging a burst of errors against a connection already known to be torn
+// down deliberately.
+func teardownTenantResources(tenant string, res *tenantResources, log *slog.Logger) error {
+	stopAll(res.projectors)
+	if err := res.rpcAdapter.Stop(); err != nil {
+		log.Error("stop rpc adapter during tenant teardown", "tenant", tenant, "err", err)
 	}
 	return nil
+}
+
+// EnsureAllTenants creates persistent resources for every tenant currently
+// discoverable in CredsDir that doesn't already have them — called once at
+// Startup so every tenant present at boot gets working rpc.*/notify.*
+// support immediately, not just the one REST starts out active on. A tenant
+// minted later by accounts-service is instead picked up the first time any
+// SwitchTenant call names it (an operator switching REST to it, e.g.) —
+// there is no background poll for newly minted tenants nobody has
+// referenced yet. Delegates to Handlers.mgr.EnsureAll (shared/natstenants),
+// which already logs and skips per-tenant failures rather than aborting.
+func (h *Handlers) EnsureAllTenants(ctx context.Context) error {
+	return h.mgr.EnsureAll(ctx)
 }
 
 // EnsureTenantByName reactively provisions a single tenant's resources the
@@ -287,48 +243,21 @@ func (h *Handlers) EnsureAllTenants(ctx context.Context) error {
 // the process restarted. Every api.* request in the meantime timed out
 // silently (5s, then swallowed by the browser's own catch), which read as
 // "this tenant has no ships/ports" rather than "not provisioned yet".
-//
-// A no-op, not an error, if tenant isn't yet visible in CredsDir: the creds
-// file write (accounts-service's handler.go createAccount) happens before
-// the notify publish, so this shouldn't race it in practice, but staying
-// defensive means a stray/duplicate delivery can't fail loudly — the next
-// delivery, or an operator's own SwitchTenant, remains a fallback.
+// Delegates to Handlers.mgr.EnsureByName, which is a no-op, not an error,
+// if tenant isn't yet visible in CredsDir — a stray/duplicate delivery
+// can't fail loudly.
 func (h *Handlers) EnsureTenantByName(ctx context.Context, tenant string) error {
-	deps := h.deps()
-	known, err := discoverTenants(deps.CredsDir)
-	if err != nil {
-		return err
-	}
-	creds, ok := known[tenant]
-	if !ok {
-		return nil
-	}
-	_, err = h.ensureTenantResources(ctx, tenant, creds.CredsPath)
-	return err
+	return h.mgr.EnsureByName(ctx, tenant)
 }
 
 // TeardownTenantByName is the mirror of EnsureTenantByName (BR-031;
 // accounts-service's Handlers.publishAccountSuspended, BR-AC09, is the
 // producer) — reacts to a tenant being suspended by stopping that tenant's
-// persistent resource bundle instead of leaving it running (or, worse,
-// leaving nats.go's default reconnect logic retrying forever against a
-// .creds file suspendAccount has already deleted; see
-// ARCHITECTURE-ACCOUNTS.md § 2t-a for the runtime behavior this closes).
-//
-// Explicitly closing res.nc is what actually stops the reconnect loop —
-// NATS force-evicts the connection the instant the account is revoked at
-// the resolver (also documented in § 2t-a), but an evicted connection still
-// retries on its own by default; only an explicit Close() from this side
-// disables that. Stopping the projectors and the browserrpc adapter first
-// is not strictly required for that (closing nc alone would stop them
-// eventually via read errors), but avoids each one logging a burst of
-// errors against a connection this function already knows is being torn
-// down deliberately.
-//
-// A no-op, not an error, if tenant was never provisioned (nothing in
-// TenantResources) or has already been torn down — mirrors
-// EnsureTenantByName's own idempotency, and for the same reason: a stray or
-// duplicate notify.accounts.account.suspended delivery must not fail loudly.
+// persistent resource bundle instead of leaving it running. Delegates to
+// Handlers.mgr.TeardownByName, which deprovisions (see
+// teardownTenantResources) and then closes the tenant's connection — a
+// no-op, not an error, if tenant was never provisioned or has already been
+// torn down.
 //
 // Deliberately does not touch deps.Tenant/TenantNC even if tenant happens to
 // be REST's currently-active tenant — SwitchTenant already does not stop or
@@ -337,34 +266,8 @@ func (h *Handlers) EnsureTenantByName(ctx context.Context, tenant string) error 
 // an operator explicitly selected. A REST/SSE request against a suspended
 // active tenant will simply start failing against the closed connection,
 // which is the correct outcome for a tenant that no longer exists.
-func (h *Handlers) TeardownTenantByName(_ context.Context, tenant string) error {
-	deps := h.deps()
-	res, ok := deps.TenantResources[tenant]
-	if !ok {
-		return nil
-	}
-
-	stopAll(res.projectors)
-	if err := res.rpcAdapter.Stop(); err != nil {
-		deps.Log.Error("stop rpc adapter during tenant teardown", "tenant", tenant, "err", err)
-	}
-	res.nc.Close()
-
-	// Copy-on-write into the shared map, re-reading h.deps() rather than
-	// reusing deps — mirrors ensureTenantResources's own race-avoidance
-	// comment (a sibling Ensure/Teardown call for a DIFFERENT tenant may be
-	// running concurrently).
-	latest := h.deps()
-	newMap := make(map[string]*tenantResources, len(latest.TenantResources))
-	for k, v := range latest.TenantResources {
-		if k != tenant {
-			newMap[k] = v
-		}
-	}
-	latest.TenantResources = newMap
-	h.SetDeps(latest)
-
-	return nil
+func (h *Handlers) TeardownTenantByName(ctx context.Context, tenant string) error {
+	return h.mgr.TeardownByName(ctx, tenant)
 }
 
 // registerProjectors starts the three projector durables against js and

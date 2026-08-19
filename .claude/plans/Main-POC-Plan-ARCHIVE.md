@@ -6340,3 +6340,227 @@ then migrating the `admin` app's Trading Partners section into it (36.2).
       connection code path, not a regression from this change).
 
 ---
+
+## Phase 37 — Completed (archived 2026-08-19)
+
+### Phase 37 (IMPLEMENTED 2026-08-19) — VitePress Documentation Site
+
+> **Numbering note:** the user's original request named this "Phase 36."
+> **36 was not available at the time** — it was a heavily cross-referenced
+> historical number for the NATS server-hop tracing phase (29 → 41 → 36 →
+> 43, see the two renumbering logs near the end of the live plan and
+> `obsidian/V3-Platform/Architecture/Dictionary-POC/images/
+> phase43-trace-the-subject-options.png`, itself renamed off "phase36" in
+> the 2026-08-19 cleanup below). Reusing it here would have collided with
+> that trail. This phase was first proposed as **Phase 46** (the next open
+> number following Phase 45 at the time), per this plan's own established
+> "next available number" convention.
+>
+> **Update 2026-08-19:** every remaining live reference to "Phase 36" for
+> the server-hop tracing phase was updated to cite its current number, 43
+> (BR-042's heading, `ARCHITECTURE-COMMUNICATIONS.md` §6,
+> `ARCHITECTURE-ADMIN.md` §4.5, the image filename above, and the live
+> plan's own memory index) — see the "Renumbering (2026-08-19 — collision
+> cleanup, Phase 36 freed for reuse)" log in the live plan. With that
+> cleanup done, 36 was deliberately reused for a new, unrelated phase —
+> see **Phase 36** (Tech Lab Operator rebrand), archived immediately above
+> in this document.
+>
+> **Update 2026-08-19 (second):** the user then asked to rename this phase
+> from 46 to **37** — the next available number immediately following
+> Phase 36 — and approved it in the same request. See the "Renumbering
+> (2026-08-19 — Phase 46 → Phase 37, approval)" log in the live plan. The
+> phase was implemented immediately after approval; see the Checklist
+> below.
+
+#### Goal
+
+Stand up a VitePress-based documentation site for demo 01, so architecture
+and reference content can be browsed as a real docs site — locally for
+now, publishable online later — rather than only as raw markdown files
+across the repo and the obsidian vault. This phase is tooling/scaffolding;
+it is not a business-rule change, so the "ask for business rules first"
+step of the AI Agent Workflow does not apply — no domain rule is added,
+changed, or enforced by this phase.
+
+#### Design decisions
+
+- **Location & tooling.** New standalone npm project at
+  `demos/01-dictionary/docs/` using VitePress (Vue 3 + Vite) — the `docs/`
+  folder is both the npm project root and the content root (VitePress's
+  own recommended layout: `.vitepress/config.mts` + `package.json` live
+  directly inside it). It does not join `go.work` and is not a Docker
+  service — a standalone frontend-style project, same pattern as
+  `lab-shell/` and the three `frontend/*` apps, each already independent
+  npm projects with their own `package.json`.
+- **Content ownership — fresh, not synced.** `docs/architecture/` is
+  purpose-written content for this site, not a copy, symlink, or
+  build-time sync of `obsidian/V3-Platform/Architecture/Dictionary-POC/`'s
+  `ARCHITECTURE*.md` files. Those files are unchanged by this phase and
+  remain the internal / AI-agent-facing architecture reference per
+  CLAUDE.md's existing "Architecture Docs" section — this phase does not
+  touch that section's policy. The docs site's `architecture/` pages may
+  draw on and summarize that material, but there is no obligation to
+  mirror it 1:1 and no sync mechanism to keep in sync.
+- **Structure.** This phase scaffolds top-level nav sections and
+  landing/index pages; deep content authoring for every page is tracked as
+  follow-up (see checklist) rather than required to complete this phase.
+  See the separate structure proposal shared alongside this plan update
+  for the concrete section breakdown — final nav shape is confirmed once
+  VitePress is actually up and content can be viewed, per the original
+  request ("we can discuss structure in the generated site once support
+  is added").
+- **Port.** `7106` — next free port in the frontend range (7100 Admin UI,
+  7101 Port Management, 7102 Dictionary, 7103–7105 reserved "under
+  review" for NATS UI/NUI/NATS Tower per the existing port table). Add a
+  row to `demos/01-dictionary/README.md`'s port table.
+- **Theme.** Reuse `shared/unifi-theme`'s CSS variables (dark `#131416`
+  background / `#006fff` accent and their light-mode counterparts) by
+  overriding VitePress's own `--vp-c-*` custom properties in a small
+  `.vitepress/theme/` extension of the default theme — this keeps the
+  "one visual identity" rule from CLAUDE.md's "Frontend Design System"
+  section true in substance even though VitePress doesn't consume
+  PrimeVue/AppShell directly (it has its own theming layer, not a
+  PrimeVue app). Layered on top: presentational idioms adapted from
+  `obsidian/Event sourcing/Event Sourcing + CQRS + NATS — Pattern
+  Cards.pdf` (eyebrow/label-caps section headers, a "DECISION"-style
+  callout container, a verdict/summary badge) as custom Markdown
+  containers or small Vue components local to the docs theme — not a
+  second competing palette, just reference-doc-specific layout patterns
+  expressed in UniFi's own colors.
+- **Diagrams.** Reference already-exported PNGs (e.g.
+  `obsidian/V3-Platform/Architecture/Dictionary-POC/images/`) or copy the
+  specific ones needed into `docs/public/`. Raw `.drawio` workbooks are
+  not embedded directly, consistent with how the rest of the repo already
+  treats these exports (`drawio-architecture-drawer` skill).
+- **Hosting/deployment is out of scope for this phase.** No GitHub Pages
+  (or other) deploy workflow is proposed yet — the existing
+  `.github/workflows/seafreight-app.yml` pattern (build-verify only, no
+  deploy step) is the only CI precedent in this repo today. This phase
+  covers local `npm run dev` / `npm run build` only; hosting is a
+  follow-up decision once content has stabilized.
+- **No `docker-compose.yml` change.** This is an authoring/build tool, not
+  a demo-running service — it doesn't need a container the way the
+  backend/frontend demo apps do.
+
+#### Checklist
+
+- [x] Scaffold `demos/01-dictionary/docs/` as a standalone VitePress
+      project (own `package.json`, `.vitepress/config.mts`)
+- [x] Wire `dev`/`build`/`preview` npm scripts; dev server on port `7106`
+- [x] Add the docs site's port to `demos/01-dictionary/README.md`'s port
+      table
+- [x] Custom VitePress theme: override `--vp-c-*` tokens from
+      `shared/unifi-theme` (dark + light)
+- [x] Pattern-Cards-inspired custom containers/components (decision
+      callout, verdict badge, eyebrow label) as local theme
+      components — do not fork them into `shared/unifi-theme` unless a
+      second app needs them
+- [x] Scaffold top-level nav/sidebar structure with landing/index pages
+      per section (see structure proposal) — deep content authoring
+      tracked separately, not required for this phase's completion
+- [x] `architecture/` section: author initial overview page(s); full
+      page-by-page scope confirmed once nav structure is agreed
+- [x] Copy/reference the diagram PNGs the initial content actually needs
+      into `docs/public/`
+- [x] `npm run build` produces a working static site locally; `npm run
+      dev` has no console errors
+- [x] Repo-root or demo-level `README.md` gets a short pointer to the new
+      docs site once it has real content
+
+Live-verified: `npm install`, `npm run build` (clean, no errors), and
+`npm run dev` on port 7106 checked in-browser via the Browser pane — home
+page and `/architecture/` overview render with UniFi dark palette
+(`#131416`/`#006fff`) by default and the light palette (`#f4f5f7`/`#005fdb`)
+on toggle, the "DECISION" custom container and `VerdictBadge` component
+render correctly, the copied `system-architecture-swimlane.png` diagram
+loads, and no console errors were present in either theme.
+
+#### Docker follow-up (same day) — dockerize the docs site
+
+Originally landed as a separate "Phase 38," folded into this phase's own
+record on explicit user request the same day, since it is a direct,
+same-day follow-up on this phase's own scope rather than independent
+work — see the live plan's Phase 37 entry, which carries this same
+folding note.
+
+Bring `demos/01-dictionary/docs/` into `docker-compose.yml` as a
+buildable/runnable service, matching the three existing frontend apps, so
+`docker compose up` alone can also stand up the docs site — for local
+production-style builds and as groundwork for a later real deployment.
+This directly reverses this phase's own "No `docker-compose.yml`
+change... hosting is a follow-up decision" design decision above, on
+explicit user request, after the user asked whether the docs site could
+form part of the docker-compose process and was walked through the
+tradeoff (build-into-local-stack vs. actually publishing online, which
+stays a separate, still-open decision) before approving.
+
+Design decisions:
+
+- **Same containerization pattern as the other three frontends** —
+  `demos/01-dictionary/frontend/{admin,seafreight-app,refdata}/Dockerfile`
+  — a multi-stage build: `node:24-alpine` runs `npm ci && npm run build`,
+  then the static output is copied into an `nginx:1.27-alpine` stage
+  serving on port 80, mapped to host port `7106` (already reserved for
+  this site above).
+- **Self-contained build context — the one deliberate deviation from that
+  pattern.** The three existing frontends build with `context: ../..`
+  (the repo root) because they import `shared/unifi-theme`/`shared/ui-shell`
+  via Vite aliases and need those directories inside the Docker build
+  context. The docs site imports neither — its palette is reproduced
+  locally in `.vitepress/theme/custom.css` (see the Theme design decision
+  above and CLAUDE.md's Frontend Design System "Exception" note) — so
+  `docs/Dockerfile`'s context is `demos/01-dictionary/docs/` itself, and
+  `docker-compose.yml`'s `docs-frontend` service uses `context: ./docs`
+  rather than `context: ../..`.
+- **No `/api/` proxy rules in `nginx.conf`.** Unlike `admin`/`refdata`/
+  `seafreight-app`'s `nginx.conf` (which proxy to backend services), the
+  docs site makes no backend calls at all, so its `nginx.conf` is just a
+  static file server. Correspondingly `docker-compose.yml`'s
+  `docs-frontend` service has no `depends_on`.
+- **Clean-URL fallback, with a real 404 status.** `.vitepress/config.mts`
+  sets `cleanUrls: true`, so the build writes per-page output as e.g.
+  `architecture/accounts.html` (no directory-index form) — nginx needs
+  `try_files $uri $uri.html $uri/index.html` to resolve a direct hit on
+  `/architecture/accounts` to that file, matching VitePress's own
+  documented nginx config for `cleanUrls`. A first pass used a bare
+  `try_files ... /404.html` fallback, which serves the 404 page's content
+  but returns HTTP 200 (a common nginx gotcha) — verified wrong in-browser
+  via `curl`, then fixed with `try_files ... =404;` plus
+  `error_page 404 /404.html; location = /404.html { internal; }`, which
+  preserves the real 404 status while still serving VitePress's built
+  404 page.
+- **Still out of scope: publishing online.** This Docker follow-up only
+  covers building the docs site into the local `docker compose up` demo
+  stack. Actually hosting it somewhere reachable (GitHub Pages or
+  otherwise) remains a separate, unaddressed decision — the "Hosting/
+  deployment is out of scope" design decision above still holds for that
+  half of the question.
+
+Checklist:
+
+- [x] `demos/01-dictionary/docs/Dockerfile` — multi-stage
+      `node:24-alpine` build → `nginx:1.27-alpine` serve, self-contained
+      `docs/`-only build context
+- [x] `demos/01-dictionary/docs/nginx.conf` — clean-URL `try_files`
+      fallback with a proper `error_page 404`
+- [x] `demos/01-dictionary/docs/.dockerignore` — excludes host
+      `node_modules`/`.vitepress/dist`/`.vitepress/cache` from the build
+      context
+- [x] `docker-compose.yml` — new `docs-frontend` service, `context: ./docs`,
+      port `7106:80`, `frontend` network, no `depends_on`
+- [x] `demos/01-dictionary/README.md`'s docs-site section updated to
+      document both ways to run it (local `npm run dev` and
+      `docker compose up`)
+
+Live-verified: `docker compose build docs-frontend` clean; `docker compose
+up -d docs-frontend` then `curl` against the running container — `/` (200),
+a clean URL `/architecture/accounts` (200, response body's `<title>`
+correctly reads "Accounts | Dictionary POC Docs"), the copied
+`system-architecture-swimlane.png` (200), and a nonexistent route `/nope`
+(404 status, VitePress's own 404 page content in the body) all checked
+before and after the `try_files`/`error_page` fix above. Container stopped
+and removed after verification (`docker compose stop docs-frontend &&
+docker compose rm -f docs-frontend`) rather than left running.
+
+---

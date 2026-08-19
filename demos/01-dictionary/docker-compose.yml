@@ -449,6 +449,20 @@ services:
       - refdata-service
       - accounts-service
 
+  docs-frontend:
+    build:
+      # Self-contained build context (see docs/Dockerfile) — unlike the
+      # other frontends, this site imports nothing from shared/unifi-theme
+      # or demos/01-dictionary/shared, so the context is the docs/ dir
+      # itself rather than the repo root.
+      context: ./docs
+      dockerfile: Dockerfile
+    container_name: lb-docs-frontend
+    ports:
+      - "7106:80"
+    networks:
+      - frontend
+
   # Under review — third-party NATS monitoring UI, not part of the demo's
   # own frontend set. Uses the published image directly: the upstream
   # project's own compose file builds from local source (`context: ..`,

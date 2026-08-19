@@ -1,0 +1,60 @@
+/*
+ * UniFi theme tokens (see shared/unifi-theme/unifi.css) mapped onto
+ * VitePress's own --vp-c-* custom properties. VitePress toggles dark mode
+ * via a `.dark` class on <html> (not `.p-dark`, which the PrimeVue apps in
+ * this repo use) — both are driven from the same source palette.
+ */
+
+:root {
+  --vp-c-brand-1: #005fdb;
+  --vp-c-brand-2: #005fdb;
+  --vp-c-brand-3: #0050bb;
+  --vp-c-brand-soft: rgba(0, 95, 219, 0.14);
+
+  --vp-c-bg: #f4f5f7;
+  --vp-c-bg-alt: #ffffff;
+  --vp-c-bg-elv: #ffffff;
+  --vp-c-border: #d1d5db;
+  --vp-c-divider: #d1d5db;
+
+  --lab-accent: #005fdb;
+}
+
+.dark {
+  --vp-c-brand-1: #006fff;
+  --vp-c-brand-2: #006fff;
+  --vp-c-brand-3: #3a95ff;
+  --vp-c-brand-soft: rgba(0, 111, 255, 0.16);
+
+  --vp-c-bg: #131416;
+  --vp-c-bg-alt: #131416;
+  --vp-c-bg-elv: #1c1d1f;
+  --vp-c-border: #2c3138;
+  --vp-c-divider: #2c3138;
+
+  --lab-accent: #006fff;
+}
+
+/* "DECISION"-style callout, adapted from the Event Sourcing + CQRS + NATS
+ * Pattern Cards (obsidian/Event sourcing/...). */
+.decision-callout {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--vp-c-border);
+  border-left: 3px solid var(--lab-accent);
+  border-radius: 4px;
+  background: var(--vp-c-bg-alt);
+}
+
+.decision-callout-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lab-accent);
+}
+
+.decision-callout > :last-child {
+  margin-bottom: 0;
+}

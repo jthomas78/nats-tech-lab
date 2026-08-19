@@ -30,6 +30,7 @@
 package rest
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -42,6 +43,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/queries"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
+	"github.com/jthomas78/nats-tech-lab/shared/natstenants"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -60,14 +62,14 @@ type errorResponse struct {
 // once at Startup and never change. Ships, Containers, ShipReads,
 // Terminal, Meta, KVCont, KVMeta, JS, TenantNC, and Tenant mirror
 // whichever tenant is currently REST/SSE's active selection — SwitchTenant
-// points all of them at that tenant's persistent bundle (TenantResources,
-// Phase 15, see tenant.go's tenantResources doc comment) and replaces the
-// whole struct atomically via Handlers.SetDeps, so no request ever observes
-// a half-swapped mix of old and new tenant resources. Unlike before Phase
-// 15, switching away from a tenant no longer stops or discards anything —
-// every tenant's own bundle in TenantResources keeps running so its
-// api.*/notify.* traffic keeps working regardless of which tenant these
-// mirror fields currently point at.
+// points all of them at that tenant's persistent bundle (held by
+// Handlers.mgr, a shared/natstenants.Manager — see tenant.go's
+// tenantResources doc comment) and replaces the whole struct atomically via
+// Handlers.SetDeps, so no request ever observes a half-swapped mix of old
+// and new tenant resources. Unlike before Phase 15, switching away from a
+// tenant no longer stops or discards anything — every tenant's own bundle
+// in Handlers.mgr keeps running so its api.*/notify.* traffic keeps working
+// regardless of which tenant these mirror fields currently point at.
 type Deps struct {
 	Ships      *commands.ShipHandler
 	Containers *commands.ContainerHandler
@@ -83,22 +85,16 @@ type Deps struct {
 
 	// Tenant-switch plumbing (Phase 13b) — shipping-service only; refdata-service
 	// stays on PLATFORM (see Main-POC-Plan.md Phase 13b, cost #3).
-	Tenant   string     // currently active tenant account name (which TenantResources entry REST/SSE fields below mirror)
-	TenantNC *nats.Conn // the active tenant's connection — mirrors TenantResources[Tenant].nc, never drained (Phase 15, see tenant.go's tenantResources doc comment)
-	// TenantResources holds every tenant's persistent connection, JetStream
-	// context, KV stores, command/query handlers, durable projectors, and
-	// browserrpc.Adapter (Phase 15a, renamed from natsrpc in Phase 16b) —
-	// keyed by tenant name, created once via tenant.go's
-	// ensureTenantResources and never torn down. SwitchTenant only changes
-	// which entry the Ships/Containers/ShipReads/.../JS/TenantNC fields above
-	// mirror; every other tenant's bundle keeps running so its
-	// browser-facing api.*/notify.* traffic keeps working regardless of
-	// which single tenant REST/SSE currently has active.
-	TenantResources map[string]*tenantResources
-	ShipRepo        domain.ShipRepository      // static: Postgres, not account-scoped
-	ContainerRepo   domain.ContainerRepository // static: Postgres, not account-scoped
-	PortRepo        domain.PortRepository      // static: Postgres, not account-scoped
-	NatsURL         string                     // static: dial target for SwitchTenant's reconnect
+	Tenant        string                     // currently active tenant account name (which tenant's Manager-held bundle REST/SSE fields below mirror)
+	TenantNC      *nats.Conn                 // the active tenant's connection — mirrors that tenant's tenantResources.nc, never drained (Phase 15, see tenant.go's tenantResources doc comment)
+	ShipRepo      domain.ShipRepository      // static: Postgres, not account-scoped
+	ContainerRepo domain.ContainerRepository // static: Postgres, not account-scoped
+	PortRepo      domain.PortRepository      // static: Postgres, not account-scoped
+	// NatsURL is a dial target read once, at NewHandlers, to construct
+	// Handlers.mgr (shared/natstenants.Manager) — every tenant connection
+	// it makes for SwitchTenant/EnsureAllTenants/EnsureTenantByName dials
+	// this same URL, never re-read afterward.
+	NatsURL string
 	// CredsDir replaces Phase 13b's static TenantCreds map (Phase 14b): the
 	// shared nats-creds volume accounts-service also writes into. Scanned
 	// fresh on every GET /api/tenant and every switch (see tenant.go's
@@ -110,11 +106,25 @@ type Deps struct {
 
 type Handlers struct {
 	depsPtr atomic.Pointer[Deps]
+	// mgr holds every tenant's persistent connection + tenantResources
+	// bundle (shared/natstenants.Manager, Phase 35 extraction — see
+	// tenant.go's tenantResources doc comment for why shipping-service
+	// adopted it). Built once in NewHandlers from Deps' static NatsURL/
+	// CredsDir/Log/repositories; never swapped, unlike depsPtr.
+	mgr *natstenants.Manager[*tenantResources]
 }
 
 func NewHandlers(deps Deps) *Handlers {
 	h := &Handlers{}
 	h.depsPtr.Store(&deps)
+	h.mgr = natstenants.NewManager(deps.NatsURL, deps.CredsDir, "shipping-service", deps.Log,
+		func(ctx context.Context, nc *nats.Conn, tenant string) (*tenantResources, error) {
+			return buildTenantResources(ctx, nc, tenant, deps)
+		},
+		func(tenant string, res *tenantResources) error {
+			return teardownTenantResources(tenant, res, deps.Log)
+		},
+	)
 	return h
 }
 

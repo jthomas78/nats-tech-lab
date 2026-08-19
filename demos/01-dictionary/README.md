@@ -50,6 +50,18 @@ aggregates. See [BUSINESS_RULES.md](BUSINESS_RULES.md) for BR-001 … BR-015.
 | Port Management | http://localhost:7101 | One port at a time: terminal yard, docked ships + manifests, container operations |
 | Tech Lab Operator | http://localhost:7102 | Reference-data admin: type navigator, item grid, localization/reference editor, locales panel, cache status widget (Phase 11) |
 
+## Docs site (Phase 37)
+
+A browsable VitePress docs site lives at `docs/`, covering architecture
+content (CQRS shapes, dictionary, communications, accounts, admin,
+platform) as a real site rather than raw markdown. Two ways to run it:
+
+- **Local dev** — `npm install && npm run dev` from `docs/` for
+  http://localhost:7106 with hot reload.
+- **`docker compose up`** — the `docs-frontend` service builds the static
+  site and serves it via nginx, same as the other three frontends, also
+  on http://localhost:7106.
+
 ## Dictionary as a Service (Phase 11)
 
 A **separate service** (`backend/refdata-service/`, its own Postgres schema and container) providing
@@ -119,6 +131,7 @@ re-export the whole retained hour on the next start instead.
 | NATS UI (under review)| http://localhost:7103                                        |
 | NUI (under review)    | http://localhost:7104                                        |
 | NATS Tower (under review) | http://localhost:7105                                    |
+| Docs (VitePress)      | http://localhost:7106                                        |
 | Swagger UI (backend)  | http://localhost:7200/swagger/                              |
 | Backend API           | http://localhost:7200                                       |
 | Swagger UI (refdata)  | http://localhost:7201/swagger/                              |

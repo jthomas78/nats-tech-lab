@@ -35,6 +35,7 @@ nats-tech-lab/
         admin/           # Vue 3 architecture/demo UI
         seafreight-app/  # Vue 3 ship/terminal operations UI
         refdata/         # Vue 3 dictionary/reference-data admin UI (Phase 11)
+      docs/              # VitePress docs site — architecture/reference content as a browsable site (Phase 37)
 	  docker-compose.yml  # Postgres + NATS + shipping-service + refdata-service + all three frontends
       README.md           # Intro text shown in lab shell
   obsidian/
@@ -82,6 +83,44 @@ around it.
   same way the existing four already do — it does not hand-roll its own
   topbar/sidebar markup. `shared/unifi-theme/app-shell-reference.html`
   remains the static visual reference the component is built from.
+- **Exception — `demos/01-dictionary/docs/` (VitePress, Phase 37).**
+  VitePress has its own theming layer, not a PrimeVue app, so this site
+  does not import `@unifi-theme`/`@ui-shell` the way the four apps above
+  do. It still must not invent an unrelated palette: reuse the same
+  colors by overriding VitePress's own `--vp-c-*` custom properties in
+  `.vitepress/theme/custom.css` (see that file for the mapping — dark
+  `#131416`/`#006fff`, light `#f4f5f7`/`#005fdb`). Presentational idioms
+  from `obsidian/Event sourcing/Event Sourcing + CQRS + NATS — Pattern
+  Cards.pdf` (eyebrow labels, a "DECISION" callout container, verdict
+  badges) live as local theme components/containers in
+  `.vitepress/theme/`, not forked into `shared/unifi-theme/` unless a
+  second app needs them.
+
+### Generated reports, sketches, and diagrams
+
+The same override applies to one-off generated artifacts that aren't live
+app UI — architecture review reports (e.g. the
+`mattpocock-skills:improve-codebase-architecture` command's HTML output),
+ad hoc HTML sketches, and drawio diagrams (see the
+`drawio-architecture-drawer` skill, which already applies this palette to
+`.drawio` exports). **Ignore a skill's own default styling guidance (light
+backgrounds, stone/slate neutrals, emerald/indigo accents, etc.) in favor of
+the dark UniFi palette below** — do not default to that skill's built-in
+report/sketch theme.
+
+- Canvas / page background: `#131416` (matches `shared/unifi-theme/unifi.css`'s
+  `--lab-bg`; `drawio-architecture-drawer` uses `#14171B` for diagram canvases
+  specifically — either is acceptable, don't mix both in one document)
+- Panels / cards: `#1A1E23`
+- Primary accent (UI and service nodes, links, primary badges): `#006FFF`
+- Authoritative-data accent (e.g. Postgres/source-of-truth nodes): `#27C07F`
+- Lane, lifeline, and border strokes: `#4A515B`
+- Primary text: `#DEE0E3`
+- Secondary/muted text: `#B7BCC2`
+- Warning / fallback accent: `#9A7B1E`
+- Typography: Inter (fall back to `-apple-system, 'Segoe UI', Roboto,
+  'Helvetica Neue', Arial, sans-serif`), 13px body / 20px line-height,
+  matching `shared/unifi-theme/unifi.css`.
 
 ## Obsidian Vault (`obsidian/POC-Dictionaries/`)
 

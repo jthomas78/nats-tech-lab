@@ -14,20 +14,28 @@
 // means: a bare browserrpc.Adapter (pricing, refdata), an
 // Adapter+refdataclient.Client pair built in two passes because of a
 // dependency-cycle constraint (trading-partner-service, BR-TP14), or a
-// JetStream stream + three KV buckets + projectors + Adapter, entangled
-// with a REST "active tenant" switch (shipping-service). Manager is generic
-// over that resource type (R) via provision/deprovision callbacks, so this
-// package never imports any service's browserrpc or domain types — the
-// direction of dependency is service -> shared/natstenants, never the
-// reverse (mirrors shared/browserrpc's own rule).
+// JetStream stream + three KV buckets + projectors + Adapter (shipping-
+// service). Manager is generic over that resource type (R) via
+// provision/deprovision callbacks, so this package never imports any
+// service's browserrpc or domain types — the direction of dependency is
+// service -> shared/natstenants, never the reverse (mirrors
+// shared/browserrpc's own rule).
 //
-// shipping-service's per-tenant JetStream/KV provisioning and its REST
-// SwitchTenant/getTenant "active tenant" concept are NOT part of this
-// package and stay in shipping-service — only its connection lifecycle
-// (Discover + the lifecycle-event subscription wiring) is shared, via the
-// package-level Discover/SubscribeLifecycle functions rather than the full
-// Manager, since shipping-service already owns an equivalent per-tenant map
-// of its own (Deps.TenantResources) that Manager would only duplicate.
+// shipping-service's REST SwitchTenant/getTenant "active tenant" concept is
+// NOT part of this package and stays in shipping-service — Manager has no
+// notion of a single "current" tenant, only a keyed store every caller
+// addresses by name. At Phase 35's extraction, shipping-service was kept off
+// Manager entirely: its bundle was assumed too entangled with that active-
+// tenant switch to separate, and it already carried an equivalent per-tenant
+// map of its own (Deps.TenantResources) that Manager would only duplicate.
+// A later architecture review re-examined that call: Manager places no
+// interface constraint on R, so the richer JetStream/KV/projector/Adapter
+// bundle fits it directly, and the "active tenant" pointer turned out to be
+// a thin, cleanly separable layer on top of a keyed store — exactly what
+// Manager already provides — rather than something entangled with it. That
+// review's conclusion stands: shipping-service now uses Manager[R] the same
+// as the other three services (Deps.TenantResources is gone); this
+// package's shape didn't need to change to accommodate it.
 package natstenants
 
 import (

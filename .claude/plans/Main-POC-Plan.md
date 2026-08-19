@@ -487,6 +487,47 @@ rationale or checklist detail).
 
 ---
 
+### Phase 37 — Completed (archived 2026-08-19)
+
+Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
+(not read into context by default — open only when you need original
+rationale or checklist detail).
+
+- [x] Phase 37 (IMPLEMENTED 2026-08-19) — VitePress Documentation Site:
+      first proposed as Phase 46, renamed to 37 and approved in the same
+      request; scaffolded a standalone VitePress project at
+      `demos/01-dictionary/docs/` (port 7106) with a custom theme
+      overriding VitePress's `--vp-c-*` tokens to the UniFi palette, a
+      Pattern-Cards-inspired "DECISION" custom container plus
+      `EyebrowLabel`/`VerdictBadge` components, nav/sidebar with landing
+      pages for the Architecture section (CQRS Shapes, Dictionary,
+      Communications, Accounts, Admin, Platform), and the
+      `system-architecture-swimlane.png` diagram copied into
+      `docs/public/`. Live-verified in-browser: `npm run build` clean,
+      `npm run dev` no console errors, both light and dark palettes render
+      correctly.
+- [x] Phase 37 follow-up, same day — dockerized the docs site: reverses
+      this phase's own original "no `docker-compose.yml` change, hosting
+      out of scope" design decision, on direct user request. Added
+      `demos/01-dictionary/docs/Dockerfile` (multi-stage `node:24-alpine`
+      build → `nginx:1.27-alpine` static serve, same pattern as the three
+      existing frontend Dockerfiles but with a self-contained build
+      context — this site imports nothing from `shared/unifi-theme`, so
+      unlike the other three the build context is `docs/` itself, not the
+      repo root) and `nginx.conf` (clean-URL `try_files` fallback plus a
+      proper `error_page 404` so direct hits on VitePress's per-page
+      `.html` output resolve, and 404s return a real 404 status instead of
+      200). Added a `docs-frontend` service to `docker-compose.yml`
+      (port `7106:80`, no `depends_on` — the site makes no backend calls).
+      Only covers building the docs site into the local demo stack;
+      publishing it online (GitHub Pages etc.) remains a separate,
+      still-unaddressed decision. Live-verified: `docker compose build
+      docs-frontend` clean, container serves `/` (200), a clean URL
+      `/architecture/accounts` (200, correct page title), a real 404 route
+      (404 status, VitePress's own 404 page content), and the copied
+      diagram PNG (200); container stopped/removed after verification.
+
+---
 
 ### Phase 40 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning
 
@@ -861,126 +902,6 @@ rationale or checklist detail).
       gated name-filter search shown only past 3 accounts (BR-034 amended,
       BR-043/BR-044 added). Live-verified against the real ring buffer;
       `go build`/tests and frontend build/Vitest green.
-
----
-
-### Phase 46 (PROPOSED — awaiting approval) — VitePress Documentation Site
-
-> **Numbering note:** the user's original request named this "Phase 36."
-> **36 was not available at the time** — it was a heavily cross-referenced
-> historical number for the NATS server-hop tracing phase (29 → 41 → 36 →
-> 43, see the two renumbering logs near the end of this document and
-> `obsidian/V3-Platform/Architecture/Dictionary-POC/images/
-> phase43-trace-the-subject-options.png`, itself renamed off "phase36" in
-> the 2026-08-19 cleanup below). Reusing it here would have collided with
-> that trail. 46 is the next open number following Phase 45, per this
-> plan's own established "next available number" convention.
->
-> **Update 2026-08-19:** every remaining live reference to "Phase 36" for
-> the server-hop tracing phase was updated to cite its current number, 43
-> (BR-042's heading, `ARCHITECTURE-COMMUNICATIONS.md` §6,
-> `ARCHITECTURE-ADMIN.md` §4.5, the image filename above, and this plan's
-> own memory index) — see the "Renumbering (2026-08-19 — collision cleanup,
-> Phase 36 freed for reuse)" log below. With that cleanup done, 36 was
-> deliberately reused for a new, unrelated phase — see **Phase 36** later
-> in this document (Tech Lab Operator rebrand). This VitePress phase stays
-> at 46; only the *reason* 36 was off-limits at the time this note was
-> written is now historical.
-
-#### Goal
-
-Stand up a VitePress-based documentation site for demo 01, so architecture
-and reference content can be browsed as a real docs site — locally for
-now, publishable online later — rather than only as raw markdown files
-across the repo and the obsidian vault. This phase is tooling/scaffolding;
-it is not a business-rule change, so the "ask for business rules first"
-step of the AI Agent Workflow does not apply — no domain rule is added,
-changed, or enforced by this phase.
-
-#### Design decisions
-
-- **Location & tooling.** New standalone npm project at
-  `demos/01-dictionary/docs/` using VitePress (Vue 3 + Vite) — the `docs/`
-  folder is both the npm project root and the content root (VitePress's
-  own recommended layout: `.vitepress/config.mts` + `package.json` live
-  directly inside it). It does not join `go.work` and is not a Docker
-  service — a standalone frontend-style project, same pattern as
-  `lab-shell/` and the three `frontend/*` apps, each already independent
-  npm projects with their own `package.json`.
-- **Content ownership — fresh, not synced.** `docs/architecture/` is
-  purpose-written content for this site, not a copy, symlink, or
-  build-time sync of `obsidian/V3-Platform/Architecture/Dictionary-POC/`'s
-  `ARCHITECTURE*.md` files. Those files are unchanged by this phase and
-  remain the internal / AI-agent-facing architecture reference per
-  CLAUDE.md's existing "Architecture Docs" section — this phase does not
-  touch that section's policy. The docs site's `architecture/` pages may
-  draw on and summarize that material, but there is no obligation to
-  mirror it 1:1 and no sync mechanism to keep in sync.
-- **Structure.** This phase scaffolds top-level nav sections and
-  landing/index pages; deep content authoring for every page is tracked as
-  follow-up (see checklist) rather than required to complete this phase.
-  See the separate structure proposal shared alongside this plan update
-  for the concrete section breakdown — final nav shape is confirmed once
-  VitePress is actually up and content can be viewed, per the original
-  request ("we can discuss structure in the generated site once support
-  is added").
-- **Port.** `7106` — next free port in the frontend range (7100 Admin UI,
-  7101 Port Management, 7102 Dictionary, 7103–7105 reserved "under
-  review" for NATS UI/NUI/NATS Tower per the existing port table). Add a
-  row to `demos/01-dictionary/README.md`'s port table.
-- **Theme.** Reuse `shared/unifi-theme`'s CSS variables (dark `#131416`
-  background / `#006fff` accent and their light-mode counterparts) by
-  overriding VitePress's own `--vp-c-*` custom properties in a small
-  `.vitepress/theme/` extension of the default theme — this keeps the
-  "one visual identity" rule from CLAUDE.md's "Frontend Design System"
-  section true in substance even though VitePress doesn't consume
-  PrimeVue/AppShell directly (it has its own theming layer, not a
-  PrimeVue app). Layered on top: presentational idioms adapted from
-  `obsidian/Event sourcing/Event Sourcing + CQRS + NATS — Pattern
-  Cards.pdf` (eyebrow/label-caps section headers, a "DECISION"-style
-  callout container, a verdict/summary badge) as custom Markdown
-  containers or small Vue components local to the docs theme — not a
-  second competing palette, just reference-doc-specific layout patterns
-  expressed in UniFi's own colors.
-- **Diagrams.** Reference already-exported PNGs (e.g.
-  `obsidian/V3-Platform/Architecture/Dictionary-POC/images/`) or copy the
-  specific ones needed into `docs/public/`. Raw `.drawio` workbooks are
-  not embedded directly, consistent with how the rest of the repo already
-  treats these exports (`drawio-architecture-drawer` skill).
-- **Hosting/deployment is out of scope for this phase.** No GitHub Pages
-  (or other) deploy workflow is proposed yet — the existing
-  `.github/workflows/seafreight-app.yml` pattern (build-verify only, no
-  deploy step) is the only CI precedent in this repo today. This phase
-  covers local `npm run dev` / `npm run build` only; hosting is a
-  follow-up decision once content has stabilized.
-- **No `docker-compose.yml` change.** This is an authoring/build tool, not
-  a demo-running service — it doesn't need a container the way the
-  backend/frontend demo apps do.
-
-#### Checklist
-
-- [ ] Scaffold `demos/01-dictionary/docs/` as a standalone VitePress
-      project (own `package.json`, `.vitepress/config.mts`)
-- [ ] Wire `dev`/`build`/`preview` npm scripts; dev server on port `7106`
-- [ ] Add the docs site's port to `demos/01-dictionary/README.md`'s port
-      table
-- [ ] Custom VitePress theme: override `--vp-c-*` tokens from
-      `shared/unifi-theme` (dark + light)
-- [ ] Pattern-Cards-inspired custom containers/components (decision
-      callout, verdict badge, eyebrow label) as local theme
-      components — do not fork them into `shared/unifi-theme` unless a
-      second app needs them
-- [ ] Scaffold top-level nav/sidebar structure with landing/index pages
-      per section (see structure proposal) — deep content authoring
-      tracked separately, not required for this phase's completion
-- [ ] `architecture/` section: author initial overview page(s); full
-      page-by-page scope confirmed once nav structure is agreed
-- [ ] Copy/reference the diagram PNGs the initial content actually needs
-      into `docs/public/`
-- [ ] `npm run build` produces a working static site locally; `npm run
-      dev` has no console errors
-- [ ] Repo-root or demo-level `README.md` gets a short pointer to the new
-      docs site once it has real content
 
 ---
 
@@ -1620,6 +1541,34 @@ Cross-reference sweep (same commit):
       every prior entry in this log.
 - [x] No other `grep -r "Phase 36\|phase36"` hits remain outside this log's
       own history and the new Phase 36 section below.
+
+## Renumbering (2026-08-19 — Phase 46 → Phase 37, approval)
+
+**Why:** the user asked to rename the VitePress Documentation Site phase
+from 46 to 37 and approve it in the same request. 37 was free — a genuine
+gap left by the 2026-08-18 renumbering ("close the 36–39 gap") that was
+never actually filled, and `grep -rn "Phase 37"` across the repo returned
+no hits before this move, so unlike Phase 36 there was no historical
+cross-reference trail to collide with. Moved the section to sit
+immediately after Phase 36, ahead of Phase 40, so phase numbers still read
+ascending top-to-bottom. The status also changed from PROPOSED to
+**APPROVED**, and its checklist is now underway.
+
+| Was | Now |
+|---|---|
+| Phase 46 (PROPOSED — awaiting approval) — VitePress Documentation Site | **Phase 37** (APPROVED) |
+
+Cross-reference sweep (same commit):
+
+- [x] Main plan internal references — the prior renumbering tables above
+      document those events and are left untouched on purpose, same
+      reasoning as every prior entry in this log.
+- [x] Section physically moved (not just renumbered in place) to sit
+      immediately after Phase 36, ahead of Phase 40.
+- [x] `grep -rn "Phase 46"` outside this document — no hits found; the
+      phase was never implemented, so no code, `BUSINESS_RULES-*.md`, or
+      architecture doc ever cited it.
+- [x] `.claude/memory/` — no "Phase 46" references found.
 
 ---
 

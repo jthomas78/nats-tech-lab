@@ -3,6 +3,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -167,6 +168,57 @@ func TestKVBucketEntriesOnceReturnsSnapshot(t *testing.T) {
 	}
 	if byKey["key.one"].Op != "PUT" {
 		t.Errorf("expected op PUT, got %s", byKey["key.one"].Op)
+	}
+}
+
+// TestKVBucketEntriesOnceDrainsBeyondOneFetchBatch is the regression guard
+// for the fix to kvBucketEntriesOnce's old fetchN := Values()+50 guess: two
+// separate round-trips (a Status() count, then a single fixed-size
+// FetchNoWait) meant a bucket bigger than expected — or one written to
+// between those round-trips — could be silently truncated. A bucket sized
+// past kvSnapshotFetchBatch must still come back in full, proving the fetch
+// loop keeps calling FetchNoWait across multiple rounds until genuinely
+// drained rather than capping out at a single batch.
+func TestKVBucketEntriesOnceDrainsBeyondOneFetchBatch(t *testing.T) {
+	nc, cleanup := newTestNATS(t)
+	defer cleanup()
+
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatalf("jetstream.New: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	kv, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "ships"})
+	if err != nil {
+		t.Fatalf("create kv bucket: %v", err)
+	}
+
+	const total = kvSnapshotFetchBatch + 44 // spans more than one fetch round
+	for i := 0; i < total; i++ {
+		key := fmt.Sprintf("key.%03d", i)
+		if _, err := kv.Put(ctx, key, []byte(`{"v":"x"}`)); err != nil {
+			t.Fatalf("put %s: %v", key, err)
+		}
+	}
+
+	h := New(Deps{NC: nc, Log: discardLogger(), Accounts: &AccountsClient{}})
+	req := httptest.NewRequest(http.MethodGet, "/api/kv/buckets/platform/ships/entries", nil)
+	req.SetPathValue("account", "platform")
+	req.SetPathValue("bucket", "ships")
+	w := httptest.NewRecorder()
+
+	h.kvBucketEntriesOnce(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var entries []kvChange
+	if err := json.Unmarshal(w.Body.Bytes(), &entries); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(entries) != total {
+		t.Fatalf("expected all %d entries across multiple fetch rounds, got %d", total, len(entries))
 	}
 }
 
