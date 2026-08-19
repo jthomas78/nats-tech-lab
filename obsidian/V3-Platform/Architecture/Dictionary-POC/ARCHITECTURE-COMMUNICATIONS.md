@@ -777,8 +777,10 @@ shows otherwise.
 > flat message log into a trace. In the second table the **gaps matter more
 > than the coverage** — an `rpc.*` call that times out currently produces no
 > record at either end, from either side. `SERVER` rows need no service code at
-> all (Phase 36, renumbered 2026-08-17 from Phase 29 to Phase 41, then
-> 2026-08-18 to Phase 36 — still not started).
+> all (Phase 43, renumbered 2026-08-17 from Phase 29 to Phase 41, then
+> 2026-08-18 to Phase 36, then 2026-08-18 again to Phase 43 when the design
+> gate deferred implementation pending further research — still not
+> started. Phase 36 has since been freed and reused for an unrelated phase.)
 > Editable source:
 > [admin-traces-panel.html](../../../../demos/01-dictionary/diagrams/admin-traces-panel.html),
 > re-exported with `--clip="section.cap"`.

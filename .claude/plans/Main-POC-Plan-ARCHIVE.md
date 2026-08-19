@@ -5813,3 +5813,304 @@ three `TraceWaterfall.spec.js` specs ("marks a crossing...", the Phase 28k
 and Phase 28m ordering specs) fail on `main` before this phase's changes too
 (confirmed by stashing this phase's `TraceWaterfall.vue` edit and
 re-running) — not fixed here, out of scope for this phase.
+
+---
+
+### Phase 31 (IMPLEMENTED 2026-08-17) — Consolidate to Shape B: Retire Shapes A and C
+
+#### Goal
+
+The POC's founding question was which CQRS read-model shape to build V3 on, so
+three were built side by side: **Shape A** (KV as the read model), **Shape B**
+(Postgres projection + KV write-through cache), **Shape C** (event-sourced
+reconstruction from JetStream replay). That question is now answered —
+**Shape B is the chosen shape** — and the other two have stopped being evidence
+and started being maintenance: three projector durables where one is needed,
+three query types over the same aggregates, and a comparison UI whose only
+purpose was the comparison.
+
+This phase retires Shapes A and C. It is deliberately sequenced **first** in the
+REST→NATS group (Phases 31–34) because everything downstream inherits less
+surface: one shape's read paths to migrate off REST instead of three.
+
+**This is not a pure deletion — that is the trap.** Shape A owns two
+*production* browser paths, both of which must move to Shape B before anything
+is deleted:
+
+| Shape-A-owned | Consumed by | Symptom if deleted naively |
+|---|---|---|
+| `publishNotify`/`publishRawNotify` for `entity="ship"` — fired **only** from `RegisterShapeA` (`eventhandler/handler.go:53,56`); `RegisterShapeB` explicitly does not publish | Sea Freight Flow live fleet updates (`seafreight-app/src/stores/port.js`), Admin raw-watch panel | Ship rows silently go stale until page reload |
+| `queries.ShapeA.ListShips` (reads the `dict-a` bucket) — backs `api.*.shipping.ship.list.v1` (`browserrpc/adapter.go:318-335`) | Sea Freight Flow bootstrap and reconnect (`seafreight-app/src/api.js`) | Fleet panel empty on connect |
+
+The second carries a **real behaviour change**: `ShapeB.ListShips` reads
+Postgres, not KV, so the fleet bootstrap leaves the KV read path entirely. That
+is correct per Shape B's own definition (KV is a per-entity cache, never a list
+index) but it is a latency-characteristic change, which is why it gets its own
+business rule rather than being left as an implementation detail.
+
+#### Design decisions (confirmed 2026-08-17)
+
+- **Identifiers are renamed to neutral terms.** "Shape B" only ever meant
+  anything in contrast to A and C. `RegisterShapeB` → `RegisterShips`,
+  `queries.ShapeB` → `queries.Ships`, and the KV bucket `dict-b` → `ships`.
+- **The KV bucket rename is a data migration.** KV bucket names are immutable,
+  so `dict-b` → `ships` means creating the new bucket and abandoning the old
+  one. For this POC the accepted approach is a `docker compose down -v` reset
+  rather than a dual-read migration path — the buckets are projections,
+  rebuildable from JetStream by definition. Anything that hardcodes `dict-a`
+  as a *test fixture* bucket name (`internal/kvstore/kv_test.go`,
+  `internal/natsaccounts/isolation_test.go`,
+  `observability-service/.../kv_test.go`) is infrastructure, not shape logic —
+  rename to a neutral name, don't delete the test.
+- **The REST route `/api/shape-b/ships/...` is NOT renamed in this phase.**
+  Renaming it here and then reclassifying it in Phase 33 (business REST
+  retirement) is churn for a route that changes twice. Phase 31 leaves it
+  alone; Phase 33 decides whether it becomes an admin-allowlisted diagnostic
+  route or is deleted. Same for `/api/shape-c/fleet` — except that one *is*
+  deleted here, since its query type ceases to exist.
+- **The Admin UI keeps a single-shape panel.** `ShapeCPanel.vue` is deleted;
+  `ShapePanel.vue` loses its `shape: 'A' | 'B'` prop and becomes the Shape B
+  read-path panel (nav badge `3` → `1`). The KV-cache-vs-Postgres read path is
+  still the interesting mechanism to show, even with nothing to compare it to.
+- **`ARCHITECTURE.md`'s retired variant ids are deleted, not tombstoned.**
+  `Proj.KV`, `Read.FR.AGG`, `Read.KV` and the legacy `A`/`B`/`C` alias map come
+  out, notwithstanding the doc's "frozen once assigned" note — the narrative
+  vault (`obsidian/POC-Dictionaries/`) is where the "we evaluated three and
+  chose one" record lives, so the taxonomy doc doesn't also need to carry it.
+- **Phases 100/103/104 are flagged, not re-scoped.** Each reasons about A/B/C
+  trade-offs to justify itself, and Phase 104 (snapshotting) exists
+  specifically because Shape C degrades with stream depth. This phase adds a
+  note to each that its rationale changed; re-scoping is a follow-up, so that
+  three speculative phases aren't rewritten mid-deletion.
+
+**Confirmed out of scope — `container` and `meta` survive untouched.** They look
+Shape-A-adjacent but are independent: `RegisterContainers` upserts Postgres
+*first*, then writes KV (structurally the Shape B pattern), and `ARCHITECTURE.md`
+classifies both with no shape letter. Their doc comments cross-reference
+`RegisterShapeA` for the nil-safe-`nc` convention only, and those references
+need rehoming rather than the handlers changing.
+
+#### Sub-phases
+
+- **31.1 — Migrate Shape A's two production responsibilities to Shape B.** Move
+  the `publishNotify`/`publishRawNotify` ship block into the surviving ship
+  projector; repoint `browserrpc.handleShipList` at the Postgres-backed query.
+  Nothing is deleted yet. Rewrite `notify_test.go`'s three Shape-A-driven specs
+  and `trace_async_test.go`'s Shape-A span fixtures against Shape B. This
+  sub-phase must land green on its own — after it, Shape A is genuinely unused.
+- **31.2 — Delete Shape A.** `queries.ShapeA`, `RegisterShapeA`, the
+  `ship-shape-a` durable, `ShapeABucketPrefix`, `kvA` wiring through
+  `rest/tenant.go`, the `KVA` Deps field (and dead `KVB` alongside it), and the
+  Shape A blocks in `integration_test.go`/`api_test.go`/`browserrpc_test.go`.
+- **31.3 — Delete Shape C.** `queries/shape_c.go` whole file, the `getFleet`
+  REST handler and its `GET /api/shape-c/fleet` route, `ShapeC` Deps field and
+  `tenant.go` wiring, the Shape C spec blocks in
+  `integration_test.go`/`api_test.go`/`hydration_consumer_test.go`, and
+  `perf/scenarios/shape-c-reconstruction.js` + its `shapeCFleet()` helper.
+  **Do not touch the aggregate replay machinery** (`ship.go`/`container.go`'s
+  `Apply()`/`FromState()`) — the write-side `hydrate()` path still needs it;
+  only the "Shape C reconstruction" section banners are stale.
+- **31.4 — Rename to neutral identifiers.** `RegisterShapeB` → `RegisterShips`,
+  `queries.ShapeB` → `queries.Ships`, KV bucket `dict-b` → `ships`, and the
+  neutral-naming pass over fixture bucket names. Excludes the REST route (see
+  Design decisions).
+- **31.5 — Frontend.** Delete `ShapeCPanel.vue` and `api.js`'s `getFleet()`;
+  collapse `ShapePanel.vue` to single-shape; `stores/dictionary.js` drops
+  `shapeA` state, `shapeARows`, and the two-bucket subscribe loop, and the
+  `{shape, key, op, value, revision}` event envelope becomes single-valued.
+  **Repoint `TelemetryStrip.vue` and `OverviewPanel.vue`** — these are shared
+  dashboard panels, not part of the shapes view, and `TelemetryStrip` computes
+  its headline ship count from `shapeARows.length`. Fix
+  `stores/dictionary.spec.js`'s dual-bucket assertions and `KvInspector.vue`'s
+  `dict-a` default selection.
+- **31.6 — Business rules.** BR-024 rewrite, BR-020 and BR-019 amendments, and
+  the new ship-list read-path rule. See `BUSINESS_RULES-SHIPPING.md`.
+- **31.7 — Documentation and diagrams.** `CLAUDE.md` (incl. its already-stale
+  `dict-a-{context}` bucket list — Phase 20b moved `{context}` into the key),
+  `AGENTS.md`, root + demo `README.md`, `PERFORMANCE.md` (§1 "Shape C vs
+  stream depth" is a whole measured section), `ARCHITECTURE.md` taxonomy,
+  `ARCHITECTURE-ADMIN.md`'s CQRS Shapes view write-up,
+  `ARCHITECTURE-DICTIONARY.md`/`-COMMUNICATIONS.md` bucket references, this
+  plan's own `## Working Assumptions`, `.claude/memory/shipping_domain_overview.md`,
+  and the narrative vault. Regenerate `system-architecture.png` (**source
+  generator not found in-repo — locate it first**) and the two
+  `POC-Dictionaries/Summary/Diagrams/*.svg` that name `Shape A`/`dict-a/b`.
+  Regenerate `docs/` swagger rather than hand-editing.
+- **31.8 — Write the finding up.** "Why Shape B won" belongs in
+  `obsidian/POC-Dictionaries/` as a findings note — the POC's actual
+  deliverable, and the reason the taxonomy doc can afford to drop the alias
+  map. Note that `4. Findings - Distributed Tracing (Phase 28).md` argues *from*
+  Shape A/C's existence ("Why the trace store is Shape A"); its vocabulary
+  needs an authorial pass, not a find-and-replace.
+
+#### Checklist
+
+- [x] 31.1 ship `notify.*` block moved into the Shape B projector; `handleShipList` repointed
+- [x] 31.1 `notify_test.go` + `trace_async_test.go` rewritten against Shape B; `ginkgo ./...` green
+- [x] 31.2 Shape A deleted (queries, projector, durable, bucket prefix, `kvA`/`KVA`/`KVB` wiring, specs)
+- [x] 31.3 Shape C deleted (query file, REST handler + route, Deps/wiring, specs, perf scenario)
+- [x] 31.3 verified: aggregate `Apply()`/`FromState()` replay machinery untouched and write-side hydrate still green
+- [x] 31.4 neutral rename landed
+- [x] 31.4 `docker compose down -v && up --build` confirms the `ships` bucket rebuilds from JetStream
+- [x] 31.5 frontend: panels, store, spec, `TelemetryStrip`/`OverviewPanel` repointed; both frontend builds green
+- [x] 31.6 BR-024 rewritten; BR-020/BR-019 amended; new ship-list rule added with its test (confirmed already pre-written to target state)
+- [x] 31.7 docs, diagrams, swagger regenerated; no `dict-a`/`Shape A`/`Shape C` references left outside the archive and narrative vault
+- [x] 31.7 Phases 100/103/104 each carry a note that their A/B/C rationale changed
+- [x] 31.8 findings note written in `obsidian/POC-Dictionaries/`
+- [x] Live verification: full `down -v && up --build`, Sea Freight Flow fleet panel populates on connect **and** updates live on arrive/depart (the two Shape-A-owned paths) — verified 2026-08-17: registered `phase31-verify-ship` at Hamburg, appeared live immediately and survived a page reload (bootstrap); Admin UI's KV Buckets panel confirms ACME's tenant buckets are exactly `container`/`meta`/`ships`, no `dict-a`/`dict-b`; CQRS Shapes nav badge reads `1`, single consolidated panel renders correctly
+
+---
+
+### Phase 45 (IMPLEMENTED 2026-08-18) — Accounts Overview: Nav Restructure, Ring-Buffer Trend History, Gated Search
+
+#### Goal
+
+Implement the Admin UI redesign design-reviewed across four mockup rounds
+(`accounts_overview_pulse_design.md`): `Accounts` moves from PLATFORM to
+SYSTEM as its first entry; `TOPOLOGY` becomes `Sharing`; SYSTEM · NATS ·
+`Account Activity` retires as a standalone nav item and its content becomes
+Accounts' new first tab, `Overview` — so Accounts' tab bar reads `Overview |
+Provisioning | Sharing`. `Overview` replaces `AccountActivityPanel`'s flat
+number-restating expand with two small trend charts per account (connections/
+subscriptions, in/out throughput), a 5m/30m/1h duration selector, and a
+name-filter search box shown only once there are more than 3 accounts. This
+requires real history — `/accstatz` is a stateless snapshot today — so
+`observability-service` gains a ring buffer.
+
+#### Design decisions
+
+**Nav/tab restructure (no backend changes):**
+- `App.vue`'s `sections`: move the `accounts` item out of the `Platform`
+  group into `System`, as its own `{ items: [...] }` entry before the `NATS`
+  eyebrow section (so it renders above Connections/Services/etc, not inside
+  that eyebrow group). Remove `account-activity` from the `NATS` eyebrow's
+  `items` and delete its `SUBTITLES` entry.
+- **This reverses an explicit prior placement rationale** (`App.vue:94-97`:
+  "Accounts is a tenant roster — a platform-membership question, so it sits
+  here rather than under SYSTEM's NATS group"). That comment gets rewritten,
+  not silently left stale: Accounts moves to SYSTEM specifically because its
+  new Overview tab absorbs a SYSTEM/NATS panel, making Accounts the one home
+  for both the business roster and the NATS-account health view, rather than
+  a PLATFORM item that displays SYSTEM content.
+- `AccountsView.vue`'s tab values: add `overview` (new, first `Tab`/
+  `TabPanel`); rename `topology` → `sharing` (value, label, and
+  `ui.accountsTab` default target for the third tab) for consistency between
+  the visible label and the internal value — `ui.js`'s `accountsTab` default
+  changes from `'provisioning'` to `'overview'` to match every other nav
+  section's Overview-first convention (`App.vue`'s own top-level
+  `activeView` already defaults to `'overview'`).
+- `TopologyPanel.vue` → renamed `SharingPanel.vue` (plus its spec file) —
+  content and behavior unchanged, renamed so the component name doesn't
+  contradict the tab label it backs.
+- `AccountActivityPanel.vue` is retired (deleted, alongside its spec) — its
+  content is superseded by the new Overview tab component below, not kept
+  as a second copy.
+- New `ACCOUNTS_SUBTITLES.overview` entry; `topology` key renamed to
+  `sharing`.
+
+**Ring-buffer history (`observability-service`) — new, not covered by the
+mockups, needs confirmation before implementation:**
+- A background goroutine polls the server's own `/accstatz` every 10s (same
+  interval `AccountActivityPanel.vue`'s frontend poll already uses today —
+  no change in cadence, just a second consumer of the same data) and appends
+  one sample per account into an in-memory buffer, trimming samples older
+  than 60 minutes on each tick. Not persisted to Postgres or NATS KV —
+  explicitly transient telemetry, not source-of-truth data, same reasoning
+  this repo already applies to what does vs. doesn't get event-sourced.
+  Buffer starts empty at process boot and fills in real time; a
+  freshly-restarted service legitimately has less than 60 minutes of history
+  until it's been up that long — no synthetic backfill.
+- **Correctness point:** `/accstatz`'s `sent`/`received` byte and message
+  counts are cumulative totals since server start, not per-interval deltas.
+  The throughput chart needs bucket-over-bucket *deltas* of those counters,
+  not the raw values — the ring buffer stores raw cumulative samples; the
+  history endpoint computes deltas when bucketing.
+- New route `GET /api/nats/account-activity/history?duration=5m|30m|1h`
+  (any other value → 400). Bucket size scales with the window per the round-3
+  mockup: 30s buckets at 5m, 2min at 30m, 5min at 1h. Response carries one
+  bucketed series per account (connections/subscriptions as point samples,
+  in/out bytes and msgs as per-bucket deltas) plus each account's
+  `tenantLabel`; the fleet summary sparklines are summed client-side from the
+  per-account series rather than duplicating a fleet-aggregate endpoint.
+- Existing `GET /api/nats/account-activity` (the live snapshot) is unchanged
+  — the new route is additive, not a replacement, since the collapsed-row
+  snapshot still needs to read from a moment-in-time state.
+
+**Frontend Overview tab component:**
+- New `AccountsOverviewPanel.vue` (superseding `AccountActivityPanel.vue`):
+  fleet summary cards (unchanged 4 stats) each grow a sparkline; the
+  `.acct-card` list stays collapsed-by-default, expand swaps the flat number
+  grid for the two trend charts, fetched from the new history route only for
+  whichever card is expanded (not all accounts at once).
+  - Slow-consumer explanatory copy ties directly to `slowConsumers > 0` for
+    that account within the window, not a scripted "~20 min" estimate — the
+    mockup's precise wording was illustrative, not a number to reproduce from
+    real data.
+- Duration selector (5m/30m/1h pill, defaults 30m) re-fetches history for the
+  fleet sparklines and the currently-expanded card on change.
+- Search box: rendered only when `accounts.length > 3`; case-insensitive
+  substring match against each account's resolved label (falling back to the
+  raw account identifier, matching BR-028's existing fallback); empty state
+  "No accounts match "…"." Client-side only, no backend involvement.
+
+**Explicitly out of scope for this phase** (flagged, not decided as "never"):
+applying the same gated search to the Provisioning tab's account table;
+persisting ring-buffer history across restarts; per-account charts for every
+account rendered simultaneously rather than only the expanded one.
+
+**Candidate business rules** (`BUSINESS_RULES-SHIPPING.md`, same file as
+BR-028/BR-034, which this amends — despite living in `observability-service`,
+matching that file's existing convention for Admin-UI-facing NATS monitoring
+panels):
+- **BR-034 amended**: retitled/rescoped — the panel it describes moves from a
+  standalone SYSTEM · NATS item to Accounts' Overview tab; the slow-consumers-
+  as-alarm rule itself is unchanged.
+- **BR-043 (new)**: `/accstatz` history is retained in a 60-minute ring
+  buffer sampled every 10s; a duration query param (`5m`/`30m`/`1h`, rejecting
+  any other value) selects a bucketed, correctly-delta'd trend series.
+- **BR-044 (new)**: the Overview tab's account search box is shown only when
+  there are more than 3 accounts, filters by name (case-insensitive
+  substring) client-side, and shows a named empty state rather than a blank
+  list.
+
+#### Checklist
+
+- [x] Confirm the design decisions above (ring buffer shape/retention,
+      history endpoint shape, BR-034 amendment + BR-043/BR-044 additions) —
+      confirmed 2026-08-18
+- [x] `observability-service`: background `/accstatz` poller + in-memory ring
+      buffer (per-account, 60min @ 10s, trimmed each tick)
+- [x] `observability-service`: `GET /api/nats/account-activity/history`
+      handler — duration validation, bucketing, cumulative-counter deltas
+- [x] Go tests (plain `testing`, this service's existing convention, not
+      Ginkgo) for BR-043: bucket count/size per duration, delta-not-raw byte
+      counts, 400 on an invalid duration, buffer eviction past 60 minutes
+- [x] `App.vue`: move `accounts` nav item PLATFORM → SYSTEM (first entry);
+      remove `account-activity`; rewrite the stale placement-rationale
+      comment; update `SUBTITLES`/`ACCOUNTS_SUBTITLES`
+- [x] `AccountsView.vue` + `ui.js`: add `overview` tab (default), rename
+      `topology` → `sharing`
+- [x] Rename `TopologyPanel.vue`/spec → `SharingPanel.vue`/spec (no spec
+      file existed to rename)
+- [x] New `AccountsOverviewPanel.vue` (+ Vitest spec) superseding
+      `AccountActivityPanel.vue`: sparklines, expand-to-trend-charts,
+      duration selector, gated search + empty state; delete
+      `AccountActivityPanel.vue`/spec
+- [x] ~~`docs/docs.go`/`swagger.json`/`swagger.yaml`: new history route
+      documented~~ — N/A: `observability-service` has no generated swagger
+      docs at all (unlike `shipping-service`); its `@Summary`/`@Router`
+      comments are documentation-style only, confirmed no `swaggo` import
+      or `docs/` folder exists for this service
+- [x] `BUSINESS_RULES-SHIPPING.md`: BR-034 amended, BR-043/BR-044 added
+- [x] `ARCHITECTURE-ADMIN.md`: Accounts/Account-Activity section updated to
+      match the new nav/tab structure — scope statement, panel index, §2/§3
+      inventories all updated to six panels; §4.3 retitled "relocated" with
+      Phase 45's history/search additions documented, following §4.8's
+      retired-panel precedent
+- [x] `go build ./...` (observability-service) + its test suite green;
+      frontend build + Vitest green (3 pre-existing, unrelated
+      `TraceWaterfall.spec.js` failures confirmed present before this
+      phase's changes too, left as found); verified live against the
+      docker stack — nav restructure, Overview tab (real sparklines/charts
+      from the live ring buffer), duration selector, and gated search all
+      confirmed working against real `/accstatz` data

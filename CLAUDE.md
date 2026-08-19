@@ -1,6 +1,8 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file is the canonical guidance for all AI coding agents working with code
+in this repository. Agent-specific entry files should reference this file rather
+than duplicate its contents.
 
 ## Session Memory
 
@@ -26,7 +28,7 @@ nats-tech-lab/
   demos/
     01-dictionary/        # First demo: Dictionary POC
       backend/
-        shipping-service/ # Go service (hexagonal layout) — Ship/Container CQRS shapes A/B/C
+        shipping-service/ # Go service (hexagonal layout) — Ship/Container CQRS (Shapes A/C retired, Phase 31)
         refdata-service/  # Go service (Phase 11) — dictionary-as-a-service, own Postgres schema + container
           README.md         # refdata-service-specific: what it is, how to run/query it standalone
       frontend/
@@ -99,10 +101,14 @@ seeding, Postgres schema/ER diagram, data access paths, cross-service
 consumption), `ARCHITECTURE-COMMUNICATIONS.md` (REST/Swagger + NATS
 `rpc.*` dual-transport design, subject taxonomy),
 `ARCHITECTURE-ACCOUNTS.md` (NATS operator-mode trust chain, tenant account
-create/suspend/reactivate lifecycle, user auth and token lifecycle), and
+create/suspend/reactivate lifecycle, user auth and token lifecycle),
 `ARCHITECTURE-ADMIN.md` (the Admin UI's SYSTEM → NATS navbar group —
 per-panel architecture and data-flow patterns, plus the shared UI design
-system these panels draw from) — live in the obsidian vault
+system these panels draw from), and `ARCHITECTURE-PLATFORM.md` (entry point
+for the "Tech Lab Operator" frontend — the `refdata` app's operator/tenant-
+facing nav and feature surface; owns the nav taxonomy and cross-feature
+design, while `ARCHITECTURE-DICTIONARY.md` continues to own the Reference
+Data feature's own backend/schema detail as one subset of it) — live in the obsidian vault
 under `obsidian/V3-Platform/Architecture/Dictionary-POC/`, not in the repo
 tree, alongside the editable `architecture-dictionary.drawio` workbook and its
 exported PNGs (`images/`). This is a different vault location from

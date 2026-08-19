@@ -679,9 +679,16 @@ change to its wire contract's redaction/truncation ordering.
   with no such header produces an empty `Requester` (never a placeholder
   that could be mistaken for a real identity).
 
-### BR-042 (Phase 36, revised post-spike 2026-08-18) — "Trace this subject" targets only the existing `tenantImports()` cross-account contract, fired by the service that owns the connection, defaults to dry-run, and merges as a distinct `kind: "hop"` span alongside BR-036's application spans
+### BR-042 (Phase 43, revised post-spike 2026-08-18) — "Trace this subject" targets only the existing `tenantImports()` cross-account contract, fired by the service that owns the connection, defaults to dry-run, and merges as a distinct `kind: "hop"` span alongside BR-036's application spans
 
-A live spike against the compose stack (see Phase 36's "Spike findings" in
+> **Numbering note (2026-08-19):** this rule was drafted while the phase was
+> numbered 36 (see `Main-POC-Plan.md`'s renumbering logs: 29→41→36→43). Its
+> heading now cites the phase's current live number, 43, since 36 has since
+> been freed and reused for an unrelated phase (Tech Lab Operator rebrand) —
+> keeping this heading on the stale number would make it read as a citation
+> of that new phase instead.
+
+A live spike against the compose stack (see Phase 43's "Spike findings" in
 `Main-POC-Plan.md`) found the original design unbuildable as first proposed:
 `observability-service` cannot publish to any business subject (its NATS
 user has no such grant, confirmed by a live permissions-violation test), and

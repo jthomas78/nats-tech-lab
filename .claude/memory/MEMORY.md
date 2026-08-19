@@ -53,5 +53,7 @@
 - [Phase 33 refdata admin REST exemption](phase33_refdata_admin_rest_exemption.md) — /api/refdata/admin/* stays REST permanently; accounts-service calls it server-to-server, no NATS path exists
 - [Phase 34 boundary enforcement](phase34_boundary_enforcement.md) — IMPLEMENTED 2026-08-17; mux allowlist tests (BR-040) + traceSpan.Requester (BR-041) + Admin UI 2-axis filter
 - [Phase 35 shared Go package extraction](phase35_shared_go_package_extraction.md) — IMPLEMENTED 2026-08-18; shared/natstenants, shared/natstrace, shared/browserrpc extracted; go.work + per-service replace directives
-- [Phase 36 NATS hop tracing renumbered](phase36_nats_hop_tracing_renumbered.md) — NATS 2.11 Server-Hop Tracing is now Phase 36 (was 29→41→36); still PROPOSED, not started
+- [Phase 43 NATS hop tracing renumbered](phase43_nats_hop_tracing_renumbered.md) — NATS 2.11 Server-Hop Tracing is Phase 43 (was 29→41→36→43), DEFERRED; "Phase 36" now means something else, see next line
+- [Phase 36 Tech Lab Operator rebrand](phase36_tech_lab_operator_rebrand.md) — APPROVED 2026-08-19: refdata → "Tech Lab Operator" (36.1) + Trading Partners migration (36.2); mockups required before either starts; new ARCHITECTURE-PLATFORM.md
 - [Accounts Overview/Sharing redesign](accounts_overview_pulse_design.md) — IMPLEMENTED Phase 45 (2026-08-18): ring buffer + duration selector (BR-043) + gated search (BR-044), live-verified
+- [Mockup fidelity: functional capability](mockup_fidelity_functional_capability.md) — design-gate mockups must show real create/edit affordances verified against the running app, not read-only layout

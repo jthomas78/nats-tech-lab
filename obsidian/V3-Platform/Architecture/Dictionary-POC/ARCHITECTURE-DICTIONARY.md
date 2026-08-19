@@ -5,6 +5,13 @@ the service's design rationale (Q5 versioned-read cache protocol, event-sourced
 vs plain CRUD, KV bucket layout) see [ARCHITECTURE.md](ARCHITECTURE.md) §
 "Reference Data Service" and `../../../../.claude/plans/Dictionary-Service-Plan.md`.
 
+> This document owns the Reference Data feature's own backend/schema depth.
+> For the operator-facing frontend surface over it (`frontend/refdata`,
+> being rebranded "Tech Lab Operator" per Phase 36) — nav taxonomy, and how
+> this feature relates to the platform's other operator-facing
+> features — see [ARCHITECTURE-PLATFORM.md](ARCHITECTURE-PLATFORM.md),
+> which treats this document's scope as one subset of its own.
+
 ---
 
 ## Seeding

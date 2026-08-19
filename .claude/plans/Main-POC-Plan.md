@@ -357,148 +357,24 @@ consolidates them.
 
 ---
 
-### Phase 31 (IMPLEMENTED 2026-08-17) — Consolidate to Shape B: Retire Shapes A and C
+### Phase 31 — Completed (archived 2026-08-19)
 
-#### Goal
+Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
+(not read into context by default — open only when you need original
+rationale or checklist detail).
 
-The POC's founding question was which CQRS read-model shape to build V3 on, so
-three were built side by side: **Shape A** (KV as the read model), **Shape B**
-(Postgres projection + KV write-through cache), **Shape C** (event-sourced
-reconstruction from JetStream replay). That question is now answered —
-**Shape B is the chosen shape** — and the other two have stopped being evidence
-and started being maintenance: three projector durables where one is needed,
-three query types over the same aggregates, and a comparison UI whose only
-purpose was the comparison.
-
-This phase retires Shapes A and C. It is deliberately sequenced **first** in the
-REST→NATS group (Phases 31–34) because everything downstream inherits less
-surface: one shape's read paths to migrate off REST instead of three.
-
-**This is not a pure deletion — that is the trap.** Shape A owns two
-*production* browser paths, both of which must move to Shape B before anything
-is deleted:
-
-| Shape-A-owned | Consumed by | Symptom if deleted naively |
-|---|---|---|
-| `publishNotify`/`publishRawNotify` for `entity="ship"` — fired **only** from `RegisterShapeA` (`eventhandler/handler.go:53,56`); `RegisterShapeB` explicitly does not publish | Sea Freight Flow live fleet updates (`seafreight-app/src/stores/port.js`), Admin raw-watch panel | Ship rows silently go stale until page reload |
-| `queries.ShapeA.ListShips` (reads the `dict-a` bucket) — backs `api.*.shipping.ship.list.v1` (`browserrpc/adapter.go:318-335`) | Sea Freight Flow bootstrap and reconnect (`seafreight-app/src/api.js`) | Fleet panel empty on connect |
-
-The second carries a **real behaviour change**: `ShapeB.ListShips` reads
-Postgres, not KV, so the fleet bootstrap leaves the KV read path entirely. That
-is correct per Shape B's own definition (KV is a per-entity cache, never a list
-index) but it is a latency-characteristic change, which is why it gets its own
-business rule rather than being left as an implementation detail.
-
-#### Design decisions (confirmed 2026-08-17)
-
-- **Identifiers are renamed to neutral terms.** "Shape B" only ever meant
-  anything in contrast to A and C. `RegisterShapeB` → `RegisterShips`,
-  `queries.ShapeB` → `queries.Ships`, and the KV bucket `dict-b` → `ships`.
-- **The KV bucket rename is a data migration.** KV bucket names are immutable,
-  so `dict-b` → `ships` means creating the new bucket and abandoning the old
-  one. For this POC the accepted approach is a `docker compose down -v` reset
-  rather than a dual-read migration path — the buckets are projections,
-  rebuildable from JetStream by definition. Anything that hardcodes `dict-a`
-  as a *test fixture* bucket name (`internal/kvstore/kv_test.go`,
-  `internal/natsaccounts/isolation_test.go`,
-  `observability-service/.../kv_test.go`) is infrastructure, not shape logic —
-  rename to a neutral name, don't delete the test.
-- **The REST route `/api/shape-b/ships/...` is NOT renamed in this phase.**
-  Renaming it here and then reclassifying it in Phase 33 (business REST
-  retirement) is churn for a route that changes twice. Phase 31 leaves it
-  alone; Phase 33 decides whether it becomes an admin-allowlisted diagnostic
-  route or is deleted. Same for `/api/shape-c/fleet` — except that one *is*
-  deleted here, since its query type ceases to exist.
-- **The Admin UI keeps a single-shape panel.** `ShapeCPanel.vue` is deleted;
-  `ShapePanel.vue` loses its `shape: 'A' | 'B'` prop and becomes the Shape B
-  read-path panel (nav badge `3` → `1`). The KV-cache-vs-Postgres read path is
-  still the interesting mechanism to show, even with nothing to compare it to.
-- **`ARCHITECTURE.md`'s retired variant ids are deleted, not tombstoned.**
-  `Proj.KV`, `Read.FR.AGG`, `Read.KV` and the legacy `A`/`B`/`C` alias map come
-  out, notwithstanding the doc's "frozen once assigned" note — the narrative
-  vault (`obsidian/POC-Dictionaries/`) is where the "we evaluated three and
-  chose one" record lives, so the taxonomy doc doesn't also need to carry it.
-- **Phases 100/103/104 are flagged, not re-scoped.** Each reasons about A/B/C
-  trade-offs to justify itself, and Phase 104 (snapshotting) exists
-  specifically because Shape C degrades with stream depth. This phase adds a
-  note to each that its rationale changed; re-scoping is a follow-up, so that
-  three speculative phases aren't rewritten mid-deletion.
-
-**Confirmed out of scope — `container` and `meta` survive untouched.** They look
-Shape-A-adjacent but are independent: `RegisterContainers` upserts Postgres
-*first*, then writes KV (structurally the Shape B pattern), and `ARCHITECTURE.md`
-classifies both with no shape letter. Their doc comments cross-reference
-`RegisterShapeA` for the nil-safe-`nc` convention only, and those references
-need rehoming rather than the handlers changing.
-
-#### Sub-phases
-
-- **31.1 — Migrate Shape A's two production responsibilities to Shape B.** Move
-  the `publishNotify`/`publishRawNotify` ship block into the surviving ship
-  projector; repoint `browserrpc.handleShipList` at the Postgres-backed query.
-  Nothing is deleted yet. Rewrite `notify_test.go`'s three Shape-A-driven specs
-  and `trace_async_test.go`'s Shape-A span fixtures against Shape B. This
-  sub-phase must land green on its own — after it, Shape A is genuinely unused.
-- **31.2 — Delete Shape A.** `queries.ShapeA`, `RegisterShapeA`, the
-  `ship-shape-a` durable, `ShapeABucketPrefix`, `kvA` wiring through
-  `rest/tenant.go`, the `KVA` Deps field (and dead `KVB` alongside it), and the
-  Shape A blocks in `integration_test.go`/`api_test.go`/`browserrpc_test.go`.
-- **31.3 — Delete Shape C.** `queries/shape_c.go` whole file, the `getFleet`
-  REST handler and its `GET /api/shape-c/fleet` route, `ShapeC` Deps field and
-  `tenant.go` wiring, the Shape C spec blocks in
-  `integration_test.go`/`api_test.go`/`hydration_consumer_test.go`, and
-  `perf/scenarios/shape-c-reconstruction.js` + its `shapeCFleet()` helper.
-  **Do not touch the aggregate replay machinery** (`ship.go`/`container.go`'s
-  `Apply()`/`FromState()`) — the write-side `hydrate()` path still needs it;
-  only the "Shape C reconstruction" section banners are stale.
-- **31.4 — Rename to neutral identifiers.** `RegisterShapeB` → `RegisterShips`,
-  `queries.ShapeB` → `queries.Ships`, KV bucket `dict-b` → `ships`, and the
-  neutral-naming pass over fixture bucket names. Excludes the REST route (see
-  Design decisions).
-- **31.5 — Frontend.** Delete `ShapeCPanel.vue` and `api.js`'s `getFleet()`;
-  collapse `ShapePanel.vue` to single-shape; `stores/dictionary.js` drops
-  `shapeA` state, `shapeARows`, and the two-bucket subscribe loop, and the
-  `{shape, key, op, value, revision}` event envelope becomes single-valued.
-  **Repoint `TelemetryStrip.vue` and `OverviewPanel.vue`** — these are shared
-  dashboard panels, not part of the shapes view, and `TelemetryStrip` computes
-  its headline ship count from `shapeARows.length`. Fix
-  `stores/dictionary.spec.js`'s dual-bucket assertions and `KvInspector.vue`'s
-  `dict-a` default selection.
-- **31.6 — Business rules.** BR-024 rewrite, BR-020 and BR-019 amendments, and
-  the new ship-list read-path rule. See `BUSINESS_RULES-SHIPPING.md`.
-- **31.7 — Documentation and diagrams.** `CLAUDE.md` (incl. its already-stale
-  `dict-a-{context}` bucket list — Phase 20b moved `{context}` into the key),
-  `AGENTS.md`, root + demo `README.md`, `PERFORMANCE.md` (§1 "Shape C vs
-  stream depth" is a whole measured section), `ARCHITECTURE.md` taxonomy,
-  `ARCHITECTURE-ADMIN.md`'s CQRS Shapes view write-up,
-  `ARCHITECTURE-DICTIONARY.md`/`-COMMUNICATIONS.md` bucket references, this
-  plan's own `## Working Assumptions`, `.claude/memory/shipping_domain_overview.md`,
-  and the narrative vault. Regenerate `system-architecture.png` (**source
-  generator not found in-repo — locate it first**) and the two
-  `POC-Dictionaries/Summary/Diagrams/*.svg` that name `Shape A`/`dict-a/b`.
-  Regenerate `docs/` swagger rather than hand-editing.
-- **31.8 — Write the finding up.** "Why Shape B won" belongs in
-  `obsidian/POC-Dictionaries/` as a findings note — the POC's actual
-  deliverable, and the reason the taxonomy doc can afford to drop the alias
-  map. Note that `4. Findings - Distributed Tracing (Phase 28).md` argues *from*
-  Shape A/C's existence ("Why the trace store is Shape A"); its vocabulary
-  needs an authorial pass, not a find-and-replace.
-
-#### Checklist
-
-- [x] 31.1 ship `notify.*` block moved into the Shape B projector; `handleShipList` repointed
-- [x] 31.1 `notify_test.go` + `trace_async_test.go` rewritten against Shape B; `ginkgo ./...` green
-- [x] 31.2 Shape A deleted (queries, projector, durable, bucket prefix, `kvA`/`KVA`/`KVB` wiring, specs)
-- [x] 31.3 Shape C deleted (query file, REST handler + route, Deps/wiring, specs, perf scenario)
-- [x] 31.3 verified: aggregate `Apply()`/`FromState()` replay machinery untouched and write-side hydrate still green
-- [x] 31.4 neutral rename landed
-- [x] 31.4 `docker compose down -v && up --build` confirms the `ships` bucket rebuilds from JetStream
-- [x] 31.5 frontend: panels, store, spec, `TelemetryStrip`/`OverviewPanel` repointed; both frontend builds green
-- [x] 31.6 BR-024 rewritten; BR-020/BR-019 amended; new ship-list rule added with its test (confirmed already pre-written to target state)
-- [x] 31.7 docs, diagrams, swagger regenerated; no `dict-a`/`Shape A`/`Shape C` references left outside the archive and narrative vault
-- [x] 31.7 Phases 100/103/104 each carry a note that their A/B/C rationale changed
-- [x] 31.8 findings note written in `obsidian/POC-Dictionaries/`
-- [x] Live verification: full `down -v && up --build`, Sea Freight Flow fleet panel populates on connect **and** updates live on arrive/depart (the two Shape-A-owned paths) — verified 2026-08-17: registered `phase31-verify-ship` at Hamburg, appeared live immediately and survived a page reload (bootstrap); Admin UI's KV Buckets panel confirms ACME's tenant buckets are exactly `container`/`meta`/`ships`, no `dict-a`/`dict-b`; CQRS Shapes nav badge reads `1`, single consolidated panel renders correctly
+- [x] Phase 31 (IMPLEMENTED 2026-08-17) — Consolidate to Shape B: retired
+      Shapes A and C. Shape A's two production paths (live ship notify,
+      `ListShips` bootstrap) migrated to Shape B first; Shape A/C code,
+      queries, projectors, durables, and Admin UI comparison panels then
+      deleted; `RegisterShapeB`/`queries.ShapeB`/`dict-b` renamed to neutral
+      `RegisterShips`/`queries.Ships`/`ships` (KV bucket rebuilt via `down -v`
+      reset); frontend panels/store/specs repointed; BR-024 rewritten,
+      BR-020/BR-019 amended; docs/diagrams/swagger regenerated; findings
+      write-up added to `obsidian/POC-Dictionaries/`. Live-verified: Sea
+      Freight Flow fleet panel populates on connect and updates live on
+      arrive/depart; Admin UI KV Buckets panel confirms only
+      `container`/`meta`/`ships` remain; CQRS Shapes nav badge reads `1`.
 
 ---
 
@@ -592,6 +468,187 @@ rationale or checklist detail).
       panics/fatals/auth violations and the Admin UI's Request/Reply trace
       panel showing live, error-free `api.*` traffic through the refactored
       adapters.
+
+---
+
+### Phase 36 (APPROVED 2026-08-19 — design gate passed; mockups required before implementation) — Tech Lab Operator Rebrand & Trading Partners Migration
+
+> **Numbering note:** the user explicitly requested "Phase 36." That number
+> was historically tied to the NATS server-hop tracing phase (29 → 41 → 36 →
+> 43), which is now live at **Phase 43**, DEFERRED. Per explicit instruction,
+> every remaining stale "Phase 36" reference to that phase (BR-042's
+> heading, `ARCHITECTURE-COMMUNICATIONS.md` §6, `ARCHITECTURE-ADMIN.md`
+> §4.5, and the `phase36-trace-the-subject-options.png` image) was swept to
+> cite 43 first — see "Renumbering (2026-08-19 — collision cleanup, Phase 36
+> freed for reuse)" near the end of this document — before 36 was
+> reassigned here. This phase has two sub-phases, 36.1 and 36.2, sequenced
+> as separate design-gate approvals rather than one combined approval,
+> since 36.2 carries a real coupling risk (below) that 36.1 does not.
+>
+> **Approval (2026-08-19):** the user approved both sub-phases' design
+> decisions as drafted, with two additions folded in below: (1) mockups of
+> the final frontend outcome are a required deliverable, reviewed and
+> approved by the user, before any implementation code is written for
+> either sub-phase; (2) a new architecture doc,
+> [ARCHITECTURE-PLATFORM.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-PLATFORM.md),
+> was created as the entry point for Tech Lab Operator's design, and
+> cross-referenced with `ARCHITECTURE-DICTIONARY.md` (Reference Data is a
+> subset of Platform's broader operator-facing surface). CLAUDE.md's
+> "Architecture Docs" section index was updated to list it alongside the
+> other `ARCHITECTURE*.md` docs.
+
+#### Goal
+
+Rename the `refdata` frontend app (currently branded "Dictionary") to
+**"Tech Lab Operator"** and restructure it around operator/tenant-facing
+tasks — refdata setup, configuration, registration of users, companies,
+transporters, etc. — starting with a visual-only nav restructure (36.1),
+then migrating the `admin` app's Trading Partners section into it (36.2).
+
+#### Design decisions — 36.1 (visual rebrand + nav restructure)
+
+- **Mockups required before implementation.** A mockup of the final
+  Tech Lab Operator UI — the `Operations`/`Reference Data` nav and the new
+  tabbed info panel — is produced and reviewed/approved by the user before
+  any implementation code is written for this sub-phase. This is a
+  deliverable gate on top of the design-decisions approval above, not a
+  substitute for it.
+- **Scope: frontend-visual-only.** No backend/business-rule change. Per the
+  AI Agent Workflow's "ask for business rules first" step — this sub-phase
+  adds/changes no domain rule, so that step doesn't apply; no
+  `BUSINESS_RULES-*.md` update is needed for 36.1 itself.
+- **Nav shape.** Top-level `Operations` group containing `Reference Data`,
+  built with `@ui-shell/NavList.vue` — the same component `admin` already
+  uses for its `Platform`/other groups. This is new for `refdata`: its
+  current sidebar (`TypeNavigator.vue`) is hand-rolled and dynamically
+  generated from `store.types`/`categories.js`, not `NavList.vue`-driven.
+  Adopting `NavList.vue` here is a first for this app, not a refactor of an
+  existing usage.
+- **Existing nav content → tabbed info panel.** `TypeNavigator.vue`'s
+  current content (per-category/per-type items, the "Domain" group, and the
+  "Tools" group's Localization/Versioning) moves into a new tabbed panel in
+  the main content area, reusing the already-documented "Panel top tabs"
+  contract in `shared/unifi-theme/LAYOUT.md` (§ lines ~112–162): real
+  PrimeVue `Tabs`/`TabList`/`Tab`/`TabPanels`/`TabPanel` with
+  `class="panel-tabs"` on the `<Tabs>` root, `<Tabs>` flush on the page
+  (never wrapped in `.lab-panel`), the card living on each `TabPanel`'s
+  content — copying `admin`'s `RpcPanel.vue` (Pulse/Traces/Messages) as the
+  concrete reference, per LAYOUT.md's own stated precedent. Exact tab
+  breakdown (e.g. Items / Localization / Versioning / Domain) confirmed
+  once this sub-phase starts, not fixed here.
+- **Branding rename — narrowly scoped.** Only the frontend app's own
+  display name changes:
+  - `demos/01-dictionary/frontend/refdata/src/App.vue`'s `#brand` slot
+    (`"Dictionary"` → `"Tech Lab Operator"`)
+  - `demos/01-dictionary/frontend/refdata/index.html`'s `<title>`
+  - `demos/01-dictionary/README.md` lines referencing the app by name in
+    its host/port tables and the "Dictionary frontend" terminal instruction
+  - **Explicitly out of scope:** the Go backend's `dictionary` package/
+    domain naming, `POSTGRES_DB: dictionary`, the demo path
+    `demos/01-dictionary/`, "Dictionary POC" as the demo's name in
+    `lab-shell/src/demos.js`, and the `obsidian/.../Dictionary-POC/`
+    architecture vault — none of these are the frontend app's branding and
+    must not be touched by this rename. Particular care around
+    `demos/01-dictionary/README.md`'s "Dictionary as a Service (Phase 11)"
+    heading, which describes the backend `refdata-service` concept and sits
+    right next to the table row that does need renaming — a blind find/
+    replace on "Dictionary" in that file would over-rename it.
+  - No `frontend/refdata/README.md` exists today; this sub-phase does not
+    create one unless the user asks for it separately.
+- **Design-system compliance.** Reuses `shared/unifi-theme` and
+  `shared/ui-shell/AppShell.vue` exactly as `refdata` already does today —
+  no new palette, no forked layout. `shared/unifi-theme/LAYOUT.md`'s
+  existing "per-app notes" section on `refdata` (which still describes the
+  old `TypeNavigator.vue`-only sidebar) gets rewritten as part of this
+  sub-phase to describe the new `Operations`/`Reference Data` nav and the
+  new tabbed panel, per CLAUDE.md's rule that a changed top-level screen
+  must keep LAYOUT.md current.
+
+#### Design decisions — 36.2 (Trading Partners migration)
+
+- **Mockups required before implementation.** Same gate as 36.1: a mockup
+  of Trading Partners' final placement inside Tech Lab Operator's nav is
+  produced and reviewed/approved by the user before implementation code is
+  written for this sub-phase.
+- **Source.** `admin`'s `Platform` group's `Trading partners` eyebrow
+  (`Shippers`, `Transporters`) — a plain-JS `sections` array in
+  `admin/src/App.vue`, rendered by `NavList.vue`, backed by one shared
+  `TradingPartnersPanel.vue` parameterized by a `partnerType` prop.
+  `IconShippers.vue`/`IconTransporters.vue` are portable as-is; the backend
+  `trading-partner-service` is already independent of `admin` — no backend
+  coupling blocks this migration.
+- **`useTenantStore()` resolution (RESOLVED 2026-08-19).** Investigation
+  found the panel's actual dependency on `admin`'s `useTenantStore()` is
+  two trivial reads (`tenantStore.tenant` passed as a documented no-op arg
+  to `addFleetAsset`, and the same value shown in a dialog's helper text) —
+  not the store's tenant-switch/reconnect machinery. The deeper issue is
+  one level up: `trading-partner-service` derives tenant identity from
+  *which NATS account the calling connection authenticated as*
+  (`tenants.Manager` mounts `api.*` per tenant connection, no platform-wide
+  mount exists), while Tech Lab Operator's `useRefdataAdminConnection.js`
+  is a single cross-tenant **platform** connection with no tenant identity
+  or reconnect lifecycle at all — the architectural opposite of `admin`'s
+  per-tenant model. Target end-state (per user direction 2026-08-19): both
+  `refdata-service` and `trading-partner-service` are PLATFORM-tier
+  services, so Tech Lab Operator should keep its single platform
+  connection and treat "tenant" as an explicit operator-selected *parameter*
+  passed into requests — the same shape `refdata-service` already has via
+  its Phase 32 `MountPlatformAPI` credential (see
+  [[phase32_refdata_platform_credential]]) — rather than admin's
+  per-tenant-reconnect model. `trading-partner-service` doesn't have that
+  platform-mounted path yet; giving it one (plus an explicit authorization
+  check, since a platform credential acting on a tenant by parameter is a
+  wider trust surface than today's connection-scoped-by-account model) is
+  real backend work, **explicitly deferred out of 36.2** — the user wants
+  to explore the general "operator selects a tenant" UX further after 36.2
+  ships. **36.2 stopgap:** migrate `TradingPartnersPanel.vue` using the
+  same per-tenant connection pattern `admin` uses today, functionally
+  unchanged, just physically relocated into `refdata` — no backend change,
+  no new tenant-selection UX, in this sub-phase.
+- **Sequencing.** 36.2 does not start until 36.1 is implemented and its own
+  design-gate approval is separately confirmed — the two are not one
+  combined approval.
+
+#### Checklist — 36.1
+
+- [x] Create `obsidian/V3-Platform/Architecture/Dictionary-POC/
+      ARCHITECTURE-PLATFORM.md` as the Tech Lab Operator entry point,
+      cross-referenced with `ARCHITECTURE-DICTIONARY.md`; add it to
+      CLAUDE.md's "Architecture Docs" index (done 2026-08-19)
+- [ ] Produce mockups of the final nav + tabbed info panel; get explicit
+      user approval on them before starting the items below
+- [ ] Add `Operations` → `Reference Data` nav via `NavList.vue` in
+      `refdata/src/App.vue`, replacing the current `#sidebar` composition
+- [ ] Build the new tabbed info panel (PrimeVue `Tabs`/`TabPanel`, following
+      `RpcPanel.vue` + LAYOUT.md's "Panel top tabs" contract) housing the
+      content currently in `TypeNavigator.vue`/`CategoryTypeList`/
+      `LocalizationView`/`VersioningPanel`
+- [ ] Rebrand: `App.vue` `#brand`, `index.html` `<title>`,
+      `demos/01-dictionary/README.md`'s app-name table rows/heading — leave
+      the adjacent "Dictionary as a Service" backend section untouched
+- [ ] Rewrite `shared/unifi-theme/LAYOUT.md`'s `refdata` per-app note to
+      describe the new nav/panel shape
+- [ ] Verify in-browser: nav renders, all previously-reachable views are
+      still reachable via tabs, no console errors, dark + light mode both
+      checked (LAYOUT.md/CLAUDE.md verification convention)
+
+#### Checklist — 36.2
+
+- [x] Produce mockups of Trading Partners' final placement inside Tech Lab
+      Operator's nav; get explicit user approval on them before starting
+      the items below — APPROVED 2026-08-19
+- [x] Confirm the `useTenantStore()` vs. `context` resolution approach with
+      the user before writing code (design decision above) — resolved
+      2026-08-19: stopgap migration, platform-credential model deferred
+- [ ] Move `TradingPartnersPanel.vue` + icons into `refdata`, wired to the
+      new `Operations` nav (or a new group, TBD at design time) with
+      `Shippers`/`Transporters` entries
+- [ ] Remove the migrated section from `admin`'s `Platform` group once
+      parity is confirmed in Tech Lab Operator
+- [ ] Update `shared/unifi-theme/LAYOUT.md`'s `admin` and `refdata` per-app
+      notes to reflect the moved section
+- [ ] Verify in-browser: Shippers/Transporters CRUD flows work identically
+      post-migration, no regression in `admin`'s remaining Platform items
 
 ---
 
@@ -953,159 +1010,141 @@ rationale or checklist detail).
 
 ---
 
-### Phase 45 (IMPLEMENTED 2026-08-18) — Accounts Overview: Nav Restructure, Ring-Buffer Trend History, Gated Search
+### Phase 45 — Completed (archived 2026-08-19)
+
+Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
+(not read into context by default — open only when you need original
+rationale or checklist detail).
+
+- [x] Phase 45 (IMPLEMENTED 2026-08-18) — Accounts Overview: nav restructure
+      (Accounts moved PLATFORM → SYSTEM as its first entry, absorbing the
+      retired standalone Account Activity panel into a new `Overview` tab;
+      `TOPOLOGY` renamed `Sharing`), `observability-service` ring-buffer
+      trend history (60min @ 10s, delta'd throughput, `5m/30m/1h` duration
+      selector via new `GET /api/nats/account-activity/history`), and a
+      gated name-filter search shown only past 3 accounts (BR-034 amended,
+      BR-043/BR-044 added). Live-verified against the real ring buffer;
+      `go build`/tests and frontend build/Vitest green.
+
+---
+
+### Phase 46 (PROPOSED — awaiting approval) — VitePress Documentation Site
+
+> **Numbering note:** the user's original request named this "Phase 36."
+> **36 was not available at the time** — it was a heavily cross-referenced
+> historical number for the NATS server-hop tracing phase (29 → 41 → 36 →
+> 43, see the two renumbering logs near the end of this document and
+> `obsidian/V3-Platform/Architecture/Dictionary-POC/images/
+> phase43-trace-the-subject-options.png`, itself renamed off "phase36" in
+> the 2026-08-19 cleanup below). Reusing it here would have collided with
+> that trail. 46 is the next open number following Phase 45, per this
+> plan's own established "next available number" convention.
+>
+> **Update 2026-08-19:** every remaining live reference to "Phase 36" for
+> the server-hop tracing phase was updated to cite its current number, 43
+> (BR-042's heading, `ARCHITECTURE-COMMUNICATIONS.md` §6,
+> `ARCHITECTURE-ADMIN.md` §4.5, the image filename above, and this plan's
+> own memory index) — see the "Renumbering (2026-08-19 — collision cleanup,
+> Phase 36 freed for reuse)" log below. With that cleanup done, 36 was
+> deliberately reused for a new, unrelated phase — see **Phase 36** later
+> in this document (Tech Lab Operator rebrand). This VitePress phase stays
+> at 46; only the *reason* 36 was off-limits at the time this note was
+> written is now historical.
 
 #### Goal
 
-Implement the Admin UI redesign design-reviewed across four mockup rounds
-(`accounts_overview_pulse_design.md`): `Accounts` moves from PLATFORM to
-SYSTEM as its first entry; `TOPOLOGY` becomes `Sharing`; SYSTEM · NATS ·
-`Account Activity` retires as a standalone nav item and its content becomes
-Accounts' new first tab, `Overview` — so Accounts' tab bar reads `Overview |
-Provisioning | Sharing`. `Overview` replaces `AccountActivityPanel`'s flat
-number-restating expand with two small trend charts per account (connections/
-subscriptions, in/out throughput), a 5m/30m/1h duration selector, and a
-name-filter search box shown only once there are more than 3 accounts. This
-requires real history — `/accstatz` is a stateless snapshot today — so
-`observability-service` gains a ring buffer.
+Stand up a VitePress-based documentation site for demo 01, so architecture
+and reference content can be browsed as a real docs site — locally for
+now, publishable online later — rather than only as raw markdown files
+across the repo and the obsidian vault. This phase is tooling/scaffolding;
+it is not a business-rule change, so the "ask for business rules first"
+step of the AI Agent Workflow does not apply — no domain rule is added,
+changed, or enforced by this phase.
 
 #### Design decisions
 
-**Nav/tab restructure (no backend changes):**
-- `App.vue`'s `sections`: move the `accounts` item out of the `Platform`
-  group into `System`, as its own `{ items: [...] }` entry before the `NATS`
-  eyebrow section (so it renders above Connections/Services/etc, not inside
-  that eyebrow group). Remove `account-activity` from the `NATS` eyebrow's
-  `items` and delete its `SUBTITLES` entry.
-- **This reverses an explicit prior placement rationale** (`App.vue:94-97`:
-  "Accounts is a tenant roster — a platform-membership question, so it sits
-  here rather than under SYSTEM's NATS group"). That comment gets rewritten,
-  not silently left stale: Accounts moves to SYSTEM specifically because its
-  new Overview tab absorbs a SYSTEM/NATS panel, making Accounts the one home
-  for both the business roster and the NATS-account health view, rather than
-  a PLATFORM item that displays SYSTEM content.
-- `AccountsView.vue`'s tab values: add `overview` (new, first `Tab`/
-  `TabPanel`); rename `topology` → `sharing` (value, label, and
-  `ui.accountsTab` default target for the third tab) for consistency between
-  the visible label and the internal value — `ui.js`'s `accountsTab` default
-  changes from `'provisioning'` to `'overview'` to match every other nav
-  section's Overview-first convention (`App.vue`'s own top-level
-  `activeView` already defaults to `'overview'`).
-- `TopologyPanel.vue` → renamed `SharingPanel.vue` (plus its spec file) —
-  content and behavior unchanged, renamed so the component name doesn't
-  contradict the tab label it backs.
-- `AccountActivityPanel.vue` is retired (deleted, alongside its spec) — its
-  content is superseded by the new Overview tab component below, not kept
-  as a second copy.
-- New `ACCOUNTS_SUBTITLES.overview` entry; `topology` key renamed to
-  `sharing`.
-
-**Ring-buffer history (`observability-service`) — new, not covered by the
-mockups, needs confirmation before implementation:**
-- A background goroutine polls the server's own `/accstatz` every 10s (same
-  interval `AccountActivityPanel.vue`'s frontend poll already uses today —
-  no change in cadence, just a second consumer of the same data) and appends
-  one sample per account into an in-memory buffer, trimming samples older
-  than 60 minutes on each tick. Not persisted to Postgres or NATS KV —
-  explicitly transient telemetry, not source-of-truth data, same reasoning
-  this repo already applies to what does vs. doesn't get event-sourced.
-  Buffer starts empty at process boot and fills in real time; a
-  freshly-restarted service legitimately has less than 60 minutes of history
-  until it's been up that long — no synthetic backfill.
-- **Correctness point:** `/accstatz`'s `sent`/`received` byte and message
-  counts are cumulative totals since server start, not per-interval deltas.
-  The throughput chart needs bucket-over-bucket *deltas* of those counters,
-  not the raw values — the ring buffer stores raw cumulative samples; the
-  history endpoint computes deltas when bucketing.
-- New route `GET /api/nats/account-activity/history?duration=5m|30m|1h`
-  (any other value → 400). Bucket size scales with the window per the round-3
-  mockup: 30s buckets at 5m, 2min at 30m, 5min at 1h. Response carries one
-  bucketed series per account (connections/subscriptions as point samples,
-  in/out bytes and msgs as per-bucket deltas) plus each account's
-  `tenantLabel`; the fleet summary sparklines are summed client-side from the
-  per-account series rather than duplicating a fleet-aggregate endpoint.
-- Existing `GET /api/nats/account-activity` (the live snapshot) is unchanged
-  — the new route is additive, not a replacement, since the collapsed-row
-  snapshot still needs to read from a moment-in-time state.
-
-**Frontend Overview tab component:**
-- New `AccountsOverviewPanel.vue` (superseding `AccountActivityPanel.vue`):
-  fleet summary cards (unchanged 4 stats) each grow a sparkline; the
-  `.acct-card` list stays collapsed-by-default, expand swaps the flat number
-  grid for the two trend charts, fetched from the new history route only for
-  whichever card is expanded (not all accounts at once).
-  - Slow-consumer explanatory copy ties directly to `slowConsumers > 0` for
-    that account within the window, not a scripted "~20 min" estimate — the
-    mockup's precise wording was illustrative, not a number to reproduce from
-    real data.
-- Duration selector (5m/30m/1h pill, defaults 30m) re-fetches history for the
-  fleet sparklines and the currently-expanded card on change.
-- Search box: rendered only when `accounts.length > 3`; case-insensitive
-  substring match against each account's resolved label (falling back to the
-  raw account identifier, matching BR-028's existing fallback); empty state
-  "No accounts match "…"." Client-side only, no backend involvement.
-
-**Explicitly out of scope for this phase** (flagged, not decided as "never"):
-applying the same gated search to the Provisioning tab's account table;
-persisting ring-buffer history across restarts; per-account charts for every
-account rendered simultaneously rather than only the expanded one.
-
-**Candidate business rules** (`BUSINESS_RULES-SHIPPING.md`, same file as
-BR-028/BR-034, which this amends — despite living in `observability-service`,
-matching that file's existing convention for Admin-UI-facing NATS monitoring
-panels):
-- **BR-034 amended**: retitled/rescoped — the panel it describes moves from a
-  standalone SYSTEM · NATS item to Accounts' Overview tab; the slow-consumers-
-  as-alarm rule itself is unchanged.
-- **BR-043 (new)**: `/accstatz` history is retained in a 60-minute ring
-  buffer sampled every 10s; a duration query param (`5m`/`30m`/`1h`, rejecting
-  any other value) selects a bucketed, correctly-delta'd trend series.
-- **BR-044 (new)**: the Overview tab's account search box is shown only when
-  there are more than 3 accounts, filters by name (case-insensitive
-  substring) client-side, and shows a named empty state rather than a blank
-  list.
+- **Location & tooling.** New standalone npm project at
+  `demos/01-dictionary/docs/` using VitePress (Vue 3 + Vite) — the `docs/`
+  folder is both the npm project root and the content root (VitePress's
+  own recommended layout: `.vitepress/config.mts` + `package.json` live
+  directly inside it). It does not join `go.work` and is not a Docker
+  service — a standalone frontend-style project, same pattern as
+  `lab-shell/` and the three `frontend/*` apps, each already independent
+  npm projects with their own `package.json`.
+- **Content ownership — fresh, not synced.** `docs/architecture/` is
+  purpose-written content for this site, not a copy, symlink, or
+  build-time sync of `obsidian/V3-Platform/Architecture/Dictionary-POC/`'s
+  `ARCHITECTURE*.md` files. Those files are unchanged by this phase and
+  remain the internal / AI-agent-facing architecture reference per
+  CLAUDE.md's existing "Architecture Docs" section — this phase does not
+  touch that section's policy. The docs site's `architecture/` pages may
+  draw on and summarize that material, but there is no obligation to
+  mirror it 1:1 and no sync mechanism to keep in sync.
+- **Structure.** This phase scaffolds top-level nav sections and
+  landing/index pages; deep content authoring for every page is tracked as
+  follow-up (see checklist) rather than required to complete this phase.
+  See the separate structure proposal shared alongside this plan update
+  for the concrete section breakdown — final nav shape is confirmed once
+  VitePress is actually up and content can be viewed, per the original
+  request ("we can discuss structure in the generated site once support
+  is added").
+- **Port.** `7106` — next free port in the frontend range (7100 Admin UI,
+  7101 Port Management, 7102 Dictionary, 7103–7105 reserved "under
+  review" for NATS UI/NUI/NATS Tower per the existing port table). Add a
+  row to `demos/01-dictionary/README.md`'s port table.
+- **Theme.** Reuse `shared/unifi-theme`'s CSS variables (dark `#131416`
+  background / `#006fff` accent and their light-mode counterparts) by
+  overriding VitePress's own `--vp-c-*` custom properties in a small
+  `.vitepress/theme/` extension of the default theme — this keeps the
+  "one visual identity" rule from CLAUDE.md's "Frontend Design System"
+  section true in substance even though VitePress doesn't consume
+  PrimeVue/AppShell directly (it has its own theming layer, not a
+  PrimeVue app). Layered on top: presentational idioms adapted from
+  `obsidian/Event sourcing/Event Sourcing + CQRS + NATS — Pattern
+  Cards.pdf` (eyebrow/label-caps section headers, a "DECISION"-style
+  callout container, a verdict/summary badge) as custom Markdown
+  containers or small Vue components local to the docs theme — not a
+  second competing palette, just reference-doc-specific layout patterns
+  expressed in UniFi's own colors.
+- **Diagrams.** Reference already-exported PNGs (e.g.
+  `obsidian/V3-Platform/Architecture/Dictionary-POC/images/`) or copy the
+  specific ones needed into `docs/public/`. Raw `.drawio` workbooks are
+  not embedded directly, consistent with how the rest of the repo already
+  treats these exports (`drawio-architecture-drawer` skill).
+- **Hosting/deployment is out of scope for this phase.** No GitHub Pages
+  (or other) deploy workflow is proposed yet — the existing
+  `.github/workflows/seafreight-app.yml` pattern (build-verify only, no
+  deploy step) is the only CI precedent in this repo today. This phase
+  covers local `npm run dev` / `npm run build` only; hosting is a
+  follow-up decision once content has stabilized.
+- **No `docker-compose.yml` change.** This is an authoring/build tool, not
+  a demo-running service — it doesn't need a container the way the
+  backend/frontend demo apps do.
 
 #### Checklist
 
-- [x] Confirm the design decisions above (ring buffer shape/retention,
-      history endpoint shape, BR-034 amendment + BR-043/BR-044 additions) —
-      confirmed 2026-08-18
-- [x] `observability-service`: background `/accstatz` poller + in-memory ring
-      buffer (per-account, 60min @ 10s, trimmed each tick)
-- [x] `observability-service`: `GET /api/nats/account-activity/history`
-      handler — duration validation, bucketing, cumulative-counter deltas
-- [x] Go tests (plain `testing`, this service's existing convention, not
-      Ginkgo) for BR-043: bucket count/size per duration, delta-not-raw byte
-      counts, 400 on an invalid duration, buffer eviction past 60 minutes
-- [x] `App.vue`: move `accounts` nav item PLATFORM → SYSTEM (first entry);
-      remove `account-activity`; rewrite the stale placement-rationale
-      comment; update `SUBTITLES`/`ACCOUNTS_SUBTITLES`
-- [x] `AccountsView.vue` + `ui.js`: add `overview` tab (default), rename
-      `topology` → `sharing`
-- [x] Rename `TopologyPanel.vue`/spec → `SharingPanel.vue`/spec (no spec
-      file existed to rename)
-- [x] New `AccountsOverviewPanel.vue` (+ Vitest spec) superseding
-      `AccountActivityPanel.vue`: sparklines, expand-to-trend-charts,
-      duration selector, gated search + empty state; delete
-      `AccountActivityPanel.vue`/spec
-- [x] ~~`docs/docs.go`/`swagger.json`/`swagger.yaml`: new history route
-      documented~~ — N/A: `observability-service` has no generated swagger
-      docs at all (unlike `shipping-service`); its `@Summary`/`@Router`
-      comments are documentation-style only, confirmed no `swaggo` import
-      or `docs/` folder exists for this service
-- [x] `BUSINESS_RULES-SHIPPING.md`: BR-034 amended, BR-043/BR-044 added
-- [x] `ARCHITECTURE-ADMIN.md`: Accounts/Account-Activity section updated to
-      match the new nav/tab structure — scope statement, panel index, §2/§3
-      inventories all updated to six panels; §4.3 retitled "relocated" with
-      Phase 45's history/search additions documented, following §4.8's
-      retired-panel precedent
-- [x] `go build ./...` (observability-service) + its test suite green;
-      frontend build + Vitest green (3 pre-existing, unrelated
-      `TraceWaterfall.spec.js` failures confirmed present before this
-      phase's changes too, left as found); verified live against the
-      docker stack — nav restructure, Overview tab (real sparklines/charts
-      from the live ring buffer), duration selector, and gated search all
-      confirmed working against real `/accstatz` data
+- [ ] Scaffold `demos/01-dictionary/docs/` as a standalone VitePress
+      project (own `package.json`, `.vitepress/config.mts`)
+- [ ] Wire `dev`/`build`/`preview` npm scripts; dev server on port `7106`
+- [ ] Add the docs site's port to `demos/01-dictionary/README.md`'s port
+      table
+- [ ] Custom VitePress theme: override `--vp-c-*` tokens from
+      `shared/unifi-theme` (dark + light)
+- [ ] Pattern-Cards-inspired custom containers/components (decision
+      callout, verdict badge, eyebrow label) as local theme
+      components — do not fork them into `shared/unifi-theme` unless a
+      second app needs them
+- [ ] Scaffold top-level nav/sidebar structure with landing/index pages
+      per section (see structure proposal) — deep content authoring
+      tracked separately, not required for this phase's completion
+- [ ] `architecture/` section: author initial overview page(s); full
+      page-by-page scope confirmed once nav structure is agreed
+- [ ] Copy/reference the diagram PNGs the initial content actually needs
+      into `docs/public/`
+- [ ] `npm run build` produces a working static site locally; `npm run
+      dev` has no console errors
+- [ ] Repo-root or demo-level `README.md` gets a short pointer to the new
+      docs site once it has real content
 
 ---
 
@@ -1706,6 +1745,45 @@ Cross-reference sweep (same commit):
 - [x] Go/Vue source comments — no "Phase 36" references found (no code has
       been written for this phase yet)
 - [x] `.claude/memory/` — no "Phase 36" references found
+
+## Renumbering (2026-08-19 — collision cleanup, Phase 36 freed for reuse)
+
+**Why:** the user asked to use "Phase 36" for a new, unrelated frontend
+phase (Tech Lab Operator rebrand + Trading Partners migration). The number
+was deliberately left alone in the 2026-08-18b sweep above because the
+server-hop tracing phase — by then already renumbered to 43 — still had
+live cross-references reading "Phase 36" in BR-042's heading and both
+architecture docs, and those references were accurate *at the time each was
+written*. Reusing 36 for a second, unrelated phase without first updating
+those references would make "Phase 36" ambiguous going forward — old docs
+would keep meaning server-hop tracing while the live plan meant something
+else entirely. So, on explicit request, this pass finishes the sweep that
+2026-08-18b intentionally deferred, updating every remaining "Phase 36"
+citation for server-hop tracing to its current live number, 43, before 36
+is reassigned below.
+
+| File | Change |
+|---|---|
+| `demos/01-dictionary/BUSINESS_RULES-SHIPPING.md` | BR-042 heading "(Phase 36, ...)" → "(Phase 43, ...)"; added a numbering-note callout under the heading; "Phase 36's 'Spike findings'" → "Phase 43's 'Spike findings'" |
+| `obsidian/.../ARCHITECTURE-COMMUNICATIONS.md` §6 | "(Phase 36, renumbered ... then 2026-08-18 to Phase 36 — still not started)" → cites Phase 43 and notes 36 was later freed |
+| `obsidian/.../ARCHITECTURE-ADMIN.md` §4.5 | same update as above |
+| `obsidian/.../images/phase36-trace-the-subject-options.png` | renamed to `phase43-trace-the-subject-options.png` (file had no other referrers besides the Phase 46 numbering note, updated in the same pass) |
+| `.claude/memory/phase36_nats_hop_tracing_renumbered.md` | renamed to `phase43_nats_hop_tracing_renumbered.md`, content rewritten to the current 43/DEFERRED state and to note 36's reuse |
+| `.claude/memory/MEMORY.md` | index line updated to point at the renamed memory file and cite Phase 43 |
+| This plan, Phase 46's numbering note | appended an "Update 2026-08-19" paragraph rather than rewriting the original note, so the historical reasoning stays intact |
+
+Cross-reference sweep (same commit):
+
+- [x] Phase 43's own header and body already say "Phase 43" throughout — no
+      change needed there.
+- [x] Phase 107 ("Re-fire a Captured Trace") — already points at Phase 43
+      per the 2026-08-18b sweep; no "Phase 36" text remained to fix.
+- [x] The 2026-08-17, 2026-08-18, and 2026-08-18b renumbering tables above
+      are left untouched — they are a historical audit trail of what each
+      renumbering event did, not live cross-references, same reasoning as
+      every prior entry in this log.
+- [x] No other `grep -r "Phase 36\|phase36"` hits remain outside this log's
+      own history and the new Phase 36 section below.
 
 ---
 
