@@ -148,26 +148,42 @@ describe('RpcPanel [messages] tab (Phase 28g retirement, BR-026)', () => {
 // mount (still gated by v-if, so a messages-only test run — see
 // mountMessagesTab above — never mounts TraceWaterfall) while caching the
 // instance instead of destroying it once mounted, so a later switch away
-// and back reuses it with no repeat bootstrap call.
-describe('RpcPanel [traces] tab toggling (Phase 28q)', () => {
+// and back reuses it with no repeat bootstrap call. Phase 44 added the
+// [pulse] tab as the new default (PulsePanel.vue, its own bootstrap/
+// subscribe pair) ahead of [traces] in the tab bar — wrapped in the same
+// `<KeepAlive>` pattern, so this spec now proves the property for both.
+describe('RpcPanel [pulse]/[traces] tab toggling (Phase 28q, extended Phase 44)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     getKvBucketEntries.mockResolvedValue([kvEntry('t1', [OK_SPAN]), kvEntry('t2', [ERROR_SPAN])])
   })
 
-  it('keeps TraceWaterfall mounted across a Messages round-trip instead of re-fetching', async () => {
+  it('keeps Pulse and Traces mounted across tab round-trips instead of re-fetching each time', async () => {
     const pinia = createPinia()
     const wrapper = mount(RpcPanel, { global: { plugins: [PrimeVue, pinia] } })
     await flushPromises()
 
-    const callsAfterInitialMount = getKvBucketEntries.mock.calls.length
-    expect(callsAfterInitialMount).toBeGreaterThan(0)
+    // Initial mount: RpcPanel's own unconditional bootstrap (for [messages])
+    // plus the default [pulse] tab's own lazy first mount.
+    const afterInitialMount = getKvBucketEntries.mock.calls.length
+    expect(afterInitialMount).toBeGreaterThan(0)
+
+    useUiStore(pinia).rpcTab = 'traces'
+    await flushPromises()
+    // First visit to [traces] — its own lazy first mount, one more fetch.
+    const afterFirstTracesVisit = getKvBucketEntries.mock.calls.length
+    expect(afterFirstTracesVisit).toBeGreaterThan(afterInitialMount)
 
     useUiStore(pinia).rpcTab = 'messages'
+    await flushPromises()
+    useUiStore(pinia).rpcTab = 'pulse'
     await flushPromises()
     useUiStore(pinia).rpcTab = 'traces'
     await flushPromises()
 
-    expect(getKvBucketEntries.mock.calls.length).toBe(callsAfterInitialMount)
+    // Round-tripping through [messages] and back must not trigger any
+    // further fetch — both [pulse] and [traces] are kept alive once first
+    // mounted.
+    expect(getKvBucketEntries.mock.calls.length).toBe(afterFirstTracesVisit)
   })
 })

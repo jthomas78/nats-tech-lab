@@ -1,13 +1,23 @@
 # Admin UI — SYSTEM → NATS Navbar Group
 
-Scope: the eight panels nested under `frontend/admin`'s SYSTEM → NATS nav
-group — Connections, Services, Account Activity, Log, Request/Reply &
-Traces, Streams, KV Buckets, CQRS Shapes (`frontend/admin/src/App.vue`'s `sections`
-array, `eyebrow: 'NATS'`). These are the Admin UI's *observability* surface:
-every one of them is read-only, reaches across every NATS account this
-backend can see rather than just the active tenant, and exists so an
-operator can answer "what's actually happening on this deployment?" without
-opening `nats` CLI or a raw `:8222` curl.
+Scope: the six panels nested under `frontend/admin`'s SYSTEM → NATS nav
+group — Connections, Services, Log, Request/Reply & Traces, Streams, KV
+Buckets (`frontend/admin/src/App.vue`'s `sections` array, `eyebrow: 'NATS'`).
+These are the Admin UI's *observability* surface: every one of them is
+read-only, reaches across every NATS account this backend can see rather
+than just the active tenant, and exists so an operator can answer "what's
+actually happening on this deployment?" without opening `nats` CLI or a raw
+`:8222` curl.
+
+> **Phase 45 — Account Activity is no longer one of these six.** It moved
+> out of this navbar group entirely: `Accounts` (its own top-level SYSTEM
+> entry, not nested under this `eyebrow: 'NATS'` sub-group) gained an
+> `Overview` tab that absorbed it, so Accounts is now the one home for both
+> the business roster and NATS-account health. §4.3 below keeps its design
+> history as a historical record — the same reasoning still governs
+> `AccountsOverviewPanel.vue` today — but every other section in this doc
+> (panel counts, layout/archetype/color inventories) now describes the six
+> panels actually left in this group.
 
 This doc is the architecture **and** UI-design reference for that group
 specifically — it complements, rather than replaces, the docs that already
@@ -25,10 +35,11 @@ own deeper pieces of it:
   operator-mode trust chain and the "two PLATFORM connections" split that
   determines which credential each snapshot endpoint uses.
 - [ARCHITECTURE.md](ARCHITECTURE.md) owns the CQRS shape taxonomy (Shape
-  A/B/C) that the CQRS Shapes panel visualizes.
+  A/B/C) — no longer visualized by a panel in this group; the CQRS Shapes
+  panel that once did was retired (§4.8's history).
 
 What's genuinely new here, and not written down anywhere else: the shared
-**UI design system** these eight panels all draw from (§2), the three
+**UI design system** these six panels all draw from (§2), the three
 recurring **backend data-flow archetypes** they mix and match (§3), and —
 for the three panels where a real design argument happened — the **design
 history** of how each panel arrived at its shipped shape, including the
@@ -42,14 +53,19 @@ alternatives that were rejected and why (§4.1, §4.3, §4.5).
 |---|---|---|---|
 | Connections | `connections` | `ConnectionsPanel.vue` | `GET /api/nats/connections` |
 | Services | `services` | `ServicesPanel.vue` | `GET /api/nats/services` |
-| Account Activity | `account-activity` | `AccountActivityPanel.vue` | `GET /api/nats/account-activity` |
 | Log | `log` | `LogPanel.vue` | `GET /api/nats/log` |
-| Request/Reply & Traces | `rpc` | `RpcPanel.vue`, `TraceWaterfall.vue`, `SubjectPath.vue` | `GET /api/kv/buckets/platform/trace-request-reply/entries` + live `notify._platform.kv.trace-request-reply.>` — both tabs read the same feed (traces: grouped by trace; messages: flattened one row per span, Phase 28g retirement; bucket renamed `traces` → `trace-request-reply` in Phase 28l) |
+| Request/Reply & Traces | `rpc` | `RpcPanel.vue`, `PulsePanel.vue`, `TraceWaterfall.vue`, `SubjectPath.vue` | `GET /api/kv/buckets/platform/trace-request-reply/entries` + live `notify._platform.kv.trace-request-reply.>` — all three tabs read the same feed (pulse: unfiltered, grouped by trace, Phase 44; traces: grouped by trace, toolbar-filtered; messages: flattened one row per span, Phase 28g retirement; bucket renamed `traces` → `trace-request-reply` in Phase 28l) |
 | Streams | `streams` | `JetStreamPanel.vue`, `StreamView.vue` | `GET /api/jetstream/streams`, `GET /api/jetstream/replay` |
 | KV Buckets | `kv` | `KvInspector.vue` | `GET /api/kv/buckets`, `GET /api/kv/buckets/{account}/{bucket}/entries` + live `notify.*.kv.{bucket}.>` |
-| CQRS Shapes | `shapes` | `ShapePanel.vue` | KV notify (`ships`), `GET /api/shape-b/ships/*` |
 
-All eight are wired in `App.vue`'s `<template>` as `v-else-if="activeView === '<key>'"` sections; the six that manage their own internal scroll region (Connections, Services, Account Activity, Request/Reply & Traces, Streams, KV Buckets) render inside `class="group group--flush"` so their content fills the remaining viewport instead of being capped at page height. Log and CQRS Shapes render as plain (non-flush) `group` sections.
+All six are wired in `App.vue`'s `<template>` as `v-else-if="activeView === '<key>'"` sections; the five that manage their own internal scroll region (Connections, Services, Request/Reply & Traces, Streams, KV Buckets) render inside `class="group group--flush"` so their content fills the remaining viewport instead of being capped at page height. Log renders as a plain (non-flush) `group` section.
+
+**Account Activity moved out of this group in Phase 45** — its component
+(now `AccountsOverviewPanel.vue`) is Accounts' `Overview` tab
+(`AccountsView.vue`), reachable via the `accounts` nav key, not a
+`v-else-if` branch in this list. `GET /api/nats/account-activity` is
+unchanged; Phase 45 additionally added
+`GET /api/nats/account-activity/history` (BR-043) alongside it.
 
 ---
 
@@ -64,14 +80,15 @@ summary-card rule, and one color vocabulary.
 
 ### 2.1 Four recurring layouts
 
-1. **Card list** — Services, Account Activity. A vertical stack of
+1. **Card list** — Services (and, outside this navbar group but sharing the
+   same CSS, Accounts' `Overview` tab). A vertical stack of
    `.svc-card`/`.acct-card` rows: a status dot, a name, optional tag(s), a
    row of right-aligned inline stat pairs (`<b>value</b><label>unit</label>`),
    and a chevron that expands the card in place for per-instance/per-account
    detail. Chosen because the underlying data — "a handful of named things,
    each with a few live counters, worth expanding for detail" — is the same
-   shape both times; Account Activity's card is deliberately a copy of
-   Services' `.svc-card`, not a new pattern (§4.3).
+   shape both times; the Overview tab's card is deliberately a copy of
+   Services' `.svc-card`, not a new pattern (§4.3's historical note).
 2. **Rail + detail split-pane** — Streams, KV Buckets, Request/Reply &
    Traces' *traces* view (and, in its own idiom, that panel's *messages*
    row-list + bottom detail). A left rail lists every
@@ -84,7 +101,7 @@ summary-card rule, and one color vocabulary.
    (`.account-group`/`.account-dot`/`.rail-item`) so the two "pick one thing
    from a list, inspect it on the right" panels read as one pattern rather
    than two.
-3. **Plain table** — Connections, CQRS Shapes' table, and the
+3. **Plain table** — Connections, and the
    *messages* view of Request/Reply & Traces. A PrimeVue `DataTable`,
    filterable, one row per entity; no card, no expansion (Connections' detail
    opens as a bottom panel instead, closer to that messages view's pattern
@@ -99,11 +116,12 @@ summary-card rule, and one color vocabulary.
 
 ### 2.2 The "one ratio, one type size" summary-card rule
 
-Connections, Services, and Account Activity each open with a `.summary-row`
-of 3–4 cards (`.summary-card` → `.summary-label` + `.summary-value`). The
+Connections and Services each open with a `.summary-row` of 3–4 cards
+(`.summary-card` → `.summary-label` + `.summary-value`) — as does Accounts'
+`Overview` tab, outside this navbar group but built to the same rule. The
 rule governing every one of them, established while building Connections'
-Total card and then applied to Services and Account Activity from the
-start:
+Total card and then applied to Services (and later Account
+Activity/Overview) from the start:
 
 - **One value per card, at one type size across the whole row** — 20px/600,
   pairs included (`N / max` ratios, `in / out` pairs). No per-card `.small`
@@ -124,9 +142,9 @@ start:
   state.** Connections' "N of M shown, page P of Q" note appears solely
   when `/connz` actually paged (an amber line, with the page-size vs.
   connection-ceiling distinction spelled out in its tooltip) — not as a
-  permanent "nothing hidden" caption. Account Activity's slow-consumer
-  banner and per-account alarm follow the identical rule (§4.3): silent at
-  zero, visible only once nonzero.
+  permanent "nothing hidden" caption. The Overview tab's slow-consumer
+  banner and per-account alarm follow the identical rule (§4.3's historical
+  note): silent at zero, visible only once nonzero.
 
 ### 2.3 Color semantics
 
@@ -151,8 +169,8 @@ them. Naming them once here avoids re-deriving "is this live?" per panel:
 
 | Archetype | Description | Panels |
 |---|---|---|
-| **Poll-only** | A REST endpoint re-fetched on an interval; no NATS subscription backs it at all. | Log (4s poll), Connections/Services/Account Activity (10s poll), Streams' rail and KV Buckets' rail (15s poll) |
-| **Snapshot + live notify** | One-shot REST bootstrap, immediately followed by a live NATS subscription (`notify.*` for anything published afterward. | KV Buckets' selected-bucket detail (`notify.*.kv.{bucket}.>`), Request/Reply & Traces (both tabs — `GET /api/kv/buckets/platform/trace-request-reply/entries` + `notify._platform.kv.trace-request-reply.>`, Phase 28g retirement), CQRS Shapes' table (reuses `dictionary.js`'s existing `ships`-bucket snapshot+notify store) |
+| **Poll-only** | A REST endpoint re-fetched on an interval; no NATS subscription backs it at all. | Log (4s poll), Connections/Services (10s poll), Streams' rail and KV Buckets' rail (15s poll) — also, outside this group, Accounts' `Overview` tab (10s poll, plus its own 10s poll against the Phase 45 history route on a duration change) |
+| **Snapshot + live notify** | One-shot REST bootstrap, immediately followed by a live NATS subscription (`notify.*` for anything published afterward. | KV Buckets' selected-bucket detail (`notify.*.kv.{bucket}.>`), Request/Reply & Traces (both tabs — `GET /api/kv/buckets/platform/trace-request-reply/entries` + `notify._platform.kv.trace-request-reply.>`, Phase 28g retirement) |
 | **Live-only** | A direct NATS subscription with no REST snapshot/replay at all — nothing to catch up on, or catching up was deliberately out of scope. | No panel currently instantiates this archetype — Request/Reply & Traces' old `api.*` half (`obs.api.>`) was the one example, retired in Phase 28g along with the rest of that channel. Kept here as a named shape in case a future panel needs it, not as a claim that one exists today. |
 
 **The trace view is a variant of snapshot+notify, not a fourth archetype**
@@ -177,7 +195,7 @@ live" becomes a real requirement; until then, Streams is poll-only in
 practice, and its detail header's `snapshot` tag (§2.3) is telling the
 truth, not a hedge.
 
-**Historical note (retired Phase 31):** CQRS Shapes used to have a
+**Historical note:** the now-retired CQRS Shapes panel (§4.8) used to have a
 deliberate exception to "give everything a live feed" — a **manual,
 on-demand** replay (`GET /api/shape-c/fleet`, fired on mount and again only
 when the operator clicked "Reconstruct"), because the point of that shape
@@ -185,14 +203,16 @@ was to demonstrate Fowler's Event Sourcing property — that current state
 derives entirely from history — and a Reconstruct button that visibly
 redoes the full replay made that demonstration concrete in a way a
 silently-live view wouldn't. Phase 31 retired that shape once the POC's
-comparison was decided; the remaining CQRS Shapes table is entirely
-snapshot+live-notify (§ table above), with no manual-replay exception left.
+comparison was decided, before the panel itself was retired outright — its
+table ended its life entirely snapshot+live-notify, with no manual-replay
+exception left.
 
 ### 3.2 Primary/secondary monitoring reads
 
-Connections, Services, and Account Activity share one backend shape even
-though they proxy different NATS monitoring endpoints: a **primary** read
-that the request fails on (502) if it's unreachable, and zero or more
+Connections and Services share one backend shape even though they proxy
+different NATS monitoring endpoints — a pattern Account Activity (now
+Accounts' `Overview` tab, outside this group) also follows: a **primary**
+read that the request fails on (502) if it's unreachable, and zero or more
 **secondary** reads whose failure the caller absorbs rather than propagates.
 
 ```mermaid
@@ -203,7 +223,7 @@ flowchart LR
         C1["/connz (primary)"] -->|"502 on failure"| C2[response]
         C3["/varz (secondary)"] -.->|"maxConnections: 0 on failure"| C2
     end
-    subgraph AccountActivity["GET /api/nats/account-activity"]
+    subgraph AccountActivity["GET /api/nats/account-activity (Accounts' Overview tab)"]
         A1["/accstatz (primary)"] -->|"502 on failure"| A2[response]
         A3["/connz (secondary, for tenantLabel)"] -.->|"empty label on failure"| A2
     end
@@ -219,8 +239,9 @@ endpoint to enrich it with.
 
 ### 3.3 Cross-account, not tenant-scoped
 
-Connections, Account Activity, Streams, and KV Buckets all read **every
-account this backend reaches**, never just the active tenant — deliberately,
+Connections, Streams, and KV Buckets — plus Accounts' `Overview` tab,
+outside this group — all read **every account this backend reaches**, never
+just the active tenant — deliberately,
 because "what exists / what's happening on this deployment" is a different
 question from "what is this tenant's data," and forcing the former through a
 tenant switch answers it one account at a time. See
@@ -244,18 +265,19 @@ unlabeled."
 
 ### 3.4 Account-label resolution (BR-028)
 
-Connections, Services, and Account Activity all show a friendly account
-name ("PLATFORM", "acme") instead of a raw NKey wherever this process can
-resolve one — see [ARCHITECTURE-COMMUNICATIONS.md §11](ARCHITECTURE-COMMUNICATIONS.md)
+Connections and Services both show a friendly account name ("PLATFORM",
+"acme") instead of a raw NKey wherever this process can resolve one — see
+[ARCHITECTURE-COMMUNICATIONS.md §11](ARCHITECTURE-COMMUNICATIONS.md)
 for the two-tier browser-composed resolution `ConnectionsPanel.vue` uses,
 and [BUSINESS_RULES-SHIPPING.md](../../../../demos/01-dictionary/BUSINESS_RULES-SHIPPING.md)
-BR-028 for the backend rule both Connections and Services enforce (`tenantLabelsByAccount`,
+BR-028 for the backend rule both enforce (`tenantLabelsByAccount`,
 matching this process's own connections by local socket address, then
-applying that mapping by account to every row). Account Activity reuses the
-identical `tenantLabelsByAccount` fan-out as a secondary read (§3.2, BR-034)
-rather than inventing a second resolver — the only difference from
-Connections/Services is which primary payload (`/accstatz`'s `acc` field
-instead of `/connz`'s `account` field) the resolved map is applied to.
+applying that mapping by account to every row). Accounts' `Overview` tab
+(outside this group) reuses the identical `tenantLabelsByAccount` fan-out as
+a secondary read (§3.2, BR-034) rather than inventing a second resolver —
+the only difference from Connections/Services is which primary payload
+(`/accstatz`'s `acc` field instead of `/connz`'s `account` field) the
+resolved map is applied to.
 
 ---
 
@@ -315,12 +337,22 @@ the instance's `micro.Config.Metadata` carries one (BR-028, §3.4). Summary
 row: **Services**, **Instances**, **Endpoints**, **Requests / Errors**
 (errors rendered in the crit red from §2.3 when nonzero, otherwise plain).
 
-### 4.3 Account Activity
+### 4.3 Account Activity (relocated to Accounts' `Overview` tab, Phase 45)
+
+**No longer part of this navbar group** — kept here, same treatment as
+§4.8's retired CQRS Shapes panel, because the design history below still
+governs the component that superseded it. `AccountActivityPanel.vue` (the
+standalone SYSTEM · NATS panel described below) was deleted; its content
+and behavior live on as `AccountsOverviewPanel.vue`, the first tab of
+Accounts (`AccountsView.vue`, nav key `accounts`) — moved there because
+Accounts itself moved PLATFORM → SYSTEM in the same phase, making it the
+one home for both the business roster and NATS-account health rather than
+a SYSTEM/NATS item sitting apart from it.
 
 **What it shows.** Per-account traffic and health — connection/subscription
 counts, sent/received message and byte volume, and `slow_consumers` — from
-the NATS server's own `/accstatz`. The newest panel in this group (Phase
-27); nothing showed this data before it existed.
+the NATS server's own `/accstatz`. Introduced Phase 27; nothing showed this
+data before it existed.
 
 **Backend + data flow.** Poll-only, `GET /api/nats/account-activity`
 (§3.2) — `/accstatz` primary, `/connz` secondary for `tenantLabel` (§3.4).
@@ -330,6 +362,46 @@ the NATS server's own `/accstatz`. The newest panel in this group (Phase
 handful of named things, each with a few live counters, worth expanding for
 detail." Summary row: **Accounts**, **Connections**, **Subscriptions**,
 **Msgs In/Out**, following §2.2 exactly.
+
+**Phase 45 additions — trend history and gated search, on top of the
+unchanged card-list/summary-row shape above.** Two gaps the original design
+never addressed, found in mockup review (`.claude/memory/accounts_overview_pulse_design.md`):
+the expand-to-detail interaction restated the same numbers already visible
+in the collapsed row, and there was no way to filter the list once it grew
+past a handful of accounts.
+
+- **Trend charts replace the flat number grid on expand** (BR-043). A new
+  60-minute in-memory ring buffer in `observability-service`
+  (`account_activity_history.go`) polls `/accstatz` every 10s — the same
+  cadence the frontend already polled at — and
+  `GET /api/nats/account-activity/history?duration=5m|30m|1h` buckets it
+  (30s/2min/5min buckets respectively, so a short window doesn't collapse
+  to one or two fat bars). Two charts render per expanded card: a
+  connections/subscriptions line pair, and an in/out throughput bar chart.
+  The one correctness point worth restating here: `/accstatz`'s byte/message
+  counters are cumulative since server start, so the history route reports
+  **deltas** between buckets, not the raw values — charting the raw
+  counters would draw an ever-climbing line, not a throughput bar. The
+  fleet summary cards each grow a sparkline too, summed client-side from
+  the per-account series rather than a separate fleet-aggregate endpoint.
+  Not persisted across restarts — deliberately transient telemetry, same
+  reasoning this repo already applies to what does vs. doesn't get
+  event-sourced ([ARCHITECTURE.md](ARCHITECTURE.md) § "Event Sourcing vs
+  Plain CRUD").
+- **A name filter, gated on account count** (BR-044). Below 4 accounts the
+  list is short enough to just read, so the search box is omitted entirely
+  rather than shown-but-useless; past that threshold it filters the
+  already-fetched list client-side (case-insensitive substring against the
+  resolved label), with a "No accounts match "…"." empty state rather than
+  a blank list.
+
+Round 2 of the mockup review (a "fleet pulse" alternative that removed the
+collapse/expand interaction entirely, giving every account's charts
+permanent screen space) was rejected before implementation — it doesn't
+scale as accounts are added, and it breaks the collapsed-by-default
+convention Services/Account-Activity-turned-Overview both otherwise share.
+See the memory file above for the full round-by-round history and the
+mockups it links to.
 
 **Design history — placement, and the one deliberate move.** Before
 building anything, three placements were compared for where this data
@@ -508,15 +580,28 @@ Rows are 26px, matching this group's DataTable density.
 | Replace Request/Reply outright | flat view retired | Loses "has this subject seen any traffic at all," which the flat list answers better than a trace list does. |
 | **A view toggle inside this panel** | **`[traces] [messages]`, nav unchanged at eight** | **Chosen.** The `traceSpan` superset means both views read one feed, §2.1.2 already existed so no fifth layout was invented, and the nav is untouched. |
 
-The one deliberate omission: **no aggregation, and therefore no
-`.summary-row` at all.** No calls/sec, error-rate, or p95 cards. Every other
-panel in this group that opens with summary cards is reporting a *current
-level* — connections against a ceiling, storage against a limit, slow
-consumers right now — whereas a trace list is a log of discrete past events,
-and a p95 computed over whatever happens to fall inside a 1h retention
-window is a number that looks authoritative and isn't. Aggregation belongs
-to the metrics axis, where `$SRV.STATS` already reports `numRequests`,
-`numErrors`, and `averageProcessingTime` per endpoint (§4.2).
+The one deliberate omission: **no *unscoped* aggregation, and therefore no
+`.summary-row` in the §2.2 sense.** No calls/sec-since-boot, no error-rate
+computed over the full retention window, no p95 card. Every other panel in
+this group that opens with summary cards is reporting a *current level* —
+connections against a ceiling, storage against a limit, slow consumers right
+now — whereas a trace list is a log of discrete past events, and an aggregate
+over an arbitrary historical window is a number that looks authoritative and
+isn't. Aggregation over a real historical window belongs to the metrics
+axis, where `$SRV.STATS` already reports `numRequests`, `numErrors`, and
+`averageProcessingTime` per endpoint (§4.2).
+
+The pulse strip (Phase 28p, promoted to its own *Pulse* tab below) is a
+deliberate, narrower exception to this, not a violation of it: it aggregates
+only over the live-buffered trace set — however far back that buffer
+happens to reach — never a fixed calendar interval computed against the 1h
+retention window. It cannot claim the false authority a p95-over-1h card
+would, because it never claims anything about history beyond what's actually
+buffered. (Pre-*Pulse*-tab, this window was additionally narrowed by
+whichever of the Traces toolbar's errors/slow/rest-nats filters were active,
+since the strip sat directly above that toolbar and read the same
+`displayedSummaries`; see the *Pulse* tab entry below for whether that
+filter-sharing survives the move to a separate tab.)
 
 **Amended (Phase 34.4) — two more toolbar filters, deliberately distinguished
 by trust level.** Alongside the existing free-text search (substring match
@@ -546,6 +631,55 @@ reader scanning the toolbar sees three visually similar but not identical
 controls and has reason to ask what the difference is, rather than treating
 "subject prefix" and "requester" as interchangeable ways to search the same
 thing.
+
+**Shipped (Phase 44) — a `Pulse` tab.** Splits the pulse strip (the
+`requests`/`errors`/`avg latency` histograms, previously described above as
+living in `TraceWaterfall.vue`) off the *Traces* view entirely, onto its own
+tab in front of it — `[Pulse] [Traces] [Messages]`. The new tab
+(`PulsePanel.vue`) pairs a plain-language summary of what request/reply
+covers (the `_INBOX.<nuid>` reply-routing mechanism, the `rpc.*`/`api.*`
+families, and — the thing neither this section nor the panel used to state
+— that `parentSpanId` is what actually chains a multi-hop call into the tree
+*Traces*' waterfall reconstructs; `traceId` alone only says the hops belong
+to the same call, not how they nest) with an animated Client → NATS Server →
+Service diagram, then the pulse cards themselves, given more room than the
+strip previously had.
+
+![Request/Reply — the Pulse tab](images/admin-rpc-overview-mockup.png)
+
+Editable source:
+[admin-rpc-overview-mockup.html](../../../../demos/01-dictionary/diagrams/admin-rpc-overview-mockup.html);
+re-export with
+`node diagrams/export-html-png.mjs diagrams/admin-rpc-overview-mockup.html ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/admin-rpc-overview-mockup.png 1024 --clip=".mock"`
+from `demos/01-dictionary/`. Naming was the one open question — **Pulse**
+(the strip's own existing internal name in the code) is what shipped, over
+**Overview**.
+
+This was approved deliberately in tension with "the one deliberate omission"
+above, rather than by stepping around it: that bullet argues this panel
+should carry no *unscoped* aggregation, and giving the pulse strip a whole
+tab with an explanatory card and enlarged cards is *more* visual prominence
+for an aggregate view, not less. The resolution — recorded in that bullet
+now, not just here — is that the strip's own defense (it aggregates the
+live-buffered window, never a fixed calendar interval against the 1h
+retention window) is a real, narrower claim than the unscoped aggregation
+the omission bullet was rejecting, so promoting its prominence doesn't
+revive what was rejected.
+
+**Data scope, resolved at implementation:** the pulse strip used to read
+`displayedSummaries` — the *Traces* toolbar's errors/slow/rest-nats-filtered
+view — only because it was physically rendered above that toolbar. As a
+separate tab it is no longer co-rendered with that toolbar, so `PulsePanel.vue`
+aggregates the *full* unfiltered live-buffered trace set instead, independent
+of whatever `Traces` has filtered to — the simpler option, and the one a
+tab-level separation most naturally implies, over hoisting filter state into
+`stores/ui.js` and sharing it across tabs. `PulsePanel.vue` keeps its own
+bootstrap/subscribe/trace-grouping rather than sharing `TraceWaterfall.vue`'s,
+matching this panel's existing precedent (`RpcPanel.vue`'s *Messages* tab
+already duplicates the same pair for a flat-by-span aggregation — `Pulse` is
+a third aggregation shape over the same feed). `ui.rpcTab`'s default changed
+to `'pulse'`, since it's now first in the tab bar and carries the panel's
+explanatory content.
 
 ### 4.6 Streams
 
@@ -605,44 +739,33 @@ and a **Recent updates** tail view (§2.1.4) below it: a capped,
 reverse-chronological list of live PUT/DEL/PURGE events, each op
 color-coded (PUT ok-green, DEL warn-amber, PURGE crit-red, §2.3).
 
-### 4.8 CQRS Shapes
+### 4.8 CQRS Shapes (retired)
 
-**What it shows.** A ship's current state served from **KV as a
-write-through cache in front of canonical Postgres**, with explicit
-Read/Evict controls to demonstrate cache-hit vs. miss→Postgres→backfill.
-Phase 31 retired the two shapes this panel used to compare it against — KV
-as the read model directly (no Postgres), and pure event sourcing (current
-fleet and container state reconstructed by replaying the entire `SHIPPING`
-stream from `seq=1`, no KV, no Postgres at all) — once the POC's shape
-comparison was decided in favor of the one this panel now shows exclusively.
-See `obsidian/POC-Dictionaries/` for the findings write-up on why it won.
-The shape taxonomy itself is owned by [ARCHITECTURE.md](ARCHITECTURE.md)
-§"Shape Classification — Variant Identifiers"; this section covers only the
-Admin UI panel built on top of it.
-
-**Backend + data flow.** The panel's rows reuse the same snapshot+notify KV
-store (`dictionary.js`) KV Buckets is built on, pre-wired to the `ships`
-bucket specifically; its Read/Evict buttons are one-shot REST calls (`GET
-/api/shape-b/ships/{context}/{shipID}`, `DELETE
-/api/shape-b/cache/{context}/{shipID}` — these routes keep their pre-Phase-31
-`/api/shape-b/...` path; Phase 31 deliberately left renaming/reclassifying
-them to Phase 33, since renaming twice would be churn).
-
-**UI design.** A single plain table (§2.1.3, `ShapePanel.vue`, no longer
-parameterized by a `shape` prop now that only one shape remains) additionally
-shows a second table below a divider — the canonical Postgres projection,
-which persists even after the KV cache above it is evicted, making the
-cache-miss path visible rather than asserted. Ship status color-coding
-(in-transit blue, docked green, at-anchor amber, not-under-command red,
-restricted-manoeuvrability orange) is resolved via refdata rather than
-hardcoded — colors are a frontend concern, decoupled from the reference-data
-text describing them.
+**Historical note:** this panel showed a ship's current state served from
+KV as a write-through cache in front of canonical Postgres, with explicit
+Read/Evict controls demonstrating cache-hit vs. miss→Postgres→backfill —
+Shape B's pattern, made concrete on screen. It originally existed to let an
+operator compare Shape B side-by-side against the two shapes Phase 31 later
+retired (KV as the read model directly, and pure event-sourced
+reconstruction from the `SHIPPING` stream); see `obsidian/POC-Dictionaries/`
+for the findings write-up on why Shape B won that comparison. Once the
+comparison it was built for was over, the panel itself — `ShapePanel.vue`,
+its nav entry, and the admin-only `/api/admin/read-path/*` REST routes it
+called — was retired as obsolete, along with the "Ship entries" summary
+card on the Overview panel that read the same KV store. The shape taxonomy
+itself remains current and is owned by
+[ARCHITECTURE.md](ARCHITECTURE.md) §"Shape Classification — Variant
+Identifiers"; only this group's UI visualization of it is gone. Shape B's
+single-entity KV-cache-then-Postgres-fallthrough behavior these routes once
+exposed is unaffected by the panel's removal and remains covered directly
+at the query layer (`integration_test.go`) — see BUSINESS_RULES-
+SHIPPING.md's BR-038/BR-039.
 
 ---
 
 ## 5. Extending this group
 
-Adding a ninth panel to this navbar group means, in order: (1) decide which
+Adding a seventh panel to this navbar group means, in order: (1) decide which
 of the three data-flow archetypes in §3.1 fits — poll-only is the default,
 reach for snapshot+notify only if genuinely-live matters and a `notify.*`
 subject already exists or is worth adding, and prefer its KV-watch variant

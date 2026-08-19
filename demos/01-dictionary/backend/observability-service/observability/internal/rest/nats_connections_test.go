@@ -448,3 +448,40 @@ func TestListNatsAccountActivityReturns502OnMalformedBody(t *testing.T) {
 		t.Fatalf("expected 502, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// TestAccountActivityHistoryReturns400ForInvalidDuration and
+// TestAccountActivityHistoryReturnsBucketedSeries cover BR-043's handler
+// wiring — the bucketing/eviction/delta logic itself is covered directly
+// against AccstatzHistory in account_activity_history_test.go.
+func TestAccountActivityHistoryReturns400ForInvalidDuration(t *testing.T) {
+	h := New(Deps{Log: discardLogger(), History: NewAccstatzHistory("", discardLogger())})
+	w := httptest.NewRecorder()
+	h.accountActivityHistory(w, httptest.NewRequest(http.MethodGet, "/api/nats/account-activity/history?duration=2h", nil))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for an unsupported duration, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAccountActivityHistoryReturnsBucketedSeries(t *testing.T) {
+	history := NewAccstatzHistory("", discardLogger())
+	accounts := newAccountsMock(t, []AccountsClientAccount{{Name: "acme", PublicKey: "AAAACME"}})
+
+	h := New(Deps{Log: discardLogger(), History: history, Accounts: accounts})
+	w := httptest.NewRecorder()
+	h.accountActivityHistory(w, httptest.NewRequest(http.MethodGet, "/api/nats/account-activity/history?duration=30m", nil))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var body natsAccountActivityHistoryResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Duration != "30m" || body.BucketSeconds != 120 {
+		t.Fatalf("expected duration 30m / bucketSeconds 120, got %+v", body)
+	}
+	if len(body.Accounts) != 0 {
+		t.Fatalf("expected no accounts from a freshly-booted (empty) buffer, got %+v", body.Accounts)
+	}
+}

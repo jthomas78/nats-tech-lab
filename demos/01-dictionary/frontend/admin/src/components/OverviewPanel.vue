@@ -12,7 +12,6 @@ const kvRev = computed(() => {
 })
 
 const stats = computed(() => [
-  { k: 'Ship entries', v: store.shipRows.length, m: `KV cache (ships) · context ${store.context}` },
   { k: 'KV rev', v: kvRev.value, m: store.events[0] ? `last write ${store.events[0].at}` : 'no writes yet' },
   { k: 'Watch buffer', v: store.events.length, m: 'recent KV changes held' },
 ])

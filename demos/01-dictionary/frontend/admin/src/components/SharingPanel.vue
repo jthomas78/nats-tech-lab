@@ -6,7 +6,8 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getAccountsTopology, listAccounts } from '../api'
 import SubjectPath from './SubjectPath.vue'
 
-// Topology panel — the live export/import graph between accounts, read from
+// Sharing panel (named TopologyPanel.vue before Phase 45's tab rename) —
+// the live export/import graph between accounts, read from
 // each account's *current* resolver JWT (accounts-service's
 // GET /api/accounts/topology, backed by Provisioner.LookupAccountClaims),
 // not the bootstrap-time tenantImports() convention. Today's shape is
@@ -279,7 +280,7 @@ onUnmounted(stopResize)
 <template>
   <div class="lab-panel topology-panel">
     <div class="panel-header">
-      <span class="panel-title">Topology</span>
+      <span class="panel-title">Sharing</span>
       <div class="header-actions">
         <Button icon="pi pi-refresh" text rounded size="small" :loading="loading" aria-label="Refresh" @click="refresh" />
       </div>

@@ -1,0 +1,601 @@
+<!--
+  For review — round 4, builds on accounts-overview-duration-mockup.html
+  (round 3: ring buffer settled, 5m/30m/1h duration selector). Adds a
+  search/filter box for the account list, conditionally shown:
+
+    "Search accounts" only renders once there are more than 3 accounts.
+    Below that threshold the list is short enough to just read; a search
+    box with nothing to filter would be a control with no job, sitting
+    above 2-3 rows for no reason.
+
+  This file is genuinely interactive (real JS, not just the CSS radio
+  trick used elsewhere) so the threshold can actually be demonstrated: a
+  "simulate fleet size" toggle at the top — clearly marked as a mockup-only
+  device, not a proposed real control — adds three more accounts and lets
+  you watch the search box appear right at the >3 boundary, then type into
+  it to filter by name.
+
+  Not built here, worth a follow-up decision: the same threshold-gated
+  search would apply equally well to the Provisioning tab's account table,
+  which has the same "fine at 3, unwieldy at 30" shape. Scoped to the
+  Overview tab's card list only in this mockup since that's what's been
+  under review.
+-->
+<title>Accounts — Overview (search)</title>
+<style>
+:root {
+  --lab-bg: #131416;
+  --lab-panel-bg: #131416;
+  --lab-panel-border: #2c3138;
+  --lab-accent: #006fff;
+  --lab-nav-active-bg: #1c1d1f;
+  --lab-nested-bg: #171c29;
+  --p-text-color: #dee0e3;
+  --p-text-muted-color: #b7bcc2;
+  --p-text-disabled-color: #737c87;
+  --ok: #2fbf71;
+  --err: #e5484d;
+  --warn: #d9a514;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { background: var(--lab-bg); margin: 0; padding: 24px; display: flex; justify-content: center; }
+.mock {
+  width: 940px; max-width: 100%;
+  background: var(--lab-bg); color: var(--p-text-color);
+  font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased; border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--lab-panel-border); position: relative;
+}
+
+.review-banner { background: rgba(217,165,20,.08); border-bottom: 1px solid var(--lab-panel-border); padding: 8px 14px 10px; }
+.review-banner .headline { color: var(--p-text-color); font-size: 12px; font-weight: 700; }
+.review-banner .headline b { color: var(--warn); }
+.review-banner p.note { margin: 6px 0 0; font-size: 12px; color: var(--p-text-muted-color); }
+.review-banner code { font-family: var(--mono); font-size: 11px; color: var(--lab-accent); background: rgba(0,111,255,.10); border-radius: 3px; padding: 0 4px; }
+
+/* mockup-only demo control — deliberately styled unlike anything in the
+   real app (dashed warm border) so it doesn't get mistaken for a shipped
+   affordance */
+.demo-toggle { margin: 8px 0 0; padding: 7px 10px; border: 1px dashed rgba(217,165,20,.4); border-radius: 5px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.demo-toggle .demo-label { font-size: 11px; color: var(--p-text-muted-color); }
+.demo-toggle .demo-label b { color: var(--warn); }
+.demo-select { display: inline-flex; border: 1px solid rgba(217,165,20,.4); border-radius: 6px; overflow: hidden; }
+.demo-select label { padding: 4px 10px; font-size: 11px; font-weight: 600; color: var(--p-text-muted-color); cursor: pointer; border-right: 1px solid rgba(217,165,20,.4); user-select: none; }
+.demo-select label:last-of-type { border-right: none; }
+.demo-select input { position: absolute; opacity: 0; pointer-events: none; }
+.demo-select input:checked + label { background: var(--warn); color: #1c1500; }
+#demoNote { font-size: 11px; color: var(--p-text-disabled-color); }
+
+.topbar { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 14px; background: var(--lab-panel-bg); border-bottom: 1px solid var(--lab-panel-border); }
+.topbar .logo { width: 17px; height: 17px; border-radius: 4px; background: var(--lab-accent); display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; flex: none; }
+.crumb { font-size: 12px; color: var(--p-text-muted-color); }
+.crumb b { color: var(--p-text-color); font-weight: 600; }
+.crumb .sep { margin: 0 5px; color: var(--p-text-disabled-color); }
+.live-dot { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ok); font-weight: 600; }
+.live-dot i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: pulse 2s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+.shell { display: flex; min-height: 600px; }
+.sidebar { width: 194px; flex: none; padding: 10px 8px; background: var(--lab-panel-bg); border-right: 1px solid var(--lab-panel-border); font-size: 13px; }
+.nav-item { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 8px; border-radius: 5px; border-left: 2px solid transparent; color: var(--p-text-muted-color); white-space: nowrap; }
+.nav-item.active { background: var(--lab-nav-active-bg); color: var(--p-text-color); border-left-color: var(--lab-accent); font-weight: 600; }
+.nav-group-toggle { display: flex; align-items: center; gap: 6px; width: 100%; margin: 12px 0 4px; padding: 10px 8px 6px 0; border-top: 1px solid var(--lab-panel-border); color: var(--p-text-color); font-size: 10px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.nav-group-toggle:first-child { margin-top: 2px; border-top: none; }
+.nav-group-toggle .chev { font-size: 9px; color: var(--p-text-disabled-color); }
+.nav-group-body { display: flex; flex-direction: column; gap: 14px; padding-left: 18px; }
+.eyebrow { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--p-text-disabled-color); padding: 4px 8px 2px; }
+.nav-section { display: flex; flex-direction: column; gap: 1px; }
+
+.main { flex: 1; min-width: 0; padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; }
+.panel-head { display: flex; align-items: baseline; gap: 8px; }
+.panel-head h1 { font-size: 16px; margin: 0; font-weight: 600; }
+.panel-head span { font-size: 12px; color: var(--p-text-disabled-color); }
+
+.acc-tabs input.tab-radio { position: absolute; opacity: 0; pointer-events: none; }
+.tabbar { display: flex; gap: 4px; border-bottom: 1px solid var(--lab-panel-border); }
+.tabbar label { font-size: 13px; padding: 7px 4px 9px; color: var(--p-text-muted-color); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; user-select: none; }
+#tab-o:checked ~ .tabbar label[for="tab-o"],
+#tab-p:checked ~ .tabbar label[for="tab-p"],
+#tab-s:checked ~ .tabbar label[for="tab-s"] { color: var(--p-text-color); border-bottom-color: var(--lab-accent); font-weight: 600; }
+.tabpanels { padding-top: 12px; }
+.tabpanel { display: none; }
+#tab-o:checked ~ .tabpanels .p-o,
+#tab-p:checked ~ .tabpanels .p-p,
+#tab-s:checked ~ .tabpanels .p-s { display: block; }
+
+.moved-note { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--p-text-disabled-color); border: 1px dashed var(--lab-panel-border); border-radius: 5px; padding: 6px 10px; margin-bottom: 10px; }
+
+.dur-radio { position: absolute; opacity: 0; pointer-events: none; }
+.dur-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.dur-toolbar .dur-caption { font-size: 11px; color: var(--p-text-disabled-color); }
+.dur-select { display: inline-flex; border: 1px solid var(--lab-panel-border); border-radius: 6px; overflow: hidden; }
+.dur-select label { padding: 4px 12px; font-size: 11px; font-weight: 600; color: var(--p-text-muted-color); cursor: pointer; border-right: 1px solid var(--lab-panel-border); user-select: none; }
+.dur-select label:last-of-type { border-right: none; }
+#dur-5:checked ~ .ov-body .dur-select label[for="dur-5"],
+#dur-30:checked ~ .ov-body .dur-select label[for="dur-30"],
+#dur-60:checked ~ .ov-body .dur-select label[for="dur-60"] { background: var(--lab-accent); color: #fff; }
+
+.dur-variant { display: none; }
+#dur-5:checked ~ .ov-body .dv5,
+#dur-30:checked ~ .ov-body .dv30,
+#dur-60:checked ~ .ov-body .dv60 { display: block; }
+
+.summary-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+.summary-card { background: var(--lab-panel-bg); border: 1px solid var(--lab-panel-border); border-radius: 4px; padding: 8px 10px 6px; }
+.summary-label { font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--p-text-disabled-color); }
+.summary-value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.summary-spark { display: block; width: 100%; height: 24px; margin-top: 4px; }
+.spark-line { fill: none; stroke: var(--lab-accent); stroke-width: 1.5; }
+.spark-line.out { stroke: var(--ok); }
+.spark-line.muted { stroke: var(--p-text-disabled-color); }
+.summary-window { font-size: 9px; color: var(--p-text-disabled-color); }
+
+/* ── account-list toolbar: search box (conditionally shown) + live count ── */
+.list-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; min-height: 28px; }
+.search-wrap { display: none; align-items: center; gap: 6px; background: var(--lab-panel-bg); border: 1px solid var(--lab-panel-border); border-radius: 6px; padding: 0 8px; width: 220px; }
+.search-wrap.shown { display: flex; }
+.search-wrap svg { flex: none; opacity: .6; }
+.search-wrap input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--p-text-color); font-size: 12px; padding: 6px 0; font-family: inherit; }
+.search-wrap input::placeholder { color: var(--p-text-disabled-color); }
+.acct-count { font-size: 11px; color: var(--p-text-disabled-color); font-variant-numeric: tabular-nums; }
+
+.acct-scroll { display: flex; flex-direction: column; gap: 8px; }
+.acct-card { background: var(--lab-panel-bg); border: 1px solid var(--lab-panel-border); border-radius: 4px; overflow: hidden; }
+.acct-card.crit { border-color: rgba(229,72,77,.5); }
+.acct-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.dot.ok { background: var(--ok); }
+.dot.crit { background: var(--err); box-shadow: 0 0 0 3px rgba(229,72,77,.22); }
+.acct-name { font-weight: 600; font-size: 13px; }
+.acct-tag { font-size: 10px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--p-text-disabled-color); border: 1px solid var(--lab-panel-border); border-radius: 3px; padding: 0 5px; line-height: 15px; }
+.acct-meta { margin-left: auto; display: flex; gap: 18px; }
+.stat { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; }
+.stat b { font-size: 14px; font-variant-numeric: tabular-nums; }
+.stat label { font-size: 9px; color: var(--p-text-disabled-color); text-transform: uppercase; letter-spacing: .03em; }
+.stat.crit b { color: var(--err); }
+.chevron { color: var(--p-text-disabled-color); font-size: 11px; transform: rotate(180deg); display: inline-block; }
+
+.detail { padding: 12px 14px 12px 34px; background: var(--lab-nested-bg); border-top: 1px solid var(--lab-panel-border); }
+.chart-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.15fr); gap: 12px; }
+.chart-card h4 { margin: 0 0 6px; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--p-text-disabled-color); }
+.chart-card svg { display: block; width: 100%; height: auto; }
+.acct-line { fill: none; stroke-width: 1.6; }
+.acct-line.conns { stroke: var(--lab-accent); }
+.acct-line.subs { stroke: var(--p-text-disabled-color); stroke-dasharray: 3 3; }
+.line-dot { r: 2.4px; }
+.line-dot.conns-dot { fill: var(--lab-accent); }
+.line-dot.subs-dot { fill: var(--p-text-disabled-color); }
+.line-val { font: 700 10px 'Inter', sans-serif; fill: var(--p-text-color); }
+.line-val.muted { fill: var(--p-text-disabled-color); font-weight: 600; }
+.bar-row { display: flex; align-items: flex-end; gap: 3px; height: 48px; margin-top: 2px; }
+.bar-pair { display: flex; gap: 2px; flex: 1; align-items: flex-end; height: 100%; }
+.bar { flex: 1; border-radius: 1px 1px 0 0; min-height: 2px; }
+.bar.in { background: var(--lab-accent); opacity: .9; }
+.bar.out { background: var(--ok); opacity: .9; }
+.chart-legend-mini { display: flex; gap: 12px; margin-top: 6px; font-size: 10px; color: var(--p-text-muted-color); }
+.chart-legend-mini .sw { display: inline-block; width: 10px; height: 2px; margin-right: 4px; vertical-align: 1px; }
+.window-caption { font-size: 9px; color: var(--p-text-disabled-color); margin: -2px 0 6px; }
+.byte-caption { margin: 8px 0 0; font-size: 11px; color: var(--p-text-muted-color); }
+.lag-note { margin: 6px 0 0; font-size: 11px; color: var(--err); }
+.alarm-line { margin: 10px 0 0; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--err); background: rgba(229,72,77,.12); border: 1px solid rgba(229,72,77,.35); border-radius: 4px; padding: 6px 10px; }
+.alarm-line b { font-variant-numeric: tabular-nums; }
+
+.acct-empty { display: none; text-align: center; padding: 22px 10px; color: var(--p-text-disabled-color); font-size: 12px; border: 1px dashed var(--lab-panel-border); border-radius: 6px; }
+.acct-empty b { color: var(--p-text-color); font-weight: 600; }
+</style>
+
+<div class="mock">
+  <div class="review-banner">
+    <div class="headline"><b>For review — round 4</b>: adds a search/filter box for the account list, shown only once there are more than 3 accounts.</div>
+    <p class="note">Below the threshold the list is short enough to just read &mdash; a search box above 2&ndash;3 rows would be a control with nothing to do. Use the demo toggle below to add accounts past the threshold and watch the search box appear, then type a name to filter for real.</p>
+    <div class="demo-toggle">
+      <span class="demo-label"><b>Mockup-only control</b> &mdash; simulates fleet size, not part of the shipped UI:</span>
+      <div class="demo-select">
+        <input type="radio" name="fleetsize" id="fs-3" value="3" checked onchange="applyVisibility()"><label for="fs-3">3 accounts</label>
+        <input type="radio" name="fleetsize" id="fs-6" value="6" onchange="applyVisibility()"><label for="fs-6">6 accounts</label>
+      </div>
+      <span id="demoNote"></span>
+    </div>
+  </div>
+
+  <div class="topbar">
+    <span class="logo">A</span>
+    <span class="crumb"><b>SYSTEM</b><span class="sep">&middot;</span><b>Accounts</b><span class="sep">&middot;</span>Overview</span>
+    <span class="live-dot"><i></i>watching</span>
+  </div>
+
+  <div class="shell">
+    <nav class="sidebar">
+      <div class="nav-section"><div class="nav-item">Overview</div></div>
+      <div class="nav-group-toggle"><span class="chev">▾</span>Platform</div>
+      <div class="nav-group-body">
+        <div class="eyebrow">Trading partners</div>
+        <div class="nav-section" style="margin-top:-10px">
+          <div class="nav-item">Shippers</div>
+          <div class="nav-item">Transporters</div>
+        </div>
+        <div class="nav-section" style="margin-top:-10px"><div class="nav-item">Settings</div></div>
+      </div>
+      <div class="nav-group-toggle"><span class="chev">▾</span>System</div>
+      <div class="nav-group-body">
+        <div class="nav-section"><div class="nav-item active">Accounts</div></div>
+        <div>
+          <div class="eyebrow">NATS</div>
+          <div class="nav-section" style="margin-top:6px">
+            <div class="nav-item">Connections</div>
+            <div class="nav-item">Services</div>
+            <div class="nav-item">Log</div>
+            <div class="nav-item">Request/Reply</div>
+            <div class="nav-item">Streams</div>
+            <div class="nav-item">KV Buckets</div>
+          </div>
+        </div>
+        <div>
+          <div class="eyebrow">Postgres</div>
+          <div class="nav-section" style="margin-top:6px"><div class="nav-item">Tables</div></div>
+        </div>
+      </div>
+    </nav>
+
+    <main class="main">
+      <div class="panel-head">
+        <h1>Accounts</h1>
+        <span>per-account traffic + health &middot; /accstatz</span>
+      </div>
+
+      <div class="acc-tabs">
+        <input type="radio" name="acctab" id="tab-o" class="tab-radio" checked>
+        <input type="radio" name="acctab" id="tab-p" class="tab-radio">
+        <input type="radio" name="acctab" id="tab-s" class="tab-radio">
+
+        <div class="tabbar">
+          <label for="tab-o">Overview</label>
+          <label for="tab-p">Provisioning</label>
+          <label for="tab-s">Sharing</label>
+        </div>
+
+        <div class="tabpanels">
+
+          <!-- ── OVERVIEW ─────────────────────────────────────────────── -->
+          <section class="tabpanel p-o">
+            <input type="radio" name="duration" id="dur-5" class="dur-radio">
+            <input type="radio" name="duration" id="dur-30" class="dur-radio" checked>
+            <input type="radio" name="duration" id="dur-60" class="dur-radio">
+
+            <div class="ov-body">
+              <div class="dur-toolbar">
+                <span class="dur-caption">Trend window</span>
+                <div class="dur-select">
+                  <label for="dur-5">5m</label>
+                  <label for="dur-30">30m</label>
+                  <label for="dur-60">1h</label>
+                </div>
+              </div>
+
+              <div class="summary-row">
+                <div class="summary-card">
+                  <div class="summary-label">Accounts</div>
+                  <div class="summary-value" id="acctSummaryValue">3</div>
+                  <div class="dur-variant dv5"><svg class="summary-spark" viewBox="0 0 120 24" preserveAspectRatio="none"><polyline class="spark-line muted" points="0,17 120,17" /></svg><div class="summary-window">no account changes in the last 5 min</div></div>
+                  <div class="dur-variant dv30"><svg class="summary-spark" viewBox="0 0 120 24" preserveAspectRatio="none"><polyline class="spark-line muted" points="0,17 120,17" /></svg><div class="summary-window">no account changes in the last 30 min</div></div>
+                  <div class="dur-variant dv60"><svg class="summary-spark" viewBox="0 0 120 24" preserveAspectRatio="none"><polyline class="spark-line muted" points="0,8 78,8 78,17 120,17" /></svg><div class="summary-window">3rd account (globex) provisioned ~40m ago</div></div>
+                </div>
+
+                <div class="summary-card">
+                  <div class="summary-label">Connections</div>
+                  <div class="summary-value">428</div>
+                  <div class="dur-variant dv5"><svg class="summary-spark" viewBox="0 0 120 24" preserveAspectRatio="none"><polyline class="spark-line" points="0,7 30,9 60,5 90,6 120,3" /></svg><div class="summary-window">last 5 min</div></div>
+                  <div class="dur-variant dv30"><svg class="summary-spark" viewBox="0 0 120 24" preserveAspectRatio="none"><polyline class="spark-line" points="0,16 20,13 40,17 60,10 80,8 100,5 120,3" /></svg><div class="summary-window">last 30 min</div></div>
+                  <div class="dur-variant dv60"><svg class="summary-spark" viewBox="0 0 120 24" preserveAspectRatio="none"><polyline class="spark-line" points="0,19 12,16 24,20 36,12 48,9 60,14 72,11 84,7 96,6 108,9 120,3" /></svg><div class="summary-window">last 60 min</div></div>
+                </div>
+
+                <div class="summary-card">
+                  <div class="summary-label">Subscriptions</div>
+                  <div class="summary-value">1.9K</div>
+                  <div class="dur-variant dv5"><svg class="summary-spark" viewBox="0 0 120 24" preserveAspectRatio="none"><polyline class="spark-line" points="0,7 30,8 60,5 90,6 120,4" /></svg><div class="summary-window">last 5 min</div></div>
+                  <div class="dur-variant dv30"><svg class="summary-spark" viewBox="0 0 120 24" preserveAspectRatio="none"><polyline class="spark-line" points="0,14 20,11 40,15 60,9 80,10 100,6 120,4" /></svg><div class="summary-window">last 30 min</div></div>
+                  <div class="dur-variant dv60"><svg class="summary-spark" viewBox="0 0 120 24" preserveAspectRatio="none"><polyline class="spark-line" points="0,17 12,14 24,16 36,12 48,13 60,9 72,11 84,7 96,8 108,5 120,4" /></svg><div class="summary-window">last 60 min</div></div>
+                </div>
+
+                <div class="summary-card">
+                  <div class="summary-label">Msgs In / Out</div>
+                  <div class="summary-value" title="482,910 in / 379,204 out">482K / 379K</div>
+                  <div class="dur-variant dv5">
+                    <svg class="summary-spark" viewBox="0 0 120 24" preserveAspectRatio="none">
+                      <polyline class="spark-line" points="0,5 30,4 60,3 90,3 120,2" />
+                      <polyline class="spark-line out" points="0,12 30,11 60,11 90,10 120,10" />
+                    </svg>
+                    <div class="summary-window">in (blue) steady over out (green) &middot; last 5 min</div>
+                  </div>
+                  <div class="dur-variant dv30">
+                    <svg class="summary-spark" viewBox="0 0 120 24" preserveAspectRatio="none">
+                      <polyline class="spark-line" points="0,10 20,8 40,9 60,5 80,6 100,3 120,2" />
+                      <polyline class="spark-line out" points="0,16 20,15 40,16 60,13 80,13 100,11 120,10" />
+                    </svg>
+                    <div class="summary-window">in (blue) already outpacing out (green) &middot; last 30 min</div>
+                  </div>
+                  <div class="dur-variant dv60">
+                    <svg class="summary-spark" viewBox="0 0 120 24" preserveAspectRatio="none">
+                      <polyline class="spark-line" points="0,19 12,16 24,17 36,13 48,14 60,9 72,10 84,7 96,8 108,4 120,2" />
+                      <polyline class="spark-line out" points="0,20 12,18 24,19 36,17 48,17 60,15 72,15 84,13 96,13 108,11 120,10" />
+                    </svg>
+                    <div class="summary-window">in (blue) widening over out (green) &middot; last 60 min</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="list-toolbar">
+                <div class="search-wrap" id="searchWrap">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.4"/><path d="M11.2 11.2L14.5 14.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                  <input type="text" id="acctSearch" placeholder="Search accounts&hellip;" oninput="applyVisibility()">
+                </div>
+                <span class="acct-count" id="acctCount">3 accounts</span>
+              </div>
+
+              <div class="acct-scroll">
+                <div class="acct-card" data-name="platform">
+                  <div class="acct-head">
+                    <span class="dot ok"></span>
+                    <span class="acct-name">platform</span>
+                    <span class="acct-tag">reserved</span>
+                    <span class="acct-meta">
+                      <span class="stat"><b>96</b><label>conns</label></span>
+                      <span class="stat" title="210,442 in / 198,110 out"><b>210K / 198K</b><label>msgs in/out</label></span>
+                      <span class="stat" title="41.2 MB in / 38.9 MB out"><b>41M / 39M</b><label>bytes in/out</label></span>
+                      <span class="stat"><b>640</b><label>subs</label></span>
+                    </span>
+                    <span class="chevron" style="transform:none">▾</span>
+                  </div>
+                </div>
+
+                <div class="acct-card" data-name="acme">
+                  <div class="acct-head">
+                    <span class="dot ok"></span>
+                    <span class="acct-name">acme</span>
+                    <span class="acct-meta">
+                      <span class="stat"><b>240</b><label>conns</label></span>
+                      <span class="stat" title="190,204 in / 140,650 out"><b>190K / 141K</b><label>msgs in/out</label></span>
+                      <span class="stat" title="22.5 MB in / 15.1 MB out"><b>23M / 15M</b><label>bytes in/out</label></span>
+                      <span class="stat"><b>980</b><label>subs</label></span>
+                    </span>
+                    <span class="chevron" style="transform:none">▾</span>
+                  </div>
+                </div>
+
+                <div class="acct-card" data-name="initech" data-extra="1">
+                  <div class="acct-head">
+                    <span class="dot ok"></span>
+                    <span class="acct-name">initech</span>
+                    <span class="acct-meta">
+                      <span class="stat"><b>58</b><label>conns</label></span>
+                      <span class="stat" title="75,210 in / 62,004 out"><b>75K / 62K</b><label>msgs in/out</label></span>
+                      <span class="stat" title="12.1 MB in / 9.4 MB out"><b>12M / 9M</b><label>bytes in/out</label></span>
+                      <span class="stat"><b>410</b><label>subs</label></span>
+                    </span>
+                    <span class="chevron" style="transform:none">▾</span>
+                  </div>
+                </div>
+
+                <div class="acct-card" data-name="umbrella" data-extra="1">
+                  <div class="acct-head">
+                    <span class="dot ok"></span>
+                    <span class="acct-name">umbrella</span>
+                    <span class="acct-meta">
+                      <span class="stat"><b>134</b><label>conns</label></span>
+                      <span class="stat" title="240,118 in / 198,332 out"><b>240K / 198K</b><label>msgs in/out</label></span>
+                      <span class="stat" title="33.4 MB in / 28.2 MB out"><b>33M / 28M</b><label>bytes in/out</label></span>
+                      <span class="stat"><b>720</b><label>subs</label></span>
+                    </span>
+                    <span class="chevron" style="transform:none">▾</span>
+                  </div>
+                </div>
+
+                <div class="acct-card" data-name="hooli" data-extra="1">
+                  <div class="acct-head">
+                    <span class="dot ok"></span>
+                    <span class="acct-name">hooli</span>
+                    <span class="acct-meta">
+                      <span class="stat"><b>21</b><label>conns</label></span>
+                      <span class="stat" title="9,120 in / 7,004 out"><b>9K / 7K</b><label>msgs in/out</label></span>
+                      <span class="stat" title="1.2 MB in / 0.9 MB out"><b>1M / 1M</b><label>bytes in/out</label></span>
+                      <span class="stat"><b>88</b><label>subs</label></span>
+                    </span>
+                    <span class="chevron" style="transform:none">▾</span>
+                  </div>
+                </div>
+
+                <div class="acct-card crit expanded" data-name="globex">
+                  <div class="acct-head">
+                    <span class="dot crit"></span>
+                    <span class="acct-name">globex</span>
+                    <span class="acct-meta">
+                      <span class="stat"><b>92</b><label>conns</label></span>
+                      <span class="stat" title="81,830 in / 40,004 out"><b>82K / 40K</b><label>msgs in/out</label></span>
+                      <span class="stat" title="9.8 MB in / 4.1 MB out"><b>10M / 4M</b><label>bytes in/out</label></span>
+                      <span class="stat crit"><b>3</b><label>slow</label></span>
+                    </span>
+                    <span class="chevron">▾</span>
+                  </div>
+
+                  <div class="detail">
+
+                    <div class="dur-variant dv5">
+                      <div class="chart-row">
+                        <div class="chart-card">
+                          <h4>Connections &amp; subscriptions</h4>
+                          <div class="window-caption">last 5 min</div>
+                          <svg viewBox="0 0 240 56" preserveAspectRatio="none">
+                            <polyline class="acct-line conns" points="4,20 74,23 148,21 222,22" />
+                            <polyline class="acct-line subs" points="4,37 74,35 148,38 222,37" />
+                            <circle class="line-dot conns-dot" cx="222" cy="22" />
+                            <text x="214" y="14" text-anchor="end" class="line-val">92 conns</text>
+                            <circle class="line-dot subs-dot" cx="222" cy="37" />
+                            <text x="214" y="50" text-anchor="end" class="line-val muted">312 subs</text>
+                          </svg>
+                        </div>
+                        <div class="chart-card">
+                          <h4>Throughput</h4>
+                          <div class="window-caption">last 5 min &middot; 30-sec buckets</div>
+                          <div class="bar-row">
+                            <div class="bar-pair"><div class="bar in" style="height:36px"></div><div class="bar out" style="height:18px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:37px"></div><div class="bar out" style="height:17px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:38px"></div><div class="bar out" style="height:17px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:39px"></div><div class="bar out" style="height:16px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:40px"></div><div class="bar out" style="height:16px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:41px"></div><div class="bar out" style="height:15px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:42px"></div><div class="bar out" style="height:15px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:43px"></div><div class="bar out" style="height:14px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:44px"></div><div class="bar out" style="height:14px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:45px"></div><div class="bar out" style="height:13px"></div></div>
+                          </div>
+                          <div class="chart-legend-mini"><span><i class="sw" style="background:var(--lab-accent)"></i>in</span><span><i class="sw" style="background:var(--ok)"></i>out</span></div>
+                          <p class="byte-caption">1.3 MB in &middot; 0.5 MB out in the last 5 min</p>
+                          <p class="lag-note">⚑ inbound has outpaced outbound for the entire 5-minute window shown &mdash; see the 30m or 1h view for when this started.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="dur-variant dv30">
+                      <div class="chart-row">
+                        <div class="chart-card">
+                          <h4>Connections &amp; subscriptions</h4>
+                          <div class="window-caption">last 30 min</div>
+                          <svg viewBox="0 0 240 56" preserveAspectRatio="none">
+                            <polyline class="acct-line conns" points="4,21 40,23 76,19 112,22 148,24 184,21 222,22" />
+                            <polyline class="acct-line subs" points="4,36 40,38 76,35 112,37 148,38 184,36 222,37" />
+                            <circle class="line-dot conns-dot" cx="222" cy="22" />
+                            <text x="214" y="14" text-anchor="end" class="line-val">92 conns</text>
+                            <circle class="line-dot subs-dot" cx="222" cy="37" />
+                            <text x="214" y="50" text-anchor="end" class="line-val muted">312 subs</text>
+                          </svg>
+                        </div>
+                        <div class="chart-card">
+                          <h4>Throughput</h4>
+                          <div class="window-caption">last 30 min &middot; 2-min buckets</div>
+                          <div class="bar-row">
+                            <div class="bar-pair"><div class="bar in" style="height:25px"></div><div class="bar out" style="height:24px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:27px"></div><div class="bar out" style="height:25px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:24px"></div><div class="bar out" style="height:23px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:26px"></div><div class="bar out" style="height:24px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:25px"></div><div class="bar out" style="height:24px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:27px"></div><div class="bar out" style="height:23px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:29px"></div><div class="bar out" style="height:22px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:31px"></div><div class="bar out" style="height:21px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:33px"></div><div class="bar out" style="height:20px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:35px"></div><div class="bar out" style="height:19px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:37px"></div><div class="bar out" style="height:18px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:39px"></div><div class="bar out" style="height:17px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:41px"></div><div class="bar out" style="height:16px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:43px"></div><div class="bar out" style="height:15px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:45px"></div><div class="bar out" style="height:14px"></div></div>
+                          </div>
+                          <div class="chart-legend-mini"><span><i class="sw" style="background:var(--lab-accent)"></i>in</span><span><i class="sw" style="background:var(--ok)"></i>out</span></div>
+                          <p class="byte-caption">5.1 MB in &middot; 2.6 MB out in the last 30 min</p>
+                          <p class="lag-note">⚑ inbound has outpaced outbound for about the last 20 minutes.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="dur-variant dv60">
+                      <div class="chart-row">
+                        <div class="chart-card">
+                          <h4>Connections &amp; subscriptions</h4>
+                          <div class="window-caption">last 60 min</div>
+                          <svg viewBox="0 0 240 56" preserveAspectRatio="none">
+                            <polyline class="acct-line conns" points="4,22 26,24 48,20 70,23 92,21 114,25 136,22 158,24 180,21 202,23 222,22" />
+                            <polyline class="acct-line subs" points="4,37 26,36 48,38 70,37 92,35 114,38 136,37 158,36 180,37 202,38 222,37" />
+                            <circle class="line-dot conns-dot" cx="222" cy="22" />
+                            <text x="214" y="14" text-anchor="end" class="line-val">92 conns</text>
+                            <circle class="line-dot subs-dot" cx="222" cy="37" />
+                            <text x="214" y="50" text-anchor="end" class="line-val muted">312 subs</text>
+                          </svg>
+                        </div>
+                        <div class="chart-card">
+                          <h4>Throughput</h4>
+                          <div class="window-caption">last 60 min &middot; 5-min buckets</div>
+                          <div class="bar-row">
+                            <div class="bar-pair"><div class="bar in" style="height:24px"></div><div class="bar out" style="height:23px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:26px"></div><div class="bar out" style="height:25px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:23px"></div><div class="bar out" style="height:24px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:27px"></div><div class="bar out" style="height:26px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:25px"></div><div class="bar out" style="height:24px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:28px"></div><div class="bar out" style="height:27px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:26px"></div><div class="bar out" style="height:25px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:27px"></div><div class="bar out" style="height:26px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:32px"></div><div class="bar out" style="height:24px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:36px"></div><div class="bar out" style="height:22px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:41px"></div><div class="bar out" style="height:20px"></div></div>
+                            <div class="bar-pair"><div class="bar in" style="height:45px"></div><div class="bar out" style="height:18px"></div></div>
+                          </div>
+                          <div class="chart-legend-mini"><span><i class="sw" style="background:var(--lab-accent)"></i>in</span><span><i class="sw" style="background:var(--ok)"></i>out</span></div>
+                          <p class="byte-caption">9.8 MB in &middot; 4.1 MB out this hour</p>
+                          <p class="lag-note">⚑ inbound has outpaced outbound for about the last 20 minutes.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <p class="alarm-line">⚠ <b>3 slow consumers</b> on this account right now &mdash; likely explained by the imbalance above: a subscriber isn't draining as fast as messages arrive. Check connections on globex in the Connections panel.</p>
+                  </div>
+                </div>
+
+                <div class="acct-empty" id="emptyState">No accounts match &ldquo;<b id="emptyQuery"></b>&rdquo;.</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── PROVISIONING (unchanged) ─────────────────────────────── -->
+          <section class="tabpanel p-p">
+            <div class="moved-note">unchanged &mdash; dynamic tenant provisioning, decentralized JWTs (Phase 14c).</div>
+          </section>
+
+          <!-- ── SHARING (unchanged) ──────────────────────────────────── -->
+          <section class="tabpanel p-s">
+            <div class="moved-note">unchanged &mdash; renamed from Topology, same live export/import graph.</div>
+          </section>
+
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+function applyVisibility() {
+  var fleetSize = document.querySelector('input[name="fleetsize"]:checked').value;
+  var showExtra = fleetSize === '6';
+  var query = document.getElementById('acctSearch').value.trim().toLowerCase();
+  var searchWrap = document.getElementById('searchWrap');
+  var showSearch = showExtra; // >3 accounts threshold — with 6 extras added, total is 6 (>3); with 3, total is 3 (not >3)
+
+  searchWrap.classList.toggle('shown', showSearch);
+  if (!showSearch) { document.getElementById('acctSearch').value = ''; query = ''; }
+
+  var cards = document.querySelectorAll('.acct-card');
+  var total = 0, shown = 0;
+  cards.forEach(function (card) {
+    var isExtra = card.dataset.extra === '1';
+    var fleetOk = showExtra || !isExtra;
+    if (!fleetOk) { card.style.display = 'none'; return; }
+    total++;
+    var name = card.dataset.name || '';
+    var matches = !showSearch || query === '' || name.indexOf(query) !== -1;
+    card.style.display = matches ? '' : 'none';
+    if (matches) shown++;
+  });
+
+  document.getElementById('acctSummaryValue').textContent = total;
+  document.getElementById('acctCount').textContent = (showSearch && query)
+    ? shown + ' of ' + total + ' accounts'
+    : total + ' accounts';
+
+  var emptyState = document.getElementById('emptyState');
+  emptyState.style.display = (shown === 0) ? 'block' : 'none';
+  document.getElementById('emptyQuery').textContent = query;
+
+  document.getElementById('demoNote').textContent = showExtra
+    ? '→ 6 accounts: search shown (6 > 3)'
+    : '→ 3 accounts: search hidden (3 is not > 3)';
+}
+applyVisibility();
+</script>

@@ -31,6 +31,11 @@ type Deps struct {
 	// holding a live per-tenant connection, exactly the fan-out Phase 30
 	// exists to eliminate. Nil-safe: Labels returns nil on a nil receiver.
 	Accounts *AccountsClient
+	// History is the Overview tab's trend-chart data source (BR-043) — a
+	// 60-minute ring buffer of /accstatz samples, queried over a fixed
+	// 5m/30m/1h window. Nil-safe: Query degrades to an empty accounts list
+	// on a nil receiver, same convention Accounts uses.
+	History *AccstatzHistory
 }
 
 // Handlers holds Deps and registers routes via Mount.
@@ -58,6 +63,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) []string {
 	handle("GET /healthz", h.healthz)
 	handle("GET /api/nats/connections", h.listNatsConnections)
 	handle("GET /api/nats/account-activity", h.listNatsAccountActivity)
+	handle("GET /api/nats/account-activity/history", h.accountActivityHistory)
 	handle("GET /api/nats/log", h.tailNatsLog)
 	handle("GET /api/kv/buckets", h.listKVBuckets)
 	handle("GET /api/kv/buckets/{account}/{bucket}/entries", h.kvBucketEntriesOnce)

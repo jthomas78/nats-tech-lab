@@ -348,8 +348,8 @@ details are load-bearing:
 Bootstrap rows arrive with the `{context}.` key prefix still attached, because
 `kvBucketEntriesOnce` reads the raw bucket, unlike the deleted SSE handler's
 `kvstore.Store.Watch`, which stripped it. The store filters and strips it so
-`ships` keeps the bare-key shape (`ship.SHIP1`) that `ShapePanel`'s columns
-expect.
+`ships` keeps the bare-key shape (`ship.SHIP1`) its consumers (Overview
+panel's KV rev card, `TelemetryStrip.vue`) expect.
 
 #### Server push path
 

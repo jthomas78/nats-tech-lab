@@ -39,8 +39,10 @@ Split by domain so a rule add/edit only requires reading its own file:
   `src/nats/useNatsConnection.js` (BR-031, BR-033),
   `observability-service/observability/internal/rest/nats_connections.go`
   (moved from shipping-service's `dictionary/internal/rest/nats_ops.go`,
-  Phase 30h) + `frontend/admin/src/components/AccountActivityPanel.vue`
-  (BR-034), and
+  Phase 30h) + `frontend/admin/src/components/AccountsOverviewPanel.vue`
+  (BR-034, now Accounts' `Overview` tab rather than a standalone nav item —
+  Phase 45; see also BR-043/BR-044 for that phase's history/search rules),
+  and
   `dictionary/internal/natstrace/` + `frontend/admin/src/components/
   TraceWaterfall.vue` (BR-035–037).
 - **[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)** — Reference Data

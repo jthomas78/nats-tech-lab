@@ -54,3 +54,4 @@
 - [Phase 34 boundary enforcement](phase34_boundary_enforcement.md) — IMPLEMENTED 2026-08-17; mux allowlist tests (BR-040) + traceSpan.Requester (BR-041) + Admin UI 2-axis filter
 - [Phase 35 shared Go package extraction](phase35_shared_go_package_extraction.md) — IMPLEMENTED 2026-08-18; shared/natstenants, shared/natstrace, shared/browserrpc extracted; go.work + per-service replace directives
 - [Phase 36 NATS hop tracing renumbered](phase36_nats_hop_tracing_renumbered.md) — NATS 2.11 Server-Hop Tracing is now Phase 36 (was 29→41→36); still PROPOSED, not started
+- [Accounts Overview/Sharing redesign](accounts_overview_pulse_design.md) — IMPLEMENTED Phase 45 (2026-08-18): ring buffer + duration selector (BR-043) + gated search (BR-044), live-verified

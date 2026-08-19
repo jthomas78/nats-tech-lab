@@ -23,8 +23,6 @@ func TestMountRoutesMatchAdminAllowlist(t *testing.T) {
 
 	g.Expect(routes).To(ConsistOf(
 		"GET /api/admin/ports/{context}",
-		"GET /api/admin/read-path/ships/{context}/{shipID}",
-		"DELETE /api/admin/read-path/cache/{context}/{shipID}",
 		"GET /api/tenant",
 		"POST /api/tenant/switch",
 		"GET /healthz",

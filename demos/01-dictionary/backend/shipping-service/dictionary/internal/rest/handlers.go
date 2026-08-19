@@ -6,11 +6,9 @@
 //
 // Routes:
 //
-//	GET    /api/admin/ports/{context}                       raw ports table rows (name + createdAt) — admin Postgres Tables panel
-//	GET    /api/admin/read-path/ships/{context}/{shipID}    read ship via KV cache → Postgres (Shape B diagnostics)
-//	DELETE /api/admin/read-path/cache/{context}/{shipID}    evict cache key (demo the miss path)
-//	GET    /api/tenant                                       active tenant + switchable tenant list (Phase 13b)
-//	POST   /api/tenant/switch                                reconnect under a different tenant's NATS account (Phase 13b)
+//	GET    /api/admin/ports/{context}    raw ports table rows (name + createdAt) — admin Postgres Tables panel
+//	GET    /api/tenant                    active tenant + switchable tenant list (Phase 13b)
+//	POST   /api/tenant/switch             reconnect under a different tenant's NATS account (Phase 13b)
 //
 // Phase 30h moved the cross-account NATS/JetStream diagnostic routes
 // (/api/kv/buckets*, /api/jetstream/streams, /api/jetstream/replay,
@@ -24,9 +22,11 @@
 // /api/meta/*) outright — every one of them already had an api.* equivalent
 // in internal/browserrpc (the last gap, GET /api/manifest/{context}/{shipID},
 // was closed by adding api.*.shipping.container.manifest.v1 in the same
-// phase, BR-039) — and renamed /api/shape-b/* to /api/admin/read-path/* to
-// reflect that it was always an admin diagnostics panel, not a business
-// route, just misclassified by name.
+// phase, BR-039). The admin read-path diagnostics route it renamed that same
+// phase (/api/shape-b/* to /api/admin/read-path/*) was itself retired along
+// with the CQRS Shapes admin panel it existed for — see BUSINESS_RULES-
+// SHIPPING.md's BR-038/BR-039 for the KV-cache/Postgres-fallthrough/backfill
+// behavior those routes exposed, still covered directly at the query layer.
 package rest
 
 import (
@@ -47,12 +47,6 @@ import (
 )
 
 // Swagger response envelope types — used only for OpenAPI schema generation.
-
-type shipBResponse struct {
-	Ship     domain.ShipState `json:"ship"`
-	CacheHit bool             `json:"cacheHit"`
-	Source   string           `json:"source"` // "kv-cache" or "postgres"
-}
 
 type errorResponse struct {
 	Error string `json:"error"`
@@ -151,8 +145,6 @@ func (h *Handlers) Mount(mux *http.ServeMux) []string {
 		mux.HandleFunc(pattern, h.httpTraceMiddleware(fn))
 	}
 	handle("GET /api/admin/ports/{context}", h.adminPortsTable)
-	handle("GET /api/admin/read-path/ships/{context}/{shipID}", h.getShipShapeB)
-	handle("DELETE /api/admin/read-path/cache/{context}/{shipID}", h.evictShipCache)
 	handle("GET /api/tenant", h.getTenant)
 	handle("POST /api/tenant/switch", h.switchTenant)
 	// Phase 32 removed this service's five refdata relay routes
@@ -165,8 +157,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) []string {
 	//
 	// Phase 33 deleted /api/ships/*, /api/containers/*, /api/terminal/*,
 	// /api/manifest/*, /api/ports/* (GET+POST), and /api/meta/* outright —
-	// see the package doc comment above (BR-039) — and renamed
-	// /api/shape-b/* to /api/admin/read-path/* above.
+	// see the package doc comment above (BR-039).
 	routes = append(routes, "GET /healthz")
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -202,53 +193,6 @@ func (h *Handlers) adminPortsTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"rows": rows})
-}
-
-// ─── Admin — read-path diagnostics (Shape B; renamed from /api/shape-b/*) ─────
-
-// getShipShapeB godoc
-//
-// @Summary      Get ship (admin read-path diagnostics — KV cache → Postgres)
-// @Description  Returns current ship state from the Shape B read model: checks KV cache first, falls through to Postgres on a miss and backfills the cache. Admin diagnostics only, not a business route.
-// @Tags         admin
-// @Produce      json
-// @Param        context  path      string  true  "Fleet context (e.g. acme, acme-atlantic-fleet)"
-// @Param        shipID   path      string  true  "Ship identifier (e.g. orient-express)"
-// @Success      200      {object}  shipBResponse
-// @Failure      404      {object}  errorResponse
-// @Failure      500      {object}  errorResponse
-// @Router       /api/admin/read-path/ships/{context}/{shipID} [get]
-func (h *Handlers) getShipShapeB(w http.ResponseWriter, r *http.Request) {
-	state, cacheHit, err := h.deps().ShipReads.GetShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
-	if err != nil {
-		h.writeQueryError(w, err)
-		return
-	}
-	source := "postgres"
-	if cacheHit {
-		source = "kv-cache"
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ship": state, "cacheHit": cacheHit, "source": source})
-}
-
-// evictShipCache godoc
-//
-// @Summary      Evict ship cache entry (admin read-path diagnostics)
-// @Description  Evicts the ship's KV cache entry to demonstrate the cache-miss → Postgres fallthrough → backfill path. Admin diagnostics only, not a business route.
-// @Tags         admin
-// @Param        context  path  string  true  "Fleet context"
-// @Param        shipID   path  string  true  "Ship identifier"
-// @Success      204  "Cache entry evicted"
-// @Failure      404  {object}  errorResponse
-// @Failure      500  {object}  errorResponse
-// @Router       /api/admin/read-path/cache/{context}/{shipID} [delete]
-func (h *Handlers) evictShipCache(w http.ResponseWriter, r *http.Request) {
-	err := h.deps().ShipReads.EvictCacheShip(r.Context(), r.PathValue("context"), r.PathValue("shipID"))
-	if err != nil {
-		h.writeQueryError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // ─── Error mapping ────────────────────────────────────────────────────────────

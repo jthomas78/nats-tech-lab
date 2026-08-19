@@ -71,14 +71,12 @@ The demo screen maps vertically to the pipeline:
 
 1. **Shipping Operations** — dispatch a command (Arrive / Depart / Register / Load / Unload container); the backend validates domain rules, publishes to JetStream, and returns immediately.
 2. **JetStream panel** — live feed of raw `evt.*.shipping.>` messages as they arrive on `SHIPPING`: subject, sequence number, timestamp, payload. Click a row to expand the full payload.
-3. **CQRS Shapes panel** — the KV cache rows, plus the canonical **Postgres projection** below them.
-4. **KV Watch Stream** — every KV change event from the `ships` bucket. Filter by operation (PUT / DEL / PURGE) or key text to isolate the event you're interested in.
+3. **KV Watch Stream** — every KV change event from the `ships` bucket. Filter by operation (PUT / DEL / PURGE) or key text to isolate the event you're interested in.
 
 ## What to watch
 
 - The panel updates reactively: KV watch → notify.* → Pinia store. The Pinia stores in the browser are the same idea as server-side projections — read models derived from an event stream, one layer further out.
 - The stream uses **LimitsPolicy** retention, so events are kept after acknowledgement: wipe the KV bucket and the projector can rebuild it from replay.
-- Evict a cache key, then hit Read — watch the **miss → Postgres → backfill** path: the JetStream panel stays quiet (no new event), but the KV Watch stream shows a new PUT as the cache backfills.
 - Every key is context-scoped. Switch context in the topbar to see the isolated bucket contents.
 
 ## Run it

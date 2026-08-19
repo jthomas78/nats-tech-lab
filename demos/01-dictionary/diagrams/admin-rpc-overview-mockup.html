@@ -1,0 +1,340 @@
+<!--
+  Approved static visual reference (approved 2026-08-18). Same convention as
+  shared/unifi-theme/app-shell-reference.html and
+  demos/01-dictionary/frontend/admin/request-reply-reference.html:
+  RpcPanel.vue/TraceWaterfall.vue's implementation should match this file,
+  not re-derive the design. Splits RpcPanel.vue's requests/errors/avg-latency
+  pulse strip (previously the top of TraceWaterfall.vue, see
+  ARCHITECTURE-ADMIN.md §4.5) onto its own tab — tab bar becomes
+  Pulse | Traces | Messages.
+-->
+<title>Request/Reply Pulse Tab</title>
+<style>
+/* ── UniFi theme tokens, copied verbatim from shared/unifi-theme/unifi.css ──
+   This mockup depicts one fixed dark-mode admin screen (the real app's
+   default), so &mdash; same convention as the repo's other *-reference.html
+   files &mdash; it commits to that single palette rather than following the
+   artifact viewer's theme. */
+:root {
+  --lab-bg: #131416;
+  --lab-panel-bg: #131416;
+  --lab-panel-border: #2c3138;
+  --lab-accent: #006fff;
+  --lab-nav-active-bg: #1c1d1f;
+  --lab-nested-bg: #171c29;
+  --p-text-color: #dee0e3;
+  --p-text-muted-color: #b7bcc2;
+  --p-text-disabled-color: #737c87;
+  --ok: #2fbf71;
+  --err: #e5484d;
+  --warn: #d9a514;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+.mock { background: var(--lab-bg); color: var(--p-text-color); font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; border-radius: 8px; overflow: hidden; border: 1px solid var(--lab-panel-border); }
+body { background: var(--lab-bg); }
+
+/* banner */
+.review-banner { background: rgba(0,111,255,.08); border-bottom: 1px solid var(--lab-panel-border); color: var(--p-text-muted-color); font-size: 12px; padding: 7px 14px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.review-banner b { color: var(--p-text-color); }
+.review-banner .tag { font-family: var(--mono); font-size: 11px; color: var(--lab-accent); background: rgba(0,111,255,.12); border-radius: 3px; padding: 0 5px; }
+
+/* topbar */
+.topbar { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 14px; flex: none; background: var(--lab-panel-bg); border-bottom: 1px solid var(--lab-panel-border); }
+.topbar .logo { width: 17px; height: 17px; border-radius: 4px; background: var(--lab-accent); display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; flex: none; }
+.crumb { font-size: 12px; color: var(--p-text-muted-color); }
+.crumb b { color: var(--p-text-color); font-weight: 600; }
+.crumb .sep { margin: 0 5px; color: var(--p-text-disabled-color); }
+.live-dot { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ok); font-weight: 600; }
+.live-dot i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: pulse 2s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+.shell { display: flex; min-height: 560px; }
+.sidebar { width: 148px; flex: none; padding: 10px 6px; background: var(--lab-panel-bg); border-right: 1px solid var(--lab-panel-border); font-size: 12px; }
+.sidebar .eyebrow { font-size: 9px; letter-spacing: .08em; color: var(--p-text-disabled-color); text-transform: uppercase; margin: 12px 6px 4px; }
+.sidebar .eyebrow:first-child { margin-top: 2px; }
+.sidebar .item { padding: 4px 8px; border-radius: 4px; color: var(--p-text-muted-color); }
+.sidebar .item.active { background: var(--lab-nav-active-bg); color: var(--p-text-color); border-left: 2px solid var(--lab-accent); padding-left: 6px; font-weight: 500; }
+
+.main { flex: 1; min-width: 0; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.panel-head { display: flex; align-items: baseline; gap: 8px; }
+.panel-head h1 { font-size: 16px; margin: 0; font-weight: 600; }
+.panel-head span { font-size: 12px; color: var(--p-text-disabled-color); }
+
+/* tabs, CSS-only via radio siblings */
+.rr-tabs input.tab-radio { position: absolute; opacity: 0; pointer-events: none; }
+.tabbar { display: flex; gap: 4px; border-bottom: 1px solid var(--lab-panel-border); }
+.tabbar label { font-size: 13px; padding: 7px 4px 9px; color: var(--p-text-muted-color); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; user-select: none; }
+.tabbar label .new { font-size: 9px; font-weight: 700; letter-spacing: .04em; color: var(--lab-accent); background: rgba(0,111,255,.14); border-radius: 3px; padding: 1px 4px; margin-left: 6px; vertical-align: 1px; }
+#tab-o:checked ~ .tabbar label[for="tab-o"],
+#tab-t:checked ~ .tabbar label[for="tab-t"],
+#tab-m:checked ~ .tabbar label[for="tab-m"] { color: var(--p-text-color); border-bottom-color: var(--lab-accent); font-weight: 600; }
+.tabpanels { padding-top: 12px; }
+.tabpanel { display: none; }
+#tab-o:checked ~ .tabpanels .p-o,
+#tab-t:checked ~ .tabpanels .p-t,
+#tab-m:checked ~ .tabpanels .p-m { display: block; }
+
+.grid-2 { display: grid; grid-template-columns: minmax(0,1.05fr) minmax(0,1fr); gap: 12px; align-items: stretch; }
+@media (max-width: 760px) { .grid-2 { grid-template-columns: 1fr; } }
+.card { background: var(--lab-panel-bg); border: 1px solid var(--lab-panel-border); border-radius: 6px; padding: 14px 16px; }
+.card h2 { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--p-text-disabled-color); margin: 0 0 8px; }
+.about p { margin: 0 0 10px; color: var(--p-text-muted-color); }
+.about p:last-child { margin-bottom: 0; }
+.about b { color: var(--p-text-color); font-weight: 600; }
+.about code { font-family: var(--mono); font-size: 12px; color: var(--lab-accent); background: rgba(0,111,255,.10); border-radius: 3px; padding: 0 4px; }
+.about .covers { display: flex; gap: 14px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--lab-panel-border); font-size: 12px; }
+.about .covers div b { display: block; font-family: var(--mono); font-size: 12px; }
+.about .covers div span { color: var(--p-text-disabled-color); font-size: 11px; }
+
+/* animated flow diagram */
+.flow-card svg { display: block; width: 100%; height: auto; }
+.flow-legend { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; color: var(--p-text-muted-color); }
+.flow-legend .sw { display: inline-block; width: 16px; height: 2px; border-radius: 1px; margin-right: 5px; vertical-align: 1px; }
+.node-box { fill: var(--lab-nested-bg); stroke: var(--lab-panel-border); }
+.node-label { fill: var(--p-text-color); font: 600 12px 'Inter', sans-serif; }
+.node-sub { fill: var(--p-text-disabled-color); font: 10px 'Inter', sans-serif; }
+.badge-txt { font: 700 10px 'Inter', sans-serif; fill: #fff; }
+.node-span { font: 9px var(--mono); fill: var(--p-text-disabled-color); }
+.node-span.accent2 { fill: var(--ok); }
+.flow-note { font-size: 11px; color: var(--p-text-muted-color); margin: 6px 0 0; }
+.flow-note code { font-family: var(--mono); color: var(--p-text-color); }
+.subj-lbl { font: 11px var(--mono); }
+.subj-req { fill: var(--lab-accent); }
+.subj-rep { fill: var(--ok); }
+.flow-path { fill: none; stroke-width: 1.6; stroke-linecap: round; }
+.flow-req { stroke: var(--lab-accent); }
+.flow-rep { stroke: var(--ok); }
+.flow-anim { stroke-dasharray: 5 6; animation: flow-move 1.1s linear infinite; }
+.flow-rep.flow-anim { animation-direction: reverse; }
+@media (prefers-reduced-motion: reduce) { .flow-anim { animation: none; } }
+@keyframes flow-move { to { stroke-dashoffset: -33; } }
+.flow-dot { }
+
+/* stat / pulse cards */
+.pulse-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.pulse-card { background: var(--lab-panel-bg); border: 1px solid var(--lab-panel-border); border-radius: 6px; padding: 14px 16px; }
+.pulse-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+.pulse-label { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--p-text-disabled-color); }
+.pulse-window { font-size: 10px; color: var(--p-text-disabled-color); }
+.pulse-value-row { display: flex; align-items: baseline; gap: 6px; margin-bottom: 10px; }
+.pulse-value { font-family: var(--mono); font-size: 26px; font-weight: 600; line-height: 1; }
+.pulse-value.accent { color: var(--lab-accent); }
+.pulse-value.err { color: var(--err); }
+.pulse-unit { font-size: 11px; color: var(--p-text-muted-color); }
+.pulse-chart { height: 48px; display: flex; align-items: flex-end; gap: 3px; }
+.pulse-bar { flex: 1; border-radius: 2px 2px 0 0; background: var(--lab-accent); opacity: .85; min-height: 2px; }
+.pulse-bar.err { background: var(--err); }
+.pulse-bar.err.empty { opacity: .16; }
+.pulse-bar.now { opacity: 1; box-shadow: 0 0 0 1px rgba(255,255,255,.15); }
+.pulse-line-wrap { height: 48px; }
+.pulse-line-wrap svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.pulse-area { fill: var(--lab-accent); opacity: .12; }
+.pulse-line { fill: none; stroke: var(--lab-accent); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+
+/* condensed traces tab */
+.moved-note { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--p-text-disabled-color); border: 1px dashed var(--lab-panel-border); border-radius: 5px; padding: 6px 10px; margin-bottom: 10px; }
+.moved-note b { color: var(--lab-accent); font-weight: 600; }
+.tw-split { display: grid; grid-template-columns: 240px 1fr; gap: 10px; border: 1px solid var(--lab-panel-border); border-radius: 6px; overflow: hidden; min-height: 260px; }
+.tw-list { border-right: 1px solid var(--lab-panel-border); padding: 8px; }
+.tw-list-head { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--p-text-disabled-color); margin-bottom: 6px; }
+.tw-row { display: flex; gap: 8px; align-items: baseline; font-size: 11px; padding: 5px 6px; border-radius: 4px; color: var(--p-text-muted-color); }
+.tw-row.sel { background: rgba(0,111,255,.12); color: var(--p-text-color); }
+.tw-row .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: none; }
+.tw-row.err .dot { background: var(--err); }
+.tw-detail { padding: 12px; font-size: 12px; color: var(--p-text-muted-color); }
+.tw-detail .subj { font-family: var(--mono); color: var(--p-text-color); font-size: 13px; margin-bottom: 8px; display: block; }
+.wf-row { display: grid; grid-template-columns: 120px 1fr; gap: 8px; align-items: center; padding: 3px 0; font-size: 11px; }
+.wf-row .acct { color: var(--p-text-disabled-color); font-family: var(--mono); font-size: 10px; }
+.wf-bar { height: 12px; border-radius: 2px; background: var(--lab-accent); opacity: .8; }
+.wf-bar.pg { background: #7fd8a4; opacity: .5; }
+
+/* condensed messages tab */
+.msg-table { width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid var(--lab-panel-border); border-radius: 6px; overflow: hidden; }
+.msg-table th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--p-text-disabled-color); padding: 6px 10px; border-bottom: 1px solid var(--lab-panel-border); background: rgba(255,255,255,.02); }
+.msg-table td { padding: 5px 10px; border-bottom: 1px solid rgba(44,49,56,.5); color: var(--p-text-muted-color); }
+.msg-table tr.sel td { background: rgba(0,111,255,.10); color: var(--p-text-color); }
+.msg-badge { font-size: 10px; font-weight: 700; border-radius: 3px; padding: 0 6px; }
+.msg-badge.ok { color: var(--ok); background: rgba(47,191,113,.12); }
+.msg-badge.error { color: var(--err); background: rgba(229,72,77,.14); }
+.msg-subj { font-family: var(--mono); font-size: 11px; }
+</style>
+
+<div class="mock">
+  <div class="review-banner">
+    <span><b>Approved</b> &mdash; ready for implementation.</span>
+    <span>Moves <span class="tag">requests / errors / avg latency</span> off Traces onto its own <b>Pulse</b> tab.</span>
+  </div>
+
+  <div class="topbar">
+    <span class="logo">A</span>
+    <span class="crumb"><b>SYSTEM</b><span class="sep">&middot;</span><b>NATS</b><span class="sep">&middot;</span>Request/Reply</span>
+    <span class="live-dot"><i></i>live</span>
+  </div>
+
+  <div class="shell">
+    <nav class="sidebar">
+      <div class="eyebrow">NATS</div>
+      <div class="item">Connections</div>
+      <div class="item">Services</div>
+      <div class="item">Account Activity</div>
+      <div class="item">Log</div>
+      <div class="item active">Request/Reply</div>
+      <div class="item">Streams</div>
+      <div class="item">KV Buckets</div>
+    </nav>
+
+    <main class="main">
+      <div class="panel-head">
+        <h1>Request/Reply</h1>
+        <span>rpc.* + api.* traffic, observed via obs.trace.&gt;</span>
+      </div>
+
+      <div class="rr-tabs">
+        <input type="radio" name="rrtab" id="tab-o" class="tab-radio" checked>
+        <input type="radio" name="rrtab" id="tab-t" class="tab-radio">
+        <input type="radio" name="rrtab" id="tab-m" class="tab-radio">
+
+        <div class="tabbar">
+          <label for="tab-o">Pulse<span class="new">new</span></label>
+          <label for="tab-t">Traces</label>
+          <label for="tab-m">Messages</label>
+        </div>
+
+        <div class="tabpanels">
+
+          <!-- ── PULSE (new) ───────────────────────────────────────────── -->
+          <section class="tabpanel p-o">
+            <div class="grid-2" style="margin-bottom: 12px;">
+              <div class="card about">
+                <h2>What request/reply covers</h2>
+                <p>A client publishes to a subject and waits on a private, single-use reply subject it generates itself &mdash; <code>_INBOX.&lt;nuid&gt;</code>. Whoever answers publishes the reply to that inbox, and only the original client is subscribed to it, so the response routes back to exactly the requester who asked. No application-level correlation bookkeeping is needed for the network hop itself.</p>
+                <p>In this lab that pattern carries two subject families: <b>rpc.*</b> (service-to-service calls) and <b>api.*</b> (browser-to-service calls). Reply-routing and request-tracing solve different problems, and NATS only automates the first one &mdash; so every hop also carries a W3C <code>traceparent</code> header: a <code>traceId</code> shared by the whole call, plus a <code>spanId</code> the receiving hop mints for itself and a <code>parentSpanId</code> copied from the caller's own <code>spanId</code>. That parent/child pair is what lets the <b>Traces</b> tab rebuild the call tree &mdash; including any further hop a service makes on its own behalf &mdash; even though NATS itself never looks inside the header. <code>correlationId</code> is carried too, but it is a separate per-hop field, not the span id.</p>
+                <div class="covers">
+                  <div><b>rpc.*</b><span>service &harr; service</span></div>
+                  <div><b>api.*</b><span>browser &harr; service</span></div>
+                  <div><b>_INBOX.&lt;nuid&gt;</b><span>per-request reply subject</span></div>
+                  <div><b>parentSpanId</b><span>caller's spanId, chains the tree</span></div>
+                </div>
+              </div>
+
+              <div class="card flow-card">
+                <h2>How a call round-trips</h2>
+                <svg viewBox="0 0 476 190" preserveAspectRatio="xMidYMid meet">
+                  <text x="105" y="20" text-anchor="middle" class="subj-lbl subj-req">rpc.acme.ship-status.list.v1</text>
+                  <text x="105" y="176" text-anchor="middle" class="subj-lbl subj-rep">_INBOX.4f2a09c1</text>
+                  <text x="355" y="20" text-anchor="middle" class="subj-lbl subj-req">rpc.acme.ship-status.list.v1</text>
+                  <text x="355" y="176" text-anchor="middle" class="subj-lbl subj-rep">_INBOX.4f2a09c1</text>
+
+                  <path d="M 92 78 C 130 60, 170 60, 208 76" class="flow-path flow-req flow-anim" marker-end="url(#arrowReq)"/>
+                  <path d="M 252 76 C 290 60, 330 60, 368 78" class="flow-path flow-req flow-anim" marker-end="url(#arrowReq)"/>
+                  <path d="M 368 112 C 330 130, 290 130, 252 114" class="flow-path flow-rep flow-anim" marker-end="url(#arrowRep)"/>
+                  <path d="M 208 114 C 170 130, 130 130, 92 112" class="flow-path flow-rep flow-anim" marker-end="url(#arrowRep)"/>
+                  <circle cx="90" cy="78" r="3" fill="var(--lab-accent)"/>
+                  <circle cx="370" cy="112" r="3" fill="var(--ok)"/>
+
+                  <defs>
+                    <marker id="arrowReq" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+                      <path d="M0,0 L8,4 L0,8 Z" fill="var(--lab-accent)"/>
+                    </marker>
+                    <marker id="arrowRep" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+                      <path d="M0,0 L8,4 L0,8 Z" fill="var(--ok)"/>
+                    </marker>
+                  </defs>
+
+                  <rect x="10" y="65" width="80" height="74" rx="8" class="node-box"/>
+                  <rect x="16" y="73" width="17" height="17" rx="4" fill="var(--lab-accent)"/>
+                  <text x="24.5" y="85.5" text-anchor="middle" class="badge-txt">C</text>
+                  <text x="50" y="102" text-anchor="middle" class="node-label">Client</text>
+                  <text x="50" y="115" text-anchor="middle" class="node-sub">seafreight-app</text>
+                  <text x="50" y="128" text-anchor="middle" class="node-span">spanId a1c9f0</text>
+
+                  <rect x="185" y="55" width="90" height="80" rx="8" class="node-box"/>
+                  <rect x="221" y="65" width="18" height="18" rx="4" fill="var(--lab-accent)"/>
+                  <text x="230" y="78" text-anchor="middle" class="badge-txt">N</text>
+                  <text x="230" y="103" text-anchor="middle" class="node-label">NATS Server</text>
+                  <text x="230" y="116" text-anchor="middle" class="node-sub">opaque relay</text>
+
+                  <rect x="370" y="65" width="80" height="88" rx="8" class="node-box"/>
+                  <rect x="376" y="73" width="17" height="17" rx="4" fill="#7c5cff"/>
+                  <text x="384.5" y="85.5" text-anchor="middle" class="badge-txt">S</text>
+                  <text x="410" y="102" text-anchor="middle" class="node-label">Service</text>
+                  <text x="410" y="115" text-anchor="middle" class="node-sub">refdata-service</text>
+                  <text x="410" y="128" text-anchor="middle" class="node-span">parentSpanId a1c9f0</text>
+                  <text x="410" y="141" text-anchor="middle" class="node-span accent2">spanId 7e2f31</text>
+                </svg>
+                <div class="flow-legend">
+                  <span><i class="sw" style="background: var(--lab-accent);"></i>request</span>
+                  <span><i class="sw" style="background: var(--ok);"></i>reply</span>
+                </div>
+                <p class="flow-note">Service mints its own <code>spanId</code> and copies the Client's <code>spanId</code> in as its <code>parentSpanId</code> &mdash; the same pair it would hand onward in a <code>traceparent</code> header if it called a third service. That chain, not the reply, is what <b>Traces</b> follows to draw the waterfall.</p>
+              </div>
+            </div>
+
+            <div class="pulse-row">
+              <div class="pulse-card">
+                <div class="pulse-head"><span class="pulse-label">requests</span><span class="pulse-window">last 482 traces</span></div>
+                <div class="pulse-value-row"><span class="pulse-value accent">482</span></div>
+                <div class="pulse-chart">
+                  <div class="pulse-bar" style="height:14px"></div><div class="pulse-bar" style="height:18px"></div><div class="pulse-bar" style="height:11px"></div><div class="pulse-bar" style="height:22px"></div><div class="pulse-bar" style="height:30px"></div><div class="pulse-bar" style="height:26px"></div><div class="pulse-bar" style="height:34px"></div><div class="pulse-bar" style="height:28px"></div><div class="pulse-bar" style="height:20px"></div><div class="pulse-bar" style="height:24px"></div><div class="pulse-bar" style="height:31px"></div><div class="pulse-bar" style="height:38px"></div><div class="pulse-bar" style="height:33px"></div><div class="pulse-bar" style="height:27px"></div><div class="pulse-bar" style="height:21px"></div><div class="pulse-bar" style="height:29px"></div><div class="pulse-bar" style="height:35px"></div><div class="pulse-bar" style="height:40px"></div><div class="pulse-bar" style="height:36px"></div><div class="pulse-bar now" style="height:44px"></div>
+                </div>
+              </div>
+              <div class="pulse-card">
+                <div class="pulse-head"><span class="pulse-label">errors</span><span class="pulse-window">1.5% of window</span></div>
+                <div class="pulse-value-row"><span class="pulse-value err">7</span></div>
+                <div class="pulse-chart">
+                  <div class="pulse-bar err empty" style="height:2px"></div><div class="pulse-bar err" style="height:6px"></div><div class="pulse-bar err empty" style="height:2px"></div><div class="pulse-bar err empty" style="height:2px"></div><div class="pulse-bar err" style="height:10px"></div><div class="pulse-bar err empty" style="height:2px"></div><div class="pulse-bar err empty" style="height:2px"></div><div class="pulse-bar err" style="height:5px"></div><div class="pulse-bar err empty" style="height:2px"></div><div class="pulse-bar err empty" style="height:2px"></div><div class="pulse-bar err empty" style="height:2px"></div><div class="pulse-bar err" style="height:14px"></div><div class="pulse-bar err empty" style="height:2px"></div><div class="pulse-bar err empty" style="height:2px"></div><div class="pulse-bar err" style="height:8px"></div><div class="pulse-bar err empty" style="height:2px"></div><div class="pulse-bar err empty" style="height:2px"></div><div class="pulse-bar err empty" style="height:2px"></div><div class="pulse-bar err" style="height:12px"></div><div class="pulse-bar err now" style="height:4px"></div>
+                </div>
+              </div>
+              <div class="pulse-card">
+                <div class="pulse-head"><span class="pulse-label">avg latency</span><span class="pulse-window">12ms now</span></div>
+                <div class="pulse-value-row"><span class="pulse-value accent">18</span><span class="pulse-unit">ms avg</span></div>
+                <div class="pulse-line-wrap">
+                  <svg viewBox="0 0 200 48" preserveAspectRatio="none">
+                    <polygon points="0,48 0,30 15,26 30,34 45,20 60,24 75,14 90,18 105,10 120,16 135,8 150,20 165,12 180,18 195,6 200,10 200,48" class="pulse-area"/>
+                    <polyline points="0,30 15,26 30,34 45,20 60,24 75,14 90,18 105,10 120,16 135,8 150,20 165,12 180,18 195,6 200,10" class="pulse-line"/>
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── TRACES (existing view, pulse strip removed) ───────────────── -->
+          <section class="tabpanel p-t">
+            <div class="moved-note">requests / errors / avg latency now live on <b>Pulse</b> &mdash; this view keeps only the trace rail + waterfall.</div>
+            <div class="tw-split">
+              <div class="tw-list">
+                <div class="tw-list-head">traces &middot; 482</div>
+                <div class="tw-row sel"><span class="dot"></span>ship.arrive.v1 <span style="margin-left:auto;color:var(--p-text-disabled-color)">41ms</span></div>
+                <div class="tw-row"><span class="dot"></span>ship.depart.v1 <span style="margin-left:auto;color:var(--p-text-disabled-color)">19ms</span></div>
+                <div class="tw-row err"><span class="dot"></span>ship-status.list.v1 <span style="margin-left:auto;color:var(--p-text-disabled-color)">8ms</span></div>
+                <div class="tw-row"><span class="dot"></span>context.list.v1 <span style="margin-left:auto;color:var(--p-text-disabled-color)">3ms</span></div>
+              </div>
+              <div class="tw-detail">
+                <span class="subj">api.acme.shipping.ship.arrive.v1</span>
+                <div class="wf-row"><span class="acct">acme</span><div class="wf-bar" style="width:60%"></div></div>
+                <div class="wf-row"><span class="acct">&#8627; platform</span><div class="wf-bar" style="width:32%;margin-left:18%"></div></div>
+                <div class="wf-row"><span class="acct">acme</span><div class="wf-bar pg" style="width:22%;margin-left:70%"></div></div>
+                <p style="margin-top:10px;color:var(--p-text-disabled-color);font-size:11px;">reply at 41ms &middot; read-model consistent at 58ms</p>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── MESSAGES (existing view, unchanged) ────────────────────────── -->
+          <section class="tabpanel p-m">
+            <div class="moved-note">unchanged &mdash; the pulse strip never lived here.</div>
+            <table class="msg-table">
+              <thead><tr><th>Status</th><th>Fam</th><th>Subject</th><th>Time</th><th>Latency</th></tr></thead>
+              <tbody>
+                <tr class="sel"><td><span class="msg-badge ok">ok</span></td><td>api</td><td class="msg-subj">api.acme.shipping.ship.arrive.v1</td><td>09:41:20.892</td><td>14 ms</td></tr>
+                <tr><td><span class="msg-badge error">error</span></td><td>rpc</td><td class="msg-subj">rpc.acme.ship-status.list.v1</td><td>09:41:22.310</td><td>8 ms</td></tr>
+                <tr><td><span class="msg-badge ok">ok</span></td><td>rpc</td><td class="msg-subj">rpc._platform.refdata.context.list.v1</td><td>09:40:11.910</td><td>2 ms</td></tr>
+              </tbody>
+            </table>
+          </section>
+
+        </div>
+      </div>
+    </main>
+  </div>
+</div>

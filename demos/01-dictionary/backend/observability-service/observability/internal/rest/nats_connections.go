@@ -274,3 +274,26 @@ func (h *Handlers) listNatsAccountActivity(w http.ResponseWriter, r *http.Reques
 	sort.Slice(out, func(i, j int) bool { return out[i].Account < out[j].Account })
 	writeJSON(w, http.StatusOK, natsAccountActivityResponse{Accounts: out})
 }
+
+// accountActivityHistory godoc
+//
+// @Summary      List NATS account activity history
+// @Description  Bucketed trend history for the Overview tab's per-account charts and duration selector (BR-043) — backed by a 60-minute in-memory ring buffer of /accstatz samples, not persisted across restarts. connections/subscriptions are point samples; byte/message counts are per-bucket deltas of accstatz's own cumulative counters, not raw values.
+// @Tags         nats
+// @Produce      json
+// @Param        duration  query  string  true  "one of 5m, 30m, 1h"
+// @Success      200  {object}  natsAccountActivityHistoryResponse
+// @Failure      400  {object}  errorResponse  "duration missing or not one of 5m/30m/1h"
+// @Router       /api/nats/account-activity/history [get]
+func (h *Handlers) accountActivityHistory(w http.ResponseWriter, r *http.Request) {
+	deps := h.deps
+	duration := r.URL.Query().Get("duration")
+	accountLabels := deps.Accounts.Labels(r.Context())
+
+	body, ok := deps.History.Query(time.Now(), duration, accountLabels)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "duration must be one of 5m, 30m, 1h")
+		return
+	}
+	writeJSON(w, http.StatusOK, body)
+}

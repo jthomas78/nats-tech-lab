@@ -410,34 +410,8 @@ describe('TraceWaterfall (Phase 28g, BR-035)', () => {
     expect(wrapper.findAll('.tw-trace')).toHaveLength(3)
   })
 
-  it('summarizes the currently displayed trace window into request/error/latency histograms, and reshapes with the toolbar filters (Phase 28p)', async () => {
-    getKvBucketEntries.mockResolvedValue([kvEntry('t1', [ROOT, SYNC_CHILD, ASYNC_TAIL]), kvEntry('t2', [FAILED_ROOT]), kvEntry('t5', [HTTP_ROOT_SIMPLE])])
-    const wrapper = mountPanel()
-    await flushPromises()
-
-    const pulseValues = () => wrapper.findAll('.pulse-card').map((c) => c.find('.pulse-value').text())
-
-    // t1 (ok, replyMs 41), t2 (error, replyMs 10), t5 (ok, replyMs 12) — 1 of
-    // 3 traces failed, and the newest trace by its own `at` (t5) sets
-    // "current" latency, not simply the last array entry.
-    expect(pulseValues()).toEqual(['3', '1', '21'])
-    expect(wrapper.find('.pulse-card:nth-child(2) .pulse-window').text()).toBe('33.3% of window')
-    expect(wrapper.find('.pulse-card:nth-child(3) .pulse-window').text()).toBe('12ms now')
-    expect(wrapper.findAll('.pulse-bar')).toHaveLength(40) // 20 request buckets + 20 error buckets
-    expect(wrapper.find('.pulse-line').exists()).toBe(true)
-
-    // Narrowing the toolbar's errors filter narrows the strip to the same
-    // slice the trace list shows underneath it — one dataset, two views.
-    await wrapper.find('.chip.err').trigger('click')
-    expect(pulseValues()).toEqual(['1', '1', '10'])
-    expect(wrapper.find('.pulse-card:nth-child(2) .pulse-window').text()).toBe('100.0% of window')
-
-    await wrapper.find('.chip.err').trigger('click')
-
-    // A filter combination with no matching traces at all hides the strip
-    // entirely rather than rendering a zero-width, zero-everything strip.
-    const slowChip = wrapper.findAll('.chip').find((c) => c.text().includes('slow'))
-    await slowChip.trigger('click')
-    expect(wrapper.find('.pulse-strip').exists()).toBe(false)
-  })
+  // The Phase 28p pulse-strip spec that used to live here moved to
+  // PulsePanel.spec.js (Phase 44) along with the strip itself — Pulse now
+  // reads the full unfiltered trace set rather than displayedSummaries, so
+  // it no longer makes sense as a spec against this component's toolbar.
 })

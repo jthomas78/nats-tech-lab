@@ -5,7 +5,6 @@ import Toast from 'primevue/toast'
 import { useI18n } from 'vue-i18n'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
-import AccountActivityPanel from './components/AccountActivityPanel.vue'
 import AccountsView from './components/AccountsView.vue'
 import ConnectionsPanel from './components/ConnectionsPanel.vue'
 import JetStreamPanel from './components/JetStreamPanel.vue'
@@ -16,11 +15,9 @@ import PostgresTablesPanel from './components/PostgresTablesPanel.vue'
 import RpcPanel from './components/RpcPanel.vue'
 import ServicesPanel from './components/ServicesPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
-import ShapePanel from './components/ShapePanel.vue'
 import TelemetryStrip from './components/TelemetryStrip.vue'
 import TradingPartnersPanel from './components/TradingPartnersPanel.vue'
 import IconAccounts from './components/icons/IconAccounts.vue'
-import IconActivity from './components/icons/IconActivity.vue'
 import IconConnections from './components/icons/IconConnections.vue'
 import IconKv from './components/icons/IconKv.vue'
 import IconLog from './components/icons/IconLog.vue'
@@ -28,7 +25,6 @@ import IconOverview from './components/icons/IconOverview.vue'
 import IconRpc from './components/icons/IconRpc.vue'
 import IconServices from './components/icons/IconServices.vue'
 import IconSettings from './components/icons/IconSettings.vue'
-import IconShapes from './components/icons/IconShapes.vue'
 import IconShippers from './components/icons/IconShippers.vue'
 import IconStreams from './components/icons/IconStreams.vue'
 import IconTables from './components/icons/IconTables.vue'
@@ -94,10 +90,6 @@ const sections = [
   {
     group: 'Platform',
     sections: [
-      // Accounts is a tenant (NATS account) roster — a platform-membership
-      // question, so it sits here rather than under SYSTEM's NATS group where
-      // it used to live purely because NATS accounts are its mechanism.
-      { items: [{ key: 'accounts', label: 'Accounts', icon: IconAccounts }] },
       {
         // Phase 26 — own nav category (linebooker_registration_ui_placement.md):
         // organisation-owned master data that *consumes* refdata lookups
@@ -117,17 +109,21 @@ const sections = [
   {
     group: 'System',
     sections: [
+      // Accounts moved here from PLATFORM (Phase 45) once its Overview tab
+      // absorbed the standalone Account Activity panel below — Accounts is
+      // now the one home for both the business roster and NATS-account
+      // health, so a PLATFORM item displaying SYSTEM content stopped making
+      // sense. First entry, above the NATS eyebrow group it partly reports on.
+      { items: [{ key: 'accounts', label: 'Accounts', icon: IconAccounts }] },
       {
         eyebrow: 'NATS',
         items: [
           { key: 'connections', label: 'Connections', icon: IconConnections },
           { key: 'services', label: 'Services', icon: IconServices },
-          { key: 'account-activity', label: 'Account Activity', icon: IconActivity },
           { key: 'log', label: 'Log', icon: IconLog },
           { key: 'rpc', label: 'Request/Reply', icon: IconRpc },
           { key: 'streams', label: 'Streams', icon: IconStreams },
           { key: 'kv', label: 'KV Buckets', icon: IconKv },
-          { key: 'shapes', label: 'CQRS Shapes', icon: IconShapes, badge: 1 },
         ],
       },
       {
@@ -142,24 +138,23 @@ const SUBTITLES = {
   overview: 'pipeline health · dispatch a test command',
   streams: 'raw NATS messages · live tail and full replay',
   kv: 'every registered bucket · contents and live changes',
-  shapes: 'the KV-cache-in-front-of-Postgres read path',
   rpc: 'rpc.* + api.* request/reply traffic · rpc.* replays last 10 min, api.* live only',
   connections: 'nats connections · all accounts',
   services: 'nats micro services · $SRV.* discovery',
-  'account-activity': 'per-account traffic + slow-consumer health · /accstatz',
   log: 'nats server log · level + text filter, no rotation',
   tables: 'canonical Postgres tables by schema',
   settings: 'platform-global system configuration',
   shippers: 'shipper registration · KYC documents',
   transporters: 'transporter registration · KYC documents · fleet assets',
 }
-// accounts has two tabs (AccountsView.vue) with distinct enough subject
-// matter — provisioning vs. the export/import graph — that one subtitle for
-// both would either describe neither or run long, so it's the one entry
-// SUBTITLES can't answer directly.
+// accounts has three tabs (AccountsView.vue) with distinct enough subject
+// matter — fleet health, provisioning, and the export/import graph — that
+// one subtitle for all three would either describe none or run long, so
+// it's the one entry SUBTITLES can't answer directly.
 const ACCOUNTS_SUBTITLES = {
+  overview: 'per-account traffic + slow-consumer health · /accstatz',
   provisioning: 'dynamic tenant provisioning · decentralized JWTs',
-  topology: 'declared export/import edges between accounts · read from resolver JWTs',
+  sharing: 'declared export/import edges between accounts · read from resolver JWTs',
 }
 const subtitle = computed(() =>
   activeView.value === 'accounts' ? ACCOUNTS_SUBTITLES[uiStore.accountsTab] : SUBTITLES[activeView.value] ?? '',
@@ -261,19 +256,6 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <!-- CQRS Shapes — KV cache in front of the canonical Postgres projection.
-         Phase 31 retired Shape A (KV-as-read-model) and Shape C (event-sourced
-         reconstruction) once the POC's shape comparison was decided in favor
-         of this one. -->
-    <section v-else-if="activeView === 'shapes'" class="group" data-testid="shapes-view">
-      <ShapePanel title="KV cache in front of Postgres">
-        Events update the canonical Postgres projection, then refresh
-        <code>ships</code> under the <code>{{ store.context }}.ship.*</code>
-        key prefix. Evict a ship, then read it to watch the miss → Postgres →
-        backfill path.
-      </ShapePanel>
-    </section>
-
     <!-- Request/Reply — obs.rpc.* + obs.api.* request/reply traffic (Phase 12.10; api.* added Phase 16).
          No lab-panel wrapper here (unlike the other group--flush views below) — RpcPanel's own
          Traces/Messages Tabs sit flush on the page, same as AccountsView's tabs, with the card
@@ -294,15 +276,6 @@ onUnmounted(() => {
     <section v-else-if="activeView === 'services'" class="group group--flush" data-testid="services-view">
       <div class="lab-panel streams-panel">
         <ServicesPanel />
-      </div>
-    </section>
-
-    <!-- Account Activity — per-account traffic + slow-consumer health from
-         /accstatz (Phase 27). Manages its own internal scroll regions, so the
-         section is flush, same as Connections/Services above. -->
-    <section v-else-if="activeView === 'account-activity'" class="group group--flush" data-testid="account-activity-view">
-      <div class="lab-panel streams-panel">
-        <AccountActivityPanel />
       </div>
     </section>
 
@@ -336,8 +309,10 @@ onUnmounted(() => {
       />
     </section>
 
-    <!-- Accounts — provisioning (Phase 14c) + the declared export/import
-         topology graph, as tabs of one view (see AccountsView.vue) -->
+    <!-- Accounts — fleet activity overview (Phase 45, absorbing the old
+         standalone Account Activity panel), provisioning (Phase 14c), and
+         the declared export/import sharing graph, as tabs of one view (see
+         AccountsView.vue) -->
     <section v-else class="group" data-testid="accounts-view">
       <AccountsView />
     </section>

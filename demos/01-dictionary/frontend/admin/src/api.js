@@ -98,19 +98,6 @@ export function getKnownContainers(context) {
   return shippingRequest(context, 'meta', 'known-containers')
 }
 
-// ── Admin read-path diagnostics (Shape B: KV cache → Postgres) ──────────────
-// Renamed from /api/shape-b/* in Phase 33 (BR-039) — these back the Admin
-// UI's read-path diagnostics panel and cache-evict button; they were always
-// admin diagnostics, not a business route, just misclassified by name.
-
-export function getShipShapeB(context, shipID) {
-  return request(`/api/admin/read-path/ships/${context}/${shipID}`)
-}
-
-export function evictShipCache(context, shipID) {
-  return request(`/api/admin/read-path/cache/${context}/${shipID}`, { method: 'DELETE' })
-}
-
 // Every event stream across every account this backend reaches (tagged with
 // its account), with run-time status — backs the Streams view's stream rail.
 // Deliberately NOT scoped to the topbar's active tenant, same as
@@ -274,6 +261,13 @@ export function getNatsServices() {
 
 export function getNatsAccountActivity() {
   return request('/api/nats/account-activity')
+}
+
+// Overview tab's trend charts (Phase 45, BR-043) — bucketed history from
+// observability-service's 60-minute ring buffer, not the live snapshot
+// above. duration must be '5m', '30m', or '1h'.
+export function getNatsAccountActivityHistory(duration) {
+  return request(`/api/nats/account-activity/history?duration=${encodeURIComponent(duration)}`)
 }
 
 // Log panel — tails NATS's own log_file server-side (level/q filters, tail

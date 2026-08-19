@@ -7,55 +7,6 @@ definitions:
       name:
         type: string
     type: object
-  domain.ShipState:
-    properties:
-      context:
-        description: fleet / KV-key-prefix qualifier
-        type: string
-      currentPort:
-        description: '"" = at sea'
-        type: string
-      id:
-        description: surrogate key (UUID) — aggregate identity
-        type: string
-      shipID:
-        description: mutable natural key (call-sign / fleet code)
-        type: string
-      shipName:
-        type: string
-      status:
-        allOf:
-        - $ref: '#/definitions/domain.ShipStatus'
-        description: AIS navigational status
-      updatedAt:
-        type: string
-    type: object
-  domain.ShipStatus:
-    enum:
-    - in-transit
-    - docked
-    - at-anchor
-    - not-under-command
-    - restricted-manoeuvrability
-    type: string
-    x-enum-comments:
-      StatusAtAnchor: amber
-      StatusDocked: green
-      StatusInTransit: blue
-      StatusNotUnderCommand: red
-      StatusRestrictedManoeuvrability: orange
-    x-enum-descriptions:
-    - blue
-    - green
-    - amber
-    - red
-    - orange
-    x-enum-varnames:
-    - StatusInTransit
-    - StatusDocked
-    - StatusAtAnchor
-    - StatusNotUnderCommand
-    - StatusRestrictedManoeuvrability
   rest.errorResponse:
     properties:
       error:
@@ -67,16 +18,6 @@ definitions:
         items:
           $ref: '#/definitions/domain.PortRecord'
         type: array
-    type: object
-  rest.shipBResponse:
-    properties:
-      cacheHit:
-        type: boolean
-      ship:
-        $ref: '#/definitions/domain.ShipState'
-      source:
-        description: '"kv-cache" or "postgres"'
-        type: string
     type: object
   rest.switchTenantRequest:
     properties:
@@ -123,70 +64,6 @@ paths:
           schema:
             $ref: '#/definitions/rest.errorResponse'
       summary: Raw ports table (admin)
-      tags:
-      - admin
-  /api/admin/read-path/cache/{context}/{shipID}:
-    delete:
-      description: Evicts the ship's KV cache entry to demonstrate the cache-miss
-        → Postgres fallthrough → backfill path. Admin diagnostics only, not a business
-        route.
-      parameters:
-      - description: Fleet context
-        in: path
-        name: context
-        required: true
-        type: string
-      - description: Ship identifier
-        in: path
-        name: shipID
-        required: true
-        type: string
-      responses:
-        "204":
-          description: Cache entry evicted
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: Evict ship cache entry (admin read-path diagnostics)
-      tags:
-      - admin
-  /api/admin/read-path/ships/{context}/{shipID}:
-    get:
-      description: 'Returns current ship state from the Shape B read model: checks
-        KV cache first, falls through to Postgres on a miss and backfills the cache.
-        Admin diagnostics only, not a business route.'
-      parameters:
-      - description: Fleet context (e.g. acme, acme-atlantic-fleet)
-        in: path
-        name: context
-        required: true
-        type: string
-      - description: Ship identifier (e.g. orient-express)
-        in: path
-        name: shipID
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/rest.shipBResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/rest.errorResponse'
-      summary: Get ship (admin read-path diagnostics — KV cache → Postgres)
       tags:
       - admin
   /api/tenant:

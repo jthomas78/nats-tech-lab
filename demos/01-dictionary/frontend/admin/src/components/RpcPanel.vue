@@ -9,6 +9,7 @@ import Tabs from 'primevue/tabs'
 import Tag from 'primevue/tag'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
+import PulsePanel from './PulsePanel.vue'
 import SubjectPath from './SubjectPath.vue'
 import TraceWaterfall from './TraceWaterfall.vue'
 import { getKvBucketEntries } from '../api'
@@ -257,10 +258,18 @@ function copyHeaders(headers) {
       class="panel-tabs rpc-tabs"
     >
       <TabList>
+        <Tab value="pulse">Pulse</Tab>
         <Tab value="traces">Traces</Tab>
         <Tab value="messages">Messages</Tab>
       </TabList>
       <TabPanels>
+        <TabPanel value="pulse">
+          <div class="lab-panel rpc-card">
+            <KeepAlive>
+              <PulsePanel v-if="ui.rpcTab === 'pulse'" />
+            </KeepAlive>
+          </div>
+        </TabPanel>
         <TabPanel value="traces">
           <div class="lab-panel rpc-card">
             <KeepAlive>
@@ -488,13 +497,14 @@ function copyHeaders(headers) {
   flex-direction: column;
 }
 
-/* ── [traces]/[messages] tabs (Phase 28g, BR-035; real Tabs since Phase 28j
-   — see the "panel top tabs" rule in shared/unifi-theme/LAYOUT.md) — the
-   panel below the tab strip needs the full height a page-level Tabs
-   normally isn't asked to fill (TraceWaterfall's own rail/waterfall split,
-   the messages table's scroll-height="flex"), so p-tabs/p-tabpanels/
-   p-tabpanel all stay flex columns down to the active panel rather than
-   PrimeVue's plain block default. */
+/* ── [pulse]/[traces]/[messages] tabs (Phase 28g, BR-035; real Tabs since
+   Phase 28j; pulse tab added Phase 44 — see the "panel top tabs" rule in
+   shared/unifi-theme/LAYOUT.md) — the panel below the tab strip needs the
+   full height a page-level Tabs normally isn't asked to fill
+   (TraceWaterfall's own rail/waterfall split, the messages table's
+   scroll-height="flex"), so p-tabs/p-tabpanels/p-tabpanel all stay flex
+   columns down to the active panel rather than PrimeVue's plain block
+   default. */
 .rpc-tabs.p-tabs {
   flex: 1;
   min-height: 0;

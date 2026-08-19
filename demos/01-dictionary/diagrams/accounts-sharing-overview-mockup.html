@@ -1,0 +1,342 @@
+<!--
+  For review — NOT yet approved, no code written. Same convention as
+  admin-rpc-overview-mockup.html / shared/unifi-theme/app-shell-reference.html.
+
+  Depicts three requested changes to the Admin UI's Accounts area:
+    1. The "Topology" tab renames to "Sharing" — terminology borrowed from
+       NATS's own cross-account security model
+       (https://docs.nats.io/learn/security/cross-account), since that's
+       literally what the tab shows: declared export/import edges between
+       accounts.
+    2. The "Accounts" nav item moves from PLATFORM to SYSTEM, as the first
+       entry — above the existing "NATS" eyebrow group, mirroring how it
+       sits ungrouped above "Trading partners" under PLATFORM today.
+    3. SYSTEM > NATS > "Account Activity" retires as its own nav item; its
+       content (App.vue lines 283-290, AccountActivityPanel.vue) becomes a
+       new "Overview" tab — first tab under Accounts, before Provisioning.
+
+  Source components: App.vue (nav `sections`, `ACCOUNTS_SUBTITLES`),
+  AccountsView.vue (tab list), AccountActivityPanel.vue (content merging
+  into Overview), TopologyPanel.vue (renamed to Sharing, content unchanged).
+-->
+<title>Accounts — Overview &amp; Sharing</title>
+<style>
+:root {
+  --lab-bg: #131416;
+  --lab-panel-bg: #131416;
+  --lab-panel-border: #2c3138;
+  --lab-accent: #006fff;
+  --lab-nav-active-bg: #1c1d1f;
+  --lab-nested-bg: #171c29;
+  --p-text-color: #dee0e3;
+  --p-text-muted-color: #b7bcc2;
+  --p-text-disabled-color: #737c87;
+  --ok: #2fbf71;
+  --err: #e5484d;
+  --warn: #d9a514;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { background: var(--lab-bg); margin: 0; padding: 24px; display: flex; justify-content: center; }
+.mock {
+  width: 940px; max-width: 100%;
+  background: var(--lab-bg); color: var(--p-text-color);
+  font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased; border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--lab-panel-border); position: relative;
+}
+
+/* banner */
+.review-banner { background: rgba(217,165,20,.08); border-bottom: 1px solid var(--lab-panel-border); padding: 8px 14px 10px; }
+.review-banner .headline { color: var(--p-text-color); font-size: 12px; font-weight: 700; }
+.review-banner .headline b { color: var(--warn); }
+.review-banner ol { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--p-text-muted-color); }
+.review-banner ol li { margin: 2px 0; }
+.review-banner code { font-family: var(--mono); font-size: 11px; color: var(--lab-accent); background: rgba(0,111,255,.10); border-radius: 3px; padding: 0 4px; }
+
+/* topbar */
+.topbar { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 14px; background: var(--lab-panel-bg); border-bottom: 1px solid var(--lab-panel-border); }
+.topbar .logo { width: 17px; height: 17px; border-radius: 4px; background: var(--lab-accent); display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; flex: none; }
+.crumb { font-size: 12px; color: var(--p-text-muted-color); }
+.crumb b { color: var(--p-text-color); font-weight: 600; }
+.crumb .sep { margin: 0 5px; color: var(--p-text-disabled-color); }
+.live-dot { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ok); font-weight: 600; }
+.live-dot i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: pulse 2s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+.shell { display: flex; min-height: 600px; position: relative; }
+
+/* ── sidebar, mirrors shared/ui-shell/app-shell.css class-for-class ── */
+.sidebar { width: 194px; flex: none; padding: 10px 8px; background: var(--lab-panel-bg); border-right: 1px solid var(--lab-panel-border); font-size: 13px; }
+.nav-item { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 8px; border-radius: 5px; border-left: 2px solid transparent; color: var(--p-text-muted-color); white-space: nowrap; }
+.nav-item .label { overflow: hidden; text-overflow: ellipsis; }
+.nav-item.active { background: var(--lab-nav-active-bg); color: var(--p-text-color); border-left-color: var(--lab-accent); font-weight: 600; }
+.nav-item .moved-tag { margin-left: auto; font-size: 8px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--warn); background: rgba(217,165,20,.14); border-radius: 3px; padding: 1px 5px; }
+.nav-group-toggle { display: flex; align-items: center; gap: 6px; width: 100%; margin: 12px 0 4px; padding: 10px 8px 6px 0; border-top: 1px solid var(--lab-panel-border); color: var(--p-text-color); font-size: 10px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.nav-group-toggle:first-child { margin-top: 2px; border-top: none; }
+.nav-group-toggle .chev { font-size: 9px; color: var(--p-text-disabled-color); }
+.nav-group-body { display: flex; flex-direction: column; gap: 14px; padding-left: 18px; }
+.eyebrow { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--p-text-disabled-color); padding: 4px 8px 2px; }
+.nav-section { display: flex; flex-direction: column; gap: 1px; }
+
+/* ghost row — the retired Account Activity item, kept visible only for
+   this review so the merge target is unambiguous; deleted on implementation */
+.nav-item.ghost { border: 1px dashed var(--lab-panel-border); border-left: 1px dashed var(--lab-panel-border); color: var(--p-text-disabled-color); opacity: .7; }
+.nav-item.ghost .label { text-decoration: line-through; }
+.nav-item.ghost .moved-tag { color: var(--p-text-disabled-color); background: rgba(255,255,255,.05); }
+
+.main { flex: 1; min-width: 0; padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; }
+.panel-head { display: flex; align-items: baseline; gap: 8px; }
+.panel-head h1 { font-size: 16px; margin: 0; font-weight: 600; }
+.panel-head span { font-size: 12px; color: var(--p-text-disabled-color); }
+
+/* tabs, CSS-only via radio siblings */
+.acc-tabs input.tab-radio { position: absolute; opacity: 0; pointer-events: none; }
+.tabbar { display: flex; gap: 4px; border-bottom: 1px solid var(--lab-panel-border); }
+.tabbar label { font-size: 13px; padding: 7px 4px 9px; color: var(--p-text-muted-color); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; user-select: none; }
+.tabbar label .tag-merged { font-size: 9px; font-weight: 700; letter-spacing: .04em; color: var(--warn); background: rgba(217,165,20,.14); border-radius: 3px; padding: 1px 4px; margin-left: 6px; vertical-align: 1px; }
+#tab-o:checked ~ .tabbar label[for="tab-o"],
+#tab-p:checked ~ .tabbar label[for="tab-p"],
+#tab-s:checked ~ .tabbar label[for="tab-s"] { color: var(--p-text-color); border-bottom-color: var(--lab-accent); font-weight: 600; }
+.tabpanels { padding-top: 12px; }
+.tabpanel { display: none; }
+#tab-o:checked ~ .tabpanels .p-o,
+#tab-p:checked ~ .tabpanels .p-p,
+#tab-s:checked ~ .tabpanels .p-s { display: block; }
+
+.moved-note { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--p-text-disabled-color); border: 1px dashed var(--lab-panel-border); border-radius: 5px; padding: 6px 10px; margin-bottom: 10px; }
+.moved-note b { color: var(--warn); font-weight: 600; }
+
+/* ── account-activity content, lifted class-for-class from
+   AccountActivityPanel.vue's own scoped CSS ── */
+.summary-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+.summary-card { background: var(--lab-panel-bg); border: 1px solid var(--lab-panel-border); border-radius: 4px; padding: 8px 10px; }
+.summary-label { font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--p-text-disabled-color); }
+.summary-value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+
+.acct-scroll { display: flex; flex-direction: column; gap: 8px; }
+.acct-card { background: var(--lab-panel-bg); border: 1px solid var(--lab-panel-border); border-radius: 4px; overflow: hidden; }
+.acct-card.crit { border-color: rgba(229,72,77,.5); }
+.acct-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.dot.ok { background: var(--ok); }
+.dot.crit { background: var(--err); box-shadow: 0 0 0 3px rgba(229,72,77,.22); }
+.acct-name { font-weight: 600; font-size: 13px; }
+.acct-tag { font-size: 10px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--p-text-disabled-color); border: 1px solid var(--lab-panel-border); border-radius: 3px; padding: 0 5px; line-height: 15px; }
+.acct-meta { margin-left: auto; display: flex; gap: 18px; }
+.stat { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; }
+.stat b { font-size: 14px; font-variant-numeric: tabular-nums; }
+.stat label { font-size: 9px; color: var(--p-text-disabled-color); text-transform: uppercase; letter-spacing: .03em; }
+.stat.crit b { color: var(--err); }
+.chevron { color: var(--p-text-disabled-color); font-size: 11px; }
+.acct-card.expanded .chevron { transform: rotate(180deg); display: inline-block; }
+.detail { padding: 10px 14px 12px 34px; background: var(--lab-nested-bg); border-top: 1px solid var(--lab-panel-border); display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px 14px; }
+.d-cell label { display: block; font-size: 9px; color: var(--p-text-disabled-color); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 3px; }
+.d-cell .v { font-size: 13px; font-variant-numeric: tabular-nums; }
+.alarm-line { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin: 2px 0 0; font-size: 12px; color: var(--err); background: rgba(229,72,77,.12); border: 1px solid rgba(229,72,77,.35); border-radius: 4px; padding: 6px 10px; }
+.alarm-line b { font-variant-numeric: tabular-nums; }
+
+/* ── condensed provisioning table ── */
+.prov-table { width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid var(--lab-panel-border); border-radius: 6px; overflow: hidden; }
+.prov-table th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--p-text-disabled-color); padding: 6px 10px; border-bottom: 1px solid var(--lab-panel-border); background: rgba(255,255,255,.02); }
+.prov-table td { padding: 7px 10px; border-bottom: 1px solid rgba(44,49,56,.5); color: var(--p-text-muted-color); }
+.prov-key { font-family: var(--mono); font-size: 11px; }
+.prov-status { font-size: 10px; font-weight: 700; border-radius: 3px; padding: 1px 6px; }
+.prov-status.active { color: var(--ok); background: rgba(47,191,113,.12); }
+
+/* ── sharing (renamed topology) — condensed hub/spoke graph ── */
+.share-card { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); gap: 14px; align-items: stretch; }
+.share-card p { margin: 0; color: var(--p-text-muted-color); }
+.share-card code { font-family: var(--mono); font-size: 12px; color: var(--lab-accent); background: rgba(0,111,255,.10); border-radius: 3px; padding: 0 4px; }
+.share-legend { display: flex; gap: 16px; margin-top: 10px; font-size: 11px; color: var(--p-text-muted-color); }
+.share-legend .sw { display: inline-block; width: 16px; height: 2px; margin-right: 5px; vertical-align: 1px; }
+.node-box { fill: var(--lab-nested-bg); stroke: var(--lab-panel-border); }
+.node-label { fill: var(--p-text-color); font: 600 12px 'Inter', sans-serif; }
+.edge { fill: none; stroke: var(--lab-accent); stroke-width: 1.6; stroke-dasharray: 5 6; opacity: .8; }
+</style>
+
+<div class="mock">
+  <div class="review-banner">
+    <div class="headline"><b>For review</b> — mockup only, nothing implemented yet.</div>
+    <ol>
+      <li><code>Topology</code> → <b>Sharing</b> (declared export/import edges — NATS's cross-account security model)</li>
+      <li><b>Accounts</b> moves PLATFORM → SYSTEM, first entry (above the NATS group)</li>
+      <li>SYSTEM &middot; NATS &middot; <b>Account Activity</b> retires as its own item — merges into Accounts' new <b>Overview</b> tab</li>
+    </ol>
+  </div>
+
+  <div class="topbar">
+    <span class="logo">A</span>
+    <span class="crumb"><b>SYSTEM</b><span class="sep">&middot;</span><b>Accounts</b><span class="sep">&middot;</span>Overview</span>
+    <span class="live-dot"><i></i>watching</span>
+  </div>
+
+  <div class="shell">
+    <nav class="sidebar">
+      <div class="nav-section">
+        <div class="nav-item">Overview</div>
+      </div>
+
+      <div class="nav-group-toggle"><span class="chev">▾</span>Platform</div>
+      <div class="nav-group-body">
+        <div class="eyebrow">Trading partners</div>
+        <div class="nav-section" style="margin-top:-10px">
+          <div class="nav-item">Shippers</div>
+          <div class="nav-item">Transporters</div>
+        </div>
+        <div class="nav-section" style="margin-top:-10px">
+          <div class="nav-item">Settings</div>
+        </div>
+      </div>
+
+      <div class="nav-group-toggle"><span class="chev">▾</span>System</div>
+      <div class="nav-group-body">
+        <div class="nav-section">
+          <div class="nav-item active" id="sb-accounts">Accounts<span class="moved-tag">moved</span></div>
+        </div>
+        <div>
+          <div class="eyebrow">NATS</div>
+          <div class="nav-section" style="margin-top:6px">
+            <div class="nav-item">Connections</div>
+            <div class="nav-item">Services</div>
+            <div class="nav-item ghost" id="sb-ghost"><span class="label">Account Activity</span><span class="moved-tag">merged</span></div>
+            <div class="nav-item">Log</div>
+            <div class="nav-item">Request/Reply</div>
+            <div class="nav-item">Streams</div>
+            <div class="nav-item">KV Buckets</div>
+          </div>
+        </div>
+        <div>
+          <div class="eyebrow">Postgres</div>
+          <div class="nav-section" style="margin-top:6px">
+            <div class="nav-item">Tables</div>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <main class="main">
+      <div class="panel-head">
+        <h1>Accounts</h1>
+        <span id="acc-subtitle">per-account traffic + health &middot; /accstatz</span>
+      </div>
+
+      <div class="acc-tabs">
+        <input type="radio" name="acctab" id="tab-o" class="tab-radio" checked>
+        <input type="radio" name="acctab" id="tab-p" class="tab-radio">
+        <input type="radio" name="acctab" id="tab-s" class="tab-radio">
+
+        <div class="tabbar">
+          <label for="tab-o">Overview<span class="tag-merged">merged</span></label>
+          <label for="tab-p">Provisioning</label>
+          <label for="tab-s">Sharing</label>
+        </div>
+
+        <div class="tabpanels">
+
+          <!-- ── OVERVIEW (new — was SYSTEM > NATS > Account Activity) ──── -->
+          <section class="tabpanel p-o">
+            <div class="moved-note">was <b>SYSTEM &middot; NATS &middot; Account Activity</b> &mdash; same panel, same 10s <code>/accstatz</code> poll, now living under Accounts instead of standing alone.</div>
+
+            <div class="summary-row">
+              <div class="summary-card"><div class="summary-label">Accounts</div><div class="summary-value">3</div></div>
+              <div class="summary-card"><div class="summary-label">Connections</div><div class="summary-value">428</div></div>
+              <div class="summary-card"><div class="summary-label">Subscriptions</div><div class="summary-value">1.9K</div></div>
+              <div class="summary-card"><div class="summary-label">Msgs In / Out</div><div class="summary-value" title="482,910 in / 379,204 out">482K / 379K</div></div>
+            </div>
+
+            <div class="acct-scroll">
+              <div class="acct-card">
+                <div class="acct-head">
+                  <span class="dot ok"></span>
+                  <span class="acct-name">platform</span>
+                  <span class="acct-tag">reserved</span>
+                  <span class="acct-meta">
+                    <span class="stat"><b>96</b><label>conns</label></span>
+                    <span class="stat" title="210,442 in / 198,110 out"><b>210K / 198K</b><label>msgs in/out</label></span>
+                    <span class="stat" title="41.2 MB in / 38.9 MB out"><b>41M / 39M</b><label>bytes in/out</label></span>
+                    <span class="stat"><b>640</b><label>subs</label></span>
+                  </span>
+                  <span class="chevron">▾</span>
+                </div>
+              </div>
+
+              <div class="acct-card">
+                <div class="acct-head">
+                  <span class="dot ok"></span>
+                  <span class="acct-name">acme</span>
+                  <span class="acct-meta">
+                    <span class="stat"><b>240</b><label>conns</label></span>
+                    <span class="stat" title="190,204 in / 140,650 out"><b>190K / 141K</b><label>msgs in/out</label></span>
+                    <span class="stat" title="22.5 MB in / 15.1 MB out"><b>23M / 15M</b><label>bytes in/out</label></span>
+                    <span class="stat"><b>980</b><label>subs</label></span>
+                  </span>
+                  <span class="chevron">▾</span>
+                </div>
+              </div>
+
+              <div class="acct-card crit expanded">
+                <div class="acct-head">
+                  <span class="dot crit"></span>
+                  <span class="acct-name">globex</span>
+                  <span class="acct-meta">
+                    <span class="stat"><b>92</b><label>conns</label></span>
+                    <span class="stat" title="81,830 in / 40,004 out"><b>82K / 40K</b><label>msgs in/out</label></span>
+                    <span class="stat" title="9.8 MB in / 4.1 MB out"><b>10M / 4M</b><label>bytes in/out</label></span>
+                    <span class="stat crit"><b>3</b><label>slow</label></span>
+                  </span>
+                  <span class="chevron">▾</span>
+                </div>
+                <div class="detail">
+                  <div class="d-cell"><label>Connections</label><div class="v">92</div></div>
+                  <div class="d-cell"><label>Subscriptions</label><div class="v">312</div></div>
+                  <div class="d-cell"><label>Received (in)</label><div class="v">81,830 msgs &middot; 9.8 MB</div></div>
+                  <div class="d-cell"><label>Sent (out)</label><div class="v">40,004 msgs &middot; 4.1 MB</div></div>
+                  <p class="alarm-line">⚠ <b>3 slow consumers</b> on this account right now &mdash; a subscriber isn't draining fast enough. Check connections on globex in the Connections panel.</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── PROVISIONING (unchanged) ─────────────────────────────── -->
+          <section class="tabpanel p-p">
+            <div class="moved-note">unchanged &mdash; dynamic tenant provisioning, decentralized JWTs (Phase 14c).</div>
+            <table class="prov-table">
+              <thead><tr><th>Name</th><th>Status</th><th>Public Key</th><th>Created At</th><th></th></tr></thead>
+              <tbody>
+                <tr><td>platform</td><td><span class="prov-status active">active</span></td><td class="prov-key">ABK4F...T9QZ</td><td>2026-06-02</td><td>&hellip;</td></tr>
+                <tr><td>acme</td><td><span class="prov-status active">active</span></td><td class="prov-key">ACX91...P2LM</td><td>2026-06-14</td><td>&hellip;</td></tr>
+                <tr><td>globex</td><td><span class="prov-status active">active</span></td><td class="prov-key">AGT03...W7VN</td><td>2026-07-29</td><td>&hellip;</td></tr>
+              </tbody>
+            </table>
+          </section>
+
+          <!-- ── SHARING (renamed from Topology, content unchanged) ────── -->
+          <section class="tabpanel p-s">
+            <div class="moved-note">renamed from <b>Topology</b> &mdash; same live export/import graph, read from each account's resolver JWT.</div>
+            <div class="share-card">
+              <div>
+                <p>Declared export/import edges between accounts, read from each account's current resolver JWT &mdash; not a snapshot of the bootstrap script. Line thickness reflects how many subjects a pair shares; click a line for the list.</p>
+                <div class="share-legend">
+                  <span><i class="sw" style="background:var(--lab-accent)"></i>service export &middot; <code>rpc.*</code></span>
+                  <span><i class="sw" style="background:var(--ok)"></i>stream export &middot; <code>evt.*</code> / <code>obs.trace.&gt;</code></span>
+                </div>
+              </div>
+              <svg viewBox="0 0 260 150" preserveAspectRatio="xMidYMid meet">
+                <path class="edge" d="M 130 30 C 90 55, 70 80, 60 108" />
+                <path class="edge" d="M 130 30 C 170 55, 190 80, 200 108" />
+                <rect x="95" y="8" width="70" height="34" rx="6" class="node-box" />
+                <text x="130" y="29" text-anchor="middle" class="node-label">platform</text>
+                <rect x="10" y="108" width="70" height="34" rx="6" class="node-box" />
+                <text x="45" y="129" text-anchor="middle" class="node-label">acme</text>
+                <rect x="180" y="108" width="70" height="34" rx="6" class="node-box" />
+                <text x="215" y="129" text-anchor="middle" class="node-label">globex</text>
+              </svg>
+            </div>
+          </section>
+
+        </div>
+      </div>
+    </main>
+  </div>
+</div>

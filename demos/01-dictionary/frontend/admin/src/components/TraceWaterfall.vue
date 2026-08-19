@@ -35,6 +35,16 @@ import SubjectPath from './SubjectPath.vue'
 //    the wire either — direction is always "reply" (BR-037's one-span-per-
 //    call design), so the mockup's detail-pane "kind" tag is omitted rather
 //    than shown with a fabricated value.
+//
+// Phase 44 moved the request/error/latency pulse strip (Phase 28p) that used
+// to sit above the toolbar here out to its own Pulse tab (PulsePanel.vue) —
+// see this file's git history for the removed `pulse` computed and markup.
+// Pulse duplicates this component's bootstrap/subscribe/trace-grouping
+// rather than sharing it, matching this panel's existing precedent
+// (RpcPanel.vue's Messages tab already duplicates the same pair for a
+// flat-by-span aggregation) — Pulse aggregates the unfiltered trace set,
+// not `displayedSummaries`, so it isn't reading the same derived data this
+// component's toolbar filters produce anyway.
 
 const traces = ref(new Map()) // traceId -> raw span objects (from the KV record's `spans` array)
 
@@ -301,76 +311,6 @@ const displayedSummaries = computed(() => {
   })
 })
 
-// ── Pulse strip — request/error/latency histograms over the currently
-// displayed (i.e. filtered) trace window, so toggling errors/slow/rest-nats
-// in the toolbar reshapes this strip and the trace list together (Phase
-// 28p). Buckets are fixed-count, not fixed-duration: this panel has no
-// historical metrics backend, just the live-buffered trace set, so the
-// window is "however far back the buffer reaches" rather than a calendar
-// interval.
-const PULSE_BUCKETS = 20
-const pulse = computed(() => {
-  const list = displayedSummaries.value
-  const empty = { total: 0, errCount: 0, errPct: '0%', avgLatency: 0, currentLatency: 0, reqBars: [], errBars: [], latPoints: '', latArea: '', hasLat: false }
-  if (list.length === 0) return empty
-
-  const ats = list.map((t) => t.at)
-  const minAt = Math.min(...ats)
-  const maxAt = Math.max(...ats)
-  const span = maxAt > minAt ? maxAt - minAt : 30000 // degenerate single-instant window: widen so bucketing doesn't divide by zero
-
-  const reqCounts = new Array(PULSE_BUCKETS).fill(0)
-  const errCounts = new Array(PULSE_BUCKETS).fill(0)
-  const latSums = new Array(PULSE_BUCKETS).fill(0)
-  const latCounts = new Array(PULSE_BUCKETS).fill(0)
-  for (const t of list) {
-    const idx = Math.min(PULSE_BUCKETS - 1, Math.max(0, Math.floor(((t.at - minAt) / span) * PULSE_BUCKETS)))
-    reqCounts[idx] += 1
-    if (!t.ok) errCounts[idx] += 1
-    latSums[idx] += t.replyMs
-    latCounts[idx] += 1
-  }
-
-  const reqMax = Math.max(1, ...reqCounts)
-  const errMax = Math.max(1, ...errCounts)
-  const reqBars = reqCounts.map((v, i) => ({ h: v > 0 ? Math.max(3, (v / reqMax) * 34) : 1, now: i === PULSE_BUCKETS - 1 }))
-  const errBars = errCounts.map((v, i) => ({ h: v > 0 ? Math.max(3, (v / errMax) * 34) : 1, now: i === PULSE_BUCKETS - 1, empty: v === 0 }))
-
-  const latPointsRaw = []
-  for (let i = 0; i < PULSE_BUCKETS; i += 1) {
-    if (latCounts[i] > 0) latPointsRaw.push([i, latSums[i] / latCounts[i]])
-  }
-  let latPoints = ''
-  let latArea = ''
-  if (latPointsRaw.length > 0) {
-    const vals = latPointsRaw.map(([, v]) => v)
-    const latMin = Math.min(...vals)
-    const latMax = Math.max(...vals)
-    const xy = latPointsRaw.map(([i, v]) => {
-      const x = (i / (PULSE_BUCKETS - 1)) * 200
-      const y = latMax > latMin ? 32 - ((v - latMin) / (latMax - latMin)) * 30 : 17
-      return `${x},${y}`
-    })
-    latPoints = xy.join(' ')
-    latArea = `0,34 ${xy.join(' ')} 200,34`
-  }
-
-  const total = list.length
-  const errCount = list.filter((t) => !t.ok).length
-  return {
-    total,
-    errCount,
-    errPct: `${((errCount / total) * 100).toFixed(1)}%`,
-    avgLatency: Math.round(list.reduce((sum, t) => sum + t.replyMs, 0) / total),
-    currentLatency: Math.round(list[0].replyMs), // displayedSummaries is sorted newest-first
-    reqBars,
-    errBars,
-    latPoints,
-    latArea,
-    hasLat: latPointsRaw.length > 0,
-  }
-})
-
 // ── Selection ──────────────────────────────────────────────────────────────
 const selectedTraceId = ref(null)
 const selectedSpanId = ref(null)
@@ -623,77 +563,6 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
       >
         {{ paused ? '▶ resume' : '⏸ pause' }}
       </button>
-    </div>
-
-    <div
-      v-if="displayedSummaries.length > 0"
-      class="pulse-strip"
-    >
-      <div class="pulse-card">
-        <div class="pulse-head">
-          <span class="pulse-label">requests</span>
-          <span class="pulse-window">last {{ pulse.total }} trace{{ pulse.total === 1 ? '' : 's' }}</span>
-        </div>
-        <div class="pulse-value-row">
-          <span class="pulse-value accent">{{ pulse.total }}</span>
-        </div>
-        <div class="pulse-chart">
-          <div
-            v-for="(b, i) in pulse.reqBars"
-            :key="i"
-            class="pulse-bar"
-            :class="{ now: b.now }"
-            :style="{ height: b.h + 'px' }"
-          />
-        </div>
-      </div>
-
-      <div class="pulse-card">
-        <div class="pulse-head">
-          <span class="pulse-label">errors</span>
-          <span class="pulse-window">{{ pulse.errPct }} of window</span>
-        </div>
-        <div class="pulse-value-row">
-          <span class="pulse-value err">{{ pulse.errCount }}</span>
-        </div>
-        <div class="pulse-chart">
-          <div
-            v-for="(b, i) in pulse.errBars"
-            :key="i"
-            class="pulse-bar err"
-            :class="{ now: b.now, empty: b.empty }"
-            :style="{ height: b.h + 'px' }"
-          />
-        </div>
-      </div>
-
-      <div class="pulse-card">
-        <div class="pulse-head">
-          <span class="pulse-label">avg latency</span>
-          <span class="pulse-window">{{ pulse.currentLatency }}ms now</span>
-        </div>
-        <div class="pulse-value-row">
-          <span class="pulse-value accent">{{ pulse.avgLatency }}</span>
-          <span class="pulse-unit">ms avg</span>
-        </div>
-        <div class="pulse-line-wrap">
-          <svg
-            viewBox="0 0 200 34"
-            preserveAspectRatio="none"
-          >
-            <template v-if="pulse.hasLat">
-              <polygon
-                :points="pulse.latArea"
-                class="pulse-area"
-              />
-              <polyline
-                :points="pulse.latPoints"
-                class="pulse-line"
-              />
-            </template>
-          </svg>
-        </div>
-      </div>
     </div>
 
     <div
@@ -1232,108 +1101,6 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
 .kind-group button.on[data-k='all'] {
   background: rgba(255, 255, 255, 0.06);
   color: var(--p-text-color);
-}
-
-/* ── pulse strip (Phase 28p) — request/error/latency histograms over the
-   currently displayed (filtered) trace window; sits directly under the
-   toolbar so toggling errors/slow/rest-nats up there reshapes this strip
-   and the trace list together, same data, two views. All colors reuse
-   existing tokens — accent for neutral volume/latency, the same err red
-   already used by .tw-dot.err/.chip.err, no new palette. */
-.pulse-strip {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1px;
-  background: var(--lab-panel-border);
-  border-bottom: 1px solid var(--lab-panel-border);
-  flex: none;
-}
-.pulse-card {
-  background: var(--lab-panel-bg);
-  padding: 10px 12px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.pulse-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-}
-.pulse-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--p-text-disabled-color);
-}
-.pulse-window {
-  font-size: 10px;
-  color: var(--p-text-disabled-color);
-}
-.pulse-value-row {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-.pulse-value {
-  font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1;
-}
-.pulse-value.accent {
-  color: var(--lab-accent);
-}
-.pulse-value.err {
-  color: #e5484d;
-}
-.pulse-unit {
-  font-size: 11px;
-  color: var(--p-text-muted-color);
-}
-.pulse-chart {
-  height: 34px;
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-}
-.pulse-bar {
-  flex: 1;
-  border-radius: 1.5px 1.5px 0 0;
-  background: var(--lab-accent);
-  opacity: 0.85;
-  min-height: 2px;
-}
-.pulse-bar.err {
-  background: #e5484d;
-}
-.pulse-bar.err.empty {
-  opacity: 0.18;
-}
-.pulse-bar.now {
-  opacity: 1;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
-}
-.pulse-line-wrap {
-  height: 34px;
-}
-.pulse-line-wrap svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-.pulse-area {
-  fill: var(--lab-accent);
-  opacity: 0.12;
-}
-.pulse-line {
-  fill: none;
-  stroke: var(--lab-accent);
-  stroke-width: 1.5;
-  stroke-linejoin: round;
-  stroke-linecap: round;
 }
 
 /* ── split body: trace rail | waterfall ── */

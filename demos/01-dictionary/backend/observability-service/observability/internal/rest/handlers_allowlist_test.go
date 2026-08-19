@@ -25,6 +25,7 @@ func TestMountRoutesMatchAdminAllowlist(t *testing.T) {
 		"GET /healthz",
 		"GET /api/nats/connections",
 		"GET /api/nats/account-activity",
+		"GET /api/nats/account-activity/history",
 		"GET /api/nats/log",
 		"GET /api/kv/buckets",
 		"GET /api/kv/buckets/{account}/{bucket}/entries",

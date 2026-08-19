@@ -8,6 +8,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -53,6 +54,13 @@ func Startup(ctx context.Context, nc *nats.Conn, log *slog.Logger, cfg Config) (
 	if err != nil {
 		return nil, err
 	}
+	// BR-043 — the Overview tab's trend charts need real history, not just
+	// /accstatz's live snapshot. Tied to ctx like traceStore's consumer:
+	// Run exits on its own once the process's shutdown signal cancels ctx,
+	// so there's nothing separate for Handlers.Stop to drain here.
+	history := rest.NewAccstatzHistory(cfg.NatsMonitorURL, log)
+	go history.Run(ctx, 10*time.Second)
+
 	return &Handlers{
 		rest: rest.New(rest.Deps{
 			NC:             nc,
@@ -64,6 +72,7 @@ func Startup(ctx context.Context, nc *nats.Conn, log *slog.Logger, cfg Config) (
 				AuthSecret: cfg.AccountsAuthSecret,
 				Log:        log,
 			},
+			History: history,
 		}),
 		traceStore: traceStore,
 	}, nil

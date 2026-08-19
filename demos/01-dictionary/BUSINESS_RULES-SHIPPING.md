@@ -389,9 +389,9 @@ Both are fixed at the source rather than per-panel: `watching` is now `natsConne
 
 ---
 
-### BR-034 (Phase 27) — The Admin UI's Account Activity panel shows per-account NATS traffic, and renders slow_consumers as a silent-until-nonzero alarm rather than a routine stat
+### BR-034 (Phase 27) — The Admin UI's Account Activity view shows per-account NATS traffic, and renders slow_consumers as a silent-until-nonzero alarm rather than a routine stat
 
-**A presentation rule, scoped to the Admin UI only** — it governs what the new Account Activity panel *displays*, proxying the NATS server's own `/accstatz` monitoring endpoint (`GET /api/nats/account-activity`), same family as Connections' `/connz`/`/varz` and Services' `$SRV.STATS` (BR-028). `/accstatz` reports, per account: connection/subscription counts, sent/received message and byte volume, and `slow_consumers` — a count of subscriptions the server is currently dropping messages to because the client isn't draining fast enough. Every field except the last is routine traffic; `slow_consumers` is the one number an operator has to act on.
+**A presentation rule, scoped to the Admin UI only** — it governs what the Account Activity view *displays*, proxying the NATS server's own `/accstatz` monitoring endpoint (`GET /api/nats/account-activity`), same family as Connections' `/connz`/`/varz` and Services' `$SRV.STATS` (BR-028). `/accstatz` reports, per account: connection/subscription counts, sent/received message and byte volume, and `slow_consumers` — a count of subscriptions the server is currently dropping messages to because the client isn't draining fast enough. Every field except the last is routine traffic; `slow_consumers` is the one number an operator has to act on.
 
 The rule: at `slow_consumers: 0` (every account, all day, on a healthy stack) the row says nothing about it at all — no permanent "0 slow" tile competing with real numbers, matching the "facts that only matter in an exceptional state get rendered only in that state" precedent `ConnectionsPanel`'s paged-note already established (`admin_stat_card_one_ratio_rule.md`). The moment an account's `slow_consumers` is nonzero: its status dot turns from green to red, its card border tints red, its "subs" stat is replaced by a red "slow" stat, and expanding the card opens on a named alarm line ("N slow consumers on this account right now…") instead of a bare column. A summary-row banner above the card list appears under the same condition, naming the total slow-consumer count and how many accounts are affected — also absent while every account is healthy.
 
@@ -399,8 +399,10 @@ Account labeling reuses BR-028's mechanism (as amended by Phase 30h): `/accstatz
 
 > **Phase 30h amendment — moved to `observability-service` alongside Connections/Services, same mechanism change as BR-028.**
 
-- **Enforced in:** `observability-service/observability/internal/rest/nats_connections.go`'s `listNatsAccountActivity`; `frontend/admin/src/components/AccountActivityPanel.vue`
-- **Test:** `TestListNatsAccountActivityReshapesAndSortsAccstatz`, `TestListNatsAccountActivityResolvesTenantLabel`, `TestListNatsAccountActivitySurvivesAccountsServiceFailure`, `TestListNatsAccountActivityReturns502WhenMonitoringEndpointUnreachable`, `TestListNatsAccountActivityReturns502OnMalformedBody` (`observability-service/observability/internal/rest/nats_connections_test.go`) — reshaping/sorting, tenant-label resolution off the accounts-service read, and that a failed label probe doesn't cost the activity rollup. `AccountActivityPanel.spec.js` (`frontend/admin/src/components/`) — the silent-at-zero / alarm-at-nonzero contrast: no banner/crit-styling/slow-stat while healthy, and all four (banner, red dot, tinted card, slow stat, alarm line) present the moment `slowConsumers > 0`.
+> **Phase 45 amendment — panel retired as a standalone SYSTEM · NATS nav item; its content is now Accounts' `Overview` tab** (`AccountsOverviewPanel.vue`, superseding the deleted `AccountActivityPanel.vue`). The slow-consumers-as-alarm rule above is unchanged; only its location moved, alongside `Accounts` itself moving PLATFORM → SYSTEM (see `ARCHITECTURE-ADMIN.md`'s Accounts section). The expand-to-detail interaction changed too — see BR-043, which replaces the flat number grid this rule originally described with trend charts.
+
+- **Enforced in:** `observability-service/observability/internal/rest/nats_connections.go`'s `listNatsAccountActivity`; `frontend/admin/src/components/AccountsOverviewPanel.vue`
+- **Test:** `TestListNatsAccountActivityReshapesAndSortsAccstatz`, `TestListNatsAccountActivityResolvesTenantLabel`, `TestListNatsAccountActivitySurvivesAccountsServiceFailure`, `TestListNatsAccountActivityReturns502WhenMonitoringEndpointUnreachable`, `TestListNatsAccountActivityReturns502OnMalformedBody` (`observability-service/observability/internal/rest/nats_connections_test.go`) — reshaping/sorting, tenant-label resolution off the accounts-service read, and that a failed label probe doesn't cost the activity rollup. `AccountsOverviewPanel.spec.js` (`frontend/admin/src/components/`) — the silent-at-zero / alarm-at-nonzero contrast: no banner/crit-styling/slow-stat while healthy, and all four (banner, red dot, tinted card, slow stat, alarm line) present the moment `slowConsumers > 0`.
 
 ### BR-035 (Phase 28) — The Request/Reply & Traces panel renders one row per trace, separates the synchronous reply from the eventual read-model tail, and marks account-boundary crossings
 
@@ -499,6 +501,50 @@ Every `obs.trace.{context}.{service}.{entity}.{action}` publish happens on the *
 >
 > - **Enforced in (Phase 28q):** `frontend/admin/src/components/TraceWaterfall.vue` — `.kind-tag.rest`'s color/background/border-left; `frontend/admin/src/components/RpcPanel.vue` — the `<KeepAlive>` wrapping `<TraceWaterfall v-if="ui.rpcTab === 'traces'">`.
 > - **Test (Phase 28q):** `RpcPanel.spec.js`'s "keeps TraceWaterfall mounted across a Messages round-trip instead of re-fetching" spec — mounts with the default `traces` tab active, records the `getKvBucketEntries` call count after initial mount, toggles `rpcTab` to `messages` and back to `traces`, and asserts the call count is unchanged. Verified live against the docker stack (rebuilt `admin-frontend`): `read_network_requests` showed no additional `trace-request-reply/entries` fetch across four Traces↔Messages toggles, and the live trace count/pulse strip kept updating uninterrupted throughout.
+>
+> **Phase 44 amendment (UI) — the pulse strip moved off this panel entirely,
+> onto its own `Pulse` tab in front of `[Traces] [Messages]`, and stopped
+> reading `displayedSummaries`.** Design review found the panel explained
+> neither the `_INBOX.<nuid>` reply-routing mechanism nor `parentSpanId`/
+> `spanId` (the mechanism that actually chains a multi-hop call into the
+> tree `Traces`' waterfall reconstructs), so the new tab pairs that
+> explanation and an animated Client → NATS Server → Service diagram with
+> the pulse cards, enlarged. The cards' own bucketing logic (Phase 28p) is
+> unchanged; what changed is the input: `PulsePanel.vue` keeps its own
+> bootstrap/subscribe/trace-grouping (duplicated from `TraceWaterfall.vue`
+> rather than shared, matching this panel's existing precedent — see the
+> component's own doc comment) and buckets the *full* unfiltered
+> `traceSummaries`, not `TraceWaterfall`'s toolbar-filtered
+> `displayedSummaries` — once `Pulse` is a separate tab it is no longer
+> co-rendered with that toolbar, and sharing its filter state would mean
+> either duplicating the toolbar on `Pulse` too or having it silently
+> reflect filters set on a tab you're not looking at. `ui.rpcTab`'s default
+> also changed from `'traces'` to `'pulse'`, since `Pulse` is now first in
+> the tab bar and carries the panel's explanatory content. A mockup
+> (`diagrams/admin-rpc-overview-mockup.html`, published as an Artifact) was
+> reviewed with the user before implementation (Main-POC-Plan.md Phase 44).
+>
+> - **Enforced in (Phase 44):** `frontend/admin/src/components/PulsePanel.vue`
+>   (new) — bootstrap/`connectLive`/`disconnectLive`, `summarize`/
+>   `traceSummaries`, the `pulse` computed, the "what request/reply covers"
+>   card, the animated flow diagram, and the `.pulse-row`/`.pulse-card`
+>   template block and CSS (all removed from `TraceWaterfall.vue`);
+>   `frontend/admin/src/components/RpcPanel.vue` — the new `pulse` `Tab`/
+>   `TabPanel`, `<KeepAlive>`-wrapped like `traces`; `frontend/admin/src/
+>   stores/ui.js` — `rpcTab`'s default.
+> - **Test (Phase 44):** `PulsePanel.spec.js`'s "summarizes the full
+>   unfiltered trace set into request/error/latency histograms" spec — the
+>   same three-fixture-trace assertions the retired `TraceWaterfall.spec.js`
+>   Phase 28p spec pinned (values unchanged, since the bucketing math itself
+>   didn't change), minus the toolbar-narrowing assertions `Pulse` has no
+>   toolbar to exercise; a second spec asserts the explanatory card and flow
+>   diagram render even with zero traces bootstrapped, while the stat row
+>   hides entirely (same zero-state rule the strip it replaced followed).
+>   `RpcPanel.spec.js`'s Phase 28q spec extended to cover both `Pulse` and
+>   `Traces` being kept alive across tab round-trips. Verified live against
+>   the docker stack (rebuilt `admin-frontend`): `Pulse` renders as the
+>   default landing tab with real bucketed histograms from the live trace
+>   buffer, and `Traces`/`Messages` are unaffected.
 
 ### BR-037 (Phase 28) — Trace context propagates on every outbound NATS message, one span per logical RPC call, never one per retry attempt
 
@@ -521,21 +567,21 @@ A NATS KV entry **cannot** carry trace context — `jetstream.KeyValue.Put` take
 
 `api.*.shipping.ship.list.v1` — Sea Freight Flow's bootstrap and reconnect query — resolves against the canonical Postgres ship projection. The KV bucket is a **per-entity** write-through cache, keyed `{context}.ship.{shipID}`, and is never enumerated to build a list: a `WatchAll`/key-scan list read would return whatever subset of ships happens to be cached, which is a correctness problem disguised as a performance choice, since a cache miss is legal at any time and a partial fleet is indistinguishable from a small fleet.
 
-This is the rule that survives Shape A's retirement rather than a new design. Before Phase 31 this query read the `dict-a` bucket directly, which was legitimate *because Shape A's whole premise was that KV is the read model* — every ship was guaranteed present. With Shape B as the only shape that guarantee is gone, so the list must come from the projection that does have it. The cost is explicit and accepted: the fleet bootstrap is now a Postgres round-trip rather than a KV read, in exchange for a list that is always complete. Single-entity reads (`/api/admin/read-path/ships/{context}/{shipID}`, renamed from `/api/shape-b/*` in Phase 33 — BR-039) keep the KV-cache-then-Postgres-fallthrough path unchanged — that is Shape B's actual pattern, and it is unaffected by this rule.
+This is the rule that survives Shape A's retirement rather than a new design. Before Phase 31 this query read the `dict-a` bucket directly, which was legitimate *because Shape A's whole premise was that KV is the read model* — every ship was guaranteed present. With Shape B as the only shape that guarantee is gone, so the list must come from the projection that does have it. The cost is explicit and accepted: the fleet bootstrap is now a Postgres round-trip rather than a KV read, in exchange for a list that is always complete. Single-entity reads (`queries.Ships.GetShip`) keep the KV-cache-then-Postgres-fallthrough path unchanged — that is Shape B's actual pattern, and it is unaffected by this rule. (The admin REST route that once exposed this single-entity path directly, `/api/admin/read-path/ships/{context}/{shipID}`, was retired along with the CQRS Shapes admin panel it existed for — the fallthrough behavior itself is still covered directly at the query layer by `integration_test.go`.)
 
 - **Enforced in:** `queries.Ships.ListShips` (Postgres-backed), reached from `dictionary/internal/browserrpc/adapter.go`'s `handleShipList`
 - **Test:** `dictionary/browserrpc_test.go` — asserts `api.*.shipping.ship.list.v1` returns ships that exist in the Postgres projection but are absent from KV (an evicted or never-cached entry must still appear in the list)
 
 ---
 
-### BR-039 (Phase 33) — Business operations for this service are reachable only over `api.*`/`rpc.*`, never REST; REST is limited to infra health and admin/read-path diagnostics
+### BR-039 (Phase 33) — Business operations for this service are reachable only over `api.*`/`rpc.*`, never REST; REST is limited to infra health and admin diagnostics
 
 REST's business surface (`/api/ships/*`, `/api/containers/*`, `/api/terminal/*`, `/api/manifest/*`, `/api/ports/*`, `/api/meta/*`) has been deleted outright, not deprecated. Every one of those routes already had (or, for the ship manifest, was given) an `api.*.shipping.*` equivalent — Sea Freight Flow (`frontend/seafreight-app`) already ran entirely over `api.*` before this phase, so nothing lost transport reach; REST was simply a second, now-redundant business surface. `GET /api/manifest/{context}/{shipID}` was the one gap: `api.*.shipping.container.manifest.v1` closes it, following the existing `{context}`-from-subject convention (`contextFromSubject`) and carrying `shipID` in the request body since the subject scheme has no second wildcard segment.
 
-What remains under `/api/*` is infra (`/healthz`) and admin/operator concerns: the raw Postgres ports table (`/api/admin/ports/{context}`), the read-path diagnostics panel (`/api/admin/read-path/*`, renamed from `/api/shape-b/*` — same KV-cache-then-Postgres-fallthrough behavior, reclassified rather than moved because it was never a business route, just misnamed), and tenant discovery/switch (`/api/tenant`, `/api/tenant/switch`). This is a transport-contract rule, not a behavior change to any domain rule above: no application-layer method was touched, only which transport(s) can reach it.
+What remains under `/api/*` is infra (`/healthz`) and admin/operator concerns: the raw Postgres ports table (`/api/admin/ports/{context}`) and tenant discovery/switch (`/api/tenant`, `/api/tenant/switch`). This is a transport-contract rule, not a behavior change to any domain rule above: no application-layer method was touched, only which transport(s) can reach it. (Phase 33 also renamed the admin read-path diagnostics route from `/api/shape-b/*` to `/api/admin/read-path/*` on this same reclassification-not-business-route reasoning; that route was later retired outright along with the CQRS Shapes admin panel it existed for, so it no longer appears here.)
 
-- **Enforced in:** `dictionary/internal/rest/handlers.go`'s `Mount` (business routes removed entirely; `/api/shape-b/*` renamed to `/api/admin/read-path/*`); `dictionary/internal/browserrpc/adapter.go`'s `handleContainerManifest`/`ContainerManifestSubject` (the new `api.*.shipping.container.manifest.v1` endpoint)
-- **Test:** `dictionary/browserrpc_test.go` — "Phase 33.2: container.manifest.v1 exposes the ship manifest join over api.* (BR-039)" asserts the new endpoint matches `Terminal.ListByShip` called directly; `dictionary/api_test.go` — rewritten to cover only the surviving infra/admin routes (health, admin ports table, admin read-path), with setup going through the application layer directly since REST no longer exposes any way to create a ship
+- **Enforced in:** `dictionary/internal/rest/handlers.go`'s `Mount` (business routes removed entirely); `dictionary/internal/browserrpc/adapter.go`'s `handleContainerManifest`/`ContainerManifestSubject` (the new `api.*.shipping.container.manifest.v1` endpoint)
+- **Test:** `dictionary/browserrpc_test.go` — "Phase 33.2: container.manifest.v1 exposes the ship manifest join over api.* (BR-039)" asserts the new endpoint matches `Terminal.ListByShip` called directly; `dictionary/api_test.go` — covers the surviving infra/admin routes (health, admin ports table), with setup going through the application layer directly since REST no longer exposes any way to create a ship
 
 ---
 
@@ -563,10 +609,8 @@ The allowlist is data, not prose, checked into each test file. Current
 allowlists (post–Phase 33, one per service):
 
 - **shipping-service** (`dictionary/internal/rest/handlers.go`): `GET
-  /api/admin/ports/{context}`, `GET
-  /api/admin/read-path/ships/{context}/{shipID}`, `DELETE
-  /api/admin/read-path/cache/{context}/{shipID}`, `GET /api/tenant`, `POST
-  /api/tenant/switch`, `GET /healthz`, `/swagger/`.
+  /api/admin/ports/{context}`, `GET /api/tenant`, `POST /api/tenant/switch`,
+  `GET /healthz`, `/swagger/`.
 - **refdata-service** (`refdata/internal/rest/handlers.go`): the 23
   `/api/refdata/admin/*` routes (BR-D43's permanent exemption) plus
   `/swagger/`. No `GET /healthz` is registered on this service today — a
@@ -634,6 +678,107 @@ change to its wire contract's redaction/truncation ordering.
   produces a `traceSpan.Requester` equal to that header's value, and a span
   with no such header produces an empty `Requester` (never a placeholder
   that could be mistaken for a real identity).
+
+### BR-042 (Phase 36, revised post-spike 2026-08-18) — "Trace this subject" targets only the existing `tenantImports()` cross-account contract, fired by the service that owns the connection, defaults to dry-run, and merges as a distinct `kind: "hop"` span alongside BR-036's application spans
+
+A live spike against the compose stack (see Phase 36's "Spike findings" in
+`Main-POC-Plan.md`) found the original design unbuildable as first proposed:
+`observability-service` cannot publish to any business subject (its NATS
+user has no such grant, confirmed by a live permissions-violation test), and
+most business subjects never cross an account boundary at all — each
+tenant-aware service holds one direct connection per tenant
+(`natstenants.Manager`), so there is nothing for an account-crossing probe
+to observe. The one real, currently-provisioned crossing is
+`accounts-service`'s `tenantImports()`/`tenantExports()` contract
+(`provisioner.go:207-246`): every tenant imports 4 `refdata-service` RPCs
+(`refdata.item.get.v1`, `refdata.type.list.v1`,
+`refdata.item.get-versioned.v1`, `refdata.locales.list.v1`, forwarding to
+`rpc.{tenant}.refdata.*` in PLATFORM) plus 2 stream imports
+(`evt.*.refdata.*.changed`, `notify.accounts.account.*`). This rule targets
+*that* contract specifically, not an arbitrary typed subject.
+
+- **The probe target is an enumerated list — the `tenantImports()` contract
+  entries — never a free-typed subject.** This is the only crossing this
+  system has; a free-text field would only ever mislead an operator into
+  thinking any subject was probeable this way.
+- **The service that owns the real connection fires its own probe.**
+  `shipping-service` and `trading-partner-service` already hold the only
+  connections with legitimate publish rights on this crossing (their own
+  per-tenant connections, used for their own real `refdataconsumer`/
+  `refdataclient` calls). Each exposes a small internal diagnostic hook
+  that fires one of its own already-defined outbound calls with
+  `Nats-Trace-Dest: obs.trace.hop.{traceId}` and `Nats-Trace-Only: true` by
+  default, using the connection it already holds — **no new NATS
+  permission grant is added anywhere, for any account.** `MintAdminToken`
+  denies all publish (`Pub.Deny.Add(">")`) and a PLATFORM-only connection
+  cannot resolve a tenant-local import alias by name at any permission
+  level, which is why this can't be `observability-service`'s own publish
+  as originally designed.
+- **`observability-service` keeps the REST entry point and the
+  storage/rendering role.** The browser calls `POST /api/nats/trace`
+  (extends BR-040's `observability-service` allowlist, same
+  system-topology-diagnostics carve-out as `/api/jetstream/replay`, `POST`
+  not `GET` since firing a probe has a real wire effect).
+  `observability-service` forwards to the owning service's diagnostic hook
+  over an internal PLATFORM→PLATFORM call (no crossing, no new grant on
+  this leg either), then normalizes the reply into `kind: "hop"` spans.
+- **`Nats-Trace-Only: true` is the default and cannot be overridden to
+  `false` by the browser.** Matches `nats trace`'s own default — the
+  message is routed (so the real `si`/`se` hop is reported) but never
+  delivered to a live subscriber, so firing a probe never produces a real
+  side effect. Turning this off is out of scope — see Phase 107.
+- **A hop event is a `kind: "hop"` span, additive to BR-036's `traceSpan`
+  shape, not a new envelope.** Merges into the same spans array
+  `tracestore.appendSpan` already builds, using only the fields that make
+  sense for a hop (`Subject`, `Timestamp`, a new `HopType` value of
+  `in`/`eg`/`sm`/`se`/`si`/`js`, `Error`) — `Duration`, `Requester`, and
+  payload fields stay empty. Every probe mints its own synthetic `traceId`.
+- **Confirmed live: destination-interest reporting is unreliable past a
+  Service Import and must never be rendered as a failure signal.** Isolated
+  by varying subscriber shape one variable at a time — a plain literal
+  (non-wildcard, non-queue) subscriber still shows `No active interest`
+  through the crossing, while the identical literal subject traced
+  same-account (no crossing) correctly reports the real client and an
+  egress count. This is a systematic NATS 2.14.3 tracing gap, not a
+  configuration mistake and not fixable in this repo's code. Any hop past
+  an account boundary renders with a hedged, non-failure treatment and a
+  tooltip explaining interest isn't reliably reported there — the UI must
+  never assert "dropped" based on this signal.
+- **The route joins BR-040's allowlist mechanism, not a special case.**
+  `POST /api/nats/trace` is added to `observability-service`'s hardcoded
+  allowlist and its `ConsistOf` test, same as every other route on that
+  service.
+
+- **Enforced in:** `shipping-service`'s admin surface (new diagnostic hook
+  reusing `refdataconsumer`'s existing connection),
+  `observability-service/observability/internal/rest/` (new `nats_trace.go`
+  handler + `Mount` allowlist entry, forwarding logic),
+  `observability-service/observability/internal/tracestore/tracestore.go`
+  (`appendSpan` accepts the new `kind: "hop"` shape).
+- **Test:** an allowlist test asserting `POST /api/nats/trace` is present
+  (BR-040's mirror for this service); a `tracestore_test.go` case that a
+  `kind: "hop"` span merges into an existing/new `traceRecord` without
+  requiring the application-span fields; an integration test firing a
+  probe through `shipping-service`'s diagnostic hook and asserting the
+  returned hop tree includes the `si` (service import) hop; a frontend spec
+  asserting a hop past an account boundary never renders with failure
+  styling regardless of the interest signal it carries.
+
+### BR-043 (Phase 45) — `/accstatz` history is retained in a 60-minute ring buffer sampled every 10s, and a duration query param selects a correctly delta'd, bucketed trend series
+
+**`/accstatz` (BR-034's data source) is a stateless snapshot — it has no memory of its own.** The Overview tab's trend charts and duration selector need real history, so `observability-service` polls `/accstatz` every 10s (the same interval the Admin UI's own poll already used) and appends each sample into an in-memory ring buffer, trimming anything older than 60 minutes on every append. Not persisted to Postgres or NATS KV — deliberately transient telemetry, not source-of-truth data, the same distinction this repo already draws for what does vs. doesn't get event-sourced (`ARCHITECTURE.md` § "Event Sourcing vs Plain CRUD"). The buffer starts empty at process boot and fills in real time; a freshly-restarted service legitimately has less than 60 minutes of history until it's been up that long — there is no synthetic backfill.
+
+`GET /api/nats/account-activity/history?duration=5m|30m|1h` queries the buffer. Any other value (missing, malformed, out of range) is a 400, not a silently-empty 200. Bucket size scales with the window so a short window doesn't collapse to one or two fat bars: 30s buckets at 5m, 2min at 30m, 5min at 1h. Each bucket reports `connections`/`subscriptions` as point samples (the value as of that bucket's end) and `inBytesDelta`/`outBytesDelta`/`inMsgsDelta`/`outMsgsDelta` as **deltas against the previous bucket** — `/accstatz`'s own sent/received counters are cumulative since server start, not per-interval, so charting the raw values would draw an ever-climbing line instead of a throughput bar. The response carries one series per account seen anywhere in the buffer (not just within the requested window), so an account doesn't disappear from the response the moment it's briefly quiet — it just reports zeroed buckets for that stretch.
+
+- **Enforced in:** `observability-service/observability/internal/rest/account_activity_history.go` (`accountHistoryBuffer`, `AccstatzHistory`, `bucketSeries`); wired into `composition.go`'s `Startup` (background poller tied to the process's own shutdown context) and `nats_connections.go`'s `accountActivityHistory` handler.
+- **Test:** `TestBucketSeriesProducesCorrectBucketCountAndSizePerDuration`, `TestBucketSeriesComputesDeltasNotRawCumulativeCounters`, `TestAccountHistoryBufferEvictsSamplesOlderThanRetention`, `TestAccountHistoryBufferRetainsSamplesWithinWindow`, `TestAccstatzHistoryQueryRejectsInvalidDuration`, `TestAccstatzHistoryQueryIsNilSafe` (`account_activity_history_test.go`) — bucket count/size per duration, delta-not-raw byte counts, eviction past 60 minutes, and the nil-safe degrade. `TestAccountActivityHistoryReturns400ForInvalidDuration`, `TestAccountActivityHistoryReturnsBucketedSeries` (`nats_connections_test.go`) — the handler's 400 and its wiring to a real (empty, freshly-booted) buffer.
+
+### BR-044 (Phase 45) — The Overview tab's account list gets a name filter, shown only once there are more than 3 accounts
+
+**A pure presentation rule, frontend-only — no backend involvement.** Below 4 accounts the list is short enough to just read, and a search box above 2-3 rows is a control with nothing to do; the box is omitted entirely rather than shown-but-useless. Once there are more than 3 accounts, a text input filters the card list by name (resolved `tenantLabel`, falling back to the raw account identifier per BR-028's convention) — case-insensitive substring match, applied client-side against the already-fetched account list. A count line reads "N accounts" with no query, "M of N accounts" while filtered. A query that matches nothing shows a named empty state ("No accounts match "…".") instead of a blank list, matching this repo's "errors/emptiness are moments for direction, not silence" interface-voice convention. The query clears itself if the account count ever drops back to 3 or fewer (the box disappearing with a stale query still applied would leave the newly-visible short list looking emptier than it is).
+
+- **Enforced in:** `frontend/admin/src/components/AccountsOverviewPanel.vue` (`showSearch`, `filteredAccounts`, the `watch(showSearch, ...)` clear-on-hide guard).
+- **Test:** `AccountsOverviewPanel.spec.js` — search box hidden at ≤3 accounts, shown and filtering at 4, the named empty state on a non-matching query, and the "N of M" vs "N" count text.
 
 ---
 

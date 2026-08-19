@@ -1,0 +1,389 @@
+<!--
+  For review — bolder alternative to accounts-overview-pulse-mockup.html's
+  "round 2" (collapsed rows, click one open to see its trend charts). This
+  file tries the other direction floated in that review: no expand/collapse
+  at all. Every account's trend charts stay permanently visible, so there's
+  nothing to click and nothing to miss by not clicking.
+
+  What actually changes structurally, not just cosmetically:
+    - The 4 fleet "hero" cards (Accounts/Connections/Subscriptions/Msgs)
+      shrink to a single plain-text orientation line. The interesting
+      signal moves down to the account level and stays there permanently,
+      so a big dedicated fleet-level chart row would just be repeating
+      what the account cards already show, all the time.
+    - Each account card is always in its "expanded" state — identity row,
+      then its two trend charts, then an alarm line if it has one right
+      now. Accounts with an active issue sort first.
+
+  Explicit trade-off, not glossed over: this breaks from the collapsed-
+  card convention this app uses everywhere else a list of live entities
+  shows up (ServicesPanel's `.svc-card`, ConnectionsPanel, and round 1/2's
+  own Account Activity) — all default closed, click to inspect one.  This
+  version is deliberately inconsistent with that in exchange for zero
+  clicks. It also doesn't scale past a handful of accounts before the page
+  gets long — fine for this lab's 3, would need re-thinking (pagination,
+  or reverting to collapsed-by-default) at real fleet size. Flagging both
+  rather than deciding them here.
+-->
+<title>Accounts — Overview (fleet pulse alternative)</title>
+<style>
+:root {
+  --lab-bg: #131416;
+  --lab-panel-bg: #131416;
+  --lab-panel-border: #2c3138;
+  --lab-accent: #006fff;
+  --lab-nav-active-bg: #1c1d1f;
+  --lab-nested-bg: #171c29;
+  --p-text-color: #dee0e3;
+  --p-text-muted-color: #b7bcc2;
+  --p-text-disabled-color: #737c87;
+  --ok: #2fbf71;
+  --err: #e5484d;
+  --warn: #d9a514;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { background: var(--lab-bg); margin: 0; padding: 24px; display: flex; justify-content: center; }
+.mock {
+  width: 940px; max-width: 100%;
+  background: var(--lab-bg); color: var(--p-text-color);
+  font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased; border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--lab-panel-border); position: relative;
+}
+
+.review-banner { background: rgba(217,165,20,.08); border-bottom: 1px solid var(--lab-panel-border); padding: 8px 14px 10px; }
+.review-banner .headline { color: var(--p-text-color); font-size: 12px; font-weight: 700; }
+.review-banner .headline b { color: var(--warn); }
+.review-banner p.note { margin: 6px 0 0; font-size: 12px; color: var(--p-text-muted-color); }
+.review-banner .open-q { margin: 8px 0 0; padding: 6px 10px; border: 1px dashed rgba(217,165,20,.4); border-radius: 5px; font-size: 11px; color: var(--p-text-muted-color); }
+.review-banner .open-q b { color: var(--warn); }
+
+.topbar { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 14px; background: var(--lab-panel-bg); border-bottom: 1px solid var(--lab-panel-border); }
+.topbar .logo { width: 17px; height: 17px; border-radius: 4px; background: var(--lab-accent); display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; flex: none; }
+.crumb { font-size: 12px; color: var(--p-text-muted-color); }
+.crumb b { color: var(--p-text-color); font-weight: 600; }
+.crumb .sep { margin: 0 5px; color: var(--p-text-disabled-color); }
+.live-dot { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ok); font-weight: 600; }
+.live-dot i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: pulse 2s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+.shell { display: flex; min-height: 600px; }
+.sidebar { width: 194px; flex: none; padding: 10px 8px; background: var(--lab-panel-bg); border-right: 1px solid var(--lab-panel-border); font-size: 13px; }
+.nav-item { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 8px; border-radius: 5px; border-left: 2px solid transparent; color: var(--p-text-muted-color); white-space: nowrap; }
+.nav-item.active { background: var(--lab-nav-active-bg); color: var(--p-text-color); border-left-color: var(--lab-accent); font-weight: 600; }
+.nav-group-toggle { display: flex; align-items: center; gap: 6px; width: 100%; margin: 12px 0 4px; padding: 10px 8px 6px 0; border-top: 1px solid var(--lab-panel-border); color: var(--p-text-color); font-size: 10px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.nav-group-toggle:first-child { margin-top: 2px; border-top: none; }
+.nav-group-toggle .chev { font-size: 9px; color: var(--p-text-disabled-color); }
+.nav-group-body { display: flex; flex-direction: column; gap: 14px; padding-left: 18px; }
+.eyebrow { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--p-text-disabled-color); padding: 4px 8px 2px; }
+.nav-section { display: flex; flex-direction: column; gap: 1px; }
+
+.main { flex: 1; min-width: 0; padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; }
+.panel-head { display: flex; align-items: baseline; gap: 8px; }
+.panel-head h1 { font-size: 16px; margin: 0; font-weight: 600; }
+.panel-head span { font-size: 12px; color: var(--p-text-disabled-color); }
+
+.acc-tabs input.tab-radio { position: absolute; opacity: 0; pointer-events: none; }
+.tabbar { display: flex; gap: 4px; border-bottom: 1px solid var(--lab-panel-border); }
+.tabbar label { font-size: 13px; padding: 7px 4px 9px; color: var(--p-text-muted-color); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; user-select: none; }
+#tab-o:checked ~ .tabbar label[for="tab-o"],
+#tab-p:checked ~ .tabbar label[for="tab-p"],
+#tab-s:checked ~ .tabbar label[for="tab-s"] { color: var(--p-text-color); border-bottom-color: var(--lab-accent); font-weight: 600; }
+.tabpanels { padding-top: 12px; }
+.tabpanel { display: none; }
+#tab-o:checked ~ .tabpanels .p-o,
+#tab-p:checked ~ .tabpanels .p-p,
+#tab-s:checked ~ .tabpanels .p-s { display: block; }
+
+.moved-note { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--p-text-disabled-color); border: 1px dashed var(--lab-panel-border); border-radius: 5px; padding: 6px 10px; margin-bottom: 10px; }
+
+/* ── slim orientation strip — replaces the 4 hero cards ── */
+.fleet-strip { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; font-size: 12px; color: var(--p-text-muted-color); padding: 8px 2px; border-bottom: 1px solid var(--lab-panel-border); margin-bottom: 4px; }
+.fleet-strip b { color: var(--p-text-color); font-variant-numeric: tabular-nums; font-weight: 600; }
+.fleet-strip .sep { color: var(--p-text-disabled-color); }
+.fleet-strip .trend { color: var(--p-text-disabled-color); font-size: 11px; }
+
+/* ── always-open account pulse card ── */
+.acct-scroll { display: flex; flex-direction: column; gap: 10px; }
+.acct-card { background: var(--lab-panel-bg); border: 1px solid var(--lab-panel-border); border-radius: 6px; overflow: hidden; }
+.acct-card.crit { border-color: rgba(229,72,77,.5); }
+.acct-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px 8px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.dot.ok { background: var(--ok); }
+.dot.crit { background: var(--err); box-shadow: 0 0 0 3px rgba(229,72,77,.22); }
+.acct-name { font-weight: 600; font-size: 13px; }
+.acct-tag { font-size: 10px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--p-text-disabled-color); border: 1px solid var(--lab-panel-border); border-radius: 3px; padding: 0 5px; line-height: 15px; }
+.acct-tag.crit { color: var(--err); border-color: rgba(229,72,77,.45); background: rgba(229,72,77,.1); }
+.acct-since { margin-left: auto; font-size: 11px; color: var(--p-text-disabled-color); }
+
+.detail { padding: 4px 14px 14px; }
+.chart-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.15fr); gap: 12px; }
+.chart-card { background: var(--lab-nested-bg); border: 1px solid var(--lab-panel-border); border-radius: 5px; padding: 10px 12px; }
+.chart-card h4 { margin: 0 0 4px; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--p-text-disabled-color); }
+.chart-card svg { display: block; width: 100%; height: auto; }
+.acct-line { fill: none; stroke-width: 1.6; }
+.acct-line.conns { stroke: var(--lab-accent); }
+.acct-line.subs { stroke: var(--p-text-disabled-color); stroke-dasharray: 3 3; }
+.line-dot { r: 2.2px; }
+.line-dot.conns-dot { fill: var(--lab-accent); }
+.line-dot.subs-dot { fill: var(--p-text-disabled-color); }
+.line-val { font: 700 10px 'Inter', sans-serif; fill: var(--p-text-color); }
+.line-val.muted { fill: var(--p-text-disabled-color); font-weight: 600; }
+.window-caption { font-size: 9px; color: var(--p-text-disabled-color); margin: -1px 0 4px; }
+.bar-row { display: flex; align-items: flex-end; gap: 3px; height: 40px; margin-top: 2px; }
+.bar-pair { display: flex; gap: 2px; flex: 1; align-items: flex-end; height: 100%; }
+.bar { flex: 1; border-radius: 1px 1px 0 0; min-height: 2px; }
+.bar.in { background: var(--lab-accent); opacity: .9; }
+.bar.out { background: var(--ok); opacity: .9; }
+.bar-pair.lag { border-left: 1px dashed var(--err); padding-left: 4px; }
+.chart-legend-mini { display: flex; gap: 12px; margin-top: 6px; font-size: 10px; color: var(--p-text-muted-color); }
+.chart-legend-mini .sw { display: inline-block; width: 10px; height: 2px; margin-right: 4px; vertical-align: 1px; }
+.byte-caption { margin: 7px 0 0; font-size: 11px; color: var(--p-text-muted-color); }
+.lag-note { margin: 5px 0 0; font-size: 11px; color: var(--err); }
+.alarm-line { margin: 10px 14px 12px; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--err); background: rgba(229,72,77,.12); border: 1px solid rgba(229,72,77,.35); border-radius: 4px; padding: 6px 10px; }
+.alarm-line b { font-variant-numeric: tabular-nums; }
+</style>
+
+<div class="mock">
+  <div class="review-banner">
+    <div class="headline"><b>For review</b> &mdash; bolder alternative to the round-2 mockup: no expand/collapse, every account's charts stay open.</div>
+    <p class="note">The 4 fleet hero cards shrink to one plain orientation line &mdash; the real signal now lives permanently in each account's own card, so a separate big fleet chart would just repeat it. Accounts with an active issue sort first (globex here).</p>
+    <div class="open-q"><b>Trade-off, not decided here:</b> this drops the collapsed-by-default convention Services/Connections/round-1 Account Activity all use, in exchange for zero clicks. It also gets long fast past a handful of accounts &mdash; fine at 3, would need pagination or a reversion to collapsed rows at real fleet size. Same <code>/accstatz</code>-has-no-history caveat from round 2 still applies.</div>
+  </div>
+
+  <div class="topbar">
+    <span class="logo">A</span>
+    <span class="crumb"><b>SYSTEM</b><span class="sep">&middot;</span><b>Accounts</b><span class="sep">&middot;</span>Overview</span>
+    <span class="live-dot"><i></i>watching</span>
+  </div>
+
+  <div class="shell">
+    <nav class="sidebar">
+      <div class="nav-section"><div class="nav-item">Overview</div></div>
+      <div class="nav-group-toggle"><span class="chev">▾</span>Platform</div>
+      <div class="nav-group-body">
+        <div class="eyebrow">Trading partners</div>
+        <div class="nav-section" style="margin-top:-10px">
+          <div class="nav-item">Shippers</div>
+          <div class="nav-item">Transporters</div>
+        </div>
+        <div class="nav-section" style="margin-top:-10px"><div class="nav-item">Settings</div></div>
+      </div>
+      <div class="nav-group-toggle"><span class="chev">▾</span>System</div>
+      <div class="nav-group-body">
+        <div class="nav-section"><div class="nav-item active">Accounts</div></div>
+        <div>
+          <div class="eyebrow">NATS</div>
+          <div class="nav-section" style="margin-top:6px">
+            <div class="nav-item">Connections</div>
+            <div class="nav-item">Services</div>
+            <div class="nav-item">Log</div>
+            <div class="nav-item">Request/Reply</div>
+            <div class="nav-item">Streams</div>
+            <div class="nav-item">KV Buckets</div>
+          </div>
+        </div>
+        <div>
+          <div class="eyebrow">Postgres</div>
+          <div class="nav-section" style="margin-top:6px"><div class="nav-item">Tables</div></div>
+        </div>
+      </div>
+    </nav>
+
+    <main class="main">
+      <div class="panel-head">
+        <h1>Accounts</h1>
+        <span>per-account traffic + health &middot; /accstatz</span>
+      </div>
+
+      <div class="acc-tabs">
+        <input type="radio" name="acctab" id="tab-o" class="tab-radio" checked>
+        <input type="radio" name="acctab" id="tab-p" class="tab-radio">
+        <input type="radio" name="acctab" id="tab-s" class="tab-radio">
+
+        <div class="tabbar">
+          <label for="tab-o">Overview</label>
+          <label for="tab-p">Provisioning</label>
+          <label for="tab-s">Sharing</label>
+        </div>
+
+        <div class="tabpanels">
+
+          <!-- ── OVERVIEW ─────────────────────────────────────────────── -->
+          <section class="tabpanel p-o">
+            <div class="fleet-strip">
+              <span><b>3</b> accounts</span><span class="sep">&middot;</span>
+              <span><b>428</b> connections</span><span class="sep">&middot;</span>
+              <span><b>1.9K</b> subscriptions</span><span class="sep">&middot;</span>
+              <span title="482,910 in / 379,204 out"><b>482K / 379K</b> msgs in/out</span>
+              <span class="trend">&mdash; in has been outpacing out fleet-wide for the last ~60 min</span>
+            </div>
+
+            <div class="acct-scroll">
+
+              <!-- globex sorts first: active issue -->
+              <div class="acct-card crit">
+                <div class="acct-head">
+                  <span class="dot crit"></span>
+                  <span class="acct-name">globex</span>
+                  <span class="acct-tag crit">3 slow</span>
+                  <span class="acct-since">92 conns &middot; 312 subs &middot; 10M / 4M bytes in/out</span>
+                </div>
+                <div class="detail">
+                  <div class="chart-row">
+                    <div class="chart-card">
+                      <h4>Connections &amp; subscriptions</h4>
+                      <div class="window-caption">last 60 min</div>
+                      <svg viewBox="0 0 240 48" preserveAspectRatio="none">
+                        <polyline class="acct-line conns" points="4,18 26,20 48,17 70,19 92,18 114,21 136,19 158,20 180,18 202,19 222,18" />
+                        <polyline class="acct-line subs" points="4,32 26,31 48,33 70,32 92,30 114,33 136,32 158,31 180,32 202,33 222,32" />
+                        <circle class="line-dot conns-dot" cx="222" cy="18" />
+                        <text x="214" y="11" text-anchor="end" class="line-val">92 conns</text>
+                        <circle class="line-dot subs-dot" cx="222" cy="32" />
+                        <text x="214" y="44" text-anchor="end" class="line-val muted">312 subs</text>
+                      </svg>
+                    </div>
+                    <div class="chart-card">
+                      <h4>Throughput</h4>
+                      <div class="window-caption">last 60 min &middot; 5-min buckets</div>
+                      <div class="bar-row">
+                        <div class="bar-pair"><div class="bar in" style="height:20px"></div><div class="bar out" style="height:19px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:22px"></div><div class="bar out" style="height:21px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:19px"></div><div class="bar out" style="height:20px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:23px"></div><div class="bar out" style="height:22px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:21px"></div><div class="bar out" style="height:20px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:24px"></div><div class="bar out" style="height:23px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:22px"></div><div class="bar out" style="height:21px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:23px"></div><div class="bar out" style="height:22px"></div></div>
+                        <div class="bar-pair lag"><div class="bar in" style="height:27px"></div><div class="bar out" style="height:20px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:31px"></div><div class="bar out" style="height:18px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:35px"></div><div class="bar out" style="height:16px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:39px"></div><div class="bar out" style="height:14px"></div></div>
+                      </div>
+                      <div class="chart-legend-mini">
+                        <span><i class="sw" style="background:var(--lab-accent)"></i>in</span>
+                        <span><i class="sw" style="background:var(--ok)"></i>out</span>
+                      </div>
+                      <p class="byte-caption">9.8 MB in &middot; 4.1 MB out this hour</p>
+                      <p class="lag-note">⚑ inbound has outpaced outbound for about the last 20 minutes.</p>
+                    </div>
+                  </div>
+                </div>
+                <p class="alarm-line">⚠ <b>3 slow consumers</b> right now &mdash; likely explained by the imbalance above. Check connections on globex in the Connections panel.</p>
+              </div>
+
+              <!-- healthy accounts: charts present but quiet, no alarm line at all -->
+              <div class="acct-card">
+                <div class="acct-head">
+                  <span class="dot ok"></span>
+                  <span class="acct-name">platform</span>
+                  <span class="acct-tag">reserved</span>
+                  <span class="acct-since">96 conns &middot; 640 subs &middot; 41M / 39M bytes in/out</span>
+                </div>
+                <div class="detail">
+                  <div class="chart-row">
+                    <div class="chart-card">
+                      <h4>Connections &amp; subscriptions</h4>
+                      <div class="window-caption">last 60 min</div>
+                      <svg viewBox="0 0 240 48" preserveAspectRatio="none">
+                        <polyline class="acct-line conns" points="4,10 26,12 48,9 70,11 92,10 114,13 136,11 158,12 180,10 202,11 222,11" />
+                        <polyline class="acct-line subs" points="4,34 26,32 48,35 70,33 92,32 114,35 136,33 158,32 180,34 202,33 222,33" />
+                        <circle class="line-dot conns-dot" cx="222" cy="11" />
+                        <text x="214" y="7" text-anchor="end" class="line-val">96 conns</text>
+                        <circle class="line-dot subs-dot" cx="222" cy="33" />
+                        <text x="214" y="44" text-anchor="end" class="line-val muted">640 subs</text>
+                      </svg>
+                    </div>
+                    <div class="chart-card">
+                      <h4>Throughput</h4>
+                      <div class="window-caption">last 60 min &middot; 5-min buckets</div>
+                      <div class="bar-row">
+                        <div class="bar-pair"><div class="bar in" style="height:26px"></div><div class="bar out" style="height:25px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:28px"></div><div class="bar out" style="height:27px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:25px"></div><div class="bar out" style="height:26px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:27px"></div><div class="bar out" style="height:26px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:26px"></div><div class="bar out" style="height:25px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:29px"></div><div class="bar out" style="height:28px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:27px"></div><div class="bar out" style="height:26px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:28px"></div><div class="bar out" style="height:27px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:26px"></div><div class="bar out" style="height:25px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:27px"></div><div class="bar out" style="height:26px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:28px"></div><div class="bar out" style="height:27px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:27px"></div><div class="bar out" style="height:26px"></div></div>
+                      </div>
+                      <div class="chart-legend-mini">
+                        <span><i class="sw" style="background:var(--lab-accent)"></i>in</span>
+                        <span><i class="sw" style="background:var(--ok)"></i>out</span>
+                      </div>
+                      <p class="byte-caption">41.2 MB in &middot; 38.9 MB out this hour</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="acct-card">
+                <div class="acct-head">
+                  <span class="dot ok"></span>
+                  <span class="acct-name">acme</span>
+                  <span class="acct-since">240 conns &middot; 980 subs &middot; 23M / 15M bytes in/out</span>
+                </div>
+                <div class="detail">
+                  <div class="chart-row">
+                    <div class="chart-card">
+                      <h4>Connections &amp; subscriptions</h4>
+                      <div class="window-caption">last 60 min</div>
+                      <svg viewBox="0 0 240 48" preserveAspectRatio="none">
+                        <polyline class="acct-line conns" points="4,12 26,9 48,13 70,10 92,11 114,8 136,10 158,12 180,9 202,11 222,10" />
+                        <polyline class="acct-line subs" points="4,33 26,32 48,34 70,32 92,31 114,33 136,32 158,31 180,32 202,33 222,32" />
+                        <circle class="line-dot conns-dot" cx="222" cy="10" />
+                        <text x="214" y="6" text-anchor="end" class="line-val">240 conns</text>
+                        <circle class="line-dot subs-dot" cx="222" cy="32" />
+                        <text x="214" y="43" text-anchor="end" class="line-val muted">980 subs</text>
+                      </svg>
+                    </div>
+                    <div class="chart-card">
+                      <h4>Throughput</h4>
+                      <div class="window-caption">last 60 min &middot; 5-min buckets</div>
+                      <div class="bar-row">
+                        <div class="bar-pair"><div class="bar in" style="height:23px"></div><div class="bar out" style="height:22px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:20px"></div><div class="bar out" style="height:19px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:24px"></div><div class="bar out" style="height:23px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:21px"></div><div class="bar out" style="height:20px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:22px"></div><div class="bar out" style="height:21px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:19px"></div><div class="bar out" style="height:19px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:23px"></div><div class="bar out" style="height:22px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:21px"></div><div class="bar out" style="height:20px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:22px"></div><div class="bar out" style="height:21px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:20px"></div><div class="bar out" style="height:19px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:24px"></div><div class="bar out" style="height:23px"></div></div>
+                        <div class="bar-pair"><div class="bar in" style="height:22px"></div><div class="bar out" style="height:21px"></div></div>
+                      </div>
+                      <div class="chart-legend-mini">
+                        <span><i class="sw" style="background:var(--lab-accent)"></i>in</span>
+                        <span><i class="sw" style="background:var(--ok)"></i>out</span>
+                      </div>
+                      <p class="byte-caption">22.5 MB in &middot; 15.1 MB out this hour</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </section>
+
+          <!-- ── PROVISIONING (unchanged) ─────────────────────────────── -->
+          <section class="tabpanel p-p">
+            <div class="moved-note">unchanged &mdash; dynamic tenant provisioning, decentralized JWTs (Phase 14c).</div>
+          </section>
+
+          <!-- ── SHARING (unchanged) ──────────────────────────────────── -->
+          <section class="tabpanel p-s">
+            <div class="moved-note">unchanged &mdash; renamed from Topology, same live export/import graph.</div>
+          </section>
+
+        </div>
+      </div>
+    </main>
+  </div>
+</div>

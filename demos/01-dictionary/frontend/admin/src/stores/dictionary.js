@@ -24,8 +24,9 @@ export const useDictionaryStore = defineStore('dictionary', {
   }),
 
   getters: {
-    // Each row spreads all ShipState fields so ShapePanel columns can reference
-    // data.shipName, data.currentPort, data.cargo etc. directly.
+    // Each row spreads all ShipState fields so consumers (OverviewPanel's KV
+    // rev card, TelemetryStrip) can reference data.shipName, data.currentPort,
+    // data.cargo etc. directly.
     shipRows: (state) =>
       Object.entries(state.ships).map(([key, v]) => ({ key, revision: v.revision, ...v.state })),
   },
@@ -60,7 +61,7 @@ export const useDictionaryStore = defineStore('dictionary', {
     // still attached (kv.go's kvBucketEntriesOnce reads the raw bucket,
     // unlike the old SSE handler's kvstore.Store.Watch, which stripped it) —
     // filtered and stripped here so ships keeps the same bare-key shape
-    // (e.g. "ship.SHIP1") ShapePanel's columns already expect.
+    // (e.g. "ship.SHIP1") shipRows' consumers already expect.
     async connect() {
       this.disconnect()
       // No context means no valid subject to subscribe on — App.vue calls

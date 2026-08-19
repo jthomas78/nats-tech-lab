@@ -595,51 +595,6 @@ rationale or checklist detail).
 
 ---
 
-### Phase 36 (following on from Phase 29, then Phase 41) (PROPOSED — not started) — NATS 2.11 Server-Hop Tracing ("Trace this subject")
-
-> **Renumbered 2026-08-17** from Phase 29 to Phase 41, alongside Phase
-> 24 → Phase 40, when Phases 23/25/25i/26/27/28/30 were archived (see the
-> "Renumbering (2026-08-17)" log near the end of this document). No
-> internal references needed updating — this phase has none.
-
-> **Renumbered again 2026-08-18** from Phase 41 to Phase 36 — the next
-> available number after completed Phase 35, rather than sitting orphaned
-> in the 40s block reserved for Phase 40/42 (see the "Renumbering
-> (2026-08-18)" log near the end of this document). Cross-references in
-> `ARCHITECTURE-COMMUNICATIONS.md` and `ARCHITECTURE-ADMIN.md` updated to
-> match.
-
-#### Goal
-
-Phase 28 answers "shipping called refdata and it took 40ms." It cannot answer
-"the message was dropped at the account import boundary" — which, in an
-operator-mode deployment where every cross-service call goes through a JWT
-export/import, is the failure mode that is hardest to diagnose and produces
-the least evidence.
-
-NATS 2.11's distributed message tracing reports, per server hop: ingress
-(`in`), egress (`eg`), subject mapping (`sm`), stream export (`se`), service
-import (`si`), and JetStream store (`js`) — each with the server's own error
-string. Add a "Trace this subject" control that publishes with
-`Nats-Trace-Dest` and renders the returned hop tree, interleaved into the same
-waterfall as Phase 28's application spans.
-
-- [ ] Backend: publish with `Nats-Trace-Dest` (+ `Nats-Trace-Only` for the
-      dry-run default, as `nats trace` itself defaults to) and collect trace
-      events off the destination subject.
-- [ ] Frontend: render hop events as grey hairline ticks rather than duration
-      bars — they have no meaningful duration (already specified in
-      ARCHITECTURE-ADMIN.md §4.5's UI design).
-- [ ] **Why this is worth its own phase:** zero code in any service and no
-      per-message cost, so it shares nothing with Phase 28's implementation.
-      Requires server 2.11+ and `allow_trace: true` (landed in 28f/BR-AC30).
-- [ ] **The payoff for having chosen `traceparent` in Phase 28:** in
-      trace-context mode the NATS server stamps *our* trace id onto its own hop
-      events, so application spans and infrastructure hops land on one
-      waterfall keyed identically. No off-the-shelf tool does this.
-
----
-
 ### Phase 40 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning
 
 > **Renumbered 2026-08-17** from Phase 24 to Phase 40, alongside Phase
@@ -764,6 +719,393 @@ already scoped.
       split, `notify.*` publication once a marketplace consumer exists.
       Intentionally open-ended — a list to revisit if/when any of these
       becomes a real requirement, not a task with a completion criterion.
+
+---
+
+### Phase 43 (following on from Phase 29, then Phase 41, then Phase 36; DEFERRED 2026-08-18 — design approved, implementation on hold) — NATS 2.11 Server-Hop Tracing ("Trace this subject")
+
+> **Renumbered 2026-08-17** from Phase 29 to Phase 41, alongside Phase
+> 24 → Phase 40, when Phases 23/25/25i/26/27/28/30 were archived (see the
+> "Renumbering (2026-08-17)" log near the end of this document). No
+> internal references needed updating — this phase has none.
+
+> **Renumbered again 2026-08-18** from Phase 41 to Phase 36 — the next
+> available number after completed Phase 35, rather than sitting orphaned
+> in the 40s block reserved for Phase 40/42 (see the "Renumbering
+> (2026-08-18)" log near the end of this document). Cross-references in
+> `ARCHITECTURE-COMMUNICATIONS.md` and `ARCHITECTURE-ADMIN.md` updated to
+> match.
+
+> **Renumbered a third time, 2026-08-18** from Phase 36 to Phase 43, and
+> moved down here past Phase 100+ into deferred status, since the phase was
+> deferred for further research rather than moved into implementation (see
+> the "Renumbering (2026-08-18b)" log near the end of this document). The
+> design stays **approved as-is**; only the number and status changed.
+> Phase 107 (candidate, "Re-fire a Captured Trace") still names this phase
+> by its old number in its own heading — see that phase's entry for the
+> cross-reference note.
+
+> **Status: DEFERRED, design approved.** The spike below fully validated a
+> design (see "Spike findings" and "Design decisions"), and BR-042 in
+> `BUSINESS_RULES-SHIPPING.md` is drafted to match it. Implementation is on
+> hold pending further research — no code has been written yet. A
+> before/after diagram summarizing what the spike changed from the original
+> proposal is saved at
+> `obsidian/V3-Platform/Architecture/Dictionary-POC/images/phase43-trace-this-subject-before-after.png`
+> ("Trace this subject" — before and after the spike) — read that first when
+> this phase is picked back up, before re-deriving the design from the prose
+> below.
+
+#### Goal
+
+Phase 28 answers "shipping called refdata and it took 40ms." It cannot answer
+"the message was dropped at the account import boundary" — which, in an
+operator-mode deployment where every cross-service call goes through a JWT
+export/import, is the failure mode that is hardest to diagnose and produces
+the least evidence.
+
+NATS 2.11's distributed message tracing reports, per server hop: ingress
+(`in`), egress (`eg`), subject mapping (`sm`), stream export (`se`), service
+import (`si`), and JetStream store (`js`) — each with the server's own error
+string. Add a "Trace this subject" control that publishes with
+`Nats-Trace-Dest` and renders the returned hop tree, interleaved into the same
+waterfall as Phase 28's application spans.
+
+**Scoped to the ad-hoc probe shape only.** Fire a probe with no prior request
+required, and get back a standalone trace row containing only hop ticks.
+Re-firing an *already captured* trace in place (merging hop ticks into that
+trace's existing waterfall row instead of creating a new one) is deliberately
+deferred to Phase 107, since it needs a stored-payload-replay path this phase
+doesn't otherwise require.
+
+**Probe target is enumerated, not free-typed** (revised after the spike
+below) — see Design decisions.
+
+#### Spike findings (2026-08-18, against the live compose stack)
+
+The original design assumed `observability-service` could itself publish an
+arbitrary business subject with `Nats-Trace-Dest` set, using the
+`obs.trace.>` `AllowTrace` grant BR-AC30 already wires. Four things, checked
+live against the running stack (`nats trace`/`nats pub`/`nats request`
+directly against `lb-nats`), each corrected the previous assumption:
+
+1. **`observability-service` cannot publish to any business subject at
+   all.** Its NATS user (`bootstrap-operator.sh:389`) is narrowly scoped to
+   `monitor.>`/`$SRV.>`/specific `$JS.API.*` — confirmed live: `nats pub
+   --creds observability.creds rpc.acme.refdata.item.get.v1` returns
+   `Permissions Violation for Publish`, while the same publish from
+   `acme.creds` succeeds immediately.
+2. **Most business subjects never cross an account boundary at all.**
+   `natstenants.Manager` (`shared/natstenants/tenants.go:292`) gives
+   `refdata-service`, `pricing-service`, and `trading-partner-service` one
+   direct connection *per tenant*, authenticated straight into that
+   tenant's own account — so an ordinary intra-tenant call has no
+   export/import in its path, and no permission grant would ever produce a
+   real `si`/`se` hop for it.
+3. **One real crossing already exists, independent of BR-AC30, and works
+   today:** `accounts-service`'s `tenantImports()`/`tenantExports()`
+   (`provisioner.go:207-246`) wires each tenant to import 4 refdata RPCs
+   (aliased locally as `refdata.item.get.v1`, `refdata.type.list.v1`,
+   `refdata.item.get-versioned.v1`, `refdata.locales.list.v1`, forwarding to
+   `rpc.{tenant}.refdata.*` in PLATFORM, where `refdata-service`'s real
+   `micro`-registered responder actually lives) plus 2 stream imports
+   (`evt.*.refdata.*.changed`, `notify.accounts.account.*`). Confirmed live:
+   `nats request --creds acme.creds refdata.item.get.v1 '{}'` gets a real
+   reply from `refdata-service`; the literal subject
+   `rpc.acme.refdata.item.get.v1` gets "No responders" when tried directly
+   from `acme.creds` (it only resolves via the import's remap). **This is
+   the only real cross-account crossing in the whole system for business
+   traffic** — so it's what the probe has to target, not an arbitrary
+   subject.
+4. **Nobody a browser action can reach can fire a probe on that crossing.**
+   `MintAdminToken` (`auth/token.go:178`) denies all publish
+   (`Pub.Deny.Add(">")`) — the Admin UI's own NATS connection is
+   subscribe-only. And structurally, the tenant-local alias
+   (`refdata.item.get.v1`) only resolves *inside* the importing tenant
+   account — a PLATFORM-only connection like `observability-service`'s
+   cannot address it by name at any permission level. The only connections
+   that legitimately hold publish rights on it today are `shipping-service`
+   and `trading-partner-service`'s own per-tenant connections (the real
+   callers of refdata).
+5. **The crossing itself traces correctly; final-delivery interest does
+   not, and this is a NATS-server limitation, not ours.**
+   `nats trace --creds acme.creds refdata.item.get.v1` reports the hop
+   cleanly: `Service Import from:"refdata.item.get.v1"
+   to:"rpc.acme.refdata.item.get.v1" account:"ADGEUWC..."` — satisfying the
+   "report cross-account hops" requirement. But it then reports `No active
+   interest`, even though `refdata-service` demonstably answers this exact
+   call (`nats request` above got a real reply). Isolated the cause by
+   varying one thing at a time: a plain literal (non-wildcard, non-queue)
+   test subscriber placed on the far side still shows `No active interest`
+   through the crossing, while tracing the *same* literal subject
+   *same-account* (no crossing) correctly reports
+   `--C Client "refdata-service" ... subject:"rpc.*.refdata.item.get.v1"
+   queue:"q"` with an egress count. So neither the wildcard subscription
+   nor the queue group is the cause — NATS 2.14.3's tracing interest-check
+   simply never re-evaluates interest on the far side of a Service Import.
+   This is systematic (100% reproducible), not probabilistic, and not
+   fixable in this repo's code.
+
+#### Design decisions (revised 2026-08-18, post-spike)
+
+- **Probe target is the existing `tenantImports()`/`tenantExports()`
+  contract, not an arbitrary typed subject.** It's the only place a real
+  cross-account crossing exists in this system today (finding 2/3 above).
+  "Trace this subject" becomes "trace one of these known cross-account
+  operations" — a short enumerated list (the 4 refdata RPC aliases + 2
+  stream imports), not a free-text subject field.
+- **The probe is fired by the service that owns the real connection, not
+  by `observability-service`.** `shipping-service` and
+  `trading-partner-service` already hold the only connections with
+  legitimate publish rights on this crossing (finding 4). Each gets a
+  small internal diagnostic hook that fires *one of its own already-defined
+  outbound calls* with `Nats-Trace-Dest`/`Nats-Trace-Only` set, reusing the
+  exact connection it holds for real business reasons. No new NATS
+  permission grant anywhere, on any account.
+- **`observability-service` keeps the REST entry point and the
+  storage/rendering role, but not the publish.** The browser still calls
+  `POST /api/nats/trace` on `observability-service` (same reasoning as
+  before: extends its existing system-topology-diagnostics REST carve-out,
+  same category as `/api/jetstream/replay`, `POST` not `GET` since it has a
+  real wire effect). `observability-service` forwards the request over an
+  internal, same-account (PLATFORM→PLATFORM) call to whichever service owns
+  the target operation — e.g. `shipping-service`'s own admin surface — asks
+  it to fire the traced probe on its existing tenant-scoped connection, and
+  gets the hop tree back to normalize/store/serve exactly as before
+  (`kind: "hop"` spans merged into `tracestore`'s `traceRecord`, a fresh
+  synthetic `traceId` per probe, destination subject inside the existing
+  `obs.trace.>` family). This leg needs no new grant either — both
+  `observability-service` and `shipping-service`'s admin connection already
+  live in PLATFORM.
+- **Final-delivery interest cannot be shown as fact, ever, for a
+  cross-account hop — labeled, not fixed.** Confirmed as a systematic NATS
+  2.14.3 tracing limitation (finding 5), not something this repo's code can
+  correct. The waterfall renders the confirmed `si`/`se` hop normally, but
+  any signal past that hop gets a distinct, hedged treatment (not
+  red/failure) with a tooltip explaining that destination interest isn't
+  reliably reported across a Service Import — never asserted as
+  "dropped."
+- **The new route joins BR-040/041's existing mux-allowlist enforcement,
+  not a special case** — `POST /api/nats/trace` gets added to
+  `observability-service`'s allowlisted route set and its
+  `TestMountRoutesMatchAdminAllowlist`-equivalent test, same mechanism as
+  every other diagnostics route.
+
+- [ ] Backend (`shipping-service`): a small internal diagnostic hook (its
+      own admin RPC/REST, PLATFORM-scoped) that fires one of
+      `refdataconsumer`'s existing outbound calls with
+      `Nats-Trace-Dest: obs.trace.hop.{traceId}` and `Nats-Trace-Only: true`
+      by default, using its own already-live tenant-scoped connection, and
+      returns the collected hop events.
+- [ ] Backend (`observability-service`): `POST /api/nats/trace` — takes an
+      enumerated target (one of the 4 refdata RPC aliases / 2 stream
+      imports), forwards to the owning service's diagnostic hook, then
+      normalizes the reply into `kind: "hop"` spans and appends to a new
+      `traceRecord` via the existing `tracestore.appendSpan` path.
+- [ ] Add the route to `observability-service`'s mux allowlist + allowlist
+      test (BR-040/041 pattern).
+- [ ] Frontend: a "Trace this subject" control offering the enumerated
+      target list (not free text) calling the new REST route; render
+      `kind: "hop"` spans as grey hairline ticks rather than duration bars
+      (ARCHITECTURE-ADMIN.md §4.5's UI design); any signal past a
+      cross-account hop renders hedged/unconfirmed, never as a failure.
+- [x] Business rules: BR-042 revised in `BUSINESS_RULES-SHIPPING.md` for
+      the corrected design — enumerated target set, `shipping-service`
+      firing its own probe, and the documented interest-signal limitation.
+- [ ] **Why this is worth its own phase:** zero code in `refdata-service`
+      itself and no per-message cost; requires server 2.11+ (already
+      running: `nats:2.14.3`). No longer needs `allow_trace`/BR-AC30 at all
+      — that assumption didn't survive the spike (finding 3); the crossing
+      this phase actually uses is `tenantImports()`'s existing contract.
+- [ ] **The payoff for having chosen `traceparent` in Phase 28:** in
+      trace-context mode the NATS server stamps *our* trace id onto its own hop
+      events, so application spans and infrastructure hops land on one
+      waterfall keyed identically. No off-the-shelf tool does this.
+
+---
+
+### Phase 44 — Completed (archived 2026-08-18)
+
+Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
+(not read into context by default — open only when you need original
+rationale or checklist detail).
+
+- [x] Phase 44 (IMPLEMENTED 2026-08-18) — Request/Reply gets a `Pulse` Tab.
+      Split the requests/errors/avg-latency pulse strip off `TraceWaterfall.vue`'s
+      *Traces* view onto its own tab in front of it — `[Pulse] [Traces]
+      [Messages]` — pairing the enlarged pulse cards with a "what
+      request/reply covers" card (including the `parentSpanId`/`spanId`
+      chaining mechanism, previously undocumented anywhere in the panel) and
+      an animated Client → NATS Server → Service flow diagram, per the
+      approved mockup (`diagrams/admin-rpc-overview-mockup.html`). New
+      `PulsePanel.vue` duplicates `TraceWaterfall.vue`'s bootstrap/subscribe/
+      trace-grouping rather than sharing it (matching `RpcPanel.vue`'s
+      existing Messages-tab precedent) and aggregates the *full* unfiltered
+      trace set rather than `Traces`' toolbar-filtered view, since the two
+      are no longer co-rendered once `Pulse` is a separate tab. `ui.rpcTab`'s
+      default changed to `'pulse'`. `BUSINESS_RULES-SHIPPING.md`'s Phase 28p
+      entry amended; `ARCHITECTURE-ADMIN.md` §4.5 updated from proposed to
+      shipped, including resolving its "one deliberate omission" tension
+      explicitly rather than leaving it unaddressed. Frontend Vitest suite
+      green (3 pre-existing, unrelated `TraceWaterfall.spec.js` failures
+      confirmed present before this phase's changes too, left as found);
+      verified live against the docker stack.
+
+---
+
+### Phase 45 (IMPLEMENTED 2026-08-18) — Accounts Overview: Nav Restructure, Ring-Buffer Trend History, Gated Search
+
+#### Goal
+
+Implement the Admin UI redesign design-reviewed across four mockup rounds
+(`accounts_overview_pulse_design.md`): `Accounts` moves from PLATFORM to
+SYSTEM as its first entry; `TOPOLOGY` becomes `Sharing`; SYSTEM · NATS ·
+`Account Activity` retires as a standalone nav item and its content becomes
+Accounts' new first tab, `Overview` — so Accounts' tab bar reads `Overview |
+Provisioning | Sharing`. `Overview` replaces `AccountActivityPanel`'s flat
+number-restating expand with two small trend charts per account (connections/
+subscriptions, in/out throughput), a 5m/30m/1h duration selector, and a
+name-filter search box shown only once there are more than 3 accounts. This
+requires real history — `/accstatz` is a stateless snapshot today — so
+`observability-service` gains a ring buffer.
+
+#### Design decisions
+
+**Nav/tab restructure (no backend changes):**
+- `App.vue`'s `sections`: move the `accounts` item out of the `Platform`
+  group into `System`, as its own `{ items: [...] }` entry before the `NATS`
+  eyebrow section (so it renders above Connections/Services/etc, not inside
+  that eyebrow group). Remove `account-activity` from the `NATS` eyebrow's
+  `items` and delete its `SUBTITLES` entry.
+- **This reverses an explicit prior placement rationale** (`App.vue:94-97`:
+  "Accounts is a tenant roster — a platform-membership question, so it sits
+  here rather than under SYSTEM's NATS group"). That comment gets rewritten,
+  not silently left stale: Accounts moves to SYSTEM specifically because its
+  new Overview tab absorbs a SYSTEM/NATS panel, making Accounts the one home
+  for both the business roster and the NATS-account health view, rather than
+  a PLATFORM item that displays SYSTEM content.
+- `AccountsView.vue`'s tab values: add `overview` (new, first `Tab`/
+  `TabPanel`); rename `topology` → `sharing` (value, label, and
+  `ui.accountsTab` default target for the third tab) for consistency between
+  the visible label and the internal value — `ui.js`'s `accountsTab` default
+  changes from `'provisioning'` to `'overview'` to match every other nav
+  section's Overview-first convention (`App.vue`'s own top-level
+  `activeView` already defaults to `'overview'`).
+- `TopologyPanel.vue` → renamed `SharingPanel.vue` (plus its spec file) —
+  content and behavior unchanged, renamed so the component name doesn't
+  contradict the tab label it backs.
+- `AccountActivityPanel.vue` is retired (deleted, alongside its spec) — its
+  content is superseded by the new Overview tab component below, not kept
+  as a second copy.
+- New `ACCOUNTS_SUBTITLES.overview` entry; `topology` key renamed to
+  `sharing`.
+
+**Ring-buffer history (`observability-service`) — new, not covered by the
+mockups, needs confirmation before implementation:**
+- A background goroutine polls the server's own `/accstatz` every 10s (same
+  interval `AccountActivityPanel.vue`'s frontend poll already uses today —
+  no change in cadence, just a second consumer of the same data) and appends
+  one sample per account into an in-memory buffer, trimming samples older
+  than 60 minutes on each tick. Not persisted to Postgres or NATS KV —
+  explicitly transient telemetry, not source-of-truth data, same reasoning
+  this repo already applies to what does vs. doesn't get event-sourced.
+  Buffer starts empty at process boot and fills in real time; a
+  freshly-restarted service legitimately has less than 60 minutes of history
+  until it's been up that long — no synthetic backfill.
+- **Correctness point:** `/accstatz`'s `sent`/`received` byte and message
+  counts are cumulative totals since server start, not per-interval deltas.
+  The throughput chart needs bucket-over-bucket *deltas* of those counters,
+  not the raw values — the ring buffer stores raw cumulative samples; the
+  history endpoint computes deltas when bucketing.
+- New route `GET /api/nats/account-activity/history?duration=5m|30m|1h`
+  (any other value → 400). Bucket size scales with the window per the round-3
+  mockup: 30s buckets at 5m, 2min at 30m, 5min at 1h. Response carries one
+  bucketed series per account (connections/subscriptions as point samples,
+  in/out bytes and msgs as per-bucket deltas) plus each account's
+  `tenantLabel`; the fleet summary sparklines are summed client-side from the
+  per-account series rather than duplicating a fleet-aggregate endpoint.
+- Existing `GET /api/nats/account-activity` (the live snapshot) is unchanged
+  — the new route is additive, not a replacement, since the collapsed-row
+  snapshot still needs to read from a moment-in-time state.
+
+**Frontend Overview tab component:**
+- New `AccountsOverviewPanel.vue` (superseding `AccountActivityPanel.vue`):
+  fleet summary cards (unchanged 4 stats) each grow a sparkline; the
+  `.acct-card` list stays collapsed-by-default, expand swaps the flat number
+  grid for the two trend charts, fetched from the new history route only for
+  whichever card is expanded (not all accounts at once).
+  - Slow-consumer explanatory copy ties directly to `slowConsumers > 0` for
+    that account within the window, not a scripted "~20 min" estimate — the
+    mockup's precise wording was illustrative, not a number to reproduce from
+    real data.
+- Duration selector (5m/30m/1h pill, defaults 30m) re-fetches history for the
+  fleet sparklines and the currently-expanded card on change.
+- Search box: rendered only when `accounts.length > 3`; case-insensitive
+  substring match against each account's resolved label (falling back to the
+  raw account identifier, matching BR-028's existing fallback); empty state
+  "No accounts match "…"." Client-side only, no backend involvement.
+
+**Explicitly out of scope for this phase** (flagged, not decided as "never"):
+applying the same gated search to the Provisioning tab's account table;
+persisting ring-buffer history across restarts; per-account charts for every
+account rendered simultaneously rather than only the expanded one.
+
+**Candidate business rules** (`BUSINESS_RULES-SHIPPING.md`, same file as
+BR-028/BR-034, which this amends — despite living in `observability-service`,
+matching that file's existing convention for Admin-UI-facing NATS monitoring
+panels):
+- **BR-034 amended**: retitled/rescoped — the panel it describes moves from a
+  standalone SYSTEM · NATS item to Accounts' Overview tab; the slow-consumers-
+  as-alarm rule itself is unchanged.
+- **BR-043 (new)**: `/accstatz` history is retained in a 60-minute ring
+  buffer sampled every 10s; a duration query param (`5m`/`30m`/`1h`, rejecting
+  any other value) selects a bucketed, correctly-delta'd trend series.
+- **BR-044 (new)**: the Overview tab's account search box is shown only when
+  there are more than 3 accounts, filters by name (case-insensitive
+  substring) client-side, and shows a named empty state rather than a blank
+  list.
+
+#### Checklist
+
+- [x] Confirm the design decisions above (ring buffer shape/retention,
+      history endpoint shape, BR-034 amendment + BR-043/BR-044 additions) —
+      confirmed 2026-08-18
+- [x] `observability-service`: background `/accstatz` poller + in-memory ring
+      buffer (per-account, 60min @ 10s, trimmed each tick)
+- [x] `observability-service`: `GET /api/nats/account-activity/history`
+      handler — duration validation, bucketing, cumulative-counter deltas
+- [x] Go tests (plain `testing`, this service's existing convention, not
+      Ginkgo) for BR-043: bucket count/size per duration, delta-not-raw byte
+      counts, 400 on an invalid duration, buffer eviction past 60 minutes
+- [x] `App.vue`: move `accounts` nav item PLATFORM → SYSTEM (first entry);
+      remove `account-activity`; rewrite the stale placement-rationale
+      comment; update `SUBTITLES`/`ACCOUNTS_SUBTITLES`
+- [x] `AccountsView.vue` + `ui.js`: add `overview` tab (default), rename
+      `topology` → `sharing`
+- [x] Rename `TopologyPanel.vue`/spec → `SharingPanel.vue`/spec (no spec
+      file existed to rename)
+- [x] New `AccountsOverviewPanel.vue` (+ Vitest spec) superseding
+      `AccountActivityPanel.vue`: sparklines, expand-to-trend-charts,
+      duration selector, gated search + empty state; delete
+      `AccountActivityPanel.vue`/spec
+- [x] ~~`docs/docs.go`/`swagger.json`/`swagger.yaml`: new history route
+      documented~~ — N/A: `observability-service` has no generated swagger
+      docs at all (unlike `shipping-service`); its `@Summary`/`@Router`
+      comments are documentation-style only, confirmed no `swaggo` import
+      or `docs/` folder exists for this service
+- [x] `BUSINESS_RULES-SHIPPING.md`: BR-034 amended, BR-043/BR-044 added
+- [x] `ARCHITECTURE-ADMIN.md`: Accounts/Account-Activity section updated to
+      match the new nav/tab structure — scope statement, panel index, §2/§3
+      inventories all updated to six panels; §4.3 retitled "relocated" with
+      Phase 45's history/search additions documented, following §4.8's
+      retired-panel precedent
+- [x] `go build ./...` (observability-service) + its test suite green;
+      frontend build + Vitest green (3 pre-existing, unrelated
+      `TraceWaterfall.spec.js` failures confirmed present before this
+      phase's changes too, left as found); verified live against the
+      docker stack — nav restructure, Overview tab (real sparklines/charts
+      from the live ring buffer), duration selector, and gated search all
+      confirmed working against real `/accstatz` data
 
 ---
 
@@ -1019,6 +1361,41 @@ The consequence is that a context registered with a parent looks correct in the 
 - [ ] Override semantics on the live path must match the corpus path's `is_override` precedence (child wins, nearest ancestor next) so the two paths cannot disagree about the same item
 - [ ] Decide whether `Ancestors()` and `ancestorChainTx` (currently duplicated between `context_repository.go` and `corpus_repository.go`) collapse into one implementation as part of this
 - [ ] Business rules for live-path inheritance and override precedence; specs covering a child with no local rows, a child overriding one ancestor row, and a three-level chain
+
+---
+
+### Phase 107 (candidate, deferred from Phase 36's design gate, 2026-08-18) — Re-fire a Captured Trace with Server-Hop Tracing
+
+> **Note (2026-08-18b):** Phase 36 was itself renumbered to **Phase 43** the
+> same day, after this phase's heading was written (see Phase 43's entry and
+> the "Renumbering (2026-08-18b)" log). References to "Phase 36" below mean
+> Phase 43. Phase 43 is also now DEFERRED — this phase remains a candidate
+> either way, since it was never scheduled ahead of Phase 43's own
+> implementation.
+
+#### Goal
+
+Phase 43 ships the ad-hoc shape of "Trace this subject": pick any subject
+cold and see the physical hop path it would take. This phase adds the
+complementary shape — select an *already-captured* trace row in the Phase 28
+waterfall and re-fire a copy of its real payload with `Nats-Trace-Dest`/
+`Nats-Trace-Only`, merging the resulting hop ticks into that same row instead
+of creating a new one. Answers "what path did this specific call already
+take?" rather than "what path would a call to this subject take?"
+
+#### Scope
+
+- [ ] Store (or look up from tracestore/KV) the original request payload for
+      a captured span, keyed by traceId, so it can be replayed
+- [ ] Re-publish that payload tagged with the *original* traceId (not a
+      fresh one) so hop events append into the existing `traceRecord`
+      instead of starting a new row
+- [ ] Decide whether `Nats-Trace-Only` can ever be turned off for a re-fire
+      (i.e. an intentional real replay, not just a dry-run) — out of scope
+      for Phase 43's ad-hoc probe, which has no captured payload to safely
+      replay in the first place
+- [ ] Same REST-route/allowlist/business-rule treatment as Phase 43, as an
+      addition to the route it introduces rather than a new one
 
 ---
 
@@ -1279,6 +1656,56 @@ Cross-reference sweep (same commit):
 - [x] `.claude/memory/` — no "Phase 41" references found (phase is
       PROPOSED/not started, has never landed, so no implementation memory
       exists yet to update)
+
+---
+
+## Renumbering (2026-08-18b — Phase 36 → Phase 43, deferred for further research)
+
+**Why:** The design-gate spike fully validated a corrected design for
+"Trace this subject" (see the phase's own "Spike findings"/"Design
+decisions" sections and BR-042), but the user decided to defer
+implementation pending further research rather than start it immediately.
+The phase was never implemented, so per this document's own convention
+("candidate/deferred phases move to the 100+ block ... since they were
+never implemented") it moves out of the low-numbered active block. Renamed
+Phase 36 → Phase 43 (the next available number after Phase 42) and moved
+it physically to sit after Phase 42, ahead of the Phase 100+ block, so
+phase numbers still read ascending top-to-bottom. Unlike prior renumbers,
+this one also carries a status change: the header now reads
+**DEFERRED 2026-08-18 — design approved, implementation on hold**, and a
+note points at the before/after summary diagram saved for when the phase
+is picked back up. No content in "Spike findings"/"Design decisions"/BR-042
+changed — only the number, position, and status.
+
+| Was | Now |
+|---|---|
+| Phase 36 (design approved 2026-08-18) — NATS 2.11 Server-Hop Tracing | **Phase 43** (DEFERRED 2026-08-18) |
+
+Cross-reference sweep (same commit):
+
+- [x] Main plan internal references — the 2026-08-17 and 2026-08-18
+      renumbering tables above document those events and are left untouched
+      on purpose, same reasoning as every prior entry in this log.
+- [x] Phase 107 ("Re-fire a Captured Trace") — added a note pointing "Phase
+      36" references at this phase's new number and status, rather than
+      rewriting its own heading/body text which was accurate at the time it
+      was written.
+- [x] Section physically moved (not just renumbered in place) to sit after
+      Phase 42 and before Phase 100, so phase numbers still read ascending
+      top-to-bottom.
+- [x] `demos/01-dictionary/BUSINESS_RULES-SHIPPING.md` — BR-042's own
+      heading already says "Phase 36" in its title; left as-is since it
+      documents the phase's history at the time BR-042 was drafted, same
+      as this log's own entries do — the plan's Phase 43 header is the
+      live cross-reference of record for the current number.
+- [x] `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-COMMUNICATIONS.md`
+      / `ARCHITECTURE-ADMIN.md` — both already say "Phase 36" from the prior
+      renumbering; left as-is for the same reason as BR-042 above (not
+      re-swept for a phase that is now deferred rather than active — revisit
+      if/when Phase 43 resumes).
+- [x] Go/Vue source comments — no "Phase 36" references found (no code has
+      been written for this phase yet)
+- [x] `.claude/memory/` — no "Phase 36" references found
 
 ---
 

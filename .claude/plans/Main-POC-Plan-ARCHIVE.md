@@ -5735,3 +5735,81 @@ renamed identifier's own definition line was in the sed's blast radius.
 - [x] 35.6 `ARCHITECTURE-ACCOUNTS.md`, `ARCHITECTURE-COMMUNICATIONS.md` § 6, BR-D40, and each package's own doc comment updated from recommendation/duplication language to implemented-shared-package language
 - [x] `ginkgo ./...` + `go test ./...` green in every service; `go build ./...`/`go vet ./...` green for all 10 workspace modules from the repo root
 - [x] Live verification: full `docker compose down -v && up --build`, all services connected with zero panics/fatals/auth violations across every container's logs, Admin UI's Request/Reply trace panel showed 45 live `api.*`/`rpc.*` traces at 0 errors incl. `api.acme-atlantic-fleet.shipping.port.list.v1` (shipping-service's refactored adapter) and `api._platform.refdata.type.list.v1` (refdata-service's)
+
+---
+
+### Phase 44 (APPROVED and IMPLEMENTED 2026-08-18) — Request/Reply gets a `Pulse` Tab
+
+#### Goal
+
+Split `TraceWaterfall.vue`'s requests/errors/avg-latency pulse strip off the
+*Traces* view entirely, onto its own tab in front of it — the Request/Reply
+panel's tab bar becomes `[Pulse] [Traces] [Messages]`. The new tab adds a
+plain-language summary of what request/reply covers and an animated
+Client → NATS Server → Service flow diagram alongside the enlarged pulse
+cards, addressing two gaps found during design review: the panel had no
+explanation of the `_INBOX.<nuid>` reply-routing mechanism anywhere, and no
+mention of `parentSpanId`/`spanId` — the mechanism that actually chains a
+multi-hop call into the tree *Traces*' waterfall reconstructs (`traceId`
+alone only says the hops belong to the same call, not how they nest).
+
+#### Design decisions
+
+- **Mockup:** `demos/01-dictionary/diagrams/admin-rpc-overview-mockup.html` — approved as-is (see ARCHITECTURE-ADMIN.md §4.5).
+- **Tab name:** `Pulse`, not `Overview` — matches the strip's own existing
+  internal name in the code (`pulse` computed, `.pulse-card`), over a more
+  generic label.
+- **Data scope (open question at mockup approval, resolved here):** `Pulse`
+  aggregates the *full* unfiltered live-buffered trace set, independent of
+  whatever `errors`/`slow`/`rest`-`nats` filters are active on the *Traces*
+  tab. Today's pulse strip reads `displayedSummaries` (post-filter) only
+  because it happens to render directly above the *Traces* toolbar; once it
+  is a separate tab, sharing that filter state would mean either duplicating
+  the filter UI on `Pulse` too or having it silently reflect filters set on a
+  tab you're not looking at — the simpler, more honest behavior is a tab that
+  always shows the whole buffer. This is the same "one deliberate omission"
+  the panel already lives by (ARCHITECTURE-ADMIN.md §4.5): an aggregate must
+  not claim more authority than what it actually counted.
+- **Following from that:** `PulsePanel.vue` gets its own bootstrap
+  (`GET /api/kv/buckets/platform/trace-request-reply/entries`) + live
+  subscribe (`notify._platform.kv.trace-request-reply.>`) + trace-grouping,
+  duplicated from `TraceWaterfall.vue` rather than extracted into a shared
+  store — matching this exact panel's own established precedent
+  (`RpcPanel.vue`'s *Messages* tab already duplicates the same bootstrap/
+  subscribe pair for a flat-by-span aggregation; `Pulse` is a third
+  aggregation shape over the same feed, grouped-by-trace like *Traces* but
+  unfiltered).
+- **Default tab:** `ui.rpcTab` default changes from `'traces'` to `'pulse'`
+  — `Pulse` is first in the tab bar and is where the explanatory content
+  lives, so it's the more useful landing view.
+- **Flow diagram:** static/illustrative (fixed example subject and span-id
+  values), not wired to live trace data — it demonstrates the mechanism, not
+  a specific trace.
+
+#### Tasks
+
+- [x] `PulsePanel.vue`: bootstrap + live-subscribe + trace-grouping (own copy,
+      trimmed to `ok`/`replyMs`/`at`), pulse bucket computation (moved from
+      `TraceWaterfall.vue`, reading the local unfiltered `traceSummaries`
+      instead of `displayedSummaries`), "what request/reply covers" card,
+      animated flow diagram, enlarged pulse cards.
+- [x] `RpcPanel.vue`: add `Pulse` tab first in the tab bar, `<KeepAlive>`-
+      wrapped like `Traces`.
+- [x] `stores/ui.js`: `rpcTab` default `'traces'` → `'pulse'`.
+- [x] `TraceWaterfall.vue`: remove the pulse strip (markup, `pulse` computed,
+      `PULSE_BUCKETS`, `.pulse-*` CSS) — rail + waterfall unchanged otherwise.
+- [x] Vitest specs: a `PulsePanel.spec.js` covering the bucket computation
+      (ported/adapted from `TraceWaterfall.spec.js`'s Phase 28p spec) against
+      the *unfiltered* feed; update/remove the Phase 28p spec in
+      `TraceWaterfall.spec.js` to match the strip's removal; `RpcPanel.spec.js`
+      updated for the new default tab.
+- [x] `BUSINESS_RULES-SHIPPING.md`: Phase 28p entry amended for the new tab
+      and unfiltered-scope behavior.
+- [x] `ginkgo`/frontend test suites green; verified live against the docker
+      stack.
+
+**Pre-existing, unrelated failures found while running the frontend suite:**
+three `TraceWaterfall.spec.js` specs ("marks a crossing...", the Phase 28k
+and Phase 28m ordering specs) fail on `main` before this phase's changes too
+(confirmed by stashing this phase's `TraceWaterfall.vue` edit and
+re-running) — not fixed here, out of scope for this phase.

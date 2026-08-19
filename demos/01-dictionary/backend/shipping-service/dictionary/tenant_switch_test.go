@@ -71,19 +71,21 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 		Expect(err).NotTo(HaveOccurred())
 	}
 
-	// shipExists reports whether shipID is reachable through the currently
-	// active tenant's admin read-path (Shape B; KV cache, falling through to
-	// Postgres) — a single-ship existence probe that, unlike a fleet-wide
-	// listing, doesn't require replaying any account's full event history to
-	// answer, and is scoped only by fleet context (never by tenant/account
-	// identity, which is implicit in whichever tenant REST's Deps currently
-	// mirror).
+	// shipExists reports whether shipID has been projected into acme's own KV
+	// cache under the acme-pacific-fleet context — every call site below only
+	// ever probes while acme is the active tenant (the isolation check further
+	// down deliberately reads globex's KV directly instead, for the same
+	// reason this doesn't fall through to Postgres: a Postgres read is shared
+	// across tenants by fleet-context string alone, so it can pass for the
+	// wrong reason). Used to go through the admin read-path REST route (Shape
+	// B diagnostics), retired along with the CQRS Shapes panel it existed
+	// for; a direct KV read is the more precise check anyway.
 	shipExists := func(shipID string) bool {
 		GinkgoHelper()
-		resp, err := client.Client().Get(client.URL + "/api/admin/read-path/ships/acme-pacific-fleet/" + shipID)
-		Expect(err).NotTo(HaveOccurred())
-		defer resp.Body.Close()
-		return resp.StatusCode == http.StatusOK
+		_, acmeReadJS := synthSrv.connectAs("acme")
+		acmeReadKV := kvstore.New(acmeReadJS, "ships")
+		_, _, err := acmeReadKV.Get(ctx, "acme-pacific-fleet", "ship."+shipID)
+		return err == nil
 	}
 
 	switchTo := func(tenant string) {

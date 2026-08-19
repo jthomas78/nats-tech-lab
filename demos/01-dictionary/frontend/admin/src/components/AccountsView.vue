@@ -6,8 +6,9 @@ import TabPanels from 'primevue/tabpanels'
 import Tabs from 'primevue/tabs'
 
 import { useUiStore } from '../stores/ui'
+import AccountsOverviewPanel from './AccountsOverviewPanel.vue'
 import AccountsPanel from './AccountsPanel.vue'
-import TopologyPanel from './TopologyPanel.vue'
+import SharingPanel from './SharingPanel.vue'
 
 const ui = useUiStore()
 </script>
@@ -18,19 +19,22 @@ const ui = useUiStore()
     class="panel-tabs"
   >
     <TabList>
+      <Tab value="overview">Overview</Tab>
       <Tab value="provisioning">Provisioning</Tab>
-      <Tab value="topology">Topology</Tab>
+      <Tab value="sharing">Sharing</Tab>
     </TabList>
     <TabPanels>
+      <!-- v-if, not just a hidden TabPanel — each of these polls on its own
+           onMounted; only mounting the active tab's panel keeps the other
+           two polls from running while the user sits elsewhere. -->
+      <TabPanel value="overview">
+        <AccountsOverviewPanel v-if="ui.accountsTab === 'overview'" />
+      </TabPanel>
       <TabPanel value="provisioning">
         <AccountsPanel />
       </TabPanel>
-      <!-- v-if, not just a hidden TabPanel — TopologyPanel starts a 15s
-           refresh() poll onMounted; only mounting it while its tab is
-           actually active keeps that poll from running while the user sits
-           on Provisioning. -->
-      <TabPanel value="topology">
-        <TopologyPanel v-if="ui.accountsTab === 'topology'" />
+      <TabPanel value="sharing">
+        <SharingPanel v-if="ui.accountsTab === 'sharing'" />
       </TabPanel>
     </TabPanels>
   </Tabs>

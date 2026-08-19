@@ -50,96 +50,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/admin/read-path/cache/{context}/{shipID}": {
-            "delete": {
-                "description": "Evicts the ship's KV cache entry to demonstrate the cache-miss → Postgres fallthrough → backfill path. Admin diagnostics only, not a business route.",
-                "tags": [
-                    "admin"
-                ],
-                "summary": "Evict ship cache entry (admin read-path diagnostics)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Fleet context",
-                        "name": "context",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Ship identifier",
-                        "name": "shipID",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "Cache entry evicted"
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/admin/read-path/ships/{context}/{shipID}": {
-            "get": {
-                "description": "Returns current ship state from the Shape B read model: checks KV cache first, falls through to Postgres on a miss and backfills the cache. Admin diagnostics only, not a business route.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "admin"
-                ],
-                "summary": "Get ship (admin read-path diagnostics — KV cache → Postgres)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Fleet context (e.g. acme, acme-atlantic-fleet)",
-                        "name": "context",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Ship identifier (e.g. orient-express)",
-                        "name": "shipID",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/rest.shipBResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/rest.errorResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/api/tenant": {
             "get": {
                 "produces": [
@@ -218,72 +128,6 @@ const docTemplate = `{
                 }
             }
         },
-        "domain.ShipState": {
-            "type": "object",
-            "properties": {
-                "context": {
-                    "description": "fleet / KV-key-prefix qualifier",
-                    "type": "string"
-                },
-                "currentPort": {
-                    "description": "\"\" = at sea",
-                    "type": "string"
-                },
-                "id": {
-                    "description": "surrogate key (UUID) — aggregate identity",
-                    "type": "string"
-                },
-                "shipID": {
-                    "description": "mutable natural key (call-sign / fleet code)",
-                    "type": "string"
-                },
-                "shipName": {
-                    "type": "string"
-                },
-                "status": {
-                    "description": "AIS navigational status",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/domain.ShipStatus"
-                        }
-                    ]
-                },
-                "updatedAt": {
-                    "type": "string"
-                }
-            }
-        },
-        "domain.ShipStatus": {
-            "type": "string",
-            "enum": [
-                "in-transit",
-                "docked",
-                "at-anchor",
-                "not-under-command",
-                "restricted-manoeuvrability"
-            ],
-            "x-enum-comments": {
-                "StatusAtAnchor": "amber",
-                "StatusDocked": "green",
-                "StatusInTransit": "blue",
-                "StatusNotUnderCommand": "red",
-                "StatusRestrictedManoeuvrability": "orange"
-            },
-            "x-enum-descriptions": [
-                "blue",
-                "green",
-                "amber",
-                "red",
-                "orange"
-            ],
-            "x-enum-varnames": [
-                "StatusInTransit",
-                "StatusDocked",
-                "StatusAtAnchor",
-                "StatusNotUnderCommand",
-                "StatusRestrictedManoeuvrability"
-            ]
-        },
         "rest.errorResponse": {
             "type": "object",
             "properties": {
@@ -300,21 +144,6 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/domain.PortRecord"
                     }
-                }
-            }
-        },
-        "rest.shipBResponse": {
-            "type": "object",
-            "properties": {
-                "cacheHit": {
-                    "type": "boolean"
-                },
-                "ship": {
-                    "$ref": "#/definitions/domain.ShipState"
-                },
-                "source": {
-                    "description": "\"kv-cache\" or \"postgres\"",
-                    "type": "string"
                 }
             }
         },
