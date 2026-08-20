@@ -529,7 +529,7 @@ rationale or checklist detail).
 
 ---
 
-### Phase 38 (PROPOSED — awaiting approval) — Transporter Registration & Vetting (Organizations)
+### Phase 38 (IN PROGRESS — design approved 2026-08-20; 38a/38b/38c-i/38d-i/38c-ii DONE; then 38d-ii → 38e, not started) — Transporter Registration & Vetting (Organizations)
 
 > **Renumbered 2026-08-20** from Phase 46 to Phase 38 — see the
 > "Renumbering (2026-08-20 — Phase 46 → Phase 38)" log near the end of this
@@ -638,7 +638,7 @@ Full design lives in
   resolved against `compliance_documents`' `(trading_partner_id, type)` PK;
   and a **new HTTP ingress**, since the service's only command surface is
   NATS `micro` (JSON, non-streaming, `max_payload`-bounded) after Phase 33.5
-  deleted its REST routes — real 38c work the design had assumed away.
+  deleted its REST routes — real 38c-ii work the design had assumed away.
 - **Concurrency now needs two mechanisms**, a direct consequence of the
   shared-identity split: `TransporterProfile` draws on Phase 101's
   optimistic-concurrency design (`Nats-Expected-Last-Subject-Sequence`);
@@ -691,7 +691,7 @@ Full design lives in
   with real fidelity if/when a Customer phase exists.
 - **Rename last**: `organizations` naming used in new subjects from day
   one (cheap now, expensive to migrate later), but the actual
-  service/package/UI-label rename is sub-phase 38e, after 38a–38d ship and
+  service/package/UI-label rename is sub-phase 38e, after 38a–38d-ii ship and
   verify under the current name.
 - **The four ADR-048/049 open questions are now resolved** (design doc §
   "Open Questions" 4–7): (4) subject-guard shape —
@@ -706,14 +706,15 @@ Full design lives in
   used in the Object Store object name; (7) ADR-046's "zero changes to
   `tradingpartner`" is corrected in place (both changes are additive, the
   decision itself is unaffected). Still open: exact Operating Areas region
-  list source; whether sub-phases 38a–38e stay lettered under one phase
-  number or split at implementation time; and question 3, where
-  `partner-update` + `version` land (deferring past 38a is fine, past 38d is
-  not — that's the sub-phase shipping the editable Company Information tab).
+  list source. Question 2 (sub-phase numbering) is settled in practice —
+  letters stay under one phase number, subdividing with roman numerals
+  (38c-i/38c-ii) when scope demands. Question 3 (where `partner-update` +
+  `version` land) is closed — 38c-i; see the note below the sub-phase list.
 
 #### Sub-phases (design doc § "Naming & Sequencing")
 
-- [ ] **38a** — `TransporterProfile` domain package, event-sourcing
+- [x] **38a** — DONE 2026-08-20 (BR-TP18–BR-TP20). `TransporterProfile`
+      domain package, event-sourcing
       skeleton (no Temporal yet): aggregate keyed by the shared
       `TradingPartner` ID, commands, JetStream stream, Postgres projection,
       KV cache — every publish carrying
@@ -728,9 +729,10 @@ Full design lives in
       `PartnerTypeTransporter` needs no change, no retirement — its broader
       "zero changes to `tradingpartner`" claim is corrected (not
       retracted) by ADR-048/049's two additive changes, tracked separately
-      under 38c (`compliance_documents` PK) and open question 3
-      (`partner-update`), neither blocking this sub-phase's start.
-- [ ] **38b** — Temporal vetting workflow, GIT saga, compensations,
+      under 38c-i (`compliance_documents` PK, `partner-update`), neither
+      blocking this sub-phase's start.
+- [x] **38b** — DONE 2026-08-20 (BR-TP21–BR-TP28). Temporal vetting
+      workflow, GIT saga, compensations,
       durability test, **plus a `TransporterGitMonitorWorkflow` Temporal
       cron workflow** (resolves ADR-049 finding 2 / design doc "Open
       questions" 5): started once vetting reaches `Vetted`, periodically
@@ -746,34 +748,222 @@ Full design lives in
       if skipped, not optional polish. **Plus ADR-049 finding 4**: a
       sequence conflict must surface as "try again," never reach the
       compensation path.
-- [ ] **38c** — NATS Object Store document upload/download, **including the
-      `compliance_documents` schema change** (resolves ADR-048 finding 2c /
-      design doc "Open questions" 6): PK widens to
-      `(trading_partner_id, id)` with a service-minted document ID —
-      `document-add` becomes an insert, superseding a document becomes an
-      explicit transition — needed here regardless of the multi-document
-      question, since the same ID is the Object Store object name's
-      `{documentID}` token. **Must satisfy
+- [x] **38c-i** — DONE 2026-08-20 (BR-TP29–BR-TP36). `tradingpartner` schema
+      pass + editable Company Information. **Split out of a single 38c on 2026-08-20**: once 38c
+      absorbed `partner-update` (open question 3) on top of Object Store,
+      the PK widening, and a new HTTP ingress, it carried two unrelated
+      red→green cycles — a pure-Postgres/RPC one and a binary-transport
+      one. Splitting keeps each to one business-rules pass. **Both
+      `tradingpartner` schema changes land here, in one migration pass**,
+      so 38c-ii never touches the schema:
+      - The `compliance_documents` PK widens to
+        `(trading_partner_id, id)` with a service-minted document ID
+        (resolves ADR-048 finding 2c / design doc "Open questions" 6) —
+        `document-add` becomes an insert, superseding a document becomes an
+        explicit transition. Landed here rather than with the blob work
+        because it is a plain schema/CRUD change, and because the same ID
+        becomes the Object Store object name's `{documentID}` token that
+        38c-ii depends on.
+      - The `version` column plus `partner-update` (decided 2026-08-20,
+        resolves design-doc "Open questions" 3). Editing Company
+        Information is a confirmed requirement, so the read-only fallback
+        is off the table. Scope, all of it absent today (verified): a
+        details-mutator domain method on `TradingPartner`; a matching
+        repository method (the port exposes only
+        `Register`/`Get`/`List`/`Activate`/`Suspend`/`Reactivate`); a
+        `partner.update` handler, which makes it the **15th** `api.*`
+        endpoint (`browserrpc_test.go`'s "advertises all 14 api.*
+        endpoints" spec must be updated in the same task); the `version`
+        column with `UPDATE … WHERE id = ? AND version = ?` and a 409
+        surfaced through `browserrpc`; and **`Register` widening** to
+        accept `companyName`/`registrationNo`/`vatRegistrationNo`/`tradingAs`
+        optionally, since `registerRequest` currently accepts only
+        `{Name, Type}` and *no code path writes those columns at all*
+        today. Widening `Register` rather than having 38d-i's wizard do
+        register-then-update deliberately avoids introducing the very
+        half-commit shape ADR-049 finding 6 warns about.
+
+      Needs its own business-rules-first pass (BR-TP29+) including a spec
+      for the lost-update-across-think-time case a pessimistic row lock
+      structurally cannot catch (ADR-049 finding 5a). Conflict
+      *presentation* is deliberately NOT decided here — that stays 38d-i's
+      call.
+- [x] **38d-i** — DONE 2026-08-20 (BR-TP37–BR-TP39). Transporter UI: dedicated
+      component, registration wizard, tabbed detail view, state-transition
+      stepper, Company Information editing. **Split from a single 38d on
+      2026-08-20**, and **not purely frontend** — see the correction note below.
+      **As built:** a dedicated `TransporterPanel.vue` (Shippers stay on
+      `TradingPartnersPanel.vue`) with a **drill-in** detail view rather than a
+      table expansion row — five tabs, an editable form and a vetting stepper do
+      not fit legibly in a nested row. Registration is a 3-step wizard that
+      **commits at step 1** (fleet assets and documents need an existing id),
+      which the wizard states rather than hiding.
+      Two things found while building, both recorded because neither was
+      predicted by the design: (1) the browser's NATS request helper discarded
+      the error envelope's `conflict`/`notFound` flags, so **BR-TP39's banner
+      had nothing to trigger on** and a 409 was indistinguishable from a 500 in
+      every frontend in this repo — fixed in
+      `frontend/refdata/src/nats/connectionFactory.js` with specs proven to fail
+      without it; (2) **no `vehicle-type` corpus is seeded in this dev stack**,
+      so BR-TP14 rejects every fleet-asset add. That is pre-existing (the
+      shared panel had it too) and out of this sub-phase's scope — the one-off
+      `refdata-service/cmd/seed-vehicle-types` seeder targets context
+      `linebooker` over the REST surface Phase 33 retired, so making fleet
+      assets work end-to-end is its own small task, not a 38d-i fix.
+      Verified live against the composed stack: wizard → drill-in, GIT badge
+      re-deriving `None` → `Pending` → `Active` as documents changed, the
+      BR-TP39 banner on a real 409 (row bumped out-of-band mid-edit) with typed
+      values preserved, and Overwrite winning at v3. Carries one small backend
+      task first: a **`partner.profile.get` `api.*` endpoint (the 16th)**
+      wrapping the `CanonicalProjectionReader` 38a already built, plus the
+      derived **GIT status** (5 values, computed worst-of-documents per the
+      design's "Data sections", never hand-set). Without that endpoint the
+      browser has no route to vetting state at all and 38b's entire Temporal
+      saga is invisible to any UI. Per-section save boundaries aligned to the
+      aggregate boundary, conflict UI naming the losing section (ADR-049
+      finding 6). **Conflict presentation decided 2026-08-20** (closing the
+      last open half of design question 3): an **inline banner on the
+      affected section that keeps the operator's typed values** and offers
+      Reload (discard mine) or Overwrite (re-read the version, reapply
+      mine) — nothing is discarded without an explicit choice, since
+      silently reloading over an operator's edits is the very loss BR-TP34
+      exists to prevent.
+      **Runs before 38c-ii, so the Documents tab has no binary transport
+      underneath it yet.** Ship that tab against 38c-i's
+      `compliance_documents` metadata only — rows, type, status,
+      service-minted document ID, and the review transitions — with
+      upload/download explicitly deferred, not faked. Do not stub an upload
+      that silently discards the file; a visibly disabled or "coming in
+      38c-ii" affordance is honest, a no-op file input is a demo trap.
+      Rate Sheets ships as the design's stub/empty-state tab (no backend by
+      design).
+- [x] **38c-ii** — DONE 2026-08-20 (BR-TP40–BR-TP45). NATS Object Store
+      document upload/download. **Ran after
+      38d-i** (ordering decided 2026-08-20). Depends on 38c-i's
+      document ID (the object name's `{documentID}` token), and completes
+      38d-i's Documents tab by wiring real upload/download to the controls
+      38d-i deliberately left inert. **Must satisfy
       [ADR-048](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-048-document-storage-nats-object-store.md)'s
-      other four required amendments** — explicit bucket/file size limits +
-      stream budget check, UUID-based object names (no user filenames),
-      blob-then-event write order, and a dedicated HTTP ingress (a scoped,
-      deliberate partial reversal of Phase 33.5's REST retirement — budget
-      it, the service has no binary path today).
-- [ ] **38d** — Frontend: dedicated Transporter component, registration
-      wizard, tabbed detail view, state-transition stepper, Operating
-      Areas map. Per-section save boundaries aligned to the aggregate
-      boundary, conflict UI naming the losing section (ADR-049 finding 6);
-      and either `partner-update` + `version` land here or earlier, or
-      Company Information ships read-only (ADR-049 finding 7).
+      four remaining required amendments** — explicit bucket/file size
+      limits + stream budget check, UUID-based object names (no user
+      filenames), blob-then-event write order, and a dedicated HTTP
+      ingress (a scoped, deliberate partial reversal of Phase 33.5's REST
+      retirement — budget it, the service has no binary path today).
+      Its own business-rules pass, numbered after whatever 38c-i and 38d-i
+      consume. Carries a small frontend tail (the deferred upload/download
+      controls), so it is not a backend-only sub-phase despite its name.
+      **As built:** all four ADR-048 amendments discharged. The one that was
+      *not* a wiring task is the ingress's auth — ADR-048 said "own auth", but
+      **no JWT verification exists anywhere in this repo** (accounts-service
+      only mints NATS credentials; every other caller authenticates by
+      connecting to an account). Rather than build a second authentication
+      system for two byte routes, BR-TP41 mints a **single-use, 2-minute
+      capability ticket** over the authenticated NATS connection, and the HTTP
+      call carries only that — the tenancy decision stays server-side on the
+      account boundary. Also as built: bytes are **write-once** (BR-TP43),
+      with supersede-and-replace as the correction path, since overwriting an
+      object would purge bytes the immutable log still references; the raw
+      request body is the transport, not `multipart/form-data`, there being
+      exactly one field; and `nginx.conf` needed `client_max_body_size 10m`,
+      as nginx's 1 MiB default would have returned a 413 the service never saw.
+      **Stream-budget check (ADR-048's precondition) done against the running
+      stack:** ACME 5→6 streams of 10, GLOBEX 3→4 — it fits, no `/jslimits`
+      raise needed, and the ADR's worry about refdata's versioned KV buckets
+      was misplaced (those live in PLATFORM, limit 20). Verified live: real
+      upload with a non-ASCII filename, byte-identical download, ticket replay
+      → 403, second upload → `conflict: true`, 11 MiB → 413 leaving the
+      document file-less and a 10 MiB orphan object in the bucket — BR-TP43's
+      deliberate trade, observed rather than asserted.
+- [ ] **38d-ii** — Operating Areas + Tracking Credentials. Split out because
+      **neither has any backend at all** (verified 2026-08-20: no
+      `OperatingArea` persistence, no region corpus, no `organizations-secrets`
+      KV command — these were never built by 38a/38b/38c-i). Each is a new
+      data section needing persistence, not a frontend gap: Operating Areas
+      needs the refdata-owned Country -> Region corpus that **open question 1
+      still has not sourced**, plus the `TransporterOperatingArea(transporterId,
+      regionCode, level)` join and the Leaflet/GeoJSON map; Tracking
+      Credentials needs the at-rest-encrypted KV bucket and a command that
+      never publishes the secret onto the event log. Splitting also stops
+      open question 1 from blocking everything else in the Transporter UI.
 - [ ] **38e** — `organizations` rename (service, packages, subjects, UI
       labels)
 
-**Stays PROPOSED — no tasks, tests, or code written until this design is
-approved**, per this repo's design gate. Once approved, each sub-phase gets
-its own business-rules-first pass (BR-TP-style rule IDs, or a new
-`BUSINESS_RULES-ORGANIZATIONS.md` once 38e lands) and Ginkgo specs derived
-from those rules before implementation, per the standing AI Agent Workflow.
+**Design approved 2026-08-20**; implementation is under way sub-phase by
+sub-phase. Each sub-phase still gets its own business-rules-first pass
+(BR-TP-style rule IDs, or a new `BUSINESS_RULES-ORGANIZATIONS.md` once 38e
+lands) and Ginkgo specs derived from those rules before implementation, per
+the standing AI Agent Workflow — 38a landed BR-TP18–BR-TP20 and 38b landed
+BR-TP21–BR-TP28 that way.
+
+Two design amendments were decided during 38b and are **not** reflected in
+the design-decisions prose above — see `ARCHITECTURE-ORGANIZATIONS.md`
+§ "Implementation notes (38a/38b as built)" for both:
+
+- **`FleetAvailabilityGate`** is a boolean owned by `TransporterProfile`'s
+  own aggregate state; `FleetAsset.AvailableForAssignment` is a **computed**
+  read-layer join of the legacy per-asset rows with that gate, not a column
+  `TransporterProfile` writes. This keeps `FleetAsset` in
+  `tradingpartner/internal/domain` untouched, preserving 38a's boundary.
+- **`HandleGitStatusDrop`** is one orchestration command doing both halves
+  of the late-GIT reaction (append `FleetAvailabilityRevoked`, then
+  `TradingPartner.Suspend()`), closing the gap where ADR-047 and ADR-049
+  each specified only one of the two.
+
+**Open question 3 is now closed (2026-08-20):** `partner-update` + the
+`version` column land in **38c-i**, and `Register` widens to accept Company
+Information fields. Editing Company Information was confirmed as a hard
+requirement, so the "ship it read-only" fallback the design offered is
+withdrawn. Detail in 38c-i's bullet above. What remains open is only the
+conflict *presentation* (dialog vs. inline, and what recovery it offers),
+which is 38d-i's decision.
+
+**Sub-phase 38c was split into 38c-i and 38c-ii (2026-08-20).** Absorbing
+`partner-update` left one sub-phase carrying two unrelated concerns — a
+Postgres/RPC schema-and-editing pass and a binary-transport/Object Store
+pass — which would have meant two business-rules passes and two red→green
+cycles inside a single checklist item. 38c-i takes both `tradingpartner`
+schema changes (the `compliance_documents` PK and the `version` column) in
+one migration, so 38c-ii is purely the blob path and touches no schema.
+This is a partial answer to open question 2 (whether 38a–38e stay lettered
+under one phase number): they stay lettered, and a letter subdivides with a
+roman numeral when scope demands it rather than being promoted to its own
+phase number.
+
+**Execution order is 38a → 38b → 38c-i → 38d-i → 38c-ii → 38d-ii → 38e
+(decided 2026-08-20; 38d split into 38d-i/38d-ii the same day).** The sub-phase list above is written in that order, so **the
+letters are no longer alphabetical** — `38c-ii` deliberately sits after
+`38d-i`. Labels were kept stable rather than reshuffled, because they are
+already cited from `ARCHITECTURE-ORGANIZATIONS.md`, ADR-048 and ADR-049,
+and renaming them would silently invalidate those references; read the list
+order, not the letters, as the schedule.
+
+**Correction (2026-08-20), recorded because the earlier wording here was
+wrong:** this section previously called 38d "purely frontend against a
+working API". That held for Company Information, Fleet and Documents, but
+**not** for the vetting UI. A check before starting 38d-i found that no
+`api.*` endpoint exposes `TransporterProfile` at all — 38a wired its
+projection reader only into the activation guard — so the state-transition
+stepper and the GIT/vetting tab, the features Phase 38 most exists to
+demonstrate, had no data source. 38d-i therefore carries a small backend
+task (the 16th endpoint) rather than being frontend-only. Operating Areas
+and Tracking Credentials turned out to have no backend whatsoever and moved
+to 38d-ii. The lesson worth keeping: "frontend-only" was asserted from the
+sub-phase's description, not verified against the endpoint list.
+
+Why 38d-i still moves ahead of 38c-ii: after the split, 38d-i depends only
+on 38c-i plus its own one endpoint
+(`partner-update`, `version`, and the `compliance_documents` metadata
+shape), and nothing in 38c-ii's blob path. Running the frontend earlier
+means the wizard, the editable Company Information tab, the state-transition
+stepper and the whole vetting lifecycle become demonstrable end-to-end
+sooner, and — more usefully — the frontend exercises 38a/38b/38c-i's API
+surface while that code is still fresh, so anything wrong in it surfaces
+before the binary transport is layered on top. The cost is bounded and
+known: 38d-i's Documents tab ships without upload/download, and 38c-ii picks
+up a small frontend tail to finish it. That is the trade accepted here —
+one deliberately incomplete tab, in exchange for validating the API early.
+The alternative ordering's only advantage was letting the frontend ship every tab
+complete in one pass; nothing else about it was better.
 
 ---
 

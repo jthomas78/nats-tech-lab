@@ -51,6 +51,8 @@ func (f *fakePartnerRepo) Register(_ context.Context, tp domain.TradingPartner) 
 	defer f.mu.Unlock()
 	f.nextID++
 	tp.ID = fmt.Sprintf("tp-%d", f.nextID)
+	// BR-TP33: rows start at version 1, mirroring the column default.
+	tp.Version = 1
 	f.items[tp.ID] = tp
 	return tp, nil
 }
@@ -92,6 +94,9 @@ func (f *fakePartnerRepo) transition(
 	if err != nil {
 		return domain.TradingPartner{}, err
 	}
+	// BR-TP33: every successful write bumps version, lifecycle transitions
+	// included — mirroring the repository's `version = version + 1`.
+	next.Version = tp.Version + 1
 	f.items[id] = next
 	return next, nil
 }
@@ -106,6 +111,124 @@ func (f *fakePartnerRepo) Suspend(_ context.Context, id, reason string) (domain.
 
 func (f *fakePartnerRepo) Reactivate(_ context.Context, id string) (domain.TradingPartner, error) {
 	return f.transition(id, func(tp domain.TradingPartner) (domain.TradingPartner, error) { return tp.Reactivate() })
+}
+
+// UpdateDetails mirrors the Postgres repository's BR-TP34 path: the domain
+// method applies the guard and sets the next version, so this must not bump
+// version a second time on top of it.
+func (f *fakePartnerRepo) UpdateDetails(_ context.Context, id string, expectedVersion int, details domain.Details) (domain.TradingPartner, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	tp, ok := f.items[id]
+	if !ok {
+		return domain.TradingPartner{}, domain.ErrTradingPartnerNotFound
+	}
+	next, err := tp.UpdateDetails(expectedVersion, details)
+	if err != nil {
+		return domain.TradingPartner{}, err
+	}
+	f.items[id] = next
+	return next, nil
+}
+
+// fakeDocRepo mirrors the Postgres ComplianceDocumentRepository's semantics:
+// AddDocument supersedes the incumbent of that type and inserts a new row with
+// a minted ID (BR-TP29/BR-TP30), ListDocuments returns current rows only
+// (BR-TP31), and the transitions address a document by ID.
+//
+// It exists because the roundtrip harness previously passed a nil document
+// repository — so no document endpoint had ever been exercised over api.* at
+// all, and BR-TP38's derived GIT status has nothing to derive from without it.
+type fakeDocRepo struct {
+	mu     sync.Mutex
+	nextID int
+	byID   map[string]map[string]domain.ComplianceDocument // partnerID -> docID -> doc
+}
+
+func newFakeDocRepo() *fakeDocRepo {
+	return &fakeDocRepo{byID: map[string]map[string]domain.ComplianceDocument{}}
+}
+
+func (f *fakeDocRepo) AddDocument(_ context.Context, partnerID string, doc domain.ComplianceDocument) (domain.ComplianceDocument, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.byID[partnerID] == nil {
+		f.byID[partnerID] = map[string]domain.ComplianceDocument{}
+	}
+	// BR-TP30: supersede the current document of this type, whatever its status.
+	for id, existing := range f.byID[partnerID] {
+		if existing.Type == doc.Type && existing.Status != domain.DocumentStatusSuperseded {
+			superseded, err := existing.Supersede()
+			if err != nil {
+				return domain.ComplianceDocument{}, err
+			}
+			f.byID[partnerID][id] = superseded
+		}
+	}
+	f.nextID++
+	doc.ID = fmt.Sprintf("doc-%d", f.nextID)
+	f.byID[partnerID][doc.ID] = doc
+	return doc, nil
+}
+
+func (f *fakeDocRepo) ListDocuments(_ context.Context, partnerID string) ([]domain.ComplianceDocument, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := []domain.ComplianceDocument{}
+	for _, doc := range f.byID[partnerID] {
+		if doc.Status != domain.DocumentStatusSuperseded {
+			out = append(out, doc)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeDocRepo) transition(
+	partnerID, documentID string, fn func(domain.ComplianceDocument) (domain.ComplianceDocument, error),
+) (domain.ComplianceDocument, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	doc, ok := f.byID[partnerID][documentID]
+	if !ok {
+		return domain.ComplianceDocument{}, domain.ErrDocumentNotFound
+	}
+	next, err := fn(doc)
+	if err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	f.byID[partnerID][documentID] = next
+	return next, nil
+}
+
+func (f *fakeDocRepo) ApproveDocument(_ context.Context, partnerID, documentID string) (domain.ComplianceDocument, error) {
+	return f.transition(partnerID, documentID, domain.ComplianceDocument.Approve)
+}
+
+func (f *fakeDocRepo) RejectDocument(_ context.Context, partnerID, documentID string) (domain.ComplianceDocument, error) {
+	return f.transition(partnerID, documentID, domain.ComplianceDocument.Reject)
+}
+
+func (f *fakeDocRepo) ResubmitDocument(_ context.Context, partnerID, documentID string) (domain.ComplianceDocument, error) {
+	return f.transition(partnerID, documentID, domain.ComplianceDocument.Resubmit)
+}
+
+// GetDocument and AttachFile arrived with the port in Phase 38c-ii. Unlike
+// ListDocuments, GetDocument returns superseded rows too — BR-TP43 keeps their
+// bytes retrievable.
+func (f *fakeDocRepo) GetDocument(_ context.Context, partnerID, documentID string) (domain.ComplianceDocument, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	doc, ok := f.byID[partnerID][documentID]
+	if !ok {
+		return domain.ComplianceDocument{}, domain.ErrDocumentNotFound
+	}
+	return doc, nil
+}
+
+func (f *fakeDocRepo) AttachFile(_ context.Context, partnerID, documentID string, file domain.DocumentFile) (domain.ComplianceDocument, error) {
+	return f.transition(partnerID, documentID, func(doc domain.ComplianceDocument) (domain.ComplianceDocument, error) {
+		return doc.AttachFile(file)
+	})
 }
 
 type fakeFleetRepo struct {
@@ -189,6 +312,7 @@ var _ = Describe("api.* round trips (Phase 26h)", func() {
 	var (
 		nc        *nats.Conn
 		partners  *fakePartnerRepo
+		docs      *fakeDocRepo
 		fleet     *fakeFleetRepo
 		validator *recordingValidator
 		audit     *fakeAudit
@@ -209,13 +333,14 @@ var _ = Describe("api.* round trips (Phase 26h)", func() {
 	BeforeEach(func() {
 		nc = newTestNATSConn()
 		partners = newFakePartnerRepo()
+		docs = newFakeDocRepo()
 		fleet = newFakeFleetRepo()
 		validator = &recordingValidator{result: true}
 		audit = &fakeAudit{}
 
 		adapter, err := browserrpc.New(nc, browserrpc.Deps{
 			TradingPartners: commands.NewTradingPartnerHandler(partners, audit),
-			Documents:       commands.NewComplianceDocumentHandler(partners, nil),
+			Documents:       commands.NewComplianceDocumentHandler(partners, docs),
 			FleetAssets:     commands.NewFleetAssetHandler(partners, fleet, validator),
 			Audit:           audit,
 			// The tenant this adapter's connection authenticated into.
@@ -328,6 +453,218 @@ var _ = Describe("api.* round trips (Phase 26h)", func() {
 			Expect(json.Unmarshal(reply.Data, &out)).To(Succeed())
 			Expect(out.NotFound).To(BeTrue())
 			Expect(out.Error).To(ContainSubstring("not found"))
+		})
+
+		Context("BR-TP37/BR-TP38 vetting state over api.*", func() {
+			It("answers hasProfile=false for a Shipper rather than erroring", func() {
+				var registered struct {
+					ID string `json:"id"`
+				}
+				request("api.acme.trading-partner.partner.register.v1",
+					map[string]any{"name": "Initech", "type": "SHIPPER"}, &registered)
+
+				var out struct {
+					HasProfile bool   `json:"hasProfile"`
+					GitStatus  string `json:"gitStatus"`
+				}
+				request("api.acme.trading-partner.partner.profile.v1",
+					map[string]any{"id": registered.ID}, &out)
+
+				Expect(out.HasProfile).To(BeFalse(), "a Shipper legitimately has no TransporterProfile")
+				Expect(out.GitStatus).To(Equal("None"))
+			})
+
+			It("derives GIT status from the partner's documents (BR-TP38)", func() {
+				var registered struct {
+					ID string `json:"id"`
+				}
+				request("api.acme.trading-partner.partner.register.v1",
+					map[string]any{"name": "Acme Trucking", "type": "TRANSPORTER"}, &registered)
+
+				var out struct {
+					GitStatus string `json:"gitStatus"`
+				}
+				request("api.acme.trading-partner.partner.profile.v1",
+					map[string]any{"id": registered.ID}, &out)
+				Expect(out.GitStatus).To(Equal("None"), "no GIT document yet")
+
+				var added struct {
+					ID string `json:"id"`
+				}
+				request("api.acme.trading-partner.document.add.v1", map[string]any{
+					"id": registered.ID, "type": "GOODS_IN_TRANSIT", "reference": "s3://git.pdf",
+				}, &added)
+
+				request("api.acme.trading-partner.partner.profile.v1",
+					map[string]any{"id": registered.ID}, &out)
+				Expect(out.GitStatus).To(Equal("Pending"), "a pending GIT document")
+
+				request("api.acme.trading-partner.document.approve.v1",
+					map[string]any{"id": registered.ID, "documentId": added.ID}, nil)
+
+				request("api.acme.trading-partner.partner.profile.v1",
+					map[string]any{"id": registered.ID}, &out)
+				Expect(out.GitStatus).To(Equal("Active"), "approved and unexpired")
+			})
+
+			It("returns 404 for an unknown partner, not an empty profile", func() {
+				reply, err := nc.Request("api.acme.trading-partner.partner.profile.v1",
+					[]byte(`{"id":"does-not-exist"}`), requestTimeout)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(reply.Header.Get("Nats-Service-Error-Code")).To(Equal("404"),
+					"an unknown ID must not masquerade as a partner with no profile")
+			})
+		})
+
+		Context("BR-TP32/BR-TP34/BR-TP35 editable Company Information over api.*", func() {
+			It("registers with Company Information in one call (BR-TP35)", func() {
+				var registered struct {
+					ID                string `json:"id"`
+					CompanyName       string `json:"companyName"`
+					RegistrationNo    string `json:"registrationNo"`
+					VatRegistrationNo string `json:"vatRegistrationNo"`
+					TradingAs         string `json:"tradingAs"`
+					Version           int    `json:"version"`
+				}
+				request("api.acme.trading-partner.partner.register.v1", map[string]any{
+					"name":              "Globex",
+					"type":              "SHIPPER",
+					"companyName":       "Globex (Pty) Ltd",
+					"registrationNo":    "2019/123456/07",
+					"vatRegistrationNo": "4123456789",
+					"tradingAs":         "Globex Freight",
+				}, &registered)
+
+				Expect(registered.CompanyName).To(Equal("Globex (Pty) Ltd"))
+				Expect(registered.RegistrationNo).To(Equal("2019/123456/07"))
+				Expect(registered.VatRegistrationNo).To(Equal("4123456789"))
+				Expect(registered.TradingAs).To(Equal("Globex Freight"))
+				Expect(registered.Version).To(Equal(1), "BR-TP33: a new row starts at version 1")
+			})
+
+			It("updates Company Information and bumps the version (BR-TP32/BR-TP33)", func() {
+				var registered struct {
+					ID      string `json:"id"`
+					Version int    `json:"version"`
+				}
+				request("api.acme.trading-partner.partner.register.v1",
+					map[string]any{"name": "Globex", "type": "SHIPPER"}, &registered)
+
+				var updated struct {
+					Name        string `json:"name"`
+					CompanyName string `json:"companyName"`
+					Type        string `json:"type"`
+					Context     string `json:"context"`
+					Status      string `json:"status"`
+					Version     int    `json:"version"`
+				}
+				request("api.acme.trading-partner.partner.update.v1", map[string]any{
+					"id":          registered.ID,
+					"version":     registered.Version,
+					"name":        "Globex International",
+					"companyName": "Globex International (Pty) Ltd",
+				}, &updated)
+
+				Expect(updated.Name).To(Equal("Globex International"))
+				Expect(updated.CompanyName).To(Equal("Globex International (Pty) Ltd"))
+				Expect(updated.Version).To(Equal(registered.Version + 1))
+				// BR-TP32: these three are not reachable through this endpoint,
+				// even though a caller could put them in the body.
+				Expect(updated.Type).To(Equal("SHIPPER"))
+				Expect(updated.Context).To(Equal("acme"))
+				Expect(updated.Status).To(Equal("REGISTERED"))
+			})
+
+			It("ignores type/context/status supplied in an update body (BR-TP32)", func() {
+				var registered struct {
+					ID      string `json:"id"`
+					Version int    `json:"version"`
+				}
+				request("api.acme.trading-partner.partner.register.v1",
+					map[string]any{"name": "Globex", "type": "SHIPPER"}, &registered)
+
+				var updated struct {
+					Type    string `json:"type"`
+					Context string `json:"context"`
+					Status  string `json:"status"`
+				}
+				request("api.acme.trading-partner.partner.update.v1", map[string]any{
+					"id":      registered.ID,
+					"version": registered.Version,
+					"name":    "Globex",
+					"type":    "TRANSPORTER",
+					"context": "someone-elses-context",
+					"status":  "ACTIVE",
+				}, &updated)
+
+				Expect(updated.Type).To(Equal("SHIPPER"), "type is immutable — a Shipper must not become a Transporter via an edit")
+				Expect(updated.Context).To(Equal("acme"), "context comes from the subject, never the body")
+				Expect(updated.Status).To(Equal("REGISTERED"), "status has its own lifecycle endpoints")
+			})
+
+			// BR-TP34 over the wire: the rule says 409, and before 38c-i the
+			// shared api.* reply path had no 409 at all (every conflict was a 500),
+			// so this spec pins the code as well as the rejection.
+			It("rejects a stale version with a 409, not a 500 (BR-TP34)", func() {
+				var registered struct {
+					ID      string `json:"id"`
+					Version int    `json:"version"`
+				}
+				request("api.acme.trading-partner.partner.register.v1",
+					map[string]any{"name": "Globex", "type": "SHIPPER"}, &registered)
+
+				// Alice saves first and wins.
+				request("api.acme.trading-partner.partner.update.v1", map[string]any{
+					"id": registered.ID, "version": registered.Version,
+					"name": "Globex", "companyName": "Set by Alice",
+				}, nil)
+
+				// Bob is still holding the version he read before Alice saved.
+				body, err := json.Marshal(map[string]any{
+					"id": registered.ID, "version": registered.Version,
+					"name": "Globex", "companyName": "Set by Bob",
+				})
+				Expect(err).NotTo(HaveOccurred())
+				reply, err := nc.Request("api.acme.trading-partner.partner.update.v1", body, requestTimeout)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(reply.Header.Get("Nats-Service-Error-Code")).To(Equal("409"))
+				var out struct {
+					Error    string `json:"error"`
+					Conflict bool   `json:"conflict"`
+					NotFound bool   `json:"notFound"`
+				}
+				Expect(json.Unmarshal(reply.Data, &out)).To(Succeed())
+				Expect(out.Conflict).To(BeTrue())
+				Expect(out.NotFound).To(BeFalse(), "the partner exists — this is a conflict, not a 404")
+				Expect(out.Error).To(ContainSubstring("modified by someone else"))
+
+				// Alice's write survived intact.
+				var current struct {
+					CompanyName string `json:"companyName"`
+				}
+				request("api.acme.trading-partner.partner.get.v1",
+					map[string]any{"id": registered.ID}, &current)
+				Expect(current.CompanyName).To(Equal("Set by Alice"))
+			})
+
+			It("records a details-updated audit row with the actor (BR-TP06)", func() {
+				var registered struct {
+					ID      string `json:"id"`
+					Version int    `json:"version"`
+				}
+				request("api.acme.trading-partner.partner.register.v1",
+					map[string]any{"name": "Globex", "type": "SHIPPER"}, &registered)
+				request("api.acme.trading-partner.partner.update.v1", map[string]any{
+					"id": registered.ID, "version": registered.Version, "name": "Renamed",
+				}, nil)
+
+				actions := make([]string, 0)
+				for _, e := range audit.all() {
+					actions = append(actions, e.Action)
+				}
+				Expect(actions).To(ContainElement(domain.AuditActionDetailsUpdated))
+			})
 		})
 
 		It("identifies itself in the Nats-Responder header (Phase 18 invariant)", func() {

@@ -34,12 +34,22 @@ import { useTenantStore } from '../stores/tenant'
 // phase's design decisions for why this reads tenantStore.context (this
 // app's own tenant-scoped selector) rather than admin's dictionaryStore.context.
 //
-// One instance per role, mounted twice by App.vue's Shippers and Transporters
-// nav entries. Both roles are one aggregate with a type discriminator
-// server-side (BR-TP01), so the split is presentational: this component is
-// parameterized by `partnerType` rather than duplicated per role, and the
-// role-specific bits below (fleet assets, GOODS_IN_TRANSIT) already branched
-// on the partner's type before the split.
+// Originally mounted twice — once per role — since both roles are one
+// aggregate with a type discriminator server-side (BR-TP01), which made the
+// split look purely presentational.
+//
+// **Phase 38d-i mounts this for Shippers only**; Transporters moved to
+// TransporterPanel.vue. What changed is not the aggregate but the surface
+// around it: a Transporter now also has an event-sourced TransporterProfile
+// (ADR-046) with vetting state, a Temporal saga behind it, and a derived
+// goods-in-transit badge, none of which a Shipper has any equivalent of.
+// Keeping one component would have meant most of it was reachable for only
+// one of its two roles.
+//
+// The `partnerType` prop and the type-conditional branches below are kept
+// rather than hard-coded to SHIPPER — they are correct as written, and
+// collapsing them would be an unrelated edit to a file this phase only needed
+// to stop sharing.
 
 const props = defineProps({
   // 'SHIPPER' | 'TRANSPORTER' — the single role this instance manages.
@@ -241,7 +251,7 @@ async function submitAddDocument() {
 
 async function approveDoc(tp, doc) {
   try {
-    await approveComplianceDocument(tenantStore.context, tp.id, doc.type)
+    await approveComplianceDocument(tenantStore.context, tp.id, doc.id)
     await refreshDocuments(tp)
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed to approve', detail: e.message, life: 5000 })
@@ -250,7 +260,7 @@ async function approveDoc(tp, doc) {
 
 async function rejectDoc(tp, doc) {
   try {
-    await rejectComplianceDocument(tenantStore.context, tp.id, doc.type)
+    await rejectComplianceDocument(tenantStore.context, tp.id, doc.id)
     await refreshDocuments(tp)
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed to reject', detail: e.message, life: 5000 })
@@ -259,7 +269,7 @@ async function rejectDoc(tp, doc) {
 
 async function resubmitDoc(tp, doc) {
   try {
-    await resubmitComplianceDocument(tenantStore.context, tp.id, doc.type)
+    await resubmitComplianceDocument(tenantStore.context, tp.id, doc.id)
     await refreshDocuments(tp)
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed to resubmit', detail: e.message, life: 5000 })

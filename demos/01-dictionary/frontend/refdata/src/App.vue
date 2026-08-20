@@ -9,6 +9,7 @@ import IconShippers from './components/icons/IconShippers.vue'
 import IconTransporters from './components/icons/IconTransporters.vue'
 import ReferenceDataPanel from './components/ReferenceDataPanel.vue'
 import TradingPartnersPanel from './components/TradingPartnersPanel.vue'
+import TransporterPanel from './components/TransporterPanel.vue'
 import { useRefdataAdminConnection } from './nats/useRefdataAdminConnection.js'
 import { useDictionaryStore } from './stores/dictionary'
 import { useTenantStore } from './stores/tenant'
@@ -150,10 +151,14 @@ onUnmounted(() => {
     </template>
 
     <ReferenceDataPanel v-if="topNav === 'reference-data'" />
+    <!-- Two components rather than one prop-driven panel since Phase 38d-i: a
+         Transporter carries an event-sourced TransporterProfile, vetting state
+         and a derived GIT badge that a Shipper has no equivalent of. See
+         TransporterPanel.vue's header for why the roles stopped sharing. -->
     <TradingPartnersPanel
-      v-else-if="isTradingPartnersView(topNav)"
-      :key="topNav"
-      :partner-type="topNav === 'shippers' ? 'SHIPPER' : 'TRANSPORTER'"
+      v-else-if="topNav === 'shippers'"
+      partner-type="SHIPPER"
     />
+    <TransporterPanel v-else-if="topNav === 'transporters'" />
   </AppShell>
 </template>

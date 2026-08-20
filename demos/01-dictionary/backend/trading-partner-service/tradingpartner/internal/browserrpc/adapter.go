@@ -45,6 +45,8 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/domain"
+	profiledomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/transporterprofile/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/transporterprofile/orchestration"
 	sharedbrowserrpc "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
@@ -56,16 +58,26 @@ const (
 	PartnerRegisterSubject   = "api.*.trading-partner.partner.register.v1"
 	PartnerListSubject       = "api.*.trading-partner.partner.list.v1"
 	PartnerGetSubject        = "api.*.trading-partner.partner.get.v1"
+	PartnerUpdateSubject     = "api.*.trading-partner.partner.update.v1"
 	PartnerActivateSubject   = "api.*.trading-partner.partner.activate.v1"
 	PartnerSuspendSubject    = "api.*.trading-partner.partner.suspend.v1"
 	PartnerReactivateSubject = "api.*.trading-partner.partner.reactivate.v1"
 	PartnerAuditSubject      = "api.*.trading-partner.partner.audit.v1"
+	PartnerProfileSubject    = "api.*.trading-partner.partner.profile.v1"
 
 	DocumentAddSubject      = "api.*.trading-partner.document.add.v1"
 	DocumentListSubject     = "api.*.trading-partner.document.list.v1"
 	DocumentApproveSubject  = "api.*.trading-partner.document.approve.v1"
 	DocumentRejectSubject   = "api.*.trading-partner.document.reject.v1"
 	DocumentResubmitSubject = "api.*.trading-partner.document.resubmit.v1"
+
+	// Phase 38c-ii (BR-TP41). These endpoints mint capability tickets; the
+	// bytes themselves never travel over NATS — see internal/rest's
+	// document_files.go for why, and internal/filetickets for why the grant is
+	// decided here, on an authenticated connection, rather than at the HTTP
+	// ingress that spends it.
+	DocumentUploadTicketSubject   = "api.*.trading-partner.document.upload-ticket.v1"
+	DocumentDownloadTicketSubject = "api.*.trading-partner.document.download-ticket.v1"
 
 	FleetAssetAddSubject  = "api.*.trading-partner.fleet-asset.add.v1"
 	FleetAssetListSubject = "api.*.trading-partner.fleet-asset.list.v1"
@@ -88,8 +100,13 @@ const ServiceVersion = "1.0.0"
 type Deps struct {
 	TradingPartners *commands.TradingPartnerHandler
 	Documents       *commands.ComplianceDocumentHandler
+	DocumentFiles   *commands.DocumentFileHandler
 	FleetAssets     *commands.FleetAssetHandler
 	Audit           domain.AuditReader
+	// ProfileProjection is the canonical Postgres reader used by BR-TP19.
+	// Deliberately no KV/cache interface is accepted at this boundary.
+	ProfileProjection orchestration.CanonicalProjectionReader
+	ProfileCommands   *orchestration.ProfileHandler
 
 	// Tenant is the NATS account this adapter's connection authenticated into.
 	// It labels the registration in $SRV metadata (trading-partner-service holds
@@ -108,11 +125,15 @@ type Adapter struct {
 	log    *slog.Logger
 	tracer *natstrace.Tracer
 
-	tradingPartners *commands.TradingPartnerHandler
-	documents       *commands.ComplianceDocumentHandler
-	fleetAssets     *commands.FleetAssetHandler
-	audit           domain.AuditReader
-	tenant          string
+	tradingPartners   *commands.TradingPartnerHandler
+	activation        *orchestration.ActivationHandler
+	profileProjection orchestration.CanonicalProjectionReader
+	profiles          *orchestration.ProfileHandler
+	documents         *commands.ComplianceDocumentHandler
+	documentFiles     *commands.DocumentFileHandler
+	fleetAssets       *commands.FleetAssetHandler
+	audit             domain.AuditReader
+	tenant            string
 }
 
 // New registers the micro service and its api.* endpoints on nc. nc is
@@ -127,10 +148,17 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		tracer:          natstrace.New(nc),
 		tradingPartners: deps.TradingPartners,
 		documents:       deps.Documents,
+		documentFiles:   deps.DocumentFiles,
 		fleetAssets:     deps.FleetAssets,
 		audit:           deps.Audit,
 		tenant:          deps.Tenant,
+		profiles:        deps.ProfileCommands,
+
+		// BR-TP37 reads the canonical projection directly — the same reader the
+		// activation guard is given, deliberately not the KV cache.
+		profileProjection: deps.ProfileProjection,
 	}
+	a.activation = orchestration.NewActivationHandler(a.tradingPartners, deps.ProfileProjection)
 
 	svc, err := micro.AddService(nc, micro.Config{
 		Name:        ServiceName,
@@ -151,16 +179,20 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"partner-register", a.handlePartnerRegister, PartnerRegisterSubject},
 		{"partner-list", a.handlePartnerList, PartnerListSubject},
 		{"partner-get", a.handlePartnerGet, PartnerGetSubject},
+		{"partner-update", a.handlePartnerUpdate, PartnerUpdateSubject},
 		{"partner-activate", a.handlePartnerActivate, PartnerActivateSubject},
 		{"partner-suspend", a.handlePartnerSuspend, PartnerSuspendSubject},
 		{"partner-reactivate", a.handlePartnerReactivate, PartnerReactivateSubject},
 		{"partner-audit", a.handlePartnerAudit, PartnerAuditSubject},
+		{"partner-profile", a.handlePartnerProfile, PartnerProfileSubject},
 
 		{"document-add", a.handleDocumentAdd, DocumentAddSubject},
 		{"document-list", a.handleDocumentList, DocumentListSubject},
 		{"document-approve", a.handleDocumentApprove, DocumentApproveSubject},
 		{"document-reject", a.handleDocumentReject, DocumentRejectSubject},
 		{"document-resubmit", a.handleDocumentResubmit, DocumentResubmitSubject},
+		{"document-upload-ticket", a.handleDocumentUploadTicket, DocumentUploadTicketSubject},
+		{"document-download-ticket", a.handleDocumentDownloadTicket, DocumentDownloadTicketSubject},
 
 		{"fleet-asset-add", a.handleFleetAssetAdd, FleetAssetAddSubject},
 		{"fleet-asset-list", a.handleFleetAssetList, FleetAssetListSubject},
@@ -192,9 +224,33 @@ type partnerIDRequest struct {
 	ID string `json:"id"`
 }
 
+// registerRequest carries BR-TP02's required set plus BR-TP35's optional
+// Company Information fields. `type` and `context` are absent from
+// updateRequest below on purpose (BR-TP32) — they are settable only here, at
+// registration.
 type registerRequest struct {
 	Name string             `json:"name"`
 	Type domain.PartnerType `json:"type"`
+
+	TradingAs         string `json:"tradingAs,omitempty"`
+	CompanyName       string `json:"companyName,omitempty"`
+	RegistrationNo    string `json:"registrationNo,omitempty"`
+	VatRegistrationNo string `json:"vatRegistrationNo,omitempty"`
+}
+
+// updateRequest is BR-TP32's editable field set plus BR-TP34's expected
+// version. There is deliberately no `type`, `context` or `status` field: the
+// absence is the enforcement, so no future edit to this handler can pass one
+// through by accident.
+type updateRequest struct {
+	ID      string `json:"id"`
+	Version int    `json:"version"`
+
+	Name              string `json:"name"`
+	TradingAs         string `json:"tradingAs,omitempty"`
+	CompanyName       string `json:"companyName,omitempty"`
+	RegistrationNo    string `json:"registrationNo,omitempty"`
+	VatRegistrationNo string `json:"vatRegistrationNo,omitempty"`
 }
 
 type suspendRequest struct {
@@ -202,10 +258,14 @@ type suspendRequest struct {
 	Reason string `json:"reason"`
 }
 
+// documentRequest serves both add and the three review transitions. Add uses
+// Type (which document is being supplied); the transitions use DocumentID
+// (BR-TP31 — after BR-TP29 a type no longer identifies one row).
 type documentRequest struct {
-	ID        string              `json:"id"`
-	Type      domain.DocumentType `json:"type"`
-	Reference string              `json:"reference,omitempty"`
+	ID         string              `json:"id"`
+	Type       domain.DocumentType `json:"type,omitempty"`
+	DocumentID string              `json:"documentId,omitempty"`
+	Reference  string              `json:"reference,omitempty"`
 }
 
 type fleetAssetRequest struct {
@@ -225,12 +285,31 @@ type tradingPartnersResponse struct {
 	TradingPartners []domain.TradingPartner `json:"tradingPartners"`
 }
 
+// profileResponse is BR-TP37's wire shape. HasProfile distinguishes "this
+// partner has no TransporterProfile" from "it has one in a zero-ish state" —
+// a Shipper legitimately has none, and without an explicit flag a client
+// cannot tell the two apart from the State fields alone.
+type profileResponse struct {
+	HasProfile bool                `json:"hasProfile"`
+	Profile    profiledomain.State `json:"profile"`
+	GitStatus  domain.GitStatus    `json:"gitStatus"`
+}
+
 type documentResponse struct {
 	domain.ComplianceDocument
 }
 
 type documentsResponse struct {
 	Documents []domain.ComplianceDocument `json:"documents"`
+}
+
+// documentTicketResponse is BR-TP41's wire shape. MaxBytes rides along so the
+// browser can refuse an oversized file before spending a ticket and a minute
+// uploading it — the server still enforces BR-TP44 regardless, since a client
+// -side check is a courtesy, not a control.
+type documentTicketResponse struct {
+	Ticket   string `json:"ticket"`
+	MaxBytes int64  `json:"maxBytes"`
 }
 
 type fleetAssetResponse struct {
@@ -257,7 +336,35 @@ type auditResponse struct {
 
 func isNotFoundErr(err error) bool {
 	return errors.Is(err, domain.ErrTradingPartnerNotFound) ||
-		errors.Is(err, domain.ErrDocumentNotFound)
+		errors.Is(err, domain.ErrDocumentNotFound) ||
+		// BR-TP41: asking for a download ticket for a document that has no
+		// bytes is a 404, not a failure — the document is real, the file is
+		// simply not there.
+		errors.Is(err, domain.ErrDocumentFileMissing)
+}
+
+// isConflictErr classifies the errors BUSINESS_RULES-TRADING-PARTNER.md
+// describes as "rejected with 409 Conflict" — the illegal state transitions
+// (BR-TP03-BR-TP05, BR-TP09-BR-TP11, BR-TP30) and BR-TP34's stale version.
+//
+// Before 38c-i every one of these came back as 500 over api.*: the 409s were
+// written for the REST layer Phase 33.5 retired, and the shared api.* reply
+// path only knew 404 and 500. A client could not tell "you cannot do that
+// from this state" from "the service broke", which for an optimistic-
+// concurrency conflict is the difference between "reload and retry" and
+// "report a bug".
+func isConflictErr(err error) bool {
+	return errors.Is(err, domain.ErrVersionConflict) ||
+		errors.Is(err, domain.ErrNotRegistered) ||
+		errors.Is(err, domain.ErrNotActive) ||
+		errors.Is(err, domain.ErrNotSuspended) ||
+		errors.Is(err, domain.ErrDocumentNotPending) ||
+		errors.Is(err, domain.ErrDocumentNotRejected) ||
+		errors.Is(err, domain.ErrDocumentSuperseded) ||
+		// BR-TP43: bytes are write-once, so "this already has a file" is the
+		// same class of answer as an illegal transition — supersede and
+		// re-upload, not retry.
+		errors.Is(err, domain.ErrDocumentFileAlreadyAttached)
 }
 
 // --- TradingPartner handlers (BR-TP01-BR-TP06) ---
@@ -269,10 +376,91 @@ func (a *Adapter) handlePartnerRegister(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	tp, err := a.tradingPartners.Register(
-		context.Background(), a.actor(req), in.Name, in.Type, sharedbrowserrpc.ContextFromSubject(subject),
-	)
+	contextKey := sharedbrowserrpc.ContextFromSubject(subject)
+	tp, err := a.tradingPartners.Register(context.Background(), a.actor(req), in.Type, contextKey, domain.Details{
+		Name:              in.Name,
+		TradingAs:         in.TradingAs,
+		CompanyName:       in.CompanyName,
+		RegistrationNo:    in.RegistrationNo,
+		VatRegistrationNo: in.VatRegistrationNo,
+	})
+	if err == nil && tp.Type == domain.PartnerTypeTransporter && a.profiles != nil {
+		_, err = a.profiles.CreateTransporterProfile(context.Background(), contextKey, tp.ID)
+	}
 	a.reply(req, tradingPartnerResponse{tp}, err)
+}
+
+// handlePartnerUpdate is BR-TP32/BR-TP34's editable Company Information. A
+// version mismatch surfaces as domain.ErrVersionConflict, which isConflictErr
+// maps to 409 — the operator is told someone else changed the record, not
+// that their input was invalid or that the service failed.
+func (a *Adapter) handlePartnerUpdate(req micro.Request) {
+	var in updateRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	tp, err := a.tradingPartners.UpdateDetails(context.Background(), a.actor(req), in.ID, in.Version, domain.Details{
+		Name:              in.Name,
+		TradingAs:         in.TradingAs,
+		CompanyName:       in.CompanyName,
+		RegistrationNo:    in.RegistrationNo,
+		VatRegistrationNo: in.VatRegistrationNo,
+	})
+	a.reply(req, tradingPartnerResponse{tp}, err)
+}
+
+// handlePartnerProfile implements BR-TP37 — the browser's only route to
+// vetting state. It reads the canonical Postgres projection (the same reader
+// BR-TP19's activation guard uses), never Temporal's Query API: status must
+// not acquire a hard runtime dependency on Temporal being reachable
+// (ADR-047/ADR-049 finding 3).
+//
+// GIT status (BR-TP38) is derived here from the partner's current documents
+// rather than from the profile, because it is a function of the documents.
+// GitVerified on the profile is the saga's own branch flag — a different
+// question ("did the workflow's verification step complete") from "does this
+// Transporter have cover today", which is what an operator reads the badge
+// for.
+func (a *Adapter) handlePartnerProfile(req micro.Request) {
+	var in partnerIDRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	ctx := context.Background()
+
+	// Confirms the partner exists, so an unknown ID is a 404 rather than an
+	// empty "no profile" answer that looks like a legitimate Shipper.
+	tp, err := a.tradingPartners.Get(ctx, in.ID)
+	if err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+
+	docs, err := a.documents.ListDocuments(ctx, in.ID)
+	if err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	out := profileResponse{GitStatus: domain.DeriveGitStatus(docs, time.Now().UTC())}
+
+	// A Shipper has no profile by design, and a Transporter registered before
+	// its profile was created has none yet. Neither is an error.
+	if tp.Type == domain.PartnerTypeTransporter && a.profileProjection != nil {
+		state, err := a.profileProjection.Get(ctx, in.ID)
+		switch {
+		case err == nil:
+			out.HasProfile = true
+			out.Profile = state
+		case errors.Is(err, profiledomain.ErrNotFound):
+			// Leave HasProfile false — nothing to report yet.
+		default:
+			a.reply(req, nil, err)
+			return
+		}
+	}
+	a.reply(req, out, nil)
 }
 
 func (a *Adapter) handlePartnerList(req micro.Request) {
@@ -297,7 +485,7 @@ func (a *Adapter) handlePartnerActivate(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	tp, err := a.tradingPartners.Activate(context.Background(), a.actor(req), in.ID)
+	tp, err := a.activation.Activate(context.Background(), a.actor(req), in.ID)
 	a.reply(req, tradingPartnerResponse{tp}, err)
 }
 
@@ -378,19 +566,59 @@ func (a *Adapter) handleDocumentResubmit(req micro.Request) {
 }
 
 // documentTransition is the shared body of approve/reject/resubmit — all three
-// take (partnerID, docType) and return the updated document, so the only thing
-// that varies is which command handler runs.
+// take (partnerID, documentID) and return the updated document, so the only
+// thing that varies is which command handler runs.
 func (a *Adapter) documentTransition(
 	req micro.Request,
-	fn func(context.Context, string, domain.DocumentType) (domain.ComplianceDocument, error),
+	fn func(context.Context, string, string) (domain.ComplianceDocument, error),
 ) {
 	var in documentRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
 		return
 	}
-	doc, err := fn(context.Background(), in.ID, in.Type)
+	doc, err := fn(context.Background(), in.ID, in.DocumentID)
 	a.reply(req, documentResponse{doc}, err)
+}
+
+// --- Document file tickets (BR-TP41, Phase 38c-ii) ---
+
+// handleDocumentUploadTicket and handleDocumentDownloadTicket are the only
+// api.* endpoints whose result is a credential rather than data.
+//
+// Both take the tenant from a.tenant — this adapter's own authenticated
+// connection — and {context} from the subject, exactly as every other endpoint
+// here does, and neither reads either from the request body. That is the whole
+// mechanism: by the time the HTTP ingress sees a ticket, the tenancy decision
+// has already been made server-side by NATS, so the ingress never has to make
+// one. See the package doc's first rule, and internal/filetickets.
+func (a *Adapter) handleDocumentUploadTicket(req micro.Request) {
+	a.documentTicket(req, func(ctx context.Context, contextKey, partnerID, documentID string) (string, error) {
+		return a.documentFiles.MintUploadTicket(ctx, a.tenant, contextKey, partnerID, documentID)
+	})
+}
+
+func (a *Adapter) handleDocumentDownloadTicket(req micro.Request) {
+	a.documentTicket(req, func(ctx context.Context, contextKey, partnerID, documentID string) (string, error) {
+		return a.documentFiles.MintDownloadTicket(ctx, a.tenant, contextKey, partnerID, documentID)
+	})
+}
+
+func (a *Adapter) documentTicket(
+	req micro.Request,
+	mint func(ctx context.Context, contextKey, partnerID, documentID string) (string, error),
+) {
+	var in documentRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	if a.documentFiles == nil {
+		a.reply(req, nil, domain.ErrDocumentFileMissing)
+		return
+	}
+	token, err := mint(context.Background(), sharedbrowserrpc.ContextFromSubject(req.Subject()), in.ID, in.DocumentID)
+	a.reply(req, documentTicketResponse{Ticket: token, MaxBytes: domain.MaxDocumentFileBytes}, err)
 }
 
 // --- FleetAsset handlers (BR-TP12-BR-TP14) ---
@@ -471,5 +699,5 @@ func (a *Adapter) actor(req micro.Request) commands.Actor {
 // shared/browserrpc.Reply, which derives subject/correlationID from req
 // itself, marshals, finishes the natstrace span, and stamps Nats-Responder.
 func (a *Adapter) reply(req micro.Request, result any, err error) {
-	sharedbrowserrpc.Reply(req, a.svc, a.log, isNotFoundErr, result, err)
+	sharedbrowserrpc.ReplyWithConflicts(req, a.svc, a.log, isNotFoundErr, isConflictErr, result, err)
 }

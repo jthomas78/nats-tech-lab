@@ -13,23 +13,34 @@ package tenants
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"sync"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/objectstore"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/refdataclient"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/transporterprofile"
 	"github.com/jthomas78/nats-tech-lab/shared/natstenants"
 )
 
 // resource is one tenant's connection-scoped state. adapter is nil until
 // MountAPI has run for that tenant — see Manager's doc comment.
 type resource struct {
-	client  *refdataclient.Client
-	adapter *browserrpc.Adapter
+	client   *refdataclient.Client
+	adapter  *browserrpc.Adapter
+	profiles *transporterprofile.Runtime
+	// docs is this tenant's compliance-document Object Store bucket
+	// (Phase 38c-ii). Per-tenant like everything else here: the bucket is a
+	// JetStream stream inside the tenant's own account, so the account
+	// boundary is the isolation — there is no cross-tenant bucket to guard.
+	docs *objectstore.Store
 }
 
 // Manager implements domain.VehicleTypeValidator directly (BR-TP14) — it's
@@ -46,11 +57,25 @@ type Manager struct {
 	apiDeps *browserrpc.Deps // nil until MountAPI has run
 }
 
-func NewManager(natsURL, credsDir string, log *slog.Logger) *Manager {
+func NewManager(natsURL, credsDir string, db *sql.DB, log *slog.Logger) *Manager {
 	m := &Manager{}
 	m.mgr = natstenants.NewManager(natsURL, credsDir, "trading-partner-service", log,
-		func(_ context.Context, nc *nats.Conn, tenant string) (*resource, error) {
-			res := &resource{client: refdataclient.New(nc)}
+		func(ctx context.Context, nc *nats.Conn, tenant string) (*resource, error) {
+			profiles, err := transporterprofile.Start(ctx, nc, db)
+			if err != nil {
+				return nil, err
+			}
+			js, err := jetstream.New(nc)
+			if err != nil {
+				profiles.Close()
+				return nil, err
+			}
+			docs, err := objectstore.New(ctx, js)
+			if err != nil {
+				profiles.Close()
+				return nil, err
+			}
+			res := &resource{client: refdataclient.New(nc), profiles: profiles, docs: docs}
 			m.mu.RLock()
 			deps := m.apiDeps
 			m.mu.RUnlock()
@@ -60,8 +85,11 @@ func NewManager(natsURL, credsDir string, log *slog.Logger) *Manager {
 			if deps != nil {
 				scoped := *deps
 				scoped.Tenant = tenant
+				scoped.ProfileProjection = profiles.Projection
+				scoped.ProfileCommands = profiles.Commands
 				adapter, err := browserrpc.New(nc, scoped)
 				if err != nil {
+					profiles.Close()
 					return nil, err
 				}
 				res.adapter = adapter
@@ -69,6 +97,7 @@ func NewManager(natsURL, credsDir string, log *slog.Logger) *Manager {
 			return res, nil
 		},
 		func(_ string, res *resource) error {
+			defer res.profiles.Close()
 			if res.adapter != nil {
 				return res.adapter.Stop()
 			}
@@ -99,6 +128,21 @@ func (m *Manager) Exists(ctx context.Context, tenant, contextKey, code string) (
 	return res.client.Exists(ctx, contextKey, code)
 }
 
+// DocumentStore implements commands.ObjectStoreResolver (Phase 38c-ii) — the
+// same "this Manager owns which tenant's connection to use" role it already
+// plays for BR-TP14's Exists.
+//
+// It returns ErrTenantNotConnected rather than lazily connecting: a tenant
+// whose credential this service has never seen must not get a bucket created
+// on the strength of a redeemed ticket naming it.
+func (m *Manager) DocumentStore(tenant string) (commands.DocumentObjectStore, error) {
+	res, ok := m.mgr.Resource(tenant)
+	if !ok {
+		return nil, ErrTenantNotConnected
+	}
+	return res.docs, nil
+}
+
 // MountAPI registers the api.* adapter on every currently-connected tenant,
 // and arms every tenant that connects afterward to get one too (the
 // provision closure above reads apiDeps). Called once, after
@@ -120,6 +164,8 @@ func (m *Manager) MountAPI(deps browserrpc.Deps) error {
 			}
 			scoped := deps
 			scoped.Tenant = tenant
+			scoped.ProfileProjection = cur.profiles.Projection
+			scoped.ProfileCommands = cur.profiles.Commands
 			adapter, err := browserrpc.New(nc, scoped)
 			if err != nil {
 				return cur, err

@@ -56,7 +56,7 @@ func run(log *slog.Logger) error {
 	// One NATS connection per known tenant, carrying BR-TP14's refdata
 	// validation client and (Phase 26g) a micro-service registration for $SRV
 	// discovery. The Admin UI still reads/writes over REST below.
-	tenantMgr, err := tradingpartner.MountTenants(ctx, natsURL, credsDir, log)
+	tenantMgr, err := tradingpartner.MountTenants(ctx, natsURL, credsDir, db, log)
 	if err != nil {
 		return err
 	}
@@ -80,7 +80,7 @@ func run(log *slog.Logger) error {
 	// admin. Mount serves /healthz only, unauthenticated like every other
 	// service's infra check.
 	mux := http.NewServeMux()
-	h.Mount(mux)
+	h.Mount(mux, log)
 
 	server := &http.Server{Addr: httpAddr, Handler: mux}
 	errCh := make(chan error, 1)

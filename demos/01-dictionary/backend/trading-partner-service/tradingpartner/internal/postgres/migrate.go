@@ -71,6 +71,97 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
 		`CREATE INDEX IF NOT EXISTS audit_events_partner_idx ON trading_partner.audit_events (trading_partner_id, created_at DESC)`,
+
+		// --- Phase 38c-i ---------------------------------------------------
+		// Idempotent, data-preserving alterations, following the same
+		// ALTER ... IF NOT EXISTS pattern as transporterprofile/postgres's
+		// projection migration. Existing dev rows survive; no volume reset.
+
+		// BR-TP33: row version. DEFAULT 1 backfills existing rows, so a
+		// partner registered before this migration reads as version 1 rather
+		// than 0 and the first edit's expected version is honest.
+		`ALTER TABLE trading_partner.trading_partners
+			ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1`,
+
+		// BR-TP29: compliance documents gain a service-minted identity, and
+		// the PK widens from (trading_partner_id, type) to
+		// (trading_partner_id, id). Done in three idempotent steps so a
+		// re-run is a no-op:
+		//   1. add the id column, minting one per existing row;
+		//   2. drop the old (trading_partner_id, type) PK;
+		//   3. adopt the new PK.
+		// Step 2 is what stops the old one-row-per-type constraint from
+		// blocking BR-TP30's superseded history, so it must not be skipped.
+		// Swapped only when the PK is still the old (trading_partner_id, type)
+		// shape. Guarding on the actual key columns — rather than
+		// unconditionally dropping and re-adding — keeps a restart from
+		// rebuilding the primary index every boot.
+		`ALTER TABLE trading_partner.compliance_documents
+			ADD COLUMN IF NOT EXISTS id UUID NOT NULL DEFAULT gen_random_uuid()`,
+		`DO $$
+		DECLARE
+			key_columns TEXT;
+		BEGIN
+			SELECT string_agg(a.attname, ',' ORDER BY a.attname)
+			INTO key_columns
+			FROM pg_constraint c
+			JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+			WHERE c.conrelid = 'trading_partner.compliance_documents'::regclass
+			  AND c.contype = 'p';
+
+			IF key_columns = 'trading_partner_id,type' THEN
+				ALTER TABLE trading_partner.compliance_documents
+					DROP CONSTRAINT compliance_documents_pkey;
+				ALTER TABLE trading_partner.compliance_documents
+					ADD CONSTRAINT compliance_documents_pkey PRIMARY KEY (trading_partner_id, id);
+			ELSIF key_columns IS NULL THEN
+				ALTER TABLE trading_partner.compliance_documents
+					ADD CONSTRAINT compliance_documents_pkey PRIMARY KEY (trading_partner_id, id);
+			END IF;
+		END $$`,
+
+		// BR-TP30: SUPERSEDED joins the status vocabulary. Postgres has no
+		// ALTER CONSTRAINT for a CHECK expression, so it must be dropped and
+		// re-added — but only when it does not already allow SUPERSEDED,
+		// since re-adding forces a full validation scan of the table.
+		`DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1 FROM pg_constraint
+				WHERE conrelid = 'trading_partner.compliance_documents'::regclass
+				  AND conname = 'compliance_documents_status_check'
+				  AND pg_get_constraintdef(oid) LIKE '%SUPERSEDED%'
+			) THEN
+				ALTER TABLE trading_partner.compliance_documents
+					DROP CONSTRAINT IF EXISTS compliance_documents_status_check;
+				ALTER TABLE trading_partner.compliance_documents
+					ADD CONSTRAINT compliance_documents_status_check
+					CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'SUPERSEDED'));
+			END IF;
+		END $$`,
+
+		// BR-TP31 reads only current documents, and BR-TP30 needs to find the
+		// incumbent for a (partner, type) to supersede it. Both are this
+		// lookup, so it earns a partial index rather than a full scan.
+		`CREATE INDEX IF NOT EXISTS compliance_documents_current_idx
+			ON trading_partner.compliance_documents (trading_partner_id, type)
+			WHERE status <> 'SUPERSEDED'`,
+
+		// BR-TP45 (38c-ii): the projection of a document's uploaded bytes. All
+		// four are nullable together — a document legitimately has no file
+		// until one is uploaded, and BR-TP43 makes the transition one-way, so
+		// there is no "had a file, now doesn't" state to represent.
+		//
+		// Storing this here rather than reading it back from the Object Store
+		// keeps the listing path off the object store entirely: a Documents tab
+		// renders names and sizes from one Postgres query, and the bucket is
+		// touched only when bytes actually move.
+		`ALTER TABLE trading_partner.compliance_documents
+			ADD COLUMN IF NOT EXISTS file_name TEXT,
+			ADD COLUMN IF NOT EXISTS file_content_type TEXT,
+			ADD COLUMN IF NOT EXISTS file_size_bytes BIGINT,
+			ADD COLUMN IF NOT EXISTS file_object_name TEXT,
+			ADD COLUMN IF NOT EXISTS file_uploaded_at TIMESTAMPTZ`,
 	}
 
 	for _, stmt := range statements {

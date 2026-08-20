@@ -46,6 +46,15 @@ export default defineConfig({
         target: 'http://localhost:7201',
         changeOrigin: true,
       },
+      // Phase 38c-ii — trading-partner-service's compliance document byte
+      // ingress (BR-TP40), on its own prefix rather than under /api because
+      // /api means refdata-service throughout this app. Mirrors nginx.conf's
+      // production rule; see there for why the body-size limit matters in
+      // production and not here (Vite's proxy imposes none).
+      '/files': {
+        target: 'http://localhost:7204',
+        changeOrigin: true,
+      },
     },
   },
 })

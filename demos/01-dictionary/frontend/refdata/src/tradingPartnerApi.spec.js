@@ -30,6 +30,8 @@ const {
   listComplianceDocuments,
   addComplianceDocument,
   approveComplianceDocument,
+  getTransporterProfile,
+  updateTradingPartner,
   rejectComplianceDocument,
   resubmitComplianceDocument,
   listFleetAssets,
@@ -130,6 +132,44 @@ describe('trading-partner api.* client', () => {
       })
     })
 
+    // BR-TP34. A save that omits the version cannot be rejected as stale, so
+    // the guard silently degrades to last-write-wins — the exact failure the
+    // rule exists to prevent, and one that looks like success from the client.
+    it('sends the version the caller read on every update (BR-TP34)', () => {
+      request.mockReset()
+      request.mockResolvedValue({})
+      updateTradingPartner('c', 'tp-9', 7, { name: 'Renamed', companyName: 'Renamed Ltd' })
+
+      const payload = payloadOf()
+      expect(payload).toHaveProperty('version', 7)
+      expect(payload).toHaveProperty('name', 'Renamed')
+      expect(payload).toHaveProperty('companyName', 'Renamed Ltd')
+    })
+
+    // BR-TP31. This spec exists because its absence let a real break ship:
+    // Phase 38c-i changed the backend to address a document by its minted id,
+    // and these three calls kept sending `type`. Every payload assertion
+    // still passed (they only checked the partner id), so approve/reject/
+    // resubmit reached the service with an empty documentId and failed at
+    // runtime with "compliance document not found".
+    it('addresses a document by documentId, never by type (BR-TP31)', () => {
+      const transitions = [
+        ['approve', approveComplianceDocument],
+        ['reject', rejectComplianceDocument],
+        ['resubmit', resubmitComplianceDocument],
+      ]
+
+      for (const [label, call] of transitions) {
+        request.mockReset()
+        request.mockResolvedValue({})
+        call('c', 'tp-9', 'doc-abc')
+
+        const payload = payloadOf()
+        expect(payload, `${label} must carry documentId`).toHaveProperty('documentId', 'doc-abc')
+        expect(payload, `${label} must not address the document by type`).not.toHaveProperty('type')
+      }
+    })
+
     it('sends the partner id for every per-partner operation', () => {
       // Blanket guard: every operation that names a partner must carry its id
       // in the body now that there's no URL path to hold it. Anything missing
@@ -139,11 +179,13 @@ describe('trading-partner api.* client', () => {
         ['suspend', () => suspendTradingPartner('c', 'tp-9', 'why')],
         ['reactivate', () => reactivateTradingPartner('c', 'tp-9')],
         ['audit', () => getTradingPartnerAudit('c', 'tp-9')],
+        ['partner-profile', () => getTransporterProfile('c', 'tp-9')],
+        ['partner-update', () => updateTradingPartner('c', 'tp-9', 1, { name: 'N' })],
         ['document-list', () => listComplianceDocuments('c', 'tp-9')],
         ['document-add', () => addComplianceDocument('c', 'tp-9', { type: 'CIPC', reference: 'r' })],
-        ['document-approve', () => approveComplianceDocument('c', 'tp-9', 'CIPC')],
-        ['document-reject', () => rejectComplianceDocument('c', 'tp-9', 'CIPC')],
-        ['document-resubmit', () => resubmitComplianceDocument('c', 'tp-9', 'CIPC')],
+        ['document-approve', () => approveComplianceDocument('c', 'tp-9', 'doc-1')],
+        ['document-reject', () => rejectComplianceDocument('c', 'tp-9', 'doc-1')],
+        ['document-resubmit', () => resubmitComplianceDocument('c', 'tp-9', 'doc-1')],
         ['fleet-asset-list', () => listFleetAssets('c', 'tp-9')],
         ['fleet-asset-add', () => addFleetAsset('c', 'tp-9', 't', { registrationNo: 'R1' })],
       ]
@@ -168,9 +210,11 @@ describe('trading-partner api.* client', () => {
         [() => getTradingPartnerAudit('c', 'i'), 'api.c.trading-partner.partner.audit.v1'],
         [() => listComplianceDocuments('c', 'i'), 'api.c.trading-partner.document.list.v1'],
         [() => addComplianceDocument('c', 'i', {}), 'api.c.trading-partner.document.add.v1'],
-        [() => approveComplianceDocument('c', 'i', 't'), 'api.c.trading-partner.document.approve.v1'],
-        [() => rejectComplianceDocument('c', 'i', 't'), 'api.c.trading-partner.document.reject.v1'],
-        [() => resubmitComplianceDocument('c', 'i', 't'), 'api.c.trading-partner.document.resubmit.v1'],
+        [() => getTransporterProfile('c', 'i'), 'api.c.trading-partner.partner.profile.v1'],
+        [() => updateTradingPartner('c', 'i', 1, {}), 'api.c.trading-partner.partner.update.v1'],
+        [() => approveComplianceDocument('c', 'i', 'd'), 'api.c.trading-partner.document.approve.v1'],
+        [() => rejectComplianceDocument('c', 'i', 'd'), 'api.c.trading-partner.document.reject.v1'],
+        [() => resubmitComplianceDocument('c', 'i', 'd'), 'api.c.trading-partner.document.resubmit.v1'],
         [() => listFleetAssets('c', 'i'), 'api.c.trading-partner.fleet-asset.list.v1'],
         [() => addFleetAsset('c', 'i', 't', {}), 'api.c.trading-partner.fleet-asset.add.v1'],
       ]
@@ -183,9 +227,9 @@ describe('trading-partner api.* client', () => {
         expect(subjectOf()).toBe(expected)
         seen.add(expected)
       }
-      // 13 of the service's 14 endpoints; partner.get.v1 has no api.js caller
+      // 15 of the service's 16 endpoints; partner.get.v1 has no api.js caller
       // (the panel lists rather than fetches one at a time).
-      expect(seen.size).toBe(13)
+      expect(seen.size).toBe(15)
     })
   })
 })

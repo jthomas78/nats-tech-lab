@@ -1,0 +1,282 @@
+<title>Phase 38 — Organizations system architecture</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --new: #f0b429;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 74ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 76ch; }
+li b { color: var(--text); font-weight: 600; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 14px 22px; padding: 10px 14px; background: var(--nested); border-top: 1px solid var(--border); font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { display: inline-block; width: 14px; height: 2px; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; border: 1px solid currentColor; }
+
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.nn { fill: none; stroke: var(--new); stroke-width: 1.3; }
+.nnb{ fill: none; stroke: var(--new); stroke-width: 1.3; stroke-dasharray: 5 3; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.lbln { font-family: var(--mono); font-size: 11px; fill: var(--new); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+.hop  { fill: none; stroke: var(--hop); stroke-width: 1.2; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <div class="eyebrow">Phase 38 · ARCHITECTURE-ORGANIZATIONS.md</div>
+      <h1>Organizations (Transporter Registration &amp; Vetting) — system architecture after Phase 38</h1>
+      <p class="sub">
+        Scope: this demo's own POC stack only (<code>demos/01-dictionary</code>).
+        Everything in <span style="color:var(--new)">amber</span> is new in Phase 38 —
+        the <code>TransporterProfile</code> aggregate, Temporal, and NATS Object Store.
+        Everything in grey (<code>TradingPartner</code>, Postgres, the NATS core, the frontend)
+        already exists today (Phase 26) and is structurally unchanged, aside from one
+        additive schema widening and one new command noted below.
+      </p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1024 760" role="img" aria-label="System diagram of trading-partner-service after Phase 38. The existing TradingPartner aggregate keeps its plain Postgres CRUD lifecycle (Registered, Active, Suspended) unchanged, plus one additive change: a new partner-update command and a widened compliance_documents primary key. A new sibling domain package, TransporterProfile, is event-sourced: its commands publish to a new JetStream stream TRANSPORTER using Nats-Expected-Last-Subject-Sequence-Subject for optimistic concurrency, a JetStream event handler projects into both a new Postgres table and a KV cache bucket organizations following the existing Shape B write-through pattern, and every publish runs inside a Temporal Activity for determinism and Nats-Msg-Id dedup. A new Temporal server, shown as a new box in the compose stack, orchestrates two workflows: TransporterVettingWorkflow, a saga with a Documents branch and a GIT Verification branch running in parallel and joining at ActivateFleetAssets, calling a mock insurer stub activity; and TransporterGitMonitorWorkflow, a cron workflow that watches GIT certificate expiry over time. A cross-aggregate Activate guard sits at the orchestration boundary between the two aggregates: it reads TransporterProfile's Postgres projection, not its KV cache and not Temporal state directly, before allowing TradingPartner.Activate() to proceed for a Transporter-typed partner; for Shipper-typed partners this guard is skipped entirely. A new NATS Object Store bucket organizations-docs holds compliance document bytes, tenant-scoped by NATS account the same way KV buckets are, written after its JetStream event per a blob-then-event ordering rule, and reached only through a new dedicated HTTP upload and download endpoint on the service since the existing transport is NATS micro request-reply JSON only. The existing refdata frontend Organizations screens talk to trading-partner-service over the existing rpc.* and api.* subjects for everything except document bytes, which go over the new HTTP endpoint." aria-hidden="false">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="a-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="a-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          <marker id="a-hop" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--hop)"/></marker>
+        </defs>
+
+        <!-- Frontend -->
+        <rect class="n" x="16" y="16" width="180" height="46" rx="3"/>
+        <text class="lbl" x="26" y="36">refdata-frontend</text>
+        <text class="lbl2" x="26" y="50">Organizations screens</text>
+
+        <!-- trading-partner-service boundary -->
+        <rect class="nb" x="16" y="90" width="992" height="654" rx="4"/>
+        <text class="grp" x="30" y="108">TRADING-PARTNER-SERVICE (same container — no new microservice)</text>
+
+        <!-- api / rpc ingress -->
+        <rect class="n" x="30" y="122" width="200" height="40" rx="3"/>
+        <text class="lbl" x="40" y="140">browserrpc / api.* + rpc.*</text>
+        <text class="lbl2" x="40" y="153">command &amp; query ingress</text>
+
+        <!-- NEW: HTTP doc endpoint -->
+        <rect class="nn" x="250" y="122" width="220" height="40" rx="3"/>
+        <text class="lbln" x="260" y="140">NEW: HTTP upload/download</text>
+        <text class="lbl2" x="260" y="153">doc bytes only — micro can't stream</text>
+
+        <!-- Cross-aggregate guard -->
+        <rect class="n" x="490" y="122" width="290" height="52" rx="3"/>
+        <text class="lbl" x="500" y="140">Activate guard (orchestration layer)</text>
+        <text class="lbl2" x="500" y="153">TRANSPORTER: reads TransporterProfile</text>
+        <text class="lbl2" x="500" y="165">Postgres status before Activate()</text>
+
+        <!-- TradingPartner aggregate box -->
+        <rect class="n" x="30" y="196" width="440" height="150" rx="3"/>
+        <text class="grp" x="42" y="214">TRADINGPARTNER (Phase 26 — unchanged lifecycle)</text>
+        <text class="lbl" x="42" y="236">TradingPartner aggregate</text>
+        <text class="lbl2" x="42" y="250">Registered → Active ⇄ Suspended</text>
+        <text class="lbl2" x="42" y="263">Type: SHIPPER | TRANSPORTER</text>
+        <rect class="nn" x="42" y="272" width="185" height="34" rx="3"/>
+        <text class="lbln" x="50" y="288">NEW: partner-update</text>
+        <text class="lbl2" x="50" y="300">cmd — editable info</text>
+        <rect class="nn" x="237" y="272" width="223" height="34" rx="3"/>
+        <text class="lbln" x="245" y="288">compliance_documents PK</text>
+        <text class="lbl2" x="245" y="300">widened → (partner_id, id)</text>
+        <text class="lbl2" x="42" y="333">plain Postgres CRUD, no JetStream, no KV</text>
+
+        <!-- Postgres (existing) -->
+        <rect class="n" x="30" y="370" width="200" height="40" rx="3"/>
+        <text class="lbl" x="40" y="388">trading-partner-postgres</text>
+        <text class="lbl2" x="40" y="401">trading_partner schema</text>
+
+        <!-- TransporterProfile aggregate box (new) -->
+        <rect class="nnb" x="490" y="196" width="500" height="330" rx="4"/>
+        <text class="lbln" x="502" y="214">NEW: TRANSPORTERPROFILE — event-sourced sibling package</text>
+        <text class="lbl2" x="502" y="228">keyed by same ID as TradingPartner — no surrogate, no join table</text>
+
+        <rect class="nn" x="502" y="240" width="220" height="46" rx="3"/>
+        <text class="lbln" x="512" y="258">Commands</text>
+        <text class="lbl2" x="512" y="271">Create/EnsureTransporterProfile</text>
+        <text class="lbl2" x="512" y="282">idempotent, upsert-by-ID</text>
+
+        <rect class="nn" x="502" y="298" width="220" height="46" rx="3"/>
+        <text class="lbln" x="512" y="316">Publish via Temporal Activity</text>
+        <text class="lbl2" x="512" y="329">Nats-Msg-Id dedup (step counter,</text>
+        <text class="lbl2" x="512" y="340">not workflow RunID)</text>
+
+        <rect class="nn" x="502" y="356" width="220" height="46" rx="3"/>
+        <text class="lbln" x="512" y="374">JetStream event handler</text>
+        <text class="lbl2" x="512" y="387">projects → Postgres + KV</text>
+        <text class="lbl2" x="512" y="398">("Shape B" write-through)</text>
+
+        <!-- projection targets -->
+        <rect class="nn" x="502" y="414" width="105" height="42" rx="3"/>
+        <text class="lbln" x="510" y="432">Postgres</text>
+        <text class="lbl2" x="510" y="445">organizations proj.</text>
+
+        <rect class="nn" x="617" y="414" width="105" height="42" rx="3"/>
+        <text class="lbln" x="625" y="432">KV cache</text>
+        <text class="lbl2" x="625" y="445">bucket: organizations</text>
+
+        <!-- new JetStream stream (cylinder) -->
+        <path class="nn" d="M760 240 L760 300 A140 10 0 0 0 900 300 L900 240"/>
+        <ellipse class="nn" cx="830" cy="240" rx="70" ry="10"/>
+        <text class="lbln" x="800" y="262" text-anchor="middle">TRANSPORTER</text>
+        <text class="lbl2" x="800" y="275" text-anchor="middle">stream, LimitsPolicy</text>
+        <text class="lbl2" x="800" y="287" text-anchor="middle">evt.{ctx}.organizations.</text>
+        <text class="lbl2" x="800" y="298" text-anchor="middle">transporter.{id}.{evt}</text>
+
+        <!-- Object Store cylinder -->
+        <path class="nn" d="M760 340 L760 400 A140 10 0 0 0 900 400 L900 340"/>
+        <ellipse class="nn" cx="830" cy="340" rx="70" ry="10"/>
+        <text class="lbln" x="800" y="362" text-anchor="middle">Object Store</text>
+        <text class="lbl2" x="800" y="375" text-anchor="middle">bucket: organizations-docs</text>
+        <text class="lbl2" x="800" y="387" text-anchor="middle">{ctx}.transporter.{id}.</text>
+        <text class="lbl2" x="800" y="398" text-anchor="middle">{docType}.{documentID}</text>
+
+        <!-- notes box -->
+        <rect class="nn" x="502" y="470" width="470" height="46" rx="3"/>
+        <text class="lbln" x="512" y="488">Write order: blob → event (never reversed)</text>
+        <text class="lbl2" x="512" y="501">objects never deleted · MaxBytes set on bucket (shares tenant's 1 GiB quota)</text>
+
+        <!-- Temporal boundary (new infra) -->
+        <rect class="nnb" x="30" y="440" width="440" height="200" rx="4"/>
+        <text class="lbln" x="42" y="458">NEW INFRA: temporal + temporal-ui containers</text>
+        <text class="lbl2" x="42" y="471">joins demos/01-dictionary compose stack (dev-mode backend)</text>
+
+        <rect class="nn" x="42" y="484" width="410" height="66" rx="3"/>
+        <text class="lbln" x="52" y="502">TransporterVettingWorkflow</text>
+        <text class="lbl2" x="52" y="515">task queue: organizations-vetting</text>
+        <text class="lbl2" x="52" y="527">Branch A: Documents  ‖  Branch B: GIT Verification</text>
+        <text class="lbl2" x="52" y="539">join → ActivateFleetAssets → publish transporter.vetted</text>
+
+        <rect class="nn" x="42" y="558" width="410" height="44" rx="3"/>
+        <text class="lbln" x="52" y="576">RequestGitVerification activity</text>
+        <text class="lbl2" x="52" y="589">→ mock insurer stub (pass / fail / hang-past-timeout)</text>
+
+        <rect class="nn" x="42" y="610" width="410" height="22" rx="3"/>
+        <text class="lbln" x="52" y="625">TransporterGitMonitorWorkflow — cron, watches cert expiry</text>
+
+        <!-- footer note row -->
+        <rect class="n" x="490" y="536" width="480" height="30" rx="3"/>
+        <text class="lbl2" x="500" y="549">Subject-guard: publish uses Nats-Expected-Last-Subject-</text>
+        <text class="lbl2" x="500" y="560">Sequence-Subject (wildcard filter, ADR-049)</text>
+
+        <!-- edges -->
+        <path class="flow" d="M106 62 L106 90" marker-end="url(#a-sync)"/>
+        <text class="edge" x="112" y="80">api.* / rpc.*</text>
+
+        <path class="flow" d="M196 34 L360 34 L360 122" marker-end="url(#a-sync)"/>
+        <text class="edge" x="230" y="30">doc upload/download (HTTP)</text>
+
+        <path class="flow" d="M130 162 L130 196" marker-end="url(#a-sync)"/>
+        <path class="flow" d="M635 174 L635 196" marker-end="url(#a-sync)"/>
+        <text class="edge" x="641" y="188">guard checks status</text>
+
+        <path class="proj" d="M130 306 L130 370" marker-end="url(#a-store)"/>
+        <text class="edge" x="136" y="342">write</text>
+
+        <path class="proj" d="M612 286 L612 298" marker-end="url(#a-store)"/>
+        <path class="proj" d="M612 344 L612 356" marker-end="url(#a-store)"/>
+        <path class="proj" d="M612 402 L555 414" marker-end="url(#a-store)"/>
+        <path class="proj" d="M612 402 L670 414" marker-end="url(#a-store)"/>
+        <path class="flow" d="M722 260 L760 265" marker-end="url(#a-sync)"/>
+        <path class="flow" d="M722 371 L760 371" marker-end="url(#a-sync)"/>
+
+        <path class="rep" d="M452 505 L478 505 L478 321 L502 321" marker-end="url(#a-evtl)"/>
+        <text class="edge" x="463" y="410" transform="rotate(-90 463 410)" text-anchor="middle">Activity publishes, Nats-Msg-Id dedup</text>
+
+        <path class="hop" d="M480 435 L480 148 L490 148" marker-end="url(#a-hop)" stroke-dasharray="3 3"/>
+        <text class="edge" x="410" y="286" transform="rotate(-90 410 286)" text-anchor="middle">guard reads Postgres proj.</text>
+
+        <!-- Compose containers strip -->
+        <rect class="n" x="16" y="662" width="992" height="66" rx="3"/>
+        <text class="grp" x="30" y="678">demos/01-dictionary/docker-compose.yml — new containers this phase</text>
+        <rect class="nn" x="30" y="686" width="140" height="30" rx="3"/>
+        <text class="lbln" x="40" y="705">temporal</text>
+        <rect class="nn" x="180" y="686" width="140" height="30" rx="3"/>
+        <text class="lbln" x="190" y="705">temporal-ui</text>
+        <rect class="n" x="330" y="686" width="160" height="30" rx="3"/>
+        <text class="lbl" x="340" y="705">trading-partner-service</text>
+        <text class="lbl2" x="510" y="704">(existing container, new package inside)</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>After Phase 38.</b> <code>TradingPartner</code> (grey) keeps its Phase 26 plain-CRUD
+      lifecycle byte-for-byte, with two additive exceptions: a new <code>partner-update</code>
+      command (Company Information becomes editable) and a widened
+      <code>compliance_documents</code> primary key (<code>(partner_id, id)</code> instead of
+      <code>(partner_id, type)</code>, to hold more than one <code>GOODS_IN_TRANSIT</code>
+      document at a time). The new <code>TransporterProfile</code> package (amber) is
+      event-sourced against a new <code>TRANSPORTER</code> JetStream stream, projected
+      into Postgres + a KV cache the same "Shape B" way <code>shipping-service</code>
+      already does. A new Temporal server orchestrates <code>TransporterVettingWorkflow</code>'s
+      two-branch saga (documents + GIT verification) and a new cron workflow,
+      <code>TransporterGitMonitorWorkflow</code>, that watches certificate expiry over time.
+      A cross-aggregate <b>Activate guard</b> at the orchestration boundary reads
+      <code>TransporterProfile</code>'s Postgres projection (never its KV cache, never
+      Temporal state) before letting a Transporter-typed partner reach <code>Active</code> —
+      Shipper partners skip this guard entirely. Document bytes live in a new NATS
+      Object Store bucket, reached only through a new dedicated HTTP endpoint since the
+      existing <code>NATS micro</code> request/reply transport can't stream file bytes.
+    </figcaption>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--sync)"></span> synchronous call (api/rpc/HTTP)</span>
+      <span><span class="sw" style="background:var(--store)"></span> write to a projection/store</span>
+      <span><span class="sw" style="background:var(--evtl)"></span> eventual (event publish via Activity)</span>
+      <span><span class="sw" style="background:var(--hop)"></span> cross-aggregate read</span>
+      <span><span class="dot"></span> existing (Phase 26, unchanged)</span>
+      <span><span class="dot" style="color:var(--new)"></span> new in Phase 38</span>
+    </div>
+  </figure>
+
+  <section class="sec">
+    <h2>Reading the diagram</h2>
+    <ul>
+      <li><b>No new microservice.</b> <code>TransporterProfile</code>, Temporal orchestration, and the Object Store client all live inside the existing <code>trading-partner-service</code> container as a sibling domain package — a deliberate scope-control decision (ADR-046), not an oversight.</li>
+      <li><b>Two genuinely different consistency models sit side by side.</b> <code>TradingPartner</code> stays plain Postgres CRUD with row-level locking (<code>SELECT ... FOR UPDATE</code>); <code>TransporterProfile</code> is event-sourced with optimistic concurrency via <code>Nats-Expected-Last-Subject-Sequence-Subject</code> (ADR-049). The Activate guard is the one place these two models meet.</li>
+      <li><b>Temporal's own workflow history and the JetStream event log are two separate durable logs describing the same saga.</b> Every publish the workflow triggers goes through a Temporal Activity carrying <code>Nats-Msg-Id</code>, so an Activity retry after a crash never produces a duplicate event (ADR-047).</li>
+      <li><b>Document bytes force a new ingress.</b> Phase 33.5 removed every REST route from this service; Phase 38c has to reintroduce one dedicated HTTP endpoint purely to proxy Object Store bytes, since NATS <code>micro</code> JSON request/reply can't stream and has no presigned-URL equivalent (ADR-048).</li>
+      <li><b>Compensation is additive, never a rewrite.</b> If GIT verification fails after documents were already approved, the workflow appends new events (<code>DocumentApprovalReverted</code>, <code>FleetAvailabilityRevoked</code>) rather than erasing the approval — the event log has to keep showing what was actually checked and when.</li>
+    </ul>
+  </section>
+</div>

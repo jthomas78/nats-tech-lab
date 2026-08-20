@@ -116,6 +116,14 @@ export function createConnectionState({ fetchConnectInfo, connectionName }) {
   // the JSON reply. Throws if the service replied with an {error} envelope
   // (browserrpc.errorResponse — the same shape every service in this repo
   // uses).
+  //
+  // The envelope's `notFound`/`conflict` discriminators are copied onto the
+  // thrown Error rather than dropped. Without this a caller only ever sees
+  // the message string, so a 409 is indistinguishable from a 500 and a
+  // conflict can only be recognized by matching on prose — which BR-TP39's
+  // conflict banner would then be one backend wording change away from
+  // silently losing. Both flags default to false, so callers that only read
+  // `.message` are unaffected.
   async function request(subject, payload) {
     if (!nc) throw notConnectedError()
     const h = headers()
@@ -125,7 +133,12 @@ export function createConnectionState({ fetchConnectInfo, connectionName }) {
       headers: h,
     })
     const body = msg.data.length ? JSON.parse(decoder.decode(msg.data)) : {}
-    if (body.error) throw new Error(body.error)
+    if (body.error) {
+      const err = new Error(body.error)
+      err.notFound = body.notFound === true
+      err.conflict = body.conflict === true
+      throw err
+    }
     return body
   }
 

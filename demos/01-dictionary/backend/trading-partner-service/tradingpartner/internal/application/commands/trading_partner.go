@@ -44,8 +44,11 @@ func (h *TradingPartnerHandler) List(ctx context.Context, contextKey string) ([]
 // persists. A validation failure never reaches the repository, so no audit
 // row is written for it (BR-TP06 — "nothing written for a request that
 // fails validation before any mutation").
-func (h *TradingPartnerHandler) Register(ctx context.Context, actor Actor, name string, partnerType domain.PartnerType, contextKey string) (domain.TradingPartner, error) {
-	tp, err := domain.Register(name, partnerType, contextKey)
+// BR-TP35 widens this to carry the optional Company Information fields, so
+// 38d's registration wizard can commit a partner and its details in one call
+// rather than register-then-update (ADR-049 finding 6's half-commit shape).
+func (h *TradingPartnerHandler) Register(ctx context.Context, actor Actor, partnerType domain.PartnerType, contextKey string, details domain.Details) (domain.TradingPartner, error) {
+	tp, err := domain.RegisterWithDetails(partnerType, contextKey, details)
 	if err != nil {
 		return domain.TradingPartner{}, err
 	}
@@ -54,6 +57,22 @@ func (h *TradingPartnerHandler) Register(ctx context.Context, actor Actor, name 
 		return domain.TradingPartner{}, err
 	}
 	h.recordAudit(ctx, tp.ID, domain.AuditActionRegistered, actor, domain.AuditOutcomeSuccess, nil)
+	return tp, nil
+}
+
+// UpdateDetails implements BR-TP32/BR-TP34 — Company Information edits under
+// the caller's expected version. A version conflict returns
+// domain.ErrVersionConflict and writes no audit row: nothing was mutated, so
+// BR-TP06's "nothing written on pre-mutation failure" rule applies exactly as
+// it does to a validation failure.
+func (h *TradingPartnerHandler) UpdateDetails(ctx context.Context, actor Actor, id string, expectedVersion int, details domain.Details) (domain.TradingPartner, error) {
+	tp, err := h.repo.UpdateDetails(ctx, id, expectedVersion, details)
+	if err != nil {
+		return domain.TradingPartner{}, err
+	}
+	h.recordAudit(ctx, id, domain.AuditActionDetailsUpdated, actor, domain.AuditOutcomeSuccess, map[string]any{
+		"version": tp.Version,
+	})
 	return tp, nil
 }
 

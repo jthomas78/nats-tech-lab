@@ -139,6 +139,53 @@ services:
       timeout: 2s
       retries: 15
 
+  temporal-postgres:
+    image: postgres:16-alpine
+    container_name: lb-temporal-postgres
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    networks:
+      - backend
+    volumes:
+      - temporal-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal -d temporal"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  temporal:
+    image: temporalio/auto-setup:1.27.2
+    container_name: lb-temporal
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-postgres
+    ports:
+      - "7233:7233" # Temporal frontend/gRPC
+    networks:
+      - backend
+    depends_on:
+      temporal-postgres:
+        condition: service_healthy
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    container_name: lb-temporal-ui
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports:
+      - "8233:8080" # Temporal Web UI
+    networks:
+      - backend
+      - frontend
+    depends_on:
+      - temporal
+
   shipping-service:
     build:
       # Phase 35: context is the repo root so the build can copy
@@ -597,5 +644,6 @@ volumes:
   pg-accounts-data:
   pg-pricing-data:
   pg-trading-partner-data:
+  temporal-postgres-data:
   nui-data:
   nats-tower-data:

@@ -19,6 +19,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/browserrpc"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/filetickets"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/postgres"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/rest"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/tenants"
@@ -30,7 +31,12 @@ type Handlers struct {
 	TradingPartners *commands.TradingPartnerHandler
 	Documents       *commands.ComplianceDocumentHandler
 	FleetAssets     *commands.FleetAssetHandler
-	audit           *postgres.AuditLog
+	// DocumentFiles is Phase 38c-ii's byte path: it serves both the api.*
+	// ticket-minting endpoints and the HTTP ingress that spends those tickets,
+	// which is deliberate — one handler owning both halves is what keeps a
+	// ticket's grant the single source of truth about who may transfer what.
+	DocumentFiles *commands.DocumentFileHandler
+	audit         *postgres.AuditLog
 }
 
 // Startup runs the schema migration and wires the Postgres-backed handlers.
@@ -49,15 +55,17 @@ func Startup(ctx context.Context, db *sql.DB, tenantMgr *tenants.Manager) (*Hand
 		TradingPartners: commands.NewTradingPartnerHandler(partners, audit),
 		Documents:       commands.NewComplianceDocumentHandler(partners, docs),
 		FleetAssets:     commands.NewFleetAssetHandler(partners, fleet, tenantMgr),
+		DocumentFiles:   commands.NewDocumentFileHandler(docs, filetickets.NewStore(filetickets.DefaultTTL), tenantMgr),
 		audit:           audit,
 	}, nil
 }
 
-// Mount wires this service's REST surface onto mux — infra health only,
-// since Phase 33.5 retired the business routes that used to sit alongside
-// api.*.trading-partner.*.
-func (h *Handlers) Mount(mux *http.ServeMux) {
-	rest.Mount(mux)
+// Mount wires this service's HTTP surface onto mux: infra health, plus Phase
+// 38c-ii's two compliance-document byte routes. Everything else still moves
+// over api.*/rpc.* only — Phase 33.5's retirement of the business REST surface
+// stands, and BR-TP17's allowlist test pins exactly what HTTP serves.
+func (h *Handlers) Mount(mux *http.ServeMux, log *slog.Logger) {
+	rest.Mount(mux, h.DocumentFiles, log)
 }
 
 // MountAPI registers the api.* adapter on every tenant connection tenantMgr
@@ -70,6 +78,7 @@ func (h *Handlers) MountAPI(tenantMgr *tenants.Manager, log *slog.Logger) error 
 	return tenantMgr.MountAPI(browserrpc.Deps{
 		TradingPartners: h.TradingPartners,
 		Documents:       h.Documents,
+		DocumentFiles:   h.DocumentFiles,
 		FleetAssets:     h.FleetAssets,
 		Audit:           h.audit,
 		Log:             log,
@@ -80,8 +89,8 @@ func (h *Handlers) MountAPI(tenantMgr *tenants.Manager, log *slog.Logger) error 
 // known tenant, discovered from credsDir, each carrying BR-TP14's
 // refdataclient plus a browserrpc micro registration. Callers should Close()
 // the returned Manager on shutdown.
-func MountTenants(ctx context.Context, natsURL, credsDir string, log *slog.Logger) (*tenants.Manager, error) {
-	mgr := tenants.NewManager(natsURL, credsDir, log)
+func MountTenants(ctx context.Context, natsURL, credsDir string, db *sql.DB, log *slog.Logger) (*tenants.Manager, error) {
+	mgr := tenants.NewManager(natsURL, credsDir, db, log)
 	if err := mgr.EnsureAll(ctx); err != nil {
 		return nil, err
 	}

@@ -56,6 +56,12 @@ var (
 
 	// ErrTradingPartnerNotFound — no TradingPartner exists for the given ID.
 	ErrTradingPartnerNotFound = errors.New("trading partner not found")
+
+	// ErrVersionConflict — BR-TP34: the version the caller read is not the
+	// version on the row, so someone else has written since. Surfaced as
+	// 409 Conflict. Distinct from the lifecycle guards above: nothing about
+	// the requested change is illegal, it is simply based on stale data.
+	ErrVersionConflict = errors.New("trading partner has been modified by someone else")
 )
 
 // TradingPartner is a single Shipper or Transporter business record
@@ -71,13 +77,49 @@ type TradingPartner struct {
 	CompanyName       string        `json:"companyName,omitempty"`
 	RegistrationNo    string        `json:"registrationNo,omitempty"`
 	VatRegistrationNo string        `json:"vatRegistrationNo,omitempty"`
+
+	// Version is BR-TP33's row version, starting at 1 and incremented by
+	// exactly 1 on every successful write — lifecycle transitions included,
+	// so an edit form left open across someone else's Suspend goes stale.
+	Version int `json:"version,omitempty"`
+}
+
+// Details is the editable field set (BR-TP32) — the "Company Information"
+// section of the UI, plus Name. Deliberately does NOT carry Type, Context or
+// Status: Type gates document validity (BR-TP07) and fleet-asset attachment
+// (BR-TP12) so editing it could retroactively invalidate rows that were
+// legal when created; Context is the business-unit scope, and moving a
+// partner between contexts is a migration rather than an edit; Status has
+// its own lifecycle rules (BR-TP03-BR-TP05). Making them absent from this
+// struct is the enforcement — there is no field to set, so no handler can
+// pass one through by accident.
+type Details struct {
+	Name              string `json:"name"`
+	TradingAs         string `json:"tradingAs,omitempty"`
+	CompanyName       string `json:"companyName,omitempty"`
+	RegistrationNo    string `json:"registrationNo,omitempty"`
+	VatRegistrationNo string `json:"vatRegistrationNo,omitempty"`
 }
 
 // Register implements BR-TP01/BR-TP02 — name, type, and context are the
 // only required fields; every other field is fillable incrementally as
 // KYC/vetting proceeds. Always lands in Registered status.
 func Register(name string, partnerType PartnerType, context string) (TradingPartner, error) {
-	if name == "" {
+	return RegisterWithDetails(partnerType, context, Details{Name: name})
+}
+
+// RegisterWithDetails implements BR-TP35 — Register widened to accept the
+// Company Information fields at registration time. The required set is
+// unchanged (name, type, context); every other field stays optional and
+// omitting it is identical to calling Register.
+//
+// This exists so 38d's registration wizard can commit a partner and its
+// details in one call. Having the wizard register-then-update instead would
+// introduce exactly the half-commit shape ADR-049 finding 6 warns about: a
+// failed second call leaving a partner registered with none of its details,
+// and no aggregate boundary to explain why.
+func RegisterWithDetails(partnerType PartnerType, context string, d Details) (TradingPartner, error) {
+	if d.Name == "" {
 		return TradingPartner{}, ErrNameRequired
 	}
 	if context == "" {
@@ -89,11 +131,46 @@ func Register(name string, partnerType PartnerType, context string) (TradingPart
 		return TradingPartner{}, ErrInvalidPartnerType
 	}
 	return TradingPartner{
-		Name:    name,
-		Type:    partnerType,
-		Context: context,
-		Status:  StatusRegistered,
+		Name:              d.Name,
+		Type:              partnerType,
+		Context:           context,
+		Status:            StatusRegistered,
+		TradingAs:         d.TradingAs,
+		CompanyName:       d.CompanyName,
+		RegistrationNo:    d.RegistrationNo,
+		VatRegistrationNo: d.VatRegistrationNo,
 	}, nil
+}
+
+// UpdateDetails implements BR-TP32/BR-TP33/BR-TP34 — edits the Company
+// Information fields, guarded by the version the caller read.
+//
+// expectedVersion must match the version currently on the aggregate. A
+// mismatch returns ErrVersionConflict and mutates nothing, which is the
+// lost-update-across-think-time case (ADR-049 finding 5a): two operators open
+// the same form, both read version 1, and the second save must fail rather
+// than silently overwrite the first. A `SELECT ... FOR UPDATE` structurally
+// cannot catch that — it protects the span of a transaction, not the minutes
+// a form sits open between two separate reads.
+//
+// Note this guard is necessary but not sufficient on its own: the repository
+// also carries `AND version = ?` in the UPDATE, which is what makes the
+// check atomic against a genuinely simultaneous write. The domain check is
+// the business rule; the SQL predicate is its race-free enforcement.
+func (p TradingPartner) UpdateDetails(expectedVersion int, d Details) (TradingPartner, error) {
+	if d.Name == "" {
+		return p, ErrNameRequired
+	}
+	if expectedVersion != p.Version {
+		return p, ErrVersionConflict
+	}
+	p.Name = d.Name
+	p.TradingAs = d.TradingAs
+	p.CompanyName = d.CompanyName
+	p.RegistrationNo = d.RegistrationNo
+	p.VatRegistrationNo = d.VatRegistrationNo
+	p.Version = expectedVersion + 1
+	return p, nil
 }
 
 // Activate implements BR-TP03 — legal only Registered -> Active.

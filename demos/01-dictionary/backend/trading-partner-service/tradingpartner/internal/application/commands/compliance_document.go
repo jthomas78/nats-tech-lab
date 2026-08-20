@@ -37,14 +37,16 @@ func (h *ComplianceDocumentHandler) ListDocuments(ctx context.Context, partnerID
 	return h.docs.ListDocuments(ctx, partnerID)
 }
 
-func (h *ComplianceDocumentHandler) ApproveDocument(ctx context.Context, partnerID string, docType domain.DocumentType) (domain.ComplianceDocument, error) {
-	return h.docs.ApproveDocument(ctx, partnerID, docType)
+// The three review transitions address a document by ID (BR-TP31), not by
+// type — after BR-TP29 a type no longer identifies a single row.
+func (h *ComplianceDocumentHandler) ApproveDocument(ctx context.Context, partnerID, documentID string) (domain.ComplianceDocument, error) {
+	return h.docs.ApproveDocument(ctx, partnerID, documentID)
 }
 
-func (h *ComplianceDocumentHandler) RejectDocument(ctx context.Context, partnerID string, docType domain.DocumentType) (domain.ComplianceDocument, error) {
-	return h.docs.RejectDocument(ctx, partnerID, docType)
+func (h *ComplianceDocumentHandler) RejectDocument(ctx context.Context, partnerID, documentID string) (domain.ComplianceDocument, error) {
+	return h.docs.RejectDocument(ctx, partnerID, documentID)
 }
 
-func (h *ComplianceDocumentHandler) ResubmitDocument(ctx context.Context, partnerID string, docType domain.DocumentType) (domain.ComplianceDocument, error) {
-	return h.docs.ResubmitDocument(ctx, partnerID, docType)
+func (h *ComplianceDocumentHandler) ResubmitDocument(ctx context.Context, partnerID, documentID string) (domain.ComplianceDocument, error) {
+	return h.docs.ResubmitDocument(ctx, partnerID, documentID)
 }

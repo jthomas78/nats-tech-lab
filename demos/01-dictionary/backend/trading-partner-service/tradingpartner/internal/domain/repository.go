@@ -13,17 +13,32 @@ type TradingPartnerRepository interface {
 	Activate(ctx context.Context, id string) (TradingPartner, error)
 	Suspend(ctx context.Context, id string, reason string) (TradingPartner, error)
 	Reactivate(ctx context.Context, id string) (TradingPartner, error)
+
+	// UpdateDetails edits Company Information under BR-TP34's optimistic
+	// concurrency guard. expectedVersion is the version the caller read; a
+	// mismatch is ErrVersionConflict and writes nothing.
+	UpdateDetails(ctx context.Context, id string, expectedVersion int, details Details) (TradingPartner, error)
 }
 
-// ComplianceDocumentRepository persists ComplianceDocuments (BR-TP07-BR-TP11),
-// keyed by (partner, type) — BR-TP08's one-per-type invariant is a
-// repository-level upsert, not a separate document ID.
+// ComplianceDocumentRepository persists ComplianceDocuments
+// (BR-TP07-BR-TP11, BR-TP29-BR-TP31). Documents are keyed by a
+// service-minted ID (BR-TP29), not by (partner, type) — the transitions
+// therefore address a document by ID. Keeping one *current* document per
+// (partner, type) is BR-TP30's supersession, applied inside AddDocument.
 type ComplianceDocumentRepository interface {
 	AddDocument(ctx context.Context, partnerID string, doc ComplianceDocument) (ComplianceDocument, error)
 	ListDocuments(ctx context.Context, partnerID string) ([]ComplianceDocument, error)
-	ApproveDocument(ctx context.Context, partnerID string, docType DocumentType) (ComplianceDocument, error)
-	RejectDocument(ctx context.Context, partnerID string, docType DocumentType) (ComplianceDocument, error)
-	ResubmitDocument(ctx context.Context, partnerID string, docType DocumentType) (ComplianceDocument, error)
+	ApproveDocument(ctx context.Context, partnerID, documentID string) (ComplianceDocument, error)
+	RejectDocument(ctx context.Context, partnerID, documentID string) (ComplianceDocument, error)
+	ResubmitDocument(ctx context.Context, partnerID, documentID string) (ComplianceDocument, error)
+
+	// GetDocument reads one document by ID including superseded rows —
+	// BR-TP43 keeps their bytes retrievable, so a download needs to find them.
+	GetDocument(ctx context.Context, partnerID, documentID string) (ComplianceDocument, error)
+
+	// AttachFile records uploaded bytes against a document (BR-TP45),
+	// applying AttachFile's write-once guard under a row lock.
+	AttachFile(ctx context.Context, partnerID, documentID string, file DocumentFile) (ComplianceDocument, error)
 }
 
 // FleetAssetRepository persists FleetAssets (BR-TP12/BR-TP13), keyed by

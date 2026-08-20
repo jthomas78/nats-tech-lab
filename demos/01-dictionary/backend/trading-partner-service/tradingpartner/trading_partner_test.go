@@ -128,4 +128,143 @@ var _ = Describe("TradingPartner Rules", func() {
 			Expect(errors.Is(err, domain.ErrSuspendReasonRequired)).To(BeTrue())
 		})
 	})
+
+	Context("BR-TP35: Register optionally accepts Company Information", func() {
+		It("populates every optional field when supplied", func() {
+			tp, err := domain.RegisterWithDetails(domain.PartnerTypeTransporter, "acme-pacific-fleet", domain.Details{
+				Name:              "Acme Trucking",
+				TradingAs:         "Acme Haulage",
+				CompanyName:       "Acme Trucking (Pty) Ltd",
+				RegistrationNo:    "2019/123456/07",
+				VatRegistrationNo: "4123456789",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tp.Name).To(Equal("Acme Trucking"))
+			Expect(tp.TradingAs).To(Equal("Acme Haulage"))
+			Expect(tp.CompanyName).To(Equal("Acme Trucking (Pty) Ltd"))
+			Expect(tp.RegistrationNo).To(Equal("2019/123456/07"))
+			Expect(tp.VatRegistrationNo).To(Equal("4123456789"))
+			Expect(tp.Status).To(Equal(domain.StatusRegistered), "widening Register must not change the landing status")
+		})
+
+		It("leaves omitted fields empty, so the narrow Register stays equivalent", func() {
+			widened, err := domain.RegisterWithDetails(domain.PartnerTypeShipper, "acme-pacific-fleet", domain.Details{Name: "Acme Freight"})
+			Expect(err).NotTo(HaveOccurred())
+
+			narrow, err := domain.Register("Acme Freight", domain.PartnerTypeShipper, "acme-pacific-fleet")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(widened).To(Equal(narrow))
+		})
+
+		// The required set is unchanged by the widening — BR-TP02 still holds.
+		It("still requires name and context", func() {
+			_, err := domain.RegisterWithDetails(domain.PartnerTypeShipper, "acme-pacific-fleet", domain.Details{CompanyName: "Acme Ltd"})
+			Expect(errors.Is(err, domain.ErrNameRequired)).To(BeTrue())
+
+			_, err = domain.RegisterWithDetails(domain.PartnerTypeShipper, "", domain.Details{Name: "Acme Freight"})
+			Expect(errors.Is(err, domain.ErrContextRequired)).To(BeTrue())
+		})
+	})
+
+	Context("BR-TP32: UpdateDetails mutates Company Information and nothing else", func() {
+		registered := func() domain.TradingPartner {
+			tp, err := domain.Register("Acme Freight", domain.PartnerTypeShipper, "acme-pacific-fleet")
+			Expect(err).NotTo(HaveOccurred())
+			tp.ID = "11111111-1111-1111-1111-111111111111"
+			tp.Version = 1
+			return tp
+		}
+
+		It("updates all five editable fields", func() {
+			tp, err := registered().UpdateDetails(1, domain.Details{
+				Name:              "Acme Freight International",
+				TradingAs:         "AFI",
+				CompanyName:       "Acme Freight International (Pty) Ltd",
+				RegistrationNo:    "2020/654321/07",
+				VatRegistrationNo: "4987654321",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tp.Name).To(Equal("Acme Freight International"))
+			Expect(tp.TradingAs).To(Equal("AFI"))
+			Expect(tp.CompanyName).To(Equal("Acme Freight International (Pty) Ltd"))
+			Expect(tp.RegistrationNo).To(Equal("2020/654321/07"))
+			Expect(tp.VatRegistrationNo).To(Equal("4987654321"))
+		})
+
+		// type gates document validity (BR-TP07) and fleet-asset attachment
+		// (BR-TP12); context is the business-unit scope; status has its own
+		// lifecycle. None of the three is reachable through this method.
+		It("leaves type, context and status untouched", func() {
+			before := registered()
+			after, err := before.UpdateDetails(1, domain.Details{Name: "Renamed"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(after.Type).To(Equal(before.Type))
+			Expect(after.Context).To(Equal(before.Context))
+			Expect(after.Status).To(Equal(before.Status))
+			Expect(after.ID).To(Equal(before.ID))
+		})
+
+		It("rejects an empty name, same as Register", func() {
+			_, err := registered().UpdateDetails(1, domain.Details{Name: ""})
+			Expect(errors.Is(err, domain.ErrNameRequired)).To(BeTrue())
+		})
+	})
+
+	Context("BR-TP33/BR-TP34: optimistic concurrency across operator think-time", func() {
+		registered := func() domain.TradingPartner {
+			tp, err := domain.Register("Acme Freight", domain.PartnerTypeShipper, "acme-pacific-fleet")
+			Expect(err).NotTo(HaveOccurred())
+			tp.ID = "11111111-1111-1111-1111-111111111111"
+			tp.Version = 1
+			return tp
+		}
+
+		It("bumps version by exactly one on a successful update", func() {
+			tp, err := registered().UpdateDetails(1, domain.Details{Name: "Renamed"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tp.Version).To(Equal(2))
+		})
+
+		It("rejects a stale version and writes nothing", func() {
+			current := registered()
+			current.Version = 4
+
+			_, err := current.UpdateDetails(2, domain.Details{Name: "Stale writer"})
+			Expect(errors.Is(err, domain.ErrVersionConflict)).To(BeTrue())
+			Expect(current.Name).To(Equal("Acme Freight"), "a rejected update must not partially apply")
+			Expect(current.Version).To(Equal(4))
+		})
+
+		It("rejects a version from the future", func() {
+			_, err := registered().UpdateDetails(9, domain.Details{Name: "Impossible"})
+			Expect(errors.Is(err, domain.ErrVersionConflict)).To(BeTrue())
+		})
+
+		// The rule this sub-phase exists for (ADR-049 finding 5a): two
+		// operators open the same edit form, both read version 1, and both
+		// save. A `SELECT ... FOR UPDATE` cannot catch this — the two reads
+		// are in different transactions, minutes apart. The version check is
+		// what makes the second save fail instead of silently overwriting.
+		It("lets the first of two concurrent editors win and rejects the second", func() {
+			loadedByAlice := registered()
+			loadedByBob := registered()
+
+			afterAlice, err := loadedByAlice.UpdateDetails(1, domain.Details{
+				Name:        "Acme Freight",
+				CompanyName: "Set by Alice",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(afterAlice.Version).To(Equal(2))
+
+			// Bob is still holding version 1. Re-reading the row now yields
+			// Alice's version 2, so Bob's save is rejected.
+			loadedByBob.Version = afterAlice.Version
+			_, err = loadedByBob.UpdateDetails(1, domain.Details{
+				Name:        "Acme Freight",
+				CompanyName: "Set by Bob",
+			})
+			Expect(errors.Is(err, domain.ErrVersionConflict)).To(BeTrue())
+			Expect(afterAlice.CompanyName).To(Equal("Set by Alice"), "the winner's write must survive intact")
+		})
+	})
 })

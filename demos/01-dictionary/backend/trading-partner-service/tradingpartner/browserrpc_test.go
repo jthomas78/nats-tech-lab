@@ -127,7 +127,7 @@ var _ = Describe("NATS micro registration", func() {
 		// Replaces 26g's "registers no endpoints yet" spec, which existed to pin
 		// that increment's deliberate scope. Phase 26h is the phase that spec
 		// said should replace it.
-		It("advertises all 14 api.* endpoints on $SRV.INFO", func() {
+		It("advertises all 18 api.* endpoints on $SRV.INFO", func() {
 			adapter, err := browserrpc.New(nc, browserrpc.Deps{Tenant: "acme"})
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(func() { _ = adapter.Stop() })
@@ -150,15 +150,22 @@ var _ = Describe("NATS micro registration", func() {
 				"api.*.trading-partner.partner.register.v1",
 				"api.*.trading-partner.partner.list.v1",
 				"api.*.trading-partner.partner.get.v1",
+				"api.*.trading-partner.partner.update.v1",
 				"api.*.trading-partner.partner.activate.v1",
 				"api.*.trading-partner.partner.suspend.v1",
 				"api.*.trading-partner.partner.reactivate.v1",
 				"api.*.trading-partner.partner.audit.v1",
+				"api.*.trading-partner.partner.profile.v1",
 				"api.*.trading-partner.document.add.v1",
 				"api.*.trading-partner.document.list.v1",
 				"api.*.trading-partner.document.approve.v1",
 				"api.*.trading-partner.document.reject.v1",
 				"api.*.trading-partner.document.resubmit.v1",
+				// Phase 38c-ii (BR-TP41). Endpoints 17 and 18 mint capability
+				// tickets; the document bytes they authorize never travel over
+				// api.* at all — see internal/rest/document_files.go.
+				"api.*.trading-partner.document.upload-ticket.v1",
+				"api.*.trading-partner.document.download-ticket.v1",
 				"api.*.trading-partner.fleet-asset.add.v1",
 				"api.*.trading-partner.fleet-asset.list.v1",
 			))

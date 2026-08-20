@@ -22,6 +22,14 @@
       "port": 7103
     },
     {
+      "//": "Added Phase 38d-i. Same purpose as refdata-vs-docker (dev server against the dockerized stack) but on 7107, because docker-compose already publishes every port from 7100 to 7106 (nats-ui took 7103, the port refdata-vs-docker's own vite.docker.config.js pins with strictPort) and holds them whenever the stack is up. The base vite.config already proxies /api/auth to accounts-service (7202) and /api to refdata-service (7201), both host ports of the running stack, so no config override is needed here.",
+      "name": "refdata-dev-docker-7107",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "7107", "--strictPort"],
+      "cwd": "demos/01-dictionary/frontend/refdata",
+      "port": 7107
+    },
+    {
       "name": "seafreight-app",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],

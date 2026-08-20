@@ -13,6 +13,12 @@ const (
 	AuditActionActivated   = "activated"
 	AuditActionSuspended   = "suspended"
 	AuditActionReactivated = "reactivated"
+
+	// AuditActionDetailsUpdated — BR-TP32 (38c-i). Company Information edits
+	// are audited like the lifecycle transitions: who changed a partner's
+	// registered company details, and when, is exactly the kind of question
+	// BR-TP06's trail exists to answer.
+	AuditActionDetailsUpdated = "details-updated"
 )
 
 const (

@@ -147,6 +147,8 @@ re-export the whole retained hour on the next start instead.
 | Postgres (accounts-service) | localhost:5434                                         |
 | Postgres (pricing-service)  | localhost:5435                                         |
 | Postgres (trading-partner-service) | localhost:5436                                  |
+| Temporal gRPC        | localhost:7233                                               |
+| Temporal UI          | http://localhost:8233                                        |
 | Jaeger UI (opt-in, `--profile otlp`) | http://localhost:16686                           |
 | Jaeger OTLP/HTTP receiver (opt-in)   | http://localhost:4318                            |
 
@@ -256,6 +258,61 @@ npm run test
 
 # Watch mode — re-runs affected tests on every file save
 npm run test:watch
+```
+
+### Temporal durability test (BR-TP27)
+
+BR-TP27's worker-restart durability spec in
+`backend/trading-partner-service/tradingpartner/transporterprofile/worker/durability_test.go`
+needs a real Temporal server — an in-memory test environment cannot
+demonstrate history replay across a worker restart. It **skips silently**
+when `TEMPORAL_TEST_ADDRESS` is unset, so a plain `ginkgo ./...` reports
+green without ever proving the guarantee. To actually run it, start
+Temporal and point the suite at it:
+
+```bash
+docker compose up -d temporal
+```
+
+```bash
+TEMPORAL_TEST_ADDRESS=localhost:7233 ginkgo ./...
+```
+
+Confirm the run reports `0 Skipped` for the Worker suite — a `1 Skipped`
+there means the variable did not reach the test and the durability claim
+is still unverified.
+
+### Postgres repository tests (BR-TP29–BR-TP34)
+
+Same shape, same trap, different dependency. The specs in
+`backend/trading-partner-service/tradingpartner/internal/postgres/repository_test.go`
+need a real Postgres, because the rules they cover are SQL behaviours:
+BR-TP30's supersession is a two-statement transaction, and BR-TP34's
+optimistic-concurrency guard is only atomic because of the `AND version = ?`
+predicate. A fake repository would pass these specs while proving nothing —
+in particular, "exactly one of eight simultaneous writers wins" is not a
+statement about Go code, it is a statement about the database.
+
+They **skip silently** when `TRADING_PARTNER_TEST_DATABASE_URL` is unset:
+
+```bash
+docker compose up -d trading-partner-postgres
+```
+
+```bash
+TRADING_PARTNER_TEST_DATABASE_URL="postgres://trading_partner:trading_partner@localhost:5436/trading_partner?sslmode=disable" ginkgo ./...
+```
+
+Confirm the run reports `7/7 specs` for the `TradingPartner Postgres Suite`
+rather than skipping it. The specs create their own partners under the
+`spec-context` context and delete them afterwards, so they are safe to run
+against a running dev database — but they do run `Migrate`, so they will
+apply any pending schema change to whatever database you point them at.
+
+To run everything that is normally gated off, set both variables:
+
+```bash
+TRADING_PARTNER_TEST_DATABASE_URL="postgres://trading_partner:trading_partner@localhost:5436/trading_partner?sslmode=disable" TEMPORAL_TEST_ADDRESS=localhost:7233 ginkgo ./...
 ```
 
 All business rules must have a passing test. See [BUSINESS_RULES.md](BUSINESS_RULES.md) for the full rule inventory.

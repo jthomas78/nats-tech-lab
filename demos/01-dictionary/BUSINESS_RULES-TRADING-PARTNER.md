@@ -73,6 +73,13 @@ the Phase 26 plan section's own per-entity CQRS classification.
 
 ### BR-TP07–BR-TP11 — Compliance documents (26b)
 
+> **Superseded in part by BR-TP29–BR-TP31 (Phase 38c-i, 2026-08-20).**
+> BR-TP08's "at most one per `(partner, type)`" **upsert** invariant is
+> replaced by a service-minted document `id`, an insert-always
+> `AddDocument`, and an explicit `SUPERSEDED` transition; BR-TP09–BR-TP11
+> now address a document by `id` rather than by `type`. BR-TP07's per-type
+> vocabulary rules are unaffected. Read those rules alongside this section.
+
 **Confirmed 2026-08-13.** Document storage is metadata-only (no file
 bytes) — `Reference` is an opaque external locator, unvalidated in v1 (Phase
 26 plan section's storage decision). `ExpiresAt`/`CoverageCents` are both
@@ -109,7 +116,10 @@ Phase 26 plan section).
   Called on a document in any other status (`Pending` or `Approved`),
   rejected with `409 Conflict`. There is no `Approved` → anything transition
   in v1 — an approved document is not un-approved or re-reviewed once
-  decided.
+  decided. *(Amended by BR-TP30: `Approved` → `SUPERSEDED` is legal from
+  38c-i. That is not an un-approval — the approval stands over the record it
+  was given for; supersession retires that record in favour of a newer
+  document, which starts its own review at `Pending`.)*
 
 Document status remains fully independent of the parent
 `TradingPartner.status` in v1, per BR-TP04's note and the Phase 26 plan
@@ -300,3 +310,522 @@ standing.
 - **Test:** `tradingpartner/internal/rest/handlers_allowlist_test.go` —
   `TestMountRoutesMatchAdminAllowlist` asserts `Mount(mux)`'s returned route
   list `ConsistOf("GET /healthz")`.
+
+### BR-TP18 (Phase 38a) — CreateTransporterProfile / EnsureTransporterProfile
+
+A `TransporterProfile` uses its associated `TradingPartner` ID as its
+aggregate ID. No surrogate ID or join record is created. Creation begins in
+`AwaitingDocumentation`. Both `CreateTransporterProfile(tradingPartnerID)`
+and `EnsureTransporterProfile(tradingPartnerID)` are idempotent: if the
+profile does not exist, exactly one creation event is appended; if it already
+exists, the existing profile is returned without appending another creation
+event or resetting its state. Concurrent creation attempts may produce a
+sequence conflict internally, but after re-hydration converge on the same
+single profile.
+
+- **Enforced in:** `transporterprofile/domain` (shared-ID aggregate and
+  `AwaitingDocumentation` initial state) and `transporterprofile/orchestration`
+  (`CreateTransporterProfile` / `EnsureTransporterProfile` hydration and
+  idempotent conflict convergence).
+- **Test:** `transporterprofile/orchestration/orchestration_test.go` — the
+  BR-TP18 context covers shared identity, initial state, repeated calls, and
+  concurrent creation convergence with one creation event.
+
+### BR-TP19 (Phase 38a) — Transporter activation gate
+
+At the command-handling/orchestration boundary, activating a
+`TRANSPORTER`-typed `TradingPartner` is permitted only when the associated
+`TransporterProfile` exists and its projected status is `Vetted`. A missing
+or non-`Vetted` profile rejects activation without changing the partner's
+`Registered` status. The check reads the canonical Postgres projection
+directly, never the KV cache. A `SHIPPER` bypasses this check and retains
+BR-TP03's existing behavior unchanged.
+
+- **Enforced in:** `transporterprofile/orchestration`'s activation handler,
+  wired only at `tradingpartner/internal/browserrpc`'s live
+  `partner.activate` boundary; `tradingpartner/internal/domain` remains
+  unchanged.
+- **Test:** `transporterprofile/orchestration/orchestration_test.go` — the
+  BR-TP19 context covers missing, non-Vetted, Vetted, and SHIPPER paths and
+  asserts the canonical projection reader is used instead of KV.
+
+### BR-TP20 (Phase 38a) — Aggregate-wide optimistic sequence guard
+
+Every `TransporterProfile` event publish uses the last sequence observed
+while hydrating that aggregate and guards the wildcard filter
+`evt.{context}.organizations.transporter.{tradingPartnerID}.>`. Publishing
+must use `Nats-Expected-Last-Subject-Sequence-Subject` with that wildcard,
+never the plain per-leaf-subject option alone. If any event type has advanced
+the aggregate since hydration, JetStream rejects the append as a sequence
+conflict; no event or projection mutation is produced by the losing command.
+
+- **Enforced in:** `transporterprofile/orchestration`'s JetStream event store;
+  every append carries the hydrated aggregate sequence plus its wildcard
+  filter.
+- **Test:** `transporterprofile/orchestration/orchestration_test.go` — the
+  BR-TP20 context verifies the exact headers and proves a different event leaf
+  causes the stale append to lose without producing another event or
+  projection mutation.
+
+### BR-TP21 (Phase 38b) — Both vetting branches gate Vetted and fleet availability
+
+`TransporterVettingWorkflow` runs document review and GIT verification as
+parallel branches. A `TransporterProfile` reaches `Vetted` and its aggregate-
+owned `FleetAvailabilityGate` flips from its default `false` to `true` only
+after both branches succeed; either branch succeeding alone leaves both
+outcomes unavailable. The legacy per-asset `FleetAsset` rows remain owned by
+`tradingpartner/internal/domain` and are not changed by this workflow. A
+fleet asset's `AvailableForAssignment` is a computed query/read-layer value
+produced by joining those untouched rows with `FleetAvailabilityGate`; it is
+not a column written by `TransporterProfile` and is not a field added to the
+legacy `FleetAsset` domain type.
+
+- **Enforced in:** `transporterprofile/workflow` (parallel AND-gate),
+  `transporterprofile/domain` (`FleetAvailabilityGate` state), and the
+  transporter-profile query/read join.
+- **Test:** `transporterprofile/workflow/workflow_test.go` — the BR-TP21
+  context proves neither branch can vet or open the gate alone, and both
+  successful branches can.
+
+### BR-TP22 (Phase 38b) — Saga failure appends compensation events
+
+If GIT verification fails or times out after document approvals, the workflow
+appends `DocumentApprovalReverted`, projects those approvals back to
+`PendingReview`, leaves `FleetAvailabilityGate == false`, and ends the attempt
+as `Rejected`. If fleet availability had previously taken effect and is later
+invalidated, compensation appends `FleetAvailabilityRevoked`, which flips the
+aggregate-owned gate to `false`. Compensation is always a new forward event;
+it never deletes or rewrites the event history and never mutates legacy
+`FleetAsset` rows. GIT-branch success alone has no compensable side effect,
+since `FleetAvailabilityGate`/`Vetted` require both branches to succeed before
+taking effect. An optimistic sequence conflict is a retryable "try again"
+outcome and must not enter the compensation path.
+
+- **Enforced in:** `transporterprofile/workflow`,
+  `transporterprofile/activities`, and `transporterprofile/domain`'s
+  hydrate/apply handling for the two explicitly-named compensation events.
+- **Test:** `transporterprofile/workflow/workflow_test.go` — the BR-TP22
+  context covers rejection, timeout, append-only compensation, GIT-success-
+  alone, gate revocation, and sequence-conflict behavior.
+
+### BR-TP23 (Phase 38b) — Document review is signal-driven and per reference
+
+During 38b, document approval is an interim in-memory/test-only workflow
+concern. `TransporterVettingWorkflow` accepts `DocumentApproved` and
+`DocumentRejected` signals carrying a document reference, records each
+reference once, and resumes from the accumulated signal state. A rejection
+fails that vetting attempt; approvals satisfy the document branch only when
+all required references for that attempt have been approved. Real document
+upload, persistence, and NATS Object Store integration remain 38c scope.
+
+- **Enforced in:** `transporterprofile/workflow`'s deterministic signal
+  handling; no 38c storage adapter is introduced.
+- **Test:** `transporterprofile/workflow/workflow_test.go` — the BR-TP23
+  context covers per-reference approvals, duplicate signals, and rejection.
+
+### BR-TP24 (Phase 38b) — Workflow event publication is retry-safe
+
+Every JetStream publish triggered by a workflow runs inside a Temporal
+Activity, never in workflow code. The `TRANSPORTER` stream config declares an
+explicit duplicate window, and every activity publish supplies
+`Nats-Msg-Id` as
+`{tradingPartnerID}:{event}:{attemptNumber}:{step}`. `attemptNumber` is
+ordinary `TransporterVettingWorkflow` input sourced from the aggregate's
+event history; the key is never derived from Temporal's RunID. An activity
+retry after a successful publish therefore receives the original acknowledgement
+without appending the same transition twice.
+
+- **Enforced in:** `transporterprofile/activities` and
+  `transporterprofile/orchestration`'s stream/event-store configuration.
+- **Test:** `transporterprofile/activities/activities_test.go` — the BR-TP24
+  context verifies exact message IDs, the duplicate window, and one stored
+  event after a simulated retry.
+
+### BR-TP25 (Phase 38b) — GIT verification has explicit configurable timeouts
+
+`RequestGitVerification` supports immediate pass, immediate fail, and a
+hang-past-timeout test outcome. Its Temporal Activity options always declare
+explicit `StartToCloseTimeout` and `ScheduleToCloseTimeout` values supplied by
+worker configuration, with short test values distinct from the production-
+scale defaults. Failures and exhausted timeouts reject the attempt and follow
+BR-TP22's compensation behavior.
+
+- **Enforced in:** `transporterprofile/workflow` Activity options,
+  `transporterprofile/activities`' mock insurer, and
+  `transporterprofile/worker` configuration.
+- **Test:** `transporterprofile/workflow/workflow_test.go` — the BR-TP25
+  context covers pass, fail, and timeout with the configured bounds.
+
+### BR-TP26 (Phase 38b) — Rejected profiles resubmit under the same workflow ID
+
+`Rejected` is terminal for one vetting attempt, not for the
+`TransporterProfile`. `Resubmit` first appends `VettingResubmitted` on the
+profile with the incremented monotonic `attemptNumber` (count of prior vetting
+attempts + 1), then starts a fresh `TransporterVettingWorkflow` under the same
+`{context}-transporter-vetting-{tradingPartnerID}` workflow ID and passes that
+`attemptNumber` as ordinary workflow input. The start explicitly uses the
+Temporal workflow-ID reuse policy that permits a new run after the prior
+`Rejected` run has closed; it never depends on RunID for domain identity or
+deduplication.
+
+- **Enforced in:** `transporterprofile/orchestration`'s resubmit command and
+  workflow starter, plus `transporterprofile/domain`'s attempt tracking and
+  `VettingResubmitted` hydrate/apply path.
+- **Test:** `transporterprofile/workflow/workflow_test.go` — the BR-TP26
+  context drives an attempt to `Rejected`, verifies event-before-start order
+  and incremented input, and confirms a fresh run starts under the same ID.
+
+### BR-TP27 (Phase 38b) — Worker restart preserves workflow progress
+
+Stopping the organizations-vetting worker while a vetting workflow is in
+progress and starting a replacement worker on the same task queue resumes the
+same durable workflow. Already-approved document references and completed GIT
+progress are retained; the replacement waits only for outstanding signals and
+does not append duplicate transition events.
+
+- **Enforced in:** Temporal workflow history plus BR-TP24's idempotent
+  activity boundary; no process-local workflow state is authoritative.
+- **Test:** `transporterprofile/worker/durability_test.go` — the BR-TP27
+  harness stops and replaces the worker mid-workflow and completes the
+  original execution without re-sending satisfied inputs.
+
+### BR-TP28 (Phase 38b) — Scheduled GIT drops revoke availability and suspend
+
+Once vetting reaches `Vetted`, a Temporal Schedule starts periodic
+`TransporterGitMonitorWorkflow` executions (the plan's older
+"CronSchedule" wording is informal/outdated). Each execution reads the
+canonical TransporterProfile projection. When it detects a drop from active
+GIT status, it invokes one orchestration-level command,
+`HandleGitStatusDrop(tradingPartnerID)`, which atomically from the caller's
+perspective (a) appends `FleetAvailabilityRevoked` on `TransporterProfile`,
+flipping `FleetAvailabilityGate` to `false`, then (b) calls
+`TradingPartner.Suspend()` with the GIT-expired-or-revoked reason. Repeated
+monitor executions are idempotent and do not append or suspend again once the
+drop has been handled.
+
+- **Enforced in:** `transporterprofile/workflow` monitor,
+  `transporterprofile/worker` Schedule setup, and
+  `transporterprofile/orchestration.HandleGitStatusDrop`.
+- **Test:** `transporterprofile/workflow/workflow_test.go` and
+  `transporterprofile/orchestration/orchestration_test.go` — the BR-TP28
+  contexts verify Schedule-driven detection, command ordering, both effects,
+  and idempotency.
+
+### BR-TP29–BR-TP31 (Phase 38c-i) — Compliance documents gain an identity
+
+**Approved 2026-08-20.** These three rules **supersede BR-TP08's
+"at most one per `(partner, type)`" repository invariant** and change how
+BR-TP09–BR-TP11 address a document. BR-TP08's *intent* is preserved — one
+live document per type — but its mechanism (the primary key, and an upsert
+that destroyed the previous row) is replaced, because 38c-ii needs a stable
+per-document identifier for the Object Store object name and an upsert
+leaves no history to audit.
+
+- **BR-TP29:** Every `ComplianceDocument` carries an `id`, minted by the
+  service (not supplied by the caller — same treatment as
+  `TradingPartner.ID`, a Postgres `gen_random_uuid()` default returned to
+  the caller). The primary key becomes `(trading_partner_id, id)`.
+  `AddDocument` always **inserts**; it never upserts.
+- **BR-TP30 (supersession):** At most one document per `(partner, type)` is
+  **current**. Adding a document for a type that already has a current
+  document **supersedes** that document: a new terminal `SUPERSEDED` status,
+  reached by an explicit transition, legal from `Pending`, `Approved` and
+  `Rejected` alike. A `SUPERSEDED` document accepts no further transition —
+  `Approve`/`Reject`/`Resubmit` on one is rejected `409 Conflict`. Note this
+  is the one transition that may leave `Approved`, which BR-TP11 otherwise
+  forbids: superseding does not un-approve past work, it retires the record
+  that approval applied to.
+- **BR-TP31 (addressing):** `Approve`/`Reject`/`Resubmit` address a document
+  by `id`, not by `type` — after BR-TP29 a type no longer uniquely
+  identifies a row. `document.list` returns **current documents only**
+  (superseded rows are retained in Postgres for audit but not returned),
+  so the response shape 38b's workflow and 38d's Documents tab consume is
+  unchanged by this sub-phase.
+
+- **Enforced in:** `internal/domain/compliance_document.go` (the
+  `SUPERSEDED` transition and its guards), `internal/postgres/compliance_document_repository.go`
+  (insert-not-upsert, supersede-then-insert in one transaction, current-only
+  reads, the ID mint), `internal/postgres/migrate.go` (the PK widening).
+- **Test:** `tradingpartner/compliance_document_test.go`'s BR-TP30 context
+  covers superseding from each of the three non-terminal statuses and
+  rejection of every transition on a superseded document.
+  `internal/postgres/repository_test.go` covers the repository half —
+  distinct IDs rather than an upsert, the superseded row surviving for audit
+  while `ListDocuments` returns only the current one, and types staying
+  independent of each other. **The Postgres specs are gated on
+  `TRADING_PARTNER_TEST_DATABASE_URL`** and skip silently without it — see
+  the README. A plain green `ginkgo ./...` does not prove them.
+
+### BR-TP32–BR-TP35 (Phase 38c-i) — Editable Company Information
+
+**Approved 2026-08-20**, closing the design's open question 3. Editing
+Company Information is a confirmed product requirement, so the
+"ship it read-only" fallback (ADR-049 finding 7) is withdrawn. Until this
+sub-phase, `company_name`, `registration_no`, `vat_registration_no` and
+`trading_as` were columns **no code path wrote a non-empty value into**.
+
+- **BR-TP32 (`UpdateDetails`):** Mutates `name`, `tradingAs`,
+  `companyName`, `registrationNo`, `vatRegistrationNo`. `type` and
+  `context` are **immutable**: `type` gates document validity (BR-TP07) and
+  fleet-asset attachment (BR-TP12), so editing it could retroactively
+  invalidate rows that were legal when created; `context` is the
+  business-unit scope, and moving a partner between contexts is a
+  migration, not an edit. `status` is untouched — it has its own lifecycle
+  rules (BR-TP03–BR-TP05). `name` **is** editable: BR-TP01 already records
+  that it is not a reliable natural key and IDs are server-generated, so
+  nothing depends on its stability.
+- **BR-TP33 (`version`):** Every `trading_partners` row carries a `version`,
+  starting at `1`, incremented by exactly `1` on every successful write —
+  including the lifecycle transitions (`Activate`/`Suspend`/`Reactivate`),
+  so an edit form left open across someone else's suspension goes stale.
+- **BR-TP34 (optimistic concurrency):** `UpdateDetails` requires the
+  `version` the caller read; the write is
+  `UPDATE … WHERE id = ? AND version = ?` and a mismatch is rejected
+  `409 Conflict` with **no partial write**. The lifecycle transitions
+  **bump `version` but do not check it** — they are already guarded by the
+  status state machine, which rejects an illegal repeat on status alone, so
+  requiring a version would only make a correct transition fail.
+  This rule exists for the lost-update-across-think-time case (ADR-049
+  finding 5a) that a `SELECT … FOR UPDATE` **structurally cannot catch**: a
+  row lock protects the duration of a transaction, not the minutes an
+  operator spends with an edit form open.
+- **BR-TP35 (`Register` widening):** `Register` optionally accepts
+  `companyName`, `registrationNo`, `vatRegistrationNo` and `tradingAs`. The
+  required set is unchanged (`name`, `type`, `context`) and omitted fields
+  stay empty, so every existing caller is unaffected. Widening `Register` —
+  rather than having 38d's wizard register-then-update — deliberately avoids
+  the half-commit shape ADR-049 finding 6 warns about, where a failed second
+  call leaves a partner registered with none of its details.
+
+- **Enforced in:** `internal/domain/trading_partner.go` (`UpdateDetails`,
+  the immutable-field boundary), `internal/postgres` (the versioned
+  `UPDATE` and every write's bump), `internal/browserrpc` (the
+  `partner.update` endpoint and its `409`).
+- **Test:** `tradingpartner/trading_partner_test.go` covers the domain rule,
+  including the think-time case explicitly: two readers load the same
+  version, both write, the second is rejected and the first writer's values
+  survive intact. `tradingpartner/browserrpc_roundtrip_test.go` covers it
+  over `api.*`, asserting the `409` code and that `type`/`context`/`status`
+  supplied in an update body are ignored.
+  `internal/postgres/repository_test.go` covers what only a database can
+  show: eight goroutines holding the same version write simultaneously, and
+  **exactly one** wins while the other seven get `ErrVersionConflict`. The
+  domain guard alone cannot establish that — every one of the eight passes
+  it. **Gated on `TRADING_PARTNER_TEST_DATABASE_URL`**, see the README.
+- **Not decided here:** how the conflict is *presented* to the operator
+  (dialog vs. inline, and what recovery it offers) — a 38d decision.
+
+### BR-TP36 (Phase 38c-i) — The document ID is the vetting document reference
+
+BR-TP29's document `id` **is** the opaque document reference BR-TP23's
+`TransporterVettingWorkflow` signals carry, and the `{documentID}` token in
+38c-ii's Object Store object name
+(`{context}.transporter.{id}.{docType}.{documentID}`). 38b's workflow
+already keys on an opaque string and needs no structural change; this rule
+pins what that string is, so the three sub-phases agree on one identifier
+instead of three.
+
+- **Enforced in:** documentation and the orchestration boundary that starts
+  vetting — no new mechanism.
+- **Test:** covered where the reference crosses the boundary; no separate
+  spec beyond BR-TP23's existing workflow contexts.
+
+### BR-TP37–BR-TP39 (Phase 38d-i) — Vetting state reaches the browser
+
+**Approved 2026-08-20.** Before this sub-phase, no `api.*` endpoint exposed
+`TransporterProfile` at all: 38a wired its projection reader only into the
+`Activate` guard, so 38b's entire Temporal saga was invisible to any UI.
+These rules are what make the vetting lifecycle observable.
+
+- **BR-TP37 (`partner.profile.get`):** A single `api.*` endpoint (the 16th)
+  returns a Transporter's `TransporterProfile` state — vetting status,
+  attempt number, fleet-availability gate, GIT-verified flag and per-document
+  review states. It reads the **canonical Postgres projection**, never
+  Temporal's workflow Query API — the same rule BR-TP19's activation guard
+  follows, and for the same reason (ADR-047/ADR-049 finding 3): status must
+  not acquire a hard runtime dependency on Temporal being reachable. Asked
+  for a `SHIPPER`, or for a Transporter with no profile yet, it returns a
+  well-formed "no profile" answer rather than an error — a Shipper legitimately
+  has none, so that is not a failure.
+- **BR-TP38 (derived GIT status):** GIT status is one of five values —
+  `None`, `Pending`, `Active`, `Expired`, `Rejected` (V2's real
+  `GitStatusType`) — and is **always derived, never stored or hand-set**. It
+  is the *worst* status across the partner's **current** `GOODS_IN_TRANSIT`
+  documents (superseded rows are excluded, per BR-TP31), with severity
+  ordered `Rejected` > `Expired` > `Pending` > `Active`; `None` only when the
+  partner has no current GIT document. A document whose `expiresAt` is in the
+  past reads as `Expired` regardless of its stored status.
+  This is the first rule that **reads** `expiresAt`, which BR-TP07–BR-TP11
+  stored but left unused. It deliberately does *not* mutate the document's
+  own status on expiry — there is no scheduled expiry job, and inventing one
+  here would quietly turn the deferred "expiry-driven status" exploration into
+  shipped behaviour. Expiry affects the derived badge only, evaluated at read
+  time.
+- **BR-TP39 (conflict presentation):** When a Company Information save is
+  rejected by BR-TP34, the UI shows an **inline banner on the affected
+  section** that **keeps the operator's typed values** and offers two explicit
+  choices: *Reload* (discard mine, take theirs) or *Overwrite* (re-read the
+  current version and reapply mine). The operator's input is never discarded
+  without an explicit choice — silently reloading over an open edit form
+  destroys exactly the work BR-TP34 exists to protect, so a "helpful"
+  auto-reload would defeat the rule it appears to serve. The banner names the
+  section that lost (ADR-049 finding 6), not just "a conflict occurred".
+  The banner is triggered by the **`conflict` flag on the service's error
+  envelope** (`shared/browserrpc` `ErrorResponse.Conflict`), never by matching
+  on the message text. Message prose is not a contract: a reworded backend
+  error would silently downgrade this banner to a generic failure toast, which
+  is the same lost update BR-TP34 exists to prevent, just reached by a
+  different route. *Implementing this required a fix* — the browser's NATS
+  request helper threw `new Error(body.error)` and dropped both `notFound` and
+  `conflict`, so a 409 had been indistinguishable from a 500 in every frontend
+  in this repo.
+  Overwrite is deliberately **last-write-wins across the whole section**, not a
+  field-level merge: it resubmits every Company Information field the operator
+  holds, so a concurrent edit to a field they did not touch is also replaced.
+  BR-TP34 still guards the retry, so a further concurrent write produces
+  another banner rather than a silent loss.
+
+- **Enforced in:** `internal/domain/git_status.go` (BR-TP38's derivation —
+  domain layer, since "worst-of" is a business rule, not display logic),
+  `internal/browserrpc` (BR-TP37's endpoint), and
+  `frontend/refdata/src/components/TransporterPanel.vue` (BR-TP39), on top of
+  `frontend/refdata/src/nats/connectionFactory.js` preserving the envelope's
+  discriminators.
+- **Test:** `tradingpartner/git_status_test.go` covers BR-TP38's severity
+  ordering, expiry-at-read-time, exclusion of superseded documents, and the
+  empty case. `tradingpartner/browserrpc_roundtrip_test.go` covers BR-TP37
+  over the wire, including the Shipper/no-profile answer. BR-TP39 is covered
+  by the frontend component specs.
+
+### BR-TP40–BR-TP45 (Phase 38c-ii) — Compliance document files
+
+**Approved 2026-08-20.** These complete the Documents tab 38d-i shipped with a
+deliberately inert Upload control. Everything before this sub-phase treated a
+document as metadata only: `reference` was an opaque external locator and no
+bytes existed anywhere. Reviewed in
+[ADR-048](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-048-document-storage-nats-object-store.md),
+whose four remaining amendments these rules discharge.
+
+- **BR-TP40 (a dedicated byte ingress):** Document bytes move over **two HTTP
+  routes** (`POST /files/documents`, `GET /files/documents`), not over
+  `api.*`. This is a scoped, deliberate partial reversal of Phase 33.5's REST
+  retirement, forced rather than chosen: the command surface is NATS `micro`
+  request/reply with JSON bodies, which is neither a streaming transport nor
+  able to exceed the server's `max_payload` (unset in this lab's `nats.conf`,
+  so the 1 MiB default). The two routes carry **bytes and nothing else** — no
+  business decision, no state transition, no lifecycle command is reachable
+  over HTTP, all of which still require an authenticated NATS connection.
+  BR-TP17's mux allowlist test is widened by exactly these two entries and
+  stays closed to everything else; the entries are listed literally in the
+  test rather than deferred to the production constant, so a third route
+  still fails it. A consequence worth recording for the pattern-cards
+  comparison: Object Store has **no presigned-URL equivalent**, so the
+  service is a *mandatory* byte proxy in both directions — a permanent
+  property of the choice, and a fair point in S3's favour.
+- **BR-TP41 (transfer is authorized by a service-minted ticket):** The browser
+  first calls `document.upload-ticket`/`document.download-ticket` over its
+  authenticated per-tenant NATS connection; the service returns a
+  **single-use, short-lived (2 min) capability token** bound to one
+  `(tenant, context, partnerID, documentID, direction)` grant. The HTTP call
+  carries only that token, in a header — never a query parameter, since a URL
+  reaches logs, history and pasted links. Nothing about the tenant, context or
+  document is read from the HTTP request; all of it comes off the redeemed
+  ticket, so a ticket for tenant A cannot be spent against tenant B's bucket
+  whatever the request claims.
+  *This rule exists because of a finding, not a preference.* ADR-048 finding 5
+  said the ingress needs "own auth", but **no JWT verification exists anywhere
+  in this repo** — `accounts-service` only ever *mints* NATS credentials, and
+  every other caller authenticates by connecting to a NATS account, which is
+  server-enforced. HTTP is therefore the one path outside the boundary that is
+  this platform's entire tenancy enforcement. A ticket keeps the authoritative
+  decision where it already works rather than inventing a second
+  authentication system for two byte-shovelling routes; verifying a bare user
+  JWT as a bearer token was the alternative, and is weaker (no
+  proof-of-possession, unlike the nkey challenge the NATS connection performs).
+  Eligibility is checked at **mint** time as well as at redemption, so an
+  operator is refused before spending a minute uploading. A mismatched
+  direction still consumes the token, so it cannot be retried against the
+  other route.
+- **BR-TP42 (object names are service-minted):** The object name is
+  `{context}.transporter.{id}.{docType}.{documentID}` — every token
+  service-controlled, mirroring the repo's KV key convention rather than
+  inventing a second scheme. The **original filename is deliberately absent**
+  (ADR-048 finding 2): a user-controlled name makes object *identity*
+  user-controlled, and two uploads of the same docType sharing a filename
+  would resolve to one object — silently purging the earlier document's bytes
+  while the log still records both, so the log would assert a document that
+  cannot be retrieved. The filename lives in object metadata and the Postgres
+  projection instead. This also sidesteps character legality, since real
+  filenames carry spaces, parentheses and non-ASCII.
+- **BR-TP43 (blob first, record second; write-once):** Nothing spans the
+  Object Store and Postgres transactionally, and the two failure modes are not
+  symmetric. Record-then-store leaves a projection — and upstream, an
+  **immutable** event log — asserting a document whose bytes were never
+  written; an event can only be compensated, not retracted (ADR-047's
+  constraint one layer up). Store-then-record leaves at worst an **orphan
+  object**: invisible to every reader, addressable by name, harmless. So the
+  order is forced, not preferred.
+  A document's bytes are consequently **write-once** — there is no replace.
+  Overwriting an object would purge bytes the log still references, which is
+  the exact failure BR-TP42 exists to prevent. The supported correction is
+  BR-TP30's supersede-and-replace, which leaves both objects retrievable, and
+  which is why **objects are never deleted** in this POC and why
+  `GetDocument` returns superseded rows that `ListDocuments` (BR-TP31)
+  excludes. The write-once guard is re-applied under `SELECT … FOR UPDATE`, so
+  two uploads racing the same document cannot both win — and the loser has
+  already written bytes, which is precisely why an orphan must be the
+  acceptable outcome.
+- **BR-TP44 (explicit limits):** **10 MiB per file** at the service boundary
+  and **`MaxBytes` 256 MiB** on the bucket. Not decoration: an Object Store
+  bucket *is* a JetStream stream, so document bytes and the `TRANSPORTER`
+  event log compete for the same 1 GiB per-tenant allowance — enough uploads
+  would stop event publishing for the whole tenant. 256 MiB leaves the log,
+  the thing that cannot be re-derived, the clear majority. The per-file cap is
+  enforced on the **bytes actually read** (`io.LimitReader` at Max+1, plus
+  `http.MaxBytesReader` at the transport edge), never on a client-declared
+  `Content-Length` a client can understate. A zero-byte upload is refused too:
+  it would produce a document the log says has a file whose retrieval returns
+  nothing. The browser's own pre-check is a courtesy that spares a doomed
+  transfer, not a control.
+  *Stream-budget check (ADR-048's precondition, done 2026-08-20 against the
+  running stack):* ACME held 5 streams of 10 and GLOBEX 3, so
+  `OBJ_organizations-docs` takes them to 6 and 4 — it fits, and no
+  `/jslimits` raise is needed. ADR-048's related worry that refdata's
+  per-context *versioned* KV buckets would exhaust the budget is **misplaced**:
+  those 9 buckets live in **PLATFORM** (limit 20), not in the tenant accounts.
+- **BR-TP45 (file metadata is projected):** `fileName`, `contentType`,
+  `sizeBytes`, `objectName` and `uploadedAt` are stored on the document row,
+  all nullable together — a document legitimately has no file until one is
+  uploaded, and BR-TP43 makes the transition one-way, so there is no "had a
+  file, now doesn't" state. Projecting it keeps the listing path off the object
+  store entirely: the Documents tab renders names and sizes from one Postgres
+  query, and the bucket is touched only when bytes actually move. Download
+  sets `Content-Type` and an RFC 5987 `Content-Disposition` from the
+  projection, and reads the **stored** object name rather than recomputing it
+  — a name rebuilt from parts would diverge from the stored one the moment the
+  naming rule changed. Filenames cross the HTTP boundary percent-encoded,
+  because header values are ASCII and real filenames are not.
+
+- **Enforced in:** `internal/domain/compliance_document.go`
+  (`AttachFile`, `DocumentObjectName`, `MaxDocumentFileBytes` — the size cap
+  and the naming rule are business rules, not transport concerns),
+  `internal/filetickets` (BR-TP41's grants),
+  `internal/application/commands/document_file.go` (BR-TP43's write order),
+  `internal/objectstore` (bucket + `MaxBytes`),
+  `internal/rest/document_files.go` (BR-TP40's ingress and its status
+  mapping), `internal/browserrpc` (the two mint endpoints, taking tenant from
+  the connection and `{context}` from the subject), and
+  `frontend/refdata/src/api.js` + `components/TransporterPanel.vue`.
+- **Test:** `tradingpartner/document_file_test.go` covers all six —
+  the naming rule (including a hostile `../../etc/passwd` filename that
+  reaches metadata but never identity), ticket single-use/expiry/direction,
+  the orphan-not-dangling-reference outcome when recording fails, the
+  at-limit/over-limit/empty boundary, and the HTTP status mapping over
+  `httptest`. `frontend/refdata/src/documentFileApi.spec.js` covers the
+  browser's two-step flow, the percent-encoding, and status propagation.
+  `internal/rest/handlers_allowlist_test.go` pins BR-TP40's widened surface.
+  Verified live against the composed stack: a real upload with a non-ASCII
+  filename, byte-identical download, ticket replay refused with 403, a second
+  upload refused with `conflict: true`, and an 11 MiB attempt refused with 413
+  leaving the document file-less and a 10 MiB orphan in the bucket — BR-TP43's
+  trade, observed rather than asserted.

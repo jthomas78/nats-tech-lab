@@ -44,6 +44,12 @@ const ResponderHeader = "Nats-Responder"
 type ErrorResponse struct {
 	Error    string `json:"error"`
 	NotFound bool   `json:"notFound,omitempty"`
+
+	// Conflict marks a 409 — the request was well-formed and the resource
+	// exists, but it conflicts with the resource's current state (an illegal
+	// status transition, or a stale optimistic-concurrency version). Omitted
+	// when false, so no existing client parsing this shape needs to change.
+	Conflict bool `json:"conflict,omitempty"`
 }
 
 // ContextFromSubject extracts the {context} token from an api.{context}....
@@ -112,10 +118,25 @@ func Respond(req micro.Request, svc micro.Service, log *slog.Logger, subject, co
 // header reads "404" instead of "500" — callers derive it from their own
 // service-specific isNotFound predicate.
 func RespondError(req micro.Request, svc micro.Service, log *slog.Logger, subject, correlationID string, err error, notFound bool) {
-	data, _ := json.Marshal(ErrorResponse{Error: err.Error(), NotFound: notFound})
+	respondError(req, svc, log, subject, correlationID, err, notFound, false)
+}
+
+// RespondConflictableError is RespondError plus a 409 classification, for
+// services whose domain rules distinguish "this conflicts with the current
+// state" from a generic failure. notFound wins if both are somehow true, since
+// a missing resource is the more specific answer.
+func RespondConflictableError(req micro.Request, svc micro.Service, log *slog.Logger, subject, correlationID string, err error, notFound, conflict bool) {
+	respondError(req, svc, log, subject, correlationID, err, notFound, conflict)
+}
+
+func respondError(req micro.Request, svc micro.Service, log *slog.Logger, subject, correlationID string, err error, notFound, conflict bool) {
+	data, _ := json.Marshal(ErrorResponse{Error: err.Error(), NotFound: notFound, Conflict: conflict && !notFound})
 	code := "500"
-	if notFound {
+	switch {
+	case notFound:
 		code = "404"
+	case conflict:
+		code = "409"
 	}
 	headers := map[string][]string{
 		micro.ErrorHeader:     {err.Error()},
@@ -135,10 +156,25 @@ func RespondError(req micro.Request, svc micro.Service, log *slog.Logger, subjec
 // already used. isNotFound classifies err as a domain not-found condition
 // (a 404, not a 500) — nil is treated as "never not-found".
 func Reply(req micro.Request, svc micro.Service, log *slog.Logger, isNotFound func(error) bool, result any, err error) {
+	ReplyWithConflicts(req, svc, log, isNotFound, nil, result, err)
+}
+
+// ReplyWithConflicts is Reply plus a conflict classifier, mapping a domain
+// conflict to 409 instead of 500. isConflict nil is treated as "never a
+// conflict", so this is behaviour-identical to Reply for callers that don't
+// classify — which is why Reply can delegate here rather than duplicating.
+//
+// Added for trading-partner-service's BR-TP34 optimistic-concurrency rule.
+// Other services carry 409 rules of their own (accounts-service, refdata-
+// service) that still map to 500 over api.* since Phase 33.5 retired the REST
+// layer those codes came from; they can adopt this the same way.
+func ReplyWithConflicts(req micro.Request, svc micro.Service, log *slog.Logger, isNotFound, isConflict func(error) bool, result any, err error) {
 	subject := req.Subject()
 	correlationID := req.Reply()
 	if err != nil {
-		RespondError(req, svc, log, subject, correlationID, err, isNotFound != nil && isNotFound(err))
+		respondError(req, svc, log, subject, correlationID, err,
+			isNotFound != nil && isNotFound(err),
+			isConflict != nil && isConflict(err))
 		return
 	}
 	Respond(req, svc, log, subject, correlationID, result)

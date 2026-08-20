@@ -134,4 +134,59 @@ var _ = Describe("ComplianceDocument Rules", func() {
 			Expect(errors.Is(err, domain.ErrDocumentNotRejected)).To(BeTrue())
 		})
 	})
+
+	Context("BR-TP30: supersession is an explicit terminal transition from any non-terminal status", func() {
+		pending := func() domain.ComplianceDocument {
+			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeGoodsInTransit, "s3://docs/git-1.pdf")
+			Expect(err).NotTo(HaveOccurred())
+			return doc
+		}
+
+		// All three non-terminal statuses may be superseded. Approved is
+		// included deliberately: BR-TP30 amends BR-TP11's "no Approved ->
+		// anything" rule, because retiring the record an approval applied to
+		// is not the same as un-approving the work.
+		It("supersedes a Pending document", func() {
+			doc, err := pending().Supersede()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(doc.Status).To(Equal(domain.DocumentStatusSuperseded))
+		})
+
+		It("supersedes an Approved document without un-approving it", func() {
+			approved, err := pending().Approve()
+			Expect(err).NotTo(HaveOccurred())
+
+			doc, err := approved.Supersede()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(doc.Status).To(Equal(domain.DocumentStatusSuperseded))
+		})
+
+		It("supersedes a Rejected document", func() {
+			rejected, err := pending().Reject()
+			Expect(err).NotTo(HaveOccurred())
+
+			doc, err := rejected.Supersede()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(doc.Status).To(Equal(domain.DocumentStatusSuperseded))
+		})
+
+		// Superseded is terminal — every transition off it is rejected,
+		// including a second Supersede.
+		It("rejects every transition on a superseded document", func() {
+			superseded, err := pending().Supersede()
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = superseded.Approve()
+			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
+
+			_, err = superseded.Reject()
+			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
+
+			_, err = superseded.Resubmit()
+			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
+
+			_, err = superseded.Supersede()
+			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
+		})
+	})
 })

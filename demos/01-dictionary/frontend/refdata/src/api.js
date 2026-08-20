@@ -269,6 +269,14 @@ export function registerTradingPartner(context, input) {
   return tpRequest(context, 'partner', 'register', input)
 }
 
+// BR-TP32/BR-TP34 — Company Information editing. version is the value the
+// caller read; the service rejects a stale one with a 409 rather than
+// overwriting someone else's change, so callers must surface that (BR-TP39)
+// instead of retrying blindly.
+export function updateTradingPartner(context, id, version, details) {
+  return tpRequest(context, 'partner', 'update', { id, version, ...details })
+}
+
 export function activateTradingPartner(context, id) {
   return tpRequest(context, 'partner', 'activate', { id })
 }
@@ -285,6 +293,16 @@ export function getTradingPartnerAudit(context, id) {
   return tpRequest(context, 'partner', 'audit', { id })
 }
 
+// BR-TP37 — the browser's only route to vetting state. Returns
+// { hasProfile, profile, gitStatus }: hasProfile is false for a Shipper (which
+// legitimately has no TransporterProfile) and for a Transporter whose profile
+// has not been created yet, so callers must check it rather than reading
+// profile.status blindly. gitStatus is derived server-side (BR-TP38) and is
+// never something the UI computes or sets.
+export function getTransporterProfile(context, id) {
+  return tpRequest(context, 'partner', 'profile', { id })
+}
+
 export function listComplianceDocuments(context, id) {
   return tpRequest(context, 'document', 'list', { id })
 }
@@ -293,16 +311,99 @@ export function addComplianceDocument(context, id, input) {
   return tpRequest(context, 'document', 'add', { id, ...input })
 }
 
-export function approveComplianceDocument(context, id, type) {
-  return tpRequest(context, 'document', 'approve', { id, type })
+// The three review transitions address a document by its service-minted id,
+// not by type (BR-TP31). Before Phase 38c-i a type identified exactly one
+// document per partner, so `type` was a sufficient address; now that
+// superseded documents are retained, it is not — the same partner can hold
+// several CIPC rows, only one of them current.
+export function approveComplianceDocument(context, id, documentId) {
+  return tpRequest(context, 'document', 'approve', { id, documentId })
 }
 
-export function rejectComplianceDocument(context, id, type) {
-  return tpRequest(context, 'document', 'reject', { id, type })
+export function rejectComplianceDocument(context, id, documentId) {
+  return tpRequest(context, 'document', 'reject', { id, documentId })
 }
 
-export function resubmitComplianceDocument(context, id, type) {
-  return tpRequest(context, 'document', 'resubmit', { id, type })
+export function resubmitComplianceDocument(context, id, documentId) {
+  return tpRequest(context, 'document', 'resubmit', { id, documentId })
+}
+
+// --- Compliance document files (Phase 38c-ii) ---
+//
+// Two-step by design (BR-TP41). The bytes cannot ride this NATS path at all —
+// it is JSON request/reply, capped by the server's max_payload — so they go
+// over HTTP instead. But HTTP is outside the NATS account boundary that is
+// this platform's entire tenancy enforcement, and there is no JWT
+// verification anywhere in this repo to replace it. So the browser asks *this*
+// authenticated connection for a short-lived, single-use ticket naming exactly
+// one transfer, and the HTTP call carries only that.
+//
+// Consequence worth knowing at the call site: a ticket is spent on first use.
+// A failed upload needs a fresh one — never retry the same POST.
+
+const DOCUMENT_FILE_URL = '/files/documents'
+const TICKET_HEADER = 'X-Document-Ticket'
+const FILE_NAME_HEADER = 'X-Document-File-Name'
+
+function mintDocumentFileTicket(context, id, documentId, direction) {
+  return tpRequest(context, 'document', `${direction}-ticket`, { id, documentId })
+}
+
+// Reads the service's JSON error body so a caller can show why a transfer was
+// refused. The status is what distinguishes the three recoveries — 409
+// supersede-and-retry, 413 pick a smaller file, 403 the ticket is spent — so
+// it rides along on the thrown error rather than being flattened into prose.
+async function throwHttpError(response) {
+  let message = `document transfer failed (${response.status})`
+  try {
+    const body = await response.json()
+    if (body?.error) message = body.error
+  } catch {
+    // A non-JSON body (a proxy's own 413 page, say) leaves the default.
+  }
+  const err = new Error(message)
+  err.status = response.status
+  throw err
+}
+
+// uploadComplianceDocumentFile sends the file as the raw request body, not as
+// multipart/form-data: there is exactly one field, so a multipart envelope
+// would add a parser on both ends to carry nothing extra.
+export async function uploadComplianceDocumentFile(context, id, documentId, file) {
+  const { ticket } = await mintDocumentFileTicket(context, id, documentId, 'upload')
+
+  const response = await fetch(DOCUMENT_FILE_URL, {
+    method: 'POST',
+    headers: {
+      [TICKET_HEADER]: ticket,
+      // Percent-encoded because header values are ASCII and filenames are
+      // not. The service decodes it back before storing (BR-TP45).
+      [FILE_NAME_HEADER]: encodeURIComponent(file.name),
+      // A browser can hand back an empty file.type for an unrecognised
+      // extension, and the service requires one (BR-TP45) — so fall back
+      // rather than letting the upload fail on a missing header.
+      'Content-Type': file.type || 'application/octet-stream',
+    },
+    body: file,
+  })
+  if (!response.ok) await throwHttpError(response)
+  return response.json()
+}
+
+// downloadComplianceDocumentFile fetches the bytes and hands back a Blob plus
+// the filename, leaving the caller to decide how to present it. It is a fetch
+// rather than a plain link because the ticket travels in a header: putting a
+// capability token in a URL would leak it into history, logs and any pasted
+// link.
+export async function downloadComplianceDocumentFile(context, id, documentId) {
+  const { ticket } = await mintDocumentFileTicket(context, id, documentId, 'download')
+
+  const response = await fetch(DOCUMENT_FILE_URL, {
+    method: 'GET',
+    headers: { [TICKET_HEADER]: ticket },
+  })
+  if (!response.ok) await throwHttpError(response)
+  return response.blob()
 }
 
 export function listFleetAssets(context, id) {
