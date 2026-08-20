@@ -1,0 +1,130 @@
+<title>Pattern A vs. Pattern B — where does truth live?</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width:0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <span class="eyebrow">NATS Design Patterns · Source of Truth</span>
+      <h1>Pattern A vs. Pattern B — where does truth live?</h1>
+      <p class="sub">Two coherent patterns, mirror images of each other — each bolts on exactly the component the other gets for free.</p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 250" role="img"
+        aria-label="Pattern A, Postgres as truth: an events table with a UNIQUE id and version constraint flows to an outbox written in the same transaction, which bolts on the durability Pattern B gets for free; a relay publishes from the outbox to JetStream, which feeds projections. Pattern B, JetStream as truth: an append event write using expected-last-seq is the authoritative write, consumed by durable consumers that project raw events into Postgres, a lagging bolt-on copy, which is then queried for audit.">
+        <defs>
+          <marker id="sp-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="sp-proj" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--store)"/>
+          </marker>
+        </defs>
+
+        <!-- Lane A -->
+        <text class="grp" x="16" y="34">PATTERN A — POSTGRES = TRUTH</text>
+
+        <path class="n" d="M16 50 L16 100 A84 8 0 0 0 184 100 L184 50"/>
+        <ellipse class="n" cx="100" cy="50" rx="84" ry="8"/>
+        <text class="lbl" x="100" y="78" text-anchor="middle">events table</text>
+        <text class="lbl2" x="100" y="92" text-anchor="middle">UNIQUE(id, version)</text>
+
+        <path class="flow" marker-end="url(#sp-sync)" d="M184 75 L210 75"/>
+
+        <rect class="n" x="210" y="50" width="130" height="50" rx="3"/>
+        <text class="lbl" x="275" y="72" text-anchor="middle">outbox</text>
+        <text class="lbl2" x="275" y="86" text-anchor="middle">same txn</text>
+        <text class="edge" x="275" y="114" text-anchor="middle">bolts on</text>
+
+        <path class="flow" marker-end="url(#sp-sync)" d="M340 75 L366 75"/>
+
+        <rect class="n" x="366" y="50" width="110" height="50" rx="3"/>
+        <text class="lbl" x="421" y="80" text-anchor="middle">relay</text>
+
+        <path class="flow" marker-end="url(#sp-sync)" d="M476 75 L502 75"/>
+
+        <path class="n" d="M502 50 L502 100 A84 8 0 0 0 670 100 L670 50"/>
+        <ellipse class="n" cx="586" cy="50" rx="84" ry="8"/>
+        <text class="lbl" x="586" y="80" text-anchor="middle">JetStream</text>
+
+        <path class="flow" marker-end="url(#sp-sync)" d="M670 75 L696 75"/>
+
+        <rect class="n" x="696" y="50" width="168" height="50" rx="3"/>
+        <text class="lbl" x="780" y="80" text-anchor="middle">projections</text>
+
+        <!-- Lane B -->
+        <text class="grp" x="16" y="150">PATTERN B — JETSTREAM = TRUTH</text>
+
+        <path class="proj" marker-end="url(#sp-proj)" d="M0 191 L16 191"/>
+
+        <path class="n" d="M16 166 L16 216 A95 8 0 0 0 206 216 L206 166"/>
+        <ellipse class="n" cx="111" cy="166" rx="95" ry="8"/>
+        <text class="lbl" x="111" y="194" text-anchor="middle">append event</text>
+        <text class="lbl2" x="111" y="208" text-anchor="middle">expected-last-seq</text>
+
+        <path class="flow" marker-end="url(#sp-sync)" d="M206 191 L232 191"/>
+
+        <rect class="n" x="232" y="166" width="160" height="50" rx="3"/>
+        <text class="lbl" x="312" y="196" text-anchor="middle">durable consumers</text>
+
+        <path class="flow" marker-end="url(#sp-sync)" d="M392 191 L418 191"/>
+
+        <path class="n" d="M418 166 L418 216 A105 8 0 0 0 628 216 L628 166"/>
+        <ellipse class="n" cx="523" cy="166" rx="105" ry="8"/>
+        <text class="lbl" x="523" y="194" text-anchor="middle" font-size="10">raw-event → Postgres</text>
+        <text class="lbl2" x="523" y="208" text-anchor="middle">lagging</text>
+        <text class="edge" x="523" y="230" text-anchor="middle">bolts on</text>
+
+        <path class="flow" marker-end="url(#sp-sync)" d="M628 191 L654 191"/>
+
+        <rect class="n" x="654" y="166" width="170" height="50" rx="3"/>
+        <text class="lbl" x="739" y="196" text-anchor="middle">query / audit</text>
+      </svg>
+    </div>
+    <figcaption><b>The real difference is where transactionally-consistent, queryable history lives</b> — the source itself (Pattern A) or a lagging derivative (Pattern B). Only Pattern B actually tests JetStream as an event store; Pattern A would relegate NATS to transport, dodging the question this lab exists to answer. Pattern B — JetStream is the source of truth — is the locked working assumption; Postgres and KV are downstream projections, never written by the command path.</figcaption>
+  </figure>
+</div>

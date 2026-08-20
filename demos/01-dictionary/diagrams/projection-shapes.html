@@ -1,0 +1,139 @@
+<title>Shape A, B, and C — three read-model pipelines</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width:0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <span class="eyebrow">NATS Design Patterns · Projection Shapes</span>
+      <h1>Shape A, B, and C — three read-model pipelines</h1>
+      <p class="sub">The POC built all three read-model shapes side-by-side over the same Ship/Container domain so the trade-off would be felt, not argued.</p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 400" role="img"
+        aria-label="Three parallel columns. Shape A: event flows to a projector, which writes to a KV bucket; reads are a KV lookup with no Postgres involved; tagged retired, Phase 31. Shape B: event flows to Postgres as the canonical store, then write-through to KV; reads hit KV first, fall through to Postgres on a miss, and warm KV on the way back; tagged running today. Shape C: a read triggers a replay from sequence 1 of the JetStream log, which is folded into aggregates; no stored model at all; tagged retired, Phase 31.">
+        <defs>
+          <marker id="ps-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="ps-proj" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--store)"/>
+          </marker>
+        </defs>
+
+        <!-- column headers -->
+        <text class="grp" x="150" y="20" text-anchor="middle">SHAPE A</text>
+        <text class="grp" x="500" y="20" text-anchor="middle">SHAPE B</text>
+        <text class="grp" x="850" y="20" text-anchor="middle">SHAPE C</text>
+
+        <!-- Shape A column: event -> projector -> KV -->
+        <rect class="n" x="70" y="40" width="160" height="44" rx="3"/>
+        <text class="lbl" x="150" y="67" text-anchor="middle">event</text>
+
+        <path class="flow" marker-end="url(#ps-sync)" d="M150 84 L150 116"/>
+
+        <rect class="n" x="70" y="116" width="160" height="44" rx="3"/>
+        <text class="lbl" x="150" y="143" text-anchor="middle">projector</text>
+
+        <path class="flow" marker-end="url(#ps-sync)" d="M150 160 L150 192"/>
+
+        <path class="n" d="M92 214 L92 246 A58 8 0 0 0 208 246 L208 214"/>
+        <ellipse class="n" cx="150" cy="214" rx="58" ry="8"/>
+        <text class="lbl" x="150" y="236" text-anchor="middle">KV</text>
+
+        <text class="lbl2" x="150" y="278" text-anchor="middle">read = KV lookup,</text>
+        <text class="lbl2" x="150" y="291" text-anchor="middle">no Postgres</text>
+
+        <rect class="n" x="60" y="320" width="180" height="30" rx="3" style="stroke: var(--evtl)"/>
+        <text class="edge" x="150" y="339" text-anchor="middle" style="fill: var(--evtl)">retired · Phase 31</text>
+
+        <!-- Shape B column: event -> Postgres -> KV -->
+        <rect class="n" x="420" y="40" width="160" height="44" rx="3"/>
+        <text class="lbl" x="500" y="67" text-anchor="middle">event</text>
+
+        <path class="proj" marker-end="url(#ps-proj)" d="M500 84 L500 116"/>
+
+        <path class="n" d="M442 138 L442 170 A58 8 0 0 0 558 170 L558 138"/>
+        <ellipse class="n" cx="500" cy="138" rx="58" ry="8"/>
+        <text class="lbl" x="500" y="158" text-anchor="middle" font-size="9.5">Postgres (canonical)</text>
+
+        <path class="flow" marker-end="url(#ps-sync)" d="M500 178 L500 210"/>
+
+        <path class="n" d="M422 232 L422 264 A78 8 0 0 0 578 264 L578 232"/>
+        <ellipse class="n" cx="500" cy="232" rx="78" ry="8"/>
+        <text class="lbl" x="500" y="252" text-anchor="middle">write-through KV</text>
+
+        <text class="lbl2" x="500" y="286" text-anchor="middle">read: KV hit→return,</text>
+        <text class="lbl2" x="500" y="299" text-anchor="middle">miss→PG→warm KV</text>
+
+        <rect class="n" x="410" y="320" width="180" height="30" rx="3" style="stroke: var(--store)"/>
+        <text class="edge" x="500" y="339" text-anchor="middle" style="fill: var(--store)">running today</text>
+
+        <!-- Shape C column: read -> replay -> fold -->
+        <rect class="n" x="770" y="40" width="160" height="44" rx="3"/>
+        <text class="lbl" x="850" y="67" text-anchor="middle">read</text>
+
+        <path class="flow" marker-end="url(#ps-sync)" d="M850 84 L850 116"/>
+
+        <path class="n" d="M772 138 L772 170 A78 8 0 0 0 928 170 L928 138"/>
+        <ellipse class="n" cx="850" cy="138" rx="78" ry="8"/>
+        <text class="lbl" x="850" y="158" text-anchor="middle" font-size="9.5">replay seq=1</text>
+
+        <path class="flow" marker-end="url(#ps-sync)" d="M850 178 L850 210"/>
+
+        <rect class="n" x="770" y="210" width="160" height="44" rx="3"/>
+        <text class="lbl" x="850" y="237" text-anchor="middle">fold aggregates</text>
+
+        <text class="lbl2" x="850" y="278" text-anchor="middle">no stored model</text>
+
+        <rect class="n" x="760" y="320" width="180" height="30" rx="3" style="stroke: var(--evtl)"/>
+        <text class="edge" x="850" y="339" text-anchor="middle" style="fill: var(--evtl)">retired · Phase 31</text>
+      </svg>
+    </div>
+    <figcaption><b>What's running today.</b> Phase 31 retired Shapes A and C once the comparison was decided — their query code, REST routes, Swagger docs, and performance scenarios were deleted outright, not just disabled. <code>application/queries/</code> now holds only Shape B: canonical CQRS projection in Postgres, NATS KV as an eager write-through cache populated by the same JetStream event handler that upserts Postgres, cache miss falls through to Postgres.</figcaption>
+  </figure>
+</div>

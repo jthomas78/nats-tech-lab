@@ -1,0 +1,118 @@
+<title>Event-source it, or plain CRUD?</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width:0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+.hop  { fill: none; stroke: var(--hop); stroke-width: 1.4; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <span class="eyebrow">NATS Design Patterns · Modeling &amp; Identity</span>
+      <h1>Event-source it, or plain CRUD?</h1>
+      <p class="sub">Not everything in a domain earns an event stream. The deciding question is whether anything needs to replay this to reconstruct state — not whether it changes over time.</p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 400" role="img"
+        aria-label="Three stacked decision diamonds. Does anything replay this to reconstruct state? Is there a real state machine with transitions? Does anything run a temporal query, as of date X? A yes to any of these three questions routes to an EVENT-SOURCE terminal, covering Ship and Container. A no to all three falls through each diamond in turn and ends at a PLAIN CRUD terminal, covering the Ports reference-data registry.">
+        <defs>
+          <marker id="ed-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="ed-proj" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--store)"/>
+          </marker>
+          <marker id="ed-hop" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--hop)"/>
+          </marker>
+        </defs>
+
+        <!-- diamond 1 -->
+        <polygon class="n" points="180,20 300,64 180,108 60,64"/>
+        <text class="lbl2" x="180" y="60" text-anchor="middle">Replay to</text>
+        <text class="lbl2" x="180" y="73" text-anchor="middle">reconstruct state?</text>
+
+        <!-- diamond 2 -->
+        <polygon class="n" points="180,146 300,190 180,234 60,190"/>
+        <text class="lbl2" x="180" y="186" text-anchor="middle">Real state machine</text>
+        <text class="lbl2" x="180" y="199" text-anchor="middle">with transitions?</text>
+
+        <!-- diamond 3 -->
+        <polygon class="n" points="180,272 300,316 180,360 60,316"/>
+        <text class="lbl2" x="180" y="308" text-anchor="middle">Temporal query</text>
+        <text class="lbl2" x="180" y="321" text-anchor="middle">("as of date X")?</text>
+
+        <!-- No fallthrough 1 -> 2, 2 -> 3 -->
+        <path class="hop" marker-end="url(#ed-hop)" d="M180 108 L180 144"/>
+        <text class="edge" x="194" y="130">No</text>
+        <path class="hop" marker-end="url(#ed-hop)" d="M180 234 L180 270"/>
+        <text class="edge" x="194" y="256">No</text>
+
+        <!-- Yes edges converge on shared trunk waypoint at x=460 -->
+        <path class="proj" d="M300 64 L460 64 L460 170"/>
+        <text class="edge" x="330" y="54">Yes</text>
+        <path class="proj" d="M300 190 L460 190 L460 170"/>
+        <text class="edge" x="330" y="180">Yes</text>
+        <path class="proj" d="M300 316 L460 316 L460 170"/>
+        <text class="edge" x="330" y="306">Yes</text>
+        <path class="proj" marker-end="url(#ed-proj)" d="M460 170 L520 170"/>
+
+        <!-- No from diamond 3 -->
+        <path class="hop" marker-end="url(#ed-hop)" d="M180 360 L180 385 L635 385 L635 330"/>
+        <text class="edge" x="194" y="378">No</text>
+
+        <!-- terminals -->
+        <rect class="n" x="520" y="140" width="230" height="60" rx="3"/>
+        <text class="lbl" x="635" y="166" text-anchor="middle">EVENT-SOURCE</text>
+        <text class="lbl2" x="635" y="182" text-anchor="middle">Ship / Container</text>
+
+        <rect class="n" x="520" y="268" width="230" height="60" rx="3"/>
+        <text class="lbl" x="635" y="294" text-anchor="middle">PLAIN CRUD</text>
+        <text class="lbl2" x="635" y="310" text-anchor="middle">Ports</text>
+      </svg>
+    </div>
+    <figcaption><b>The deciding flow:</b> does anything replay this to reconstruct state → is there a real state machine with transitions → does anything run a temporal query ("as of date X")? A "yes" to any of those puts the entity on an event stream; three "no"s puts it in plain Postgres CRUD. <b>Trap:</b> "is it reference data" isn't the whole test — a rate table ("what was in effect on date X") secretly needs history even though it looks like static reference data. Ship and Container are event-sourced; the Ports registry is plain Postgres CRUD — no lifecycle worth replaying (Phase 9.5 / 9.6).</figcaption>
+  </figure>
+</div>

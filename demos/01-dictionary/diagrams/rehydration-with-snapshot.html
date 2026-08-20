@@ -1,0 +1,103 @@
+<title>Rehydration with a snapshot (planned)</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width:0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <span class="eyebrow">NATS Design Patterns · Performance &amp; Pitfalls</span>
+      <h1>Rehydration with a snapshot (planned)</h1>
+      <p class="sub">Not built yet — Phase 104. A snapshot must carry its own position, otherwise there's no way to know which events still need replaying after it.</p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 260" role="img"
+        aria-label="Once snapshots exist, rehydration loads the snapshot at state as of lastStreamSequence from a KV read, replays only the events past that sequence from the JetStream log, rebuilds and validates the aggregate, then appends the new event back onto the log. A side note marks this as not yet built, scoped for Phase 104.">
+        <defs>
+          <marker id="rs-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="rs-proj" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--store)"/>
+          </marker>
+        </defs>
+
+        <!-- node 1: KV read cylinder -->
+        <path class="n" d="M16 90 L16 122 A94 8 0 0 0 204 122 L204 90"/>
+        <ellipse class="n" cx="110" cy="90" rx="94" ry="8"/>
+        <text class="lbl" x="110" y="110" text-anchor="middle">Load snapshot</text>
+        <text class="lbl2" x="110" y="123" text-anchor="middle">state @ lastStreamSequence</text>
+
+        <path class="flow" marker-end="url(#rs-sync)" d="M204 106 L234 106"/>
+
+        <!-- node 2: stream read cylinder -->
+        <path class="n" d="M234 90 L234 122 A140 8 0 0 0 514 122 L514 90"/>
+        <ellipse class="n" cx="374" cy="90" rx="140" ry="8"/>
+        <text class="lbl2" x="374" y="110" text-anchor="middle">Replay only events past that sequence</text>
+
+        <path class="flow" marker-end="url(#rs-sync)" d="M514 106 L542 106"/>
+
+        <!-- node 3 -->
+        <rect class="n" x="542" y="80" width="150" height="52" rx="3"/>
+        <text class="lbl" x="617" y="111" text-anchor="middle">Rebuild + validate</text>
+
+        <path class="proj" marker-end="url(#rs-proj)" d="M692 106 L720 106"/>
+
+        <!-- node 4: append cylinder -->
+        <path class="n" d="M720 90 L720 122 A70 8 0 0 0 860 122 L860 90"/>
+        <ellipse class="n" cx="790" cy="90" rx="70" ry="8"/>
+        <text class="lbl" x="790" y="110" text-anchor="middle">Append</text>
+
+        <!-- side note box -->
+        <rect class="nb" x="16" y="176" width="450" height="56" rx="4" style="stroke: var(--evtl); stroke-opacity: 1"/>
+        <text class="edge" x="30" y="198" style="fill: var(--evtl)">Not yet built — Phase 104</text>
+        <text class="lbl2" x="30" y="216">a snapshot must carry lastStreamSequence, or there is no way to</text>
+        <text class="lbl2" x="30" y="228">know which events past it still need replaying</text>
+      </svg>
+    </div>
+    <figcaption><b>Planned, not current.</b> This flow is scoped as Phase 104 (Performance &amp; Load Testing), gated on Phases 101 and 103 landing first. Today's write path is the unshortened replay shown in <a href="/nats/jetstream-kv-design">JetStream + KV Mechanics</a>; once a snapshot store exists it sits in KV or a Postgres table as a write-side snapshot — never a read-model projection — and is trusted only because it's replayed to the latest sequence before use.</figcaption>
+  </figure>
+</div>

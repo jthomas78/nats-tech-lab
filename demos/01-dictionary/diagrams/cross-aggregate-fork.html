@@ -1,0 +1,123 @@
+<title>Cross-aggregate invariants — one stream or two?</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width:0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+.hop  { fill: none; stroke: var(--hop); stroke-width: 1.4; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <span class="eyebrow">NATS Design Patterns · Source of Truth</span>
+      <h1>Cross-aggregate invariants — one stream or two?</h1>
+      <p class="sub">The difficulty is the aggregate boundary, not the stream topology.</p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 460" role="img"
+        aria-label="A rule needing two aggregates' state leads to a decision: are both aggregates on one stream? If yes, the result is local and strong consistency, since one replay yields both. If no, the result is distributed, with no atomic cross-stream read, which fans out to four options: a read-model guard, hydrating both streams, a reservation store, or a saga with compensation.">
+        <defs>
+          <marker id="cf-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="cf-proj" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--store)"/>
+          </marker>
+          <marker id="cf-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--bad)"/>
+          </marker>
+          <marker id="cf-hop" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--hop)"/>
+          </marker>
+        </defs>
+
+        <!-- top box -->
+        <rect class="n" x="350" y="16" width="300" height="44" rx="3"/>
+        <text class="lbl" x="500" y="43" text-anchor="middle">Rule needs TWO aggregates</text>
+
+        <path class="flow" marker-end="url(#cf-sync)" d="M500 60 L500 88"/>
+
+        <!-- diamond -->
+        <polygon class="n" points="500,90 640,140 500,190 360,140"/>
+        <text class="lbl2" x="500" y="134" text-anchor="middle">Both aggregates on</text>
+        <text class="lbl2" x="500" y="147" text-anchor="middle">ONE stream?</text>
+
+        <!-- Yes -> LOCAL & STRONG -->
+        <path class="proj" marker-end="url(#cf-proj)" d="M640 140 L698 140"/>
+        <text class="edge" x="663" y="130" text-anchor="middle">Yes</text>
+
+        <rect class="n" x="700" y="112" width="230" height="56" rx="3"/>
+        <text class="lbl" x="815" y="136" text-anchor="middle">LOCAL &amp; STRONG</text>
+        <text class="lbl2" x="815" y="150" text-anchor="middle">one replay yields both</text>
+
+        <!-- No -> DISTRIBUTED -->
+        <path class="err" marker-end="url(#cf-bad)" d="M500 190 L500 248"/>
+        <text class="edge" x="514" y="222">No</text>
+
+        <rect class="n" x="370" y="250" width="260" height="56" rx="3"/>
+        <text class="lbl" x="500" y="274" text-anchor="middle">DISTRIBUTED</text>
+        <text class="lbl2" x="500" y="288" text-anchor="middle">no atomic cross-stream read</text>
+
+        <!-- fan-out to 4 options -->
+        <path class="hop" marker-end="url(#cf-hop)" d="M409 306 C 409 340, 245 340, 245 378"/>
+        <path class="hop" marker-end="url(#cf-hop)" d="M463 306 C 463 340, 415 340, 415 378"/>
+        <path class="hop" marker-end="url(#cf-hop)" d="M537 306 C 537 340, 585 340, 585 378"/>
+        <path class="hop" marker-end="url(#cf-hop)" d="M591 306 C 591 340, 755 340, 755 378"/>
+
+        <rect class="n" x="170" y="380" width="150" height="50" rx="3"/>
+        <text class="lbl2" x="245" y="409" text-anchor="middle">① Read-model guard</text>
+
+        <rect class="n" x="340" y="380" width="150" height="50" rx="3"/>
+        <text class="lbl2" x="415" y="409" text-anchor="middle">② Hydrate both streams</text>
+
+        <rect class="n" x="510" y="380" width="150" height="50" rx="3"/>
+        <text class="lbl2" x="585" y="409" text-anchor="middle">③ Reservation store</text>
+
+        <rect class="n" x="680" y="380" width="150" height="50" rx="3"/>
+        <text class="lbl2" x="755" y="409" text-anchor="middle">④ Saga / compensate</text>
+      </svg>
+    </div>
+    <figcaption><b>Current code:</b> one shared stream, <code>SHIPPING</code> — <code>StreamSubjects()</code> binds both the ship and container subject wildcards onto it, and <code>container.go</code>'s own doc comment says it plainly: "until Phase 103 both aggregates hydrate from one atomic replay of the SHIPPING stream." This is deliberate — one stream keeps invariants strong from a single replay (Phase 8). Phase 103 (not yet implemented) proposes splitting <code>SHIPPING</code> into a ship-only stream plus a new container-only <code>TERMINAL</code> stream, specifically to surface the distributed case this diagram describes — then close it with option ① (the read-model guard) as the default.</figcaption>
+  </figure>
+</div>

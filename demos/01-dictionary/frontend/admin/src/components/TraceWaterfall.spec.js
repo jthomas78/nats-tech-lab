@@ -219,21 +219,30 @@ describe('TraceWaterfall (Phase 28g, BR-035)', () => {
     expect(wrapper.find('.tw-ack').exists()).toBe(false)
   })
 
-  it('marks a crossing only where a span and its parent carry different account labels', async () => {
+  it('colors each row\'s account bar by its own account, so a crossing shows as a color change from its parent row (Phase 35)', async () => {
+    // Phase 35 replaced the explicit .tw-acct "⇥ cross" text badge with a
+    // per-row .tw-acctbar tint (see TraceWaterfall.vue's top-of-file note on
+    // this simplification) — a crossing is now read visually as a color
+    // change between adjacent rows rather than an explicit flag/class, so
+    // this asserts the per-row account class instead of a "cross" marker.
     const wrapper = mountPanel()
     await flushPromises()
 
     const rows = wrapper.findAll('.tw-row')
     expect(rows).toHaveLength(3)
 
-    const acctCells = rows.map((r) => r.find('.tw-acct'))
-    // Root (a1, shipping/TENANT, no parent) — never a crossing.
-    expect(acctCells[0].classes()).not.toContain('cross')
-    // Sync child (a2, refdata/PLATFORM, parent a1/TENANT) — crosses.
-    expect(acctCells[1].classes()).toContain('cross')
-    expect(acctCells[1].text()).toContain('⇥')
-    // Async tail (a3, shipping/TENANT, parent a1/TENANT) — same account, no crossing.
-    expect(acctCells[2].classes()).not.toContain('cross')
+    const acctBars = rows.map((r) => r.find('.tw-acctbar'))
+    // Root (a1, shipping/TENANT, no parent).
+    expect(acctBars[0].classes()).toContain('tenant')
+    // Sync child (a2, refdata/PLATFORM, parent a1/TENANT) — the bar's color
+    // changes from its parent's, surfacing the crossing.
+    expect(acctBars[1].classes()).toContain('platform')
+    // Async tail (a3, shipping/TENANT, parent a1/TENANT) — same account as
+    // its parent, so no color change.
+    expect(acctBars[2].classes()).toContain('tenant')
+
+    const acctSvcCells = rows.map((r) => r.find('.tw-acctsvc'))
+    expect(acctSvcCells[1].text()).toBe('PLATFORM:refdata')
   })
 
   it('renders both durations in the header, with read-model-consistent always >= reply latency', async () => {
@@ -329,10 +338,13 @@ describe('TraceWaterfall (Phase 28g, BR-035)', () => {
     const subjects = rows.map((r) => r.findComponent(SubjectPath).props('subject'))
     expect(subjects).toEqual(['refdata.locales.list.v1', 'rpc.acme.refdata.locales.list.v1'])
 
-    // The parent (root, no parentSpanId) renders with no indent rail; its
-    // child renders with exactly one.
-    expect(rows[0].findAll('.tw-rail')).toHaveLength(0)
-    expect(rows[1].findAll('.tw-rail')).toHaveLength(1)
+    // Phase 35 replaced the .tw-rail scaffolding-line-per-depth-level markup
+    // with a single .tw-child-arrow whose left padding scales with depth —
+    // the parent (root, no parentSpanId, depth 0) renders no arrow at all;
+    // its child (depth 1) renders one, indented 16px.
+    expect(rows[0].find('.tw-child-arrow').exists()).toBe(false)
+    expect(rows[1].find('.tw-child-arrow').exists()).toBe(true)
+    expect(rows[1].find('.tw-child-arrow').attributes('style')).toContain('padding-left: 16px')
   })
 
   it('walks the parentSpanId tree instead of flat-sorting by offset, so a grandparent HTTP span renders above its child and grandchild even when truncated durationMs ties their estimated start times (Phase 28m)', async () => {
@@ -345,9 +357,11 @@ describe('TraceWaterfall (Phase 28g, BR-035)', () => {
     const subjects = rows.map((r) => r.findComponent(SubjectPath).props('subject'))
     expect(subjects).toEqual(['/api/refdata/types/string', 'refdata.type.list.v1', 'rpc.acme.refdata.type.list.v1'])
 
-    expect(rows[0].findAll('.tw-rail')).toHaveLength(0)
-    expect(rows[1].findAll('.tw-rail')).toHaveLength(1)
-    expect(rows[2].findAll('.tw-rail')).toHaveLength(2)
+    // Same Phase 35 markup — the single .tw-child-arrow's left padding
+    // (depth * 16px) is what encodes tree depth now, not a rail count.
+    expect(rows[0].find('.tw-child-arrow').exists()).toBe(false)
+    expect(rows[1].find('.tw-child-arrow').attributes('style')).toContain('padding-left: 16px')
+    expect(rows[2].find('.tw-child-arrow').attributes('style')).toContain('padding-left: 32px')
   })
 
   it('resizes the trace rail by dragging the handle, clamped to [240, 640]', async () => {

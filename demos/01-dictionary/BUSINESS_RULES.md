@@ -44,10 +44,16 @@ Split by domain so a rule add/edit only requires reading its own file:
   Phase 45; see also BR-043/BR-044 for that phase's history/search rules),
   and
   `dictionary/internal/natstrace/` + `frontend/admin/src/components/
-  TraceWaterfall.vue` (BR-035–037).
+  TraceWaterfall.vue` (BR-035–037). BR-045–048 (Phase 47, PROPOSED — design
+  approved, implementation on hold) add a sibling `obs.pubsub.*` channel for
+  `evt.*`/`notify.*` fire-and-forget traffic, complementing `obs.trace.*`'s
+  request/reply coverage; see
+  [ARCHITECTURE-OBSERVABILITY.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-OBSERVABILITY.md)
+  (ADR-047) for the full design.
 - **[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)** — Reference Data
-  Service (BR-D01–BR-D39, the last being the Phase 28 `obs.trace.*` mirror of
-  BR-036). Rules live in
+  Service (BR-D01–BR-D45, BR-D39 being the Phase 28 `obs.trace.*` mirror of
+  BR-036 and BR-D45 (Phase 47a, PROPOSED) pointing this service's `evt.*`
+  publish site at the new `obs.pubsub.*` hook, BR-045). Rules live in
   `backend/refdata-service/refdata/internal/domain/dictionary.go`.
 - **[BUSINESS_RULES-ACCOUNTS.md](BUSINESS_RULES-ACCOUNTS.md)** — Accounts
   Service (BR-AC01–BR-AC32): NATS account provisioning, suspension,
@@ -72,7 +78,10 @@ Split by domain so a rule add/edit only requires reading its own file:
   BR-AC32 (Phase 30b) adds six narrow, explicit `$JS.API` service exports
   (imported by PLATFORM with a `monitor.{tenant}.js.>` local remap) for
   read-oriented JetStream/KV introspection, deliberately excluding stream
-  management subjects.
+  management subjects. BR-AC34 (Phase 47a, PROPOSED — design approved,
+  implementation on hold) mirrors BR-AC30 for a second Stream export,
+  `obs.pubsub.>`, needing no local remap for the same reason `obs.trace.>`
+  doesn't.
   Rules live in `backend/accounts-service/accounts/handler.go`,
   `provisioner.go`, `store.go`, `audit.go`, and `jwt.go`.
 - **[BUSINESS_RULES-PRICING.md](BUSINESS_RULES-PRICING.md)** — Pricing

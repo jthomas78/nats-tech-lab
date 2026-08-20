@@ -32,7 +32,13 @@ if (!input || !output) {
 
 const browser = await puppeteer.launch({ headless: 'shell' })
 const page = await browser.newPage()
-await page.setViewport({ width: Number(width), height: 1200, deviceScaleFactor: 2 })
+// Height starts small deliberately: Chrome floors document.documentElement's
+// scrollHeight at the *initial* viewport height (the root element can't be
+// shorter than the box that establishes the initial containing block), so a
+// tall starting height pads every short page with dead space in the fullPage
+// screenshot below. A tall page still captures correctly — fullPage grows the
+// viewport to fit the real content regardless of where it started.
+await page.setViewport({ width: Number(width), height: 100, deviceScaleFactor: 2 })
 // These pages are dark-first: bare :root is the dark palette and a light
 // override sits behind prefers-color-scheme. Headless Chrome reports "light",
 // which would flip that override on, so pin the media feature to dark to match

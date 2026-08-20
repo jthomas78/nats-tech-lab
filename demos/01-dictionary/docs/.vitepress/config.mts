@@ -1,5 +1,33 @@
-import { defineConfig } from 'vitepress'
+import { defineConfig, type DefaultTheme } from 'vitepress'
 import container from 'markdown-it-container'
+
+const architectureSidebar: DefaultTheme.SidebarItem[] = [
+  {
+    text: 'Architecture',
+    items: [
+      { text: 'Overview', link: '/architecture/' },
+      { text: 'CQRS Shapes', link: '/architecture/cqrs-shapes' },
+      {
+        text: 'NATS',
+        collapsed: true,
+        items: [
+          { text: 'Overview', link: '/nats/' },
+          { text: 'JetStream + KV Mechanics', link: '/nats/jetstream-kv-design' },
+          { text: 'Modeling & Identity', link: '/nats/modeling-and-identity' },
+          { text: 'Source of Truth', link: '/nats/source-of-truth' },
+          { text: 'Projection Shapes', link: '/nats/projection-shapes' },
+          { text: 'Write-Side Safety', link: '/nats/write-side-safety' },
+          { text: 'Performance & Pitfalls', link: '/nats/performance-and-pitfalls' },
+        ],
+      },
+      { text: 'Dictionary (Reference Data)', link: '/architecture/dictionary' },
+      { text: 'Communications', link: '/architecture/communications' },
+      { text: 'Accounts', link: '/architecture/accounts' },
+      { text: 'Admin', link: '/architecture/admin' },
+      { text: 'Platform (Tech Lab Operator)', link: '/architecture/platform' },
+    ],
+  },
+]
 
 export default defineConfig({
   title: 'Dictionary POC Docs',
@@ -11,20 +39,8 @@ export default defineConfig({
       { text: 'Architecture', link: '/architecture/' },
     ],
     sidebar: {
-      '/architecture/': [
-        {
-          text: 'Architecture',
-          items: [
-            { text: 'Overview', link: '/architecture/' },
-            { text: 'CQRS Shapes', link: '/architecture/cqrs-shapes' },
-            { text: 'Dictionary (Reference Data)', link: '/architecture/dictionary' },
-            { text: 'Communications', link: '/architecture/communications' },
-            { text: 'Accounts', link: '/architecture/accounts' },
-            { text: 'Admin', link: '/architecture/admin' },
-            { text: 'Platform (Tech Lab Operator)', link: '/architecture/platform' },
-          ],
-        },
-      ],
+      '/architecture/': architectureSidebar,
+      '/nats/': architectureSidebar,
     },
     socialLinks: [],
     search: { provider: 'local' },

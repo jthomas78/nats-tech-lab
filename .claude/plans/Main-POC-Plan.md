@@ -529,6 +529,254 @@ rationale or checklist detail).
 
 ---
 
+### Phase 38 (PROPOSED — awaiting approval) — Transporter Registration & Vetting (Organizations)
+
+> **Renumbered 2026-08-20** from Phase 46 to Phase 38 — see the
+> "Renumbering (2026-08-20 — Phase 46 → Phase 38)" log near the end of this
+> document.
+
+#### Goal
+
+Replicate Linebooker V2's `Transporters` registration/vetting workflow in
+the POC: a new, event-sourced `TransporterProfile` aggregate — keyed by the
+existing `TradingPartner`'s ID, not a duplicate of its identity fields —
+with a Temporal-orchestrated vetting workflow, a genuine saga with
+compensating transactions (GIT insurance verification vs. document
+approval), a second, genuinely cross-aggregate invariant connecting it back
+to `TradingPartner`, NATS Object Store-backed document upload, and a Tech
+Lab Operator UI wizard/detail view with a state-transition visualization.
+`trading-partner-service` is renamed to `organizations-service` as the
+**last** sub-phase, not the first. Customers and Members are explicitly out
+of scope (see design doc).
+
+#### Design decisions
+
+Full design lives in
+[ARCHITECTURE-ORGANIZATIONS.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ORGANIZATIONS.md)
+— not duplicated here. Summary of the decisions it records:
+
+- **Shared identity, separate vetting aggregate** ([ADR-046](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-046-transporter-aggregate-split.md),
+  revised same-day from an initial "fully separate aggregate" recommendation):
+  `TradingPartner` (Phase 26) stays the **single identity aggregate for
+  both Shipper and Transporter**, completely unchanged —
+  `PartnerTypeTransporter` remains fully legal, no BR-TP edits needed. A
+  new `TransporterProfile` aggregate, keyed by the **same ID**, holds
+  everything Transporter-specific (fleet, documents, GIT, tracking
+  credentials, operating areas, vetting state). Zero duplicated fields,
+  zero changes to shipped code — stronger than the superseded version's
+  "zero regression, conditional on retiring a `Type` value" guarantee.
+- **Event-sourced**: `TransporterProfile` only (JetStream stream
+  `TRANSPORTER`, Shape B Postgres+KV read side, reusing the already-settled
+  pattern) — passes the repo's own "does anything need to replay this?"
+  test; `TradingPartner` (both Shipper and Transporter identity) stays
+  plain CRUD, untouched.
+- **Two-step registration, handled explicitly**: `TradingPartner.Register(...)`
+  then idempotent `CreateTransporterProfile(id)` (upsert-by-ID, bounded
+  retry in the handler, a standalone `EnsureTransporterProfile(id)` for
+  manual recovery) — a partial failure leaves a visible, recoverable
+  "Registered, profile pending" state, not a silent gap.
+- **A genuinely cross-aggregate invariant**: `TradingPartner.Activate()`,
+  for a `TRANSPORTER`-typed partner only, is guarded on
+  `TransporterProfile.Status == Vetted`. Lives at the command-handling
+  boundary, not inside either aggregate's domain code; dependency direction
+  is `transporterprofile`/orchestration → `tradingpartner`, never reversed.
+  This is a more realistic "cross-aggregate invariant with saga/compensation"
+  test than a single-aggregate version would give, since the two sides are
+  real, separately-owned aggregates with different consistency models.
+- **Temporal drives only the vetting workflow** (not general CRUD ops): two
+  parallel saga branches — document review, GIT/insurance verification —
+  gate `FleetAsset.AvailableForAssignment` and `TransporterProfile.Status`,
+  with defined compensations (`CompensateRevertDocumentApprovals`,
+  `CompensateDeactivateFleetAssets`) and a mock insurer activity supporting
+  pass/fail/timeout outcomes for testing. This intra-aggregate saga is
+  distinct from the cross-aggregate `Activate` guard above — both are
+  worth reporting on separately. New infra: a Temporal server joins the
+  compose stack.
+- **Durability test is explicit**: kill the Temporal worker mid-workflow,
+  restart, confirm resumption without re-asking already-satisfied signals.
+- **Temporal/saga design reviewed in [ADR-047](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-047-transporter-vetting-temporal-saga.md)
+  — four required amendments for 38b, not optional hardening:** (1) every
+  JetStream publish the workflow triggers must be an Activity with
+  `Nats-Msg-Id` dedup keyed on `tradingPartnerID`+event+step-counter (never
+  Temporal's `RunID`) and an explicit stream `Duplicates` window — this is
+  genuinely new implementation, **not reuse of working code**, since Phase
+  101 itself is 100% unimplemented in this repo today; (2) compensations
+  are new, explicitly-named events (`DocumentApprovalReverted`,
+  `FleetAvailabilityRevoked`), never a rewrite of prior events, or the
+  audit trail that motivated event sourcing here is destroyed; (3)
+  `WorkflowIDReusePolicy` must be chosen and verified against current
+  Temporal SDK docs so `Resubmit` after `Rejected` actually starts a fresh
+  run; (4) `StartToCloseTimeout`/`ScheduleToCloseTimeout` on
+  `RequestGitVerification` must be explicit and environment-configurable —
+  the SDK requires one to be set at all, and test vs. production timescales
+  differ hugely. Workflow-versioning discipline for in-flight code changes
+  is an accepted, named POC-scope gap, not addressed.
+- **Two state machines, one guard**: `TradingPartner`'s
+  (`Registered → Active ⇄ Suspended`, BR-TP03–TP05) is untouched;
+  `TransporterProfile` gets its own `AwaitingDocumentation →
+  DocumentsInReview → {Vetted | Rejected}`, mapped directly onto V2's real
+  4-axis status model (source-verified — `TransporterProfileStatus`,
+  `accountInactive`, `underProbation`, `TransporterRegistrationStepType`),
+  with `Resubmit` from `Rejected` starting a fresh workflow. **Deliberate
+  improvement over V2**: V2 has no enforced transition guard between its 4
+  vetting states (admin dropdown sets any value directly) — this design's
+  Temporal state machine adds one.
+- **Documents**: NATS Object Store (tenant-scoped bucket, same
+  `{context}`-prefixed naming convention as KV), not S3/MinIO or V2's real
+  choice (Google Cloud Storage) — tenant isolation comes free from the NATS
+  account boundary, and it adds a second pattern comparison point.
+  Reviewed in [ADR-048](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-048-document-storage-nats-object-store.md),
+  which affirms the choice but **rejects the "avoids a new infra dependency"
+  rationale as incomplete**: Object Store bytes share the tenant's 1 GiB
+  JetStream disk quota and 10-stream cap with the event log itself, so
+  documents and event publishing now share a failure domain. Five required
+  amendments: explicit bucket `MaxBytes` + per-file cap + a stream-budget
+  check against `MaxStreams: 10`; object name uses a **service-minted UUID,
+  not the user's filename** (which would make re-upload silently purge the
+  prior document's bytes while the log still claims both); **blob written
+  first, event second, never the reverse**; multi-document GIT status
+  resolved against `compliance_documents`' `(trading_partner_id, type)` PK;
+  and a **new HTTP ingress**, since the service's only command surface is
+  NATS `micro` (JSON, non-streaming, `max_payload`-bounded) after Phase 33.5
+  deleted its REST routes — real 38c work the design had assumed away.
+- **Concurrency now needs two mechanisms**, a direct consequence of the
+  shared-identity split: `TransporterProfile` draws on Phase 101's
+  optimistic-concurrency design (`Nats-Expected-Last-Subject-Sequence`);
+  `TradingPartner`'s own identity-field edits (Company Information) need a
+  plain `version`-column optimistic lock instead, since that aggregate has
+  no event stream to guard against. Reviewed in
+  [ADR-049](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-049-cross-aggregate-concurrency.md),
+  which affirms the split but corrects both halves: (1) the per-subject
+  guard is **close to a no-op for `TransporterProfile`** — its event types
+  are concurrent by design and land on different subjects, unlike Ship's
+  naturally-serialising state machine, so the subject-guard shape is a
+  **blocking 38a design decision** (wildcard-filter header vs. one subject
+  per aggregate, the latter diverging from the platform subject taxonomy);
+  (2) the "cross-aggregate invariant" is really a **one-time activation
+  gate**, and since `GitStatus` is time-derived, `EXPIRED` breaks it with no
+  command, actor, or event to guard on — needs an explicit choice between
+  gate-only, a durable `evt.*` revocation consumer (never `notify.*`, which
+  is deliberately lossy), or a Temporal durable timer; (3) sequence
+  conflicts must not reach Temporal's compensation path, or two operators
+  typing at once could revert document approvals; (4) the doc's claim that
+  status transitions get "a natural check via `WHERE status = ?`" is
+  **factually wrong** — the real mechanism is `SELECT … FOR UPDATE`, and the
+  `version` column is still needed but for a different reason (row locks
+  can't detect lost updates across a user's think-time); (5) Company
+  Information is **not editable today at all**, so this needs a new
+  `partner-update` command/handler/repository/domain method in
+  `tradingpartner` — which, with ADR-048's PK finding, means **ADR-046's
+  "zero changes to `tradingpartner`" is overstated** (correction note added
+  there; the decision still holds, the changes are additive).
+- **Save boundaries must align to the aggregate boundary** (ADR-049): the
+  two-aggregate split is a backend seam only for *reads*; for *writes*, one
+  submit spanning both aggregates can half-commit across two different
+  conflict mechanisms, in a UI that has deliberately hidden which is which.
+- **Operating Areas**: Leaflet + OpenStreetMap, two-level (Country → Region)
+  overlay from a hand-authored GeoJSON — a reduced-depth version of V2's
+  real hierarchical/polygon model (source-verified: `GeoAreaEntity`,
+  MapLibre + vector tiles in production); region list owned as a new
+  refdata-service reference-data type (not hardcoded).
+- **Tracking Credentials — confirmed divergence from V2**: V2 stores raw
+  secrets (API keys, passwords) as plaintext Postgres columns with no
+  encryption anywhere (source-verified). This design uses a NATS KV bucket
+  with at-rest encryption instead, and — importantly — never publishes the
+  secret payload onto the JetStream event stream (an event-sourced log
+  shouldn't carry permanent secret material).
+- **Rate Sheets — confirmed stub/placeholder tab for this phase.** V2's
+  real shape is Customer-owned, read-only from the Transporter's side
+  (source-verified); this phase excludes Customer. Rather than build a
+  Transporter-owned flat table with no V2 analog, this phase adds the UI
+  tab with an empty state only — no persistence, no domain model. Revisit
+  with real fidelity if/when a Customer phase exists.
+- **Rename last**: `organizations` naming used in new subjects from day
+  one (cheap now, expensive to migrate later), but the actual
+  service/package/UI-label rename is sub-phase 38e, after 38a–38d ship and
+  verify under the current name.
+- **The four ADR-048/049 open questions are now resolved** (design doc §
+  "Open Questions" 4–7): (4) subject-guard shape —
+  `Nats-Expected-Last-Subject-Sequence-Subject`, confirmed supported by both
+  the pinned `nats.go v1.52.0` client and `nats-server v2.14.5`, no subject
+  taxonomy divergence needed; (5) activation gate vs. invariant — a
+  `TransporterGitMonitorWorkflow` Temporal cron workflow re-checks
+  `GitStatus` post-`Vetted` and calls `TradingPartner.Suspend()` if it drops,
+  subsuming the separate revocation-consumer option; (6) multi-document GIT
+  status — `compliance_documents`' PK widens to
+  `(trading_partner_id, id)` with a service-minted document ID, the same ID
+  used in the Object Store object name; (7) ADR-046's "zero changes to
+  `tradingpartner`" is corrected in place (both changes are additive, the
+  decision itself is unaffected). Still open: exact Operating Areas region
+  list source; whether sub-phases 38a–38e stay lettered under one phase
+  number or split at implementation time; and question 3, where
+  `partner-update` + `version` land (deferring past 38a is fine, past 38d is
+  not — that's the sub-phase shipping the editable Company Information tab).
+
+#### Sub-phases (design doc § "Naming & Sequencing")
+
+- [ ] **38a** — `TransporterProfile` domain package, event-sourcing
+      skeleton (no Temporal yet): aggregate keyed by the shared
+      `TradingPartner` ID, commands, JetStream stream, Postgres projection,
+      KV cache — every publish carrying
+      `Nats-Expected-Last-Subject-Sequence-Subject` against the aggregate's
+      wildcard filter (**resolved**, ADR-049 finding 1; confirmed supported
+      by both the pinned `nats.go v1.52.0` and `nats-server v2.14.5`, no
+      subject-taxonomy divergence needed). Also: idempotent
+      `CreateTransporterProfile`/`EnsureTransporterProfile`, and the
+      cross-aggregate `Activate` guard at the command-handling boundary,
+      reading the Postgres projection (not KV) per ADR-049 finding 3. Per
+      [ADR-046](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-046-transporter-aggregate-split.md),
+      `PartnerTypeTransporter` needs no change, no retirement — its broader
+      "zero changes to `tradingpartner`" claim is corrected (not
+      retracted) by ADR-048/049's two additive changes, tracked separately
+      under 38c (`compliance_documents` PK) and open question 3
+      (`partner-update`), neither blocking this sub-phase's start.
+- [ ] **38b** — Temporal vetting workflow, GIT saga, compensations,
+      durability test, **plus a `TransporterGitMonitorWorkflow` Temporal
+      cron workflow** (resolves ADR-049 finding 2 / design doc "Open
+      questions" 5): started once vetting reaches `Vetted`, periodically
+      re-checks `GitStatus` and calls `TradingPartner.Suspend()` if it drops
+      — this is what earns the word "invariant" for the cross-aggregate
+      gate, and subsumes the separate revocation-consumer option since one
+      check catches both a saga compensation and time-derived `EXPIRED`.
+      **Must satisfy [ADR-047](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-047-transporter-vetting-temporal-saga.md)'s
+      four required amendments** (publish-dedup Activities, explicitly-named
+      compensating events, verified `WorkflowIDReusePolicy`, explicit
+      Activity timeouts) before this sub-phase is considered done — these
+      are correctness requirements the durability test itself would expose
+      if skipped, not optional polish. **Plus ADR-049 finding 4**: a
+      sequence conflict must surface as "try again," never reach the
+      compensation path.
+- [ ] **38c** — NATS Object Store document upload/download, **including the
+      `compliance_documents` schema change** (resolves ADR-048 finding 2c /
+      design doc "Open questions" 6): PK widens to
+      `(trading_partner_id, id)` with a service-minted document ID —
+      `document-add` becomes an insert, superseding a document becomes an
+      explicit transition — needed here regardless of the multi-document
+      question, since the same ID is the Object Store object name's
+      `{documentID}` token. **Must satisfy
+      [ADR-048](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-048-document-storage-nats-object-store.md)'s
+      other four required amendments** — explicit bucket/file size limits +
+      stream budget check, UUID-based object names (no user filenames),
+      blob-then-event write order, and a dedicated HTTP ingress (a scoped,
+      deliberate partial reversal of Phase 33.5's REST retirement — budget
+      it, the service has no binary path today).
+- [ ] **38d** — Frontend: dedicated Transporter component, registration
+      wizard, tabbed detail view, state-transition stepper, Operating
+      Areas map. Per-section save boundaries aligned to the aggregate
+      boundary, conflict UI naming the losing section (ADR-049 finding 6);
+      and either `partner-update` + `version` land here or earlier, or
+      Company Information ships read-only (ADR-049 finding 7).
+- [ ] **38e** — `organizations` rename (service, packages, subjects, UI
+      labels)
+
+**Stays PROPOSED — no tasks, tests, or code written until this design is
+approved**, per this repo's design gate. Once approved, each sub-phase gets
+its own business-rules-first pass (BR-TP-style rule IDs, or a new
+`BUSINESS_RULES-ORGANIZATIONS.md` once 38e lands) and Ginkgo specs derived
+from those rules before implementation, per the standing AI Agent Workflow.
+
+---
+
 ### Phase 40 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning
 
 > **Renumbered 2026-08-17** from Phase 24 to Phase 40, alongside Phase
@@ -905,6 +1153,78 @@ rationale or checklist detail).
 
 ---
 
+### Phase 47 (APPROVED 2026-08-20 — design approved, implementation on hold) — Cross-Tenant Pub/Sub Observability ("Wire Tap") in the Admin UI
+
+#### Goal
+
+Give the Admin UI a live view of pub/sub traffic across every tenant
+account — not just the RPC calls `natstrace`/`obs.trace.*` already covers
+(BR-036/BR-037) — triggered by evaluating NATS's own wire-tap/monitoring
+pattern (`docs.nats.io/concepts/subjects#wire-taps-and-monitoring`, a plain
+`sub >`) against this lab's hard NATS-account tenant boundary.
+
+#### Design decisions
+
+Full ADR lives in
+[ARCHITECTURE-OBSERVABILITY.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-OBSERVABILITY.md)
+(ADR-047) — not duplicated here. Summary of the decision it records:
+
+- A plain wildcard subscription (`>`), or the dormant `$SYS` account's
+  `account-monitoring-streams`/`account-monitoring-services` exports,
+  cannot give message-payload visibility across NATS accounts — account
+  boundaries are server-enforced subject-space isolation in this lab by
+  design, and `$SYS`'s monitoring exports only surface
+  connection/subscription metadata, never payloads.
+- **Rejected: (A) blanket per-tenant export of `>`** into the observability
+  account — the only design with zero instrumentation gaps, but a
+  first-time breach of the narrow-grant pattern BR-AC30/31/32 established
+  and Phase 30h reinforced (Phase 30h specifically retired an earlier
+  *unrestricted* second PLATFORM connection). Revisit only if "see every
+  byte, even uninstrumented paths" becomes a hard requirement, with its own
+  new safety design.
+- **Deferred, not rejected: (B) import the dormant `$SYS` account-monitoring
+  exports** — cheap, safe, gives connection/rate metadata with no payload
+  visibility, so it doesn't answer the actual ask on its own. Candidate
+  follow-on phase for a complementary "account activity" panel.
+- **Selected: (C) a new, sibling `obs.pubsub.*` envelope**, instrumented
+  only at `evt.*`/`notify.*` publish call sites (never a generic
+  `Publish()` wrap — that risks self-observation or picking up JetStream
+  control traffic), reusing BR-036/037's redact-before-truncate discipline
+  and BR-AC30's narrow per-tenant export/import. `rpc.*`/`api.*`
+  (request/reply) keep using the existing `obs.trace.*` channel — the split
+  is clean by construction, so no request/reply or JetStream-internals
+  filter is needed on this new channel. Gets its own dedicated "Messages"
+  panel in the Admin UI (with an `evt`/`notify` family filter), not a tab
+  inside `RpcPanel.vue`. Accepted trade-off: only instrumented publish call
+  sites are visible.
+- **Resolved (2026-08-20):** (B) does become a follow-on — tracked below as
+  candidate **Phase 108**, requiring its own UI account filter
+  (`$SYS.ACCOUNT.*.>` spans every account at once). Consumer-side behavior
+  (redelivery counts, ack latency) is **out of scope** for this phase —
+  publish-only for now, may evolve later once this ships and proves useful.
+
+#### Sub-phases
+
+- [ ] **47a** — `natstrace` (or equivalent) publish-side hook at
+      `evt.*`/`notify.*` call sites; `obs.pubsub.*` envelope; BR-AC30-style
+      narrow per-tenant export/import
+- [ ] **47b** — `observability-service`: sibling consumer to `tracestore`
+      for `obs.pubsub.>`, bounded retention (`tracestore`/`TRACES`-stream
+      convention)
+- [ ] **47c** — Admin UI: new "Messages" panel, `evt`/`notify` family
+      filter, reusing `SubjectPath.vue`/account-swimlane conventions
+
+**Design approved 2026-08-20 — implementation explicitly on hold at the
+repo owner's request.** No business-rules-first pass, Ginkgo specs, or
+code have been started. When work resumes, each sub-phase gets its own
+business-rules-first pass (candidate rules continuing the `BR-04x`
+sequence in `BUSINESS_RULES-SHIPPING.md` after BR-044, plus sibling-service
+equivalents per the BR-036/BR-D39/BR-P25/BR-TP15 convention) and Ginkgo
+specs derived from those rules before implementation, per the standing AI
+Agent Workflow.
+
+---
+
 ### Phase 100 (PROPOSED — awaiting approval) — Ship Container Capacity Limit
 
 #### Goal
@@ -1192,6 +1512,49 @@ take?" rather than "what path would a call to this subject take?"
       replay in the first place
 - [ ] Same REST-route/allowlist/business-rule treatment as Phase 43, as an
       addition to the route it introduces rather than a new one
+
+---
+
+### Phase 108 (candidate, deferred from Phase 47's design gate, 2026-08-20) — Live Account Activity Panel via `$SYS` Account-Monitoring Exports
+
+#### Goal
+
+Phase 47 (ADR-047,
+[ARCHITECTURE-OBSERVABILITY.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-OBSERVABILITY.md))
+deliberately deferred Option B out of its own scope: importing the
+`SYS` account's already-present, currently-unused
+`account-monitoring-streams`/`account-monitoring-services` exports
+(`$SYS.ACCOUNT.*.>` / `$SYS.REQ.ACCOUNT.*.*`) to give the Admin UI a live,
+cross-account connection/subscription/rate feed — complementary to Phase
+47's payload-level Messages panel, not a replacement for it (this stays
+metadata-only, no message content). Confirmed as a real follow-on, not
+just a maybe.
+
+#### Design decisions (partial — full design still needed before this leaves PROPOSED)
+
+- Import `SYS`'s existing monitoring exports into `observability-service`'s
+  PLATFORM connection — no new export needs minting, they're already in the
+  `SYS` account JWT, just unimported.
+- **Confirmed requirement: the UI needs an account filter.** `$SYS.ACCOUNT.*.>`
+  fires for every account at once, so a live feed with no way to narrow to
+  one (or a small set of) accounts would read as an undifferentiated
+  cross-tenant firehose — the same reasoning behind Phase 47's `evt`/
+  `notify` family filter, applied here to account instead of subject
+  family.
+- Relationship to the existing (poll-only) Account Activity panel
+  (`AccountsOverviewPanel.vue`, Phase 45, `GET /api/nats/account-activity`)
+  not yet decided: replace it with a live feed, or add this as a second,
+  genuinely-live view alongside the existing poll — needs its own design
+  pass.
+
+#### Scope (draft — not yet a committed checklist)
+
+- [ ] Import `account-monitoring-streams`/`-services` into
+      `observability-service`'s PLATFORM connection
+- [ ] Backend: consume `$SYS.ACCOUNT.*.>`, decide storage shape (KV keyed
+      by account? in-memory ring buffer like `AccstatzHistory`?)
+- [ ] Admin UI: account filter/facet, live feed rendering
+- [ ] Decide relationship to the existing poll-only Account Activity panel
 
 ---
 
@@ -1569,6 +1932,49 @@ Cross-reference sweep (same commit):
       phase was never implemented, so no code, `BUSINESS_RULES-*.md`, or
       architecture doc ever cited it.
 - [x] `.claude/memory/` — no "Phase 46" references found.
+
+---
+
+## Renumbering (2026-08-20 — Phase 46 → Phase 38, Transporter Registration & Vetting)
+
+**Why:** the user asked to rename the Transporter Registration & Vetting
+(Organizations) phase from 46 to 38. 46 was originally the VitePress
+Documentation Site's number before its own 2026-08-19 renumbering above
+freed it for reuse; 38 was checked and is genuinely free — it was briefly
+used same-day for a docs-site Docker follow-up that was folded into Phase
+37's own record before any renumbering ever touched it (see
+`Main-POC-Plan-ARCHIVE.md`'s "Docker follow-up" note under Phase 37), so it
+carries no separate historical cross-reference trail of its own. Moved the
+section to sit immediately after Phase 37, ahead of Phase 40, so phase
+numbers still read ascending top-to-bottom. Status is unchanged
+(**PROPOSED — awaiting approval**); this is a rename only, not an approval.
+
+| Was | Now |
+|---|---|
+| Phase 46 (PROPOSED — awaiting approval) — Transporter Registration & Vetting (Organizations) | **Phase 38** (PROPOSED — awaiting approval) |
+
+Cross-reference sweep (same commit):
+
+- [x] Main plan internal references — the prior renumbering tables above
+      (including the 2026-08-19 Phase 46 → Phase 37 entry) document those
+      events and are left untouched on purpose, same reasoning as every
+      prior entry in this log.
+- [x] Section physically moved (not just renumbered in place) to sit
+      immediately after Phase 37, ahead of Phase 40; sub-phase labels
+      46a–46e relettered to 38a–38e throughout the moved section.
+- [x] `grep -rln "Phase 46"` outside this document — four hits, all design
+      docs for this same phase (`ARCHITECTURE-ORGANIZATIONS.md`,
+      `ADR-046-transporter-aggregate-split.md`,
+      `ADR-047-transporter-vetting-temporal-saga.md`,
+      `ADR-048-document-storage-nats-object-store.md`,
+      `ADR-049-cross-aggregate-concurrency.md`) — updated to "Phase 38" in
+      the same pass. **ADR file numbers themselves are unchanged** (ADR-046
+      through ADR-049 are a separate numbering series from POC plan phases;
+      the coincidence that "046" matched the old phase number is exactly
+      that, a coincidence — only in-prose "Phase 46" mentions inside those
+      files were renamed, never the ADR filenames/numbers/cross-links to
+      them).
+- [x] `.claude/memory/` — no "Phase 46" or "46a"–"46e" references found.
 
 ---
 

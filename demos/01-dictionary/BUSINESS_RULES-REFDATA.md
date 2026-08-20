@@ -628,3 +628,18 @@ does not fix.
 - **Test:** `refdata/internal/rest/handlers_allowlist_test.go` —
   `TestMountRoutesMatchAdminAllowlist` asserts `Mount(mux)`'s returned route
   list `ConsistOf` the 24-entry allowlist above.
+
+### BR-D45 (Phase 47a, PROPOSED — not yet implemented) — This service's `evt.*` publish call site gets the same `obs.pubsub.*` hook as `BUSINESS_RULES-SHIPPING.md`'s BR-045
+
+refdata-service's own `evt.*` publish choke point — the publish-change
+helper inside `refdata/internal/kvcache/kvcache.go:146` (the same call site
+that already builds the `evt.{context}.refdata.{typeKey}.changed` subject
+via `ChangeSubject`) — gets the BR-045 observation hook, on refdata-service's
+own publisher side. No separate wire contract: this is the same shared
+`natstrace`-based envelope and redaction discipline BR-045 defines, not a
+per-service clone of it (unlike the pre-Phase-35 `obs.trace.*` mirrors
+BR-D39/BR-P25/BR-TP15, which existed only because `natstrace` was duplicated
+per service at the time).
+
+- **Enforced in:** not yet — Phase 47a.
+- **Test:** not yet written — pending Phase 47a implementation.

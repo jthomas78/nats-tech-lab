@@ -1204,3 +1204,13 @@ covered by its own allowlist test since they live in separate packages:
   `TestAccountsMountRoutesMatchAdminAllowlist`; `auth/handler_allowlist_test.go`
   — `TestAuthMountRoutesMatchAdminAllowlist`. Each asserts its `Mount`'s
   returned route list `ConsistOf` its 13- or 5-entry allowlist above.
+
+### BR-AC34 (Phase 47a, PROPOSED — not yet implemented) — `tenantExports()` gains a second Stream export, `obs.pubsub.>`, mirrored into PLATFORM the same way `obs.trace.>` is
+
+`tenantExports()` (`accounts/provisioner.go:315`) gains a second entry
+alongside the existing `obs.trace.>` export: `{Subject: jwt.Subject("obs.pubsub.>"), Type: jwt.Stream}` — no `AllowTrace`, no `ResponseType`, the same shape as `obs.trace.>`'s export and unlike `$SRV.>`/`$JS.API.*`'s Service exports (BR-AC31/32), because a Stream export needs no per-tenant `LocalSubject` remap: the importing account boundary itself, not a subject remap, is what disambiguates which tenant a given imported stream message came from (see BR-AC30's rationale, which applies identically here).
+
+PLATFORM's side gains a new `addPlatformPubsubImport`, mirroring `addPlatformTraceImport` (`accounts/provisioner.go:463`) exactly: same idempotency-by-`(Account, Subject)` scan over `claims.Imports` before adding, same `jwt.Import{Account: tenantAccountPub, Subject: "obs.pubsub.>", Type: jwt.Stream, AllowTrace: true}`, same re-sign-and-push via `$SYS.REQ.CLAIMS.UPDATE`. Called from `CreateAccount` alongside `addPlatformTraceImport`, gated the same way on `platformPublicKey != ""`.
+
+- **Enforced in:** not yet — Phase 47a.
+- **Test:** not yet written — pending Phase 47a implementation.
