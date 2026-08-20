@@ -21,6 +21,7 @@
 //	PATCH  /api/refdata/admin/items/{type}/{context}/{code}/attrs      replace an item's attrs map (BR-D18)
 //	DELETE /api/refdata/admin/items/{type}/{context}/{code} delete an unreferenced item (BR-D02)
 //	POST   /api/refdata/admin/references                   create a typed reference (BR-D05)
+//	POST   /api/refdata/admin/regions                      register a region + its country relation (BR-D46-BR-D48)
 //	POST   /api/refdata/admin/locales                      register a locale for a context
 //	POST   /api/refdata/admin/localizations                 set an item's label/description in one locale
 //	POST   /api/refdata/admin/{type}/{code}/translate        draft AI-assisted translations, unsaved (BR-D07)
@@ -117,6 +118,17 @@ type itemRequest struct {
 	Attrs   map[string]any `json:"attrs"`
 }
 
+// regionRequest is the payload for BR-D46's region registration. countryCode
+// is required (BR-D47) — a region with no parent country is refused rather
+// than stored incomplete, so it is part of the create payload and not a
+// follow-up reference call.
+type regionRequest struct {
+	Context     string `json:"context"`
+	Code        string `json:"code"`
+	CountryCode string `json:"countryCode"`
+	Name        string `json:"name"`
+}
+
 type itemResponse struct {
 	Item domain.DictionaryItem `json:"item"`
 }
@@ -178,6 +190,7 @@ type Deps struct {
 	Types         *commands.TypeHandler
 	Items         *commands.ItemHandler
 	References    *commands.ReferenceHandler
+	Regions       *commands.RegionHandler
 	Localizations *commands.LocalizationHandler
 	KV            *kvstore.Store           // nil in tests that don't wire NATS
 	Projector     *kvcache.Projector       // nil in tests that don't wire NATS
@@ -231,6 +244,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) []string {
 	handle("POST /api/refdata/admin/types", h.registerType)
 	handle("POST /api/refdata/admin/locales", h.addLocale)
 	handle("POST /api/refdata/admin/items", h.registerItem)
+	handle("POST /api/refdata/admin/regions", h.registerRegion)
 	handle("POST /api/refdata/admin/items/{type}/{context}/{code}/deprecate", h.deprecateItem)
 	handle("POST /api/refdata/admin/items/{type}/{context}/{code}/reactivate", h.reactivateItem)
 	handle("PATCH /api/refdata/admin/items/{type}/{context}/{code}/attrs", h.updateItemAttrs)
@@ -660,6 +674,30 @@ func (h *Handlers) registerItem(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusCreated, itemResponse{Item: item})
 }
 
+// @Summary      Register a region
+// @Description  Registers a region item and its country relation together (BR-D46-BR-D48). The country must exist and be active (BR-D05).
+// @Tags         items
+// @Param        request  body      regionRequest  true  "region"
+// @Success      201      {object}  itemResponse
+// @Failure      409      {object}  errorResponse
+// @Failure      422      {object}  errorResponse
+// @Router       /api/refdata/admin/regions [post]
+func (h *Handlers) registerRegion(w http.ResponseWriter, r *http.Request) {
+	var req regionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid request body"})
+		return
+	}
+	item, err := h.deps.Regions.RegisterRegion(r.Context(), commands.RegionInput{
+		Context: req.Context, Code: req.Code, CountryCode: req.CountryCode, Name: req.Name,
+	})
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusCreated, itemResponse{Item: item})
+}
+
 // @Summary      Deprecate an item
 // @Description  Marks an item deprecated. Used for BR-D02's referenced-item path instead of delete.
 // @Tags         items
@@ -786,6 +824,10 @@ func (h *Handlers) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, domain.ErrReferenceTargetWrongType),
 		errors.Is(err, domain.ErrReferenceTargetNotFound),
 		errors.Is(err, domain.ErrReferenceTargetNotActive):
+		status = http.StatusUnprocessableEntity
+	case errors.Is(err, domain.ErrRegionCountryRequired):
+		// BR-D47: a well-formed request whose content is contradictory —
+		// same 422 class as BR-D05's target failures above.
 		status = http.StatusUnprocessableEntity
 	case errors.Is(err, domain.ErrInvalidLocaleFormat), errors.Is(err, domain.ErrInvalidSource):
 		status = http.StatusBadRequest

@@ -55,6 +55,7 @@ type Handlers struct {
 	Types         *commands.TypeHandler
 	Items         *commands.ItemHandler
 	References    *commands.ReferenceHandler
+	Regions       *commands.RegionHandler
 	Localizations *commands.LocalizationHandler
 	KV            *kvstore.Store
 	Projector     *kvcache.Projector
@@ -112,6 +113,7 @@ func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream, anthropicA
 		Types:         commands.NewTypeHandler(types),
 		Items:         commands.NewItemHandler(items, refs, notifier),
 		References:    commands.NewReferenceHandler(items, refs, notifier),
+		Regions:       commands.NewRegionHandler(items, refs, notifier),
 		Localizations: commands.NewLocalizationHandler(items, locs, locales, notifier),
 		KV:            kv,
 		Projector:     projector,
@@ -135,6 +137,7 @@ func (h *Handlers) Mount(mux *http.ServeMux, log *slog.Logger) {
 		Types:         h.Types,
 		Items:         h.Items,
 		References:    h.References,
+		Regions:       h.Regions,
 		Localizations: h.Localizations,
 		KV:            h.KV,
 		Projector:     h.Projector,
@@ -163,6 +166,7 @@ func (h *Handlers) MountRPC(nc *nats.Conn, js jetstream.JetStream, log *slog.Log
 		VersionReader: h.VersionReader,
 		Projector:     h.Projector,
 		Contexts:      h.Contexts,
+		References:    h.References,
 		Log:           log,
 	})
 }

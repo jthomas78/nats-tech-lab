@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/domain"
 	"strconv"
 	"time"
 
@@ -41,6 +42,25 @@ const (
 // vehicleTypeKey is refdata-service's typeKey for the vehicle-type corpus
 // (see refdata-service/cmd/seed-vehicle-types/main.go).
 const vehicleTypeKey = "vehicle-type"
+
+// Corpora backing BR-TP47's operating-area validation. Both are
+// `standards`-category types seeded in the platform context (BR-D46), which
+// is why platformContext below is a fixed literal rather than a parameter.
+const (
+	regionTypeKey  = "region"
+	countryTypeKey = "country"
+
+	// regionCountryRelation is BR-D47's relation name linking a region to
+	// its country.
+	regionCountryRelation = "country"
+
+	// platformContext is where standards corpora live. refdata's item.get is
+	// an exact context match with no ancestor walk (inheritance is resolved
+	// at its corpus/version layer), so a region seeded in _platform is NOT
+	// reachable by asking for it in a business-unit context — this must be
+	// the literal, not the caller's context.
+	platformContext = "_platform"
+)
 
 const requestorHeader = "Nats-Requestor"
 
@@ -75,6 +95,15 @@ type rpcItemGetResponse struct {
 		Code   string `json:"code"`
 		Status string `json:"status"`
 	} `json:"item"`
+	// References carries the item's typed relations (BR-D05), added to the
+	// item.get contract in Phase 38d-ii. BR-TP48 reads a region's `country`
+	// relation from here — the corpus's own statement of the hierarchy
+	// (BR-D47) rather than anything inferred from the code's shape.
+	References []struct {
+		Relation  string `json:"relation"`
+		ToTypeKey string `json:"toTypeKey"`
+		ToCode    string `json:"toCode"`
+	} `json:"references"`
 }
 
 type rpcErrorResponse struct {
@@ -87,9 +116,21 @@ type rpcErrorResponse struct {
 // refdata-service reports it as not found, and an error only for a genuine
 // transport/unexpected failure.
 func (c *Client) Exists(ctx context.Context, contextKey, code string) (bool, error) {
-	reqBody, err := json.Marshal(rpcItemGetRequest{Context: contextKey, TypeKey: vehicleTypeKey, Code: code})
-	if err != nil {
+	resp, found, err := c.getItem(ctx, contextKey, vehicleTypeKey, code)
+	if err != nil || !found {
 		return false, err
+	}
+	return resp.Item.Code == code, nil
+}
+
+// getItem is the shared one-call item lookup behind Exists (BR-TP14) and
+// ResolveArea (BR-TP47). found=false with a nil error means refdata reported
+// the code as not found; an error means the call itself failed.
+func (c *Client) getItem(ctx context.Context, contextKey, typeKey, code string) (rpcItemGetResponse, bool, error) {
+	var zero rpcItemGetResponse
+	reqBody, err := json.Marshal(rpcItemGetRequest{Context: contextKey, TypeKey: typeKey, Code: code})
+	if err != nil {
+		return zero, false, err
 	}
 	// "refdata.item.get.v1" is this tenant account's *local* alias, not the
 	// real wire subject — accounts-service's provisioner.go mints every
@@ -102,22 +143,60 @@ func (c *Client) Exists(ctx context.Context, contextKey, code string) (bool, err
 	// the tenant, and must never be the value that lands there).
 	data, err := c.requestRPC(ctx, "refdata.item.get.v1", contextKey, "item", "get", reqBody)
 	if err != nil {
-		return false, err
+		return zero, false, err
 	}
 
 	var errResp rpcErrorResponse
 	if err := json.Unmarshal(data, &errResp); err == nil && errResp.Error != "" {
 		if errResp.NotFound {
-			return false, nil
+			return zero, false, nil
 		}
-		return false, fmt.Errorf("refdata rpc: %s", errResp.Error)
+		return zero, false, fmt.Errorf("refdata rpc: %s", errResp.Error)
 	}
 
 	var resp rpcItemGetResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return false, err
+		return zero, false, err
 	}
-	return resp.Item.Code == code, nil
+	if resp.Item.Code != code {
+		return zero, false, nil
+	}
+	return resp, true, nil
+}
+
+// ResolveArea implements domain.OperatingAreaResolver (BR-TP47).
+//
+// Regions and countries are looked up in platformContext, never the caller's
+// business-unit context — see that constant's comment. For a REGION the
+// parent country comes from BR-D47's `country` relation on the item; a
+// region whose relation is missing resolves as not-found rather than as a
+// country-less area, because BR-TP48 cannot evaluate overlap without it and
+// domain.AddOperatingArea would reject it anyway.
+func (c *Client) ResolveArea(ctx context.Context, level domain.AreaLevel, code string) (string, bool, error) {
+	switch level {
+	case domain.AreaLevelCountry:
+		_, found, err := c.getItem(ctx, platformContext, countryTypeKey, code)
+		if err != nil || !found {
+			return "", false, err
+		}
+		// A country-level area is its own country (BR-TP47).
+		return code, true, nil
+
+	case domain.AreaLevelRegion:
+		resp, found, err := c.getItem(ctx, platformContext, regionTypeKey, code)
+		if err != nil || !found {
+			return "", false, err
+		}
+		for _, ref := range resp.References {
+			if ref.Relation == regionCountryRelation && ref.ToTypeKey == countryTypeKey {
+				return ref.ToCode, true, nil
+			}
+		}
+		return "", false, nil
+
+	default:
+		return "", false, nil
+	}
 }
 
 // requestRPC makes one logical rpc.* call, retrying up to defaultRPCRetries

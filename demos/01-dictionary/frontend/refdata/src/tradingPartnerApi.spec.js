@@ -36,7 +36,14 @@ const {
   resubmitComplianceDocument,
   listFleetAssets,
   addFleetAsset,
+  listOperatingAreas,
+  addOperatingArea,
+  removeOperatingArea,
+  listTrackingCredentials,
+  configureTrackingCredential,
 } = await import('./api.js')
+
+const apiModule = await import('./api.js')
 
 describe('trading-partner api.* client', () => {
   beforeEach(() => {
@@ -231,5 +238,95 @@ describe('trading-partner api.* client', () => {
       // (the panel lists rather than fetches one at a time).
       expect(seen.size).toBe(15)
     })
+  })
+})
+
+// Phase 38d-ii.
+describe('operating areas (BR-TP46-BR-TP50)', () => {
+  beforeEach(() => {
+    request.mockReset()
+    request.mockResolvedValue({})
+  })
+
+  const subjectOf = () => request.mock.calls[0][0]
+  const payloadOf = () => request.mock.calls[0][1]
+
+  it('sends level and code on add', () => {
+    addOperatingArea('acme', 'tp-1', 'REGION', 'ZA-GP')
+
+    expect(subjectOf()).toBe('api.acme.trading-partner.operating-area.add.v1')
+    expect(payloadOf()).toMatchObject({ id: 'tp-1', level: 'REGION', code: 'ZA-GP' })
+  })
+
+  it('never sends a countryCode', () => {
+    // BR-TP48 resolves parentage from refdata's own `country` relation
+    // (BR-D47). A browser-supplied parent would let a caller misfile a
+    // region under the wrong country and defeat the overlap check, so the
+    // absence of this field is a rule, not an omission.
+    addOperatingArea('acme', 'tp-1', 'REGION', 'ZA-GP')
+
+    expect(payloadOf()).not.toHaveProperty('countryCode')
+    expect(payloadOf()).not.toHaveProperty('country')
+  })
+
+  it('sends the partner id on every operation', () => {
+    for (const call of [
+      () => listOperatingAreas('acme', 'tp-1'),
+      () => addOperatingArea('acme', 'tp-1', 'COUNTRY', 'ZA'),
+      () => removeOperatingArea('acme', 'tp-1', 'COUNTRY', 'ZA'),
+    ]) {
+      request.mockReset()
+      request.mockResolvedValue({})
+      call()
+      expect(payloadOf()).toMatchObject({ id: 'tp-1' })
+    }
+  })
+})
+
+describe('tracking credentials (BR-TP51-BR-TP55)', () => {
+  beforeEach(() => {
+    request.mockReset()
+    request.mockResolvedValue({})
+  })
+
+  const subjectOf = () => request.mock.calls[0][0]
+  const payloadOf = () => request.mock.calls[0][1]
+
+  it('sends the payload on configure', () => {
+    configureTrackingCredential('acme', 'tp-1', {
+      provider: 'CARTRACK',
+      credentialType: 'API_KEY',
+      payload: 'sk-live-secret',
+    })
+
+    expect(subjectOf()).toBe('api.acme.trading-partner.tracking-credential.configure.v1')
+    expect(payloadOf()).toMatchObject({
+      id: 'tp-1',
+      provider: 'CARTRACK',
+      credentialType: 'API_KEY',
+      payload: 'sk-live-secret',
+    })
+  })
+
+  it('exposes no way to read a payload back', () => {
+    // BR-TP52: there is no api.* subject that returns credential material,
+    // so the client must not offer a function implying one exists. If a
+    // "reveal"/"get" helper is ever added here, this fails — which is the
+    // point, because the UI would then be able to promise something the
+    // backend cannot deliver.
+    const api = Object.keys(apiModule)
+    const readish = api.filter(
+      (name) =>
+        /TrackingCredential/.test(name) &&
+        !/^(listTrackingCredentials|configureTrackingCredential)$/.test(name),
+    )
+    expect(readish).toEqual([])
+  })
+
+  it('lists without sending any credential material', () => {
+    listTrackingCredentials('acme', 'tp-1')
+
+    expect(subjectOf()).toBe('api.acme.trading-partner.tracking-credential.list.v1')
+    expect(payloadOf()).toEqual({ id: 'tp-1' })
   })
 })

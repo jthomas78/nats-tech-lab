@@ -681,7 +681,7 @@ change to its wire contract's redaction/truncation ordering.
   with no such header produces an empty `Requester` (never a placeholder
   that could be mistaken for a real identity).
 
-### BR-042 (Phase 43, revised post-spike 2026-08-18) — "Trace this subject" targets only the existing `tenantImports()` cross-account contract, fired by the service that owns the connection, defaults to dry-run, and merges as a distinct `kind: "hop"` span alongside BR-036's application spans
+### BR-042 (Phase 63, revised post-spike 2026-08-18) — "Trace this subject" targets only the existing `tenantImports()` cross-account contract, fired by the service that owns the connection, defaults to dry-run, and merges as a distinct `kind: "hop"` span alongside BR-036's application spans
 
 > **Numbering note (2026-08-19):** this rule was drafted while the phase was
 > numbered 36 (see `Main-POC-Plan.md`'s renumbering logs: 29→41→36→43). Its
@@ -690,7 +690,7 @@ change to its wire contract's redaction/truncation ordering.
 > keeping this heading on the stale number would make it read as a citation
 > of that new phase instead.
 
-A live spike against the compose stack (see Phase 43's "Spike findings" in
+A live spike against the compose stack (see Phase 63's "Spike findings" in
 `Main-POC-Plan.md`) found the original design unbuildable as first proposed:
 `observability-service` cannot publish to any business subject (its NATS
 user has no such grant, confirmed by a live permissions-violation test), and
@@ -789,7 +789,7 @@ to observe. The one real, currently-provisioned crossing is
 - **Enforced in:** `frontend/admin/src/components/AccountsOverviewPanel.vue` (`showSearch`, `filteredAccounts`, the `watch(showSearch, ...)` clear-on-hide guard).
 - **Test:** `AccountsOverviewPanel.spec.js` — search box hidden at ≤3 accounts, shown and filtering at 4, the named empty state on a non-matching query, and the "N of M" vs "N" count text.
 
-### BR-045 (Phase 47a, PROPOSED — not yet implemented) — `obs.pubsub.{context}.{service}.{entity}.{action}` is published once at each named publish choke point, redacted-then-truncated the same way as `obs.trace.*`, and continues the causing span's trace rather than minting an unrelated one
+### BR-045 (Phase 67a, PROPOSED — not yet implemented) — `obs.pubsub.{context}.{service}.{entity}.{action}` is published once at each named publish choke point, redacted-then-truncated the same way as `obs.trace.*`, and continues the causing span's trace rather than minting an unrelated one
 
 **A sibling channel to `obs.trace.*` (BR-036), not an extension of it.** `rpc.*`/`api.*` (request/reply) already have their own tap via `obs.trace.*`; this rule covers the fire-and-forget half — `evt.*` (event-sourcing) and `notify.*` (change notification) — that channel never carried. The hook is wired individually at each of these existing publish choke points, and nowhere else:
 
@@ -802,29 +802,29 @@ Each envelope derives its `traceId`/`parentSpanId` from the span already on the 
 
 **Not a duplicate of the existing `evt.*`-projector-callback spans** Phase 28d already publishes to `obs.trace.*` (`trace_async_test.go`) — those are consume-side ("a projector processed this event"); this rule is publish-side ("this was published"), independent of whether anything consumes it.
 
-- **Enforced in:** not yet — Phase 47a.
-- **Test:** not yet written — pending Phase 47a implementation.
+- **Enforced in:** not yet — Phase 67a.
+- **Test:** not yet written — pending Phase 67a implementation.
 
-### BR-046 (Phase 47a, PROPOSED — not yet implemented) — `obs.pubsub.*` payload redaction reuses the existing shared denylist unless a real-payload review says otherwise
+### BR-046 (Phase 67a, PROPOSED — not yet implemented) — `obs.pubsub.*` payload redaction reuses the existing shared denylist unless a real-payload review says otherwise
 
 The redaction step is identical to BR-036's — same ordering (redact before the 4 KiB truncation cap), same shared denylist (`password`, `secret`, `token`, `apikey`/`api_key`, `ssn`, `creditcard`/`credit_card`, `authorization`, `privatekey`/`private_key`), matched case-insensitively at any JSON nesting depth. This rule stays unchanged unless a review of the real `evt.*`/`notify.*` payload shapes this phase taps (ship/container/port events, refdata type-change events, account-lifecycle events) surfaces a field these five services' event/notification payloads carry that the RPC-shaped denylist doesn't cover — in which case the shared denylist itself is extended, never forked into a second list for this channel alone.
 
-- **Enforced in:** not yet — Phase 47a. Payload-shape review to be done as part of implementing this sub-phase, not deferred further.
-- **Test:** not yet written — pending Phase 47a implementation.
+- **Enforced in:** not yet — Phase 67a. Payload-shape review to be done as part of implementing this sub-phase, not deferred further.
+- **Test:** not yet written — pending Phase 67a implementation.
 
-### BR-047 (Phase 47b, PROPOSED — not yet implemented) — Every published `obs.pubsub.*` envelope becomes visible in the Messages feed, retained under a bounded stream, deduplicated at-least-once by span/message id
+### BR-047 (Phase 67b, PROPOSED — not yet implemented) — Every published `obs.pubsub.*` envelope becomes visible in the Messages feed, retained under a bounded stream, deduplicated at-least-once by span/message id
 
 Mirrors `tracestore`'s existing shape (BR-036's Phase 28f amendment) for a new, sibling `obs.pubsub.>` consumer in `observability-service`: `LimitsPolicy` retention, defaulting to `tracestore`'s existing `StreamMaxAge`/`StreamMaxBytes` constants (1 hour / 64 MiB) unless `evt.*` volume in practice needs a tighter cap — a tuning decision, not a new design decision. Redelivery of the same envelope (`spanId`/message id) must not produce a duplicate visible entry. Left open, not fixed by this rule: whether ingestion needs a KV bucket the way `trace-request-reply` does to merge multiple spans per `traceId` — a standalone `obs.pubsub.*` envelope has nothing to merge, so a stream-only design may be simpler and sufficient; decided at implementation time.
 
-- **Enforced in:** not yet — Phase 47b.
-- **Test:** not yet written — pending Phase 47b implementation.
+- **Enforced in:** not yet — Phase 67b.
+- **Test:** not yet written — pending Phase 67b implementation.
 
-### BR-048 (Phase 47c, PROPOSED — not yet implemented) — The Admin UI's Messages panel is a dedicated panel, not a `RpcPanel` tab, and filters by `evt`/`notify` family
+### BR-048 (Phase 67c, PROPOSED — not yet implemented) — The Admin UI's Messages panel is a dedicated panel, not a `RpcPanel` tab, and filters by `evt`/`notify` family
 
 `evt.*`/`notify.*` traffic answers "what was published," a different question from `RpcPanel`'s "what was called/replied to," so it gets its own nav entry rather than a fourth tab there. Both families share the `obs.pubsub.*` channel but mean different things (`evt.*` is durable/JetStream-backed event-sourcing traffic; `notify.*` is ephemeral, non-JetStream change notification), so the panel needs a family-toggle filter — the same chip pattern `RpcPanel.vue` already uses for `rpc`/`api` — rather than rendering both undifferentiated. Reuses `SubjectPath.vue` (clickable subject chips) and `TraceWaterfall.vue`'s account-swimlane convention rather than inventing new visual language.
 
-- **Enforced in:** not yet — Phase 47c.
-- **Test:** not yet written — pending Phase 47c implementation.
+- **Enforced in:** not yet — Phase 67c.
+- **Test:** not yet written — pending Phase 67c implementation.
 
 ---
 

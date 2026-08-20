@@ -8,6 +8,7 @@ package refdata_test
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/nats-io/nats-server/v2/server"
@@ -144,6 +145,69 @@ var _ = Describe("Hybrid KV materialization for corpus versions (Phase 12.5, NAT
 		entryV2, err := reader.Get(context.Background(), ctxName, v2.Version, "currency", "usd")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(entryV2.Localizations["en"].Label).To(Equal("v2"))
+	})
+
+	It("BR-D49: discards the buckets of superseded versions beyond the retained window, keeping the account's stream count bounded", func() {
+		ctxName := uniqueContext("kv-reap")
+		Expect(contexts.Register(context.Background(), domain.Context{Context: ctxName, Name: ctxName})).To(Succeed())
+
+		// Publish RetainedSupersededVersions+2 versions, so exactly one
+		// version falls outside the window and must be reclaimed.
+		total := kvcache.RetainedSupersededVersions + 2
+		published := make([]int, 0, total)
+		for i := 1; i <= total; i++ {
+			label := fmt.Sprintf("v%d", i)
+			Expect(seedWorkingItem(integrationDB, ctxName, "currency", "usd", map[string]any{"name": label})).To(Succeed())
+			Expect(seedWorkingLocalization(integrationDB, ctxName, "currency", "usd", "en", label)).To(Succeed())
+			_, err := corpus.CreateDraft(context.Background(), ctxName, label)
+			Expect(err).NotTo(HaveOccurred())
+			v, err := corpus.Publish(context.Background(), ctxName)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(notifier.NotifyPublished(context.Background(), ctxName, v.Version)).To(Succeed())
+			published = append(published, v.Version)
+		}
+
+		oldest, active := published[0], published[len(published)-1]
+
+		// The oldest version's bucket is gone entirely — not merely
+		// TTL'd — which is what actually returns the JetStream stream slot.
+		_, err := kv.VersionedBucketHandle(context.Background(), ctxName, oldest)
+		Expect(err).To(HaveOccurred())
+		_, err = reader.Get(context.Background(), ctxName, oldest, "currency", "usd")
+		Expect(err).To(MatchError(kvcache.ErrVersionedKeyNotFound))
+
+		// Everything inside the window survives: the retained superseded
+		// versions still carry the superseded TTL, and the active version
+		// still carries none.
+		for _, v := range published[1 : len(published)-1] {
+			bucket, err := kv.VersionedBucketHandle(context.Background(), ctxName, v)
+			Expect(err).NotTo(HaveOccurred(), "retained version %d should still have a bucket", v)
+			status, err := bucket.Status(context.Background())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.TTL()).To(Equal(kvcache.SupersededVersionTTL))
+			entry, err := reader.Get(context.Background(), ctxName, v, "currency", "usd")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(entry.Version).To(Equal(v))
+		}
+
+		activeBucket, err := kv.VersionedBucketHandle(context.Background(), ctxName, active)
+		Expect(err).NotTo(HaveOccurred())
+		activeStatus, err := activeBucket.Status(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(activeStatus.TTL()).To(Equal(time.Duration(0)))
+		activeEntry, err := reader.Get(context.Background(), ctxName, active, "currency", "usd")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(activeEntry.Localizations["en"].Label).To(Equal(fmt.Sprintf("v%d", total)))
+	})
+
+	It("BR-D49: re-running the reaper over an already-discarded version is not an error", func() {
+		ctxName := uniqueContext("kv-reap-idem")
+		Expect(contexts.Register(context.Background(), domain.Context{Context: ctxName, Name: ctxName})).To(Succeed())
+
+		materializer := kvcache.NewVersionMaterializer(kv, newTestNamespaces(
+			domain.DictionaryType{TypeKey: "currency", Category: domain.CategoryStandards}))
+		Expect(materializer.Discard(context.Background(), ctxName, 42)).To(Succeed())
+		Expect(materializer.Discard(context.Background(), ctxName, 42)).To(Succeed())
 	})
 
 	It("returns ErrVersionedKeyNotFound for an unknown version or item", func() {

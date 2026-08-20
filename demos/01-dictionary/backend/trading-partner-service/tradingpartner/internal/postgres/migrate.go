@@ -162,6 +162,58 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			ADD COLUMN IF NOT EXISTS file_size_bytes BIGINT,
 			ADD COLUMN IF NOT EXISTS file_object_name TEXT,
 			ADD COLUMN IF NOT EXISTS file_uploaded_at TIMESTAMPTZ`,
+
+		// --- Phase 38d-ii ---------------------------------------------------
+		// Operating areas (BR-TP46-BR-TP50). Deliberately mirrors V2's own
+		// denormalization: country_code is carried on every row, including
+		// REGION rows where it is the parent resolved from refdata's
+		// `country` relation (BR-D47). V2's unpopulated
+		// TransporterOperatingAreaEntity denormalized the same field "for
+		// query performance" (its own comment); here it also makes BR-TP48's
+		// overlap check a single-column comparison rather than a join back
+		// into refdata on every write.
+		//
+		// No FK to a region table exists on purpose — the corpus lives in
+		// refdata-service, a separate service with its own database, so
+		// membership is validated over rpc.* at write time (BR-TP47) rather
+		// than by a constraint that cannot span the boundary.
+		`CREATE TABLE IF NOT EXISTS trading_partner.transporter_operating_areas (
+			id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+			trading_partner_id UUID        NOT NULL REFERENCES trading_partner.trading_partners(id) ON DELETE CASCADE,
+			level              TEXT        NOT NULL CHECK (level IN ('COUNTRY', 'REGION')),
+			code               TEXT        NOT NULL,
+			country_code       TEXT        NOT NULL,
+			created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		// BR-TP49: the same area cannot be assigned twice. Enforced by the
+		// database rather than a domain guard, the same treatment BR-TP13
+		// gives fleet_assets.registration_no — a read-then-write check in the
+		// domain would be racy.
+		`CREATE UNIQUE INDEX IF NOT EXISTS transporter_operating_areas_unique_idx
+			ON trading_partner.transporter_operating_areas (trading_partner_id, level, code)`,
+		// BR-TP48 reads a partner's whole set on every add, and the Operating
+		// Areas tab lists it; both are this lookup.
+		`CREATE INDEX IF NOT EXISTS transporter_operating_areas_partner_idx
+			ON trading_partner.transporter_operating_areas (trading_partner_id)`,
+
+		// Tracking credentials (BR-TP51-BR-TP55). Note what is NOT here:
+		// no api_key, no password, no username, no metadata blob. V2 stores
+		// exactly those as plain columns across 20 per-provider satellite
+		// tables with no encryption anywhere; this table records only that a
+		// provider IS configured and how, while the payload itself is sealed
+		// by the service and lives only in the organizations-secrets KV
+		// bucket (BR-TP52). A column added here for "just the username"
+		// would defeat the whole rule.
+		`CREATE TABLE IF NOT EXISTS trading_partner.tracking_credentials (
+			trading_partner_id UUID        NOT NULL REFERENCES trading_partner.trading_partners(id) ON DELETE CASCADE,
+			provider           TEXT        NOT NULL,
+			credential_type    TEXT        NOT NULL CHECK (credential_type IN ('API_KEY', 'USERNAME_PASSWORD', 'METADATA_ONLY')),
+			configured_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+			-- BR-TP51: at most one credential per (transporter, provider).
+			-- BR-TP54 makes re-configuring an overwrite, so this is the key
+			-- the upsert conflicts on, not a constraint to work around.
+			PRIMARY KEY (trading_partner_id, provider)
+		)`,
 	}
 
 	for _, stmt := range statements {

@@ -1,6 +1,8 @@
 <script setup>
 import Button from 'primevue/button'
 import Column from 'primevue/column'
+import OperatingAreaMap from './OperatingAreaMap.vue'
+import { attrsFor, codeFor, labelFor } from '../itemFields'
 import DataTable from 'primevue/datatable'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
@@ -30,6 +32,12 @@ import {
   downloadComplianceDocumentFile,
   listComplianceDocuments,
   listFleetAssets,
+  listOperatingAreas,
+  addOperatingArea,
+  removeOperatingArea,
+  listTrackingCredentials,
+  configureTrackingCredential,
+  listItems,
   listTradingPartners,
   reactivateTradingPartner,
   registerTradingPartner,
@@ -124,6 +132,8 @@ const activeTab = ref('company')
 const documents = ref([])
 const fleetAssets = ref([])
 const auditEvents = ref([])
+const operatingAreas = ref([])
+const trackingCredentials = ref([])
 const detailLoading = ref(false)
 
 const selectedProfile = computed(() => (selected.value ? profiles.value[selected.value.id] : null))
@@ -133,7 +143,11 @@ async function openDetail(tp) {
   selected.value = tp
   activeTab.value = 'company'
   seedCompanyForm(tp)
-  await refreshDetail()
+  // The region corpus is fetched alongside the detail rather than when the
+  // Operating Areas tab is first opened: it is small, cached after the first
+  // call, and loading it lazily made the tab render its "no corpus" empty
+  // state for a beat before filling in, which reads as a real error.
+  await Promise.all([refreshDetail(), loadRegionCorpus()])
 }
 
 function closeDetail() {
@@ -148,20 +162,171 @@ async function refreshDetail() {
   if (!tp) return
   detailLoading.value = true
   try {
-    const [docs, fleet, audit, profile] = await Promise.all([
+    const [docs, fleet, audit, profile, areas, creds] = await Promise.all([
       listComplianceDocuments(tenantStore.context, tp.id),
       listFleetAssets(tenantStore.context, tp.id),
       getTradingPartnerAudit(tenantStore.context, tp.id),
       getTransporterProfile(tenantStore.context, tp.id),
+      listOperatingAreas(tenantStore.context, tp.id),
+      listTrackingCredentials(tenantStore.context, tp.id),
     ])
     documents.value = docs.documents ?? []
     fleetAssets.value = fleet.fleetAssets ?? []
     auditEvents.value = audit.events ?? []
+    operatingAreas.value = areas.operatingAreas ?? []
+    trackingCredentials.value = creds.trackingCredentials ?? []
     profiles.value = { ...profiles.value, [tp.id]: profile }
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Failed to load details', detail: e.message, life: 5000 })
   } finally {
     detailLoading.value = false
+  }
+}
+
+// ── Operating Areas (BR-TP46-BR-TP50) ─────────────────────────────────────
+//
+// The map and the checklist are two views of one selection, deliberately.
+// A polygon is quick for "the whole Western Cape" but imprecise and
+// unusable without a pointer; the list is exact, keyboard-reachable and
+// readable by a screen reader. Neither is a fallback for the other — both
+// write through the same handler, so they cannot drift.
+
+const regionCorpus = ref([])       // { code, name, country } from refdata
+const areaBusy = ref(false)
+
+// Regions live in the _platform context: they are `standards` corpora
+// (BR-D46), and refdata's item lookup is an exact context match with no
+// ancestor walk, so asking in the tenant's own business-unit context
+// returns nothing.
+const PLATFORM_CONTEXT = '_platform'
+
+async function loadRegionCorpus() {
+  if (regionCorpus.value.length) return
+  try {
+    // An explicit locale matters: with locale '' the service still resolves
+    // one, and when nothing matches it falls through to BR-D03's terminal
+    // code-echo — so every row came back labelled with its own code.
+    const res = await listItems(PLATFORM_CONTEXT, 'region', { locale: 'en' })
+    // codeFor/labelFor/attrsFor rather than reading the fields directly:
+    // type.list returns ItemGetResponse per row ({ item, label, ... }),
+    // while other paths return the bare item, and this app already has one
+    // helper that absorbs both shapes. Reading `item.code` here worked in
+    // neither — it silently yielded an empty corpus.
+    regionCorpus.value = (res?.items ?? []).map((entry) => {
+      const code = codeFor(entry)
+      // Prefer the localized label — that is BR-D48's whole point, since
+      // `Wes-Kaap` is a label on the canonical item rather than a separate
+      // region. But a label equal to the code IS the code-echo fallback,
+      // not a real translation, so treat it as absent and use the stored
+      // name instead of showing the operator "BW-CE  BW-CE".
+      const label = labelFor(entry)
+      return {
+        code,
+        name: label && label !== code ? label : (attrsFor(entry)?.name || code),
+        country: String(code).split('-')[0],
+      }
+    })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Failed to load regions', detail: e.message, life: 5000 })
+  }
+}
+
+// assignedCodes is what both views render from, so a click on the map and a
+// tick in the list cannot disagree about what is selected.
+const assignedCodes = computed(() => new Set(operatingAreas.value.map((a) => a.code)))
+
+// countriesCovered are the country-level assignments. A region inside one
+// is not merely redundant — BR-TP48 rejects it — so the checklist disables
+// those rows and says why, rather than letting the operator click into a
+// server-side error.
+const countriesCovered = computed(
+  () => new Set(operatingAreas.value.filter((a) => a.level === 'COUNTRY').map((a) => a.code)),
+)
+
+const regionsByCountry = computed(() => {
+  const groups = new Map()
+  for (const region of regionCorpus.value) {
+    if (!groups.has(region.country)) groups.set(region.country, [])
+    groups.get(region.country).push(region)
+  }
+  return [...groups.entries()].map(([country, regions]) => ({ country, regions }))
+})
+
+function areaDisabledReason(level, code, country) {
+  if (level === 'REGION' && countriesCovered.value.has(country)) {
+    return `Covered by the ${country} country-level assignment`
+  }
+  if (level === 'COUNTRY') {
+    const inner = operatingAreas.value.filter((a) => a.level === 'REGION' && a.countryCode === code)
+    if (inner.length) return `${inner.length} region(s) of ${code} are assigned individually`
+  }
+  return ''
+}
+
+async function toggleArea(level, code, country) {
+  if (areaBusy.value) return
+  const reason = areaDisabledReason(level, code, country)
+  if (reason && !assignedCodes.value.has(code)) {
+    // Surfaced rather than swallowed: BR-TP48 rejects rather than silently
+    // collapsing, so the operator has to resolve the ambiguity and should
+    // be told what it is.
+    toast.add({ severity: 'warn', summary: 'Overlapping coverage', detail: reason, life: 5000 })
+    return
+  }
+  areaBusy.value = true
+  try {
+    if (assignedCodes.value.has(code)) {
+      await removeOperatingArea(tenantStore.context, selected.value.id, level, code)
+    } else {
+      await addOperatingArea(tenantStore.context, selected.value.id, level, code)
+    }
+    const res = await listOperatingAreas(tenantStore.context, selected.value.id)
+    operatingAreas.value = res.operatingAreas ?? []
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Coverage change failed', detail: e.message, life: 6000 })
+  } finally {
+    areaBusy.value = false
+  }
+}
+
+// ── Tracking Credentials (BR-TP51-BR-TP55) ────────────────────────────────
+
+const PROVIDERS = ['CARTRACK', 'MIX_TELEMATICS', 'WEBFLEET', 'CTRACK', 'NETSTAR']
+const CREDENTIAL_TYPES = ['API_KEY', 'USERNAME_PASSWORD', 'METADATA_ONLY']
+
+const credentialForm = ref({ provider: '', credentialType: '', payload: '' })
+const credentialBusy = ref(false)
+
+const credentialValid = computed(
+  () =>
+    credentialForm.value.provider &&
+    credentialForm.value.credentialType &&
+    // METADATA_ONLY genuinely has no secret to enter, so requiring one
+    // would make a legitimate V2 case unrepresentable.
+    (credentialForm.value.credentialType === 'METADATA_ONLY' || credentialForm.value.payload.length > 0),
+)
+
+async function saveCredential() {
+  if (!credentialValid.value || credentialBusy.value) return
+  credentialBusy.value = true
+  try {
+    await configureTrackingCredential(tenantStore.context, selected.value.id, {
+      provider: credentialForm.value.provider,
+      credentialType: credentialForm.value.credentialType,
+      payload: credentialForm.value.payload,
+    })
+    // Clear the payload immediately. BR-TP52 means the value can never be
+    // read back, so leaving it in the field would suggest the app is
+    // holding it — and a stale secret sitting in a form is a secret waiting
+    // to be shoulder-surfed or submitted to the wrong provider.
+    credentialForm.value = { provider: '', credentialType: '', payload: '' }
+    const res = await listTrackingCredentials(tenantStore.context, selected.value.id)
+    trackingCredentials.value = res.trackingCredentials ?? []
+    toast.add({ severity: 'success', summary: 'Credential stored', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Could not store credential', detail: e.message, life: 6000 })
+  } finally {
+    credentialBusy.value = false
   }
 }
 
@@ -807,6 +972,12 @@ function formatDate(ts) {
           <Tab value="vetting">
             Vetting
           </Tab>
+          <Tab value="areas">
+            Operating Areas
+          </Tab>
+          <Tab value="tracking">
+            Tracking
+          </Tab>
           <Tab value="rates">
             Rate Sheets
           </Tab>
@@ -1237,6 +1408,145 @@ function formatDate(ts) {
           </TabPanel>
 
           <!-- Rate Sheets — stub by design -->
+          <!-- Operating Areas (BR-TP46-BR-TP50) -->
+          <TabPanel value="areas">
+            <div class="areas-layout">
+              <div class="areas-map-col">
+                <OperatingAreaMap
+                  :assigned="[...assignedCodes]"
+                  :busy="areaBusy"
+                  @toggle="(code, country) => toggleArea('REGION', code, country)"
+                />
+                <p class="lab-muted areas-hint">
+                  Click a region to add or remove it. The list beside the map is the same selection — it is exact,
+                  keyboard-reachable and readable without a pointer, so neither view is a fallback for the other.
+                </p>
+              </div>
+
+              <div class="areas-list-col">
+                <div
+                  v-for="group in regionsByCountry"
+                  :key="group.country"
+                  class="area-group"
+                >
+                  <div class="area-group-head">
+                    <label class="area-row area-row-country">
+                      <input
+                        type="checkbox"
+                        :checked="assignedCodes.has(group.country)"
+                        :disabled="areaBusy"
+                        @change="toggleArea('COUNTRY', group.country, group.country)"
+                      >
+                      <span class="area-code">{{ group.country }}</span>
+                      <span class="area-name">Entire country</span>
+                    </label>
+                    <span
+                      v-if="areaDisabledReason('COUNTRY', group.country, group.country)"
+                      class="area-blocked"
+                    >{{ areaDisabledReason('COUNTRY', group.country, group.country) }}</span>
+                  </div>
+
+                  <label
+                    v-for="region in group.regions"
+                    :key="region.code"
+                    class="area-row"
+                    :class="{ 'area-row-disabled': !!areaDisabledReason('REGION', region.code, region.country) }"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="assignedCodes.has(region.code)"
+                      :disabled="areaBusy || (!assignedCodes.has(region.code) && !!areaDisabledReason('REGION', region.code, region.country))"
+                      @change="toggleArea('REGION', region.code, region.country)"
+                    >
+                    <span class="area-code">{{ region.code }}</span>
+                    <span class="area-name">{{ region.name }}</span>
+                  </label>
+                </div>
+
+                <p
+                  v-if="!regionCorpus.length"
+                  class="lab-muted"
+                >
+                  No region corpus found. Seed it with
+                  <code>go run ./cmd/seed-regions</code> in refdata-service.
+                </p>
+              </div>
+            </div>
+          </TabPanel>
+
+          <!-- Tracking Credentials (BR-TP51-BR-TP55) -->
+          <TabPanel value="tracking">
+            <div class="tracking-layout">
+              <DataTable
+                :value="trackingCredentials"
+                data-key="provider"
+                class="partners-table"
+              >
+                <Column
+                  field="provider"
+                  header="Provider"
+                />
+                <Column
+                  field="credentialType"
+                  header="Type"
+                />
+                <Column header="Status">
+                  <template #body="{ data }">
+                    <span :class="['lab-badge', data.credentialsConfigured ? 'lab-badge-ok' : 'lab-badge-muted']">
+                      {{ data.credentialsConfigured ? 'Configured' : 'Not configured' }}
+                    </span>
+                  </template>
+                </Column>
+                <template #empty>
+                  <span class="lab-muted">No tracking providers configured.</span>
+                </template>
+              </DataTable>
+
+              <div class="cred-form">
+                <h4>Configure a provider</h4>
+                <div class="cred-note">
+                  <i class="pi pi-lock" />
+                  <p class="lab-muted">
+                    Credentials are encrypted by the service before storage and
+                    <strong>cannot be read back</strong> — not by this screen, not by any API. Re-entering a value
+                    replaces it. The table above can only ever show <em>that</em> a provider is configured, never
+                    what with.
+                  </p>
+                </div>
+
+                <div class="cred-fields">
+                  <Select
+                    v-model="credentialForm.provider"
+                    :options="PROVIDERS"
+                    placeholder="Provider"
+                    class="cred-field"
+                  />
+                  <Select
+                    v-model="credentialForm.credentialType"
+                    :options="CREDENTIAL_TYPES"
+                    placeholder="Credential type"
+                    class="cred-field"
+                  />
+                  <InputText
+                    v-model="credentialForm.payload"
+                    type="password"
+                    autocomplete="new-password"
+                    :placeholder="credentialForm.credentialType === 'METADATA_ONLY' ? 'Not required for METADATA_ONLY' : 'Credential value'"
+                    :disabled="credentialForm.credentialType === 'METADATA_ONLY'"
+                    class="cred-field cred-payload"
+                  />
+                  <Button
+                    label="Store"
+                    icon="pi pi-lock"
+                    :disabled="!credentialValid || credentialBusy"
+                    :loading="credentialBusy"
+                    @click="saveCredential"
+                  />
+                </div>
+              </div>
+            </div>
+          </TabPanel>
+
           <TabPanel value="rates">
             <div class="empty-tab">
               <i class="pi pi-table" />
@@ -1943,5 +2253,120 @@ function formatDate(ts) {
 .doc-actions {
   display: flex;
   gap: 0.25rem;
+}
+
+/* --- Operating Areas (BR-TP46-BR-TP50) --- */
+.areas-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .areas-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.areas-hint {
+  margin: 0;
+  font-size: 12px;
+}
+
+.areas-list-col {
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.area-group + .area-group {
+  margin-top: 14px;
+}
+
+.area-group-head {
+  border-bottom: 1px solid var(--lab-border, #4a515b);
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+}
+
+.area-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 2px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.area-row-country {
+  font-weight: 600;
+}
+
+.area-row-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.area-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--lab-muted, #b7bcc2);
+  min-width: 58px;
+}
+
+.area-blocked {
+  display: block;
+  font-size: 11px;
+  color: var(--lab-warn, #9a7b1e);
+  padding-left: 24px;
+}
+
+/* --- Tracking Credentials (BR-TP51-BR-TP55) --- */
+.tracking-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.cred-form h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.cred-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 10px;
+  max-width: 70ch;
+}
+
+/* The flex lives on the wrapper, not the paragraph: with display:flex on a
+   text element every inline child (<strong>, <em>) becomes its own flex
+   item, which shredded this sentence into columns. */
+.cred-note p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.cred-note > i {
+  margin-top: 2px;
+}
+
+.cred-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.cred-field {
+  min-width: 180px;
+}
+
+.cred-payload {
+  min-width: 260px;
 }
 </style>

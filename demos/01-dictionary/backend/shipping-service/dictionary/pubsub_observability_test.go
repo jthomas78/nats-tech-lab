@@ -1,20 +1,20 @@
 package dictionary
 
-// Pending specs for Phase 47a (BUSINESS_RULES-SHIPPING.md's BR-045/BR-046):
+// Pending specs for Phase 67a (BUSINESS_RULES-SHIPPING.md's BR-045/BR-046):
 // a new obs.pubsub.* envelope, sibling to obs.trace.* (BR-036/BR-037),
 // published at each existing evt.*/notify.* choke point. Design approved
 // (ADR-047, ARCHITECTURE-OBSERVABILITY.md); implementation is explicitly on
 // hold, so these are placeholders derived directly from the rules, not from
 // any implementation — no body references the not-yet-existing observation
 // hook, so `ginkgo ./...` stays green (reported pending, not failing) until
-// Phase 47a lands. Fill in real bodies (with gomega assertions) alongside
+// Phase 67a lands. Fill in real bodies (with gomega assertions) alongside
 // the implementation, per this repo's red -> green -> refactor workflow.
 
 import (
 	. "github.com/onsi/ginkgo/v2"
 )
 
-var _ = PDescribe("obs.pubsub.* observability (Phase 47a, BR-045/BR-046)", func() {
+var _ = PDescribe("obs.pubsub.* observability (Phase 67a, BR-045/BR-046)", func() {
 	PContext("ShipHandler.publish — evt.* choke point (commands.go:317)", func() {
 		PIt("publishes one obs.pubsub.{context}.shipping.ship.{action} envelope alongside the real evt.* publish")
 		PIt("derives traceId/parentSpanId from natstrace.SpanFromContext(ctx) rather than minting an unrelated trace")

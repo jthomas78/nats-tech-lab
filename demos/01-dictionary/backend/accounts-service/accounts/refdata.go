@@ -247,6 +247,35 @@ func (c *RefdataClient) ProvisionDefaultContext(ctx context.Context, tenant, slu
 			return err
 		}
 	}
+	// BR-AC29: the draft/publish half runs once, not once per boot.
+	//
+	// RegisterContext and AddLocale above are genuinely idempotent (409 folds
+	// to success in do()), so reasserting them every startup is free and
+	// self-heals a dropped locale. CreateDraft + PublishCorpus are not: they
+	// mint a *new* corpus version every time, and every published version
+	// gets its own KV bucket, which is its own JetStream stream. Seven
+	// restarts on 2026-08-20 produced acme-default v2-v8 and globex-default
+	// v2-v8 — all byte-identical to v1 — and exhausted the platform account's
+	// MaxStreams, after which publish failed with err_code=10027 for every
+	// context. refdata-service's own retention window (BR-D49) bounds the
+	// bucket count, but the version churn itself is this side's bug.
+	//
+	// Deliberately a "has any published corpus" check rather than a content
+	// comparison against the template: this call is bootstrap, not
+	// reconciliation. A context that has been published — by us on a previous
+	// boot, or by an operator since — is somebody's current state, and a
+	// startup path has no business republishing over it.
+	published, err := c.HasPublishedCorpus(ctx, slug)
+	if err != nil {
+		return err
+	}
+	if published {
+		if c.Log != nil {
+			c.Log.Info("default context already has a published corpus — skipping draft/publish",
+				"context", slug, "tenant", tenant)
+		}
+		return nil
+	}
 	if err := c.CreateDraft(ctx, slug); err != nil {
 		return err
 	}

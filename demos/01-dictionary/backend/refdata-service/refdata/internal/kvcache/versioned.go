@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -26,6 +27,24 @@ import (
 // modeled retention decision — see the design doc's open question on KV
 // bucket cleanup (deferred to the pin registry).
 const SupersededVersionTTL = 30 * 24 * time.Hour
+
+// RetainedSupersededVersions is how many superseded versions of a context
+// keep their KV bucket at all. Anything older is discarded outright on the
+// next publish/rollback — see VersionMaterializer.Discard.
+//
+// This exists because SupersededVersionTTL alone does not bound anything
+// that matters. A KV bucket is a JetStream stream, and TTL expires *keys*,
+// never the bucket — so before this, every publish permanently consumed one
+// stream slot from the account's MaxStreams, and the count only ever went
+// up. On this lab's platform account (MaxStreams 20) that took a couple of
+// hours of ordinary restarts to exhaust, after which every subsequent
+// publish failed with err_code=10027 and left a version marked `published`
+// in Postgres with nothing behind it in KV.
+//
+// 2 is a POC-scale default chosen to leave an obvious rollback target plus
+// one, not a modeled retention decision — the same caveat SupersededVersionTTL
+// carries. It bounds a context at RetainedSupersededVersions+1 streams.
+const RetainedSupersededVersions = 2
 
 // VersionedEntry is one materialized item within a specific published
 // corpus version's KV bucket (refdata-{context}-v{N}). Like Entry,
@@ -118,6 +137,22 @@ func (m *VersionMaterializer) Supersede(ctx context.Context, contextKey string, 
 	return err
 }
 
+// Discard deletes a superseded version's bucket entirely, giving its stream
+// slot back. Called for versions that have fallen outside
+// RetainedSupersededVersions.
+//
+// The cost is that a consumer pinned to a discarded version now gets
+// ErrVersionedKeyNotFound rather than a stale-but-readable answer. That is
+// the deliberate trade: an unbounded bucket count does not merely leak, it
+// eventually takes the *whole account* down — a publish that cannot create
+// its bucket fails for every context, not just old ones. Postgres still
+// holds every version's corpus rows, so a discarded version is
+// re-materializable (ItemsAtVersion + Materialize) if the pin registry this
+// was deferred to ever lands.
+func (m *VersionMaterializer) Discard(ctx context.Context, contextKey string, version int) error {
+	return m.kv.DeleteVersionedBucket(ctx, contextKey, version)
+}
+
 // VersionNotifier implements domain.CorpusNotifier: on every publish or
 // rollback it materializes the newly-active version and marks every other
 // non-draft version for that context as superseded.
@@ -157,11 +192,26 @@ func (n *VersionNotifier) materializeAndSupersede(ctx context.Context, contextKe
 	if err != nil {
 		return err
 	}
+	// Newest first, so "the N most recent superseded versions" is a prefix.
+	// Versions is documented as ordering DESC, but the port is an interface
+	// and retention correctness should not rest on a repository's ORDER BY.
+	superseded := make([]int, 0, len(versions))
 	for _, v := range versions {
 		if v.Version == version || v.Status == domain.CorpusDraft {
 			continue
 		}
-		if err := n.materializer.Supersede(ctx, contextKey, v.Version); err != nil {
+		superseded = append(superseded, v.Version)
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(superseded)))
+
+	for i, v := range superseded {
+		if i < RetainedSupersededVersions {
+			if err := n.materializer.Supersede(ctx, contextKey, v); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := n.materializer.Discard(ctx, contextKey, v); err != nil {
 			return err
 		}
 	}

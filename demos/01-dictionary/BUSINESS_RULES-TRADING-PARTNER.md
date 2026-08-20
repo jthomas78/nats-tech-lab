@@ -829,3 +829,280 @@ whose four remaining amendments these rules discharge.
   upload refused with `conflict: true`, and an 11 MiB attempt refused with 413
   leaving the document file-less and a 10 MiB orphan in the bucket — BR-TP43's
   trade, observed rather than asserted.
+
+### BR-TP46–BR-TP50 (Phase 38d-ii) — Operating areas
+
+**Approved 2026-08-20.** Operating areas declare where a Transporter is
+willing to carry — commercial coverage, not compliance evidence. The region
+corpus itself is refdata-owned (BR-D46–BR-D48 in
+[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)); these rules govern
+only the assignment of corpus entries to a Transporter.
+
+Sourced from the live V2 database rather than from its Java source, which
+matters here: V2's `GeoAreaEntity` polygon/GIS model and its
+`transporter_operating_areas` join both hold **zero rows**, while a flat
+`region_entity` → `country_entity` two-level list carries **48,041 live
+assignments**. Country → Region therefore matches what V2 runs rather than
+simplifying it (see
+[ARCHITECTURE-ORGANIZATIONS.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ORGANIZATIONS.md)
+§ "V2 database verification" and § "Operating Areas — region seed").
+
+- **BR-TP46:** An operating area may only be assigned to a `TradingPartner`
+  whose `type` is `TRANSPORTER`; a `SHIPPER` is rejected. Mirrors BR-TP12's
+  per-type restriction for fleet assets.
+- **BR-TP47 (assignment shape and corpus validation):** An assignment is
+  `(transporterID, level, code)` where `level` is `COUNTRY` or `REGION`. The
+  `code` must exist and be active in the matching refdata corpus for that
+  level — `country` for `COUNTRY`, `region` for `REGION`; an unknown or
+  deprecated code is rejected. **Not a pure-domain spec** — same treatment as
+  BR-TP14, since existence checking requires the tenant-scoped `rpc.*`
+  client (BR-D28 forbids a REST fallback for backend-to-backend calls), so
+  its specs land at the adapter layer.
+  `level` is retained even though V2's live join has no such column, because
+  BR-TP48 and BR-TP49 both need it and because V2 demonstrably needs the
+  concept it lacks — see BR-TP48.
+- **BR-TP48 (no redundant overlap):** Adding a `REGION` whose parent
+  `COUNTRY` is already assigned is rejected, and adding a `COUNTRY` when any
+  region inside it is already assigned is rejected. Parentage resolves
+  through BR-D47's `country` relation, so this rule depends on the corpus
+  being well-formed and not on any denormalized parent held here.
+  Making that literally true required a change on refdata's side: `rpc.*
+  item.get` did not expose an item's references, so the relation was not
+  readable cross-service. The cheap alternative — copying `country` into the
+  region item's `attrs` — was rejected because it would have created a
+  second source of truth for the same fact and made this rule's own wording
+  false. The field was added to the item.get contract instead (additive and
+  `omitempty`, with a spec pinning that existing consumers are unaffected).
+  *Rejection, not silent collapse:* the alternative — auto-removing the
+  now-redundant rows — would let one write delete rows the operator never
+  touched, which is awkward to render in the UI and worse to explain in the
+  audit trail BR-TP50 requires. An explicit rejection makes the operator
+  resolve the ambiguity.
+  *Why `level = COUNTRY` exists at all:* "operates nationwide" is a real and
+  heavily-used declaration — V2 expresses it by assigning a **fake region row
+  named after the country**, and those rows are the single most-assigned
+  entry in each country (`Botswana` 708 transporters, `Namibia` 596, both
+  ranking above every genuine district). Modelling it as a level keeps the
+  statement stable: with regions-only, seeding a new region would silently
+  shrink an existing Transporter's declared coverage.
+- **BR-TP49 (uniqueness):** `(transporter, level, code)` is unique — the same
+  area cannot be assigned twice. **Repository-level invariant**, enforced by
+  a Postgres unique constraint rather than a domain guard, mirroring
+  BR-TP13's `registrationNo` and BR-TP08's one-per-type treatment.
+- **BR-TP50 (freely editable, including after `Vetted`):** Operating areas
+  may be added or removed at any point in the profile lifecycle. A change
+  does **not** return the profile to `Pending`, does not re-run the Temporal
+  vetting workflow, and does not touch `FleetAvailabilityGate`. Every change
+  is recorded in the existing `audit_events` table per BR-TP06's
+  actor/outcome conventions.
+  *The reasoning is a boundary claim, not a convenience:* neither branch of
+  the vetting saga (BR-TP21's GIT insurance verification and document
+  approval) reads operating areas, so no area change can invalidate a
+  vetting decision. Re-vetting on an area change would re-run an insurance
+  check over a fact insurance does not depend on. If a future rule ever makes
+  coverage a compliance input — a per-territory permit, say — this rule is
+  the one that has to change first.
+
+- **Enforced in:** `tradingpartner/internal/domain/operating_area.go`
+  (BR-TP46/BR-TP47's shape guards and BR-TP48's overlap rule — note
+  `ValidateOperatingAreaShape` is split out from `AddOperatingArea` so the
+  application layer can reject a doomed request before spending an `rpc.*`
+  round trip, rather than inventing a placeholder country to satisfy a
+  guard), `tradingpartner/internal/domain/operating_area_resolver.go`
+  (BR-TP47's port), `tradingpartner/internal/refdataclient/client.go`
+  (`ResolveArea`) and `internal/tenants` (the tenant-connection delegate),
+  `tradingpartner/internal/application/commands/operating_area.go`
+  (orchestration + BR-TP50's audit), the unique index in
+  `internal/postgres/migrate.go` with
+  `internal/postgres/operating_area_repository.go` translating its violation
+  (BR-TP49), and three `api.*` endpoints in `internal/browserrpc/adapter.go`.
+  *Correction:* this list previously named
+  `transporterprofile/internal/domain` and a `refdataconsumer` package —
+  both were guesses written before implementation, and neither path exists.
+- **Test:** `tradingpartner/operating_area_test.go` — 13 specs, one
+  `Context` per rule, with BR-TP48 covering both directions
+  (region-under-assigned-country and country-over-assigned-region), the
+  legal non-overlapping cases, and an assertion that a refused add does not
+  mutate the existing set. BR-TP49 is deliberately not domain-specced (it is
+  a database constraint); it and BR-TP50 are verified live. The `api.*`
+  endpoint-count guard in `browserrpc_test.go` widens from 18 to 21 and pins
+  the three new subjects.
+  Verified live against the composed stack over real tenant credentials: two
+  regions added with `countryCode` resolved from refdata's relation rather
+  than the request (the wire payload carries no country at all); a duplicate
+  refused by BR-TP49; `ZA` refused over its own assigned regions and `BW-CE`
+  refused under an assigned `BW` (BR-TP48, both directions); an unknown code
+  refused by BR-TP47; removing an unheld area reported rather than silently
+  succeeding; and BR-TP50's `audit_events` rows written for every add and
+  remove, carrying level/code/countryCode metadata.
+
+**Frontend (38d-ii, both rule groups).** Two tabs on the existing Transporter
+drill-in: `frontend/refdata/src/components/TransporterPanel.vue` plus
+`OperatingAreaMap.vue` (Leaflet + OpenStreetMap over
+`public/geo/operating-areas.geojson`, fetched at runtime so ~470 KB of
+geometry never enters the bundle), with client specs in
+`src/tradingPartnerApi.spec.js`.
+
+Two presentation decisions that are rule-driven rather than cosmetic:
+
+- **The map is not the authoritative control.** The region checklist beside
+  it writes through the same handler, so the two cannot drift; the map exists
+  because "the whole Western Cape" is faster to click than to find in a list,
+  not because coverage needs a map. Anything reachable only by clicking a
+  polygon would be unreachable without a pointer. The checklist also renders
+  BR-TP48's blocked reason inline ("1 region(s) of BW are assigned
+  individually") rather than letting an operator click into a server-side
+  rejection.
+- **The credential field is write-only, and says so.** BR-TP52 means no
+  api.* call can return a payload, so the UI must not imply otherwise: the
+  input is `type="password"`, it is cleared immediately on success (a stale
+  secret sitting in a form is one waiting to be shoulder-surfed), and the tab
+  states plainly that credentials "cannot be read back — not by this screen,
+  not by any API". `METADATA_ONLY` disables the field entirely, since that
+  V2 case genuinely has no secret to enter.
+
+Verified in-browser end to end against the composed stack: a region toggled
+from the checklist highlighted on the map and persisted with its
+`countryCode` resolved server-side; BR-TP48's blocked reason appeared on the
+country row; a credential typed into the browser stored, listed as
+`Configured`, and the form cleared — with **0 plaintext hits for that typed
+value in a full `pg_dump` and 0 in the `TRANSPORTER` log**, the event
+carrying only provider/credentialType and the KV value opaque under `xxd`.
+
+### BR-TP51–BR-TP55 (Phase 38d-ii) — Tracking credentials
+
+**Approved 2026-08-20.** A Transporter's telematics-provider credentials.
+This is a **confirmed, deliberate divergence from V2**, which stores raw
+secrets as plaintext columns across 20 per-provider satellite tables with no
+encryption anywhere — verified in both the source (no `@Convert`/
+`AttributeConverter`) and the live database (`cartrack.api_key`,
+`webfleet.password`, plain `varchar`, 15 of the 20 tables populated).
+
+- **BR-TP51 (shape):** A tracking credential may only attach to a
+  `TRANSPORTER`-typed partner (mirrors BR-TP46/BR-TP12); at most one exists
+  per `(transporter, provider)`; and `credentialType` must be one of
+  `API_KEY`, `USERNAME_PASSWORD`, `METADATA_ONLY` — V2's real three-value
+  enum, kept because V2's live spread (40 / 34 / 15) shows all three carry
+  real weight. `provider` is a small representative enum, not V2's 35
+  vendors. V2's free-text `providerName` column is **not** carried: its live
+  values are visibly corrupted (`MixSite1`…`MixSite16`, `ctrack-32332`,
+  `Autotrak51`) beside a clean `trackingProvider` enum holding the same fact.
+- **BR-TP52 (the secret exists in exactly one place, and never in the
+  clear):** The credential payload is **sealed by this service with
+  AES-256-GCM** and the ciphertext written to the `organizations-secrets`
+  NATS KV bucket, keyed
+  `{context}.transporter.{id}.trackingcreds.{provider}`.
+  *Reworded during implementation (2026-08-20).* This rule originally said
+  "a NATS KV bucket with at-rest encryption enabled", which assumed a
+  per-bucket switch that does not exist: NATS at-rest encryption is a
+  server-wide `jetstream { key: ... }` directive covering every stream and
+  bucket, and this lab's `nats.conf` does not set it. Enabling it would
+  re-key the whole lab's storage to protect one bucket. Service-side sealing
+  was chosen instead and is **strictly stronger than the original wording
+  asked for**: the ciphertext is opaque to anyone reading the bucket — a
+  `nats kv get`, a JetStream backup, a NATS operator — not merely to someone
+  holding the disk, and the guarantee stays local to the feature that needs
+  it rather than becoming a property of the deployment.
+  The trade, recorded rather than hidden: this service now holds a key. It
+  is read from the environment and never persisted, a wrong-length key is
+  refused rather than padded or hashed into shape, and a missing key makes
+  the store refuse to open — failing closed, because storing a credential in
+  the clear owing to missing configuration is the exact outcome this rule
+  exists to prevent. Losing the key costs a re-entry of rotatable secrets
+  (BR-TP54), not loss of anything irreplaceable. It is **never**
+  published to JetStream, never written to Postgres, and never returned by
+  any read path — projections and RPC replies expose `provider`,
+  `credentialType` and `credentialsConfigured`, and nothing else. A read
+  endpoint that returns a secret is a bug in this rule, not a feature
+  request.
+  *Why not the event log:* an event-sourced log is meant to be replayed and
+  audited, and it cannot be redacted the way a row can be updated. Baking raw
+  credentials into it would be strictly worse than V2's already-bad plaintext
+  columns, because V2 can at least `UPDATE` a compromised value out of
+  existence.
+- **BR-TP53 (KV first, event second):** Nothing spans NATS KV and the event
+  log transactionally, and the two failure orders are not symmetric — the
+  same asymmetry BR-TP43 records for document bytes. Event-first leaves an
+  **immutable** log asserting a configured credential that was never stored,
+  and an event can only be compensated, never retracted. KV-first leaves at
+  worst an unreferenced secret in the bucket, which BR-TP54 makes
+  self-correcting on the next write. So the order is forced, not preferred.
+- **BR-TP54 (credentials are mutable; documents are not):** Re-configuring a
+  provider **overwrites** the KV entry in place. There is no supersede-and-
+  retain, no version history, and no "previous credential" to retrieve.
+  *This is deliberately the opposite of BR-TP43's write-once documents, and
+  the contrast is the point rather than an inconsistency.* A compliance
+  document is **evidence**: the log references a specific artifact, so
+  destroying its bytes would make the log assert something unretrievable. A
+  credential is **current state**: secrets rotate as a matter of routine
+  hygiene, nothing in the log references a payload (BR-TP52 guarantees it),
+  and retaining superseded secrets would mean keeping compromised material
+  alive for no reader. The rule of thumb this phase contributes: *store
+  evidence write-once, store state overwritable, and let what the log
+  references decide which is which.*
+- **BR-TP55 (the flag is event-sourced and gates fleet availability):**
+  Configuring a credential appends `TrackingCredentialConfigured`, carrying
+  `provider`, `credentialType` and the resulting `credentialsConfigured`
+  flag — secret-free by construction, since BR-TP52 keeps the payload out of
+  the aggregate entirely. The flag must be event-sourced rather than a bare
+  projection column precisely because it feeds a write-side decision.
+  `AvailableForAssignment` gates on the `FleetAvailabilityGate` **and** at
+  least one configured credential.
+  *Corrected during implementation (2026-08-20).* This rule said the value
+  was "extended". It was not: `AvailableForAssignment` **did not exist
+  anywhere in the codebase** — not in Go, not in the frontend — despite the
+  38a/38b implementation note describing it as a built computed read-layer
+  value. This rule therefore creates it.
+  It gates on **two** conditions, not V2's three. The missing one is
+  ownership, and its absence is a genuine gap rather than a simplification
+  chosen here: BR-TP13's `FleetAsset` carries only
+  registrationNo/vin/make/model/vehicleTypeCode — the `ownership` field the
+  design intended was never built, and adding it changes 38a's model, which
+  is not this rule's to approve. A second reduction: V2 links a credential
+  **per fleet asset**, while `FleetAsset` here has no credential link, so
+  credentials are profile-level and the honest granularity is "this
+  transporter may be assigned loads" rather than "this truck may". Both gaps
+  are recorded in the code beside the computation.
+  It remains a **computed read-layer value** — a join, never a column, and no
+  new field on the legacy `FleetAsset` domain type — preserving 38a's
+  boundary and ADR-049's "save boundaries align to the aggregate boundary"
+  finding exactly as the 38a/38b implementation note describes.
+
+- **Enforced in:** `tradingpartner/internal/domain/tracking_credential.go`
+  (BR-TP51's guards, and `TrackingCredentialSecretKey` — the key format is a
+  business rule and lives in the domain for the same reason BR-TP42's
+  `DocumentObjectName` does), `tradingpartner/internal/secrets` (BR-TP52's
+  AES-256-GCM sealing and the bucket, with `History: 1` implementing
+  BR-TP54), `tradingpartner/internal/application/commands/tracking_credential.go`
+  (BR-TP53's write order), `tradingpartner/transporterprofile/domain/profile.go`
+  (BR-TP55's event, its `Apply` case, and `State.AvailableForAssignment`),
+  `transporterprofile/orchestration/profile.go` (the sequence-guarded
+  append), and two `api.*` endpoints in `internal/browserrpc/adapter.go`.
+  *Correction:* this list previously used `transporterprofile/internal/...`
+  paths that do not exist — they were guesses written before implementation.
+  **BR-TP52 has no read endpoint anywhere**: `SecretStore` exposes `Put`
+  only to the command layer, and the api.* surface has exactly two
+  tracking-credential subjects. The absence of a third is the enforcement.
+- **Test:** `tradingpartner/tracking_credential_test.go` (6 specs — BR-TP51's
+  guards, plus a **structural** assertion that `TrackingCredential` has no
+  secret-bearing field, so adding one fails a test rather than passing
+  review), `tradingpartner/tracking_credential_order_test.go` (5 specs —
+  BR-TP53's ordering in all four outcomes, including that a payload failure
+  appends no event and that a rejected credential stores nothing at all),
+  `internal/secrets/secrets_test.go` (5 tests — sealed output never contains
+  its plaintext, sealing is non-deterministic so equal secrets are
+  indistinguishable in the bucket, tampering is rejected, a wrong-length key
+  is refused), and `transporterprofile/availability_test.go` (BR-TP55 across
+  all four gate/credential combinations, BR-TP54's overwrite-on-replay, and
+  BR-TP52 searched for in both event bytes and projected state).
+  Negative assertions throughout: a rule about what must *never* be emitted
+  is tested by absence, and the searches use `%#v` rather than named fields
+  so a leak into an unexpected field cannot slip through.
+  Verified live against the composed stack over real tenant credentials: a
+  credential configured and then rotated; a bogus provider refused; and the
+  secret hunted where it must not be — **0 plaintext hits in a full
+  `pg_dump` of the whole database, 0 in the `TRANSPORTER` JetStream log**,
+  the published event carrying only `provider`/`credentialType`, the KV
+  value opaque ciphertext under `xxd`, and **1** history revision after a
+  rotation (BR-TP54 overwrites rather than accumulating superseded
+  secrets).

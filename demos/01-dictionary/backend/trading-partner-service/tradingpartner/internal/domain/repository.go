@@ -48,3 +48,22 @@ type FleetAssetRepository interface {
 	AddFleetAsset(ctx context.Context, partnerID string, asset FleetAsset) (FleetAsset, error)
 	ListFleetAssets(ctx context.Context, partnerID string) ([]FleetAsset, error)
 }
+
+// OperatingAreaRepository is BR-TP46-BR-TP50's persistence port.
+//
+// ListOperatingAreas is not just a read for the UI: BR-TP48 needs the
+// partner's whole current set on every add to evaluate overlap, so the
+// command path calls it before every write.
+type OperatingAreaRepository interface {
+	AddOperatingArea(ctx context.Context, partnerID string, area OperatingArea) (OperatingArea, error)
+	ListOperatingAreas(ctx context.Context, partnerID string) ([]OperatingArea, error)
+	RemoveOperatingArea(ctx context.Context, partnerID string, level AreaLevel, code string) error
+}
+
+// TrackingCredentialRepository is BR-TP51/BR-TP54's persistence port. It
+// carries no payload accessor by design (BR-TP52) — the secret's only home
+// is the sealed KV bucket, reached through a separate port.
+type TrackingCredentialRepository interface {
+	UpsertTrackingCredential(ctx context.Context, partnerID string, cred TrackingCredential) error
+	ListTrackingCredentials(ctx context.Context, partnerID string) ([]TrackingCredential, error)
+}

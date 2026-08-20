@@ -777,9 +777,10 @@ shows otherwise.
 > flat message log into a trace. In the second table the **gaps matter more
 > than the coverage** — an `rpc.*` call that times out currently produces no
 > record at either end, from either side. `SERVER` rows need no service code at
-> all (Phase 43, renumbered 2026-08-17 from Phase 29 to Phase 41, then
-> 2026-08-18 to Phase 36, then 2026-08-18 again to Phase 43 when the design
-> gate deferred implementation pending further research — still not
+> all (Phase 63, renumbered 2026-08-17 from Phase 29 to Phase 41, then
+> 2026-08-18 to Phase 36, then 2026-08-18 again to Phase 43, then 2026-08-20
+> to Phase 63 when the 40–49 block was shifted to 60–69 — the design gate
+> deferred implementation pending further research and it is still not
 > started. Phase 36 has since been freed and reused for an unrelated phase.)
 > Editable source:
 > [admin-traces-panel.html](../../../../demos/01-dictionary/diagrams/admin-traces-panel.html),
@@ -1417,7 +1418,7 @@ are only unique within one.
 >   `$JS.API.INFO`, the filtered-`CONSUMER.CREATE` wildcard form,
 >   `$JS.API.DIRECT.GET`, `$JS.ACK`, and `$JS.FC.KV_trace-request-reply.>` —
 >   documented in `BUSINESS_RULES-SHIPPING.md`'s trace-store rule and this
->   plan's Phase 30i/Phase 42 notes.
+>   plan's Phase 30i/Phase 62 notes.
 > - The **design itself — cross-account vs. tenant-scoped as two different
 >   axes, snapshot-crosses/live-tail-cannot, account-tagged rows** — carried
 >   over unchanged; only *which process* answers the two endpoints changed.

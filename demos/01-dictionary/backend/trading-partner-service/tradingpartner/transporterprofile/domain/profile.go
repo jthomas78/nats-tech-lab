@@ -21,7 +21,14 @@ const (
 	RejectedEvent                 = "rejected"
 	VettingResubmittedEvent       = "vetting-resubmitted"
 	FleetAvailabilityRevokedEvent = "fleet-availability-revoked"
-	SubjectWildcard               = "evt.*." + ServiceName + "." + AggregateName + ".>"
+	// TrackingCredentialConfiguredEvent (BR-TP55) records that a telematics
+	// integration was configured. It carries the provider and credential
+	// type only — never the payload, which BR-TP52 confines to an
+	// at-rest-encrypted KV bucket. An event log is replayed and audited and
+	// cannot be redacted the way a row can be updated, so a secret written
+	// here would be permanently worse than V2's plaintext columns.
+	TrackingCredentialConfiguredEvent = "tracking-credential-configured"
+	SubjectWildcard                   = "evt.*." + ServiceName + "." + AggregateName + ".>"
 )
 
 type Status string
@@ -51,7 +58,30 @@ type State struct {
 	FleetAvailabilityGate bool                            `json:"fleetAvailabilityGate"`
 	GitVerified           bool                            `json:"gitVerified"`
 	DocumentReviews       map[string]DocumentReviewStatus `json:"documentReviews,omitempty"`
-	UpdatedAt             time.Time                       `json:"updatedAt"`
+	// TrackingCredentials maps a configured provider to its credential type
+	// (BR-TP55). Values only — never a secret (BR-TP52).
+	TrackingCredentials map[string]string `json:"trackingCredentials,omitempty"`
+	UpdatedAt           time.Time         `json:"updatedAt"`
+}
+
+// AvailableForAssignment is BR-TP55's computed fleet-availability value.
+//
+// Two conditions, not V2's three. V2's isOwner() requires ownership=OWNED
+// AND a linked tracking credential AND trackingStatus=LIVE; this returns
+// the vetting gate AND at least one configured credential.
+//
+// The missing condition is ownership, and its absence is a real gap, not a
+// simplification chosen here: BR-TP13's FleetAsset carries only
+// registrationNo/vin/make/model/vehicleTypeCode — the `ownership` field the
+// design intended was never built. Adding it is a change to 38a's model and
+// belongs to whoever approves that, not to this rule.
+//
+// Note also that credentials are profile-level here, where V2 links them
+// per-asset. FleetAsset has no credential link, so "this transporter can
+// be assigned loads" is the honest granularity; per-asset availability
+// would need that link first.
+func (s State) AvailableForAssignment() bool {
+	return s.FleetAvailabilityGate && len(s.TrackingCredentials) > 0
 }
 
 // Event is the stable envelope for TransporterProfile events. Event Type is
@@ -64,6 +94,8 @@ type Event struct {
 	AttemptNumber         int                             `json:"attemptNumber,omitempty"`
 	Step                  int                             `json:"step,omitempty"`
 	DocumentReference     string                          `json:"documentReference,omitempty"`
+	Provider              string                          `json:"provider,omitempty"`
+	CredentialType        string                          `json:"credentialType,omitempty"`
 	FleetAvailabilityGate bool                            `json:"fleetAvailabilityGate,omitempty"`
 	GitVerified           bool                            `json:"gitVerified,omitempty"`
 	DocumentReviews       map[string]DocumentReviewStatus `json:"documentReviews,omitempty"`
@@ -151,7 +183,33 @@ func (p *TransporterProfile) Apply(event Event) {
 		p.state.FleetAvailabilityGate = false
 		p.state.GitVerified = false
 		p.state.UpdatedAt = event.OccurredAt
+	case TrackingCredentialConfiguredEvent:
+		if !p.exists {
+			return
+		}
+		if p.state.TrackingCredentials == nil {
+			p.state.TrackingCredentials = map[string]string{}
+		}
+		// Overwrite, not append (BR-TP54): re-configuring a provider
+		// replaces it. Unlike a document, a credential is current state,
+		// nothing in the log references a payload, and retaining a
+		// superseded secret would keep compromised material alive for no
+		// reader.
+		p.state.TrackingCredentials[event.Provider] = event.CredentialType
+		p.state.UpdatedAt = event.OccurredAt
 	}
+}
+
+// ConfigureTrackingCredential appends BR-TP55's event. The payload is not a
+// parameter: it never reaches this aggregate, so it cannot reach the log.
+func (p *TransporterProfile) ConfigureTrackingCredential(provider, credentialType string) (Event, error) {
+	if !p.exists {
+		return Event{}, ErrNotFound
+	}
+	event := p.event(TrackingCredentialConfiguredEvent, p.state.AttemptNumber, p.state.Status)
+	event.Provider = provider
+	event.CredentialType = credentialType
+	return event, nil
 }
 
 func (p *TransporterProfile) Resubmit() (Event, error) {
@@ -270,6 +328,10 @@ var stateProjectingEvents = map[string]struct{}{
 	RejectedEvent:                 {},
 	VettingResubmittedEvent:       {},
 	FleetAvailabilityRevokedEvent: {},
+	// BR-TP55: this event does transition projected state — it is what makes
+	// AvailableForAssignment true — so unlike the document/GIT branch events
+	// it belongs in the allowlist.
+	TrackingCredentialConfiguredEvent: {},
 }
 
 // ProjectsState reports whether eventType transitions projected profile state.

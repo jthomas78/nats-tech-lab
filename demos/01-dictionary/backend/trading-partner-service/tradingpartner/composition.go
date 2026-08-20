@@ -31,6 +31,8 @@ type Handlers struct {
 	TradingPartners *commands.TradingPartnerHandler
 	Documents       *commands.ComplianceDocumentHandler
 	FleetAssets     *commands.FleetAssetHandler
+	OperatingAreas  *commands.OperatingAreaHandler
+	TrackingCreds   *commands.TrackingCredentialHandler
 	// DocumentFiles is Phase 38c-ii's byte path: it serves both the api.*
 	// ticket-minting endpoints and the HTTP ingress that spends those tickets,
 	// which is deliberate — one handler owning both halves is what keeps a
@@ -49,12 +51,16 @@ func Startup(ctx context.Context, db *sql.DB, tenantMgr *tenants.Manager) (*Hand
 	partners := postgres.NewTradingPartnerRepository(db)
 	docs := postgres.NewComplianceDocumentRepository(db)
 	fleet := postgres.NewFleetAssetRepository(db)
+	areas := postgres.NewOperatingAreaRepository(db)
+	trackingCreds := postgres.NewTrackingCredentialRepository(db)
 	audit := postgres.NewAuditLog(db)
 
 	return &Handlers{
 		TradingPartners: commands.NewTradingPartnerHandler(partners, audit),
 		Documents:       commands.NewComplianceDocumentHandler(partners, docs),
 		FleetAssets:     commands.NewFleetAssetHandler(partners, fleet, tenantMgr),
+		OperatingAreas:  commands.NewOperatingAreaHandler(partners, areas, tenantMgr, audit),
+		TrackingCreds:   commands.NewTrackingCredentialHandler(partners, trackingCreds, tenantMgr, tenantMgr),
 		DocumentFiles:   commands.NewDocumentFileHandler(docs, filetickets.NewStore(filetickets.DefaultTTL), tenantMgr),
 		audit:           audit,
 	}, nil
@@ -80,6 +86,8 @@ func (h *Handlers) MountAPI(tenantMgr *tenants.Manager, log *slog.Logger) error 
 		Documents:       h.Documents,
 		DocumentFiles:   h.DocumentFiles,
 		FleetAssets:     h.FleetAssets,
+		OperatingAreas:  h.OperatingAreas,
+		TrackingCreds:   h.TrackingCreds,
 		Audit:           h.audit,
 		Log:             log,
 	})
@@ -89,8 +97,10 @@ func (h *Handlers) MountAPI(tenantMgr *tenants.Manager, log *slog.Logger) error 
 // known tenant, discovered from credsDir, each carrying BR-TP14's
 // refdataclient plus a browserrpc micro registration. Callers should Close()
 // the returned Manager on shutdown.
-func MountTenants(ctx context.Context, natsURL, credsDir string, db *sql.DB, log *slog.Logger) (*tenants.Manager, error) {
-	mgr := tenants.NewManager(natsURL, credsDir, db, log)
+// secretKey seals BR-TP52's tracking-credential payloads. Passing nil
+// disables that feature rather than degrading it — see tenants.Manager.
+func MountTenants(ctx context.Context, natsURL, credsDir string, db *sql.DB, log *slog.Logger, secretKey []byte) (*tenants.Manager, error) {
+	mgr := tenants.NewManager(natsURL, credsDir, db, log, secretKey)
 	if err := mgr.EnsureAll(ctx); err != nil {
 		return nil, err
 	}

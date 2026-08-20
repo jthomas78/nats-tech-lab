@@ -81,6 +81,19 @@ const (
 
 	FleetAssetAddSubject  = "api.*.trading-partner.fleet-asset.add.v1"
 	FleetAssetListSubject = "api.*.trading-partner.fleet-asset.list.v1"
+
+	// Operating areas (BR-TP46-BR-TP50). Like fleet-asset add, the add
+	// endpoint takes no `tenant` field — BR-TP47's refdata lookup rides this
+	// adapter's own tenant connection.
+	// Tracking credentials (BR-TP51-BR-TP55). There is deliberately NO
+	// get/read-payload subject: BR-TP52 means no api.* endpoint can return
+	// credential material, and the absence is the enforcement.
+	TrackingCredentialConfigureSubject = "api.*.trading-partner.tracking-credential.configure.v1"
+	TrackingCredentialListSubject      = "api.*.trading-partner.tracking-credential.list.v1"
+
+	OperatingAreaAddSubject    = "api.*.trading-partner.operating-area.add.v1"
+	OperatingAreaListSubject   = "api.*.trading-partner.operating-area.list.v1"
+	OperatingAreaRemoveSubject = "api.*.trading-partner.operating-area.remove.v1"
 )
 
 // ServiceName must match the nats.Name(...) on the connection this adapter is
@@ -102,6 +115,8 @@ type Deps struct {
 	Documents       *commands.ComplianceDocumentHandler
 	DocumentFiles   *commands.DocumentFileHandler
 	FleetAssets     *commands.FleetAssetHandler
+	OperatingAreas  *commands.OperatingAreaHandler
+	TrackingCreds   *commands.TrackingCredentialHandler
 	Audit           domain.AuditReader
 	// ProfileProjection is the canonical Postgres reader used by BR-TP19.
 	// Deliberately no KV/cache interface is accepted at this boundary.
@@ -132,6 +147,8 @@ type Adapter struct {
 	documents         *commands.ComplianceDocumentHandler
 	documentFiles     *commands.DocumentFileHandler
 	fleetAssets       *commands.FleetAssetHandler
+	operatingAreas    *commands.OperatingAreaHandler
+	trackingCreds     *commands.TrackingCredentialHandler
 	audit             domain.AuditReader
 	tenant            string
 }
@@ -150,6 +167,8 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		documents:       deps.Documents,
 		documentFiles:   deps.DocumentFiles,
 		fleetAssets:     deps.FleetAssets,
+		operatingAreas:  deps.OperatingAreas,
+		trackingCreds:   deps.TrackingCreds,
 		audit:           deps.Audit,
 		tenant:          deps.Tenant,
 		profiles:        deps.ProfileCommands,
@@ -196,6 +215,11 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 
 		{"fleet-asset-add", a.handleFleetAssetAdd, FleetAssetAddSubject},
 		{"fleet-asset-list", a.handleFleetAssetList, FleetAssetListSubject},
+		{"operating-area-add", a.handleOperatingAreaAdd, OperatingAreaAddSubject},
+		{"operating-area-list", a.handleOperatingAreaList, OperatingAreaListSubject},
+		{"operating-area-remove", a.handleOperatingAreaRemove, OperatingAreaRemoveSubject},
+		{"tracking-credential-configure", a.handleTrackingCredentialConfigure, TrackingCredentialConfigureSubject},
+		{"tracking-credential-list", a.handleTrackingCredentialList, TrackingCredentialListSubject},
 	}
 	for _, ep := range endpoints {
 		if err := svc.AddEndpoint(ep.name, a.tracer.Middleware(ep.handler), micro.WithEndpointSubject(ep.subject)); err != nil {
@@ -310,6 +334,25 @@ type documentsResponse struct {
 type documentTicketResponse struct {
 	Ticket   string `json:"ticket"`
 	MaxBytes int64  `json:"maxBytes"`
+}
+
+// operatingAreaRequest carries no tenant and no countryCode. The tenant is
+// the adapter's connection (same reasoning as fleetAssetRequest); the
+// country is resolved from refdata's `country` relation (BR-D47), never
+// taken from the caller — a client-supplied parent would let a caller
+// misfile a region and defeat BR-TP48's overlap check.
+type operatingAreaRequest struct {
+	ID    string           `json:"id"`
+	Level domain.AreaLevel `json:"level"`
+	Code  string           `json:"code"`
+}
+
+type operatingAreaResponse struct {
+	OperatingArea domain.OperatingArea `json:"operatingArea"`
+}
+
+type operatingAreasResponse struct {
+	OperatingAreas []domain.OperatingArea `json:"operatingAreas"`
 }
 
 type fleetAssetResponse struct {
@@ -653,6 +696,89 @@ func (a *Adapter) handleFleetAssetList(req micro.Request) {
 	}
 	assets, err := a.fleetAssets.ListFleetAssets(context.Background(), in.ID)
 	a.reply(req, fleetAssetsResponse{FleetAssets: assets}, err)
+}
+
+// --- TrackingCredential handlers (BR-TP51-BR-TP55) ---
+
+// trackingCredentialRequest is the only place a secret crosses this
+// boundary. It arrives over the browser's authenticated per-tenant NATS
+// connection, is handed straight to the sealing store, and is never echoed:
+// the response carries the non-secret record only.
+type trackingCredentialRequest struct {
+	ID             string                `json:"id"`
+	Provider       domain.Provider       `json:"provider"`
+	CredentialType domain.CredentialType `json:"credentialType"`
+	// Payload is the credential material itself (an API key, a
+	// username/password blob). BR-TP52: it goes to the sealed KV bucket and
+	// nowhere else — not Postgres, not the event log, not any reply.
+	Payload string `json:"payload"`
+}
+
+type trackingCredentialResponse struct {
+	TrackingCredential domain.TrackingCredential `json:"trackingCredential"`
+}
+
+type trackingCredentialsResponse struct {
+	TrackingCredentials []domain.TrackingCredential `json:"trackingCredentials"`
+}
+
+func (a *Adapter) handleTrackingCredentialConfigure(req micro.Request) {
+	var in trackingCredentialRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	cred, err := a.trackingCreds.ConfigureTrackingCredential(
+		context.Background(), in.ID, a.tenant, in.Provider, in.CredentialType, []byte(in.Payload),
+	)
+	// cred carries provider/credentialType/configured only — the request's
+	// Payload is not part of it and cannot be echoed back.
+	a.reply(req, trackingCredentialResponse{TrackingCredential: cred}, err)
+}
+
+func (a *Adapter) handleTrackingCredentialList(req micro.Request) {
+	var in partnerIDRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	creds, err := a.trackingCreds.ListTrackingCredentials(context.Background(), in.ID)
+	a.reply(req, trackingCredentialsResponse{TrackingCredentials: creds}, err)
+}
+
+// --- OperatingArea handlers (BR-TP46-BR-TP50) ---
+
+func (a *Adapter) handleOperatingAreaAdd(req micro.Request) {
+	var in operatingAreaRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	// Same span propagation as fleet-asset add (BR-037): BR-TP47's refdata
+	// lookup is an outbound rpc.* call that should continue this trace.
+	ctx := natstrace.ContextWithSpan(context.Background(), natstrace.SpanFrom(req))
+	area, err := a.operatingAreas.AddOperatingArea(ctx, a.actor(req), in.ID, a.tenant, in.Level, in.Code)
+	a.reply(req, operatingAreaResponse{OperatingArea: area}, err)
+}
+
+func (a *Adapter) handleOperatingAreaList(req micro.Request) {
+	var in partnerIDRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	areas, err := a.operatingAreas.ListOperatingAreas(context.Background(), in.ID)
+	a.reply(req, operatingAreasResponse{OperatingAreas: areas}, err)
+}
+
+func (a *Adapter) handleOperatingAreaRemove(req micro.Request) {
+	var in operatingAreaRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	err := a.operatingAreas.RemoveOperatingArea(context.Background(), a.actor(req), in.ID, in.Level, in.Code)
+	a.reply(req, operatingAreaResponse{}, err)
 }
 
 // --- shared plumbing (Phase 35: shared/browserrpc) ---

@@ -276,7 +276,7 @@ or checklist detail for a specific completed phase).
 Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
 (not read into context by default — open only when you need original
 rationale or checklist detail for a specific completed phase). Phase 21's
-one open item was folded into Phase 42 below rather than left stranded in
+one open item was folded into Phase 62 below rather than left stranded in
 an archived file.
 
 - [x] Phase 20 (20a/20b DONE 2026-08-03) — JetStream Account Limits: Update,
@@ -289,7 +289,7 @@ an archived file.
       Two-Account Partitioning (PLATFORM Cross-Cutting, Tenant Data-Plane):
       `bootstrap-operator.sh` PLATFORM exports/imports + restricted
       `shipping-admin` user; `accounts/provisioner.go` claim-preservation and
-      tenant import minting. One item carried forward to Phase 42 (an
+      tenant import minting. One item carried forward to Phase 62 (an
       adversarial live-verification check — the old-style cross-context
       subject failing/timing out — never explicitly re-run, though the
       surrounding behavior has been exercised live many times since).
@@ -310,7 +310,7 @@ Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
 (not read into context by default — open only when you need original
 rationale or checklist detail for a specific completed phase). Each of
 these was at 93%+ checklist completion; their few genuinely-open items were
-not left stranded in an archived file — see Phase 42 below, which
+not left stranded in an archived file — see Phase 62 below, which
 consolidates them.
 
 - [x] Phase 23 (IMPLEMENTED 2026-08-04) — Admin UI: SSE → NATS WebSocket
@@ -318,7 +318,7 @@ consolidates them.
       streams replaced with direct browser NATS WebSocket pub/sub via a
       dedicated Admin/Platform connection (`MintAdminToken`, BR-AC18) plus
       the existing per-tenant connection; `sse.go`'s watch handlers deleted.
-      One item carried forward to Phase 42 (a specific multi-tab
+      One item carried forward to Phase 62 (a specific multi-tab
       live-verification pass never explicitly run, though since covered in
       substance by later full-stack rebuilds).
 - [x] Phase 25 (25a–25h IMPLEMENTED, 25e RESOLVED 2026-08-06) — Pricing
@@ -333,7 +333,7 @@ consolidates them.
       (registration lifecycle, compliance documents, fleet assets with
       refdata-validated `vehicleTypeCode`, append-only audit log), Admin UI
       panel, live-verified end to end. Deferred design questions (temporal
-      modeling, marketplace `notify.*`, etc.) carried forward to Phase 42
+      modeling, marketplace `notify.*`, etc.) carried forward to Phase 62
       rather than dropped.
 - [x] Phase 27 (IMPLEMENTED 2026-08-14) — Admin UI: Account Activity Panel
       (`/accstatz`): per-account connection/subscription/message-rate
@@ -673,10 +673,16 @@ Full design lives in
   submit spanning both aggregates can half-commit across two different
   conflict mechanisms, in a UI that has deliberately hidden which is which.
 - **Operating Areas**: Leaflet + OpenStreetMap, two-level (Country → Region)
-  overlay from a hand-authored GeoJSON — a reduced-depth version of V2's
-  real hierarchical/polygon model (source-verified: `GeoAreaEntity`,
-  MapLibre + vector tiles in production); region list owned as a new
-  refdata-service reference-data type (not hardcoded).
+  overlay from a hand-authored GeoJSON; region list owned as a new
+  refdata-service reference-data type (not hardcoded), seeded from V2's
+  real corpus. **Corrected 2026-08-20** — this previously read "a
+  reduced-depth version of V2's real hierarchical/polygon model." Checking
+  the running V2 database (not just the Java source) showed `geo_areas` and
+  `transporter_operating_areas` both hold **0 rows**: the polygon/GIS model
+  was built and never populated. What V2 actually runs is a flat
+  `region_entity` → `country_entity` two-level list with **48,041** live
+  assignments — so Country → Region **matches production rather than
+  reducing it**, and needs no simplification defence.
 - **Tracking Credentials — confirmed divergence from V2**: V2 stores raw
   secrets (API keys, passwords) as plaintext Postgres columns with no
   encryption anywhere (source-verified). This design uses a NATS KV bucket
@@ -705,8 +711,11 @@ Full design lives in
   `(trading_partner_id, id)` with a service-minted document ID, the same ID
   used in the Object Store object name; (7) ADR-046's "zero changes to
   `tradingpartner`" is corrected in place (both changes are additive, the
-  decision itself is unaffected). Still open: exact Operating Areas region
-  list source. Question 2 (sub-phase numbering) is settled in practice —
+  decision itself is unaffected). Open question 1 (Operating Areas region
+  list source) is **closed 2026-08-20** — sourced from the live V2 database;
+  the seed and the three data-quality calls it forces are in
+  `ARCHITECTURE-ORGANIZATIONS.md` § "Operating Areas — region seed".
+  Question 2 (sub-phase numbering) is settled in practice —
   letters stay under one phase number, subdividing with roman numerals
   (38c-i/38c-ii) when scope demands. Question 3 (where `partner-update` +
   `version` land) is closed — 38c-i; see the note below the sub-phase list.
@@ -874,17 +883,55 @@ Full design lives in
       → 403, second upload → `conflict: true`, 11 MiB → 413 leaving the
       document file-less and a 10 MiB orphan object in the bucket — BR-TP43's
       deliberate trade, observed rather than asserted.
-- [ ] **38d-ii** — Operating Areas + Tracking Credentials. Split out because
+- [x] **38d-ii** — DONE 2026-08-20 (BR-D46–BR-D48, BR-TP46–BR-TP55).
+      Operating Areas + Tracking Credentials, backend and frontend, verified
+      in-browser against the composed stack. Split out because
       **neither has any backend at all** (verified 2026-08-20: no
       `OperatingArea` persistence, no region corpus, no `organizations-secrets`
       KV command — these were never built by 38a/38b/38c-i). Each is a new
       data section needing persistence, not a frontend gap: Operating Areas
-      needs the refdata-owned Country -> Region corpus that **open question 1
-      still has not sourced**, plus the `TransporterOperatingArea(transporterId,
+      needs the refdata-owned Country -> Region corpus (**sourced 2026-08-20
+      from the live V2 database — open question 1 is closed**; 33 regions
+      across ZA/BW/NA, see `ARCHITECTURE-ORGANIZATIONS.md` § "Operating
+      Areas — region seed"), plus the `TransporterOperatingArea(transporterId,
       regionCode, level)` join and the Leaflet/GeoJSON map; Tracking
       Credentials needs the at-rest-encrypted KV bucket and a command that
-      never publishes the secret onto the event log. Splitting also stops
-      open question 1 from blocking everything else in the Transporter UI.
+      never publishes the secret onto the event log. Splitting was also what
+      stopped open question 1 from blocking the rest of the Transporter UI;
+      with it now closed, **38d-ii is unblocked** and the split stands on
+      its own scope grounds.
+
+      **Rules pass done 2026-08-20** (13 rules, two suites). Operating Areas:
+      BR-D46–BR-D48 add a refdata `region` corpus and the Country → Region
+      hierarchy; BR-TP46–BR-TP50 add assignment, corpus validation, overlap
+      rejection, and freely-editable-post-`Vetted` coverage. Tracking
+      Credentials: BR-TP51–BR-TP55 keep the secret in an at-rest-encrypted KV
+      bucket and off the event log, make credentials overwritable where
+      documents are write-once (BR-TP43), and extend
+      `AvailableForAssignment` to require configured credentials —
+      **BR-TP55 is the only rule that touches working 38b code.**
+
+      Two findings from the rules pass worth carrying into implementation:
+
+      - **No refdata schema change is needed.** The `country` type is already
+        seeded (52 items, localized `en`/`af-za`/`es`) and
+        `DictionaryReference` already models a typed item-to-item relation
+        with BR-D05's integrity guards, so Country → Region needs no new
+        column. But `dictionary_references` holds **0 rows** — BR-D47 is its
+        first production use, so treat BR-D05 as unproven against real data.
+        And only `ZA` of the three seeded countries exists; `BW`/`NA` must be
+        added by the same seed.
+      - **The map overlay is already built** —
+        `frontend/refdata/public/geo/operating-areas.geojson`, 32 features
+        (ZA 9 / BW 10 / NA 13) from geoBoundaries gbOpen ADM1, with source
+        defects corrected (Angola's `Cunene` removed from the Namibia file,
+        SA's `Nothern Cape` typo and non-ISO codes remapped,
+        `Caprivi`→`Zambezi`, `Karas`→`ǁKaras`). **Namibia ships 13 regions
+        with Kavango undivided under the retired `NA-OK` code** — the
+        post-2013 split geometry was not obtainable, V2's own corpus also
+        carries a single `Kavango Region`, and fabricating a border is worse
+        than an honest retired code; reversible later, since the corpus and
+        the GeoJSON are joined only by ISO code.
 - [ ] **38e** — `organizations` rename (service, packages, subjects, UI
       labels)
 
@@ -967,7 +1014,7 @@ complete in one pass; nothing else about it was better.
 
 ---
 
-### Phase 40 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning
+### Phase 60 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning
 
 > **Renumbered 2026-08-17** from Phase 24 to Phase 40, alongside Phase
 > 29 → Phase 41, when Phases 23/25/25i/26/27/28/30 were archived (see the
@@ -978,6 +1025,11 @@ complete in one pass; nothing else about it was better.
 > `tenant_switch_test.go`) and in this phase's own design section below;
 > renaming them would be a much larger, purely-cosmetic sweep for no
 > functional benefit. Only the containing phase number changed.
+
+> **Renumbered again 2026-08-20b** from Phase 40 to Phase 60, when the
+> whole 40–49 block was shifted to 60–69 (see the "Renumbering
+> (2026-08-20b)" log near the end of this document). The `24a`/`24b`/`24c`
+> sub-phase labels stay as-is for the same reason given above.
 
 #### Goal
 
@@ -1041,7 +1093,11 @@ Watch for the startup-ordering trap this surfaces: `shipping-service` currently 
 - [ ] 24c: `BUSINESS_RULES-ACCOUNTS.md` — rule change documenting PLATFORM-bootstrapped / tenants-runtime as the enforced split
 - [ ] 24c: Live verification — fresh `down -v && up --build` produces working `acme`/`globex` tenants with no bootstrap involvement beyond `PLATFORM`
 
-### Phase 42 — Close-Out Review: Outstanding Items Carried Forward from Archived Phases
+### Phase 62 — Close-Out Review: Outstanding Items Carried Forward from Archived Phases
+
+> **Renumbered 2026-08-20b** from Phase 42 to Phase 62, when the whole
+> 40–49 block was shifted to 60–69 (see the "Renumbering (2026-08-20b)" log
+> near the end of this document).
 
 #### Goal
 
@@ -1094,7 +1150,7 @@ already scoped.
 
 ---
 
-### Phase 43 (following on from Phase 29, then Phase 41, then Phase 36; DEFERRED 2026-08-18 — design approved, implementation on hold) — NATS 2.11 Server-Hop Tracing ("Trace this subject")
+### Phase 63 (following on from Phase 29, then Phase 41, then Phase 36, then Phase 43; DEFERRED 2026-08-18 — design approved, implementation on hold) — NATS 2.11 Server-Hop Tracing ("Trace this subject")
 
 > **Renumbered 2026-08-17** from Phase 29 to Phase 41, alongside Phase
 > 24 → Phase 40, when Phases 23/25/25i/26/27/28/30 were archived (see the
@@ -1116,6 +1172,13 @@ already scoped.
 > Phase 107 (candidate, "Re-fire a Captured Trace") still names this phase
 > by its old number in its own heading — see that phase's entry for the
 > cross-reference note.
+
+> **Renumbered a fourth time, 2026-08-20b** from Phase 43 to **Phase 63**,
+> when the whole 40–49 block was shifted to 60–69 (see the "Renumbering
+> (2026-08-20b)" log near the end of this document). Status is unchanged
+> (DEFERRED, design approved). The `phase43-*.png` diagram filenames under
+> `images/` keep their old number — renaming assets and their references
+> would be purely cosmetic.
 
 > **Status: DEFERRED, design approved.** The spike below fully validated a
 > design (see "Spike findings" and "Design decisions"), and BR-042 in
@@ -1343,7 +1406,15 @@ rationale or checklist detail).
 
 ---
 
-### Phase 47 (APPROVED 2026-08-20 — design approved, implementation on hold) — Cross-Tenant Pub/Sub Observability ("Wire Tap") in the Admin UI
+### Phase 67 (APPROVED 2026-08-20 — design approved, implementation on hold) — Cross-Tenant Pub/Sub Observability ("Wire Tap") in the Admin UI
+
+> **Renumbered 2026-08-20b** from Phase 47 to Phase 67, when the whole
+> 40–49 block was shifted to 60–69 (see the "Renumbering (2026-08-20b)" log
+> near the end of this document). Sub-phase labels **were** relettered here
+> (`47a`/`47b`/`47c` → `67a`/`67b`/`67c`), unlike Phase 60’s `24a`–`24c`:
+> nothing is implemented yet, so the only references were the PROPOSED
+> BR-045–048/BR-D45/BR-AC34 entries and their pending/skipped test stubs,
+> all swept in the same pass.
 
 #### Goal
 
@@ -1395,13 +1466,13 @@ Full ADR lives in
 
 #### Sub-phases
 
-- [ ] **47a** — `natstrace` (or equivalent) publish-side hook at
+- [ ] **67a** — `natstrace` (or equivalent) publish-side hook at
       `evt.*`/`notify.*` call sites; `obs.pubsub.*` envelope; BR-AC30-style
       narrow per-tenant export/import
-- [ ] **47b** — `observability-service`: sibling consumer to `tracestore`
+- [ ] **67b** — `observability-service`: sibling consumer to `tracestore`
       for `obs.pubsub.>`, bounded retention (`tracestore`/`TRACES`-stream
       convention)
-- [ ] **47c** — Admin UI: new "Messages" panel, `evt`/`notify` family
+- [ ] **67c** — Admin UI: new "Messages" panel, `evt`/`notify` family
       filter, reusing `SubjectPath.vue`/account-swimlane conventions
 
 **Design approved 2026-08-20 — implementation explicitly on hold at the
@@ -1673,15 +1744,21 @@ The consequence is that a context registered with a parent looks correct in the 
 ### Phase 107 (candidate, deferred from Phase 36's design gate, 2026-08-18) — Re-fire a Captured Trace with Server-Hop Tracing
 
 > **Note (2026-08-18b):** Phase 36 was itself renumbered to **Phase 43** the
-> same day, after this phase's heading was written (see Phase 43's entry and
-> the "Renumbering (2026-08-18b)" log). References to "Phase 36" below mean
-> Phase 43. Phase 43 is also now DEFERRED — this phase remains a candidate
-> either way, since it was never scheduled ahead of Phase 43's own
-> implementation.
+> same day, after this phase’s heading was written (see that phase’s entry
+> and the "Renumbering (2026-08-18b)" log). References to "Phase 36" below
+> mean that same phase.
+
+> **Note (2026-08-20b):** that phase was renumbered again from Phase 43 to
+> **Phase 63** when the 40–49 block was shifted to 60–69 (see the
+> "Renumbering (2026-08-20b)" log near the end of this document). It is
+> also DEFERRED — this phase remains a candidate either way, since it was
+> never scheduled ahead of Phase 63’s own implementation. The heading above
+> still names Phase 36 as the design gate this was deferred from; that is
+> the historically accurate number at the time and is left as-is.
 
 #### Goal
 
-Phase 43 ships the ad-hoc shape of "Trace this subject": pick any subject
+Phase 63 ships the ad-hoc shape of "Trace this subject": pick any subject
 cold and see the physical hop path it would take. This phase adds the
 complementary shape — select an *already-captured* trace row in the Phase 28
 waterfall and re-fire a copy of its real payload with `Nats-Trace-Dest`/
@@ -1698,25 +1775,25 @@ take?" rather than "what path would a call to this subject take?"
       instead of starting a new row
 - [ ] Decide whether `Nats-Trace-Only` can ever be turned off for a re-fire
       (i.e. an intentional real replay, not just a dry-run) — out of scope
-      for Phase 43's ad-hoc probe, which has no captured payload to safely
+      for Phase 63's ad-hoc probe, which has no captured payload to safely
       replay in the first place
-- [ ] Same REST-route/allowlist/business-rule treatment as Phase 43, as an
+- [ ] Same REST-route/allowlist/business-rule treatment as Phase 63, as an
       addition to the route it introduces rather than a new one
 
 ---
 
-### Phase 108 (candidate, deferred from Phase 47's design gate, 2026-08-20) — Live Account Activity Panel via `$SYS` Account-Monitoring Exports
+### Phase 108 (candidate, deferred from Phase 67's design gate, 2026-08-20) — Live Account Activity Panel via `$SYS` Account-Monitoring Exports
 
 #### Goal
 
-Phase 47 (ADR-047,
+Phase 67 (ADR-047,
 [ARCHITECTURE-OBSERVABILITY.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-OBSERVABILITY.md))
 deliberately deferred Option B out of its own scope: importing the
 `SYS` account's already-present, currently-unused
 `account-monitoring-streams`/`account-monitoring-services` exports
 (`$SYS.ACCOUNT.*.>` / `$SYS.REQ.ACCOUNT.*.*`) to give the Admin UI a live,
 cross-account connection/subscription/rate feed — complementary to Phase
-47's payload-level Messages panel, not a replacement for it (this stays
+67's payload-level Messages panel, not a replacement for it (this stays
 metadata-only, no message content). Confirmed as a real follow-on, not
 just a maybe.
 
@@ -1728,7 +1805,7 @@ just a maybe.
 - **Confirmed requirement: the UI needs an account filter.** `$SYS.ACCOUNT.*.>`
   fires for every account at once, so a live feed with no way to narrow to
   one (or a small set of) accounts would read as an undifferentiated
-  cross-tenant firehose — the same reasoning behind Phase 47's `evt`/
+  cross-tenant firehose — the same reasoning behind Phase 67's `evt`/
   `notify` family filter, applied here to account instead of subject
   family.
 - Relationship to the existing (poll-only) Account Activity panel
@@ -2165,6 +2242,80 @@ Cross-reference sweep (same commit):
       files were renamed, never the ADR filenames/numbers/cross-links to
       them).
 - [x] `.claude/memory/` — no "Phase 46" or "46a"–"46e" references found.
+
+---
+
+## Renumbering (2026-08-20b — Phases 40–49 → 60–69, free the 40s block)
+
+**Why:** the user asked to move every plan in the 40–49 block up to 60–69
+respectively, freeing the 40s for future work. Six sections carried numbers
+in that block; only the four still-open ones were moved. **Phases 44 and 45
+were deliberately left at their numbers** — both are complete, their full
+detail is a frozen snapshot in `Main-POC-Plan-ARCHIVE.md` (which this repo's
+conventions say is never edited, phase numbers included), and their numbers
+are baked into ~25 shipped-code comments and business rules describing work
+that has already landed (`PulsePanel.vue`, `AccountsOverviewPanel.vue`,
+BR-042/BR-043/BR-044, `ARCHITECTURE-ADMIN.md` §§ 4.3/4.5). Renumbering them
+would have desynced the live stubs from the archive to relabel history.
+Phases 41, 46, 48, and 49 were already free — 41 and 46 survive only inside
+the frozen renumbering tables above, which record past events and are not
+live references.
+
+Sections were renumbered in place; they already sat in ascending order and
+no section needed physically moving. Statuses are unchanged — this is a
+rename only, not an approval or a deferral.
+
+| Was | Now |
+|---|---|
+| Phase 40 (24a DONE; 24b/24c not started) — Credential Lifecycle Hardening | **Phase 60** |
+| Phase 42 — Close-Out Review: Outstanding Items Carried Forward | **Phase 62** |
+| Phase 43 (DEFERRED, design approved) — NATS 2.11 Server-Hop Tracing | **Phase 63** |
+| Phase 47 (APPROVED, implementation on hold) — Cross-Tenant Pub/Sub Observability | **Phase 67** |
+| *(not moved)* Phase 44 — Request/Reply `Pulse` Tab (COMPLETE, archived) | Phase 44 |
+| *(not moved)* Phase 45 — Accounts Overview (COMPLETE, archived) | Phase 45 |
+
+Sub-phase labels: **`47a`/`47b`/`47c` were relettered to `67a`/`67b`/`67c`**,
+which is the opposite of the call made for Phase 60's `24a`–`24c`. The
+reasoning differs because the facts do: Phase 67 has no implementation, so
+its only references were the PROPOSED BR entries and the pending/skipped test
+stubs that name them — a small, safe sweep — whereas `24a`–`24c` label
+shipped test code.
+
+Cross-reference sweep (same commit):
+
+- [x] Main plan internal references — live cross-references to Phases 42/43/47
+      updated (the archived-phase stubs' "carried forward to Phase 42" lines,
+      Phase 107's body, Phase 108's heading and body). The renumbering tables
+      above, and the historical `> **Renumbered ...**` notes inside the moved
+      sections themselves, are left untouched on purpose — frozen snapshots
+      of past events, same reasoning as every prior entry in this log. A new
+      note was appended to each moved section instead.
+- [x] `demos/01-dictionary/BUSINESS_RULES-SHIPPING.md` — BR-042 "(Phase 43…)"
+      → Phase 63; BR-045–048 "(Phase 47a/b/c…)" → 67a/67b/67c.
+- [x] `demos/01-dictionary/BUSINESS_RULES-REFDATA.md` — BR-D45 → Phase 67a.
+- [x] `demos/01-dictionary/BUSINESS_RULES-ACCOUNTS.md` — BR-AC34 → Phase 67a.
+- [x] `demos/01-dictionary/BUSINESS_RULES.md` — index lines for BR-045–048,
+      BR-D45, BR-AC34 → Phase 67/67a.
+- [x] `obsidian/.../ARCHITECTURE-ADMIN.md` § 4.4 and
+      `ARCHITECTURE-COMMUNICATIONS.md` § 6 — server-hop-tracing lineage notes
+      extended with the 43 → 63 hop; `ARCHITECTURE-COMMUNICATIONS.md`'s
+      "Phase 30i/Phase 42 notes" → Phase 62;
+      `ARCHITECTURE-ORGANIZATIONS.md`'s "Phase 42 close-out list" → Phase 62;
+      `ARCHITECTURE-OBSERVABILITY.md`'s "Phase 47" link → Phase 67.
+- [x] Pending/skipped test stubs naming Phase 47a/47b/47c — swept to
+      67a/67b/67c (`pubsub_observability_test.go` ×3, `pubsub_export_test.go`,
+      `MessagesPanel.spec.js`). No non-pending code was touched.
+- [x] `.claude/memory/` — `phase43_nats_hop_tracing_renumbered.md` renamed to
+      `phase63_nats_hop_tracing_renumbered.md` (slug and body updated to cite
+      Phase 63, prior numbers kept as history), and `MEMORY.md`'s index line
+      updated; `phase36_tech_lab_operator_rebrand.md`'s "now live at Phase 43"
+      → Phase 63.
+- [x] `images/phase43-*.png` diagram filenames left unrenamed — asset renames
+      plus their in-doc references would be purely cosmetic. Noted in
+      Phase 63's own entry.
+- [x] Historical/archived docs left untouched on purpose:
+      `Main-POC-Plan-ARCHIVE.md`, the prior renumbering tables above,
+      `Dictionary-Service-Plan.md`, `.ai-archive/*`.
 
 ---
 

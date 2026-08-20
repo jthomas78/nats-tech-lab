@@ -19,6 +19,13 @@ const (
 	// registered company details, and when, is exactly the kind of question
 	// BR-TP06's trail exists to answer.
 	AuditActionDetailsUpdated = "details-updated"
+
+	// AuditActionOperatingAreaAdded/Removed — BR-TP50 (38d-ii). Operating
+	// areas are freely editable at any lifecycle state, including Vetted,
+	// precisely because no vetting branch reads them — so the audit trail is
+	// the only record that coverage changed, and who changed it.
+	AuditActionOperatingAreaAdded   = "operating-area-added"
+	AuditActionOperatingAreaRemoved = "operating-area-removed"
 )
 
 const (

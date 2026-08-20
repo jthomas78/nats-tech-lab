@@ -44,16 +44,21 @@ Split by domain so a rule add/edit only requires reading its own file:
   Phase 45; see also BR-043/BR-044 for that phase's history/search rules),
   and
   `dictionary/internal/natstrace/` + `frontend/admin/src/components/
-  TraceWaterfall.vue` (BR-035–037). BR-045–048 (Phase 47, PROPOSED — design
+  TraceWaterfall.vue` (BR-035–037). BR-045–048 (Phase 67, PROPOSED — design
   approved, implementation on hold) add a sibling `obs.pubsub.*` channel for
   `evt.*`/`notify.*` fire-and-forget traffic, complementing `obs.trace.*`'s
   request/reply coverage; see
   [ARCHITECTURE-OBSERVABILITY.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-OBSERVABILITY.md)
   (ADR-047) for the full design.
 - **[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)** — Reference Data
-  Service (BR-D01–BR-D45, BR-D39 being the Phase 28 `obs.trace.*` mirror of
-  BR-036 and BR-D45 (Phase 47a, PROPOSED) pointing this service's `evt.*`
-  publish site at the new `obs.pubsub.*` hook, BR-045). Rules live in
+  Service (BR-D01–BR-D48, BR-D39 being the Phase 28 `obs.trace.*` mirror of
+  BR-036 and BR-D45 (Phase 67a, PROPOSED) pointing this service's `evt.*`
+  publish site at the new `obs.pubsub.*` hook, BR-045). BR-D46–BR-D48
+  (Phase 38d-ii) add the `region` corpus and the Country → Region hierarchy
+  behind Operating Areas — expressed entirely in the existing
+  `DictionaryReference` mechanism with **no schema change**, and forbidding
+  V2's duplicate-row-per-language anti-pattern in favour of localizations
+  (consumed by BR-TP46–BR-TP50 in the TRADING-PARTNER file). Rules live in
   `backend/refdata-service/refdata/internal/domain/dictionary.go`.
 - **[BUSINESS_RULES-ACCOUNTS.md](BUSINESS_RULES-ACCOUNTS.md)** — Accounts
   Service (BR-AC01–BR-AC32): NATS account provisioning, suspension,
@@ -78,7 +83,7 @@ Split by domain so a rule add/edit only requires reading its own file:
   BR-AC32 (Phase 30b) adds six narrow, explicit `$JS.API` service exports
   (imported by PLATFORM with a `monitor.{tenant}.js.>` local remap) for
   read-oriented JetStream/KV introspection, deliberately excluding stream
-  management subjects. BR-AC34 (Phase 47a, PROPOSED — design approved,
+  management subjects. BR-AC34 (Phase 67a, PROPOSED — design approved,
   implementation on hold) mirrors BR-AC30 for a second Stream export,
   `obs.pubsub.>`, needing no local remap for the same reason `obs.trace.>`
   doesn't.
@@ -141,7 +146,15 @@ Split by domain so a rule add/edit only requires reading its own file:
   fleet assets (with refdata-validated `vehicleTypeCode`, requiring
   `trading-partner-service` to hold a tenant-scoped `rpc.*` client per
   BR-D28) get their own BR-TP numbers once Phase 26's later sub-phases
-  start. Rules will live in
+  start. BR-TP18–BR-TP45 (Phase 38a–38c-ii) add the event-sourced
+  `TransporterProfile` aggregate, its Temporal vetting saga, editable Company
+  Information, and Object Store-backed document files. BR-TP46–BR-TP55
+  (Phase 38d-ii) add operating areas (BR-TP46–BR-TP50 — Country/Region
+  assignment over BR-D46–BR-D48's corpus, overlap rejection, and freely
+  editable post-`Vetted` coverage) and tracking credentials (BR-TP51–BR-TP55
+  — the secret lives only in an at-rest-encrypted KV bucket and never on the
+  event log, credentials overwrite where documents are write-once, and the
+  configured flag extends `AvailableForAssignment`). Rules will live in
   `trading-partner-service/tradingpartner/internal/domain/`.
 
 When CLAUDE.md's Quality Rule #4 says "update `BUSINESS_RULES.md`," it means:

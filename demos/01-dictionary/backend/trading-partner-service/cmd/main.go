@@ -10,6 +10,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -56,7 +57,7 @@ func run(log *slog.Logger) error {
 	// One NATS connection per known tenant, carrying BR-TP14's refdata
 	// validation client and (Phase 26g) a micro-service registration for $SRV
 	// discovery. The Admin UI still reads/writes over REST below.
-	tenantMgr, err := tradingpartner.MountTenants(ctx, natsURL, credsDir, db, log)
+	tenantMgr, err := tradingpartner.MountTenants(ctx, natsURL, credsDir, db, log, trackingSecretKey(log))
 	if err != nil {
 		return err
 	}
@@ -121,4 +122,26 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// trackingSecretKey loads BR-TP52's 32-byte sealing key from
+// ORGANIZATIONS_SECRETS_KEY, hex-encoded.
+//
+// An absent key disables tracking credentials rather than storing them
+// unsealed — the rule exists precisely to stop a missing config turning into
+// a plaintext secret. A present-but-malformed key is louder still: it is a
+// deployment that *intended* to seal and would silently not, so the service
+// refuses to start rather than run degraded in a way nobody would notice.
+func trackingSecretKey(log *slog.Logger) []byte {
+	raw := os.Getenv("ORGANIZATIONS_SECRETS_KEY")
+	if raw == "" {
+		log.Warn("trading-partner-service: ORGANIZATIONS_SECRETS_KEY unset — tracking credentials disabled (BR-TP52)")
+		return nil
+	}
+	key, err := hex.DecodeString(raw)
+	if err != nil || len(key) != 32 {
+		log.Error("trading-partner-service: ORGANIZATIONS_SECRETS_KEY must be 64 hex characters (32 bytes)")
+		os.Exit(1)
+	}
+	return key
 }

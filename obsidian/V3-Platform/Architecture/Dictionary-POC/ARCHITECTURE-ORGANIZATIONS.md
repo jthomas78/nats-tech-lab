@@ -147,7 +147,7 @@ screen. **Out of scope for this phase:** Customers (V2's sibling screen —
 explicitly deferred, "might do thereafter" per the requesting conversation),
 Members (blocked on auth/user-registration work that doesn't exist yet), and
 any real marketplace/tender consumer of transporter status (still the
-deferred item named in the Phase 42 close-out list).
+deferred item named in the Phase 62 close-out list).
 
 ![System architecture of trading-partner-service after Phase 38: the existing TradingPartner aggregate keeps its plain-CRUD lifecycle unchanged aside from a new partner-update command and a widened compliance_documents primary key, while a new event-sourced TransporterProfile sibling package, a new Temporal server orchestrating the vetting saga and a GIT-expiry cron workflow, and a new NATS Object Store bucket for document bytes are added inside the same service container.](images/phase38-organizations-architecture.png)
 
@@ -181,6 +181,30 @@ V2 needs re-checking later:
 
 Every "V2 real shape" note in the sections below traces back to this
 source, read directly (not inferred from the UI screenshots).
+
+### V2 database verification (2026-08-20)
+
+The entity map above was read from **Java source only**. On 2026-08-20 the
+V2 stack was started locally and the same concepts were checked against the
+**running `linebooker_v2` MySQL instance** (`localhost:3307`) — schema *and*
+row counts. This matters because a JPA entity proves a table exists, not
+that anything uses it, and the two diverge sharply in one place:
+
+| Concept | Schema present | Rows | Note |
+|---|---|---|---|
+| `geo_areas` (`GeoAreaEntity`) | yes — `multipolygon` SRID 4326, spatial indexes, `parent_id` hierarchy | **0** | Built, never populated |
+| `transporter_operating_areas` | yes — denormalized `level` + `country_code` | **0** | Built, never populated |
+| `region_entity` | flat `(id, name, country_id)` | 217 | **The live model** |
+| `country_entity` | flat `(id, name)` | 57 | **The live model** |
+| `transporter_profile_entity_region` | plain M:N join, no level/geometry | **48,041** | **The live model** |
+| `town_entity` | — | 1,373 | Not wired into operating areas |
+| `tracking_credentials_entity` | base row | 94 | Secret column empty on all 94 |
+| per-provider credential satellites | 20 tables | 15 populated | Plaintext `varchar`, no encryption — confirmed |
+
+**Standing lesson:** where this doc says "V2's real shape," it means the
+shape in the *source*. For anything where the POC design is justified as a
+simplification *of what V2 runs*, check the row counts too — the Operating
+Areas row below was wrong precisely because it didn't.
 
 ## Current state (Phase 26, unaffected by this phase)
 
@@ -581,11 +605,101 @@ deliberately dropped or changed.
 | **Company Information** | `BusinessEntity`: name, companyName, tradingSince (string), registrationNo, vatRegistrationNo, vatNumber, vatRegistered, vatRate/businessType/referralSource enums, message. `TransporterProfileEntity`: contactNo, contactPerson, addresses (typed `PHYSICAL`/`BILLING`). Plus a derived `acumaticaAccountCode` from an external accounting-linker integration (not a real column). | **Lives on `TradingPartner`** (existing, Phase 26, shared with Shipper — not duplicated, per the "Decision" above): name, companyName, registrationNo, vatRegistrationNo. `TransporterProfile` adds only what's genuinely Transporter-specific here: vatRegistered, contactPerson, contactNo/email, physical + billing addresses (typed, matching V2). **Dropped:** tradingSince, vatRate/businessType/referralSource (tax/marketing metadata orthogonal to the saga/event-sourcing question this POC tests), acumaticaAccountCode (external accounting integration, no analog here). |
 | **Tracking Credentials** | Base `TrackingCredentialsEntity` (providerName, `trackingProvider` enum of 35 vendors) + **one satellite table per provider** storing the actual secret as **plain columns** — e.g. `CarTrackTrackingCredentialsEntity.apiKey`, `WebfleetTrackingCredentialsEntity.password` — confirmed **no encryption anywhere** in the codebase (no `@Convert`/`AttributeConverter` found). `credentialType` enum: `API_KEY`\|`USERNAME_PASSWORD`\|`METADATA_ONLY`. | One `TrackingCredential` child record: `provider` (enum, small representative POC list), `credentialType` (same 3-value enum as V2 — a genuinely useful part to keep), and a `credentialsConfigured bool`. **Confirmed divergence from V2**: the actual secret payload is written to a NATS KV bucket (`organizations-secrets`, at-rest encryption enabled) keyed `{context}.transporter.{id}.trackingcreds`, via a command that never publishes the secret onto the JetStream event stream — an event-sourced aggregate's log is meant to be replayed/audited, so baking raw credentials into it would be *worse* than V2's already-bad plaintext-column approach, since an event log can't easily redact history the way a row can be updated. |
 | **Fleet** | `FleetAssetEntity`: type (`TRAILER`\|`HORSE`\|`RIGID`\|...), trailerType, registrationNo, vinNo, make, model, year, ownership (`OWNED`\|`SUBCONTRACTED`), status, trackingStatus, trackingCredentialsEntity link. Notable: `isOwner()` requires ownership=`OWNED` **and** a linked tracking credential **and** trackingStatus=`LIVE`, all three at once. | registrationNo (globally unique), VIN, make, model, vehicleTypeCode (validated live against refdata-service, BR-TP14), ownership (`OWNED`\|`SUBCONTRACTED`, kept — it's cheap and directly informs the saga), `availableForAssignment bool`. **Design call, inspired by V2's `isOwner()`:** `availableForAssignment` is computed the same multi-condition way — true only when ownership is resolved, tracking credentials are configured, *and* the saga's activation gate has passed — not a single hand-set flag. |
-| **Operating Areas** | Real polygon/GIS model: `GeoAreaEntity` (hierarchical `COUNTRY`\|`REGION`\|`MUNICIPALITY`\|`CUSTOM` levels, actual polygon geometry via JTS), joined via `TransporterOperatingAreaEntity` (denormalizes level + countryCode "for query performance" — V2's own code comment). Frontend renders **MapLibre GL** + self-hosted vector tiles (not Google Maps, not a flat list) — `LinebookerTownRegion.xlsx` is confirmed **not wired into any code**, a stale reference file. | Keep the already-chosen **Leaflet + OpenStreetMap** (no reason to add a vector-tile pipeline for a POC) but adopt V2's **hierarchy concept** at reduced depth: Country → Region only (skip Municipality/Custom polygon drawing), rendered from a small hand-authored GeoJSON (e.g. SA provinces) rather than real vector tiles. Join row mirrors V2's own denormalization: `TransporterOperatingArea(transporterId, regionCode, level)`, level denormalized for query perf — independent validation that V2's design choice was reasonable. Region list still owned by refdata-service (unchanged design call), now informed by V2's real `AreaLevelType` taxonomy rather than invented from scratch. |
+| **Operating Areas** | **Two models; only one is real** (corrected 2026-08-20 — see "V2 database verification" above). The `GeoAreaEntity` polygon/GIS model (hierarchical `COUNTRY`\|`REGION`\|`MUNICIPALITY`\|`CUSTOM` levels, JTS polygon geometry, joined via `TransporterOperatingAreaEntity` which denormalizes level + countryCode "for query performance" — V2's own code comment) exists in the schema and holds **zero rows**, as does its join table; the MapLibre GL + vector-tile frontend renders a model with no data in it. What V2 **actually runs** is a flat two-level list: `region_entity(id, name, country_id)` → `country_entity(id, name)`, joined many-to-many via `transporter_profile_entity_region` — **48,041 live assignments** over 217 regions and 57 countries, with no geometry, no level column and no depth below Region. `LinebookerTownRegion.xlsx` confirmed not wired into any code; `town_entity`'s 1,373 rows aren't wired into operating areas either. | **Country → Region matches what V2 runs — it is not a reduction of it.** This row previously called the two-level design "a reduced-depth version of V2's real hierarchical/polygon model"; the row counts disprove that, and the POC design needs no simplification defence. Keep **Leaflet + OpenStreetMap** over a small hand-authored GeoJSON. Join row stays `TransporterOperatingArea(transporterId, regionCode, level)` — `level` is kept even though V2's *live* join has no such column, because V2's flat list demonstrably needs one (Botswana's regions mix districts with cities, and a country-name catch-all row absorbs "nationwide" transporters; see "Operating Areas — region seed" below). Region list owned by refdata-service, **seeded from V2's real corpus** rather than invented. **One deliberate improvement on V2:** V2 has no locale dimension on region or country, so translations became *duplicate rows* — `Wes-Kaap`/`Vrystaat`/`IGauteng` sit beside `Western Cape`/`Free State`/`Gauteng` with their own ids and their own assignments, and South Africa has 11+ country rows (`Suid-Afrika`, `Sudáfrica`, `Afrique du Sud`, `ZA`, …). refdata-service already resolves locale as its own dimension, so the seed collapses these into canonical rows with locale-keyed labels. |
 | **GIT Certificate** | **Confirmed derived, not stored:** `TransporterProfileEntity.gitStatus`'s getter ignores its own column and instead computes the "worst" status across the transporter's `GOODS_IN_TRANSIT`-typed documents (enum `GitStatusType`: `PENDING`\|`ACTIVE`\|`EXPIRED`\|`REJECTED`\|`NONE` — **5 values**, one more than the screenshot's visible 4). `gitCoverage` **is** a real stored `Long` directly on the profile — separate from any one document's own coverage field. Admin override: `hideGitRequiredForAllocation`. | No new fields beyond one addition below — reuses the existing `ComplianceDocument` type `GOODS_IN_TRANSIT`. `GitStatus` is **derived** exactly as V2 does it (worst-of-documents, same 5-value enum — corrected from this doc's earlier 4-value assumption); `GitCoverage` is a separate stored field on the `TransporterProfile` aggregate root, not per-document. `hideGitRequiredForAllocation` carried into Admin Settings below, since it directly gates this phase's saga. **Requires a `tradingpartner` schema change** ([ADR-048](ADR-048-document-storage-nats-object-store.md) finding 2c, resolved in "Document storage" below): `compliance_documents`' PK `(trading_partner_id, type)` allows only one `GOODS_IN_TRANSIT` document at a time, which cannot represent a renewal existing alongside an expiring certificate — the true worst-of-documents case this row's own V2 fidelity requires. The PK gains a service-minted document ID; superseding a document becomes an explicit transition, not a silent upsert. Also **maintained, not just checked once at activation**, via the Temporal cron workflow in "Cross-aggregate invariant / saga" below — `EXPIRED` arrives from the passage of time alone, with no event to hang a one-time guard on. |
 | **Documents** | `TransporterDocumentEntity` → `DocumentEntity` (contentType, documentName, storedFileName, documentLocation, documentSize, uploadDate). Blobs stored in **Google Cloud Storage** (`GoogleCloudStorageServiceImpl`) — not Firebase (the Firebase Admin SDK config present in the repo isn't consumed by document upload anywhere found), not S3. | Metadata field names aligned to V2's for closer fidelity (documentName, contentType, documentSize, uploadDate). **Storage backend intentionally differs from V2**: NATS Object Store, not GCS — this is a NATS-pattern evaluation lab, not a GCS-integration exercise; the decision in "Document storage" below stands unchanged. |
 | **Rate Sheets** | `RateSheetEntity` is owned by `CustomerProfileEntity`, not Transporter; per-lane entries (`RateSheetVersionEntryEntity`) reference a `customerRouteEntity` (the lane), `vehicleTypeEntities`, a diesel-escalation sub-model, and a `FeeScaleEntity` link. **From the Transporter's side, V2's UI is read-only** — transporters view rates customers set for them; they don't author their own flat rate table. | **Resolved: stub/placeholder tab only for this phase.** The earlier "structured data capture, Transporter-owned" answer assumed a shape V2 doesn't actually have — a faithful version needs Customer + Route, both out of scope here. This phase adds the UI tab (empty state, "available once Customer/Route exist") but no persistence or domain model — matching V2's real ownership rather than building a Transporter-owned table that has no analog in the system being replicated. Revisit with real fidelity if/when a Customer phase lands. |
 | **Admin Settings** | `businessVisibility` enum + specific-customer visibility list; Load Access flags (`biddingAllowed`/`allocatedAllowed`/`allocatedBiddingAllowed`, feature-flagged tender variants); `hideGitRequiredForAllocation`; `underProbation`; `businessCommentEntities` — an append-only, timestamped, per-user comment log (not a single notes field). | marketplace-visibility toggle (matches V2's `businessVisibility`), Load Access flags carried as **informational/no-op fields for now** (mirrors BR-TP04's existing "no enforcement consumer yet" pattern — the future marketplace/tender consumer is still the same deferred item), `hideGitRequiredForAllocation` (real gate on this phase's saga). **Notes: reuse the existing `audit_events` table/pattern from Phase 26** instead of a new free-text notes field — V2's own comment log is structurally the same "timestamped per-actor entry," and this repo already has that pattern built. **Dropped:** "preferred payment terms" (this doc's earlier guess — not found anywhere in V2). |
+
+## Operating Areas — region seed
+
+Sourced 2026-08-20 from the live `linebooker_v2` database, not invented.
+Closes open question 1.
+
+### Scope: South Africa, Botswana, Namibia
+
+V2's corpus spans 42 countries with regions, but usage is concentrated: SA
+(2,886 transporters), Namibia (601), Botswana (722), Zimbabwe (669), Zambia
+(615), Mozambique (546), Lesotho (582), Eswatini (410) — the SADC road
+corridor — then a long tail of single-digit rows (`Norway` 2, `Bangladesh`
+2, `Croatia` 0).
+
+Seeding **SA + Botswana + Namibia** (33 regions) is the recommendation. It
+is enough to exercise the Country → Region hierarchy, a country switcher,
+and cross-border operating areas, while keeping hand-authored GeoJSON to
+three countries. Each additional country is mostly GeoJSON labour with no
+new design content. The other SADC countries are a later seed-data task,
+not a design change.
+
+### Three data-quality decisions the real corpus forces
+
+V2's flat list has no constraints protecting any of these, which is the
+most useful thing the corpus tells us:
+
+1. **Locale duplicates collapse.** Translations exist as separate region
+   rows with their own assignments — SA's 9 provinces appear as 17 rows
+   (`Wes-Kaap` 1,823, `Noord-Kaap` 1,783, `Noordwes` 1,777, `Vrystaat`
+   1,775, `IFleyistata` 915, `KwaXhosa` 799, `IGauteng` 557,
+   `IKipi laseNyakatho` 553); Namibia repeats `Erongo`/`Erongo Region`,
+   `Khomas`/`Khomas Region`, `Hardap`/`Hardap Region`,
+   `Oshikoto`/`Oshikoto Region`, `Otjozondjupa`/`Otjozondjoepa`. Seed
+   canonical rows keyed by code, with locale-keyed labels via
+   refdata-service's existing locale dimension.
+2. **"Nationwide" is a level, not a region.** Botswana and Namibia each
+   have a region row named after the country itself — `Botswana` (708
+   transporters) and `Namibia` (596), the highest counts in each country —
+   used to mean "operates nationwide." Do **not** seed these as regions.
+   Represent them as a `level = COUNTRY` assignment, which the
+   `TransporterOperatingArea.level` column already supports. This is the
+   clearest justification for keeping `level`: without it the concept has
+   nowhere to live except a fake region, which is exactly what V2 did.
+3. **Levels must not mix in one list.** Botswana's rows interleave
+   districts with cities and towns (`Gaborone City` 208, `Francistown
+   City` 173, `Lobatse Town` 66, `Jwaneng Town` 23, `Selibe Phikwe Town`
+   3) plus Setswana duplicates (`Kgaolo ya Ghanzi`, `Kgaolo ya Legare`,
+   `Motsana wa Molapowabojang`). Seed `level = REGION` rows only; the town
+   rows map to ISO's separate city codes and are out of scope for the
+   two-level POC.
+
+### The seed
+
+Codes are **ISO 3166-2**, which V2's own list tracks closely enough to
+confirm the source (its Botswana rows match the ISO district + city split
+almost exactly). Codes are canonical; `name` here is the `en` label, with
+other locales carried as refdata locale variants.
+
+**South Africa (`ZA`) — 9 provinces, all 9 in live use**
+
+| Code | Name | V2 transporters | Locale duplicates in V2 |
+|---|---|---|---|
+| `ZA-GP` | Gauteng | 2,720 | `IGauteng` |
+| `ZA-KZN` | KwaZulu-Natal | 2,558 | — |
+| `ZA-WC` | Western Cape | 2,508 | `Wes-Kaap` |
+| `ZA-MP` | Mpumalanga | 2,495 | — |
+| `ZA-LP` | Limpopo | 2,491 | — |
+| `ZA-FS` | Free State | 2,471 | `Vrystaat`, `IFleyistata` |
+| `ZA-NW` | North West | 2,448 | `Noordwes` |
+| `ZA-EC` | Eastern Cape | 2,416 | `KwaXhosa` |
+| `ZA-NC` | Northern Cape | 2,366 | `Noord-Kaap`, `IKipi laseNyakatho` |
+
+**Botswana (`BW`) — 10 districts** (`BW-CE` Central, `BW-CH` Chobe,
+`BW-GH` Ghanzi, `BW-KG` Kgalagadi, `BW-KL` Kgatleng, `BW-KW` Kweneng,
+`BW-NE` North-East, `BW-NW` North-West, `BW-SE` South-East, `BW-SO`
+Southern). V2 additionally carries 5 city/town rows — excluded per decision
+3 above.
+
+**Namibia (`NA`) — 14 regions** (`NA-ER` Erongo, `NA-HA` Hardap, `NA-KA`
+ǁKaras, `NA-KE` Kavango East, `NA-KW` Kavango West, `NA-KH` Khomas,
+`NA-KU` Kunene, `NA-OW` Ohangwena, `NA-OH` Omaheke, `NA-OS` Omusati,
+`NA-ON` Oshana, `NA-OT` Oshikoto, `NA-OD` Otjozondjupa, `NA-CA` Zambezi).
+
+**One open call on Namibia:** V2 has a single `Kavango Region` (126
+transporters), predating the 2013 split into Kavango East/West; ISO has
+both. The seed lists both (current reality) — if the demo ever imports V2
+assignment data, `Kavango Region` needs a mapping decision. Note also that
+V2's `??Karas` is a mojibake'd `ǁKaras` (the name genuinely begins with a
+lateral click character), so the seed should carry the correct Unicode and
+not inherit V2's encoding damage.
 
 ## Document storage — NATS Object Store
 
@@ -937,9 +1051,11 @@ not as a second, competing status field.
   V2 does it, not hand-set.
 - **Operating Areas map**: Leaflet + OpenStreetMap, a two-level
   (Country → Region) overlay from a small hand-authored GeoJSON, toggled by
-  click, kept in sync with a checklist view for accessibility/precision —
-  not V2's full vector-tile/polygon-drawing stack (MapLibre + Municipality/
-  Custom levels), which is more map-engineering than this POC needs.
+  click, kept in sync with a checklist view for accessibility/precision.
+  V2's vector-tile/polygon-drawing stack (MapLibre + Municipality/Custom
+  levels) is not replicated — and note that stack renders V2's *unpopulated*
+  GIS model, so this is not a fidelity gap so much as declining to rebuild
+  something V2 never switched on.
 - Visual design: reuses `shared/unifi-theme` + `shared/ui-shell` exactly as
   every other panel in this app does (per this repo's frontend design
   system rule) — no new palette or shell for this feature. A concrete
@@ -1026,9 +1142,11 @@ becoming separate phase numbers; see the note after this list):
 6. **38d-ii** — Operating Areas + Tracking Credentials. Split out because
    **neither has any backend** (verified 2026-08-20): no `OperatingArea`
    persistence, no region corpus, no `organizations-secrets` KV command.
-   Each is a new data section needing persistence, and Operating Areas is
-   still blocked on open question 1's unsourced region list — which is why
-   it must not gate the rest of the Transporter UI.
+   Each is a new data section needing persistence. The split was also made
+   to stop open question 1's unsourced region list gating the rest of the
+   Transporter UI; **that question is now closed** (corpus sourced from the
+   live V2 database, seed in "Operating Areas — region seed" above), so
+   38d-ii is unblocked — the split stands on its own scope grounds.
 7. **38e** — `organizations` rename (service, packages, subjects, UI
    labels) across the whole trading-partner surface (Shipper included,
    since the service-level rename affects both aggregates even though only
@@ -1078,11 +1196,15 @@ Transporter-owned table with no V2 analog).
 
 What's left:
 
-1. **Operating Areas region list sourcing** — confirmed design call above
-   (own it in refdata-service, Country → Region levels informed by V2's
-   real `AreaLevelType` taxonomy), but the actual region list (SA
-   provinces, per the screenshot, or something more granular) still needs
-   sourcing.
+1. **Operating Areas region list sourcing — RESOLVED 2026-08-20.** Sourced
+   from the live V2 database (see "V2 database verification" above), not
+   invented: `region_entity` holds the real corpus, and the answer to "SA
+   provinces or something more granular?" is **the 9 provinces** — nothing
+   more granular exists in the operating-areas data at all (`town_entity`
+   is unrelated to it). All 9 are heavily used: 2,366–2,720 transporters
+   each, out of ~2,886 SA transporters. The concrete seed, its scope, and
+   the three data-quality decisions it forces are in
+   "Operating Areas — region seed" above. 38d-ii is unblocked.
 2. **Sub-phase vs. separate phase numbers** — captured as a sequencing
    decision above; whichever way, this is deliberately sized larger than
    this repo's usual single-phase scope and should not be attempted as one

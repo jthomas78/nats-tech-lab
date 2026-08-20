@@ -127,7 +127,7 @@ var _ = Describe("NATS micro registration", func() {
 		// Replaces 26g's "registers no endpoints yet" spec, which existed to pin
 		// that increment's deliberate scope. Phase 26h is the phase that spec
 		// said should replace it.
-		It("advertises all 18 api.* endpoints on $SRV.INFO", func() {
+		It("advertises all 23 api.* endpoints on $SRV.INFO", func() {
 			adapter, err := browserrpc.New(nc, browserrpc.Deps{Tenant: "acme"})
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(func() { _ = adapter.Stop() })
@@ -168,6 +168,21 @@ var _ = Describe("NATS micro registration", func() {
 				"api.*.trading-partner.document.download-ticket.v1",
 				"api.*.trading-partner.fleet-asset.add.v1",
 				"api.*.trading-partner.fleet-asset.list.v1",
+				// Phase 38d-ii (BR-TP46-BR-TP50). add carries no tenant and no
+				// countryCode: the tenant is this adapter's connection, and the
+				// parent country is resolved from refdata's own `country`
+				// relation (BR-D47), never taken from the caller.
+				"api.*.trading-partner.operating-area.add.v1",
+				"api.*.trading-partner.operating-area.list.v1",
+				"api.*.trading-partner.operating-area.remove.v1",
+				// Phase 38d-ii (BR-TP51-BR-TP55). Two endpoints, not three:
+				// there is deliberately no read-payload subject, because
+				// BR-TP52 means no api.* call may return credential
+				// material. The absence is the enforcement — if a third
+				// tracking-credential subject ever appears here, that rule
+				// has been broken.
+				"api.*.trading-partner.tracking-credential.configure.v1",
+				"api.*.trading-partner.tracking-credential.list.v1",
 			))
 		})
 

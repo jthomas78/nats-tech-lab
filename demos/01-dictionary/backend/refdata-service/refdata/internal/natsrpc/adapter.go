@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/nats-io/nats.go"
@@ -78,7 +79,11 @@ type Deps struct {
 	// wires the REST context routes (h.deps.Contexts == nil there too)
 	// simply can't serve context.list.v1 either.
 	Contexts *commands.ContextHandler
-	Log      *slog.Logger
+	// References is optional (nil-safe): a deployment that doesn't wire it
+	// simply returns item.get responses with no References field, which is
+	// exactly what every caller before Phase 38d-ii already handled.
+	References *commands.ReferenceHandler
+	Log        *slog.Logger
 }
 
 // Adapter is the natsrpc/ dual-transport adapter — a second transport onto
@@ -92,6 +97,7 @@ type Adapter struct {
 	versionReader *kvcache.VersionReader
 	projector     *kvcache.Projector
 	contexts      *commands.ContextHandler
+	references    *commands.ReferenceHandler
 	log           *slog.Logger
 	svc           micro.Service
 	tracer        *natstrace.Tracer
@@ -121,6 +127,16 @@ type ItemGetResponse struct {
 	// Unlike the REST resolvedItemResponse, this call always resolves a
 	// locale (even ""), so there is no "not attempted" case to distinguish.
 	IsFallback bool `json:"isFallback"`
+	// References carries the item's outbound typed references (BR-D05) —
+	// added Phase 38d-ii so a cross-service caller can resolve a hierarchy
+	// the corpus already states, rather than re-deriving it. BR-TP48 needs a
+	// region's parent country, which BR-D47 records as exactly this kind of
+	// reference; inferring it from the code's shape instead would be a
+	// second source of truth for the same fact.
+	//
+	// Additive and omitempty: every consumer written before this field
+	// existed is unaffected.
+	References []domain.DictionaryReference `json:"references,omitempty"`
 }
 
 // errorResponse is the wire shape for every failed rpc.* call. NotFound lets
@@ -209,6 +225,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		versionReader: deps.VersionReader,
 		projector:     deps.Projector,
 		contexts:      deps.Contexts,
+		references:    deps.References,
 		log:           deps.Log,
 		tracer:        natstrace.New(nc),
 	}
@@ -327,7 +344,31 @@ func (a *Adapter) entryResolvedResponse(ctx context.Context, itemContext string,
 		Label:       resolved.Label,
 		Description: resolved.Description,
 		IsFallback:  resolved.IsFallback,
+		// The cache entry already carries references, so the warm path costs
+		// nothing extra beyond flattening its relation-keyed map.
+		References: flattenReferences(entry.References),
 	}, nil
+}
+
+// flattenReferences converts the cache entry's relation-keyed map into the
+// slice shape the Postgres path and the wire contract both use. Sorted by
+// relation so the two paths are byte-identical for the same item — BR-D25's
+// "same underlying call, two transports" claim should not quietly depend on
+// which one served the read.
+func flattenReferences(refs map[string]domain.DictionaryReference) []domain.DictionaryReference {
+	if len(refs) == 0 {
+		return nil
+	}
+	relations := make([]string, 0, len(refs))
+	for relation := range refs {
+		relations = append(relations, relation)
+	}
+	sort.Strings(relations)
+	out := make([]domain.DictionaryReference, 0, len(refs))
+	for _, relation := range relations {
+		out = append(out, refs[relation])
+	}
+	return out
 }
 
 // resolveItemKVFirst serves rpc.*.refdata.item.get.v1 from refdata-service's
@@ -359,13 +400,25 @@ func (a *Adapter) resolveItemKVFirst(ctx context.Context, itemContext, typeKey, 
 		}
 	}
 
-	return ItemGetResponse{
+	out := ItemGetResponse{
 		Item:        resolved.Item,
 		Locale:      resolved.Localization.Locale,
 		Label:       resolved.Localization.Label,
 		Description: resolved.Localization.Description,
 		IsFallback:  resolved.Localization.IsFallback,
-	}, nil
+	}
+	// The cold path has to fetch references separately — the KV entry above
+	// gets them for free. Best-effort: references are supplementary to the
+	// item itself, so a failure here must not turn a successful lookup into
+	// an error for the callers that don't read them.
+	if a.references != nil {
+		if refs, err := a.references.ListFrom(ctx, itemContext, typeKey, code); err == nil {
+			out.References = refs
+		} else if a.log != nil {
+			a.log.Warn("natsrpc: reference lookup failed", "type", typeKey, "code", code, "err", err)
+		}
+	}
+	return out, nil
 }
 
 // handleTypeList is the rpc.* counterpart of REST's listItems — same

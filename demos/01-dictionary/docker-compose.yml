@@ -399,6 +399,13 @@ services:
       HTTP_ADDR: ":8080"
       NATS_URL: nats://nats:4222
       NATS_CREDS_DIR: /etc/nats/creds
+      # BR-TP52 — seals tracking-credential payloads (AES-256-GCM) before
+      # they reach the organizations-secrets KV bucket. 64 hex chars = 32
+      # bytes. A lab-only fixed value: a real deployment injects this from a
+      # secret manager and never commits it. Unset disables tracking
+      # credentials entirely rather than storing them in the clear, and a
+      # malformed value stops the service rather than running degraded.
+      ORGANIZATIONS_SECRETS_KEY: "6c61622d6f6e6c792d6b65792d646f2d6e6f742d7573652d696e2d70726f6421"
     ports:
       - "7204:8080"
     volumes:

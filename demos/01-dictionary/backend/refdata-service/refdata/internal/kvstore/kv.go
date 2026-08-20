@@ -7,6 +7,7 @@ package kvstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -127,6 +128,23 @@ func (s *Store) VersionedBucket(ctx context.Context, kvContext string, version i
 		return nil, fmt.Errorf("create versioned kv bucket %s: %w", name, err)
 	}
 	return kv, nil
+}
+
+// DeleteVersionedBucket removes a corpus version's bucket outright,
+// reclaiming the JetStream stream it occupies. A KV bucket *is* a stream,
+// so this is the only operation that gives a stream slot back — lowering a
+// bucket's TTL (Supersede) expires its keys but leaves the stream in place
+// and still counted against the account's MaxStreams.
+//
+// Idempotent: a bucket that is already gone is not an error, so a reaper
+// re-running over the same version list is safe.
+func (s *Store) DeleteVersionedBucket(ctx context.Context, kvContext string, version int) error {
+	name := s.versionedBucketName(kvContext, version)
+	err := s.js.DeleteKeyValue(ctx, name)
+	if err == nil || errors.Is(err, jetstream.ErrBucketNotFound) || errors.Is(err, jetstream.ErrStreamNotFound) {
+		return nil
+	}
+	return fmt.Errorf("delete versioned kv bucket %s: %w", name, err)
 }
 
 // VersionedBucketHandle gets a handle to an existing versioned bucket

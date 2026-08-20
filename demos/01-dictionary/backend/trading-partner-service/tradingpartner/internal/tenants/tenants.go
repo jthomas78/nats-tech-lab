@@ -26,6 +26,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/objectstore"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/refdataclient"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/internal/secrets"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/trading-partner-service/tradingpartner/transporterprofile"
 	"github.com/jthomas78/nats-tech-lab/shared/natstenants"
 )
@@ -41,24 +42,34 @@ type resource struct {
 	// JetStream stream inside the tenant's own account, so the account
 	// boundary is the isolation — there is no cross-tenant bucket to guard.
 	docs *objectstore.Store
+	// creds is this tenant's sealed tracking-credential bucket (BR-TP52).
+	// nil when no encryption key is configured: the store fails closed
+	// rather than storing secrets in the clear, so the feature is simply
+	// unavailable instead of quietly insecure.
+	creds *secrets.Store
 }
 
 // Manager implements domain.VehicleTypeValidator directly (BR-TP14) — it's
 // the natural owner of "which tenant's connection to use," so there's no
 // separate wrapper type.
 var _ domain.VehicleTypeValidator = (*Manager)(nil)
+var _ domain.OperatingAreaResolver = (*Manager)(nil)
 
 // Manager wraps shared/natstenants.Manager with this service's resource
 // shape and two-pass adapter wiring.
 type Manager struct {
 	mgr *natstenants.Manager[*resource]
 
+	// secretKey seals tracking-credential payloads (BR-TP52). Empty disables
+	// the feature; it is never a reason to store a secret unsealed.
+	secretKey []byte
+
 	mu      sync.RWMutex
 	apiDeps *browserrpc.Deps // nil until MountAPI has run
 }
 
-func NewManager(natsURL, credsDir string, db *sql.DB, log *slog.Logger) *Manager {
-	m := &Manager{}
+func NewManager(natsURL, credsDir string, db *sql.DB, log *slog.Logger, secretKey []byte) *Manager {
+	m := &Manager{secretKey: secretKey}
 	m.mgr = natstenants.NewManager(natsURL, credsDir, "trading-partner-service", log,
 		func(ctx context.Context, nc *nats.Conn, tenant string) (*resource, error) {
 			profiles, err := transporterprofile.Start(ctx, nc, db)
@@ -75,7 +86,17 @@ func NewManager(natsURL, credsDir string, db *sql.DB, log *slog.Logger) *Manager
 				profiles.Close()
 				return nil, err
 			}
-			res := &resource{client: refdataclient.New(nc), profiles: profiles, docs: docs}
+			// BR-TP52: only opened when a key is configured. An absent key
+			// disables the feature; it never downgrades to plaintext.
+			var credStore *secrets.Store
+			if len(m.secretKey) > 0 {
+				credStore, err = secrets.New(ctx, js, m.secretKey)
+				if err != nil {
+					profiles.Close()
+					return nil, err
+				}
+			}
+			res := &resource{client: refdataclient.New(nc), profiles: profiles, docs: docs, creds: credStore}
 			m.mu.RLock()
 			deps := m.apiDeps
 			m.mu.RUnlock()
@@ -128,6 +149,18 @@ func (m *Manager) Exists(ctx context.Context, tenant, contextKey, code string) (
 	return res.client.Exists(ctx, contextKey, code)
 }
 
+// ResolveArea implements domain.OperatingAreaResolver (BR-TP47) — the same
+// "this Manager owns which tenant's connection to use" role it plays for
+// BR-TP14's Exists. No contextKey parameter: region/country corpora are
+// platform-scoped standards data (see refdataclient's platformContext).
+func (m *Manager) ResolveArea(ctx context.Context, tenant string, level domain.AreaLevel, code string) (string, bool, error) {
+	res, ok := m.mgr.Resource(tenant)
+	if !ok {
+		return "", false, ErrTenantNotConnected
+	}
+	return res.client.ResolveArea(ctx, level, code)
+}
+
 // DocumentStore implements commands.ObjectStoreResolver (Phase 38c-ii) — the
 // same "this Manager owns which tenant's connection to use" role it already
 // plays for BR-TP14's Exists.
@@ -141,6 +174,29 @@ func (m *Manager) DocumentStore(tenant string) (commands.DocumentObjectStore, er
 		return nil, ErrTenantNotConnected
 	}
 	return res.docs, nil
+}
+
+// SecretStore implements commands.SecretStoreResolver (BR-TP52).
+func (m *Manager) SecretStore(tenant string) (commands.SecretStore, error) {
+	res, ok := m.mgr.Resource(tenant)
+	if !ok {
+		return nil, ErrTenantNotConnected
+	}
+	if res.creds == nil {
+		return nil, secrets.ErrNoEncryptionKey
+	}
+	return res.creds, nil
+}
+
+// ProfileCommands implements commands.ProfileEventAppenderResolver
+// (BR-TP55) — the TRANSPORTER stream is inside the tenant's own account, so
+// the appender is per-tenant like every other resource here.
+func (m *Manager) ProfileCommands(tenant string) (commands.ProfileEventAppender, error) {
+	res, ok := m.mgr.Resource(tenant)
+	if !ok {
+		return nil, ErrTenantNotConnected
+	}
+	return res.profiles.Commands, nil
 }
 
 // MountAPI registers the api.* adapter on every currently-connected tenant,

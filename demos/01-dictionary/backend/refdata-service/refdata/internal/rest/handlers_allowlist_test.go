@@ -37,6 +37,10 @@ func TestMountRoutesMatchAdminAllowlist(t *testing.T) {
 		"POST /api/refdata/admin/types",
 		"POST /api/refdata/admin/locales",
 		"POST /api/refdata/admin/items",
+		// BR-D46-BR-D48 (Phase 38d-ii): region registration is one admin
+		// route, not a business route — it stays off the browser api.*
+		// surface per BR-D41.
+		"POST /api/refdata/admin/regions",
 		"POST /api/refdata/admin/items/{type}/{context}/{code}/deprecate",
 		"POST /api/refdata/admin/items/{type}/{context}/{code}/reactivate",
 		"PATCH /api/refdata/admin/items/{type}/{context}/{code}/attrs",

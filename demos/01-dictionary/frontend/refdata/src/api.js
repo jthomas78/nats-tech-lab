@@ -420,3 +420,42 @@ export function listFleetAssets(context, id) {
 export function addFleetAsset(context, id, tenant, input) {
   return tpRequest(context, 'fleet-asset', 'add', { id, ...input })
 }
+
+// --- Operating areas (BR-TP46-BR-TP50) ---
+//
+// No `countryCode` on add: the parent country is resolved server-side from
+// refdata's own `country` relation (BR-D47). A client-supplied parent would
+// let the browser misfile a region and defeat BR-TP48's overlap check.
+
+export function listOperatingAreas(context, id) {
+  return tpRequest(context, 'operating-area', 'list', { id })
+}
+
+export function addOperatingArea(context, id, level, code) {
+  return tpRequest(context, 'operating-area', 'add', { id, level, code })
+}
+
+export function removeOperatingArea(context, id, level, code) {
+  return tpRequest(context, 'operating-area', 'remove', { id, level, code })
+}
+
+// --- Tracking credentials (BR-TP51-BR-TP55) ---
+
+export function listTrackingCredentials(context, id) {
+  return tpRequest(context, 'tracking-credential', 'list', { id })
+}
+
+// configureTrackingCredential is the ONLY place credential material leaves
+// the browser. BR-TP52: the service seals it and stores it in an encrypted
+// KV bucket, and there is deliberately no counterpart read — no api.*
+// subject returns a payload, so a "reveal" affordance cannot be built. The
+// UI must present the field as write-only rather than implying a stored
+// value can be shown back.
+export function configureTrackingCredential(context, id, { provider, credentialType, payload }) {
+  return tpRequest(context, 'tracking-credential', 'configure', {
+    id,
+    provider,
+    credentialType,
+    payload,
+  })
+}

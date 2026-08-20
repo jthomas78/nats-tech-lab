@@ -629,7 +629,7 @@ does not fix.
   `TestMountRoutesMatchAdminAllowlist` asserts `Mount(mux)`'s returned route
   list `ConsistOf` the 24-entry allowlist above.
 
-### BR-D45 (Phase 47a, PROPOSED — not yet implemented) — This service's `evt.*` publish call site gets the same `obs.pubsub.*` hook as `BUSINESS_RULES-SHIPPING.md`'s BR-045
+### BR-D45 (Phase 67a, PROPOSED — not yet implemented) — This service's `evt.*` publish call site gets the same `obs.pubsub.*` hook as `BUSINESS_RULES-SHIPPING.md`'s BR-045
 
 refdata-service's own `evt.*` publish choke point — the publish-change
 helper inside `refdata/internal/kvcache/kvcache.go:146` (the same call site
@@ -641,5 +641,112 @@ per-service clone of it (unlike the pre-Phase-35 `obs.trace.*` mirrors
 BR-D39/BR-P25/BR-TP15, which existed only because `natstrace` was duplicated
 per service at the time).
 
-- **Enforced in:** not yet — Phase 47a.
-- **Test:** not yet written — pending Phase 47a implementation.
+- **Enforced in:** not yet — Phase 67a.
+- **Test:** not yet written — pending Phase 67a implementation.
+
+### BR-D46–BR-D48 (Phase 38d-ii) — The `region` corpus and Country → Region hierarchy
+
+**Approved 2026-08-20.** These add the reference-data half of Phase 38d-ii's
+Operating Areas: a corpus of first-level administrative subdivisions, owned
+here rather than hardcoded in `trading-partner-service`. The consuming
+assignment rules are BR-TP46–BR-TP50 in
+[BUSINESS_RULES-TRADING-PARTNER.md](BUSINESS_RULES-TRADING-PARTNER.md).
+
+**These rules need no schema change**, which is worth recording because the
+design assumed otherwise. Investigating the running service found the two
+pieces already built: the `country` type is seeded (52 items in `_platform`,
+localized `en`/`af-za`/`es`), and `DictionaryReference` already models a
+typed, single-valued item-to-item relation with BR-D05 enforcing
+target-exists / correct-type / target-active. Country → Region is therefore
+expressible in the existing model. Two consequences to expect during
+implementation:
+
+- **`dictionary_references` holds 0 rows.** The mechanism is specified
+  (BR-D05) and tested, but no seeded corpus has ever used it. BR-D47 is its
+  first production use — treat BR-D05's guards as unproven against real data
+  rather than assumed-good.
+- **Only `ZA` of the three seeded countries exists.** `BW` and `NA` are
+  absent from the `country` corpus and must be added by the same seed.
+
+- **BR-D46 (the `region` type):** A new dictionary type `region`, category
+  `standards` (BR-D09) — ISO 3166-2 is an external standard maintained
+  outside this platform, the same governance bucket as `country` and
+  `currency`, not a `domain-enum` the business may edit freely. Items are
+  keyed by ISO 3166-2 code and seeded in the `_platform` context, so one
+  corpus serves every business unit rather than each maintaining its own.
+  **Correction (during 38d-ii implementation):** this bullet first said
+  business units "inherit" the corpus. They do not, on the path that
+  matters here — `ItemRepository.Get` is an **exact context match with no
+  ancestor walk**, and inheritance is resolved only at the corpus/version
+  layer. A consumer resolving a single region over `rpc.* item.get` must
+  therefore ask for `_platform` explicitly; asking in a business-unit
+  context returns not-found. BR-TP47's resolver encodes this by taking no
+  context parameter at all.
+- **BR-D47 (exactly one parent country):** Every `region` item must declare
+  exactly one `DictionaryReference` with relation `country`, targeting an
+  existing, active item of type `country`. Zero references is rejected (a
+  region with no country is not addressable in a two-level hierarchy) and so
+  is more than one — though note that half needs no code:
+  `dictionary_references`' primary key is
+  `(context, from_type_key, from_code, relation)`, so a second `country`
+  relation is impossible by construction. Only the "at least one" half is
+  a guard. (A region belongs to exactly one country; a disputed or shared
+  territory is out of scope for this POC and would need a different model,
+  not a second reference.) The hierarchy lives in the reference
+  mechanism — **no parent column is added to `dictionary_items`**, since the
+  relation already carries the same information with BR-D05's integrity
+  guards attached.
+- **BR-D48 (one canonical item per region; languages are localizations, not
+  items):** A region is exactly one `DictionaryItem`, keyed by its ISO code,
+  with every additional language recorded as a `dictionary_localizations`
+  row (BR-D06's existing mechanism). Creating a second item for the same
+  region under a translated name is rejected by BR-D01's per-`{type,
+  context}` code uniqueness, which is the point: the code is the identity
+  and the label is not.
+  *This is a rule rather than a seeding convention because the system being
+  replicated gets it wrong, expensively.* Linebooker V2 has no locale
+  dimension on region or country, so translations were created as duplicate
+  rows carrying their own independent transporter assignments: South
+  Africa's 9 provinces exist as 17 region rows (`Wes-Kaap` 1,823 assignments
+  alongside `Western Cape` 2,508; `Vrystaat` and `IFleyistata` alongside
+  `Free State`), and `South Africa` itself has 11+ country rows
+  (`Suid-Afrika`, `Sudáfrica`, `Afrique du Sud`, `ZA`, …). The result is that
+  "which transporters cover the Western Cape?" has no single correct answer
+  in V2. Since `af-za` is already a seeded locale here, the seed expresses
+  those same Afrikaans labels the intended way, making the improvement
+  demonstrable rather than asserted.
+
+- **Enforced in:** `refdata/internal/domain/region.go`
+  (`ValidateRegionCountry`, the type/relation constants),
+  `refdata/internal/application/commands/region.go` (`RegionHandler`, which
+  composes ItemHandler + ReferenceHandler so BR-D01/BR-D05/BR-D22 stay
+  enforced in one place, and which validates the country **before** writing
+  the item so a refused region leaves no country-less orphan),
+  `POST /api/refdata/admin/regions` in `internal/rest/handlers.go` (an admin
+  route — deliberately not on the browser `api.*` surface, per BR-D41), and
+  the seed under `refdata-service/cmd/seed-regions`.
+  **Also delivered here, for BR-TP48's benefit:** `rpc.* item.get`'s
+  `ItemGetResponse` gained a `references` field (additive, `omitempty`), so
+  a cross-service caller can read the hierarchy the corpus already states
+  instead of re-deriving it. The KV path already carried references; the
+  Postgres path fetches them best-effort, and both are sorted by relation so
+  the two transports return identical bytes (BR-D25).
+- **Test:** `refdata/region_test.go` — 9 specs covering BR-D46's
+  registration and charset/duplicate rejection, BR-D47's missing/unknown/
+  deprecated country and the no-orphan-on-refusal guarantee, and BR-D48's
+  rejection of a second item under a translated name.
+  `refdata/natsrpc_references_test.go` — 3 specs pinning the new `references`
+  field: a region's country relation is returned, the field is omitted
+  entirely for an item with none, and every pre-existing response field is
+  unchanged.
+  `cmd/seed-regions/main_test.go` — the corpus and the map overlay at
+  `frontend/refdata/public/geo/operating-areas.geojson` are joined only by
+  ISO code, so one test asserts their code **and name** sets are equal
+  (which is what keeps the ǁKaras / Zambezi / Northern Cape corrections from
+  regressing on one side only); another pins Namibia at 13 regions so
+  sourcing the Kavango split becomes a deliberate, documented change.
+  Verified live against the composed stack: 32 regions seeded with a country
+  relation each, `ǁKaras` byte-correct through HTTP -> Postgres, the missing/
+  unknown/deprecated-country paths all returning 422, **zero orphan items
+  after three refused registrations**, and a re-run leaving the corpus
+  unchanged.

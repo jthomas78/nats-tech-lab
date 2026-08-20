@@ -1,14 +1,14 @@
-// Pending specs for Phase 47c (BUSINESS_RULES-SHIPPING.md's BR-048): a
+// Pending specs for Phase 67c (BUSINESS_RULES-SHIPPING.md's BR-048): a
 // dedicated Admin UI Messages panel (not a RpcPanel tab) rendering
 // obs.pubsub.* entries with an evt/notify family filter. Design approved
 // (ADR-047); implementation on hold. Deliberately not importing
 // `./MessagesPanel.vue` — it doesn't exist yet — so these use `it.todo`
 // rather than `it`, which needs no body and keeps `npm run test` green
-// until Phase 47c lands.
+// until Phase 67c lands.
 
 import { describe, it } from 'vitest'
 
-describe('MessagesPanel (Phase 47c, BR-048)', () => {
+describe('MessagesPanel (Phase 67c, BR-048)', () => {
   it.todo('renders as its own SYSTEM → NATS nav entry, not a RpcPanel tab')
 
   it.todo('filters entries by evt/notify family via a toggle-chip control, mirroring RpcPanel\'s rpc/api filter')

@@ -87,3 +87,25 @@ func (h *ProfileHandler) createOrEnsure(ctx context.Context, contextKey, trading
 	agg.Apply(event)
 	return agg.State(), nil
 }
+
+// ConfigureTrackingCredential appends BR-TP55's event under BR-TP20's
+// sequence guard, like every other write on this aggregate.
+//
+// The payload is not a parameter and never reaches this package: BR-TP52
+// confines it to the sealed KV bucket, and the caller stores it before
+// calling here (BR-TP53's ordering).
+func (h *ProfileHandler) ConfigureTrackingCredential(ctx context.Context, contextKey, tradingPartnerID, provider, credentialType string) (profiledomain.State, error) {
+	agg, sequence, err := h.store.Hydrate(ctx, contextKey, tradingPartnerID)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	event, err := agg.ConfigureTrackingCredential(provider, credentialType)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	if _, err = h.store.Append(ctx, contextKey, tradingPartnerID, event, sequence); err != nil {
+		return profiledomain.State{}, err
+	}
+	agg.Apply(event)
+	return agg.State(), nil
+}

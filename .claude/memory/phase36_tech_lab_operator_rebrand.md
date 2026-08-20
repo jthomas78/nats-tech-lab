@@ -31,8 +31,9 @@ Phase 36 in `.claude/plans/Main-POC-Plan.md` (added 2026-08-19, design gate
 
 **Why this number:** the user explicitly asked for "Phase 36." That number
 had been reserved (in practice, not by any rule) for the NATS server-hop
-tracing phase's history — see [[phase43-nats-hop-tracing-renumbered]] — but
-that phase is now live at Phase 43 with DEFERRED status. Per explicit user
+tracing phase's history — see [[phase63-nats-hop-tracing-renumbered]] — but
+that phase is now live at Phase 63 (it was Phase 43 at the time of this
+rebrand; renumbered again 2026-08-20b) with DEFERRED status. Per explicit user
 instruction, every remaining stale "Phase 36" reference to server-hop
 tracing was swept to cite 43 first (2026-08-19 collision-cleanup renumbering
 log in `Main-POC-Plan.md`), and only then was 36 reassigned to this phase.

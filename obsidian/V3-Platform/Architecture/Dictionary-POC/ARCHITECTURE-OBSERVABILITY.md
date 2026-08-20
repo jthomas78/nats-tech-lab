@@ -19,7 +19,7 @@ keeps only the ADR as a historical record.
 repo owner's request; no business rules, tests, or code exist yet.
 **Date:** 2026-08-20
 **Deciders:** repo owner — this ADR gated
-[Phase 47](../../../../.claude/plans/Main-POC-Plan.md) per the repo's design
+[Phase 67](../../../../.claude/plans/Main-POC-Plan.md) per the repo's design
 gate, now approved.
 
 ### Context
