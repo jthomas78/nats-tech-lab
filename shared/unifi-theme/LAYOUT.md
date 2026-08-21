@@ -99,10 +99,30 @@ buildable version of the same structure.
     there's more than one logical group (e.g. "JetStream" →
     Streams / KV Buckets / CQRS Shapes); eyebrows hide in the collapsed
     state.
-  - The collapse control is a plain, borderless `«` / `»` glyph — not a
-    boxed icon+label button — at the bottom of the sidebar, mirrored with
-    `transform: scaleX(-1)` when collapsed (`rotate()` would flip it
-    upside down instead of mirroring it).
+  - The collapse control is a borderless 26px icon button — not an
+    icon+label button — in a `.sidebar-foot` row at the **bottom** of the
+    sidebar, right-aligned (centred once collapsed). Bottom is
+    deliberate: it was tried at the top of the rail (2026-08-21) and the
+    band of empty space it left between the topbar and the first nav
+    group read as a layout bug, so don't move it back up without solving
+    that. The glyph is a panel-toggle icon drawn as inline SVG rather
+    than the `«` / `»` text glyph it used to be, since PrimeIcons has no
+    `panel-left`/`panel-right` equivalent. Its filled bar moves to the
+    far side when collapsed rather than the whole icon being mirrored
+    with `transform: scaleX(-1)`. The button carries `aria-label`
+    (`Collapse sidebar` / `Expand sidebar`) and `aria-expanded`; the bare
+    glyph it replaced announced as "left-pointing double angle quotation
+    mark".
+  - **This control is the same in every app, by rule** — see CLAUDE.md,
+    "Frontend Design System" → "Sidebar collapse control". No app adds
+    its own rail toggle or restyles `.sidebar-foot` /
+    `.sidebar-collapse-btn`; changing it means changing `AppShell.vue`
+    for all four at once. `AppShell.spec.js` (under
+    `demos/01-dictionary/frontend/admin/src/components/`, since
+    `shared/ui-shell/` has no test runner of its own — same arrangement
+    as `NavList.spec.js`) holds the placement, glyph, and ARIA
+    assertions, so a regression fails a test rather than being noticed in
+    a screenshot later.
   - No "Quick Links" / Settings / Help footer section in the nav —
     deferred; don't reintroduce without an explicit request.
 - **Main content** — page head (eyebrow + title + one primary action),
@@ -168,8 +188,8 @@ rendered by PrimeVue itself (`.p-tablist`, `.p-tabpanels`, `.p-tabpanel`).
   shell-owned.
 - **refdata** (branded "Tech Lab Operator", Phase 36.1) — sidebar is
   `NavList.vue` fed one `Operations` group with two sections: a single
-  `Reference Data` entry, and (Phase 36.2) a `Trading Partners` eyebrow over
-  `Shippers`/`Transporters` — migrated from `admin`'s own `Trading partners`
+  `Reference Data` entry, and (Phase 36.2) an `Organizations` eyebrow over
+  `Shippers`/`Transporters` — migrated from `admin`'s own `Organizations`
   eyebrow, same nesting shape, just relocated. What used to be
   `TypeNavigator.vue`'s three sidebar groups (the flat reference-data type
   list, the Domain category list, and a "Tools" group for Localization/
@@ -184,18 +204,18 @@ rendered by PrimeVue itself (`.p-tablist`, `.p-tabpanels`, `.p-tabpanel`).
   strip (a bare `Tabs`/`TabList`, no `TabPanels` — it only drives which
   category `CategoryTypeList` shows, it doesn't own separate panel content,
   unlike `VersioningPanel.vue`'s own nested tabs). Breadcrumb is a literal
-  `Operations / Reference Data` (or `/ Trading Partners`) nav path rather
+  `Operations / Reference Data` (or `/ Organizations`) nav path rather
   than descriptive text — this app has no fleet concept of its own for
-  Reference Data, but Trading Partners' `TradingPartnersPanel.vue` does need
+  Reference Data, but Organizations' `OrganizationsPanel.vue` does need
   one (see below), scoped separately from Reference Data's platform-wide
   `Context` select in `#topbar-right`: a `Tenant` + `Fleet` select pair,
-  shown only while a Trading Partners view is active, backed by a second,
+  shown only while a Organizations view is active, backed by a second,
   tenant-scoped NATS connection (`useTenantConnection.js`) alongside this
   app's original PLATFORM one — see that module's doc comment for why a
   second connection was necessary rather than reusing the first.
 - **admin** — sidebar via `NavList.vue`, and the only app so far using the
   `group` form: an ungrouped Overview, then PLATFORM (Accounts, Settings —
-  the former Trading partners eyebrow over Shippers/Transporters moved to
+  the former Organizations eyebrow over Shippers/Transporters moved to
   `refdata` in Phase 36.2), then SYSTEM (NATS, Postgres). The split is by
   what a view is *of*, not which backend serves it — business layer vs.
   infrastructure diagnostics — which is why Accounts sits under PLATFORM

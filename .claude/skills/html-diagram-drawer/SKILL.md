@@ -332,6 +332,19 @@ generated SVG. Get these specifics right:
    removed the specific bug that was found; `--clip` removes the whole
    class of bug it belongs to.
 
+   **A `display: flex` body needs `align-items: flex-start`.** The script
+   starts Puppeteer at a 100px-tall viewport (see the note above). A
+   `body { display: flex }` page — the shape every `*-mockup.html` here
+   uses — makes the mockup panel a flex item whose cross-axis size is
+   *stretched to the container*, i.e. to that 100px viewport, and
+   `.mock`'s `overflow: hidden` then swallows everything below. The export
+   silently comes out ~76px tall showing only the top banner, which looks
+   like a clip-selector problem and isn't. Add `align-items: flex-start`
+   to `body` so the panel is sized by its content. Retrofitted to the five
+   existing account mockups 2026-08-21; their committed PNGs predate the
+   viewport change and were never regenerated, which is why the bug went
+   unnoticed.
+
    For a UI mockup where only one component's chrome belongs in the doc
    (not the surrounding explanatory prose/tables also on the page), clip
    a narrower selector instead of `.wrap`:

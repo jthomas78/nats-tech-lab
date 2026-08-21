@@ -422,6 +422,56 @@ A useful side effect for tooling: because `obs.rpc.*` and `obs.api.*` are
 distinct, Admin/technical tooling can tell backend-originated from
 browser-originated traffic without inspecting payloads.
 
+### 2.5 Entity naming — singular or plural is decided by layer
+
+One rule decides every layer: **a name that denotes a collection is
+plural; a name that denotes one instance is singular.** It is not a
+project-wide style choice, which is why the answer differs by layer.
+
+| Layer | Convention | Example |
+| --- | --- | --- |
+| DB table | plural | `organizations`, `fleet_assets` |
+| DB column (FK) | singular | `organization_id` |
+| DB schema / bounded context | plural | `organizations` |
+| Service name | plural | `organizations-service` |
+| Nav label / list view | plural | "Organizations", "Transporters" |
+| Detail view / page title | singular | "Organization" |
+| Go type, class, aggregate | singular | `Organization` |
+| REST collection resource | plural | `/files/documents` |
+| **Subject entity token** | **singular** | `organization`, `fleet-asset` |
+
+The subject token is singular because it names the *entity type*, not a
+set — `api.{context}.organizations.organization.list.v1` lists many
+organizations, but the token identifies which entity the action applies
+to. This is the one layer that most often gets pluralised by analogy with
+REST, where the path genuinely is a collection being indexed into.
+
+When a service is named after its flagship entity, `{service}.{entity}`
+stutters (`organizations.organization`). **Accept the stutter** — it is
+cosmetic and confined to a subject string, whereas an exception would put
+a second naming rule into the taxonomy's most load-bearing position.
+Verified across all 23 `api.*` subjects, 2026-08-21.
+
+### 2.6 Storage naming — streams, KV buckets, Object Stores
+
+**Streams are `SCREAMING_SNAKE`; KV buckets and Object Stores are
+`lowercase-kebab`.** As built: `SHIPPING`, `REFDATA`, `TRANSPORTER`;
+`ships`, `container`, `meta`, `refdata`, `organizations`,
+`organizations-secrets`, `organizations-docs`.
+
+KV and Object Stores deliberately share one casing. NATS already
+distinguishes them — a KV bucket is the stream `KV_<name>`, an Object
+Store is `OBJ_<name>` — so a casing split would re-encode, by convention
+and less reliably, what the prefix already guarantees, and would diverge
+the separator too (`SCREAMING_SNAKE` forces `_`), leaving sibling stores
+in one service looking unrelated. The stream/bucket case split is kept
+because it *does* carry information nothing else encodes: `SHIPPING` and
+`ships` are the same domain in two roles.
+
+A bucket name **is** a stream name, so renaming one orphans the old
+stream and creates an empty new one rather than migrating data. Check for
+existing objects first.
+
 ## 3. Dual-adapter pattern
 
 Each service keeps one transport-neutral application layer
@@ -458,7 +508,7 @@ refdata-service example.
 | `refdata-service` | yes | — | yes (`internal/natsrpc`) | yes |
 | `pricing-service` | yes (no browser proxy route) | yes (`internal/browserrpc`) | — | yes |
 | `accounts-service` | yes | — | — | no |
-| `trading-partner-service` | yes | yes (`internal/browserrpc`, Phase 26h) | — | yes (Phase 26g) |
+| `organizations-service` | yes | yes (`internal/browserrpc`, Phase 26h) | — | yes (Phase 26g) |
 
 Two notes worth carrying forward from Phase 26g/26h:
 
@@ -466,11 +516,11 @@ Two notes worth carrying forward from Phase 26g/26h:
   Services panel**, and it wires the `$SRV.PING/INFO/STATS` responders
   independently of `AddEndpoint`. A service that only makes *outbound* `rpc.*`
   requests answers nothing on `$SRV` and is invisible there even while running
-  — which is exactly how `trading-partner-service` sat unlisted until Phase
+  — which is exactly how `organizations-service` sat unlisted until Phase
   26g registered it. Registration and endpoints are separable: 26g shipped the
   registration with zero endpoints, 26h added the endpoints.
 - **A service gets `rpc.*` endpoints only once a backend caller exists.**
-  `trading-partner-service` has none yet: the Admin UI is its only caller, and
+  `organizations-service` has none yet: the Admin UI is its only caller, and
   a browser credential is never granted `rpc.>` (§ 2.4). Its `rpc.*` surface
   arrives with the marketplace/tender phase that first calls it from another
   backend.
@@ -584,7 +634,7 @@ section — moved both into `shared/` alongside it:
   handler needs: read `{context}` off the subject, stamp the
   `Nats-Responder`/`Nats-Service-Error`/`Nats-Service-Error-Code` headers
   (§ 4), and shape success/error JSON the same way. `pricing-service` and
-  `trading-partner-service` already funneled every reply through one
+  `organizations-service` already funneled every reply through one
   `reply(req, result, err)` call, so they got a one-line delegating version;
   `refdata-service` and `shipping-service` reply from multiple early-exit
   points with no single funnel, so they kept their own
@@ -603,7 +653,7 @@ Editable source:
 `  ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/natstrace-browserrpc-extraction.png 1024 --clip=figure`
 
 The third extracted package, `shared/natstenants` (the per-tenant connection
-manager `pricing-service`/`trading-partner-service`/`refdata-service` use in
+manager `pricing-service`/`organizations-service`/`refdata-service` use in
 full and `shipping-service` uses for connection lifecycle only), has its own
 before/after diagram in [ARCHITECTURE-ACCOUNTS.md](ARCHITECTURE-ACCOUNTS.md)'s
 per-tenant-connections section — it isn't repeated here since it belongs to

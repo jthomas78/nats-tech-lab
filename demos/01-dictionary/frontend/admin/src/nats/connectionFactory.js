@@ -7,8 +7,8 @@
 // that "adding [a request surface] before anything needs it would be exactly
 // the speculative feature CLAUDE.md's 'don't design for hypothetical future
 // requirements' warns against". Phase 26h is that need arriving: the Admin
-// UI's Trading Partners screens call trading-partner-service over
-// api.{context}.trading-partner.* instead of REST.
+// UI's Organizations screens call organizations-service over
+// api.{context}.organizations.* instead of REST.
 //
 // request() is only usable on the *tenant* connection. The PLATFORM
 // credential from GET /api/auth/adminConnectInfo is publish-denied at the JWT
@@ -34,7 +34,7 @@ const decoder = new TextDecoder()
 
 // Matches seafreight-app's convention (Phase 18): a per-tab identity the
 // Admin UI's own Request/Reply panel can attribute traffic to, and the value
-// trading-partner-service records as an audit row's sourceIP (NATS has no
+// organizations-service records as an audit row's sourceIP (NATS has no
 // client address to record instead — see browserrpc's actor()).
 const REQUESTOR_HEADER = 'Nats-Requestor'
 const REQUEST_TIMEOUT_MS = 10000

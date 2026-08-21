@@ -1,0 +1,446 @@
+<title>Temporal in Phase 38</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code, td code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+table { border-collapse: collapse; font-size: 12px; line-height: 18px; color: var(--muted); }
+th, td { text-align: left; padding: 6px 14px 6px 0; vertical-align: top; border-bottom: 1px solid var(--border); }
+th { color: var(--dim); font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 400; }
+td b { color: var(--text); font-weight: 600; }
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.ll { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 3 4; stroke-opacity: 0.45; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+</style>
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <div class="eyebrow">Phase 38 · BR-TP21–BR-TP28, BR-TP56–BR-TP58</div>
+      <h1>Temporal in the transporter vetting saga — what it is, and how it is wired here</h1>
+      <p class="sub">Transporter vetting is a process that waits — for a human to review each compliance
+      document, and for an external check on the transporter's <b>GIT</b> — goods-in-transit insurance cover — and
+      must survive the service restarting
+      halfway through. Temporal is the durable execution engine that holds that in-flight state.
+      This page covers Temporal's building blocks first, then how they meet NATS JetStream,
+      Postgres and <code>organizations-service</code> in Phase 38.</p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 980 300" role="img" aria-label="Temporal's building blocks. On the left, a Temporal Client inside your application starts and signals workflows. In the middle, a dashed boundary marks the Temporal Cluster: a Frontend service on port 7233, an append-only Event History, a Task Queue drawn as a cylinder, and the cluster's own Postgres database which persists that history. On the right, a dashed boundary marks the Worker process, which is your own code: deterministic Workflow code that decides what happens next, and Activity code that performs all real input and output. The worker long-polls the task queue and receives dispatched tasks; the workflow schedules activities.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="a-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+        </defs>
+
+        <rect class="nb" x="250" y="28" width="440" height="234" rx="4"/>
+        <text class="grp" x="266" y="46">TEMPORAL CLUSTER — RUNS AS ITS OWN SERVICE</text>
+        <rect class="nb" x="710" y="28" width="250" height="234" rx="4"/>
+        <text class="grp" x="726" y="46">WORKER PROCESS — YOUR CODE</text>
+
+        <rect class="n" x="20" y="64" width="200" height="52" rx="3"/>
+        <text class="lbl" x="36" y="88">Temporal Client</text>
+        <text class="lbl2" x="36" y="104">in your application</text>
+
+        <rect class="n" x="270" y="58" width="300" height="40" rx="3"/>
+        <text class="lbl" x="286" y="83">Frontend service :7233 (gRPC)</text>
+
+        <rect class="n" x="270" y="122" width="150" height="56" rx="3"/>
+        <text class="lbl" x="286" y="145">Event History</text>
+        <text class="lbl2" x="286" y="161">append-only, per run</text>
+
+        <path class="n" d="M450 130 L450 174 A70 8 0 0 0 590 174 L590 130"/>
+        <ellipse class="n" cx="520" cy="130" rx="70" ry="8"/>
+        <text class="lbl" x="478" y="152">Task Queue</text>
+
+        <rect class="n" x="270" y="204" width="320" height="42" rx="3"/>
+        <text class="lbl" x="286" y="222">Temporal's own Postgres</text>
+        <text class="lbl2" x="286" y="238">separate from your application database</text>
+
+        <rect class="n" x="730" y="66" width="210" height="52" rx="3"/>
+        <text class="lbl" x="746" y="88">Workflow code</text>
+        <text class="lbl2" x="746" y="104">deterministic · no I/O</text>
+
+        <rect class="n" x="730" y="150" width="210" height="52" rx="3"/>
+        <text class="lbl" x="746" y="172">Activity code</text>
+        <text class="lbl2" x="746" y="188">every side effect lives here</text>
+
+        <path class="flow" d="M220 84 H244 V78 H270" marker-end="url(#a-sync)"/>
+        <text class="edge" x="150" y="60">start / signal</text>
+
+        <path class="store" d="M345 98 V122" stroke="var(--store)" fill="none" stroke-width="1.4" marker-end="url(#a-store)"/>
+        <path class="proj" d="M345 178 V204" marker-end="url(#a-store)"/>
+        <text class="edge" x="352" y="196">persisted</text>
+
+        <path class="flow" d="M730 88 H660 V140 H590" marker-end="url(#a-sync)"/>
+        <text class="edge" x="600" y="106">long-poll for work</text>
+
+        <path class="flow" d="M590 168 H660 V176 H730" marker-end="url(#a-sync)"/>
+        <text class="edge" x="600" y="192">task dispatched</text>
+
+        <path class="flow" d="M835 118 V150" marker-end="url(#a-sync)"/>
+        <text class="edge" x="842" y="140">schedules</text>
+
+        <text class="lbl2" x="730" y="228">activity result → appended to Event History</text>
+      </svg>
+    </div>
+    <figcaption><b>The five pieces, and the one idea behind them.</b> A <b>Workflow</b> is a function
+    that may run for months; Temporal records every decision it makes into an append-only
+    <b>Event History</b> in its own database. If the worker dies, Temporal replays that history into a
+    fresh worker and the function resumes at the exact line it was on — that is <i>durable execution</i>,
+    and it is the entire reason Temporal is here. The price is that workflow code must be
+    <b>deterministic</b> (replaying it must make the same decisions), so all real I/O is pushed into
+    <b>Activities</b>, which Temporal retries and records individually. The <b>Worker</b> is your own
+    process: it long-polls a named <b>Task Queue</b> and executes whichever workflow and activity code
+    it has registered. The cluster never runs your code — it only remembers and schedules.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 980 440" role="img" aria-label="How Temporal integrates with this stack. A dashed boundary on the left is the single organizations-service process, containing four parts stacked vertically: the browserrpc api adapter, the VettingService command facade, a nested dashed Temporal worker boundary holding the TransporterVettingWorkflow and the ProfileActivities, and a Projector running a durable JetStream consumer. To the right is the Temporal cluster with its frontend on port 7233 and its own separate Postgres. Further right is the NATS tenant account holding the TRANSPORTER JetStream stream drawn as a cylinder and the organizations key-value bucket. Below is the application's Postgres transporter profile projection. Arrows show: the adapter calling VettingService; VettingService starting and signalling workflows through the Temporal frontend; the worker polling the frontend for tasks; the activities appending events to the TRANSPORTER stream; the projector consuming that stream and writing both Postgres and the key-value cache.">
+        <defs>
+          <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="b-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="b-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+        </defs>
+
+        <rect class="nb" x="20" y="28" width="420" height="360" rx="4"/>
+        <text class="grp" x="36" y="46">ORGANIZATIONS-SERVICE — ONE PROCESS</text>
+
+        <rect class="n" x="44" y="60" width="372" height="46" rx="3"/>
+        <text class="lbl" x="60" y="80">browserrpc adapter</text>
+        <text class="lbl2" x="60" y="96">api.*.organizations.organization.submit-vetting.v1</text>
+
+        <rect class="n" x="44" y="122" width="372" height="52" rx="3"/>
+        <text class="lbl" x="60" y="142">worker.VettingService</text>
+        <text class="lbl2" x="60" y="158">Submit · Resubmit · SignalDocumentReview</text>
+
+        <rect class="nb" x="44" y="190" width="372" height="118" rx="4"/>
+        <text class="grp" x="60" y="208">TEMPORAL WORKER — TASK QUEUE organizations-vetting</text>
+        <rect class="n" x="60" y="220" width="168" height="48" rx="3"/>
+        <text class="lbl" x="72" y="240">Vetting +</text>
+        <text class="lbl" x="72" y="256">GitMonitor workflows</text>
+        <rect class="n" x="248" y="220" width="152" height="48" rx="3"/>
+        <text class="lbl" x="260" y="240">ProfileActivities</text>
+        <text class="lbl2" x="260" y="256">all NATS / DB I/O</text>
+        <text class="lbl2" x="60" y="292">connection resolved per invocation from input.Tenant — BR-TP58</text>
+
+        <rect class="n" x="44" y="326" width="372" height="46" rx="3"/>
+        <text class="lbl" x="60" y="346">Projector</text>
+        <text class="lbl2" x="60" y="362">durable consumer transporter-profile-projector</text>
+
+        <rect class="nb" x="500" y="28" width="190" height="140" rx="4"/>
+        <text class="grp" x="516" y="46">TEMPORAL CLUSTER</text>
+        <rect class="n" x="516" y="60" width="158" height="38" rx="3"/>
+        <text class="lbl" x="528" y="84">frontend :7233</text>
+        <rect class="n" x="516" y="112" width="158" height="42" rx="3"/>
+        <text class="lbl" x="528" y="130">Temporal Postgres</text>
+        <text class="lbl2" x="528" y="146">its own database</text>
+
+        <rect class="nb" x="740" y="28" width="220" height="210" rx="4"/>
+        <text class="grp" x="756" y="46">NATS — TENANT ACCOUNT acme</text>
+        <path class="n" d="M755 88 L755 132 A95 8 0 0 0 945 132 L945 88"/>
+        <ellipse class="n" cx="850" cy="88" rx="95" ry="8"/>
+        <text class="lbl" x="792" y="110">TRANSPORTER</text>
+        <text class="lbl2" x="768" y="126">evt.{ctx}.organizations.transporter.&gt;</text>
+        <rect class="n" x="760" y="170" width="180" height="44" rx="3"/>
+        <text class="lbl" x="772" y="190">KV organizations</text>
+        <text class="lbl2" x="772" y="206">read cache</text>
+
+        <rect class="n" x="500" y="330" width="380" height="48" rx="3"/>
+        <text class="lbl" x="516" y="350">Postgres — application</text>
+        <text class="lbl2" x="516" y="366">organizations.transporter_profiles projection</text>
+
+        <path class="flow" d="M230 106 V122" marker-end="url(#b-sync)"/>
+        <path class="flow" d="M416 146 H470 V78 H516" marker-end="url(#b-sync)"/>
+        <path class="flow" d="M516 90 H490 V240 H400" marker-end="url(#b-sync)"/>
+        <text class="edge" x="512" y="192">start / signal &#8594; Temporal</text>
+        <text class="edge" x="512" y="208">&#8592; task polled &amp; dispatched</text>
+        <path class="proj" d="M400 258 H706 V88 H755" marker-end="url(#b-store)"/>
+        <text class="edge" x="452" y="250">activity appends event (JetStream PubAck)</text>
+        <path class="rep" d="M755 118 H730 V300 H440 V338 H416" marker-end="url(#b-evtl)"/>
+        <text class="edge" x="452" y="292">projector consumes the stream</text>
+        <path class="proj" d="M416 360 H470 V354 H500" marker-end="url(#b-store)"/>
+        <path class="proj" d="M416 372 V404 H910 V214" marker-end="url(#b-store)"/>
+        <text class="edge" x="620" y="422">projector writes both read models</text>
+      </svg>
+    </div>
+    <figcaption><b>Temporal orchestrates; NATS still owns the truth.</b> Nothing about the domain moved
+    into Temporal. The transporter profile is still event-sourced on the <code>TRANSPORTER</code>
+    JetStream stream, still projected into Postgres and the <code>organizations</code> KV cache by the
+    same projector as before. What Temporal contributes is the <i>in-flight</i> state of a vetting
+    attempt — which documents are still awaiting review, whether the goods-in-transit cover check has come back — which
+    is genuinely awkward to keep in an event log, because it is a coordination concern rather than a
+    domain fact. Note the two databases are deliberately separate: Temporal's Postgres
+    (<code>lb-temporal-postgres</code>) holds workflow histories and never touches
+    <code>organizations.*</code>. The worker runs <i>inside</i> <code>organizations-service</code> —
+    it is a goroutine set started by <code>MountVetting</code>, not a separate deployment.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 980 480" role="img" aria-label="Sequence diagram of one vetting attempt across six lifelines: the operator's browser, the VettingService command layer, the Temporal server, the vetting workflow code, the ProfileActivities code, and the TRANSPORTER JetStream stream. A dashed boundary groups the workflow and activity lifelines as the worker, which is your own code polling the task queue. The operator submits a transporter; VettingService calls StartWorkflow on the Temporal server and returns immediately, never reaching the workflow code. The Temporal server dispatches a workflow task; the workflow code answers with a command to run the AppendProfileEvent activity; the server dispatches that activity task; the activity publishes the event to JetStream and reports its result back to the server, which appends it to the run history. The workflow then commands a goods-in-transit insurance verification to run in parallel. When a reviewer approves a document the operator signals the Temporal server, which delivers the signal to the workflow so it resumes where it blocked. Finally the workflow commands the vetted events to be appended and a ScheduleGitMonitor activity that hands a five-minute repeat to the cluster. Every arrow between the command layer, the workflow and the activities passes through the Temporal server.">
+        <defs>
+          <marker id="c-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="c-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+        </defs>
+
+        <text class="grp" x="500" y="18">WORKER — YOUR CODE, POLLING THE TASK QUEUE organizations-vetting</text>
+        <rect class="nb" x="495" y="26" width="320" height="64" rx="4"/>
+
+        <rect class="n" x="10" y="36" width="130" height="44" rx="3"/>
+        <text class="lbl" x="22" y="56">Operator</text>
+        <text class="lbl2" x="22" y="72">browser UI</text>
+        <rect class="n" x="165" y="36" width="130" height="44" rx="3"/>
+        <text class="lbl" x="177" y="56">VettingService</text>
+        <text class="lbl2" x="177" y="72">your command layer</text>
+        <rect class="n" x="335" y="36" width="130" height="44" rx="3"/>
+        <text class="lbl" x="347" y="56">TEMPORAL</text>
+        <text class="lbl" x="347" y="72">SERVER</text>
+        <rect class="n" x="505" y="36" width="130" height="44" rx="3"/>
+        <text class="lbl" x="517" y="56">Vetting</text>
+        <text class="lbl" x="517" y="72">workflow</text>
+        <rect class="n" x="675" y="36" width="130" height="44" rx="3"/>
+        <text class="lbl" x="687" y="56">Profile</text>
+        <text class="lbl" x="687" y="72">Activities</text>
+        <rect class="n" x="840" y="36" width="130" height="44" rx="3"/>
+        <text class="lbl" x="852" y="56">JetStream</text>
+        <text class="lbl2" x="852" y="72">TRANSPORTER</text>
+
+        <path class="ll" d="M75 92 V464"/>
+        <path class="ll" d="M230 92 V464"/>
+        <path class="ll" d="M400 92 V464"/>
+        <path class="ll" d="M570 92 V464"/>
+        <path class="ll" d="M740 92 V464"/>
+        <path class="ll" d="M905 92 V464"/>
+
+        <text class="edge" x="81" y="116">operator submits a transporter for vetting</text>
+        <path class="flow" d="M75 126 H230" marker-end="url(#c-sync)"/>
+
+        <text class="edge" x="236" y="152">StartWorkflow(id = &lt;ctx&gt;-transporter-vetting-&lt;org&gt;)</text>
+        <path class="flow" d="M230 162 H400" marker-end="url(#c-sync)"/>
+        <text class="lbl2" x="236" y="178">the call returns here — it never reaches your workflow code</text>
+
+        <text class="edge" x="406" y="204">dispatches a workflow task</text>
+        <path class="flow" d="M400 214 H570" marker-end="url(#c-sync)"/>
+
+        <text class="edge" x="406" y="238">&#8592; &quot;run AppendProfileEvent(vetting-started)&quot;</text>
+        <path class="flow" d="M570 248 H400" marker-end="url(#c-sync)"/>
+
+        <text class="edge" x="406" y="272">dispatches an activity task</text>
+        <path class="flow" d="M400 282 H740" marker-end="url(#c-sync)"/>
+
+        <text class="edge" x="746" y="306">publish · dedup message-id</text>
+        <path class="proj" d="M740 316 H905" marker-end="url(#c-store)"/>
+
+        <text class="edge" x="406" y="340">&#8592; activity result, appended to this run&#39;s history</text>
+        <path class="flow" d="M740 350 H400" marker-end="url(#c-sync)"/>
+
+        <text class="edge" x="406" y="374">&#8592; &quot;run RequestGitVerification&quot; — goods-in-transit cover, in parallel</text>
+        <path class="flow" d="M570 384 H400" marker-end="url(#c-sync)"/>
+
+        <text class="edge" x="81" y="408">reviewer approves a document &#8594; SignalWorkflow(DocumentReview) · BR-TP57</text>
+        <path class="flow" d="M75 418 H400" marker-end="url(#c-sync)"/>
+
+        <text class="edge" x="406" y="442">delivers the signal — the workflow resumes exactly where it blocked</text>
+        <path class="flow" d="M400 452 H570" marker-end="url(#c-sync)"/>
+      </svg>
+    </div>
+    <figcaption><b>Where Temporal actually sits: in the middle of every arrow.</b> This is the answer to
+    &quot;where does it go&quot; — <code>VettingService</code>, the vetting workflow and
+    <code>ProfileActivities</code> are all your own Go code in one process, and <b>none of them ever calls
+    another directly</b>. <code>VettingService</code> is the thin command layer the API adapter calls
+    (<code>Submit</code>, <code>Resubmit</code>, <code>SignalDocumentReview</code>); it hands a request to
+    the Temporal server and returns at once. <code>ProfileActivities</code> is the bag of I/O functions —
+    append an event to JetStream, ask the insurer whether goods-in-transit cover is valid, suspend an
+    organization. The <b>workflow</b> in between never performs I/O itself; it returns <i>commands</i> to
+    the server saying which activity to run next, and the server records each one before dispatching it.
+    That indirection is what buys durability: the server holds the whole conversation, so a worker that
+    dies mid-attempt is replaced by one that replays it. Continuing past the last arrow: the workflow
+    appends <code>document-approved</code>, then <code>git-verified</code> and <code>vetted</code> once
+    the cover check returns, then runs <code>ScheduleGitMonitor</code> (BR-TP28) — after which the
+    <i>cluster</i> owns a five-minute repeat that outlives the attempt entirely.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 980 400" role="img" aria-label="Two views side by side. On the left, the transporter vetting state machine: AwaitingDocumentation moves on submit to DocumentsInReview; from there, all documents approved plus verified goods-in-transit cover reaches Vetted with the fleet availability gate open, while a rejected document or invalid cover reaches Rejected; Rejected returns to DocumentsInReview on resubmit; and Vetted moves to FleetAvailabilityRevoked and a suspended organization when cover lapses, detected by the five-minute monitor. On the right, a dashed panel titled what Temporal actually stores for one run lists the numbered event history rows: workflow execution started, activity task completed, activity task scheduled, workflow execution signalled, and so on. A note states that current state equals a replay of that history and that no row anywhere stores the words DocumentsInReview.">
+        <defs>
+          <marker id="d-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="d-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--bad)"/></marker>
+          <marker id="d-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+        </defs>
+
+        <text class="grp" x="30" y="34">THE MACHINE — WRITTEN AS ORDINARY GO, NOT A CONFIG FILE</text>
+
+        <rect class="n" x="30" y="70" width="190" height="44" rx="3"/>
+        <text class="lbl" x="44" y="97">AwaitingDocumentation</text>
+
+        <rect class="n" x="30" y="170" width="190" height="44" rx="3"/>
+        <text class="lbl" x="44" y="197">DocumentsInReview</text>
+
+        <rect class="n" x="30" y="280" width="190" height="48" rx="3"/>
+        <text class="lbl" x="44" y="302">Vetted</text>
+        <text class="lbl2" x="44" y="318">availability gate open</text>
+
+        <rect class="n" x="290" y="170" width="180" height="44" rx="3"/>
+        <text class="lbl" x="304" y="197">Rejected</text>
+
+        <rect class="n" x="290" y="280" width="200" height="48" rx="3"/>
+        <text class="lbl" x="304" y="302">FleetAvailability</text>
+        <text class="lbl" x="304" y="318">Revoked &#8594; SUSPENDED</text>
+
+        <path class="flow" d="M125 114 V170" marker-end="url(#d-sync)"/>
+        <text class="edge" x="132" y="146">submit · BR-TP56</text>
+
+        <path class="flow" d="M125 214 V280" marker-end="url(#d-sync)"/>
+        <text class="edge" x="132" y="242">every document approved</text>
+        <text class="edge" x="132" y="258">+ cover verified</text>
+
+        <path class="err" d="M220 186 H290" marker-end="url(#d-bad)"/>
+        <text class="edge" x="240" y="152">a document rejected,</text>
+        <text class="edge" x="240" y="166">or no valid cover</text>
+
+        <path class="flow" d="M290 202 H220" marker-end="url(#d-sync)"/>
+        <text class="edge" x="240" y="230">resubmit · BR-TP26</text>
+
+        <path class="rep" d="M220 304 H290" marker-end="url(#d-evtl)"/>
+        <text class="edge" x="250" y="272">cover lapses — monitor, 5m</text>
+
+        <rect class="nb" x="560" y="40" width="400" height="300" rx="4"/>
+        <text class="grp" x="576" y="62">WHAT TEMPORAL ACTUALLY STORES FOR ONE RUN</text>
+        <text class="lbl2" x="576" y="92">1  WorkflowExecutionStarted</text>
+        <text class="lbl2" x="576" y="110">2  ActivityTaskCompleted · AppendProfileEvent(vetting-started)</text>
+        <text class="lbl2" x="576" y="128">3  ActivityTaskScheduled · RequestGitVerification</text>
+        <text class="lbl2" x="576" y="146">4  WorkflowExecutionSignaled · DocumentReview{doc-a, approved}</text>
+        <text class="lbl2" x="576" y="164">5  ActivityTaskCompleted · AppendProfileEvent(document-approved)</text>
+        <text class="lbl2" x="576" y="182">6  WorkflowExecutionSignaled · DocumentReview{doc-b, approved}</text>
+        <text class="lbl2" x="576" y="200">7  ActivityTaskCompleted · AppendProfileEvent(document-approved)</text>
+        <text class="lbl2" x="576" y="218">8  ActivityTaskCompleted · RequestGitVerification</text>
+        <text class="lbl2" x="576" y="236">9  ActivityTaskCompleted · AppendProfileEvent(vetted)</text>
+        <text class="lbl2" x="576" y="254">…</text>
+        <path class="nb" d="M576 274 H944"/>
+        <text class="lbl" x="576" y="298">current state = replay(this history)</text>
+        <text class="lbl2" x="576" y="318">no row anywhere stores the word &quot;DocumentsInReview&quot;</text>
+
+        <path class="rep" d="M560 130 H500" marker-end="url(#d-evtl)"/>
+        <text class="edge" x="556" y="118" text-anchor="end">derived, never stored</text>
+      </svg>
+    </div>
+    <figcaption><b>Yes — with one important correction.</b> Treating a Temporal workflow as a state machine
+    is a good mental model: it has states, guarded transitions, and terminal states, and the left panel is
+    that machine. Two things differ from a state machine you might configure declaratively. First,
+    <b>the machine is the program</b> — transitions are ordinary <code>if</code>/<code>for</code>/channel
+    code in <code>TransporterVettingWorkflow</code>, not rows in a table, so the state set is not
+    enumerable up front and cannot be re-configured at runtime. Second, and more usefully,
+    <b>the current state is never stored — it is re-derived</b>. Temporal persists only the numbered
+    history on the right; &quot;we are in DocumentsInReview waiting on doc-b&quot; exists solely as the
+    position of the program counter after replaying those rows. That is the same relationship this repo
+    already has between the <code>TRANSPORTER</code> JetStream stream and the Postgres projection —
+    log is truth, state is a projection of it — applied one level up, to the orchestration itself.
+    &quot;Dynamically configured&quot; is the part to be careful with: what is dynamic is the
+    <i>instance</i> (each run carries its own required document set and tenant), not the machine.</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>Vocabulary, and where each piece lives in this repo</h2>
+    <table>
+      <tr><th>Temporal term</th><th>What it means</th><th>Here</th></tr>
+      <tr><td><b>Workflow</b></td><td>A durable, deterministic function that can wait for months.</td><td><code>TransporterVettingWorkflow</code>, <code>TransporterGitMonitorWorkflow</code></td></tr>
+      <tr><td><b>Activity</b></td><td>A single unit of real I/O, retried and recorded independently.</td><td><code>AppendProfileEvent</code>, <code>RequestGitVerification</code>, <code>HandleGitStatusDrop</code>, <code>ScheduleGitMonitor</code></td></tr>
+      <tr><td><b>Worker</b></td><td>Your process that polls a task queue and runs the registered code.</td><td>Started by <code>MountVetting</code> inside <code>organizations-service</code></td></tr>
+      <tr><td><b>Task&nbsp;queue</b></td><td>The named channel a worker polls; how the cluster finds your code.</td><td><code>organizations-vetting</code> — one queue for every tenant</td></tr>
+      <tr><td><b>Signal</b></td><td>An external message delivered into a running workflow.</td><td><code>DocumentReview</code> — one per compliance-document verdict</td></tr>
+      <tr><td><b>Workflow&nbsp;ID</b></td><td>The caller-chosen identity of one execution.</td><td><code>&lt;context&gt;-transporter-vetting-&lt;organizationID&gt;</code></td></tr>
+      <tr><td><b>Schedule</b></td><td>A recurring workflow execution owned by the cluster.</td><td><code>&lt;tenant&gt;-transporter-git-monitor-&lt;id&gt;</code>, every 5m</td></tr>
+    </table>
+  </section>
+
+  <section class="sec">
+    <h2>What the integration forced us to get right</h2>
+    <ul>
+      <li><b>One task queue serves every tenant, so activities must resolve their own connection.</b>
+      An activity that captured a NATS connection at construction would publish one tenant's events over
+      another tenant's account. <code>Tenant</code> therefore travels on every workflow input and
+      <code>ProfileActivities</code> calls <code>tenants.Manager.ProfileEvents(tenant)</code> per
+      invocation — BR-TP58. A tenant this service holds no credential for writes nothing rather than
+      falling back.</li>
+      <li><b>A Schedule has no caller to inherit context from.</b> The goods-in-transit monitor fires months after the
+      vetting attempt that created it, so its <code>Tenant</code> has to be baked into the schedule's own
+      arguments. Leaving it out is exactly how the first live monitor run failed, with
+      <i>"tenant is not connected"</i>; the spec now asserts the schedule action's arguments, not only
+      the workflow input.</li>
+      <li><b>Retries need the append to be idempotent.</b> Temporal will re-run an activity whose result it
+      never saw. <code>AppendProfileEvent</code> publishes with a stable message ID
+      (<code>&lt;org&gt;:&lt;type&gt;:&lt;attempt&gt;:&lt;step&gt;</code>) so JetStream's duplicate window
+      returns the original PubAck instead of creating a second domain transition.</li>
+      <li><b>Determinism reaches back into the inputs.</b> The required document references are sorted
+      before the workflow starts: Temporal replays the input, and a set that reordered between runs
+      would be pointless history churn.</li>
+      <li><b>Resubmission reuses the workflow ID.</b> <code>WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE</code>
+      plus an empty run ID on the signal means a reviewer's verdict always reaches the live attempt
+      without anyone tracking run IDs — and it is why <code>Submit</code> routes a <code>Rejected</code>
+      profile into <code>Resubmit</code> rather than starting a second workflow.</li>
+      <li><b>The workflow is the only thing that knows it just reached Vetted</b>, which is why it creates
+      the goods-in-transit monitor schedule itself rather than a projection watching for <code>vetted</code>. Creating a
+      schedule that already exists is treated as success, since a resubmitted attempt vets again under the
+      same identity.</li>
+    </ul>
+  </section>
+
+  <section class="sec">
+    <h2>Why not just NATS?</h2>
+    <ul>
+      <li><b>JetStream remembers what happened; Temporal remembers what is still owed.</b> Reconstructing
+      "two of three documents approved, insurance check outstanding, waiting" from the event log on every
+      restart is possible but is a bespoke state machine — and Phase 38 already proved the cost of writing
+      such logic twice, when the projector and the aggregate's own <code>Apply()</code> disagreed about a
+      resubmit's status.</li>
+      <li><b>Timers and retries are the part you don't want to hand-roll.</b> A five-minute recurring goods-in-transit
+      cover check, an activity retry policy, and a compensating branch on failure are one-liners here; on raw
+      NATS they are a scheduler, a dedup table and a dead-letter policy you own forever.</li>
+      <li><b>The boundary held.</b> Temporal never became a data store: no query in this service reads from
+      it, and if Temporal were removed the transporter profile would still be fully reconstructable from
+      the <code>TRANSPORTER</code> stream alone. That was the design constraint, and it is worth
+      re-checking on any future workflow.</li>
+    </ul>
+  </section>
+</div>

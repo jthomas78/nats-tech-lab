@@ -67,7 +67,7 @@ li b { color: var(--text); font-weight: 600; }
         Scope: this demo's own POC stack only (<code>demos/01-dictionary</code>).
         Everything in <span style="color:var(--new)">amber</span> is new in Phase 38 —
         the <code>TransporterProfile</code> aggregate, Temporal, and NATS Object Store.
-        Everything in grey (<code>TradingPartner</code>, Postgres, the NATS core, the frontend)
+        Everything in grey (<code>Organization</code>, Postgres, the NATS core, the frontend)
         already exists today (Phase 26) and is structurally unchanged, aside from one
         additive schema widening and one new command noted below.
       </p>
@@ -76,7 +76,7 @@ li b { color: var(--text); font-weight: 600; }
 
   <figure>
     <div class="fig-body">
-      <svg viewBox="0 0 1024 760" role="img" aria-label="System diagram of trading-partner-service after Phase 38. The existing TradingPartner aggregate keeps its plain Postgres CRUD lifecycle (Registered, Active, Suspended) unchanged, plus one additive change: a new partner-update command and a widened compliance_documents primary key. A new sibling domain package, TransporterProfile, is event-sourced: its commands publish to a new JetStream stream TRANSPORTER using Nats-Expected-Last-Subject-Sequence-Subject for optimistic concurrency, a JetStream event handler projects into both a new Postgres table and a KV cache bucket organizations following the existing Shape B write-through pattern, and every publish runs inside a Temporal Activity for determinism and Nats-Msg-Id dedup. A new Temporal server, shown as a new box in the compose stack, orchestrates two workflows: TransporterVettingWorkflow, a saga with a Documents branch and a GIT Verification branch running in parallel and joining at ActivateFleetAssets, calling a mock insurer stub activity; and TransporterGitMonitorWorkflow, a cron workflow that watches GIT certificate expiry over time. A cross-aggregate Activate guard sits at the orchestration boundary between the two aggregates: it reads TransporterProfile's Postgres projection, not its KV cache and not Temporal state directly, before allowing TradingPartner.Activate() to proceed for a Transporter-typed partner; for Shipper-typed partners this guard is skipped entirely. A new NATS Object Store bucket organizations-docs holds compliance document bytes, tenant-scoped by NATS account the same way KV buckets are, written after its JetStream event per a blob-then-event ordering rule, and reached only through a new dedicated HTTP upload and download endpoint on the service since the existing transport is NATS micro request-reply JSON only. The existing refdata frontend Organizations screens talk to trading-partner-service over the existing rpc.* and api.* subjects for everything except document bytes, which go over the new HTTP endpoint." aria-hidden="false">
+      <svg viewBox="0 0 1024 760" role="img" aria-label="System diagram of organizations-service after Phase 38. The existing Organization aggregate keeps its plain Postgres CRUD lifecycle (Registered, Active, Suspended) unchanged, plus one additive change: a new partner-update command and a widened compliance_documents primary key. A new sibling domain package, TransporterProfile, is event-sourced: its commands publish to a new JetStream stream TRANSPORTER using Nats-Expected-Last-Subject-Sequence-Subject for optimistic concurrency, a JetStream event handler projects into both a new Postgres table and a KV cache bucket organizations following the existing Shape B write-through pattern, and every publish runs inside a Temporal Activity for determinism and Nats-Msg-Id dedup. A new Temporal server, shown as a new box in the compose stack, orchestrates two workflows: TransporterVettingWorkflow, a saga with a Documents branch and a GIT Verification branch running in parallel and joining at ActivateFleetAssets, calling a mock insurer stub activity; and TransporterGitMonitorWorkflow, a cron workflow that watches GIT certificate expiry over time. A cross-aggregate Activate guard sits at the orchestration boundary between the two aggregates: it reads TransporterProfile's Postgres projection, not its KV cache and not Temporal state directly, before allowing Organization.Activate() to proceed for a Transporter-typed partner; for Shipper-typed partners this guard is skipped entirely. A new NATS Object Store bucket ORGANISATION_DOCS holds compliance document bytes, tenant-scoped by NATS account the same way KV buckets are, written after its JetStream event per a blob-then-event ordering rule, and reached only through a new dedicated HTTP upload and download endpoint on the service since the existing transport is NATS micro request-reply JSON only. The existing refdata frontend Organizations screens talk to organizations-service over the existing rpc.* and api.* subjects for everything except document bytes, which go over the new HTTP endpoint." aria-hidden="false">
         <defs>
           <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
           <marker id="a-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
@@ -89,9 +89,9 @@ li b { color: var(--text); font-weight: 600; }
         <text class="lbl" x="26" y="36">refdata-frontend</text>
         <text class="lbl2" x="26" y="50">Organizations screens</text>
 
-        <!-- trading-partner-service boundary -->
+        <!-- organizations-service boundary -->
         <rect class="nb" x="16" y="90" width="992" height="654" rx="4"/>
-        <text class="grp" x="30" y="108">TRADING-PARTNER-SERVICE (same container — no new microservice)</text>
+        <text class="grp" x="30" y="108">ORGANIZATIONS-SERVICE (same container — no new microservice)</text>
 
         <!-- api / rpc ingress -->
         <rect class="n" x="30" y="122" width="200" height="40" rx="3"/>
@@ -109,10 +109,10 @@ li b { color: var(--text); font-weight: 600; }
         <text class="lbl2" x="500" y="153">TRANSPORTER: reads TransporterProfile</text>
         <text class="lbl2" x="500" y="165">Postgres status before Activate()</text>
 
-        <!-- TradingPartner aggregate box -->
+        <!-- Organization aggregate box -->
         <rect class="n" x="30" y="196" width="440" height="150" rx="3"/>
-        <text class="grp" x="42" y="214">TRADINGPARTNER (Phase 26 — unchanged lifecycle)</text>
-        <text class="lbl" x="42" y="236">TradingPartner aggregate</text>
+        <text class="grp" x="42" y="214">ORGANIZATIONS (Phase 26 — unchanged lifecycle)</text>
+        <text class="lbl" x="42" y="236">Organization aggregate</text>
         <text class="lbl2" x="42" y="250">Registered → Active ⇄ Suspended</text>
         <text class="lbl2" x="42" y="263">Type: SHIPPER | TRANSPORTER</text>
         <rect class="nn" x="42" y="272" width="185" height="34" rx="3"/>
@@ -125,13 +125,13 @@ li b { color: var(--text); font-weight: 600; }
 
         <!-- Postgres (existing) -->
         <rect class="n" x="30" y="370" width="200" height="40" rx="3"/>
-        <text class="lbl" x="40" y="388">trading-partner-postgres</text>
-        <text class="lbl2" x="40" y="401">trading_partner schema</text>
+        <text class="lbl" x="40" y="388">organizations-postgres</text>
+        <text class="lbl2" x="40" y="401">organizations schema</text>
 
         <!-- TransporterProfile aggregate box (new) -->
         <rect class="nnb" x="490" y="196" width="500" height="330" rx="4"/>
         <text class="lbln" x="502" y="214">NEW: TRANSPORTERPROFILE — event-sourced sibling package</text>
-        <text class="lbl2" x="502" y="228">keyed by same ID as TradingPartner — no surrogate, no join table</text>
+        <text class="lbl2" x="502" y="228">keyed by same ID as Organization — no surrogate, no join table</text>
 
         <rect class="nn" x="502" y="240" width="220" height="46" rx="3"/>
         <text class="lbln" x="512" y="258">Commands</text>
@@ -169,7 +169,7 @@ li b { color: var(--text); font-weight: 600; }
         <path class="nn" d="M760 340 L760 400 A140 10 0 0 0 900 400 L900 340"/>
         <ellipse class="nn" cx="830" cy="340" rx="70" ry="10"/>
         <text class="lbln" x="800" y="362" text-anchor="middle">Object Store</text>
-        <text class="lbl2" x="800" y="375" text-anchor="middle">bucket: organizations-docs</text>
+        <text class="lbl2" x="800" y="375" text-anchor="middle">bucket: ORGANISATION_DOCS</text>
         <text class="lbl2" x="800" y="387" text-anchor="middle">{ctx}.transporter.{id}.</text>
         <text class="lbl2" x="800" y="398" text-anchor="middle">{docType}.{documentID}</text>
 
@@ -236,12 +236,12 @@ li b { color: var(--text); font-weight: 600; }
         <rect class="nn" x="180" y="686" width="140" height="30" rx="3"/>
         <text class="lbln" x="190" y="705">temporal-ui</text>
         <rect class="n" x="330" y="686" width="160" height="30" rx="3"/>
-        <text class="lbl" x="340" y="705">trading-partner-service</text>
+        <text class="lbl" x="340" y="705">organizations-service</text>
         <text class="lbl2" x="510" y="704">(existing container, new package inside)</text>
       </svg>
     </div>
     <figcaption>
-      <b>After Phase 38.</b> <code>TradingPartner</code> (grey) keeps its Phase 26 plain-CRUD
+      <b>After Phase 38.</b> <code>Organization</code> (grey) keeps its Phase 26 plain-CRUD
       lifecycle byte-for-byte, with two additive exceptions: a new <code>partner-update</code>
       command (Company Information becomes editable) and a widened
       <code>compliance_documents</code> primary key (<code>(partner_id, id)</code> instead of
@@ -272,8 +272,8 @@ li b { color: var(--text); font-weight: 600; }
   <section class="sec">
     <h2>Reading the diagram</h2>
     <ul>
-      <li><b>No new microservice.</b> <code>TransporterProfile</code>, Temporal orchestration, and the Object Store client all live inside the existing <code>trading-partner-service</code> container as a sibling domain package — a deliberate scope-control decision (ADR-046), not an oversight.</li>
-      <li><b>Two genuinely different consistency models sit side by side.</b> <code>TradingPartner</code> stays plain Postgres CRUD with row-level locking (<code>SELECT ... FOR UPDATE</code>); <code>TransporterProfile</code> is event-sourced with optimistic concurrency via <code>Nats-Expected-Last-Subject-Sequence-Subject</code> (ADR-049). The Activate guard is the one place these two models meet.</li>
+      <li><b>No new microservice.</b> <code>TransporterProfile</code>, Temporal orchestration, and the Object Store client all live inside the existing <code>organizations-service</code> container as a sibling domain package — a deliberate scope-control decision (ADR-046), not an oversight.</li>
+      <li><b>Two genuinely different consistency models sit side by side.</b> <code>Organization</code> stays plain Postgres CRUD with row-level locking (<code>SELECT ... FOR UPDATE</code>); <code>TransporterProfile</code> is event-sourced with optimistic concurrency via <code>Nats-Expected-Last-Subject-Sequence-Subject</code> (ADR-049). The Activate guard is the one place these two models meet.</li>
       <li><b>Temporal's own workflow history and the JetStream event log are two separate durable logs describing the same saga.</b> Every publish the workflow triggers goes through a Temporal Activity carrying <code>Nats-Msg-Id</code>, so an Activity retry after a crash never produces a duplicate event (ADR-047).</li>
       <li><b>Document bytes force a new ingress.</b> Phase 33.5 removed every REST route from this service; Phase 38c has to reintroduce one dedicated HTTP endpoint purely to proxy Object Store bytes, since NATS <code>micro</code> JSON request/reply can't stream and has no presigned-URL equivalent (ADR-048).</li>
       <li><b>Compensation is additive, never a rewrite.</b> If GIT verification fails after documents were already approved, the workflow appends new events (<code>DocumentApprovalReverted</code>, <code>FleetAvailabilityRevoked</code>) rather than erasing the approval — the event log has to keep showing what was actually checked and when.</li>

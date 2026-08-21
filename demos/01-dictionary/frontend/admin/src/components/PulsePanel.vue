@@ -595,11 +595,11 @@ const pulse = computed(() => {
   stroke: #2fbf71;
 }
 @media (prefers-reduced-motion: no-preference) {
+  /* The reply paths are already authored right-to-left (service → client),
+     so the dashes march the right way with the default direction — reversing
+     the animation here would double-negate it and send them back left-to-right. */
   .flow-path {
     animation: pulse-flow 1.1s linear infinite;
-  }
-  .flow-rep {
-    animation-direction: reverse;
   }
 }
 @keyframes pulse-flow {

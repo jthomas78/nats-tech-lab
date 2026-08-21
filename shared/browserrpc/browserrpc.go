@@ -1,7 +1,7 @@
 // Package browserrpc is the shared infra tail for every service's api.*
 // frontend-to-service adapter — extracted in Phase 35 from four
 // near-identical copies (shipping-service, pricing-service,
-// trading-partner-service, refdata-service's own internal/browserrpc
+// organizations-service, refdata-service's own internal/browserrpc
 // packages). What's shared is purely mechanical NATS/JSON plumbing:
 // pulling {context} off an api.* subject, marshaling a reply, finishing the
 // natstrace span, and stamping the Nats-Responder header micro.Request's
@@ -164,7 +164,7 @@ func Reply(req micro.Request, svc micro.Service, log *slog.Logger, isNotFound fu
 // conflict", so this is behaviour-identical to Reply for callers that don't
 // classify — which is why Reply can delegate here rather than duplicating.
 //
-// Added for trading-partner-service's BR-TP34 optimistic-concurrency rule.
+// Added for organizations-service's BR-TP34 optimistic-concurrency rule.
 // Other services carry 409 rules of their own (accounts-service, refdata-
 // service) that still map to 500 over api.* since Phase 33.5 retired the REST
 // layer those codes came from; they can adopt this the same way.

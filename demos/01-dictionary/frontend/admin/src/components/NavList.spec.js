@@ -14,7 +14,7 @@ const GROUPED = [
     group: 'Platform',
     sections: [
       { items: [{ key: 'accounts', label: 'Accounts' }] },
-      { eyebrow: 'Trading partners', items: [{ key: 'shippers', label: 'Shippers' }] },
+      { eyebrow: 'Organizations', items: [{ key: 'shippers', label: 'Shippers' }] },
     ],
   },
   {

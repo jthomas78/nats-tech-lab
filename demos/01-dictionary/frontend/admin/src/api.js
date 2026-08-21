@@ -1,8 +1,8 @@
 // Thin client over the demo backend. Most of this file is REST — relative
 // paths so the vite dev proxy (dev) or nginx (docker) routes them to the
 // backend. The ship/container/port/meta functions below and the
-// trading-partner functions further down are the exceptions: Phase 26h moved
-// trading-partner calls onto NATS api.* subjects, and Phase 33.8 did the same
+// organizations functions further down are the exceptions: Phase 26h moved
+// organizations calls onto NATS api.* subjects, and Phase 33.8 did the same
 // for shipping-service's ship/container/port/meta business calls once its
 // REST routes were retired (Phase 33, BR-039) — shipTerminal/getTerminal's
 // Terminal.ListByPort query has no api.* equivalent (browserrpc/adapter.go
@@ -30,7 +30,7 @@ async function request(path, options = {}) {
 // shippingSubject builds one shipping-service api.* subject
 // (api.{context}.shipping.{entity}.{action}.v1 — browserrpc/adapter.go),
 // failing loudly if context isn't a legal single subject token. Mirrors
-// tpSubject below for trading-partner-service.
+// tpSubject below for organizations-service.
 function shippingSubject(context, entity, action) {
   if (!context || /[.\s*>]/.test(context)) {
     throw new Error(`invalid context for a NATS subject token: ${JSON.stringify(context)}`)

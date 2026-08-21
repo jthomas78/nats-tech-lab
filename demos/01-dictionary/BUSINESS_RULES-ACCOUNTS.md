@@ -224,7 +224,7 @@ tests migrated with it (`accounts-service/auth/*_test.go`), now reusing
   > attaches its `Traceparent` header to the `notify.accounts.*` publish —
   > this is what lets a trace initiated by an Admin UI create/suspend/
   > reactivate/jslimits-update action continue into the reactive-provisioning
-  > work it causes on shipping-service's (and pricing-/trading-partner-
+  > work it causes on shipping-service's (and pricing-/organizations-
   > service's) side. Also, per BR-AC30, this happens on the PLATFORM
   > (`NotifyNC`) connection — the same one already required for the notify
   > itself — never a tenant connection.
@@ -998,7 +998,7 @@ same `nats.go/micro` control protocol `nats micro stats` uses, and what
 `observability-service`'s Services panel (Phase 30f) broadcasts to find
 every registered service — stops dead at the account boundary exactly the
 way distributed tracing did before BR-AC30: a tenant account's own
-registered services (shipping/pricing/trading-partner's `browserrpc`
+registered services (shipping/pricing/organizations's `browserrpc`
 adapters) are invisible to a PLATFORM-only connection unless the tenant
 explicitly exports its `$SRV.>` control subjects and PLATFORM imports them.
 Every tenant account JWT minted by `CreateAccount` therefore gains a

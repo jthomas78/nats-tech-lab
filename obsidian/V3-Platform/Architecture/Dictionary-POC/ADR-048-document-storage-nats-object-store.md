@@ -10,7 +10,7 @@
 Phase 38 (sub-phase 38c) needs real document blobs behind
 `ComplianceDocument.Reference`, which today is metadata-only and says so
 explicitly in the code:
-`trading-partner-service/tradingpartner/internal/domain/compliance_document.go:55-68`
+`organizations-service/organizations/internal/domain/compliance_document.go:55-68`
 — *"Storage is metadata-only in v1: Reference is an opaque external
 locator, no file bytes are held here."* Validation is non-emptiness only.
 Linebooker V2's real backend is Google Cloud Storage
@@ -117,11 +117,11 @@ sourcing in the first place.
 **(c) It collides with the GIT-status design — and with the existing schema.**
 The design derives `GitStatus` as V2 does: the *worst* status across the
 transporter's `GOODS_IN_TRANSIT` documents, **plural**. But
-`compliance_documents`' primary key today is `(trading_partner_id, type)`
-(`trading-partner-service/tradingpartner/internal/postgres/migrate.go:45`),
+`compliance_documents`' primary key today is `(organization_id, type)`
+(`organizations-service/organizations/internal/postgres/migrate.go:45`),
 so the existing schema physically permits **one document per type** and
 `document-add` is an upsert. Multi-document GIT derivation is therefore not
-implementable without a `tradingpartner` schema change — which ADR-046
+implementable without a `organizations` schema change — which ADR-046
 promised there would be none of (see ADR-049 finding 5, where the same
 promise breaks for a second, independent reason). Either the PK gains a
 document ID, or GIT derivation degenerates to "the one GIT document," which
@@ -184,10 +184,10 @@ security posture and consistent with the repo's "browser never gets
 `rpc.>`" rule. **But the service has no binary-capable ingress at all**, and
 the design doesn't note it:
 
-- `trading-partner-service`'s entire command surface is NATS `micro`
+- `organizations-service`'s entire command surface is NATS `micro`
   request/reply (`internal/browserrpc/adapter.go:151-165`, fourteen
   handlers, JSON bodies), and REST was deliberately retired — *"Phase 33.5
-  retired the REST half: … all fourteen /api/trading-partners/* routes were
+  retired the REST half: … all fourteen /api/organizations/* routes were
   deleted outright"* (`internal/rest/handlers.go`), which now serves only
   `GET /healthz`.
 - `micro` request/reply is not a streaming transport and is bounded by the
@@ -267,7 +267,7 @@ receive bytes") into explicit, budgeted work items.
   a stream-budget check against `MaxStreams: 10`.
 - The Documents data-section row and the GIT-status derivation are coupled
   through finding 2c: multi-document GIT status needs a `compliance_documents`
-  PK change, which is a `tradingpartner` schema change ADR-046 said would not
+  PK change, which is a `organizations` schema change ADR-046 said would not
   be needed.
 - Two independent findings (this ADR's 2b, ADR-047's 2) now say the same
   thing at different layers: **an append-only log must never end up
@@ -303,7 +303,7 @@ receive bytes") into explicit, budgeted work items.
        metadata + the projection. Verify current object-name character rules
        — finding 2a/2b.
 3. [ ] Resolve multi-document GIT derivation vs. `compliance_documents`' PK
-       `(trading_partner_id, type)` — either add a document ID to the PK
+       `(organization_id, type)` — either add a document ID to the PK
        (and correct ADR-046's "zero changes" claim) or state that GIT status
        derives from a single document — finding 2c.
 4. [ ] State the write order explicitly: **blob first, event second, never

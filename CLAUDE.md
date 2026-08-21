@@ -83,6 +83,22 @@ around it.
   same way the existing four already do — it does not hand-roll its own
   topbar/sidebar markup. `shared/unifi-theme/app-shell-reference.html`
   remains the static visual reference the component is built from.
+- **Sidebar collapse control** — there is exactly **one** rail toggle in
+  this repo, defined in `AppShell.vue`, and it looks and behaves
+  identically in all four apps. It is a borderless 26px icon button in a
+  `.sidebar-foot` row at the **bottom-right** of the rail (centred once
+  collapsed), drawing an inline panel-toggle SVG — not a PrimeIcon (there
+  is no `panel-left`) and not a `«` / `»` text glyph. It carries
+  `aria-label` (`Collapse sidebar` / `Expand sidebar`) and
+  `aria-expanded`. **Don't add a per-app collapse/expand affordance, and
+  don't override `.sidebar-foot` / `.sidebar-collapse-btn` in an app's own
+  CSS** — an app that needs the control to differ is a change to
+  `AppShell.vue` for everyone, or it isn't a change worth making. Bottom
+  placement is deliberate and was arrived at the hard way: putting it at
+  the top of the rail leaves a band of dead space between the topbar and
+  the first nav group. `AppShell.spec.js` (in `admin/src/components/`,
+  alongside `NavList.spec.js`, since `shared/ui-shell/` has no runner of
+  its own) enforces the placement, the glyph, and the ARIA contract.
 - **Exception — `demos/01-dictionary/docs/` (VitePress, Phase 37).**
   VitePress has its own theming layer, not a PrimeVue app, so this site
   does not import `@unifi-theme`/`@ui-shell` the way the four apps above
@@ -234,6 +250,33 @@ suffix); {context} lives in the key instead (see below), not the bucket name.
 Key format: {context}.{entityType}.{id}   — NATS KV keys only allow [-/_=.a-zA-Z0-9]; ':' is illegal
 Value: JSON-encoded ShipState / ContainerState / metadata
 ```
+
+### Storage naming (streams, KV buckets, Object Stores)
+
+**Streams are `SCREAMING_SNAKE`; KV buckets and Object Stores are
+`lowercase-kebab`.** Examples as built: streams `SHIPPING`, `REFDATA`,
+`TRANSPORTER`; KV `ships`, `container`, `meta`, `refdata`,
+`organizations`, `organizations-secrets`; Object Store
+`organizations-docs`.
+
+- **KV and Object Stores share one casing on purpose.** NATS already
+  distinguishes them where it matters — a KV bucket surfaces as the stream
+  `KV_<name>` and an Object Store as `OBJ_<name>` — so casing them
+  differently would re-encode, less reliably, a distinction the prefix
+  already makes. It would also split them on two axes rather than one,
+  since `SCREAMING_SNAKE` forces `_` where the rest use `-`, leaving
+  sibling stores in one service looking unrelated
+  (`ORGANISATION_DOCS` beside `organizations-secrets` — the concrete case
+  this rule was written to settle, 2026-08-21).
+- **The stream/bucket case split does earn its keep**, which is why it
+  stays: `SHIPPING` and `ships` are the same domain in two roles, and
+  nothing in NATS encodes which is which — the case does.
+- **American spelling, plural** for the entity part, matching the
+  entity-naming convention elsewhere (`organizations`, not
+  `organisation`/`organization`).
+- **A bucket name is a stream name.** Renaming a KV or Object Store bucket
+  does not migrate its contents — it orphans the old stream and creates an
+  empty new one. Check for existing data before renaming.
 
 ### Subject families and `{context}` (Phase 16a)
 

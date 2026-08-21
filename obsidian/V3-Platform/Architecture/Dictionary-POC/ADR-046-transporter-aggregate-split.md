@@ -3,13 +3,13 @@
 **Status:** Accepted
 **Date:** 2026-08-20 (revised same day — see "Revision History")
 **Deciders:** Jeremy (repo owner) — part of Phase 38 design review
-**Related:** [ARCHITECTURE-ORGANIZATIONS.md](ARCHITECTURE-ORGANIZATIONS.md) § "Decision," [BUSINESS_RULES-TRADING-PARTNER.md](../../../../demos/01-dictionary/BUSINESS_RULES-TRADING-PARTNER.md) (BR-TP01–BR-TP17, Phase 26)
+**Related:** [ARCHITECTURE-ORGANIZATIONS.md](ARCHITECTURE-ORGANIZATIONS.md) § "Decision," [BUSINESS_RULES-ORGANIZATIONS.md](../../../../demos/01-dictionary/BUSINESS_RULES-ORGANIZATIONS.md) (BR-TP01–BR-TP17, Phase 26)
 
 ## Revision History
 
 This ADR's first version recommended **Option A** (a fully separate
 `Transporter` aggregate, duplicating ~4 identity fields from
-`TradingPartner`) and only named **Option C** (shared identity, separate
+`Organization`) and only named **Option C** (shared identity, separate
 vetting aggregate) as a considered-and-rejected alternative. After
 reviewing Option C's write-up, the decision was revised same-day to adopt
 **Option C instead**. Kept transparent here rather than silently rewritten,
@@ -19,7 +19,7 @@ below, unedited, for anyone checking why it was on the table at all.
 
 ## Correction (2026-08-20, after ADR-048 and ADR-049)
 
-**The "zero changes to `tradingpartner`" claim below is overstated.** Two
+**The "zero changes to `organizations`" claim below is overstated.** Two
 later reviews each found a required change to that package, by completely
 independent routes:
 
@@ -31,7 +31,7 @@ independent routes:
   domain method, repository method, command, and `api.*` handler, plus a
   `version` column.
 - [ADR-048](ADR-048-document-storage-nats-object-store.md) finding 2c:
-  `compliance_documents`' primary key is `(trading_partner_id, type)` — one
+  `compliance_documents`' primary key is `(organization_id, type)` — one
   document per type — but GIT status is specified as the worst across
   `GOODS_IN_TRANSIT` documents, plural. Multi-document derivation needs a
   schema change.
@@ -47,8 +47,8 @@ silent edit, consistent with this ADR's own Revision History convention.
 
 ## Context
 
-`trading-partner-service` today has one `TradingPartner` aggregate
-(`internal/domain/trading_partner.go`) with a `Type` discriminator
+`organizations-service` today has one `Organization` aggregate
+(`internal/domain/organizations.go`) with a `Type` discriminator
 (`SHIPPER`|`TRANSPORTER`, BR-TP01), a 3-state lifecycle
 (`Registered → Active ⇄ Suspended`), and two child concepts —
 `ComplianceDocument` and `FleetAsset` — that are already **partly gated by
@@ -69,7 +69,7 @@ requirement and stays exactly as shipped.
 
 ## Decision
 
-**`TradingPartner` (Phase 26, unchanged) is the single identity aggregate
+**`Organization` (Phase 26, unchanged) is the single identity aggregate
 for both Shipper and Transporter.** `Register`, its `Type` discriminator,
 and its `Registered → Active ⇄ Suspended` lifecycle are untouched;
 `PartnerTypeTransporter` **stays a fully legal, actively-used value** — it
@@ -78,10 +78,10 @@ new **`TransporterProfile`** aggregate — event-sourced,
 Temporal-orchestrated — holds everything actually Transporter-specific:
 fleet, documents, GIT state, tracking credentials, operating areas, and the
 vetting workflow's own state. `TransporterProfile` is keyed by the **same
-ID** as its `TradingPartner` record — a 1:1 relationship by shared
+ID** as its `Organization` record — a 1:1 relationship by shared
 identity, no separate surrogate ID, no join table.
 
-One new coupling connects them: `TradingPartner.Activate()`, for a
+One new coupling connects them: `Organization.Activate()`, for a
 `TRANSPORTER`-typed partner, must not succeed until `TransporterProfile`
 reaches `Vetted`. This lives at the command-handling boundary (the
 `browserrpc`/`api.*` layer that already routes `activate`), not inside
@@ -100,7 +100,7 @@ JetStream stream — including its own copy of name/registrationNo/VAT no.
 | Complexity | Medium — a second full hexagonal skeleton, but a well-worn shape in this repo. |
 | Coupling | Lowest of the three options — zero shared code paths at all. |
 | Duplication | ~4 identity fields, no behavior. |
-| Regression risk on BR-TP01–17 | Zero, **conditional on retiring `PartnerTypeTransporter` from `tradingpartner`** — this ADR's first version required that as a correction; **no longer applicable under Option C**, since the value stays legal there by design. |
+| Regression risk on BR-TP01–17 | Zero, **conditional on retiring `PartnerTypeTransporter` from `organizations`** — this ADR's first version required that as a correction; **no longer applicable under Option C**, since the value stays legal there by design. |
 | Consistency with repo conventions | High — matches this repo's hexagonal layout. |
 
 **Superseded, not merely rejected** — approved once, then reconsidered once
@@ -111,7 +111,7 @@ boundaries drawn by *consistency need* (Option C) are worth a small amount
 of added creation-flow complexity, and that complexity turned out to be
 boundable (see Decision above and Consequences below) rather than open-ended.
 
-### Option B: Extend `TradingPartner` via the existing `Type` discriminator
+### Option B: Extend `Organization` via the existing `Type` discriminator
 
 Keep one aggregate; add vetting/saga/fleet-activation fields and behavior
 conditionally on `Type == TRANSPORTER`.
@@ -124,21 +124,21 @@ to be one aggregate. Neither Option A nor Option C has this problem.
 
 ### Option C: Shared identity aggregate, separate event-sourced vetting aggregate — ACCEPTED
 
-Keep `TradingPartner` exactly as shipped, serving both Shipper and
+Keep `Organization` exactly as shipped, serving both Shipper and
 Transporter identity. Add `TransporterProfile`, event-sourced, referencing
-`TradingPartner` by shared ID, holding only what needs replay/saga/
+`Organization` by shared ID, holding only what needs replay/saga/
 compensation.
 
 | Dimension | Assessment |
 |---|---|
 | Complexity | Medium — same two-package shape as Option A, but identity lives in exactly one place; the new cost is a two-step creation flow and one cross-aggregate guard, both bounded and concretely designed (see Decision). |
-| Coupling | Low-medium — `TransporterProfile`'s existence depends on a `TradingPartner` record existing first, and `TradingPartner.Activate()` depends on `TransporterProfile`'s state for one partner type. Both dependencies are one-directional and narrow (an ID reference and a status read), not shared mutable state. |
+| Coupling | Low-medium — `TransporterProfile`'s existence depends on an `Organization` record existing first, and `Organization.Activate()` depends on `TransporterProfile`'s state for one partner type. Both dependencies are one-directional and narrow (an ID reference and a status read), not shared mutable state. |
 | Duplication | None. |
-| Regression risk on BR-TP01–17 | Zero — `TradingPartner`'s own code is **entirely untouched** (not even the "retire a value" edit Option A needed); the only new code sits in a new package plus a thin guard at the API boundary. |
+| Regression risk on BR-TP01–17 | Zero — `Organization`'s own code is **entirely untouched** (not even the "retire a value" edit Option A needed); the only new code sits in a new package plus a thin guard at the API boundary. |
 | Consistency with repo conventions | High — the more textbook DDD move (boundaries around consistency needs, not around "type of business entity"), and V2's own real entity split (`BusinessEntity` vs. `TransporterProfileEntity`) independently mirrors this shape — see `ARCHITECTURE-ORGANIZATIONS.md` § "Lifecycle." |
 
 **Pros:** zero field duplication; zero changes to shipped, tested
-`TradingPartner` code (stronger regression guarantee than Option A, which
+`Organization` code (stronger regression guarantee than Option A, which
 needed a `PartnerTypeTransporter` retirement); a genuinely cross-aggregate
 invariant (two real aggregates, two consistency models) to test, which is
 a more realistic exercise of "saga and compensating functions across
@@ -161,12 +161,12 @@ trade than permanent field duplication with no such mitigation available
 
 ## Consequences
 
-- **Zero changes to `tradingpartner`.** Stronger than Option A's
+- **Zero changes to `organizations`.** Stronger than Option A's
   "zero regression risk, conditional on retiring a value" — here there is
   nothing to retire. `PartnerTypeTransporter` remains exactly as useful as
   `PartnerTypeShipper`.
 - **Registration is now two steps for a Transporter**, handled explicitly:
-  `TradingPartner.Register(...)` then idempotent
+  `Organization.Register(...)` then idempotent
   `CreateTransporterProfile(id)` (upsert-by-ID), with a bounded retry in
   the command handler and a standalone `EnsureTransporterProfile(id)` for
   manual recovery. A partial failure leaves a **visible, recoverable**
@@ -175,15 +175,15 @@ trade than permanent field duplication with no such mitigation available
   vetting *entirely* via a legacy path; this can only ever *delay* it).
 - **A new cross-aggregate dependency, direction matters.** The `Activate`
   guard must query `TransporterProfile`'s read model from the
-  `tradingpartner`-side command path (or from a thin orchestration layer
+  `organizations`-side command path (or from a thin orchestration layer
   above both) — never the reverse. If implementation finds this awkward
-  (e.g. `tradingpartner`'s existing `browserrpc` handler isn't a natural
+  (e.g. `organizations`'s existing `browserrpc` handler isn't a natural
   place for it), a new orchestration package is the right fix, not letting
-  `tradingpartner` import `transporterprofile`.
+  `organizations` import `transporterprofile`.
 - **Concurrency now needs two separate mechanisms**, not one — a
   consequence Option A didn't have to face, since everything Transporter-
   specific was event-sourced there. `TransporterProfile` reuses Phase 101's
-  JetStream-sequence design; `TradingPartner`'s own identity-field edits
+  JetStream-sequence design; `Organization`'s own identity-field edits
   (Company Information) need a plain optimistic-lock (`version` column),
   which is new scope Phase 26 never needed. See `ARCHITECTURE-ORGANIZATIONS.md`
   § "Concurrency" and § "Open questions" — whether this lands in 38a or a
@@ -201,7 +201,7 @@ trade than permanent field duplication with no such mitigation available
   simplicity (one atomic creation, accept the duplication) was actually the
   better trade after all.
 - If the 1:1 shared-ID relationship ever needs to become 1:many (e.g. one
-  `TradingPartner` legitimately needing multiple `TransporterProfile`-like
+  `Organization` legitimately needing multiple `TransporterProfile`-like
   records) — the shared-ID design doesn't extend cleanly to that; a
   surrogate ID + explicit FK would be needed, which is most of the way back
   toward re-evaluating this boundary entirely.
@@ -212,17 +212,17 @@ trade than permanent field duplication with no such mitigation available
 
 ## Action Items
 
-1. [ ] Implement `TransporterProfile` keyed by `TradingPartner`'s ID (no
+1. [ ] Implement `TransporterProfile` keyed by `Organization`'s ID (no
        separate surrogate) — sub-phase 38a.
 2. [ ] Implement `CreateTransporterProfile`/`EnsureTransporterProfile` as
        idempotent upserts, and the bounded-retry registration command
        handler — sub-phase 38a.
 3. [ ] Implement the cross-aggregate `Activate` guard at the
        command-handling boundary, confirm dependency direction
-       (`transporterprofile`/orchestration → `tradingpartner`, never
+       (`transporterprofile`/orchestration → `organizations`, never
        reversed) — sub-phase 38a/38b boundary (needs `TransporterProfile`'s
        read model to exist first).
-4. [ ] Decide and record whether `TradingPartner`'s new optimistic-lock
+4. [ ] Decide and record whether `Organization`'s new optimistic-lock
        need (Company Information concurrent edits) is in 38a's scope or a
        separate follow-up phase — currently open in
        `ARCHITECTURE-ORGANIZATIONS.md` § "Open questions."

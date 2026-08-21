@@ -68,7 +68,7 @@ const docTemplate = `{
         },
         "/api/jetstream/streams": {
             "get": {
-                "description": "Every event stream registered across every NATS account this backend can introspect — PLATFORM plus every tenant accounts-service currently knows about. KV_* streams are NATS' internal backing storage for KV buckets, not event streams a client watches for messages, so they're excluded — /api/kv/buckets reports those as buckets instead. Accounts is the authoritative account list (every account, including ones whose streams couldn't be listed, e.g. a suspended tenant) — Streams may have zero rows for an account present in Accounts.",
+                "description": "Every JetStream stream registered across every NATS account this backend can introspect — PLATFORM plus every tenant accounts-service currently knows about. Each row carries a Kind: \"stream\" for an event stream, \"kv\" for a KV bucket's KV_* backing stream, \"objstore\" for an Object Store's OBJ_* backing stream. KV and Object Store rows are included so this endpoint can answer \"how many of the account's MaxStreams are in use\" (ADR-048); /api/kv/buckets remains the richer, bucket-shaped view of the KV ones. Accounts is the authoritative account list (every account, including ones whose streams couldn't be listed, e.g. a suspended tenant) — Streams may have zero rows for an account present in Accounts.",
                 "produces": [
                     "application/json"
                 ],
@@ -474,6 +474,10 @@ const docTemplate = `{
                 },
                 "firstSeq": {
                     "type": "integer"
+                },
+                "kind": {
+                    "description": "Kind is \"stream\" | \"kv\" | \"objstore\", derived from NATS' own\nKV_/OBJ_ backing-stream prefixes. Reported rather than filtered\n(this endpoint dropped KV_ entirely until 38e): the Streams panel is\nthe only view of a tenant's JetStream stream count, and ADR-048\nbudgets against MaxStreams: 10 — a view that hides two of the three\nkinds cannot answer \"how close to the cap is this tenant\". The\nStream field keeps the raw backing-stream name so it stays the\nselection key and the thing $JS.API is addressed by; the UI strips\nthe prefix for display once the kind tag carries it.",
+                    "type": "string"
                 },
                 "lastSeq": {
                     "type": "integer"

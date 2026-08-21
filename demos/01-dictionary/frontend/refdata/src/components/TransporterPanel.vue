@@ -23,11 +23,11 @@ import { useToast } from 'primevue/usetoast'
 import { computed, reactive, ref, watch } from 'vue'
 
 import {
-  activateTradingPartner,
+  activateOrganization,
   addComplianceDocument,
   addFleetAsset,
   approveComplianceDocument,
-  getTradingPartnerAudit,
+  getOrganizationAudit,
   getTransporterProfile,
   downloadComplianceDocumentFile,
   listComplianceDocuments,
@@ -38,21 +38,21 @@ import {
   listTrackingCredentials,
   configureTrackingCredential,
   listItems,
-  listTradingPartners,
-  reactivateTradingPartner,
-  registerTradingPartner,
+  listOrganizations,
+  reactivateOrganization,
+  registerOrganization,
   rejectComplianceDocument,
   resubmitComplianceDocument,
-  suspendTradingPartner,
-  updateTradingPartner,
+  suspendOrganization,
+  updateOrganization,
   uploadComplianceDocumentFile,
 } from '../api'
 import { useTenantStore } from '../stores/tenant'
 
-// Phase 38d-i — the Transporter surface, split out of TradingPartnersPanel.vue.
+// Phase 38d-i — the Transporter surface, split out of OrganizationsPanel.vue.
 //
 // That panel stays as-is for Shippers. The split is not cosmetic: a Shipper is
-// one plain-CRUD TradingPartner aggregate, while a Transporter is that *plus*
+// one plain-CRUD Organization aggregate, while a Transporter is that *plus*
 // an event-sourced TransporterProfile (ADR-046) carrying vetting state, a
 // Temporal saga behind it (38b), fleet assets, and a derived goods-in-transit
 // badge. Expressing both through one `partnerType`-branched component would
@@ -94,10 +94,10 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const res = await listTradingPartners(tenantStore.context)
-    partners.value = (res.tradingPartners ?? []).filter((tp) => tp.type === 'TRANSPORTER')
+    const res = await listOrganizations(tenantStore.context)
+    partners.value = (res.organizations ?? []).filter((tp) => tp.type === 'TRANSPORTER')
     // One profile.get per row, in parallel. This is deliberately N+1: the list
-    // endpoint returns TradingPartner rows only (the two aggregates are
+    // endpoint returns Organization rows only (the two aggregates are
     // separate by ADR-046, and a list-level join would put vetting state on
     // the wrong side of that boundary), and a context holds few partners in
     // this POC. A per-row failure must not blank the whole table, so each
@@ -165,7 +165,7 @@ async function refreshDetail() {
     const [docs, fleet, audit, profile, areas, creds] = await Promise.all([
       listComplianceDocuments(tenantStore.context, tp.id),
       listFleetAssets(tenantStore.context, tp.id),
-      getTradingPartnerAudit(tenantStore.context, tp.id),
+      getOrganizationAudit(tenantStore.context, tp.id),
       getTransporterProfile(tenantStore.context, tp.id),
       listOperatingAreas(tenantStore.context, tp.id),
       listTrackingCredentials(tenantStore.context, tp.id),
@@ -333,10 +333,10 @@ async function saveCredential() {
 // reselect re-reads the partner row itself (name/status/version) from the
 // list. There is no single-partner get endpoint, and the list is small.
 async function reselect() {
-  const res = await listTradingPartners(tenantStore.context)
-  const fresh = (res.tradingPartners ?? []).find((p) => p.id === selected.value?.id)
+  const res = await listOrganizations(tenantStore.context)
+  const fresh = (res.organizations ?? []).find((p) => p.id === selected.value?.id)
   if (fresh) selected.value = fresh
-  partners.value = (res.tradingPartners ?? []).filter((tp) => tp.type === 'TRANSPORTER')
+  partners.value = (res.organizations ?? []).filter((tp) => tp.type === 'TRANSPORTER')
   return fresh
 }
 
@@ -370,7 +370,7 @@ async function saveCompany(version) {
   companySaving.value = true
   companyError.value = ''
   try {
-    await updateTradingPartner(tenantStore.context, selected.value.id, version, { ...companyForm })
+    await updateOrganization(tenantStore.context, selected.value.id, version, { ...companyForm })
     companyConflict.value = false
     const fresh = await reselect()
     if (fresh) seedCompanyForm(fresh)
@@ -417,7 +417,7 @@ async function overwriteCompany() {
 
 async function activate(tp) {
   try {
-    await activateTradingPartner(tenantStore.context, tp.id)
+    await activateOrganization(tenantStore.context, tp.id)
     await reselect()
     await refreshDetail()
     toast.add({ severity: 'success', summary: 'Activated', detail: tp.name, life: 3000 })
@@ -442,7 +442,7 @@ async function submitSuspend() {
   suspendSaving.value = true
   suspendError.value = ''
   try {
-    await suspendTradingPartner(tenantStore.context, selected.value.id, suspendReason.value)
+    await suspendOrganization(tenantStore.context, selected.value.id, suspendReason.value)
     suspendOpen.value = false
     await reselect()
     await refreshDetail()
@@ -456,7 +456,7 @@ async function submitSuspend() {
 
 async function reactivate(tp) {
   try {
-    await reactivateTradingPartner(tenantStore.context, tp.id)
+    await reactivateOrganization(tenantStore.context, tp.id)
     await reselect()
     await refreshDetail()
     toast.add({ severity: 'success', summary: 'Reactivated', life: 3000 })
@@ -508,7 +508,7 @@ async function wizardRegister(activateCallback) {
     // BR-TP35 — Register accepts the Company Information fields directly, so
     // the wizard's first step is one write, not a register-then-update pair
     // that could half-fail.
-    wizardPartner.value = await registerTradingPartner(tenantStore.context, {
+    wizardPartner.value = await registerOrganization(tenantStore.context, {
       ...wizardForm,
       type: 'TRANSPORTER',
     })
@@ -753,28 +753,43 @@ function gitSeverity(status) {
 
 function vettingSeverity(status) {
   if (status === 'Vetted') return 'success'
-  if (status === 'Rejected') return 'danger'
+  // BR-TP63: CoverLapsed reads as danger, not warn. The transporter was
+  // vetted and no longer is — its organization has been suspended and its
+  // fleet is unassignable, which is the same severity as a rejection even
+  // though it arrived by a different route.
+  if (status === 'Rejected' || status === 'CoverLapsed') return 'danger'
   if (status === 'DocumentsInReview') return 'warn'
   return 'secondary' // AwaitingDocumentation
 }
 
-// The vetting stepper's linear spine. Rejected is not a step: it is a terminal
-// outcome of the review step, shown as that step failing rather than as a
-// fourth position, so the stepper doesn't imply rejection comes after vetting.
+// The vetting stepper's linear spine. Neither terminal failure is a step of
+// its own: Rejected is the review step failing and CoverLapsed (BR-TP63) is
+// the Vetted step failing, each shown in place rather than as a fourth
+// position — so the stepper never implies a failure comes *after* vetting.
 const VETTING_STEPS = [
   { key: 'AwaitingDocumentation', label: 'Awaiting Documentation' },
   { key: 'DocumentsInReview', label: 'Documents In Review' },
   { key: 'Vetted', label: 'Vetted' },
 ]
 
+// Where each terminal failure lands on the spine, and what that step is called
+// once it has failed.
+const VETTING_FAILURES = {
+  Rejected: { index: 1, label: 'Rejected' },
+  CoverLapsed: { index: 2, label: 'Cover Lapsed' },
+}
+
+const vettingFailure = computed(() => VETTING_FAILURES[selectedProfile.value?.profile?.status] ?? null)
+
 const vettingIndex = computed(() => {
   const status = selectedProfile.value?.profile?.status
-  if (status === 'Rejected') return 1
+  if (vettingFailure.value) return vettingFailure.value.index
   const i = VETTING_STEPS.findIndex((s) => s.key === status)
   return i < 0 ? 0 : i
 })
 
 const isRejected = computed(() => selectedProfile.value?.profile?.status === 'Rejected')
+const isLapsed = computed(() => selectedProfile.value?.profile?.status === 'CoverLapsed')
 
 function formatDate(ts) {
   if (!ts) return ''
@@ -809,7 +824,7 @@ function formatDate(ts) {
       </div>
 
       <p class="lab-muted description">
-        Transporter registration and vetting (Phase 38). Each row is a <code>TradingPartner</code> plus its
+        Transporter registration and vetting (Phase 38). Each row is a <code>Organization</code> plus its
         event-sourced <code>TransporterProfile</code> — vetting state and the derived goods-in-transit badge come
         from the service's canonical projection (BR-TP37/BR-TP38), never from the browser.
       </p>
@@ -1289,13 +1304,13 @@ function formatDate(ts) {
                   class="vstep"
                   :class="{
                     done: i < vettingIndex,
-                    current: i === vettingIndex && !isRejected,
-                    failed: i === vettingIndex && isRejected,
+                    current: i === vettingIndex && !vettingFailure,
+                    failed: i === vettingIndex && !!vettingFailure,
                   }"
                 >
                   <span class="vstep-dot">
                     <i
-                      v-if="i === vettingIndex && isRejected"
+                      v-if="i === vettingIndex && !!vettingFailure"
                       class="pi pi-times"
                     />
                     <i
@@ -1305,7 +1320,7 @@ function formatDate(ts) {
                     <template v-else>{{ i + 1 }}</template>
                   </span>
                   <span class="vstep-label">
-                    {{ i === vettingIndex && isRejected ? 'Rejected' : step.label }}
+                    {{ i === vettingIndex && vettingFailure ? vettingFailure.label : step.label }}
                   </span>
                 </div>
               </div>
@@ -1316,6 +1331,15 @@ function formatDate(ts) {
               >
                 Rejection is a terminal outcome of review, not a stage after it — so it is shown as the review step
                 failing rather than as a fourth step. Resubmitting starts a fresh vetting attempt (BR-TP26).
+              </p>
+
+              <p
+                v-if="isLapsed"
+                class="lab-muted hint"
+              >
+                Goods-in-transit cover lapsed, so this transporter left Vetted and its organization was suspended
+                (BR-TP63). There is no direct route back: renewed cover is a new document, reviewed like any other,
+                and re-vetting starts a fresh attempt (BR-TP26).
               </p>
 
               <div class="gate-grid">

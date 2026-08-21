@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 38 — Temporal and state-change sequence</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 22px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -.01em; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 82ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption { padding: 9px 14px 11px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 18px; }
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+.n { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: .55; }
+.life { fill: none; stroke: var(--hop); stroke-width: 1; stroke-dasharray: 4 4; stroke-opacity: .55; }
+.lbl { font-family: var(--mono); font-size: 10.5px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9px; fill: var(--dim); }
+.grp { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: .07em; }
+.edge { font-family: var(--mono); font-size: 9px; fill: var(--muted); }
+.state { font-family: var(--mono); font-size: 9px; fill: var(--store); }
+.warn { font-family: var(--mono); font-size: 9px; fill: var(--evtl); }
+.badtext { font-family: var(--mono); font-size: 9px; fill: var(--bad); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.35; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.35; }
+.rep { fill: none; stroke: var(--evtl); stroke-width: 1.35; stroke-dasharray: 5 4; }
+.err { fill: none; stroke: var(--bad); stroke-width: 1.35; }
+.return { fill: none; stroke: var(--hop); stroke-width: 1.1; stroke-dasharray: 3 3; }
+.note { fill: var(--nested); stroke: var(--border); stroke-width: 1; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="head">
+    <div class="head-txt">
+      <div class="eyebrow">Phase 38 · BR-TP18–BR-TP28 · ARCHITECTURE-ORGANIZATIONS</div>
+      <h1>State-change sequence — services, NATS and Temporal</h1>
+      <p class="sub">Solid paths are active service interactions. Amber paths are asynchronous workflow/event interactions. Red dashed calls identify production wiring that the workflow requires but the current <code>organizations-service</code> entrypoint does not make.</p>
+    </div>
+  </header>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1024 604" role="img" aria-label="Registration sequence. The browser publishes partner.register through NATS Core to organizations-service. The service inserts the Organization into Postgres in REGISTERED state, then publishes a created event to the TRANSPORTER JetStream stream using the new Organization ID. The durable projector consumes created, upserts transporter_profiles in AwaitingDocumentation state into Postgres, writes the organizations KV cache, and acknowledges the event. The service returns the registered Organization through NATS to the browser. Temporal is not involved in registration, and current production code does not start TransporterVettingWorkflow after creating the profile.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="a-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="a-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          <marker id="a-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="var(--bad)"/></marker>
+        </defs>
+        <text class="grp" x="16" y="18">1 · REGISTRATION — ACTIVE TODAY</text>
+        <g>
+          <rect class="n" x="18" y="36" width="112" height="36" rx="3"/><text class="lbl" x="74" y="58" text-anchor="middle">Browser</text>
+          <rect class="n" x="160" y="36" width="112" height="36" rx="3"/><text class="lbl" x="216" y="51" text-anchor="middle">NATS Core</text><text class="lbl2" x="216" y="64" text-anchor="middle">api.* request/reply</text>
+          <rect class="n" x="302" y="36" width="126" height="36" rx="3"/><text class="lbl" x="365" y="51" text-anchor="middle">organizations-</text><text class="lbl2" x="365" y="64" text-anchor="middle">service</text>
+          <rect class="n" x="458" y="36" width="112" height="36" rx="3"/><text class="lbl" x="514" y="51" text-anchor="middle">Postgres</text><text class="lbl2" x="514" y="64" text-anchor="middle">organizations DB</text>
+          <rect class="n" x="600" y="36" width="112" height="36" rx="3"/><text class="lbl" x="656" y="51" text-anchor="middle">JetStream</text><text class="lbl2" x="656" y="64" text-anchor="middle">TRANSPORTER</text>
+          <rect class="n" x="742" y="36" width="112" height="36" rx="3"/><text class="lbl" x="798" y="51" text-anchor="middle">Projector</text><text class="lbl2" x="798" y="64" text-anchor="middle">durable consumer</text>
+          <rect class="n" x="884" y="36" width="112" height="36" rx="3"/><text class="lbl" x="940" y="51" text-anchor="middle">NATS KV</text><text class="lbl2" x="940" y="64" text-anchor="middle">organizations</text>
+          <path class="life" d="M74 72 L74 570"/><path class="life" d="M216 72 L216 570"/><path class="life" d="M365 72 L365 570"/><path class="life" d="M514 72 L514 570"/><path class="life" d="M656 72 L656 570"/><path class="life" d="M798 72 L798 570"/><path class="life" d="M940 72 L940 570"/>
+        </g>
+        <path class="flow" d="M74 112 L216 112" marker-end="url(#a-sync)"/><text class="edge" x="145" y="106" text-anchor="middle">partner.register {type: TRANSPORTER}</text>
+        <path class="flow" d="M216 146 L365 146" marker-end="url(#a-sync)"/><text class="edge" x="290" y="140" text-anchor="middle">dispatch api.{context}.organizations…</text>
+        <path class="proj" d="M365 190 L514 190" marker-end="url(#a-store)"/><text class="edge" x="440" y="184" text-anchor="middle">INSERT organizations</text>
+        <rect class="note" x="452" y="202" width="124" height="34" rx="3"/><text class="state" x="514" y="217" text-anchor="middle">Organization</text><text class="state" x="514" y="229" text-anchor="middle">→ REGISTERED</text>
+        <path class="return" d="M514 252 L365 252"/><text class="edge" x="440" y="246" text-anchor="middle">organization UUID</text>
+        <path class="rep" d="M365 294 L656 294" marker-end="url(#a-evtl)"/><text class="warn" x="510" y="287" text-anchor="middle">publish evt.{ctx}.organizations.transporter.{id}.created</text>
+        <path class="rep" d="M656 334 L798 334" marker-end="url(#a-evtl)"/><text class="edge" x="727" y="328" text-anchor="middle">deliver created</text>
+        <path class="proj" d="M798 374 L514 374" marker-end="url(#a-store)"/><text class="edge" x="656" y="368" text-anchor="middle">UPSERT transporter_profiles</text>
+        <rect class="note" x="444" y="386" width="140" height="46" rx="3"/><text class="state" x="514" y="402" text-anchor="middle">TransporterProfile</text><text class="state" x="514" y="415" text-anchor="middle">→ AwaitingDocumentation</text><text class="lbl2" x="514" y="427" text-anchor="middle">gate=false · attempt=0</text>
+        <path class="proj" d="M798 448 L940 448" marker-end="url(#a-store)"/><text class="edge" x="869" y="442" text-anchor="middle">write-through cache</text>
+        <path class="return" d="M940 478 L798 478"/><text class="edge" x="869" y="472" text-anchor="middle">ok</text>
+        <path class="return" d="M798 500 L656 500"/><text class="edge" x="727" y="494" text-anchor="middle">ACK</text>
+        <path class="return" d="M365 526 L216 526 L216 548 L74 548"/><text class="edge" x="219" y="520" text-anchor="middle">registered organization reply</text>
+        <rect class="nb" x="302" y="560" width="410" height="32" rx="4"/><text class="badtext" x="507" y="580" text-anchor="middle">No production call starts TransporterVettingWorkflow here</text>
+      </svg>
+    </div>
+    <figcaption><b>Registration sequence.</b> Organization state changes synchronously in Postgres; profile state changes asynchronously when the <code>created</code> event is projected. Temporal does not participate, and vetting is not automatically started (BR-TP18).</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1024 912" role="img" aria-label="Vetting sequence. A production workflow starter is currently absent, but the defined TransporterVettingWorkflow first asks an Activity to append vetting-started to JetStream. The projector updates the Postgres profile to DocumentsInReview. Temporal then launches GIT verification and waits for DocumentReview signals in parallel. The browser can approve or reject compliance documents through NATS and organizations-service, changing the compliance_documents row in Postgres, but no production bridge currently signals that decision to Temporal. If signals are delivered, workflow Activities append audit events for document decisions. A successful GIT result plus all approvals appends git-verified and then vetted; only vetted is projected, changing the profile to Vetted and opening the fleet gate. A document rejection appends rejected, while a GIT failure after approvals appends document-approval-reverted events then rejected; rejected is projected with the gate closed.">
+        <defs>
+          <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="b-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="b-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          <marker id="b-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="var(--bad)"/></marker>
+        </defs>
+        <text class="grp" x="16" y="18">2 · VETTING — DEFINED WORKFLOW, WITH CURRENT INTEGRATION GAPS MARKED</text>
+        <g>
+          <rect class="n" x="10" y="36" width="100" height="36" rx="3"/><text class="lbl" x="60" y="58" text-anchor="middle">Browser/admin</text>
+          <rect class="n" x="130" y="36" width="100" height="36" rx="3"/><text class="lbl" x="180" y="51" text-anchor="middle">NATS Core</text><text class="lbl2" x="180" y="64" text-anchor="middle">api.*</text>
+          <rect class="n" x="250" y="36" width="112" height="36" rx="3"/><text class="lbl" x="306" y="51" text-anchor="middle">organizations-</text><text class="lbl2" x="306" y="64" text-anchor="middle">service</text>
+          <rect class="n" x="382" y="36" width="100" height="36" rx="3"/><text class="lbl" x="432" y="51" text-anchor="middle">Temporal</text><text class="lbl2" x="432" y="64" text-anchor="middle">workflow/history</text>
+          <rect class="n" x="502" y="36" width="100" height="36" rx="3"/><text class="lbl" x="552" y="51" text-anchor="middle">GIT verifier</text><text class="lbl2" x="552" y="64" text-anchor="middle">Activity target</text>
+          <rect class="n" x="622" y="36" width="100" height="36" rx="3"/><text class="lbl" x="672" y="51" text-anchor="middle">JetStream</text><text class="lbl2" x="672" y="64" text-anchor="middle">TRANSPORTER</text>
+          <rect class="n" x="742" y="36" width="100" height="36" rx="3"/><text class="lbl" x="792" y="51" text-anchor="middle">Projector</text><text class="lbl2" x="792" y="64" text-anchor="middle">durable</text>
+          <rect class="n" x="862" y="36" width="150" height="36" rx="3"/><text class="lbl" x="937" y="51" text-anchor="middle">Postgres / KV</text><text class="lbl2" x="937" y="64" text-anchor="middle">current state</text>
+          <path class="life" d="M60 72 L60 884"/><path class="life" d="M180 72 L180 884"/><path class="life" d="M306 72 L306 884"/><path class="life" d="M432 72 L432 884"/><path class="life" d="M552 72 L552 884"/><path class="life" d="M672 72 L672 884"/><path class="life" d="M792 72 L792 884"/><path class="life" d="M937 72 L937 884"/>
+        </g>
+        <path class="err" d="M306 108 L432 108" marker-end="url(#b-bad)"/><text class="badtext" x="369" y="101" text-anchor="middle">MISSING: production workflow starter</text>
+        <path class="rep" d="M432 148 L672 148" marker-end="url(#b-evtl)"/><text class="warn" x="552" y="141" text-anchor="middle">Activity: append vetting-started</text>
+        <path class="rep" d="M672 180 L792 180" marker-end="url(#b-evtl)"/><text class="edge" x="732" y="174" text-anchor="middle">deliver</text>
+        <path class="proj" d="M792 212 L937 212" marker-end="url(#b-store)"/><text class="edge" x="864" y="206" text-anchor="middle">project</text>
+        <rect class="note" x="858" y="224" width="158" height="44" rx="3"/><text class="state" x="937" y="240" text-anchor="middle">TransporterProfile</text><text class="state" x="937" y="253" text-anchor="middle">→ DocumentsInReview</text><text class="lbl2" x="937" y="265" text-anchor="middle">attempt=N · gate=false</text>
+
+        <rect class="nb" x="382" y="288" width="224" height="96" rx="4"/><text class="grp" x="394" y="307">PARALLEL IN TEMPORAL HISTORY</text>
+        <path class="rep" d="M432 326 L552 326" marker-end="url(#b-evtl)"/><text class="warn" x="492" y="320" text-anchor="middle">RequestGitVerification</text>
+        <path class="return" d="M552 352 L432 352"/><text class="edge" x="492" y="346" text-anchor="middle">pass / fail / timeout</text>
+        <text class="warn" x="394" y="372">wait: DocumentReview signals per document ID</text>
+
+        <path class="flow" d="M60 416 L180 416" marker-end="url(#b-sync)"/><text class="edge" x="120" y="409" text-anchor="middle">document.approve/reject</text>
+        <path class="flow" d="M180 446 L306 446" marker-end="url(#b-sync)"/><text class="edge" x="243" y="439" text-anchor="middle">dispatch</text>
+        <path class="proj" d="M306 476 L937 476" marker-end="url(#b-store)"/><text class="edge" x="620" y="469" text-anchor="middle">UPDATE compliance_documents → APPROVED or REJECTED</text>
+        <path class="err" d="M306 510 L432 510" marker-end="url(#b-bad)"/><text class="badtext" x="369" y="503" text-anchor="middle">MISSING: SignalWorkflow(DocumentReview)</text>
+
+        <text class="grp" x="16" y="558">ALTERNATIVES ONCE SIGNALS ARE DELIVERED</text>
+        <rect class="nb" x="24" y="574" width="968" height="276" rx="4"/>
+        <text class="grp" x="38" y="595">SUCCESS</text>
+        <path class="rep" d="M432 616 L672 616" marker-end="url(#b-evtl)"/><text class="warn" x="552" y="609" text-anchor="middle">document-approved* · git-verified · vetted</text>
+        <text class="lbl2" x="552" y="630" text-anchor="middle">*branch events are audit-only; vetted carries final projected state</text>
+        <path class="rep" d="M672 652 L792 652" marker-end="url(#b-evtl)"/>
+        <path class="proj" d="M792 676 L937 676" marker-end="url(#b-store)"/><text class="state" x="864" y="669" text-anchor="middle">project vetted</text>
+        <rect class="note" x="856" y="690" width="160" height="44" rx="3"/><text class="state" x="936" y="706" text-anchor="middle">TransporterProfile → Vetted</text><text class="state" x="936" y="719" text-anchor="middle">gitVerified=true · gate=true</text>
+
+        <text class="grp" x="38" y="752">DOCUMENT FAILURE</text>
+        <path class="err" d="M432 770 L672 770" marker-end="url(#b-bad)"/><text class="badtext" x="552" y="763" text-anchor="middle">document-rejected → rejected</text>
+        <path class="err" d="M672 790 L792 790" marker-end="url(#b-bad)"/><path class="proj" d="M792 790 L937 790" marker-end="url(#b-store)"/>
+        <text class="state" x="864" y="783" text-anchor="middle">profile → Rejected · gate=false</text>
+
+        <text class="grp" x="38" y="822">GIT FAILURE AFTER APPROVALS</text>
+        <path class="err" d="M432 838 L672 838" marker-end="url(#b-bad)"/><text class="badtext" x="552" y="831" text-anchor="middle">approval-reverted × approved → rejected</text>
+        <path class="err" d="M672 858 L792 858" marker-end="url(#b-bad)"/><path class="proj" d="M792 858 L937 858" marker-end="url(#b-store)"/>
+        <text class="state" x="864" y="879" text-anchor="middle">reviews → PendingReview · profile → Rejected</text>
+      </svg>
+    </div>
+    <figcaption><b>Vetting sequence.</b> Temporal’s history holds the parallel wait; JetStream records decisions; only state-projecting events update the read model. The current service lacks both the initial workflow start and the document-decision signal bridge, shown in red (BR-TP21–27).</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1024 698" role="img" aria-label="Activation and ongoing GIT monitoring sequence. The browser sends partner.activate through NATS Core. organizations-service reads the Organization and canonical Postgres transporter profile. Only when the profile status is Vetted does it update Organization from REGISTERED to ACTIVE. Separately, a Temporal Schedule is designed to start TransporterGitMonitorWorkflow, although production code currently does not create that Schedule. The workflow Activity reads derived GIT status from current compliance documents. When active it completes without mutation. When inactive it calls the organizations-service drop handler, which hydrates the profile from JetStream, appends FleetAvailabilityRevoked, then suspends the Organization in Postgres. The projector asynchronously changes the Postgres profile fleet gate to false and gitVerified to false. Event append precedes suspension so a retry can finish a partial failure safely.">
+        <defs>
+          <marker id="c-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="c-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="c-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          <marker id="c-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><polygon points="0,1 8,4 0,7" fill="var(--bad)"/></marker>
+        </defs>
+        <text class="grp" x="16" y="18">3 · ACTIVATION AND POST-VETTING GIT MONITOR</text>
+        <g>
+          <rect class="n" x="10" y="36" width="100" height="36" rx="3"/><text class="lbl" x="60" y="58" text-anchor="middle">Browser</text>
+          <rect class="n" x="130" y="36" width="100" height="36" rx="3"/><text class="lbl" x="180" y="51" text-anchor="middle">NATS Core</text><text class="lbl2" x="180" y="64" text-anchor="middle">api.*</text>
+          <rect class="n" x="250" y="36" width="112" height="36" rx="3"/><text class="lbl" x="306" y="51" text-anchor="middle">organizations-</text><text class="lbl2" x="306" y="64" text-anchor="middle">service</text>
+          <rect class="n" x="382" y="36" width="100" height="36" rx="3"/><text class="lbl" x="432" y="51" text-anchor="middle">Postgres</text><text class="lbl2" x="432" y="64" text-anchor="middle">canonical reads</text>
+          <rect class="n" x="502" y="36" width="100" height="36" rx="3"/><text class="lbl" x="552" y="51" text-anchor="middle">Temporal</text><text class="lbl2" x="552" y="64" text-anchor="middle">Schedule/workflow</text>
+          <rect class="n" x="622" y="36" width="100" height="36" rx="3"/><text class="lbl" x="672" y="51" text-anchor="middle">JetStream</text><text class="lbl2" x="672" y="64" text-anchor="middle">TRANSPORTER</text>
+          <rect class="n" x="742" y="36" width="100" height="36" rx="3"/><text class="lbl" x="792" y="51" text-anchor="middle">Projector</text><text class="lbl2" x="792" y="64" text-anchor="middle">durable</text>
+          <rect class="n" x="862" y="36" width="150" height="36" rx="3"/><text class="lbl" x="937" y="51" text-anchor="middle">Profile Postgres</text><text class="lbl2" x="937" y="64" text-anchor="middle">canonical projection</text>
+          <path class="life" d="M60 72 L60 670"/><path class="life" d="M180 72 L180 670"/><path class="life" d="M306 72 L306 670"/><path class="life" d="M432 72 L432 670"/><path class="life" d="M552 72 L552 670"/><path class="life" d="M672 72 L672 670"/><path class="life" d="M792 72 L792 670"/><path class="life" d="M937 72 L937 670"/>
+        </g>
+        <text class="grp" x="16" y="106">ACTIVATION — ACTIVE TODAY</text>
+        <path class="flow" d="M60 128 L180 128" marker-end="url(#c-sync)"/><text class="edge" x="120" y="121" text-anchor="middle">partner.activate</text>
+        <path class="flow" d="M180 154 L306 154" marker-end="url(#c-sync)"/>
+        <path class="flow" d="M306 184 L432 184" marker-end="url(#c-sync)"/><text class="edge" x="369" y="177" text-anchor="middle">GET Organization</text>
+        <path class="return" d="M432 206 L306 206"/><text class="state" x="369" y="199" text-anchor="middle">REGISTERED · type=TRANSPORTER</text>
+        <path class="flow" d="M306 236 L937 236" marker-end="url(#c-sync)"/><text class="edge" x="620" y="229" text-anchor="middle">GET transporter_profiles from canonical Postgres projection</text>
+        <path class="return" d="M937 258 L306 258"/><text class="state" x="620" y="251" text-anchor="middle">status=Vetted → guard passes</text>
+        <path class="proj" d="M306 288 L432 288" marker-end="url(#c-store)"/><text class="edge" x="369" y="281" text-anchor="middle">UPDATE Organization</text>
+        <rect class="note" x="370" y="300" width="124" height="32" rx="3"/><text class="state" x="432" y="320" text-anchor="middle">→ ACTIVE</text>
+        <path class="return" d="M306 348 L180 348 L180 370 L60 370"/><text class="edge" x="181" y="341" text-anchor="middle">activation reply</text>
+
+        <text class="grp" x="16" y="410">SCHEDULED MONITOR — DEFINED, NOT CREATED BY CURRENT ENTRYPOINT</text>
+        <path class="err" d="M306 434 L552 434" marker-end="url(#c-bad)"/><text class="badtext" x="429" y="427" text-anchor="middle">MISSING: CreateGitMonitorSchedule</text>
+        <path class="rep" d="M552 466 L552 492" marker-end="url(#c-evtl)"/><text class="warn" x="564" y="483">start TransporterGitMonitorWorkflow</text>
+        <path class="flow" d="M552 512 L432 512" marker-end="url(#c-sync)"/><text class="edge" x="492" y="505" text-anchor="middle">derive current GIT from documents</text>
+        <path class="return" d="M432 534 L552 534"/><text class="badtext" x="492" y="527" text-anchor="middle">inactive</text>
+        <path class="flow" d="M552 560 L306 560" marker-end="url(#c-sync)"/><text class="edge" x="429" y="553" text-anchor="middle">HandleGitStatusDrop Activity</text>
+        <path class="rep" d="M306 584 L672 584" marker-end="url(#c-evtl)"/><text class="warn" x="489" y="577" text-anchor="middle">hydrate history → append fleet-availability-revoked</text>
+        <path class="proj" d="M306 614 L432 614" marker-end="url(#c-store)"/><text class="edge" x="369" y="607" text-anchor="middle">Suspend Organization</text>
+        <rect class="note" x="364" y="626" width="136" height="32" rx="3"/><text class="state" x="432" y="646" text-anchor="middle">ACTIVE → SUSPENDED</text>
+        <path class="rep" d="M672 614 L792 614" marker-end="url(#c-evtl)"/><path class="proj" d="M792 614 L937 614" marker-end="url(#c-store)"/>
+        <text class="state" x="864" y="607" text-anchor="middle">async projection</text>
+        <rect class="note" x="852" y="626" width="164" height="44" rx="3"/><text class="state" x="934" y="642" text-anchor="middle">profile remains Vetted</text><text class="state" x="934" y="655" text-anchor="middle">gate=false · gitVerified=false</text>
+      </svg>
+    </div>
+    <figcaption><b>Activation and monitoring.</b> Activation reads the canonical Postgres profile, never Temporal or KV. The monitor’s event-before-suspend order makes retry after partial failure safe; projection of the revoked gate is asynchronous (BR-TP19/28).</figcaption>
+  </figure>
+</main>
+</body>
+</html>

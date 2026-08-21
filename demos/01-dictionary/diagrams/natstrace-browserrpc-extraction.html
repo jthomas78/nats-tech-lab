@@ -91,7 +91,7 @@ li b { color: var(--text); font-weight: 600; }
 
   <figure>
     <div class="fig-body">
-      <svg viewBox="0 0 940 520" role="img" aria-label="natstrace was duplicated once per service, five times, before Phase 35 extracted it into shared/natstrace, consumed by all five services including accounts-service via an HTTP middleware variant. browserrpc was duplicated once per browser-facing service, four times, before Phase 35 extracted it into shared/browserrpc, consumed by pricing, trading-partner, refdata and shipping — accounts-service has no browser-facing RPC surface and does not consume it.">
+      <svg viewBox="0 0 940 520" role="img" aria-label="natstrace was duplicated once per service, five times, before Phase 35 extracted it into shared/natstrace, consumed by all five services including accounts-service via an HTTP middleware variant. browserrpc was duplicated once per browser-facing service, four times, before Phase 35 extracted it into shared/browserrpc, consumed by pricing, organizations, refdata and shipping — accounts-service has no browser-facing RPC surface and does not consume it.">
         <defs>
           <marker id="ah2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
@@ -112,7 +112,7 @@ li b { color: var(--text); font-weight: 600; }
         <text class="dup" x="206" y="74">natstrace.go · ~250L</text>
 
         <rect class="bx" x="378" y="30" width="168" height="64" rx="4"/>
-        <text class="lbl" x="390" y="50">trading-partner</text>
+        <text class="lbl" x="390" y="50">organizations</text>
         <line class="hr" x1="390" y1="58" x2="534" y2="58"/>
         <text class="dup" x="390" y="74">natstrace.go · ~250L</text>
 
@@ -144,7 +144,7 @@ li b { color: var(--text); font-weight: 600; }
         <text class="lbl2" x="22" y="304">single reply() funnel</text>
 
         <rect class="bx" x="194" y="246" width="168" height="64" rx="4"/>
-        <text class="lbl" x="206" y="266">trading-partner</text>
+        <text class="lbl" x="206" y="266">organizations</text>
         <line class="hr" x1="206" y1="274" x2="350" y2="274"/>
         <text class="dup" x="206" y="290">adapter.go</text>
         <text class="lbl2" x="206" y="304">single reply() funnel</text>
@@ -170,7 +170,7 @@ li b { color: var(--text); font-weight: 600; }
 
         <rect class="bx-sync" x="10" y="346" width="920" height="52" rx="4"/>
         <text class="lbl" x="24" y="366">shared/browserrpc — ContextFromSubject, Responder headers, Respond/RespondError, a canonical Reply</text>
-        <text class="lblm" x="24" y="384">Consumed by pricing, trading-partner, refdata, shipping. Call-site signatures were not force-unified — see caption.</text>
+        <text class="lblm" x="24" y="384">Consumed by pricing, organizations, refdata, shipping. Call-site signatures were not force-unified — see caption.</text>
 
         <rect class="bx-evtl" x="10" y="416" width="920" height="62" rx="4"/>
         <text class="lbl" x="24" y="436">No compatibility shims</text>
@@ -180,7 +180,7 @@ li b { color: var(--text); font-weight: 600; }
     </div>
     <figcaption>
       <b>Call sites stayed put; only the bodies moved.</b> <code>pricing-service</code> and
-      <code>trading-partner-service</code> already funneled every reply through one
+      <code>organizations-service</code> already funneled every reply through one
       <code>reply(req, result, err)</code> call, so they got a one-line delegating version.
       <code>refdata-service</code> and <code>shipping-service</code> reply from several early-exit points with no
       single funnel, so they kept their own <code>(req, subject, correlationID, ...)</code>-shaped wrappers with

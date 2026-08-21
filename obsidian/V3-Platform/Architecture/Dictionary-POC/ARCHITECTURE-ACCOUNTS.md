@@ -143,7 +143,7 @@ minted runtime accounts receive the same imports as ACME/GLOBEX.
 
 The paragraphs above describe the per-tenant connection model as
 `shipping-service`'s, which is how it started. It no longer is:
-`pricing-service` (Phase 25f), `trading-partner-service` (Phase 26), and
+`pricing-service` (Phase 25f), `organizations-service` (Phase 26), and
 `refdata-service` (once it gained browser-facing `api.*` support) each open
 one connection per provisioned tenant as well, so that a browser
 authenticated into any tenant's account can reach them directly over `api.*`
@@ -167,7 +167,7 @@ Editable source:
 `nonTenantCredsFiles` exclusion list), `nats.Connect` per tenant, the
 `notify.accounts.account.{created,suspended,reactivated}` lifecycle
 subscription that provisions and tears down connections reactively, and
-shutdown. In `pricing-service` and `trading-partner-service` these were
+shutdown. In `pricing-service` and `organizations-service` these were
 near-identical file-scoped copies (`internal/tenants/tenants.go`, 288 and 368
 lines); `shipping-service`'s equivalent lived inside
 `internal/rest/tenant.go` alongside per-tenant JetStream and KV provisioning,
@@ -193,7 +193,7 @@ its own provision/deprovision callbacks so the package never imports any
 service's `browserrpc`. It is a **code package compiled into each binary —
 not a new service**: no additional container, no network hop, and no runtime
 dependency introduced between services. `pricing-service`,
-`trading-partner-service`, and `refdata-service` adopted `Manager[R]`
+`organizations-service`, and `refdata-service` adopted `Manager[R]`
 directly; `shipping-service` adopted it for connection lifecycle only
 (`natstenants.Discover`/`SubscribeLifecycle`), keeping its JetStream/KV
 provisioning local as planned. `shared/browserrpc` (the `Reply`/`Respond`/

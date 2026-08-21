@@ -1,6 +1,6 @@
 // Package natstenants is the shared per-tenant NATS connection manager
 // extracted in Phase 35 from four near-identical per-service copies —
-// pricing-service, trading-partner-service, refdata-service, and
+// pricing-service, organizations-service, refdata-service, and
 // shipping-service's rest/tenant.go (see BR-D40 and
 // ARCHITECTURE-ACCOUNTS.md). All four discover tenants the same way (scan
 // NATS_CREDS_DIR for *.creds files, excluding a fixed set of non-tenant
@@ -13,7 +13,7 @@
 // What genuinely differs per service is what "the resource for one tenant"
 // means: a bare browserrpc.Adapter (pricing, refdata), an
 // Adapter+refdataclient.Client pair built in two passes because of a
-// dependency-cycle constraint (trading-partner-service, BR-TP14), or a
+// dependency-cycle constraint (organizations-service, BR-TP14), or a
 // JetStream stream + three KV buckets + projectors + Adapter (shipping-
 // service). Manager is generic over that resource type (R) via
 // provision/deprovision callbacks, so this package never imports any
@@ -371,7 +371,7 @@ func (m *Manager[R]) Range(fn func(tenant string, nc *nats.Conn, res R)) {
 
 // Update replaces tenant's resource bundle with fn's result, for a service
 // whose resource shape is completed in a later pass than connect time (e.g.
-// trading-partner-service's BR-TP14 two-pass adapter wiring, MountAPI). A
+// organizations-service's BR-TP14 two-pass adapter wiring, MountAPI). A
 // no-op returning nil if tenant is no longer connected (it may have been
 // torn down concurrently) — fn is not called in that case.
 func (m *Manager[R]) Update(tenant string, fn func(nc *nats.Conn, cur R) (R, error)) error {

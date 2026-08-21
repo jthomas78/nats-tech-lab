@@ -110,7 +110,6 @@
   color: var(--lab-accent);
 }
 .sidebar.collapsed .nav-badge { display: none; }
-.sidebar.collapsed .sidebar-collapse-btn { width: 34px; }
 
 .nav-scroll { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
 
@@ -217,23 +216,35 @@
   padding: 1px 6px;
 }
 
-.sidebar-collapse-btn {
+/* Collapse control — a footer row at the bottom of the rail, right-aligned;
+   `.nav-scroll { flex: 1 }` above it does the pushing. It briefly sat at the
+   top of the rail (2026-08-21) to match the panel-toggle convention, but that
+   left a band of dead space between the topbar and the first nav group, so it
+   is back on the floor. The negative margin absorbs part of `.sidebar`'s own
+   14px gap so the row sits close under the last nav group. */
+.sidebar-foot {
   display: flex; align-items: center; justify-content: flex-end;
+  flex-shrink: 0;
+  height: 26px;
+  margin-top: -6px;
+}
+.sidebar.collapsed .sidebar-foot { justify-content: center; }
+
+.sidebar-collapse-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px;
   border: none;
+  border-radius: 5px;
   background: none;
   color: var(--p-text-muted-color);
-  padding: 6px 8px;
+  padding: 0;
   cursor: pointer;
 }
-.sidebar-collapse-btn:hover { color: var(--p-text-color); }
-.sidebar-collapse-btn .chevrons {
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: -0.05em;
+.sidebar-collapse-btn:hover {
+  background: var(--lab-nav-active-bg);
+  color: var(--p-text-color);
 }
-.sidebar.collapsed .sidebar-collapse-btn { justify-content: center; }
-.sidebar.collapsed .sidebar-collapse-btn .chevrons { transform: scaleX(-1); }
+.sidebar-collapse-btn svg { display: block; }
 
 /* ---------- main content ---------- */
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }

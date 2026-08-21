@@ -114,7 +114,7 @@ const textCells = [
   "ship-rpc-client", "ship-commands",
   // docker-compose-network: every tiled node carries its glyph at the top-left
   // inset, so its text block is bottom-aligned to clear it (the longer names —
-  // trading-partner-service/-postgres — collide with the glyph otherwise).
+  // organizations-service/-postgres — collide with the glyph otherwise).
   "admin-node", "seafreight-node", "refdata-node",
   "ship-svc", "refdata-svc", "accounts-svc", "pricing-svc", "tp-svc",
   "nats", "refdata-pg", "accounts-pg", "pricing-pg", "tp-pg",

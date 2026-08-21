@@ -1,8 +1,8 @@
 // Tenant-account NATS WebSocket connection (Phase 36.2) — this app's SECOND
-// connection, added solely for Trading Partners. useRefdataAdminConnection.js
+// connection, added solely for Organizations. useRefdataAdminConnection.js
 // remains "this app's only connection" for everything else: a single
 // cross-tenant PLATFORM credential with no tenant/account concept. Trading
-// Partners is the one feature that talks to a service (trading-partner-
+// Partners is the one feature that talks to a service (organizations-
 // service) which derives tenant identity from *which NATS account the
 // connection authenticated as* — mirroring frontend/admin's own
 // useNatsConnection.js, minus the backend-reconnect half.

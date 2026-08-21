@@ -58,7 +58,7 @@ Split by domain so a rule add/edit only requires reading its own file:
   behind Operating Areas — expressed entirely in the existing
   `DictionaryReference` mechanism with **no schema change**, and forbidding
   V2's duplicate-row-per-language anti-pattern in favour of localizations
-  (consumed by BR-TP46–BR-TP50 in the TRADING-PARTNER file). Rules live in
+  (consumed by BR-TP46–BR-TP50 in the ORGANIZATIONS file). Rules live in
   `backend/refdata-service/refdata/internal/domain/dictionary.go`.
 - **[BUSINESS_RULES-ACCOUNTS.md](BUSINESS_RULES-ACCOUNTS.md)** — Accounts
   Service (BR-AC01–BR-AC32): NATS account provisioning, suspension,
@@ -132,19 +132,19 @@ Split by domain so a rule add/edit only requires reading its own file:
   instead. Rules live in
   `backend/pricing-service/pricing/internal/domain/fee_scale.go`,
   `rate_sheet.go`, and `fixed_rate.go`.
-- **[BUSINESS_RULES-TRADING-PARTNER.md](BUSINESS_RULES-TRADING-PARTNER.md)**
-  — Trading Partner Service (BR-TP01–BR-TP15, confirmed 2026-08-13; BR-TP15
+- **[BUSINESS_RULES-ORGANIZATIONS.md](BUSINESS_RULES-ORGANIZATIONS.md)**
+  — Organizations Service (BR-TP01–BR-TP15, confirmed 2026-08-13; BR-TP15
   added Phase 28 as the `obs.trace.*` mirror of BR-036, prototyped in this
   service first): Shipper/Transporter registration in a new
-  `trading-partner-service`, ported from V2's `BusinessEntity`/
+  `organizations-service`, ported from V2's `BusinessEntity`/
   `TransporterProfileEntity`/`TransporterDocumentEntity`/`FleetAssetEntity`.
-  Covers only the `TradingPartner` aggregate's
+  Covers only the `Organization` aggregate's
   `Register`→`Activate`→`Suspend`→`Reactivate` lifecycle (mirrors
   accounts-service's create/suspend/reactivate triple, BR-AC08–AC10) and its
   append-only audit trail (mirrors BR-AC11's conventions verbatim). Plain
   Postgres CRUD, not event-sourced. Compliance documents and Transporter
   fleet assets (with refdata-validated `vehicleTypeCode`, requiring
-  `trading-partner-service` to hold a tenant-scoped `rpc.*` client per
+  `organizations-service` to hold a tenant-scoped `rpc.*` client per
   BR-D28) get their own BR-TP numbers once Phase 26's later sub-phases
   start. BR-TP18–BR-TP45 (Phase 38a–38c-ii) add the event-sourced
   `TransporterProfile` aggregate, its Temporal vetting saga, editable Company
@@ -155,7 +155,7 @@ Split by domain so a rule add/edit only requires reading its own file:
   — the secret lives only in an at-rest-encrypted KV bucket and never on the
   event log, credentials overwrite where documents are write-once, and the
   configured flag extends `AvailableForAssignment`). Rules will live in
-  `trading-partner-service/tradingpartner/internal/domain/`.
+  `organizations-service/organizations/internal/domain/`.
 
 When CLAUDE.md's Quality Rule #4 says "update `BUSINESS_RULES.md`," it means:
 add/edit the rule in whichever of the domain files above matches the domain

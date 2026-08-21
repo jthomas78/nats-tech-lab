@@ -1,8 +1,8 @@
-// Trading Partners' tenant + context selector (Phase 36.2). Deliberately its
+// Organizations' tenant + context selector (Phase 36.2). Deliberately its
 // own store, separate from useDictionaryStore's `context` (that one is
 // platform-wide — every tenant's contexts at once, via the PLATFORM
 // connection, for browsing dictionary standards) — this store scopes to one
-// tenant's own contexts at a time, because trading-partner-service derives
+// tenant's own contexts at a time, because organizations-service derives
 // tenant identity from *which NATS account the connection authenticated as*,
 // not from a request parameter. Mirrors frontend/admin's stores/tenant.js in
 // spirit, not in mechanism: no POST /api/tenant/switch call here — see

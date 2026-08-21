@@ -14,7 +14,12 @@
 //
 // Usage:
 //
-//	go run ./cmd/seed-vehicle-types [-base-url http://localhost:7201] [-context linebooker] [-dry-run]
+//	go run ./cmd/seed-vehicle-types [-base-url http://localhost:7201] [-context linebooker] [-tenant linebooker] [-dry-run]
+//
+// Seeding a tenant context rather than the linebooker preview one, which is
+// what BR-TP14's fleet-asset validation needs (see registerContext):
+//
+//	go run ./cmd/seed-vehicle-types -context acme
 package main
 
 import (
@@ -59,15 +64,22 @@ const (
 func main() {
 	baseURL := flag.String("base-url", "http://localhost:7201", "refdata-service base URL")
 	context := flag.String("context", targetTenant, "context to seed vehicle-type data into (sibling of _platform)")
+	// Defaults to the context name: a tenant whose single business unit shares
+	// its name is BR-AC07's common case, which is exactly the `acme` shape the
+	// transporter ladder uses.
+	tenant := flag.String("tenant", "", "tenant that owns the context (default: same as -context)")
 	dryRun := flag.Bool("dry-run", false, "print requests instead of sending them")
 	publish := flag.Bool("publish", true, "create+publish an initial corpus version for the context after seeding")
 	flag.Parse()
 
+	if *tenant == "" {
+		*tenant = *context
+	}
 	c := &client{baseURL: *baseURL, dryRun: *dryRun, httpc: &http.Client{Timeout: 10 * time.Second}}
 
 	log.Printf("seeding context %q against %s (dry-run=%v)", *context, *baseURL, *dryRun)
 
-	must(c.registerContext(*context))
+	must(c.registerContext(*context, *tenant))
 	must(c.addLocale(*context, "en", true))
 
 	must(c.registerType("vehicle-type-category", "Vehicle Type Category", "Derived from VehicleType.java's getCategory() switch", "domain-enum"))
@@ -139,13 +151,27 @@ func (c *client) post(path string, body any) error {
 	return nil
 }
 
-func (c *client) registerContext(ctxKey string) error {
+// registerContext creates the target context if it does not already exist.
+//
+// The metadata is derived from ctxKey rather than hardcoded: this seeder is
+// routinely pointed at a context other than its `linebooker` default (the
+// Phase 38g transporter ladder needs the corpus in whichever context its
+// organizations are registered in, since BR-TP14 resolves vehicle types in
+// the organization's own context and Phase 106's context inheritance is not
+// on the live read path). Hardcoding "Linebooker"/tenant `linebooker` here
+// would have stamped that identity onto every other context this is aimed at.
+func (c *client) registerContext(ctxKey, tenant string) error {
+	name, description := "Linebooker", "Preview context for linebooker-sourced refdata candidates (seed-vehicle-types)"
+	if ctxKey != targetTenant {
+		name = ctxKey
+		description = "Vehicle-type corpus seeded by seed-vehicle-types"
+	}
 	return c.post("/api/refdata/admin/contexts", map[string]any{
 		"context":     ctxKey,
 		"parent":      platformContext,
-		"name":        "Linebooker",
-		"description": "Preview context for linebooker-sourced refdata candidates (seed-vehicle-types)",
-		"tenant":      targetTenant,
+		"name":        name,
+		"description": description,
+		"tenant":      tenant,
 	})
 }
 

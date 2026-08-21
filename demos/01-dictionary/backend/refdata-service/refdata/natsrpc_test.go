@@ -204,7 +204,7 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 		// traceSpan is a strict superset of the pre-Phase-28 obsEnvelope:
 		// this decodes it into the old shape (ignoring every new field) to
 		// assert backward compatibility, then again into the full shape for
-		// the new tracing fields. Mirrors trading-partner-service's
+		// the new tracing fields. Mirrors organizations-service's
 		// browserrpc_roundtrip_test.go, which this test was cloned from —
 		// Phase 28b replaced this adapter's publishObs side-channel
 		// (obs.rpc.*, BR-D26/BR-D36/BR-D37) with natstrace's obs.trace.*

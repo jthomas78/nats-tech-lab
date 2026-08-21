@@ -3,7 +3,7 @@
 **Status:** Accepted, with required amendments (see Punch List)
 **Date:** 2026-08-20
 **Deciders:** Jeremy (repo owner) — part of Phase 38 design review
-**Related:** [ARCHITECTURE-ORGANIZATIONS.md](ARCHITECTURE-ORGANIZATIONS.md) §§ "Concurrency — two operators editing the same Transporter," "Cross-aggregate invariant / saga — two layers, not one," "Frontend," "Open questions" (3); [ADR-046](ADR-046-transporter-aggregate-split.md) (whose "zero changes to `tradingpartner`" claim this ADR corrects); [ADR-047](ADR-047-transporter-vetting-temporal-saga.md) (whose Activity-publish requirement interacts with this one); Phase 101 in [Main-POC-Plan.md](../../../../.claude/plans/Main-POC-Plan.md); [ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) § 2 (subject taxonomy)
+**Related:** [ARCHITECTURE-ORGANIZATIONS.md](ARCHITECTURE-ORGANIZATIONS.md) §§ "Concurrency — two operators editing the same Transporter," "Cross-aggregate invariant / saga — two layers, not one," "Frontend," "Open questions" (3); [ADR-046](ADR-046-transporter-aggregate-split.md) (whose "zero changes to `organizations`" claim this ADR corrects); [ADR-047](ADR-047-transporter-vetting-temporal-saga.md) (whose Activity-publish requirement interacts with this one); Phase 101 in [Main-POC-Plan.md](../../../../.claude/plans/Main-POC-Plan.md); [ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) § 2 (subject taxonomy)
 
 ## Context
 
@@ -14,9 +14,9 @@ concurrency mechanisms**:
 
 - `TransporterProfile` (event-sourced): Phase 101's JetStream
   `Nats-Expected-Last-Subject-Sequence` guard.
-- `TradingPartner` (plain CRUD): a new `version`-column optimistic lock.
+- `Organization` (plain CRUD): a new `version`-column optimistic lock.
 
-They are joined by one cross-aggregate guard: `TradingPartner.Activate()`
+They are joined by one cross-aggregate guard: `Organization.Activate()`
 must refuse a `TRANSPORTER`-typed partner whose `TransporterProfile` has not
 reached `Vetted`.
 
@@ -28,7 +28,7 @@ material ways:
   `Nats-Expected`/`ExpectLastSubjectSequence`/`Nats-Msg-Id`/`MsgId(` in any
   non-test Go). The repo's own docs already say so:
   `demos/01-dictionary/docs/nats/write-side-safety.md:29-42`.
-- **`TradingPartner`'s existing concurrency is pessimistic, not the
+- **`Organization`'s existing concurrency is pessimistic, not the
   compare-and-set the design doc describes.** See finding 5.
 
 ## Decision
@@ -39,7 +39,7 @@ assuming one mechanism would cover both. **But three of the six points
 below are corrections, not refinements:** the event-sourced guard provides
 close to no protection for this particular aggregate as specified, the
 "cross-aggregate invariant" is actually a one-time gate that a clock can
-silently break, and `tradingpartner` cannot be left unmodified.
+silently break, and `organizations` cannot be left unmodified.
 
 ### 1. The per-subject guard barely protects `TransporterProfile` — must resolve in design, not at implementation time
 
@@ -112,7 +112,7 @@ Per the Data-sections table (faithfully following V2's real
 transporter's `GOODS_IN_TRANSIT` documents, over the 5-value
 `PENDING|ACTIVE|EXPIRED|REJECTED|NONE` enum. `EXPIRED` arrives **by the
 passage of time** — no command, no actor, and **no event** to hang a guard
-on. So a `TradingPartner` can sit at `ACTIVE`, indefinitely, with an expired
+on. So an `Organization` can sit at `ACTIVE`, indefinitely, with an expired
 GIT certificate, and nothing in the design notices. That is the invariant
 being violated in the ordinary course of business, not under a race.
 
@@ -176,7 +176,7 @@ sequence. Compose them:
 3. Temporal sees a failed Activity and **retries** it.
 
 The good news, verified against ADR-047's own choice: the `Nats-Msg-Id` key
-is `tradingPartnerID` + event type + step counter, deliberately *not* the
+is `organizationID` + event type + step counter, deliberately *not* the
 Temporal `RunID`, so it stays stable across retries even though the expected
 sequence changes on each attempt. The two designs are compatible — but only
 by luck of that earlier decision, and only if the retry re-hydrates.
@@ -195,17 +195,17 @@ default), and ensure it can never reach the compensation path — a conflict
 that exhausts retries should surface as "try again," not as a failed
 vetting.
 
-### 5. `TradingPartner` cannot be left unmodified — ADR-046's headline claim needs correcting
+### 5. `Organization` cannot be left unmodified — ADR-046's headline claim needs correcting
 
 Two verified facts change the picture:
 
 **(a) The existing mechanism is pessimistic, and the design doc describes it
 wrongly.** The doc says status transitions "already get a natural check via
 `WHERE status = ?`". There is no such predicate. The only UPDATE on the
-table is (`trading-partner-service/tradingpartner/internal/postgres/trading_partner_repository.go:112-113`):
+table is (`organizations-service/organizations/internal/postgres/organization_repository.go:112-113`):
 
 ```go
-UPDATE trading_partner.trading_partners SET status = $2 WHERE id = $1
+UPDATE organizations.organizations SET status = $2 WHERE id = $1
 ```
 
 Safety comes instead from a row lock taken earlier in the same transaction
@@ -227,7 +227,7 @@ what `FOR UPDATE` cannot do. Worth stating, since "we already lock the row"
 is an easy and wrong objection to the version column.
 
 **(b) Company Information is not editable today — at all — so this is new
-`tradingpartner` code, not just a new column.** Verified: the repository
+`organizations` code, not just a new column.** Verified: the repository
 port has no update method (`internal/domain/repository.go:10-17` — only
 `Register`/`Get`/`List`/`Activate`/`Suspend`/`Reactivate`); the fourteen
 `api.*` handlers contain no `partner-update`
@@ -241,8 +241,8 @@ proceeds"*; nothing implements it.)
 
 So the Company Information data-section row requires a new domain method, a
 new repository method, a new command, and a new `api.*` handler in
-`tradingpartner` — plus the `version` column. **ADR-046's strongest selling
-point over Option A — "zero changes to `tradingpartner`," a stronger
+`organizations` — plus the `version` column. **ADR-046's strongest selling
+point over Option A — "zero changes to `organizations`," a stronger
 regression guarantee than Option A's conditional one — is materially weaker
 than stated.** It is still the better position (additive changes to a tested
 aggregate beat Option A's *subtractive* "retire `PartnerTypeTransporter`",
@@ -270,7 +270,7 @@ boundary into an unattributable error.
 
 ### 7. Open question 3 is answerable now — and the answer isn't "38a or later"
 
-The doc asks whether `TradingPartner`'s optimistic lock lands in 38a or a
+The doc asks whether `Organization`'s optimistic lock lands in 38a or a
 follow-up. Finding 5(b) reframes it: the lock is inseparable from a
 `partner-update` command **that does not exist yet**, so the real question
 is where *that* lands. And it cannot slip past **38d**, which ships the
@@ -285,7 +285,7 @@ read-only in 38d and say so.
 ## Trade-off Analysis
 
 The design's core judgement — accept two mechanisms rather than force one —
-is right, and the alternative (make `TradingPartner` event-sourced too, so
+is right, and the alternative (make `Organization` event-sourced too, so
 one mechanism covers both) would trade a small amount of plumbing for
 exactly the confounded CRUD-vs-event-sourced comparison ADR-046 worked to
 avoid. What this review changes is the cost estimate: the event-sourced side
@@ -305,7 +305,7 @@ different architecture; all three argue against the current sizing.
   expiry — would be the strongest result available, and is nearly free given
   Temporal is already in scope.
 - Finding 5 means ADR-046 needs a correction note. Both this ADR and ADR-048
-  independently found `tradingpartner` changes that ADR-046 promised away;
+  independently found `organizations` changes that ADR-046 promised away;
   the decision still holds, the guarantee was overstated.
 - Findings 4 and 6 are both "two accepted designs, considered separately,
   compose badly" — worth noting as a review-process observation: ADR-047 and
@@ -326,7 +326,7 @@ different architecture; all three argue against the current sizing.
   de-activation proves fragile, that is evidence the two aggregates are more
   tightly coupled than ADR-046 assumed, and the boundary deserves a second
   look.
-- If `partner-update` (finding 5b) turns out to need most of `TradingPartner`
+- If `partner-update` (finding 5b) turns out to need most of `Organization`
   rebuilt to be safely editable, the "plain CRUD, unchanged" premise is
   weaker than ADR-046 priced in.
 
@@ -348,8 +348,8 @@ different architecture; all three argue against the current sizing.
        and record why a `version` column is still needed (lost updates
        across user think-time, which row locks cannot detect) — finding 5a.
 4. [ ] Record that Company Information requires a **new** `partner-update`
-       command/handler/repository/domain method in `tradingpartner`, and add
-       a correction note to ADR-046's "zero changes to `tradingpartner`"
+       command/handler/repository/domain method in `organizations`, and add
+       a correction note to ADR-046's "zero changes to `organizations`"
        claim — finding 5b.
 
 **Must fix before 38b (Temporal) / 38d (frontend):**
@@ -369,7 +369,7 @@ different architecture; all three argue against the current sizing.
 
 **Confirmed sound, no action needed:**
 - Guard dependency direction (`transporterprofile`/orchestration →
-  `tradingpartner`, never reversed) — consistent with ADR-046.
+  `organizations`, never reversed) — consistent with ADR-046.
 - The aggregate-instance `{id}` token in the subject is what makes
   per-aggregate concurrency control possible at all
   (`Main-POC-Plan-ARCHIVE.md:561` records why); `TransporterProfile`

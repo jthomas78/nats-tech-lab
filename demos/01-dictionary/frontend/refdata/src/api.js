@@ -204,13 +204,13 @@ export function diffCorpusVersions(context, fromVersion, toVersion) {
   return request(adminSubject(context, 'corpus.diff'), { from: fromVersion, to: toVersion })
 }
 
-// ── Trading partner tenant scoping (Phase 36.2) ─────────────────────────────────
+// ── Organization tenant scoping (Phase 36.2) ─────────────────────────────────
 // context.list.v1 accepts an explicit `tenant` filter in the body (BR-D35 —
 // refdata-service has no server-supplied caller identity to derive it from,
 // and the per-tenant connection only proves account membership, a different
 // axis from the `tenant` column contexts are tagged with). listContexts()
 // above omits it to browse every tenant's contexts platform-wide; this variant
-// scopes to one tenant for the Trading Partners tenant+context selector.
+// scopes to one tenant for the Organizations tenant+context selector.
 // Filters "_"-reserved contexts (platform roots, not real fleet scopes),
 // mirroring frontend/admin's stores/dictionary.js loadContexts().
 export async function listContextsForTenant(tenant) {
@@ -224,7 +224,7 @@ export async function listContextsForTenant(tenant) {
 // GET /api/accounts (which frontend/admin uses for its own Accounts admin
 // view): that endpoint returns every account row, including the reserved
 // "platform"/"sys" infrastructure accounts (BR-AC06) — neither is a real
-// tenant, and trading-partner-service has no meaningful Shippers/
+// tenant, and organizations-service has no meaningful Shippers/
 // Transporters list for either. /api/auth/tenants already excludes them
 // (accounts.Store.ListActiveTenantNames), so this reuses that filtering
 // instead of re-implementing it here.
@@ -239,58 +239,58 @@ export function listAvailableTenants() {
   return restRequest('/api/auth/tenants').then((body) => body.tenants ?? [])
 }
 
-// ── Trading partners (Phase 26h origin, migrated from frontend/admin in
+// ── Organizations (Phase 26h origin, migrated from frontend/admin in
 // Phase 36.2) ────────────────────────────────────────────────────────────────
 // Ported verbatim from frontend/admin/src/api.js, swapped onto this app's own
 // tenant connection (useTenantConnection.js) — see that module's doc comment
 // for why Tech Lab Operator needs a second, tenant-scoped connection
 // alongside the PLATFORM one every other call in this file uses.
 
-// tpSubject builds one trading-partner api.* subject, failing loudly if
+// tpSubject builds one organizations api.* subject, failing loudly if
 // context isn't a legal single subject token. Silently producing
-// "api.acme.north.trading-partner..." would shift every later token by one
+// "api.acme.north.organizations..." would shift every later token by one
 // and make the service resolve the wrong context.
 function tpSubject(context, entity, action) {
   if (!context || /[.\s*>]/.test(context)) {
     throw new Error(`invalid context for a NATS subject token: ${JSON.stringify(context)}`)
   }
-  return `api.${context}.trading-partner.${entity}.${action}.v1`
+  return `api.${context}.organizations.${entity}.${action}.v1`
 }
 
 function tpRequest(context, entity, action, payload) {
   return useTenantConnection().request(tpSubject(context, entity, action), payload)
 }
 
-export function listTradingPartners(context) {
-  return tpRequest(context, 'partner', 'list')
+export function listOrganizations(context) {
+  return tpRequest(context, 'organization', 'list')
 }
 
-export function registerTradingPartner(context, input) {
-  return tpRequest(context, 'partner', 'register', input)
+export function registerOrganization(context, input) {
+  return tpRequest(context, 'organization', 'register', input)
 }
 
 // BR-TP32/BR-TP34 — Company Information editing. version is the value the
 // caller read; the service rejects a stale one with a 409 rather than
 // overwriting someone else's change, so callers must surface that (BR-TP39)
 // instead of retrying blindly.
-export function updateTradingPartner(context, id, version, details) {
-  return tpRequest(context, 'partner', 'update', { id, version, ...details })
+export function updateOrganization(context, id, version, details) {
+  return tpRequest(context, 'organization', 'update', { id, version, ...details })
 }
 
-export function activateTradingPartner(context, id) {
-  return tpRequest(context, 'partner', 'activate', { id })
+export function activateOrganization(context, id) {
+  return tpRequest(context, 'organization', 'activate', { id })
 }
 
-export function suspendTradingPartner(context, id, reason) {
-  return tpRequest(context, 'partner', 'suspend', { id, reason })
+export function suspendOrganization(context, id, reason) {
+  return tpRequest(context, 'organization', 'suspend', { id, reason })
 }
 
-export function reactivateTradingPartner(context, id) {
-  return tpRequest(context, 'partner', 'reactivate', { id })
+export function reactivateOrganization(context, id) {
+  return tpRequest(context, 'organization', 'reactivate', { id })
 }
 
-export function getTradingPartnerAudit(context, id) {
-  return tpRequest(context, 'partner', 'audit', { id })
+export function getOrganizationAudit(context, id) {
+  return tpRequest(context, 'organization', 'audit', { id })
 }
 
 // BR-TP37 — the browser's only route to vetting state. Returns
@@ -300,7 +300,7 @@ export function getTradingPartnerAudit(context, id) {
 // profile.status blindly. gitStatus is derived server-side (BR-TP38) and is
 // never something the UI computes or sets.
 export function getTransporterProfile(context, id) {
-  return tpRequest(context, 'partner', 'profile', { id })
+  return tpRequest(context, 'organization', 'profile', { id })
 }
 
 export function listComplianceDocuments(context, id) {
@@ -410,7 +410,7 @@ export function listFleetAssets(context, id) {
   return tpRequest(context, 'fleet-asset', 'list', { id })
 }
 
-// Signature keeps `tenant` so TradingPartnersPanel.vue's call site is
+// Signature keeps `tenant` so OrganizationsPanel.vue's call site is
 // unchanged, but the value is deliberately unused: the service derives the
 // tenant from the connection's own NATS account. Dropping the parameter
 // would silently change the meaning of the 4th positional argument (input)

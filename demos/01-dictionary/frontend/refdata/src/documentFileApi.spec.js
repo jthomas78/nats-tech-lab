@@ -59,7 +59,7 @@ describe('compliance document file transfer', () => {
       await uploadComplianceDocumentFile('acme', 'tp-1', 'doc-1', fileLike('cert.pdf', 'application/pdf', 10))
 
       expect(request).toHaveBeenCalledTimes(1)
-      expect(request.mock.calls[0][0]).toBe('api.acme.trading-partner.document.upload-ticket.v1')
+      expect(request.mock.calls[0][0]).toBe('api.acme.organizations.document.upload-ticket.v1')
       expect(request.mock.calls[0][1]).toEqual({ id: 'tp-1', documentId: 'doc-1' })
 
       // Ordering, not just presence: the ticket has to exist before the POST.
@@ -135,7 +135,7 @@ describe('compliance document file transfer', () => {
 
       const result = await downloadComplianceDocumentFile('acme', 'tp-1', 'doc-1')
 
-      expect(request.mock.calls[0][0]).toBe('api.acme.trading-partner.document.download-ticket.v1')
+      expect(request.mock.calls[0][0]).toBe('api.acme.organizations.document.download-ticket.v1')
       expect(result).toBe(blob)
     })
 

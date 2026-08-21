@@ -10,7 +10,17 @@ import (
 )
 
 type jsStream struct {
-	Stream    string `json:"stream"`
+	Stream string `json:"stream"`
+	// Kind is "stream" | "kv" | "objstore", derived from NATS' own
+	// KV_/OBJ_ backing-stream prefixes. Reported rather than filtered
+	// (this endpoint dropped KV_ entirely until 38e): the Streams panel is
+	// the only view of a tenant's JetStream stream count, and ADR-048
+	// budgets against MaxStreams: 10 — a view that hides two of the three
+	// kinds cannot answer "how close to the cap is this tenant". The
+	// Stream field keeps the raw backing-stream name so it stays the
+	// selection key and the thing $JS.API is addressed by; the UI strips
+	// the prefix for display once the kind tag carries it.
+	Kind      string `json:"kind"`
 	Account   string `json:"account"`
 	Subjects  int    `json:"subjects"`
 	Messages  uint64 `json:"messages"`
@@ -40,10 +50,26 @@ type jsStreamsResponse struct {
 	Streams  []jsStream           `json:"streams"`
 }
 
+// streamKind classifies a stream by the prefix NATS itself puts on a
+// bucket's backing stream: a KV bucket "ships" is the stream "KV_ships",
+// an Object Store "organizations-docs" is "OBJ_organizations-docs". These
+// prefixes are part of NATS' own on-the-wire naming, not a convention this
+// repo chose, so matching on them is stable.
+func streamKind(name string) string {
+	switch {
+	case strings.HasPrefix(name, "KV_"):
+		return "kv"
+	case strings.HasPrefix(name, "OBJ_"):
+		return "objstore"
+	default:
+		return "stream"
+	}
+}
+
 // listStreams godoc
 //
 // @Summary      List registered streams
-// @Description  Every event stream registered across every NATS account this backend can introspect — PLATFORM plus every tenant accounts-service currently knows about. KV_* streams are NATS' internal backing storage for KV buckets, not event streams a client watches for messages, so they're excluded — /api/kv/buckets reports those as buckets instead. Accounts is the authoritative account list (every account, including ones whose streams couldn't be listed, e.g. a suspended tenant) — Streams may have zero rows for an account present in Accounts.
+// @Description  Every JetStream stream registered across every NATS account this backend can introspect — PLATFORM plus every tenant accounts-service currently knows about. Each row carries a Kind: "stream" for an event stream, "kv" for a KV bucket's KV_* backing stream, "objstore" for an Object Store's OBJ_* backing stream. KV and Object Store rows are included so this endpoint can answer "how many of the account's MaxStreams are in use" (ADR-048); /api/kv/buckets remains the richer, bucket-shaped view of the KV ones. Accounts is the authoritative account list (every account, including ones whose streams couldn't be listed, e.g. a suspended tenant) — Streams may have zero rows for an account present in Accounts.
 // @Tags         streams
 // @Produce      json
 // @Success      200  {object}  jsStreamsResponse
@@ -59,11 +85,9 @@ func (h *Handlers) listStreams(w http.ResponseWriter, r *http.Request) {
 
 		lister := acct.js.ListStreams(ctx)
 		for info := range lister.Info() {
-			if strings.HasPrefix(info.Config.Name, "KV_") {
-				continue
-			}
 			streams = append(streams, jsStream{
 				Stream:    info.Config.Name,
+				Kind:      streamKind(info.Config.Name),
 				Account:   acct.name,
 				Subjects:  len(info.Config.Subjects),
 				Messages:  info.State.Msgs,

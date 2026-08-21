@@ -1,0 +1,284 @@
+<!--
+  For review — Phase 38e follow-on. JetStreamPanel.vue's stream rail gains:
+    1. a search box (the .search-box idiom from ConnectionsPanel/RpcPanel)
+    2. a `kind` tag per row (stream / objstore / kv), reusing TraceWaterfall's
+       .kind-tag vocabulary verbatim — left-border + tint + 9px mono caps
+    3. two opt-in toggles (kv, objstore), OFF by default
+
+  Requires a backend change: observability-service/.../rest/streams.go:62
+  currently drops KV_* server-side. Option B keeps them, tagged.
+
+  Static mockup — three states shown side by side rather than a live toggle,
+  because the point under review is the three resting states, not the
+  transition between them.
+-->
+<title>Streams rail — search, kind tags, opt-in KV/OBJ</title>
+<style>
+:root {
+  --lab-bg: #131416;
+  --lab-panel-border: #2c3138;
+  --lab-accent: #006fff;
+  --lab-nav-active-bg: #1c1d1f;
+  --p-text-color: #dee0e3;
+  --p-text-muted-color: #b7bcc2;
+  --p-text-disabled-color: #737c87;
+  --ok: #2fbf71;
+  --warn: #d9a514;
+  --k-stream: #2dd4bf;
+  --k-obj: #a78bfa;
+  --k-kv: #f0b429;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { background: var(--lab-bg); margin: 0; padding: 24px; display: flex; justify-content: center; align-items: flex-start; }
+.mock {
+  width: 976px; max-width: 100%;
+  background: var(--lab-bg); color: var(--p-text-color);
+  font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased;
+  border: 1px solid var(--lab-panel-border); border-radius: 8px; overflow: hidden;
+}
+
+.review-banner { background: rgba(217,165,20,.08); border-bottom: 1px solid var(--lab-panel-border); padding: 8px 14px 10px; }
+.review-banner .headline { font-size: 12px; font-weight: 700; }
+.review-banner .headline b { color: var(--warn); }
+.review-banner p.note { margin: 6px 0 0; font-size: 12px; color: var(--p-text-muted-color); max-width: 88ch; }
+.review-banner code { font-family: var(--mono); font-size: 11px; color: var(--lab-accent); background: rgba(0,111,255,.10); border-radius: 3px; padding: 0 4px; }
+
+.states { display: flex; gap: 14px; padding: 16px 14px 18px; align-items: flex-start; }
+.state { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.state-cap { font-family: var(--mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--p-text-disabled-color); }
+.state-cap b { color: var(--p-text-color); font-weight: 700; }
+
+/* ── the rail itself — 250px, matching JetStreamPanel.vue ── */
+.rail {
+  width: 100%; border: 1px solid var(--lab-panel-border); border-radius: 4px;
+  padding: 7px; display: flex; flex-direction: column; gap: 7px; background: var(--lab-bg);
+}
+.rail-summary { font-size: 11px; color: var(--p-text-muted-color); padding: 0 2px; }
+.rail-summary strong { color: var(--p-text-color); }
+.lab-muted { color: var(--p-text-disabled-color); }
+.filtering strong { color: var(--lab-accent); }
+
+/* ── search — lifted from ConnectionsPanel.vue .search-box, unchanged ── */
+.search-box {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--lab-bg); border: 1px solid var(--lab-panel-border);
+  border-radius: 3px; padding: 2px 8px; font-size: 11px; color: var(--p-text-muted-color);
+}
+.search-box svg { flex: none; opacity: .8; }
+.search-box .txt { flex: 1; min-width: 0; color: var(--p-text-color); font-size: 11px; }
+.search-box .txt.ph { color: var(--p-text-disabled-color); }
+.search-box .caret { width: 1px; height: 12px; background: var(--lab-accent); }
+
+/* ── opt-in kind toggles — independent chips (errorsOnly/slowOnly idiom),
+     NOT the joined .kind-group segmented control: these are two additive
+     booleans layered on top of always-visible streams, not one 3-state axis ── */
+.kind-toggles { display: flex; gap: 5px; padding: 0 1px; }
+.chip {
+  font-family: var(--mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em;
+  border: 1px solid var(--lab-panel-border); border-radius: 3px; background: transparent;
+  color: var(--p-text-disabled-color); padding: 1px 7px 1px 5px;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.chip i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .45; }
+.chip.on i { opacity: 1; }
+.chip.on[data-k="kv"]  { color: var(--k-kv);  background: rgba(240,180,41,.12);  border-color: rgba(240,180,41,.4); }
+.chip.on[data-k="obj"] { color: var(--k-obj); background: rgba(167,139,250,.14); border-color: rgba(167,139,250,.45); }
+
+/* ── account group — unchanged from JetStreamPanel.vue ── */
+.account-head {
+  width: 100%; display: flex; align-items: center; gap: 6px;
+  background: var(--lab-nav-active-bg); border: 1px solid var(--lab-panel-border);
+  border-radius: 3px; padding: 4px 7px; font-size: 11px;
+}
+.caret { font-size: 7px; color: var(--p-text-disabled-color); }
+.account-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: none; }
+.account-name { font-family: var(--mono); font-weight: 700; letter-spacing: .04em; }
+.account-kind {
+  font-size: 9px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase;
+  color: var(--p-text-muted-color); border: 1px solid var(--lab-panel-border);
+  border-radius: 3px; padding: 0 4px;
+}
+.account-count { margin-left: auto; font-size: 10px; }
+.account-body { display: flex; flex-direction: column; gap: 2px; padding: 3px 0 5px 4px; }
+
+.rail-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 6px; border-radius: 3px; border: 1px solid transparent;
+}
+.rail-item.active { background: var(--lab-nav-active-bg); border-color: var(--lab-panel-border); box-shadow: inset 2px 0 0 var(--lab-accent); }
+.rail-name { font-family: var(--mono); font-size: 11px; color: var(--p-text-color); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-item.active .rail-name { font-weight: 700; }
+.rail-count { font-family: var(--mono); font-size: 10px; color: var(--p-text-disabled-color); background: rgba(255,255,255,.05); border-radius: 8px; padding: 0 6px; flex: none; }
+
+/* ── kind tag — TraceWaterfall.vue .kind-tag, verbatim vocabulary ── */
+.kind-tag {
+  flex: none; display: inline-flex; align-items: center;
+  font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; padding: 1px 5px 1px 4px; border-radius: 2px;
+}
+.kind-tag.stream { color: var(--k-stream); background: rgba(45,212,191,.12); border-left: 2px solid var(--k-stream); }
+.kind-tag.obj    { color: var(--k-obj);    background: rgba(167,139,250,.14); border-left: 2px solid var(--k-obj); }
+.kind-tag.kv     { color: var(--k-kv);     background: rgba(240,180,41,.12);  border-left: 2px solid var(--k-kv); }
+
+.hidden-note { font-size: 10.5px; color: var(--p-text-disabled-color); padding: 1px 3px 0; }
+.mark { color: var(--p-text-color); background: rgba(0,111,255,.22); border-radius: 2px; }
+
+.notes { border-top: 1px solid var(--lab-panel-border); padding: 13px 16px 17px; }
+.notes h2 { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.notes ul { margin: 0; padding-left: 17px; color: var(--p-text-muted-color); font-size: 12.5px; line-height: 19px; display: flex; flex-direction: column; gap: 6px; max-width: 92ch; }
+.notes li b { color: var(--p-text-color); font-weight: 600; }
+.notes code { font-family: var(--mono); font-size: 11px; background: rgba(222,224,227,.08); border-radius: 3px; padding: 0 4px; }
+</style>
+
+<div class="mock">
+  <div class="review-banner">
+    <div class="headline"><b>MOCKUP — not implemented.</b> Streams rail: search, kind tags, opt-in KV/OBJ toggles.</div>
+    <p class="note">
+      Option <b>B</b>: the rail becomes an honest stream-budget view — every JetStream stream in the
+      account, tagged by kind. Needs <code>streams.go:62</code> to stop dropping <code>KV_*</code>
+      server-side and return a <code>kind</code> field instead. Tag styling is
+      <code>TraceWaterfall.vue</code>'s <code>.kind-tag</code> verbatim; the search box is
+      <code>ConnectionsPanel.vue</code>'s <code>.search-box</code> verbatim.
+    </p>
+  </div>
+
+  <div class="states">
+
+    <!-- ── STATE A — default ── -->
+    <div class="state">
+      <div class="state-cap"><b>A · default</b> — both toggles off</div>
+      <div class="rail">
+        <div class="rail-summary"><strong>6</strong> streams <span class="lab-muted">· 3 accounts</span></div>
+        <div class="search-box">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.4"/><line x1="10.4" y1="10.4" x2="14" y2="14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          <span class="txt ph">filter by stream name</span>
+        </div>
+        <div class="kind-toggles">
+          <span class="chip" data-k="kv"><i></i>kv</span>
+          <span class="chip" data-k="obj"><i></i>objstore</span>
+        </div>
+
+        <div class="account-head"><span class="caret">▼</span><span class="account-dot"></span><span class="account-name">ACME</span><span class="account-kind">tenant</span><span class="account-count lab-muted">2</span></div>
+        <div class="account-body">
+          <div class="rail-item active"><code class="rail-name">SHIPPING</code><span class="rail-count">0</span></div>
+          <div class="rail-item"><code class="rail-name">TRANSPORTER</code><span class="rail-count">0</span></div>
+        </div>
+
+        <div class="account-head"><span class="caret">▼</span><span class="account-dot"></span><span class="account-name">GLOBEX</span><span class="account-kind">tenant</span><span class="account-count lab-muted">2</span></div>
+        <div class="account-body">
+          <div class="rail-item"><code class="rail-name">SHIPPING</code><span class="rail-count">0</span></div>
+          <div class="rail-item"><code class="rail-name">TRANSPORTER</code><span class="rail-count">0</span></div>
+        </div>
+
+        <div class="account-head"><span class="caret">▼</span><span class="account-dot"></span><span class="account-name">PLATFORM</span><span class="account-kind">read-only</span><span class="account-count lab-muted">2</span></div>
+        <div class="account-body">
+          <div class="rail-item"><code class="rail-name">REFDATA</code><span class="rail-count">1136</span></div>
+          <div class="rail-item"><code class="rail-name">TRACES</code><span class="rail-count">3</span></div>
+        </div>
+        <div class="hidden-note">15 KV · 2 objstore hidden</div>
+      </div>
+    </div>
+
+    <!-- ── STATE B — objstore on ── -->
+    <div class="state">
+      <div class="state-cap"><b>B · objstore on</b> — kinds now mixed</div>
+      <div class="rail">
+        <div class="rail-summary"><strong>8</strong> streams <span class="lab-muted">· 3 accounts</span></div>
+        <div class="search-box">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.4"/><line x1="10.4" y1="10.4" x2="14" y2="14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          <span class="txt ph">filter by stream name</span>
+        </div>
+        <div class="kind-toggles">
+          <span class="chip" data-k="kv"><i></i>kv</span>
+          <span class="chip on" data-k="obj"><i></i>objstore</span>
+        </div>
+
+        <div class="account-head"><span class="caret">▼</span><span class="account-dot"></span><span class="account-name">ACME</span><span class="account-kind">tenant</span><span class="account-count lab-muted">3</span></div>
+        <div class="account-body">
+          <div class="rail-item active"><span class="kind-tag stream">stream</span><code class="rail-name">SHIPPING</code><span class="rail-count">0</span></div>
+          <div class="rail-item"><span class="kind-tag stream">stream</span><code class="rail-name">TRANSPORTER</code><span class="rail-count">0</span></div>
+          <div class="rail-item"><span class="kind-tag obj">obj</span><code class="rail-name">organizations-docs</code><span class="rail-count">2</span></div>
+        </div>
+
+        <div class="account-head"><span class="caret">▼</span><span class="account-dot"></span><span class="account-name">GLOBEX</span><span class="account-kind">tenant</span><span class="account-count lab-muted">3</span></div>
+        <div class="account-body">
+          <div class="rail-item"><span class="kind-tag stream">stream</span><code class="rail-name">SHIPPING</code><span class="rail-count">0</span></div>
+          <div class="rail-item"><span class="kind-tag stream">stream</span><code class="rail-name">TRANSPORTER</code><span class="rail-count">0</span></div>
+          <div class="rail-item"><span class="kind-tag obj">obj</span><code class="rail-name">organizations-docs</code><span class="rail-count">0</span></div>
+        </div>
+
+        <div class="account-head"><span class="caret">▼</span><span class="account-dot"></span><span class="account-name">PLATFORM</span><span class="account-kind">read-only</span><span class="account-count lab-muted">2</span></div>
+        <div class="account-body">
+          <div class="rail-item"><span class="kind-tag stream">stream</span><code class="rail-name">REFDATA</code><span class="rail-count">1136</span></div>
+          <div class="rail-item"><span class="kind-tag stream">stream</span><code class="rail-name">TRACES</code><span class="rail-count">3</span></div>
+        </div>
+        <div class="hidden-note">15 KV hidden</div>
+      </div>
+    </div>
+
+    <!-- ── STATE C — search + both on ── -->
+    <div class="state">
+      <div class="state-cap"><b>C · both on + search</b> — the two edge cases</div>
+      <div class="rail">
+        <div class="rail-summary filtering"><strong>6</strong> of 23 streams <span class="lab-muted">· 2 of 3 accounts</span></div>
+        <div class="search-box">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.4"/><line x1="10.4" y1="10.4" x2="14" y2="14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          <span class="txt">organizations</span><span class="caret"></span>
+        </div>
+        <div class="kind-toggles">
+          <span class="chip on" data-k="kv"><i></i>kv</span>
+          <span class="chip on" data-k="obj"><i></i>objstore</span>
+        </div>
+
+        <div class="account-head"><span class="caret">▼</span><span class="account-dot"></span><span class="account-name">ACME</span><span class="account-kind">tenant</span><span class="account-count lab-muted">3</span></div>
+        <div class="account-body">
+          <div class="rail-item"><span class="kind-tag kv">kv</span><code class="rail-name"><span class="mark">organizations</span></code><span class="rail-count">6</span></div>
+          <div class="rail-item"><span class="kind-tag kv">kv</span><code class="rail-name"><span class="mark">organizations</span>-secrets</code><span class="rail-count">0</span></div>
+          <div class="rail-item"><span class="kind-tag obj">obj</span><code class="rail-name"><span class="mark">organizations</span>-docs</code><span class="rail-count">2</span></div>
+        </div>
+
+        <div class="account-head"><span class="caret">▼</span><span class="account-dot"></span><span class="account-name">GLOBEX</span><span class="account-kind">tenant</span><span class="account-count lab-muted">3</span></div>
+        <div class="account-body">
+          <div class="rail-item"><span class="kind-tag kv">kv</span><code class="rail-name"><span class="mark">organizations</span></code><span class="rail-count">0</span></div>
+          <div class="rail-item"><span class="kind-tag kv">kv</span><code class="rail-name"><span class="mark">organizations</span>-secrets</code><span class="rail-count">0</span></div>
+          <div class="rail-item"><span class="kind-tag obj">obj</span><code class="rail-name"><span class="mark">organizations</span>-docs</code><span class="rail-count">0</span></div>
+        </div>
+
+        <div class="hidden-note">PLATFORM — no match, group hidden</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="notes">
+    <h2>Decisions this mockup makes</h2>
+    <ul>
+      <li><b>The kind tag appears only when the list is heterogeneous.</b> In state A every visible row is a
+        <code>stream</code>, so a <code>STREAM</code> tag on all six would be pure decoration — the same
+        argument <code>AccountsOverviewPanel.vue</code> already makes for not shipping a permanent
+        "0 slow" tile. Tags switch on the moment either toggle is enabled.</li>
+      <li><b>The <code>OBJ_</code>/<code>KV_</code> prefix is stripped once the tag carries it.</b>
+        <code>organizations-docs</code> + an <code>OBJ</code> tag beats <code>OBJ_organizations-docs</code>
+        + the same tag: the rail is 250px, and the name shown is now the one actually configured in
+        <code>objectstore.go</code>. Sorting sinks kv/objstore below streams within each account.</li>
+      <li><b>Toggles are two independent chips, not a segmented control.</b> These are additive opt-ins
+        layered on always-visible streams, so both-on is a meaningful fourth state.
+        <code>TraceWaterfall.vue</code>'s joined <code>.kind-group</code> is right for rest/nats because
+        that is one axis with three states; copying it here would be cargo-culting the wrong idiom.</li>
+      <li><b>Edge case 1 — collapsed accounts auto-expand on match.</b> Otherwise a filter silently hides
+        its own results behind a collapsed caret. Collapse state is restored when the search clears, so
+        filtering borrows the caret rather than overwriting the user's choice.</li>
+      <li><b>Edge case 2 — accounts with no match disappear entirely</b> (state C, PLATFORM), with a
+        muted line naming what was dropped. Empty group headers would crowd a 250px rail; a silent
+        disappearance would look like the account had gone away.</li>
+      <li><b>Counts change shape while filtering</b> — <code>6 of 23 streams · 2 of 3 accounts</code> — so a
+        filter matching nothing can't be mistaken for a backend returning nothing.</li>
+      <li><b>Clicking a kv or objstore row still needs a destination.</b> <code>StreamView</code> shows raw
+        messages, which for these is chunk/revision plumbing. Deferred: route kv rows to
+        <code>KvInspector</code>, objstore rows to a read-only object listing. Until then those rows should
+        select but show a "inspect via …" placeholder rather than a misleading message list.</li>
+    </ul>
+  </div>
+</div>

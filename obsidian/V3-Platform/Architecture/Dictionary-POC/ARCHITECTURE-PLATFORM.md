@@ -26,7 +26,7 @@ cross-tenant/system-level NATS observability and platform administration —
 see [ARCHITECTURE-ADMIN.md](ARCHITECTURE-ADMIN.md)). Tech Lab Operator is
 scoped to a single tenant's day-to-day operational tasks: setting up and
 maintaining that tenant's own reference data, configuration, users,
-companies, and trading partners.
+companies, and organizations.
 
 ## 2. Nav taxonomy
 
@@ -41,7 +41,7 @@ Planned, not yet scheduled as their own phase:
 
 ```
 Platform
-  - Trading Partners          (Phase 36.2 — migrating in from admin's
+  - Organizations          (Phase 36.2 — migrating in from admin's
       - Shippers                Platform group; see below)
       - Transporters
 ```
@@ -66,7 +66,7 @@ way 36.1/36.2 did.
   Operator's frontend-to-service calls follow, same as every other app in
   this repo.
 - [ARCHITECTURE-ACCOUNTS.md](ARCHITECTURE-ACCOUNTS.md) — owns the tenant
-  account model Phase 36.2's Trading Partners migration has to reconcile
+  account model Phase 36.2's Organizations migration has to reconcile
   `refdata`'s lighter `context` concept against (see that phase's "Open
   risk" design decision in `Main-POC-Plan.md`).
 

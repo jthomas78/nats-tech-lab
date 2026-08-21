@@ -1,6 +1,6 @@
 // Package natstrace is the shared hand-rolled distributed tracing package
 // (BR-036/BR-037) extracted in Phase 35 from five byte-near-identical
-// per-service copies (shipping/pricing/trading-partner/refdata/accounts —
+// per-service copies (shipping/pricing/organizations/refdata/accounts —
 // see ARCHITECTURE-COMMUNICATIONS.md § 6) — no go.opentelemetry.io/*
 // dependency, W3C-compatible on the wire, OTLP-shaped in its fields.
 //
@@ -128,7 +128,7 @@ type traceSpan struct {
 }
 
 // Tracer publishes obs.trace.* spans on one NATS connection. Constructed
-// once per Adapter/connection (shipping/pricing/trading-partner hold one
+// once per Adapter/connection (shipping/pricing/organizations hold one
 // per tenant account; refdata/accounts hold one process-wide) — never a
 // package-level singleton. It carries no service name of its own: every
 // api.*/rpc.* subject already encodes {context}.{service}.{entity}.{action}

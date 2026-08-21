@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 38 — Temporal workflow and state flows</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 22px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -.01em; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 78ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption { padding: 9px 14px 11px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 18px; }
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+.n { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: .55; }
+.ns { fill: none; stroke: var(--store); stroke-width: 1; }
+.ne { fill: none; stroke: var(--evtl); stroke-width: 1; }
+.nr { fill: none; stroke: var(--bad); stroke-width: 1; }
+.lbl { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: .07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.good { font-family: var(--mono); font-size: 9.5px; fill: var(--store); }
+.warn { font-family: var(--mono); font-size: 9.5px; fill: var(--evtl); }
+.badtext { font-family: var(--mono); font-size: 9.5px; fill: var(--bad); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+.hop { fill: none; stroke: var(--hop); stroke-width: 1.2; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="head">
+    <div class="head-txt">
+      <div class="eyebrow">Phase 38 · BR-TP21–BR-TP28 · ARCHITECTURE-ORGANIZATIONS</div>
+      <h1>Temporal workflows — complete flow and state ownership</h1>
+      <p class="sub">Temporal retains long-running process progress. Every business transition crosses an Activity boundary into the <code>TRANSPORTER</code> JetStream history; Postgres and KV are downstream projections, not Temporal state.</p>
+    </div>
+  </header>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1024 684" role="img" aria-label="Complete Phase 38 Temporal vetting flow. A first vetting attempt appends VettingStarted, while a rejected profile can append VettingResubmitted and start another run under the same workflow ID with a higher attempt number. TransporterVettingWorkflow persists the attempt, step counter, required document references, review map, approved set, signals, GIT future, timers and activity outcomes in Temporal history. It launches document review and GIT verification in parallel. A rejected document produces DocumentRejected and Rejected. If documents are approved but GIT fails or times out, each approval is compensated by DocumentApprovalReverted before Rejected. If both branches pass, GitVerified and Vetted are appended and the fleet availability gate opens. All event writes occur through AppendProfileEvent Activities with deterministic JetStream message IDs and optimistic sequence guards. JetStream is the authoritative profile history and projects current state into Postgres and KV.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="a-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="a-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          <marker id="a-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--bad)"/></marker>
+        </defs>
+
+        <text class="grp" x="16" y="18">ENTRY — FIRST ATTEMPT OR RESUBMISSION</text>
+        <rect class="n" x="16" y="34" width="190" height="54" rx="3"/>
+        <text class="lbl" x="28" y="54">First attempt</text><text class="lbl2" x="28" y="68">attempt N · Resubmitted=false</text><text class="lbl2" x="28" y="80">append VettingStarted</text>
+        <rect class="ne" x="16" y="108" width="190" height="66" rx="3"/>
+        <text class="lbl" x="28" y="128">Resubmit rejected profile</text><text class="lbl2" x="28" y="142">append VettingResubmitted first</text><text class="lbl2" x="28" y="155">attempt N+1 · same workflow ID</text><text class="lbl2" x="28" y="167">ALLOW_DUPLICATE</text>
+        <rect class="ne" x="270" y="66" width="258" height="72" rx="3"/>
+        <text class="lbl" x="282" y="87">TransporterVettingWorkflow</text><text class="lbl2" x="282" y="102">task queue: organizations-vetting</text><text class="lbl2" x="282" y="116">explicit StartToClose + ScheduleToClose</text><text class="lbl2" x="282" y="129">Activity retries: maximum 1</text>
+        <path class="rep" d="M206 61 L270 86" marker-end="url(#a-evtl)"/>
+        <path class="rep" d="M206 141 L270 118" marker-end="url(#a-evtl)"/>
+
+        <rect class="nb" x="568" y="34" width="440" height="140" rx="4"/>
+        <text class="grp" x="582" y="53">TEMPORAL HISTORY — DURABLE PROCESS STATE</text>
+        <text class="lbl" x="584" y="78">attempt number + workflow-local step counter</text>
+        <text class="lbl" x="584" y="98">required document IDs + review map + approved set</text>
+        <text class="lbl" x="584" y="118">DocumentReview signals + outstanding GIT future</text>
+        <text class="lbl" x="584" y="138">timers + Activity outcomes + branch completion</text>
+        <text class="lbl2" x="584" y="158">worker restart replays this history and resumes the wait</text>
+        <path class="proj" d="M528 102 L568 102" marker-end="url(#a-store)"/>
+
+        <text class="grp" x="16" y="218">TWO BRANCHES START IN PARALLEL</text>
+        <rect class="ne" x="38" y="236" width="348" height="150" rx="4"/>
+        <text class="grp" x="52" y="256">A · DOCUMENT REVIEW — SIGNAL DRIVEN</text>
+        <rect class="n" x="56" y="274" width="142" height="42" rx="3"/>
+        <text class="lbl" x="127" y="292" text-anchor="middle">PendingReview</text><text class="lbl2" x="127" y="306" text-anchor="middle">per document ID</text>
+        <rect class="ns" x="226" y="274" width="134" height="42" rx="3"/>
+        <text class="lbl" x="293" y="292" text-anchor="middle">Approved</text><text class="lbl2" x="293" y="306" text-anchor="middle">duplicate ignored</text>
+        <rect class="nr" x="226" y="332" width="134" height="42" rx="3"/>
+        <text class="lbl" x="293" y="350" text-anchor="middle">Rejected</text><text class="lbl2" x="293" y="364" text-anchor="middle">branch fails</text>
+        <path class="proj" d="M198 295 L226 295" marker-end="url(#a-store)"/>
+        <path class="err" d="M198 305 L226 353" marker-end="url(#a-bad)"/>
+
+        <rect class="ne" x="426" y="236" width="300" height="150" rx="4"/>
+        <text class="grp" x="440" y="256">B · GIT VERIFICATION ACTIVITY</text>
+        <rect class="n" x="448" y="274" width="112" height="42" rx="3"/>
+        <text class="lbl" x="504" y="292" text-anchor="middle">Pending</text><text class="lbl2" x="504" y="306" text-anchor="middle">future retained</text>
+        <rect class="ns" x="588" y="274" width="112" height="42" rx="3"/>
+        <text class="lbl" x="644" y="292" text-anchor="middle">Pass</text><text class="lbl2" x="644" y="306" text-anchor="middle">GIT verified</text>
+        <rect class="nr" x="588" y="332" width="112" height="42" rx="3"/>
+        <text class="lbl" x="644" y="350" text-anchor="middle">Fail / timeout</text><text class="lbl2" x="644" y="364" text-anchor="middle">branch fails</text>
+        <path class="proj" d="M560 295 L588 295" marker-end="url(#a-store)"/>
+        <path class="err" d="M560 305 L588 353" marker-end="url(#a-bad)"/>
+
+        <rect class="ne" x="766" y="252" width="220" height="112" rx="4"/>
+        <text class="grp" x="780" y="272">JOIN / SAGA DECISION</text>
+        <text class="lbl" x="780" y="297">both branches required</text>
+        <text class="lbl2" x="780" y="314">documents can wait for humans</text>
+        <text class="lbl2" x="780" y="329">GIT future is joined afterward</text>
+        <text class="lbl2" x="780" y="344">failures compensate explicitly</text>
+        <path class="rep" d="M386 311 L426 311"/>
+        <path class="rep" d="M726 311 L766 311" marker-end="url(#a-evtl)"/>
+
+        <text class="grp" x="16" y="430">OUTCOMES — EVENTS, NOT TEMPORAL-ONLY STATUS</text>
+        <rect class="ns" x="34" y="448" width="288" height="74" rx="3"/>
+        <text class="lbl" x="46" y="469">Both pass</text><text class="lbl2" x="46" y="484">GitVerified → Vetted</text><text class="lbl2" x="46" y="498">status=Vetted · gate=true</text><text class="lbl2" x="46" y="512">workflow result: approved references</text>
+        <rect class="nr" x="366" y="448" width="288" height="74" rx="3"/>
+        <text class="lbl" x="378" y="469">Document rejected</text><text class="lbl2" x="378" y="484">DocumentRejected → Rejected</text><text class="lbl2" x="378" y="498">status=Rejected · gate=false</text><text class="lbl2" x="378" y="512">workflow ends immediately</text>
+        <rect class="nr" x="698" y="448" width="288" height="74" rx="3"/>
+        <text class="lbl" x="710" y="469">GIT fail / timeout after approvals</text><text class="lbl2" x="710" y="484">DocumentApprovalReverted × approved</text><text class="lbl2" x="710" y="498">then Rejected · gate=false</text><text class="lbl2" x="710" y="512">audit history retains approve → revert</text>
+        <path class="proj" d="M876 364 L876 410 L178 410 L178 448" marker-end="url(#a-store)"/>
+        <path class="err" d="M293 374 L293 420 L510 420 L510 448" marker-end="url(#a-bad)"/>
+        <path class="err" d="M644 374 L644 432 L842 432 L842 448" marker-end="url(#a-bad)"/>
+
+        <text class="grp" x="16" y="566">ACTIVITY WRITE BOUNDARY AND DOMAIN STATE</text>
+        <rect class="n" x="34" y="584" width="286" height="66" rx="3"/>
+        <text class="lbl" x="46" y="604">AppendProfileEvent Activity</text><text class="lbl2" x="46" y="619">Msg-Id: org:event:attempt:step</text><text class="lbl2" x="46" y="633">expected-last-subject-sequence</text><text class="lbl2" x="46" y="645">conflict → non-retryable “try again”</text>
+        <path class="ne" d="M378 586 L378 650 A220 10 0 0 0 598 650 L598 586"/><ellipse class="ne" cx="488" cy="586" rx="110" ry="10"/>
+        <text class="lbl" x="488" y="612" text-anchor="middle">TRANSPORTER JetStream</text><text class="lbl2" x="488" y="627" text-anchor="middle">authoritative profile history</text><text class="lbl2" x="488" y="641" text-anchor="middle">10-minute dedup window</text>
+        <rect class="ns" x="656" y="584" width="330" height="66" rx="3"/>
+        <text class="lbl" x="668" y="604">Durable projector</text><text class="lbl2" x="668" y="619">Postgres transporter_profiles: canonical current state</text><text class="lbl2" x="668" y="633">KV organizations: read cache</text><text class="lbl2" x="668" y="645">Temporal is not queried for profile status</text>
+        <path class="rep" d="M320 617 L378 617" marker-end="url(#a-evtl)"/>
+        <path class="proj" d="M598 617 L656 617" marker-end="url(#a-store)"/>
+      </svg>
+    </div>
+    <figcaption><b>Vetting workflow.</b> Temporal owns the resumable process state—signals, branch progress, timers and Activity outcomes. The profile’s business status is recorded on <code>TRANSPORTER</code> and projected into Postgres/KV (BR-TP21–27).</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1024 286" role="img" aria-label="Phase 38 GIT monitoring flow and current runtime wiring. A Temporal Schedule definition periodically launches TransporterGitMonitorWorkflow on the organizations-vetting task queue. HandleGitStatusDrop checks current derived GIT status. If active, the workflow finishes without mutation. If inactive, it appends FleetAvailabilityRevoked to JetStream before suspending the Organization in Postgres, making a partial failure resumable. The workflow, worker constructor and Schedule factory exist and are tested, and Temporal infrastructure is present in Docker Compose, but the production organizations-service entrypoint currently does not create a Temporal client, start the worker or create the Schedule.">
+        <defs>
+          <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="b-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="b-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          <marker id="b-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--bad)"/></marker>
+        </defs>
+        <text class="grp" x="16" y="18">POST-VETTING GIT MONITOR — DEFINED SCHEDULED FLOW</text>
+        <rect class="ne" x="18" y="38" width="196" height="56" rx="3"/>
+        <text class="lbl" x="30" y="59">Temporal Schedule</text><text class="lbl2" x="30" y="74">interval-based · per organization</text><text class="lbl2" x="30" y="87">starts monitor run</text>
+        <rect class="ne" x="258" y="38" width="224" height="56" rx="3"/>
+        <text class="lbl" x="270" y="59">TransporterGitMonitorWorkflow</text><text class="lbl2" x="270" y="74">HandleGitStatusDrop Activity</text><text class="lbl2" x="270" y="87">reads current derived GIT status</text>
+        <rect class="n" x="526" y="38" width="150" height="56" rx="3"/>
+        <text class="lbl" x="601" y="59" text-anchor="middle">GIT active?</text><text class="lbl2" x="601" y="74" text-anchor="middle">current documents</text>
+        <rect class="ns" x="720" y="20" width="270" height="42" rx="3"/>
+        <text class="lbl" x="732" y="40">YES → finish, no mutation</text><text class="lbl2" x="732" y="53">gate and company status unchanged</text>
+        <rect class="nr" x="720" y="82" width="270" height="64" rx="3"/>
+        <text class="lbl" x="732" y="102">NO → revoke, then suspend</text><text class="lbl2" x="732" y="117">1. FleetAvailabilityRevoked → JetStream</text><text class="lbl2" x="732" y="131">2. Organization ACTIVE → SUSPENDED</text>
+        <path class="rep" d="M214 66 L258 66" marker-end="url(#b-evtl)"/><path class="flow" d="M482 66 L526 66" marker-end="url(#b-sync)"/>
+        <path class="proj" d="M676 56 L720 41" marker-end="url(#b-store)"/><path class="err" d="M676 76 L720 108" marker-end="url(#b-bad)"/>
+
+        <rect class="nb" x="18" y="184" width="972" height="80" rx="4"/>
+        <text class="grp" x="32" y="204">CURRENT RUNTIME WIRING CHECK</text>
+        <text class="lbl" x="34" y="226">Implemented + tested:</text><text class="lbl2" x="184" y="226">both workflow functions · worker constructor · Schedule factory · durability suite · Temporal Compose services</text>
+        <text class="badtext" x="34" y="248">Not wired in production entrypoint:</text><text class="lbl2" x="252" y="248">no Temporal client · no worker.Start() · no CreateGitMonitorSchedule() call found</text>
+      </svg>
+    </div>
+    <figcaption><b>Monitoring workflow and wiring status.</b> The defined order is event first, suspension second, so a failure between them can resume safely (BR-TP28). The code exists, but the current production entrypoint does not activate it; the diagram marks that gap explicitly.</figcaption>
+  </figure>
+</main>
+</body>
+</html>

@@ -55,9 +55,43 @@ function toggleCollapsed() {
           <slot name="sidebar" />
         </div>
 
-        <button class="sidebar-collapse-btn" type="button" @click="toggleCollapsed">
-          <span class="chevrons">&laquo;</span>
-        </button>
+        <!-- Collapse control sits at the BOTTOM of the rail, right-aligned —
+             `.nav-scroll { flex: 1 }` above it does the pushing. The glyph is a
+             panel-toggle icon drawn inline rather than a PrimeIcon, since
+             PrimeIcons has no panel-left/panel-right equivalent; the filled bar
+             moves to the far side to indicate which way it opens. -->
+        <div class="sidebar-foot">
+          <button
+            class="sidebar-collapse-btn"
+            type="button"
+            :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+            :aria-expanded="!collapsed"
+            @click="toggleCollapsed"
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.3"
+              aria-hidden="true"
+            >
+              <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="2.4" />
+              <path :d="collapsed ? 'M9.8 2.6v10.8' : 'M6.2 2.6v10.8'" />
+              <rect
+                :x="collapsed ? 11.1 : 2.9"
+                y="3.9"
+                width="2"
+                height="8.2"
+                rx="1"
+                fill="currentColor"
+                stroke="none"
+                opacity="0.55"
+              />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div class="main">

@@ -1,5 +1,5 @@
 // Specs for the shipping-service api.* client (Phase 33.8) — mirrors
-// tradingPartnerApi.spec.js's subject-construction guard for the same class
+// organizationApi.spec.js's subject-construction guard for the same class
 // of bug: a context value containing a dot would shift every later token by
 // one and make the service resolve the wrong context.
 import { beforeEach, describe, expect, it, vi } from 'vitest'

@@ -7,7 +7,7 @@ use (
 	./demos/01-dictionary/backend/pricing-service
 	./demos/01-dictionary/backend/refdata-service
 	./demos/01-dictionary/backend/shipping-service
-	./demos/01-dictionary/backend/trading-partner-service
+	./demos/01-dictionary/backend/organizations-service
 	./shared/browserrpc
 	./shared/natstenants
 	./shared/natstrace

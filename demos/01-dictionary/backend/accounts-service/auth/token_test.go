@@ -230,7 +230,7 @@ var _ = Describe("MintRefdataAdminToken", func() {
 	// admin endpoints for frontend/refdata's cross-tenant operator UI. The
 	// grant is scoped to exactly api.*.refdata.>, never bare api.> — this
 	// credential must not be able to reach any other service's api.*
-	// surface (pricing, trading-partner, shipping), which a broader grant
+	// surface (pricing, organizations, shipping), which a broader grant
 	// would silently allow purely because it shares the PLATFORM account
 	// with MintAdminToken.
 	It("mints a JWT scoped to api.*.refdata.> (pub+sub) and notify._platform.refdata.> (sub), with no broader api.> or notify.> grant", func() {

@@ -4,7 +4,7 @@
 
 The `refdata` frontend app, rebranded "Tech Lab Operator" in Phase 36,
 is the operator/tenant-facing nav and feature surface — Reference Data
-plus the migrated Trading Partners section. This page owns the
+plus the migrated Organizations section. This page owns the
 cross-feature nav taxonomy; the Dictionary page above owns the Reference
 Data feature's own backend/schema detail as one subset of it.
 

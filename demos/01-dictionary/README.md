@@ -116,7 +116,7 @@ docker compose --profile otlp up -d jaeger otlp-bridge
 ```
 
 Then open **http://localhost:16686** and search by service (`shipping`,
-`refdata`, `accounts`, `pricing`, `trading-partner`) to see the same spans
+`refdata`, `accounts`, `pricing`, `organizations`) to see the same spans
 the Admin UI's `[traces]` panel shows, re-exported to Jaeger. `otlp-bridge`
 live-tails `obs.trace.>` by default (durable consumer, resumes across
 restarts); set `OTLP_BRIDGE_REPLAY=true` on the `otlp-bridge` service to
@@ -138,7 +138,7 @@ re-export the whole retained hour on the next start instead.
 | refdata-service API   | http://localhost:7201                                       |
 | accounts-service API  | http://localhost:7202                                       |
 | pricing-service API   | http://localhost:7203                                       |
-| trading-partner-service API | http://localhost:7204                                |
+| organizations-service API | http://localhost:7204                                |
 | NATS client           | nats://localhost:4222                                       |
 | NATS monitor          | http://localhost:8222                                       |
 | NATS WebSocket        | ws://localhost:9222                                          |
@@ -146,7 +146,7 @@ re-export the whole retained hour on the next start instead.
 | Postgres (refdata-service)  | localhost:5433                                         |
 | Postgres (accounts-service) | localhost:5434                                         |
 | Postgres (pricing-service)  | localhost:5435                                         |
-| Postgres (trading-partner-service) | localhost:5436                                  |
+| Postgres (organizations-service) | localhost:5436                                  |
 | Temporal gRPC        | localhost:7233                                               |
 | Temporal UI          | http://localhost:8233                                        |
 | Jaeger UI (opt-in, `--profile otlp`) | http://localhost:16686                           |
@@ -160,7 +160,7 @@ re-export the whole retained hour on the next start instead.
 
 **Postgres credentials (pricing-service):** host `localhost`, port `5435`, user `pricing`, password `pricing`, database `pricing` — its own instance (Phase 25).
 
-**Postgres credentials (trading-partner-service):** host `localhost`, port `5436`, user `trading_partner`, password `trading_partner`, database `trading_partner` — its own instance (Phase 26).
+**Postgres credentials (organizations-service):** host `localhost`, port `5436`, user `trading_partner`, password `trading_partner`, database `trading_partner` — legacy physical names deliberately retained to preserve the existing `pg-trading-partner-data` dev volume (Phase 26).
 
 ## Dev mode (outside Docker)
 
@@ -263,7 +263,7 @@ npm run test:watch
 ### Temporal durability test (BR-TP27)
 
 BR-TP27's worker-restart durability spec in
-`backend/trading-partner-service/tradingpartner/transporterprofile/worker/durability_test.go`
+`backend/organizations-service/organizations/transporterprofile/worker/durability_test.go`
 needs a real Temporal server — an in-memory test environment cannot
 demonstrate history replay across a worker restart. It **skips silently**
 when `TEMPORAL_TEST_ADDRESS` is unset, so a plain `ginkgo ./...` reports
@@ -285,7 +285,7 @@ is still unverified.
 ### Postgres repository tests (BR-TP29–BR-TP34)
 
 Same shape, same trap, different dependency. The specs in
-`backend/trading-partner-service/tradingpartner/internal/postgres/repository_test.go`
+`backend/organizations-service/organizations/internal/postgres/repository_test.go`
 need a real Postgres, because the rules they cover are SQL behaviours:
 BR-TP30's supersession is a two-statement transaction, and BR-TP34's
 optimistic-concurrency guard is only atomic because of the `AND version = ?`
@@ -293,17 +293,17 @@ predicate. A fake repository would pass these specs while proving nothing —
 in particular, "exactly one of eight simultaneous writers wins" is not a
 statement about Go code, it is a statement about the database.
 
-They **skip silently** when `TRADING_PARTNER_TEST_DATABASE_URL` is unset:
+They **skip silently** when `ORGANIZATIONS_TEST_DATABASE_URL` is unset:
 
 ```bash
-docker compose up -d trading-partner-postgres
+docker compose up -d organizations-postgres
 ```
 
 ```bash
-TRADING_PARTNER_TEST_DATABASE_URL="postgres://trading_partner:trading_partner@localhost:5436/trading_partner?sslmode=disable" ginkgo ./...
+ORGANIZATIONS_TEST_DATABASE_URL="postgres://trading_partner:trading_partner@localhost:5436/trading_partner?sslmode=disable" ginkgo ./...
 ```
 
-Confirm the run reports `7/7 specs` for the `TradingPartner Postgres Suite`
+Confirm the run reports `7/7 specs` for the `Organizations Postgres Suite`
 rather than skipping it. The specs create their own partners under the
 `spec-context` context and delete them afterwards, so they are safe to run
 against a running dev database — but they do run `Migrate`, so they will
@@ -312,7 +312,7 @@ apply any pending schema change to whatever database you point them at.
 To run everything that is normally gated off, set both variables:
 
 ```bash
-TRADING_PARTNER_TEST_DATABASE_URL="postgres://trading_partner:trading_partner@localhost:5436/trading_partner?sslmode=disable" TEMPORAL_TEST_ADDRESS=localhost:7233 ginkgo ./...
+ORGANIZATIONS_TEST_DATABASE_URL="postgres://trading_partner:trading_partner@localhost:5436/trading_partner?sslmode=disable" TEMPORAL_TEST_ADDRESS=localhost:7233 ginkgo ./...
 ```
 
 All business rules must have a passing test. See [BUSINESS_RULES.md](BUSINESS_RULES.md) for the full rule inventory.

@@ -1,7 +1,7 @@
 // Package browserrpc is refdata-service's api.* frontend-to-service adapter
 // (Phase 32) — a second transport onto the same application-layer methods
 // internal/rest and internal/natsrpc already call, mirroring
-// pricing-service's and trading-partner-service's own browserrpc packages
+// pricing-service's and organizations-service's own browserrpc packages
 // (see ARCHITECTURE-COMMUNICATIONS.md §4 for what nats.go/micro provides).
 //
 // Unlike internal/natsrpc, which always runs on refdata-service's single
@@ -41,7 +41,7 @@ import (
 
 // Business subjects (BR-D41) — {context} is a real subject token, read off
 // the concrete subject a request arrived on via contextFromSubject, exactly
-// like pricing-service's and trading-partner-service's browserrpc adapters
+// like pricing-service's and organizations-service's browserrpc adapters
 // (NOT a body field — internal/natsrpc's rpc.* adapter carries context in
 // the body instead, for its own Phase 21 reasons specific to rpc.*; this
 // package follows the api.* convention, not natsrpc's). ContextGet is a read
@@ -298,7 +298,7 @@ func (a *Adapter) Stop() error {
 // subject/correlationID-derived-from-req convention: refdata's ~30 handlers
 // call respondError directly at several early-exit validation points each,
 // not only through reply's single funnel (unlike pricing-service's/
-// trading-partner-service's handlers, which always route through reply even
+// organizations-service's handlers, which always route through reply even
 // on a decode failure) — so migrating every call site's shape would be a
 // much larger, purely cosmetic diff for no behavioral difference. Both
 // methods now just delegate the actual marshal/header/span/error-code work

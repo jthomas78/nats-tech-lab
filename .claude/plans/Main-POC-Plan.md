@@ -328,8 +328,8 @@ consolidates them.
       end.
 - [x] Phase 25i (DONE) — Effective-Dated Diesel Overlay: BR-P17–P24, live
       overlay lookups against a versioned diesel-price corpus.
-- [x] Phase 26 (IMPLEMENTED 2026-08-13) — Trading Partner Service:
-      Shipper/Transporter Registration: new `trading-partner-service`
+- [x] Phase 26 (IMPLEMENTED 2026-08-13) — Organizations Service:
+      Shipper/Transporter Registration: new `organizations-service`
       (registration lifecycle, compliance documents, fleet assets with
       refdata-validated `vehicleTypeCode`, append-only audit log), Admin UI
       panel, live-verified end to end. Deferred design questions (temporal
@@ -406,8 +406,8 @@ rationale or checklist detail).
 
 - [x] Phase 33 (IMPLEMENTED 2026-08-17) — Retire Business REST: deleted business
       REST across shipping-service (`/api/ships,containers,terminal,manifest,ports,meta`),
-      pricing-service (`/api/pricing/*`, 34 routes), trading-partner-service
-      (`/api/trading-partners/*`, 14 routes), and refdata-service's business
+      pricing-service (`/api/pricing/*`, 34 routes), organizations-service
+      (`/api/organizations/*`, 14 routes), and refdata-service's business
       reads (`/api/refdata/*`); renamed `/api/shape-b/*` → `/api/admin/read-path/*`;
       added `api.*.shipping.container.manifest.v1`. Deviation: refdata-service's
       `/api/refdata/admin/*` could not be deleted — `accounts-service` calls it
@@ -454,7 +454,7 @@ rationale or checklist detail).
       the module strategy, proven against both `go build ./...` and every
       Dockerfile's now-repo-root build context. `shared/natstenants.Manager[R
       any]` extracted and consumed by `pricing-service`,
-      `trading-partner-service`, and `refdata-service` directly, and by
+      `organizations-service`, and `refdata-service` directly, and by
       `shipping-service` for connection lifecycle only; `shared/browserrpc`'s
       reply-tail helpers consumed by all four `adapter.go` files (call-site
       signatures kept per-service rather than force-unified); `shared/
@@ -478,9 +478,9 @@ Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
 rationale or checklist detail).
 
 - [x] Phase 36.1/36.2 (IMPLEMENTED 2026-08-19) — Tech Lab Operator Rebrand &
-      Trading Partners Migration: renamed `refdata` to "Tech Lab Operator"
+      Organizations Migration: renamed `refdata` to "Tech Lab Operator"
       with an `Operations` nav (`Reference Data` tabbed panel); migrated
-      `admin`'s Trading Partners section (Shippers/Transporters) into it via
+      `admin`'s Organizations section (Shippers/Transporters) into it via
       a new tenant-scoped browser NATS connection (`useTenantConnection.js`)
       fed by accounts-service's `GET /api/auth/tenants`, avoiding a
       cross-app coupling to shipping-service's shared tenant connection.
@@ -529,7 +529,7 @@ rationale or checklist detail).
 
 ---
 
-### Phase 38 (IN PROGRESS — design approved 2026-08-20; 38a/38b/38c-i/38d-i/38c-ii DONE; then 38d-ii → 38e, not started) — Transporter Registration & Vetting (Organizations)
+### Phase 38 (DONE 2026-08-20 — design approved 2026-08-20) — Transporter Registration & Vetting (Organizations)
 
 > **Renumbered 2026-08-20** from Phase 46 to Phase 38 — see the
 > "Renumbering (2026-08-20 — Phase 46 → Phase 38)" log near the end of this
@@ -539,13 +539,13 @@ rationale or checklist detail).
 
 Replicate Linebooker V2's `Transporters` registration/vetting workflow in
 the POC: a new, event-sourced `TransporterProfile` aggregate — keyed by the
-existing `TradingPartner`'s ID, not a duplicate of its identity fields —
+existing `Organization`'s ID, not a duplicate of its identity fields —
 with a Temporal-orchestrated vetting workflow, a genuine saga with
 compensating transactions (GIT insurance verification vs. document
 approval), a second, genuinely cross-aggregate invariant connecting it back
-to `TradingPartner`, NATS Object Store-backed document upload, and a Tech
+to `Organization`, NATS Object Store-backed document upload, and a Tech
 Lab Operator UI wizard/detail view with a state-transition visualization.
-`trading-partner-service` is renamed to `organizations-service` as the
+`organizations-service` is renamed to `organizations-service` as the
 **last** sub-phase, not the first. Customers and Members are explicitly out
 of scope (see design doc).
 
@@ -557,7 +557,7 @@ Full design lives in
 
 - **Shared identity, separate vetting aggregate** ([ADR-046](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-046-transporter-aggregate-split.md),
   revised same-day from an initial "fully separate aggregate" recommendation):
-  `TradingPartner` (Phase 26) stays the **single identity aggregate for
+  `Organization` (Phase 26) stays the **single identity aggregate for
   both Shipper and Transporter**, completely unchanged —
   `PartnerTypeTransporter` remains fully legal, no BR-TP edits needed. A
   new `TransporterProfile` aggregate, keyed by the **same ID**, holds
@@ -568,18 +568,18 @@ Full design lives in
 - **Event-sourced**: `TransporterProfile` only (JetStream stream
   `TRANSPORTER`, Shape B Postgres+KV read side, reusing the already-settled
   pattern) — passes the repo's own "does anything need to replay this?"
-  test; `TradingPartner` (both Shipper and Transporter identity) stays
+  test; `Organization` (both Shipper and Transporter identity) stays
   plain CRUD, untouched.
-- **Two-step registration, handled explicitly**: `TradingPartner.Register(...)`
+- **Two-step registration, handled explicitly**: `Organization.Register(...)`
   then idempotent `CreateTransporterProfile(id)` (upsert-by-ID, bounded
   retry in the handler, a standalone `EnsureTransporterProfile(id)` for
   manual recovery) — a partial failure leaves a visible, recoverable
   "Registered, profile pending" state, not a silent gap.
-- **A genuinely cross-aggregate invariant**: `TradingPartner.Activate()`,
+- **A genuinely cross-aggregate invariant**: `Organization.Activate()`,
   for a `TRANSPORTER`-typed partner only, is guarded on
   `TransporterProfile.Status == Vetted`. Lives at the command-handling
   boundary, not inside either aggregate's domain code; dependency direction
-  is `transporterprofile`/orchestration → `tradingpartner`, never reversed.
+  is `transporterprofile`/orchestration → `organizations`, never reversed.
   This is a more realistic "cross-aggregate invariant with saga/compensation"
   test than a single-aggregate version would give, since the two sides are
   real, separately-owned aggregates with different consistency models.
@@ -597,7 +597,7 @@ Full design lives in
 - **Temporal/saga design reviewed in [ADR-047](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-047-transporter-vetting-temporal-saga.md)
   — four required amendments for 38b, not optional hardening:** (1) every
   JetStream publish the workflow triggers must be an Activity with
-  `Nats-Msg-Id` dedup keyed on `tradingPartnerID`+event+step-counter (never
+  `Nats-Msg-Id` dedup keyed on `organizationID`+event+step-counter (never
   Temporal's `RunID`) and an explicit stream `Duplicates` window — this is
   genuinely new implementation, **not reuse of working code**, since Phase
   101 itself is 100% unimplemented in this repo today; (2) compensations
@@ -611,7 +611,7 @@ Full design lives in
   the SDK requires one to be set at all, and test vs. production timescales
   differ hugely. Workflow-versioning discipline for in-flight code changes
   is an accepted, named POC-scope gap, not addressed.
-- **Two state machines, one guard**: `TradingPartner`'s
+- **Two state machines, one guard**: `Organization`'s
   (`Registered → Active ⇄ Suspended`, BR-TP03–TP05) is untouched;
   `TransporterProfile` gets its own `AwaitingDocumentation →
   DocumentsInReview → {Vetted | Rejected}`, mapped directly onto V2's real
@@ -635,14 +635,14 @@ Full design lives in
   not the user's filename** (which would make re-upload silently purge the
   prior document's bytes while the log still claims both); **blob written
   first, event second, never the reverse**; multi-document GIT status
-  resolved against `compliance_documents`' `(trading_partner_id, type)` PK;
+  resolved against `compliance_documents`' `(organization_id, type)` PK;
   and a **new HTTP ingress**, since the service's only command surface is
   NATS `micro` (JSON, non-streaming, `max_payload`-bounded) after Phase 33.5
   deleted its REST routes — real 38c-ii work the design had assumed away.
 - **Concurrency now needs two mechanisms**, a direct consequence of the
   shared-identity split: `TransporterProfile` draws on Phase 101's
   optimistic-concurrency design (`Nats-Expected-Last-Subject-Sequence`);
-  `TradingPartner`'s own identity-field edits (Company Information) need a
+  `Organization`'s own identity-field edits (Company Information) need a
   plain `version`-column optimistic lock instead, since that aggregate has
   no event stream to guard against. Reviewed in
   [ADR-049](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-049-cross-aggregate-concurrency.md),
@@ -665,8 +665,8 @@ Full design lives in
   can't detect lost updates across a user's think-time); (5) Company
   Information is **not editable today at all**, so this needs a new
   `partner-update` command/handler/repository/domain method in
-  `tradingpartner` — which, with ADR-048's PK finding, means **ADR-046's
-  "zero changes to `tradingpartner`" is overstated** (correction note added
+  `organizations` — which, with ADR-048's PK finding, means **ADR-046's
+  "zero changes to `organizations`" is overstated** (correction note added
   there; the decision still holds, the changes are additive).
 - **Save boundaries must align to the aggregate boundary** (ADR-049): the
   two-aggregate split is a backend seam only for *reads*; for *writes*, one
@@ -705,12 +705,12 @@ Full design lives in
   the pinned `nats.go v1.52.0` client and `nats-server v2.14.5`, no subject
   taxonomy divergence needed; (5) activation gate vs. invariant — a
   `TransporterGitMonitorWorkflow` Temporal cron workflow re-checks
-  `GitStatus` post-`Vetted` and calls `TradingPartner.Suspend()` if it drops,
+  `GitStatus` post-`Vetted` and calls `Organization.Suspend()` if it drops,
   subsuming the separate revocation-consumer option; (6) multi-document GIT
   status — `compliance_documents`' PK widens to
-  `(trading_partner_id, id)` with a service-minted document ID, the same ID
+  `(organization_id, id)` with a service-minted document ID, the same ID
   used in the Object Store object name; (7) ADR-046's "zero changes to
-  `tradingpartner`" is corrected in place (both changes are additive, the
+  `organizations`" is corrected in place (both changes are additive, the
   decision itself is unaffected). Open question 1 (Operating Areas region
   list source) is **closed 2026-08-20** — sourced from the live V2 database;
   the seed and the three data-quality calls it forces are in
@@ -725,7 +725,7 @@ Full design lives in
 - [x] **38a** — DONE 2026-08-20 (BR-TP18–BR-TP20). `TransporterProfile`
       domain package, event-sourcing
       skeleton (no Temporal yet): aggregate keyed by the shared
-      `TradingPartner` ID, commands, JetStream stream, Postgres projection,
+      `Organization` ID, commands, JetStream stream, Postgres projection,
       KV cache — every publish carrying
       `Nats-Expected-Last-Subject-Sequence-Subject` against the aggregate's
       wildcard filter (**resolved**, ADR-049 finding 1; confirmed supported
@@ -736,16 +736,21 @@ Full design lives in
       reading the Postgres projection (not KV) per ADR-049 finding 3. Per
       [ADR-046](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-046-transporter-aggregate-split.md),
       `PartnerTypeTransporter` needs no change, no retirement — its broader
-      "zero changes to `tradingpartner`" claim is corrected (not
+      "zero changes to `organizations`" claim is corrected (not
       retracted) by ADR-048/049's two additive changes, tracked separately
       under 38c-i (`compliance_documents` PK, `partner-update`), neither
       blocking this sub-phase's start.
-- [x] **38b** — DONE 2026-08-20 (BR-TP21–BR-TP28). Temporal vetting
+- [x] **38b** — DONE 2026-08-21 (BR-TP21–BR-TP28). Was reopened 2026-08-21
+      (originally marked DONE 2026-08-20) because **the saga was built and
+      tested but never composed into the running service**; closed by the
+      "38b (completion)" entry below, which wired it and verified it live. The workflow/activities/worker packages and their
+      specs are done and unchanged; what was missing is every seam that
+      connects them to the live stack. Temporal vetting
       workflow, GIT saga, compensations,
       durability test, **plus a `TransporterGitMonitorWorkflow` Temporal
       cron workflow** (resolves ADR-049 finding 2 / design doc "Open
       questions" 5): started once vetting reaches `Vetted`, periodically
-      re-checks `GitStatus` and calls `TradingPartner.Suspend()` if it drops
+      re-checks `GitStatus` and calls `Organization.Suspend()` if it drops
       — this is what earns the word "invariant" for the cross-aggregate
       gate, and subsumes the separate revocation-consumer option since one
       check catches both a saga compensation and time-derived `EXPIRED`.
@@ -757,16 +762,16 @@ Full design lives in
       if skipped, not optional polish. **Plus ADR-049 finding 4**: a
       sequence conflict must surface as "try again," never reach the
       compensation path.
-- [x] **38c-i** — DONE 2026-08-20 (BR-TP29–BR-TP36). `tradingpartner` schema
+- [x] **38c-i** — DONE 2026-08-20 (BR-TP29–BR-TP36). `organizations` schema
       pass + editable Company Information. **Split out of a single 38c on 2026-08-20**: once 38c
       absorbed `partner-update` (open question 3) on top of Object Store,
       the PK widening, and a new HTTP ingress, it carried two unrelated
       red→green cycles — a pure-Postgres/RPC one and a binary-transport
       one. Splitting keeps each to one business-rules pass. **Both
-      `tradingpartner` schema changes land here, in one migration pass**,
+      `organizations` schema changes land here, in one migration pass**,
       so 38c-ii never touches the schema:
       - The `compliance_documents` PK widens to
-        `(trading_partner_id, id)` with a service-minted document ID
+        `(organization_id, id)` with a service-minted document ID
         (resolves ADR-048 finding 2c / design doc "Open questions" 6) —
         `document-add` becomes an insert, superseding a document becomes an
         explicit transition. Landed here rather than with the blob work
@@ -777,7 +782,7 @@ Full design lives in
         resolves design-doc "Open questions" 3). Editing Company
         Information is a confirmed requirement, so the read-only fallback
         is off the table. Scope, all of it absent today (verified): a
-        details-mutator domain method on `TradingPartner`; a matching
+        details-mutator domain method on `Organization`; a matching
         repository method (the port exposes only
         `Register`/`Get`/`List`/`Activate`/`Suspend`/`Reactivate`); a
         `partner.update` handler, which makes it the **15th** `api.*`
@@ -802,7 +807,7 @@ Full design lives in
       stepper, Company Information editing. **Split from a single 38d on
       2026-08-20**, and **not purely frontend** — see the correction note below.
       **As built:** a dedicated `TransporterPanel.vue` (Shippers stay on
-      `TradingPartnersPanel.vue`) with a **drill-in** detail view rather than a
+      `OrganizationsPanel.vue`) with a **drill-in** detail view rather than a
       table expansion row — five tabs, an editable form and a vetting stepper do
       not fit legibly in a nested row. Registration is a 3-step wizard that
       **commits at step 1** (fleet assets and documents need an existing id),
@@ -932,8 +937,660 @@ Full design lives in
         carries a single `Kavango Region`, and fabricating a border is worse
         than an honest retired code; reversible later, since the corpus and
         the GeoJSON are joined only by ISO code.
-- [ ] **38e** — `organizations` rename (service, packages, subjects, UI
-      labels)
+- [x] **38e** — DONE 2026-08-20. `organizations` rename (service, packages,
+      subjects, UI labels). **Amended 2026-08-21:** the `api.*` entity token
+      `partner` was renamed to `organization`
+      (`api.*.organizations.organization.<verb>.v1`, 9 subjects) and the
+      `Partner*Subject` constants to `Organization*Subject`. 38e had renamed
+      the service token but left the entity token on the very term the phase
+      existed to retire, in the one place that is a public contract. The
+      `{service}.{entity}` stutter is accepted deliberately: every other
+      layer already reads `organization`, and the taxonomy's rule is that the
+      entity token is the singular entity type.
+      **Amended 2026-08-21 (storage naming + Streams rail):** the Object
+      Store bucket was reverted from `ORGANISATION_DOCS` to
+      `organizations-docs` (British spelling, singular and SCREAMING_SNAKE
+      all three broke the convention), its two live objects migrated with
+      `nats obj get|put` and SHA-256-verified, and the naming rule written
+      down for the first time — **streams `SCREAMING_SNAKE`, KV buckets and
+      Object Stores `lowercase-kebab`** — in `CLAUDE.md` and
+      `ARCHITECTURE-COMMUNICATIONS.md` §2.6, alongside §2.5's
+      singular/plural-by-layer table. The Admin UI Streams rail follows:
+      `/api/jetstream/streams` stopped dropping `KV_*` and now tags every
+      row `kind: stream|kv|objstore`, so the rail can answer ADR-048's
+      "how much of `MaxStreams: 10` is spent" — kv/objstore are opt-in
+      chips, off by default, with a name filter, prefix stripping, and
+      kind tags reusing `TraceWaterfall.vue`'s `.kind-tag` vocabulary.
+      Mockup: `diagrams/admin-streams-rail-mockup.html`.
+- [x] **38b (completion)** — DONE 2026-08-21. Tracked as
+      finishing 38b rather than as new scope: **the decision 2026-08-21 was
+      that this is 38b's unclosed remainder, not a new sub-phase.** 38b is
+      accordingly reopened from DONE. **Compose the Temporal worker into
+      `organizations-service` and give vetting a live entry point.** 38b built `transporterprofile/{workflow,worker,
+      activities}` and tested them thoroughly, but **nothing in the running
+      service ever composes them** — verified 2026-08-21:
+      `transporterprofile.Start()` wires only the event store, projector,
+      Postgres projection and KV cache; `VettingService` has no caller
+      outside its own file and tests; and `temporal task-queue describe
+      --task-queue organizations-vetting` reports **zero pollers** against
+      the live stack. The saga is code that has never run outside a test.
+      This is an unclosed gap in 38b, not a deferral — 38b's own design
+      section calls for a durability test that "kill[s] the Temporal worker
+      mid-workflow", which presumes a worker exists to kill (BR-TP27).
+
+      Consequences today, all observed rather than assumed: every
+      `TRANSPORTER` profile is created in `AwaitingDocumentation`
+      (`adapter.go` `handlePartnerRegister`) and can never leave it; and
+      because **BR-TP19**'s activation gate is live on `partner.activate`,
+      no transporter can reach `Active` or, therefore, `Suspended` either.
+      Three lifecycle states are unreachable in the composed stack.
+
+      #### Design decisions
+
+      - **D1 — One worker per service, not per tenant; activities resolve
+        the tenant from `Event.Context`.** `TaskQueue` is the constant
+        `organizations-vetting`, so a worker per tenant account would put
+        several pollers on one queue and let them steal each other's tasks
+        — an activity would then publish one tenant's events over another
+        tenant's NATS connection. The fix is to make
+        `ProfileActivities`' `WorkflowEventPublisher` tenant-resolving:
+        it looks the tenant up through the existing `tenants.Manager`
+        using the `Context` already carried on every `VettingInput`,
+        `GitVerificationInput` and `ProfileEventInput`. **Alternative
+        considered and rejected:** a per-tenant task queue
+        (`organizations-vetting-{context}`) keeps the publisher
+        tenant-bound at construction, but makes `TaskQueue` dynamic,
+        multiplies workers by tenant count, and puts the tenant axis into
+        Temporal's routing where the rest of the system keeps it on the
+        NATS account boundary.
+      - **D1a — the workflow inputs must carry `Tenant`, not just
+        `Context`.** Found while wiring 2026-08-21: `tenants.Manager` and
+        every existing resolver on it (`DocumentStore`, `SecretStore`,
+        `ProfileCommands`) are keyed by **tenant**, while 38b's
+        `VettingInput` / `ProfileEventInput` / `GitVerificationInput` carry
+        only `Context`. Context to tenant is **many-to-one** — `acme` and
+        `acme-northdiv` are two business units inside one NATS account — so
+        the tenant cannot be derived from the context an activity is handed.
+        Both axes are genuinely needed: the event *subject* is built from
+        `{context}`, while the *connection* it publishes over is the
+        tenant's. `Tenant` is therefore added to those inputs. Safe to
+        change now precisely because no workflow has ever run — there is no
+        in-flight history to break determinism for; it would be a migration
+        after this lands.
+      - **D2 — Vetting is submitted explicitly, by a new command.** New
+        subject `api.*.organizations.organization.submit-vetting.v1`,
+        which starts `TransporterVettingWorkflow` with
+        `RequiredDocumentReferences` set to the transporter's
+        currently-pending compliance document IDs (**BR-TP36**: the
+        document ID *is* the vetting reference). Explicit submission is
+        symmetric with **BR-TP26**'s existing explicit resubmit, and an
+        implicit "start once N documents exist" trigger would need a rule
+        about what N is that no V2 behaviour supports. Workflow ID reuses
+        `worker.workflowID(context, organizationID)` so resubmission keeps
+        landing on the same ID.
+      - **D3 — `document.approve` / `document.reject` also signal the
+        running workflow.** **BR-TP23** makes document review
+        signal-driven per reference, but the live approve/reject commands
+        only write the `compliance_documents` row — nothing sends
+        `DocumentReview`. The command keeps writing the row unchanged and
+        then signals; if no workflow is running for that transporter the
+        signal is skipped, since reviewing a document outside a vetting
+        attempt stays legal. **The tension worth naming:** review state
+        then exists in two places — the document row and the workflow's
+        `DocumentReviews` map — and they are reconciled only by both
+        being driven from the same command. A single source of truth
+        would mean the workflow owning document rows outright, which is a
+        larger change to 38c-i's schema than this sub-phase should make.
+      - **D4 — GIT verification uses the existing `MockGitVerifier`.**
+        `activities.MockGitVerifier` already supports `pass`/`fail`/
+        `timeout`; there is no real GIT/insurance system in the lab.
+        Outcome comes from an env var (default `pass`) so the failure and
+        compensation branches (**BR-TP22**) stay reachable by hand.
+      - **D5 — No change to BR-TP19.** The activation gate is already
+        correct; it only ever looked unreachable because nothing could
+        produce a `Vetted` profile.
+
+      #### Proposed business rules (BR-TP56–BR-TP58)
+
+      Numbers follow BR-TP55, the last rule 38d-ii landed. Wording is
+      drafted, not settled — these need the standing business-rules-first
+      confirmation before any spec is written.
+
+      - **BR-TP56 (submit for vetting):** Submitting is legal only for a
+        `TRANSPORTER` whose profile is `AwaitingDocumentation` or
+        `Rejected`, and only when it has at least one pending compliance
+        document; any other status or an empty document set is rejected
+        without starting a workflow. The started workflow's required
+        references are exactly the pending document IDs at submit time.
+      - **BR-TP57 (review signals reach the workflow):** Approving or
+        rejecting a compliance document sends one `DocumentReview` signal
+        carrying that document's ID and outcome to the transporter's
+        vetting workflow, if one is running. A document reviewed with no
+        workflow running updates its own row and nothing else. Signalling
+        is best-effort in the same sense as BR-TP06's audit writes: a
+        failed signal is logged and never rolls back the review.
+      - **BR-TP58 (one worker; activities are tenant-resolved, never
+        tenant-bound):** The service starts exactly one Temporal worker
+        polling `organizations-vetting`, and every activity resolves the
+        NATS connection it publishes over from the `Tenant` on its own
+        input, through `tenants.Manager`, rather than from a connection
+        bound at construction. An activity naming a tenant this service has
+        no credential for fails with `ErrTenantNotConnected` and appends
+        nothing — it never falls back to another tenant's connection.
+        *Reframed 2026-08-21 from "the worker runs in the composed stack",
+        which stated a deployment fact rather than a rule with a failure
+        mode worth testing. The isolation guarantee is the part that can
+        regress silently: a single constant task queue plus a
+        construction-bound publisher is exactly the shape that would let one
+        tenant's events be published over another's connection.*
+
+      #### Progress
+
+      **Worker wiring DONE 2026-08-21 (BR-TP58).** `MountVetting` in
+      `organizations/composition.go` dials Temporal and starts one worker;
+      `cmd/main.go` calls it as a fourth pass after `MountAPI` (it needs the
+      connections `MountTenants` opened); `tenants.Manager` gained a
+      `ProfileEvents` resolver matching the existing
+      `DocumentStore`/`SecretStore`/`ProfileCommands` shape;
+      `ProfileActivities` now takes a `PublisherResolver` instead of a bound
+      publisher; `Tenant` was added to the four workflow inputs; and
+      `transporterprofile.Runtime` retains its event store. Compose gains
+      `TEMPORAL_ADDRESS`, `ORGANIZATIONS_GIT_OUTCOME` and a `temporal`
+      dependency. 4 new specs (tenant routing, cross-tenant isolation,
+      unknown tenant appends nothing, and a structural guard against
+      reintroducing a bound publisher); all 10 suites green. Verified live:
+      `organizations-vetting` now reports **pollers on both workflow and
+      activity types** where it reported none.
+
+      **Two things this uncovered, both worth keeping:**
+      1. **The production build was broken and nothing said so.** The first
+         container build failed on `missing go.sum entry` for every
+         `go.temporal.io/*` package — the SDK had only ever been reachable
+         from test files, so the main module's build closure never needed
+         those sums. That is independent evidence the saga was never part of
+         the shipped binary. Fixing it required an explicit
+         `google.golang.org/genproto` require: `go-grpc-middleware` v1.4.0
+         pulls the 2020 monolith, which still carries `googleapis/{api,rpc}`
+         and makes every import of them ambiguous against the split modules.
+         **`go mod tidy` removes that require and reintroduces the failure** —
+         the go.mod comment says so.
+      2. **`docker compose up -d --build <svc>` exits 0 when the build
+         fails**, leaving the previous image running. It cost a full
+         debugging cycle here: the service looked deployed, logged normally,
+         and silently ran code from 48 minutes earlier. Prefer
+         `docker compose build <svc>` as a separate step when verifying that
+         a change actually reached the stack.
+
+      **BR-TP56 + BR-TP57 DONE 2026-08-21.** New subject
+      `api.*.organizations.organization.submit-vetting.v1` (24th endpoint —
+      the `$SRV.INFO` census spec caught the change, as designed);
+      `VettingService.Submit` guards on type, profile status and pending
+      documents, and **routes a `Rejected` profile into BR-TP26's Resubmit**
+      rather than starting fresh, so the two paths can never both start a
+      workflow for one transporter. `document.approve`/`reject` now signal
+      after the row write, `resubmit` deliberately does not, and a transition
+      the domain refused signals nothing — signalling a refused approval
+      would advance the attempt on a document that never moved. 16 new specs
+      across the worker facade and the api.* boundary; all 10 suites green.
+
+      **A latent panic this work surfaced:** `Adapter.log` is nil whenever
+      `Deps.Log` is unset, and BR-TP57's failure path was the first code to
+      dereference it directly — every other use goes through
+      `ReplyWithConflicts`, which nil-checks internally. Found by the new
+      signal-failure spec, not by inspection. Guarded.
+
+      **Verified live, end to end, for the first time in the project:**
+      register TRANSPORTER → add GOODS_IN_TRANSIT document → submit → profile
+      moves `AwaitingDocumentation` → `DocumentsInReview` with the document
+      tracked as `PendingReview` → approve → **`Vetted`, `gitVerified: true`,
+      `fleetAvailabilityGate: true`** → `Activate` succeeds through BR-TP19's
+      gate → `Suspend` succeeds. Temporal shows the workflow `Completed`. All
+      three guards return 409 with their own messages (SHIPPER, no pending
+      document, already-Vetted).
+
+      **BR-TP28's GIT monitor is now wired too** (this was the last open
+      piece). `HandleGitStatusDrop` no longer binds one (tenant, context)
+      pair at construction: `Manager.ProfileStore(tenant)` resolves the
+      event store per tenant, and a `gitMonitor` in `composition.go`
+      implements `GitStatusDrop`/`IsGitActive`/`ScheduleGitMonitor`
+      (`IsGitActive` reuses `domain.DeriveGitStatus`, so there is no second
+      definition of "active"). The vetting workflow executes
+      `ScheduleGitMonitorActivity` immediately after `VettedEvent`, creating
+      a Temporal Schedule `<tenant>-transporter-git-monitor-<id>` at
+      `ORGANIZATIONS_GIT_MONITOR_INTERVAL` (5m in compose). **Bug found and
+      fixed while verifying:** `GitMonitorScheduleOptions` never set
+      `Tenant` in the schedule args, so the live monitor failed with
+      "tenant is not connected" — the schedule args are now asserted in the
+      spec, not just the workflow input. Verified live: schedule created,
+      the drop path flipped `fleetAvailabilityGate` to false and set the
+      organization `SUSPENDED`, and three monitor runs all `Completed`
+      without double-suspending (idempotent).
+
+      **BR-TP27's durability test passed:** killed
+      `lb-organizations-service` with 1 of 2 documents approved, restarted,
+      approved only the second → `Vetted`, gate true, both references
+      recorded `Approved`. The workflow resumed without re-asking.
+
+      **One pre-existing thing noticed while wiring, not introduced here:**
+      `organizations.transporter_profiles` is keyed on `organization_id`
+      alone with no tenant column, so one projection reader serves every
+      tenant. Profile isolation lives at the NATS/event layer, not in this
+      table — 38a behaviour, recorded because the shared reader in
+      `Vetting.factory` looks like a wiring shortcut and is not one.
+
+      #### Verification
+
+      BR-TP27's durability test becomes runnable for the first time and is
+      part of this sub-phase, not a follow-up: start a vetting attempt,
+      approve one of two documents, restart the worker, confirm the
+      workflow resumes without re-asking for the already-approved
+      reference.
+
+- [x] **38g** — DONE 2026-08-21; depended on 38b's completion above.
+      **As built:** `cmd/seed-transporters` (+ `main_test.go`) drives the
+      ten-rung ladder over the public API and the real Temporal saga —
+      bare → company info → areas → fleet → docs pending → docs rejected →
+      vetted → tracked → active → suspended. A full `-n 10` run against
+      `acme` completed and was verified in Postgres (area/fleet/document/
+      credential counts per rung). Notes worth keeping: `checkPrerequisites`
+      probes **every** corpus code it will use, not just the first (an
+      earlier draft invented `FLAT_DECK`/`TRUCK`, exactly the failure the
+      design warned about) and carries the underlying error through rather
+      than guessing a cause; `registrationNo` is globally unique, so each
+      run mints a per-run token via `plate()` — **the seeder is re-runnable
+      but not idempotent**, `register` creates new organizations each run.
+      Four structural tests cover the ladder's cumulative shape, distinct
+      labels, and the review/suspend rung preconditions.
+      **`seed-transporters` — deterministic test data at varying vetting
+      completeness.** A third seeder alongside `refdata-service`'s existing
+      `cmd/seed-regions` and `cmd/seed-vehicle-types`, following their
+      established shape: `go run ./cmd/seed-transporters -n 10`, talking to
+      the running service over its public API rather than Postgres
+      directly, so the seed traverses the same validation a human operator
+      would. Unlike those two it speaks **NATS `api.*` request/reply with a
+      tenant `.creds` file, not REST** — **BR-TP16** reduced this service's
+      REST surface to infra health only. Seeds into `acme` (flagged,
+      defaulting there).
+
+      #### Design decisions
+
+      - **Completeness is a deterministic ladder, not randomness** — one
+        rung per transporter, named for its state, so a re-run reproduces
+        identical data and any row's state is readable from its name.
+        `-n` above 10 cycles the ladder with a counter suffix; below 10
+        truncates it. Every step tolerates its "already there" response,
+        so the seeder is re-runnable.
+
+        | # | Rung | Rules exercised |
+        | --- | --- | --- |
+        | 1 | bare — name/type/context only | BR-TP02 |
+        | 2 | + company information | BR-TP32–35 |
+        | 3 | + operating areas | BR-TP46–50 |
+        | 4 | + fleet assets | BR-TP12–14 |
+        | 5 | + documents, pending review | BR-TP29–31 |
+        | 6 | one document rejected | BR-TP23, BR-TP57 |
+        | 7 | vetted | BR-TP21, BR-TP56 |
+        | 8 | + tracking credentials | BR-TP51–55 |
+        | 9 | active | BR-TP03, BR-TP19 |
+        | 10 | suspended, with reason | BR-TP04 |
+
+      - **Rungs 7, 9 and 10 are why this depends on 38b's completion.** Rung 8 does
+        not — **BR-TP51** gates tracking credentials on `TRANSPORTER` type
+        alone, not on `Vetted`.
+      - **The vetted rungs drive the real saga** (decided 2026-08-21):
+        the seeder submits for vetting and waits for the workflow, rather
+        than appending profile events directly. Appending directly would
+        be faster and need no worker, but the resulting rows would never
+        have traversed the path they represent and could diverge from
+        what the UI shows for a genuinely vetted transporter.
+      - **Compliance documents are seeded as records without file bytes**
+        (decided 2026-08-21). Enough for the review, vetting and list
+        surfaces; skipping the upload-ticket flow (**BR-TP40–45**) keeps
+        the seeder simple and keeps seed runs out of the
+        `organizations-docs` Object Store, which counts against the
+        tenant's `MaxStreams` budget (ADR-048).
+      - **Corpus-drift test**, following `seed-regions`' `main_test.go`
+        precedent: the vehicle type codes and region codes the seeder
+        uses must exist in refdata's corpus, or the seeded rungs fail
+        halfway with nothing to explain why.
+
+      #### Feasibility walk-through, 2026-08-21 (no seeder written)
+
+      Every rung driven by hand over `acme.creds` against the composed
+      stack. **All ten are reachable**, and the resubmit path completes to
+      `Vetted` on attempt 2. Three prerequisites the seeder must handle, all
+      found this way rather than by reading:
+
+      1. **Rungs 3 and 4 need the two refdata seeders to have run first.**
+         `region` and `vehicle-type` are not part of refdata's base seed —
+         a fresh volume has countries/currencies/incoterms/uom but neither
+         of these, so operating-area add fails with "code does not exist in
+         the refdata corpus" and fleet-asset add with "vehicle type code is
+         not recognized". `go run ./cmd/seed-regions` and
+         `./cmd/seed-vehicle-types` fix both. The seeder should either
+         depend on them explicitly or check and say so.
+      2. **`vehicle-type` is seeded into context `linebooker`, not
+         `_platform`** (unlike `region`, which BR-D46 puts in `_platform`).
+         BR-TP14's validation resolves in the *organization's own* context,
+         so a fleet asset could only be added to an organization registered
+         in `linebooker`. **Resolved 2026-08-21: the corpus is now seeded
+         into `acme`** (`go run ./cmd/seed-vehicle-types -context acme`), so
+         the ladder stays in `acme` as decided. Two fixes were needed to make
+         that work: `registerContext` hardcoded `name: "Linebooker"` and
+         `tenant: linebooker` regardless of `-context`, which would have
+         stamped Linebooker's identity onto any other context — it now
+         derives both, with a new `-tenant` flag defaulting to the context
+         name (BR-AC07's common case). There was also **no refdata context
+         named `acme` at all** before this — only `acme-default`,
+         `acme-atlantic-fleet`, `acme-pacific-fleet` — and since Phase 106's
+         context inheritance is not on the live read path, the lookup is
+         exact-context, so `acme` had to be created rather than inherited
+         from. Verified: `TAUTLINER` now resolves for an `acme` organization.
+      3. **Codes are the real V2 corpus**, e.g. `TAUTLINER`,
+         `TAUTLINER_SUPERLINK_STANDARD_6_BY_12` — 114 of them. The seeder
+         must pick from the corpus, not invent plausible ones (`TRUCK` is
+         not a code).
+
+      **Latent defect found and FIXED 2026-08-21 — the interim status of a
+      resubmitted attempt.** `TransporterProfile.Resubmit()` built its event
+      as `p.event(VettingResubmittedEvent, attempt+1, p.state.Status)`,
+      carrying the *old* status `Rejected`. The workflow skips its own
+      `VettingStarted` append when `Resubmitted` is true, so nothing ever set
+      `DocumentsInReview` and a profile with a live attempt running read as
+      `Rejected` until it finished. Now carries `StatusDocumentsInReview`;
+      see BR-TP26's amendment for the full reasoning.
+
+      **The first spec written for it was vacuous and passed with the bug
+      restored** — caught only by deliberately reverting the fix and re-running.
+      The cause is a genuine structural split worth remembering: `Apply()`
+      already hardcodes `StatusDocumentsInReview` for
+      `VettingResubmittedEvent`, so the *aggregate* was never wrong, while the
+      projector does not replay `Apply` — it copies `Status` straight off the
+      event payload (and already special-cases `CreatedEvent` for the same
+      reason). Two implementations of "what does this event mean for state",
+      and only the payload one was broken. The spec now asserts the appended
+      event, with that reasoning written into it so it does not get
+      "simplified" back. Verified live: attempt 2 reads `DocumentsInReview`
+      while Temporal shows the run `Running`.
+- [x] **38h-i** — DONE 2026-08-21 (BR-TP59). **Make a compliance
+      document's expiry settable through the `api.*` surface.** Sequenced
+      **before** 38h-ii and split out from it on the user's call
+      2026-08-21: `expiresAt` exists on the domain type and the
+      `compliance_documents` column, but no API accepts it. The expiry
+      driving the 2026-08-21 walkthrough had to be written with SQL, and
+      the `expires_at` scan defect fixed that day (TIMESTAMPTZ scanned
+      into `*int64`, broken in both directions) had survived precisely
+      because nothing in the running system ever wrote the column. 38h-ii's
+      timer has nothing to arm against until this lands.
+
+      #### Design decisions
+
+      - **On document add, and on a dedicated update — not on approve.**
+        An expiry is a fact about the document, supplied when it is
+        registered; folding it into the review transition would conflate
+        "this cover runs to date X" with "a human accepted it".
+      - **Optional, and validated as future-dated on write.** A GIT
+        document with no expiry cannot lapse by time (38h-ii's D5). A
+        past-dated expiry on a *new* document is a data-entry error, not a
+        lapse, and is rejected rather than silently arming an
+        already-expired timer.
+      - **Unit stays Unix seconds on the wire**, matching every other
+        instant in this domain (`DocumentFile.UploadedAt`), with
+        `expiryParam`/`scanDocument` continuing to bridge to TIMESTAMPTZ.
+
+      #### Business rule (approved 2026-08-21)
+
+      - **BR-TP59** — a compliance document may carry an optional expiry,
+        set at registration or by a later update; when set it must be in
+        the future at the time of writing; changing it is what re-arms
+        BR-TP61's timer.
+
+      **As built.** `domain.ComplianceDocument.SetExpiry(expiresAt, now)` is
+      the single write point, called by both the add path and
+      `postgres.SetDocumentExpiry`, so the future-dating rule cannot hold on
+      one route and be forgotten on the other; the repository applies it
+      against the row it holds `FOR UPDATE` rather than the caller's copy.
+      New subject `api.*.organizations.document.set-expiry.v1`;
+      `document.add.v1` gains an optional `expiresAt`, a pointer on the wire
+      so "not supplied" stays distinct from "cleared". 10 new specs plus the
+      `api.*` round trip; whole suite green. Verified live over `acme.creds`
+      — added with an expiry, moved forward, past date refused, cleared to
+      NULL in Postgres.
+
+      Two notes worth carrying forward. **`AddDocument`'s domain signature
+      was left alone** and the expiry applied through `SetExpiry` after
+      construction, rather than threading a fifth parameter through six call
+      sites and the seeder — one validation path, less churn. And the past-
+      date refusal returns **500 rather than 400**: not new to this rule, but
+      newly annoying, since `shared/browserrpc` classifies only 404 and 409
+      specially and every input-validation error on this surface has always
+      come back as 500. Fixing it properly means adding a 400 class and
+      classifying every validation error at once — deliberately out of scope
+      here rather than making this one rule inconsistent with its
+      neighbours.
+
+- [x] **38h-ii** — DONE 2026-08-21 (BR-TP60–BR-TP63). **Replace
+      BR-TP28's polling Schedule with a durable expiry timer.** BR-TP28 as built
+      creates a Temporal Schedule per vetted transporter firing every
+      `ORGANIZATIONS_GIT_MONITOR_INTERVAL` (5m in compose), each firing a
+      separate `TransporterGitMonitorWorkflow` execution whose entire body
+      is one `HandleGitStatusDrop` activity. Measured on the live stack
+      2026-08-21: **184 monitor executions against 16 vetting workflows**,
+      from 8 schedules — roughly 2,300 executions/day at 8 transporters,
+      growing linearly with the fleet and unbounded in time.
+
+      Three problems, all observed rather than assumed:
+
+      1. **It polls for an event whose time is already known.**
+         `compliance_documents.expires_at` is a stored timestamp. Asking
+         288 times a day whether a date has passed is work Temporal's
+         durable timers exist to avoid — and a scheduled poll is a poor
+         demonstration of Temporal, since cron does it just as well.
+      2. **Nothing ever deletes or pauses a schedule.** Verified by grep:
+         there is no `Delete`/`Pause` call anywhere in
+         `transporterprofile/`. A suspended transporter keeps polling
+         forever, and a schedule outlives the tenant assumptions it was
+         created under — the live logs still carry
+         `HandleGitStatusDrop ... Error="tenant is not connected"` for org
+         `7730206f-5095-4f8d-b3de-b0a175080779`, a leftover from before
+         D1a's tenant fix.
+      3. **The workflow list is unusable at this ratio.** One row per
+         transporter per interval, permanently, drowning the vetting
+         workflows an operator actually wants to see.
+
+      #### Design decisions
+
+      - **D1 — one long-lived `TransporterGitCoverWorkflow` per
+        transporter, replacing the Schedule.** It computes the earliest
+        `expires_at` across the organization's current GIT documents,
+        `workflow.Sleep`s until that instant, then runs the *existing*
+        `HandleGitStatusDrop` activity. `HandleGitStatusDrop`,
+        `DeriveGitStatus` and BR-TP28's two effects
+        (`FleetAvailabilityRevoked` then `Organization.Suspend()`) are
+        unchanged — this sub-phase replaces **when** the check runs, not
+        what it does, so BR-TP28's existing specs stay green.
+      - **D2 — a `CoverChanged` signal resets the timer.** A document can
+        be superseded (BR-TP30) or re-dated after the timer is armed, so
+        the workflow blocks on a `workflow.Selector` over the timer and
+        the signal channel rather than a bare `Sleep`. The signal is sent
+        from the same place that already knows: the document write path in
+        `orchestration`, on add/supersede/approve of a
+        `DocumentTypeGoodsInTransit`. **Alternative considered and
+        rejected:** having the projector watch for the profile event
+        instead — it would put a Temporal client in the projector purely
+        to re-drive a timer, and the document repository already has the
+        expiry in hand.
+      - **D3 — `ContinueAsNew` after each armed-and-fired cycle.** A
+        workflow that lives for the life of a transporter would otherwise
+        accumulate history forever, which is the same unboundedness in a
+        different place. Continue-as-new resets history while keeping the
+        workflow ID stable, so "this transporter's cover watcher" remains
+        one addressable thing in the UI.
+      - **D4 — the timer's lifetime is exactly the `Vetted` state**
+        (requested 2026-08-21). Armed on entry to `Vetted`, cancelled on
+        any exit from it, re-armed on re-entry — the timer exists **if and
+        only if** the profile is `Vetted`. This replaces an earlier
+        formulation where the watcher was a free-standing workflow that
+        merely happened to be started after `VettedEvent` and cleaned up
+        afterwards; tying it to the state makes "an armed timer on a
+        non-vetted transporter" unrepresentable rather than merely a bug
+        to remember to avoid.
+      - **D4a — realised as a cancellation scope inside a lifecycle
+        workflow, not as cleanup code.** `workflow.WithCancel` wraps the
+        timer; entering `Vetted` opens the scope, leaving cancels it.
+        Cancellation is structural — nothing has to remember to tear the
+        timer down, and there is no window in which the state has moved on
+        but the timer has not. This requires a workflow that is still
+        running while the profile sits in `Vetted`, which today's does not
+        (see D4b).
+      - **D4b — `TransporterVettingWorkflow` becomes a lifecycle ("entity")
+        workflow. DECIDED 2026-08-21: entity workflow, accepting the costs
+        below.** Today it **completes** at `Vetted`, returning
+        `VettingResult`, and BR-TP26 restarts it under the same workflow
+        ID for a resubmission. To hold a cancellation scope across the
+        `Vetted` state it must instead stay running, with `Vetted` as a
+        state it occupies rather than a terminal result, and resubmission
+        arriving as a signal rather than a restart. Consequences, stated
+        plainly because they are not small:
+          - The Temporal UI no longer shows a `Completed` run with a
+            verdict in `Result` — the verdict is read from the profile
+            projection, which is where it is authoritative anyway. This
+            weakens the "workflow list as vetting audit" affordance that
+            38b's history dump demonstrated.
+          - BR-TP26's resubmit path changes shape: `Resubmitted: true` on a
+            fresh run becomes a `Resubmit` signal, and the
+            `VettingResubmittedEvent`-before-restart ordering that 38b
+            settled has to be re-derived.
+          - `ContinueAsNew` (D3) becomes load-bearing rather than tidy,
+            since the workflow now spans the whole profile lifetime.
+        **Alternative considered and rejected 2026-08-21:** keep two
+        separate workflows and have the watcher exit on a `StateChanged`
+        signal. Cheaper, and it does not disturb BR-TP26 at all — but the
+        invariant is then only as good as the signal delivery, and a missed
+        or unsent signal leaves an armed timer on a transporter that is no
+        longer vetted. That is precisely the class of bug D4 exists to make
+        impossible.
+      - **D4c — a lapse becomes a real state transition: `Vetted` →
+        `CoverLapsed`. DECIDED 2026-08-21.** Found while writing this up:
+        `profile.go:257` appends `FleetAvailabilityRevoked` with
+        `p.state.Status` unchanged, and `Apply` (`profile.go:179`) flips
+        only `FleetAvailabilityGate` and `GitVerified` — so a transporter
+        whose cover has lapsed **remains `Vetted` with `gate=false`**,
+        as observed live 2026-08-21 on the walkthrough org. D4's
+        if-and-only-if would therefore re-arm a timer for a transporter
+        that has already lapsed.
+
+        The chosen fix is to make the lapse visible in `Status` rather than
+        to compound the guard: a new `StatusCoverLapsed`, entered from
+        `Vetted` on `FleetAvailabilityRevoked`. The timer guard then stays
+        `Status == Vetted` alone, which is exactly the invariant D4 asked
+        for, and "vetted" stops meaning two different things depending on
+        which field you read. **Alternative considered and rejected:** a
+        compound `Status == Vetted && GitVerified` guard — contained
+        entirely within this sub-phase and touching no other code, but it
+        preserves the double meaning and leaves the next reader to
+        rediscover it. This is the same "two implementations of what does
+        this event mean for state" hazard 38b hit once already, and the
+        rejected option is the one that leaves it in place.
+
+        This is a change to 38a's aggregate, deliberately accepted, and it
+        reaches beyond the workflow:
+          - `domain/profile.go` — new `StatusCoverLapsed`, and
+            `RevokeFleetAvailability` sets it instead of preserving the
+            incumbent status.
+          - The Postgres projection and KV cache carry the new value; no
+            migration is needed (status is stored as text), but existing
+            rows reading `Vetted / gate=false` are **already-lapsed
+            transporters mislabelled** and need a one-off correction, not
+            just new-code coverage.
+          - `38d-ii`'s stepper and any status chip must render the new
+            state, or a lapsed transporter falls off the UI's known set.
+          - Re-entry to `Vetted` from `CoverLapsed` goes through the normal
+            resubmit/re-vet path (BR-TP26) — there is no direct
+            un-lapse.
+      - **D4d — workflow ID.** Unchanged from BR-TP26's convention:
+        `{context}-transporter-vetting-{organizationID}` if D4b is taken
+        (one workflow), or
+        `{context}-transporter-git-cover-{organizationID}` under the D4b
+        fallback (two workflows).
+      - **D5 — no expiry means no timer, not a poll.** A GIT document with
+        a null `expires_at` cannot lapse by time, so the workflow parks on
+        the signal channel alone. This is the common case today, since the
+        `api.*` surface still has no `expiresAt` field (see the open
+        question below).
+      - **D6 — migrate the existing schedules, don't strand them.**
+        Startup deletes any `{context}-transporter-git-monitor-*` schedule
+        it finds and starts the replacement workflow for that
+        organization. Without this the 8 live schedules — including the
+        broken `7730206f` one — keep firing against a
+        `TransporterGitMonitorWorkflow` that is no longer registered.
+        `TransporterGitMonitorWorkflow` and `GitMonitorScheduleOptions`
+        are then deleted, along with `ORGANIZATIONS_GIT_MONITOR_INTERVAL`.
+
+      #### Proposed business rules (to confirm before any code)
+
+      - **BR-TP60** — a transporter that reaches `Vetted` gets exactly one
+        durable cover watcher, armed to the earliest expiry across its
+        current GIT documents; when that instant arrives it performs
+        BR-TP28's drop, unchanged.
+      - **BR-TP61** — a change to a GIT document's expiry (BR-TP59)
+        re-arms the watcher, and the watcher never fires on a stale expiry.
+      - **BR-TP62** — an armed cover timer exists **if and only if** the
+        profile is `Vetted`. Leaving that state cancels the timer;
+        re-entering it re-arms from the then-current expiry, not the one
+        the previous arming used. The timer is at-most-once per lapse and
+        survives worker restarts (BR-TP27's durability property) without
+        duplicating the drop.
+      - **BR-TP63** — a lapse transitions the profile `Vetted` →
+        `CoverLapsed` (D4c); `FleetAvailabilityGate` and `GitVerified` go
+        false as they do today, and the organization is suspended as
+        BR-TP28 already specifies. Return to `Vetted` is only via the
+        normal re-vetting path.
+
+      **As built.** `watchCover` holds the timer in a `workflow.WithCancel`
+      scope inside the vetting workflow; `CoverExpiry` reads the earliest
+      expiry across current GIT documents on every arming;
+      `SignalCoverChanged` re-arms from the document write path.
+      `TransporterGitMonitorWorkflow`, `GitMonitorScheduleOptions` and
+      `ORGANIZATIONS_GIT_MONITOR_INTERVAL` are deleted, and
+      `DeleteGitMonitorSchedules` clears the retired schedules at startup.
+      Verified live: **8 schedules cleared, 0 monitor executions after**, a
+      90-second cover armed and fired at its exact expiry, profile ending
+      `CoverLapsed` with the organization `SUSPENDED`.
+
+      **D4b cost less than feared — amended 2026-08-21.** The design assumed
+      resubmission had to become a signal. It does not: the workflow only
+      needs to stay alive *while `Vetted`*, and both exits from that state
+      (`Rejected`, `CoverLapsed`) still complete the run — so **BR-TP26's
+      restart-under-the-same-ID path is untouched**. The one cost that did
+      land is that a vetted run has no Result to read, which is why the
+      `vettingState` **query handler** (previously floated as a nice-to-have)
+      is now load-bearing: the test harness and the Temporal UI both read it.
+
+      **Two silent defects found on the way, both now covered.** The drop's
+      half-completed retry branch keyed off `Vetted` — the state BR-TP63
+      moved — so a retry returned success **without suspending**, leaving a
+      lapsed transporter ACTIVE and assignable; there had never been a spec
+      for that path. And the projection's status CHECK constraint enumerated
+      the four old statuses, so the projector Nak'd `CoverLapsed` and
+      JetStream redelivered it forever (ack floor frozen, consumer sequence
+      past 47,000, nothing in the log) while the organization was already
+      SUSPENDED — the two halves of BR-TP28 visibly disagreeing.
+      `transporter_projection_test.go` now asserts every domain `Status` is
+      writable.
+
+      **Worth knowing: the Postgres-backed specs skip silently** unless
+      `ORGANIZATIONS_TEST_DATABASE_URL` is set — 13 of them, reported as
+      `ok`. Both 38h-i's and 38h-ii's were run for real against the live
+      database (`postgres://trading_partner@localhost:5436`) before either
+      was marked done.
+
+      #### Dependency
+
+      **Depends on 38h-i.** Without a settable `expiresAt` there is no
+      expiry for BR-TP60's timer to arm against, and D5's signal-only path
+      would be the universal case rather than the exception.
+
 
 **Design approved 2026-08-20**; implementation is under way sub-phase by
 sub-phase. Each sub-phase still gets its own business-rules-first pass
@@ -950,10 +1607,10 @@ the design-decisions prose above — see `ARCHITECTURE-ORGANIZATIONS.md`
   own aggregate state; `FleetAsset.AvailableForAssignment` is a **computed**
   read-layer join of the legacy per-asset rows with that gate, not a column
   `TransporterProfile` writes. This keeps `FleetAsset` in
-  `tradingpartner/internal/domain` untouched, preserving 38a's boundary.
+  `organizations/internal/domain` untouched, preserving 38a's boundary.
 - **`HandleGitStatusDrop`** is one orchestration command doing both halves
   of the late-GIT reaction (append `FleetAvailabilityRevoked`, then
-  `TradingPartner.Suspend()`), closing the gap where ADR-047 and ADR-049
+  `Organization.Suspend()`), closing the gap where ADR-047 and ADR-049
   each specified only one of the two.
 
 **Open question 3 is now closed (2026-08-20):** `partner-update` + the
@@ -968,7 +1625,7 @@ which is 38d-i's decision.
 `partner-update` left one sub-phase carrying two unrelated concerns — a
 Postgres/RPC schema-and-editing pass and a binary-transport/Object Store
 pass — which would have meant two business-rules passes and two red→green
-cycles inside a single checklist item. 38c-i takes both `tradingpartner`
+cycles inside a single checklist item. 38c-i takes both `organizations`
 schema changes (the `compliance_documents` PK and the `version` column) in
 one migration, so 38c-ii is purely the blob path and touches no schema.
 This is a partial answer to open question 2 (whether 38a–38e stay lettered
@@ -1084,11 +1741,11 @@ Watch for the startup-ordering trap this surfaces: `shipping-service` currently 
 - [ ] 24b: `BUSINESS_RULES-ACCOUNTS.md` — new rule documenting the populate-on-boot mechanism and the `sys.creds` special case
 - [ ] 24b: Live verification — `docker compose down -v && up --build` with `./nats/creds` no longer existing as a bind mount at all; confirm every service connects, **including `observability-service` and every NATS/SYSTEM Admin UI panel it backs (Phase 30's own live-verification checklist)**
 
-> **Risk flagged 2026-08-17 (post-Phase-30 audit) — 24c's already-documented boot-ordering trap is now a multi-service problem, not the single-service one it was scoped against.** The design note above only warns about `shipping-service`'s own creds-directory tenant scan. Since this phase was written, `trading-partner-service` and `pricing-service` each grew their *own* independent creds-directory scanner and their own `nonTenantCredsFiles` exclusion list (`tradingpartner/internal/tenants/tenants.go`, `pricing/internal/tenants/tenants.go`) — and this session found and fixed the identical latent bug (a missing `observability` exclusion entry) in both, independently, confirming the pattern really does drift out of sync across services. Moving `acme`/`globex` to async runtime creation reopens the exact race this phase already flags, but across three independent scanners instead of one. Any future 24c implementation must re-audit every service's tenant-discovery scanner (currently: shipping-service, pricing-service, trading-partner-service — check for new ones before starting), not just shipping-service's.
+> **Risk flagged 2026-08-17 (post-Phase-30 audit) — 24c's already-documented boot-ordering trap is now a multi-service problem, not the single-service one it was scoped against.** The design note above only warns about `shipping-service`'s own creds-directory tenant scan. Since this phase was written, `organizations-service` and `pricing-service` each grew their *own* independent creds-directory scanner and their own `nonTenantCredsFiles` exclusion list (`organizations/internal/tenants/tenants.go`, `pricing/internal/tenants/tenants.go`) — and this session found and fixed the identical latent bug (a missing `observability` exclusion entry) in both, independently, confirming the pattern really does drift out of sync across services. Moving `acme`/`globex` to async runtime creation reopens the exact race this phase already flags, but across three independent scanners instead of one. Any future 24c implementation must re-audit every service's tenant-discovery scanner (currently: shipping-service, pricing-service, organizations-service — check for new ones before starting), not just shipping-service's.
 
 - [ ] 24c: `Provisioner`/seed step creates `acme`/`globex` via `POST /api/accounts` (or an equivalent internal call) instead of `bootstrap-operator.sh`
 - [ ] 24c: confirm `EnsureTenantByName`/`notify.accounts.account.created` actually covers the boot-ordering gap this introduces — trace current callers, don't assume
-- [ ] 24c: **re-audit every service's creds-directory tenant-discovery scanner** (shipping-service, pricing-service, trading-partner-service as of 2026-08-17 — confirm the current list before starting), not only shipping-service's, per the risk note above
+- [ ] 24c: **re-audit every service's creds-directory tenant-discovery scanner** (shipping-service, pricing-service, organizations-service as of 2026-08-17 — confirm the current list before starting), not only shipping-service's, per the risk note above
 - [ ] 24c: `bootstrap-operator.sh` scope reduced to `operator` + `SYS` + `PLATFORM` only
 - [ ] 24c: `BUSINESS_RULES-ACCOUNTS.md` — rule change documenting PLATFORM-bootstrapped / tenants-runtime as the enforced split
 - [ ] 24c: Live verification — fresh `down -v && up --build` produces working `acme`/`globex` tenants with no bootstrap involvement beyond `PLATFORM`
@@ -1139,7 +1796,7 @@ already scoped.
       payload fixes) with the connection indicator working correctly every
       time. The one specific claim not yet re-verified is the multi-tab
       connection-exhaustion scenario itself.
-- [ ] **From Phase 26 (Trading Partner Service) — deferred items, carried
+- [ ] **From Phase 26 (Organizations Service) — deferred items, carried
       forward as named open questions, not silently dropped:**
       lifecycle-as-CQRS/temporal exploration, `ComplianceDocument` temporal
       classification, document-expiry-driven status, real file storage,
@@ -1232,7 +1889,7 @@ directly against `lb-nats`), each corrected the previous assumption:
    `acme.creds` succeeds immediately.
 2. **Most business subjects never cross an account boundary at all.**
    `natstenants.Manager` (`shared/natstenants/tenants.go:292`) gives
-   `refdata-service`, `pricing-service`, and `trading-partner-service` one
+   `refdata-service`, `pricing-service`, and `organizations-service` one
    direct connection *per tenant*, authenticated straight into that
    tenant's own account — so an ordinary intra-tenant call has no
    export/import in its path, and no permission grant would ever produce a
@@ -1260,7 +1917,7 @@ directly against `lb-nats`), each corrected the previous assumption:
    account — a PLATFORM-only connection like `observability-service`'s
    cannot address it by name at any permission level. The only connections
    that legitimately hold publish rights on it today are `shipping-service`
-   and `trading-partner-service`'s own per-tenant connections (the real
+   and `organizations-service`'s own per-tenant connections (the real
    callers of refdata).
 5. **The crossing itself traces correctly; final-delivery interest does
    not, and this is a NATS-server limitation, not ours.**
@@ -1291,7 +1948,7 @@ directly against `lb-nats`), each corrected the previous assumption:
   stream imports), not a free-text subject field.
 - **The probe is fired by the service that owns the real connection, not
   by `observability-service`.** `shipping-service` and
-  `trading-partner-service` already hold the only connections with
+  `organizations-service` already hold the only connections with
   legitimate publish rights on this crossing (finding 4). Each gets a
   small internal diagnostic hook that fires *one of its own already-defined
   outbound calls* with `Nats-Trace-Dest`/`Nats-Trace-Only` set, reusing the
@@ -1991,7 +2648,7 @@ only as one-line summaries — see above):
 |---|---|
 | Phase 23 — Admin UI: SSE → NATS WebSocket Migration | `Main-POC-Plan-ARCHIVE.md` |
 | Phase 25 (25a–25h/25i) — Pricing Service | `Main-POC-Plan-ARCHIVE.md` |
-| Phase 26 — Trading Partner Service | `Main-POC-Plan-ARCHIVE.md` |
+| Phase 26 — Organizations Service | `Main-POC-Plan-ARCHIVE.md` |
 | Phase 27 — Admin UI: Account Activity Panel | `Main-POC-Plan-ARCHIVE.md` |
 | Phase 28 — Distributed Tracing for Inter-Service Comms | `Main-POC-Plan-ARCHIVE.md` |
 | Phase 30 — `observability-service` Extraction | `Main-POC-Plan-ARCHIVE.md` |
@@ -2136,7 +2793,7 @@ Cross-reference sweep (same commit):
 ## Renumbering (2026-08-19 — collision cleanup, Phase 36 freed for reuse)
 
 **Why:** the user asked to use "Phase 36" for a new, unrelated frontend
-phase (Tech Lab Operator rebrand + Trading Partners migration). The number
+phase (Tech Lab Operator rebrand + Organizations migration). The number
 was deliberately left alone in the 2026-08-18b sweep above because the
 server-hop tracing phase — by then already renumbered to 43 — still had
 live cross-references reading "Phase 36" in BR-042's heading and both

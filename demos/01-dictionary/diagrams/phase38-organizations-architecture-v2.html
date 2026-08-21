@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 38 V2 — Transporter architecture summary</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 22px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 82ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption { padding: 9px 14px 11px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 18px; }
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px 22px; padding: 9px 14px; background: var(--nested); border-top: 1px solid var(--border); font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { display: inline-block; width: 14px; height: 2px; }
+.n { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: .55; }
+.ns { fill: none; stroke: var(--store); stroke-width: 1; }
+.ne { fill: none; stroke: var(--evtl); stroke-width: 1; }
+.lbl { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: .07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.good { font-family: var(--mono); font-size: 9.5px; fill: var(--store); }
+.warn { font-family: var(--mono); font-size: 9.5px; fill: var(--evtl); }
+.badtext { font-family: var(--mono); font-size: 9.5px; fill: var(--bad); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+.hop { fill: none; stroke: var(--hop); stroke-width: 1.2; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="head">
+    <div class="head-txt">
+      <div class="eyebrow">Phase 38 V2 · BR-TP18–BR-TP55 · ARCHITECTURE-ORGANIZATIONS</div>
+      <h1>Transporters — registration, vetting, state and storage</h1>
+      <p class="sub">Phase 38 adds an event-sourced <code>TransporterProfile</code> beside the existing plain-CRUD <code>TradingPartner</code>. The shared UUID connects two deliberately separate state machines; Temporal coordinates the long-running work, JetStream preserves profile history, and Postgres remains the canonical current-state read model.</p>
+    </div>
+  </header>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1024 424" role="img" aria-label="Registration and status flow after Phase 38. The browser registers a transporter over NATS request reply. The service creates a plain CRUD TradingPartner in Registered status and an event-sourced TransporterProfile with the same ID in AwaitingDocumentation status. Temporal moves the profile into DocumentsInReview. Approved documents and successful GIT verification produce Vetted and open the fleet gate; a document or GIT failure produces Rejected and closes the gate. Resubmission starts another attempt. Only a Vetted profile passes the activation guard that changes the company to Active. A later scheduled GIT drop revokes fleet availability and suspends the company. Compliance documents independently move from Pending to Approved or Rejected, and replacement supersedes the old row.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="a-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="a-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          <marker id="a-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--bad)"/></marker>
+        </defs>
+        <text class="grp" x="16" y="18">REGISTRATION — ONE COMMAND, TWO AGGREGATE WRITES</text>
+        <rect class="n" x="16" y="32" width="164" height="46" rx="3"/>
+        <text class="lbl" x="28" y="52">TransporterPanel</text><text class="lbl2" x="28" y="66">3-step wizard · commits step 1</text>
+        <rect class="n" x="228" y="32" width="174" height="46" rx="3"/>
+        <text class="lbl" x="240" y="52">partner.register</text><text class="lbl2" x="240" y="66">NATS api.* / rpc.* ingress</text>
+        <rect class="n" x="450" y="26" width="242" height="58" rx="3"/>
+        <text class="lbl" x="462" y="46">TradingPartner</text><text class="lbl2" x="462" y="60">shared company identity · UUID</text><text class="lbl2" x="462" y="73">REGISTERED · version 1</text>
+        <rect class="ne" x="758" y="26" width="250" height="58" rx="3"/>
+        <text class="lbl" x="770" y="46">TransporterProfile</text><text class="lbl2" x="770" y="60">same UUID · created event</text><text class="lbl2" x="770" y="73">AwaitingDocumentation</text>
+        <path class="flow" d="M180 55 L228 55" marker-end="url(#a-sync)"/>
+        <path class="flow" d="M402 55 L450 55" marker-end="url(#a-sync)"/>
+        <path class="rep" d="M692 55 L758 55" marker-end="url(#a-evtl)"/>
+        <text class="edge" x="704" y="48">ensure</text>
+
+        <text class="grp" x="16" y="120">TWO INDEPENDENT STATE MACHINES — LINKED ONLY BY ACTIVATION / SUSPENSION POLICY</text>
+        <rect class="nb" x="16" y="134" width="284" height="184" rx="4"/>
+        <text class="grp" x="28" y="153">COMPANY STATUS · POSTGRES CRUD</text>
+        <rect class="n" x="42" y="174" width="100" height="34" rx="3"/><text class="lbl" x="92" y="195" text-anchor="middle">REGISTERED</text>
+        <rect class="ns" x="174" y="174" width="100" height="34" rx="3"/><text class="lbl" x="224" y="195" text-anchor="middle">ACTIVE</text>
+        <rect class="n" x="174" y="260" width="100" height="34" rx="3"/><text class="lbl" x="224" y="281" text-anchor="middle">SUSPENDED</text>
+        <path class="proj" d="M142 191 L174 191" marker-end="url(#a-store)"/><text class="good" x="145" y="181">guard</text>
+        <path class="flow" d="M224 208 L224 260" marker-end="url(#a-sync)"/><text class="edge" x="232" y="237">suspend</text>
+        <path class="flow" d="M206 260 L206 208" marker-end="url(#a-sync)"/><text class="edge" x="159" y="237">reactivate</text>
+
+        <rect class="nb" x="324" y="134" width="684" height="184" rx="4"/>
+        <text class="grp" x="336" y="153">VETTING STATUS · JETSTREAM EVENTS, TEMPORAL-DRIVEN</text>
+        <rect class="n" x="342" y="174" width="172" height="38" rx="3"/><text class="lbl" x="428" y="191" text-anchor="middle">AwaitingDocumentation</text><text class="lbl2" x="428" y="204" text-anchor="middle">gate closed</text>
+        <rect class="ne" x="552" y="174" width="164" height="38" rx="3"/><text class="lbl" x="634" y="191" text-anchor="middle">DocumentsInReview</text><text class="lbl2" x="634" y="204" text-anchor="middle">attempt N</text>
+        <rect class="ns" x="754" y="174" width="104" height="38" rx="3"/><text class="lbl" x="806" y="191" text-anchor="middle">Vetted</text><text class="lbl2" x="806" y="204" text-anchor="middle">gate open</text>
+        <rect class="n" x="754" y="260" width="104" height="38" rx="3"/><text class="lbl" x="806" y="281" text-anchor="middle">Rejected</text>
+        <path class="rep" d="M514 193 L552 193" marker-end="url(#a-evtl)"/><text class="warn" x="518" y="184">start</text>
+        <path class="proj" d="M716 193 L754 193" marker-end="url(#a-store)"/><text class="good" x="718" y="184">both pass</text>
+        <path class="err" d="M680 212 L768 260" marker-end="url(#a-bad)"/><text class="badtext" x="669" y="242">docs/GIT fail</text>
+        <path class="rep" d="M754 279 L634 279 L634 212" marker-end="url(#a-evtl)"/><text class="warn" x="645" y="273">resubmit → attempt N+1</text>
+        <path class="proj" d="M754 193 L716 193"/>
+        <path class="proj" d="M806 174 L806 128 L92 128 L92 174" marker-end="url(#a-store)"/>
+        <text class="good" x="430" y="124">Vetted profile lets Activate guard move company REGISTERED → ACTIVE</text>
+        <path class="err" d="M858 193 L930 193 L930 334 L224 334 L224 294" marker-end="url(#a-bad)"/>
+        <text class="badtext" x="490" y="348">scheduled GIT drop: revoke fleet gate first, then suspend company</text>
+
+        <text class="grp" x="16" y="376">DOCUMENT REVIEW STATUS (INDEPENDENT OF COMPANY STATUS)</text>
+        <text class="lbl" x="26" y="400">PENDING</text><path class="flow" d="M84 396 L154 396" marker-end="url(#a-sync)"/>
+        <text class="lbl" x="166" y="400">APPROVED</text><path class="flow" d="M84 406 L154 406" marker-end="url(#a-sync)"/>
+        <text class="lbl" x="166" y="418">REJECTED</text><path class="rep" d="M228 414 L250 414 L250 386 L84 386" marker-end="url(#a-evtl)"/>
+        <text class="warn" x="258" y="400">resubmit</text>
+        <path class="hop" d="M236 396 L348 396" marker-end="url(#a-sync)"/><path class="hop" d="M236 414 L348 414" marker-end="url(#a-sync)"/>
+        <text class="lbl" x="360" y="409">SUPERSEDED</text><text class="lbl2" x="448" y="409">replacement is a new PENDING row; old row and bytes remain</text>
+      </svg>
+    </div>
+    <figcaption><b>Registration and status.</b> Registration writes the existing <code>trading_partners</code> aggregate and ensures a sibling profile with the same ID (BR-TP18). Company status remains <code>REGISTERED → ACTIVE ⇄ SUSPENDED</code>; vetting status is separate, and only <code>Vetted</code> opens the activation gate (BR-TP19/21/28). Document status is a third independent lifecycle (BR-TP29–31).</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1024 446" role="img" aria-label="Data and document storage after Phase 38. The trading partner Postgres database stores company identity and status, the canonical transporter profile projection, compliance document metadata, fleet assets, operating areas, and configured tracking credential metadata. The TRANSPORTER JetStream stream is the authoritative profile event history. A durable projector replays it into the Postgres transporter profile table and the organizations KV cache. Document files use the organizations-docs NATS Object Store bucket through an HTTP byte proxy authorized by a short-lived ticket; the service writes the blob before attaching its metadata, never overwrites bytes, limits files to ten mebibytes and the bucket to 256 mebibytes. The Object Store bucket, event stream, caches and encrypted organizations-secrets bucket are tenant-scoped by NATS account and share that account's JetStream limits.">
+        <defs>
+          <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="b-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="b-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+        </defs>
+        <text class="grp" x="16" y="18">POSTGRES · trading_partner SCHEMA — CURRENT STATE / QUERY MODEL</text>
+        <rect class="nb" x="16" y="32" width="992" height="158" rx="4"/>
+        <rect class="n" x="32" y="52" width="216" height="54" rx="3"/><text class="lbl" x="44" y="71">trading_partners</text><text class="lbl2" x="44" y="85">identity · type · company status</text><text class="lbl2" x="44" y="98">company fields · version</text>
+        <rect class="ns" x="264" y="52" width="232" height="54" rx="3"/><text class="lbl" x="276" y="71">transporter_profiles</text><text class="lbl2" x="276" y="85">vetting status · attempt · gate</text><text class="lbl2" x="276" y="98">GIT flag · document_reviews JSONB</text>
+        <rect class="n" x="512" y="52" width="230" height="54" rx="3"/><text class="lbl" x="524" y="71">compliance_documents</text><text class="lbl2" x="524" y="85">status/ref/expiry/coverage</text><text class="lbl2" x="524" y="98">file_* metadata · no bytes</text>
+        <rect class="n" x="758" y="52" width="234" height="54" rx="3"/><text class="lbl" x="770" y="71">fleet_assets</text><text class="lbl2" x="770" y="85">registration/VIN/make/model/type</text><text class="lbl2" x="770" y="98">availability is computed, not stored</text>
+        <rect class="n" x="264" y="122" width="232" height="48" rx="3"/><text class="lbl" x="276" y="141">transporter_operating_areas</text><text class="lbl2" x="276" y="155">COUNTRY / REGION assignments</text>
+        <rect class="n" x="512" y="122" width="230" height="48" rx="3"/><text class="lbl" x="524" y="141">tracking_credentials</text><text class="lbl2" x="524" y="155">provider/type only · no secret</text>
+        <text class="edge" x="35" y="183">shared key: trading_partner_id · profile projection is canonical for activation checks; KV is never used for that guard</text>
+
+        <text class="grp" x="16" y="224">TENANT NATS ACCOUNT — EVENT HISTORY, CACHE, BYTES AND SECRETS</text>
+        <rect class="nb" x="16" y="238" width="992" height="190" rx="4"/>
+        <path class="ne" d="M40 276 L40 338 A178 10 0 0 0 218 338 L218 276"/><ellipse class="ne" cx="129" cy="276" rx="89" ry="10"/>
+        <text class="lbl" x="129" y="299" text-anchor="middle">TRANSPORTER stream</text><text class="lbl2" x="129" y="313" text-anchor="middle">LimitsPolicy · file storage</text><text class="lbl2" x="129" y="327" text-anchor="middle">10 min duplicate window</text>
+        <rect class="ne" x="270" y="270" width="204" height="64" rx="3"/><text class="lbl" x="282" y="291">durable projector</text><text class="lbl2" x="282" y="306">replay/apply aggregate events</text><text class="lbl2" x="282" y="320">explicit ack; NAK on write failure</text>
+        <rect class="ns" x="526" y="270" width="194" height="64" rx="3"/><text class="lbl" x="538" y="291">Shape B outputs</text><text class="lbl2" x="538" y="306">Postgres: canonical projection</text><text class="lbl2" x="538" y="320">KV organizations: cache</text>
+        <path class="rep" d="M218 302 L270 302" marker-end="url(#b-evtl)"/><path class="proj" d="M474 302 L526 302" marker-end="url(#b-store)"/>
+        <text class="warn" x="40" y="360">evt.{context}.organizations.transporter.{id}.{event}</text>
+
+        <rect class="n" x="40" y="378" width="188" height="36" rx="3"/><text class="lbl" x="52" y="400">HTTP byte proxy</text>
+        <text class="lbl2" x="235" y="400">single-use 2 min ticket</text>
+        <path class="flow" d="M228 396 L328 396" marker-end="url(#b-sync)"/>
+        <path class="ns" d="M328 372 L328 414 A210 9 0 0 0 538 414 L538 372"/><ellipse class="ns" cx="433" cy="372" rx="105" ry="9"/>
+        <text class="lbl" x="433" y="394" text-anchor="middle">OBJ_organizations-docs</text><text class="lbl2" x="433" y="408" text-anchor="middle">10 MiB/file · 256 MiB bucket</text>
+        <rect class="n" x="584" y="370" width="190" height="44" rx="3"/><text class="lbl" x="596" y="390">KV organizations-secrets</text><text class="lbl2" x="596" y="404">sealed credential payload</text>
+        <rect class="n" x="808" y="370" width="174" height="44" rx="3"/><text class="lbl" x="820" y="390">tenant JS limits</text><text class="lbl2" x="820" y="404">all share 1 GiB / streams</text>
+        <path class="rep" d="M774 392 L808 392" marker-end="url(#b-evtl)"/><path class="rep" d="M538 392 L584 392" marker-end="url(#b-evtl)"/>
+      </svg>
+    </div>
+    <figcaption><b>Storage split.</b> <code>TRANSPORTER</code> is the replayable source of profile history; its durable projector writes Postgres then KV (BR-TP18–20). Document bytes are write-once in <code>OBJ_organizations-docs</code>, while searchable file metadata stays in <code>compliance_documents</code>. Blob-first ordering can leave an invisible orphan, but never a database row or immutable event that promises missing bytes (BR-TP40–45).</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1024 430" role="img" aria-label="Temporal state management and JetStream interaction in Phase 38. Temporal persists workflow execution history in its own Postgres database: attempt and workflow step, document references and approval signals, the outstanding GIT activity, timers, retries and branch completion. That is durable process state, not company or transporter domain truth. TransporterVettingWorkflow starts GIT verification and waits for per-document review signals in parallel. Both passing appends GitVerified and Vetted events; a document failure appends Rejected; a GIT failure after approvals appends DocumentApprovalReverted events followed by Rejected. Event publications occur in Temporal Activities with deterministic message IDs and JetStream optimistic sequence guards. A Temporal Schedule periodically starts the GIT monitor workflow; if current GIT is inactive it appends FleetAvailabilityRevoked before suspending the TradingPartner. JetStream remains the profile history and Postgres remains company and projected current state.">
+        <defs>
+          <marker id="c-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+          <marker id="c-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+          <marker id="c-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          <marker id="c-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--bad)"/></marker>
+        </defs>
+        <text class="grp" x="16" y="18">TEMPORAL OWNS DURABLE PROCESS PROGRESS — NOT DOMAIN TRUTH</text>
+        <rect class="nb" x="16" y="32" width="992" height="96" rx="4"/>
+        <rect class="ne" x="34" y="52" width="236" height="56" rx="3"/><text class="lbl" x="46" y="72">Temporal service + worker</text><text class="lbl2" x="46" y="87">task queue: organizations-vetting</text><text class="lbl2" x="46" y="100">restart resumes from history</text>
+        <path class="ne" d="M314 54 L314 106 A210 9 0 0 0 524 106 L524 54"/><ellipse class="ne" cx="419" cy="54" rx="105" ry="9"/>
+        <text class="lbl" x="419" y="76" text-anchor="middle">temporal-postgres</text><text class="lbl2" x="419" y="90" text-anchor="middle">workflow execution history</text><text class="lbl2" x="419" y="103" text-anchor="middle">timers · signals · Activity results</text>
+        <rect class="n" x="574" y="50" width="410" height="62" rx="3"/><text class="lbl" x="586" y="70">Process state retained durably</text><text class="lbl2" x="586" y="84">attempt N + step · required refs + approvals · GIT future</text><text class="lbl2" x="586" y="98">branch completion · timeouts/retries · waiting signals</text>
+        <path class="proj" d="M270 80 L314 80" marker-end="url(#c-store)"/><path class="hop" d="M524 80 L574 80"/>
+
+        <text class="grp" x="16" y="148">TRANSPORTERVETTINGWORKFLOW — TWO PARALLEL BRANCHES, ONE JOIN</text>
+        <rect class="ne" x="32" y="178" width="188" height="48" rx="3"/><text class="lbl" x="44" y="198">vetting-started</text><text class="lbl2" x="44" y="212">attempt from aggregate history</text>
+        <rect class="ne" x="278" y="154" width="226" height="74" rx="3"/><text class="lbl" x="290" y="176">A · document signals</text><text class="lbl2" x="290" y="191">one decision per document ID</text><text class="lbl2" x="290" y="205">approved / rejected</text><text class="lbl2" x="290" y="218">human-timescale wait survives restart</text>
+        <rect class="ne" x="278" y="246" width="226" height="62" rx="3"/><text class="lbl" x="290" y="267">B · GIT verification Activity</text><text class="lbl2" x="290" y="282">pass / fail / timeout</text><text class="lbl2" x="290" y="296">starts before signal wait</text>
+        <rect class="ne" x="560" y="190" width="154" height="60" rx="3"/><text class="lbl" x="637" y="212" text-anchor="middle">join</text><text class="lbl2" x="637" y="226" text-anchor="middle">both required</text><text class="lbl2" x="637" y="239" text-anchor="middle">saga compensation</text>
+        <rect class="ns" x="770" y="154" width="222" height="56" rx="3"/><text class="lbl" x="782" y="175">PASS → GitVerified, Vetted</text><text class="lbl2" x="782" y="190">FleetAvailabilityGate = true</text><text class="lbl2" x="782" y="202">then schedule monitoring</text>
+        <rect class="n" x="770" y="232" width="222" height="72" rx="3"/><text class="lbl" x="782" y="252">FAIL → Rejected</text><text class="lbl2" x="782" y="267">GIT fail after approvals:</text><text class="lbl2" x="782" y="280">DocumentApprovalReverted × N</text><text class="lbl2" x="782" y="293">gate remains false</text>
+        <path class="rep" d="M220 202 L278 190" marker-end="url(#c-evtl)"/><path class="rep" d="M220 202 L278 277" marker-end="url(#c-evtl)"/>
+        <path class="rep" d="M504 190 L560 211" marker-end="url(#c-evtl)"/><path class="rep" d="M504 277 L560 231" marker-end="url(#c-evtl)"/>
+        <path class="proj" d="M714 208 L770 182" marker-end="url(#c-store)"/><path class="err" d="M714 232 L770 264" marker-end="url(#c-bad)"/>
+
+        <text class="grp" x="16" y="342">ALL WORKFLOW-DRIVEN DOMAIN WRITES CROSS AN ACTIVITY BOUNDARY</text>
+        <rect class="n" x="32" y="356" width="286" height="54" rx="3"/><text class="lbl" x="44" y="376">AppendProfileEvent Activity</text><text class="lbl2" x="44" y="391">Msg-Id: {partner}:{event}:{attempt}:{step}</text><text class="lbl2" x="44" y="403">sequence conflict → “try again”, no compensation</text>
+        <path class="ne" d="M378 356 L378 410 A220 9 0 0 0 598 410 L598 356"/><ellipse class="ne" cx="488" cy="356" rx="110" ry="9"/>
+        <text class="lbl" x="488" y="380" text-anchor="middle">TRANSPORTER JetStream</text><text class="lbl2" x="488" y="395" text-anchor="middle">domain history + optimistic guard</text>
+        <rect class="ne" x="654" y="350" width="338" height="66" rx="3"/><text class="lbl" x="666" y="370">Temporal Schedule → GIT monitor workflow</text><text class="lbl2" x="666" y="385">if inactive: FleetAvailabilityRevoked event</text><text class="lbl2" x="666" y="399">then TradingPartner.Suspend (safe to resume)</text>
+        <path class="rep" d="M318 383 L378 383" marker-end="url(#c-evtl)"/><path class="rep" d="M654 383 L598 383" marker-end="url(#c-evtl)"/>
+      </svg>
+    </div>
+    <figcaption><b>Temporal’s boundary.</b> Temporal persists the orchestration’s waiting and retry state so a worker restart does not lose approvals or the parallel GIT result (BR-TP21–27). Domain transitions still become idempotent JetStream events through Activities. A Temporal <b>Schedule</b> starts periodic GIT monitor runs; on a drop, the event log is updated before company suspension so partial failure can resume safely (BR-TP28).</figcaption>
+  </figure>
+
+  <div class="legend" aria-label="Diagram legend">
+    <span><i class="sw" style="background:var(--sync)"></i> synchronous / command</span>
+    <span><i class="sw" style="background:var(--store)"></i> success / projection write</span>
+    <span><i class="sw" style="background:var(--evtl)"></i> async / replay / workflow</span>
+    <span><i class="sw" style="background:var(--bad)"></i> rejection / revocation</span>
+    <span><i class="sw" style="background:var(--hop)"></i> relationship / incidental hop</span>
+  </div>
+</main>
+</body>
+</html>

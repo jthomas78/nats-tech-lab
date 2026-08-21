@@ -1,13 +1,13 @@
 # Architecture — Organizations: Transporter Registration & Vetting (Phase 38, IN PROGRESS — 38a/38b built)
 
-Design reference for extending `trading-partner-service` (renamed to
+Design reference for extending `organizations-service` (renamed to
 `organizations-service` at the end of this phase, not the start — see
 "Naming & Sequencing" below) with a real Transporter registration and
 vetting workflow, modeled on Linebooker V2's `Transporters` admin screen.
 Customers/Shippers are unaffected — see "Scope" below. For the
-already-shipped Shipper/TradingPartner behavior this phase builds beside
+already-shipped Shipper/Organization behavior this phase builds beside
 (not on top of), see
-[BUSINESS_RULES-TRADING-PARTNER.md](../../../../demos/01-dictionary/BUSINESS_RULES-TRADING-PARTNER.md)
+[BUSINESS_RULES-ORGANIZATIONS.md](../../../../demos/01-dictionary/BUSINESS_RULES-ORGANIZATIONS.md)
 (BR-TP01–BR-TP17, Phase 26).
 
 **This doc started as a design conversation and is now partly an
@@ -52,7 +52,7 @@ both worth reading before 38d-ii extends the same surface:
 
 - The Transporter UI is a **dedicated component with a drill-in detail view**
   (`TransporterPanel.vue`), not a role-parameterized panel with an expansion
-  row. Shippers stay on `TradingPartnersPanel.vue`. 38d-ii's Operating Areas
+  row. Shippers stay on `OrganizationsPanel.vue`. 38d-ii's Operating Areas
   and Tracking Credentials are additional **tabs on that drill-in**, not new
   top-level screens.
 - **Fleet assets cannot currently be added in the dev stack at all**: no
@@ -65,7 +65,7 @@ both worth reading before 38d-ii extends the same surface:
   Phase 33 retired.
 
 Implementation detail (final field names, error codes, exact test list)
-belongs in `BUSINESS_RULES-TRADING-PARTNER.md` (or a new
+belongs in `BUSINESS_RULES-ORGANIZATIONS.md` (or a new
 `BUSINESS_RULES-ORGANIZATIONS.md` once the rename lands) and the
 `.claude/plans/Main-POC-Plan.md` Phase 38 checklist, not here.
 
@@ -84,7 +84,7 @@ aggregate-split decision in
 The design reads as though `TransporterProfile` gates
 `FleetAsset.AvailableForAssignment` directly. It does not, and cannot
 without breaking 38a's boundary: `FleetAsset` lives in
-`tradingpartner/internal/domain` as plain CRUD (BR-TP12/BR-TP13) with no
+`organizations/internal/domain` as plain CRUD (BR-TP12/BR-TP13) with no
 availability state at all, and 38a deliberately left it untouched.
 
 As built:
@@ -100,19 +100,19 @@ As built:
 
 This keeps writes aligned to aggregate ownership, which is what ADR-049's
 "save boundaries must align to the aggregate boundary" finding actually
-requires; `tradingpartner` keeps owning per-asset identity.
+requires; `organizations` keeps owning per-asset identity.
 
 ### 2. `HandleGitStatusDrop` performs both halves of the late-GIT reaction
 
 ADR-047 said a late GIT invalidation invokes
 `CompensateDeactivateFleetAssets`; ADR-049's resolution said the monitor
-workflow calls `TradingPartner.Suspend()`. **Neither said it does both** —
+workflow calls `Organization.Suspend()`. **Neither said it does both** —
 leaving a real gap where a partner could end up suspended while its fleet
 still read as available, or a compensation existed with no caller.
 
 As built, `TransporterGitMonitorWorkflow` invokes **one** orchestration
-command, `HandleGitStatusDrop(tradingPartnerID)`, which appends
-`FleetAvailabilityRevoked` and then calls `TradingPartner.Suspend()`. It is
+command, `HandleGitStatusDrop(organizationID)`, which appends
+`FleetAvailabilityRevoked` and then calls `Organization.Suspend()`. It is
 idempotent, so a repeated Schedule firing on an already-suspended partner is
 a no-op rather than a second suspension. See BR-TP28.
 
@@ -149,7 +149,7 @@ Members (blocked on auth/user-registration work that doesn't exist yet), and
 any real marketplace/tender consumer of transporter status (still the
 deferred item named in the Phase 62 close-out list).
 
-![System architecture of trading-partner-service after Phase 38: the existing TradingPartner aggregate keeps its plain-CRUD lifecycle unchanged aside from a new partner-update command and a widened compliance_documents primary key, while a new event-sourced TransporterProfile sibling package, a new Temporal server orchestrating the vetting saga and a GIT-expiry cron workflow, and a new NATS Object Store bucket for document bytes are added inside the same service container.](images/phase38-organizations-architecture.png)
+![System architecture of organizations-service after Phase 38: the existing Organization aggregate keeps its plain-CRUD lifecycle unchanged aside from a new partner-update command and a widened compliance_documents primary key, while a new event-sourced TransporterProfile sibling package, a new Temporal server orchestrating the vetting saga and a GIT-expiry cron workflow, and a new NATS Object Store bucket for document bytes are added inside the same service container.](images/phase38-organizations-architecture.png)
 
 Editable source: [phase38-organizations-architecture.html](../../../../demos/01-dictionary/diagrams/phase38-organizations-architecture.html)
 — hand-authored inline SVG rather than a Draw.io workbook page, so
@@ -208,7 +208,7 @@ Areas row below was wrong precisely because it didn't.
 
 ## Current state (Phase 26, unaffected by this phase)
 
-`trading-partner-service` today has one `TradingPartner` aggregate with a
+`organizations-service` today has one `Organization` aggregate with a
 `Type` (`SHIPPER`|`TRANSPORTER`) discriminator, plain Postgres CRUD, a
 3-state lifecycle (`Registered → Active ⇄ Suspended`), and
 `ComplianceDocument`/`FleetAsset` child records — see BR-TP01–BR-TP17. It
@@ -216,13 +216,13 @@ has no JetStream event sourcing, no KV cache, and stores document
 *metadata* only (a free-text `Reference`, no actual file bytes anywhere in
 the stack).
 
-## Decision: shared `TradingPartner` identity + a separate, event-sourced `TransporterProfile` aggregate
+## Decision: shared `Organization` identity + a separate, event-sourced `TransporterProfile` aggregate
 
 **Revised 2026-08-20, via [ADR-046](ADR-046-transporter-aggregate-split.md).**
 Two earlier passes of this doc are superseded here, kept below for honest
 history rather than silently rewritten:
 
-1. First pass: reuse `TradingPartner`'s existing `Type` discriminator —
+1. First pass: reuse `Organization`'s existing `Type` discriminator —
    rejected (would grow `if Type == TRANSPORTER` branching indefinitely).
 2. Second pass ([ADR-046](ADR-046-transporter-aggregate-split.md)'s initial
    recommendation): a fully separate `Transporter` aggregate duplicating
@@ -231,7 +231,7 @@ history rather than silently rewritten:
    reconsidered and replaced by this option** once the ADR's own "Option C"
    alternative was reviewed and preferred.
 
-**Decision:** `TradingPartner` (Phase 26, unchanged) stays the **single
+**Decision:** `Organization` (Phase 26, unchanged) stays the **single
 identity aggregate for both Shipper and Transporter** — `Register`, its
 `Type` discriminator, and its `Registered → Active ⇄ Suspended` lifecycle
 are untouched, and `PartnerTypeTransporter` **stays a fully legal, actively
@@ -241,50 +241,50 @@ correction," which no longer applies under this shape). A new
 holds everything that's actually Transporter-specific: fleet, documents,
 GIT state, tracking credentials, operating areas, the vetting workflow's
 own state. `TransporterProfile` is keyed by the **same ID** as its
-`TradingPartner` record (no separate surrogate ID, no join table) — a 1:1
+`Organization` record (no separate surrogate ID, no join table) — a 1:1
 relationship by shared identity, not a foreign key.
 
 **Why this over the duplicated-identity version:** no duplicated fields at
 all (not even the ~4 cheap scalars the previous version accepted), and it's
 the more textbook DDD move — aggregate boundaries drawn around consistency
 need (does this data need replay/saga/compensation?) rather than around
-"type of business entity." `TradingPartner`'s existing, tested identity and
+"type of business entity." `Organization`'s existing, tested identity and
 basic lifecycle genuinely serves both Shipper and Transporter unchanged;
 only the vetting-specific data and behavior are new.
 
 **What this costs, honestly** (the reason the duplicated-identity version
 was picked first): registration becomes a two-step operation —
-(1) `TradingPartner.Register(name, TRANSPORTER, context)`, then
+(1) `Organization.Register(name, TRANSPORTER, context)`, then
 (2) create the `TransporterProfile` and start
 `TransporterVettingWorkflow` — and a genuine cross-aggregate invariant now
-exists between them (`TradingPartner.Activate()` must not succeed for a
+exists between them (`Organization.Activate()` must not succeed for a
 Transporter until `TransporterProfile` reaches `Vetted`). Both are handled
 explicitly, not hand-waved:
 
-- **Partial-failure handling between steps 1 and 2**: `CreateTransporterProfile(tradingPartnerID)`
+- **Partial-failure handling between steps 1 and 2**: `CreateTransporterProfile(organizationID)`
   is idempotent (upsert-by-ID). The `Register` command handler retries step
   2 a bounded number of times before returning; if it still fails, the API
   returns "partner created, profile pending" rather than a bare error, and
-  a standalone idempotent `EnsureTransporterProfile(tradingPartnerID)`
+  a standalone idempotent `EnsureTransporterProfile(organizationID)`
   command lets an operator retry step 2 alone without re-registering
-  identity. A `TradingPartner{Type: TRANSPORTER}` with no profile yet is a
+  identity. An `Organization{Type: TRANSPORTER}` with no profile yet is a
   visible, recoverable "stuck in Registered" state, not a security hole —
   materially less severe than the prior version's dual-entry-point hazard,
   where a legacy path could skip vetting *entirely* rather than just delay
   it.
-- **The cross-aggregate `Activate` guard**: `TradingPartner.Activate()`
+- **The cross-aggregate `Activate` guard**: `Organization.Activate()`
   itself is **unchanged** (still just checks `Status == Registered`,
   BR-TP03). The guard lives one layer up, in the command-handling/API
   boundary that already routes `activate` (`browserrpc`/`api.*` layer, not
   the domain): for a `TRANSPORTER`-typed partner, look up
   `TransporterProfile`'s current status from its own read model before
-  delegating to `TradingPartner.Activate()`; reject with a new
+  delegating to `Organization.Activate()`; reject with a new
   application-level error unless `Vetted`. For `SHIPPER`, this check is
   skipped entirely — BR-TP03's behavior for Shipper is identical to today,
   byte-for-byte. **Dependency direction matters here**: this check lives in
   a thin orchestration point that depends on *both* packages, or in
-  `transporterprofile` calling into `tradingpartner`'s existing repository
-  — never the reverse. `tradingpartner` does not gain a new dependency on
+  `transporterprofile` calling into `organizations`'s existing repository
+  — never the reverse. `organizations` does not gain a new dependency on
   the newer, more complex `transporterprofile` package. This is exactly
   the "cross aggregate invariant using Saga and compensating functions"
   the original design conversation asked to test — and a more genuine test
@@ -294,7 +294,7 @@ explicitly, not hand-waved:
 
 **Design call — same service, new package (not a new microservice):**
 `TransporterProfile` lands as a sibling domain package inside the (still
-named, until the rename sub-phase) `trading-partner-service` — its own
+named, until the rename sub-phase) `organizations-service` — its own
 `internal/domain`, `internal/postgres`, `internal/temporal`, own Postgres
 tables in the same `trading_partner` Postgres database (or a new
 `transporterprofile` schema in it — confirm at implementation time), and
@@ -308,7 +308,7 @@ if the POC's findings warrant it.
 at stake; existing demo/seed data is dropped and reseeded under this shape.
 
 **Correction (2026-08-20, via [ADR-046](ADR-046-transporter-aggregate-split.md)'s
-own Correction note):** "no changes to `tradingpartner`" above is **not
+own Correction note):** "no changes to `organizations`" above is **not
 accurate as originally stated**, on two independently-found, additive
 counts, both now resolved elsewhere in this doc: a new `partner-update`
 command/handler/repository/domain method is needed to make Company
@@ -325,7 +325,7 @@ quietly left standing.
 
 Applying the repo's own test (`ARCHITECTURE.md` § "Event Sourcing vs Plain
 CRUD" — *does anything need to replay this?*): **yes, for `TransporterProfile`,
-no, for `TradingPartner`** — a cleaner split than the prior draft's, since
+no, for `Organization`** — a cleaner split than the prior draft's, since
 it's now genuinely one aggregate per answer, not one aggregate serving both.
 The vetting decision sequence is itself a domain concern (an operator or
 auditor needs to answer "what did we check, in what order, and who
@@ -337,7 +337,7 @@ which need a real event history, not just current-state rows.
 - **`TransporterProfile` aggregate**: event-sourced. JetStream stream
   `TRANSPORTER` (LimitsPolicy, replay-capable), subjects
   `evt.{context}.organizations.transporter.{id}.{event}` — `{id}` is the
-  **same ID as the profile's `TradingPartner`**, not a separate surrogate;
+  **same ID as the profile's `Organization`**, not a separate surrogate;
   the second subject token is `organizations` (the eventual service name)
   even before the rename lands, since new subjects are cheaper to name
   right up front than to rename later; see "Naming & Sequencing."
@@ -347,13 +347,47 @@ which need a real event history, not just current-state rows.
   miss falls through to Postgres). No new pattern invented here — reusing
   the decided shape is itself a data point for the pattern-cards doc
   ("does Shape B hold up for a second, differently-shaped aggregate?").
-- **`TradingPartner`** (identity, both Shipper and Transporter): stays
+- **`Organization`** (identity, both Shipper and Transporter): stays
   plain CRUD, entirely unchanged from Phase 26, per the decision above.
 
 ## Temporal — role and workflow design
 
+Start here if Temporal itself is unfamiliar. This page is the orientation
+view — Temporal's building blocks, how they meet JetStream, Postgres and
+`organizations-service`, and one vetting attempt end to end. The saga-detail
+diagram that follows it assumes all of that.
+
+![Temporal in the transporter vetting saga: Temporal's building blocks (client, cluster with its own Postgres and event history, task queue, and a worker running deterministic workflow code plus I/O-performing activities); how the worker sits inside organizations-service alongside the browserrpc adapter, VettingService and the JetStream projector, with the TRANSPORTER stream and organizations KV cache in the tenant's NATS account; a sequence diagram placing the Temporal server in the middle of every arrow between the command layer, the workflow code and the activity code, which never call each other directly; and the vetting state machine beside the numbered Temporal event history it is replayed from](images/temporal-vetting-integration.png)
+
+Editable source: [temporal-vetting-integration.html](../../../../demos/01-dictionary/diagrams/temporal-vetting-integration.html)
+— hand-authored inline SVG rather than a Draw.io workbook page, so
+`./diagrams/export-png.sh` does **not** regenerate it. Re-export with
+`node diagrams/export-html-png.mjs diagrams/temporal-vetting-integration.html \
+  ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/temporal-vetting-integration.png 1024 --clip=".wrap"`
+from `demos/01-dictionary/`. The 1024px width is the geometry the page was
+reviewed at; changing it changes the layout. The `--clip=".wrap"` is
+load-bearing, not optional.
+
+![Complete Phase 38 Temporal flow: first-attempt and resubmitted transporter vetting runs launch document-review signals and GIT verification in parallel, retain their progress in Temporal history, emit successful, rejected, and compensating transitions through idempotent JetStream Activities, and define a scheduled post-vetting GIT monitor that revokes fleet availability before suspending an organization; the diagram also distinguishes implemented workflow definitions from the currently missing production worker and Schedule wiring.](images/phase38-temporal-workflows.png)
+
+Editable source: [phase38-temporal-workflows.html](../../../../demos/01-dictionary/diagrams/phase38-temporal-workflows.html)
+— hand-authored inline SVG rather than a Draw.io workbook page, so
+`./diagrams/export-png.sh` does **not** regenerate it. Re-export with
+`node diagrams/export-html-png.mjs diagrams/phase38-temporal-workflows.html \
+  ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/phase38-temporal-workflows.png 1024 --clip=".wrap"`
+from `demos/01-dictionary/`.
+
+![Phase 38 state-change sequence across the browser, NATS Core, organizations-service, Postgres, Temporal, the GIT verifier, the TRANSPORTER JetStream stream, its durable projector and NATS KV: registration changes Organization to REGISTERED and projects a profile to AwaitingDocumentation; the defined vetting workflow moves the profile through DocumentsInReview to Vetted or Rejected with explicit compensation; activation changes the Organization to ACTIVE only after a canonical Vetted read; and the defined GIT monitor revokes the fleet gate before suspending the Organization. Missing production workflow-start, document-signal and Schedule-creation calls are marked explicitly.](images/phase38-temporal-state-sequence.png)
+
+Editable source: [phase38-temporal-state-sequence.html](../../../../demos/01-dictionary/diagrams/phase38-temporal-state-sequence.html)
+— hand-authored inline SVG rather than a Draw.io workbook page, so
+`./diagrams/export-png.sh` does **not** regenerate it. Re-export with
+`node diagrams/export-html-png.mjs diagrams/phase38-temporal-state-sequence.html \
+  ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/phase38-temporal-state-sequence.png 1024 --clip=".wrap"`
+from `demos/01-dictionary/`.
+
 Temporal orchestrates **only the `TransporterProfile` vetting workflow**,
-not `TradingPartner`'s CRUD operations (editing company info, etc. stay
+not `Organization`'s CRUD operations (editing company info, etc. stay
 ordinary Postgres writes, no workflow involved) and not the profile's own
 non-vetting commands (adding a fleet asset outside the saga is still a
 plain event-sourced command). Each vetting-relevant state transition the
@@ -367,7 +401,7 @@ required amendment, not optional hardening:** every JetStream publish this
 workflow triggers must happen inside a Temporal Activity (never inline in
 workflow code — a hard Temporal determinism requirement on top of the
 correctness reason below), carrying `Nats-Msg-Id` keyed on
-`tradingPartnerID` + event type + a workflow-local step counter (**not**
+`organizationID` + event type + a workflow-local step counter (**not**
 Temporal's own `RunID`, which deliberately changes across a `Resubmit`),
 with the stream's `Duplicates` window configured explicitly. This matters
 because the workflow's own retry behavior makes it load-bearing, not
@@ -388,13 +422,13 @@ itself was, called out explicitly per the "no silent scope creep" spirit of
 this repo's phase design gate.
 
 **Workflow**: `TransporterVettingWorkflow`, workflow ID
-`{context}-transporter-vetting-{tradingPartnerID}` (the shared ID, not a
+`{context}-transporter-vetting-{organizationID}` (the shared ID, not a
 separate profile surrogate), task queue `organizations-vetting`. Two
 branches run **in parallel**, both required before the profile itself is
 `Vetted` — deliberately structured as a saga with two independent,
 each-compensable branches (not a linear if/else guard), since testing real
 compensation was an explicit goal. Reaching `Vetted` is **not** the same as
-`TradingPartner` becoming `Active` — see "Lifecycle" for the cross-aggregate
+`Organization` becoming `Active` — see "Lifecycle" for the cross-aggregate
 step that follows:
 
 ```
@@ -425,15 +459,15 @@ step that follows:
                     └───────────────────────────────┘
                                     │
                 (cross-aggregate step, NOT part of this workflow —
-                 see "Lifecycle": TradingPartner.Activate() is
+                 see "Lifecycle": Organization.Activate() is
                  guarded on TransporterProfile.Status == Vetted)
 ```
 
 `ActivateFleetAssets` and reaching `Vetted` are entirely **internal to
 `TransporterProfile`** — an intra-aggregate saga outcome. Moving
-`TradingPartner` to `Active` is a **separate, cross-aggregate** step
+`Organization` to `Active` is a **separate, cross-aggregate** step
 (auto- or operator-triggered) described in "Lifecycle" below; the workflow
-itself never calls into `tradingpartner` directly.
+itself never calls into `organizations` directly.
 
 **Compensation** (the actual saga test): if Branch B fails or times out
 *after* Branch A has already approved some/all documents, the workflow runs
@@ -519,19 +553,19 @@ progress. This is the concrete acceptance test for "test durability too."
 ## Lifecycle — two aggregates, one guard between them
 
 This is the direct consequence of the shared-identity decision above: there
-are now genuinely **two** state machines, not one. `TradingPartner`'s
+are now genuinely **two** state machines, not one. `Organization`'s
 (`Registered → Active ⇄ Suspended`, BR-TP03–TP05) is **completely
 unchanged** — same states, same transitions, same guards, for both Shipper
 and Transporter. `TransporterProfile` gets its own, separate,
 Temporal-driven vetting state machine. The only new coupling between them
-is one guard: `TradingPartner.Activate()` (for a `TRANSPORTER`-typed
+is one guard: `Organization.Activate()` (for a `TRANSPORTER`-typed
 partner only) requires `TransporterProfile.Status == Vetted` first — see
 "Decision" above for exactly where that check lives.
 
 **V2 real shape, for comparison:** V2's screenshot "Status" column is not
 one field — it's **four independent axes** on the real entities:
 `BusinessEntity.accountInactive` (binary Active/Inactive — maps onto
-`TradingPartner`'s own status here, unchanged from Phase 26),
+`Organization`'s own status here, unchanged from Phase 26),
 `TransporterProfileEntity.status` (enum `TransporterProfileStatus`, 4
 values: `NO_TS_AND_CS` → "T&Cs not accepted", `AWAITING_DOCUMENTATION`,
 `DOCUMENTS_IN_REVIEW` → "Vetting in progress", `APPROVED` — maps onto
@@ -540,7 +574,7 @@ values: `NO_TS_AND_CS` → "T&Cs not accepted", `AWAITING_DOCUMENTATION`,
 and `TransporterRegistrationStepType` (`MINIMAL`/`DETAILS`/`LEGAL`,
 registration-wizard progress). V2's own split across `BusinessEntity` vs.
 `TransporterProfileEntity` is, gratifyingly, close to this design's own
-`TradingPartner`/`TransporterProfile` split — independent validation that
+`Organization`/`TransporterProfile` split — independent validation that
 the two-aggregate shape isn't an invented complication, V2 effectively has
 the same seam. **V2 has no enforced transition guard between the 4 vetting
 states** — the admin UI dropdown sets any of the four values directly, no
@@ -549,7 +583,7 @@ state-machine validator found in the backend. This design improves on that
 here) — worth its own pattern-card observation (see "Outcomes").
 
 ```
-TradingPartner (unchanged, Phase 26)          TransporterProfile (new, Phase 38)
+Organization (unchanged, Phase 26)          TransporterProfile (new, Phase 38)
 ──────────────────────────────────            ──────────────────────────────────
                                                AwaitingDocumentation
      Registered  ◀──register(TRANSPORTER)──    (≈ V2 NO_TS_AND_CS,
@@ -586,7 +620,7 @@ UnderProbation: independent boolean flag (≈ V2 underProbation), admin-set,
 `Rejected` is terminal for a given vetting attempt but not for the
 `TransporterProfile` record itself — an operator can trigger `Resubmit`
 (mirrors `ComplianceDocument`'s existing `Resubmit` verb from Phase 26) to
-start a fresh `TransporterVettingWorkflow`; `TradingPartner` simply stays
+start a fresh `TransporterVettingWorkflow`; `Organization` simply stays
 `Registered` throughout, since it was never told to activate.
 Registration-step progress (`TransporterRegistrationStepType`) is **not**
 modeled as a separate axis in this design — the wizard's own step position
@@ -602,11 +636,11 @@ deliberately dropped or changed.
 
 | Section | V2 real shape (verified) | POC scope, Phase 38 |
 |---|---|---|
-| **Company Information** | `BusinessEntity`: name, companyName, tradingSince (string), registrationNo, vatRegistrationNo, vatNumber, vatRegistered, vatRate/businessType/referralSource enums, message. `TransporterProfileEntity`: contactNo, contactPerson, addresses (typed `PHYSICAL`/`BILLING`). Plus a derived `acumaticaAccountCode` from an external accounting-linker integration (not a real column). | **Lives on `TradingPartner`** (existing, Phase 26, shared with Shipper — not duplicated, per the "Decision" above): name, companyName, registrationNo, vatRegistrationNo. `TransporterProfile` adds only what's genuinely Transporter-specific here: vatRegistered, contactPerson, contactNo/email, physical + billing addresses (typed, matching V2). **Dropped:** tradingSince, vatRate/businessType/referralSource (tax/marketing metadata orthogonal to the saga/event-sourcing question this POC tests), acumaticaAccountCode (external accounting integration, no analog here). |
+| **Company Information** | `BusinessEntity`: name, companyName, tradingSince (string), registrationNo, vatRegistrationNo, vatNumber, vatRegistered, vatRate/businessType/referralSource enums, message. `TransporterProfileEntity`: contactNo, contactPerson, addresses (typed `PHYSICAL`/`BILLING`). Plus a derived `acumaticaAccountCode` from an external accounting-linker integration (not a real column). | **Lives on `Organization`** (existing, Phase 26, shared with Shipper — not duplicated, per the "Decision" above): name, companyName, registrationNo, vatRegistrationNo. `TransporterProfile` adds only what's genuinely Transporter-specific here: vatRegistered, contactPerson, contactNo/email, physical + billing addresses (typed, matching V2). **Dropped:** tradingSince, vatRate/businessType/referralSource (tax/marketing metadata orthogonal to the saga/event-sourcing question this POC tests), acumaticaAccountCode (external accounting integration, no analog here). |
 | **Tracking Credentials** | Base `TrackingCredentialsEntity` (providerName, `trackingProvider` enum of 35 vendors) + **one satellite table per provider** storing the actual secret as **plain columns** — e.g. `CarTrackTrackingCredentialsEntity.apiKey`, `WebfleetTrackingCredentialsEntity.password` — confirmed **no encryption anywhere** in the codebase (no `@Convert`/`AttributeConverter` found). `credentialType` enum: `API_KEY`\|`USERNAME_PASSWORD`\|`METADATA_ONLY`. | One `TrackingCredential` child record: `provider` (enum, small representative POC list), `credentialType` (same 3-value enum as V2 — a genuinely useful part to keep), and a `credentialsConfigured bool`. **Confirmed divergence from V2**: the actual secret payload is written to a NATS KV bucket (`organizations-secrets`, at-rest encryption enabled) keyed `{context}.transporter.{id}.trackingcreds`, via a command that never publishes the secret onto the JetStream event stream — an event-sourced aggregate's log is meant to be replayed/audited, so baking raw credentials into it would be *worse* than V2's already-bad plaintext-column approach, since an event log can't easily redact history the way a row can be updated. |
 | **Fleet** | `FleetAssetEntity`: type (`TRAILER`\|`HORSE`\|`RIGID`\|...), trailerType, registrationNo, vinNo, make, model, year, ownership (`OWNED`\|`SUBCONTRACTED`), status, trackingStatus, trackingCredentialsEntity link. Notable: `isOwner()` requires ownership=`OWNED` **and** a linked tracking credential **and** trackingStatus=`LIVE`, all three at once. | registrationNo (globally unique), VIN, make, model, vehicleTypeCode (validated live against refdata-service, BR-TP14), ownership (`OWNED`\|`SUBCONTRACTED`, kept — it's cheap and directly informs the saga), `availableForAssignment bool`. **Design call, inspired by V2's `isOwner()`:** `availableForAssignment` is computed the same multi-condition way — true only when ownership is resolved, tracking credentials are configured, *and* the saga's activation gate has passed — not a single hand-set flag. |
 | **Operating Areas** | **Two models; only one is real** (corrected 2026-08-20 — see "V2 database verification" above). The `GeoAreaEntity` polygon/GIS model (hierarchical `COUNTRY`\|`REGION`\|`MUNICIPALITY`\|`CUSTOM` levels, JTS polygon geometry, joined via `TransporterOperatingAreaEntity` which denormalizes level + countryCode "for query performance" — V2's own code comment) exists in the schema and holds **zero rows**, as does its join table; the MapLibre GL + vector-tile frontend renders a model with no data in it. What V2 **actually runs** is a flat two-level list: `region_entity(id, name, country_id)` → `country_entity(id, name)`, joined many-to-many via `transporter_profile_entity_region` — **48,041 live assignments** over 217 regions and 57 countries, with no geometry, no level column and no depth below Region. `LinebookerTownRegion.xlsx` confirmed not wired into any code; `town_entity`'s 1,373 rows aren't wired into operating areas either. | **Country → Region matches what V2 runs — it is not a reduction of it.** This row previously called the two-level design "a reduced-depth version of V2's real hierarchical/polygon model"; the row counts disprove that, and the POC design needs no simplification defence. Keep **Leaflet + OpenStreetMap** over a small hand-authored GeoJSON. Join row stays `TransporterOperatingArea(transporterId, regionCode, level)` — `level` is kept even though V2's *live* join has no such column, because V2's flat list demonstrably needs one (Botswana's regions mix districts with cities, and a country-name catch-all row absorbs "nationwide" transporters; see "Operating Areas — region seed" below). Region list owned by refdata-service, **seeded from V2's real corpus** rather than invented. **One deliberate improvement on V2:** V2 has no locale dimension on region or country, so translations became *duplicate rows* — `Wes-Kaap`/`Vrystaat`/`IGauteng` sit beside `Western Cape`/`Free State`/`Gauteng` with their own ids and their own assignments, and South Africa has 11+ country rows (`Suid-Afrika`, `Sudáfrica`, `Afrique du Sud`, `ZA`, …). refdata-service already resolves locale as its own dimension, so the seed collapses these into canonical rows with locale-keyed labels. |
-| **GIT Certificate** | **Confirmed derived, not stored:** `TransporterProfileEntity.gitStatus`'s getter ignores its own column and instead computes the "worst" status across the transporter's `GOODS_IN_TRANSIT`-typed documents (enum `GitStatusType`: `PENDING`\|`ACTIVE`\|`EXPIRED`\|`REJECTED`\|`NONE` — **5 values**, one more than the screenshot's visible 4). `gitCoverage` **is** a real stored `Long` directly on the profile — separate from any one document's own coverage field. Admin override: `hideGitRequiredForAllocation`. | No new fields beyond one addition below — reuses the existing `ComplianceDocument` type `GOODS_IN_TRANSIT`. `GitStatus` is **derived** exactly as V2 does it (worst-of-documents, same 5-value enum — corrected from this doc's earlier 4-value assumption); `GitCoverage` is a separate stored field on the `TransporterProfile` aggregate root, not per-document. `hideGitRequiredForAllocation` carried into Admin Settings below, since it directly gates this phase's saga. **Requires a `tradingpartner` schema change** ([ADR-048](ADR-048-document-storage-nats-object-store.md) finding 2c, resolved in "Document storage" below): `compliance_documents`' PK `(trading_partner_id, type)` allows only one `GOODS_IN_TRANSIT` document at a time, which cannot represent a renewal existing alongside an expiring certificate — the true worst-of-documents case this row's own V2 fidelity requires. The PK gains a service-minted document ID; superseding a document becomes an explicit transition, not a silent upsert. Also **maintained, not just checked once at activation**, via the Temporal cron workflow in "Cross-aggregate invariant / saga" below — `EXPIRED` arrives from the passage of time alone, with no event to hang a one-time guard on. |
+| **GIT Certificate** | **Confirmed derived, not stored:** `TransporterProfileEntity.gitStatus`'s getter ignores its own column and instead computes the "worst" status across the transporter's `GOODS_IN_TRANSIT`-typed documents (enum `GitStatusType`: `PENDING`\|`ACTIVE`\|`EXPIRED`\|`REJECTED`\|`NONE` — **5 values**, one more than the screenshot's visible 4). `gitCoverage` **is** a real stored `Long` directly on the profile — separate from any one document's own coverage field. Admin override: `hideGitRequiredForAllocation`. | No new fields beyond one addition below — reuses the existing `ComplianceDocument` type `GOODS_IN_TRANSIT`. `GitStatus` is **derived** exactly as V2 does it (worst-of-documents, same 5-value enum — corrected from this doc's earlier 4-value assumption); `GitCoverage` is a separate stored field on the `TransporterProfile` aggregate root, not per-document. `hideGitRequiredForAllocation` carried into Admin Settings below, since it directly gates this phase's saga. **Requires a `organizations` schema change** ([ADR-048](ADR-048-document-storage-nats-object-store.md) finding 2c, resolved in "Document storage" below): `compliance_documents`' PK `(organization_id, type)` allows only one `GOODS_IN_TRANSIT` document at a time, which cannot represent a renewal existing alongside an expiring certificate — the true worst-of-documents case this row's own V2 fidelity requires. The PK gains a service-minted document ID; superseding a document becomes an explicit transition, not a silent upsert. Also **maintained, not just checked once at activation**, via the Temporal cron workflow in "Cross-aggregate invariant / saga" below — `EXPIRED` arrives from the passage of time alone, with no event to hang a one-time guard on. |
 | **Documents** | `TransporterDocumentEntity` → `DocumentEntity` (contentType, documentName, storedFileName, documentLocation, documentSize, uploadDate). Blobs stored in **Google Cloud Storage** (`GoogleCloudStorageServiceImpl`) — not Firebase (the Firebase Admin SDK config present in the repo isn't consumed by document upload anywhere found), not S3. | Metadata field names aligned to V2's for closer fidelity (documentName, contentType, documentSize, uploadDate). **Storage backend intentionally differs from V2**: NATS Object Store, not GCS — this is a NATS-pattern evaluation lab, not a GCS-integration exercise; the decision in "Document storage" below stands unchanged. |
 | **Rate Sheets** | `RateSheetEntity` is owned by `CustomerProfileEntity`, not Transporter; per-lane entries (`RateSheetVersionEntryEntity`) reference a `customerRouteEntity` (the lane), `vehicleTypeEntities`, a diesel-escalation sub-model, and a `FeeScaleEntity` link. **From the Transporter's side, V2's UI is read-only** — transporters view rates customers set for them; they don't author their own flat rate table. | **Resolved: stub/placeholder tab only for this phase.** The earlier "structured data capture, Transporter-owned" answer assumed a shape V2 doesn't actually have — a faithful version needs Customer + Route, both out of scope here. This phase adds the UI tab (empty state, "available once Customer/Route exist") but no persistence or domain model — matching V2's real ownership rather than building a Transporter-owned table that has no analog in the system being replicated. Revisit with real fidelity if/when a Customer phase lands. |
 | **Admin Settings** | `businessVisibility` enum + specific-customer visibility list; Load Access flags (`biddingAllowed`/`allocatedAllowed`/`allocatedBiddingAllowed`, feature-flagged tender variants); `hideGitRequiredForAllocation`; `underProbation`; `businessCommentEntities` — an append-only, timestamped, per-user comment log (not a single notes field). | marketplace-visibility toggle (matches V2's `businessVisibility`), Load Access flags carried as **informational/no-op fields for now** (mirrors BR-TP04's existing "no enforcement consumer yet" pattern — the future marketplace/tender consumer is still the same deferred item), `hideGitRequiredForAllocation` (real gate on this phase's saga). **Notes: reuse the existing `audit_events` table/pattern from Phase 26** instead of a new free-text notes field — V2's own comment log is structurally the same "timestamped per-actor entry," and this repo already has that pattern built. **Dropped:** "preferred payment terms" (this doc's earlier guess — not found anywhere in V2). |
@@ -735,7 +769,7 @@ lab nothing, which is why the decision stands.
   per-tenant stream budget before 38c-ii — raising tenant limits via the
   existing `POST /api/accounts/{name}/jslimits` endpoint if needed.
 - Object name: `{context}.transporter.{id}.{docType}.{documentID}` — `{id}`
-  is the shared `TradingPartner`/`TransporterProfile` ID (see "Decision"),
+  is the shared `Organization`/`TransporterProfile` ID (see "Decision"),
   not a separate surrogate; `{documentID}` is a **service-minted UUID**.
   Mirrors the existing KV key format (`{context}.{entityType}.{id}`) with
   the doc type and document ID appended, consistent with the repo's
@@ -787,21 +821,21 @@ lab nothing, which is why the decision stands.
 - **Coupling to GIT status, resolved:** the Data-sections table derives
   `GitStatus` as the worst across the transporter's `GOODS_IN_TRANSIT`
   documents — *plural*, faithfully matching V2's real getter — but
-  `compliance_documents`' primary key today is `(trading_partner_id, type)`,
+  `compliance_documents`' primary key today is `(organization_id, type)`,
   i.e. one document per type, with `document-add` as an upsert. That shape
   cannot hold more than one `GOODS_IN_TRANSIT` document at a time, which
   breaks the moment a certificate is renewed: the renewal's `document-add`
   upserts over the expiring one before it has actually expired, so V2's
   worst-of-documents derivation would only ever see one document, never a
   transition between two. **Resolved: the primary key gains a service-minted
-  document ID** — `(trading_partner_id, id)`, `type` becomes a plain
+  document ID** — `(organization_id, id)`, `type` becomes a plain
   (non-unique) column, and `document-add` becomes an insert, not an upsert
   (superseding/expiring a document is a new explicit
   `document-supersede`-style transition, not a silent overwrite — the same
   "never silently destroy an auditable prior state" principle behind
   ADR-047's compensation-events requirement and this section's own
   filename-vs-object-name fix above, applied a third time). This is a
-  genuine `tradingpartner` schema and domain change — see "Decision" and
+  genuine `organizations` schema and domain change — see "Decision" and
   ADR-046's Correction note — additive (existing single-document callers are
   unaffected by widening the key), not a breaking one.
 
@@ -821,8 +855,8 @@ still pending) and must be **actively repaired** via
 Both sides of this saga live in the same aggregate, same consistency
 model — this tests Temporal's compensation machinery.
 
-**2. Cross-aggregate activation gate (`TransporterProfile` ↔ `TradingPartner`):**
-`TradingPartner.Activate()` must not succeed for a `TRANSPORTER`-typed
+**2. Cross-aggregate activation gate (`TransporterProfile` ↔ `Organization`):**
+`Organization.Activate()` must not succeed for a `TRANSPORTER`-typed
 partner unless its `TransporterProfile` has reached `Vetted`. This is the
 **genuinely cross-aggregate** case — two separately-owned aggregates with
 different consistency models (event-sourced vs. plain CRUD), connected by
@@ -840,7 +874,7 @@ re-checks it afterwards. That gap has real teeth here because of a decision
 made elsewhere in this same design: `GitStatus` is **derived, and one of its
 inputs is time** — `EXPIRED` arrives by the passage of a date, with no
 command, no actor, and **no event** to hang a guard on. So a
-`TradingPartner` can sit at `ACTIVE` indefinitely with an expired GIT
+`Organization` can sit at `ACTIVE` indefinitely with an expired GIT
 certificate, and nothing notices. That is the constraint being broken in the
 ordinary course of business, not under a race.
 
@@ -852,7 +886,7 @@ Three options were considered:
   precondition, which undersells what this phase set out to test.
 - **(b) React to revocation** — a durable `evt.*` consumer suspends the
   partner when the profile leaves `Vetted`. Handles a saga compensation
-  (`FleetAvailabilityRevoked`) reaching `TradingPartner`, but **cannot catch
+  (`FleetAvailabilityRevoked`) reaching `Organization`, but **cannot catch
   `EXPIRED`** at all — nothing publishes when a date simply passes, so this
   option alone leaves the sharpest version of the gap (silent time-based
   drift) exactly as open as (a) does.
@@ -870,19 +904,19 @@ subsumes (b) rather than needing it as a separate mechanism.**
   "Temporal" above.
 - Each tick: an Activity reads `TransporterProfile`'s current `GitStatus`
   (Postgres projection — same read-side rule as the `Activate` guard) and
-  `TradingPartner`'s current status from the same orchestration layer that
+  `Organization`'s current status from the same orchestration layer that
   already implements the `Activate` guard (never a new dependency direction
   — this workflow calls into both existing read paths, it doesn't add
   either aggregate a dependency on the other).
 - If `GitStatus` is no longer `ACTIVE` (covers `EXPIRED` from the passage of
   time **and** any saga compensation that already revoked fleet
   availability — one check subsumes both triggers, so (b)'s reactive
-  consumer is not needed as a second mechanism) **and** `TradingPartner` is
-  currently `Active`, the workflow calls `TradingPartner.Suspend(id,
+  consumer is not needed as a second mechanism) **and** `Organization` is
+  currently `Active`, the workflow calls `Organization.Suspend(id,
   "GIT certificate expired or revoked")` — the existing BR-TP04 operation,
   unchanged, invoked from the orchestration layer exactly as `Activate`
-  already is. No new `tradingpartner` domain code.
-- The workflow terminates itself once `TradingPartner` reaches `Suspended`
+  already is. No new `organizations` domain code.
+- The workflow terminates itself once `Organization` reaches `Suspended`
   or `Reactivate`d off this reason and re-vetted — bounding it to a finite
   lifetime rather than running forever per transporter, which keeps it
   inside the same "acceptable POC scope" versioning-risk envelope
@@ -945,7 +979,7 @@ the sizing of both halves substantially.
     publish Activity's hydrate and its publish gets the append rejected
     (err 10071), which Temporal sees as a failed Activity and retries. The
     two designs are compatible — ADR-047's `Nats-Msg-Id` is keyed on
-    `tradingPartnerID` + event type + step counter, deliberately not the
+    `organizationID` + event type + step counter, deliberately not the
     `RunID`, so it stays stable across retries while the expected sequence
     changes — but a sequence conflict is **not a business failure** and
     must never reach the compensation path. A persistent editor could
@@ -954,7 +988,7 @@ the sizing of both halves substantially.
     once. Required: classify sequence-conflict as its own retryable error
     type with a retry policy sized for human edit cadence, surfacing as
     "try again," never as a failed vetting.
-- **`TradingPartner` fields** (Company Information — name, registrationNo,
+- **`Organization` fields** (Company Information — name, registrationNo,
   vatRegistrationNo): plain CRUD, so Phase 101's JetStream-sequence
   mechanism **does not apply here** — this aggregate has no event stream to
   guard a publish against. Two operators editing company name
@@ -978,7 +1012,7 @@ the sizing of both halves substantially.
     conflict raised. Detecting that needs a version compared against what A
     *read*, which a row lock structurally cannot do. Pessimistic locks
     protect transactions; optimistic locks protect user think-time.
-  - **This is more than a new column — it's new `tradingpartner` code**
+  - **This is more than a new column — it's new `organizations` code**
     (ADR-049 finding 5b). Company Information is not editable today *at
     all*: the repository port exposes only
     `Register`/`Get`/`List`/`Activate`/`Suspend`/`Reactivate`, the fourteen
@@ -989,8 +1023,8 @@ the sizing of both halves substantially.
     needs a new domain method, repository method, command, and `api.*`
     handler, plus the `version` column. See "Open questions" for where it
     lands; and note this is one of **two** independently-found
-    `tradingpartner` changes (the other is `compliance_documents`' PK, in
-    "Document storage") that ADR-046's "zero changes to `tradingpartner`"
+    `organizations` changes (the other is `compliance_documents`' PK, in
+    "Document storage") that ADR-046's "zero changes to `organizations`"
     claim did not anticipate.
 - **One composed UI over two conflict mechanisms** (ADR-049 finding 6): the
   "Frontend" section's promise that the split is *a backend seam only* is
@@ -1019,13 +1053,13 @@ the sizing of both halves substantially.
 
 Nav: `Transporters` already exists in the Tech Lab Operator UI
 (`refdata` app) as a sibling of `Shippers`, both currently routing into the
-same `TradingPartnersPanel.vue`. This phase gives Transporter its **own**
+same `OrganizationsPanel.vue`. This phase gives Transporter its **own**
 component (mirrors the aggregate split) rather than continuing to share
-one panel parameterized by type. **The two-aggregate split (`TradingPartner`
+one panel parameterized by type. **The two-aggregate split (`Organization`
 + `TransporterProfile`) is a backend seam only** — the UI composes both
 into one record the operator never sees as "two things": a single API
 call (or two calls composed server-side) backs the detail view, and the
-top-level status shown to the operator is `TradingPartner`'s (Registered/
+top-level status shown to the operator is `Organization`'s (Registered/
 Active/Suspended), with vetting progress shown as a sub-status underneath,
 not as a second, competing status field.
 
@@ -1065,7 +1099,7 @@ not as a second, competing status field.
 
 ## Naming & sequencing
 
-The `trading-partners` → `organizations` rename (service directory,
+The `organizations` → `organizations` rename (service directory,
 package name, subject tokens, UI labels) happens **last**, as its own
 sub-phase, after the vetting/Temporal/Object-Store work ships and is
 verified under the current name. Rationale: renaming first would mean
@@ -1081,7 +1115,7 @@ lettered sub-phases — settled 2026-08-20, they stay lettered rather than
 becoming separate phase numbers; see the note after this list):
 
 1. **38a** — `TransporterProfile` domain package, event sourcing skeleton
-   (aggregate keyed by the shared `TradingPartner` ID, commands, JetStream
+   (aggregate keyed by the shared `Organization` ID, commands, JetStream
    stream, Postgres projection, KV cache) — no Temporal yet, just the
    CRUD-shaped commands (add fleet asset, edit profile fields) proven
    event-sourced end to end, every publish carrying
@@ -1091,8 +1125,8 @@ becoming separate phase numbers; see the note after this list):
    `CreateTransporterProfile`/`EnsureTransporterProfile` pair (see
    "Decision"), and the cross-aggregate `Activate` guard at the
    command-handling boundary reading the Postgres projection (not the KV
-   cache). `TradingPartner.Register` already accepts
-   `PartnerTypeTransporter` today and needs no change; `tradingpartner`'s
+   cache). `Organization.Register` already accepts
+   `PartnerTypeTransporter` today and needs no change; `organizations`'s
    own two additive changes (`partner-update`, `compliance_documents`' PK)
    are tracked separately (see "Open questions" 3 and 6) and don't block
    this sub-phase's start.
@@ -1100,10 +1134,10 @@ becoming separate phase numbers; see the note after this list):
    durability test + the `TransporterGitMonitorWorkflow` cron workflow that
    makes the activation gate a maintained invariant (see "Cross-aggregate
    invariant / saga").
-3. **38c-i** — *(built 2026-08-20)* The `tradingpartner` schema pass plus
+3. **38c-i** — *(built 2026-08-20)* The `organizations` schema pass plus
    editable Company Information. Both additive schema changes land here in one migration:
    the `compliance_documents` change (service-minted document ID, PK
-   widened to `(trading_partner_id, id)`) and the `version` column with
+   widened to `(organization_id, id)`) and the `version` column with
    `partner-update` and a widened `Register` (see "Open questions" 3 and
    6). **Split out of a single 38c on 2026-08-20** — see the note below
    this list.
@@ -1148,7 +1182,7 @@ becoming separate phase numbers; see the note after this list):
    live V2 database, seed in "Operating Areas — region seed" above), so
    38d-ii is unblocked — the split stands on its own scope grounds.
 7. **38e** — `organizations` rename (service, packages, subjects, UI
-   labels) across the whole trading-partner surface (Shipper included,
+   labels) across the whole organizations surface (Shipper included,
    since the service-level rename affects both aggregates even though only
    Transporter changed shape).
 
@@ -1190,7 +1224,7 @@ Transporter-owned table with no V2 analog).
 > is **now resolved as well** — it lands in 38c-i with `Register` widened,
 > see that question below; only its conflict-*presentation* half stays open,
 > as a 38d-i decision. Question 6's `compliance_documents` PK widening is
-> 38c-i work too, untouched so far — so 38c-i carries both `tradingpartner`
+> 38c-i work too, untouched so far — so 38c-i carries both `organizations`
 > schema changes in one migration pass, and 38c-ii (the Object Store /
 > binary path, split out on the same date) touches no schema at all.
 
@@ -1209,7 +1243,7 @@ What's left:
    decision above; whichever way, this is deliberately sized larger than
    this repo's usual single-phase scope and should not be attempted as one
    undifferentiated block of work.
-3. **`TradingPartner` optimistic-lock scope — RESOLVED 2026-08-20.**
+3. **`Organization` optimistic-lock scope — RESOLVED 2026-08-20.**
    Reframed by [ADR-049](ADR-049-cross-aggregate-concurrency.md) finding 7
    from "38a or a follow-up?" to "where does the `partner-update` command
    land?", since the lock is inseparable from a command that did not exist
@@ -1222,7 +1256,7 @@ What's left:
    `companyName`/`registrationNo`/`vatRegistrationNo`/`tradingAs`.
 
    Two reasons for 38c-i over 38d-i. First, 38c-i already owns a
-   `tradingpartner` migration (the `compliance_documents` PK), so the
+   `organizations` migration (the `compliance_documents` PK), so the
    `version` column rides the same migration pass instead of adding a
    second one; 38d-i then stays frontend-plus-one-endpoint. (This
    pairing is in fact why 38c split: 38c-i is the schema-and-editing pass,
@@ -1253,14 +1287,14 @@ What's left:
 5. **Activation gate vs. maintained invariant — resolved.** Option (c): a
    `TransporterGitMonitorWorkflow`, a Temporal cron workflow started once
    `TransporterVettingWorkflow` reaches `Vetted`, periodically re-checks
-   `GitStatus` and calls `TradingPartner.Suspend()` (existing BR-TP04
+   `GitStatus` and calls `Organization.Suspend()` (existing BR-TP04
    operation, unchanged) if it's no longer `ACTIVE`. Subsumes option (b) —
    the same check catches both a saga-side revocation and time-derived
    `EXPIRED` — so no separate `evt.*` consumer is needed. See
    "Cross-aggregate invariant / saga."
 6. **Multi-document GIT status vs. `compliance_documents` primary key —
    resolved.** The key gains a service-minted document ID —
-   `(trading_partner_id, id)`, `type` becomes non-unique, `document-add`
+   `(organization_id, id)`, `type` becomes non-unique, `document-add`
    becomes an insert rather than an upsert, and superseding a document is an
    explicit transition rather than a silent overwrite. See "Data sections"
    (GIT Certificate row) and "Document storage." This document ID is the
@@ -1268,7 +1302,7 @@ What's left:
    (`{context}.transporter.{id}.{docType}.{documentID}`), so 38c-ii depends
    on it — which is why 38c-i mints it, ahead of the blob path that consumes
    it. One piece of new schema serves both.
-7. **ADR-046's "zero changes to `tradingpartner`" — corrected, not
+7. **ADR-046's "zero changes to `organizations`" — corrected, not
    retracted.** Both changes found by items 3 and 6 above are recorded as a
    Correction note in [ADR-046](ADR-046-transporter-aggregate-split.md) and
    in this doc's "Decision" section. The decision still holds and is still
@@ -1284,7 +1318,7 @@ worth a pattern card each, in the style of `obsidian/Event sourcing/Event
 Sourcing + CQRS + NATS — Pattern Cards.pdf`:
 
 1. **Plain CRUD vs. event-sourced, same conceptual domain, same service,
-   now genuinely one aggregate per model** (`TradingPartner` vs.
+   now genuinely one aggregate per model** (`Organization` vs.
    `TransporterProfile`) — a cleaner natural experiment than the original
    Shape A/B/C comparison, and cleaner still than this doc's own first
    revision (which put both models under one duplicated-identity
@@ -1304,7 +1338,7 @@ Sourcing + CQRS + NATS — Pattern Cards.pdf`:
    state machine does. Worth reporting whether the guard caught anything
    V2's unguarded dropdown would have let through during testing.
 5. **A genuine cross-aggregate invariant spanning two consistency models**
-   (`TradingPartner`, plain CRUD, vs. `TransporterProfile`, event-sourced)
+   (`Organization`, plain CRUD, vs. `TransporterProfile`, event-sourced)
    — see "Cross-aggregate invariant / saga" layer 2. Worth reporting
    whether guarding this at the command-handling boundary (rather than a
    database-level constraint, which is impossible here since they're

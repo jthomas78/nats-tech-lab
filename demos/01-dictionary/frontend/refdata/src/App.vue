@@ -8,7 +8,7 @@ import IconReferenceData from './components/icons/IconReferenceData.vue'
 import IconShippers from './components/icons/IconShippers.vue'
 import IconTransporters from './components/icons/IconTransporters.vue'
 import ReferenceDataPanel from './components/ReferenceDataPanel.vue'
-import TradingPartnersPanel from './components/TradingPartnersPanel.vue'
+import OrganizationsPanel from './components/OrganizationsPanel.vue'
 import TransporterPanel from './components/TransporterPanel.vue'
 import { useRefdataAdminConnection } from './nats/useRefdataAdminConnection.js'
 import { useDictionaryStore } from './stores/dictionary'
@@ -32,7 +32,7 @@ const navSections = [
       {
         // Migrated from frontend/admin's Platform group (Phase 36.2) — same
         // eyebrow grouping, relocated rather than redesigned.
-        eyebrow: 'Trading Partners',
+        eyebrow: 'Organizations',
         items: [
           { key: 'shippers', label: 'Shippers', icon: IconShippers },
           { key: 'transporters', label: 'Transporters', icon: IconTransporters },
@@ -42,14 +42,14 @@ const navSections = [
   },
 ]
 
-const isTradingPartnersView = (v) => v === 'shippers' || v === 'transporters'
+const isOrganizationsView = (v) => v === 'shippers' || v === 'transporters'
 
-// Trading Partners' tenant store is refreshed lazily, the first time the
+// Organizations' tenant store is refreshed lazily, the first time the
 // user opens either Shippers or Transporters — nothing else in this app has
 // a tenant concept, so there is no reason to fetch the account list or open
 // the second NATS connection (useTenantConnection.js) up front.
 watch(topNav, (view) => {
-  if (isTradingPartnersView(view) && !tenantStore.tenant) tenantStore.refresh()
+  if (isOrganizationsView(view) && !tenantStore.tenant) tenantStore.refresh()
 })
 
 // Phase 32: the NATS connection's own lifecycle (mount once, never
@@ -77,19 +77,19 @@ onUnmounted(() => {
     </template>
     <template #breadcrumb>
       <span
-        v-if="isTradingPartnersView(topNav)"
+        v-if="isOrganizationsView(topNav)"
         class="lab-muted"
-      >Operations / <strong>Trading Partners</strong></span>
+      >Operations / <strong>Organizations</strong></span>
       <span
         v-else
         class="lab-muted"
       >Operations / <strong>Reference Data</strong></span>
     </template>
     <template #topbar-right>
-      <template v-if="isTradingPartnersView(topNav)">
-        <!-- Trading Partners' own tenant + fleet-context selectors — distinct
+      <template v-if="isOrganizationsView(topNav)">
+        <!-- Organizations' own tenant + fleet-context selectors — distinct
              from Reference Data's platform-wide Context Select below, since
-             trading-partner-service is tenant-account-scoped (Phase 36.2). -->
+             organizations-service is tenant-account-scoped (Phase 36.2). -->
         <label
           class="lab-muted"
           for="tp-tenant"
@@ -155,7 +155,7 @@ onUnmounted(() => {
          Transporter carries an event-sourced TransporterProfile, vetting state
          and a derived GIT badge that a Shipper has no equivalent of. See
          TransporterPanel.vue's header for why the roles stopped sharing. -->
-    <TradingPartnersPanel
+    <OrganizationsPanel
       v-else-if="topNav === 'shippers'"
       partner-type="SHIPPER"
     />

@@ -11,7 +11,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-func TestListStreamsReportsPlatformStreamsExcludingKVBackingStreams(t *testing.T) {
+func TestListStreamsTagsEachStreamWithItsKind(t *testing.T) {
 	nc, cleanup := newTestNATS(t)
 	defer cleanup()
 
@@ -24,10 +24,15 @@ func TestListStreamsReportsPlatformStreamsExcludingKVBackingStreams(t *testing.T
 	if _, err := js.CreateStream(ctx, jetstream.StreamConfig{Name: "REFDATA", Subjects: []string{"evt.*.refdata.*.changed"}}); err != nil {
 		t.Fatalf("create stream: %v", err)
 	}
-	// A KV bucket is backed by a KV_<bucket> stream — must be excluded from
-	// the Streams panel (it's reported by /api/kv/buckets instead).
+	// A KV bucket is backed by a KV_<bucket> stream and an Object Store by
+	// an OBJ_<bucket> stream. Both are reported (38e) rather than filtered
+	// out, tagged by Kind — the panel is the only view of how much of the
+	// account's MaxStreams budget is spent, and ADR-048 budgets against it.
 	if _, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "ships"}); err != nil {
 		t.Fatalf("create kv bucket: %v", err)
+	}
+	if _, err := js.CreateObjectStore(ctx, jetstream.ObjectStoreConfig{Bucket: "organizations-docs"}); err != nil {
+		t.Fatalf("create object store: %v", err)
 	}
 
 	h := New(Deps{NC: nc, Log: discardLogger(), Accounts: &AccountsClient{}})
@@ -41,14 +46,33 @@ func TestListStreamsReportsPlatformStreamsExcludingKVBackingStreams(t *testing.T
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(body.Streams) != 1 {
-		t.Fatalf("expected 1 stream (REFDATA only, KV_ships excluded), got %d: %+v", len(body.Streams), body.Streams)
+	kinds := map[string]string{}
+	for _, s := range body.Streams {
+		if s.Account != platformAccount {
+			t.Fatalf("unexpected account on %+v", s)
+		}
+		kinds[s.Stream] = s.Kind
 	}
-	if body.Streams[0].Stream != "REFDATA" || body.Streams[0].Account != platformAccount {
-		t.Fatalf("unexpected stream: %+v", body.Streams[0])
+	want := map[string]string{
+		"REFDATA":                "stream",
+		"KV_ships":               "kv",
+		"OBJ_organizations-docs": "objstore",
 	}
-	if body.Streams[0].Subjects != 1 {
-		t.Fatalf("expected 1 configured subject, got %d", body.Streams[0].Subjects)
+	for name, kind := range want {
+		got, ok := kinds[name]
+		if !ok {
+			t.Fatalf("expected %q in the response, got %+v", name, body.Streams)
+		}
+		if got != kind {
+			t.Fatalf("expected %q to be kind %q, got %q", name, kind, got)
+		}
+	}
+	// Stream keeps the raw backing-stream name — it is the selection key
+	// and the name $JS.API is addressed by; only the UI strips the prefix.
+	for _, s := range body.Streams {
+		if s.Stream == "REFDATA" && s.Subjects != 1 {
+			t.Fatalf("expected 1 configured subject on REFDATA, got %d", s.Subjects)
+		}
 	}
 	if len(body.Accounts) != 1 || body.Accounts[0].Name != platformAccount || body.Accounts[0].Status != platformAccountStatus {
 		t.Fatalf("expected platform account %q in Accounts, got %+v", platformAccountStatus, body.Accounts)

@@ -55,7 +55,7 @@ describe('connectionFactory request() error envelope', () => {
   it('returns the decoded body on success', async () => {
     const state = await connectedState()
     ncRequest.mockResolvedValue(reply({ id: 'tp-1', version: 3 }))
-    await expect(state.request('api.acme.trading-partner.partner.list.v1')).resolves.toEqual({
+    await expect(state.request('api.acme.organizations.organization.list.v1')).resolves.toEqual({
       id: 'tp-1',
       version: 3,
     })
@@ -66,10 +66,10 @@ describe('connectionFactory request() error envelope', () => {
   it('marks a conflict reply so a 409 is distinguishable from a 500', async () => {
     const state = await connectedState()
     ncRequest.mockResolvedValue(
-      reply({ error: 'trading partner has been modified by someone else', conflict: true }),
+      reply({ error: 'organization has been modified by someone else', conflict: true }),
     )
-    await expect(state.request('api.acme.trading-partner.partner.update.v1')).rejects.toMatchObject({
-      message: 'trading partner has been modified by someone else',
+    await expect(state.request('api.acme.organizations.organization.update.v1')).rejects.toMatchObject({
+      message: 'organization has been modified by someone else',
       conflict: true,
       notFound: false,
     })
@@ -77,9 +77,9 @@ describe('connectionFactory request() error envelope', () => {
 
   it('marks a not-found reply', async () => {
     const state = await connectedState()
-    ncRequest.mockResolvedValue(reply({ error: 'trading partner not found', notFound: true }))
-    await expect(state.request('api.acme.trading-partner.partner.profile.v1')).rejects.toMatchObject({
-      message: 'trading partner not found',
+    ncRequest.mockResolvedValue(reply({ error: 'organization not found', notFound: true }))
+    await expect(state.request('api.acme.organizations.organization.profile.v1')).rejects.toMatchObject({
+      message: 'organization not found',
       notFound: true,
       conflict: false,
     })
@@ -91,7 +91,7 @@ describe('connectionFactory request() error envelope', () => {
   it('leaves both flags false for an error carrying neither', async () => {
     const state = await connectedState()
     ncRequest.mockResolvedValue(reply({ error: 'boom' }))
-    await expect(state.request('api.acme.trading-partner.partner.update.v1')).rejects.toMatchObject({
+    await expect(state.request('api.acme.organizations.organization.update.v1')).rejects.toMatchObject({
       message: 'boom',
       conflict: false,
       notFound: false,
@@ -101,12 +101,12 @@ describe('connectionFactory request() error envelope', () => {
   it('still throws a plain Error, so callers reading only .message are unaffected', async () => {
     const state = await connectedState()
     ncRequest.mockResolvedValue(reply({ error: 'boom', conflict: true }))
-    await expect(state.request('api.acme.trading-partner.partner.update.v1')).rejects.toBeInstanceOf(Error)
+    await expect(state.request('api.acme.organizations.organization.update.v1')).rejects.toBeInstanceOf(Error)
   })
 
   it('treats an empty reply as an empty body rather than an error', async () => {
     const state = await connectedState()
     ncRequest.mockResolvedValue({ data: new Uint8Array() })
-    await expect(state.request('api.acme.trading-partner.partner.list.v1')).resolves.toEqual({})
+    await expect(state.request('api.acme.organizations.organization.list.v1')).resolves.toEqual({})
   })
 })

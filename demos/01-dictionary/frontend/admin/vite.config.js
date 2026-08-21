@@ -45,10 +45,10 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/platform/, '/api'),
         headers: { Authorization: 'Basic YWRtaW46YWNjb3VudHMtc3Bpa2UtcGFzcw==' },
       },
-      // Phase 33.5 removed trading-partner-service's REST proxy rule —
-      // `/api/trading-partners/*` was deleted outright once
-      // TradingPartnersPanel.vue's api.* parity was confirmed; the only
-      // route trading-partner-service still serves over HTTP is /healthz,
+      // Phase 33.5 removed organizations-service's REST proxy rule —
+      // `/api/organizations/*` was deleted outright once
+      // OrganizationsPanel.vue's api.* parity was confirmed; the only
+      // route organizations-service still serves over HTTP is /healthz,
       // which the Admin UI never calls through this proxy.
       // Phase 30h — the cross-account NATS/JetStream diagnostic endpoints
       // (Connections, Services, Account Activity, Log, KV, Streams/Replay)

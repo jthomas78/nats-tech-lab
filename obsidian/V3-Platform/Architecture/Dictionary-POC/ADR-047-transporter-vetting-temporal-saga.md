@@ -12,8 +12,8 @@ front of `TransporterProfile`, an event-sourced aggregate (JetStream stream
 `TRANSPORTER`, Shape B Postgres+KV read side). The workflow runs two
 parallel, independently-compensable branches (document review, GIT
 verification) and, once both succeed, a separate cross-aggregate guard
-(`TradingPartner.Activate()` requiring `TransporterProfile.Status ==
-Vetted`) connects it back to the unchanged, plain-CRUD `TradingPartner`
+(`Organization.Activate()` requiring `TransporterProfile.Status ==
+Vetted`) connects it back to the unchanged, plain-CRUD `Organization`
 aggregate from ADR-046.
 
 This repo has **no existing Temporal usage anywhere** (verified: zero
@@ -71,7 +71,7 @@ hardening pass.
 must happen inside a Temporal Activity (never inline in workflow code —
 also a hard Temporal determinism requirement, independent of this
 concern), with `Nats-Msg-Id` derived from a stable, replay-safe key (the
-`tradingPartnerID` + event type + a workflow-local step counter — **not**
+`organizationID` + event type + a workflow-local step counter — **not**
 Temporal's own `RunID`, which deliberately changes across a `Resubmit`).
 The stream's `Duplicates` window must be configured explicitly, not left
 at an implicit default.
@@ -103,7 +103,7 @@ one."
 ### 3. Workflow ID reuse on `Resubmit` — needs explicit verification
 
 The design reuses one workflow ID
-(`{context}-transporter-vetting-{tradingPartnerID}`) across a
+(`{context}-transporter-vetting-{organizationID}`) across a
 `Rejected → Resubmit → fresh workflow` cycle. Temporal's workflow ID reuse
 behavior depends on an explicit `WorkflowIDReusePolicy` at start time, and
 this repo's own Phase 101 precedent already models the right posture for
@@ -186,7 +186,7 @@ production-scale placeholder.
 
 **Must fix in the design doc / must implement correctly before sub-phase 38b starts:**
 1. [ ] All JetStream publishes from the workflow happen in Activities, with
-       `Nats-Msg-Id` keyed on `tradingPartnerID` + event type + step
+       `Nats-Msg-Id` keyed on `organizationID` + event type + step
        counter (not Temporal `RunID`), and the stream's `Duplicates` window
        set explicitly (point 1).
 2. [ ] Compensating events get their own explicit names

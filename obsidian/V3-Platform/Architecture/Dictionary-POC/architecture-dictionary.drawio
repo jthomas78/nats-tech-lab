@@ -419,7 +419,7 @@
         <mxCell id="pricing-svc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" value="pricing-service&lt;br&gt;&lt;font color=&#39;#D6E6FF&#39; style=&#39;font-size:12px&#39;&gt;container :8080 · host 7203→8080&lt;br&gt;.creds: per-tenant (api.*)&lt;br&gt;no nginx proxy&lt;/font&gt;" vertex="1">
           <mxGeometry height="110" width="215" x="830" y="1025" as="geometry" />
         </mxCell>
-        <mxCell id="tp-svc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=15;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" value="trading-partner-service&lt;br&gt;&lt;font color=&#39;#D6E6FF&#39; style=&#39;font-size:12px&#39;&gt;container :8080 · host 7204→8080&lt;br&gt;.creds: per-tenant (api.*)&lt;br&gt;rpc.* → refdata-service&lt;/font&gt;" vertex="1">
+        <mxCell id="tp-svc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=15;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" value="organizations-service&lt;br&gt;&lt;font color=&#39;#D6E6FF&#39; style=&#39;font-size:12px&#39;&gt;container :8080 · host 7204→8080&lt;br&gt;.creds: per-tenant (api.*)&lt;br&gt;rpc.* → refdata-service&lt;/font&gt;" vertex="1">
           <mxGeometry height="125" width="215" x="830" y="1200" as="geometry" />
         </mxCell>
         <mxCell id="nats" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" value="nats&lt;br&gt;&lt;font color=&#39;#D6E6FF&#39; style=&#39;font-size:12px&#39;&gt;operator mode · resolver:full&lt;br&gt;host 4222 · 8222 (mon) · 9222 (ws)&lt;/font&gt;" vertex="1">
@@ -437,7 +437,7 @@
         <mxCell id="pricing-pg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=16;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" value="pricing-postgres&lt;br&gt;&lt;font color=&#39;#14171B&#39; style=&#39;font-size:12px&#39;&gt;pricing DB · host 5435&lt;/font&gt;" vertex="1">
           <mxGeometry height="80" width="240" x="1200" y="1040" as="geometry" />
         </mxCell>
-        <mxCell id="tp-pg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=15;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" value="trading-partner-postgres&lt;br&gt;&lt;font color=&#39;#14171B&#39; style=&#39;font-size:12px&#39;&gt;trading_partner DB · host 5436&lt;/font&gt;" vertex="1">
+        <mxCell id="tp-pg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#27C07F;strokeColor=#52D99B;fontColor=#14171B;fontSize=15;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" value="organizations-postgres&lt;br&gt;&lt;font color=&#39;#14171B&#39; style=&#39;font-size:12px&#39;&gt;trading_partner DB · host 5436&lt;/font&gt;" vertex="1">
           <mxGeometry height="80" width="240" x="1200" y="1222" as="geometry" />
         </mxCell>
         <mxCell id="nats-data" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#4A515B;dashed=1;fontColor=#B7BCC2;fontSize=11;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=left;spacingLeft=52;verticalAlign=middle;" value="volume: nats-data" vertex="1">
@@ -461,7 +461,7 @@
         <mxCell id="tp-pg-data" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#4A515B;dashed=1;fontColor=#B7BCC2;fontSize=11;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=left;spacingLeft=52;verticalAlign=middle;" value="volume: pg-trading-partner-data" vertex="1">
           <mxGeometry height="44" width="250" x="1490" y="1240" as="geometry" />
         </mxCell>
-        <mxCell id="creds-vol" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#9A7B1E;dashed=1;fontColor=#B7BCC2;fontSize=11;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=left;spacingLeft=52;verticalAlign=middle;" value="&lt;b&gt;host bind: ./nats/creds&lt;/b&gt;&lt;br&gt;rw: accounts-service&lt;br&gt;ro: shipping · refdata · pricing · trading-partner · nui&lt;br&gt;&lt;br&gt;&lt;b&gt;host binds: ./nats/keys · ./nats/resolver&lt;/b&gt;&lt;br&gt;ro: accounts-service" vertex="1">
+        <mxCell id="creds-vol" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A1E23;strokeColor=#9A7B1E;dashed=1;fontColor=#B7BCC2;fontSize=11;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;align=left;spacingLeft=52;verticalAlign=middle;" value="&lt;b&gt;host bind: ./nats/creds&lt;/b&gt;&lt;br&gt;rw: accounts-service&lt;br&gt;ro: shipping · refdata · pricing · organizations · nui&lt;br&gt;&lt;br&gt;&lt;b&gt;host binds: ./nats/keys · ./nats/resolver&lt;/b&gt;&lt;br&gt;ro: accounts-service" vertex="1">
           <mxGeometry height="116" width="250" x="1490" y="1300" as="geometry" />
         </mxCell>
         <mxCell id="nats-ui" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#006FFF;strokeColor=#4D9BFF;fontColor=#FFFFFF;fontSize=15;fontStyle=1;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;verticalAlign=bottom;spacingBottom=10;" value="nats-ui&lt;br&gt;&lt;font color=&#39;#D6E6FF&#39; style=&#39;font-size:12px&#39;&gt;host 7103→3000&lt;br&gt;browser-side — dials ws 9222&lt;/font&gt;" vertex="1">
@@ -569,7 +569,7 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="edge-admin-tp" edge="1" parent="1" source="admin-node" target="tp-svc" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;labelBorderColor=none;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;exitX=1;exitY=0.9;entryX=0;entryY=0.25;" value="/api/trading-partners/">
+        <mxCell id="edge-admin-tp" edge="1" parent="1" source="admin-node" target="tp-svc" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;labelBackgroundColor=#14171B;labelBorderColor=none;strokeColor=#006FFF;endArrow=classic;endFill=1;fontColor=#4D9BFF;fontSize=12;fontFamily=Inter, -apple-system, &#39;Segoe UI&#39;, sans-serif;exitX=1;exitY=0.9;entryX=0;entryY=0.25;" value="/api/organizations/">
           <mxGeometry relative="1" x="-0.75" y="-10" as="geometry">
             <mxPoint as="offset" />
             <Array as="points">

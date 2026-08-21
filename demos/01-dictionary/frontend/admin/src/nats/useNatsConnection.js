@@ -7,7 +7,7 @@
 // reconnects.
 //
 // Credentials come from GET /api/auth/connectInfo?tenant=... (unchanged from
-// Phase 15c). Originally subscribe-only here; Phase 26h's Trading Partners
+// Phase 15c). Originally subscribe-only here; Phase 26h's Organizations
 // screens and Phase 32's refdata label/UI-copy reads both use its api.>
 // publish permission too.
 
