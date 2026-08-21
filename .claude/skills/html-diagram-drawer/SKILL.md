@@ -68,7 +68,12 @@ Claude Code's own context on it. Check availability, then route:
    - Tell Codex to read `.claude/skills/html-diagram-drawer/SKILL.md`
      and follow it (Codex gets its own full filesystem/shell access once
      running, so it doesn't need every convention pasted inline — just
-     pointed at the file).
+     pointed at the file), calling out its "Layout geometry" section
+     specifically: box widths derived from label length, edge labels
+     placed off the line, connectors routed on a lane grid. Those are the
+     rules a generated diagram breaks most often, and Claude Code is the
+     one that has to find the breakage afterwards because Codex cannot
+     run the audit (below).
    - State exactly which diagram(s) to build: file name(s), what each
      box/edge/figure should say, and which markdown/doc page(s) to embed
      the result into, at what point in the existing prose.
@@ -83,10 +88,12 @@ Claude Code's own context on it. Check availability, then route:
      (`node export-html-png.mjs` fails with a sandbox I/O error at
      Chromium launch — this is a sandbox restriction, not a bug in the
      script, and held even with `--write`/full write access granted).
+     The same applies to `audit-svg-layout.mjs` — it drives the same
+     headless Chromium, so Codex cannot run the layout audit either.
      Ask Codex to write and validate the HTML only (`xmllint`-equivalent
      sanity, or just re-reading its own output), then stop. You (Claude
-     Code) run the render command yourself afterward, per step 4 in the
-     Workflow section below — Claude Code's own Bash tool isn't sandboxed
+     Code) run the audit and the render yourself afterward, per steps 4
+     and 5 in the Workflow section below — Claude Code's own Bash tool isn't sandboxed
      the same way and renders these pages fine. If a future Codex/sandbox
      update lifts this restriction, this note can be revisited, but don't
      assume it's fixed without re-testing — the failure is silent-ish (a
@@ -282,7 +289,138 @@ generated SVG. Get these specifics right:
   per diagram (column positions, row heights) before placing boxes, the
   same grid discipline `drawio-architecture-drawer` asks for — this is
   what produces crisp alignment instead of a hand-placed look, and it's
-  what makes editing the diagram later tractable.
+  what makes editing the diagram later tractable. The lane grid, box-sizing
+  arithmetic and connector-routing rules that follow from this are their
+  own section — see "Layout geometry" below, and run its audit before
+  rendering.
+
+## Layout geometry — text placement and connector routing
+
+This is where these diagrams actually go wrong, and the failure mode is
+intermittent by nature: coordinates are hand-placed one label at a time,
+each fine in isolation, and the collisions only exist in the rendered
+composite — a label sitting on top of another label, text spilling
+through the side of its box, a connector drawn straight across a caption
+or through a node it has nothing to do with. Eyeballing the PNG catches
+most of them and misses the rest, which is why the rules below are
+paired with a mechanical check (`audit-svg-layout.mjs`, Workflow step 4):
+the rules prevent most defects, the audit catches what slips through.
+Neither substitutes for the other.
+
+### Size every box from its longest label, before placing it
+
+Monospace advance in this stack is **0.6 × font-size**, measured, not
+estimated:
+
+| class | font-size | px per character |
+| --- | --- | --- |
+| `.lbl` | 11px | 6.6 |
+| `.lbl2`, `.edge` | 9.5px | 5.72 |
+| `.grp` (carries `letter-spacing: 0.07em`) | 9.5px | 6.4 |
+
+- **Minimum box width = `chars × advance + 20`** (10px of padding each
+  side), rounded up to an even number. Compute it for the *longest* line
+  the box carries, including `.lbl2` detail lines, before choosing the
+  rect's `width`.
+- **A cylinder's usable width is `2 × rx − 20`.** Its widest point exists
+  only at the cap line, so a label as wide as the ellipse crosses the
+  body stroke — the exact defect the audit reports as
+  `text-overflows-box` on `projection-shapes.html`.
+- **When a label doesn't fit, widen the box or split the line** — the
+  page is 1024px wide and there is nearly always room. Do not shrink
+  below 9.5px, do not let the text overhang, and do not silently
+  truncate.
+- **Baselines**, for a box whose vertical centre is `cy`: one line sits
+  at `cy + 4`; two lines at `cy − 3` and `cy + 10`; three lines step
+  12–14px apart starting at `cy − 7`. Centred labels use
+  `text-anchor="middle"` at the box's centre x; left-aligned labels start
+  at `box.x + 8`.
+- **Keep 8px of clear space between any two labels** that aren't in the
+  same box. Adjacent columns whose labels nearly touch read as one
+  smeared block at export scale.
+
+### Never put a label on a line
+
+- **Edge labels sit beside their segment, not on it.** For a horizontal
+  edge at `y`, an above-the-line label's baseline is `y − 6` and a
+  below-the-line label's is `y + 15` (a 9.5px label's box is ~11px tall,
+  so a smaller offset overlaps the stroke). For a vertical edge, offset
+  the label ≥ 8px horizontally and don't centre it on the line.
+- **Label the orthogonal run, not the diagonal.** Diagonals are where
+  labels land on the stroke most often, because the line's `y` at the
+  label's `x` isn't obvious from the coordinates. If an edge is a single
+  diagonal, offset the label perpendicular to it — moving it "up a bit"
+  moves it *along* the line, not off it.
+- **Where a label genuinely must cross a line** — a boundary-crossing
+  annotation straddling an account divider, for instance — give it a
+  knockout halo rather than accepting the collision:
+  ```css
+  .edge { paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+  ```
+  `paint-order: stroke` with a background-coloured stroke paints a halo
+  behind the glyphs, so the line breaks around the text instead of
+  running through it. The audit treats a haloed label as legible and
+  stops reporting the crossing — which makes the halo a deliberate
+  decision, not a way to silence a finding. Add it where the crossing is
+  intended; move the label where it isn't.
+
+### Route connectors on a lane grid
+
+- **Fix the column x's and row y's before drawing any edge**, and leave
+  gutters of ≥ 24px between columns — an edge plus its label needs that
+  much room. This is the same coordinate discipline the style section
+  above asks for; edges are the half people skip.
+- **Orthogonal by default.** Reserve diagonals for a genuine fan-out
+  (a stream to two consumers), where the diagonal itself carries the
+  meaning.
+- **Start on the source's boundary, stop 8–11px short of the target's.**
+  Arrowhead markers extend past the path end, so an edge drawn all the
+  way to the target's edge puts the head inside the box. An edge that
+  starts or ends in open space is a defect, not a style — the audit
+  reports it as `edge-dangles`.
+- **Ports, not arbitrary attachment points.** Attach at the middle of a
+  side; where several edges share one side, space the attachment points
+  ≥ 14px apart and keep their order matching the order of the boxes they
+  come from — most crossings disappear when the ports are ordered
+  instead of arbitrary.
+- **Never route through a box.** An edge that must cross a column runs in
+  the gutter above or below it, never across a node it doesn't attach to
+  (`edge-pierces-node`). Dashed boundary/group rects are the exception —
+  edges are *meant* to cross an account boundary.
+- **Crossings are perpendicular or they're a layout bug.** A shallow-angle
+  crossing reads as a join; two edges running collinear read as one edge.
+  If two edges cross at a shallow angle, reorder the rows or move one
+  into a different lane instead.
+
+### The mechanical check
+
+`demos/01-dictionary/diagrams/audit-svg-layout.mjs` loads the page in the
+same headless Chrome as the exporter, at the same 1024px width, and
+measures the real rendered geometry of every diagram on it:
+
+| code | severity | what it means |
+| --- | --- | --- |
+| `text-overlap` | ERROR | two labels' boxes intersect |
+| `text-overflows-box` | ERROR | a label spills outside the node it sits in |
+| `text-clipped` | ERROR | a label falls outside the SVG viewport and will be cut off |
+| `edge-crosses-label` | ERROR | a connector is drawn through a label that has no halo |
+| `edge-pierces-node` | ERROR | a connector runs through a box it doesn't attach to |
+| `box-overlap` | ERROR | two node shapes collide (containment and cylinder caps are fine) |
+| `edge-dangles` | WARN | an endpoint floats >16px from any shape or lifeline |
+
+Every finding names the offending element and its coordinates **in the
+SVG's own user space** — the numbers written in the source — so it maps
+straight back to the line to edit.
+
+It audits `svg[role="img"][aria-label]` only. That pair is already
+required of every diagram here, so it doubles as the selector: sparkline
+charts, icons and other chrome inside a `*-mockup.html` carry neither and
+are skipped (the run reports how many). Use `data-audit="skip"` to opt a
+labelled SVG out deliberately, and say why in a comment.
+
+**Codex cannot run this** — same headless-Chromium sandbox restriction
+that blocks the render step (see the Codex section above). Claude Code
+runs the audit and the render, after Codex hands back the HTML.
 
 ## Workflow
 
@@ -297,7 +435,22 @@ generated SVG. Get these specifics right:
 3. Write the `<figcaption>` for each figure and any closing `<section>`
    prose, citing the phase/business-rule/doc-section the diagram
    encodes.
-4. Render it — **always pass `--clip`, never rely on the plain
+4. **Audit the layout before rendering.** Hand-placed coordinates
+   collide; run the check rather than trusting the read-through:
+   ```
+   node demos/01-dictionary/diagrams/audit-svg-layout.mjs \
+     demos/01-dictionary/diagrams/<file>.html
+   ```
+   It exits non-zero on any ERROR-severity finding. Fix the geometry
+   (see "Layout geometry" above for what each code means and how to
+   resolve it) and re-run until it's clean, or — for a finding that is
+   genuinely intended, such as a deliberate boundary-crossing annotation
+   — resolve it explicitly, by adding the label halo or `data-audit`
+   opt-out, not by ignoring the output. WARNs are judgement calls: read
+   them, act on the ones that are real. Re-run the audit after *any*
+   later edit to the SVG, including one that only moves a label —
+   that is exactly the edit that creates a new collision somewhere else.
+5. Render it — **always pass `--clip`, never rely on the plain
    `fullPage` capture:**
    ```
    node demos/01-dictionary/diagrams/export-html-png.mjs \
@@ -366,7 +519,7 @@ generated SVG. Get these specifics right:
    of `export-html-png.mjs`) rather than a dependency of its own — a
    real, slightly awkward quirk of this tooling, not a bug to route
    around.
-5. Check the script's own printed output —
+6. Check the script's own printed output —
    `<file>.png  <w>x<h> css px @2x  body-bg <color>` — and confirm
    `body-bg` matches the dark canvas hex (`rgb(20, 23, 27)` for
    `#14171b`). Since new pages under this skill carry no light-mode CSS
@@ -374,10 +527,14 @@ generated SVG. Get these specifics right:
    but the printed background is still worth a glance as a sanity check
    that the page rendered at all (an all-white or blank background means
    something failed to load, e.g. a bad file path).
-6. Open the PNG and inspect it: no clipped text, no overlapping boxes or
-   edges, labels legible at the exported size, arrowheads pointing the
-   right direction, edge colors matching their semantic meaning.
-7. Embed it in the target `ARCHITECTURE-*.md` doc, immediately followed
+7. Open the PNG and inspect it. Step 4's audit has already scored the
+   geometry, so this pass is for what it cannot score: labels legible at
+   the exported size, arrowheads pointing the right direction, edge
+   colors matching their semantic meaning, and each label reading as
+   belonging to the element it sits nearest. If you see a collision here
+   that the audit didn't report, that's worth fixing *and* worth a note —
+   it's a gap in the check.
+8. Embed it in the target `ARCHITECTURE-*.md` doc, immediately followed
    by a blockquote naming the editable source and the exact re-export
    command — this is the established convention every existing embed
    follows, and it's what lets someone regenerate the PNG without
@@ -392,7 +549,7 @@ generated SVG. Get these specifics right:
    `  ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/<file>.png 1024 --clip=".wrap"`
    from `demos/01-dictionary/`. The 1024px width is the geometry the page
    was reviewed at; changing it changes the layout. The `--clip=".wrap"`
-   is load-bearing, not optional — see the Workflow section's step 4 for
+   is load-bearing, not optional — see the Workflow section's step 5 for
    why (dropping it can silently reintroduce a dead-space band at the
    bottom of the export).
    ```
@@ -403,8 +560,23 @@ generated SVG. Get these specifics right:
 
 ## Validation checklist
 
+- `node audit-svg-layout.mjs <file>.html` exits 0 — no `text-overlap`,
+  `text-overflows-box`, `text-clipped`, `edge-crosses-label`,
+  `edge-pierces-node` or `box-overlap` findings left unresolved, and any
+  WARN still standing is one you decided to keep. Re-run it after the
+  last SVG edit, not just the first — this check is only worth anything
+  if it reflects the geometry that actually shipped.
+- Every label is legible in the exported PNG at 100%: nothing sits on a
+  connector, nothing touches a box stroke, nothing collides with a
+  neighbouring label. The audit catches the geometric cases; you still
+  look at the image for the ones it can't score — a label that's clear of
+  every line but reads as belonging to the wrong edge, or a box so tight
+  the text has no visual air.
+- Connectors read as a routed graph, not scattered arrows: orthogonal
+  runs in the gutters, arrowheads landing on box boundaries, crossings
+  perpendicular and few, no two edges running collinear.
 - `xmllint --noout <file>.html` doesn't apply (it's HTML, not XML) — instead
-  open the rendered PNG and eyeball it per step 6 above.
+  open the rendered PNG and eyeball it per step 7 above.
 - The export was clipped (`--clip=".wrap"` or a narrower mockup
   selector) — never accept a plain `fullPage` capture for a finished
   diagram. If you inherited a PNG that wasn't clipped, don't just eyeball

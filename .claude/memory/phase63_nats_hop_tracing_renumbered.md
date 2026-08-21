@@ -6,14 +6,18 @@ metadata:
 ---
 
 The "NATS 2.11 Server-Hop Tracing" phase (`Nats-Trace-Dest` hop tree, "Trace
-this subject" control) is now **Phase 63** in `.claude/plans/Main-POC-Plan.md`
+this subject" control) is now **Phase 63**, held in
+`.claude/plans/Main-POC-Plan-Candidates.md` (moved out of the live
+`Main-POC-Plan.md` on 2026-08-21, since it is deferred and not in flight)
 — not Phase 43, not Phase 41, not Phase 29, and no longer Phase 36. It has
 been renumbered four times (29→41 on 2026-08-17, 41→36 on 2026-08-18, 36→43
 later on 2026-08-18 when the design gate deferred implementation pending
 further research, and 43→63 on 2026-08-20 when the whole 40–49 block was
 shifted to 60–69 to free the 40s). Status is **DEFERRED 2026-08-18 — design approved, implementation
-on hold**, not PROPOSED. It sits physically after Phase 62 and before the
-Phase 100+ block.
+on hold**, not PROPOSED. In the candidates file it sits under
+"Deferred / on-hold (original numbering retained)", ahead of Phase 67 and the
+Phase 100+ block; the live plan carries a one-line entry for it under
+"Candidate, deferred, and on-hold phases".
 
 **Why:** the design-gate spike fully validated a corrected design (see the
 phase's own "Spike findings"/"Design decisions" and BR-042), but the user
@@ -40,5 +44,4 @@ status moved. If something says "Phase 36" about anything else (rebrand,
 nav, Trading Partners), that's the *current* Phase 36, not this phase. The
 full renumbering lineage is in this phase's own header blockquote and in the
 "Renumbering" log sections (2026-08-18, 2026-08-18b, 2026-08-19, 2026-08-20b)
-near the end
-of `Main-POC-Plan.md`.
+under "Renumbering history" in `.claude/plans/Main-POC-Plan-ARCHIVE.md`.

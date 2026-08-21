@@ -22,30 +22,17 @@ The core architectural question: **what is the correct responsibility split betw
 
 ## Repository Layout
 
-```
-nats-tech-lab/
-  lab-shell/              # Vue 3 + PrimeVue + Pinia — demo menu + intro pages
-  demos/
-    01-dictionary/        # First demo: Dictionary POC
-      backend/
-        shipping-service/ # Go service (hexagonal layout) — Ship/Container CQRS (Shapes A/C retired, Phase 31)
-        refdata-service/  # Go service (Phase 11) — dictionary-as-a-service, own Postgres schema + container
-          README.md         # refdata-service-specific: what it is, how to run/query it standalone
-      frontend/
-        admin/           # Vue 3 architecture/demo UI
-        seafreight-app/  # Vue 3 ship/terminal operations UI
-        refdata/         # Vue 3 dictionary/reference-data admin UI (Phase 11)
-      docs/              # VitePress docs site — architecture/reference content as a browsable site (Phase 37)
-	  docker-compose.yml  # Postgres + NATS + shipping-service + refdata-service + all three frontends
-      README.md           # Intro text shown in lab shell
-  obsidian/
-    POC-Dictionaries/     # Obsidian vault for demo 01 (research, findings, stakeholder docs)
-    V3-Platform/
-      Architecture/
-        Dictionary-POC/   # Architecture reference docs for demo 01 (see "Architecture Docs" below)
-```
+Read the tree with `ls` rather than from here — it changes faster than this
+file does. The parts that aren't visible from the tree:
 
-Each demo has its own `docker-compose.yml` and does **not** share a network with the lab shell or other demos.
+- Each demo has its own `docker-compose.yml` and does **not** share a network
+  with the lab shell or other demos.
+- A demo's top-level `README.md` is the **intro text rendered in the lab
+  shell**, not just developer docs — edit it with that audience in mind.
+- `lab-shell/` is the demo menu and intro pages; the per-demo UIs live under
+  `demos/<demo>/frontend/`.
+- The two obsidian vaults have different jobs — see "Obsidian Vault" and
+  "Architecture Docs" below.
 
 ## Docker Host Port Allocation
 
@@ -178,45 +165,31 @@ paths into that vault directory; see the `drawio-architecture-drawer` skill.
 
 ## Commands
 
-### Backend (Go — `demos/01-dictionary/backend/shipping-service/`)
+Standard `go build ./...` / `go test ./...` / `npm run dev` / `docker compose
+up --build` work as you'd expect. What isn't standard:
+
+### Tests — Ginkgo is the preferred runner
 
 ```bash
-go build ./...
+# install once
+go install github.com/onsi/ginkgo/v2/ginkgo@latest
 
-# Tests — preferred runner is Ginkgo (install once: go install github.com/onsi/ginkgo/v2/ginkgo@latest)
 ginkgo ./...                    # runs suite and prints spec tree at the end
 ginkgo watch ./...              # re-run on file changes
-
-# Fallback (no install required)
-go test ./...
-go test ./path/to/package/...   # run a single package
-
-docker compose up --build       # from demos/01-dictionary/
-docker compose down             # tear down
 ```
+
+`go test ./...` is the no-install fallback. **Beware:** Postgres-backed specs
+SKIP silently without their `*_TEST_DATABASE_URL` env var set, and `go test`
+still prints `ok` — a green run is not proof those specs executed.
 
 ### Refdata service (Go — `demos/01-dictionary/backend/refdata-service/`)
 
-```bash
-go build ./...
-go test ./...
-
-docker compose up --build       # from demos/01-dictionary/ — starts shipping-service + refdata-service together
-```
-
-See `demos/01-dictionary/backend/refdata-service/README.md` for standalone run instructions (including the
+`docker compose up --build` from `demos/01-dictionary/` starts every backend
+service together. See `demos/01-dictionary/backend/refdata-service/README.md` for standalone run instructions (including the
 default-port collision with `shipping-service` when both run outside Docker) and
 `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-DICTIONARY.md`
 for its overall architecture — seeding, Postgres schema/ER diagram, data access paths (Postgres/REST/KV),
 and cross-service consumption from the shipping backend.
-
-### Frontend (Vue 3 — either demo frontend or `lab-shell/`)
-
-```bash
-npm install
-npm run dev
-npm run build
-```
 
 ## Demo 01 — Dictionary POC
 
@@ -311,21 +284,11 @@ Full rules:
 
 ### Backend package layout
 
-```
-cmd/main.go                       # bootstraps monolith, calls Startup on each module
-internal/monolith/                # Monolith + Module interfaces
-internal/jstream/stream.go        # JetStream wrapper (LimitsPolicy)
-internal/kvstore/kv.go            # NATS KV wrapper
-dictionary/
-  composition.go
-  internal/
-    domain/                       # Ship + Container aggregates, events, repository ports
-    application/commands/         # ship/container commands + JetStream hydration
-    application/queries/          # Shapes A/B/C, terminal and metadata queries
-    postgres/                     # ship/container projection repositories
-    eventhandler/                 # JetStream consumers → Postgres/KV projections
-    rest/                         # HTTP handlers
-```
+Hexagonal, one module per bounded context: `cmd/main.go` bootstraps a monolith
+and calls `Startup` on each module, and each module's `composition.go` is the
+single wiring point where adapters bind to domain ports. Read the module you're
+working in; the layout rule that isn't visible from the tree is in
+"Architectural Notes" below.
 
 ## Architectural Notes
 
@@ -357,37 +320,23 @@ When updating or implementing a plan phase, the agent should follow this sequenc
 3. **Derive tests from rules, not from implementation.** Each business rule maps to one `Context` block in Ginkgo with one or more `It` assertions. Write the specs before writing the implementation (red → green → refactor).
 4. **Update the relevant `BUSINESS_RULES-*.md` and the plan together.** New rules go into the matching domain file and the plan checklist in the same commit.
 
-## AI Skill Roles (Future, not yet implemented)
-
-Intent, for later: introduce `.claude/skills/` personas (`product-owner`, `technical-analyst`, `software-developer`, `tester`) so plan phases get walked through each role in sequence instead of going straight from requirement to code.
-
 ## Implementation Status
 
-See `.claude/plans/Main-POC-Plan.md` for the full phased plan and checkbox tracking.
+See `.claude/plans/Main-POC-Plan.md` for the phased plan and checkbox tracking.
 
-### Archiving completed phases
+### The plan is three files — keep it that way
 
-`Main-POC-Plan.md` is read every session, so completed phases must not be left
-to accumulate in it. **When a phase is complete, move its full detail to
-`.claude/plans/Main-POC-Plan-ARCHIVE.md` and leave a one-line `- [x]` stub
-behind in the live plan.** Follow the shape the existing "Phases 0–11",
-"Phases 12–14", and "Phases 15–19" sections already use: a short
-`### Phases N–M — Completed` heading, the standing note that full detail is
-archived and *not read into context by default*, then one checked bullet per
-phase naming what it delivered.
+`Main-POC-Plan.md` holds **only phases that are actively being worked or are
+next up**. Everything else lives beside it under `.claude/plans/`, and neither
+sibling is read into context by default:
 
-Rules that matter when doing this:
+- **Completed** phases → `Main-POC-Plan-ARCHIVE.md` (append-only; never edit
+  its existing content), along with all renumbering logs.
+- **Never-implemented** phases — candidate, proposed, deferred, placeholder,
+  approved-but-on-hold → `Main-POC-Plan-Candidates.md`.
 
-- **Archive by completion, not by number.** Completed phases are rarely a
-  contiguous block — a later phase is often finished while an earlier one is
-  still `PROPOSED`. Never archive an unfinished phase just because it sits
-  between two finished ones.
-- **Never edit the archive's existing content.** It is a set of frozen
-  snapshots. Append new sections; don't rewrite old ones, and don't update
-  their phase numbers during a renumbering (the renumbering tables at the
-  bottom of the live plan record why).
-- **Keep the stub bullet self-describing.** Someone should be able to tell what
-  a phase did from the live plan alone, and only need the archive for original
-  rationale or checklist detail.
-- **Candidate/deferred phases move to the 100+ block**, at the end of the live
-  plan — they are not archived, since they were never implemented.
+Each keeps a one-line self-describing stub in the live plan. This is a standing
+rule, not a one-off cleanup: move a phase out **as soon as** it completes or is
+deferred, rather than letting the live plan accumulate. Invoke the
+`archive-plan-phase` skill for the full procedure and its rules — don't
+improvise it.
