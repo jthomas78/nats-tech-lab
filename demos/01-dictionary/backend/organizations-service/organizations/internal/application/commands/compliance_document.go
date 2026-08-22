@@ -12,10 +12,13 @@ import (
 	profiledomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/domain"
 )
 
-// ComplianceDocumentHandler is a thin pass-through onto
-// domain.ComplianceDocumentRepository — no audit trail (BR-TP06 covers only
-// the Organization lifecycle, not document review, which has no
-// enforcement consequence in v1 either).
+// BR-TP71 removed the comment that used to stand here, which justified the
+// absence of a document audit trail as having "no enforcement consequence in
+// v1". Phase 46's change-log export falsifies that: every GIT certificate
+// command now records an actor, and the TRANSPORTER stream is where that
+// provenance lives (ADR-050). The other four document types remain
+// pass-throughs onto domain.ComplianceDocumentRepository.
+//
 // CertificateAppender is the slice of the profile orchestrator the GIT
 // document commands need (ADR-050 Option A). Narrow for the same reason
 // ProfileEventAppender is: these commands own the certificate facts on that

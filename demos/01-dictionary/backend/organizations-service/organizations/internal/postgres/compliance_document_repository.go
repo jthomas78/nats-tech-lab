@@ -47,12 +47,19 @@ func scanDocument(row interface {
 	// same just below), while the column wants to stay a real timestamp so
 	// SQL-level expiry reporting keeps working.
 	var expiresAt sql.NullTime
+	// The two contact columns are nullable and stay that way (decision 25):
+	// they are never on the stream, so a certificate that was replayed rather
+	// than approved through the command has NULL in both. Scanning them into
+	// a plain string fails outright on every such row — which is most of them,
+	// since a certificate is only given contacts at approval.
+	var contactName, contactNumber sql.NullString
 	err := row.Scan(&doc.ID, &doc.Type, &doc.Status, &doc.Reference, &expiresAt, &doc.CoverageCents, &goodsTypes,
-		&doc.InsurerName, &doc.InsuranceContactName, &doc.InsuranceContactNumber, &doc.CreatedAt,
+		&doc.InsurerName, &contactName, &contactNumber, &doc.CreatedAt,
 		&fileName, &contentType, &sizeBytes, &objectName, &uploadedAt)
 	if err != nil {
 		return doc, err
 	}
+	doc.InsuranceContactName, doc.InsuranceContactNumber = contactName.String, contactNumber.String
 	if expiresAt.Valid {
 		seconds := expiresAt.Time.Unix()
 		doc.ExpiresAt = &seconds
@@ -101,8 +108,8 @@ func expiryParam(seconds *int64) *time.Time {
 // separate methods is what makes it impossible for the projector to touch
 // these columns by accident.
 // goodsTypesParam coerces a nil slice to an empty array. goods_types is NOT
-// NULL with a '{}' default, but a default only applies when the column is
-// omitted — passing an explicit nil sends NULL and violates the constraint.
+// NULL with a '[]'::jsonb default, but a default only applies when the column
+// is omitted — passing an explicit nil sends NULL and violates the constraint.
 // Every non-GIT document has no goods types at all, so this is the common
 // path, not an edge case.
 func goodsTypesParam(codes []string) []byte {

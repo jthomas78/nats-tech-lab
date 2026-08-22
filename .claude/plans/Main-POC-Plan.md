@@ -863,7 +863,7 @@ with the implementation, one Ginkgo `Context` per rule, specs before code.
 
 #### Sub-phases
 
-- [ ] **39a** — domain: goods types on `ComplianceDocument`, per-goods-type
+- [x] **39a** — domain: goods types on `ComplianceDocument`, per-goods-type
       cover, `FOR_REVIEW` state, locking on approval, actor on every command,
       **and the Option A write path** — GIT document commands move onto the
       `TransporterProfile` aggregate, the command becomes the sole producer of

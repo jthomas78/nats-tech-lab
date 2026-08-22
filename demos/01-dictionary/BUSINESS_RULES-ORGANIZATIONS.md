@@ -1433,4 +1433,7 @@ this phase.
   read query — today's `ListDocuments` excludes superseded rows by design and
   orders `BY type`, both wrong for the flat table).
 - **Not enforced anywhere, by decision:** BR-TP65's cover comparison. See its
-  entry.
+  entry. The *reported* half of BR-TP65 is
+  `internal/domain/git_status.go`'s `CoverByGoodsType` — derived on every read
+  against a caller-supplied `now`, never stored, and read by nothing that can
+  refuse anything.

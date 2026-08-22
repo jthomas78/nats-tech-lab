@@ -82,3 +82,43 @@ func gitStatusOf(doc ComplianceDocument, now time.Time) GitStatus {
 		return GitStatusNone
 	}
 }
+
+// CoverByGoodsType implements BR-TP65 — a transporter's goods-in-transit
+// cover for each goods type is the *maximum* across its approved, unexpired
+// certificates. A certificate's single cover amount applies to every goods
+// type listed on it (the amount is certificate-scoped, not per type), so one
+// certificate contributes the same figure to each of its types.
+//
+// Two things about this are deliberate, and both follow BR-TP65's own text:
+//
+//   - Nothing consumes this to *enforce* anything. There is no load
+//     allocation in this backend, so there is no decision path to refuse. It
+//     is reported, and the rule says so explicitly.
+//   - Like DeriveGitStatus, it is derived on every read against a
+//     caller-supplied now and never stored, so it cannot drift from the
+//     certificates it describes.
+//
+// A goods type on an approved certificate with no cover amount is present in
+// the result at 0 rather than absent: "covered for nothing" and "not covered"
+// are different answers, and only the first has a certificate behind it.
+func CoverByGoodsType(docs []ComplianceDocument, now time.Time) map[string]int64 {
+	cover := map[string]int64{}
+	for _, doc := range docs {
+		if doc.Type != DocumentTypeGoodsInTransit || doc.Status != DocumentStatusApproved {
+			continue
+		}
+		if doc.ExpiresAt != nil && !time.Unix(*doc.ExpiresAt, 0).After(now) {
+			continue
+		}
+		var amount int64
+		if doc.CoverageCents != nil {
+			amount = *doc.CoverageCents
+		}
+		for _, goodsType := range doc.GoodsTypes {
+			if existing, ok := cover[goodsType]; !ok || amount > existing {
+				cover[goodsType] = amount
+			}
+		}
+	}
+	return cover
+}
