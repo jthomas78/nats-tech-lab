@@ -28,6 +28,7 @@ type CertificateAppender interface {
 	RegisterCertificate(ctx context.Context, contextKey, organizationID string, doc domain.ComplianceDocument, actorName, sourceIP string) (profiledomain.State, error)
 	AttachCertificateFile(ctx context.Context, contextKey, organizationID, documentID string, file domain.DocumentFile, actorName, sourceIP string) (profiledomain.State, error)
 	ApproveCertificate(ctx context.Context, contextKey, organizationID, documentID, insurerName, actorName, sourceIP string) (profiledomain.State, error)
+	RejectCertificate(ctx context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error)
 }
 
 // CertificateAppenderResolver resolves a tenant to its own event store, for
@@ -171,6 +172,27 @@ func (h *ComplianceDocumentHandler) ApproveGitDocument(ctx context.Context, tena
 		return domain.ComplianceDocument{}, err
 	}
 	return approved, nil
+}
+
+// RejectGitDocument keeps the GIT projection replay-safe by recording the
+// review verdict on the TransporterProfile stream.
+func (h *ComplianceDocumentHandler) RejectGitDocument(ctx context.Context, tenant, contextKey, partnerID, documentID string, actor Actor) (domain.ComplianceDocument, error) {
+	doc, err := h.docs.GetDocument(ctx, partnerID, documentID)
+	if err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	rejected, err := doc.Reject()
+	if err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	appender, err := h.certificateCommands(tenant)
+	if err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	if _, err := appender.RejectCertificate(ctx, contextKey, partnerID, documentID, actor.Name, actor.SourceIP); err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	return rejected, nil
 }
 
 // SetGitDocumentExpiry is BR-TP59's correction routed onto the aggregate.

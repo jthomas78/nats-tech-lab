@@ -373,6 +373,19 @@ func (f *fakeCertificateAppender) ApproveCertificate(_ context.Context, contextK
 	return agg.State(), nil
 }
 
+func (f *fakeCertificateAppender) RejectCertificate(_ context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	agg := f.aggregate(contextKey, organizationID)
+	event, err := agg.RejectCertificate(documentID, actorName, sourceIP)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	agg.Apply(event)
+	f.project(organizationID, agg)
+	return agg.State(), nil
+}
+
 // acceptingGoodsTypes accepts any code. BR-TP64's vocabulary check has its own
 // specs against the command; these roundtrip specs are about the api.* surface.
 type acceptingGoodsTypes struct{}
@@ -496,9 +509,9 @@ var _ = Describe("api.* round trips (Phase 26h)", func() {
 			Documents: commands.NewComplianceDocumentHandler(partners, docs).
 				WithGoodsTypeValidator(acceptingGoodsTypes{}).
 				WithCertificateAppender(newFakeCertificateAppender(docs)),
-			FleetAssets:   commands.NewFleetAssetHandler(partners, fleet, validator),
-			Audit:         audit,
-			Vetting:       vetting,
+			FleetAssets: commands.NewFleetAssetHandler(partners, fleet, validator),
+			Audit:       audit,
+			Vetting:     vetting,
 			// The tenant this adapter's connection authenticated into.
 			Tenant: "acme",
 		})
@@ -1053,9 +1066,9 @@ var _ = Describe("BR-TP57 the api.* boundary signals document reviews", func() {
 			Documents: commands.NewComplianceDocumentHandler(partners, docs).
 				WithGoodsTypeValidator(acceptingGoodsTypes{}).
 				WithCertificateAppender(newFakeCertificateAppender(docs)),
-			Audit:         audit,
-			Vetting:       vetting,
-			Tenant:        "acme",
+			Audit:   audit,
+			Vetting: vetting,
+			Tenant:  "acme",
 		})
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(func() { _ = adapter.Stop() })

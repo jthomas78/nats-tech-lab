@@ -104,6 +104,14 @@ func (r *recordingAppender) ApproveCertificate(ctx context.Context, contextKey, 
 	return r.fakeCertificateAppender.ApproveCertificate(ctx, contextKey, organizationID, documentID, insurerName, actorName, sourceIP)
 }
 
+func (r *recordingAppender) RejectCertificate(ctx context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error) {
+	r.replay(contextKey, organizationID, func(agg *profiledomain.TransporterProfile) ([]profiledomain.Event, error) {
+		event, err := agg.RejectCertificate(documentID, actorName, sourceIP)
+		return []profiledomain.Event{event}, err
+	})
+	return r.fakeCertificateAppender.RejectCertificate(ctx, contextKey, organizationID, documentID, actorName, sourceIP)
+}
+
 func (r *recordingAppender) AttachCertificateFile(ctx context.Context, contextKey, organizationID, documentID string, file domain.DocumentFile, actorName, sourceIP string) (profiledomain.State, error) {
 	r.replay(contextKey, organizationID, func(agg *profiledomain.TransporterProfile) ([]profiledomain.Event, error) {
 		event, err := agg.AttachCertificateFile(documentID, file, actorName, sourceIP)
@@ -286,6 +294,23 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 	})
 
 	Context("BR-TP69: approval is the only thing that locks", func() {
+		It("records a GIT rejection on the aggregate so replay preserves the verdict", func() {
+			doc, err := register([]string{"FOOD"}, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			rejected, err := handler.RejectGitDocument(context.Background(), tenant, contextKey, partnerID, doc.ID, actor)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(rejected.Status).To(Equal(domain.DocumentStatusRejected))
+
+			stored, err := docs.GetDocument(context.Background(), partnerID, doc.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stored.Status).To(Equal(domain.DocumentStatusRejected))
+			events := appender.recorded()
+			Expect(events).NotTo(BeEmpty())
+			Expect(events[len(events)-1].Type).To(Equal(profiledomain.DocumentRejectedEvent))
+			Expect(events[len(events)-1].Certificate.Status).To(Equal(domain.DocumentStatusRejected))
+		})
+
 		It("supersedes every earlier certificate when a later one is approved", func() {
 			first, err := register([]string{"FOOD"}, nil, nil)
 			Expect(err).NotTo(HaveOccurred())

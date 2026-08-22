@@ -877,7 +877,7 @@ with the implementation, one Ginkgo `Context` per rule, specs before code.
       *(Heaviest sub-phase in the phase; deliberately not split further —
       it is one coherent write-path change and 39c is unbuildable without
       all of it.)*
-- [ ] **39b** — `goods-type` refdata vocabulary + seeded ~10-item corpus
+- [x] **39b** — `goods-type` refdata vocabulary + seeded ~10-item corpus
       (without it 39c cannot be exercised). Copy `cmd/seed-vehicle-types` and
       BR-TP14's `refdataclient` existence check.
 - [ ] **39c** — GIT Certificates tab: flat table, always-open drop zone,

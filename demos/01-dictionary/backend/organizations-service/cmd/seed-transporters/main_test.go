@@ -74,3 +74,16 @@ func TestSuspendingRungsCanReachActiveFirst(t *testing.T) {
 		}
 	}
 }
+
+func TestSeededGoodsTypesArePresentAndUnique(t *testing.T) {
+	seen := map[string]bool{}
+	for i, code := range goodsTypes {
+		if code == "" {
+			t.Errorf("goods type %d is empty", i+1)
+		}
+		if seen[code] {
+			t.Errorf("goods type %d duplicates %q", i+1, code)
+		}
+		seen[code] = true
+	}
+}

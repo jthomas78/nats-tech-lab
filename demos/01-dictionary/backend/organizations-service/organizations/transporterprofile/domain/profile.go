@@ -230,6 +230,9 @@ func (p *TransporterProfile) Apply(event Event) {
 			return
 		}
 		p.setDocumentReview(event.DocumentReference, DocumentRejected)
+		if event.Certificate != nil {
+			p.setCertificate(*event.Certificate)
+		}
 		p.state.UpdatedAt = event.OccurredAt
 	case DocumentApprovalRevertedEvent:
 		if !p.exists {
@@ -393,6 +396,33 @@ func (p *TransporterProfile) ApproveCertificate(documentID, insurerName, actorNa
 		}
 	}
 	return events, nil
+}
+
+// RejectCertificate records BR-TP10's Pending -> Rejected transition on the
+// aggregate that owns GIT certificate state. A direct projection-row update
+// would be replayed away by the next certificate event.
+func (p *TransporterProfile) RejectCertificate(documentID, actorName, sourceIP string) (Event, error) {
+	if !p.exists {
+		return Event{}, ErrNotFound
+	}
+	certificate, ok := p.state.Certificates[documentID]
+	if !ok {
+		return Event{}, organizationdomain.ErrDocumentNotFound
+	}
+	if certificate.Status == organizationdomain.DocumentStatusSuperseded {
+		return Event{}, organizationdomain.ErrDocumentSuperseded
+	}
+	if certificate.Status != organizationdomain.DocumentStatusPending {
+		return Event{}, organizationdomain.ErrDocumentNotPending
+	}
+	rejected := certificate
+	rejected.Status = organizationdomain.DocumentStatusRejected
+	event := p.event(DocumentRejectedEvent, p.state.AttemptNumber, p.state.Status)
+	event.DocumentReference = documentID
+	event.Certificate = &rejected
+	event.Changes = []FieldChange{{Field: "status", From: certificate.Status, To: rejected.Status}}
+	event.ActorName, event.ActorSourceIP = actorName, sourceIP
+	return event, nil
 }
 
 // AttachCertificateFile records that bytes landed against a certificate

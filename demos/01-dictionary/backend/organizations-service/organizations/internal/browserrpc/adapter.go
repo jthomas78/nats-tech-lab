@@ -88,14 +88,14 @@ const (
 	// document_files.go for why, and internal/filetickets for why the grant is
 	// decided here, on an authenticated connection, rather than at the HTTP
 	// ingress that spends it.
-	DocumentUploadTicketSubject   = "api.*.organizations.document.upload-ticket.v1"
+	DocumentUploadTicketSubject = "api.*.organizations.document.upload-ticket.v1"
 	// DocumentGitRegisterSubject is decision 28's one-call registration: it
 	// registers the certificate and returns the ticket its bytes will be
 	// spent against, so a drag-and-drop produces row and file from a single
 	// gesture (decision 3). A separate endpoint rather than a flag on
 	// document-add because it returns a credential as well as data, which is
 	// a different response shape and a different security story.
-	DocumentGitRegisterSubject = "api.*.organizations.document.git-register.v1"
+	DocumentGitRegisterSubject    = "api.*.organizations.document.git-register.v1"
 	DocumentDownloadTicketSubject = "api.*.organizations.document.download-ticket.v1"
 
 	FleetAssetAddSubject  = "api.*.organizations.fleet-asset.add.v1"
@@ -837,6 +837,21 @@ func (a *Adapter) isGitDocument(partnerID, documentID string) bool {
 }
 
 func (a *Adapter) handleDocumentReject(req micro.Request) {
+	var in documentRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	if a.isGitDocument(in.ID, in.DocumentID) {
+		contextKey := sharedbrowserrpc.ContextFromSubject(req.Subject())
+		doc, err := a.documents.RejectGitDocument(context.Background(), a.tenant, contextKey,
+			in.ID, in.DocumentID, a.actor(req))
+		if err == nil {
+			a.reviewSignal(req, in.ID, doc.ID, false)
+		}
+		a.reply(req, documentResponse{doc}, err)
+		return
+	}
 	a.documentTransition(req, a.documents.RejectDocument, reviewRejected)
 }
 

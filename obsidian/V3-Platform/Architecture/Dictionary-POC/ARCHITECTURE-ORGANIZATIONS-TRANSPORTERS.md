@@ -454,10 +454,11 @@ or the screen cannot be exercised in the dev stack** — the same gap that
 already blocks fleet assets. Sub-phase 39b seeds a **~10-item representative
 set**, replaced when the tier-1 commodity-taxonomy extraction happens; since
 cover is capture-only, the corpus only has to be plausible enough to exercise
-the screen. Both halves have a proven pattern to copy —
-`refdata-service/cmd/seed-vehicle-types` for the seeder, BR-TP14's
-`refdataclient` existence check for validating a code against the
-certificate's own context.
+the screen. Sub-phase 39b supplies that placeholder through the standalone
+`refdata-service/cmd/seed-goods-types` REST seeder, the flat sibling of
+`cmd/seed-vehicle-types`; the already-landed validator reuses BR-TP14's
+`refdataclient` existence check against the certificate's own context.
+Neither seeder is wired into service startup.
 
 ### 9.7 No new workflow, no new stream
 

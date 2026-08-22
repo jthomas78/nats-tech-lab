@@ -16,15 +16,17 @@
 //
 //	go run ./cmd/seed-transporters [-n 10] [-context acme] [-creds ../../nats/creds/acme.creds]
 //
-// Prerequisites, both of which the seeder checks and reports rather than
+// Prerequisites, all of which the seeder checks and reports rather than
 // failing halfway with an opaque refdata error:
 //
 //   - refdata's region corpus  — go run ./cmd/seed-regions        (refdata-service)
 //   - refdata's vehicle types  — go run ./cmd/seed-vehicle-types -context <same context>
+//   - refdata's goods types    — go run ./cmd/seed-goods-types   -context <same context>
 //
-// The vehicle-type corpus must live in the *same context* as the seeded
-// organizations: BR-TP14 resolves the code in the organization's own context,
-// and Phase 106's context inheritance is not on the live read path.
+// The vehicle-type and goods-type corpora must live in the *same context* as
+// the seeded organizations: BR-TP14/BR-TP64 resolve codes in the
+// organization's own context, and Phase 106's context inheritance is not on
+// the live read path.
 package main
 
 import (
@@ -127,6 +129,7 @@ var ladder = []rung{
 var (
 	regionCodes  = []string{"ZA-GP", "ZA-WC", "ZA-KZN", "ZA-EC", "ZA-FS"}
 	vehicleTypes = []string{"TAUTLINER", "BACK_END_TIPPER", "FLATBED", "DROPSIDE", "CAR_CARRIER"}
+	goodsTypes   = []string{"GENERAL_FREIGHT", "PALLETISED_GOODS", "REFRIGERATED_FOODSTUFFS", "FRESH_PRODUCE", "DRY_BULK", "LIQUID_BULK", "HAZARDOUS_MATERIALS", "LIVESTOCK", "HIGH_VALUE_GOODS", "ABNORMAL_LOAD"}
 	providers    = []string{"CARTRACK", "MIX_TELEMATICS", "WEBFLEET", "CTRACK", "NETSTAR"}
 )
 
@@ -195,10 +198,24 @@ func (s *seeder) checkPrerequisites() error {
 			s.contextKey, s.contextKey)}
 	}
 
+	var badGoods []string
+	for _, code := range goodsTypes {
+		_, err := s.addDocumentWithGoodsTypes(probe, []string{code})
+		if note(err) {
+			badGoods = append(badGoods, fmt.Sprintf("goods type %q", code))
+		}
+	}
+	if len(badGoods) == len(goodsTypes) {
+		badGoods = []string{fmt.Sprintf(
+			"the whole goods-type corpus in context %q — run: (refdata-service) go run ./cmd/seed-goods-types -context %s",
+			s.contextKey, s.contextKey)}
+	}
+
 	// The underlying error is carried through rather than replaced by the
 	// guidance: the guidance is a guess at the cause, and when it guesses
 	// wrong the original message is the only thing that helps.
-	if bad = append(bad, badVehicles...); len(bad) > 0 {
+	bad = append(bad, badVehicles...)
+	if bad = append(bad, badGoods...); len(bad) > 0 {
 		return fmt.Errorf("refdata prerequisites are not satisfied:\n  - %s\nfirst underlying error: %w",
 			strings.Join(bad, "\n  - "), firstErr)
 	}
@@ -234,6 +251,13 @@ func (s *seeder) seed(name string, r rung) error {
 	if err != nil {
 		return err
 	}
+	// GIT registration appends to the TRANSPORTER stream and returns before
+	// its Postgres projection is guaranteed visible. Do not submit/review
+	// against that race: a later registration projection could otherwise
+	// overwrite the review status and leave the workflow waiting forever.
+	if err := s.awaitDocumentProjection(id, documentID); err != nil {
+		return err
+	}
 	if r.review == "" {
 		return nil
 	}
@@ -248,7 +272,12 @@ func (s *seeder) seed(name string, r rung) error {
 		}
 		return s.awaitStatus(id, "Rejected")
 	case "approve":
-		if err := s.request("document.approve", map[string]any{"id": id, "documentId": documentID}, nil); err != nil {
+		if err := s.request("document.approve", map[string]any{
+			"id": id, "documentId": documentID,
+			"insurerName":            "Seed Mutual Insurance",
+			"insuranceContactName":   "Seed Insurance Desk",
+			"insuranceContactNumber": "+27 10 555 0100",
+		}, nil); err != nil {
 			return err
 		}
 		if err := s.awaitStatus(id, "Vetted"); err != nil {
@@ -277,6 +306,27 @@ func (s *seeder) seed(name string, r rung) error {
 		}
 	}
 	return nil
+}
+
+func (s *seeder) awaitDocumentProjection(id, documentID string) error {
+	deadline := time.Now().Add(requestTimeout)
+	for time.Now().Before(deadline) {
+		var out struct {
+			Documents []struct {
+				ID string `json:"id"`
+			} `json:"documents"`
+		}
+		if err := s.request("document.list", map[string]any{"id": id}, &out); err != nil {
+			return err
+		}
+		for _, doc := range out.Documents {
+			if doc.ID == documentID {
+				return nil
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("timed out after %s waiting for document %q to reach the projection", requestTimeout, documentID)
 }
 
 func (s *seeder) register(name string) (string, error) {
@@ -329,6 +379,13 @@ func (s *seeder) plate(n int) string {
 }
 
 func (s *seeder) addDocument(id string) (string, error) {
+	return s.addDocumentWithGoodsTypes(id, []string{
+		goodsTypes[s.seq%len(goodsTypes)],
+		goodsTypes[(s.seq+1)%len(goodsTypes)],
+	})
+}
+
+func (s *seeder) addDocumentWithGoodsTypes(id string, codes []string) (string, error) {
 	var out struct {
 		ID string `json:"id"`
 	}
@@ -336,6 +393,7 @@ func (s *seeder) addDocument(id string) (string, error) {
 	// BR-TP38 derives the GIT badge from.
 	if err := s.request("document.add", map[string]any{
 		"id": id, "type": "GOODS_IN_TRANSIT", "reference": fmt.Sprintf("GIT-%05d", s.seq),
+		"goodsTypes": codes,
 	}, &out); err != nil {
 		return "", err
 	}

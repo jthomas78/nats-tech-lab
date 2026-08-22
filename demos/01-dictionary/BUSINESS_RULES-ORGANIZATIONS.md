@@ -161,7 +161,9 @@ here (settled earlier, not reopened).
   port with a fake, BR-TP14's specs land with 26d's adapter, not here.
   Requires the `vehicle-type` corpus to be seeded (run
   `refdata-service/cmd/seed-vehicle-types` against the composed stack, or
-  equivalent) before it can be exercised live.
+  equivalent) before it can be exercised live. The transporter demo ladder
+  additionally requires the same-context `goods-type` corpus from
+  `refdata-service/cmd/seed-goods-types` for its GIT certificates.
 
 ---
 
@@ -201,7 +203,9 @@ BR-TP14 is now implemented end-to-end: live-verified against a real
 `refdata-service` — a bogus `vehicleTypeCode` rejected, a real one
 (`TAUTLINER`, from the `vehicle-type` corpus seeded via
 `refdata-service/cmd/seed-vehicle-types`) accepted, over the `acme` tenant's
-own NATS connection. BR-TP13's `registrationNo` uniqueness and the full
+own NATS connection. The transporter ladder's additional same-context
+prerequisite is the GIT `goods-type` corpus seeded via
+`refdata-service/cmd/seed-goods-types`. BR-TP13's `registrationNo` uniqueness and the full
 transition-matrix `409` guards were also confirmed live, along with all
 four audit actions (BR-TP06) landing correctly in Postgres.
 
@@ -1343,7 +1347,12 @@ this phase.
   type, each an existing item in the `goods-type` vocabulary **in the
   certificate's own context**. The existence check is BR-TP14's
   `refdataclient` pattern, reused — a code that does not exist in that
-  context is rejected, not stored and reconciled later.
+  context is rejected, not stored and reconciled later. The development
+  corpus comes from the standalone
+  `refdata-service/cmd/seed-goods-types` REST seeder: a representative
+  ten-item placeholder derived conceptually from V2's
+  `commodityCategoryEntities`, to be replaced by the tier-1 commodity-
+  taxonomy extraction.
 - **BR-TP65 (cover is per goods type, reported and never enforced):** The
   cover amount is per certificate and applies to every goods type on it; the
   transporter's cover for a goods type is the **maximum across approved,

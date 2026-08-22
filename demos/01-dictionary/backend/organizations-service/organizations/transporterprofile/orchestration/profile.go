@@ -187,3 +187,20 @@ func (h *ProfileHandler) ApproveCertificate(ctx context.Context, contextKey, org
 	}
 	return agg.State(), nil
 }
+
+// RejectCertificate appends the GIT review verdict to the owning aggregate.
+func (h *ProfileHandler) RejectCertificate(ctx context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error) {
+	agg, sequence, err := h.store.Hydrate(ctx, contextKey, organizationID)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	event, err := agg.RejectCertificate(documentID, actorName, sourceIP)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	if _, err = h.store.Append(ctx, contextKey, organizationID, event, sequence); err != nil {
+		return profiledomain.State{}, err
+	}
+	agg.Apply(event)
+	return agg.State(), nil
+}
