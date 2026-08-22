@@ -24,7 +24,7 @@ type Runtime struct {
 	projector *orchestration.Projector
 }
 
-func Start(ctx context.Context, nc *nats.Conn, db *sql.DB) (*Runtime, error) {
+func Start(ctx context.Context, nc *nats.Conn, db *sql.DB, certificates orchestration.CertificateWriter) (*Runtime, error) {
 	js, err := jetstream.New(nc)
 	if err != nil {
 		return nil, err
@@ -40,7 +40,14 @@ func Start(ctx context.Context, nc *nats.Conn, db *sql.DB) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The certificate projection is wired only when a document repository is
+	// supplied: this runtime is started per tenant connection, and the
+	// compliance_documents table it writes lives in the service's own
+	// Postgres, not the tenant's NATS account.
 	projector := orchestration.NewProjector(js, projection, kv)
+	if certificates != nil {
+		projector = projector.WithCertificateWriter(certificates)
+	}
 	if err := projector.Start(ctx); err != nil {
 		return nil, err
 	}

@@ -89,6 +89,13 @@ const (
 	// decided here, on an authenticated connection, rather than at the HTTP
 	// ingress that spends it.
 	DocumentUploadTicketSubject   = "api.*.organizations.document.upload-ticket.v1"
+	// DocumentGitRegisterSubject is decision 28's one-call registration: it
+	// registers the certificate and returns the ticket its bytes will be
+	// spent against, so a drag-and-drop produces row and file from a single
+	// gesture (decision 3). A separate endpoint rather than a flag on
+	// document-add because it returns a credential as well as data, which is
+	// a different response shape and a different security story.
+	DocumentGitRegisterSubject = "api.*.organizations.document.git-register.v1"
 	DocumentDownloadTicketSubject = "api.*.organizations.document.download-ticket.v1"
 
 	FleetAssetAddSubject  = "api.*.organizations.fleet-asset.add.v1"
@@ -240,6 +247,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"document-approve", a.handleDocumentApprove, DocumentApproveSubject},
 		{"document-reject", a.handleDocumentReject, DocumentRejectSubject},
 		{"document-resubmit", a.handleDocumentResubmit, DocumentResubmitSubject},
+		{"document-git-register", a.handleDocumentGitRegister, DocumentGitRegisterSubject},
 		{"document-upload-ticket", a.handleDocumentUploadTicket, DocumentUploadTicketSubject},
 		{"document-download-ticket", a.handleDocumentDownloadTicket, DocumentDownloadTicketSubject},
 
@@ -325,6 +333,17 @@ type documentRequest struct {
 	// from "cleared" — set-expiry uses null to clear, and a plain int64
 	// would make an omitted field indistinguishable from the epoch.
 	ExpiresAt *int64 `json:"expiresAt,omitempty"`
+
+	// --- GIT certificate fields (39a) ---------------------------------
+	// GoodsTypes and CoverageCents are registration-time (BR-TP64/BR-TP65);
+	// the three insurance fields are approval-time (BR-TP66) and are read
+	// only by the approve endpoint. The contact pair is the one input on
+	// this surface that never reaches the event log (BR-TP72).
+	GoodsTypes             []string `json:"goodsTypes,omitempty"`
+	CoverageCents          *int64   `json:"coverageCents,omitempty"`
+	InsurerName            string   `json:"insurerName,omitempty"`
+	InsuranceContactName   string   `json:"insuranceContactName,omitempty"`
+	InsuranceContactNumber string   `json:"insuranceContactNumber,omitempty"`
 }
 
 type fleetAssetRequest struct {
@@ -369,6 +388,14 @@ type documentsResponse struct {
 type documentTicketResponse struct {
 	Ticket   string `json:"ticket"`
 	MaxBytes int64  `json:"maxBytes"`
+}
+
+// documentRegistrationResponse is decision 28's combined reply: the row that
+// now exists, and the ticket to spend on its bytes.
+type documentRegistrationResponse struct {
+	Document domain.ComplianceDocument `json:"document"`
+	Ticket   string                    `json:"ticket"`
+	MaxBytes int64                     `json:"maxBytes"`
 }
 
 // operatingAreaRequest carries no tenant and no countryCode. The tenant is
@@ -661,12 +688,19 @@ func (a *Adapter) handleDocumentAdd(req micro.Request) {
 		a.reply(req, nil, err)
 		return
 	}
-	doc, err := a.documents.AddDocument(context.Background(), in.ID, in.Type, in.Reference, in.ExpiresAt)
-	if err == nil && doc.Type == domain.DocumentTypeGoodsInTransit {
-		// BR-TP30 superseded whatever GIT document was there, so the earliest
-		// expiry has moved even when this one carries none.
-		a.coverChangedSignal(req, in.ID)
+	contextKey := sharedbrowserrpc.ContextFromSubject(req.Subject())
+	if in.Type == domain.DocumentTypeGoodsInTransit {
+		// 39a: GIT registration is event-sourced (ADR-050 Option A) and never
+		// gated — an early renewal may be registered while current cover is
+		// live (BR-TP68). No cover-changed signal is sent: unlike the old
+		// supersede-on-register path, registering changes no cover at all.
+		// Approval does (BR-TP69), and that is where the signal now belongs.
+		doc, err := a.documents.AddGitDocument(context.Background(), a.tenant, contextKey,
+			in.ID, in.Reference, in.ExpiresAt, in.CoverageCents, in.GoodsTypes, a.actor(req))
+		a.reply(req, documentResponse{doc}, err)
+		return
 	}
+	doc, err := a.documents.AddDocument(context.Background(), in.ID, in.Type, in.Reference, in.ExpiresAt)
 	a.reply(req, documentResponse{doc}, err)
 }
 
@@ -690,6 +724,31 @@ func (a *Adapter) coverChangedSignal(req micro.Request, organizationID string) {
 // (unlike approve/reject): an expiry change is not a review decision, and the
 // vetting workflow is not waiting on one.
 func (a *Adapter) handleDocumentSetExpiry(req micro.Request) {
+	if in, ok := a.gitRequest(req); ok {
+		doc, err := a.documents.SetGitDocumentExpiry(context.Background(), a.tenant,
+			sharedbrowserrpc.ContextFromSubject(req.Subject()), in.ID, in.DocumentID, in.ExpiresAt, a.actor(req))
+		if err == nil {
+			a.coverChangedSignal(req, in.ID)
+		}
+		a.reply(req, documentResponse{doc}, err)
+		return
+	}
+	a.handleDocumentSetExpiryCRUD(req)
+}
+
+// gitRequest decodes the request and reports whether it names a GIT document.
+// Decoding twice is the cost of routing on the stored type rather than on a
+// caller-supplied one, and it is the right trade: a client must not be able to
+// pick which write path its document takes.
+func (a *Adapter) gitRequest(req micro.Request) (documentRequest, bool) {
+	var in documentRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		return in, false
+	}
+	return in, a.isGitDocument(in.ID, in.DocumentID)
+}
+
+func (a *Adapter) handleDocumentSetExpiryCRUD(req micro.Request) {
 	var in documentRequest
 	if err := json.Unmarshal(req.Data(), &in); err != nil {
 		a.reply(req, nil, err)
@@ -740,7 +799,41 @@ func (a *Adapter) reviewSignal(req micro.Request, organizationID, documentID str
 }
 
 func (a *Adapter) handleDocumentApprove(req micro.Request) {
+	var in documentRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	// A GIT approval is a different command, not the same one with extra
+	// fields: it carries BR-TP66's insurance requirements, supersedes and
+	// locks every earlier certificate (BR-TP69), and is the sole producer of
+	// document-approved on the stream (decision 14).
+	if a.isGitDocument(in.ID, in.DocumentID) {
+		contextKey := sharedbrowserrpc.ContextFromSubject(req.Subject())
+		doc, err := a.documents.ApproveGitDocument(context.Background(), a.tenant, contextKey,
+			in.ID, in.DocumentID, in.InsurerName, in.InsuranceContactName, in.InsuranceContactNumber, a.actor(req))
+		if err == nil {
+			// Approval is what moves cover now, so this is where BR-TP61's
+			// re-arm belongs — registration no longer changes any expiry.
+			a.coverChangedSignal(req, in.ID)
+			a.reviewSignal(req, in.ID, doc.ID, true)
+		}
+		a.reply(req, documentResponse{doc}, err)
+		return
+	}
 	a.documentTransition(req, a.documents.ApproveDocument, reviewApproved)
+}
+
+// isGitDocument reads the document's type before choosing a command. A lookup
+// rather than a flag on the request: the caller does not get to decide which
+// write path its document takes, and a client that sent the wrong type would
+// otherwise pick the wrong one.
+func (a *Adapter) isGitDocument(partnerID, documentID string) bool {
+	if partnerID == "" || documentID == "" {
+		return false
+	}
+	doc, err := a.documents.GetDocument(context.Background(), partnerID, documentID)
+	return err == nil && doc.Type == domain.DocumentTypeGoodsInTransit
 }
 
 func (a *Adapter) handleDocumentReject(req micro.Request) {
@@ -803,7 +896,7 @@ func (a *Adapter) documentTransition(
 // one. See the package doc's first rule, and internal/filetickets.
 func (a *Adapter) handleDocumentUploadTicket(req micro.Request) {
 	a.documentTicket(req, func(ctx context.Context, contextKey, partnerID, documentID string) (string, error) {
-		return a.documentFiles.MintUploadTicket(ctx, a.tenant, contextKey, partnerID, documentID)
+		return a.documentFiles.MintUploadTicket(ctx, a.tenant, contextKey, partnerID, documentID, a.actor(req))
 	})
 }
 
@@ -811,6 +904,37 @@ func (a *Adapter) handleDocumentDownloadTicket(req micro.Request) {
 	a.documentTicket(req, func(ctx context.Context, contextKey, partnerID, documentID string) (string, error) {
 		return a.documentFiles.MintDownloadTicket(ctx, a.tenant, contextKey, partnerID, documentID)
 	})
+}
+
+// handleDocumentGitRegister is the drop zone's endpoint (decision 28).
+//
+// It registers first and mints second, and the failure that leaves open is a
+// PENDING certificate with no file — not a broken state but the documented
+// one BR-TP68 already names ("row minted, no file yet"). The reverse order
+// has no meaning: a ticket names a document, so there is nothing to mint
+// against until the row exists.
+func (a *Adapter) handleDocumentGitRegister(req micro.Request) {
+	var in documentRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	if a.documentFiles == nil {
+		a.reply(req, nil, domain.ErrDocumentFileMissing)
+		return
+	}
+	contextKey := sharedbrowserrpc.ContextFromSubject(req.Subject())
+	actor := a.actor(req)
+	doc, err := a.documents.AddGitDocument(context.Background(), a.tenant, contextKey,
+		in.ID, in.Reference, in.ExpiresAt, in.CoverageCents, in.GoodsTypes, actor)
+	if err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	ticket, err := a.documentFiles.MintUploadTicket(context.Background(), a.tenant, contextKey, in.ID, doc.ID, actor)
+	a.reply(req, documentRegistrationResponse{
+		Document: doc, Ticket: ticket, MaxBytes: domain.MaxDocumentFileBytes,
+	}, err)
 }
 
 func (a *Adapter) documentTicket(

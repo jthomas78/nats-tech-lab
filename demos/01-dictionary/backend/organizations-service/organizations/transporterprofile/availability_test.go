@@ -111,7 +111,7 @@ func TestCertificateEventsExcludeInsuranceContactsAndApprovalLocksEarlierCertifi
 	}
 	p.Apply(registered)
 
-	events, err := p.ApproveCertificate("second", "admin", "127.0.0.1")
+	events, err := p.ApproveCertificate("second", "Acme Insurance", "admin", "127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}

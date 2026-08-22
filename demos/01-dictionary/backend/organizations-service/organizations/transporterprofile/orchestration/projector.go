@@ -8,6 +8,8 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	organizationdomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
+
 	profiledomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/domain"
 )
 
@@ -19,16 +21,32 @@ type CacheWriter interface {
 	Put(ctx context.Context, state profiledomain.State) error
 }
 
+// CertificateWriter projects the GIT certificates carried on the aggregate
+// into organizations.compliance_documents — the second projection this
+// consumer feeds, and the one ADR-050 Option A introduced. It is optional:
+// a projector without one still maintains the profile projection, which is
+// what every spec predating 39a exercises.
+type CertificateWriter interface {
+	UpsertCertificate(ctx context.Context, organizationID string, cert organizationdomain.ProjectedCertificate) error
+}
+
 type Projector struct {
-	js         jetstream.JetStream
-	projection ProjectionWriter
-	cache      CacheWriter
-	mu         sync.Mutex
-	consume    jetstream.ConsumeContext
+	js           jetstream.JetStream
+	projection   ProjectionWriter
+	cache        CacheWriter
+	certificates CertificateWriter
+	mu           sync.Mutex
+	consume      jetstream.ConsumeContext
 }
 
 func NewProjector(js jetstream.JetStream, projection ProjectionWriter, cache CacheWriter) *Projector {
 	return &Projector{js: js, projection: projection, cache: cache}
+}
+
+// WithCertificateWriter supplies the compliance_documents projection.
+func (p *Projector) WithCertificateWriter(w CertificateWriter) *Projector {
+	p.certificates = w
+	return p
 }
 
 func (p *Projector) Start(ctx context.Context) error {
@@ -78,6 +96,25 @@ func (p *Projector) Start(ctx context.Context) error {
 			_ = msg.Nak()
 			return
 		}
+		// The certificate projection is written from the same hydrated state,
+		// so a redelivery re-writes identical rows rather than applying a
+		// delta twice. Every certificate is written, not just the one this
+		// event names: a supersede-on-approval moves several at once
+		// (BR-TP69), and writing only the named one would leave the others
+		// showing cover they no longer carry.
+		if p.certificates != nil {
+			failed := false
+			for _, certificate := range state.Certificates {
+				if err := p.certificates.UpsertCertificate(context.Background(), state.ID, projectedCertificate(certificate)); err != nil {
+					failed = true
+					break
+				}
+			}
+			if failed {
+				_ = msg.Nak()
+				return
+			}
+		}
 		_ = msg.Ack()
 	})
 	if err != nil {
@@ -95,5 +132,17 @@ func (p *Projector) Stop() {
 	if p.consume != nil {
 		p.consume.Stop()
 		p.consume = nil
+	}
+}
+
+// projectedCertificate narrows the aggregate's certificate to exactly what
+// the projection may write. The conversion is deliberately lossy in one
+// direction only — there are no contact fields on either side of it.
+func projectedCertificate(c profiledomain.Certificate) organizationdomain.ProjectedCertificate {
+	return organizationdomain.ProjectedCertificate{
+		ID: c.ID, Status: c.Status, Reference: c.Reference,
+		GoodsTypes:    append([]string(nil), c.GoodsTypes...),
+		CoverageCents: c.CoverageCents, ExpiresAt: c.ExpiresAt,
+		InsurerName: c.InsurerName, File: c.File,
 	}
 }

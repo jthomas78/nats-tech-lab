@@ -5,6 +5,7 @@ package orchestration
 import (
 	"context"
 	"errors"
+	"time"
 
 	organizationdomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
 	profiledomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/domain"
@@ -130,15 +131,50 @@ func (h *ProfileHandler) RegisterCertificate(ctx context.Context, contextKey, or
 	return agg.State(), nil
 }
 
-// ApproveCertificate appends BR-TP69's approval and every compensating lock
-// fact in order. Each append advances the expected sequence, preserving the
-// aggregate-wide guard even for the multi-event command.
-func (h *ProfileHandler) ApproveCertificate(ctx context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error) {
+// AttachCertificateFile appends BR-TP68's file fact, which is also what moves
+// a cheap registration into the reviewer's queue.
+func (h *ProfileHandler) AttachCertificateFile(ctx context.Context, contextKey, organizationID, documentID string, file organizationdomain.DocumentFile, actorName, sourceIP string) (profiledomain.State, error) {
 	agg, sequence, err := h.store.Hydrate(ctx, contextKey, organizationID)
 	if err != nil {
 		return profiledomain.State{}, err
 	}
-	events, err := agg.ApproveCertificate(documentID, actorName, sourceIP)
+	event, err := agg.AttachCertificateFile(documentID, file, actorName, sourceIP)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	if _, err = h.store.Append(ctx, contextKey, organizationID, event, sequence); err != nil {
+		return profiledomain.State{}, err
+	}
+	agg.Apply(event)
+	return agg.State(), nil
+}
+
+// SetCertificateExpiry appends BR-TP59's correction.
+func (h *ProfileHandler) SetCertificateExpiry(ctx context.Context, contextKey, organizationID, documentID string, expiresAt *int64, now time.Time, actorName, sourceIP string) (profiledomain.State, error) {
+	agg, sequence, err := h.store.Hydrate(ctx, contextKey, organizationID)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	event, err := agg.SetCertificateExpiry(documentID, expiresAt, now, actorName, sourceIP)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	if _, err = h.store.Append(ctx, contextKey, organizationID, event, sequence); err != nil {
+		return profiledomain.State{}, err
+	}
+	agg.Apply(event)
+	return agg.State(), nil
+}
+
+// ApproveCertificate appends BR-TP69's approval and every compensating lock
+// fact in order. Each append advances the expected sequence, preserving the
+// aggregate-wide guard even for the multi-event command.
+func (h *ProfileHandler) ApproveCertificate(ctx context.Context, contextKey, organizationID, documentID, insurerName, actorName, sourceIP string) (profiledomain.State, error) {
+	agg, sequence, err := h.store.Hydrate(ctx, contextKey, organizationID)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	events, err := agg.ApproveCertificate(documentID, insurerName, actorName, sourceIP)
 	if err != nil {
 		return profiledomain.State{}, err
 	}

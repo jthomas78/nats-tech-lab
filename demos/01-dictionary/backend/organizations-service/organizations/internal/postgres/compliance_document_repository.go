@@ -89,6 +89,63 @@ func expiryParam(seconds *int64) *time.Time {
 // state by overwriting the previous row — destroying exactly the history an
 // audit of "what was approved, and when" needs, and leaving 38c-ii no stable
 // per-document ID to name an Object Store blob with.
+// SetInsuranceContact is decision 25's direct write — the one path by which
+// the two contact columns are ever populated, since they are deliberately
+// absent from the stream (BR-TP72). Deliberately not folded into
+// UpsertCertificate: keeping the replayed write and the un-replayed write in
+// separate methods is what makes it impossible for the projector to touch
+// these columns by accident.
+func (r *ComplianceDocumentRepository) SetInsuranceContact(ctx context.Context, partnerID, documentID, insurerName, contactName, contactNumber string) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE organizations.compliance_documents
+		SET insurer_name = $3, insurance_contact_name = $4, insurance_contact_number = $5, updated_at = now()
+		WHERE organization_id = $1 AND id = $2`,
+		partnerID, documentID, insurerName, contactName, contactNumber)
+	return err
+}
+
+// UpsertCertificate is the projection write for ADR-050 Option A. Every
+// column it sets comes off the stream; the two contact columns are absent
+// from both the INSERT list and the DO UPDATE list, so replaying the whole
+// stream over an existing table leaves them exactly as the command wrote them
+// and replaying into an empty one leaves them NULL — which is the documented,
+// deliberate cost of keeping them off the log.
+func (r *ComplianceDocumentRepository) UpsertCertificate(ctx context.Context, partnerID string, cert domain.ProjectedCertificate) error {
+	var (
+		fileName    any
+		contentType any
+		sizeBytes   any
+		objectName  any
+		uploadedAt  any
+	)
+	if cert.File != nil {
+		fileName, contentType, sizeBytes = cert.File.FileName, cert.File.ContentType, cert.File.SizeBytes
+		objectName, uploadedAt = cert.File.ObjectName, time.Unix(cert.File.UploadedAt, 0).UTC()
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO organizations.compliance_documents
+			(organization_id, id, type, status, reference, expires_at, coverage_cents, goods_types, insurer_name,
+			 file_name, file_content_type, file_size_bytes, file_object_name, file_uploaded_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now())
+		ON CONFLICT (organization_id, id) DO UPDATE SET
+			status = EXCLUDED.status,
+			reference = EXCLUDED.reference,
+			expires_at = EXCLUDED.expires_at,
+			coverage_cents = EXCLUDED.coverage_cents,
+			goods_types = EXCLUDED.goods_types,
+			insurer_name = EXCLUDED.insurer_name,
+			file_name = EXCLUDED.file_name,
+			file_content_type = EXCLUDED.file_content_type,
+			file_size_bytes = EXCLUDED.file_size_bytes,
+			file_object_name = EXCLUDED.file_object_name,
+			file_uploaded_at = EXCLUDED.file_uploaded_at,
+			updated_at = now()`,
+		partnerID, cert.ID, domain.DocumentTypeGoodsInTransit, cert.Status, cert.Reference,
+		expiryParam(cert.ExpiresAt), cert.CoverageCents, cert.GoodsTypes, cert.InsurerName,
+		fileName, contentType, sizeBytes, objectName, uploadedAt)
+	return err
+}
+
 func (r *ComplianceDocumentRepository) AddDocument(ctx context.Context, partnerID string, doc domain.ComplianceDocument) (domain.ComplianceDocument, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

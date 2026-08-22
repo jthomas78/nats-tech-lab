@@ -3,6 +3,7 @@ package domain
 
 import (
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -109,6 +110,19 @@ type FieldChange struct {
 	Field string `json:"field"`
 	From  any    `json:"from"`
 	To    any    `json:"to"`
+	// Withheld marks a field whose *values* are deliberately absent from the
+	// log (BR-TP72). Without it, "this changed, we are not recording to what"
+	// is indistinguishable from "this changed to null", and Phase 46's export
+	// would render a redaction as a cleared value — the one reading a
+	// compliance log must not produce.
+	Withheld bool `json:"withheld,omitempty"`
+}
+
+// WithheldChange is the only way a redacted field enters the log. A helper
+// rather than a struct literal at each call site so no caller can half-build
+// one and leave a real value in From or To.
+func WithheldChange(field string) FieldChange {
+	return FieldChange{Field: field, Withheld: true}
 }
 
 // AvailableForAssignment is BR-TP55's computed fleet-availability value.
@@ -294,6 +308,17 @@ func (p *TransporterProfile) RegisterCertificate(doc organizationdomain.Complian
 	}
 	event := p.event(DocumentRegisteredEvent, p.state.AttemptNumber, p.state.Status)
 	event.Certificate = certificateFromDocument(doc)
+	event.DocumentReference = doc.ID
+	// Registration's from side is empty by definition; the fields are still
+	// listed one by one so an exported row reads the same shape as every
+	// later edit (decision 16).
+	event.Changes = []FieldChange{
+		{Field: "reference", From: nil, To: doc.Reference},
+		{Field: "goodsTypes", From: nil, To: append([]string(nil), doc.GoodsTypes...)},
+		{Field: "coverageCents", From: nil, To: doc.CoverageCents},
+		{Field: "expiresAt", From: nil, To: doc.ExpiresAt},
+		{Field: "status", From: nil, To: doc.Status},
+	}
 	event.ActorName, event.ActorSourceIP = actorName, sourceIP
 	return event, nil
 }
@@ -302,7 +327,10 @@ func (p *TransporterProfile) RegisterCertificate(doc organizationdomain.Complian
 // approved, every earlier unsuperseded certificate is superseded and any open
 // review is explicitly cancelled. The caller appends the returned events in
 // order under the aggregate sequence guard.
-func (p *TransporterProfile) ApproveCertificate(documentID, actorName, sourceIP string) ([]Event, error) {
+// insurerName and the two withheld contact-field markers travel with the
+// approval because BR-TP66 makes them approval-time requirements: they are
+// what the reviewer supplied in order to approve.
+func (p *TransporterProfile) ApproveCertificate(documentID, insurerName, actorName, sourceIP string) ([]Event, error) {
 	if !p.exists {
 		return nil, ErrNotFound
 	}
@@ -320,10 +348,31 @@ func (p *TransporterProfile) ApproveCertificate(documentID, actorName, sourceIP 
 	approval.DocumentReference = documentID
 	approval.Certificate = &approved
 	approval.Changes = []FieldChange{{Field: "status", From: from, To: approved.Status}}
+	if insurerName != certificate.InsurerName {
+		approval.Changes = append(approval.Changes,
+			FieldChange{Field: "insurerName", From: certificate.InsurerName, To: insurerName})
+		approved.InsurerName = insurerName
+		approval.Certificate = &approved
+	}
+	// BR-TP72: the contact pair is required to approve and so certainly
+	// changed, but its values never reach this log. Recorded as withheld
+	// rather than omitted — an auditor asking "was a contact recorded?" gets
+	// an answer, just not the number.
+	approval.Changes = append(approval.Changes,
+		WithheldChange("insuranceContactName"), WithheldChange("insuranceContactNumber"))
 	approval.ActorName, approval.ActorSourceIP = actorName, sourceIP
 	events := []Event{approval}
 
-	for id, earlier := range p.state.Certificates {
+	// Sorted, not map order: these events go onto an immutable log in the
+	// order they are appended, and ranging a map would give two replays of the
+	// same command two different histories.
+	ids := make([]string, 0, len(p.state.Certificates))
+	for id := range p.state.Certificates {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		earlier := p.state.Certificates[id]
 		if id == documentID || earlier.Status == organizationdomain.DocumentStatusSuperseded {
 			continue
 		}
@@ -344,6 +393,77 @@ func (p *TransporterProfile) ApproveCertificate(documentID, actorName, sourceIP 
 		}
 	}
 	return events, nil
+}
+
+// AttachCertificateFile records that bytes landed against a certificate
+// (BR-TP68). The transition it carries is the one that moves a cheap
+// registration into the reviewer's queue: PENDING -> FOR_REVIEW. Any other
+// status keeps its own — re-uploading against an approved certificate does
+// not send it back for review, and a superseded one is not revived.
+func (p *TransporterProfile) AttachCertificateFile(documentID string, file organizationdomain.DocumentFile, actorName, sourceIP string) (Event, error) {
+	if !p.exists {
+		return Event{}, ErrNotFound
+	}
+	certificate, ok := p.state.Certificates[documentID]
+	if !ok {
+		return Event{}, organizationdomain.ErrDocumentNotFound
+	}
+	if certificate.Status == organizationdomain.DocumentStatusSuperseded {
+		return Event{}, organizationdomain.ErrDocumentSuperseded
+	}
+	if certificate.File != nil {
+		return Event{}, organizationdomain.ErrDocumentFileAlreadyAttached
+	}
+	updated := certificate
+	updated.File = &file
+	changes := []FieldChange{{Field: "file", From: nil, To: file.ObjectName}}
+	if updated.Status == organizationdomain.DocumentStatusPending {
+		updated.Status = organizationdomain.DocumentStatusForReview
+		changes = append(changes, FieldChange{
+			Field: "status", From: certificate.Status, To: updated.Status,
+		})
+	}
+	event := p.event(DocumentFileAttachedEvent, p.state.AttemptNumber, p.state.Status)
+	event.DocumentReference = documentID
+	event.Certificate = &updated
+	event.Changes = changes
+	event.ActorName, event.ActorSourceIP = actorName, sourceIP
+	return event, nil
+}
+
+// SetCertificateExpiry is BR-TP59's correction on the event-sourced path.
+//
+// It is admissible on a superseded certificate (BR-TP70, decision 23): a
+// historical correction is not a review decision, and it cannot restore
+// cover, because cover is derived from approved documents alone. Without this
+// path the expiry would be written to the projection directly and the next
+// certificate event would replay the old value straight back over it.
+func (p *TransporterProfile) SetCertificateExpiry(documentID string, expiresAt *int64, now time.Time, actorName, sourceIP string) (Event, error) {
+	if !p.exists {
+		return Event{}, ErrNotFound
+	}
+	certificate, ok := p.state.Certificates[documentID]
+	if !ok {
+		return Event{}, organizationdomain.ErrDocumentNotFound
+	}
+	// The guard is ComplianceDocument's, not a second copy of it: SetExpiry is
+	// deliberately the single point BR-TP59 is enforced at.
+	probe := organizationdomain.ComplianceDocument{
+		ID: certificate.ID, Type: organizationdomain.DocumentTypeGoodsInTransit,
+		Status: certificate.Status, ExpiresAt: certificate.ExpiresAt,
+	}
+	updatedDoc, err := probe.SetExpiry(expiresAt, now)
+	if err != nil {
+		return Event{}, err
+	}
+	updated := certificate
+	updated.ExpiresAt = updatedDoc.ExpiresAt
+	event := p.event(DocumentDetailsUpdatedEvent, p.state.AttemptNumber, p.state.Status)
+	event.DocumentReference = documentID
+	event.Certificate = &updated
+	event.Changes = []FieldChange{{Field: "expiresAt", From: certificate.ExpiresAt, To: updated.ExpiresAt}}
+	event.ActorName, event.ActorSourceIP = actorName, sourceIP
+	return event, nil
 }
 
 // ConfigureTrackingCredential appends BR-TP55's event. The payload is not a

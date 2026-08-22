@@ -68,13 +68,16 @@ func Startup(ctx context.Context, db *sql.DB, tenantMgr *tenants.Manager) (*Hand
 	audit := postgres.NewAuditLog(db)
 
 	return &Handlers{
-		Organizations:  commands.NewOrganizationHandler(partners, audit),
-		Documents:      commands.NewComplianceDocumentHandler(partners, docs).WithGoodsTypeValidator(tenantMgr),
+		Organizations: commands.NewOrganizationHandler(partners, audit),
+		Documents: commands.NewComplianceDocumentHandler(partners, docs).
+			WithGoodsTypeValidator(tenantMgr).
+			WithCertificateAppender(tenantMgr),
 		FleetAssets:    commands.NewFleetAssetHandler(partners, fleet, tenantMgr),
 		OperatingAreas: commands.NewOperatingAreaHandler(partners, areas, tenantMgr, audit),
 		TrackingCreds:  commands.NewTrackingCredentialHandler(partners, trackingCreds, tenantMgr, tenantMgr),
-		DocumentFiles:  commands.NewDocumentFileHandler(docs, filetickets.NewStore(filetickets.DefaultTTL), tenantMgr),
-		audit:          audit,
+		DocumentFiles: commands.NewDocumentFileHandler(docs, filetickets.NewStore(filetickets.DefaultTTL), tenantMgr).
+			WithCertificateAppender(tenantMgr),
+		audit: audit,
 	}, nil
 }
 
@@ -124,7 +127,8 @@ func (h *Handlers) MountAPI(tenantMgr *tenants.Manager, vetting *Vetting, log *s
 // secretKey seals BR-TP52's tracking-credential payloads. Passing nil
 // disables that feature rather than degrading it — see tenants.Manager.
 func MountTenants(ctx context.Context, natsURL, credsDir string, db *sql.DB, log *slog.Logger, secretKey []byte) (*tenants.Manager, error) {
-	mgr := tenants.NewManager(natsURL, credsDir, db, log, secretKey)
+	mgr := tenants.NewManager(natsURL, credsDir, db, log, secretKey).
+		WithCertificateWriter(postgres.NewComplianceDocumentRepository(db))
 	if err := mgr.EnsureAll(ctx); err != nil {
 		return nil, err
 	}

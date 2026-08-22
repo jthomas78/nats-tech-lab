@@ -127,7 +127,7 @@ var _ = Describe("NATS micro registration", func() {
 		// Replaces 26g's "registers no endpoints yet" spec, which existed to pin
 		// that increment's deliberate scope. Phase 26h is the phase that spec
 		// said should replace it.
-		It("advertises all 24 api.* endpoints on $SRV.INFO", func() {
+		It("advertises all 26 api.* endpoints on $SRV.INFO", func() {
 			adapter, err := browserrpc.New(nc, browserrpc.Deps{Tenant: "acme"})
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(func() { _ = adapter.Stop() })
@@ -166,6 +166,10 @@ var _ = Describe("NATS micro registration", func() {
 				// into approve — "this cover runs to date X" is a fact about
 				// the document, not a review decision.
 				"api.*.organizations.document.set-expiry.v1",
+				// 39a (decision 28). One call registers the certificate and
+				// returns the ticket for its bytes, so the drop zone's single
+				// gesture produces row and file together.
+				"api.*.organizations.document.git-register.v1",
 				// Phase 38c-ii (BR-TP41). Endpoints 17 and 18 mint capability
 				// tickets; the document bytes they authorize never travel over
 				// api.* at all — see internal/rest/document_files.go.

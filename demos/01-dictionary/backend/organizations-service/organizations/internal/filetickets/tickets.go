@@ -66,6 +66,14 @@ type Grant struct {
 	PartnerID  string
 	DocumentID string
 	Direction  Direction
+	// Actor and ActorSourceIP travel with the ticket rather than being read
+	// from the HTTP upload that spends it, for exactly the reason Tenant does
+	// (BR-TP41): by the time the ingress sees a ticket, every identity
+	// decision has already been made on the NATS side. An upload's event has
+	// to name someone, and the only trustworthy moment to capture that is at
+	// mint time.
+	Actor         string
+	ActorSourceIP string
 }
 
 type entry struct {

@@ -41,14 +41,23 @@ type TicketStore interface {
 // HTTP ingress. Keeping them apart is what lets the mux allowlist (BR-TP17)
 // stay a meaningful statement about which code can be reached over HTTP.
 type DocumentFileHandler struct {
-	docs    domain.ComplianceDocumentRepository
-	tickets TicketStore
-	stores  ObjectStoreResolver
-	now     func() time.Time
+	docs         domain.ComplianceDocumentRepository
+	tickets      TicketStore
+	stores       ObjectStoreResolver
+	certificates CertificateAppenderResolver
+	now          func() time.Time
 }
 
 func NewDocumentFileHandler(docs domain.ComplianceDocumentRepository, tickets TicketStore, stores ObjectStoreResolver) *DocumentFileHandler {
 	return &DocumentFileHandler{docs: docs, tickets: tickets, stores: stores, now: time.Now}
+}
+
+// WithCertificateAppender routes GIT file attachment onto the aggregate.
+// Without it this handler keeps writing every document type's file directly
+// to Postgres, which is still correct for the other four types.
+func (h *DocumentFileHandler) WithCertificateAppender(r CertificateAppenderResolver) *DocumentFileHandler {
+	h.certificates = r
+	return h
 }
 
 // MintUploadTicket implements BR-TP41's upload half.
@@ -57,7 +66,7 @@ func NewDocumentFileHandler(docs domain.ComplianceDocumentRepository, tickets Ti
 // redemption: telling an operator "this document already has a file" before
 // their browser spends a minute uploading one is the difference between a
 // clear refusal and a wasted transfer that fails at the end.
-func (h *DocumentFileHandler) MintUploadTicket(ctx context.Context, tenant, contextKey, partnerID, documentID string) (string, error) {
+func (h *DocumentFileHandler) MintUploadTicket(ctx context.Context, tenant, contextKey, partnerID, documentID string, actor Actor) (string, error) {
 	doc, err := h.docs.GetDocument(ctx, partnerID, documentID)
 	if err != nil {
 		return "", err
@@ -74,6 +83,8 @@ func (h *DocumentFileHandler) MintUploadTicket(ctx context.Context, tenant, cont
 		PartnerID:  partnerID,
 		DocumentID: documentID,
 		Direction:  filetickets.DirectionUpload,
+		// Captured here, not at redemption: see Grant.Actor.
+		Actor: actor.Name, ActorSourceIP: actor.SourceIP,
 	})
 }
 
@@ -152,13 +163,32 @@ func (h *DocumentFileHandler) Upload(ctx context.Context, token, fileName, conte
 		return domain.ComplianceDocument{}, domain.ErrFileTooLarge
 	}
 
-	return h.docs.AttachFile(ctx, grant.PartnerID, grant.DocumentID, domain.DocumentFile{
+	file := domain.DocumentFile{
 		FileName:    fileName,
 		ContentType: contentType,
 		SizeBytes:   size,
 		ObjectName:  objectName,
 		UploadedAt:  h.now().Unix(),
-	})
+	}
+
+	// GIT is event-sourced from 39a (ADR-050 Option A): the fact that bytes
+	// landed is appended to the aggregate and the projection row is written
+	// from it. The other four types still write the row directly. Note the
+	// byte ordering above is unchanged and is what makes this safe — the
+	// event is appended only after the object exists, so the log never claims
+	// a file that cannot be fetched (BR-TP43).
+	if doc.Type == domain.DocumentTypeGoodsInTransit && h.certificates != nil {
+		appender, err := h.certificates.CertificateCommands(grant.Tenant)
+		if err != nil {
+			return domain.ComplianceDocument{}, err
+		}
+		if _, err := appender.AttachCertificateFile(ctx, grant.Context, grant.PartnerID, grant.DocumentID, file, grant.Actor, grant.ActorSourceIP); err != nil {
+			return domain.ComplianceDocument{}, err
+		}
+		return doc.AttachFile(file)
+	}
+
+	return h.docs.AttachFile(ctx, grant.PartnerID, grant.DocumentID, file)
 }
 
 // Download implements BR-TP45's read half. The returned reader is the

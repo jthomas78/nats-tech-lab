@@ -57,6 +57,16 @@ func (r *fileDocRepo) GetDocument(_ context.Context, _, documentID string) (doma
 	return doc, nil
 }
 
+// Neither of these belongs to the byte path, so both panic for the same
+// reason the other unused methods below do.
+func (r *fileDocRepo) SetInsuranceContact(context.Context, string, string, string, string, string) error {
+	panic("the file path must not write insurance details")
+}
+
+func (r *fileDocRepo) UpsertCertificate(context.Context, string, domain.ProjectedCertificate) error {
+	panic("the file path must not write the certificate projection")
+}
+
 func (r *fileDocRepo) AttachFile(_ context.Context, _, documentID string, file domain.DocumentFile) (domain.ComplianceDocument, error) {
 	r.attached++
 	if r.attachErr != nil {
@@ -180,7 +190,7 @@ var _ = Describe("Compliance document files (Phase 38c-ii)", func() {
 			repo := newFileDocRepo(pendingDoc())
 			h, store, _, _ := newHandler(repo)
 
-			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID)
+			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID, commands.Actor{Name: "admin"})
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = h.Upload(context.Background(), token, "../../etc/passwd", "application/pdf", strings.NewReader("bytes"))
@@ -198,7 +208,7 @@ var _ = Describe("Compliance document files (Phase 38c-ii)", func() {
 			repo := newFileDocRepo(pendingDoc())
 			h, _, resolver, _ := newHandler(repo)
 
-			token, err := h.MintUploadTicket(context.Background(), "globex", "globex-north", partnerID, documentID)
+			token, err := h.MintUploadTicket(context.Background(), "globex", "globex-north", partnerID, documentID, commands.Actor{Name: "admin"})
 			Expect(err).NotTo(HaveOccurred())
 
 			doc, err := h.Upload(context.Background(), token, "cert.pdf", "application/pdf", strings.NewReader("bytes"))
@@ -215,7 +225,7 @@ var _ = Describe("Compliance document files (Phase 38c-ii)", func() {
 			repo := newFileDocRepo(pendingDoc())
 			h, _, _, _ := newHandler(repo)
 
-			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID)
+			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID, commands.Actor{Name: "admin"})
 			Expect(err).NotTo(HaveOccurred())
 			_, err = h.Upload(context.Background(), token, "cert.pdf", "application/pdf", strings.NewReader("bytes"))
 			Expect(err).NotTo(HaveOccurred())
@@ -260,7 +270,7 @@ var _ = Describe("Compliance document files (Phase 38c-ii)", func() {
 			doc.File = &domain.DocumentFile{FileName: "old.pdf", ContentType: "application/pdf", SizeBytes: 10, ObjectName: "x"}
 			h, _, _, _ := newHandler(newFileDocRepo(doc))
 
-			_, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID)
+			_, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID, commands.Actor{Name: "admin"})
 			Expect(errors.Is(err, domain.ErrDocumentFileAlreadyAttached)).To(BeTrue())
 		})
 
@@ -274,7 +284,7 @@ var _ = Describe("Compliance document files (Phase 38c-ii)", func() {
 		It("refuses to mint any ticket for an unknown document", func() {
 			h, _, _, _ := newHandler(newFileDocRepo())
 
-			_, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, "nope")
+			_, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, "nope", commands.Actor{Name: "admin"})
 			Expect(errors.Is(err, domain.ErrDocumentNotFound)).To(BeTrue())
 		})
 	})
@@ -285,7 +295,7 @@ var _ = Describe("Compliance document files (Phase 38c-ii)", func() {
 			repo.attachErr = errors.New("postgres is down")
 			h, store, _, _ := newHandler(repo)
 
-			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID)
+			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID, commands.Actor{Name: "admin"})
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = h.Upload(context.Background(), token, "cert.pdf", "application/pdf", strings.NewReader("bytes"))
@@ -304,7 +314,7 @@ var _ = Describe("Compliance document files (Phase 38c-ii)", func() {
 			h, store, resolver, _ := newHandler(repo)
 			resolver.err = errors.New("tenant is not connected")
 
-			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID)
+			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID, commands.Actor{Name: "admin"})
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = h.Upload(context.Background(), token, "cert.pdf", "application/pdf", strings.NewReader("bytes"))
@@ -353,7 +363,7 @@ var _ = Describe("Compliance document files (Phase 38c-ii)", func() {
 			repo := newFileDocRepo(pendingDoc())
 			h, _, _, _ := newHandler(repo)
 
-			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID)
+			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID, commands.Actor{Name: "admin"})
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = h.Upload(context.Background(), token, "cert.pdf", "application/pdf", strings.NewReader(""))
@@ -364,7 +374,7 @@ var _ = Describe("Compliance document files (Phase 38c-ii)", func() {
 			repo := newFileDocRepo(pendingDoc())
 			h, _, _, _ := newHandler(repo)
 
-			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID)
+			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID, commands.Actor{Name: "admin"})
 			Expect(err).NotTo(HaveOccurred())
 
 			oversized := strings.NewReader(strings.Repeat("x", int(domain.MaxDocumentFileBytes)+1))
@@ -381,7 +391,7 @@ var _ = Describe("Compliance document files (Phase 38c-ii)", func() {
 			repo := newFileDocRepo(pendingDoc())
 			h, _, _, _ := newHandler(repo)
 
-			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID)
+			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID, commands.Actor{Name: "admin"})
 			Expect(err).NotTo(HaveOccurred())
 
 			doc, err := h.Upload(context.Background(), token, "git-cert.pdf", "application/pdf", strings.NewReader("hello"))
@@ -398,12 +408,12 @@ var _ = Describe("Compliance document files (Phase 38c-ii)", func() {
 			repo := newFileDocRepo(pendingDoc())
 			h, _, _, _ := newHandler(repo)
 
-			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID)
+			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID, commands.Actor{Name: "admin"})
 			Expect(err).NotTo(HaveOccurred())
 			_, err = h.Upload(context.Background(), token, "", "application/pdf", strings.NewReader("x"))
 			Expect(errors.Is(err, domain.ErrFileNameRequired)).To(BeTrue())
 
-			token, err = h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID)
+			token, err = h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID, commands.Actor{Name: "admin"})
 			Expect(err).NotTo(HaveOccurred())
 			_, err = h.Upload(context.Background(), token, "cert.pdf", "", strings.NewReader("x"))
 			Expect(errors.Is(err, domain.ErrContentTypeRequired)).To(BeTrue())
@@ -413,7 +423,7 @@ var _ = Describe("Compliance document files (Phase 38c-ii)", func() {
 			repo := newFileDocRepo(pendingDoc())
 			h, _, _, _ := newHandler(repo)
 
-			upload, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID)
+			upload, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID, commands.Actor{Name: "admin"})
 			Expect(err).NotTo(HaveOccurred())
 			_, err = h.Upload(context.Background(), upload, "git-cert.pdf", "application/pdf", strings.NewReader("hello"))
 			Expect(err).NotTo(HaveOccurred())
@@ -477,13 +487,13 @@ var _ = Describe("Compliance document files (Phase 38c-ii)", func() {
 		})
 
 		It("answers 400 when the filename header is missing", func() {
-			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID)
+			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID, commands.Actor{Name: "admin"})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(post(token, "", "application/pdf", "x").StatusCode).To(Equal(http.StatusBadRequest))
 		})
 
 		It("answers 413 for a body over the cap", func() {
-			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID)
+			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID, commands.Actor{Name: "admin"})
 			Expect(err).NotTo(HaveOccurred())
 			oversized := strings.Repeat("x", int(domain.MaxDocumentFileBytes)+64)
 			Expect(post(token, "cert.pdf", "application/pdf", oversized).StatusCode).
@@ -491,13 +501,13 @@ var _ = Describe("Compliance document files (Phase 38c-ii)", func() {
 		})
 
 		It("answers 409 when the document already has a file", func() {
-			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID)
+			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID, commands.Actor{Name: "admin"})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(post(token, "cert.pdf", "application/pdf", "x").StatusCode).To(Equal(http.StatusOK))
 
 			// Mint bypasses the guard only because the fake repo is mutated
 			// in place; the redeem-time guard is what must catch this.
-			second, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID)
+			second, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID, commands.Actor{Name: "admin"})
 			if err != nil {
 				// Mint refused first, which is also correct (BR-TP41) — then
 				// there is nothing left to assert at the HTTP layer.
@@ -508,7 +518,7 @@ var _ = Describe("Compliance document files (Phase 38c-ii)", func() {
 		})
 
 		It("percent-decodes a non-ASCII filename and returns it on download", func() {
-			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID)
+			token, err := h.MintUploadTicket(context.Background(), tenant, contextKey, partnerID, documentID, commands.Actor{Name: "admin"})
 			Expect(err).NotTo(HaveOccurred())
 			// "GIT — cover (2026).pdf" as the browser would encode it.
 			Expect(post(token, "GIT%20%E2%80%94%20cover%20%282026%29.pdf", "application/pdf", "x").StatusCode).

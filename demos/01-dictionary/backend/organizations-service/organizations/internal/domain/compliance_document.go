@@ -110,6 +110,12 @@ var (
 
 	// ErrGoodsTypesRequired is BR-TP64's GIT-only cardinality guard.
 	ErrGoodsTypesRequired             = errors.New("at least one goods type is required for a goods-in-transit certificate")
+	// ErrGoodsTypeNotFound — BR-TP64: the code is not in the goods-type
+	// vocabulary for this certificate's context. A named error, not a bare
+	// fmt.Errorf at the call site, so the api.* boundary can map it the way
+	// BR-TP14's vehicle-type equivalent is mapped.
+	ErrGoodsTypeNotFound = errors.New("goods type is not in the vocabulary for this context")
+
 	ErrInsurerNameRequired            = errors.New("an insurer name is required to approve a goods-in-transit certificate")
 	ErrInsuranceContactNameRequired   = errors.New("an insurance contact name is required to approve a goods-in-transit certificate")
 	ErrInsuranceContactNumberRequired = errors.New("an insurance contact number is required to approve a goods-in-transit certificate")
@@ -191,6 +197,22 @@ type ComplianceDocument struct {
 	// (and mints the ID the object name needs) before any file arrives, and
 	// the review lifecycle never required a file to progress.
 	File *DocumentFile `json:"file,omitempty"`
+}
+
+// ProjectedCertificate is the replayed half of a GIT certificate — exactly
+// the fields the stream carries, and no more. It exists so the projection
+// writer cannot be handed a ComplianceDocument and quietly write the two
+// contact columns back from a value that never came off the stream (BR-TP72).
+// The absence of those fields here is the guard, not a convention.
+type ProjectedCertificate struct {
+	ID            string
+	Status        DocumentStatus
+	Reference     string
+	GoodsTypes    []string
+	CoverageCents *int64
+	ExpiresAt     *int64
+	InsurerName   string
+	File          *DocumentFile
 }
 
 // ValidateDocumentType implements BR-TP07 — every type in the shared subset

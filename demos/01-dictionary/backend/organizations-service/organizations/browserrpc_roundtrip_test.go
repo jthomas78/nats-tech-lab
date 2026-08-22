@@ -33,6 +33,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
+	profiledomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/domain"
 )
 
 // --- in-memory fakes ---
@@ -234,10 +235,150 @@ func (f *fakeDocRepo) GetDocument(_ context.Context, partnerID, documentID strin
 	return doc, nil
 }
 
+// SetInsuranceContact and UpsertCertificate mirror the Postgres adapter's
+// division of labour (decision 25): the first writes the two columns that are
+// never on the stream, the second writes everything that is — and pointedly
+// leaves those two alone, which is what the roundtrip specs rely on to prove
+// a projection write cannot blank them.
+func (f *fakeDocRepo) SetInsuranceContact(_ context.Context, partnerID, documentID, insurerName, contactName, contactNumber string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	doc, ok := f.byID[partnerID][documentID]
+	if !ok {
+		return domain.ErrDocumentNotFound
+	}
+	doc.InsurerName, doc.InsuranceContactName, doc.InsuranceContactNumber = insurerName, contactName, contactNumber
+	f.byID[partnerID][documentID] = doc
+	return nil
+}
+
+func (f *fakeDocRepo) UpsertCertificate(_ context.Context, partnerID string, cert domain.ProjectedCertificate) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.byID[partnerID] == nil {
+		f.byID[partnerID] = map[string]domain.ComplianceDocument{}
+	}
+	doc := f.byID[partnerID][cert.ID]
+	doc.ID, doc.Type = cert.ID, domain.DocumentTypeGoodsInTransit
+	doc.Status, doc.Reference = cert.Status, cert.Reference
+	doc.GoodsTypes, doc.CoverageCents, doc.ExpiresAt = cert.GoodsTypes, cert.CoverageCents, cert.ExpiresAt
+	doc.InsurerName, doc.File = cert.InsurerName, cert.File
+	f.byID[partnerID][cert.ID] = doc
+	return nil
+}
+
 func (f *fakeDocRepo) AttachFile(_ context.Context, partnerID, documentID string, file domain.DocumentFile) (domain.ComplianceDocument, error) {
 	return f.transition(partnerID, documentID, func(doc domain.ComplianceDocument) (domain.ComplianceDocument, error) {
 		return doc.AttachFile(file)
 	})
+}
+
+// fakeCertificateAppender stands in for the tenant-resolved aggregate write
+// path plus the projector, collapsed into one synchronous object. It holds a
+// real TransporterProfile per organization and applies the real events, then
+// writes the resulting certificates through UpsertCertificate exactly as
+// orchestration.Projector does — so a roundtrip spec exercises the genuine
+// register -> event -> projection path rather than a shortcut that would pass
+// whatever the command wrote.
+type fakeCertificateAppender struct {
+	mu      sync.Mutex
+	docs    *fakeDocRepo
+	profile map[string]*profiledomain.TransporterProfile
+}
+
+func newFakeCertificateAppender(docs *fakeDocRepo) *fakeCertificateAppender {
+	return &fakeCertificateAppender{docs: docs, profile: map[string]*profiledomain.TransporterProfile{}}
+}
+
+func (f *fakeCertificateAppender) CertificateCommands(string) (commands.CertificateAppender, error) {
+	return f, nil
+}
+
+// aggregate lazily creates the profile, since these specs register documents
+// against organizations that never went through the vetting saga.
+func (f *fakeCertificateAppender) aggregate(contextKey, organizationID string) *profiledomain.TransporterProfile {
+	agg, ok := f.profile[organizationID]
+	if !ok {
+		agg = &profiledomain.TransporterProfile{}
+		created, err := agg.Create(contextKey, organizationID)
+		if err == nil {
+			agg.Apply(created)
+		}
+		f.profile[organizationID] = agg
+	}
+	return agg
+}
+
+func (f *fakeCertificateAppender) project(organizationID string, agg *profiledomain.TransporterProfile) {
+	for _, certificate := range agg.State().Certificates {
+		_ = f.docs.UpsertCertificate(context.Background(), organizationID, domain.ProjectedCertificate{
+			ID: certificate.ID, Status: certificate.Status, Reference: certificate.Reference,
+			GoodsTypes: certificate.GoodsTypes, CoverageCents: certificate.CoverageCents,
+			ExpiresAt: certificate.ExpiresAt, InsurerName: certificate.InsurerName, File: certificate.File,
+		})
+	}
+}
+
+func (f *fakeCertificateAppender) RegisterCertificate(_ context.Context, contextKey, organizationID string, doc domain.ComplianceDocument, actorName, sourceIP string) (profiledomain.State, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	agg := f.aggregate(contextKey, organizationID)
+	event, err := agg.RegisterCertificate(doc, actorName, sourceIP)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	agg.Apply(event)
+	f.project(organizationID, agg)
+	return agg.State(), nil
+}
+
+func (f *fakeCertificateAppender) AttachCertificateFile(_ context.Context, contextKey, organizationID, documentID string, file domain.DocumentFile, actorName, sourceIP string) (profiledomain.State, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	agg := f.aggregate(contextKey, organizationID)
+	event, err := agg.AttachCertificateFile(documentID, file, actorName, sourceIP)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	agg.Apply(event)
+	f.project(organizationID, agg)
+	return agg.State(), nil
+}
+
+func (f *fakeCertificateAppender) SetCertificateExpiry(_ context.Context, contextKey, organizationID, documentID string, expiresAt *int64, now time.Time, actorName, sourceIP string) (profiledomain.State, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	agg := f.aggregate(contextKey, organizationID)
+	event, err := agg.SetCertificateExpiry(documentID, expiresAt, now, actorName, sourceIP)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	agg.Apply(event)
+	f.project(organizationID, agg)
+	return agg.State(), nil
+}
+
+func (f *fakeCertificateAppender) ApproveCertificate(_ context.Context, contextKey, organizationID, documentID, insurerName, actorName, sourceIP string) (profiledomain.State, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	agg := f.aggregate(contextKey, organizationID)
+	events, err := agg.ApproveCertificate(documentID, insurerName, actorName, sourceIP)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	for _, event := range events {
+		agg.Apply(event)
+	}
+	f.project(organizationID, agg)
+	return agg.State(), nil
+}
+
+// acceptingGoodsTypes accepts any code. BR-TP64's vocabulary check has its own
+// specs against the command; these roundtrip specs are about the api.* surface.
+type acceptingGoodsTypes struct{}
+
+func (acceptingGoodsTypes) GoodsTypeExists(context.Context, string, string, string) (bool, error) {
+	return true, nil
 }
 
 type fakeFleetRepo struct {
@@ -352,7 +493,9 @@ var _ = Describe("api.* round trips (Phase 26h)", func() {
 
 		adapter, err := browserrpc.New(nc, browserrpc.Deps{
 			Organizations: commands.NewOrganizationHandler(partners, audit),
-			Documents:     commands.NewComplianceDocumentHandler(partners, docs),
+			Documents: commands.NewComplianceDocumentHandler(partners, docs).
+				WithGoodsTypeValidator(acceptingGoodsTypes{}).
+				WithCertificateAppender(newFakeCertificateAppender(docs)),
 			FleetAssets:   commands.NewFleetAssetHandler(partners, fleet, validator),
 			Audit:         audit,
 			Vetting:       vetting,
@@ -505,15 +648,21 @@ var _ = Describe("api.* round trips (Phase 26h)", func() {
 					ID string `json:"id"`
 				}
 				request("api.acme.organizations.document.add.v1", map[string]any{
-					"id": registered.ID, "type": "GOODS_IN_TRANSIT", "reference": "s3://git.pdf",
+					"id": registered.ID, "type": "GOODS_IN_TRANSIT", "goodsTypes": []any{"FOOD"}, "reference": "s3://git.pdf",
 				}, &added)
 
 				request("api.acme.organizations.organization.profile.v1",
 					map[string]any{"id": registered.ID}, &out)
 				Expect(out.GitStatus).To(Equal("Pending"), "a pending GIT document")
 
-				request("api.acme.organizations.document.approve.v1",
-					map[string]any{"id": registered.ID, "documentId": added.ID}, nil)
+				// BR-TP66: insurer and the contact pair are approval-time
+				// requirements on a GIT certificate, so an approval without
+				// them is refused rather than silently approving.
+				request("api.acme.organizations.document.approve.v1", map[string]any{
+					"id": registered.ID, "documentId": added.ID,
+					"insurerName": "Acme Insurance", "insuranceContactName": "Dana Reyes",
+					"insuranceContactNumber": "+27 11 555 0100",
+				}, nil)
 
 				request("api.acme.organizations.organization.profile.v1",
 					map[string]any{"id": registered.ID}, &out)
@@ -533,7 +682,7 @@ var _ = Describe("api.* round trips (Phase 26h)", func() {
 					ExpiresAt *int64 `json:"expiresAt"`
 				}
 				request("api.acme.organizations.document.add.v1", map[string]any{
-					"id": registered.ID, "type": "GOODS_IN_TRANSIT",
+					"id": registered.ID, "type": "GOODS_IN_TRANSIT", "goodsTypes": []any{"FOOD"},
 					"reference": "s3://git.pdf", "expiresAt": future,
 				}, &added)
 				Expect(added.ExpiresAt).NotTo(BeNil(), "the expiry must survive the api.* round trip")
@@ -560,7 +709,12 @@ var _ = Describe("api.* round trips (Phase 26h)", func() {
 				// and the refused one must not — signalling on a write that
 				// never landed would re-arm against an expiry the row does not
 				// have.
-				Expect(vetting.coverSignals).To(HaveLen(2))
+				//
+				// One signal, not two: 39a moved supersede from registration to
+				// approval (BR-TP69), so registering a certificate no longer
+				// changes any cover and no longer re-arms anything. The accepted
+				// set-expiry is the only write here that moves an expiry.
+				Expect(vetting.coverSignals).To(HaveLen(1))
 				Expect(vetting.coverSignals[0]).To(Equal("acme|" + registered.ID))
 			})
 
@@ -882,7 +1036,7 @@ var _ = Describe("BR-TP57 the api.* boundary signals document reviews", func() {
 			ID string `json:"id"`
 		}
 		request("api.acme.organizations.document.add.v1",
-			map[string]any{"id": registered.ID, "type": "GOODS_IN_TRANSIT", "reference": "GIT-1"}, &added)
+			map[string]any{"id": registered.ID, "type": "GOODS_IN_TRANSIT", "goodsTypes": []any{"FOOD"}, "reference": "GIT-1"}, &added)
 		Expect(added.ID).NotTo(BeEmpty(), "BR-TP29 mints the document ID this signal uses as its reference")
 		return registered.ID, added.ID
 	}
@@ -896,7 +1050,9 @@ var _ = Describe("BR-TP57 the api.* boundary signals document reviews", func() {
 
 		adapter, err := browserrpc.New(nc, browserrpc.Deps{
 			Organizations: commands.NewOrganizationHandler(partners, audit),
-			Documents:     commands.NewComplianceDocumentHandler(partners, docs),
+			Documents: commands.NewComplianceDocumentHandler(partners, docs).
+				WithGoodsTypeValidator(acceptingGoodsTypes{}).
+				WithCertificateAppender(newFakeCertificateAppender(docs)),
 			Audit:         audit,
 			Vetting:       vetting,
 			Tenant:        "acme",
@@ -905,11 +1061,21 @@ var _ = Describe("BR-TP57 the api.* boundary signals document reviews", func() {
 		DeferCleanup(func() { _ = adapter.Stop() })
 	})
 
+	// BR-TP66: a GIT approval carries the insurer and the contact pair. These
+	// specs are about BR-TP57's signal, not about the approval rules, so they
+	// supply valid details once here rather than restating them per spec.
+	approveGit := func(organizationID, documentID string) map[string]any {
+		return map[string]any{
+			"id": organizationID, "documentId": documentID,
+			"insurerName": "Acme Insurance", "insuranceContactName": "Dana Reyes",
+			"insuranceContactNumber": "+27 11 555 0100",
+		}
+	}
+
 	It("signals the approval with the document ID as the reference", func() {
 		organizationID, documentID := addTransporterDocument()
 
-		request("api.acme.organizations.document.approve.v1",
-			map[string]any{"id": organizationID, "documentId": documentID}, nil)
+		request("api.acme.organizations.document.approve.v1", approveGit(organizationID, documentID), nil)
 
 		Expect(vetting.signals).To(HaveExactElements("acme|" + organizationID + "|" + documentID + "|approved"))
 	})
@@ -928,14 +1094,12 @@ var _ = Describe("BR-TP57 the api.* boundary signals document reviews", func() {
 	// document that never moved.
 	It("sends nothing when the transition itself was refused", func() {
 		organizationID, documentID := addTransporterDocument()
-		request("api.acme.organizations.document.approve.v1",
-			map[string]any{"id": organizationID, "documentId": documentID}, nil)
+		request("api.acme.organizations.document.approve.v1", approveGit(organizationID, documentID), nil)
 		vetting.signals = nil
 
 		// BR-TP09: Approve is legal only from Pending, and this one is already
 		// Approved.
-		reply := request("api.acme.organizations.document.approve.v1",
-			map[string]any{"id": organizationID, "documentId": documentID}, nil)
+		reply := request("api.acme.organizations.document.approve.v1", approveGit(organizationID, documentID), nil)
 
 		Expect(reply.Header.Get("Nats-Service-Error-Code")).To(Equal("409"))
 		Expect(vetting.signals).To(BeEmpty())
@@ -961,8 +1125,7 @@ var _ = Describe("BR-TP57 the api.* boundary signals document reviews", func() {
 		var out struct {
 			Status string `json:"status"`
 		}
-		request("api.acme.organizations.document.approve.v1",
-			map[string]any{"id": organizationID, "documentId": documentID}, &out)
+		request("api.acme.organizations.document.approve.v1", approveGit(organizationID, documentID), &out)
 
 		Expect(out.Status).To(Equal("APPROVED"),
 			"a failed signal must never roll back or block the review it describes")

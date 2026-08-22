@@ -66,15 +66,29 @@ type Manager struct {
 	// the feature; it is never a reason to store a secret unsealed.
 	secretKey []byte
 
+	// certificates is the compliance_documents projection writer handed to
+	// every tenant's projector (ADR-050 Option A). It is service-wide rather
+	// than per-tenant because the table it writes is this service's own
+	// Postgres — the tenant boundary is the NATS account the events arrive
+	// over, and the organization_id column carries the rest.
+	certificates orchestration.CertificateWriter
+
 	mu      sync.RWMutex
 	apiDeps *browserrpc.Deps // nil until MountAPI has run
+}
+
+// WithCertificateWriter must be called before any tenant connects; a
+// projector started without it maintains the profile projection alone.
+func (m *Manager) WithCertificateWriter(w orchestration.CertificateWriter) *Manager {
+	m.certificates = w
+	return m
 }
 
 func NewManager(natsURL, credsDir string, db *sql.DB, log *slog.Logger, secretKey []byte) *Manager {
 	m := &Manager{secretKey: secretKey}
 	m.mgr = natstenants.NewManager(natsURL, credsDir, "organizations-service", log,
 		func(ctx context.Context, nc *nats.Conn, tenant string) (*resource, error) {
-			profiles, err := transporterprofile.Start(ctx, nc, db)
+			profiles, err := transporterprofile.Start(ctx, nc, db, m.certificates)
 			if err != nil {
 				return nil, err
 			}
@@ -208,6 +222,18 @@ func (m *Manager) SecretStore(tenant string) (commands.SecretStore, error) {
 // (BR-TP55) — the TRANSPORTER stream is inside the tenant's own account, so
 // the appender is per-tenant like every other resource here.
 func (m *Manager) ProfileCommands(tenant string) (commands.ProfileEventAppender, error) {
+	res, ok := m.mgr.Resource(tenant)
+	if !ok {
+		return nil, ErrTenantNotConnected
+	}
+	return res.profiles.Commands, nil
+}
+
+// CertificateCommands implements commands.CertificateAppenderResolver
+// (ADR-050 Option A). Same resource as ProfileCommands above, resolved
+// through a second, narrower port so the tracking-credential command cannot
+// reach the certificate facts and vice versa.
+func (m *Manager) CertificateCommands(tenant string) (commands.CertificateAppender, error) {
 	res, ok := m.mgr.Resource(tenant)
 	if !ok {
 		return nil, ErrTenantNotConnected
