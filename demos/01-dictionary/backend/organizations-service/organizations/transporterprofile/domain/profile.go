@@ -440,40 +440,6 @@ func (p *TransporterProfile) RejectCertificate(documentID, actorName, sourceIP s
 	return event, nil
 }
 
-// ResubmitCertificate moves a rejected GIT certificate back to the state its
-// bytes imply. Which state that is belongs to BR-TP11/BR-TP68 and lives on
-// ComplianceDocument.Resubmit, so replay reaches the same landing state as
-// the projection-read command by asking the same method — not by keeping a
-// second copy of the rule here in step with it.
-func (p *TransporterProfile) ResubmitCertificate(documentID, actorName, sourceIP string) (Event, error) {
-	if !p.exists {
-		return Event{}, ErrNotFound
-	}
-	certificate, ok := p.state.Certificates[documentID]
-	if !ok {
-		return Event{}, organizationdomain.ErrDocumentNotFound
-	}
-	// Every certificate on this aggregate is GIT by construction —
-	// RegisterCertificate refuses anything else — so the type is supplied
-	// rather than stored, as it is for approval's guard probe.
-	probe := organizationdomain.ComplianceDocument{
-		ID: certificate.ID, Type: organizationdomain.DocumentTypeGoodsInTransit,
-		Status: certificate.Status, File: certificate.File,
-	}
-	resubmitted, err := probe.Resubmit()
-	if err != nil {
-		return Event{}, err
-	}
-	updated := certificate
-	updated.Status = resubmitted.Status
-	event := p.event(DocumentDetailsUpdatedEvent, p.state.AttemptNumber, p.state.Status)
-	event.DocumentReference = documentID
-	event.Certificate = &updated
-	event.Changes = []FieldChange{{Field: "status", From: certificate.Status, To: updated.Status}}
-	event.ActorName, event.ActorSourceIP = actorName, sourceIP
-	return event, nil
-}
-
 // UpdateCertificateDetails is the edit view's replay-safe write. Expiry is a
 // separate command because BR-TP70 permits that one correction even after a
 // certificate is superseded; every field here remains locked then.

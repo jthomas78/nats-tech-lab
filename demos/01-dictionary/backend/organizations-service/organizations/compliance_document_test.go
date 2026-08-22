@@ -68,9 +68,14 @@ var _ = Describe("ComplianceDocument Rules", func() {
 		})
 	})
 
+	// The matrix is exercised on a CRUD document type. GIT certificates share
+	// BR-TP09/BR-TP10's approve and reject edges but have no Resubmit edge at
+	// all (Phase 39), so a GIT fixture cannot state the third column — and
+	// their own review path is covered against the aggregate in
+	// git_certificate_rules_test.go.
 	Context("BR-TP09/BR-TP10/BR-TP11: the 3x3 document-status transition legality matrix", func() {
 		pending := func() domain.ComplianceDocument {
-			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeGoodsInTransit, "s3://docs/git-1.pdf")
+			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeCIPC, "s3://docs/cipc-1.pdf")
 			Expect(err).NotTo(HaveOccurred())
 			return doc
 		}
@@ -136,42 +141,37 @@ var _ = Describe("ComplianceDocument Rules", func() {
 		})
 	})
 
-	Context("BR-TP11 with BR-TP68: resubmission lands where the certificate's bytes put it", func() {
-		file := domain.DocumentFile{
-			FileName: "git.pdf", ContentType: "application/pdf", SizeBytes: 22,
-			ObjectName: "acme.transporter.tp-1.GOODS_IN_TRANSIT.doc-1", UploadedAt: 1787408903,
-		}
-		rejectedWithFile := func(docType domain.DocumentType) domain.ComplianceDocument {
+	Context("BR-TP11 as scoped in Phase 39: a GIT certificate is replaced, never resubmitted", func() {
+		rejected := func(docType domain.DocumentType) domain.ComplianceDocument {
 			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, docType, "s3://docs/doc-1.pdf")
-			Expect(err).NotTo(HaveOccurred())
-			doc, err = doc.AttachFile(file)
 			Expect(err).NotTo(HaveOccurred())
 			doc.Status = domain.DocumentStatusRejected
 			return doc
 		}
 
-		It("returns a GIT certificate with bytes attached to FOR_REVIEW, not PENDING", func() {
-			doc, err := rejectedWithFile(domain.DocumentTypeGoodsInTransit).Resubmit()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(doc.Status).To(Equal(domain.DocumentStatusForReview),
-				"PENDING means no file yet — a resubmitted certificate whose bytes landed weeks ago is not that")
+		It("refuses to resubmit a rejected GIT certificate", func() {
+			_, err := rejected(domain.DocumentTypeGoodsInTransit).Resubmit()
+			Expect(errors.Is(err, domain.ErrCertificateNotResubmittable)).To(BeTrue(),
+				"a rejection is final for that certificate — the operator registers a new one")
 		})
 
-		It("still returns a GIT certificate with no file to PENDING", func() {
-			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeGoodsInTransit, "s3://docs/doc-1.pdf")
-			Expect(err).NotTo(HaveOccurred())
-			doc.Status = domain.DocumentStatusRejected
+		It("refuses regardless of the status it is asked from", func() {
+			for _, status := range []domain.DocumentStatus{
+				domain.DocumentStatusPending, domain.DocumentStatusForReview,
+				domain.DocumentStatusApproved, domain.DocumentStatusSuperseded,
+			} {
+				doc := rejected(domain.DocumentTypeGoodsInTransit)
+				doc.Status = status
+				_, err := doc.Resubmit()
+				Expect(errors.Is(err, domain.ErrCertificateNotResubmittable)).To(BeTrue(),
+					"the type decides this, not the status — %s", status)
+			}
+		})
 
-			doc, err = doc.Resubmit()
+		It("still resubmits the four CRUD types", func() {
+			doc, err := rejected(domain.DocumentTypeCIPC).Resubmit()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(doc.Status).To(Equal(domain.DocumentStatusPending))
-		})
-
-		It("leaves the four CRUD types on PENDING even with a file attached", func() {
-			doc, err := rejectedWithFile(domain.DocumentTypeCIPC).Resubmit()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(doc.Status).To(Equal(domain.DocumentStatusPending),
-				"FOR_REVIEW is a GIT state — the legacy review path has no such queue")
 		})
 	})
 
@@ -299,10 +299,24 @@ var _ = Describe("ComplianceDocument Rules", func() {
 			_, err = superseded.Reject()
 			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
 
+			// This fixture is a GIT certificate, which refuses resubmission on
+			// type before status is even considered (Phase 39). The CRUD types
+			// still report the superseded refusal here — asserted below, so
+			// BR-TP30's own edge keeps its coverage.
 			_, err = superseded.Resubmit()
-			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrCertificateNotResubmittable)).To(BeTrue())
 
 			_, err = superseded.Supersede()
+			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
+		})
+
+		It("refuses Resubmit on a superseded CRUD document", func() {
+			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeCIPC, "s3://docs/cipc-1.pdf")
+			Expect(err).NotTo(HaveOccurred())
+			superseded, err := doc.Supersede()
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = superseded.Resubmit()
 			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
 		})
 	})

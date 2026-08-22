@@ -897,18 +897,11 @@ func (a *Adapter) handleDocumentResubmit(req micro.Request) {
 	// attempt (BR-TP23), and the workflow's required set was fixed at submit
 	// time. Putting the document back to Pending is what makes it eligible for
 	// the *next* attempt, which BR-TP56 starts.
-	var in documentRequest
-	if err := json.Unmarshal(req.Data(), &in); err != nil {
-		a.reply(req, nil, err)
-		return
-	}
-	if a.isGitDocument(in.ID, in.DocumentID) {
-		contextKey := sharedbrowserrpc.ContextFromSubject(req.Subject())
-		doc, err := a.documents.ResubmitGitDocument(context.Background(), a.tenant, contextKey,
-			in.ID, in.DocumentID, a.actor(req))
-		a.reply(req, documentResponse{doc}, err)
-		return
-	}
+	//
+	// There is no GIT branch here, unlike approve and reject. A rejected
+	// certificate is replaced by registering a new one, not revived, so this
+	// subject reaches only the four CRUD types — and a client that addresses a
+	// certificate by ID anyway is refused by the domain, not by this adapter.
 	a.documentTransition(req, a.documents.ResubmitDocument, reviewNoSignal)
 }
 

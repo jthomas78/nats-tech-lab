@@ -29,7 +29,6 @@ type CertificateAppender interface {
 	AttachCertificateFile(ctx context.Context, contextKey, organizationID, documentID string, file domain.DocumentFile, actorName, sourceIP string) (profiledomain.State, error)
 	ApproveCertificate(ctx context.Context, contextKey, organizationID, documentID, insurerName string, now time.Time, actorName, sourceIP string) (profiledomain.State, error)
 	RejectCertificate(ctx context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error)
-	ResubmitCertificate(ctx context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error)
 	UpdateCertificateDetails(ctx context.Context, contextKey, organizationID, documentID, reference string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (profiledomain.State, error)
 }
 
@@ -229,27 +228,6 @@ func (h *ComplianceDocumentHandler) RejectGitDocument(ctx context.Context, tenan
 		return domain.ComplianceDocument{}, err
 	}
 	return rejected, nil
-}
-
-func (h *ComplianceDocumentHandler) ResubmitGitDocument(ctx context.Context, tenant, contextKey, partnerID, documentID string, actor Actor) (domain.ComplianceDocument, error) {
-	doc, err := h.docs.GetDocument(ctx, partnerID, documentID)
-	if err != nil {
-		return domain.ComplianceDocument{}, err
-	}
-	// The landing state is the domain's to decide (BR-TP11 with BR-TP68), and
-	// the document read here carries the file the rule reads.
-	resubmitted, err := doc.Resubmit()
-	if err != nil {
-		return domain.ComplianceDocument{}, err
-	}
-	appender, err := h.certificateCommands(tenant)
-	if err != nil {
-		return domain.ComplianceDocument{}, err
-	}
-	if _, err := appender.ResubmitCertificate(ctx, contextKey, partnerID, documentID, actor.Name, actor.SourceIP); err != nil {
-		return domain.ComplianceDocument{}, err
-	}
-	return resubmitted, nil
 }
 
 // UpdateGitDocument persists the edit view's ordinary certificate fields.

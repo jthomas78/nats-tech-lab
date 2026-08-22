@@ -17,7 +17,6 @@ import {
   listItems,
   registerGitCertificateWithFile,
   rejectComplianceDocument,
-  resubmitComplianceDocument,
   setGitCertificateExpiry,
   updateGitCertificate,
 } from '../api'
@@ -243,11 +242,10 @@ async function runRowAction(action, doc) {
     openApprove(doc)
     return
   }
-  const fn = action === 'reject' ? rejectComplianceDocument : resubmitComplianceDocument
   busyId.value = doc.id
   error.value = ''
   try {
-    await fn(props.context, props.organizationId, doc.id)
+    await rejectComplianceDocument(props.context, props.organizationId, doc.id)
     await load()
     emit('changed')
   } catch (e) {
@@ -364,7 +362,6 @@ function rowClass(doc) {
               <Button v-else label="View" text size="small" @click="openEdit(doc)" />
               <Button v-if="gitCertificateActions(doc).approve" label="Approve" text size="small" @click="runRowAction('approve', doc)" />
               <Button v-if="gitCertificateActions(doc).reject" label="Reject" text size="small" severity="danger" :loading="busyId === doc.id" @click="runRowAction('reject', doc)" />
-              <Button v-if="gitCertificateActions(doc).resubmit" label="Resubmit" text size="small" :loading="busyId === doc.id" @click="runRowAction('resubmit', doc)" />
             </div>
           </template>
         </Column>

@@ -112,14 +112,6 @@ func (r *recordingAppender) RejectCertificate(ctx context.Context, contextKey, o
 	return r.fakeCertificateAppender.RejectCertificate(ctx, contextKey, organizationID, documentID, actorName, sourceIP)
 }
 
-func (r *recordingAppender) ResubmitCertificate(ctx context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error) {
-	r.replay(contextKey, organizationID, func(agg *profiledomain.TransporterProfile) ([]profiledomain.Event, error) {
-		event, err := agg.ResubmitCertificate(documentID, actorName, sourceIP)
-		return []profiledomain.Event{event}, err
-	})
-	return r.fakeCertificateAppender.ResubmitCertificate(ctx, contextKey, organizationID, documentID, actorName, sourceIP)
-}
-
 func (r *recordingAppender) UpdateCertificateDetails(ctx context.Context, contextKey, organizationID, documentID, reference string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (profiledomain.State, error) {
 	r.replay(contextKey, organizationID, func(agg *profiledomain.TransporterProfile) ([]profiledomain.Event, error) {
 		event, err := agg.UpdateCertificateDetails(documentID, reference, goodsTypes, coverageCents, insurerName, contactsChanged, actorName, sourceIP)
@@ -695,19 +687,28 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 			Expect(stored.Status).To(Equal(domain.DocumentStatusRejected))
 		})
 
-		It("resubmits a rejected certificate with bytes back to FOR_REVIEW on the aggregate", func() {
+		It("leaves a rejected certificate rejected — the replacement is a new registration", func() {
 			doc, err := register([]string{"FOOD"}, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			attach(doc.ID)
 			_, err = handler.RejectGitDocument(context.Background(), tenant, contextKey, partnerID, doc.ID, actor)
 			Expect(err).NotTo(HaveOccurred())
 
-			resubmitted, err := handler.ResubmitGitDocument(context.Background(), tenant, contextKey, partnerID, doc.ID, actor)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resubmitted.Status).To(Equal(domain.DocumentStatusForReview))
+			// The legacy CRUD verb is the only resubmission path left, and it
+			// must not reach a certificate by ID.
+			_, err = handler.ResubmitDocument(context.Background(), partnerID, doc.ID)
+			Expect(errors.Is(err, domain.ErrCertificateNotResubmittable)).To(BeTrue(),
+				"a rejected certificate is replaced by registering a new one, not put back in the queue")
+
 			stored, err := docs.GetDocument(context.Background(), partnerID, doc.ID)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(stored.Status).To(Equal(domain.DocumentStatusForReview))
+			Expect(stored.Status).To(Equal(domain.DocumentStatusRejected))
+
+			// Registration is never gated, so the replacement is always available.
+			replacement, err := register([]string{"FOOD"}, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(replacement.ID).NotTo(Equal(doc.ID))
+			Expect(replacement.Status).To(Equal(domain.DocumentStatusPending))
 		})
 
 		It("still refuses a superseded certificate", func() {

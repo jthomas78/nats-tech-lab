@@ -17,10 +17,13 @@ const (
 	GitStatusRejected GitStatus = "Rejected"
 )
 
-// gitSeverity ranks the four document-derived values worst-first, so
+// gitSeverity ranks the document-derived values worst-first, so
 // DeriveGitStatus can take a max without a chain of if/else. None is absent
 // deliberately: it is not a candidate a document can produce, it is the
-// answer when there are no candidates at all.
+// answer when there are no candidates at all. Active is present but never
+// consulted — only an approved certificate can produce it, and DeriveGitStatus
+// returns on that certificate rather than ranking it. It is listed so the
+// table reads as the full enum rather than looking like an omission.
 var gitSeverity = map[GitStatus]int{
 	GitStatusActive:   1,
 	GitStatusPending:  2,
@@ -28,8 +31,9 @@ var gitSeverity = map[GitStatus]int{
 	GitStatusRejected: 4,
 }
 
-// DeriveGitStatus implements BR-TP38 — the worst status across a partner's
-// *current* GOODS_IN_TRANSIT documents, evaluated against now.
+// DeriveGitStatus implements BR-TP38 — the approved certificate's own status
+// when the partner has one, and otherwise the worst status across its
+// remaining current GOODS_IN_TRANSIT documents, evaluated against now.
 //
 // Three things about this are deliberate:
 //
@@ -48,14 +52,42 @@ var gitSeverity = map[GitStatus]int{
 // docs may contain documents of any type; non-GIT and superseded ones are
 // skipped, so callers can pass a partner's whole document list.
 func DeriveGitStatus(docs []ComplianceDocument, now time.Time) GitStatus {
-	worst := GitStatusNone
+	worst, approved := GitStatusNone, GitStatus("")
 	for _, doc := range docs {
 		if doc.Type != DocumentTypeGoodsInTransit || doc.Status == DocumentStatusSuperseded {
 			continue
 		}
-		if candidate := gitStatusOf(doc, now); gitSeverity[candidate] > gitSeverity[worst] {
+		candidate := gitStatusOf(doc, now)
+		// The approved certificate answers on its own, and everything else is
+		// only allowed to speak when there isn't one. At most one can exist —
+		// approval supersedes every earlier certificate (BR-TP69), backed by a
+		// unique partial index — so this is not a "best of several", it is the
+		// one document that carries cover speaking for the transporter.
+		//
+		// Before Phase 39 moved supersede from on-upload to on-approval there
+		// was exactly one current certificate, and worst-of-all was the same
+		// rule as this one. Now that renewals coexist with live cover by
+		// design, worst-of-all reports a rejected or in-review renewal as the
+		// transporter's cover status — wrong twice over, because the badge
+		// then contradicts the certificate carrying cover, and IsGitActive
+		// (the same call, feeding BR-TP28's suspension) would revoke fleet
+		// availability from a transporter that is covered.
+		if doc.Status == DocumentStatusApproved {
+			// Written as a fold rather than an early return so the answer
+			// cannot depend on slice order if that index is ever missing:
+			// where two approved certificates somehow coexist, the one
+			// carrying cover wins over the lapsed one.
+			if approved != GitStatusActive {
+				approved = candidate
+			}
+			continue
+		}
+		if gitSeverity[candidate] > gitSeverity[worst] {
 			worst = candidate
 		}
+	}
+	if approved != "" {
+		return approved
 	}
 	return worst
 }

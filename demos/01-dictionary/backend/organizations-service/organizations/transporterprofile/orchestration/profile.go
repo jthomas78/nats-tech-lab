@@ -205,22 +205,6 @@ func (h *ProfileHandler) RejectCertificate(ctx context.Context, contextKey, orga
 	return agg.State(), nil
 }
 
-func (h *ProfileHandler) ResubmitCertificate(ctx context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error) {
-	agg, sequence, err := h.store.Hydrate(ctx, contextKey, organizationID)
-	if err != nil {
-		return profiledomain.State{}, err
-	}
-	event, err := agg.ResubmitCertificate(documentID, actorName, sourceIP)
-	if err != nil {
-		return profiledomain.State{}, err
-	}
-	if _, err = h.store.Append(ctx, contextKey, organizationID, event, sequence); err != nil {
-		return profiledomain.State{}, err
-	}
-	agg.Apply(event)
-	return agg.State(), nil
-}
-
 func (h *ProfileHandler) UpdateCertificateDetails(ctx context.Context, contextKey, organizationID, documentID, reference string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (profiledomain.State, error) {
 	agg, sequence, err := h.store.Hydrate(ctx, contextKey, organizationID)
 	if err != nil {

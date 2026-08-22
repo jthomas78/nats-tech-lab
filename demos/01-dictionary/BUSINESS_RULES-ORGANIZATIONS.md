@@ -124,6 +124,16 @@ Phase 26 plan section).
   human.)*
 - **BR-TP11 (`Resubmit`):** Legal only from `Rejected` → `Pending`,
   confirmed 2026-08-13 (resubmission is in scope for v1, not deferred).
+  **Scoped to the four CRUD document types by Phase 39 (confirmed by the
+  user 2026-08-22).** A `GOODS_IN_TRANSIT` certificate is never resubmitted:
+  a rejection is final for that certificate, and the operator registers a new
+  one — which BR-TP63 permits at any time, gated by nothing. Resubmission and
+  register-a-replacement are two answers to the same question and only one can
+  be the workflow; with both, a rejected certificate has two futures and the
+  screen has to explain which is which. `Resubmit` refuses a GIT certificate
+  on **type, before status**, with `ErrCertificateNotResubmittable`, so the
+  legacy CRUD verb cannot reach a certificate by ID and revive it. The GIT tab
+  offers no Resubmit row action; the always-open drop zone is the path.
   Called on a document in any other status (`Pending` or `Approved`),
   rejected with `409 Conflict`. There is no `Approved` → anything transition
   in v1 — an approved document is not un-approved or re-reviewed once
@@ -720,11 +730,27 @@ These rules are what make the vetting lifecycle observable.
 - **BR-TP38 (derived GIT status):** GIT status is one of five values —
   `None`, `Pending`, `Active`, `Expired`, `Rejected` (V2's real
   `GitStatusType`) — and is **always derived, never stored or hand-set**. It
-  is the *worst* status across the partner's **current** `GOODS_IN_TRANSIT`
-  documents (superseded rows are excluded, per BR-TP31), with severity
-  ordered `Rejected` > `Expired` > `Pending` > `Active`; `None` only when the
-  partner has no current GIT document. A document whose `expiresAt` is in the
-  past reads as `Expired` regardless of its stored status.
+  is the **approved certificate's own status** when the partner has one, and
+  otherwise the *worst* status across its remaining **current**
+  `GOODS_IN_TRANSIT` documents (superseded rows are excluded, per BR-TP31),
+  with severity ordered `Rejected` > `Expired` > `Pending` > `Active`; `None`
+  only when the partner has no current GIT document. A document whose
+  `expiresAt` is in the past reads as `Expired` regardless of its stored
+  status.
+  **Amended 2026-08-22 (Phase 39c verification).** This was worst-of-all
+  including the approved certificate, which was the same rule when BR-TP30
+  superseded the incumbent *on upload* and a partner had exactly one current
+  certificate. Phase 39 decision 5 moved supersession to *on approval* so a
+  renewal coexists with the live cover it is replacing — at which point
+  worst-of-all reported a renewal's progress as the transporter's cover
+  status. Two consequences, found by rejecting a renewal on the 39c screen
+  against a live stack: the badge read `Rejected` while an approved unexpired
+  certificate carried cover, and `IsGitActive` — the same derivation, feeding
+  BR-TP28's cover-lapse suspension — would have revoked fleet availability
+  from a covered transporter. At most one approved certificate can exist
+  (BR-TP69, backed by `compliance_documents_one_approved_idx`), so "the
+  approved certificate answers" is a single document speaking, not a
+  best-of-several.
   This is the first rule that **reads** `expiresAt`, which BR-TP07–BR-TP11
   stored but left unused. It deliberately does *not* mutate the document's
   own status on expiry — there is no scheduled expiry job, and inventing one
@@ -756,14 +782,16 @@ These rules are what make the vetting lifecycle observable.
   another banner rather than a silent loss.
 
 - **Enforced in:** `internal/domain/git_status.go` (BR-TP38's derivation —
-  domain layer, since "worst-of" is a business rule, not display logic),
+  domain layer, since which certificate answers is a business rule, not
+  display logic),
   `internal/browserrpc` (BR-TP37's endpoint), and
   `frontend/refdata/src/components/TransporterPanel.vue` (BR-TP39), on top of
   `frontend/refdata/src/nats/connectionFactory.js` preserving the envelope's
   discriminators.
 - **Test:** `organizations/git_status_test.go` covers BR-TP38's severity
-  ordering, expiry-at-read-time, exclusion of superseded documents, and the
-  empty case. `organizations/browserrpc_roundtrip_test.go` covers BR-TP37
+  ordering, the approved certificate answering over a pending or rejected
+  renewal (and its order-independence), expiry-at-read-time, exclusion of
+  superseded documents, and the empty case. `organizations/browserrpc_roundtrip_test.go` covers BR-TP37
   over the wire, including the Shipper/no-profile answer. BR-TP39 is covered
   by the frontend component specs.
 
@@ -1469,15 +1497,14 @@ this phase.
     document query for the other four types.
   - The edit view's details command appends `document-details-updated` and
     reuses BR-TP64's vocabulary validation and BR-TP70's superseded lock;
-    contact values remain projection-only under BR-TP72. GIT resubmission is
-    also aggregate-backed and returns an attached rejected certificate to
-    `FOR_REVIEW`, matching the approved status model instead of stranding it
-    in `PENDING` with write-once bytes already attached.
-  - That resubmission landing state is decided in **one** place —
-    `ComplianceDocument.Resubmit`, which promotes to `FOR_REVIEW` only for a
-    GIT certificate that already has a file, exactly as `AttachFile` does. The
-    aggregate and the command both route through it; neither keeps its own
-    copy. The four CRUD types are unaffected: `FOR_REVIEW` is a GIT state.
+    contact values remain projection-only under BR-TP72.
+  - **Reverted 2026-08-22, same day:** GIT resubmission was removed entirely
+    rather than repaired. It shipped in 39c with a landing-state bug (the rule
+    was copied in three places), and fixing that surfaced the real question —
+    whether a rejected certificate is revived or replaced. It is replaced. See
+    BR-TP11's Phase 39 scoping above; the aggregate's `ResubmitCertificate`,
+    the `ResubmitGitDocument` command, the adapter's GIT branch and the tab's
+    Resubmit action are all gone.
 - **Enforced in:** `internal/domain/compliance_document.go`,
   `transporterprofile/domain/profile.go` (the aggregate's new certificate
   state and its guards), `internal/application/commands/compliance_document.go`

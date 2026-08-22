@@ -94,30 +94,51 @@ var _ = Describe("Derived GIT status (BR-TP38)", func() {
 		})
 	})
 
-	Context("worst-of across several GIT documents", func() {
-		// BR-TP29 made several documents of one type possible, so "worst-of"
-		// stopped being hypothetical.
-		It("prefers Rejected over every other value", func() {
+	Context("the approved certificate answers for the transporter", func() {
+		// Phase 39 moved supersede from on-upload to on-approval, so a renewal
+		// now coexists with the live cover it is replacing. Before that there
+		// was one current certificate and worst-of-all said the same thing as
+		// this; now it would report a renewal's progress as the transporter's
+		// cover status.
+		It("stays Active while a renewal sits in the review queue", func() {
+			Expect(domain.DeriveGitStatus([]domain.ComplianceDocument{
+				git(domain.DocumentStatusApproved, &future),
+				git(domain.DocumentStatusForReview, nil),
+			}, at)).To(Equal(domain.GitStatusActive),
+				"a renewal being reviewed does not remove the cover the approved certificate carries")
+		})
+
+		It("stays Active when a renewal is rejected", func() {
 			Expect(domain.DeriveGitStatus([]domain.ComplianceDocument{
 				git(domain.DocumentStatusApproved, &future),
 				git(domain.DocumentStatusPending, nil),
 				git(domain.DocumentStatusRejected, nil),
-			}, at)).To(Equal(domain.GitStatusRejected))
+			}, at)).To(Equal(domain.GitStatusActive),
+				"a rejected certificate is replaced by registering a new one — it never becomes the transporter's status")
 		})
 
-		It("prefers Expired over Pending and Active", func() {
-			Expect(domain.DeriveGitStatus([]domain.ComplianceDocument{
+		It("does not depend on the order the documents arrive in", func() {
+			docs := []domain.ComplianceDocument{
+				git(domain.DocumentStatusRejected, nil),
 				git(domain.DocumentStatusApproved, &future),
-				git(domain.DocumentStatusPending, nil),
+			}
+			Expect(domain.DeriveGitStatus(docs, at)).To(Equal(domain.GitStatusActive))
+			Expect(domain.DeriveGitStatus([]domain.ComplianceDocument{docs[1], docs[0]}, at)).To(Equal(domain.GitStatusActive))
+		})
+
+		It("reports the approved certificate's own lapse rather than a renewal's progress", func() {
+			Expect(domain.DeriveGitStatus([]domain.ComplianceDocument{
 				git(domain.DocumentStatusApproved, &past),
-			}, at)).To(Equal(domain.GitStatusExpired))
+				git(domain.DocumentStatusPending, nil),
+			}, at)).To(Equal(domain.GitStatusExpired),
+				"cover has lapsed — a pending renewal is not cover, and must not mask that")
 		})
 
-		It("prefers Pending over Active", func() {
+		It("falls back to worst-of-the-rest when nothing is approved", func() {
 			Expect(domain.DeriveGitStatus([]domain.ComplianceDocument{
-				git(domain.DocumentStatusApproved, &future),
 				git(domain.DocumentStatusPending, nil),
-			}, at)).To(Equal(domain.GitStatusPending))
+				git(domain.DocumentStatusRejected, nil),
+			}, at)).To(Equal(domain.GitStatusRejected))
 		})
 	})
 

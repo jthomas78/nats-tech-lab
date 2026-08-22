@@ -199,7 +199,9 @@ actually move.
   `TERMS_AND_CONDITIONS`, `GOODS_IN_TRANSIT`. Validated against the partner
   type.
 - **Statuses:** `PENDING` → `APPROVED` / `REJECTED`, plus terminal
-  `SUPERSEDED`. `Resubmit` returns a rejected document to review.
+  `SUPERSEDED`. `Resubmit` returns a rejected document to review — for the
+  four CRUD types only. A rejected GIT certificate is replaced by registering
+  a new one, and `Resubmit` refuses it on type (BR-TP11, Phase 39).
 - **Files:** `AttachFile` is one-way (BR-TP43) and capped at
   `MaxDocumentFileBytes` = 10 MiB. Object name:
   `DocumentObjectName(context, partnerID, docType, documentID)`.
@@ -352,17 +354,19 @@ Rules the screen encodes:
 
 Drill-down with explicit Save / Cancel, rather than V2's inline twelve-column
 row editor — which is why V2's screen scrolls sideways and has nowhere to put
-validation messages. Approve / Reject / Resubmit remain row actions on the
-table.
+validation messages. Approve and Reject remain row actions on the table;
+there is no Resubmit — a rejected certificate is replaced from the drop
+zone.
 
 The built edit writes ordinary fields through the event-sourced
 `document.git-update` command and expiry through the separately admissible
 `document.set-expiry` command. This split is BR-TP70 made visible: a
 superseded row opens read-only except for expiry correction, while the current
 approved row remains editable. Insurance contact values still go only to the
-projection (BR-TP72); the event records withheld field changes. Approve,
-Reject and Resubmit remain table-row actions, with approval collecting
-BR-TP66's three insurance fields in its own confirmation dialog.
+projection (BR-TP72); the event records withheld field changes. Approve and
+Reject are the table-row actions, with approval collecting BR-TP66's three
+insurance fields in its own confirmation dialog. A rejected row offers no way
+back into the queue.
 
 ### 9.3 State model, locking and registration
 
@@ -381,11 +385,19 @@ BR-TP66's three insurance fields in its own confirmation dialog.
 The drop interaction collects the required goods-type metadata after file
 selection, then spends the upload ticket returned by `document.git-register`
 on `POST /files/documents`. The upload response is inserted at the top as
-`FOR_REVIEW` immediately — no UI polling or retry loop. GIT resubmit now also
-runs on the aggregate and returns an attached rejected certificate to
-`FOR_REVIEW`. Approval's status and expiry checks execute on the hydrated
+`FOR_REVIEW` immediately — no UI polling or retry loop. That drop zone is
+also the only route out of a rejection: GIT certificates have no resubmission
+at all, so the register-a-replacement flow is the single answer rather than
+one of two. Approval's status and expiry checks execute on the hydrated
 aggregate with the same captured `now` used by the projection-read guard, so
 BR-TP67 is a replay invariant rather than an adapter convention.
+
+BR-TP38's badge was amended alongside this (2026-08-22). It now reports the
+approved certificate's own status when one exists, falling back to worst-of
+the rest only when nothing is approved. Worst-of-all was written when a
+partner had one current certificate; once renewals coexist with live cover it
+reported a rejected renewal as the transporter's cover status — and through
+`IsGitActive`, would have suspended a covered transporter under BR-TP28.
 
 ### 9.4 `AwaitingDocumentation` presentation fix — **moved to Phase 46**
 

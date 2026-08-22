@@ -60,6 +60,14 @@ var (
 	// Rejected.
 	ErrDocumentNotRejected = errors.New("compliance document is not in Rejected status")
 
+	// ErrCertificateNotResubmittable — BR-TP11 as scoped in Phase 39: a
+	// rejected GIT certificate is not put back in the queue, it is replaced
+	// by registering a new one. Resubmission and the register-a-replacement
+	// flow are two answers to the same question, and only one can be the
+	// workflow: with both, a rejected certificate has two futures and the
+	// screen has to explain which is which.
+	ErrCertificateNotResubmittable = errors.New("a rejected goods-in-transit certificate is replaced by registering a new one, not resubmitted")
+
 	// ErrDocumentExpiryInPast — BR-TP59: an expiry is set looking forward.
 	// A past date on a write is a data-entry error rather than a lapse that
 	// has already happened, and accepting one would arm BR-TP60's cover
@@ -354,15 +362,16 @@ func (d ComplianceDocument) Reject() (ComplianceDocument, error) {
 // transition that may leave Approved — see BR-TP30 and Supersede's own
 // comment for why that is not an un-approval.)
 //
-// The landing state is Pending except for a GIT certificate that already has
-// its bytes attached, which returns to FOR_REVIEW (BR-TP68): Pending means
-// "row minted, no file", and a resubmitted certificate whose file landed
-// weeks ago is not that. The condition mirrors AttachFile's own type-guarded
-// promotion, and the four CRUD types are unaffected — FOR_REVIEW is a GIT
-// state. This method is the single authority for the decision; both the
-// TransporterProfile aggregate and the GIT command route through it rather
-// than repeating it (Quality Rule 3).
+// Phase 39 scopes this to the four CRUD document types. A GIT certificate is
+// never resubmitted: a rejection is final for that certificate, and the
+// operator registers a new one — which the drop zone allows at any time,
+// since registration is never gated (BR-TP63). The refusal lives here rather
+// than only in the adapter so the legacy CRUD path cannot reach a certificate
+// by ID and quietly revive it.
 func (d ComplianceDocument) Resubmit() (ComplianceDocument, error) {
+	if d.Type == DocumentTypeGoodsInTransit {
+		return d, ErrCertificateNotResubmittable
+	}
 	if d.Status == DocumentStatusSuperseded {
 		return d, ErrDocumentSuperseded
 	}
@@ -370,9 +379,6 @@ func (d ComplianceDocument) Resubmit() (ComplianceDocument, error) {
 		return d, ErrDocumentNotRejected
 	}
 	d.Status = DocumentStatusPending
-	if d.Type == DocumentTypeGoodsInTransit && d.File != nil {
-		d.Status = DocumentStatusForReview
-	}
 	return d, nil
 }
 

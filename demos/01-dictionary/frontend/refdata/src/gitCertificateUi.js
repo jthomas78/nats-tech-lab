@@ -12,6 +12,11 @@ export function carriesGitCover(certificate, nowMs = Date.now()) {
   return certificate.status === 'APPROVED' && !isGitExpired(certificate, nowMs)
 }
 
+// A rejected certificate has no row action back into the queue: it is
+// replaced by registering a new one, not resubmitted (BR-TP11 as scoped in
+// Phase 39). The drop zone above the table is that path, and it is always
+// open.
+//
 // One mapping drives every row affordance. Keeping this outside the template
 // makes BR-TP67/BR-TP70 regressions visible to Vitest instead of hiding them
 // in a cluster of independent v-if expressions.
@@ -23,6 +28,5 @@ export function gitCertificateActions(certificate, nowMs = Date.now()) {
     correctExpiry: true,
     approve: reviewable && !isGitExpired(certificate, nowMs),
     reject: reviewable,
-    resubmit: certificate.status === 'REJECTED',
   }
 }

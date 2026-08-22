@@ -26,19 +26,26 @@ describe('GIT certificate row presentation', () => {
   })
 
   it.each([
-    ['PENDING', future, { edit: true, correctExpiry: true, approve: true, reject: true, resubmit: false }],
-    ['FOR_REVIEW', future, { edit: true, correctExpiry: true, approve: true, reject: true, resubmit: false }],
-    ['REJECTED', future, { edit: true, correctExpiry: true, approve: false, reject: false, resubmit: true }],
-    ['APPROVED', future, { edit: true, correctExpiry: true, approve: false, reject: false, resubmit: false }],
-    ['APPROVED', past, { edit: true, correctExpiry: true, approve: false, reject: false, resubmit: false }],
-    ['SUPERSEDED', past, { edit: false, correctExpiry: true, approve: false, reject: false, resubmit: false }],
+    ['PENDING', future, { edit: true, correctExpiry: true, approve: true, reject: true }],
+    ['FOR_REVIEW', future, { edit: true, correctExpiry: true, approve: true, reject: true }],
+    ['REJECTED', future, { edit: true, correctExpiry: true, approve: false, reject: false }],
+    ['APPROVED', future, { edit: true, correctExpiry: true, approve: false, reject: false }],
+    ['APPROVED', past, { edit: true, correctExpiry: true, approve: false, reject: false }],
+    ['SUPERSEDED', past, { edit: false, correctExpiry: true, approve: false, reject: false }],
   ])('maps %s rows to exactly the backend-supported actions', (status, expiresAt, expected) => {
     expect(gitCertificateActions({ status, expiresAt }, now)).toEqual(expected)
   })
 
+  it('offers a rejected certificate no way back into the review queue', () => {
+    const actions = gitCertificateActions({ status: 'REJECTED', expiresAt: future }, now)
+    expect(actions).not.toHaveProperty('resubmit')
+    expect(actions.approve).toBe(false)
+    expect(actions.reject).toBe(false)
+  })
+
   it('does not offer approval for an expired reviewable certificate, but still permits rejection', () => {
     expect(gitCertificateActions({ status: 'FOR_REVIEW', expiresAt: past }, now)).toEqual({
-      edit: true, correctExpiry: true, approve: false, reject: true, resubmit: false,
+      edit: true, correctExpiry: true, approve: false, reject: true,
     })
   })
 })

@@ -398,19 +398,6 @@ func (f *fakeCertificateAppender) RejectCertificate(_ context.Context, contextKe
 	return agg.State(), nil
 }
 
-func (f *fakeCertificateAppender) ResubmitCertificate(_ context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	agg := f.aggregate(contextKey, organizationID)
-	event, err := agg.ResubmitCertificate(documentID, actorName, sourceIP)
-	if err != nil {
-		return profiledomain.State{}, err
-	}
-	agg.Apply(event)
-	f.project(organizationID, agg)
-	return agg.State(), nil
-}
-
 func (f *fakeCertificateAppender) UpdateCertificateDetails(_ context.Context, contextKey, organizationID, documentID, reference string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (profiledomain.State, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
