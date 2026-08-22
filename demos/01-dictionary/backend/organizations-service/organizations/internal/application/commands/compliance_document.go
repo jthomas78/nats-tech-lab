@@ -236,12 +236,11 @@ func (h *ComplianceDocumentHandler) ResubmitGitDocument(ctx context.Context, ten
 	if err != nil {
 		return domain.ComplianceDocument{}, err
 	}
+	// The landing state is the domain's to decide (BR-TP11 with BR-TP68), and
+	// the document read here carries the file the rule reads.
 	resubmitted, err := doc.Resubmit()
 	if err != nil {
 		return domain.ComplianceDocument{}, err
-	}
-	if resubmitted.File != nil {
-		resubmitted.Status = domain.DocumentStatusForReview
 	}
 	appender, err := h.certificateCommands(tenant)
 	if err != nil {
@@ -290,6 +289,14 @@ func (h *ComplianceDocumentHandler) UpdateGitDocument(ctx context.Context, tenan
 	if err != nil {
 		return domain.ComplianceDocument{}, err
 	}
+	// Contacts land before the append, matching ApproveGitDocument and
+	// deliberately *not* registration's append-first order. Registration
+	// appends first because its projection row does not exist yet and the
+	// projector will re-create it from the log either way. These two columns
+	// are never on the log (BR-TP72), so the event that records them as
+	// changed must not outlive a failed write of the values themselves — an
+	// audit trail claiming a change that never landed is worse than a
+	// retryable error here.
 	if insuranceChanged {
 		if err := h.docs.SetInsuranceContact(ctx, partnerID, documentID, insurerName, contactName, contactNumber); err != nil {
 			return domain.ComplianceDocument{}, err

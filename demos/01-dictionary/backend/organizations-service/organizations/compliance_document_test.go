@@ -136,6 +136,45 @@ var _ = Describe("ComplianceDocument Rules", func() {
 		})
 	})
 
+	Context("BR-TP11 with BR-TP68: resubmission lands where the certificate's bytes put it", func() {
+		file := domain.DocumentFile{
+			FileName: "git.pdf", ContentType: "application/pdf", SizeBytes: 22,
+			ObjectName: "acme.transporter.tp-1.GOODS_IN_TRANSIT.doc-1", UploadedAt: 1787408903,
+		}
+		rejectedWithFile := func(docType domain.DocumentType) domain.ComplianceDocument {
+			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, docType, "s3://docs/doc-1.pdf")
+			Expect(err).NotTo(HaveOccurred())
+			doc, err = doc.AttachFile(file)
+			Expect(err).NotTo(HaveOccurred())
+			doc.Status = domain.DocumentStatusRejected
+			return doc
+		}
+
+		It("returns a GIT certificate with bytes attached to FOR_REVIEW, not PENDING", func() {
+			doc, err := rejectedWithFile(domain.DocumentTypeGoodsInTransit).Resubmit()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(doc.Status).To(Equal(domain.DocumentStatusForReview),
+				"PENDING means no file yet — a resubmitted certificate whose bytes landed weeks ago is not that")
+		})
+
+		It("still returns a GIT certificate with no file to PENDING", func() {
+			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeGoodsInTransit, "s3://docs/doc-1.pdf")
+			Expect(err).NotTo(HaveOccurred())
+			doc.Status = domain.DocumentStatusRejected
+
+			doc, err = doc.Resubmit()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(doc.Status).To(Equal(domain.DocumentStatusPending))
+		})
+
+		It("leaves the four CRUD types on PENDING even with a file attached", func() {
+			doc, err := rejectedWithFile(domain.DocumentTypeCIPC).Resubmit()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(doc.Status).To(Equal(domain.DocumentStatusPending),
+				"FOR_REVIEW is a GIT state — the legacy review path has no such queue")
+		})
+	})
+
 	Context("BR-TP59: a document may carry an optional expiry, which must be future-dated when set", func() {
 		now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
 		pending := func() domain.ComplianceDocument {

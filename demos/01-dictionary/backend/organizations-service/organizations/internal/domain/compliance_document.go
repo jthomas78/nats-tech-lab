@@ -353,6 +353,15 @@ func (d ComplianceDocument) Reject() (ComplianceDocument, error) {
 // never un-approved or re-reviewed once decided. (Supersede is the one
 // transition that may leave Approved — see BR-TP30 and Supersede's own
 // comment for why that is not an un-approval.)
+//
+// The landing state is Pending except for a GIT certificate that already has
+// its bytes attached, which returns to FOR_REVIEW (BR-TP68): Pending means
+// "row minted, no file", and a resubmitted certificate whose file landed
+// weeks ago is not that. The condition mirrors AttachFile's own type-guarded
+// promotion, and the four CRUD types are unaffected — FOR_REVIEW is a GIT
+// state. This method is the single authority for the decision; both the
+// TransporterProfile aggregate and the GIT command route through it rather
+// than repeating it (Quality Rule 3).
 func (d ComplianceDocument) Resubmit() (ComplianceDocument, error) {
 	if d.Status == DocumentStatusSuperseded {
 		return d, ErrDocumentSuperseded
@@ -361,6 +370,9 @@ func (d ComplianceDocument) Resubmit() (ComplianceDocument, error) {
 		return d, ErrDocumentNotRejected
 	}
 	d.Status = DocumentStatusPending
+	if d.Type == DocumentTypeGoodsInTransit && d.File != nil {
+		d.Status = DocumentStatusForReview
+	}
 	return d, nil
 }
 

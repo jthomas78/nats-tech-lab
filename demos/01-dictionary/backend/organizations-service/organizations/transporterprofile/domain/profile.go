@@ -441,9 +441,10 @@ func (p *TransporterProfile) RejectCertificate(documentID, actorName, sourceIP s
 }
 
 // ResubmitCertificate moves a rejected GIT certificate back to the state its
-// bytes imply: FOR_REVIEW when a file is already attached, otherwise PENDING.
-// The legacy CRUD path always returns PENDING because it has no aggregate
-// view of the certificate file.
+// bytes imply. Which state that is belongs to BR-TP11/BR-TP68 and lives on
+// ComplianceDocument.Resubmit, so replay reaches the same landing state as
+// the projection-read command by asking the same method — not by keeping a
+// second copy of the rule here in step with it.
 func (p *TransporterProfile) ResubmitCertificate(documentID, actorName, sourceIP string) (Event, error) {
 	if !p.exists {
 		return Event{}, ErrNotFound
@@ -452,17 +453,19 @@ func (p *TransporterProfile) ResubmitCertificate(documentID, actorName, sourceIP
 	if !ok {
 		return Event{}, organizationdomain.ErrDocumentNotFound
 	}
-	if certificate.Status == organizationdomain.DocumentStatusSuperseded {
-		return Event{}, organizationdomain.ErrDocumentSuperseded
+	// Every certificate on this aggregate is GIT by construction —
+	// RegisterCertificate refuses anything else — so the type is supplied
+	// rather than stored, as it is for approval's guard probe.
+	probe := organizationdomain.ComplianceDocument{
+		ID: certificate.ID, Type: organizationdomain.DocumentTypeGoodsInTransit,
+		Status: certificate.Status, File: certificate.File,
 	}
-	if certificate.Status != organizationdomain.DocumentStatusRejected {
-		return Event{}, organizationdomain.ErrDocumentNotRejected
+	resubmitted, err := probe.Resubmit()
+	if err != nil {
+		return Event{}, err
 	}
 	updated := certificate
-	updated.Status = organizationdomain.DocumentStatusPending
-	if updated.File != nil {
-		updated.Status = organizationdomain.DocumentStatusForReview
-	}
+	updated.Status = resubmitted.Status
 	event := p.event(DocumentDetailsUpdatedEvent, p.state.AttemptNumber, p.state.Status)
 	event.DocumentReference = documentID
 	event.Certificate = &updated

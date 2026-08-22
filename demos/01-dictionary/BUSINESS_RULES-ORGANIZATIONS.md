@@ -1473,6 +1473,11 @@ this phase.
     also aggregate-backed and returns an attached rejected certificate to
     `FOR_REVIEW`, matching the approved status model instead of stranding it
     in `PENDING` with write-once bytes already attached.
+  - That resubmission landing state is decided in **one** place —
+    `ComplianceDocument.Resubmit`, which promotes to `FOR_REVIEW` only for a
+    GIT certificate that already has a file, exactly as `AttachFile` does. The
+    aggregate and the command both route through it; neither keeps its own
+    copy. The four CRUD types are unaffected: `FOR_REVIEW` is a GIT state.
 - **Enforced in:** `internal/domain/compliance_document.go`,
   `transporterprofile/domain/profile.go` (the aggregate's new certificate
   state and its guards), `internal/application/commands/compliance_document.go`
