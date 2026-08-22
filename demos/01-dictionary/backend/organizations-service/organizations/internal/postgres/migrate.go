@@ -171,7 +171,11 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// values.
 		`ALTER TABLE organizations.compliance_documents
 			ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-			ADD COLUMN IF NOT EXISTS goods_types TEXT[] NOT NULL DEFAULT '{}'::text[],
+			-- JSONB, not TEXT[]: pgx's database/sql path hands a Postgres array
+			-- back as a string and cannot scan it into []string, and every
+			-- other structured column in this service is already JSONB
+			-- (transporter_profiles.document_reviews/certificates).
+			ADD COLUMN IF NOT EXISTS goods_types JSONB NOT NULL DEFAULT '[]'::jsonb,
 			ADD COLUMN IF NOT EXISTS insurer_name TEXT NOT NULL DEFAULT '',
 			ADD COLUMN IF NOT EXISTS insurance_contact_name TEXT,
 			ADD COLUMN IF NOT EXISTS insurance_contact_number TEXT`,

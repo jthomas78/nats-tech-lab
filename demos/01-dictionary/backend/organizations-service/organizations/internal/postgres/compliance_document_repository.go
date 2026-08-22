@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -31,7 +32,7 @@ func scanDocument(row interface {
 	// scanned into nullables and folded into a single *DocumentFile — a
 	// half-populated File would be a shape the domain has no rule for.
 	var (
-		goodsTypes  []string
+		goodsTypes  []byte
 		fileName    sql.NullString
 		contentType sql.NullString
 		sizeBytes   sql.NullInt64
@@ -56,7 +57,11 @@ func scanDocument(row interface {
 		seconds := expiresAt.Time.Unix()
 		doc.ExpiresAt = &seconds
 	}
-	doc.GoodsTypes = append([]string(nil), goodsTypes...)
+	if len(goodsTypes) > 0 {
+		if err := json.Unmarshal(goodsTypes, &doc.GoodsTypes); err != nil {
+			return doc, err
+		}
+	}
 	if objectName.Valid {
 		doc.File = &domain.DocumentFile{
 			FileName:    fileName.String,
@@ -95,6 +100,24 @@ func expiryParam(seconds *int64) *time.Time {
 // UpsertCertificate: keeping the replayed write and the un-replayed write in
 // separate methods is what makes it impossible for the projector to touch
 // these columns by accident.
+// goodsTypesParam coerces a nil slice to an empty array. goods_types is NOT
+// NULL with a '{}' default, but a default only applies when the column is
+// omitted — passing an explicit nil sends NULL and violates the constraint.
+// Every non-GIT document has no goods types at all, so this is the common
+// path, not an edge case.
+func goodsTypesParam(codes []string) []byte {
+	if codes == nil {
+		codes = []string{}
+	}
+	encoded, err := json.Marshal(codes)
+	if err != nil {
+		// A []string cannot fail to marshal; an empty array is still the only
+		// value that keeps the NOT NULL column satisfiable.
+		return []byte("[]")
+	}
+	return encoded
+}
+
 func (r *ComplianceDocumentRepository) SetInsuranceContact(ctx context.Context, partnerID, documentID, insurerName, contactName, contactNumber string) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE organizations.compliance_documents
@@ -141,7 +164,7 @@ func (r *ComplianceDocumentRepository) UpsertCertificate(ctx context.Context, pa
 			file_uploaded_at = EXCLUDED.file_uploaded_at,
 			updated_at = now()`,
 		partnerID, cert.ID, domain.DocumentTypeGoodsInTransit, cert.Status, cert.Reference,
-		expiryParam(cert.ExpiresAt), cert.CoverageCents, cert.GoodsTypes, cert.InsurerName,
+		expiryParam(cert.ExpiresAt), cert.CoverageCents, goodsTypesParam(cert.GoodsTypes), cert.InsurerName,
 		fileName, contentType, sizeBytes, objectName, uploadedAt)
 	return err
 }
@@ -173,7 +196,7 @@ func (r *ComplianceDocumentRepository) AddDocument(ctx context.Context, partnerI
 			(organization_id, type, status, reference, expires_at, coverage_cents, goods_types, insurer_name, insurance_contact_name, insurance_contact_number, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
 		RETURNING `+documentColumns,
-		partnerID, doc.Type, doc.Status, doc.Reference, expiryParam(doc.ExpiresAt), doc.CoverageCents, doc.GoodsTypes, doc.InsurerName, doc.InsuranceContactName, doc.InsuranceContactNumber))
+		partnerID, doc.Type, doc.Status, doc.Reference, expiryParam(doc.ExpiresAt), doc.CoverageCents, goodsTypesParam(doc.GoodsTypes), doc.InsurerName, doc.InsuranceContactName, doc.InsuranceContactNumber))
 	if err != nil {
 		return domain.ComplianceDocument{}, err
 	}
