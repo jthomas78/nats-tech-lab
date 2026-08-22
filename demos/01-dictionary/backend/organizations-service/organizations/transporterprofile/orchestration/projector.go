@@ -60,16 +60,16 @@ func (p *Projector) Start(ctx context.Context) error {
 			return
 		}
 		event.Type = eventType
-		state := profiledomain.State{
-			Context: event.Context, ID: event.OrganizationID, Status: event.Status,
-			AttemptNumber: event.AttemptNumber, FleetAvailabilityGate: event.FleetAvailabilityGate,
-			GitVerified:     event.GitVerified,
-			DocumentReviews: event.DocumentReviews,
-			UpdatedAt:       event.OccurredAt,
+		// Certificate events intentionally contain only changed fields. Rebuild
+		// the aggregate for this one canonical projection write instead of
+		// sneaking a full-state snapshot into the immutable event. This also
+		// gives projection restart the same result as an event replay.
+		agg, _, err := NewJetStreamEventStore(p.js).Hydrate(context.Background(), event.Context, event.OrganizationID)
+		if err != nil {
+			_ = msg.Nak()
+			return
 		}
-		if eventType == profiledomain.CreatedEvent {
-			state.Status = profiledomain.StatusAwaitingDocumentation
-		}
+		state := agg.State()
 		if err := p.projection.Upsert(context.Background(), state); err != nil {
 			_ = msg.Nak()
 			return

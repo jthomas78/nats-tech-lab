@@ -46,6 +46,12 @@ var _ = Describe("Derived GIT status (BR-TP38)", func() {
 			}, at)).To(Equal(domain.GitStatusPending))
 		})
 
+		It("is Pending for a FOR_REVIEW GIT document", func() {
+			Expect(domain.DeriveGitStatus([]domain.ComplianceDocument{
+				git(domain.DocumentStatusForReview, nil),
+			}, at)).To(Equal(domain.GitStatusPending))
+		})
+
 		It("is Active for an approved, unexpired GIT document", func() {
 			Expect(domain.DeriveGitStatus([]domain.ComplianceDocument{
 				git(domain.DocumentStatusApproved, &future),

@@ -1,9 +1,42 @@
 # ADR-047: Temporal Saga Design for `TransporterProfile` Vetting
 
-**Status:** Accepted, with required amendments (see Punch List)
+**Status:** Accepted, with required amendments (see Punch List) — **further amended 2026-08-22, see "Amendment"**
 **Date:** 2026-08-20
 **Deciders:** Jeremy (repo owner) — part of Phase 38 design review
 **Related:** [ARCHITECTURE-ORGANIZATIONS.md](ARCHITECTURE-ORGANIZATIONS.md) §§ "Temporal — role and workflow design," "Lifecycle," "Cross-aggregate invariant / saga," "CRUD vs. event sourcing"; [ADR-046](ADR-046-transporter-aggregate-split.md) (the aggregate-boundary decision this sits on top of)
+
+## Amendment (2026-08-22, Phase 39 design gate)
+
+[ADR-050](ADR-050-git-certificate-change-log-provenance.md) inverts who
+produces document events, for the `GOODS_IN_TRANSIT` type.
+
+**As built.** The workflow is the producer: a review command writes its
+Postgres row, then signals the workflow (`Adapter.reviewSignal`), and the
+workflow appends `document-approved` / `document-rejected`. The signal is
+best-effort and its own comment names the failure mode — "a review that
+writes its row and then fails to signal reads as approved while the workflow
+still waits on it. Nothing reconciles the two automatically." A review
+performed with no workflow running, or when the signal fails, produces a row
+and **no event at all**.
+
+**After 39a.** The **command** appends `document-approved`, and the
+workflow's own emit for that event is **deleted**. The workflow derives its
+view by **reading document state** rather than trusting a signal to carry it.
+
+**Why.** Under ADR-050's Option A the event *is* the record of the approval,
+so it cannot be allowed to depend on a best-effort delivery — and if both the
+command and the workflow appended, every approval would double-emit. Reading
+state also closes a second hole this change would otherwise have made worse:
+Phase 39's decision 5 locks superseded certificates and cancels open reviews
+on them, so a failed cancel signal would leave the workflow waiting on a
+review the UI could no longer re-drive. (A superseded certificate
+additionally keeps accepting review-resolution, so the outcome is recorded as
+*cancelled* rather than abandoned.)
+
+**Scope.** `GOODS_IN_TRANSIT` only. The other four document types keep the
+signal path until they follow GIT onto the stream. Points 1 and 2 of the
+Punch List below are unaffected — publishes still happen in Activities where
+the workflow does publish, and compensation is still a new event.
 
 ## Context
 
@@ -200,6 +233,14 @@ production-scale placeholder.
        `RequestGitVerification` (and any other Activity) explicitly set,
        with a documented test-profile vs. production-placeholder value
        (point 6).
+
+**Added 2026-08-22 (Phase 39 / ADR-050) — must land in sub-phase 39a:**
+6. [ ] The workflow stops emitting `document-approved` /
+       `document-rejected` for `GOODS_IN_TRANSIT`; the command becomes the
+       sole producer (Amendment above).
+7. [ ] The workflow reads document state instead of relying on
+       `Adapter.reviewSignal` to carry the fact, and the comment justifying
+       the best-effort signal is removed rather than left to confuse.
 
 **Acceptable POC-scope gaps — record as deliberate, don't silently omit:**
 5. [ ] Workflow versioning/`GetVersion` discipline for in-flight code

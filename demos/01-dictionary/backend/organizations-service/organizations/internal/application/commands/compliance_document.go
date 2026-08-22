@@ -2,6 +2,8 @@ package commands
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
@@ -12,12 +14,58 @@ import (
 // the Organization lifecycle, not document review, which has no
 // enforcement consequence in v1 either).
 type ComplianceDocumentHandler struct {
-	partners domain.OrganizationRepository
-	docs     domain.ComplianceDocumentRepository
+	partners   domain.OrganizationRepository
+	docs       domain.ComplianceDocumentRepository
+	goodsTypes domain.GoodsTypeValidator
 }
 
 func NewComplianceDocumentHandler(partners domain.OrganizationRepository, docs domain.ComplianceDocumentRepository) *ComplianceDocumentHandler {
 	return &ComplianceDocumentHandler{partners: partners, docs: docs}
+}
+
+// WithGoodsTypeValidator supplies 39a's fake/live refdata port without
+// changing the legacy constructor used by non-GIT callers and existing tests.
+func (h *ComplianceDocumentHandler) WithGoodsTypeValidator(v domain.GoodsTypeValidator) *ComplianceDocumentHandler {
+	h.goodsTypes = v
+	return h
+}
+
+// AddGitDocument is the 39a registration command. Vocabulary existence is
+// an application concern (tenant-scoped RPC); the cardinality rule stays on
+// ComplianceDocument. It deliberately registers cheaply in PENDING — the
+// blob attach transition moves it to FOR_REVIEW.
+func (h *ComplianceDocumentHandler) AddGitDocument(ctx context.Context, tenant, contextKey, partnerID, reference string, expiresAt, coverageCents *int64, goodsTypes []string) (domain.ComplianceDocument, error) {
+	tp, err := h.partners.Get(ctx, partnerID)
+	if err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	doc, err := domain.AddDocument(tp.Type, domain.DocumentTypeGoodsInTransit, reference)
+	if err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	doc.GoodsTypes = append([]string(nil), goodsTypes...)
+	doc.CoverageCents = coverageCents
+	if err := doc.ValidateGitCertificate(); err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	if h.goodsTypes == nil {
+		return domain.ComplianceDocument{}, errors.New("goods-type validator is not configured")
+	}
+	for _, code := range doc.GoodsTypes {
+		exists, err := h.goodsTypes.GoodsTypeExists(ctx, tenant, contextKey, code)
+		if err != nil {
+			return domain.ComplianceDocument{}, err
+		}
+		if !exists {
+			return domain.ComplianceDocument{}, fmt.Errorf("goods type %q does not exist", code)
+		}
+	}
+	if expiresAt != nil {
+		if doc, err = doc.SetExpiry(expiresAt, time.Now().UTC()); err != nil {
+			return domain.ComplianceDocument{}, err
+		}
+	}
+	return h.docs.AddDocument(ctx, partnerID, doc)
 }
 
 // AddDocument implements BR-TP07/BR-TP08 — looks up the partner's type to
@@ -47,6 +95,14 @@ func (h *ComplianceDocumentHandler) AddDocument(ctx context.Context, partnerID s
 // rather than a second place the rule could drift.
 func (h *ComplianceDocumentHandler) SetDocumentExpiry(ctx context.Context, partnerID, documentID string, expiresAt *int64) (domain.ComplianceDocument, error) {
 	return h.docs.SetDocumentExpiry(ctx, partnerID, documentID, expiresAt)
+}
+
+// GetDocument reads one document by ID *including* superseded rows. The
+// vetting workflow's decision-14 state read needs that: a required reference
+// that has been superseded must be visible as superseded, not indistinguishable
+// from one whose row was never written.
+func (h *ComplianceDocumentHandler) GetDocument(ctx context.Context, partnerID, documentID string) (domain.ComplianceDocument, error) {
+	return h.docs.GetDocument(ctx, partnerID, documentID)
 }
 
 func (h *ComplianceDocumentHandler) ListDocuments(ctx context.Context, partnerID string) ([]domain.ComplianceDocument, error) {

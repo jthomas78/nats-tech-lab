@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	organizationdomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/domain"
 )
 
@@ -90,6 +91,46 @@ func TestConfiguredEventCannotCarryASecret(t *testing.T) {
 	}
 	if strings.Contains(string(rawState), secret) {
 		t.Fatalf("BR-TP52: projected state contains credential material: %s", rawState)
+	}
+}
+
+func TestCertificateEventsExcludeInsuranceContactsAndApprovalLocksEarlierCertificates(t *testing.T) {
+	p := &domain.TransporterProfile{}
+	p.Apply(domain.NewCreatedEvent("acme", "transporter-1"))
+
+	first := organizationdomain.ComplianceDocument{ID: "first", Type: organizationdomain.DocumentTypeGoodsInTransit, Status: organizationdomain.DocumentStatusForReview, GoodsTypes: []string{"FOOD"}}
+	registered, err := p.RegisterCertificate(first, "admin", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Apply(registered)
+	second := organizationdomain.ComplianceDocument{ID: "second", Type: organizationdomain.DocumentTypeGoodsInTransit, Status: organizationdomain.DocumentStatusForReview, GoodsTypes: []string{"FOOD"}, InsurerName: "Acme Insurance", InsuranceContactName: "Private person", InsuranceContactNumber: "secret"}
+	registered, err = p.RegisterCertificate(second, "admin", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Apply(registered)
+
+	events, err := p.ApproveCertificate("second", "admin", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		p.Apply(event)
+	}
+	state := p.State()
+	if state.Certificates["first"].Status != organizationdomain.DocumentStatusSuperseded {
+		t.Fatalf("first status = %s, want SUPERSEDED", state.Certificates["first"].Status)
+	}
+	if state.Certificates["second"].Status != organizationdomain.DocumentStatusApproved {
+		t.Fatalf("second status = %s, want APPROVED", state.Certificates["second"].Status)
+	}
+	raw, err := json.Marshal(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "Private person") || strings.Contains(string(raw), "secret") {
+		t.Fatalf("BR-TP72: certificate events contain insurance contacts: %s", raw)
 	}
 }
 

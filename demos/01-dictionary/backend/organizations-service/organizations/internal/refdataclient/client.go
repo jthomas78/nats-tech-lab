@@ -42,6 +42,7 @@ const (
 // vehicleTypeKey is refdata-service's typeKey for the vehicle-type corpus
 // (see refdata-service/cmd/seed-vehicle-types/main.go).
 const vehicleTypeKey = "vehicle-type"
+const goodsTypeKey = "goods-type"
 
 // Corpora backing BR-TP47's operating-area validation. Both are
 // `standards`-category types seeded in the platform context (BR-D46), which
@@ -117,6 +118,16 @@ type rpcErrorResponse struct {
 // transport/unexpected failure.
 func (c *Client) Exists(ctx context.Context, contextKey, code string) (bool, error) {
 	resp, found, err := c.getItem(ctx, contextKey, vehicleTypeKey, code)
+	if err != nil || !found {
+		return false, err
+	}
+	return resp.Item.Code == code, nil
+}
+
+// GoodsTypeExists is BR-TP64's sibling of Exists. The corpus itself lands in
+// 39b; 39a's command tests use a fake of this same call shape.
+func (c *Client) GoodsTypeExists(ctx context.Context, contextKey, code string) (bool, error) {
+	resp, found, err := c.getItem(ctx, contextKey, goodsTypeKey, code)
 	if err != nil || !found {
 		return false, err
 	}

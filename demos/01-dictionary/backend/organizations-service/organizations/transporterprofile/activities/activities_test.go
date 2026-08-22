@@ -15,6 +15,20 @@ import (
 	profileworkflow "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/workflow"
 )
 
+// stubReviewReader stands in for the Postgres-backed reader; the scoping rule
+// it proves is the activity's, not the repository's.
+type stubReviewReader map[string]string
+
+func (r stubReviewReader) DocumentReviewState(_ context.Context, _ string, references []string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, reference := range references {
+		if status, ok := r[reference]; ok {
+			out[reference] = status
+		}
+	}
+	return out, nil
+}
+
 type deduplicatingPublisher struct {
 	mu         sync.Mutex
 	messageIDs []string
@@ -33,6 +47,31 @@ func (p *deduplicatingPublisher) AppendWorkflowEvent(_ context.Context, event pr
 }
 
 var _ = Describe("TransporterProfile activities", func() {
+	Context("decision 14 the review-state activity fails closed", func() {
+		It("errors rather than reporting an empty state when no reader is configured", func() {
+			acts := profileactivities.NewProfileActivities(nil, nil)
+			_, err := acts.DocumentReviewState(context.Background(), profileworkflow.DocumentReviewStateInput{
+				OrganizationID: "partner-1", References: []string{"doc-a"},
+			})
+			// An empty map is a legitimate answer ("nothing reviewed yet"), so
+			// an unconfigured reader that returned one would park an attempt
+			// forever on reviews that may well have happened.
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("reports only the references it was asked about", func() {
+			acts := profileactivities.NewProfileActivities(nil, nil).
+				WithDocumentReviewReader(stubReviewReader{
+					"doc-a": "APPROVED", "doc-b": "FOR_REVIEW", "doc-c": "APPROVED",
+				})
+			states, err := acts.DocumentReviewState(context.Background(), profileworkflow.DocumentReviewStateInput{
+				OrganizationID: "partner-1", References: []string{"doc-a", "doc-b"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(states).To(Equal(map[string]string{"doc-a": "APPROVED", "doc-b": "FOR_REVIEW"}))
+		})
+	})
+
 	Context("BR-TP24 workflow event publication is retry-safe", func() {
 		It("uses organizationID:event:attemptNumber:step and deduplicates an activity retry", func() {
 			publisher := &deduplicatingPublisher{}

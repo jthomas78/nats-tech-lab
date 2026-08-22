@@ -24,6 +24,14 @@ const (
 	// no document can lapse by time.
 	CoverExpiryActivity      = "CoverExpiry"
 	DocumentReviewSignalName = "DocumentReview"
+	// DocumentReviewStateActivity reads the *persisted* status of the
+	// documents this attempt is waiting on (decision 14). The workflow no
+	// longer trusts DocumentReviewSignal's payload: the signal is best-effort,
+	// so a review that wrote its row and then failed to signal used to leave
+	// this run waiting on an approval that had already happened, and a signal
+	// that arrived without its row used to be believed. The signal is now a
+	// wake-up and storage is the answer.
+	DocumentReviewStateActivity = "DocumentReviewState"
 	// CoverChangedSignalName re-arms the cover timer (BR-TP61). Sent by the
 	// document write path whenever a goods-in-transit document's expiry could
 	// have moved, so the workflow re-reads rather than trusting a payload.
@@ -35,6 +43,15 @@ const (
 	// from — without it, the most common state is the one you cannot see.
 	VettingStateQuery = "vettingState"
 	SequenceConflictErrorType      = "TransporterProfileSequenceConflict"
+)
+
+// The two persisted statuses this workflow reacts to. Kept as local literals
+// rather than an import of the organizations domain package: the workflow
+// module deliberately depends on profiledomain only, and these cross an
+// activity boundary as plain strings in either case.
+const (
+	documentStatusApproved = "APPROVED"
+	documentStatusRejected = "REJECTED"
 )
 
 var ErrActivityTimeoutsRequired = errors.New("activity StartToCloseTimeout and ScheduleToCloseTimeout are required")
@@ -92,9 +109,23 @@ type CoverExpiryInput struct {
 	Context, OrganizationID string
 }
 
+// DocumentReviewSignal is a wake-up, not a verdict. Approved is retained
+// because the signal is part of the saga's existing wire contract and
+// removing it would break senders mid-phase, but the workflow deliberately
+// does not read it — see DocumentReviewStateActivity.
 type DocumentReviewSignal struct {
 	Reference string
 	Approved  bool
+}
+
+// DocumentReviewStateInput asks for the persisted status of exactly the
+// references this attempt requires. Scoped to those rather than "all this
+// organization's documents" so an unrelated document cannot influence an
+// attempt that never required it.
+type DocumentReviewStateInput struct {
+	Tenant                  string
+	Context, OrganizationID string
+	References              []string
 }
 type ProfileEventInput struct {
 	// Tenant routes the append (BR-TP58). It is deliberately here and not on
@@ -194,27 +225,35 @@ func TransporterVettingWorkflow(ctx workflow.Context, input VettingInput) (Vetti
 
 	signals := workflow.GetSignalChannel(ctx, DocumentReviewSignalName)
 	rejected := false
+	references := append([]string(nil), input.RequiredDocumentReferences...)
 	for len(approved) < len(required) && !rejected {
 		var signal DocumentReviewSignal
 		signals.Receive(ctx, &signal)
-		if _, ok := required[signal.Reference]; !ok {
-			continue
-		}
-		if !signal.Approved {
-			reviews[signal.Reference] = profiledomain.DocumentRejected
-			if err := appendEvent(profiledomain.DocumentRejectedEvent, signal.Reference); err != nil {
-				return VettingResult{}, err
-			}
-			rejected = true
-			break
-		}
-		if _, duplicate := approved[signal.Reference]; duplicate {
-			continue
-		}
-		approved[signal.Reference] = struct{}{}
-		reviews[signal.Reference] = profiledomain.DocumentApproved
-		if err := appendEvent(profiledomain.DocumentApprovedEvent, signal.Reference); err != nil {
+
+		// Decision 14: the signal's only job is to wake this run. What
+		// actually happened is read back from storage, and the command that
+		// wrote that row is the sole producer of document-approved /
+		// document-rejected — this workflow appends neither. Re-reading every
+		// reference (not just the signalled one) also recovers any review whose
+		// signal was lost entirely, which the old per-signal handling could
+		// never notice.
+		var states map[string]string
+		if err := workflow.ExecuteActivity(ctx, DocumentReviewStateActivity, DocumentReviewStateInput{
+			Tenant: input.Tenant, Context: input.Context, OrganizationID: input.OrganizationID,
+			References: references,
+		}).Get(ctx, &states); err != nil {
 			return VettingResult{}, err
+		}
+
+		for _, reference := range references {
+			switch states[reference] {
+			case documentStatusApproved:
+				approved[reference] = struct{}{}
+				reviews[reference] = profiledomain.DocumentApproved
+			case documentStatusRejected:
+				reviews[reference] = profiledomain.DocumentRejected
+				rejected = true
+			}
 		}
 	}
 

@@ -72,7 +72,13 @@ func gitStatusOf(doc ComplianceDocument, now time.Time) GitStatus {
 		return GitStatusActive
 	case DocumentStatusRejected:
 		return GitStatusRejected
-	default:
+	case DocumentStatusForReview:
+		// BR-TP68: a file in a review queue is not cover, and deliberately
+		// derives to Pending rather than relying on default fall-through.
 		return GitStatusPending
+	case DocumentStatusPending:
+		return GitStatusPending
+	default:
+		return GitStatusNone
 	}
 }

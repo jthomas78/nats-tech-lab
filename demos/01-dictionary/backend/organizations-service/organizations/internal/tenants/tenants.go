@@ -154,6 +154,17 @@ func (m *Manager) Exists(ctx context.Context, tenant, contextKey, code string) (
 	return res.client.Exists(ctx, contextKey, code)
 }
 
+// GoodsTypeExists implements domain.GoodsTypeValidator. The same tenant
+// account boundary used for vehicle-type lookup applies to the new GIT
+// vocabulary; the actual vocabulary is intentionally deferred to 39b.
+func (m *Manager) GoodsTypeExists(ctx context.Context, tenant, contextKey, code string) (bool, error) {
+	res, ok := m.mgr.Resource(tenant)
+	if !ok {
+		return false, ErrTenantNotConnected
+	}
+	return res.client.GoodsTypeExists(ctx, contextKey, code)
+}
+
 // ResolveArea implements domain.OperatingAreaResolver (BR-TP47) — the same
 // "this Manager owns which tenant's connection to use" role it plays for
 // BR-TP14's Exists. No contextKey parameter: region/country corpora are

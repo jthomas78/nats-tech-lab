@@ -1,6 +1,6 @@
 # ADR-046: Transporter Aggregate Boundary — Shared Identity, Separate Vetting
 
-**Status:** Accepted
+**Status:** Accepted — **amended 2026-08-22 for GIT document placement, see "Amendment"**
 **Date:** 2026-08-20 (revised same day — see "Revision History")
 **Deciders:** Jeremy (repo owner) — part of Phase 38 design review
 **Related:** [ARCHITECTURE-ORGANIZATIONS.md](ARCHITECTURE-ORGANIZATIONS.md) § "Decision," [BUSINESS_RULES-ORGANIZATIONS.md](../../../../demos/01-dictionary/BUSINESS_RULES-ORGANIZATIONS.md) (BR-TP01–BR-TP17, Phase 26)
@@ -44,6 +44,40 @@ behaviour is untouched either way. But the guarantee as originally written
 regression-risk row in Option C's table below should be read as *"low, and
 additive"* rather than *"zero."* Kept as a correction note rather than a
 silent edit, consistent with this ADR's own Revision History convention.
+
+## Amendment (2026-08-22, Phase 39 design gate)
+
+This ADR placed compliance documents on the **CRUD side** of the split:
+plain Postgres rows hanging off `Organization`, with `TransporterProfile`
+holding only the review *status* of each
+(`DocumentReviews map[reference]status`). [ADR-050](ADR-050-git-certificate-change-log-provenance.md)
+reverses that **for the `GOODS_IN_TRANSIT` type only**.
+
+**What changes.** GIT document mutations become commands on
+`TransporterProfile`, appending to the `TRANSPORTER` stream, and
+`compliance_documents` becomes a projection for that type. Certificate
+detail — insurer, cover amount, expiry, goods types, file reference — joins
+`TransporterProfile.State`, which until now deliberately held only status,
+gates and two maps.
+
+**What does not change.** The aggregate boundary itself: shared identity,
+separate vetting, `TransporterProfile` keyed by `Organization`'s ID. The
+other four document types keep the CRUD path. No new aggregate is introduced
+— a separate `GitCertificate` aggregate was considered and rejected, because
+approval would then need either two events (one for the log, one for the
+saga) or new machinery to bridge the certificate's events into the vetting
+saga.
+
+**Why the reversal is narrow rather than a re-opening of the split.** This
+ADR's reasoning was about *identity* duplication, not about which side
+document fields live on; and per-document state was already partly on the
+aggregate via `DocumentReviews`, so this extends an existing precedent rather
+than contradicting one. The trigger is a compliance-audit requirement —
+`CLAUDE.md`'s own deciding question, "does anything need to replay this," is
+answered yes by an audit of a sequence of transitions.
+
+**Cost, named rather than glossed:** the aggregate the Temporal saga replays
+gets materially bigger, and `State` stops being thin.
 
 ## Context
 
@@ -229,3 +263,6 @@ trade than permanent field duplication with no such mitigation available
 5. [ ] Confirm BR-TP01/BR-TP07/BR-TP12 need **no wording changes** —
        unlike Option A, `TRANSPORTER` remains valid everywhere it is today;
        this is a check, not an edit.
+6. [ ] Move GIT document commands onto `TransporterProfile` and grow its
+       `State` with certificate detail, per the Amendment above — sub-phase
+       39a.

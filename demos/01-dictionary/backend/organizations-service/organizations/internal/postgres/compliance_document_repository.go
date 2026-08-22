@@ -19,7 +19,8 @@ func NewComplianceDocumentRepository(db *sql.DB) *ComplianceDocumentRepository {
 
 // documentColumns is the shared SELECT list, so the scan order in
 // scanDocument can't drift from it.
-const documentColumns = `id, type, status, reference, expires_at, coverage_cents,
+const documentColumns = `id, type, status, reference, expires_at, coverage_cents, goods_types,
+	insurer_name, insurance_contact_name, insurance_contact_number, created_at,
 	file_name, file_content_type, file_size_bytes, file_object_name, file_uploaded_at`
 
 func scanDocument(row interface {
@@ -30,6 +31,7 @@ func scanDocument(row interface {
 	// scanned into nullables and folded into a single *DocumentFile — a
 	// half-populated File would be a shape the domain has no rule for.
 	var (
+		goodsTypes  []string
 		fileName    sql.NullString
 		contentType sql.NullString
 		sizeBytes   sql.NullInt64
@@ -44,7 +46,8 @@ func scanDocument(row interface {
 	// same just below), while the column wants to stay a real timestamp so
 	// SQL-level expiry reporting keeps working.
 	var expiresAt sql.NullTime
-	err := row.Scan(&doc.ID, &doc.Type, &doc.Status, &doc.Reference, &expiresAt, &doc.CoverageCents,
+	err := row.Scan(&doc.ID, &doc.Type, &doc.Status, &doc.Reference, &expiresAt, &doc.CoverageCents, &goodsTypes,
+		&doc.InsurerName, &doc.InsuranceContactName, &doc.InsuranceContactNumber, &doc.CreatedAt,
 		&fileName, &contentType, &sizeBytes, &objectName, &uploadedAt)
 	if err != nil {
 		return doc, err
@@ -53,6 +56,7 @@ func scanDocument(row interface {
 		seconds := expiresAt.Time.Unix()
 		doc.ExpiresAt = &seconds
 	}
+	doc.GoodsTypes = append([]string(nil), goodsTypes...)
 	if objectName.Valid {
 		doc.File = &domain.DocumentFile{
 			FileName:    fileName.String,
@@ -92,24 +96,27 @@ func (r *ComplianceDocumentRepository) AddDocument(ctx context.Context, partnerI
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	// Supersede the incumbent, if any. Unconditional on its status: BR-TP30
-	// is legal from Pending, Approved and Rejected alike.
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE organizations.compliance_documents
-		SET status = $3, updated_at = now()
-		WHERE organization_id = $1 AND type = $2 AND status <> $3`,
-		partnerID, doc.Type, domain.DocumentStatusSuperseded); err != nil {
-		return domain.ComplianceDocument{}, err
+	// The four legacy document types retain BR-TP30's replace-on-register
+	// behaviour. GIT deliberately does not: early renewals coexist until the
+	// new certificate is approved (BR-TP69).
+	if doc.Type != domain.DocumentTypeGoodsInTransit {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE organizations.compliance_documents
+			SET status = $3, updated_at = now()
+			WHERE organization_id = $1 AND type = $2 AND status <> $3`,
+			partnerID, doc.Type, domain.DocumentStatusSuperseded); err != nil {
+			return domain.ComplianceDocument{}, err
+		}
 	}
 
 	// BR-TP29: the ID is minted here, by the column default, and returned —
 	// the caller never supplies one.
 	inserted, err := scanDocument(tx.QueryRowContext(ctx, `
 		INSERT INTO organizations.compliance_documents
-			(organization_id, type, status, reference, expires_at, coverage_cents, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, now())
+			(organization_id, type, status, reference, expires_at, coverage_cents, goods_types, insurer_name, insurance_contact_name, insurance_contact_number, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
 		RETURNING `+documentColumns,
-		partnerID, doc.Type, doc.Status, doc.Reference, expiryParam(doc.ExpiresAt), doc.CoverageCents))
+		partnerID, doc.Type, doc.Status, doc.Reference, expiryParam(doc.ExpiresAt), doc.CoverageCents, doc.GoodsTypes, doc.InsurerName, doc.InsuranceContactName, doc.InsuranceContactNumber))
 	if err != nil {
 		return domain.ComplianceDocument{}, err
 	}

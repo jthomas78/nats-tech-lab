@@ -14,6 +14,7 @@ package organizations
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -68,7 +69,7 @@ func Startup(ctx context.Context, db *sql.DB, tenantMgr *tenants.Manager) (*Hand
 
 	return &Handlers{
 		Organizations:  commands.NewOrganizationHandler(partners, audit),
-		Documents:      commands.NewComplianceDocumentHandler(partners, docs),
+		Documents:      commands.NewComplianceDocumentHandler(partners, docs).WithGoodsTypeValidator(tenantMgr),
 		FleetAssets:    commands.NewFleetAssetHandler(partners, fleet, tenantMgr),
 		OperatingAreas: commands.NewOperatingAreaHandler(partners, areas, tenantMgr, audit),
 		TrackingCreds:  commands.NewTrackingCredentialHandler(partners, trackingCreds, tenantMgr, tenantMgr),
@@ -207,7 +208,8 @@ func MountVetting(temporalAddr, gitOutcome string, db *sql.DB, tenantMgr *tenant
 	acts := activities.NewProfileActivities(tenantMgr, activities.MockGitVerifier{Outcome: outcome}).
 		WithGitStatusDropCommand(monitor).
 		WithGitStatusReader(monitor).
-		WithCoverExpiryReader(monitor)
+		WithCoverExpiryReader(monitor).
+		WithDocumentReviewReader(monitor)
 
 	w := worker.New(temporalClient, acts)
 	if err := w.Start(); err != nil {
@@ -265,6 +267,26 @@ func (g *gitMonitor) IsGitActive(ctx context.Context, organizationID string) (bo
 		return false, err
 	}
 	return domain.DeriveGitStatus(docs, time.Now().UTC()) == domain.GitStatusActive, nil
+}
+
+// DocumentReviewState is decision 14's replacement for believing the review
+// signal. GetDocument rather than ListDocuments on purpose: ListDocuments
+// hides superseded rows (BR-TP31), and a required reference that has been
+// superseded is exactly the case the workflow must be able to see rather than
+// read as "no row yet" and wait on forever.
+func (g *gitMonitor) DocumentReviewState(ctx context.Context, organizationID string, references []string) (map[string]string, error) {
+	states := make(map[string]string, len(references))
+	for _, reference := range references {
+		doc, err := g.handlers.Documents.GetDocument(ctx, organizationID, reference)
+		if errors.Is(err, domain.ErrDocumentNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		states[reference] = string(doc.Status)
+	}
+	return states, nil
 }
 
 // CoverExpiry is BR-TP60's timer input: the earliest expiry across the

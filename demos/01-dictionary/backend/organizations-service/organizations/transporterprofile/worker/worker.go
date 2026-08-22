@@ -127,6 +127,7 @@ type Activities interface {
 	RequestGitVerification(context.Context, profileworkflow.GitVerificationInput) error
 	HandleGitStatusDrop(context.Context, profileworkflow.GitMonitorInput) error
 	CoverExpiry(context.Context, profileworkflow.CoverExpiryInput) (*int64, error)
+	DocumentReviewState(context.Context, profileworkflow.DocumentReviewStateInput) (map[string]string, error)
 }
 
 func New(temporalClient client.Client, activities Activities) temporalworker.Worker {
@@ -136,6 +137,7 @@ func New(temporalClient client.Client, activities Activities) temporalworker.Wor
 	w.RegisterActivityWithOptions(activities.RequestGitVerification, activity.RegisterOptions{Name: profileworkflow.RequestGitVerificationActivity})
 	w.RegisterActivityWithOptions(activities.HandleGitStatusDrop, activity.RegisterOptions{Name: profileworkflow.HandleGitStatusDropActivity})
 	w.RegisterActivityWithOptions(activities.CoverExpiry, activity.RegisterOptions{Name: profileworkflow.CoverExpiryActivity})
+	w.RegisterActivityWithOptions(activities.DocumentReviewState, activity.RegisterOptions{Name: profileworkflow.DocumentReviewStateActivity})
 	return w
 }
 

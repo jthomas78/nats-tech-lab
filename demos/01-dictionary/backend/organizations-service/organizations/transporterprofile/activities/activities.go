@@ -58,12 +58,22 @@ type CoverExpiryReader interface {
 	CoverExpiry(ctx context.Context, organizationID string) (*int64, error)
 }
 
+// DocumentReviewReader answers decision 14's "what does storage actually say
+// about these documents" — the question that replaced trusting the review
+// signal's payload. Values are organizations domain DocumentStatus strings,
+// and a reference with no row is simply absent from the map rather than
+// defaulted, so "not written yet" and "written as PENDING" stay distinct.
+type DocumentReviewReader interface {
+	DocumentReviewState(ctx context.Context, organizationID string, references []string) (map[string]string, error)
+}
+
 type ProfileActivities struct {
 	publishers PublisherResolver
 	verifier   GitVerifier
 	drops      GitStatusDropResolver
 	gitStatus  GitStatusReader
 	expiries   CoverExpiryReader
+	reviews    DocumentReviewReader
 }
 
 func NewProfileActivities(publishers PublisherResolver, verifier GitVerifier) *ProfileActivities {
@@ -90,6 +100,23 @@ func (a *ProfileActivities) CoverExpiry(ctx context.Context, input profileworkfl
 		return nil, errors.New("cover expiry reader is not configured")
 	}
 	return a.expiries.CoverExpiry(ctx, input.OrganizationID)
+}
+
+// WithDocumentReviewReader supplies decision 14's persisted-state lookup.
+func (a *ProfileActivities) WithDocumentReviewReader(reviews DocumentReviewReader) *ProfileActivities {
+	a.reviews = reviews
+	return a
+}
+
+// DocumentReviewState is the activity behind the vetting workflow's read of
+// its own required documents. Unconfigured it fails closed for the same
+// reason CoverExpiry does: answering "nothing is approved" by accident would
+// park an attempt forever on reviews that had already happened.
+func (a *ProfileActivities) DocumentReviewState(ctx context.Context, input profileworkflow.DocumentReviewStateInput) (map[string]string, error) {
+	if a.reviews == nil {
+		return nil, errors.New("document review reader is not configured")
+	}
+	return a.reviews.DocumentReviewState(ctx, input.OrganizationID, input.References)
 }
 
 func (a *ProfileActivities) WithGitStatusReader(reader GitStatusReader) *ProfileActivities {

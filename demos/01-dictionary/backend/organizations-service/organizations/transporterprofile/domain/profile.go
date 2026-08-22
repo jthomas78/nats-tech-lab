@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	organizationdomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
 )
 
 const (
@@ -16,6 +18,11 @@ const (
 	DocumentApprovedEvent         = "document-approved"
 	DocumentRejectedEvent         = "document-rejected"
 	DocumentApprovalRevertedEvent = "document-approval-reverted"
+	DocumentRegisteredEvent       = "document-registered"
+	DocumentDetailsUpdatedEvent   = "document-details-updated"
+	DocumentFileAttachedEvent     = "document-file-attached"
+	DocumentSupersededEvent       = "document-superseded"
+	DocumentReviewCancelledEvent  = "document-review-cancelled"
 	GitVerifiedEvent              = "git-verified"
 	VettedEvent                   = "vetted"
 	RejectedEvent                 = "rejected"
@@ -55,9 +62,10 @@ const (
 )
 
 const (
-	DocumentPendingReview DocumentReviewStatus = "PendingReview"
-	DocumentApproved      DocumentReviewStatus = "Approved"
-	DocumentRejected      DocumentReviewStatus = "Rejected"
+	DocumentPendingReview   DocumentReviewStatus = "PendingReview"
+	DocumentApproved        DocumentReviewStatus = "Approved"
+	DocumentRejected        DocumentReviewStatus = "Rejected"
+	DocumentReviewCancelled DocumentReviewStatus = "Cancelled"
 )
 
 var ErrNotFound = errors.New("transporter profile not found")
@@ -71,10 +79,36 @@ type State struct {
 	FleetAvailabilityGate bool                            `json:"fleetAvailabilityGate"`
 	GitVerified           bool                            `json:"gitVerified"`
 	DocumentReviews       map[string]DocumentReviewStatus `json:"documentReviews,omitempty"`
+	// Certificates is the replayed GIT write model. Contact values are
+	// intentionally absent: their projection-only storage is BR-TP72's named
+	// redaction exception.
+	Certificates map[string]Certificate `json:"certificates,omitempty"`
 	// TrackingCredentials maps a configured provider to its credential type
 	// (BR-TP55). Values only — never a secret (BR-TP52).
 	TrackingCredentials map[string]string `json:"trackingCredentials,omitempty"`
 	UpdatedAt           time.Time         `json:"updatedAt"`
+}
+
+// Certificate is the event-safe portion of a GIT document. It is deliberately
+// not a ComplianceDocument: adding contact fields to it later would silently
+// put redactable data in every replay, so the absence is structural.
+type Certificate struct {
+	ID            string                            `json:"id"`
+	Status        organizationdomain.DocumentStatus `json:"status"`
+	Reference     string                            `json:"reference"`
+	GoodsTypes    []string                          `json:"goodsTypes,omitempty"`
+	CoverageCents *int64                            `json:"coverageCents,omitempty"`
+	ExpiresAt     *int64                            `json:"expiresAt,omitempty"`
+	InsurerName   string                            `json:"insurerName,omitempty"`
+	File          *organizationdomain.DocumentFile  `json:"file,omitempty"`
+}
+
+// FieldChange is the explicit before/after form required for all certificate
+// mutations. Event consumers never infer a previous value from a snapshot.
+type FieldChange struct {
+	Field string `json:"field"`
+	From  any    `json:"from"`
+	To    any    `json:"to"`
 }
 
 // AvailableForAssignment is BR-TP55's computed fleet-availability value.
@@ -112,6 +146,10 @@ type Event struct {
 	FleetAvailabilityGate bool                            `json:"fleetAvailabilityGate,omitempty"`
 	GitVerified           bool                            `json:"gitVerified,omitempty"`
 	DocumentReviews       map[string]DocumentReviewStatus `json:"documentReviews,omitempty"`
+	Certificate           *Certificate                    `json:"certificate,omitempty"`
+	Changes               []FieldChange                   `json:"changes,omitempty"`
+	ActorName             string                          `json:"actorName,omitempty"`
+	ActorSourceIP         string                          `json:"actorSourceIP,omitempty"`
 	OccurredAt            time.Time                       `json:"occurredAt"`
 }
 
@@ -151,6 +189,27 @@ func (p *TransporterProfile) Apply(event Event) {
 			return
 		}
 		p.setDocumentReview(event.DocumentReference, DocumentApproved)
+		if event.Certificate != nil {
+			p.setCertificate(*event.Certificate)
+		}
+		p.state.UpdatedAt = event.OccurredAt
+	case DocumentRegisteredEvent, DocumentDetailsUpdatedEvent, DocumentFileAttachedEvent:
+		if !p.exists || event.Certificate == nil || event.Certificate.ID == "" {
+			return
+		}
+		p.setCertificate(*event.Certificate)
+		p.state.UpdatedAt = event.OccurredAt
+	case DocumentSupersededEvent:
+		if !p.exists || event.Certificate == nil || event.Certificate.ID == "" {
+			return
+		}
+		p.setCertificate(*event.Certificate)
+		p.state.UpdatedAt = event.OccurredAt
+	case DocumentReviewCancelledEvent:
+		if !p.exists {
+			return
+		}
+		p.setDocumentReview(event.DocumentReference, DocumentReviewCancelled)
 		p.state.UpdatedAt = event.OccurredAt
 	case DocumentRejectedEvent:
 		if !p.exists {
@@ -218,6 +277,73 @@ func (p *TransporterProfile) Apply(event Event) {
 		p.state.TrackingCredentials[event.Provider] = event.CredentialType
 		p.state.UpdatedAt = event.OccurredAt
 	}
+}
+
+// RegisterCertificate creates the event-safe GIT registration fact. The
+// caller supplies a document with a service-minted ID; non-GIT documents stay
+// on their existing CRUD path during Phase 39a.
+func (p *TransporterProfile) RegisterCertificate(doc organizationdomain.ComplianceDocument, actorName, sourceIP string) (Event, error) {
+	if !p.exists {
+		return Event{}, ErrNotFound
+	}
+	if doc.Type != organizationdomain.DocumentTypeGoodsInTransit {
+		return Event{}, errors.New("only goods-in-transit documents belong to the transporter profile")
+	}
+	if err := doc.ValidateGitCertificate(); err != nil {
+		return Event{}, err
+	}
+	event := p.event(DocumentRegisteredEvent, p.state.AttemptNumber, p.state.Status)
+	event.Certificate = certificateFromDocument(doc)
+	event.ActorName, event.ActorSourceIP = actorName, sourceIP
+	return event, nil
+}
+
+// ApproveCertificate is BR-TP69's write-side lock: once a new certificate is
+// approved, every earlier unsuperseded certificate is superseded and any open
+// review is explicitly cancelled. The caller appends the returned events in
+// order under the aggregate sequence guard.
+func (p *TransporterProfile) ApproveCertificate(documentID, actorName, sourceIP string) ([]Event, error) {
+	if !p.exists {
+		return nil, ErrNotFound
+	}
+	certificate, ok := p.state.Certificates[documentID]
+	if !ok {
+		return nil, organizationdomain.ErrDocumentNotFound
+	}
+	if certificate.Status == organizationdomain.DocumentStatusSuperseded {
+		return nil, organizationdomain.ErrDocumentSuperseded
+	}
+	approved := certificate
+	from := approved.Status
+	approved.Status = organizationdomain.DocumentStatusApproved
+	approval := p.event(DocumentApprovedEvent, p.state.AttemptNumber, p.state.Status)
+	approval.DocumentReference = documentID
+	approval.Certificate = &approved
+	approval.Changes = []FieldChange{{Field: "status", From: from, To: approved.Status}}
+	approval.ActorName, approval.ActorSourceIP = actorName, sourceIP
+	events := []Event{approval}
+
+	for id, earlier := range p.state.Certificates {
+		if id == documentID || earlier.Status == organizationdomain.DocumentStatusSuperseded {
+			continue
+		}
+		superseded := earlier
+		superseded.Status = organizationdomain.DocumentStatusSuperseded
+		event := p.event(DocumentSupersededEvent, p.state.AttemptNumber, p.state.Status)
+		event.DocumentReference = id
+		event.Certificate = &superseded
+		event.Changes = []FieldChange{{Field: "status", From: earlier.Status, To: superseded.Status}}
+		event.ActorName, event.ActorSourceIP = actorName, sourceIP
+		events = append(events, event)
+		if p.state.DocumentReviews[id] == DocumentPendingReview {
+			cancelled := p.event(DocumentReviewCancelledEvent, p.state.AttemptNumber, p.state.Status)
+			cancelled.DocumentReference = id
+			cancelled.Changes = []FieldChange{{Field: "reviewStatus", From: DocumentPendingReview, To: DocumentReviewCancelled}}
+			cancelled.ActorName, cancelled.ActorSourceIP = actorName, sourceIP
+			events = append(events, cancelled)
+		}
+	}
+	return events, nil
 }
 
 // ConfigureTrackingCredential appends BR-TP55's event. The payload is not a
@@ -296,7 +422,48 @@ func (p *TransporterProfile) State() State {
 			state.DocumentReviews[reference] = status
 		}
 	}
+	if p.state.Certificates != nil {
+		state.Certificates = make(map[string]Certificate, len(p.state.Certificates))
+		for id, certificate := range p.state.Certificates {
+			state.Certificates[id] = cloneCertificate(certificate)
+		}
+	}
 	return state
+}
+
+func (p *TransporterProfile) setCertificate(certificate Certificate) {
+	if p.state.Certificates == nil {
+		p.state.Certificates = map[string]Certificate{}
+	}
+	p.state.Certificates[certificate.ID] = cloneCertificate(certificate)
+}
+
+func certificateFromDocument(doc organizationdomain.ComplianceDocument) *Certificate {
+	return &Certificate{ID: doc.ID, Status: doc.Status, Reference: doc.Reference,
+		GoodsTypes: append([]string(nil), doc.GoodsTypes...), CoverageCents: cloneInt64(doc.CoverageCents),
+		ExpiresAt: cloneInt64(doc.ExpiresAt), InsurerName: doc.InsurerName, File: cloneFile(doc.File)}
+}
+
+func cloneCertificate(c Certificate) Certificate {
+	c.GoodsTypes = append([]string(nil), c.GoodsTypes...)
+	c.CoverageCents, c.ExpiresAt, c.File = cloneInt64(c.CoverageCents), cloneInt64(c.ExpiresAt), cloneFile(c.File)
+	return c
+}
+
+func cloneInt64(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	clone := *value
+	return &clone
+}
+
+func cloneFile(file *organizationdomain.DocumentFile) *organizationdomain.DocumentFile {
+	if file == nil {
+		return nil
+	}
+	clone := *file
+	return &clone
 }
 
 func (p *TransporterProfile) setDocumentReview(reference string, status DocumentReviewStatus) {
@@ -365,6 +532,16 @@ var stateProjectingEvents = map[string]struct{}{
 	// AvailableForAssignment true — so unlike the document/GIT branch events
 	// it belongs in the allowlist.
 	TrackingCredentialConfiguredEvent: {},
+	// Certificate facts are also projected state. The projector rehydrates the
+	// aggregate before writing, so these sparse from/to events never need to
+	// carry a forbidden full-state snapshot.
+	DocumentRegisteredEvent:      {},
+	DocumentDetailsUpdatedEvent:  {},
+	DocumentFileAttachedEvent:    {},
+	DocumentApprovedEvent:        {},
+	DocumentRejectedEvent:        {},
+	DocumentSupersededEvent:      {},
+	DocumentReviewCancelledEvent: {},
 }
 
 // ProjectsState reports whether eventType transitions projected profile state.

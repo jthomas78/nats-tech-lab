@@ -195,13 +195,15 @@ var _ = Describe("ComplianceDocument Rules", func() {
 			Expect(*doc.ExpiresAt).To(Equal(at))
 		})
 
-		It("rejects an expiry change on a superseded document", func() {
+		It("allows an expiry correction on a superseded document", func() {
 			superseded, err := pending().Supersede()
 			Expect(err).NotTo(HaveOccurred())
 
 			at := now.Add(24 * time.Hour).Unix()
-			_, err = superseded.SetExpiry(&at, now)
-			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
+			corrected, err := superseded.SetExpiry(&at, now)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(corrected.Status).To(Equal(domain.DocumentStatusSuperseded))
+			Expect(*corrected.ExpiresAt).To(Equal(at))
 		})
 
 		It("does not mutate the receiver", func() {
@@ -248,9 +250,7 @@ var _ = Describe("ComplianceDocument Rules", func() {
 			Expect(doc.Status).To(Equal(domain.DocumentStatusSuperseded))
 		})
 
-		// Superseded is terminal — every transition off it is rejected,
-		// including a second Supersede.
-		It("rejects every transition on a superseded document", func() {
+		It("rejects every transition except review resolution and SetExpiry on a superseded document", func() {
 			superseded, err := pending().Supersede()
 			Expect(err).NotTo(HaveOccurred())
 
@@ -265,6 +265,56 @@ var _ = Describe("ComplianceDocument Rules", func() {
 
 			_, err = superseded.Supersede()
 			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
+		})
+	})
+
+	Context("BR-TP64: GIT certificates require goods types", func() {
+		It("rejects a GIT certificate with no goods types", func() {
+			doc := domain.ComplianceDocument{Type: domain.DocumentTypeGoodsInTransit}
+			Expect(errors.Is(doc.ValidateGitCertificate(), domain.ErrGoodsTypesRequired)).To(BeTrue())
+		})
+
+		It("accepts one or more goods types", func() {
+			doc := domain.ComplianceDocument{Type: domain.DocumentTypeGoodsInTransit, GoodsTypes: []string{"FOOD", "CHEMICALS"}}
+			Expect(doc.ValidateGitCertificate()).To(Succeed())
+		})
+	})
+
+	Context("BR-TP66/BR-TP67: GIT approval requires insurance details and live cover", func() {
+		It("refuses a missing insurer or contact at the domain boundary", func() {
+			now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+			doc := domain.ComplianceDocument{Type: domain.DocumentTypeGoodsInTransit, Status: domain.DocumentStatusForReview}
+			_, err := doc.ApproveWithInsuranceDetails("", "Jane", "123", now)
+			Expect(errors.Is(err, domain.ErrInsurerNameRequired)).To(BeTrue())
+			_, err = doc.ApproveWithInsuranceDetails("Insurer", "", "123", now)
+			Expect(errors.Is(err, domain.ErrInsuranceContactNameRequired)).To(BeTrue())
+			_, err = doc.ApproveWithInsuranceDetails("Insurer", "Jane", "", now)
+			Expect(errors.Is(err, domain.ErrInsuranceContactNumberRequired)).To(BeTrue())
+		})
+
+		It("refuses an approval after the certificate has expired", func() {
+			now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+			expired := now.Add(-time.Second).Unix()
+			doc := domain.ComplianceDocument{Type: domain.DocumentTypeGoodsInTransit, Status: domain.DocumentStatusForReview, ExpiresAt: &expired}
+			_, err := doc.ApproveWithInsuranceDetails("Insurer", "Jane", "123", now)
+			Expect(errors.Is(err, domain.ErrDocumentExpiryInPast)).To(BeTrue())
+		})
+
+		It("approves a reviewed GIT certificate with complete, live insurance details", func() {
+			now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+			doc := domain.ComplianceDocument{Type: domain.DocumentTypeGoodsInTransit, Status: domain.DocumentStatusForReview}
+			approved, err := doc.ApproveWithInsuranceDetails("Insurer", "Jane", "123", now)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(approved.Status).To(Equal(domain.DocumentStatusApproved))
+		})
+	})
+
+	Context("BR-TP68: attaching GIT bytes moves a minted row into review", func() {
+		It("moves Pending to FOR_REVIEW without changing other document types", func() {
+			git := domain.ComplianceDocument{Type: domain.DocumentTypeGoodsInTransit, Status: domain.DocumentStatusPending}
+			attached, err := git.AttachFile(domain.DocumentFile{FileName: "git.pdf", ContentType: "application/pdf", SizeBytes: 1})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(attached.Status).To(Equal(domain.DocumentStatusForReview))
 		})
 	})
 })

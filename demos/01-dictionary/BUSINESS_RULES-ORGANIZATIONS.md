@@ -579,12 +579,18 @@ leaves no history to audit.
   `Organization.ID`, a Postgres `gen_random_uuid()` default returned to
   the caller). The primary key becomes `(organization_id, id)`.
   `AddDocument` always **inserts**; it never upserts.
-- **BR-TP30 (supersession):** At most one document per `(partner, type)` is
+- **BR-TP30 (supersession):** *(Amended by BR-TP69 (Phase 39) for the
+  `GOODS_IN_TRANSIT` type — supersede moves from **on-upload** to
+  **on-approval**, so two live GIT certificates may coexist while a renewal
+  awaits review. Read BR-TP69 before relying on the wording below for GIT.)*
+  At most one document per `(partner, type)` is
   **current**. Adding a document for a type that already has a current
   document **supersedes** that document: a new terminal `SUPERSEDED` status,
   reached by an explicit transition, legal from `Pending`, `Approved` and
   `Rejected` alike. A `SUPERSEDED` document accepts no further transition —
-  `Approve`/`Reject`/`Resubmit` on one is rejected `409 Conflict`. Note this
+  `Approve`/`Reject`/`Resubmit` on one is rejected `409 Conflict`.
+  *(Amended by BR-TP70 (Phase 39): a superseded document additionally accepts
+  review-resolution and `SetExpiry`.)* Note this
   is the one transition that may leave `Approved`, which BR-TP11 otherwise
   forbids: superseding does not un-approve past work, it retires the record
   that approval applied to.
@@ -1176,6 +1182,18 @@ mistyped date is not a decision a reviewer needs to retake. A `SUPERSEDED`
 document refuses the change, consistently with every other transition off
 that terminal status.
 
+> **Amended 2026-08-22 (Phase 39, BR-TP67 and BR-TP70).** Two changes.
+> First, the future-dated check stays exactly where it is — `SetExpiry` is
+> deliberately the single point the rule is enforced at, and registration
+> keeps refusing a past date — but **approval now re-checks it** (BR-TP67):
+> a certificate can sit in `FOR_REVIEW` until its expiry passes, and
+> approving it then would arm BR-TP60's timer on cover already dead, granting
+> and revoking the fleet gate in one transaction. Second, the sentence above
+> refusing the change on a `SUPERSEDED` document is **reversed** (BR-TP70):
+> historical correction is permitted, `ErrDocumentSuperseded` is dropped from
+> this path, and correcting a superseded certificate's expiry does **not**
+> re-arm the cover timer, which only considers approved documents.
+
 - **Why future-dated is enforced rather than accepted:** a past date on a
   write is a data-entry error, not a lapse that has already happened.
   Accepting one would arm 38h-ii's cover timer (BR-TP60) against an instant
@@ -1309,3 +1327,110 @@ not connected" since before the tenant fix.
   `vettingState` with `Vetted`, the timer firing at the exact expiry, and
   the profile ending `CoverLapsed` with `fleetAvailabilityGate=false` while
   the organization went `SUSPENDED`.
+
+---
+
+### BR-TP64–BR-TP72 (Phase 39) — GIT certificates: goods types, per-type cover, `FOR_REVIEW`, locking, actor
+
+**Confirmed 2026-08-22** at the Phase 39 design gate (see
+`.claude/plans/Main-POC-Plan.md` Phase 39 decisions 1–24 and
+[ADR-050](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-050-git-certificate-change-log-provenance.md)).
+Each rule below is one Ginkgo `Context`, specs before code. Scope is the
+`GOODS_IN_TRANSIT` document type only; the other four types are unchanged by
+this phase.
+
+- **BR-TP64 (goods types):** A GIT certificate carries **at least one** goods
+  type, each an existing item in the `goods-type` vocabulary **in the
+  certificate's own context**. The existence check is BR-TP14's
+  `refdataclient` pattern, reused — a code that does not exist in that
+  context is rejected, not stored and reconciled later.
+- **BR-TP65 (cover is per goods type, reported and never enforced):** The
+  cover amount is per certificate and applies to every goods type on it; the
+  transporter's cover for a goods type is the **maximum across approved,
+  unexpired certificates**. Nothing enforces it. This is deliberate and is
+  the honest statement of what the code does: there is **no load allocation
+  anywhere in this backend**, and the single `CoverageCents` this replaces was
+  already written and never read by any decision path. V2's rule — a load is
+  allocatable only if every category on it is covered at or above its
+  declared goods value — has no consumer here to enforce it against. Do not
+  write a spec asserting an allocation refusal; there is nothing to refuse.
+- **BR-TP66 (insurer and contact are approval-time requirements):** Insurer
+  name, insurance contact name, and insurance contact number are required to
+  **approve** a GIT certificate, **not** to register one — matching V2, where
+  those validators are conditional on `ACCEPTED`. Registration stays cheap so
+  a document can reach the reviewer's queue; the reviewer is the gate.
+- **BR-TP67 (expiry is guarded twice):** Registration refuses a past expiry
+  (BR-TP59, enforced at the single point `SetExpiry`), **and approval refuses
+  an already-expired certificate**. See BR-TP59's amendment for why the second
+  guard is not redundant.
+- **BR-TP68 (`FOR_REVIEW`):** Registration is **always** permitted, in every
+  state of the transporter and of existing certificates, including while cover
+  is current — early renewal is legal, and dropping a file changes no cover.
+  A registered certificate enters `FOR_REVIEW`. `PENDING` keeps its existing
+  meaning: row minted, no file yet. `FOR_REVIEW` derives to `Pending` in
+  `DeriveGitStatus` — the gate cares whether cover exists and a document
+  waiting in a queue is not cover — and this must be an **explicit branch**
+  in `gitStatusOf`, not the current `default:` fall-through.
+- **BR-TP69 (approval is the only thing that locks):** Approving a certificate
+  **supersedes and locks every earlier one** and **cancels** any review still
+  open on them. A review cancelled this way is recorded as *cancelled*, never
+  *rejected* — nobody judged it. This **moves BR-TP30's supersede from
+  on-upload to on-approval**: on-upload supersede plus BR-TP68's early
+  renewal would retire live cover the instant a renewal was dropped.
+  Enforcement is a **write-side replay invariant** on
+  `TransporterProfile` — approval hydrates the aggregate and emits one
+  `document-superseded` per earlier certificate — **backed by a unique partial
+  index** on `(organization_id, type) WHERE status = 'APPROVED'`. The existing
+  `compliance_documents_current_idx` is non-unique, so two live approved rows
+  are structurally permitted today and the bug would be silent.
+- **BR-TP70 (what a locked certificate still accepts):** "Locked" means
+  superseded-by-approval; the current approved certificate is **not** locked.
+  A superseded certificate accepts exactly two commands —
+  **review-resolution** (so a workflow left waiting on a review the UI can no
+  longer re-drive can be driven to rest and recorded as *cancelled*) and
+  **`SetExpiry`** (historical correction). Every other mutating command is
+  rejected. This deletes `SetExpiry`'s `ErrDocumentSuperseded` guard and
+  contradicts that method's own comment, both of which are rewritten, not left
+  standing.
+- **BR-TP71 (every command records an actor):** Every command records an
+  actor; system-originated transitions record the **mechanism**, spelled to
+  match the convention already in the wild (`Actor{Name:
+  "temporal-git-monitor"}`), never a second vocabulary and never a person.
+  The actor is **unauthenticated** — a client-supplied header defaulting to
+  the literal `"admin"` — so anything derived from it that leaves the system
+  must say so: Phase 46's export carries `actor_verified`, always `false`
+  until authenticated identity lands. The comment in
+  `internal/application/commands/compliance_document.go` justifying the
+  absence of a document audit trail ("no enforcement consequence in v1") is
+  **removed**, not left to confuse: the audit-export requirement falsifies it.
+- **BR-TP72 (the insurance contact never reaches the stream):** The insurance
+  contact's **name and number are never written to a JetStream event**.
+  Events record *that* those fields changed — field names, no values — and the
+  values live only in the projection. `LimitsPolicy` plus replay means an
+  event cannot be corrected or erased, which is exactly the reasoning
+  `TrackingCredentialConfiguredEvent` already accepted for secrets. Honest
+  cost: Phase 46's change log shows those two fields as changed with no
+  `from → to`.
+
+- **Provenance shape (BR-TP69/BR-TP71/BR-TP72 all depend on it):** GIT document
+  commands move onto the `TransporterProfile` aggregate and append to the
+  `TRANSPORTER` stream; `compliance_documents` becomes a projection **for that
+  type**. Existing `document-approved` / `document-rejected` tokens are
+  **enriched, not forked**; new tokens only for facts with no current
+  equivalent — `document-registered`, `document-details-updated`,
+  `document-file-attached`, `document-superseded`,
+  `document-review-cancelled`. Events carry explicit **`from` and `to`** per
+  changed field. The **command** becomes the sole producer of
+  `document-approved`; the Temporal workflow's emit is deleted and it derives
+  its view by reading document state (amends BR-TP23's signal-driven review,
+  and ADR-047).
+- **Enforced in:** `internal/domain/compliance_document.go`,
+  `transporterprofile/domain/profile.go` (the aggregate's new certificate
+  state and its guards), `internal/application/commands/compliance_document.go`
+  (actor threading), `internal/postgres/migrate.go` (`created_at`, widened
+  `FOR_REVIEW` CHECK constraint, unique partial index),
+  `internal/postgres/compliance_document_repository.go` (new all-certificates
+  read query — today's `ListDocuments` excludes superseded rows by design and
+  orders `BY type`, both wrong for the flat table).
+- **Not enforced anywhere, by decision:** BR-TP65's cover comparison. See its
+  entry.

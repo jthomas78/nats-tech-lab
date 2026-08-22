@@ -163,6 +163,43 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			ADD COLUMN IF NOT EXISTS file_object_name TEXT,
 			ADD COLUMN IF NOT EXISTS file_uploaded_at TIMESTAMPTZ`,
 
+		// --- Phase 39a ------------------------------------------------------
+		// GIT is event-sourced from this point: this table is its replay-fed
+		// projection. Contact name/number are the named exception (BR-TP72):
+		// commands write them directly and a replay rebuild restores NULL,
+		// because immutable stream events must not contain redactable contact
+		// values.
+		`ALTER TABLE organizations.compliance_documents
+			ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			ADD COLUMN IF NOT EXISTS goods_types TEXT[] NOT NULL DEFAULT '{}'::text[],
+			ADD COLUMN IF NOT EXISTS insurer_name TEXT NOT NULL DEFAULT '',
+			ADD COLUMN IF NOT EXISTS insurance_contact_name TEXT,
+			ADD COLUMN IF NOT EXISTS insurance_contact_number TEXT`,
+
+		// Postgres cannot ALTER a CHECK expression. Extend it in the same
+		// guarded DO-block idiom used for SUPERSEDED above.
+		`DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1 FROM pg_constraint
+				WHERE conrelid = 'organizations.compliance_documents'::regclass
+				  AND conname = 'compliance_documents_status_check'
+				  AND pg_get_constraintdef(oid) LIKE '%FOR_REVIEW%'
+			) THEN
+				ALTER TABLE organizations.compliance_documents DROP CONSTRAINT IF EXISTS compliance_documents_status_check;
+				ALTER TABLE organizations.compliance_documents
+					ADD CONSTRAINT compliance_documents_status_check
+					CHECK (status IN ('PENDING', 'FOR_REVIEW', 'APPROVED', 'REJECTED', 'SUPERSEDED'));
+			END IF;
+		END $$`,
+
+		// BR-TP69: this must fail rather than repair existing dev data. If a
+		// database already has two approved rows for one type, reseed it with
+		// cmd/seed-transporters; inventing a repair would fabricate provenance.
+		`CREATE UNIQUE INDEX IF NOT EXISTS compliance_documents_one_approved_idx
+			ON organizations.compliance_documents (organization_id, type)
+			WHERE status = 'APPROVED'`,
+
 		// --- Phase 38d-ii ---------------------------------------------------
 		// Operating areas (BR-TP46-BR-TP50). Deliberately mirrors V2's own
 		// denormalization: country_code is carried on every row, including

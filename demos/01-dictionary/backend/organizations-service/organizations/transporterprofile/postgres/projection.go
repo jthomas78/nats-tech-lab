@@ -27,12 +27,14 @@ func (p *Projection) Migrate(ctx context.Context) error {
 			fleet_availability_gate BOOLEAN NOT NULL DEFAULT FALSE,
 			git_verified        BOOLEAN     NOT NULL DEFAULT FALSE,
 			document_reviews    JSONB       NOT NULL DEFAULT '{}'::jsonb,
+			certificates        JSONB       NOT NULL DEFAULT '{}'::jsonb,
 			updated_at         TIMESTAMPTZ NOT NULL
 		);
 		ALTER TABLE organizations.transporter_profiles ADD COLUMN IF NOT EXISTS attempt_number INTEGER NOT NULL DEFAULT 0;
 		ALTER TABLE organizations.transporter_profiles ADD COLUMN IF NOT EXISTS fleet_availability_gate BOOLEAN NOT NULL DEFAULT FALSE;
 		ALTER TABLE organizations.transporter_profiles ADD COLUMN IF NOT EXISTS git_verified BOOLEAN NOT NULL DEFAULT FALSE;
 		ALTER TABLE organizations.transporter_profiles ADD COLUMN IF NOT EXISTS document_reviews JSONB NOT NULL DEFAULT '{}'::jsonb;
+		ALTER TABLE organizations.transporter_profiles ADD COLUMN IF NOT EXISTS certificates JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 		-- BR-TP63 (38h-ii) adds CoverLapsed. The CHECK is dropped and recreated
 		-- rather than left to the CREATE TABLE above, which only runs on a
@@ -56,12 +58,12 @@ func (p *Projection) Migrate(ctx context.Context) error {
 // gate is wired to this type and never to the cache adapter.
 func (p *Projection) Get(ctx context.Context, organizationID string) (profiledomain.State, error) {
 	var state profiledomain.State
-	var reviews []byte
+	var reviews, certificates []byte
 	err := p.db.QueryRowContext(ctx, `
-		SELECT context, organization_id, status, attempt_number, fleet_availability_gate, git_verified, document_reviews, updated_at
+		SELECT context, organization_id, status, attempt_number, fleet_availability_gate, git_verified, document_reviews, certificates, updated_at
 		FROM organizations.transporter_profiles
 		WHERE organization_id = $1`, organizationID,
-	).Scan(&state.Context, &state.ID, &state.Status, &state.AttemptNumber, &state.FleetAvailabilityGate, &state.GitVerified, &reviews, &state.UpdatedAt)
+	).Scan(&state.Context, &state.ID, &state.Status, &state.AttemptNumber, &state.FleetAvailabilityGate, &state.GitVerified, &reviews, &certificates, &state.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return profiledomain.State{}, profiledomain.ErrNotFound
 	}
@@ -69,6 +71,9 @@ func (p *Projection) Get(ctx context.Context, organizationID string) (profiledom
 		return profiledomain.State{}, err
 	}
 	if err := json.Unmarshal(reviews, &state.DocumentReviews); err != nil {
+		return profiledomain.State{}, err
+	}
+	if err := json.Unmarshal(certificates, &state.Certificates); err != nil {
 		return profiledomain.State{}, err
 	}
 	return state, nil
@@ -79,10 +84,14 @@ func (p *Projection) Upsert(ctx context.Context, state profiledomain.State) erro
 	if err != nil {
 		return err
 	}
+	certificates, err := json.Marshal(state.Certificates)
+	if err != nil {
+		return err
+	}
 	_, err = p.db.ExecContext(ctx, `
 		INSERT INTO organizations.transporter_profiles
-			(organization_id, context, status, attempt_number, fleet_availability_gate, git_verified, document_reviews, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			(organization_id, context, status, attempt_number, fleet_availability_gate, git_verified, document_reviews, certificates, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (organization_id) DO UPDATE SET
 			context = EXCLUDED.context,
 			status = EXCLUDED.status,
@@ -90,8 +99,9 @@ func (p *Projection) Upsert(ctx context.Context, state profiledomain.State) erro
 			fleet_availability_gate = EXCLUDED.fleet_availability_gate,
 			git_verified = EXCLUDED.git_verified,
 			document_reviews = EXCLUDED.document_reviews,
+			certificates = EXCLUDED.certificates,
 			updated_at = EXCLUDED.updated_at`,
-		state.ID, state.Context, state.Status, state.AttemptNumber, state.FleetAvailabilityGate, state.GitVerified, reviews, state.UpdatedAt,
+		state.ID, state.Context, state.Status, state.AttemptNumber, state.FleetAvailabilityGate, state.GitVerified, reviews, certificates, state.UpdatedAt,
 	)
 	return err
 }

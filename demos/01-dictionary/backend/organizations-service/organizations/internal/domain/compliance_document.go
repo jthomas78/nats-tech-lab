@@ -26,9 +26,13 @@ const (
 type DocumentStatus string
 
 const (
-	DocumentStatusPending  DocumentStatus = "PENDING"
-	DocumentStatusApproved DocumentStatus = "APPROVED"
-	DocumentStatusRejected DocumentStatus = "REJECTED"
+	DocumentStatusPending DocumentStatus = "PENDING"
+	// DocumentStatusForReview means the certificate bytes have landed and are
+	// ready for a reviewer. Pending remains the deliberately cheaper "row only"
+	// state (BR-TP68).
+	DocumentStatusForReview DocumentStatus = "FOR_REVIEW"
+	DocumentStatusApproved  DocumentStatus = "APPROVED"
+	DocumentStatusRejected  DocumentStatus = "REJECTED"
 
 	// DocumentStatusSuperseded — BR-TP30 (38c-i). Terminal. Reached when a
 	// newer document of the same type replaces this one. Retained for audit;
@@ -103,6 +107,12 @@ var (
 	// whose bytes were never uploaded. Distinct from ErrDocumentNotFound:
 	// the document exists, the file does not.
 	ErrDocumentFileMissing = errors.New("compliance document has no file attached")
+
+	// ErrGoodsTypesRequired is BR-TP64's GIT-only cardinality guard.
+	ErrGoodsTypesRequired             = errors.New("at least one goods type is required for a goods-in-transit certificate")
+	ErrInsurerNameRequired            = errors.New("an insurer name is required to approve a goods-in-transit certificate")
+	ErrInsuranceContactNameRequired   = errors.New("an insurance contact name is required to approve a goods-in-transit certificate")
+	ErrInsuranceContactNumberRequired = errors.New("an insurance contact number is required to approve a goods-in-transit certificate")
 )
 
 // MaxDocumentFileBytes is BR-TP44's per-file cap, enforced at the service
@@ -161,11 +171,21 @@ type ComplianceDocument struct {
 	// reference (BR-TP36) and the {documentID} token in 38c-ii's Object
 	// Store object name, so one identifier serves all three.
 	ID            string         `json:"id,omitempty"`
+	CreatedAt     time.Time      `json:"createdAt,omitempty"`
 	Type          DocumentType   `json:"type"`
 	Status        DocumentStatus `json:"status"`
 	Reference     string         `json:"reference"`
 	ExpiresAt     *int64         `json:"expiresAt,omitempty"`
 	CoverageCents *int64         `json:"coverageCents,omitempty"`
+	// GoodsTypes and CoverageCents are deliberately certificate-scoped: the
+	// same cover applies to every listed goods type (BR-TP64/BR-TP65).
+	GoodsTypes  []string `json:"goodsTypes,omitempty"`
+	InsurerName string   `json:"insurerName,omitempty"`
+	// Insurance contact values are projection-only. They are never permitted
+	// in a TransporterProfile event because that immutable replay log cannot
+	// be redacted (BR-TP72).
+	InsuranceContactName   string `json:"insuranceContactName,omitempty"`
+	InsuranceContactNumber string `json:"insuranceContactNumber,omitempty"`
 	// File is nil until bytes have been uploaded (BR-TP45). A document
 	// legitimately exists without one: 38c-i's document-add creates the row
 	// (and mints the ID the object name needs) before any file arrives, and
@@ -244,19 +264,48 @@ func (d ComplianceDocument) AttachFile(f DocumentFile) (ComplianceDocument, erro
 		return d, ErrFileTooLarge
 	}
 	d.File = &f
+	if d.Type == DocumentTypeGoodsInTransit && d.Status == DocumentStatusPending {
+		d.Status = DocumentStatusForReview
+	}
 	return d, nil
 }
 
-// Approve implements BR-TP09 — legal only Pending -> Approved.
+// Approve implements the legacy non-GIT review transition. GIT approval uses
+// ApproveWithInsuranceDetails so BR-TP66 remains in the domain layer.
 func (d ComplianceDocument) Approve() (ComplianceDocument, error) {
 	if d.Status == DocumentStatusSuperseded {
 		return d, ErrDocumentSuperseded
 	}
-	if d.Status != DocumentStatusPending {
+	if d.Status != DocumentStatusPending && d.Status != DocumentStatusForReview {
 		return d, ErrDocumentNotPending
 	}
 	d.Status = DocumentStatusApproved
 	return d, nil
+}
+
+// ApproveWithInsuranceDetails implements BR-TP66/BR-TP67. The projection
+// fetch belongs in the command handler because contacts are intentionally not
+// replayed; the approval rule itself remains here.
+func (d ComplianceDocument) ApproveWithInsuranceDetails(insurerName, contactName, contactNumber string, now time.Time) (ComplianceDocument, error) {
+	if d.Type != DocumentTypeGoodsInTransit {
+		return d.Approve()
+	}
+	if insurerName == "" {
+		return d, ErrInsurerNameRequired
+	}
+	if contactName == "" {
+		return d, ErrInsuranceContactNameRequired
+	}
+	if contactNumber == "" {
+		return d, ErrInsuranceContactNumberRequired
+	}
+	if d.ExpiresAt != nil && !time.Unix(*d.ExpiresAt, 0).After(now) {
+		return d, ErrDocumentExpiryInPast
+	}
+	d.InsurerName = insurerName
+	d.InsuranceContactName = contactName
+	d.InsuranceContactNumber = contactNumber
+	return d.Approve()
 }
 
 // Reject implements BR-TP10 — legal only Pending -> Rejected.
@@ -308,21 +357,28 @@ func (d ComplianceDocument) Resubmit() (ComplianceDocument, error) {
 // Deliberately not a review transition: status is untouched, and Approved is
 // a legal source state. Renewing cover is a new document (BR-TP30), but
 // correcting a mistyped date on an approved one is not a decision a reviewer
-// needs to retake. Superseded is refused, consistently with every other
-// transition off that terminal status.
+// needs to retake. A superseded certificate also accepts this historical
+// correction: it cannot restore cover because derived cover considers only
+// approved documents (BR-TP70).
 //
 // A nil expiry is always legal and is never checked against now: no expiry
 // means cover cannot lapse by time at all, which is the state most documents
 // are in and the one the cover timer treats as "nothing to arm".
 func (d ComplianceDocument) SetExpiry(expiresAt *int64, now time.Time) (ComplianceDocument, error) {
-	if d.Status == DocumentStatusSuperseded {
-		return d, ErrDocumentSuperseded
-	}
 	if expiresAt != nil && !time.Unix(*expiresAt, 0).After(now) {
 		return d, ErrDocumentExpiryInPast
 	}
 	d.ExpiresAt = expiresAt
 	return d, nil
+}
+
+// ValidateGitCertificate implements the purely local portion of BR-TP64.
+// Vocabulary membership is checked by the command's tenant-scoped port.
+func (d ComplianceDocument) ValidateGitCertificate() error {
+	if d.Type == DocumentTypeGoodsInTransit && len(d.GoodsTypes) == 0 {
+		return ErrGoodsTypesRequired
+	}
+	return nil
 }
 
 func (d ComplianceDocument) Supersede() (ComplianceDocument, error) {

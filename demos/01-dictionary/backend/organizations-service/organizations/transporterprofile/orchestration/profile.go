@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 
+	organizationdomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
 	profiledomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/domain"
 )
 
@@ -107,5 +108,46 @@ func (h *ProfileHandler) ConfigureTrackingCredential(ctx context.Context, contex
 		return profiledomain.State{}, err
 	}
 	agg.Apply(event)
+	return agg.State(), nil
+}
+
+// RegisterCertificate appends the GIT registration fact. The caller has
+// already validated goods-type membership through its tenant-scoped refdata
+// port; this aggregate enforces the replayed certificate shape.
+func (h *ProfileHandler) RegisterCertificate(ctx context.Context, contextKey, organizationID string, doc organizationdomain.ComplianceDocument, actorName, sourceIP string) (profiledomain.State, error) {
+	agg, sequence, err := h.store.Hydrate(ctx, contextKey, organizationID)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	event, err := agg.RegisterCertificate(doc, actorName, sourceIP)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	if _, err = h.store.Append(ctx, contextKey, organizationID, event, sequence); err != nil {
+		return profiledomain.State{}, err
+	}
+	agg.Apply(event)
+	return agg.State(), nil
+}
+
+// ApproveCertificate appends BR-TP69's approval and every compensating lock
+// fact in order. Each append advances the expected sequence, preserving the
+// aggregate-wide guard even for the multi-event command.
+func (h *ProfileHandler) ApproveCertificate(ctx context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error) {
+	agg, sequence, err := h.store.Hydrate(ctx, contextKey, organizationID)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	events, err := agg.ApproveCertificate(documentID, actorName, sourceIP)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	for _, event := range events {
+		sequence, err = h.store.Append(ctx, contextKey, organizationID, event, sequence)
+		if err != nil {
+			return profiledomain.State{}, err
+		}
+		agg.Apply(event)
+	}
 	return agg.State(), nil
 }

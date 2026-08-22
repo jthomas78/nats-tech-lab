@@ -29,6 +29,37 @@ type eventRecorder struct {
 	coverExpiries []*int64
 	coverCalls    int
 	drops         []profileworkflow.GitMonitorInput
+
+	// documentStates is the persisted review state the workflow reads instead
+	// of trusting a signal payload (BR-TP71/decision 14). Keyed by reference,
+	// values are organizations domain DocumentStatus strings. reviewReads
+	// counts the reads so a spec can prove the workflow consults storage on
+	// every wake-up rather than caching the first answer.
+	documentStates map[string]string
+	reviewReads    int
+}
+
+func (r *eventRecorder) documentReviewState(_ context.Context, in profileworkflow.DocumentReviewStateInput) (map[string]string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.reviewReads++
+	out := make(map[string]string, len(in.References))
+	for _, reference := range in.References {
+		if status, ok := r.documentStates[reference]; ok {
+			out[reference] = status
+		}
+	}
+	return out, nil
+}
+
+// approve/reject move the *persisted* state a signal merely announces.
+func (r *eventRecorder) setDocumentState(reference, status string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.documentStates == nil {
+		r.documentStates = map[string]string{}
+	}
+	r.documentStates[reference] = status
 }
 
 func (r *eventRecorder) coverExpiry(_ context.Context, in profileworkflow.CoverExpiryInput) (*int64, error) {
@@ -104,6 +135,7 @@ func registerVettingActivities(env *testsuite.TestWorkflowEnvironment, recorder 
 	env.RegisterActivityWithOptions(recorder.verifyGIT, activity.RegisterOptions{Name: profileworkflow.RequestGitVerificationActivity})
 	env.RegisterActivityWithOptions(recorder.coverExpiry, activity.RegisterOptions{Name: profileworkflow.CoverExpiryActivity})
 	env.RegisterActivityWithOptions(recorder.handleDrop, activity.RegisterOptions{Name: profileworkflow.HandleGitStatusDropActivity})
+	env.RegisterActivityWithOptions(recorder.documentReviewState, activity.RegisterOptions{Name: profileworkflow.DocumentReviewStateActivity})
 }
 
 func executeVetting(recorder *eventRecorder, required []string, signals ...profileworkflow.DocumentReviewSignal) (profileworkflow.VettingResult, error) {
@@ -114,9 +146,18 @@ func executeVetting(recorder *eventRecorder, required []string, signals ...profi
 	env.RegisterActivityWithOptions(recorder.verifyGIT, activity.RegisterOptions{Name: profileworkflow.RequestGitVerificationActivity})
 	env.RegisterActivityWithOptions(recorder.coverExpiry, activity.RegisterOptions{Name: profileworkflow.CoverExpiryActivity})
 	env.RegisterActivityWithOptions(recorder.handleDrop, activity.RegisterOptions{Name: profileworkflow.HandleGitStatusDropActivity})
+	env.RegisterActivityWithOptions(recorder.documentReviewState, activity.RegisterOptions{Name: profileworkflow.DocumentReviewStateActivity})
 	for i, signal := range signals {
 		signal := signal
 		env.RegisterDelayedCallback(func() {
+			// The command writes the row, *then* signals (decision 14). The
+			// signal is only a wake-up, so the state has to be in place before
+			// it is sent or the workflow will correctly read nothing.
+			if signal.Approved {
+				recorder.setDocumentState(signal.Reference, "APPROVED")
+			} else {
+				recorder.setDocumentState(signal.Reference, "REJECTED")
+			}
 			env.SignalWorkflow(profileworkflow.DocumentReviewSignalName, signal)
 		}, time.Duration(i+1)*time.Second)
 	}
@@ -179,7 +220,11 @@ var _ = Describe("Transporter vetting workflows", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.Status).To(Equal(profiledomain.StatusVetted))
 			Expect(result.FleetAvailabilityGate).To(BeTrue())
-			Expect(recorder.types()).To(ContainElements(profiledomain.DocumentApprovedEvent, profiledomain.GitVerifiedEvent, profiledomain.VettedEvent))
+			// document-approved is deliberately absent: the command that wrote
+			// the row appends it now (decision 14), so both branches reaching
+			// Vetted is the whole of what this workflow contributes.
+			Expect(recorder.types()).To(ContainElements(profiledomain.GitVerifiedEvent, profiledomain.VettedEvent))
+			Expect(recorder.types()).NotTo(ContainElement(profiledomain.DocumentApprovedEvent))
 		})
 	})
 
@@ -190,7 +235,10 @@ var _ = Describe("Transporter vetting workflows", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.Status).To(Equal(profiledomain.StatusRejected))
 			Expect(result.FleetAvailabilityGate).To(BeFalse())
-			Expect(gitFailure.types()).To(ContainElements(profiledomain.DocumentApprovedEvent, profiledomain.DocumentApprovalRevertedEvent, profiledomain.RejectedEvent))
+			// The compensation is still this workflow's own — only the
+			// approval emit moved to the command (decision 14).
+			Expect(gitFailure.types()).To(ContainElements(profiledomain.DocumentApprovalRevertedEvent, profiledomain.RejectedEvent))
+			Expect(gitFailure.types()).NotTo(ContainElement(profiledomain.DocumentApprovedEvent))
 
 			gitSuccess := &eventRecorder{}
 			result, err = executeVetting(gitSuccess, []string{"operating-license"}, profileworkflow.DocumentReviewSignal{Reference: "operating-license", Approved: false})
@@ -210,13 +258,87 @@ var _ = Describe("Transporter vetting workflows", func() {
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.ApprovedDocumentReferences).To(ConsistOf("doc-a", "doc-b"))
+			// Three signals, two references, and no document-approved events at
+			// all: deduplication is now a property of reading persisted state
+			// (a second wake-up re-reads the same APPROVED row) rather than of
+			// the workflow tracking which references it has already emitted for.
 			Expect(recorder.types()).To(HaveExactElements(
 				profiledomain.VettingStartedEvent,
-				profiledomain.DocumentApprovedEvent,
-				profiledomain.DocumentApprovedEvent,
 				profiledomain.GitVerifiedEvent,
 				profiledomain.VettedEvent,
 			))
+		})
+	})
+
+	Context("decision 14 the workflow reads persisted document state, never the signal payload", func() {
+		// The hole this closes: the signal is best-effort. A review that wrote
+		// its row and then failed to signal used to leave the workflow waiting
+		// forever, and a signal that arrived without its row used to be
+		// believed. Both are now decided by storage.
+		It("ignores a signal whose persisted state does not agree with it", func() {
+			recorder := &eventRecorder{}
+			var suite testsuite.WorkflowTestSuite
+			env := suite.NewTestWorkflowEnvironment()
+			registerVettingActivities(env, recorder)
+
+			// The signal claims approval; storage says the row is still
+			// awaiting review. Storage wins, so the run never reaches Vetted.
+			env.RegisterDelayedCallback(func() {
+				recorder.setDocumentState("cipc", "FOR_REVIEW")
+				env.SignalWorkflow(profileworkflow.DocumentReviewSignalName,
+					profileworkflow.DocumentReviewSignal{Reference: "cipc", Approved: true})
+			}, time.Second)
+			env.RegisterDelayedCallback(func() {
+				if !env.IsWorkflowCompleted() {
+					env.CancelWorkflow()
+				}
+			}, 2*time.Second)
+
+			env.ExecuteWorkflow(profileworkflow.TransporterVettingWorkflow, vettingInput([]string{"cipc"}))
+			Expect(recorder.types()).NotTo(ContainElement(profiledomain.VettedEvent))
+		})
+
+		It("approves from persisted state even when the signal says rejected", func() {
+			recorder := &eventRecorder{}
+			var suite testsuite.WorkflowTestSuite
+			env := suite.NewTestWorkflowEnvironment()
+			registerVettingActivities(env, recorder)
+
+			env.RegisterDelayedCallback(func() {
+				recorder.setDocumentState("cipc", "APPROVED")
+				env.SignalWorkflow(profileworkflow.DocumentReviewSignalName,
+					profileworkflow.DocumentReviewSignal{Reference: "cipc", Approved: false})
+			}, time.Second)
+			env.RegisterDelayedCallback(func() {
+				if !env.IsWorkflowCompleted() {
+					env.CancelWorkflow()
+				}
+			}, 3*time.Second)
+
+			env.ExecuteWorkflow(profileworkflow.TransporterVettingWorkflow, vettingInput([]string{"cipc"}))
+			Expect(recorder.types()).To(ContainElement(profiledomain.VettedEvent))
+		})
+	})
+
+	Context("decision 14 the command is the sole producer of document-approved", func() {
+		It("appends no document-approved or document-rejected event of its own", func() {
+			recorder := &eventRecorder{}
+			_, err := executeVetting(recorder, []string{"cipc", "git"},
+				profileworkflow.DocumentReviewSignal{Reference: "cipc", Approved: true},
+				profileworkflow.DocumentReviewSignal{Reference: "git", Approved: true})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(recorder.types()).NotTo(ContainElement(profiledomain.DocumentApprovedEvent))
+			Expect(recorder.types()).NotTo(ContainElement(profiledomain.DocumentRejectedEvent))
+			Expect(recorder.types()).To(ContainElement(profiledomain.VettedEvent))
+		})
+
+		It("still appends its own compensation event when the GIT branch fails", func() {
+			recorder := &eventRecorder{gitErr: errors.New("insurer unreachable")}
+			result, err := executeVetting(recorder, []string{"cipc"},
+				profileworkflow.DocumentReviewSignal{Reference: "cipc", Approved: true})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Status).To(Equal(profiledomain.StatusRejected))
+			Expect(recorder.types()).To(ContainElement(profiledomain.DocumentApprovalRevertedEvent))
 		})
 	})
 
@@ -295,6 +417,7 @@ var _ = Describe("Transporter vetting workflows", func() {
 			registerVettingActivities(env, recorder)
 
 			env.RegisterDelayedCallback(func() {
+				recorder.setDocumentState("doc-a", "APPROVED")
 				env.SignalWorkflow(profileworkflow.DocumentReviewSignalName,
 					profileworkflow.DocumentReviewSignal{Reference: "doc-a", Approved: true})
 			}, time.Second)
@@ -324,6 +447,7 @@ var _ = Describe("Transporter vetting workflows", func() {
 			env := suite.NewTestWorkflowEnvironment()
 			registerVettingActivities(env, recorder)
 			env.RegisterDelayedCallback(func() {
+				recorder.setDocumentState("doc-a", "APPROVED")
 				env.SignalWorkflow(profileworkflow.DocumentReviewSignalName,
 					profileworkflow.DocumentReviewSignal{Reference: "doc-a", Approved: true})
 			}, time.Second)
