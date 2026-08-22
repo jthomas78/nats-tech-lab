@@ -168,4 +168,38 @@ var _ = Describe("GIT certificate projection (Phase 39a schema)", func() {
 			Expect(stored.InsuranceContactNumber).To(BeEmpty())
 		})
 	})
+
+	Context("BR-TP66/BR-TP72: the contact write refuses to lose the only copy", func() {
+		It("reports a missing row instead of updating nothing", func() {
+			// SetInsuranceContact is an UPDATE, and the two columns it writes
+			// are never on the stream — so if the projection row has not landed
+			// yet, a silent no-op discards the contacts BR-TP66 required in
+			// order to approve, permanently and with no error anywhere. Found
+			// during the 39b verification pass, where a certificate could be
+			// approved in the window before its own registration projected.
+			db := testDB()
+			repo := postgres.NewComplianceDocumentRepository(db)
+			partnerID := freshPartner(db, "TRANSPORTER")
+
+			err := repo.SetInsuranceContact(context.Background(), partnerID, uuid.NewString(),
+				"Acme Insurance", "Jane Reviewer", "+27 11 555 0000")
+			Expect(err).To(MatchError(domain.ErrDocumentNotFound))
+		})
+
+		It("still writes them when the row is there", func() {
+			db := testDB()
+			repo := postgres.NewComplianceDocumentRepository(db)
+			partnerID := freshPartner(db, "TRANSPORTER")
+			ctx := context.Background()
+
+			cert := certificate(domain.DocumentStatusForReview, "FOOD")
+			Expect(repo.UpsertCertificate(ctx, partnerID, cert)).To(Succeed())
+			Expect(repo.SetInsuranceContact(ctx, partnerID, cert.ID,
+				"Acme Insurance", "Jane Reviewer", "+27 11 555 0000")).To(Succeed())
+
+			stored, err := repo.GetDocument(ctx, partnerID, cert.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stored.InsuranceContactName).To(Equal("Jane Reviewer"))
+		})
+	})
 })

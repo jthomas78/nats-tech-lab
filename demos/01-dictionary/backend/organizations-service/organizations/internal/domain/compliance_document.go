@@ -109,7 +109,7 @@ var (
 	ErrDocumentFileMissing = errors.New("compliance document has no file attached")
 
 	// ErrGoodsTypesRequired is BR-TP64's GIT-only cardinality guard.
-	ErrGoodsTypesRequired             = errors.New("at least one goods type is required for a goods-in-transit certificate")
+	ErrGoodsTypesRequired = errors.New("at least one goods type is required for a goods-in-transit certificate")
 	// ErrGoodsTypeNotFound — BR-TP64: the code is not in the goods-type
 	// vocabulary for this certificate's context. A named error, not a bare
 	// fmt.Errorf at the call site, so the api.* boundary can map it the way
@@ -330,12 +330,17 @@ func (d ComplianceDocument) ApproveWithInsuranceDetails(insurerName, contactName
 	return d.Approve()
 }
 
-// Reject implements BR-TP10 — legal only Pending -> Rejected.
+// Reject implements BR-TP10, amended by BR-TP68. It admits the same two
+// statuses Approve does, and for the same reason: FOR_REVIEW is the state a
+// GIT certificate reaches once its bytes land, so it is the state a reviewer
+// actually decides from. Admitting it for approval but not for rejection left
+// the reviewer's queue with an approve-only verdict — a certificate could be
+// waved through but never turned down.
 func (d ComplianceDocument) Reject() (ComplianceDocument, error) {
 	if d.Status == DocumentStatusSuperseded {
 		return d, ErrDocumentSuperseded
 	}
-	if d.Status != DocumentStatusPending {
+	if d.Status != DocumentStatusPending && d.Status != DocumentStatusForReview {
 		return d, ErrDocumentNotPending
 	}
 	d.Status = DocumentStatusRejected

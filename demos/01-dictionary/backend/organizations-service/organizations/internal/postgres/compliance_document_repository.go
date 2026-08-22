@@ -126,12 +126,27 @@ func goodsTypesParam(codes []string) []byte {
 }
 
 func (r *ComplianceDocumentRepository) SetInsuranceContact(ctx context.Context, partnerID, documentID, insurerName, contactName, contactNumber string) error {
-	_, err := r.db.ExecContext(ctx, `
+	result, err := r.db.ExecContext(ctx, `
 		UPDATE organizations.compliance_documents
 		SET insurer_name = $3, insurance_contact_name = $4, insurance_contact_number = $5, updated_at = now()
 		WHERE organization_id = $1 AND id = $2`,
 		partnerID, documentID, insurerName, contactName, contactNumber)
-	return err
+	if err != nil {
+		return err
+	}
+	// An UPDATE that matches nothing is not a no-op here, it is data loss.
+	// These two columns are never on the stream (BR-TP72), so this statement
+	// is the only thing that will ever write them: if the row is not there
+	// yet, the contacts BR-TP66 required in order to approve are gone, and no
+	// replay or reprojection restores them. Fail loudly instead.
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return domain.ErrDocumentNotFound
+	}
+	return nil
 }
 
 // UpsertCertificate is the projection write for ADR-050 Option A. Every

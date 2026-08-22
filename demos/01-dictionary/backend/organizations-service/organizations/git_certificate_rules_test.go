@@ -576,4 +576,96 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 			Expect(stored.InsuranceContactNumber).To(Equal("+27 11 555 0000"))
 		})
 	})
+
+	// The three Contexts below were added after the 39b verification pass, which
+	// found each of them by exercising the live stack rather than these fakes.
+	// Two of the three could not have failed here before: the in-process
+	// appender collapses "append to the stream" and "the projector wrote the
+	// row" into one synchronous call, which is exactly the seam the real system
+	// has a gap in.
+
+	Context("BR-TP10 with BR-TP68: a certificate in the reviewer's queue can be rejected", func() {
+		attach := func(documentID string) {
+			_, err := appender.AttachCertificateFile(context.Background(), contextKey, partnerID, documentID,
+				domain.DocumentFile{FileName: "git.pdf", ContentType: "application/pdf", SizeBytes: 1, ObjectName: "obj"},
+				actorName, sourceIP)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		It("rejects a certificate whose bytes have landed", func() {
+			doc, err := register([]string{"FOOD"}, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			attach(doc.ID)
+
+			queued, err := docs.GetDocument(context.Background(), partnerID, doc.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(queued.Status).To(Equal(domain.DocumentStatusForReview),
+				"BR-TP68: attaching bytes is what moves a registration into the reviewer's queue")
+
+			rejected, err := handler.RejectGitDocument(context.Background(), tenant, contextKey, partnerID, doc.ID, actor)
+			Expect(err).NotTo(HaveOccurred(),
+				"FOR_REVIEW is the state a reviewer actually decides from — refusing to reject it leaves the queue with an approve-only verdict")
+			Expect(rejected.Status).To(Equal(domain.DocumentStatusRejected))
+
+			stored, err := docs.GetDocument(context.Background(), partnerID, doc.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stored.Status).To(Equal(domain.DocumentStatusRejected))
+		})
+
+		It("still refuses a superseded certificate", func() {
+			target, err := register([]string{"FOOD"}, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			attach(target.ID)
+			later, err := register([]string{"FOOD"}, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = approve(later.ID)
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = handler.RejectGitDocument(context.Background(), tenant, contextKey, partnerID, target.ID, actor)
+			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue(),
+				"BR-TP70: a superseded certificate takes review-resolution and SetExpiry only, and a rejection is neither")
+		})
+	})
+
+	Context("a registered certificate is readable before the projector has caught up", func() {
+		// The appender here projects into a repo nothing else can see, which is
+		// what a real projector looks like from the command's point of view in
+		// the window between the append and the consumer's write.
+		var detached *commands.ComplianceDocumentHandler
+
+		BeforeEach(func() {
+			detached = commands.NewComplianceDocumentHandler(partners, docs).
+				WithGoodsTypeValidator(vocab).
+				WithCertificateAppender(newFakeCertificateAppender(newFakeDocRepo()))
+		})
+
+		It("writes the projection row on the command path, not only from the stream", func() {
+			doc, err := detached.AddGitDocument(context.Background(), tenant, contextKey, partnerID,
+				"s3://docs/git.pdf", nil, nil, []string{"FOOD"}, actor)
+			Expect(err).NotTo(HaveOccurred())
+
+			stored, err := docs.GetDocument(context.Background(), partnerID, doc.ID)
+			Expect(err).NotTo(HaveOccurred(),
+				"every later command on this certificate reads the projection first, so a row that lands late is a command that fails")
+			Expect(stored.Status).To(Equal(domain.DocumentStatusPending))
+			Expect(stored.GoodsTypes).To(Equal([]string{"FOOD"}))
+		})
+
+		It("lets the certificate be approved immediately, contacts and all", func() {
+			doc, err := detached.AddGitDocument(context.Background(), tenant, contextKey, partnerID,
+				"s3://docs/git.pdf", nil, nil, []string{"FOOD"}, actor)
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = detached.ApproveGitDocument(context.Background(), tenant, contextKey, partnerID, doc.ID,
+				"Acme Insurance", "Jane Reviewer", "+27 11 555 0000", actor)
+			Expect(err).NotTo(HaveOccurred())
+
+			// BR-TP72 keeps these two off the stream, so the direct write is the
+			// only copy that will ever exist. A no-op write loses them silently.
+			stored, err := docs.GetDocument(context.Background(), partnerID, doc.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stored.InsuranceContactName).To(Equal("Jane Reviewer"))
+			Expect(stored.InsuranceContactNumber).To(Equal("+27 11 555 0000"))
+		})
+	})
 })

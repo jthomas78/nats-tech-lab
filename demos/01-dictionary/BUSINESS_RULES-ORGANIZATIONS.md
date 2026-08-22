@@ -111,10 +111,17 @@ Phase 26 plan section).
   pattern), not a pure-domain guard function.
 - **BR-TP09 (`Approve`):** Legal only from `Pending` → `Approved`. Called on
   a document in any other status (`Approved` or `Rejected`), rejected with
-  `409 Conflict`.
+  `409 Conflict`. *(Amended by BR-TP68: `FOR_REVIEW` → `Approved` is also
+  legal, since a GIT certificate with bytes attached sits in `FOR_REVIEW`.)*
 - **BR-TP10 (`Reject`):** Legal only from `Pending` → `Rejected`. Called on
   a document in any other status (`Approved` or `Rejected`), rejected with
-  `409 Conflict`.
+  `409 Conflict`. *(Amended by BR-TP68, 2026-08-22: `FOR_REVIEW` → `Rejected`
+  is also legal, for the same reason and by the same guard as BR-TP09's.
+  Until this amendment `Approve` admitted `FOR_REVIEW` and `Reject` did not,
+  so the reviewer's queue — which is exactly the set of certificates in
+  `FOR_REVIEW` — could be approved from but never rejected from. Found by
+  verification after 39b, before the 39c screen made it reachable by a
+  human.)*
 - **BR-TP11 (`Resubmit`):** Legal only from `Rejected` → `Pending`,
   confirmed 2026-08-13 (resubmission is in scope for v1, not deferred).
   Called on a document in any other status (`Pending` or `Approved`),
@@ -1433,6 +1440,23 @@ this phase.
   `document-approved`; the Temporal workflow's emit is deleted and it derives
   its view by reading document state (amends BR-TP23's signal-driven review,
   and ADR-047).
+- **Amendments made after 39b's verification pass (2026-08-22):**
+  - `document-rejected` joined `document-approved` on the aggregate. The
+    provenance bullet above always required it ("enriched, not forked"), but
+    39a shipped only the approval half, so a GIT rejection was still a direct
+    projection write that the next certificate event would replay away.
+  - **Registration writes its own projection row**, immediately after the
+    append and through the same idempotent upsert the projector uses. The
+    table remains replay-fed — a rebuild produces the identical row — but the
+    row no longer arrives late. Every later command on a certificate reads
+    the projection first, so the gap between append and projection was a
+    window in which approve/reject/set-expiry failed against a certificate
+    the stream already had.
+  - **`SetInsuranceContact` fails on a missing row** instead of updating
+    nothing. It is an `UPDATE`, and BR-TP72 keeps its two columns off the
+    stream, so a silent no-op destroyed the only copy of the contacts
+    BR-TP66 required in order to approve — with no error raised anywhere and
+    nothing able to restore them.
 - **Enforced in:** `internal/domain/compliance_document.go`,
   `transporterprofile/domain/profile.go` (the aggregate's new certificate
   state and its guards), `internal/application/commands/compliance_document.go`

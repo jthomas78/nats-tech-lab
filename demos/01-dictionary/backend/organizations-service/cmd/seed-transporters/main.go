@@ -198,11 +198,18 @@ func (s *seeder) checkPrerequisites() error {
 			s.contextKey, s.contextKey)}
 	}
 
+	// One certificate carrying every code, not one per code: BR-TP64 allows
+	// as many goods types on a certificate as you like, so a single call
+	// probes the whole list and leaves one probe row behind instead of ten.
+	// It costs nothing in diagnostic power — the per-code loop below still
+	// runs when that call fails, and only then, to name which code is at
+	// fault.
 	var badGoods []string
-	for _, code := range goodsTypes {
-		_, err := s.addDocumentWithGoodsTypes(probe, []string{code})
-		if note(err) {
-			badGoods = append(badGoods, fmt.Sprintf("goods type %q", code))
+	if _, err := s.addDocumentWithGoodsTypes(probe, goodsTypes); note(err) {
+		for _, code := range goodsTypes {
+			if _, err := s.addDocumentWithGoodsTypes(probe, []string{code}); note(err) {
+				badGoods = append(badGoods, fmt.Sprintf("goods type %q", code))
+			}
 		}
 	}
 	if len(badGoods) == len(goodsTypes) {
@@ -249,13 +256,6 @@ func (s *seeder) seed(name string, r rung) error {
 	}
 	documentID, err := s.addDocument(id)
 	if err != nil {
-		return err
-	}
-	// GIT registration appends to the TRANSPORTER stream and returns before
-	// its Postgres projection is guaranteed visible. Do not submit/review
-	// against that race: a later registration projection could otherwise
-	// overwrite the review status and leave the workflow waiting forever.
-	if err := s.awaitDocumentProjection(id, documentID); err != nil {
 		return err
 	}
 	if r.review == "" {
@@ -306,27 +306,6 @@ func (s *seeder) seed(name string, r rung) error {
 		}
 	}
 	return nil
-}
-
-func (s *seeder) awaitDocumentProjection(id, documentID string) error {
-	deadline := time.Now().Add(requestTimeout)
-	for time.Now().Before(deadline) {
-		var out struct {
-			Documents []struct {
-				ID string `json:"id"`
-			} `json:"documents"`
-		}
-		if err := s.request("document.list", map[string]any{"id": id}, &out); err != nil {
-			return err
-		}
-		for _, doc := range out.Documents {
-			if doc.ID == documentID {
-				return nil
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("timed out after %s waiting for document %q to reach the projection", requestTimeout, documentID)
 }
 
 func (s *seeder) register(name string) (string, error) {

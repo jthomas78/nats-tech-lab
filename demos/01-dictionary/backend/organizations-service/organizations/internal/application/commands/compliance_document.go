@@ -71,8 +71,25 @@ func (h *ComplianceDocumentHandler) WithGoodsTypeValidator(v domain.GoodsTypeVal
 // service that is event-sourced rather than a row insert: it appends
 // document-registered to the TransporterProfile aggregate and returns what
 // that event says. organizations.compliance_documents is a *projection* of
-// that stream for this document type (decision 11) — the projector writes the
-// row, this command does not.
+// that stream for this document type (decision 11).
+//
+// The command writes the projection row itself, immediately after the append,
+// rather than leaving it to the projector alone. That is not a second source
+// of truth — the row is written from the same certificate the event carries,
+// through the same idempotent upsert the projector uses, so the projector's
+// later write of the same event is byte-identical and a rebuild from replay
+// still produces it. It closes a read-after-write window that was not
+// theoretical: every later command on a GIT certificate (approve, reject,
+// set-expiry) reads this projection first, so until the row landed those
+// commands failed with "document not found" against a certificate the stream
+// already had. Worse, ApproveGitDocument writes the insurance contact pair
+// straight to the row (decision 25) — the only copy that will ever exist,
+// since BR-TP72 keeps it off the stream — and that write is an UPDATE, so a
+// missing row lost the contacts with no error at all.
+//
+// The append goes first. If it succeeds and this write fails, the projector
+// still creates the row from the stream; the reverse order could leave a row
+// no event backs.
 //
 // Registration is never gated (BR-TP68). A transporter may register a renewal
 // while its current cover is live and approved; nothing about cover changes
@@ -89,7 +106,23 @@ func (h *ComplianceDocumentHandler) AddGitDocument(ctx context.Context, tenant, 
 	if _, err := appender.RegisterCertificate(ctx, contextKey, partnerID, doc, actor.Name, actor.SourceIP); err != nil {
 		return domain.ComplianceDocument{}, err
 	}
+	if err := h.docs.UpsertCertificate(ctx, partnerID, projectedFrom(doc)); err != nil {
+		return domain.ComplianceDocument{}, err
+	}
 	return doc, nil
+}
+
+// projectedFrom narrows a freshly registered certificate to the projection's
+// own shape. It is the inverse of the projector's own conversion and, like it,
+// carries no contact fields — those are not on the stream and must never be
+// written by anything that could be replayed (BR-TP72).
+func projectedFrom(doc domain.ComplianceDocument) domain.ProjectedCertificate {
+	return domain.ProjectedCertificate{
+		ID: doc.ID, Status: doc.Status, Reference: doc.Reference,
+		GoodsTypes:    append([]string(nil), doc.GoodsTypes...),
+		CoverageCents: doc.CoverageCents, ExpiresAt: doc.ExpiresAt,
+		InsurerName: doc.InsurerName, File: doc.File,
+	}
 }
 
 // buildGitDocument is the validation shared by registration and any later

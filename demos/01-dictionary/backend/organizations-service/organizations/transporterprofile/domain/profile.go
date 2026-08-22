@@ -412,7 +412,11 @@ func (p *TransporterProfile) RejectCertificate(documentID, actorName, sourceIP s
 	if certificate.Status == organizationdomain.DocumentStatusSuperseded {
 		return Event{}, organizationdomain.ErrDocumentSuperseded
 	}
-	if certificate.Status != organizationdomain.DocumentStatusPending {
+	// The same two statuses ComplianceDocument.Reject admits (BR-TP10 as
+	// amended by BR-TP68): a certificate with bytes attached sits in
+	// FOR_REVIEW, and that is the queue a reviewer rejects from.
+	if certificate.Status != organizationdomain.DocumentStatusPending &&
+		certificate.Status != organizationdomain.DocumentStatusForReview {
 		return Event{}, organizationdomain.ErrDocumentNotPending
 	}
 	rejected := certificate
