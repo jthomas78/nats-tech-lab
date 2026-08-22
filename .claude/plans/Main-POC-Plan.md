@@ -880,7 +880,7 @@ with the implementation, one Ginkgo `Context` per rule, specs before code.
 - [x] **39b** — `goods-type` refdata vocabulary + seeded ~10-item corpus
       (without it 39c cannot be exercised). Copy `cmd/seed-vehicle-types` and
       BR-TP14's `refdataclient` existence check.
-- [ ] **39c** — GIT Certificates tab: flat table, always-open drop zone,
+- [x] **39c** — GIT Certificates tab: flat table, always-open drop zone,
       drill-down edit view with Save / Cancel. Needs a **new read query** —
       today's `ListDocuments` excludes superseded rows by design and orders
       `BY type`, and decision 1's table shows every certificate newest

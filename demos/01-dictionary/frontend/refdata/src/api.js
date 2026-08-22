@@ -307,6 +307,10 @@ export function listComplianceDocuments(context, id) {
   return tpRequest(context, 'document', 'list', { id })
 }
 
+export function listGitCertificates(context, id) {
+  return tpRequest(context, 'document', 'git-list', { id })
+}
+
 export function addComplianceDocument(context, id, input) {
   return tpRequest(context, 'document', 'add', { id, ...input })
 }
@@ -316,8 +320,8 @@ export function addComplianceDocument(context, id, input) {
 // document per partner, so `type` was a sufficient address; now that
 // superseded documents are retained, it is not — the same partner can hold
 // several CIPC rows, only one of them current.
-export function approveComplianceDocument(context, id, documentId) {
-  return tpRequest(context, 'document', 'approve', { id, documentId })
+export function approveComplianceDocument(context, id, documentId, insurance = {}) {
+  return tpRequest(context, 'document', 'approve', { id, documentId, ...insurance })
 }
 
 export function rejectComplianceDocument(context, id, documentId) {
@@ -326,6 +330,14 @@ export function rejectComplianceDocument(context, id, documentId) {
 
 export function resubmitComplianceDocument(context, id, documentId) {
   return tpRequest(context, 'document', 'resubmit', { id, documentId })
+}
+
+export function updateGitCertificate(context, id, documentId, input) {
+  return tpRequest(context, 'document', 'git-update', { id, documentId, ...input })
+}
+
+export function setGitCertificateExpiry(context, id, documentId, expiresAt) {
+  return tpRequest(context, 'document', 'set-expiry', { id, documentId, expiresAt })
 }
 
 // --- Compliance document files (Phase 38c-ii) ---
@@ -372,6 +384,10 @@ async function throwHttpError(response) {
 export async function uploadComplianceDocumentFile(context, id, documentId, file) {
   const { ticket } = await mintDocumentFileTicket(context, id, documentId, 'upload')
 
+  return postDocumentFile(ticket, file)
+}
+
+async function postDocumentFile(ticket, file) {
   const response = await fetch(DOCUMENT_FILE_URL, {
     method: 'POST',
     headers: {
@@ -388,6 +404,14 @@ export async function uploadComplianceDocumentFile(context, id, documentId, file
   })
   if (!response.ok) await throwHttpError(response)
   return response.json()
+}
+
+// registerGitCertificateWithFile spends the upload ticket returned by the
+// combined registration command. Minting a second ticket would create a
+// needless extra capability and turn one drop into three calls.
+export async function registerGitCertificateWithFile(context, id, input, file) {
+  const { ticket } = await tpRequest(context, 'document', 'git-register', { id, ...input })
+  return postDocumentFile(ticket, file)
 }
 
 // downloadComplianceDocumentFile fetches the bytes and hands back a Blob plus

@@ -185,6 +185,18 @@ func (f *fakeDocRepo) ListDocuments(_ context.Context, partnerID string) ([]doma
 	return out, nil
 }
 
+func (f *fakeDocRepo) ListGitCertificates(_ context.Context, partnerID string) ([]domain.ComplianceDocument, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := []domain.ComplianceDocument{}
+	for _, doc := range f.byID[partnerID] {
+		if doc.Type == domain.DocumentTypeGoodsInTransit {
+			out = append(out, doc)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeDocRepo) transition(
 	partnerID, documentID string, fn func(domain.ComplianceDocument) (domain.ComplianceDocument, error),
 ) (domain.ComplianceDocument, error) {
@@ -358,11 +370,11 @@ func (f *fakeCertificateAppender) SetCertificateExpiry(_ context.Context, contex
 	return agg.State(), nil
 }
 
-func (f *fakeCertificateAppender) ApproveCertificate(_ context.Context, contextKey, organizationID, documentID, insurerName, actorName, sourceIP string) (profiledomain.State, error) {
+func (f *fakeCertificateAppender) ApproveCertificate(_ context.Context, contextKey, organizationID, documentID, insurerName string, now time.Time, actorName, sourceIP string) (profiledomain.State, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	agg := f.aggregate(contextKey, organizationID)
-	events, err := agg.ApproveCertificate(documentID, insurerName, actorName, sourceIP)
+	events, err := agg.ApproveCertificate(documentID, insurerName, now, actorName, sourceIP)
 	if err != nil {
 		return profiledomain.State{}, err
 	}
@@ -378,6 +390,32 @@ func (f *fakeCertificateAppender) RejectCertificate(_ context.Context, contextKe
 	defer f.mu.Unlock()
 	agg := f.aggregate(contextKey, organizationID)
 	event, err := agg.RejectCertificate(documentID, actorName, sourceIP)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	agg.Apply(event)
+	f.project(organizationID, agg)
+	return agg.State(), nil
+}
+
+func (f *fakeCertificateAppender) ResubmitCertificate(_ context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	agg := f.aggregate(contextKey, organizationID)
+	event, err := agg.ResubmitCertificate(documentID, actorName, sourceIP)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	agg.Apply(event)
+	f.project(organizationID, agg)
+	return agg.State(), nil
+}
+
+func (f *fakeCertificateAppender) UpdateCertificateDetails(_ context.Context, contextKey, organizationID, documentID, reference string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (profiledomain.State, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	agg := f.aggregate(contextKey, organizationID)
+	event, err := agg.UpdateCertificateDetails(documentID, reference, goodsTypes, coverageCents, insurerName, contactsChanged, actorName, sourceIP)
 	if err != nil {
 		return profiledomain.State{}, err
 	}

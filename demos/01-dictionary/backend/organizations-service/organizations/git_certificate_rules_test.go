@@ -97,11 +97,11 @@ func (r *recordingAppender) RegisterCertificate(ctx context.Context, contextKey,
 	return r.fakeCertificateAppender.RegisterCertificate(ctx, contextKey, organizationID, doc, actorName, sourceIP)
 }
 
-func (r *recordingAppender) ApproveCertificate(ctx context.Context, contextKey, organizationID, documentID, insurerName, actorName, sourceIP string) (profiledomain.State, error) {
+func (r *recordingAppender) ApproveCertificate(ctx context.Context, contextKey, organizationID, documentID, insurerName string, now time.Time, actorName, sourceIP string) (profiledomain.State, error) {
 	r.replay(contextKey, organizationID, func(agg *profiledomain.TransporterProfile) ([]profiledomain.Event, error) {
-		return agg.ApproveCertificate(documentID, insurerName, actorName, sourceIP)
+		return agg.ApproveCertificate(documentID, insurerName, now, actorName, sourceIP)
 	})
-	return r.fakeCertificateAppender.ApproveCertificate(ctx, contextKey, organizationID, documentID, insurerName, actorName, sourceIP)
+	return r.fakeCertificateAppender.ApproveCertificate(ctx, contextKey, organizationID, documentID, insurerName, now, actorName, sourceIP)
 }
 
 func (r *recordingAppender) RejectCertificate(ctx context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error) {
@@ -110,6 +110,22 @@ func (r *recordingAppender) RejectCertificate(ctx context.Context, contextKey, o
 		return []profiledomain.Event{event}, err
 	})
 	return r.fakeCertificateAppender.RejectCertificate(ctx, contextKey, organizationID, documentID, actorName, sourceIP)
+}
+
+func (r *recordingAppender) ResubmitCertificate(ctx context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error) {
+	r.replay(contextKey, organizationID, func(agg *profiledomain.TransporterProfile) ([]profiledomain.Event, error) {
+		event, err := agg.ResubmitCertificate(documentID, actorName, sourceIP)
+		return []profiledomain.Event{event}, err
+	})
+	return r.fakeCertificateAppender.ResubmitCertificate(ctx, contextKey, organizationID, documentID, actorName, sourceIP)
+}
+
+func (r *recordingAppender) UpdateCertificateDetails(ctx context.Context, contextKey, organizationID, documentID, reference string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (profiledomain.State, error) {
+	r.replay(contextKey, organizationID, func(agg *profiledomain.TransporterProfile) ([]profiledomain.Event, error) {
+		event, err := agg.UpdateCertificateDetails(documentID, reference, goodsTypes, coverageCents, insurerName, contactsChanged, actorName, sourceIP)
+		return []profiledomain.Event{event}, err
+	})
+	return r.fakeCertificateAppender.UpdateCertificateDetails(ctx, contextKey, organizationID, documentID, reference, goodsTypes, coverageCents, insurerName, contactsChanged, actorName, sourceIP)
 }
 
 func (r *recordingAppender) AttachCertificateFile(ctx context.Context, contextKey, organizationID, documentID string, file domain.DocumentFile, actorName, sourceIP string) (profiledomain.State, error) {
@@ -215,6 +231,17 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 			Expect(err).To(HaveOccurred(),
 				"an unconfigured vocabulary must fail closed — accepting every code would silently disable the rule")
 		})
+
+		It("revalidates edited goods types before appending a details event", func() {
+			doc, err := register([]string{"FOOD"}, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			before := len(appender.recorded())
+
+			_, err = handler.UpdateGitDocument(context.Background(), tenant, contextKey, partnerID, doc.ID,
+				"edited.pdf", []string{"UNKNOWN"}, nil, "", "", "", actor)
+			Expect(errors.Is(err, domain.ErrGoodsTypeNotFound)).To(BeTrue())
+			Expect(appender.recorded()).To(HaveLen(before))
+		})
 	})
 
 	Context("BR-TP65: cover for a goods type is the maximum across approved, unexpired certificates", func() {
@@ -271,6 +298,37 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 			_, err := register([]string{"FOOD"}, nil, &past)
 			Expect(errors.Is(err, domain.ErrDocumentExpiryInPast)).To(BeTrue())
 			Expect(appender.recorded()).To(BeEmpty())
+		})
+
+		It("refuses an expired certificate inside the aggregate with no projection involved", func() {
+			now := time.Now().UTC()
+			past := now.Add(-time.Minute).Unix()
+			profile := &profiledomain.TransporterProfile{}
+			profile.Apply(profiledomain.NewCreatedEvent(contextKey, partnerID))
+			event, err := profile.RegisterCertificate(domain.ComplianceDocument{
+				ID: "expired", Type: domain.DocumentTypeGoodsInTransit,
+				Status: domain.DocumentStatusForReview, GoodsTypes: []string{"FOOD"}, ExpiresAt: &past,
+			}, actorName, sourceIP)
+			Expect(err).NotTo(HaveOccurred())
+			profile.Apply(event)
+
+			_, err = profile.ApproveCertificate("expired", "Acme Insurance", now, actorName, sourceIP)
+			Expect(errors.Is(err, domain.ErrDocumentExpiryInPast)).To(BeTrue())
+		})
+
+		It("refuses a certificate whose replayed status is not reviewable", func() {
+			now := time.Now().UTC()
+			profile := &profiledomain.TransporterProfile{}
+			profile.Apply(profiledomain.NewCreatedEvent(contextKey, partnerID))
+			event, err := profile.RegisterCertificate(domain.ComplianceDocument{
+				ID: "rejected", Type: domain.DocumentTypeGoodsInTransit,
+				Status: domain.DocumentStatusRejected, GoodsTypes: []string{"FOOD"},
+			}, actorName, sourceIP)
+			Expect(err).NotTo(HaveOccurred())
+			profile.Apply(event)
+
+			_, err = profile.ApproveCertificate("rejected", "Acme Insurance", now, actorName, sourceIP)
+			Expect(errors.Is(err, domain.ErrDocumentNotPending)).To(BeTrue())
 		})
 	})
 
@@ -349,7 +407,7 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 			Expect(err).NotTo(HaveOccurred())
 			profile.Apply(registered)
 
-			events, err := profile.ApproveCertificate("second", "Acme Insurance", actorName, sourceIP)
+			events, err := profile.ApproveCertificate("second", "Acme Insurance", time.Now().UTC(), actorName, sourceIP)
 			Expect(err).NotTo(HaveOccurred())
 			for _, event := range events {
 				profile.Apply(event)
@@ -386,7 +444,7 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 			}
 
 			order := func(p *profiledomain.TransporterProfile) []string {
-				events, err := p.ApproveCertificate("target", "Acme Insurance", actorName, sourceIP)
+				events, err := p.ApproveCertificate("target", "Acme Insurance", time.Now().UTC(), actorName, sourceIP)
 				Expect(err).NotTo(HaveOccurred())
 				var refs []string
 				for _, event := range events {
@@ -417,7 +475,7 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 				Expect(err).NotTo(HaveOccurred())
 				superseded.Apply(event)
 			}
-			events, err := superseded.ApproveCertificate("new", "Acme Insurance", actorName, sourceIP)
+			events, err := superseded.ApproveCertificate("new", "Acme Insurance", time.Now().UTC(), actorName, sourceIP)
 			Expect(err).NotTo(HaveOccurred())
 			for _, event := range events {
 				superseded.Apply(event)
@@ -444,7 +502,10 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 		})
 
 		It("refuses every other mutating command", func() {
-			_, err := superseded.ApproveCertificate("old", "Acme Insurance", actorName, sourceIP)
+			_, err := superseded.ApproveCertificate("old", "Acme Insurance", time.Now().UTC(), actorName, sourceIP)
+			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
+
+			_, err = superseded.UpdateCertificateDetails("old", "changed.pdf", []string{"FOOD"}, nil, "Insurer", false, actorName, sourceIP)
 			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
 
 			_, err = superseded.AttachCertificateFile("old", domain.DocumentFile{
@@ -506,7 +567,7 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 				OrganizationID: "tp-1", DocumentReference: "old",
 			})
 
-			events, err := profile.ApproveCertificate("new", "Acme Insurance", "temporal-git-monitor", "")
+			events, err := profile.ApproveCertificate("new", "Acme Insurance", time.Now().UTC(), "temporal-git-monitor", "")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(events).To(HaveLen(3))
 			for _, event := range events {
@@ -542,7 +603,7 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 			Expect(err).NotTo(HaveOccurred())
 			profile.Apply(event)
 
-			events, err := profile.ApproveCertificate("only", "Acme Insurance", actorName, sourceIP)
+			events, err := profile.ApproveCertificate("only", "Acme Insurance", time.Now().UTC(), actorName, sourceIP)
 			Expect(err).NotTo(HaveOccurred())
 
 			var withheld []string
@@ -570,6 +631,28 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 			Expect(string(raw)).NotTo(ContainSubstring("+27 11 555 0000"))
 
 			// And they are stored, in the one place decision 25 puts them.
+			stored, err := docs.GetDocument(context.Background(), partnerID, doc.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stored.InsuranceContactName).To(Equal("Jane Reviewer"))
+			Expect(stored.InsuranceContactNumber).To(Equal("+27 11 555 0000"))
+		})
+
+		It("updates editable details while keeping changed contact values off the stream", func() {
+			doc, err := register([]string{"FOOD"}, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			cover := int64(900_000)
+
+			updated, err := handler.UpdateGitDocument(context.Background(), tenant, contextKey, partnerID, doc.ID,
+				"renewal.pdf", []string{"FOOD", "CHEMICALS"}, &cover,
+				"Acme Insurance", "Jane Reviewer", "+27 11 555 0000", actor)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(updated.Reference).To(Equal("renewal.pdf"))
+			Expect(updated.GoodsTypes).To(Equal([]string{"FOOD", "CHEMICALS"}))
+
+			raw, err := json.Marshal(appender.recorded())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(raw)).NotTo(ContainSubstring("Jane Reviewer"))
+			Expect(string(raw)).NotTo(ContainSubstring("+27 11 555 0000"))
 			stored, err := docs.GetDocument(context.Background(), partnerID, doc.ID)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stored.InsuranceContactName).To(Equal("Jane Reviewer"))
@@ -610,6 +693,21 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 			stored, err := docs.GetDocument(context.Background(), partnerID, doc.ID)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stored.Status).To(Equal(domain.DocumentStatusRejected))
+		})
+
+		It("resubmits a rejected certificate with bytes back to FOR_REVIEW on the aggregate", func() {
+			doc, err := register([]string{"FOOD"}, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			attach(doc.ID)
+			_, err = handler.RejectGitDocument(context.Background(), tenant, contextKey, partnerID, doc.ID, actor)
+			Expect(err).NotTo(HaveOccurred())
+
+			resubmitted, err := handler.ResubmitGitDocument(context.Background(), tenant, contextKey, partnerID, doc.ID, actor)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resubmitted.Status).To(Equal(domain.DocumentStatusForReview))
+			stored, err := docs.GetDocument(context.Background(), partnerID, doc.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stored.Status).To(Equal(domain.DocumentStatusForReview))
 		})
 
 		It("still refuses a superseded certificate", func() {

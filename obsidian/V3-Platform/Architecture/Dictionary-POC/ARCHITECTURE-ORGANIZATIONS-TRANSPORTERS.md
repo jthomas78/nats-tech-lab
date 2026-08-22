@@ -325,6 +325,15 @@ Certificate / Goods types / Cover / Expiry date / Insurer / Last updated /
 action. The certificate carrying cover is a highlighted row, not a separate
 panel. Above it, an always-open drop zone.
 
+As built in 39c, `api.*.organizations.document.git-list.v1` is a dedicated
+history read over `ComplianceDocumentRepository.ListGitCertificates`: it is
+GIT-only, includes `SUPERSEDED`, and orders by `created_at DESC` without
+changing BR-TP31's legacy `document.list`. The response also carries
+`CoverByGoodsType`, derived in the domain, so the browser reports cover rather
+than reimplementing BR-TP65. `GitCertificatesTab.vue` highlights the live
+approved row inside this table and keeps the four CRUD document types on the
+existing Documents tab.
+
 Rules the screen encodes:
 
 1. **Registration is never gated — early renewal is allowed.** A certificate
@@ -346,6 +355,15 @@ row editor — which is why V2's screen scrolls sideways and has nowhere to put
 validation messages. Approve / Reject / Resubmit remain row actions on the
 table.
 
+The built edit writes ordinary fields through the event-sourced
+`document.git-update` command and expiry through the separately admissible
+`document.set-expiry` command. This split is BR-TP70 made visible: a
+superseded row opens read-only except for expiry correction, while the current
+approved row remains editable. Insurance contact values still go only to the
+projection (BR-TP72); the event records withheld field changes. Approve,
+Reject and Resubmit remain table-row actions, with approval collecting
+BR-TP66's three insurance fields in its own confirmation dialog.
+
 ### 9.3 State model, locking and registration
 
 ![State model](images/phase39/phase39-StatusModel.png)
@@ -359,6 +377,15 @@ table.
   cover that is still in force the instant a renewal was dropped.
 - `EXPIRED` stays derived; no `DELETED` state is added — supersede covers
   correction and keeps both records retrievable.
+
+The drop interaction collects the required goods-type metadata after file
+selection, then spends the upload ticket returned by `document.git-register`
+on `POST /files/documents`. The upload response is inserted at the top as
+`FOR_REVIEW` immediately — no UI polling or retry loop. GIT resubmit now also
+runs on the aggregate and returns an attached rejected certificate to
+`FOR_REVIEW`. Approval's status and expiry checks execute on the hydrated
+aggregate with the same captured `now` used by the projection-read guard, so
+BR-TP67 is a replay invariant rather than an adapter convention.
 
 ### 9.4 `AwaitingDocumentation` presentation fix — **moved to Phase 46**
 

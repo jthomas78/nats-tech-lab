@@ -169,12 +169,12 @@ func (h *ProfileHandler) SetCertificateExpiry(ctx context.Context, contextKey, o
 // ApproveCertificate appends BR-TP69's approval and every compensating lock
 // fact in order. Each append advances the expected sequence, preserving the
 // aggregate-wide guard even for the multi-event command.
-func (h *ProfileHandler) ApproveCertificate(ctx context.Context, contextKey, organizationID, documentID, insurerName, actorName, sourceIP string) (profiledomain.State, error) {
+func (h *ProfileHandler) ApproveCertificate(ctx context.Context, contextKey, organizationID, documentID, insurerName string, now time.Time, actorName, sourceIP string) (profiledomain.State, error) {
 	agg, sequence, err := h.store.Hydrate(ctx, contextKey, organizationID)
 	if err != nil {
 		return profiledomain.State{}, err
 	}
-	events, err := agg.ApproveCertificate(documentID, insurerName, actorName, sourceIP)
+	events, err := agg.ApproveCertificate(documentID, insurerName, now, actorName, sourceIP)
 	if err != nil {
 		return profiledomain.State{}, err
 	}
@@ -195,6 +195,38 @@ func (h *ProfileHandler) RejectCertificate(ctx context.Context, contextKey, orga
 		return profiledomain.State{}, err
 	}
 	event, err := agg.RejectCertificate(documentID, actorName, sourceIP)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	if _, err = h.store.Append(ctx, contextKey, organizationID, event, sequence); err != nil {
+		return profiledomain.State{}, err
+	}
+	agg.Apply(event)
+	return agg.State(), nil
+}
+
+func (h *ProfileHandler) ResubmitCertificate(ctx context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error) {
+	agg, sequence, err := h.store.Hydrate(ctx, contextKey, organizationID)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	event, err := agg.ResubmitCertificate(documentID, actorName, sourceIP)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	if _, err = h.store.Append(ctx, contextKey, organizationID, event, sequence); err != nil {
+		return profiledomain.State{}, err
+	}
+	agg.Apply(event)
+	return agg.State(), nil
+}
+
+func (h *ProfileHandler) UpdateCertificateDetails(ctx context.Context, contextKey, organizationID, documentID, reference string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (profiledomain.State, error) {
+	agg, sequence, err := h.store.Hydrate(ctx, contextKey, organizationID)
+	if err != nil {
+		return profiledomain.State{}, err
+	}
+	event, err := agg.UpdateCertificateDetails(documentID, reference, goodsTypes, coverageCents, insurerName, contactsChanged, actorName, sourceIP)
 	if err != nil {
 		return profiledomain.State{}, err
 	}

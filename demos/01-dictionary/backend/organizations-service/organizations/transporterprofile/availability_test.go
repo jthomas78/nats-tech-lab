@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	organizationdomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/domain"
@@ -111,7 +112,7 @@ func TestCertificateEventsExcludeInsuranceContactsAndApprovalLocksEarlierCertifi
 	}
 	p.Apply(registered)
 
-	events, err := p.ApproveCertificate("second", "Acme Insurance", "admin", "127.0.0.1")
+	events, err := p.ApproveCertificate("second", "Acme Insurance", time.Now().UTC(), "admin", "127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}

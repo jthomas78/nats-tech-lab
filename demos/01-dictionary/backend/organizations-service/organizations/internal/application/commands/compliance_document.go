@@ -27,8 +27,10 @@ type CertificateAppender interface {
 	SetCertificateExpiry(ctx context.Context, contextKey, organizationID, documentID string, expiresAt *int64, now time.Time, actorName, sourceIP string) (profiledomain.State, error)
 	RegisterCertificate(ctx context.Context, contextKey, organizationID string, doc domain.ComplianceDocument, actorName, sourceIP string) (profiledomain.State, error)
 	AttachCertificateFile(ctx context.Context, contextKey, organizationID, documentID string, file domain.DocumentFile, actorName, sourceIP string) (profiledomain.State, error)
-	ApproveCertificate(ctx context.Context, contextKey, organizationID, documentID, insurerName, actorName, sourceIP string) (profiledomain.State, error)
+	ApproveCertificate(ctx context.Context, contextKey, organizationID, documentID, insurerName string, now time.Time, actorName, sourceIP string) (profiledomain.State, error)
 	RejectCertificate(ctx context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error)
+	ResubmitCertificate(ctx context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error)
+	UpdateCertificateDetails(ctx context.Context, contextKey, organizationID, documentID, reference string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (profiledomain.State, error)
 }
 
 // CertificateAppenderResolver resolves a tenant to its own event store, for
@@ -190,7 +192,8 @@ func (h *ComplianceDocumentHandler) ApproveGitDocument(ctx context.Context, tena
 	// the handler's (Quality Rule 3). now is passed in for BR-TP67's second
 	// expiry check — a certificate can sit in FOR_REVIEW until its expiry
 	// passes, and approving it then would arm BR-TP60's timer on dead cover.
-	approved, err := doc.ApproveWithInsuranceDetails(insurerName, contactName, contactNumber, time.Now().UTC())
+	now := time.Now().UTC()
+	approved, err := doc.ApproveWithInsuranceDetails(insurerName, contactName, contactNumber, now)
 	if err != nil {
 		return domain.ComplianceDocument{}, err
 	}
@@ -201,7 +204,7 @@ func (h *ComplianceDocumentHandler) ApproveGitDocument(ctx context.Context, tena
 	if err := h.docs.SetInsuranceContact(ctx, partnerID, documentID, insurerName, contactName, contactNumber); err != nil {
 		return domain.ComplianceDocument{}, err
 	}
-	if _, err := appender.ApproveCertificate(ctx, contextKey, partnerID, documentID, insurerName, actor.Name, actor.SourceIP); err != nil {
+	if _, err := appender.ApproveCertificate(ctx, contextKey, partnerID, documentID, insurerName, now, actor.Name, actor.SourceIP); err != nil {
 		return domain.ComplianceDocument{}, err
 	}
 	return approved, nil
@@ -228,6 +231,78 @@ func (h *ComplianceDocumentHandler) RejectGitDocument(ctx context.Context, tenan
 	return rejected, nil
 }
 
+func (h *ComplianceDocumentHandler) ResubmitGitDocument(ctx context.Context, tenant, contextKey, partnerID, documentID string, actor Actor) (domain.ComplianceDocument, error) {
+	doc, err := h.docs.GetDocument(ctx, partnerID, documentID)
+	if err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	resubmitted, err := doc.Resubmit()
+	if err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	if resubmitted.File != nil {
+		resubmitted.Status = domain.DocumentStatusForReview
+	}
+	appender, err := h.certificateCommands(tenant)
+	if err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	if _, err := appender.ResubmitCertificate(ctx, contextKey, partnerID, documentID, actor.Name, actor.SourceIP); err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	return resubmitted, nil
+}
+
+// UpdateGitDocument persists the edit view's ordinary certificate fields.
+// Expiry stays on SetGitDocumentExpiry because BR-TP70 admits that one
+// correction on a superseded certificate while locking everything here.
+func (h *ComplianceDocumentHandler) UpdateGitDocument(ctx context.Context, tenant, contextKey, partnerID, documentID, reference string, goodsTypes []string, coverageCents *int64, insurerName, contactName, contactNumber string, actor Actor) (domain.ComplianceDocument, error) {
+	doc, err := h.docs.GetDocument(ctx, partnerID, documentID)
+	if err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	if doc.Status == domain.DocumentStatusSuperseded {
+		return domain.ComplianceDocument{}, domain.ErrDocumentSuperseded
+	}
+	probe, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeGoodsInTransit, reference)
+	if err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	probe.GoodsTypes, probe.CoverageCents = append([]string(nil), goodsTypes...), coverageCents
+	if err := probe.ValidateGitCertificate(); err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	if h.goodsTypes == nil {
+		return domain.ComplianceDocument{}, errors.New("goods-type validator is not configured")
+	}
+	for _, code := range goodsTypes {
+		exists, err := h.goodsTypes.GoodsTypeExists(ctx, tenant, contextKey, code)
+		if err != nil {
+			return domain.ComplianceDocument{}, err
+		}
+		if !exists {
+			return domain.ComplianceDocument{}, fmt.Errorf("%w: %q", domain.ErrGoodsTypeNotFound, code)
+		}
+	}
+	contactsChanged := contactName != doc.InsuranceContactName || contactNumber != doc.InsuranceContactNumber
+	insuranceChanged := insurerName != doc.InsurerName || contactsChanged
+	appender, err := h.certificateCommands(tenant)
+	if err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	if insuranceChanged {
+		if err := h.docs.SetInsuranceContact(ctx, partnerID, documentID, insurerName, contactName, contactNumber); err != nil {
+			return domain.ComplianceDocument{}, err
+		}
+	}
+	if _, err := appender.UpdateCertificateDetails(ctx, contextKey, partnerID, documentID, reference, goodsTypes, coverageCents, insurerName, contactsChanged, actor.Name, actor.SourceIP); err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	doc.Reference, doc.GoodsTypes, doc.CoverageCents = reference, append([]string(nil), goodsTypes...), coverageCents
+	doc.InsurerName, doc.InsuranceContactName, doc.InsuranceContactNumber = insurerName, contactName, contactNumber
+	return doc, nil
+}
+
 // SetGitDocumentExpiry is BR-TP59's correction routed onto the aggregate.
 // A direct projection write would be replayed away by the next certificate
 // event, so an event-sourced document's expiry has to move on the stream.
@@ -236,7 +311,8 @@ func (h *ComplianceDocumentHandler) SetGitDocumentExpiry(ctx context.Context, te
 	if err != nil {
 		return domain.ComplianceDocument{}, err
 	}
-	updated, err := doc.SetExpiry(expiresAt, time.Now().UTC())
+	now := time.Now().UTC()
+	updated, err := doc.SetExpiry(expiresAt, now)
 	if err != nil {
 		return domain.ComplianceDocument{}, err
 	}
@@ -244,7 +320,7 @@ func (h *ComplianceDocumentHandler) SetGitDocumentExpiry(ctx context.Context, te
 	if err != nil {
 		return domain.ComplianceDocument{}, err
 	}
-	if _, err := appender.SetCertificateExpiry(ctx, contextKey, partnerID, documentID, expiresAt, time.Now().UTC(), actor.Name, actor.SourceIP); err != nil {
+	if _, err := appender.SetCertificateExpiry(ctx, contextKey, partnerID, documentID, expiresAt, now, actor.Name, actor.SourceIP); err != nil {
 		return domain.ComplianceDocument{}, err
 	}
 	return updated, nil
@@ -296,6 +372,10 @@ func (h *ComplianceDocumentHandler) GetDocument(ctx context.Context, partnerID, 
 
 func (h *ComplianceDocumentHandler) ListDocuments(ctx context.Context, partnerID string) ([]domain.ComplianceDocument, error) {
 	return h.docs.ListDocuments(ctx, partnerID)
+}
+
+func (h *ComplianceDocumentHandler) ListGitCertificates(ctx context.Context, partnerID string) ([]domain.ComplianceDocument, error) {
+	return h.docs.ListGitCertificates(ctx, partnerID)
 }
 
 // The three review transitions address a document by ID (BR-TP31), not by

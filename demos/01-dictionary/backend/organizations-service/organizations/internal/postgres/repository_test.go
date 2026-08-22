@@ -14,6 +14,51 @@ import (
 )
 
 var _ = Describe("ComplianceDocumentRepository", func() {
+	Context("Phase 39 decision 1: GIT certificate history is newest-first", func() {
+		It("includes superseded GIT certificates", func() {
+			db := testDB()
+			repo := postgres.NewComplianceDocumentRepository(db)
+			partnerID := freshPartner(db, "TRANSPORTER")
+			ctx := context.Background()
+
+			first, err := repo.AddDocument(ctx, partnerID, mustAdd("TRANSPORTER", domain.DocumentTypeGoodsInTransit, "first.pdf"))
+			Expect(err).NotTo(HaveOccurred())
+			_, err = repo.AddDocument(ctx, partnerID, mustAdd("TRANSPORTER", domain.DocumentTypeGoodsInTransit, "second.pdf"))
+			Expect(err).NotTo(HaveOccurred())
+			_, err = db.Exec(`UPDATE organizations.compliance_documents SET status = $1 WHERE organization_id = $2 AND id = $3`, domain.DocumentStatusSuperseded, partnerID, first.ID)
+			Expect(err).NotTo(HaveOccurred())
+
+			certificates, err := repo.ListGitCertificates(ctx, partnerID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(certificates).To(HaveLen(2))
+			Expect(certificates).To(ContainElement(HaveField("ID", first.ID)))
+			Expect(certificates).To(ContainElement(HaveField("Status", domain.DocumentStatusSuperseded)))
+		})
+
+		It("returns only GIT certificates in descending registration order", func() {
+			db := testDB()
+			repo := postgres.NewComplianceDocumentRepository(db)
+			partnerID := freshPartner(db, "TRANSPORTER")
+			ctx := context.Background()
+
+			first, err := repo.AddDocument(ctx, partnerID, mustAdd("TRANSPORTER", domain.DocumentTypeGoodsInTransit, "first.pdf"))
+			Expect(err).NotTo(HaveOccurred())
+			second, err := repo.AddDocument(ctx, partnerID, mustAdd("TRANSPORTER", domain.DocumentTypeGoodsInTransit, "second.pdf"))
+			Expect(err).NotTo(HaveOccurred())
+			_, err = repo.AddDocument(ctx, partnerID, mustAdd("TRANSPORTER", domain.DocumentTypeCIPC, "cipc.pdf"))
+			Expect(err).NotTo(HaveOccurred())
+			_, err = db.Exec(`UPDATE organizations.compliance_documents SET created_at = CASE id WHEN $1 THEN now() - interval '2 hours' WHEN $2 THEN now() - interval '1 hour' ELSE created_at END WHERE organization_id = $3`, first.ID, second.ID, partnerID)
+			Expect(err).NotTo(HaveOccurred())
+
+			certificates, err := repo.ListGitCertificates(ctx, partnerID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(certificates).To(HaveLen(2))
+			Expect([]string{certificates[0].ID, certificates[1].ID}).To(Equal([]string{second.ID, first.ID}))
+			Expect(certificates[0].Type).To(Equal(domain.DocumentTypeGoodsInTransit))
+			Expect(certificates[0].CreatedAt.After(certificates[1].CreatedAt)).To(BeTrue())
+		})
+	})
+
 	Context("BR-TP29/BR-TP30: AddDocument inserts and supersedes the incumbent", func() {
 		It("mints a distinct ID per document rather than upserting", func() {
 			db := testDB()

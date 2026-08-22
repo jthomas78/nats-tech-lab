@@ -2,6 +2,7 @@
 import Button from 'primevue/button'
 import Column from 'primevue/column'
 import OperatingAreaMap from './OperatingAreaMap.vue'
+import GitCertificatesTab from './GitCertificatesTab.vue'
 import { attrsFor, codeFor, labelFor } from '../itemFields'
 import DataTable from 'primevue/datatable'
 import Dialog from 'primevue/dialog'
@@ -71,14 +72,13 @@ import { useTenantStore } from '../stores/tenant'
 const tenantStore = useTenantStore()
 const toast = useToast()
 
-// BR-TP07: shared document types apply to either role; GOODS_IN_TRANSIT is
-// Transporter-only, so unlike the shared panel this list is unconditional.
+// GOODS_IN_TRANSIT has its own event-sourced tab and registration flow.
+// This list belongs to the legacy CRUD Documents tab only.
 const DOCUMENT_TYPES = [
   'CIPC',
   'DIRECTOR_ID',
   'BANK_CONFIRMATION_LETTER',
   'TERMS_AND_CONDITIONS',
-  'GOODS_IN_TRANSIT',
 ]
 
 // ── List ──────────────────────────────────────────────────────────────────
@@ -170,7 +170,7 @@ async function refreshDetail() {
       listOperatingAreas(tenantStore.context, tp.id),
       listTrackingCredentials(tenantStore.context, tp.id),
     ])
-    documents.value = docs.documents ?? []
+    documents.value = (docs.documents ?? []).filter((doc) => doc.type !== 'GOODS_IN_TRANSIT')
     fleetAssets.value = fleet.fleetAssets ?? []
     auditEvents.value = audit.events ?? []
     operatingAreas.value = areas.operatingAreas ?? []
@@ -984,6 +984,9 @@ function formatDate(ts) {
           <Tab value="documents">
             Documents
           </Tab>
+          <Tab value="git-certificates">
+            GIT Certificates
+          </Tab>
           <Tab value="vetting">
             Vetting
           </Tab>
@@ -1285,6 +1288,14 @@ function formatDate(ts) {
                 </template>
               </Column>
             </DataTable>
+          </TabPanel>
+
+          <TabPanel value="git-certificates">
+            <GitCertificatesTab
+              :context="tenantStore.context"
+              :organization-id="selected.id"
+              @changed="refreshDetail"
+            />
           </TabPanel>
 
           <!-- Vetting (BR-TP37/BR-TP38) -->
@@ -1759,8 +1770,8 @@ function formatDate(ts) {
 
           <StepPanel value="3">
             <p class="lab-muted hint">
-              Register compliance documents by reference. Files themselves arrive in 38c-ii —
-              <code>GOODS_IN_TRANSIT</code> is the one that drives the GIT badge (BR-TP38).
+              Register the four shared compliance-document types by reference. GIT certificates use their dedicated
+              tab and register-plus-upload flow.
             </p>
             <div class="form-grid">
               <div class="form-field">

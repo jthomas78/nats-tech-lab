@@ -28,12 +28,15 @@ const {
   reactivateOrganization,
   getOrganizationAudit,
   listComplianceDocuments,
+  listGitCertificates,
   addComplianceDocument,
   approveComplianceDocument,
   getTransporterProfile,
   updateOrganization,
   rejectComplianceDocument,
   resubmitComplianceDocument,
+  updateGitCertificate,
+  setGitCertificateExpiry,
   listFleetAssets,
   addFleetAsset,
   listOperatingAreas,
@@ -177,6 +180,32 @@ describe('organizations api.* client', () => {
       }
     })
 
+    it('sends approval-time insurance fields for a GIT review (BR-TP66)', () => {
+      approveComplianceDocument('c', 'tp-9', 'doc-abc', {
+        insurerName: 'Acme Insurance',
+        insuranceContactName: 'Jane Reviewer',
+        insuranceContactNumber: '+27 11 555 0100',
+      })
+
+      expect(payloadOf()).toEqual({
+        id: 'tp-9', documentId: 'doc-abc', insurerName: 'Acme Insurance',
+        insuranceContactName: 'Jane Reviewer', insuranceContactNumber: '+27 11 555 0100',
+      })
+    })
+
+    it('keeps GIT details and expiry on their distinct commands', () => {
+      updateGitCertificate('c', 'tp-9', 'doc-abc', {
+        reference: 'cover.pdf', goodsTypes: ['GENERAL_FREIGHT'], coverageCents: 12300,
+      })
+      expect(subjectOf()).toBe('api.c.organizations.document.git-update.v1')
+      expect(payloadOf()).toMatchObject({ id: 'tp-9', documentId: 'doc-abc', goodsTypes: ['GENERAL_FREIGHT'] })
+
+      request.mockClear()
+      setGitCertificateExpiry('c', 'tp-9', 'doc-abc', 1800000000)
+      expect(subjectOf()).toBe('api.c.organizations.document.set-expiry.v1')
+      expect(payloadOf()).toEqual({ id: 'tp-9', documentId: 'doc-abc', expiresAt: 1800000000 })
+    })
+
     it('sends the partner id for every per-partner operation', () => {
       // Blanket guard: every operation that names a partner must carry its id
       // in the body now that there's no URL path to hold it. Anything missing
@@ -189,6 +218,7 @@ describe('organizations api.* client', () => {
         ['partner-profile', () => getTransporterProfile('c', 'tp-9')],
         ['partner-update', () => updateOrganization('c', 'tp-9', 1, { name: 'N' })],
         ['document-list', () => listComplianceDocuments('c', 'tp-9')],
+        ['document-git-list', () => listGitCertificates('c', 'tp-9')],
         ['document-add', () => addComplianceDocument('c', 'tp-9', { type: 'CIPC', reference: 'r' })],
         ['document-approve', () => approveComplianceDocument('c', 'tp-9', 'doc-1')],
         ['document-reject', () => rejectComplianceDocument('c', 'tp-9', 'doc-1')],
@@ -216,12 +246,15 @@ describe('organizations api.* client', () => {
         [() => reactivateOrganization('c', 'i'), 'api.c.organizations.organization.reactivate.v1'],
         [() => getOrganizationAudit('c', 'i'), 'api.c.organizations.organization.audit.v1'],
         [() => listComplianceDocuments('c', 'i'), 'api.c.organizations.document.list.v1'],
+        [() => listGitCertificates('c', 'i'), 'api.c.organizations.document.git-list.v1'],
         [() => addComplianceDocument('c', 'i', {}), 'api.c.organizations.document.add.v1'],
         [() => getTransporterProfile('c', 'i'), 'api.c.organizations.organization.profile.v1'],
         [() => updateOrganization('c', 'i', 1, {}), 'api.c.organizations.organization.update.v1'],
         [() => approveComplianceDocument('c', 'i', 'd'), 'api.c.organizations.document.approve.v1'],
         [() => rejectComplianceDocument('c', 'i', 'd'), 'api.c.organizations.document.reject.v1'],
         [() => resubmitComplianceDocument('c', 'i', 'd'), 'api.c.organizations.document.resubmit.v1'],
+        [() => updateGitCertificate('c', 'i', 'd', {}), 'api.c.organizations.document.git-update.v1'],
+        [() => setGitCertificateExpiry('c', 'i', 'd', null), 'api.c.organizations.document.set-expiry.v1'],
         [() => listFleetAssets('c', 'i'), 'api.c.organizations.fleet-asset.list.v1'],
         [() => addFleetAsset('c', 'i', 't', {}), 'api.c.organizations.fleet-asset.add.v1'],
       ]
@@ -234,9 +267,10 @@ describe('organizations api.* client', () => {
         expect(subjectOf()).toBe(expected)
         seen.add(expected)
       }
-      // 15 of the service's 16 endpoints; partner.get.v1 has no api.js caller
-      // (the panel lists rather than fetches one at a time).
-      expect(seen.size).toBe(15)
+      // Every organizations operation wrapped by this client must keep a
+      // distinct subject; adding a feature without increasing this count
+      // catches accidental aliasing onto an older endpoint.
+      expect(seen.size).toBe(18)
     })
   })
 })

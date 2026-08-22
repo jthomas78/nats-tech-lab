@@ -3,6 +3,7 @@ package domain
 
 import (
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -333,7 +334,7 @@ func (p *TransporterProfile) RegisterCertificate(doc organizationdomain.Complian
 // insurerName and the two withheld contact-field markers travel with the
 // approval because BR-TP66 makes them approval-time requirements: they are
 // what the reviewer supplied in order to approve.
-func (p *TransporterProfile) ApproveCertificate(documentID, insurerName, actorName, sourceIP string) ([]Event, error) {
+func (p *TransporterProfile) ApproveCertificate(documentID, insurerName string, now time.Time, actorName, sourceIP string) ([]Event, error) {
 	if !p.exists {
 		return nil, ErrNotFound
 	}
@@ -343,6 +344,16 @@ func (p *TransporterProfile) ApproveCertificate(documentID, insurerName, actorNa
 	}
 	if certificate.Status == organizationdomain.DocumentStatusSuperseded {
 		return nil, organizationdomain.ErrDocumentSuperseded
+	}
+	// Replay must be sufficient to enforce BR-TP67. The projection-read
+	// command applies the same domain guard so it can fetch the deliberately
+	// un-replayed contact pair, but it is not the write-side authority.
+	probe := organizationdomain.ComplianceDocument{
+		ID: certificate.ID, Type: organizationdomain.DocumentTypeGoodsInTransit,
+		Status: certificate.Status, ExpiresAt: certificate.ExpiresAt,
+	}
+	if _, err := probe.ApproveWithInsuranceDetails(insurerName, "withheld", "withheld", now); err != nil {
+		return nil, err
 	}
 	approved := certificate
 	from := approved.Status
@@ -425,6 +436,87 @@ func (p *TransporterProfile) RejectCertificate(documentID, actorName, sourceIP s
 	event.DocumentReference = documentID
 	event.Certificate = &rejected
 	event.Changes = []FieldChange{{Field: "status", From: certificate.Status, To: rejected.Status}}
+	event.ActorName, event.ActorSourceIP = actorName, sourceIP
+	return event, nil
+}
+
+// ResubmitCertificate moves a rejected GIT certificate back to the state its
+// bytes imply: FOR_REVIEW when a file is already attached, otherwise PENDING.
+// The legacy CRUD path always returns PENDING because it has no aggregate
+// view of the certificate file.
+func (p *TransporterProfile) ResubmitCertificate(documentID, actorName, sourceIP string) (Event, error) {
+	if !p.exists {
+		return Event{}, ErrNotFound
+	}
+	certificate, ok := p.state.Certificates[documentID]
+	if !ok {
+		return Event{}, organizationdomain.ErrDocumentNotFound
+	}
+	if certificate.Status == organizationdomain.DocumentStatusSuperseded {
+		return Event{}, organizationdomain.ErrDocumentSuperseded
+	}
+	if certificate.Status != organizationdomain.DocumentStatusRejected {
+		return Event{}, organizationdomain.ErrDocumentNotRejected
+	}
+	updated := certificate
+	updated.Status = organizationdomain.DocumentStatusPending
+	if updated.File != nil {
+		updated.Status = organizationdomain.DocumentStatusForReview
+	}
+	event := p.event(DocumentDetailsUpdatedEvent, p.state.AttemptNumber, p.state.Status)
+	event.DocumentReference = documentID
+	event.Certificate = &updated
+	event.Changes = []FieldChange{{Field: "status", From: certificate.Status, To: updated.Status}}
+	event.ActorName, event.ActorSourceIP = actorName, sourceIP
+	return event, nil
+}
+
+// UpdateCertificateDetails is the edit view's replay-safe write. Expiry is a
+// separate command because BR-TP70 permits that one correction even after a
+// certificate is superseded; every field here remains locked then.
+func (p *TransporterProfile) UpdateCertificateDetails(documentID, reference string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (Event, error) {
+	if !p.exists {
+		return Event{}, ErrNotFound
+	}
+	certificate, ok := p.state.Certificates[documentID]
+	if !ok {
+		return Event{}, organizationdomain.ErrDocumentNotFound
+	}
+	if certificate.Status == organizationdomain.DocumentStatusSuperseded {
+		return Event{}, organizationdomain.ErrDocumentSuperseded
+	}
+	probe, err := organizationdomain.AddDocument(organizationdomain.PartnerTypeTransporter, organizationdomain.DocumentTypeGoodsInTransit, reference)
+	if err != nil {
+		return Event{}, err
+	}
+	probe.GoodsTypes, probe.CoverageCents = append([]string(nil), goodsTypes...), cloneInt64(coverageCents)
+	if err := probe.ValidateGitCertificate(); err != nil {
+		return Event{}, err
+	}
+
+	updated := certificate
+	updated.Reference = reference
+	updated.GoodsTypes = append([]string(nil), goodsTypes...)
+	updated.CoverageCents = cloneInt64(coverageCents)
+	updated.InsurerName = insurerName
+	event := p.event(DocumentDetailsUpdatedEvent, p.state.AttemptNumber, p.state.Status)
+	event.DocumentReference = documentID
+	event.Certificate = &updated
+	if reference != certificate.Reference {
+		event.Changes = append(event.Changes, FieldChange{Field: "reference", From: certificate.Reference, To: reference})
+	}
+	if !slices.Equal(goodsTypes, certificate.GoodsTypes) {
+		event.Changes = append(event.Changes, FieldChange{Field: "goodsTypes", From: certificate.GoodsTypes, To: goodsTypes})
+	}
+	if !equalInt64(coverageCents, certificate.CoverageCents) {
+		event.Changes = append(event.Changes, FieldChange{Field: "coverageCents", From: certificate.CoverageCents, To: coverageCents})
+	}
+	if insurerName != certificate.InsurerName {
+		event.Changes = append(event.Changes, FieldChange{Field: "insurerName", From: certificate.InsurerName, To: insurerName})
+	}
+	if contactsChanged {
+		event.Changes = append(event.Changes, WithheldChange("insuranceContactName"), WithheldChange("insuranceContactNumber"))
+	}
 	event.ActorName, event.ActorSourceIP = actorName, sourceIP
 	return event, nil
 }
@@ -610,6 +702,10 @@ func cloneInt64(value *int64) *int64 {
 	}
 	clone := *value
 	return &clone
+}
+
+func equalInt64(a, b *int64) bool {
+	return a == nil && b == nil || a != nil && b != nil && *a == *b
 }
 
 func cloneFile(file *organizationdomain.DocumentFile) *organizationdomain.DocumentFile {

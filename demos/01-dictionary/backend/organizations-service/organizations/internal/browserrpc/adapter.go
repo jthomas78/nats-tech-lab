@@ -71,11 +71,13 @@ const (
 	// profile is already Rejected.
 	OrganizationSubmitVettingSubject = "api.*.organizations.organization.submit-vetting.v1"
 
-	DocumentAddSubject      = "api.*.organizations.document.add.v1"
-	DocumentListSubject     = "api.*.organizations.document.list.v1"
-	DocumentApproveSubject  = "api.*.organizations.document.approve.v1"
-	DocumentRejectSubject   = "api.*.organizations.document.reject.v1"
-	DocumentResubmitSubject = "api.*.organizations.document.resubmit.v1"
+	DocumentAddSubject       = "api.*.organizations.document.add.v1"
+	DocumentListSubject      = "api.*.organizations.document.list.v1"
+	DocumentGitListSubject   = "api.*.organizations.document.git-list.v1"
+	DocumentGitUpdateSubject = "api.*.organizations.document.git-update.v1"
+	DocumentApproveSubject   = "api.*.organizations.document.approve.v1"
+	DocumentRejectSubject    = "api.*.organizations.document.reject.v1"
+	DocumentResubmitSubject  = "api.*.organizations.document.resubmit.v1"
 
 	// DocumentSetExpirySubject is BR-TP59. Its own verb rather than a field
 	// on approve: an expiry is a fact about the document, supplied when it
@@ -244,6 +246,8 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"document-add", a.handleDocumentAdd, DocumentAddSubject},
 		{"document-set-expiry", a.handleDocumentSetExpiry, DocumentSetExpirySubject},
 		{"document-list", a.handleDocumentList, DocumentListSubject},
+		{"document-git-list", a.handleDocumentGitList, DocumentGitListSubject},
+		{"document-git-update", a.handleDocumentGitUpdate, DocumentGitUpdateSubject},
 		{"document-approve", a.handleDocumentApprove, DocumentApproveSubject},
 		{"document-reject", a.handleDocumentReject, DocumentRejectSubject},
 		{"document-resubmit", a.handleDocumentResubmit, DocumentResubmitSubject},
@@ -379,6 +383,11 @@ type documentResponse struct {
 
 type documentsResponse struct {
 	Documents []domain.ComplianceDocument `json:"documents"`
+}
+
+type gitCertificatesResponse struct {
+	Documents        []domain.ComplianceDocument `json:"documents"`
+	CoverByGoodsType map[string]int64            `json:"coverByGoodsType"`
 }
 
 // documentTicketResponse is BR-TP41's wire shape. MaxBytes rides along so the
@@ -771,6 +780,34 @@ func (a *Adapter) handleDocumentList(req micro.Request) {
 	a.reply(req, documentsResponse{Documents: docs}, err)
 }
 
+func (a *Adapter) handleDocumentGitList(req micro.Request) {
+	var in partnerIDRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	docs, err := a.documents.ListGitCertificates(context.Background(), in.ID)
+	a.reply(req, gitCertificatesResponse{
+		Documents: docs, CoverByGoodsType: domain.CoverByGoodsType(docs, time.Now().UTC()),
+	}, err)
+}
+
+func (a *Adapter) handleDocumentGitUpdate(req micro.Request) {
+	var in documentRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	contextKey := sharedbrowserrpc.ContextFromSubject(req.Subject())
+	doc, err := a.documents.UpdateGitDocument(context.Background(), a.tenant, contextKey,
+		in.ID, in.DocumentID, in.Reference, in.GoodsTypes, in.CoverageCents,
+		in.InsurerName, in.InsuranceContactName, in.InsuranceContactNumber, a.actor(req))
+	if err == nil {
+		a.coverChangedSignal(req, in.ID)
+	}
+	a.reply(req, documentResponse{doc}, err)
+}
+
 // reviewSignal is BR-TP57. It runs after the row write and never in front of
 // it: the review is the authoritative act, and a workflow that has already
 // finished (or was never started) must not turn a legitimate approval into an
@@ -860,6 +897,18 @@ func (a *Adapter) handleDocumentResubmit(req micro.Request) {
 	// attempt (BR-TP23), and the workflow's required set was fixed at submit
 	// time. Putting the document back to Pending is what makes it eligible for
 	// the *next* attempt, which BR-TP56 starts.
+	var in documentRequest
+	if err := json.Unmarshal(req.Data(), &in); err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	if a.isGitDocument(in.ID, in.DocumentID) {
+		contextKey := sharedbrowserrpc.ContextFromSubject(req.Subject())
+		doc, err := a.documents.ResubmitGitDocument(context.Background(), a.tenant, contextKey,
+			in.ID, in.DocumentID, a.actor(req))
+		a.reply(req, documentResponse{doc}, err)
+		return
+	}
 	a.documentTransition(req, a.documents.ResubmitDocument, reviewNoSignal)
 }
 

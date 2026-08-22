@@ -26,7 +26,7 @@ vi.mock('./nats/useRefdataAdminConnection.js', () => ({
   useRefdataAdminConnection: () => ({ request: vi.fn() }),
 }))
 
-const { uploadComplianceDocumentFile, downloadComplianceDocumentFile } = await import('./api.js')
+const { uploadComplianceDocumentFile, downloadComplianceDocumentFile, registerGitCertificateWithFile } = await import('./api.js')
 
 describe('compliance document file transfer', () => {
   let fetchMock
@@ -53,6 +53,25 @@ describe('compliance document file transfer', () => {
   const fileLike = (name, type, size) => ({ name, type, size })
 
   describe('upload', () => {
+    it('registers a GIT certificate and spends the ticket returned by that same call', async () => {
+      request.mockResolvedValue({ ticket: 'git-ticket', maxBytes: 10485760, document: { id: 'doc-new' } })
+      fetchMock.mockResolvedValue(okJson({ id: 'doc-new', status: 'FOR_REVIEW' }))
+      const file = fileLike('renewal.pdf', 'application/pdf', 10)
+
+      const result = await registerGitCertificateWithFile('acme', 'tp-1', {
+        reference: 'renewal.pdf', goodsTypes: ['GENERAL_FREIGHT'], coverageCents: 500000,
+      }, file)
+
+      expect(request).toHaveBeenCalledTimes(1)
+      expect(request).toHaveBeenCalledWith('api.acme.organizations.document.git-register.v1', {
+        id: 'tp-1', reference: 'renewal.pdf', goodsTypes: ['GENERAL_FREIGHT'], coverageCents: 500000,
+      })
+      expect(request.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0])
+      expect(fetchMock.mock.calls[0][1].headers['X-Document-Ticket']).toBe('git-ticket')
+      expect(fetchMock.mock.calls[0][1].body).toBe(file)
+      expect(result.status).toBe('FOR_REVIEW')
+    })
+
     it('mints an upload ticket over NATS before sending any bytes', async () => {
       fetchMock.mockResolvedValue(okJson({ id: 'doc-1' }))
 

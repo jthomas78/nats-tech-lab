@@ -93,6 +93,9 @@ func (r *fileDocRepo) SetDocumentExpiry(context.Context, string, string, *int64)
 func (r *fileDocRepo) ListDocuments(context.Context, string) ([]domain.ComplianceDocument, error) {
 	panic("the document byte path must not list documents")
 }
+func (r *fileDocRepo) ListGitCertificates(context.Context, string) ([]domain.ComplianceDocument, error) {
+	panic("the document byte path must not list GIT certificates")
+}
 func (r *fileDocRepo) ApproveDocument(context.Context, string, string) (domain.ComplianceDocument, error) {
 	panic("the document byte path must not review documents")
 }

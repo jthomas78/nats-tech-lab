@@ -32,6 +32,10 @@ type ComplianceDocumentRepository interface {
 	// than a document is replaced.
 	SetDocumentExpiry(ctx context.Context, partnerID, documentID string, expiresAt *int64) (ComplianceDocument, error)
 	ListDocuments(ctx context.Context, partnerID string) ([]ComplianceDocument, error)
+	// ListGitCertificates is Phase 39's history read: GIT-only, superseded
+	// rows included, newest registration first. It deliberately does not
+	// alter ListDocuments' BR-TP31 current-document semantics.
+	ListGitCertificates(ctx context.Context, partnerID string) ([]ComplianceDocument, error)
 	ApproveDocument(ctx context.Context, partnerID, documentID string) (ComplianceDocument, error)
 	RejectDocument(ctx context.Context, partnerID, documentID string) (ComplianceDocument, error)
 	ResubmitDocument(ctx context.Context, partnerID, documentID string) (ComplianceDocument, error)

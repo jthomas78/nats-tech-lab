@@ -178,6 +178,7 @@ type ComplianceDocument struct {
 	// Store object name, so one identifier serves all three.
 	ID            string         `json:"id,omitempty"`
 	CreatedAt     time.Time      `json:"createdAt,omitempty"`
+	UpdatedAt     time.Time      `json:"updatedAt,omitempty"`
 	Type          DocumentType   `json:"type"`
 	Status        DocumentStatus `json:"status"`
 	Reference     string         `json:"reference"`

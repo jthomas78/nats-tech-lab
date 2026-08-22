@@ -21,7 +21,7 @@ func NewComplianceDocumentRepository(db *sql.DB) *ComplianceDocumentRepository {
 // documentColumns is the shared SELECT list, so the scan order in
 // scanDocument can't drift from it.
 const documentColumns = `id, type, status, reference, expires_at, coverage_cents, goods_types,
-	insurer_name, insurance_contact_name, insurance_contact_number, created_at,
+	insurer_name, insurance_contact_name, insurance_contact_number, created_at, updated_at,
 	file_name, file_content_type, file_size_bytes, file_object_name, file_uploaded_at`
 
 func scanDocument(row interface {
@@ -54,7 +54,7 @@ func scanDocument(row interface {
 	// since a certificate is only given contacts at approval.
 	var contactName, contactNumber sql.NullString
 	err := row.Scan(&doc.ID, &doc.Type, &doc.Status, &doc.Reference, &expiresAt, &doc.CoverageCents, &goodsTypes,
-		&doc.InsurerName, &contactName, &contactNumber, &doc.CreatedAt,
+		&doc.InsurerName, &contactName, &contactNumber, &doc.CreatedAt, &doc.UpdatedAt,
 		&fileName, &contentType, &sizeBytes, &objectName, &uploadedAt)
 	if err != nil {
 		return doc, err
@@ -238,6 +238,31 @@ func (r *ComplianceDocumentRepository) ListDocuments(ctx context.Context, partne
 		FROM organizations.compliance_documents
 		WHERE organization_id = $1 AND status <> $2
 		ORDER BY type`, partnerID, domain.DocumentStatusSuperseded)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	all := []domain.ComplianceDocument{}
+	for rows.Next() {
+		doc, err := scanDocument(rows)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, doc)
+	}
+	return all, rows.Err()
+}
+
+// ListGitCertificates is Phase 39 decision 1's history read. It is separate
+// from ListDocuments because the two shapes intentionally disagree about
+// superseded rows and ordering.
+func (r *ComplianceDocumentRepository) ListGitCertificates(ctx context.Context, partnerID string) ([]domain.ComplianceDocument, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT `+documentColumns+`
+		FROM organizations.compliance_documents
+		WHERE organization_id = $1 AND type = $2
+		ORDER BY created_at DESC, id DESC`, partnerID, domain.DocumentTypeGoodsInTransit)
 	if err != nil {
 		return nil, err
 	}

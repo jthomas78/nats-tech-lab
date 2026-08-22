@@ -1457,6 +1457,22 @@ this phase.
     stream, so a silent no-op destroyed the only copy of the contacts
     BR-TP66 required in order to approve — with no error raised anywhere and
     nothing able to restore them.
+- **39c implementation notes (no new rule numbers):**
+  - The BR-TP67 status and expiry guards now run on the hydrated
+    `TransporterProfile` aggregate as well as on the projection-read command.
+    This changes no rule text; it closes an enforcement asymmetry so a second
+    write entry point cannot approve a replayed rejected or expired
+    certificate.
+  - `document.git-list` is a separate GIT history read: it includes
+    superseded rows, orders by registration time descending, and reports
+    `CoverByGoodsType`. The legacy `document.list` remains BR-TP31's current-
+    document query for the other four types.
+  - The edit view's details command appends `document-details-updated` and
+    reuses BR-TP64's vocabulary validation and BR-TP70's superseded lock;
+    contact values remain projection-only under BR-TP72. GIT resubmission is
+    also aggregate-backed and returns an attached rejected certificate to
+    `FOR_REVIEW`, matching the approved status model instead of stranding it
+    in `PENDING` with write-once bytes already attached.
 - **Enforced in:** `internal/domain/compliance_document.go`,
   `transporterprofile/domain/profile.go` (the aggregate's new certificate
   state and its guards), `internal/application/commands/compliance_document.go`
