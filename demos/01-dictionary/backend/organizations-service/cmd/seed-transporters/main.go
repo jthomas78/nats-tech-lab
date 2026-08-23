@@ -31,6 +31,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -126,6 +127,17 @@ var ladder = []rung{
 // Corpus values. Deliberately real codes drawn from the seeded corpora rather
 // than plausible-looking inventions — refdata rejects anything else, and a
 // wrong guess fails mid-ladder.
+// refdata corpus coordinates. The type keys match refdata-service's own
+// seeders; platformContext is where `standards` corpora live (BR-D46) and is a
+// fixed literal rather than the -context flag on purpose — see
+// checkPrerequisites.
+const (
+	regionTypeKey   = "region"
+	vehicleTypeKey  = "vehicle-type"
+	goodsTypeKey    = "goods-type"
+	platformContext = "_platform"
+)
+
 var (
 	regionCodes  = []string{"ZA-GP", "ZA-WC", "ZA-KZN", "ZA-EC", "ZA-FS"}
 	vehicleTypes = []string{"TAUTLINER", "BACK_END_TIPPER", "FLATBED", "DROPSIDE", "CAR_CARRIER"}
@@ -154,79 +166,179 @@ type seeder struct {
 // this the ladder dies partway through with "code does not exist in the
 // refdata corpus", which names the symptom and not the fix.
 //
-// It probes *every* code the ladder will use, not just the first of each
+// It checks *every* code the ladder will use, not just the first of each
 // list: the lists are hand-maintained against a 114-entry corpus, and a
 // single wrong entry otherwise surfaces only when the ladder happens to reach
 // the rung that uses it. That is precisely how FLAT_DECK — a plausible code
 // that does not exist — got as far as rung 7 during development.
+//
+// It reads the corpora rather than writing to them. The original version
+// probed by registering a throwaway "Seed Prerequisite Probe" transporter and
+// attaching every code to it, which answered the question but left that
+// organization behind on every run — eight had accumulated in the dev tenant
+// before anyone looked, three of them carrying ten single-goods-type
+// certificates each, because the fallback loop that names a bad goods type
+// writes one document per code. Reading costs one call per corpus, names every
+// bad code in a single pass with no fallback at all, and creates nothing.
+//
+// One thing the write-probe covered that this does not: a region that exists
+// but is missing BR-D47's `country` relation used to fail here, via BR-TP47's
+// ResolveArea, and now fails at rung 3 instead. That relation is not visible
+// on the browser-facing api.* item.get — only the service-to-service rpc.* one
+// carries References, and this command holds a tenant credential, not a
+// backend one. The trade is deliberate: what this guards is the hand-
+// maintained lists above, and a corpus missing its own relations is a bug in
+// seed-regions rather than a wrong entry here.
 func (s *seeder) checkPrerequisites() error {
-	probe, err := s.register("Seed Prerequisite Probe")
-	if err != nil {
-		return fmt.Errorf("registering probe transporter: %w", err)
-	}
-
 	var bad []string
-	var firstErr error
-	note := func(err error) bool {
-		if err == nil {
-			return false
-		}
-		if firstErr == nil {
-			firstErr = err
-		}
-		return true
-	}
 
+	// Regions live in _platform, not the business-unit context: they are a
+	// `standards` corpus (BR-D46), and refdata's item.get is an exact context
+	// match with no ancestor walk, so asking for ZA-GP in "acme" finds
+	// nothing however well-seeded _platform is.
+	var missingRegions []string
 	for _, code := range regionCodes {
-		if note(s.addOperatingArea(probe, code)) {
-			bad = append(bad, fmt.Sprintf("region %q", code))
+		found, err := s.refdataItemExists(platformContext, regionTypeKey, code)
+		if err != nil {
+			return fmt.Errorf("checking region %q: %w", code, err)
+		}
+		if !found {
+			missingRegions = append(missingRegions, fmt.Sprintf("region %q", code))
 		}
 	}
-	if len(bad) == len(regionCodes) {
-		bad = []string{"the whole region corpus — run: (refdata-service) go run ./cmd/seed-regions"}
+	if len(missingRegions) == len(regionCodes) {
+		missingRegions = []string{"the whole region corpus — run: (refdata-service) go run ./cmd/seed-regions"}
 	}
+	bad = append(bad, missingRegions...)
 
-	var badVehicles []string
-	for i, code := range vehicleTypes {
-		if note(s.addFleetAsset(probe, code, -(i + 1))) {
-			badVehicles = append(badVehicles, fmt.Sprintf("vehicle type %q", code))
-		}
+	missingVehicles, err := s.missingFromCorpus(vehicleTypeKey, vehicleTypes, "vehicle type", "seed-vehicle-types")
+	if err != nil {
+		return err
 	}
-	if len(badVehicles) == len(vehicleTypes) {
-		badVehicles = []string{fmt.Sprintf(
-			"the whole vehicle-type corpus in context %q — run: (refdata-service) go run ./cmd/seed-vehicle-types -context %s",
-			s.contextKey, s.contextKey)}
-	}
+	bad = append(bad, missingVehicles...)
 
-	// One certificate carrying every code, not one per code: BR-TP64 allows
-	// as many goods types on a certificate as you like, so a single call
-	// probes the whole list and leaves one probe row behind instead of ten.
-	// It costs nothing in diagnostic power — the per-code loop below still
-	// runs when that call fails, and only then, to name which code is at
-	// fault.
-	var badGoods []string
-	if _, err := s.addDocumentWithGoodsTypes(probe, goodsTypes); note(err) {
-		for _, code := range goodsTypes {
-			if _, err := s.addDocumentWithGoodsTypes(probe, []string{code}); note(err) {
-				badGoods = append(badGoods, fmt.Sprintf("goods type %q", code))
-			}
-		}
+	missingGoods, err := s.missingFromCorpus(goodsTypeKey, goodsTypes, "goods type", "seed-goods-types")
+	if err != nil {
+		return err
 	}
-	if len(badGoods) == len(goodsTypes) {
-		badGoods = []string{fmt.Sprintf(
-			"the whole goods-type corpus in context %q — run: (refdata-service) go run ./cmd/seed-goods-types -context %s",
-			s.contextKey, s.contextKey)}
-	}
+	bad = append(bad, missingGoods...)
 
-	// The underlying error is carried through rather than replaced by the
-	// guidance: the guidance is a guess at the cause, and when it guesses
-	// wrong the original message is the only thing that helps.
-	bad = append(bad, badVehicles...)
-	if bad = append(bad, badGoods...); len(bad) > 0 {
-		return fmt.Errorf("refdata prerequisites are not satisfied:\n  - %s\nfirst underlying error: %w",
-			strings.Join(bad, "\n  - "), firstErr)
+	if len(bad) > 0 {
+		return fmt.Errorf("refdata prerequisites are not satisfied:\n  - %s", strings.Join(bad, "\n  - "))
 	}
 	return nil
+}
+
+// missingFromCorpus lists typeKey's corpus in the seeder's own context once
+// and reports which of want is absent from it. Listing beats one item.get per
+// code for the context-scoped corpora: it is a single call whatever the list
+// length, and an empty corpus is then distinguishable from a list of wrong
+// codes — the two need different advice, and only the first is worth naming a
+// seeder for.
+func (s *seeder) missingFromCorpus(typeKey string, want []string, label, seederCmd string) ([]string, error) {
+	have, err := s.refdataCodes(s.contextKey, typeKey)
+	if err != nil {
+		return nil, fmt.Errorf("listing the %s corpus: %w", label, err)
+	}
+	if len(have) == 0 {
+		return []string{fmt.Sprintf(
+			"the whole %s corpus in context %q — run: (refdata-service) go run ./cmd/%s -context %s",
+			label, s.contextKey, seederCmd, s.contextKey)}, nil
+	}
+	var missing []string
+	for _, code := range want {
+		if !have[code] {
+			missing = append(missing, fmt.Sprintf("%s %q", label, code))
+		}
+	}
+	return missing, nil
+}
+
+// refdataCodes returns the active codes in one context's corpus, as a set.
+// all is left false so deprecated items are excluded (BR-D06): a code the
+// ladder uses must be one an operator could still pick today, and a
+// deprecated one would be accepted here and refused at the rung.
+func (s *seeder) refdataCodes(contextKey, typeKey string) (map[string]bool, error) {
+	data, err := s.refdataRequest(contextKey, "type.list", map[string]any{
+		"typeKey": typeKey, "locale": "en", "all": false,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Items []struct {
+			Item struct {
+				Code string `json:"code"`
+			} `json:"item"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, err
+	}
+	codes := make(map[string]bool, len(out.Items))
+	for _, entry := range out.Items {
+		codes[entry.Item.Code] = true
+	}
+	return codes, nil
+}
+
+func (s *seeder) refdataItemExists(contextKey, typeKey, code string) (bool, error) {
+	_, err := s.refdataRequest(contextKey, "item.get", map[string]any{
+		"typeKey": typeKey, "code": code, "locale": "en",
+	})
+	if errors.Is(err, errRefdataNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// errRefdataNotFound separates "refdata answered, and the code is not there"
+// from "the call failed". Only the first is a prerequisite finding; the second
+// must abort rather than be reported as a missing code, or a NATS timeout
+// would print a confident list of ten perfectly good codes as though they were
+// all wrong.
+var errRefdataNotFound = errors.New("refdata: item not found")
+
+// refdataRequest sends one api.* call to refdata-service and returns the raw
+// reply body. It is a sibling of request rather than an argument to it because
+// the two differ in all three things that matter: the service token in the
+// subject, the context (standards corpora are read from _platform, not the
+// seeder's own), and how a refusal arrives — organizations-service sets
+// Nats-Service-Error, while refdata answers not-found with a normal reply
+// carrying {"error":…,"notFound":true}. A decoder that only knew the header
+// form would read that as success.
+func (s *seeder) refdataRequest(contextKey, action string, in any) ([]byte, error) {
+	body, err := json.Marshal(in)
+	if err != nil {
+		return nil, err
+	}
+	subject := fmt.Sprintf("api.%s.refdata.%s.v1", contextKey, action)
+	reply, err := s.nc.Request(subject, body, requestTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", subject, err)
+	}
+	// Not-found arrives in *both* shapes and neither is redundant: the micro
+	// framework sets the header with a 404 code, and the body carries
+	// {"error":…,"notFound":true}. Checking the header first without reading
+	// the code turns a missing region into a hard abort instead of a
+	// prerequisite finding — which is exactly what it did on first run here.
+	if code := reply.Header.Get("Nats-Service-Error-Code"); code == "404" {
+		return nil, errRefdataNotFound
+	}
+	if msg := reply.Header.Get("Nats-Service-Error"); msg != "" {
+		return nil, fmt.Errorf("%s: %s (%s)", subject, msg, reply.Header.Get("Nats-Service-Error-Code"))
+	}
+	var refusal struct {
+		Error    string `json:"error"`
+		NotFound bool   `json:"notFound"`
+	}
+	if err := json.Unmarshal(reply.Data, &refusal); err == nil && refusal.Error != "" {
+		if refusal.NotFound {
+			return nil, errRefdataNotFound
+		}
+		return nil, fmt.Errorf("%s: %s", subject, refusal.Error)
+	}
+	return reply.Data, nil
 }
 
 func (s *seeder) seed(name string, r rung) error {
@@ -357,14 +469,15 @@ func (s *seeder) plate(n int) string {
 	return fmt.Sprintf("CA%05d%03d", s.run, 500+n)
 }
 
+// addDocument gives each certificate two goods types rather than one, walking
+// the list by rung so the cohort spreads across the corpus. Two is the point:
+// BR-TP64 allows any number, and a seeded set where every certificate carried
+// exactly one code would let a single-value regression through the UI unnoticed.
 func (s *seeder) addDocument(id string) (string, error) {
-	return s.addDocumentWithGoodsTypes(id, []string{
+	codes := []string{
 		goodsTypes[s.seq%len(goodsTypes)],
 		goodsTypes[(s.seq+1)%len(goodsTypes)],
-	})
-}
-
-func (s *seeder) addDocumentWithGoodsTypes(id string, codes []string) (string, error) {
+	}
 	var out struct {
 		ID string `json:"id"`
 	}
