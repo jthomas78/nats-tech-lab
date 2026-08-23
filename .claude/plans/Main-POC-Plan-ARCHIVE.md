@@ -7714,6 +7714,318 @@ complete in one pass; nothing else about it was better.
 
 ---
 
+## Phase 39 — Completed (archived 2026-08-23)
+
+### Phase 39 — APPROVED (design gate closed 2026-08-22) — GIT Certificates: status view, drill-down edit
+
+> Architecture doc:
+> `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ORGANIZATIONS-TRANSPORTERS.md`
+> (as-built architecture + these designs, with the artboards embedded).
+> Design canvas (five artboards + decision notes):
+> https://claude.ai/code/artifact/792f1401-eb47-4f6d-831e-83d3c3ebd8b4
+> Reference system: Linebooker V2's `GitCertificates.js` row editor,
+> `TransporterDocumentEntityServiceImpl`, and `calculateGitValidity`.
+> **Provenance decision:** [ADR-050](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-050-git-certificate-change-log-provenance.md)
+> — Option A, scoped to `GOODS_IN_TRANSIT`.
+
+#### Goal
+
+Give goods-in-transit cover its own tab on the Transporter detail view: a
+flat certificate table, a drill-down edit view, and an always-open
+registration drop zone. Closes the gap between our single `CoverageCents`
+and V2's per-goods-type cover map, and introduces the `FOR_REVIEW` document
+state.
+
+**The change log and the `AwaitingDocumentation` presentation fix moved out
+to Phase 46** (design-gate review 2026-08-22). Neither is on the critical
+path to the screen this phase exists to build; 39e's CSV cannot be written
+before 39a's events exist in any case; and the export's value is explicitly
+capped until authenticated identity lands (see decision 13).
+
+#### Design decisions (agreed 2026-08-21, amended after the 2026-08-22 design-gate grilling)
+
+1. **Flat table, not an active-card split.** One list of every GIT
+   certificate, newest registration first: Status / Certificate / Goods types
+   / Cover / Expiry date / Insurer / Last updated / action. The certificate
+   carrying cover is a highlighted row, not a separate panel. (Reverted from
+   an earlier active-card + previous-list design.)
+2. **Drill-down edit with Save / Cancel**, not V2's inline twelve-column row
+   editor — that is why V2's screen scrolls sideways and has nowhere to put
+   validation messages. Approve / Reject / Resubmit stay as row actions.
+3. **`FOR_REVIEW` is inserted after `PENDING`, not a rename of it**
+   (Option B on the canvas). `PENDING` keeps meaning "row minted, no file
+   yet"; `FOR_REVIEW` means the bytes landed and it is in the reviewer's
+   queue. Drag-and-drop upload creates row and file together and so goes
+   straight to `FOR_REVIEW`.
+4. **Registration is never gated — early renewal is allowed.** The drop zone
+   accepts a certificate in every state, including while cover is current.
+   Dropping changes no cover; approval does. Replacing the file or details on
+   an already-registered certificate still happens in its edit view.
+5. **Approval is the only thing that locks.** Approving a certificate makes
+   every earlier one read-only and stops any review still open on them. A
+   review cancelled this way is recorded as *cancelled*, not *rejected* —
+   nobody judged it. **This moves BR-TP30's supersede from on-upload to
+   on-approval**; on-upload supersede plus early renewal would retire live
+   cover the instant a renewal was dropped. *(Confirmed by the user
+   2026-08-21.)* Enforcement is a **write-side replay invariant** on the
+   aggregate, not a projection-side `UPDATE` — see decision 15.
+6. **Cover is per goods type — captured, not enforced.** V2 takes the highest
+   cover for each category across approved certificates, and a load is
+   allocatable only if every category on it is covered at or above its
+   declared goods value. **This repo has no load allocation, and today's
+   single `CoverageCents` is already written and never read by any decision
+   path** (repository + domain + test only). So this phase models cover per
+   goods type and reports it; nothing enforces it, and no rule in
+   BR-TP64+ claims otherwise. *(Amended 2026-08-22 — the original wording
+   implied enforcement the codebase has no consumer for.)*
+7. **"Type" is goods type, sourced from refdata** — V2's
+   `commodityCategoryEntities`, held there as both an enum and a table with a
+   display string (the tier-1 refdata duplicate already logged). So: a
+   context-scoped, localized `goods-type` vocabulary. **A corpus must be
+   seeded or the screen cannot be exercised in the dev stack** — the same gap
+   that already blocks fleet assets. Seed a **~10-item representative set**
+   now (decision 6 makes cover capture-only, so the corpus need only be
+   plausible enough to exercise the screen); replace it when the tier-1
+   commodity-taxonomy extraction happens. `cmd/seed-vehicle-types` plus
+   BR-TP14's `refdataclient` existence check are the pattern to copy —
+   both already proven.
+8. **`EXPIRED` stays derived, never stored** (as `DeriveGitStatus` already
+   does), and no `DELETED` state is added — supersede covers correction and
+   keeps both records retrievable.
+9. **No new Temporal workflow and no new stream.** Editing a certificate is
+   one command on the existing `TransporterProfile` aggregate on the
+   `TRANSPORTER` stream; the vetting saga and BR-TP60's durable expiry timer
+   already exist. The *semantics* still change — see decisions 14 and 17.
+10. **The `AwaitingDocumentation` presentation fix moved to Phase 46.**
+    (Sentence-cased label from a single label table, amber "your move"
+    severity, outstanding-documents checklist with progress, full-region
+    dashed drop target.)
+11. **The change log moved to Phase 46**, and its provenance question is
+    settled here because 39a has to build the write path it depends on.
+    ADR-050 **Option A, scoped to `GOODS_IN_TRANSIT`**: the GIT compliance
+    document is event-sourced onto the `TRANSPORTER` stream, and
+    `compliance_documents` becomes a projection *for that type*. The other
+    four document types keep the CRUD path and get no change log.
+    **Field-level "from → to" comes from the events themselves, not from
+    replaying the aggregate and diffing** — see decision 16. *(Amended
+    2026-08-22: the original "replay to the previous event and diff"
+    mechanism cannot express decision 18's withheld values.)*
+12. **The change log is exportable (Phase 46).** Export writes exactly what
+    the filters currently select — same rows, same order, nothing hidden
+    behind pagination. CSV first, columns `occurred_at` (ISO 8601 with
+    offset), `actor`, **`actor_verified`**, `area · entity`, `change` (field
+    / from / to, one row per field), `event_id · seq` so a row can be pinned
+    back to the event that produced it. `event_id · seq` is kept as a hard
+    requirement, and that is what forces Option A in decision 11 — stream
+    coordinates presuppose a stream. A PDF pack can reuse the same query
+    later.
+13. **Every event needs an actor, and the export must say it is not
+    trustworthy.** Nothing on the wire currently records who did anything.
+    This lands on every command, not just the certificate ones; system
+    actions name the mechanism, spelled to match the convention already in
+    the wild (`Actor{Name: "temporal-git-monitor"}`), not a second
+    vocabulary. **But the actor is an unauthenticated, client-supplied
+    header defaulting to the literal `"admin"`** — so every export row
+    carries `actor_verified`, always `false` until authenticated identity
+    lands, and the in-app log header shows the same caveat. A per-row column,
+    not a banner: a banner does not survive the file being opened in Excel
+    and re-saved, or a row being pasted into an email, which is how a
+    compliance CSV is actually used. *(Added 2026-08-22.)*
+
+##### Added by the 2026-08-22 design-gate grilling
+
+14. **The command becomes the sole producer of `document-approved`.** Today
+    that event is emitted by the Temporal workflow on receiving a
+    `DocumentReview` signal, and the signal is best-effort — a review that
+    writes its row and then fails to signal reads as approved while the
+    workflow still waits on it. Under Option A the command appends the event
+    and the **workflow's emit is deleted**; the workflow derives its view by
+    reading document state instead of trusting a signal to carry it. This
+    closes the best-effort hole and decision 5's lock dead-end in one change,
+    and amends ADR-047.
+15. **Existing `document-*` tokens are enriched, not forked.**
+    `document-approved` / `document-rejected` keep their names and gain
+    payloads; new tokens only for facts with no current equivalent —
+    `document-registered`, `document-details-updated`,
+    `document-file-attached`, `document-superseded`,
+    `document-review-cancelled`. No `git-certificate-*` family: it would
+    fork the vocabulary by document type immediately before the other four
+    types are expected to follow GIT onto the stream. Supersede-and-lock is
+    enforced by hydrating the aggregate and emitting one
+    `document-superseded` per earlier certificate, **plus a unique partial
+    index** on `(organization_id, type) WHERE status = 'APPROVED'` — today's
+    `compliance_documents_current_idx` is non-unique, so two live approved
+    GIT rows are structurally permitted and the bug would be silent.
+16. **Events carry explicit `from` and `to` per changed field.** Not
+    new-values-only with a diff in the read path, and not full-state
+    snapshots. It keeps replay out of the read path, makes an exported row
+    self-describing rather than reconstructed, and is the only shape in which
+    decision 18's "field changed, value withheld" is expressible at all.
+17. **One aggregate, and `State` stops being thin.** Certificate detail
+    (insurer, cover, expiry, goods types, file reference) joins
+    `TransporterProfile.State`, which today holds only status, gates and two
+    maps. This extends an existing precedent rather than reversing one —
+    `DocumentReviews map[reference]status` is already per-document state on
+    that aggregate — and avoids a second aggregate's double-emit on approval.
+    The cost is real and named: the aggregate the saga replays gets bigger.
+    **Amends ADR-046**, which deliberately placed documents on the CRUD side
+    of the split.
+18. **The insurance contact's name and number never reach the stream.** They
+    are required to approve, so an auditor would ask about them — but
+    `LimitsPolicy` plus replay means neither could ever be corrected or
+    erased. This is the reasoning `TrackingCredentialConfiguredEvent` already
+    accepted for secrets ("an event log is replayed and audited and cannot be
+    redacted the way a row can be updated"). So the event records **that**
+    those fields changed — field names, no values — and the values live in
+    the projection. Honest cost: the export's `from → to` is empty for those
+    two fields.
+19. **No backfill.** Existing `compliance_documents` rows are dev data,
+    regenerated by `cmd/seed-transporters`' ten-rung ladder against the real
+    saga. Synthesising events with a fabricated actor would pollute the one
+    log whose whole value is that it contains nothing nobody can vouch for.
+20. **The log is GIT-scoped; the per-organization framing is deferred.**
+    Decision 12's `area · entity` column implies a cross-area log, but
+    **fleet assets and tracking credentials have no provenance record of any
+    kind** — no events, no audit rows. A cross-area log built today would
+    silently omit three of five areas, which is the same disqualifying flaw
+    ADR-050 used to rule out a stream-projected log, reached from the other
+    direction. Per-organization framing waits for the phase that gives those
+    two areas provenance.
+21. **`FOR_REVIEW` derives to `Pending`, as an explicit case.** The gate cares
+    whether cover exists, and a document waiting in a queue is not cover, so
+    `DeriveGitStatus`, the fleet gate and BR-TP60's timer are all unchanged.
+    But `gitStatusOf`'s `default:` fall-through must become an explicit
+    branch with a spec, not a silent landing.
+22. **`Approve()` gains an expiry guard.** Registration already refuses a
+    past expiry (`SetExpiry` is deliberately the single point that rule is
+    enforced at), but a certificate can sit in `FOR_REVIEW` until its expiry
+    passes — and approving it then arms BR-TP60's timer on cover that is
+    already dead, granting and revoking the gate in one transaction and
+    writing a change-log entry that reads as nonsense. Approving an expired
+    certificate is refused.
+23. **A superseded certificate accepts review-resolution and `SetExpiry`,
+    nothing else.** Review-resolution is the minimum that lets a stranded
+    workflow reach rest and records the outcome as *cancelled* rather than
+    abandoned (decision 5). `SetExpiry` stays admissible for historical
+    correction. Note the consequences: `SetExpiry`'s current
+    `ErrDocumentSuperseded` guard is **deleted** and its comment ("Superseded
+    is refused, consistently with every other transition off that terminal
+    status") rewritten; once cover history lands, correcting a superseded
+    certificate's expiry retroactively edits that timeline. It does not
+    re-arm the cover timer, which only considers approved documents.
+24. **The lock is narrower than decision 5's wording suggests.** "Locked"
+    means superseded-by-approval. The *current approved* certificate is not
+    locked, so `SetExpiry`'s explicit defence of correcting a mistyped date on
+    an approved document survives untouched.
+
+##### Pre-implementation answers (confirmed by the user 2026-08-22)
+
+25. **The insurance contact's name and number are two columns on
+    `compliance_documents`, written directly by the command.** The table is
+    the replay-fed projection for GIT (decision 11) *except* for these two
+    fields: the command writes them straight to Postgres while appending an
+    event that names the changed fields without their values (decision 18).
+    **A rebuild-from-replay therefore restores those two columns as NULL** —
+    a named, deliberate exception, not a bug, and the rebuild procedure must
+    say so. The alternative (a side table keyed by document id, mirroring the
+    `organizations-secrets` split) was considered and rejected: it buys a
+    lossless rebuild at the cost of a second read on both the edit view and
+    the approve guard, and a second thing to delete on supersede.
+26. **Sub-phase order is unchanged: 39a, then 39b.** 39a's goods-type rule is
+    specced against a fake `refdataclient`; 39b swaps in the real vocabulary
+    and its seeded corpus. The throwaway fake is accepted so the write path
+    lands first.
+27. **The stream is the sole provenance for GIT document commands.** They do
+    not write `organizations.audit_events` rows. Two records of one action
+    would diverge, and Phase 46's export reads the stream. The other four
+    document types and all organization-level commands keep the existing
+    audit-row path unchanged.
+28. **Register-plus-upload lands in 39a, not 39c.** Today's flow mints an
+    upload ticket against an existing document row
+    (`document_file.go:60,109`) and so cannot create one; decision 3 needs a
+    drop to produce row and file together. That is a write-path change, and
+    39c's drop zone is blocked on it.
+29. **The unique partial index ships with no repair migration.** It fails on
+    any dev DB already holding two approved GIT rows for one organization;
+    the fix is a reseed (decision 19). The migration comment must say this,
+    so the failure explains itself rather than reading as a bug.
+
+#### Deferred out of this phase
+
+- **The change log, its export, and the `AwaitingDocumentation` presentation
+  fix** → Phase 46.
+- **Cover history** — the segmented status timeline (Insured / Confirmed
+  uninsured / No cover on record) and the compliance score. To be revisited
+  as a later enhancement. It is a projection over the certificate events this
+  phase already puts on the stream, so it needs no migration to add later —
+  a property that holds under Option A and would not have held under
+  ADR-050's Option B. *(Not a heat map: the colours encode discrete states,
+  not magnitude.)* See decision 23 for its interaction with expiry
+  correction on superseded rows.
+- **The remaining four document types** following GIT onto the stream. Open
+  question, per ADR-050's "to revisit".
+
+#### Business rules to be derived (BR-TP64 onward)
+
+Rules are written into `demos/01-dictionary/BUSINESS_RULES-ORGANIZATIONS.md`
+with the implementation, one Ginkgo `Context` per rule, specs before code.
+**All confirmed 2026-08-22** — the design gate is closed:
+
+- Goods types on a GIT certificate: at least one, each from the `goods-type`
+  vocabulary in the certificate's context.
+- Cover amount is per certificate and applies to every goods type on it; the
+  transporter's cover for a goods type is the maximum across approved,
+  unexpired certificates. **Reported, never enforced** (decision 6).
+- Expiry must be strictly in the future at registration (BR-TP59's
+  `ErrDocumentExpiryInPast`, already enforced at the single point
+  `SetExpiry`), **and approval refuses an already-expired certificate**
+  (decision 22).
+- Insurer name, insurance contact name, and insurance contact number are
+  required to **approve** a GIT certificate, not to register one (matches V2,
+  where those validators are conditional on `ACCEPTED`). Registration stays
+  cheap so a document can reach the queue; the reviewer is the gate.
+- Registration is always permitted; a registered certificate enters
+  `FOR_REVIEW`, which derives to `Pending` for the gate (decision 21).
+- Approving a certificate supersedes and locks every earlier one and cancels
+  any open review on them (amends BR-TP30), enforced write-side and backed by
+  a unique partial index (decision 15).
+- A locked (superseded) certificate accepts review-resolution and
+  `SetExpiry`; every other mutating command is rejected (decision 23).
+- Every command records an actor; system-originated transitions record the
+  mechanism, spelled per the existing `temporal-git-monitor` convention.
+- The insurance contact's name and number are never written to the stream;
+  events record that they changed, not what to (decision 18).
+- *(Phase 46)* Change-log export returns the filtered set in full, each row
+  carrying its source event id and stream sequence, and each row carrying
+  `actor_verified = false` until authenticated identity lands.
+
+#### Sub-phases
+
+- [x] **39a** — domain: goods types on `ComplianceDocument`, per-goods-type
+      cover, `FOR_REVIEW` state, locking on approval, actor on every command,
+      **and the Option A write path** — GIT document commands move onto the
+      `TransporterProfile` aggregate, the command becomes the sole producer of
+      `document-approved`, the workflow's emit is deleted and it reads state
+      instead, **and register-plus-upload** (decision 28) so a drop creates
+      row and file together. Schema: `created_at` column, insurance-contact
+      name/number columns (decision 25), widened `FOR_REVIEW` CHECK
+      constraint, unique partial index on approved-per-type — no repair
+      migration (decision 29). Specs first, against a fake `refdataclient`
+      (decision 26).
+      *(Heaviest sub-phase in the phase; deliberately not split further —
+      it is one coherent write-path change and 39c is unbuildable without
+      all of it.)*
+- [x] **39b** — `goods-type` refdata vocabulary + seeded ~10-item corpus
+      (without it 39c cannot be exercised). Copy `cmd/seed-vehicle-types` and
+      BR-TP14's `refdataclient` existence check.
+- [x] **39c** — GIT Certificates tab: flat table, always-open drop zone,
+      drill-down edit view with Save / Cancel. Needs a **new read query** —
+      today's `ListDocuments` excludes superseded rows by design and orders
+      `BY type`, and decision 1's table shows every certificate newest
+      registration first.
+
+---
+
 ## Renumbering history
 
 Every renumbering log, moved out of the live plan on 2026-08-21 (it had
