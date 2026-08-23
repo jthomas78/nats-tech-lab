@@ -302,7 +302,7 @@ td b { color: var(--text); font-weight: 600; }
 
   <figure>
     <div class="fig-body">
-      <svg viewBox="0 0 980 400" role="img" aria-label="Two views side by side. On the left, the transporter vetting state machine: AwaitingDocumentation moves on submit to DocumentsInReview; from there, all documents approved plus verified goods-in-transit cover reaches Vetted with the fleet availability gate open, while a rejected document or invalid cover reaches Rejected; Rejected returns to DocumentsInReview on resubmit; and Vetted moves to FleetAvailabilityRevoked and a suspended organization when cover lapses, detected by the five-minute monitor. On the right, a dashed panel titled what Temporal actually stores for one run lists the numbered event history rows: workflow execution started, activity task completed, activity task scheduled, workflow execution signalled, and so on. A note states that current state equals a replay of that history and that no row anywhere stores the words DocumentsInReview.">
+      <svg viewBox="0 0 980 400" role="img" aria-label="Two views side by side. On the left, the transporter vetting state machine: Awaiting moves on submit to InReview; from there, all documents approved plus verified goods-in-transit cover reaches Vetted with the fleet availability gate open, while a rejected document or invalid cover reaches Rejected; Rejected returns to InReview on resubmit; and Vetted moves to FleetAvailabilityRevoked and a suspended organization when cover lapses, detected by the five-minute monitor. On the right, a dashed panel titled what Temporal actually stores for one run lists the numbered event history rows: workflow execution started, activity task completed, activity task scheduled, workflow execution signalled, and so on. A note states that current state equals a replay of that history and that no row anywhere stores the words InReview.">
         <defs>
           <marker id="d-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
           <marker id="d-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--bad)"/></marker>
@@ -312,10 +312,10 @@ td b { color: var(--text); font-weight: 600; }
         <text class="grp" x="30" y="34">THE MACHINE — WRITTEN AS ORDINARY GO, NOT A CONFIG FILE</text>
 
         <rect class="n" x="30" y="70" width="190" height="44" rx="3"/>
-        <text class="lbl" x="44" y="97">AwaitingDocumentation</text>
+        <text class="lbl" x="44" y="97">Awaiting</text>
 
         <rect class="n" x="30" y="170" width="190" height="44" rx="3"/>
-        <text class="lbl" x="44" y="197">DocumentsInReview</text>
+        <text class="lbl" x="44" y="197">InReview</text>
 
         <rect class="n" x="30" y="280" width="190" height="48" rx="3"/>
         <text class="lbl" x="44" y="302">Vetted</text>
@@ -326,7 +326,7 @@ td b { color: var(--text); font-weight: 600; }
 
         <rect class="n" x="290" y="280" width="200" height="48" rx="3"/>
         <text class="lbl" x="304" y="302">FleetAvailability</text>
-        <text class="lbl" x="304" y="318">Revoked &#8594; SUSPENDED</text>
+        <text class="lbl" x="304" y="318">Revoked &#8594; suspended</text>
 
         <path class="flow" d="M125 114 V170" marker-end="url(#d-sync)"/>
         <text class="edge" x="132" y="146">submit · BR-TP56</text>
@@ -359,7 +359,7 @@ td b { color: var(--text); font-weight: 600; }
         <text class="lbl2" x="576" y="254">…</text>
         <path class="nb" d="M576 274 H944"/>
         <text class="lbl" x="576" y="298">current state = replay(this history)</text>
-        <text class="lbl2" x="576" y="318">no row anywhere stores the word &quot;DocumentsInReview&quot;</text>
+        <text class="lbl2" x="576" y="318">no row anywhere stores the word &quot;InReview&quot;</text>
 
         <path class="rep" d="M560 130 H500" marker-end="url(#d-evtl)"/>
         <text class="edge" x="556" y="118" text-anchor="end">derived, never stored</text>
@@ -372,7 +372,7 @@ td b { color: var(--text); font-weight: 600; }
     code in <code>TransporterVettingWorkflow</code>, not rows in a table, so the state set is not
     enumerable up front and cannot be re-configured at runtime. Second, and more usefully,
     <b>the current state is never stored — it is re-derived</b>. Temporal persists only the numbered
-    history on the right; &quot;we are in DocumentsInReview waiting on doc-b&quot; exists solely as the
+    history on the right; &quot;we are in InReview waiting on doc-b&quot; exists solely as the
     position of the program counter after replaying those rows. That is the same relationship this repo
     already has between the <code>TRANSPORTER</code> JetStream stream and the Postgres projection —
     log is truth, state is a projection of it — applied one level up, to the orchestration itself.

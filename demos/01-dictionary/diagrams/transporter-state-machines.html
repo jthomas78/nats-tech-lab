@@ -1,0 +1,355 @@
+<script>document.documentElement.setAttribute("data-theme","dark")</script>
+<title>Transporter state machines — where the three couple</title>
+<style>
+/* Tokens lifted from shared/unifi-theme/unifi.css. Dark only. */
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --ok: #27c07f; --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code, td code, th code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+
+table { border-collapse: collapse; width: 100%; font-size: 12px; line-height: 18px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--dim); font-weight: 400; }
+td { color: var(--muted); }
+td b { color: var(--text); font-weight: 600; }
+tr:last-child td { border-bottom: none; }
+
+/* SVG text and shape conventions */
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+/* .s marks a box the operator actually sees as a badge in the UI, tinted with
+   the same PrimeVue severity TransporterPanel.vue gives it. Boxes left on .n
+   alone are internal mechanism the UI never renders as a state. */
+.s          { stroke-width: 1; }
+.sv-ok      { fill: color-mix(in srgb, var(--ok) 13%, transparent);   stroke: var(--ok); }
+.sv-warn    { fill: color-mix(in srgb, var(--evtl) 13%, transparent); stroke: var(--evtl); }
+.sv-danger  { fill: color-mix(in srgb, var(--bad) 13%, transparent);  stroke: var(--bad); }
+.sv-neutral { fill: color-mix(in srgb, var(--hop) 15%, transparent);  stroke: var(--hop); }
+.v-ok { fill: var(--ok); } .v-warn { fill: var(--evtl); }
+.v-danger { fill: var(--bad); } .v-neutral { fill: var(--hop); }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <span class="eyebrow">Phase 38–39 · BUSINESS_RULES-ORGANIZATIONS BR-TP01–TP63</span>
+      <h1>The three transporter state machines, and the four places they touch</h1>
+      <p class="sub">A transporter row shows three statuses side by side, but they are three separate machines with three separate owners. Only four edges cross between them — everything else in the grid is independent, which is why combinations that look contradictory are usually legal. <b>Tinted boxes are the values the operator actually sees as a badge</b>, in the severity colour <code>TransporterPanel.vue</code> gives them; plain outlined boxes are internal mechanism the UI never renders.</p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 460" role="img"
+        aria-label="Three horizontal lanes, in which every box the operator sees as a badge is tinted with its UI severity colour and every internal mechanism box is left as a plain outline. The top lane is GIT status, derived at read time: current GOODS_IN_TRANSIT documents feed DeriveGitStatus, which yields one of five badge values drawn side by side — None as neutral, Pending as amber, Active as green, Expired and Rejected as red. The middle lane is TransporterProfile vetting: Awaiting in neutral, InReview in amber, then an AND gate — an untinted mechanism box — that also takes the GIT branch from the top lane; both branches succeeding gives the green Vetted badge, either failing gives the red Rejected badge, and Rejected resubmits back to InReview as a new attempt. Vetted arms a durable cover watcher, an untinted mechanism box, itself re-armed whenever a document expiry is written; when the watcher fires the profile moves to the red CoverLapsed badge, which also resubmits. The bottom lane is Organization status: neutral registered to green active to red suspended and back via Reactivate. Two edges cross from the vetting lane into it: activation requires Vetted, and a cover lapse suspends the organization.">
+        <defs>
+          <marker id="a-flow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="a-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--evtl)"/>
+          </marker>
+          <marker id="a-err" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--bad)"/>
+          </marker>
+        </defs>
+
+        <!-- ===== lane A — GIT ===== -->
+        <rect class="nb" x="14" y="30" width="972" height="110" rx="4"/>
+        <text class="grp" x="26" y="46">GIT STATUS — DERIVED, NEVER STORED (BR-TP38)</text>
+
+        <rect class="n" x="26" y="64" width="168" height="44" rx="3"/>
+        <text class="lbl" x="34" y="83">GIT documents</text>
+        <text class="lbl2" x="34" y="96">current GOODS_IN_TRANSIT</text>
+
+        <rect class="n" x="228" y="64" width="160" height="44" rx="3"/>
+        <text class="lbl" x="236" y="83">DeriveGitStatus()</text>
+        <text class="lbl2" x="236" y="96">approved cert answers</text>
+
+        <!-- the five derived values, each drawn as the badge the UI renders -->
+        <rect class="nb" x="422" y="54" width="384" height="54" rx="4"/>
+        <text class="lbl2" x="430" y="66">git status (BR-TP38) — one of five, recomputed per read</text>
+        <rect class="n s sv-neutral" x="430" y="74" width="50" height="28" rx="3"/>
+        <text class="lbl" x="455" y="92" text-anchor="middle">None</text>
+        <rect class="n s sv-warn" x="490" y="74" width="70" height="28" rx="3"/>
+        <text class="lbl" x="525" y="92" text-anchor="middle">Pending</text>
+        <rect class="n s sv-ok" x="570" y="74" width="62" height="28" rx="3"/>
+        <text class="lbl" x="601" y="92" text-anchor="middle">Active</text>
+        <rect class="n s sv-danger" x="642" y="74" width="70" height="28" rx="3"/>
+        <text class="lbl" x="677" y="92" text-anchor="middle">Expired</text>
+        <rect class="n s sv-danger" x="722" y="74" width="76" height="28" rx="3"/>
+        <text class="lbl" x="760" y="92" text-anchor="middle">Rejected</text>
+
+        <path class="flow" d="M194 86 H219" marker-end="url(#a-flow)"/>
+        <path class="flow" d="M388 86 H413" marker-end="url(#a-flow)"/>
+
+        <!-- expiry re-arms the watcher (BR-TP61) -->
+        <path class="rep" d="M110 108 V130 H830 V183" marker-end="url(#a-rep)"/>
+        <text class="edge" x="745" y="124" text-anchor="middle">expiry re-arms (BR-TP61)</text>
+
+        <!-- GIT branch down into the vetting gate -->
+        <path class="flow" d="M500 108 V183" marker-end="url(#a-flow)"/>
+        <text class="edge" x="508" y="152">GIT branch (BR-TP21)</text>
+
+        <!-- ===== lane B — vetting ===== -->
+        <rect class="nb" x="14" y="156" width="972" height="160" rx="4"/>
+        <text class="grp" x="26" y="172">TRANSPORTERPROFILE VETTING (BR-TP18 · TP21 · TP26 · TP63)</text>
+
+        <rect class="n s sv-neutral" x="26" y="196" width="110" height="32" rx="3"/>
+        <text class="lbl" x="81" y="216" text-anchor="middle">Awaiting</text>
+
+        <rect class="n s sv-warn" x="228" y="196" width="140" height="32" rx="3"/>
+        <text class="lbl" x="298" y="216" text-anchor="middle">InReview</text>
+
+        <rect class="n" x="406" y="192" width="140" height="40" rx="3"/>
+        <text class="lbl" x="476" y="209" text-anchor="middle">AND gate</text>
+        <text class="lbl2" x="476" y="222" text-anchor="middle">docs + GIT (BR-TP21)</text>
+
+        <rect class="n s sv-ok" x="580" y="196" width="90" height="32" rx="3"/>
+        <text class="lbl" x="625" y="216" text-anchor="middle">Vetted</text>
+
+        <rect class="n" x="740" y="192" width="180" height="40" rx="3"/>
+        <text class="lbl" x="830" y="209" text-anchor="middle">cover watcher</text>
+        <text class="lbl2" x="830" y="222" text-anchor="middle">armed to earliest expiresAt</text>
+
+        <rect class="n s sv-danger" x="430" y="252" width="90" height="32" rx="3"/>
+        <text class="lbl" x="475" y="272" text-anchor="middle">Rejected</text>
+
+        <rect class="n s sv-danger" x="850" y="252" width="110" height="32" rx="3"/>
+        <text class="lbl" x="905" y="272" text-anchor="middle">CoverLapsed</text>
+
+        <path class="flow" d="M136 212 H219" marker-end="url(#a-flow)"/>
+        <path class="flow" d="M368 212 H397" marker-end="url(#a-flow)"/>
+        <path class="flow" d="M546 212 H571" marker-end="url(#a-flow)"/>
+        <path class="rep"  d="M670 212 H731" marker-end="url(#a-rep)"/>
+        <text class="edge" x="700" y="206" text-anchor="middle">armed</text>
+
+        <path class="err" d="M476 232 V243" marker-end="url(#a-err)"/>
+        <text class="edge" x="468" y="246" text-anchor="end">fail</text>
+
+        <path class="err" d="M905 232 V243" marker-end="url(#a-err)"/>
+        <text class="edge" x="897" y="246" text-anchor="end">lapse</text>
+
+        <!-- resubmit: one shared return run, fed by both terminal states -->
+        <path class="rep" d="M905 284 V300 H298 V237" marker-end="url(#a-rep)"/>
+        <path class="rep" d="M475 284 V300"/>
+        <text class="edge" x="306" y="270">resubmit (BR-TP26)</text>
+
+        <!-- ===== lane C — organization ===== -->
+        <rect class="nb" x="14" y="332" width="972" height="110" rx="4"/>
+        <text class="grp" x="26" y="348">ORGANIZATION STATUS (BR-TP02 - TP05)</text>
+
+        <rect class="n s sv-neutral" x="380" y="366" width="110" height="32" rx="3"/>
+        <text class="lbl" x="435" y="386" text-anchor="middle">registered</text>
+
+        <rect class="n s sv-ok" x="580" y="366" width="90" height="32" rx="3"/>
+        <text class="lbl" x="625" y="386" text-anchor="middle">active</text>
+
+        <rect class="n s sv-danger" x="850" y="366" width="110" height="32" rx="3"/>
+        <text class="lbl" x="905" y="386" text-anchor="middle">suspended</text>
+
+        <path class="flow" d="M490 382 H571" marker-end="url(#a-flow)"/>
+        <text class="edge" x="530" y="376" text-anchor="middle">Activate</text>
+
+        <path class="flow" d="M670 382 H841" marker-end="url(#a-flow)"/>
+        <text class="edge" x="755" y="376" text-anchor="middle">Suspend + reason</text>
+
+        <path class="flow" d="M905 398 V414 H625 V407" marker-end="url(#a-flow)"/>
+        <text class="edge" x="765" y="429" text-anchor="middle">Reactivate</text>
+
+        <!-- cross edges into lane C -->
+        <path class="flow" d="M625 228 V357" marker-end="url(#a-flow)"/>
+        <text class="edge" x="633" y="290">Activate needs Vetted (BR-TP19)</text>
+
+        <path class="err" d="M940 284 V357" marker-end="url(#a-err)"/>
+        <text class="edge" x="932" y="330" text-anchor="end">suspend (BR-TP28)</text>
+      </svg>
+    </div>
+    <figcaption><b>Tint means you can see it; outline means you cannot.</b> Every tinted box is a value that reaches the operator as a PrimeVue badge, in the severity <code>TransporterPanel.vue</code> assigns it &mdash; success green, warn amber, danger red, secondary grey. The four untinted boxes (<code>GIT documents</code>, <code>DeriveGitStatus()</code>, the AND gate, the cover watcher) are mechanism: no column ever shows them. Note <code>CoverLapsed</code> <i>is</i> tinted &mdash; it renders as a danger badge in the same Vetting column, and as a &ldquo;Cover Lapsed&rdquo; step in the detail stepper.<br><br><b>Four crossings, and nothing else.</b> Blue is a synchronous, live path; amber dashed is durable/eventual (a Temporal timer or a new attempt); red is a failure path. The GIT lane has no transitions of its own — it is recomputed from the current <code>GOODS_IN_TRANSIT</code> documents on every read, so nothing ever &ldquo;sets&rdquo; it. The crossings are: <b>(1)</b> GIT feeds the vetting AND gate (BR-TP21); <b>(2)</b> a document expiry re-arms the cover watcher, which re-reads the document rather than trusting the signal payload (BR-TP61); <b>(3)</b> activation reads the canonical Postgres vetting projection and refuses a non-<code>Vetted</code> transporter (BR-TP19); <b>(4)</b> a cover lapse both moves vetting to <code>CoverLapsed</code> and calls <code>Organization.Suspend()</code> through one command, <code>HandleGitStatusDrop</code> (BR-TP28/TP63).</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 190" role="img"
+        aria-label="Step one of the GIT derivation. One current goods-in-transit document is first tested for expiry: if expiresAt is at or before now it yields the red Expired badge regardless of its stored status. Otherwise its stored status is switched on — APPROVED yields green Active, REJECTED yields red Rejected, and PENDING or FOR_REVIEW both yield amber Pending.">
+        <defs>
+          <marker id="b-flow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+        </defs>
+
+        <text class="grp" x="26" y="20">STEP 1 — ONE DOCUMENT MAPS TO ONE CANDIDATE (gitStatusOf)</text>
+
+        <rect class="n" x="26" y="95" width="200" height="42" rx="3"/>
+        <text class="lbl" x="34" y="113">one current GIT doc</text>
+        <text class="lbl2" x="34" y="126">status + expiresAt</text>
+
+        <rect class="n" x="286" y="95" width="180" height="42" rx="3"/>
+        <text class="lbl" x="294" y="113">expiresAt &lt;= now ?</text>
+        <text class="lbl2" x="294" y="126">checked before status</text>
+
+        <rect class="n" x="526" y="52" width="190" height="126" rx="3"/>
+        <text class="lbl2" x="534" y="66">doc.Status</text>
+        <rect class="n" x="534" y="76" width="174" height="28" rx="3"/>
+        <text class="lbl" x="621" y="94" text-anchor="middle">APPROVED</text>
+        <rect class="n" x="534" y="110" width="174" height="28" rx="3"/>
+        <text class="lbl" x="621" y="128" text-anchor="middle">REJECTED</text>
+        <rect class="n" x="534" y="144" width="174" height="28" rx="3"/>
+        <text class="lbl" x="621" y="162" text-anchor="middle">PENDING | FOR_REVIEW</text>
+
+        <rect class="n s sv-danger" x="860" y="30" width="80" height="28" rx="3"/>
+        <text class="lbl" x="900" y="48" text-anchor="middle">Expired</text>
+        <rect class="n s sv-ok" x="860" y="76" width="80" height="28" rx="3"/>
+        <text class="lbl" x="900" y="94" text-anchor="middle">Active</text>
+        <rect class="n s sv-danger" x="860" y="110" width="80" height="28" rx="3"/>
+        <text class="lbl" x="900" y="128" text-anchor="middle">Rejected</text>
+        <rect class="n s sv-warn" x="860" y="144" width="80" height="28" rx="3"/>
+        <text class="lbl" x="900" y="162" text-anchor="middle">Pending</text>
+
+        <path class="flow" d="M226 116 H277" marker-end="url(#b-flow)"/>
+        <path class="flow" d="M466 116 H517" marker-end="url(#b-flow)"/>
+        <text class="edge" x="491" y="110" text-anchor="middle">no</text>
+
+        <path class="flow" d="M376 95 V44 H851" marker-end="url(#b-flow)"/>
+        <text class="edge" x="384" y="70">yes</text>
+        <text class="edge" x="640" y="38" text-anchor="middle">expired regardless of stored status</text>
+
+        <path class="flow" d="M716 90 H851" marker-end="url(#b-flow)"/>
+        <path class="flow" d="M716 124 H851" marker-end="url(#b-flow)"/>
+        <path class="flow" d="M716 158 H851" marker-end="url(#b-flow)"/>
+      </svg>
+    </div>
+    <figcaption><b>Expiry is tested first, and it overrides everything.</b> <code>gitStatusOf</code> checks <code>expiresAt</code> before it looks at the stored status, because an expired certificate tells you nothing useful about whether it was once approved &mdash; either way there is no cover today. <code>FOR_REVIEW</code> deriving to <code>Pending</code> is BR-TP68 and is written explicitly rather than left to fall through: a file sitting in a review queue is not cover. Nothing here mutates the document; there is no expiry job, so the whole thing is evaluated at read time against a caller-supplied <code>now</code>.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 210" role="img"
+        aria-label="Step two of the GIT derivation, the fold across a partner's documents. The candidates from step one enter a three-way branch. If there are no current goods-in-transit documents at all the answer is the neutral None badge. If an approved certificate exists — at most one can, per BR-TP69 — that certificate's own candidate answers alone, either green Active or red Expired if it has lapsed. Otherwise the worst candidate wins, ranked red Rejected above red Expired above amber Pending above green Active, though Active can never actually win this ranking.">
+        <defs>
+          <marker id="c-flow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+        </defs>
+
+        <text class="grp" x="26" y="20">STEP 2 — THE FOLD ACROSS A PARTNER&apos;S DOCUMENTS (DeriveGitStatus)</text>
+
+        <rect class="n" x="26" y="90" width="210" height="42" rx="3"/>
+        <text class="lbl" x="34" y="108">candidates, step 1</text>
+        <text class="lbl2" x="34" y="121">one per current GIT doc</text>
+
+        <rect class="n" x="296" y="34" width="230" height="42" rx="3"/>
+        <text class="lbl" x="304" y="52">no current GIT docs</text>
+        <text class="lbl2" x="304" y="65">nothing to rank</text>
+
+        <rect class="n" x="296" y="90" width="230" height="42" rx="3"/>
+        <text class="lbl" x="304" y="108">an APPROVED cert</text>
+        <text class="lbl2" x="304" y="121">at most one — BR-TP69</text>
+
+        <rect class="n" x="296" y="149" width="230" height="42" rx="3"/>
+        <text class="lbl" x="304" y="167">otherwise</text>
+        <text class="lbl2" x="304" y="180">rank the rest</text>
+
+        <rect class="n s sv-neutral" x="600" y="41" width="80" height="28" rx="3"/>
+        <text class="lbl" x="640" y="59" text-anchor="middle">None</text>
+
+        <rect class="n s sv-ok" x="600" y="82" width="80" height="28" rx="3"/>
+        <text class="lbl" x="640" y="100" text-anchor="middle">Active</text>
+        <rect class="n s sv-danger" x="600" y="114" width="80" height="28" rx="3"/>
+        <text class="lbl" x="640" y="132" text-anchor="middle">Expired</text>
+        <text class="edge" x="690" y="102">its own candidate, alone</text>
+        <text class="edge" x="690" y="134">— Expired if it lapsed</text>
+
+        <rect class="n s sv-danger" x="600" y="156" width="76" height="28" rx="3"/>
+        <text class="lbl" x="638" y="174" text-anchor="middle">Rejected</text>
+        <text class="edge" x="684" y="174">&gt;</text>
+        <rect class="n s sv-danger" x="692" y="156" width="70" height="28" rx="3"/>
+        <text class="lbl" x="727" y="174" text-anchor="middle">Expired</text>
+        <text class="edge" x="770" y="174">&gt;</text>
+        <rect class="n s sv-warn" x="778" y="156" width="70" height="28" rx="3"/>
+        <text class="lbl" x="813" y="174" text-anchor="middle">Pending</text>
+        <text class="edge" x="856" y="174">&gt;</text>
+        <rect class="n s sv-ok" x="864" y="156" width="62" height="28" rx="3"/>
+        <text class="lbl" x="895" y="174" text-anchor="middle">Active</text>
+
+        <path class="flow" d="M236 111 H266 V55 H287" marker-end="url(#c-flow)"/>
+        <path class="flow" d="M236 111 H287" marker-end="url(#c-flow)"/>
+        <path class="flow" d="M236 111 H266 V170 H287" marker-end="url(#c-flow)"/>
+
+        <path class="flow" d="M526 55 H591" marker-end="url(#c-flow)"/>
+        <path class="flow" d="M526 111 H566 V96 H591" marker-end="url(#c-flow)"/>
+        <path class="flow" d="M526 111 H566 V128 H591" marker-end="url(#c-flow)"/>
+        <path class="flow" d="M526 170 H591" marker-end="url(#c-flow)"/>
+      </svg>
+    </div>
+    <figcaption><b>The approved certificate answers alone; everything else only speaks when there isn&rsquo;t one.</b> This is the 2026-08-22 amendment to BR-TP38. It used to be worst-of-all-documents, which was the same rule back when supersession happened on upload and a partner had exactly one current certificate. Phase&nbsp;39 moved supersession to <i>approval</i>, so a renewal now coexists with the live cover it replaces &mdash; and worst-of-all then reported a renewal&rsquo;s progress as the transporter&rsquo;s cover status. Found by rejecting a renewal against a live stack: the badge read <code>Rejected</code> while an approved unexpired certificate carried cover, and <code>IsGitActive</code> &mdash; the same derivation, feeding BR-TP28&rsquo;s suspension &mdash; would have revoked fleet availability from a covered transporter. <code>Active</code> is drawn last in the ladder for completeness but can never win it: only an approved certificate produces <code>Active</code>, and that path has already returned.</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>Reading a row: which combinations the rules actually permit</h2>
+    <table>
+      <thead>
+        <tr><th>Status</th><th>Vetting</th><th>GIT</th><th>What it means</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>registered</b></td><td>Awaiting</td><td>None</td><td>Freshly registered, no GIT document uploaded yet. BR-TP02 &mdash; only name, type and context were required.</td></tr>
+        <tr><td><b>registered</b></td><td>Awaiting</td><td>Pending</td><td>A GIT certificate is uploaded and awaiting review. Vetting has not started its review branch yet.</td></tr>
+        <tr><td><b>registered</b></td><td>Rejected</td><td>Rejected</td><td>One attempt failed. Terminal for the attempt, not the profile &mdash; BR-TP26's <code>Resubmit</code> increments <code>attemptNumber</code> and reuses the same workflow ID.</td></tr>
+        <tr><td><b>registered</b></td><td>Vetted</td><td>Active</td><td><b>Legal, and common.</b> Vetting only <i>permits</i> activation (BR-TP19); an operator still has to call <code>Activate</code>. Nothing auto-activates.</td></tr>
+        <tr><td><b>active</b></td><td>Vetted</td><td>Active</td><td>The fully live case. <code>FleetAvailabilityGate</code> is open, so fleet assets read as available for assignment.</td></tr>
+        <tr><td><b>suspended</b></td><td>Vetted</td><td>Active</td><td><b>A manual suspend</b> (BR-TP04, reason required). A cover-lapse suspend would have left vetting at <code>CoverLapsed</code> and GIT at <code>Expired</code> &mdash; so this row identifies its own cause.</td></tr>
+        <tr><td><b>suspended</b></td><td>CoverLapsed</td><td>Expired</td><td>The automatic path: the durable timer fired, BR-TP28 revoked fleet availability and suspended the organization in one command.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="sec">
+    <h2>Why the coupling is this thin on purpose</h2>
+    <ul>
+      <li><b>GIT is derived, so it can never disagree with the documents.</b> BR-TP38 recomputes it at read time from the current <code>GOODS_IN_TRANSIT</code> rows &mdash; the approved certificate answers when there is one, otherwise the worst of <code>Rejected &gt; Expired &gt; Pending &gt; Active</code>. There is no stored column to drift and no expiry job mutating document status; an <code>expiresAt</code> in the past simply reads as <code>Expired</code>.</li>
+      <li><b>Vetting gates activation but never performs it.</b> BR-TP19 sits at the command boundary and reads the canonical Postgres projection &mdash; never the KV cache, never Temporal's Query API &mdash; so partner status does not acquire a hard runtime dependency on Temporal being reachable. A <code>SHIPPER</code> bypasses the check entirely.</li>
+      <li><b>The one automatic Status change is the cover lapse.</b> Everything else in the bottom lane is operator-driven. BR-TP60&ndash;TP62 replaced a polling Temporal Schedule with a timer whose lifetime <i>is</i> the <code>Vetted</code> state &mdash; armed on entry, cancelled structurally on exit, so there is no window where the state has moved on but the timer has not.</li>
+      <li><b>There is no direct un-lapse.</b> BR-TP63 makes a lapse a real transition rather than a gate flipped underneath an unchanged status, and renewed cover is a new document reviewed like any other &mdash; so <code>CoverLapsed</code> rejoins the spine through the same BR-TP26 resubmit path <code>Rejected</code> uses.</li>
+      <li><b>Suspension still has no enforcement consumer.</b> BR-TP04 is honest about this: nothing in the POC yet refuses a <code>suspended</code> partner's bids or loads. What the lane delivers today is the guarded state machine plus BR-TP06's append-only audit trail of who suspended whom, when and why.</li>
+    </ul>
+  </section>
+</div>

@@ -314,9 +314,9 @@ async function submitAddFleetAsset() {
 // ── Formatting + row menu ──────────────────────────────────────────────────
 
 function statusSeverity(status) {
-  if (status === 'ACTIVE') return 'success'
-  if (status === 'SUSPENDED') return 'danger'
-  return 'secondary' // REGISTERED
+  if (status === 'active') return 'success'
+  if (status === 'suspended') return 'danger'
+  return 'secondary' // registered
 }
 
 function docStatusSeverity(status) {
@@ -342,9 +342,9 @@ const rowMenuItems = computed(() => {
   const tp = menuPartner.value
   if (!tp) return []
   const items = []
-  if (tp.status === 'REGISTERED') items.push({ label: 'Activate', icon: 'pi pi-play', command: () => activate(tp) })
-  if (tp.status === 'ACTIVE') items.push({ label: 'Suspend', icon: 'pi pi-ban', command: () => openSuspend(tp) })
-  if (tp.status === 'SUSPENDED') items.push({ label: 'Reactivate', icon: 'pi pi-play', command: () => reactivate(tp) })
+  if (tp.status === 'registered') items.push({ label: 'Activate', icon: 'pi pi-play', command: () => activate(tp) })
+  if (tp.status === 'active') items.push({ label: 'Suspend', icon: 'pi pi-ban', command: () => openSuspend(tp) })
+  if (tp.status === 'suspended') items.push({ label: 'Reactivate', icon: 'pi pi-play', command: () => reactivate(tp) })
   items.push({ label: 'Add Document', icon: 'pi pi-file', command: () => openAddDocument(tp) })
   if (tp.type === 'TRANSPORTER') items.push({ label: 'Add Fleet Asset', icon: 'pi pi-truck', command: () => openAddFleetAsset(tp) })
   return items

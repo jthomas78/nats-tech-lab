@@ -45,7 +45,7 @@ var _ = Describe("TransporterProfile worker facade", func() {
 	Context("BR-TP26 rejected profiles resubmit under the same workflow ID", func() {
 		It("appends VettingResubmitted before start and passes the incremented attempt with AllowDuplicate", func() {
 			order := []string{}
-			commands := &fakeResubmitter{order: &order, state: profiledomain.State{Context: "acme", ID: "partner-1", Status: profiledomain.StatusDocumentsInReview, AttemptNumber: 2}}
+			commands := &fakeResubmitter{order: &order, state: profiledomain.State{Context: "acme", ID: "partner-1", Status: profiledomain.StatusInReview, AttemptNumber: 2}}
 			executor := &fakeWorkflowExecutor{order: &order}
 			service := profileworker.NewVettingService(executor, commands, profileworkflow.ActivityTimeouts{StartToClose: time.Second, ScheduleToClose: 2 * time.Second})
 
@@ -120,7 +120,7 @@ var _ = Describe("BR-TP56 submit for vetting", func() {
 		orgs = &fakeOrganizations{organization: organizationdomain.Organization{
 			ID: "org-1", Type: organizationdomain.PartnerTypeTransporter}}
 		profiles = &fakeProfileState{state: profiledomain.State{
-			Status: profiledomain.StatusAwaitingDocumentation, AttemptNumber: 0}}
+			Status: profiledomain.StatusAwaiting, AttemptNumber: 0}}
 		docs = &fakeDocuments{docs: []organizationdomain.ComplianceDocument{
 			{ID: "doc-b", Status: organizationdomain.DocumentStatusPending},
 			{ID: "doc-a", Status: organizationdomain.DocumentStatusPending},
@@ -177,7 +177,7 @@ var _ = Describe("BR-TP56 submit for vetting", func() {
 				To(MatchError(profileworker.ErrProfileNotSubmittable))
 			Expect(order).To(BeEmpty())
 		},
-		Entry("already in review", profiledomain.StatusDocumentsInReview),
+		Entry("already in review", profiledomain.StatusInReview),
 		Entry("already vetted", profiledomain.StatusVetted),
 	)
 

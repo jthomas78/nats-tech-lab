@@ -21,7 +21,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			context             TEXT        NOT NULL,
 			name                TEXT        NOT NULL,
 			type                TEXT        NOT NULL CHECK (type IN ('SHIPPER', 'TRANSPORTER')),
-			status              TEXT        NOT NULL CHECK (status IN ('REGISTERED', 'ACTIVE', 'SUSPENDED')),
+			status              TEXT        NOT NULL CHECK (status IN ('registered', 'active', 'suspended')),
 			trading_as          TEXT        NOT NULL DEFAULT '',
 			company_name        TEXT        NOT NULL DEFAULT '',
 			registration_no     TEXT        NOT NULL DEFAULT '',
@@ -117,6 +117,31 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			ELSIF key_columns IS NULL THEN
 				ALTER TABLE organizations.compliance_documents
 					ADD CONSTRAINT compliance_documents_pkey PRIMARY KEY (organization_id, id);
+			END IF;
+		END $$`,
+
+		// The organization status vocabulary was lower-cased. Postgres has no
+		// ALTER CONSTRAINT for a CHECK expression, so it must be dropped and
+		// re-added — and it must be done here rather than left to the CREATE
+		// TABLE above, which only runs on a fresh database. An unmigrated
+		// database rejects every lifecycle write with a constraint violation
+		// while the code believes the transition succeeded; see the same
+		// lesson written up against transporter_profiles in
+		// transporterprofile/postgres/projection.go. Guarded so re-adding does
+		// not force a full validation scan on every boot.
+		`DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1 FROM pg_constraint
+				WHERE conrelid = 'organizations.organizations'::regclass
+				  AND conname = 'organizations_status_check'
+				  AND pg_get_constraintdef(oid) LIKE '%registered%'
+			) THEN
+				ALTER TABLE organizations.organizations
+					DROP CONSTRAINT IF EXISTS organizations_status_check;
+				ALTER TABLE organizations.organizations
+					ADD CONSTRAINT organizations_status_check
+					CHECK (status IN ('registered', 'active', 'suspended'));
 			END IF;
 		END $$`,
 

@@ -62,7 +62,7 @@ func freshPartner(db *sql.DB, partnerType string) string {
 	var id string
 	err := db.QueryRow(`
 		INSERT INTO organizations.organizations (context, name, type, status)
-		VALUES ('spec-context', 'SPEC ' || gen_random_uuid()::text, $1, 'REGISTERED')
+		VALUES ('spec-context', 'SPEC ' || gen_random_uuid()::text, $1, 'registered')
 		RETURNING id`, partnerType).Scan(&id)
 	Expect(err).NotTo(HaveOccurred())
 	DeferCleanup(func() {

@@ -22,7 +22,7 @@ func (p *Projection) Migrate(ctx context.Context) error {
 		CREATE TABLE IF NOT EXISTS organizations.transporter_profiles (
 			organization_id UUID        PRIMARY KEY,
 			context            TEXT        NOT NULL,
-			status             TEXT        NOT NULL CHECK (status IN ('AwaitingDocumentation', 'DocumentsInReview', 'Vetted', 'Rejected', 'CoverLapsed')),
+			status             TEXT        NOT NULL CHECK (status IN ('Awaiting', 'InReview', 'Vetted', 'Rejected', 'CoverLapsed')),
 			attempt_number     INTEGER     NOT NULL DEFAULT 0,
 			fleet_availability_gate BOOLEAN NOT NULL DEFAULT FALSE,
 			git_verified        BOOLEAN     NOT NULL DEFAULT FALSE,
@@ -50,7 +50,7 @@ func (p *Projection) Migrate(ctx context.Context) error {
 		-- the two halves of BR-TP28 disagreeing, with nothing in the logs.
 		ALTER TABLE organizations.transporter_profiles DROP CONSTRAINT IF EXISTS transporter_profiles_status_check;
 		ALTER TABLE organizations.transporter_profiles ADD CONSTRAINT transporter_profiles_status_check
-			CHECK (status IN ('AwaitingDocumentation', 'DocumentsInReview', 'Vetted', 'Rejected', 'CoverLapsed'))`)
+			CHECK (status IN ('Awaiting', 'InReview', 'Vetted', 'Rejected', 'CoverLapsed'))`)
 	return err
 }
 

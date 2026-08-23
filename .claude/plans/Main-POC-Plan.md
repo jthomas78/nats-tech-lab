@@ -624,12 +624,91 @@ from the original design:**
       replacement.
 
 *(Follow-on work — the GIT certificate change log and the
-`AwaitingDocumentation` presentation fix — was split out at the design gate
+`Awaiting` presentation fix — was split out at the design gate
 as Phase 46, which remains PROPOSED.)*
 
 ---
 
-### Phase 46 — PROPOSED (follows 39a; design inherited from Phase 39) — GIT Certificate Change Log + `AwaitingDocumentation` Presentation Fix
+### Phase 47 — IMPLEMENTED 2026-08-23 — State Vocabulary Rename (wire-level)
+
+#### Goal
+
+Shorten two status enums so the list-view badges read cleanly, at the wire
+level rather than as display labels.
+
+| Enum | Was | Now |
+| --- | --- | --- |
+| `transporterprofile/domain.Status` | `AwaitingDocumentation` | `Awaiting` |
+| | `DocumentsInReview` | `InReview` |
+| `internal/domain.PartnerStatus` | `REGISTERED` | `registered` |
+| | `ACTIVE` | `active` |
+| | `SUSPENDED` | `suspended` |
+
+`Vetted`, `Rejected`, `CoverLapsed` unchanged.
+
+#### Design decisions
+
+1. **Wire values change, not just Go identifiers** (chosen 2026-08-23 over
+   display-labels-only and identifiers-only). The vetting status is a field
+   on the `TransporterProfile` event envelope
+   (`transporterprofile/domain.Event.Status`), so this reaches JetStream, both
+   Postgres projections, the KV cache and the UI badge text in one move.
+2. **No read-side alias — clean cut.** Events written before this change
+   carry the old strings and will not hydrate. The migration is a
+   wipe-and-reseed of the `TRANSPORTER` stream, the transporter KV buckets and
+   both projections, then `cmd/seed-transporters`. Chosen deliberately over a
+   permanent compatibility shim because the POC's transporter history is
+   disposable.
+3. **Both `CHECK` constraints are dropped and recreated on boot**, not left to
+   their `CREATE TABLE`. `organizations.organizations` previously had its
+   constraint *only* in `CREATE TABLE`, which never runs on an existing
+   database — the same failure mode already written up against
+   `transporter_profiles` in `transporterprofile/postgres/projection.go`
+   (unmigrated DB rejects the write, projector Naks, JetStream redelivers
+   forever, no log line).
+4. **`PartnerStatus` becomes the only lower-cased status enum in the
+   codebase.** `accounts-service`, `refdata-service` and this service's own
+   `DocumentStatus` stay SCREAMING. Accepted as a deliberate inconsistency
+   rather than drift, and recorded in `BUSINESS_RULES-ORGANIZATIONS.md` so it
+   is not "corrected" back later.
+
+#### Verification
+
+- `go build ./...` clean; `go test ./...` green across organizations-service.
+- Postgres-backed specs run for real against a throwaway Postgres rather than
+  the live stack: **25 of 25 passed, 0 skipped** (they skip silently without
+  `ORGANIZATIONS_TEST_DATABASE_URL`, and `go test` still prints `ok`).
+- **Wipe-and-reseed done 2026-08-23.** `organizations` schema truncated, the
+  `TRANSPORTER` stream, the `organizations`/`organizations-secrets` KV buckets
+  and the `organizations-docs` Object Store deleted, `organizations-service`
+  rebuilt and restarted, then `go run ./cmd/seed-transporters -n 10 -context
+  acme`. Postgres **must** be wiped before the service restarts: the new
+  `organizations_status_check` cannot be added while `REGISTERED` rows exist.
+- Both CHECK constraints verified live as
+  `('registered','active','suspended')` and
+  `('Awaiting','InReview','Vetted','Rejected','CoverLapsed')` — which also
+  proves the guarded `DROP`/`ADD` block runs against an existing database,
+  the case `CREATE TABLE` alone never covered.
+- Wire values verified on the stream itself: `created` events carry
+  `"status":"Awaiting"`, and a `tracking-credential-configured` event at seq
+  38 sits on a profile that hydrated to `Vetted` from replay — so hydration
+  reads the new vocabulary, not just the projection.
+- **Live UI checked** at `localhost:7102` (frontend rebuilt — the first check
+  read a browser-cached bundle and looked like a regression). List badges,
+  severities, the `Awaiting`/`In Review`/`Vetted` stepper and the detail
+  header all render correctly, console clean. `Activate` on a
+  `registered`+`Vetted` row wrote `active`, exercising BR-TP19's guard and
+  the new constraint end-to-end; the ladder was re-seeded afterwards so the
+  seeded rungs match their names.
+- **The Status column renders lower-case** (`registered`/`active`/
+  `suspended`) beside title-case Vetting and GIT badges, because
+  `<Tag :value="data.status">` shows the raw value and decision 2 took no
+  read-side alias. Deliberate, not a defect — a display-only title-case map
+  would re-hide exactly what this rename made visible.
+
+---
+
+### Phase 46 — PROPOSED (follows 39a; design inherited from Phase 39) — GIT Certificate Change Log + `Awaiting` Presentation Fix
 
 > Split out of Phase 39 at the 2026-08-22 design gate. The design decisions
 > are Phase 39's 10–13 and 16, 18, 19, 20 — archived with that phase in
@@ -643,16 +722,21 @@ as Phase 46, which remains PROPOSED.)*
 Two things that were 39d and 39e, neither on the critical path to the GIT
 Certificates screen and neither buildable before 39a's events exist:
 
-- the `AwaitingDocumentation` presentation fix and outstanding-documents
+- the `Awaiting` presentation fix and outstanding-documents
   checklist;
 - the GIT certificate change log and its CSV export.
 
 #### Sub-phases
 
-- [ ] **46a** — `AwaitingDocumentation` presentation fix: sentence-cased
-      label from a single label table (wire value unchanged), amber "your
-      move" severity instead of grey, outstanding-documents checklist with
-      progress, full-region dashed drop target.
+- [ ] **46a** — `Awaiting` presentation fix. **Partly overtaken by Phase 47
+      (2026-08-23), which did change the wire value** — this sub-phase's
+      original "sentence-cased label from a single label table (wire value
+      unchanged)" no longer describes the state of the code: the state is now
+      `Awaiting` on the wire and the stepper label is "Awaiting". What remains
+      outstanding here is the rest of it — amber "your move" severity instead
+      of grey, outstanding-documents checklist with progress, full-region
+      dashed drop target — plus a decision on whether a label table is still
+      worth introducing now that the raw value is already presentable.
 - [ ] **46b** — change log, per-certificate framing only (Phase 39
       decision 20 defers the per-organization framing until fleet assets and
       tracking credentials have provenance), filters, and CSV export with

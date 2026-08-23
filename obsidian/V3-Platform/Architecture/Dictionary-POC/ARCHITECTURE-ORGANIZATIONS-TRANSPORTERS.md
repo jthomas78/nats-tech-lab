@@ -140,12 +140,36 @@ in the encrypted KV bucket (§ 4).
 `PendingReview` / `Approved` / `Rejected`), `trackingCredentials`,
 `updatedAt`.
 
-**Statuses:** `AwaitingDocumentation`, `DocumentsInReview`, `Vetted`,
-`Rejected`, `CoverLapsed`.
+**Statuses:** `Awaiting`, `InReview`, `Vetted`, `Rejected`,
+`CoverLapsed`.
 
 **Computed, not stored:** `AvailableForAssignment()` is derived from
 `Status == Vetted && FleetAvailabilityGate`. Storing it would let the flag
 drift from the facts that produce it.
+
+### The three state machines, side by side
+
+The operator's Transporters list shows three columns — company status,
+vetting status, and the derived GIT badge — and they are three separate
+state machines, not one. Only four things couple them, and the diagram
+draws each explicitly.
+
+![Three transporter state machines and the four dependencies between them. Lane one is the Organization's plain-CRUD company status: registered, active and suspended. Lane two is the event-sourced TransporterProfile vetting status: Awaiting, InReview, Vetted, Rejected and CoverLapsed. Lane three is the GIT badge — None, Pending, Active, Expired and Rejected — which is derived per read from the transporter's goods-in-transit documents and never stored. Boxes tinted with a badge colour are values the operator actually sees in the UI; plain outlined boxes are internal mechanism: the document set, DeriveGitStatus, the AND gate that admits a profile to Vetted, and the cover watcher. Four cross-dependencies are drawn: GIT feeds the vetting AND gate under BR-TP21; document expiry re-arms the cover watcher under BR-TP61; Activate is guarded on a canonical Vetted read under BR-TP19; and a cover lapse moves vetting to CoverLapsed and suspends the organization through the single HandleGitStatusDrop command under BR-TP28 and BR-TP63. Two further figures show how the badge is derived: gitStatusOf maps one document to a candidate value, checking expiry before status, and DeriveGitStatus folds the candidates — the approved certificate answers alone, and otherwise the worst candidate wins.](images/transporter-state-machines.png)
+
+Editable source: [transporter-state-machines.html](../../../../demos/01-dictionary/diagrams/transporter-state-machines.html)
+— hand-authored inline SVG rather than a Draw.io workbook page, so
+`./diagrams/export-png.sh` does **not** regenerate it. Re-export with
+`node diagrams/export-html-png.mjs diagrams/transporter-state-machines.html \
+  ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/transporter-state-machines.png 1024 --clip=".wrap"`
+from `demos/01-dictionary/`. The 1024px width is the geometry the page was
+reviewed at; changing it changes the layout. The `--clip=".wrap"` is
+load-bearing, not optional.
+
+**A tinted box is a value the operator sees as a badge; a plain outlined
+box is mechanism.** That convention is why `CoverLapsed` is tinted — it
+reaches the UI as a danger badge and as a stepper label — while
+`DeriveGitStatus()`, the AND gate, the document set and the cover watcher
+are not.
 
 ---
 
@@ -399,7 +423,7 @@ partner had one current certificate; once renewals coexist with live cover it
 reported a rejected renewal as the transporter's cover status — and through
 `IsGitActive`, would have suspended a covered transporter under BR-TP28.
 
-### 9.4 `AwaitingDocumentation` presentation fix — **moved to Phase 46**
+### 9.4 `Awaiting` presentation fix — **moved to Phase 46**
 
 ![Awaiting documentation](images/phase39/phase39-AwaitingDocs.png)
 

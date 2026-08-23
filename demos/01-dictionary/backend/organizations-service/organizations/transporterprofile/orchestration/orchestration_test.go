@@ -160,7 +160,7 @@ func testJetStream() (*nats.Conn, jetstream.JetStream) {
 
 var _ = Describe("TransporterProfile orchestration", func() {
 	Context("BR-TP18 CreateTransporterProfile / EnsureTransporterProfile", func() {
-		It("uses the partner ID, starts AwaitingDocumentation, stays idempotent, and converges concurrent creates on one event", func() {
+		It("uses the partner ID, starts Awaiting, stays idempotent, and converges concurrent creates on one event", func() {
 			ctx := context.Background()
 			store := newMemoryEventStore()
 			handler := orchestration.NewProfileHandler(store)
@@ -168,7 +168,7 @@ var _ = Describe("TransporterProfile orchestration", func() {
 			created, err := handler.CreateTransporterProfile(ctx, "acme", "partner-1")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(created.ID).To(Equal("partner-1"))
-			Expect(created.Status).To(Equal(profiledomain.StatusAwaitingDocumentation))
+			Expect(created.Status).To(Equal(profiledomain.StatusAwaiting))
 
 			again, err := handler.EnsureTransporterProfile(ctx, "acme", "partner-1")
 			Expect(err).NotTo(HaveOccurred())
@@ -199,14 +199,14 @@ var _ = Describe("TransporterProfile orchestration", func() {
 
 	Context("BR-TP26 a resubmitted profile reports the attempt it is running", func() {
 		// The regression this pins, and why it asserts the *event* rather than
-		// the returned State: Apply() already hardcodes DocumentsInReview for
+		// the returned State: Apply() already hardcodes InReview for
 		// VettingResubmittedEvent, so the aggregate was never wrong and a
 		// state-level assertion passes with or without the fix. The projector
 		// does not replay Apply — it copies Status straight off the event
 		// payload (see projector.go, which already special-cases CreatedEvent
 		// for the same reason) — so the payload is the only place this bug was
 		// visible, and the only place a test can catch it.
-		It("appends a VettingResubmitted event carrying DocumentsInReview, not the Rejected status it left", func() {
+		It("appends a VettingResubmitted event carrying InReview, not the Rejected status it left", func() {
 			ctx := context.Background()
 			store := newMemoryEventStore()
 			handler := orchestration.NewProfileHandler(store)
@@ -224,7 +224,7 @@ var _ = Describe("TransporterProfile orchestration", func() {
 
 			appended := store.lastEvent("acme", "partner-1")
 			Expect(appended.Type).To(Equal(profiledomain.VettingResubmittedEvent))
-			Expect(appended.Status).To(Equal(profiledomain.StatusDocumentsInReview),
+			Expect(appended.Status).To(Equal(profiledomain.StatusInReview),
 				"the projector copies this field verbatim, so a Rejected value here leaves a running attempt reading as Rejected")
 			Expect(appended.AttemptNumber).To(Equal(2))
 			Expect(resubmitted.AttemptNumber).To(Equal(2))
@@ -246,7 +246,7 @@ var _ = Describe("TransporterProfile orchestration", func() {
 			Expect(missingGateway.partner.Status).To(Equal(organizationdomain.StatusRegistered))
 
 			pendingGateway := &fakePartnerGateway{partner: partner}
-			pendingProjection := &fakeCanonicalProjection{state: profiledomain.State{ID: partner.ID, Status: profiledomain.StatusAwaitingDocumentation}}
+			pendingProjection := &fakeCanonicalProjection{state: profiledomain.State{ID: partner.ID, Status: profiledomain.StatusAwaiting}}
 			pending := orchestration.NewActivationHandler(pendingGateway, pendingProjection)
 			_, err = pending.Activate(ctx, actor, partner.ID)
 			Expect(err).To(MatchError(orchestration.ErrTransporterProfileNotVetted))

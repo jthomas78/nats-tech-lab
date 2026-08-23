@@ -41,8 +41,8 @@ const (
 	// BR-TP62 keeps the workflow *running* while the profile is Vetted, so
 	// unlike a completed run there is no Result field to read the outcome
 	// from — without it, the most common state is the one you cannot see.
-	VettingStateQuery = "vettingState"
-	SequenceConflictErrorType      = "TransporterProfileSequenceConflict"
+	VettingStateQuery         = "vettingState"
+	SequenceConflictErrorType = "TransporterProfileSequenceConflict"
 )
 
 // The two persisted statuses this workflow reacts to. Kept as local literals
@@ -155,7 +155,7 @@ func TransporterVettingWorkflow(ctx workflow.Context, input VettingInput) (Vetti
 	// variable rather than derived on demand: a query handler must not block
 	// or run activities, so everything it answers with has to already be in
 	// workflow state.
-	current := VettingResult{Status: profiledomain.StatusDocumentsInReview}
+	current := VettingResult{Status: profiledomain.StatusInReview}
 	if err := workflow.SetQueryHandler(ctx, VettingStateQuery, func() (VettingResult, error) {
 		return current, nil
 	}); err != nil {
@@ -193,7 +193,7 @@ func TransporterVettingWorkflow(ctx workflow.Context, input VettingInput) (Vetti
 		}
 		switch eventType {
 		case profiledomain.VettingStartedEvent, profiledomain.VettingResubmittedEvent:
-			event.Status = profiledomain.StatusDocumentsInReview
+			event.Status = profiledomain.StatusInReview
 		case profiledomain.VettedEvent:
 			event.Status, event.FleetAvailabilityGate = profiledomain.StatusVetted, true
 			event.GitVerified = true

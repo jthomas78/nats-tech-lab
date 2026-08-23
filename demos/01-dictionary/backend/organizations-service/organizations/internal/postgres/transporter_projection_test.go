@@ -32,8 +32,8 @@ var _ = Describe("TransporterProfile projection", func() {
 			Expect(projection.Migrate(ctx)).To(Succeed())
 
 			for _, status := range []profiledomain.Status{
-				profiledomain.StatusAwaitingDocumentation,
-				profiledomain.StatusDocumentsInReview,
+				profiledomain.StatusAwaiting,
+				profiledomain.StatusInReview,
 				profiledomain.StatusVetted,
 				profiledomain.StatusRejected,
 				profiledomain.StatusCoverLapsed,

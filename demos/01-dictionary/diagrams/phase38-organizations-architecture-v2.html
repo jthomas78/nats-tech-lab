@@ -64,7 +64,7 @@ figcaption code, .sub code { font-family: var(--mono); font-size: 11px; backgrou
 
   <figure>
     <div class="fig-body">
-      <svg viewBox="0 0 1024 424" role="img" aria-label="Registration and status flow after Phase 38. The browser registers a transporter over NATS request reply. The service creates a plain CRUD TradingPartner in Registered status and an event-sourced TransporterProfile with the same ID in AwaitingDocumentation status. Temporal moves the profile into DocumentsInReview. Approved documents and successful GIT verification produce Vetted and open the fleet gate; a document or GIT failure produces Rejected and closes the gate. Resubmission starts another attempt. Only a Vetted profile passes the activation guard that changes the company to Active. A later scheduled GIT drop revokes fleet availability and suspends the company. Compliance documents independently move from Pending to Approved or Rejected, and replacement supersedes the old row.">
+      <svg viewBox="0 0 1024 424" role="img" aria-label="Registration and status flow after Phase 38. The browser registers a transporter over NATS request reply. The service creates a plain CRUD TradingPartner in Registered status and an event-sourced TransporterProfile with the same ID in Awaiting status. Temporal moves the profile into InReview. Approved documents and successful GIT verification produce Vetted and open the fleet gate; a document or GIT failure produces Rejected and closes the gate. Resubmission starts another attempt. Only a Vetted profile passes the activation guard that changes the company to Active. A later scheduled GIT drop revokes fleet availability and suspends the company. Compliance documents independently move from Pending to Approved or Rejected, and replacement supersedes the old row.">
         <defs>
           <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
           <marker id="a-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
@@ -77,9 +77,9 @@ figcaption code, .sub code { font-family: var(--mono); font-size: 11px; backgrou
         <rect class="n" x="228" y="32" width="174" height="46" rx="3"/>
         <text class="lbl" x="240" y="52">partner.register</text><text class="lbl2" x="240" y="66">NATS api.* / rpc.* ingress</text>
         <rect class="n" x="450" y="26" width="242" height="58" rx="3"/>
-        <text class="lbl" x="462" y="46">TradingPartner</text><text class="lbl2" x="462" y="60">shared company identity · UUID</text><text class="lbl2" x="462" y="73">REGISTERED · version 1</text>
+        <text class="lbl" x="462" y="46">TradingPartner</text><text class="lbl2" x="462" y="60">shared company identity · UUID</text><text class="lbl2" x="462" y="73">registered · version 1</text>
         <rect class="ne" x="758" y="26" width="250" height="58" rx="3"/>
-        <text class="lbl" x="770" y="46">TransporterProfile</text><text class="lbl2" x="770" y="60">same UUID · created event</text><text class="lbl2" x="770" y="73">AwaitingDocumentation</text>
+        <text class="lbl" x="770" y="46">TransporterProfile</text><text class="lbl2" x="770" y="60">same UUID · created event</text><text class="lbl2" x="770" y="73">Awaiting</text>
         <path class="flow" d="M180 55 L228 55" marker-end="url(#a-sync)"/>
         <path class="flow" d="M402 55 L450 55" marker-end="url(#a-sync)"/>
         <path class="rep" d="M692 55 L758 55" marker-end="url(#a-evtl)"/>
@@ -88,17 +88,17 @@ figcaption code, .sub code { font-family: var(--mono); font-size: 11px; backgrou
         <text class="grp" x="16" y="120">TWO INDEPENDENT STATE MACHINES — LINKED ONLY BY ACTIVATION / SUSPENSION POLICY</text>
         <rect class="nb" x="16" y="134" width="284" height="184" rx="4"/>
         <text class="grp" x="28" y="153">COMPANY STATUS · POSTGRES CRUD</text>
-        <rect class="n" x="42" y="174" width="100" height="34" rx="3"/><text class="lbl" x="92" y="195" text-anchor="middle">REGISTERED</text>
-        <rect class="ns" x="174" y="174" width="100" height="34" rx="3"/><text class="lbl" x="224" y="195" text-anchor="middle">ACTIVE</text>
-        <rect class="n" x="174" y="260" width="100" height="34" rx="3"/><text class="lbl" x="224" y="281" text-anchor="middle">SUSPENDED</text>
+        <rect class="n" x="42" y="174" width="100" height="34" rx="3"/><text class="lbl" x="92" y="195" text-anchor="middle">registered</text>
+        <rect class="ns" x="174" y="174" width="100" height="34" rx="3"/><text class="lbl" x="224" y="195" text-anchor="middle">active</text>
+        <rect class="n" x="174" y="260" width="100" height="34" rx="3"/><text class="lbl" x="224" y="281" text-anchor="middle">suspended</text>
         <path class="proj" d="M142 191 L174 191" marker-end="url(#a-store)"/><text class="good" x="145" y="181">guard</text>
         <path class="flow" d="M224 208 L224 260" marker-end="url(#a-sync)"/><text class="edge" x="232" y="237">suspend</text>
         <path class="flow" d="M206 260 L206 208" marker-end="url(#a-sync)"/><text class="edge" x="159" y="237">reactivate</text>
 
         <rect class="nb" x="324" y="134" width="684" height="184" rx="4"/>
         <text class="grp" x="336" y="153">VETTING STATUS · JETSTREAM EVENTS, TEMPORAL-DRIVEN</text>
-        <rect class="n" x="342" y="174" width="172" height="38" rx="3"/><text class="lbl" x="428" y="191" text-anchor="middle">AwaitingDocumentation</text><text class="lbl2" x="428" y="204" text-anchor="middle">gate closed</text>
-        <rect class="ne" x="552" y="174" width="164" height="38" rx="3"/><text class="lbl" x="634" y="191" text-anchor="middle">DocumentsInReview</text><text class="lbl2" x="634" y="204" text-anchor="middle">attempt N</text>
+        <rect class="n" x="342" y="174" width="172" height="38" rx="3"/><text class="lbl" x="428" y="191" text-anchor="middle">Awaiting</text><text class="lbl2" x="428" y="204" text-anchor="middle">gate closed</text>
+        <rect class="ne" x="552" y="174" width="164" height="38" rx="3"/><text class="lbl" x="634" y="191" text-anchor="middle">InReview</text><text class="lbl2" x="634" y="204" text-anchor="middle">attempt N</text>
         <rect class="ns" x="754" y="174" width="104" height="38" rx="3"/><text class="lbl" x="806" y="191" text-anchor="middle">Vetted</text><text class="lbl2" x="806" y="204" text-anchor="middle">gate open</text>
         <rect class="n" x="754" y="260" width="104" height="38" rx="3"/><text class="lbl" x="806" y="281" text-anchor="middle">Rejected</text>
         <path class="rep" d="M514 193 L552 193" marker-end="url(#a-evtl)"/><text class="warn" x="518" y="184">start</text>
@@ -107,7 +107,7 @@ figcaption code, .sub code { font-family: var(--mono); font-size: 11px; backgrou
         <path class="rep" d="M754 279 L634 279 L634 212" marker-end="url(#a-evtl)"/><text class="warn" x="645" y="273">resubmit → attempt N+1</text>
         <path class="proj" d="M754 193 L716 193"/>
         <path class="proj" d="M806 174 L806 128 L92 128 L92 174" marker-end="url(#a-store)"/>
-        <text class="good" x="430" y="124">Vetted profile lets Activate guard move company REGISTERED → ACTIVE</text>
+        <text class="good" x="430" y="124">Vetted profile lets Activate guard move company registered → active</text>
         <path class="err" d="M858 193 L930 193 L930 334 L224 334 L224 294" marker-end="url(#a-bad)"/>
         <text class="badtext" x="490" y="348">scheduled GIT drop: revoke fleet gate first, then suspend company</text>
 
@@ -120,7 +120,7 @@ figcaption code, .sub code { font-family: var(--mono); font-size: 11px; backgrou
         <text class="lbl" x="360" y="409">SUPERSEDED</text><text class="lbl2" x="448" y="409">replacement is a new PENDING row; old row and bytes remain</text>
       </svg>
     </div>
-    <figcaption><b>Registration and status.</b> Registration writes the existing <code>trading_partners</code> aggregate and ensures a sibling profile with the same ID (BR-TP18). Company status remains <code>REGISTERED → ACTIVE ⇄ SUSPENDED</code>; vetting status is separate, and only <code>Vetted</code> opens the activation gate (BR-TP19/21/28). Document status is a third independent lifecycle (BR-TP29–31).</figcaption>
+    <figcaption><b>Registration and status.</b> Registration writes the existing <code>trading_partners</code> aggregate and ensures a sibling profile with the same ID (BR-TP18). Company status remains <code>registered → active ⇄ suspended</code>; vetting status is separate, and only <code>Vetted</code> opens the activation gate (BR-TP19/21/28). Document status is a third independent lifecycle (BR-TP29–31).</figcaption>
   </figure>
 
   <figure>

@@ -182,7 +182,7 @@ func (v *Vetting) Close() {
 // This is Phase 38b's missing composition. 38b built and tested the workflow,
 // activities and worker packages, but nothing ever constructed them — the
 // service opened no Temporal connection and the task queue had no pollers, so
-// no transporter profile could leave AwaitingDocumentation, and BR-TP19's
+// no transporter profile could leave Awaiting, and BR-TP19's
 // activation gate made Active and Suspended unreachable with it.
 //
 // gitOutcome selects activities.MockGitVerifier's behaviour: there is no real

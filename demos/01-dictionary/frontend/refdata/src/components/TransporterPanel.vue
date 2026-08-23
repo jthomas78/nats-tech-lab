@@ -730,9 +730,9 @@ async function submitAddFleetAsset() {
 // ── Presentation helpers ──────────────────────────────────────────────────
 
 function statusSeverity(status) {
-  if (status === 'ACTIVE') return 'success'
-  if (status === 'SUSPENDED') return 'danger'
-  return 'secondary' // REGISTERED
+  if (status === 'active') return 'success'
+  if (status === 'suspended') return 'danger'
+  return 'secondary' // registered
 }
 
 function docStatusSeverity(status) {
@@ -758,8 +758,8 @@ function vettingSeverity(status) {
   // fleet is unassignable, which is the same severity as a rejection even
   // though it arrived by a different route.
   if (status === 'Rejected' || status === 'CoverLapsed') return 'danger'
-  if (status === 'DocumentsInReview') return 'warn'
-  return 'secondary' // AwaitingDocumentation
+  if (status === 'InReview') return 'warn'
+  return 'secondary' // Awaiting
 }
 
 // The vetting stepper's linear spine. Neither terminal failure is a step of
@@ -767,8 +767,8 @@ function vettingSeverity(status) {
 // the Vetted step failing, each shown in place rather than as a fourth
 // position — so the stepper never implies a failure comes *after* vetting.
 const VETTING_STEPS = [
-  { key: 'AwaitingDocumentation', label: 'Awaiting Documentation' },
-  { key: 'DocumentsInReview', label: 'Documents In Review' },
+  { key: 'Awaiting', label: 'Awaiting' },
+  { key: 'InReview', label: 'In Review' },
   { key: 'Vetted', label: 'Vetted' },
 ]
 
@@ -948,14 +948,14 @@ function formatDate(ts) {
             @click="refreshDetail"
           />
           <Button
-            v-if="selected.status === 'REGISTERED'"
+            v-if="selected.status === 'registered'"
             label="Activate"
             icon="pi pi-play"
             size="small"
             @click="activate(selected)"
           />
           <Button
-            v-if="selected.status === 'ACTIVE'"
+            v-if="selected.status === 'active'"
             label="Suspend"
             icon="pi pi-ban"
             size="small"
@@ -964,7 +964,7 @@ function formatDate(ts) {
             @click="openSuspend"
           />
           <Button
-            v-if="selected.status === 'SUSPENDED'"
+            v-if="selected.status === 'suspended'"
             label="Reactivate"
             icon="pi pi-play"
             size="small"

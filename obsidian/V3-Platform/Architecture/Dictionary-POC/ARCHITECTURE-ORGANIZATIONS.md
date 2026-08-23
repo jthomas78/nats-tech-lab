@@ -377,7 +377,7 @@ Editable source: [phase38-temporal-workflows.html](../../../../demos/01-dictiona
   ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/phase38-temporal-workflows.png 1024 --clip=".wrap"`
 from `demos/01-dictionary/`.
 
-![Phase 38 state-change sequence across the browser, NATS Core, organizations-service, Postgres, Temporal, the GIT verifier, the TRANSPORTER JetStream stream, its durable projector and NATS KV: registration changes Organization to REGISTERED and projects a profile to AwaitingDocumentation; the defined vetting workflow moves the profile through DocumentsInReview to Vetted or Rejected with explicit compensation; activation changes the Organization to ACTIVE only after a canonical Vetted read; and the defined GIT monitor revokes the fleet gate before suspending the Organization. Missing production workflow-start, document-signal and Schedule-creation calls are marked explicitly.](images/phase38-temporal-state-sequence.png)
+![Phase 38 state-change sequence across the browser, NATS Core, organizations-service, Postgres, Temporal, the GIT verifier, the TRANSPORTER JetStream stream, its durable projector and NATS KV: registration changes Organization to registered and projects a profile to Awaiting; the defined vetting workflow moves the profile through InReview to Vetted or Rejected with explicit compensation; activation changes the Organization to active only after a canonical Vetted read; and the defined GIT monitor revokes the fleet gate before suspending the Organization. Missing production workflow-start, document-signal and Schedule-creation calls are marked explicitly.](images/phase38-temporal-state-sequence.png)
 
 Editable source: [phase38-temporal-state-sequence.html](../../../../demos/01-dictionary/diagrams/phase38-temporal-state-sequence.html)
 — hand-authored inline SVG rather than a Draw.io workbook page, so
@@ -585,12 +585,12 @@ here) — worth its own pattern-card observation (see "Outcomes").
 ```
 Organization (unchanged, Phase 26)          TransporterProfile (new, Phase 38)
 ──────────────────────────────────            ──────────────────────────────────
-                                               AwaitingDocumentation
-     Registered  ◀──register(TRANSPORTER)──    (≈ V2 NO_TS_AND_CS,
+                                               Awaiting
+     registered  ◀──register(TRANSPORTER)──    (≈ V2 NO_TS_AND_CS,
          │                                      T&Cs not yet accepted)
          │                                          │ (workflow starts)
          │                                          ▼
-         │                                   DocumentsInReview
+         │                                       InReview
          │                              ┌────────────┤
          │                              ▼            ▼
          │                 docs+GIT both pass   docs or GIT fail/timeout
@@ -609,7 +609,7 @@ Organization (unchanged, Phase 26)          TransporterProfile (new, Phase 38)
                unchanged)             — the cross-aggregate check; see
               │                       "Decision" for where it lives
               ▼
-           Active ⇄ Suspended
+           active ⇄ suspended
         (≈ V2 accountInactive, BR-TP04/TP05, unchanged)
 
 UnderProbation: independent boolean flag (≈ V2 underProbation), admin-set,
@@ -621,7 +621,7 @@ UnderProbation: independent boolean flag (≈ V2 underProbation), admin-set,
 `TransporterProfile` record itself — an operator can trigger `Resubmit`
 (mirrors `ComplianceDocument`'s existing `Resubmit` verb from Phase 26) to
 start a fresh `TransporterVettingWorkflow`; `Organization` simply stays
-`Registered` throughout, since it was never told to activate.
+`registered` throughout, since it was never told to activate.
 Registration-step progress (`TransporterRegistrationStepType`) is **not**
 modeled as a separate axis in this design — the wizard's own step position
 (see "Frontend") already serves that purpose without a fourth persisted
@@ -874,7 +874,7 @@ re-checks it afterwards. That gap has real teeth here because of a decision
 made elsewhere in this same design: `GitStatus` is **derived, and one of its
 inputs is time** — `EXPIRED` arrives by the passage of a date, with no
 command, no actor, and **no event** to hang a guard on. So a
-`Organization` can sit at `ACTIVE` indefinitely with an expired GIT
+`Organization` can sit at `active` indefinitely with an expired GIT
 certificate, and nothing notices. That is the constraint being broken in the
 ordinary course of business, not under a race.
 

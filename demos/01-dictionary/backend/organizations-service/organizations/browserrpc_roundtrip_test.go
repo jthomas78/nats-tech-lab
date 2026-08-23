@@ -622,7 +622,7 @@ var _ = Describe("api.* round trips (Phase 26h)", func() {
 			request("api.acme.organizations.organization.suspend.v1",
 				map[string]any{"id": registered.ID, "reason": "docs expired"}, &suspended)
 
-			Expect(suspended.Status).To(Equal("SUSPENDED"))
+			Expect(suspended.Status).To(Equal("suspended"))
 
 			actions := make([]string, 0)
 			for _, e := range audit.all() {
@@ -821,7 +821,7 @@ var _ = Describe("api.* round trips (Phase 26h)", func() {
 				// even though a caller could put them in the body.
 				Expect(updated.Type).To(Equal("SHIPPER"))
 				Expect(updated.Context).To(Equal("acme"))
-				Expect(updated.Status).To(Equal("REGISTERED"))
+				Expect(updated.Status).To(Equal("registered"))
 			})
 
 			It("ignores type/context/status supplied in an update body (BR-TP32)", func() {
@@ -843,12 +843,12 @@ var _ = Describe("api.* round trips (Phase 26h)", func() {
 					"name":    "Globex",
 					"type":    "TRANSPORTER",
 					"context": "someone-elses-context",
-					"status":  "ACTIVE",
+					"status":  "active",
 				}, &updated)
 
 				Expect(updated.Type).To(Equal("SHIPPER"), "type is immutable — a Shipper must not become a Transporter via an edit")
 				Expect(updated.Context).To(Equal("acme"), "context comes from the subject, never the body")
-				Expect(updated.Status).To(Equal("REGISTERED"), "status has its own lifecycle endpoints")
+				Expect(updated.Status).To(Equal("registered"), "status has its own lifecycle endpoints")
 			})
 
 			// BR-TP34 over the wire: the rule says 409, and before 38c-i the

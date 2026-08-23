@@ -9,6 +9,37 @@
 > (BR-D01–BR-D34), Accounts (BR-AC01–BR-AC13), and Pricing (BR-P01–BR-P24)
 > domain rules.
 
+## State vocabulary (renamed 2026-08-23)
+
+Two enums were shortened. **These are wire values, not just Go identifiers** —
+they are serialized into `TransporterProfile` events on the `TRANSPORTER`
+stream, stored in the Postgres projections, cached in KV, and rendered
+verbatim as the badge text in the UI:
+
+| Enum | Was | Now |
+| --- | --- | --- |
+| `transporterprofile/domain.Status` | `AwaitingDocumentation` | `Awaiting` |
+| | `DocumentsInReview` | `InReview` |
+| `internal/domain.PartnerStatus` | `REGISTERED` | `registered` |
+| | `ACTIVE` | `active` |
+| | `SUSPENDED` | `suspended` |
+
+`Vetted`, `Rejected` and `CoverLapsed` are unchanged.
+
+**There is no read-side alias, by decision.** Events written before this
+change carry the old strings and will not hydrate; the migration path is a
+wipe-and-reseed of the `TRANSPORTER` stream, the transporter KV buckets and
+both projections, then `cmd/seed-transporters`. Both Postgres `CHECK`
+constraints are dropped and recreated on boot rather than left to their
+`CREATE TABLE`, which only runs on a fresh database — see the failure mode
+written up in `transporterprofile/postgres/projection.go`.
+
+**`PartnerStatus` is now the only lower-cased status enum in the codebase.**
+`accounts-service`, `refdata-service` and this service's own
+`DocumentStatus` (`PENDING`/`APPROVED`/`REJECTED`/`SUPERSEDED`/`FOR_REVIEW`)
+all remain SCREAMING. This was a deliberate call, not drift — recorded here
+so it is not "fixed" back later by someone reading it as an inconsistency.
+
 **BR-TP01–BR-TP14 confirmed 2026-08-13** (Phase 26, IMPLEMENTED end to end —
 [Main-POC-Plan.md](../../.claude/plans/Main-POC-Plan.md)). Covers 26a (the
 `Organization` aggregate's registration/lifecycle), 26a1 (its audit
@@ -340,7 +371,7 @@ standing.
 
 A `TransporterProfile` uses its associated `Organization` ID as its
 aggregate ID. No surrogate ID or join record is created. Creation begins in
-`AwaitingDocumentation`. Both `CreateTransporterProfile(organizationID)`
+`Awaiting`. Both `CreateTransporterProfile(organizationID)`
 and `EnsureTransporterProfile(organizationID)` are idempotent: if the
 profile does not exist, exactly one creation event is appended; if it already
 exists, the existing profile is returned without appending another creation
@@ -349,7 +380,7 @@ sequence conflict internally, but after re-hydration converge on the same
 single profile.
 
 - **Enforced in:** `transporterprofile/domain` (shared-ID aggregate and
-  `AwaitingDocumentation` initial state) and `transporterprofile/orchestration`
+  `Awaiting` initial state) and `transporterprofile/orchestration`
   (`CreateTransporterProfile` / `EnsureTransporterProfile` hydration and
   idempotent conflict convergence).
 - **Test:** `transporterprofile/orchestration/orchestration_test.go` — the
@@ -493,7 +524,7 @@ Temporal workflow-ID reuse policy that permits a new run after the prior
 `Rejected` run has closed; it never depends on RunID for domain identity or
 deduplication.
 
-**The `VettingResubmitted` event carries `DocumentsInReview`, not the
+**The `VettingResubmitted` event carries `InReview`, not the
 `Rejected` status it leaves.** *Amended 2026-08-21, during 38b's completion.*
 It previously carried `p.state.Status` — the status being resubmitted away
 from — which left a profile with a live attempt running still reporting
@@ -504,7 +535,7 @@ ever moved it.
 Two things made this invisible until now, both worth recording because they
 generalise:
 
-1. **`Apply()` already hardcodes `StatusDocumentsInReview` for
+1. **`Apply()` already hardcodes `StatusInReview` for
    `VettingResubmittedEvent`, so the aggregate was never wrong — only the
    event payload was.** The projector does not replay `Apply`; it copies
    `Status` straight off the payload, and already carries a special case for
@@ -525,7 +556,7 @@ generalise:
   above, asserting the **appended event's** `Status` rather than the returned
   `State`, with the reason written into the spec so it is not "simplified"
   back into a vacuous state assertion later. Verified live: attempt 2 reads
-  `DocumentsInReview` while Temporal shows the run `Running`.
+  `InReview` while Temporal shows the run `Running`.
 
 ### BR-TP27 (Phase 38b) — Worker restart preserves workflow progress
 
@@ -582,7 +613,7 @@ drop has been handled.
   and idempotency.
 - **Verified live 2026-08-21:** schedule created as
   `acme-transporter-git-monitor-<id>`; the drop path flipped
-  `fleetAvailabilityGate` to false and set the organization `SUSPENDED`;
+  `fleetAvailabilityGate` to false and set the organization `suspended`;
   three monitor runs all `Completed` with no second suspend.
 
 ### BR-TP29–BR-TP31 (Phase 38c-i) — Compliance documents gain an identity
@@ -1355,7 +1386,7 @@ not connected" since before the tenant fix.
      Nak'd, and redelivered forever — ack floor frozen one message behind
      while the consumer sequence climbed past 47,000, with nothing in the
      service log. Because the drop suspends the organization *before* the
-     projection catches up, the visible symptom was a **SUSPENDED
+     projection catches up, the visible symptom was a **suspended
      organization whose profile still read `Vetted` with the gate open**.
      `transporter_projection_test.go` now asserts every domain `Status` is
      writable, so the two lists cannot drift again.
@@ -1365,7 +1396,7 @@ not connected" since before the tenant fix.
   vetted with 90 seconds of cover, its run parked and answering
   `vettingState` with `Vetted`, the timer firing at the exact expiry, and
   the profile ending `CoverLapsed` with `fleetAvailabilityGate=false` while
-  the organization went `SUSPENDED`.
+  the organization went `suspended`.
 
 ---
 

@@ -202,7 +202,7 @@ func (s *VettingService) Submit(ctx context.Context, tenant, contextKey, organiz
 		return err
 	}
 	switch state.Status {
-	case profiledomain.StatusAwaitingDocumentation, profiledomain.StatusRejected:
+	case profiledomain.StatusAwaiting, profiledomain.StatusRejected:
 	default:
 		return ErrProfileNotSubmittable
 	}

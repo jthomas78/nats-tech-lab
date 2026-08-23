@@ -494,7 +494,7 @@ func (s *seeder) addDocument(id string) (string, error) {
 
 // awaitStatus polls the profile until the vetting saga reaches want. The wait
 // is unavoidable: BR-TP56 starts a Temporal workflow and returns immediately,
-// so the profile is still DocumentsInReview when submit-vetting replies.
+// so the profile is still InReview when submit-vetting replies.
 func (s *seeder) awaitStatus(id, want string) error {
 	deadline := time.Now().Add(vettingTimeout)
 	var last string

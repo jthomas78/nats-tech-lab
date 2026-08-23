@@ -44,10 +44,10 @@ type Status string
 type DocumentReviewStatus string
 
 const (
-	StatusAwaitingDocumentation Status = "AwaitingDocumentation"
-	StatusDocumentsInReview     Status = "DocumentsInReview"
-	StatusVetted                Status = "Vetted"
-	StatusRejected              Status = "Rejected"
+	StatusAwaiting Status = "Awaiting"
+	StatusInReview Status = "InReview"
+	StatusVetted   Status = "Vetted"
+	StatusRejected Status = "Rejected"
 	// StatusCoverLapsed (BR-TP63, 38h-ii) is entered from Vetted when
 	// goods-in-transit cover expires or is revoked. It exists so that a
 	// lapse is visible in Status rather than only in FleetAvailabilityGate:
@@ -173,7 +173,7 @@ func NewCreatedEvent(contextKey, organizationID string) Event {
 		Type:           CreatedEvent,
 		Context:        contextKey,
 		OrganizationID: organizationID,
-		Status:         StatusAwaitingDocumentation,
+		Status:         StatusAwaiting,
 		OccurredAt:     time.Now().UTC(),
 	}
 }
@@ -188,13 +188,13 @@ type TransporterProfile struct {
 func (p *TransporterProfile) Apply(event Event) {
 	switch event.Type {
 	case CreatedEvent:
-		p.state = State{Context: event.Context, ID: event.OrganizationID, Status: StatusAwaitingDocumentation, UpdatedAt: event.OccurredAt}
+		p.state = State{Context: event.Context, ID: event.OrganizationID, Status: StatusAwaiting, UpdatedAt: event.OccurredAt}
 		p.exists = true
 	case VettingStartedEvent, VettingResubmittedEvent:
 		if !p.exists {
 			return
 		}
-		p.state.Status = StatusDocumentsInReview
+		p.state.Status = StatusInReview
 		p.state.AttemptNumber = event.AttemptNumber
 		p.state.FleetAvailabilityGate = false
 		p.state.GitVerified = false
@@ -580,18 +580,18 @@ func (p *TransporterProfile) Resubmit() (Event, error) {
 	if p.state.Status != StatusRejected {
 		return Event{}, errors.New("only a rejected transporter profile can be resubmitted")
 	}
-	// StatusDocumentsInReview, not p.state.Status. The old value here was
+	// StatusInReview, not p.state.Status. The old value here was
 	// Rejected — the status being resubmitted *away from* — which left a
 	// profile with a live attempt running still reading as Rejected, because
 	// the workflow skips its own VettingStarted append when Resubmitted is
 	// true and so nothing else ever moved it. The workflow's appendEvent
-	// already maps VettingResubmittedEvent to StatusDocumentsInReview; this
+	// already maps VettingResubmittedEvent to StatusInReview; this
 	// makes the aggregate agree with it.
 	//
 	// Never observable before 38b's completion wired VettingService to a live
 	// caller: until then this path only ran in tests, which do not read the
 	// projection back.
-	return p.event(VettingResubmittedEvent, p.state.AttemptNumber+1, StatusDocumentsInReview), nil
+	return p.event(VettingResubmittedEvent, p.state.AttemptNumber+1, StatusInReview), nil
 }
 
 func (p *TransporterProfile) RecordVetted(attemptNumber, step int) (Event, error) {

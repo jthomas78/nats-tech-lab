@@ -26,9 +26,9 @@ const (
 type PartnerStatus string
 
 const (
-	StatusRegistered PartnerStatus = "REGISTERED"
-	StatusActive     PartnerStatus = "ACTIVE"
-	StatusSuspended  PartnerStatus = "SUSPENDED"
+	StatusRegistered PartnerStatus = "registered"
+	StatusActive     PartnerStatus = "active"
+	StatusSuspended  PartnerStatus = "suspended"
 )
 
 var (
