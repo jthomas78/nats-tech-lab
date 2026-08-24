@@ -719,82 +719,53 @@ is an artifact of entangled files, not a shared subject.)*
 
 ---
 
-### Phase 47 — IMPLEMENTED 2026-08-23 — State Vocabulary Rename (wire-level)
+### Phase 42 — Completed (archived 2026-08-24)
 
-#### Goal
+Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
+(not read into context by default — open only when you need the original
+rationale, the four design decisions, or the verification log).
 
-Shorten two status enums so the list-view badges read cleanly, at the wire
-level rather than as display labels.
+- [x] Phase 42 (IMPLEMENTED 2026-08-23; renumbered from Phase 47 on
+      2026-08-24) — **State Vocabulary Rename (wire-level)**. Shortened two
+      `organizations-service` status enums so the list-view badges read
+      cleanly: `AwaitingDocumentation` → `Awaiting` and `DocumentsInReview` →
+      `InReview` on `transporterprofile/domain.Status`, and
+      `REGISTERED`/`ACTIVE`/`SUSPENDED` → `registered`/`active`/`suspended` on
+      `internal/domain.PartnerStatus`. `Vetted`, `Rejected` and `CoverLapsed`
+      unchanged.
+- [x] **Wire values, not just Go identifiers.** The vetting status is a field
+      on the `TransporterProfile` event envelope, so one move reached
+      JetStream, both Postgres projections, the KV cache and the badge text
+      together.
+- [x] **No read-side alias — a clean cut.** Pre-rename events do not hydrate,
+      so the migration was a wipe-and-reseed of the `TRANSPORTER` stream, the
+      transporter KV buckets and both projections. Chosen over a permanent
+      compatibility shim because the POC's transporter history is disposable.
+- [x] **Both `CHECK` constraints now dropped and recreated on boot** rather
+      than living only in `CREATE TABLE`, which never runs against an existing
+      database. That was a latent bug on `organizations.organizations` with a
+      silent failure mode: unmigrated DB rejects the write, projector Naks,
+      JetStream redelivers forever, nothing logs.
+- [x] `PartnerStatus` is now **the only lower-cased status enum in the repo** —
+      `accounts-service`, `refdata-service` and this service's own
+      `DocumentStatus` stay SCREAMING. Recorded in
+      `BUSINESS_RULES-ORGANIZATIONS.md` as a deliberate inconsistency so it is
+      not "corrected" back later.
+- [x] Verified beyond the suite: 25/25 Postgres specs run for real (they skip
+      silently without `ORGANIZATIONS_TEST_DATABASE_URL` while `go test` still
+      prints `ok`), both constraints read back live, `"status":"Awaiting"`
+      confirmed on the stream itself with a later event hydrating to `Vetted`
+      from replay, and the UI checked at `localhost:7102` after a frontend
+      rebuild — the first check had read a cached bundle and looked like a
+      regression.
 
-| Enum | Was | Now |
-| --- | --- | --- |
-| `transporterprofile/domain.Status` | `AwaitingDocumentation` | `Awaiting` |
-| | `DocumentsInReview` | `InReview` |
-| `internal/domain.PartnerStatus` | `REGISTERED` | `registered` |
-| | `ACTIVE` | `active` |
-| | `SUSPENDED` | `suspended` |
+**Accepted consequence:** the Status column renders lower-case beside
+title-case Vetting and GIT badges, because `<Tag :value="data.status">` shows
+the raw value and no read-side alias was taken. A display-only title-case map
+would re-hide exactly what the rename made visible.
 
-`Vetted`, `Rejected`, `CoverLapsed` unchanged.
-
-#### Design decisions
-
-1. **Wire values change, not just Go identifiers** (chosen 2026-08-23 over
-   display-labels-only and identifiers-only). The vetting status is a field
-   on the `TransporterProfile` event envelope
-   (`transporterprofile/domain.Event.Status`), so this reaches JetStream, both
-   Postgres projections, the KV cache and the UI badge text in one move.
-2. **No read-side alias — clean cut.** Events written before this change
-   carry the old strings and will not hydrate. The migration is a
-   wipe-and-reseed of the `TRANSPORTER` stream, the transporter KV buckets and
-   both projections, then `cmd/seed-transporters`. Chosen deliberately over a
-   permanent compatibility shim because the POC's transporter history is
-   disposable.
-3. **Both `CHECK` constraints are dropped and recreated on boot**, not left to
-   their `CREATE TABLE`. `organizations.organizations` previously had its
-   constraint *only* in `CREATE TABLE`, which never runs on an existing
-   database — the same failure mode already written up against
-   `transporter_profiles` in `transporterprofile/postgres/projection.go`
-   (unmigrated DB rejects the write, projector Naks, JetStream redelivers
-   forever, no log line).
-4. **`PartnerStatus` becomes the only lower-cased status enum in the
-   codebase.** `accounts-service`, `refdata-service` and this service's own
-   `DocumentStatus` stay SCREAMING. Accepted as a deliberate inconsistency
-   rather than drift, and recorded in `BUSINESS_RULES-ORGANIZATIONS.md` so it
-   is not "corrected" back later.
-
-#### Verification
-
-- `go build ./...` clean; `go test ./...` green across organizations-service.
-- Postgres-backed specs run for real against a throwaway Postgres rather than
-  the live stack: **25 of 25 passed, 0 skipped** (they skip silently without
-  `ORGANIZATIONS_TEST_DATABASE_URL`, and `go test` still prints `ok`).
-- **Wipe-and-reseed done 2026-08-23.** `organizations` schema truncated, the
-  `TRANSPORTER` stream, the `organizations`/`organizations-secrets` KV buckets
-  and the `organizations-docs` Object Store deleted, `organizations-service`
-  rebuilt and restarted, then `go run ./cmd/seed-transporters -n 10 -context
-  acme`. Postgres **must** be wiped before the service restarts: the new
-  `organizations_status_check` cannot be added while `REGISTERED` rows exist.
-- Both CHECK constraints verified live as
-  `('registered','active','suspended')` and
-  `('Awaiting','InReview','Vetted','Rejected','CoverLapsed')` — which also
-  proves the guarded `DROP`/`ADD` block runs against an existing database,
-  the case `CREATE TABLE` alone never covered.
-- Wire values verified on the stream itself: `created` events carry
-  `"status":"Awaiting"`, and a `tracking-credential-configured` event at seq
-  38 sits on a profile that hydrated to `Vetted` from replay — so hydration
-  reads the new vocabulary, not just the projection.
-- **Live UI checked** at `localhost:7102` (frontend rebuilt — the first check
-  read a browser-cached bundle and looked like a regression). List badges,
-  severities, the `Awaiting`/`In Review`/`Vetted` stepper and the detail
-  header all render correctly, console clean. `Activate` on a
-  `registered`+`Vetted` row wrote `active`, exercising BR-TP19's guard and
-  the new constraint end-to-end; the ladder was re-seeded afterwards so the
-  seeded rungs match their names.
-- **The Status column renders lower-case** (`registered`/`active`/
-  `suspended`) beside title-case Vetting and GIT badges, because
-  `<Tag :value="data.status">` shows the raw value and decision 2 took no
-  read-side alias. Deliberate, not a defect — a display-only title-case map
-  would re-hide exactly what this rename made visible.
+*(Its 2026-08-23 reseed has since been superseded by Phase 40/41's on
+2026-08-24 — the live stack reflects the later one.)*
 
 ---
 
@@ -818,8 +789,8 @@ Certificates screen and neither buildable before 39a's events exist:
 
 #### Sub-phases
 
-- [ ] **46a** — `Awaiting` presentation fix. **Partly overtaken by Phase 47
-      (2026-08-23), which did change the wire value** — this sub-phase's
+- [ ] **46a** — `Awaiting` presentation fix. **Partly overtaken by Phase 42
+      (2026-08-23, renumbered from 47), which did change the wire value** — this sub-phase's
       original "sentence-cased label from a single label table (wire value
       unchanged)" no longer describes the state of the code: the state is now
       `Awaiting` on the wire and the stepper label is "Awaiting". What remains

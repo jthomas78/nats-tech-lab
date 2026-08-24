@@ -8405,6 +8405,95 @@ green run *without* that env var would not have proven any of this.
 
 ---
 
+## Phase 42 — Completed (archived 2026-08-24)
+
+### Phase 42 — IMPLEMENTED 2026-08-23 — State Vocabulary Rename (wire-level)
+
+> **Renumbered 2026-08-24** from Phase 47 to Phase 42, at the user's request,
+> continuing the compaction of the 40s block alongside Phase 48 → 41. The
+> number was free: 42 was held by the Close-Out Review until that phase was
+> renumbered to Phase 62 on 2026-08-20b, and 47 itself had been vacated the
+> same day when Cross-Tenant Pub/Sub Observability moved to Phase 67. One live
+> cross-reference was updated with it — Phase 46a's note that this phase
+> partly overtook it. No shipped code or business rule cites the number.
+
+#### Goal
+
+Shorten two status enums so the list-view badges read cleanly, at the wire
+level rather than as display labels.
+
+| Enum | Was | Now |
+| --- | --- | --- |
+| `transporterprofile/domain.Status` | `AwaitingDocumentation` | `Awaiting` |
+| | `DocumentsInReview` | `InReview` |
+| `internal/domain.PartnerStatus` | `REGISTERED` | `registered` |
+| | `ACTIVE` | `active` |
+| | `SUSPENDED` | `suspended` |
+
+`Vetted`, `Rejected`, `CoverLapsed` unchanged.
+
+#### Design decisions
+
+1. **Wire values change, not just Go identifiers** (chosen 2026-08-23 over
+   display-labels-only and identifiers-only). The vetting status is a field
+   on the `TransporterProfile` event envelope
+   (`transporterprofile/domain.Event.Status`), so this reaches JetStream, both
+   Postgres projections, the KV cache and the UI badge text in one move.
+2. **No read-side alias — clean cut.** Events written before this change
+   carry the old strings and will not hydrate. The migration is a
+   wipe-and-reseed of the `TRANSPORTER` stream, the transporter KV buckets and
+   both projections, then `cmd/seed-transporters`. Chosen deliberately over a
+   permanent compatibility shim because the POC's transporter history is
+   disposable.
+3. **Both `CHECK` constraints are dropped and recreated on boot**, not left to
+   their `CREATE TABLE`. `organizations.organizations` previously had its
+   constraint *only* in `CREATE TABLE`, which never runs on an existing
+   database — the same failure mode already written up against
+   `transporter_profiles` in `transporterprofile/postgres/projection.go`
+   (unmigrated DB rejects the write, projector Naks, JetStream redelivers
+   forever, no log line).
+4. **`PartnerStatus` becomes the only lower-cased status enum in the
+   codebase.** `accounts-service`, `refdata-service` and this service's own
+   `DocumentStatus` stay SCREAMING. Accepted as a deliberate inconsistency
+   rather than drift, and recorded in `BUSINESS_RULES-ORGANIZATIONS.md` so it
+   is not "corrected" back later.
+
+#### Verification
+
+- `go build ./...` clean; `go test ./...` green across organizations-service.
+- Postgres-backed specs run for real against a throwaway Postgres rather than
+  the live stack: **25 of 25 passed, 0 skipped** (they skip silently without
+  `ORGANIZATIONS_TEST_DATABASE_URL`, and `go test` still prints `ok`).
+- **Wipe-and-reseed done 2026-08-23.** `organizations` schema truncated, the
+  `TRANSPORTER` stream, the `organizations`/`organizations-secrets` KV buckets
+  and the `organizations-docs` Object Store deleted, `organizations-service`
+  rebuilt and restarted, then `go run ./cmd/seed-transporters -n 10 -context
+  acme`. Postgres **must** be wiped before the service restarts: the new
+  `organizations_status_check` cannot be added while `REGISTERED` rows exist.
+- Both CHECK constraints verified live as
+  `('registered','active','suspended')` and
+  `('Awaiting','InReview','Vetted','Rejected','CoverLapsed')` — which also
+  proves the guarded `DROP`/`ADD` block runs against an existing database,
+  the case `CREATE TABLE` alone never covered.
+- Wire values verified on the stream itself: `created` events carry
+  `"status":"Awaiting"`, and a `tracking-credential-configured` event at seq
+  38 sits on a profile that hydrated to `Vetted` from replay — so hydration
+  reads the new vocabulary, not just the projection.
+- **Live UI checked** at `localhost:7102` (frontend rebuilt — the first check
+  read a browser-cached bundle and looked like a regression). List badges,
+  severities, the `Awaiting`/`In Review`/`Vetted` stepper and the detail
+  header all render correctly, console clean. `Activate` on a
+  `registered`+`Vetted` row wrote `active`, exercising BR-TP19's guard and
+  the new constraint end-to-end; the ladder was re-seeded afterwards so the
+  seeded rungs match their names.
+- **The Status column renders lower-case** (`registered`/`active`/
+  `suspended`) beside title-case Vetting and GIT badges, because
+  `<Tag :value="data.status">` shows the raw value and decision 2 took no
+  read-side alias. Deliberate, not a defect — a display-only title-case map
+  would re-hide exactly what this rename made visible.
+
+---
+
 ## Renumbering history
 
 Every renumbering log, moved out of the live plan on 2026-08-21 (it had
@@ -8927,6 +9016,41 @@ by phase number, so the blast radius was one line:
       above, which record past events and are not live references. The
       2026-08-20b table's line "Phases 41, 46, 48, and 49 were already free"
       was true when written and stays as it is.
+
+---
+
+### Renumbering (2026-08-24b — Phase 47 → Phase 42, continue compacting the 40s)
+
+**Why:** the user asked for it on 2026-08-24, immediately after Phase 48 → 41
+and in the same spirit — the 40s block was freed on 2026-08-20b and the
+implemented phases are being packed into it in completion order rather than
+left scattered across the 40s.
+
+**42 was free**, held by the Close-Out Review until that phase moved to Phase
+62 on 2026-08-20b. Phase 47 itself had been vacated the same day, when
+Cross-Tenant Pub/Sub Observability moved to Phase 67 — so this rename reused
+a number that had already been recycled once, and hands it back.
+
+The phase is IMPLEMENTED, and was archived in the same pass as the rename.
+Status unchanged — a rename only.
+
+| Was | Now |
+|---|---|
+| Phase 47 (IMPLEMENTED 2026-08-23) — State Vocabulary Rename (wire-level) | **Phase 42** |
+
+**Reference sweep:**
+
+- [x] `Main-POC-Plan.md` — the section heading, plus a renumbering note in the
+      phase; then both replaced by the archived stub in the same pass
+- [x] `Main-POC-Plan.md` — **Phase 46a's cross-reference** ("Partly overtaken
+      by Phase 47") updated to Phase 42. This was the only live reference
+      anywhere outside the phase itself
+- [x] `demos/01-dictionary/` and `obsidian/` — no "Phase 47" references; the
+      rename is documented by rule and enum name, not by phase number
+- [x] Go/Vue source comments, `.claude/memory/`, `CLAUDE.md` — none
+- [x] Not edited, per the never-edit-the-archive rule: the 2026-08-20b table
+      recording "Phase 47 → Phase 67" and the ADR-051 log's aside "(same call
+      as Phase 47's)", both of which describe events at the time they happened
 
 ---
 
