@@ -8512,3 +8512,42 @@ Cross-reference sweep (same commit):
 
 ---
 
+### Renumbering (2026-08-24 — Phase 48 → Phase 41, keep ULID beside Phase 40)
+
+**Why:** the user asked for it on 2026-08-24, having also raised the
+alternative of folding the phase into Phase 40. The rename was taken and the
+fold declined: ULID entity identity is a repo-wide identity decision with its
+own ADR (ADR-051), its own rule (BR-TP73) and its own scope call
+(`organizations-service` only, `shipping-service` and `accounts-service`
+consciously excluded), so folding it into a compliance-document phase would
+bury all three and leave Phase 40's record describing work it did not decide.
+The two phases did ship in one commit (46fe7c6) — they edit the same
+repositories and migration and neither half builds alone — but a shared commit
+is an artifact of entangled files, not a shared subject.
+
+**41 was free.** It was held by NATS 2.11 Server-Hop Tracing until 2026-08-18
+(Phase 41 → Phase 36), and the 2026-08-20b log above explicitly records 41 as
+already vacant. Both phases are IMPLEMENTED, so the new number sits adjacent
+to Phase 40 in the live plan and no section needed physically moving. Status
+unchanged — a rename only.
+
+| Was | Now |
+|---|---|
+| Phase 48 (IMPLEMENTED 2026-08-24) — ULID Entity Identity (`organizations-service`) | **Phase 41** |
+
+**Reference sweep** — the phase is documented by ADR/rule number rather than
+by phase number, so the blast radius was one line:
+
+- [x] `Main-POC-Plan.md` — the section heading, plus a renumbering note in the
+      phase recording both the move and the declined fold
+- [x] `obsidian/V3-Platform/Architecture/Dictionary-POC/` — no "Phase 48"
+      references (ADR-051 and `ARCHITECTURE-ORGANIZATIONS*.md` cite the ADR)
+- [x] `demos/01-dictionary/BUSINESS_RULES-*.md` — none (the rule is BR-TP73)
+- [x] Go/Vue source comments — none
+- [x] Not edited, per the never-edit-the-archive rule: the renumbering tables
+      above, which record past events and are not live references. The
+      2026-08-20b table's line "Phases 41, 46, 48, and 49 were already free"
+      was true when written and stays as it is.
+
+---
+

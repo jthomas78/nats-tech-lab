@@ -881,7 +881,24 @@ here" — is retired.
 
 ---
 
-### Phase 48 — IMPLEMENTED 2026-08-24 — ULID Entity Identity (`organizations-service`)
+### Phase 41 — IMPLEMENTED 2026-08-24 — ULID Entity Identity (`organizations-service`)
+
+> **Renumbered 2026-08-24** from Phase 48 to Phase 41, at the user's request.
+> The number was free: 41 was held by NATS 2.11 Server-Hop Tracing until that
+> phase was renumbered to Phase 36 on 2026-08-18, and the 2026-08-20b
+> renumbering log records 41 as vacant. Moving it here keeps this phase
+> adjacent to Phase 40, which is accurate — the two shipped in the same commit
+> (46fe7c6), because they edit the same repositories and migration and neither
+> half builds without the other.
+>
+> **Kept as its own phase rather than folded into Phase 40** — the alternative
+> the user raised, and declined for a reason: this is a repo-wide identity
+> decision with its own ADR ([ADR-051](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-051-ulid-entity-identity.md)),
+> its own rule (BR-TP73) and its own scope call (`organizations-service` only,
+> `shipping-service` and `accounts-service` consciously excluded). Folding it
+> into a document-lifecycle phase would bury all three and leave Phase 40's
+> own record describing work it did not decide. Sharing a commit is an
+> artifact of entangled files, not a shared subject.
 
 #### Goal
 
