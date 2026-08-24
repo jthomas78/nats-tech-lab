@@ -8026,6 +8026,385 @@ with the implementation, one Ginkgo `Context` per rule, specs before code.
 
 ---
 
+## Phase 40 — Completed (archived 2026-08-24)
+
+### Phase 40 — IMPLEMENTED 2026-08-24 — Every Compliance Document Is a File
+
+> **Numbered 40**, not 49, at the user's request on 2026-08-24. The number was
+> free: it was held by Credential Lifecycle Hardening (Phase 24 → 40 on
+> 2026-08-17) until that phase was renumbered again to Phase 60 on 2026-08-20b,
+> vacating it. This phase keeps its position at the top of the live plan as the
+> one in flight, ahead of the higher-numbered but older 46/47/48 entries.
+>
+> Design gate **passed 2026-08-24** — approved for build. Decided in the
+> 2026-08-24 review: registration by
+> reference is retired for **every** compliance document type, the document's
+> file name replaces the certificate reference as the human handle, and it is
+> labelled **Document Name** in the UI (matching Linebooker V2's documents
+> screen).
+
+#### Goal
+
+Today a compliance document can exist in two shapes: registered by reference
+with no bytes (`PENDING`), or registered with bytes. Only GIT certificates
+have a UI path to the second, and the reference-only shape is what made "how
+do I attach a file to GIT-00005?" unanswerable — a state reachable by seeding
+with no UI path out of it.
+
+This phase collapses the two shapes into one, for all five document types.
+**A compliance document is a file.** It cannot be registered without one, its
+identity in the UI is its document name, and the metadata-only v1 model from
+Phase 26 — `Reference` as "an opaque external locator, no file bytes held
+here" — is retired.
+
+#### Design decisions
+
+1. **Registration requires bytes, for every type.** `AddDocument`'s
+   reference-only path is retired; registration is a single
+   register-with-file flow (the command mints the ticket, the browser spends
+   it) for GIT certificates and for the four shared types alike. Originally
+   scoped to GIT only; generalized at the user's request on 2026-08-24,
+   because a dropped file should behave the same way whatever the document
+   type.
+
+2. **`reference` leaves the model.** With no reference-only registration
+   left, nothing sets it and nothing reads it: the column is dropped, and
+   BR-TP08's "a document must point at something" becomes "a document must
+   carry a file". This is simpler than the type-scoped nullable-plus-CHECK
+   variant considered when the change was GIT-only — generalizing the rule
+   removed the need for the exception.
+
+   **The real loss to accept:** there is no longer any way to record that a
+   document exists without holding a copy of it. If an operator can see a
+   supplier's tax clearance but cannot obtain the PDF, they cannot represent
+   that at all. V2's documents screen carries no reference column either, so
+   this matches the product we are modelling — but it is a capability
+   removal, not a refactor.
+
+3. **The document name enters at *registration*, not at upload.** This is the
+   decision the rest depends on. Registration fires the `DocumentRegistered`
+   profile event *before* any bytes land — the ticket is minted by that
+   command and spent afterwards — so `File` is nil at registration time and
+   the label would otherwise arrive only with the later attach event. With
+   `reference` gone, that first event would carry no human handle at all, on
+   a `LimitsPolicy` stream, permanently. So registration takes the document
+   name as a required input (the browser has it at drop time), stores it, and
+   `AttachFile` asserts the arriving name matches. One event carries the
+   label and the two-phase ticket flow is untouched.
+
+4. **Document names are unique per organization, enforced at registration.**
+   Because the name is the identity and is read-only, two `scan0001.pdf` rows
+   would be indistinguishable and unfixable. A unique index on
+   `(organization_id, file_name)` is the authority; the domain maps `23505`
+   to a typed error, and the UI pre-checks the already-loaded list so the
+   common case is refused at drop time without a round-trip. Uniqueness
+   spans **every** row including superseded and rejected ones — a rejected
+   `scan0001.pdf` is corrected by renaming the file and re-dropping, which is
+   the honest consequence of a load-bearing name. Registration-time
+   enforcement means a duplicate is refused *before* the upload is spent.
+
+5. **Vetting collects `FOR_REVIEW`.** `PENDING` stood in for "no file yet",
+   and `AttachFile` moves a document to `FOR_REVIEW` once bytes land, so
+   `pendingReferences` would silently stop finding documents altogether and
+   `SubmitVetting` would always return `ErrNoPendingDocuments`. The predicate
+   the workflow wants is "awaiting a decision", which after decision 6 is
+   `FOR_REVIEW` and nothing else — a replacement of the predicate rather than
+   a widening.
+
+6. **`PENDING` is deleted from the model, and document resubmission with
+   it.** Every registered document carries bytes, so `FOR_REVIEW` is the only
+   status a document is born in; `DocumentStatus` reduces to `FOR_REVIEW`,
+   `APPROVED`, `REJECTED`, `SUPERSEDED`. The one surviving producer of
+   `PENDING` was `ComplianceDocument.Resubmit()` (rejected -> pending), and
+   that goes too: a rejected document is answered by dropping a replacement,
+   not by re-queueing the same bytes. This generalizes Phase 39c's decision
+   for GIT certificates ("remove GIT resubmission, and let the approved
+   certificate answer") to every type, so the two no longer diverge.
+   Retired with it: `ErrDocumentNotRejected`,
+   `ErrCertificateNotResubmittable`, the `api.*.organizations.document.
+   resubmit.v1` command, `resubmitComplianceDocument`, and the Documents
+   tab's Resubmit button. `Approve`/`Reject`'s two-status guards collapse to
+   `FOR_REVIEW` alone, and decision 5 stops being a *widening* — the vetting
+   predicate is simply `FOR_REVIEW`.
+
+   **Not to be confused with BR-TP26's vetting resubmission**
+   (`ProfileHandler.Resubmit`, `VettingResubmitted`), which is a different
+   mechanism on the profile rather than the document and stays exactly as it
+   is. It does acquire one new precondition: because a rejected document can
+   no longer be re-queued, a re-vet only has documents to work with once at
+   least one replacement has been dropped, so `SubmitVetting` answers
+   `ErrNoPendingDocuments` until then. That is the correct refusal, but it is
+   new behaviour and needs its own spec.
+
+   **The friction to accept:** rejection is now a dead end for that row, and
+   decision 4's uniqueness spans rejected rows — so replacing a rejected
+   `scan0001.pdf` means renaming the file before re-dropping it. Read-only
+   names and cross-status uniqueness together make this unavoidable; it is
+   the price of the name being the identity.
+
+7. **The column is `Document Name`, read-only everywhere, and the wire says
+   `documentName` too.** Read-only in both the GIT Certificates tab and the
+   Documents tab, and in the editor even for rows that are not superseded.
+   The label follows V2. `DocumentFile.FileName` is renamed to
+   `DocumentName` on the wire as well as in the UI — approved on 2026-08-24
+   in preference to keeping a storage-flavoured field name behind a friendlier
+   label. This is an event-shape change on a `LimitsPolicy` stream, and it is
+   affordable **only** because decision 8 reseeds; taking it later would mean
+   a log carrying two names for one thing. BR-TP45's percent-encoded upload
+   header is renamed to match (`X-Document-Name`), since the header and the
+   field are the same fact in two places. `Certificate.Reference` leaves the
+   profile event's certificate struct — `File` already carries the name, so
+   the redundant copy goes.
+
+8. **Existing rows are reseeded, not migrated.** Per ADR-051's standing rule,
+   `docker compose down -v` plus a reseed clears streams, KV and Postgres
+   together. The `PENDING` GIT row in the current dev database (GIT-00005)
+   disappears rather than being converted.
+
+9. **The seeder always uploads a file**, on every rung and for every document
+   type — a small stub PDF is enough. This makes `cmd/seed-transporters` a
+   two-transport client for the first time (NATS for commands, HTTP for the
+   ticket spend), a real increase in its surface but the only way it can
+   produce document state under decision 1.
+
+10. **The standalone upload-ticket path is retired with its caller.** The
+    Documents tab's separate "upload" button exists only to attach bytes to a
+    reference-only document; with registration carrying the file, both the
+    button and `MintUploadTicket` as a public command go. The download
+    ticket stays. The Documents tab becomes a drop zone with the type chosen
+    at drop, mirroring the GIT tab — a rebuild of that tab, not a tweak.
+
+#### Business rules
+
+- **BR-TP07/BR-TP29** narrowed: no document type may be registered by
+  reference; registration carries a file.
+- **BR-TP08** restated: a document must carry a document name, not a
+  reference. `ErrReferenceRequired` is retired.
+- **New rule** (number at build time): a document's name is unique per
+  organization across all types and statuses, and immutable once registered.
+- **BR-TP68** loses its `PENDING -> FOR_REVIEW` transition; a document is
+  `FOR_REVIEW` from registration, and `PENDING` leaves `DocumentStatus`.
+- **BR-TP36**'s required-document set becomes `FOR_REVIEW`.
+- **BR-TP30**'s document resubmission is retired — a rejected document is
+  answered by registering a replacement. **BR-TP26**'s vetting resubmission
+  is untouched, but now refuses until a replacement document exists.
+- **BR-TP45** renames its upload header to `X-Document-Name`, matching the
+  renamed `DocumentName` field.
+
+#### Tasks
+
+- [x] Specs first, per rule 3 of the agent workflow: one `Context` per rule
+      above — reference-only registration refused for each type, duplicate
+      document name refused at registration, name required by the register
+      command, `FOR_REVIEW` collected by `pendingReferences`, attach-name
+      mismatch refused, resubmission still reaching `PENDING`.
+- [x] Domain: retire the reference-only path and `ErrReferenceRequired`, move
+      the document name onto registration, delete `PENDING` from
+      `DocumentStatus` along with `Resubmit()` and its two errors, collapse
+      `Approve`/`Reject`'s guards to `FOR_REVIEW`, and rename
+      `DocumentFile.FileName` to `DocumentName`.
+- [x] Postgres: drop `reference`, unique index on
+      `(organization_id, file_name)`, `23505` mapped to a typed error.
+- [x] Profile events: document name on the registration event, `Reference`
+      off `Certificate`.
+- [x] Worker: `pendingReferences` collects `FOR_REVIEW`, and a spec for
+      BR-TP26 refusing a re-vet until a replacement document is registered.
+- [x] Retire the `document.resubmit` command end to end: browserrpc adapter,
+      `api.js`, and the Documents tab button.
+- [x] `GitCertificatesTab.vue`: `Document Name` column, read-only editor, no
+      reference input at registration, duplicate-name pre-check at drop,
+      `PENDING` gone from labels and row actions.
+- [x] Rename the header and payload field to `documentName` across
+      `api.js`, the REST ingress, and the profile event, in one commit — the
+      wire and the log must not disagree.
+- [x] `TransporterPanel.vue` Documents tab: drop zone with type selection;
+      upload button, register-by-reference dialog and Resubmit button all
+      removed.
+- [x] Seeder: stub-PDF upload on every document, every rung.
+- [x] `BUSINESS_RULES-ORGANIZATIONS.md` and
+      `ARCHITECTURE-ORGANIZATIONS-TRANSPORTERS.md` in the same commit.
+- [x] `down -v` + reseed, and verify against the real database rather than a
+      skipped suite.
+
+#### Open questions — resolved at build
+
+- **Uniqueness scope: per organization across all types and statuses**, as
+  decision 4 was written. The narrower per-type scope was not taken: the name
+  is what the operator reads in a single combined Documents list, so two
+  identical names in one list are ambiguous whatever their types are.
+- **No short display reference was added.** It stays where ADR-051 left it —
+  nothing in this phase needs one, and minting a second identifier for every
+  document to improve the readability of some of them is a bigger change than
+  the problem. Reopen it if the seeded/uploaded names in the UI prove
+  unreadable in use.
+- **The drop zone pre-checks client-side only**, against the list already
+  loaded, and refuses with a message naming the clash; the server remains the
+  authority (`DocumentNameExists` pre-check plus the unique index). No inline
+  rename — the browser cannot rename the user's file, so offering to would
+  mean inventing a name the bytes do not carry.
+
+#### Build notes (2026-08-24)
+
+- The new rule is **BR-TP74**. Enforcement is **dual** and the plan's
+  "unique index is the authority" needed refining: GIT registration appends
+  `CertificateRegistered` to the `LimitsPolicy` stream *before* its projection
+  row exists, so an index-only check would let a duplicate onto the log
+  permanently. `DocumentNameExists` runs before the append; the index
+  (`compliance_documents_document_name_idx`, deliberately non-partial) stays as
+  the race-proof authority.
+- The column is `document_name`, and the separate `file_name` column was
+  **removed** rather than reused — it would have duplicated its own row's
+  `document_name`.
+- Decision 10 turned out to be safe only because `document.add` now mints an
+  upload ticket in its reply, giving the four shared types the same
+  one-gesture drop flow as GIT. `api.*` endpoint count 28 → 26.
+- The upload refuses a name that does not match the registered one
+  (`ErrDocumentNameMismatch`), checked before `store.Put` so a mismatched drop
+  never leaves an orphan object.
+- Reseed verified against the live stack (2026-08-24): `down -v` + rebuild +
+  `seed-regions`/`seed-vehicle-types`/`seed-goods-types` + `seed-transporters`,
+  all 10 rungs. `compliance_documents` has no `reference` and no `file_name`
+  column, `document_name NOT NULL`, the status CHECK is
+  `FOR_REVIEW/APPROVED/REJECTED/SUPERSEDED`, and
+  `compliance_documents_document_name_idx` is present and unique. All 6 seeded
+  documents carry a name *and* bytes (0 rows missing either); rung 5's old
+  "docs pending" row is now `FOR_REVIEW`. `OBJ_organizations-docs` holds 12
+  messages for those 6 files, `TRANSPORTER` 44 events. The known
+  fresh-volume race still applies — `organizations-service` exits once on
+  `dial temporal at "temporal:7233"` and needs
+  `docker compose up -d organizations-service` after Temporal's schema setup.
+- Verified: `go test ./...` green; the Postgres suite run against the live
+  database (`ORGANIZATIONS_TEST_DATABASE_URL`, port 5436) 30/30 rather than
+  skipped; frontend `vitest` 87/87, `npm run build` clean, `eslint` 0 errors.
+
+---
+
+## Phase 41 — Completed (archived 2026-08-24)
+
+### Phase 41 — IMPLEMENTED 2026-08-24 — ULID Entity Identity (`organizations-service`)
+
+> **Renumbered 2026-08-24** from Phase 48 to Phase 41, at the user's request.
+> The number was free: 41 was held by NATS 2.11 Server-Hop Tracing until that
+> phase was renumbered to Phase 36 on 2026-08-18, and the 2026-08-20b
+> renumbering log records 41 as vacant. Moving it here keeps this phase
+> adjacent to Phase 40, which is accurate — the two shipped in the same commit
+> (46fe7c6), because they edit the same repositories and migration and neither
+> half builds without the other.
+>
+> **Kept as its own phase rather than folded into Phase 40** — the alternative
+> the user raised, and declined for a reason: this is a repo-wide identity
+> decision with its own ADR ([ADR-051](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-051-ulid-entity-identity.md)),
+> its own rule (BR-TP73) and its own scope call (`organizations-service` only,
+> `shipping-service` and `accounts-service` consciously excluded). Folding it
+> into a document-lifecycle phase would bury all three and leave Phase 40's
+> own record describing work it did not decide. Sharing a commit is an
+> artifact of entangled files, not a shared subject.
+
+#### Goal
+
+Replace UUID entity identity in `organizations-service` with ULID: 26
+Crockford-base32 characters, minted by the service, time-sortable. Driven by
+the ID's length in subject tokens and URLs, and by a rejected proposal to
+make it `<Country-Code>-<Company-Registration-Number>` instead.
+
+Full argument in
+[ADR-051](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-051-ulid-entity-identity.md).
+Rule text in `BUSINESS_RULES-ORGANIZATIONS.md` BR-TP73.
+
+#### Design decisions
+
+1. **ULID, not UUIDv7 or NUID** (chosen 2026-08-24). UUIDv7 has the same 128
+   bits and time-ordering but spends 36 characters where ULID spends 26, and
+   has 74 bits of per-ms entropy against ULID's 80. NUID (NATS's own, 22
+   chars) is shorter but its collision resistance is really its 12-char
+   random prefix (~71 bits), and because only the 10-char suffix is
+   sequential it sorts by insertion order *within one process lifetime only*
+   — a restart resets the ordering, which forfeits the B-tree locality that
+   is half the point.
+2. **The `{id}` token stays in the subject taxonomy.** Rejected the proposal
+   to drop it as already-in-the-payload: ADR-049's
+   `Nats-Expected-Last-Subject-Sequence-Subject` is *defined* on a subject,
+   `InstanceSubject` filtering is done server-side, and subject permissions
+   are the only place per-aggregate authorization can be expressed. The
+   payload is opaque to the broker. Only the token's length changes, 36 → 26.
+3. **`<Country-Code>-<Registration-Number>` rejected as identity.** Two
+   blockers in our own model — `registrationNo` is optional at `Register`
+   (BR-TP35), so it doesn't exist when an ID is needed, and it's editable
+   (BR-TP32), so it would be a mutable identity on an event-sourced
+   aggregate. Plus registry-vs-country granularity (Germany per-*Amtsgericht*,
+   US per-state), character sets that break subject parsing, no check digit,
+   and PII-in-an-immutable-log. Verified against the industry: LEI was made
+   jurisdiction-neutral on purpose, and EORI's `XI` prefix is what the
+   "which country?" ambiguity costs in practice.
+4. **Minting moves from Postgres to the service.** `gen_random_uuid()`
+   defaults removed; columns become `TEXT`. Kept in the repository adapters
+   rather than hoisted into a domain port, because nothing in the domain
+   branches on an ID's shape — a port would have one implementation and no
+   second caller.
+5. **Wipe-and-reseed, not an in-place renumber** (same call as Phase 47's,
+   for the same reason). `Migrate` converts column *types* idempotently and
+   preserves data, but does not renumber: a `TransporterProfile`'s id is in
+   every subject it has published on the `LimitsPolicy` `TRANSPORTER` stream,
+   so renumbering orphans the history and the aggregate rehydrates **empty
+   with no error**. Path to uniformity is `docker compose down -v` plus
+   `cmd/seed-transporters`.
+6. **Scoped to `organizations-service`.** `shipping-service` (cheap — already
+   `TEXT` columns, one minting seam) and `accounts-service` (four `uuid`
+   columns) consciously excluded. Two ID formats now coexist in the repo by
+   decision; recorded in `CLAUDE.md` and ADR-051 so it doesn't read as an
+   oversight later.
+
+#### Tasks
+
+- [x] `organizations/internal/identity` — `New()`, `IsValid()`, `Size`, over
+      `oklog/ulid/v2` v2.1.2. Specs first: length, Crockford alphabet,
+      subject-safety, KV-key-safety, uniqueness over 10k, concurrency over 16
+      goroutines, lexicographic-equals-mint-order, and the three `IsValid`
+      rejections (a UUID, a non-Crockford char, and the overflow case where
+      26 base32 chars address 130 bits against a ULID's 128).
+- [x] `internal/postgres/migrate.go` — 9 column declarations `uuid` → `TEXT`,
+      3 `gen_random_uuid()` defaults dropped, plus one guarded DO-block that
+      converts a pre-ADR-051 database in a single transaction (drops the four
+      FKs, converts, restores them).
+- [x] `transporterprofile/postgres/projection.go` — same for
+      `transporter_profiles.organization_id`.
+- [x] Minting in `organization_repository.go` (`Register`),
+      `audit_repository.go`, `operating_area_repository.go`,
+      `compliance_document_repository.go` (`AddDocument` — BR-TP29's contract
+      unchanged, mechanism moved off the column default), and
+      `application/commands/compliance_document.go` (`newID`).
+- [x] `google/uuid` dropped as a direct dependency. **`go mod tidy` must not
+      be run in this module** — it drops the deliberate `genproto` pin and the
+      build fails with ambiguous imports (hit during this phase; the warning
+      is already in `go.mod`). Use `go get`.
+- [x] Specs: BR-TP73 at the repository boundary — `Register` returns a valid
+      26-char ULID and the row is actually keyed on it.
+- [x] Docs: ADR-051, BR-TP73, `ARCHITECTURE-ORGANIZATIONS.md`
+      § "Entity identity", `CLAUDE.md` § "Entity identity".
+
+#### Verification
+
+`ginkgo ./...` — 12 suites pass. The Postgres-gated suite was run **with**
+`ORGANIZATIONS_TEST_DATABASE_URL` set (27/27 specs ran, 0 skipped) against
+the live `lb-organizations-postgres`, which was a genuine pre-ADR-051
+database: all 10 columns `uuid` with 10 organizations and 30 audit rows.
+After migration all 10 read `text`, all four FKs restored, all defaults
+dropped, all rows preserved; a second run is a no-op. Per `CLAUDE.md`, a
+green run *without* that env var would not have proven any of this.
+
+#### Carried forward, not done
+
+- A short human-quotable display reference (`TRP-8FK2QX`, Crockford, 6–8
+  chars) for URLs and phone calls.
+- The scheme-qualified external-code table —
+  `(organization_id, code_list_provider, party_code)` with
+  `codeListProvider` as a refdata type (`GLEIF`, `EORI`, `GS1`, `DUNS`,
+  `SCAC`, `VAT`, `NATIONAL_REGISTRY`, `ZZZ`), per DCSA/UN-EDIFACT
+  `C082`. This is where `registrationNo`/`vatRegistrationNo` should
+  eventually live, and the straight path to EDI interoperability.
+
+---
+
 ## Renumbering history
 
 Every renumbering log, moved out of the live plan on 2026-08-21 (it had
