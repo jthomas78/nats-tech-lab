@@ -42,7 +42,7 @@ var _ = Describe("Derived GIT status (BR-TP38)", func() {
 
 		It("is Pending for a pending GIT document", func() {
 			Expect(domain.DeriveGitStatus([]domain.ComplianceDocument{
-				git(domain.DocumentStatusPending, nil),
+				git(domain.DocumentStatusForReview, nil),
 			}, at)).To(Equal(domain.GitStatusPending))
 		})
 
@@ -80,7 +80,7 @@ var _ = Describe("Derived GIT status (BR-TP38)", func() {
 
 		It("reads a pending-but-expired document as Expired", func() {
 			Expect(domain.DeriveGitStatus([]domain.ComplianceDocument{
-				git(domain.DocumentStatusPending, &past),
+				git(domain.DocumentStatusForReview, &past),
 			}, at)).To(Equal(domain.GitStatusExpired))
 		})
 
@@ -111,7 +111,7 @@ var _ = Describe("Derived GIT status (BR-TP38)", func() {
 		It("stays Active when a renewal is rejected", func() {
 			Expect(domain.DeriveGitStatus([]domain.ComplianceDocument{
 				git(domain.DocumentStatusApproved, &future),
-				git(domain.DocumentStatusPending, nil),
+				git(domain.DocumentStatusForReview, nil),
 				git(domain.DocumentStatusRejected, nil),
 			}, at)).To(Equal(domain.GitStatusActive),
 				"a rejected certificate is replaced by registering a new one — it never becomes the transporter's status")
@@ -129,14 +129,14 @@ var _ = Describe("Derived GIT status (BR-TP38)", func() {
 		It("reports the approved certificate's own lapse rather than a renewal's progress", func() {
 			Expect(domain.DeriveGitStatus([]domain.ComplianceDocument{
 				git(domain.DocumentStatusApproved, &past),
-				git(domain.DocumentStatusPending, nil),
+				git(domain.DocumentStatusForReview, nil),
 			}, at)).To(Equal(domain.GitStatusExpired),
 				"cover has lapsed — a pending renewal is not cover, and must not mask that")
 		})
 
 		It("falls back to worst-of-the-rest when nothing is approved", func() {
 			Expect(domain.DeriveGitStatus([]domain.ComplianceDocument{
-				git(domain.DocumentStatusPending, nil),
+				git(domain.DocumentStatusForReview, nil),
 				git(domain.DocumentStatusRejected, nil),
 			}, at)).To(Equal(domain.GitStatusRejected))
 		})

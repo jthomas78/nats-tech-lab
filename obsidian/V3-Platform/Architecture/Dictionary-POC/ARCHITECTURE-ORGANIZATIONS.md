@@ -321,6 +321,64 @@ section already argued for over Option A's *subtractive* alternative — but
 the guarantee as written oversold it, and is corrected here rather than
 quietly left standing.
 
+## Entity identity
+
+**Every ID this service mints is a ULID** — 26 Crockford-base32 characters,
+a 48-bit millisecond timestamp followed by 80 bits of monotonic entropy,
+minted by the service in `internal/identity` and never by Postgres. Full
+reasoning in [ADR-051](ADR-051-ulid-entity-identity.md); rule text and
+enforcement points in `BUSINESS_RULES-ORGANIZATIONS.md` BR-TP73. What
+matters when reading this service's code:
+
+- **The columns are `TEXT`, not `uuid`, and have no default.** Postgres
+  cannot generate a ULID, so the service supplies the ID before every
+  INSERT. Four tables are affected: `organizations`, `compliance_documents`,
+  `audit_events` and `transporter_operating_areas`. Losing `uuid` as a type
+  constraint is a real cost; `identity.IsValid` is the replacement guard.
+- **The ID is a subject token, which is why its format is a business
+  rule.** `evt.{context}.organizations.transporter.{id}.{event}` is how
+  per-aggregate replay (`InstanceSubject`, `orchestration/event_store.go`)
+  and ADR-049's per-subject optimistic concurrency both work. Crockford
+  base32 is chosen because it contains no `.` (which would split the token
+  and break § 2's fixed-arity positional parsing), no `*` or `>`, and
+  nothing outside NATS KV's `[-/_=.a-zA-Z0-9]` key set.
+- **The id token stays in the subject.** It cannot move into the payload
+  even though the value is already there — the payload is opaque to the
+  broker, and subject filtering, sequence-per-subject and authorization all
+  read the subject and nothing else.
+- **`registrationNo` / `vatRegistrationNo` are attributes, not identity.**
+  They are optional (BR-TP35) and editable (BR-TP32), and a
+  `<Country-Code>-<Company-Registration-Number>` identifier was rejected for
+  those two reasons plus a list of regional ones — ADR-051 has the argument,
+  including why GLEIF deliberately kept country codes *out* of LEI.
+
+### Migrating a pre-ADR-051 database
+
+`Migrate` converts `uuid` columns to `TEXT` in one guarded transaction
+(dropping and restoring the four foreign keys, since `organizations.id`
+cannot change type while they reference it). It is idempotent and preserves
+data. It does **not** renumber existing rows, and that limitation is not
+laziness:
+
+> A `TransporterProfile`'s id is embedded in every event subject it has ever
+> published on the `LimitsPolicy` `TRANSPORTER` stream. Renumber the row and
+> `InstanceSubject(context, newID)` matches nothing, so `hydrate()` replays
+> zero events and the aggregate **silently rehydrates as empty** — no error,
+> no warning, just a blank profile.
+
+So existing rows keep their 36-character UUID text and the database is
+mixed-format until reseeded. The supported path to uniformity:
+
+```bash
+docker compose down -v && docker compose up --build
+```
+
+then re-run `cmd/seed-transporters`. Dropping the volume is what clears the
+`TRANSPORTER` stream and the `organizations` / `organizations-secrets` KV
+buckets alongside Postgres — leaving the streams in place while resetting
+Postgres reintroduces exactly the orphaning described above, from the other
+direction.
+
 ## CRUD vs. event sourcing
 
 Applying the repo's own test (`ARCHITECTURE.md` § "Event Sourcing vs Plain

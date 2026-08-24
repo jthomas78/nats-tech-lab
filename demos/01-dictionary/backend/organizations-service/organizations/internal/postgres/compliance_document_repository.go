@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/identity"
 )
 
 // ComplianceDocumentRepository is the Postgres adapter for
@@ -20,9 +21,9 @@ func NewComplianceDocumentRepository(db *sql.DB) *ComplianceDocumentRepository {
 
 // documentColumns is the shared SELECT list, so the scan order in
 // scanDocument can't drift from it.
-const documentColumns = `id, type, status, reference, expires_at, coverage_cents, goods_types,
+const documentColumns = `id, type, status, document_name, expires_at, coverage_cents, goods_types,
 	insurer_name, insurance_contact_name, insurance_contact_number, created_at, updated_at,
-	file_name, file_content_type, file_size_bytes, file_object_name, file_uploaded_at`
+	file_content_type, file_size_bytes, file_object_name, file_uploaded_at`
 
 func scanDocument(row interface {
 	Scan(dest ...any) error
@@ -33,7 +34,6 @@ func scanDocument(row interface {
 	// half-populated File would be a shape the domain has no rule for.
 	var (
 		goodsTypes  []byte
-		fileName    sql.NullString
 		contentType sql.NullString
 		sizeBytes   sql.NullInt64
 		objectName  sql.NullString
@@ -53,9 +53,9 @@ func scanDocument(row interface {
 	// a plain string fails outright on every such row — which is most of them,
 	// since a certificate is only given contacts at approval.
 	var contactName, contactNumber sql.NullString
-	err := row.Scan(&doc.ID, &doc.Type, &doc.Status, &doc.Reference, &expiresAt, &doc.CoverageCents, &goodsTypes,
+	err := row.Scan(&doc.ID, &doc.Type, &doc.Status, &doc.DocumentName, &expiresAt, &doc.CoverageCents, &goodsTypes,
 		&doc.InsurerName, &contactName, &contactNumber, &doc.CreatedAt, &doc.UpdatedAt,
-		&fileName, &contentType, &sizeBytes, &objectName, &uploadedAt)
+		&contentType, &sizeBytes, &objectName, &uploadedAt)
 	if err != nil {
 		return doc, err
 	}
@@ -71,11 +71,13 @@ func scanDocument(row interface {
 	}
 	if objectName.Valid {
 		doc.File = &domain.DocumentFile{
-			FileName:    fileName.String,
-			ContentType: contentType.String,
-			SizeBytes:   sizeBytes.Int64,
-			ObjectName:  objectName.String,
-			UploadedAt:  uploadedAt.Time.Unix(),
+			// Phase 40: the file's name *is* the document's name, read off the
+			// row rather than a second column that could disagree with it.
+			DocumentName: doc.DocumentName,
+			ContentType:  contentType.String,
+			SizeBytes:    sizeBytes.Int64,
+			ObjectName:   objectName.String,
+			UploadedAt:   uploadedAt.Time.Unix(),
 		}
 	}
 	return doc, nil
@@ -157,37 +159,35 @@ func (r *ComplianceDocumentRepository) SetInsuranceContact(ctx context.Context, 
 // deliberate cost of keeping them off the log.
 func (r *ComplianceDocumentRepository) UpsertCertificate(ctx context.Context, partnerID string, cert domain.ProjectedCertificate) error {
 	var (
-		fileName    any
 		contentType any
 		sizeBytes   any
 		objectName  any
 		uploadedAt  any
 	)
 	if cert.File != nil {
-		fileName, contentType, sizeBytes = cert.File.FileName, cert.File.ContentType, cert.File.SizeBytes
+		contentType, sizeBytes = cert.File.ContentType, cert.File.SizeBytes
 		objectName, uploadedAt = cert.File.ObjectName, time.Unix(cert.File.UploadedAt, 0).UTC()
 	}
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO organizations.compliance_documents
-			(organization_id, id, type, status, reference, expires_at, coverage_cents, goods_types, insurer_name,
-			 file_name, file_content_type, file_size_bytes, file_object_name, file_uploaded_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now())
+			(organization_id, id, type, status, document_name, expires_at, coverage_cents, goods_types, insurer_name,
+			 file_content_type, file_size_bytes, file_object_name, file_uploaded_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now())
 		ON CONFLICT (organization_id, id) DO UPDATE SET
 			status = EXCLUDED.status,
-			reference = EXCLUDED.reference,
+			document_name = EXCLUDED.document_name,
 			expires_at = EXCLUDED.expires_at,
 			coverage_cents = EXCLUDED.coverage_cents,
 			goods_types = EXCLUDED.goods_types,
 			insurer_name = EXCLUDED.insurer_name,
-			file_name = EXCLUDED.file_name,
 			file_content_type = EXCLUDED.file_content_type,
 			file_size_bytes = EXCLUDED.file_size_bytes,
 			file_object_name = EXCLUDED.file_object_name,
 			file_uploaded_at = EXCLUDED.file_uploaded_at,
 			updated_at = now()`,
-		partnerID, cert.ID, domain.DocumentTypeGoodsInTransit, cert.Status, cert.Reference,
+		partnerID, cert.ID, domain.DocumentTypeGoodsInTransit, cert.Status, cert.DocumentName,
 		expiryParam(cert.ExpiresAt), cert.CoverageCents, goodsTypesParam(cert.GoodsTypes), cert.InsurerName,
-		fileName, contentType, sizeBytes, objectName, uploadedAt)
+		contentType, sizeBytes, objectName, uploadedAt)
 	return err
 }
 
@@ -211,21 +211,42 @@ func (r *ComplianceDocumentRepository) AddDocument(ctx context.Context, partnerI
 		}
 	}
 
-	// BR-TP29: the ID is minted here, by the column default, and returned —
-	// the caller never supplies one.
+	// BR-TP29: the ID is minted here and returned — the caller never supplies
+	// one. BR-TP73 moved the minting from the column default into this
+	// statement, because a ULID is not something Postgres can generate. The
+	// contract BR-TP29 describes is unchanged: the caller passes a document
+	// with no ID and reads the assigned one off the returned row.
 	inserted, err := scanDocument(tx.QueryRowContext(ctx, `
 		INSERT INTO organizations.compliance_documents
-			(organization_id, type, status, reference, expires_at, coverage_cents, goods_types, insurer_name, insurance_contact_name, insurance_contact_number, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+			(id, organization_id, type, status, document_name, expires_at, coverage_cents, goods_types, insurer_name, insurance_contact_name, insurance_contact_number, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
 		RETURNING `+documentColumns,
-		partnerID, doc.Type, doc.Status, doc.Reference, expiryParam(doc.ExpiresAt), doc.CoverageCents, goodsTypesParam(doc.GoodsTypes), doc.InsurerName, doc.InsuranceContactName, doc.InsuranceContactNumber))
+		identity.New(), partnerID, doc.Type, doc.Status, doc.DocumentName, expiryParam(doc.ExpiresAt), doc.CoverageCents, goodsTypesParam(doc.GoodsTypes), doc.InsurerName, doc.InsuranceContactName, doc.InsuranceContactNumber))
 	if err != nil {
-		return domain.ComplianceDocument{}, err
+		// BR-TP74 (Phase 40): the document name is unique per organization,
+		// and the index is the enforcement point — a pre-check would race two
+		// concurrent drops of the same file.
+		return domain.ComplianceDocument{}, mapUniqueViolation(err,
+			"compliance_documents_document_name_idx", domain.ErrDuplicateDocumentName)
 	}
 	if err := tx.Commit(); err != nil {
 		return domain.ComplianceDocument{}, err
 	}
 	return inserted, nil
+}
+
+// DocumentNameExists implements BR-TP74's pre-check. It counts every status,
+// superseded rows included, matching the unique index it fronts.
+func (r *ComplianceDocumentRepository) DocumentNameExists(ctx context.Context, partnerID, documentName string) (bool, error) {
+	var exists bool
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM organizations.compliance_documents
+			WHERE organization_id = $1 AND document_name = $2)`,
+		partnerID, documentName).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 // ListDocuments implements BR-TP31 — current documents only. Superseded rows
@@ -329,10 +350,10 @@ func (r *ComplianceDocumentRepository) AttachFile(ctx context.Context, partnerID
 
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE organizations.compliance_documents
-		SET file_name = $3, file_content_type = $4, file_size_bytes = $5,
-		    file_object_name = $6, file_uploaded_at = to_timestamp($7), updated_at = now()
+		SET file_content_type = $3, file_size_bytes = $4,
+		    file_object_name = $5, file_uploaded_at = to_timestamp($6), updated_at = now()
 		WHERE organization_id = $1 AND id = $2`,
-		partnerID, documentID, updated.File.FileName, updated.File.ContentType,
+		partnerID, documentID, updated.File.ContentType,
 		updated.File.SizeBytes, updated.File.ObjectName, updated.File.UploadedAt); err != nil {
 		return domain.ComplianceDocument{}, err
 	}
@@ -382,19 +403,14 @@ func (r *ComplianceDocumentRepository) SetDocumentExpiry(ctx context.Context, pa
 	return updated, nil
 }
 
-// ApproveDocument implements BR-TP09 — legal only Pending -> Approved.
+// ApproveDocument implements BR-TP09 — legal only FOR_REVIEW -> Approved.
 func (r *ComplianceDocumentRepository) ApproveDocument(ctx context.Context, partnerID, documentID string) (domain.ComplianceDocument, error) {
 	return r.transition(ctx, partnerID, documentID, domain.ComplianceDocument.Approve)
 }
 
-// RejectDocument implements BR-TP10 — legal only Pending -> Rejected.
+// RejectDocument implements BR-TP10 — legal only FOR_REVIEW -> Rejected.
 func (r *ComplianceDocumentRepository) RejectDocument(ctx context.Context, partnerID, documentID string) (domain.ComplianceDocument, error) {
 	return r.transition(ctx, partnerID, documentID, domain.ComplianceDocument.Reject)
-}
-
-// ResubmitDocument implements BR-TP11 — legal only Rejected -> Pending.
-func (r *ComplianceDocumentRepository) ResubmitDocument(ctx context.Context, partnerID, documentID string) (domain.ComplianceDocument, error) {
-	return r.transition(ctx, partnerID, documentID, domain.ComplianceDocument.Resubmit)
 }
 
 // transition addresses a document by ID (BR-TP31), not by type — after

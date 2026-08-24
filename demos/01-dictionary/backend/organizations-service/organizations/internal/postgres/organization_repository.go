@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/identity"
 )
 
 // OrganizationRepository is the Postgres adapter for
@@ -30,14 +31,25 @@ func scanPartner(row interface {
 	return tp, err
 }
 
+// Register mints the organization's identity here rather than reading it back
+// from a column default. BR-TP73 (ADR-051) is why: the id is a ULID, and
+// Postgres has no function that produces one, so the choice is between the
+// service minting it and the database not having one to give.
+//
+// It stays in this adapter rather than moving up into the domain's Register
+// because nothing in the domain branches on an ID's value or shape — hoisting
+// it would add a port with one implementation and no second caller. What the
+// caller sees is unchanged: it passes an Organization with no ID and gets one
+// back with an ID, exactly as when the column default supplied it.
 func (r *OrganizationRepository) Register(ctx context.Context, tp domain.Organization) (domain.Organization, error) {
+	tp.ID = identity.New()
 	err := r.db.QueryRowContext(ctx, `
 		INSERT INTO organizations.organizations
-			(context, name, type, status, trading_as, company_name, registration_no, vat_registration_no)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, version`,
-		tp.Context, tp.Name, tp.Type, tp.Status, tp.TradingAs, tp.CompanyName, tp.RegistrationNo, tp.VatRegistrationNo,
-	).Scan(&tp.ID, &tp.Version)
+			(id, context, name, type, status, trading_as, company_name, registration_no, vat_registration_no)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING version`,
+		tp.ID, tp.Context, tp.Name, tp.Type, tp.Status, tp.TradingAs, tp.CompanyName, tp.RegistrationNo, tp.VatRegistrationNo,
+	).Scan(&tp.Version)
 	if err != nil {
 		return domain.Organization{}, err
 	}

@@ -67,7 +67,9 @@ const fileInput = ref(null)
 const pendingFile = ref(null)
 const registerOpen = ref(false)
 const registerSaving = ref(false)
-const registerForm = reactive({ reference: '', goodsTypes: [], coverageRand: null, expiryDate: '' })
+// No document name on the form: Phase 40 takes it from the dropped file, and
+// it is never editable — the name identifies the bytes.
+const registerForm = reactive({ goodsTypes: [], coverageRand: null, expiryDate: '' })
 
 function chooseRegistrationFile() {
   if (!fileInput.value) return
@@ -86,8 +88,14 @@ function acceptRegistrationFile(file) {
     error.value = `${file.name} is larger than the 10 MB limit.`
     return
   }
+  // BR-TP74: a name already used by this organization is refused server-side,
+  // but catching it here saves the operator a round trip through the dialog.
+  if (certificates.value.some((item) => (item.documentName || '') === file.name)) {
+    error.value = `${file.name} has already been registered for this organization. Rename the file or drop a different one.`
+    return
+  }
   pendingFile.value = file
-  Object.assign(registerForm, { reference: file.name, goodsTypes: [], coverageRand: null, expiryDate: '' })
+  Object.assign(registerForm, { goodsTypes: [], coverageRand: null, expiryDate: '' })
   registerOpen.value = true
 }
 
@@ -113,12 +121,11 @@ function dateFromUnix(value) {
 }
 
 async function registerCertificate() {
-  if (!pendingFile.value || !registerForm.reference || !registerForm.goodsTypes.length) return
+  if (!pendingFile.value || !registerForm.goodsTypes.length) return
   registerSaving.value = true
   error.value = ''
   try {
     const doc = await registerGitCertificateWithFile(props.context, props.organizationId, {
-      reference: registerForm.reference,
       goodsTypes: [...registerForm.goodsTypes],
       coverageCents: registerForm.coverageRand == null ? null : Math.round(registerForm.coverageRand * 100),
       expiresAt: unixFromDate(registerForm.expiryDate),
@@ -129,7 +136,7 @@ async function registerCertificate() {
     registerOpen.value = false
     pendingFile.value = null
     emit('changed')
-    toast.add({ severity: 'success', summary: 'GIT certificate registered', detail: doc.file?.fileName || doc.reference, life: 3000 })
+    toast.add({ severity: 'success', summary: 'GIT certificate registered', detail: doc.documentName, life: 3000 })
   } catch (e) {
     error.value = e.message
   } finally {
@@ -141,14 +148,13 @@ const editing = ref(null)
 const editSaving = ref(false)
 const editError = ref('')
 const editForm = reactive({
-  reference: '', goodsTypes: [], coverageRand: null, expiryDate: '',
+  goodsTypes: [], coverageRand: null, expiryDate: '',
   insurerName: '', insuranceContactName: '', insuranceContactNumber: '',
 })
 
 function openEdit(doc) {
   editing.value = doc
   Object.assign(editForm, {
-    reference: doc.reference,
     goodsTypes: [...(doc.goodsTypes ?? [])],
     coverageRand: doc.coverageCents == null ? null : doc.coverageCents / 100,
     expiryDate: dateFromUnix(doc.expiresAt),
@@ -173,7 +179,6 @@ async function saveEdit() {
     const expiresAt = unixFromDate(editForm.expiryDate)
     const coverageCents = editForm.coverageRand == null ? null : Math.round(editForm.coverageRand * 100)
     const detailsChanged = doc.status !== 'SUPERSEDED' && (
-      editForm.reference !== doc.reference ||
       JSON.stringify(editForm.goodsTypes) !== JSON.stringify(doc.goodsTypes ?? []) ||
       coverageCents !== doc.coverageCents ||
       editForm.insurerName !== (doc.insurerName || '') ||
@@ -182,7 +187,6 @@ async function saveEdit() {
     )
     if (detailsChanged) {
       await updateGitCertificate(props.context, props.organizationId, doc.id, {
-        reference: editForm.reference,
         goodsTypes: [...editForm.goodsTypes],
         coverageCents,
         insurerName: editForm.insurerName,
@@ -262,7 +266,7 @@ async function download(doc) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = doc.file?.fileName || doc.reference
+    link.download = doc.documentName
     link.click()
     URL.revokeObjectURL(url)
   } catch (e) {
@@ -296,7 +300,7 @@ function statusSeverity(status) {
 }
 
 function statusLabel(status) {
-  return ({ FOR_REVIEW: 'For review', SUPERSEDED: 'Superseded', APPROVED: 'Approved', REJECTED: 'Rejected', PENDING: 'Pending file', EXPIRED: 'Expired' })[status] || status
+  return ({ FOR_REVIEW: 'For review', SUPERSEDED: 'Superseded', APPROVED: 'Approved', REJECTED: 'Rejected', EXPIRED: 'Expired' })[status] || status
 }
 
 function rowClass(doc) {
@@ -340,9 +344,9 @@ function rowClass(doc) {
             </div>
           </template>
         </Column>
-        <Column header="Certificate" style="min-width: 13rem">
+        <Column header="Document Name" style="min-width: 13rem">
           <template #body="{ data: doc }">
-            <Button :label="doc.file?.fileName || doc.reference" text size="small" class="certificate-link" @click="openEdit(doc)" />
+            <Button :label="doc.documentName" text size="small" class="certificate-link" @click="openEdit(doc)" />
             <span class="cell-sub">registered {{ formatInstant(doc.createdAt) }}</span>
           </template>
         </Column>
@@ -372,12 +376,12 @@ function rowClass(doc) {
       <div class="edit-head">
         <div>
           <Button label="GIT Certificates" icon="pi pi-angle-left" text size="small" @click="cancelEdit" />
-          <strong>{{ editing.file?.fileName || editing.reference }}</strong>
+          <strong>{{ editing.documentName }}</strong>
           <Tag :severity="statusSeverity(gitDisplayStatus(editing))" :value="statusLabel(gitDisplayStatus(editing))" />
         </div>
         <div class="edit-actions">
           <Button label="Cancel" outlined size="small" :disabled="editSaving" @click="cancelEdit" />
-          <Button label="Save certificate" size="small" :loading="editSaving" :disabled="editing.status !== 'SUPERSEDED' && (!editForm.reference || !editForm.goodsTypes.length)" @click="saveEdit" />
+          <Button label="Save certificate" size="small" :loading="editSaving" :disabled="editing.status !== 'SUPERSEDED' && !editForm.goodsTypes.length" @click="saveEdit" />
         </div>
       </div>
 
@@ -390,8 +394,11 @@ function rowClass(doc) {
         <section class="edit-section">
           <h4>Cover</h4>
           <div class="form-field full-field">
-            <label for="git-reference">Certificate reference</label>
-            <InputText id="git-reference" v-model="editForm.reference" :disabled="editing.status === 'SUPERSEDED'" />
+            <label for="git-document-name">Document Name</label>
+            <!-- Read-only in every state (Phase 40): the name is the dropped
+                 file's own, so changing it here would describe bytes that
+                 exist under a different name. -->
+            <InputText id="git-document-name" :model-value="editing.documentName" readonly disabled />
           </div>
           <div class="form-field full-field">
             <label for="git-goods">Goods types</label>
@@ -421,8 +428,8 @@ function rowClass(doc) {
             <InputText id="git-number" v-model="editForm.insuranceContactNumber" :disabled="editing.status === 'SUPERSEDED'" />
           </div>
           <div class="file-record">
-            <div><span>File</span><strong>{{ editing.file?.fileName || 'No file attached' }}</strong></div>
-            <Button v-if="editing.file" label="Download" icon="pi pi-download" text size="small" :loading="busyId === editing.id" @click="download(editing)" />
+            <div><span>File</span><strong>{{ editing.documentName }}</strong></div>
+            <Button label="Download" icon="pi pi-download" text size="small" :loading="busyId === editing.id" @click="download(editing)" />
           </div>
         </section>
       </div>
@@ -430,7 +437,6 @@ function rowClass(doc) {
 
     <Dialog v-model:visible="registerOpen" header="Register GIT certificate" modal :style="{ width: '36rem' }">
       <p class="lab-muted dialog-intro">{{ pendingFile?.name }} · choose the goods types this policy covers before the upload starts.</p>
-      <div class="form-field"><label for="git-reg-ref">Certificate reference</label><InputText id="git-reg-ref" v-model="registerForm.reference" /></div>
       <div class="form-field"><label for="git-reg-goods">Goods types</label><MultiSelect id="git-reg-goods" v-model="registerForm.goodsTypes" :options="goodsOptions" option-label="label" option-value="code" display="chip" /></div>
       <div class="form-grid">
         <div class="form-field"><label for="git-reg-cover">Cover amount (ZAR)</label><InputNumber id="git-reg-cover" v-model="registerForm.coverageRand" :min="0" :max-fraction-digits="2" /></div>
@@ -438,7 +444,7 @@ function rowClass(doc) {
       </div>
       <template #footer>
         <Button label="Cancel" text @click="registerOpen = false" />
-        <Button label="Register & upload" :loading="registerSaving" :disabled="!registerForm.reference || !registerForm.goodsTypes.length" @click="registerCertificate" />
+        <Button label="Register & upload" :loading="registerSaving" :disabled="!registerForm.goodsTypes.length" @click="registerCertificate" />
       </template>
     </Dialog>
 

@@ -122,8 +122,8 @@ var _ = Describe("BR-TP56 submit for vetting", func() {
 		profiles = &fakeProfileState{state: profiledomain.State{
 			Status: profiledomain.StatusAwaiting, AttemptNumber: 0}}
 		docs = &fakeDocuments{docs: []organizationdomain.ComplianceDocument{
-			{ID: "doc-b", Status: organizationdomain.DocumentStatusPending},
-			{ID: "doc-a", Status: organizationdomain.DocumentStatusPending},
+			{ID: "doc-b", Status: organizationdomain.DocumentStatusForReview},
+			{ID: "doc-a", Status: organizationdomain.DocumentStatusForReview},
 		}}
 	})
 
@@ -162,6 +162,20 @@ var _ = Describe("BR-TP56 submit for vetting", func() {
 	It("refuses a transporter with no document pending review", func() {
 		docs.docs = []organizationdomain.ComplianceDocument{
 			{ID: "doc-approved", Status: organizationdomain.DocumentStatusApproved},
+		}
+
+		Expect(build().Submit(context.Background(), "acme", "acme", "org-1")).
+			To(MatchError(profileworker.ErrNoPendingDocuments))
+		Expect(order).To(BeEmpty())
+	})
+
+	// Phase 40 retired document resubmission: a rejected document is replaced
+	// by dropping another file, so until that replacement exists there is
+	// nothing in review and BR-TP26's re-vet has nothing to collect.
+	It("refuses a re-vet while every document is still rejected", func() {
+		profiles.state.Status = profiledomain.StatusRejected
+		docs.docs = []organizationdomain.ComplianceDocument{
+			{ID: "doc-rejected", Status: organizationdomain.DocumentStatusRejected},
 		}
 
 		Expect(build().Submit(context.Background(), "acme", "acme", "org-1")).

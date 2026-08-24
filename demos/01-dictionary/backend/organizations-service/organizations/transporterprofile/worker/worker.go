@@ -241,7 +241,7 @@ func (s *VettingService) pendingReferences(ctx context.Context, organizationID s
 	}
 	var required []string
 	for _, doc := range docs {
-		if doc.Status == organizationdomain.DocumentStatusPending {
+		if doc.Status == organizationdomain.DocumentStatusForReview {
 			required = append(required, doc.ID)
 		}
 	}

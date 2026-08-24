@@ -10,10 +10,63 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/identity"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/postgres"
 )
 
 var _ = Describe("ComplianceDocumentRepository", func() {
+	// BR-TP74 (Phase 40): a document name identifies a dropped file within one
+	// organization, and the unique index is the enforcement point — every
+	// status counts, superseded rows included.
+	Context("BR-TP74: a document name is unique per organization", func() {
+		It("refuses a second document with a name already used, superseded or not", func() {
+			db := testDB()
+			repo := postgres.NewComplianceDocumentRepository(db)
+			partnerID := freshPartner(db, "TRANSPORTER")
+			ctx := context.Background()
+
+			first, err := repo.AddDocument(ctx, partnerID, mustAdd("TRANSPORTER", domain.DocumentTypeGoodsInTransit, "git.pdf"))
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = repo.AddDocument(ctx, partnerID, mustAdd("TRANSPORTER", domain.DocumentTypeGoodsInTransit, "git.pdf"))
+			Expect(errors.Is(err, domain.ErrDuplicateDocumentName)).To(BeTrue(),
+				"the same file dropped twice must be refused, not registered twice: %v", err)
+
+			_, err = db.Exec(`UPDATE organizations.compliance_documents SET status = $1 WHERE id = $2`,
+				domain.DocumentStatusSuperseded, first.ID)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = repo.AddDocument(ctx, partnerID, mustAdd("TRANSPORTER", domain.DocumentTypeGoodsInTransit, "git.pdf"))
+			Expect(errors.Is(err, domain.ErrDuplicateDocumentName)).To(BeTrue(),
+				"the index is deliberately not partial — a superseded row keeps its name reserved")
+		})
+
+		It("scopes the name to one organization", func() {
+			db := testDB()
+			repo := postgres.NewComplianceDocumentRepository(db)
+			ctx := context.Background()
+
+			_, err := repo.AddDocument(ctx, freshPartner(db, "TRANSPORTER"),
+				mustAdd("TRANSPORTER", domain.DocumentTypeGoodsInTransit, "git.pdf"))
+			Expect(err).NotTo(HaveOccurred())
+			_, err = repo.AddDocument(ctx, freshPartner(db, "TRANSPORTER"),
+				mustAdd("TRANSPORTER", domain.DocumentTypeGoodsInTransit, "git.pdf"))
+			Expect(err).NotTo(HaveOccurred(),
+				"two organizations may each drop a file called git.pdf")
+		})
+
+		It("reports an existing name through DocumentNameExists, which the register command pre-checks", func() {
+			db := testDB()
+			repo := postgres.NewComplianceDocumentRepository(db)
+			partnerID := freshPartner(db, "TRANSPORTER")
+			ctx := context.Background()
+
+			Expect(repo.DocumentNameExists(ctx, partnerID, "git.pdf")).To(BeFalse())
+			_, err := repo.AddDocument(ctx, partnerID, mustAdd("TRANSPORTER", domain.DocumentTypeGoodsInTransit, "git.pdf"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(repo.DocumentNameExists(ctx, partnerID, "git.pdf")).To(BeTrue())
+		})
+	})
+
 	Context("Phase 39 decision 1: GIT certificate history is newest-first", func() {
 		It("includes superseded GIT certificates", func() {
 			db := testDB()
@@ -66,11 +119,11 @@ var _ = Describe("ComplianceDocumentRepository", func() {
 			partnerID := freshPartner(db, "SHIPPER")
 			ctx := context.Background()
 
-			first, err := repo.AddDocument(ctx, partnerID, mustAdd("SHIPPER", domain.DocumentTypeCIPC, "s3://one.pdf"))
+			first, err := repo.AddDocument(ctx, partnerID, mustAdd("SHIPPER", domain.DocumentTypeCIPC, "one.pdf"))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(first.ID).NotTo(BeEmpty(), "BR-TP29: the service mints the ID and returns it")
 
-			second, err := repo.AddDocument(ctx, partnerID, mustAdd("SHIPPER", domain.DocumentTypeCIPC, "s3://two.pdf"))
+			second, err := repo.AddDocument(ctx, partnerID, mustAdd("SHIPPER", domain.DocumentTypeCIPC, "two.pdf"))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(second.ID).NotTo(Equal(first.ID), "a second document of the same type is a new row, not an overwrite")
 		})
@@ -81,13 +134,13 @@ var _ = Describe("ComplianceDocumentRepository", func() {
 			partnerID := freshPartner(db, "SHIPPER")
 			ctx := context.Background()
 
-			first, err := repo.AddDocument(ctx, partnerID, mustAdd("SHIPPER", domain.DocumentTypeCIPC, "s3://one.pdf"))
+			first, err := repo.AddDocument(ctx, partnerID, mustAdd("SHIPPER", domain.DocumentTypeCIPC, "one.pdf"))
 			Expect(err).NotTo(HaveOccurred())
 			approved, err := repo.ApproveDocument(ctx, partnerID, first.ID)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(approved.Status).To(Equal(domain.DocumentStatusApproved))
 
-			second, err := repo.AddDocument(ctx, partnerID, mustAdd("SHIPPER", domain.DocumentTypeCIPC, "s3://two.pdf"))
+			second, err := repo.AddDocument(ctx, partnerID, mustAdd("SHIPPER", domain.DocumentTypeCIPC, "two.pdf"))
 			Expect(err).NotTo(HaveOccurred())
 
 			// BR-TP31: only the current document is listed...
@@ -95,7 +148,7 @@ var _ = Describe("ComplianceDocumentRepository", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(current).To(HaveLen(1))
 			Expect(current[0].ID).To(Equal(second.ID))
-			Expect(current[0].Reference).To(Equal("s3://two.pdf"))
+			Expect(current[0].DocumentName).To(Equal("two.pdf"))
 
 			// ...but BR-TP30 keeps the old row, superseded, rather than
 			// destroying it the way BR-TP08's upsert did.
@@ -112,9 +165,9 @@ var _ = Describe("ComplianceDocumentRepository", func() {
 			partnerID := freshPartner(db, "SHIPPER")
 			ctx := context.Background()
 
-			first, err := repo.AddDocument(ctx, partnerID, mustAdd("SHIPPER", domain.DocumentTypeCIPC, "s3://one.pdf"))
+			first, err := repo.AddDocument(ctx, partnerID, mustAdd("SHIPPER", domain.DocumentTypeCIPC, "one.pdf"))
 			Expect(err).NotTo(HaveOccurred())
-			_, err = repo.AddDocument(ctx, partnerID, mustAdd("SHIPPER", domain.DocumentTypeCIPC, "s3://two.pdf"))
+			_, err = repo.AddDocument(ctx, partnerID, mustAdd("SHIPPER", domain.DocumentTypeCIPC, "two.pdf"))
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = repo.ApproveDocument(ctx, partnerID, first.ID)
@@ -242,6 +295,61 @@ var _ = Describe("ComplianceDocumentRepository", func() {
 })
 
 var _ = Describe("OrganizationRepository", func() {
+	Context("BR-TP73: Register mints a ULID identity, not a UUID", func() {
+		It("returns a service-minted ULID that the row is actually keyed on", func() {
+			// The rule has to be asserted against a real database, not just
+			// against identity.New: ADR-051 removed the column default, so if
+			// the INSERT ever stops supplying an id this is what catches it —
+			// a NOT NULL violation here rather than a 500 in production.
+			db := testDB()
+			repo := postgres.NewOrganizationRepository(db)
+			ctx := context.Background()
+
+			registered, err := repo.Register(ctx, domain.Organization{
+				Context: "spec-context",
+				Name:    "SPEC ULID " + identity.New(),
+				Type:    domain.PartnerTypeTransporter,
+				Status:  domain.StatusRegistered,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() {
+				_, _ = db.Exec(`DELETE FROM organizations.organizations WHERE id = $1`, registered.ID)
+			})
+
+			Expect(registered.ID).To(HaveLen(26))
+			Expect(identity.IsValid(registered.ID)).To(BeTrue(),
+				"Register returned %q, which is not a well-formed ULID", registered.ID)
+
+			// And the returned ID is the one Postgres stored — not a value the
+			// adapter minted and then failed to pass through to the INSERT.
+			fetched, err := repo.Get(ctx, registered.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fetched.ID).To(Equal(registered.ID))
+		})
+
+		It("mints a distinct identity per registration", func() {
+			db := testDB()
+			repo := postgres.NewOrganizationRepository(db)
+			ctx := context.Background()
+
+			seen := map[string]bool{}
+			for range 5 {
+				reg, err := repo.Register(ctx, domain.Organization{
+					Context: "spec-context",
+					Name:    "SPEC ULID " + identity.New(),
+					Type:    domain.PartnerTypeShipper,
+					Status:  domain.StatusRegistered,
+				})
+				Expect(err).NotTo(HaveOccurred())
+				DeferCleanup(func() {
+					_, _ = db.Exec(`DELETE FROM organizations.organizations WHERE id = $1`, reg.ID)
+				})
+				Expect(seen).NotTo(HaveKey(reg.ID))
+				seen[reg.ID] = true
+			}
+		})
+	})
+
 	Context("BR-TP33: every successful write bumps version", func() {
 		It("starts at 1 and bumps on a lifecycle transition", func() {
 			db := testDB()

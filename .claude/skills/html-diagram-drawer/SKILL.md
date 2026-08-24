@@ -1,5 +1,5 @@
 ---
-name: html-diagram-drawer
+name: /Users/jeremy/dev/github/jthomas78/nats-tech-lab/.claude/skills/html-diagram-drawer/SKILL.md
 description: Create hand-authored HTML+inline-SVG architecture diagrams, sequence/flow diagrams, and UI mockups, rendered to a high-DPI PNG via headless Chrome for embedding in this repo's ARCHITECTURE-*.md docs. Use this whenever a diagram benefits from real CSS layout and prose captions around it (multiple related diagrams building one narrative on a page, a design write-up, or a UI mockup for review before implementation) rather than a pure Draw.io node/edge graph — see drawio-architecture-drawer for that case instead. Always reach for this skill, not raw ad hoc SVG or a screenshot mockup, whenever the user asks to "diagram," "sketch," "mock up," or "illustrate" something for this repo's architecture docs.
 ---
 

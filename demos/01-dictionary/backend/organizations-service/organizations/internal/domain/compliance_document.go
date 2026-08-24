@@ -20,16 +20,20 @@ const (
 	DocumentTypeGoodsInTransit         DocumentType = "GOODS_IN_TRANSIT"
 )
 
-// DocumentStatus is the Pending -> Approved / Pending -> Rejected ->
-// Resubmit-to-Pending lifecycle (BR-TP09-BR-TP11), fully independent of the
-// parent Organization.status (BR-TP04's note).
+// DocumentStatus is the FOR_REVIEW -> Approved / FOR_REVIEW -> Rejected
+// lifecycle (BR-TP09/BR-TP10), fully independent of the parent
+// Organization.status (BR-TP04's note).
+//
+// Phase 40 removed PENDING. It meant "a row exists but no bytes have
+// arrived", which registration can no longer produce now that every document
+// is registered with its file, and Resubmit — the only other way back into
+// it — went with it: a rejected document is answered by registering a
+// replacement, not by re-queueing the same bytes.
 type DocumentStatus string
 
 const (
-	DocumentStatusPending DocumentStatus = "PENDING"
-	// DocumentStatusForReview means the certificate bytes have landed and are
-	// ready for a reviewer. Pending remains the deliberately cheaper "row only"
-	// state (BR-TP68).
+	// DocumentStatusForReview is where every document starts: the bytes were
+	// named at registration, so there is nothing cheaper to be.
 	DocumentStatusForReview DocumentStatus = "FOR_REVIEW"
 	DocumentStatusApproved  DocumentStatus = "APPROVED"
 	DocumentStatusRejected  DocumentStatus = "REJECTED"
@@ -49,24 +53,30 @@ var (
 	// Transporter-only.
 	ErrDocumentTypeNotAllowedForPartnerType = errors.New("this document type is not valid for the organization's type")
 
-	// ErrReferenceRequired — BR-TP08: a document must point at something.
-	ErrReferenceRequired = errors.New("a reference is required to add a compliance document")
+	// ErrDocumentNameRequired — BR-TP08 as restated by Phase 40: a document is
+	// its file, and a file that cannot be named cannot be told apart from the
+	// next one in the list. Formerly ErrFileNameRequired, which said the same
+	// thing about the upload half only.
+	ErrDocumentNameRequired = errors.New("a document name is required to register a compliance document")
 
-	// ErrDocumentNotPending — BR-TP09/BR-TP10: Approve/Reject are only
-	// legal from Pending.
-	ErrDocumentNotPending = errors.New("compliance document is not in Pending status")
+	// ErrDocumentNameMismatch — Phase 40: the name is captured at
+	// registration and the bytes arrive afterwards, so the upload has to be
+	// checked against the row it is landing on. Without this the second half
+	// of the flow could rename a document, and the registration event on the
+	// stream would disagree with the projection for good.
+	ErrDocumentNameMismatch = errors.New("uploaded file name does not match the registered document name")
 
-	// ErrDocumentNotRejected — BR-TP11: Resubmit is only legal from
-	// Rejected.
-	ErrDocumentNotRejected = errors.New("compliance document is not in Rejected status")
+	// ErrDuplicateDocumentName — Phase 40: a document name is unique per
+	// organization. The name is the identity and is read-only, so two rows
+	// sharing one would be indistinguishable in the list and unfixable
+	// afterwards. Enforced by a unique index and surfaced here so the api.*
+	// boundary can map it like any other domain refusal.
+	ErrDuplicateDocumentName = errors.New("a document with this name is already registered for this organization")
 
-	// ErrCertificateNotResubmittable — BR-TP11 as scoped in Phase 39: a
-	// rejected GIT certificate is not put back in the queue, it is replaced
-	// by registering a new one. Resubmission and the register-a-replacement
-	// flow are two answers to the same question, and only one can be the
-	// workflow: with both, a rejected certificate has two futures and the
-	// screen has to explain which is which.
-	ErrCertificateNotResubmittable = errors.New("a rejected goods-in-transit certificate is replaced by registering a new one, not resubmitted")
+	// ErrDocumentNotForReview — BR-TP09/BR-TP10: Approve/Reject are only
+	// legal while the document is awaiting review. Both terminal statuses
+	// report this, because "a review has already been made" is one situation.
+	ErrDocumentNotForReview = errors.New("compliance document is not awaiting review")
 
 	// ErrDocumentExpiryInPast — BR-TP59: an expiry is set looking forward.
 	// A past date on a write is a data-entry error rather than a lapse that
@@ -81,15 +91,10 @@ var (
 
 	// ErrDocumentSuperseded — BR-TP30: SUPERSEDED is terminal, so every
 	// transition off it is rejected, including a second Supersede. This is a
-	// distinct error from ErrDocumentNotPending on purpose: "this document
+	// distinct error from ErrDocumentNotForReview on purpose: "this document
 	// has been replaced by a newer one" is different advice to an operator
 	// than "this document is already decided."
 	ErrDocumentSuperseded = errors.New("compliance document has been superseded")
-
-	// ErrFileNameRequired — BR-TP45: the original filename is the one piece
-	// of the upload that only the client knows, and it is what a download
-	// hands back, so an empty one is rejected rather than defaulted.
-	ErrFileNameRequired = errors.New("a file name is required to attach a document file")
 
 	// ErrContentTypeRequired — BR-TP45: download replays this verbatim as
 	// the response Content-Type, so it must be recorded at upload time.
@@ -145,14 +150,17 @@ const MaxDocumentFileBytes int64 = 10 << 20
 // projection that lets a download set correct response headers, and a list
 // show a file name and size, without touching the object store at all.
 type DocumentFile struct {
-	// FileName is the client's original name. It is deliberately *not* part
-	// of ObjectName (BR-TP42) — a user-controlled object name makes object
-	// identity user-controlled, and two uploads sharing a name would resolve
-	// to one object, silently purging the earlier document's bytes while the
-	// log still records both.
-	FileName    string `json:"fileName"`
-	ContentType string `json:"contentType"`
-	SizeBytes   int64  `json:"sizeBytes"`
+	// DocumentName is the client's original file name, and since Phase 40 the
+	// document's identity — captured at registration, checked here when the
+	// bytes arrive, and shown as "Document Name" in the UI. It is deliberately
+	// *not* part of ObjectName (BR-TP42) — a user-controlled object name makes
+	// object identity user-controlled, and two uploads sharing a name would
+	// resolve to one object, silently purging the earlier document's bytes
+	// while the log still records both. Uniqueness per organization is a
+	// separate rule enforced at registration, not a property of the key.
+	DocumentName string `json:"documentName"`
+	ContentType  string `json:"contentType"`
+	SizeBytes    int64  `json:"sizeBytes"`
 	// ObjectName is the service-minted object store key (BR-TP42), stored so
 	// a reader never has to reconstruct it from parts.
 	ObjectName string `json:"objectName"`
@@ -173,8 +181,9 @@ func DocumentObjectName(context, partnerID string, docType DocumentType, documen
 }
 
 // ComplianceDocument is one KYC/compliance record attached to a
-// Organization (BR-TP07-BR-TP11). Storage is metadata-only in v1:
-// Reference is an opaque external locator, no file bytes are held here.
+// Organization (BR-TP07-BR-TP11). Since Phase 40 a document *is* its file:
+// the metadata-only v1 shape, where Reference was an opaque external locator
+// and the bytes might never arrive, is retired.
 // CoverageCents/ExpiresAt are both nullable and carry no domain-level
 // restriction on which DocumentType may set them — see the Phase 26 plan
 // section's storage decision.
@@ -184,14 +193,18 @@ type ComplianceDocument struct {
 	// persisted the document. This is also the vetting workflow's document
 	// reference (BR-TP36) and the {documentID} token in 38c-ii's Object
 	// Store object name, so one identifier serves all three.
-	ID            string         `json:"id,omitempty"`
-	CreatedAt     time.Time      `json:"createdAt,omitempty"`
-	UpdatedAt     time.Time      `json:"updatedAt,omitempty"`
-	Type          DocumentType   `json:"type"`
-	Status        DocumentStatus `json:"status"`
-	Reference     string         `json:"reference"`
-	ExpiresAt     *int64         `json:"expiresAt,omitempty"`
-	CoverageCents *int64         `json:"coverageCents,omitempty"`
+	ID        string         `json:"id,omitempty"`
+	CreatedAt time.Time      `json:"createdAt,omitempty"`
+	UpdatedAt time.Time      `json:"updatedAt,omitempty"`
+	Type      DocumentType   `json:"type"`
+	Status    DocumentStatus `json:"status"`
+	// DocumentName is the file's name, carried on the document itself rather
+	// than only on File because registration names the document before the
+	// bytes land (Phase 40 decision 3) — the registration event has to have
+	// something human on it, and File is still nil at that point.
+	DocumentName  string `json:"documentName"`
+	ExpiresAt     *int64 `json:"expiresAt,omitempty"`
+	CoverageCents *int64 `json:"coverageCents,omitempty"`
 	// GoodsTypes and CoverageCents are deliberately certificate-scoped: the
 	// same cover applies to every listed goods type (BR-TP64/BR-TP65).
 	GoodsTypes  []string `json:"goodsTypes,omitempty"`
@@ -202,9 +215,11 @@ type ComplianceDocument struct {
 	InsuranceContactName   string `json:"insuranceContactName,omitempty"`
 	InsuranceContactNumber string `json:"insuranceContactNumber,omitempty"`
 	// File is nil until bytes have been uploaded (BR-TP45). A document
-	// legitimately exists without one: 38c-i's document-add creates the row
-	// (and mints the ID the object name needs) before any file arrives, and
-	// the review lifecycle never required a file to progress.
+	// legitimately exists without one *in flight*: registration creates the
+	// row (and mints the ID the object name needs), then the browser spends
+	// the ticket. Phase 40 made that window the only one — a document that
+	// never receives its bytes is an abandoned registration, not a valid
+	// state to review.
 	File *DocumentFile `json:"file,omitempty"`
 }
 
@@ -216,7 +231,7 @@ type ComplianceDocument struct {
 type ProjectedCertificate struct {
 	ID            string
 	Status        DocumentStatus
-	Reference     string
+	DocumentName  string
 	GoodsTypes    []string
 	CoverageCents *int64
 	ExpiresAt     *int64
@@ -241,29 +256,40 @@ func ValidateDocumentType(partnerType PartnerType, docType DocumentType) error {
 	}
 }
 
-// AddDocument implements BR-TP08 — requires a non-empty reference and a
-// type valid for the partner's type, always creates in Pending status.
+// AddDocument implements BR-TP08 — requires a non-empty document name and a
+// type valid for the partner's type, always creates in FOR_REVIEW status.
+//
+// Phase 40: the name is the document's identity, so it is required here at
+// registration rather than only when the bytes land. Two consequences worth
+// naming: the registration event carries a human label even though File is
+// still nil, and a duplicate name is refused before an upload ticket is spent
+// (uniqueness itself is the repository's index — see ErrDuplicateDocumentName).
 //
 // BR-TP29 (38c-i): this always produces a *new* document, never an update of
 // an existing one. Keeping one current document per (partner, type) is the
 // repository's job: it supersedes the incumbent (BR-TP30) and inserts this
 // one. The returned document has no ID yet — the service mints it on insert.
-func AddDocument(partnerType PartnerType, docType DocumentType, reference string) (ComplianceDocument, error) {
-	if reference == "" {
-		return ComplianceDocument{}, ErrReferenceRequired
+func AddDocument(partnerType PartnerType, docType DocumentType, documentName string) (ComplianceDocument, error) {
+	if documentName == "" {
+		return ComplianceDocument{}, ErrDocumentNameRequired
 	}
 	if err := ValidateDocumentType(partnerType, docType); err != nil {
 		return ComplianceDocument{}, err
 	}
 	return ComplianceDocument{
-		Type:      docType,
-		Status:    DocumentStatusPending,
-		Reference: reference,
+		Type:         docType,
+		Status:       DocumentStatusForReview,
+		DocumentName: documentName,
 	}, nil
 }
 
 // AttachFile implements BR-TP43/BR-TP44/BR-TP45 — records uploaded bytes
 // against an existing document.
+//
+// Phase 40 took the status change out: a document is FOR_REVIEW from
+// registration, so bytes landing no longer promote it out of a cheaper state
+// (the old BR-TP68 transition). What remains is recording the file and
+// checking it is the one that was registered.
 //
 // Write-once by design: there is no ReplaceFile. Overwriting an object would
 // purge bytes that the immutable event log still references, and an event can
@@ -282,8 +308,15 @@ func (d ComplianceDocument) AttachFile(f DocumentFile) (ComplianceDocument, erro
 	if d.File != nil {
 		return d, ErrDocumentFileAlreadyAttached
 	}
-	if f.FileName == "" {
-		return d, ErrFileNameRequired
+	if f.DocumentName == "" {
+		return d, ErrDocumentNameRequired
+	}
+	// Phase 40: the row was named at registration and the bytes arrive
+	// second, so this is where the two halves are reconciled. Letting them
+	// diverge would leave the registration event on the stream permanently
+	// disagreeing with the projection about what the document is called.
+	if f.DocumentName != d.DocumentName {
+		return d, ErrDocumentNameMismatch
 	}
 	if f.ContentType == "" {
 		return d, ErrContentTypeRequired
@@ -295,9 +328,6 @@ func (d ComplianceDocument) AttachFile(f DocumentFile) (ComplianceDocument, erro
 		return d, ErrFileTooLarge
 	}
 	d.File = &f
-	if d.Type == DocumentTypeGoodsInTransit && d.Status == DocumentStatusPending {
-		d.Status = DocumentStatusForReview
-	}
 	return d, nil
 }
 
@@ -307,8 +337,8 @@ func (d ComplianceDocument) Approve() (ComplianceDocument, error) {
 	if d.Status == DocumentStatusSuperseded {
 		return d, ErrDocumentSuperseded
 	}
-	if d.Status != DocumentStatusPending && d.Status != DocumentStatusForReview {
-		return d, ErrDocumentNotPending
+	if d.Status != DocumentStatusForReview {
+		return d, ErrDocumentNotForReview
 	}
 	d.Status = DocumentStatusApproved
 	return d, nil
@@ -349,36 +379,10 @@ func (d ComplianceDocument) Reject() (ComplianceDocument, error) {
 	if d.Status == DocumentStatusSuperseded {
 		return d, ErrDocumentSuperseded
 	}
-	if d.Status != DocumentStatusPending && d.Status != DocumentStatusForReview {
-		return d, ErrDocumentNotPending
+	if d.Status != DocumentStatusForReview {
+		return d, ErrDocumentNotForReview
 	}
 	d.Status = DocumentStatusRejected
-	return d, nil
-}
-
-// Resubmit implements BR-TP11 — legal only Rejected -> Pending. There is no
-// Approved -> anything transition via this method: an approved document is
-// never un-approved or re-reviewed once decided. (Supersede is the one
-// transition that may leave Approved — see BR-TP30 and Supersede's own
-// comment for why that is not an un-approval.)
-//
-// Phase 39 scopes this to the four CRUD document types. A GIT certificate is
-// never resubmitted: a rejection is final for that certificate, and the
-// operator registers a new one — which the drop zone allows at any time,
-// since registration is never gated (BR-TP63). The refusal lives here rather
-// than only in the adapter so the legacy CRUD path cannot reach a certificate
-// by ID and quietly revive it.
-func (d ComplianceDocument) Resubmit() (ComplianceDocument, error) {
-	if d.Type == DocumentTypeGoodsInTransit {
-		return d, ErrCertificateNotResubmittable
-	}
-	if d.Status == DocumentStatusSuperseded {
-		return d, ErrDocumentSuperseded
-	}
-	if d.Status != DocumentStatusRejected {
-		return d, ErrDocumentNotRejected
-	}
-	d.Status = DocumentStatusPending
 	return d, nil
 }
 
@@ -389,7 +393,7 @@ func (d ComplianceDocument) Resubmit() (ComplianceDocument, error) {
 // place BR-TP11's "no transition off Approved" is amended. It is not an
 // un-approval: the approval stands over the record it was given for, and
 // supersession retires that record because a newer document has replaced it.
-// The replacement starts its own review at Pending, so nothing inherits the
+// The replacement starts its own review at FOR_REVIEW, so nothing inherits the
 // old approval.
 //
 // This replaces BR-TP08's upsert, which reached the same end state by

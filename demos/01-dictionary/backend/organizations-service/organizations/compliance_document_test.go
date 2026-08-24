@@ -37,27 +37,28 @@ var _ = Describe("ComplianceDocument Rules", func() {
 		})
 	})
 
-	Context("BR-TP08: AddDocument requires a reference and a type valid for the partner, always starts Pending", func() {
-		It("creates a document in Pending status", func() {
-			doc, err := domain.AddDocument(domain.PartnerTypeShipper, domain.DocumentTypeCIPC, "s3://docs/cipc-123.pdf")
+	Context("BR-TP08 (Phase 40): AddDocument requires a document name and a type valid for the partner, always starts FOR_REVIEW", func() {
+		It("creates a document in FOR_REVIEW status carrying the document name", func() {
+			doc, err := domain.AddDocument(domain.PartnerTypeShipper, domain.DocumentTypeCIPC, "cipc-123.pdf")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(doc.Type).To(Equal(domain.DocumentTypeCIPC))
-			Expect(doc.Reference).To(Equal("s3://docs/cipc-123.pdf"))
-			Expect(doc.Status).To(Equal(domain.DocumentStatusPending))
+			Expect(doc.DocumentName).To(Equal("cipc-123.pdf"))
+			Expect(doc.Status).To(Equal(domain.DocumentStatusForReview),
+				"Phase 40: registration always carries bytes, so there is no cheaper pre-file status to start in")
 		})
 
-		It("rejects an empty reference", func() {
+		It("rejects an empty document name", func() {
 			_, err := domain.AddDocument(domain.PartnerTypeShipper, domain.DocumentTypeCIPC, "")
-			Expect(errors.Is(err, domain.ErrReferenceRequired)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrDocumentNameRequired)).To(BeTrue())
 		})
 
 		It("rejects a document type not valid for the partner's type", func() {
-			_, err := domain.AddDocument(domain.PartnerTypeShipper, domain.DocumentTypeGoodsInTransit, "s3://docs/git-123.pdf")
+			_, err := domain.AddDocument(domain.PartnerTypeShipper, domain.DocumentTypeGoodsInTransit, "git-123.pdf")
 			Expect(errors.Is(err, domain.ErrDocumentTypeNotAllowedForPartnerType)).To(BeTrue())
 		})
 
 		It("leaves CoverageCents/ExpiresAt unset and unenforced (BR-TP07-11's note: no domain-level restriction on which types may carry them)", func() {
-			doc, err := domain.AddDocument(domain.PartnerTypeShipper, domain.DocumentTypeCIPC, "s3://docs/cipc-123.pdf")
+			doc, err := domain.AddDocument(domain.PartnerTypeShipper, domain.DocumentTypeCIPC, "cipc-123.pdf")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(doc.CoverageCents).To(BeNil())
 			Expect(doc.ExpiresAt).To(BeNil())
@@ -68,124 +69,76 @@ var _ = Describe("ComplianceDocument Rules", func() {
 		})
 	})
 
-	// The matrix is exercised on a CRUD document type. GIT certificates share
-	// BR-TP09/BR-TP10's approve and reject edges but have no Resubmit edge at
-	// all (Phase 39), so a GIT fixture cannot state the third column — and
-	// their own review path is covered against the aggregate in
-	// git_certificate_rules_test.go.
-	Context("BR-TP09/BR-TP10/BR-TP11: the 3x3 document-status transition legality matrix", func() {
-		pending := func() domain.ComplianceDocument {
-			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeCIPC, "s3://docs/cipc-1.pdf")
+	// Phase 40 reduced this from a 3x3 to a 2x2: PENDING and Resubmit are both
+	// gone, so a document has one entry status and two terminal review
+	// outcomes. A rejected document is answered by registering a replacement,
+	// which is a repository-level rule (BR-TP30's supersession) rather than a
+	// transition on this type — there is deliberately no method here that
+	// moves a document back into the queue.
+	Context("BR-TP09/BR-TP10: the document-status transition legality matrix", func() {
+		forReview := func() domain.ComplianceDocument {
+			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeCIPC, "cipc-1.pdf")
 			Expect(err).NotTo(HaveOccurred())
 			return doc
 		}
 		approved := func() domain.ComplianceDocument {
-			doc, err := pending().Approve()
+			doc, err := forReview().Approve()
 			Expect(err).NotTo(HaveOccurred())
 			return doc
 		}
 		rejected := func() domain.ComplianceDocument {
-			doc, err := pending().Reject()
+			doc, err := forReview().Reject()
 			Expect(err).NotTo(HaveOccurred())
 			return doc
 		}
 
-		// The three legal edges.
-		It("Pending -> Approved via Approve", func() {
-			doc, err := pending().Approve()
+		// The two legal edges.
+		It("FOR_REVIEW -> Approved via Approve", func() {
+			doc, err := forReview().Approve()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(doc.Status).To(Equal(domain.DocumentStatusApproved))
 		})
 
-		It("Pending -> Rejected via Reject", func() {
-			doc, err := pending().Reject()
+		It("FOR_REVIEW -> Rejected via Reject", func() {
+			doc, err := forReview().Reject()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(doc.Status).To(Equal(domain.DocumentStatusRejected))
 		})
 
-		It("Rejected -> Pending via Resubmit", func() {
-			doc, err := rejected().Resubmit()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(doc.Status).To(Equal(domain.DocumentStatusPending))
-		})
-
-		// The six illegal edges.
+		// The four illegal edges. Both terminal statuses refuse both
+		// transitions, and say so with one error: a review has been made.
 		It("rejects Approve from Approved (already approved)", func() {
 			_, err := approved().Approve()
-			Expect(errors.Is(err, domain.ErrDocumentNotPending)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrDocumentNotForReview)).To(BeTrue())
 		})
 
-		It("rejects Approve from Rejected (must resubmit first)", func() {
+		It("rejects Approve from Rejected (register a replacement instead)", func() {
 			_, err := rejected().Approve()
-			Expect(errors.Is(err, domain.ErrDocumentNotPending)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrDocumentNotForReview)).To(BeTrue())
 		})
 
 		It("rejects Reject from Approved", func() {
 			_, err := approved().Reject()
-			Expect(errors.Is(err, domain.ErrDocumentNotPending)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrDocumentNotForReview)).To(BeTrue())
 		})
 
 		It("rejects Reject from Rejected (already rejected)", func() {
 			_, err := rejected().Reject()
-			Expect(errors.Is(err, domain.ErrDocumentNotPending)).To(BeTrue())
-		})
-
-		It("rejects Resubmit from Pending (nothing to resubmit)", func() {
-			_, err := pending().Resubmit()
-			Expect(errors.Is(err, domain.ErrDocumentNotRejected)).To(BeTrue())
-		})
-
-		It("rejects Resubmit from Approved (no un-approving in v1)", func() {
-			_, err := approved().Resubmit()
-			Expect(errors.Is(err, domain.ErrDocumentNotRejected)).To(BeTrue())
-		})
-	})
-
-	Context("BR-TP11 as scoped in Phase 39: a GIT certificate is replaced, never resubmitted", func() {
-		rejected := func(docType domain.DocumentType) domain.ComplianceDocument {
-			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, docType, "s3://docs/doc-1.pdf")
-			Expect(err).NotTo(HaveOccurred())
-			doc.Status = domain.DocumentStatusRejected
-			return doc
-		}
-
-		It("refuses to resubmit a rejected GIT certificate", func() {
-			_, err := rejected(domain.DocumentTypeGoodsInTransit).Resubmit()
-			Expect(errors.Is(err, domain.ErrCertificateNotResubmittable)).To(BeTrue(),
-				"a rejection is final for that certificate — the operator registers a new one")
-		})
-
-		It("refuses regardless of the status it is asked from", func() {
-			for _, status := range []domain.DocumentStatus{
-				domain.DocumentStatusPending, domain.DocumentStatusForReview,
-				domain.DocumentStatusApproved, domain.DocumentStatusSuperseded,
-			} {
-				doc := rejected(domain.DocumentTypeGoodsInTransit)
-				doc.Status = status
-				_, err := doc.Resubmit()
-				Expect(errors.Is(err, domain.ErrCertificateNotResubmittable)).To(BeTrue(),
-					"the type decides this, not the status — %s", status)
-			}
-		})
-
-		It("still resubmits the four CRUD types", func() {
-			doc, err := rejected(domain.DocumentTypeCIPC).Resubmit()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(doc.Status).To(Equal(domain.DocumentStatusPending))
+			Expect(errors.Is(err, domain.ErrDocumentNotForReview)).To(BeTrue())
 		})
 	})
 
 	Context("BR-TP59: a document may carry an optional expiry, which must be future-dated when set", func() {
 		now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
-		pending := func() domain.ComplianceDocument {
-			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeGoodsInTransit, "s3://docs/git-1.pdf")
+		forReview := func() domain.ComplianceDocument {
+			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeGoodsInTransit, "git-1.pdf")
 			Expect(err).NotTo(HaveOccurred())
 			return doc
 		}
 
 		It("sets a future expiry", func() {
 			at := now.Add(24 * time.Hour).Unix()
-			doc, err := pending().SetExpiry(&at, now)
+			doc, err := forReview().SetExpiry(&at, now)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(doc.ExpiresAt).NotTo(BeNil())
 			Expect(*doc.ExpiresAt).To(Equal(at))
@@ -197,13 +150,13 @@ var _ = Describe("ComplianceDocument Rules", func() {
 		// business event and is actually a typo.
 		It("rejects an expiry in the past", func() {
 			at := now.Add(-time.Second).Unix()
-			_, err := pending().SetExpiry(&at, now)
+			_, err := forReview().SetExpiry(&at, now)
 			Expect(errors.Is(err, domain.ErrDocumentExpiryInPast)).To(BeTrue())
 		})
 
 		It("rejects an expiry exactly at the current instant", func() {
 			at := now.Unix()
-			_, err := pending().SetExpiry(&at, now)
+			_, err := forReview().SetExpiry(&at, now)
 			Expect(errors.Is(err, domain.ErrDocumentExpiryInPast)).To(BeTrue())
 		})
 
@@ -212,7 +165,7 @@ var _ = Describe("ComplianceDocument Rules", func() {
 		// (38h-ii's D5), so nil is always legal and never checked against now.
 		It("clears an expiry when passed nil", func() {
 			at := now.Add(24 * time.Hour).Unix()
-			doc, err := pending().SetExpiry(&at, now)
+			doc, err := forReview().SetExpiry(&at, now)
 			Expect(err).NotTo(HaveOccurred())
 
 			cleared, err := doc.SetExpiry(nil, now)
@@ -224,7 +177,7 @@ var _ = Describe("ComplianceDocument Rules", func() {
 		// (BR-TP30), but correcting a mistyped date on an approved one is not
 		// a review decision and must not require re-approval.
 		It("allows an expiry change on an approved document", func() {
-			approved, err := pending().Approve()
+			approved, err := forReview().Approve()
 			Expect(err).NotTo(HaveOccurred())
 
 			at := now.Add(72 * time.Hour).Unix()
@@ -235,7 +188,7 @@ var _ = Describe("ComplianceDocument Rules", func() {
 		})
 
 		It("allows an expiry correction on a superseded document", func() {
-			superseded, err := pending().Supersede()
+			superseded, err := forReview().Supersede()
 			Expect(err).NotTo(HaveOccurred())
 
 			at := now.Add(24 * time.Hour).Unix()
@@ -246,7 +199,7 @@ var _ = Describe("ComplianceDocument Rules", func() {
 		})
 
 		It("does not mutate the receiver", func() {
-			doc := pending()
+			doc := forReview()
 			at := now.Add(24 * time.Hour).Unix()
 			_, err := doc.SetExpiry(&at, now)
 			Expect(err).NotTo(HaveOccurred())
@@ -255,24 +208,24 @@ var _ = Describe("ComplianceDocument Rules", func() {
 	})
 
 	Context("BR-TP30: supersession is an explicit terminal transition from any non-terminal status", func() {
-		pending := func() domain.ComplianceDocument {
-			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeGoodsInTransit, "s3://docs/git-1.pdf")
+		forReview := func() domain.ComplianceDocument {
+			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeGoodsInTransit, "git-1.pdf")
 			Expect(err).NotTo(HaveOccurred())
 			return doc
 		}
 
-		// All three non-terminal statuses may be superseded. Approved is
+		// All non-terminal statuses may be superseded. Approved is
 		// included deliberately: BR-TP30 amends BR-TP11's "no Approved ->
 		// anything" rule, because retiring the record an approval applied to
 		// is not the same as un-approving the work.
-		It("supersedes a Pending document", func() {
-			doc, err := pending().Supersede()
+		It("supersedes a document awaiting review", func() {
+			doc, err := forReview().Supersede()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(doc.Status).To(Equal(domain.DocumentStatusSuperseded))
 		})
 
 		It("supersedes an Approved document without un-approving it", func() {
-			approved, err := pending().Approve()
+			approved, err := forReview().Approve()
 			Expect(err).NotTo(HaveOccurred())
 
 			doc, err := approved.Supersede()
@@ -281,7 +234,7 @@ var _ = Describe("ComplianceDocument Rules", func() {
 		})
 
 		It("supersedes a Rejected document", func() {
-			rejected, err := pending().Reject()
+			rejected, err := forReview().Reject()
 			Expect(err).NotTo(HaveOccurred())
 
 			doc, err := rejected.Supersede()
@@ -290,7 +243,7 @@ var _ = Describe("ComplianceDocument Rules", func() {
 		})
 
 		It("rejects every transition except review resolution and SetExpiry on a superseded document", func() {
-			superseded, err := pending().Supersede()
+			superseded, err := forReview().Supersede()
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = superseded.Approve()
@@ -299,26 +252,10 @@ var _ = Describe("ComplianceDocument Rules", func() {
 			_, err = superseded.Reject()
 			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
 
-			// This fixture is a GIT certificate, which refuses resubmission on
-			// type before status is even considered (Phase 39). The CRUD types
-			// still report the superseded refusal here — asserted below, so
-			// BR-TP30's own edge keeps its coverage.
-			_, err = superseded.Resubmit()
-			Expect(errors.Is(err, domain.ErrCertificateNotResubmittable)).To(BeTrue())
-
 			_, err = superseded.Supersede()
 			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
 		})
 
-		It("refuses Resubmit on a superseded CRUD document", func() {
-			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeCIPC, "s3://docs/cipc-1.pdf")
-			Expect(err).NotTo(HaveOccurred())
-			superseded, err := doc.Supersede()
-			Expect(err).NotTo(HaveOccurred())
-
-			_, err = superseded.Resubmit()
-			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
-		})
 	})
 
 	Context("BR-TP64: GIT certificates require goods types", func() {
@@ -362,12 +299,31 @@ var _ = Describe("ComplianceDocument Rules", func() {
 		})
 	})
 
-	Context("BR-TP68: attaching GIT bytes moves a minted row into review", func() {
-		It("moves Pending to FOR_REVIEW without changing other document types", func() {
-			git := domain.ComplianceDocument{Type: domain.DocumentTypeGoodsInTransit, Status: domain.DocumentStatusPending}
-			attached, err := git.AttachFile(domain.DocumentFile{FileName: "git.pdf", ContentType: "application/pdf", SizeBytes: 1})
+	// BR-TP68 (Phase 40): attaching bytes is no longer a review transition —
+	// a document is FOR_REVIEW from registration, so there is no cheaper
+	// status for the file to promote it out of. What AttachFile now enforces
+	// instead is that the bytes arriving are the ones that were registered.
+	Context("BR-TP08/BR-TP45 (Phase 40): AttachFile records bytes without moving the review forward", func() {
+		registered := func() domain.ComplianceDocument {
+			doc, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeGoodsInTransit, "git.pdf")
+			Expect(err).NotTo(HaveOccurred())
+			return doc
+		}
+		file := domain.DocumentFile{DocumentName: "git.pdf", ContentType: "application/pdf", SizeBytes: 1}
+
+		It("leaves the status at FOR_REVIEW", func() {
+			attached, err := registered().AttachFile(file)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(attached.Status).To(Equal(domain.DocumentStatusForReview))
+			Expect(attached.File).NotTo(BeNil())
+		})
+
+		It("refuses bytes whose name is not the registered one", func() {
+			mismatched := file
+			mismatched.DocumentName = "something-else.pdf"
+			_, err := registered().AttachFile(mismatched)
+			Expect(errors.Is(err, domain.ErrDocumentNameMismatch)).To(BeTrue(),
+				"the name is the identity (Phase 40 decision 3), so the upload cannot rename the row it lands on")
 		})
 	})
 })

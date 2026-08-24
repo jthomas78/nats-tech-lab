@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/identity"
 )
 
 // AuditLog is the Postgres-backed, append-only audit trail for
@@ -32,10 +33,14 @@ func (a *AuditLog) Record(ctx context.Context, entry domain.AuditEntry) error {
 	if outcome == "" {
 		outcome = domain.AuditOutcomeSuccess
 	}
+	// BR-TP73: the row's own id is a ULID minted here, not a column default.
+	// Nothing reads it back on this path — the audit trail is addressed by
+	// (organization_id, created_at) — but it is the primary key, so it has to
+	// be supplied now that Postgres has no default to fall back on.
 	_, err = a.db.ExecContext(ctx, `
-		INSERT INTO organizations.audit_events (organization_id, action, actor, source_ip, outcome, metadata)
-		VALUES ($1, $2, $3, $4, $5, $6)`,
-		entry.OrganizationID, entry.Action, entry.Actor, entry.SourceIP, outcome, metadataJSON)
+		INSERT INTO organizations.audit_events (id, organization_id, action, actor, source_ip, outcome, metadata)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		identity.New(), entry.OrganizationID, entry.Action, entry.Actor, entry.SourceIP, outcome, metadataJSON)
 	return err
 }
 

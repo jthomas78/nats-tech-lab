@@ -77,7 +77,6 @@ const (
 	DocumentGitUpdateSubject = "api.*.organizations.document.git-update.v1"
 	DocumentApproveSubject   = "api.*.organizations.document.approve.v1"
 	DocumentRejectSubject    = "api.*.organizations.document.reject.v1"
-	DocumentResubmitSubject  = "api.*.organizations.document.resubmit.v1"
 
 	// DocumentSetExpirySubject is BR-TP59. Its own verb rather than a field
 	// on approve: an expiry is a fact about the document, supplied when it
@@ -90,13 +89,16 @@ const (
 	// document_files.go for why, and internal/filetickets for why the grant is
 	// decided here, on an authenticated connection, rather than at the HTTP
 	// ingress that spends it.
-	DocumentUploadTicketSubject = "api.*.organizations.document.upload-ticket.v1"
+	// Phase 40 retired the standalone upload-ticket verb: an upload ticket is
+	// only ever minted by a registration now, because a document exists only
+	// once a file has been dropped on it. document.add returns one for the
+	// four shared types, and DocumentGitRegisterSubject does for GIT.
+	//
 	// DocumentGitRegisterSubject is decision 28's one-call registration: it
 	// registers the certificate and returns the ticket its bytes will be
 	// spent against, so a drag-and-drop produces row and file from a single
-	// gesture (decision 3). A separate endpoint rather than a flag on
-	// document-add because it returns a credential as well as data, which is
-	// a different response shape and a different security story.
+	// gesture (decision 3). It stays separate from document-add because GIT
+	// carries the certificate fields the other four do not.
 	DocumentGitRegisterSubject    = "api.*.organizations.document.git-register.v1"
 	DocumentDownloadTicketSubject = "api.*.organizations.document.download-ticket.v1"
 
@@ -250,9 +252,7 @@ func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 		{"document-git-update", a.handleDocumentGitUpdate, DocumentGitUpdateSubject},
 		{"document-approve", a.handleDocumentApprove, DocumentApproveSubject},
 		{"document-reject", a.handleDocumentReject, DocumentRejectSubject},
-		{"document-resubmit", a.handleDocumentResubmit, DocumentResubmitSubject},
 		{"document-git-register", a.handleDocumentGitRegister, DocumentGitRegisterSubject},
-		{"document-upload-ticket", a.handleDocumentUploadTicket, DocumentUploadTicketSubject},
 		{"document-download-ticket", a.handleDocumentDownloadTicket, DocumentDownloadTicketSubject},
 
 		{"fleet-asset-add", a.handleFleetAssetAdd, FleetAssetAddSubject},
@@ -331,7 +331,10 @@ type documentRequest struct {
 	ID         string              `json:"id"`
 	Type       domain.DocumentType `json:"type,omitempty"`
 	DocumentID string              `json:"documentId,omitempty"`
-	Reference  string              `json:"reference,omitempty"`
+	// DocumentName is Phase 40's replacement for the old free-text
+	// reference: the name of the file that was dropped, supplied at
+	// registration and immutable afterwards.
+	DocumentName string `json:"documentName,omitempty"`
 	// ExpiresAt is BR-TP59's optional expiry, Unix seconds like every other
 	// instant on this surface. A pointer so "not supplied" stays distinct
 	// from "cleared" — set-expiry uses null to clear, and a plain int64
@@ -516,8 +519,9 @@ func isConflictErr(err error) bool {
 		errors.Is(err, domain.ErrNotRegistered) ||
 		errors.Is(err, domain.ErrNotActive) ||
 		errors.Is(err, domain.ErrNotSuspended) ||
-		errors.Is(err, domain.ErrDocumentNotPending) ||
-		errors.Is(err, domain.ErrDocumentNotRejected) ||
+		errors.Is(err, domain.ErrDocumentNotForReview) ||
+		errors.Is(err, domain.ErrDuplicateDocumentName) ||
+		errors.Is(err, domain.ErrDocumentNameMismatch) ||
 		errors.Is(err, domain.ErrDocumentSuperseded) ||
 		// BR-TP43: bytes are write-once, so "this already has a file" is the
 		// same class of answer as an illegal transition — supersede and
@@ -705,12 +709,26 @@ func (a *Adapter) handleDocumentAdd(req micro.Request) {
 		// supersede-on-register path, registering changes no cover at all.
 		// Approval does (BR-TP69), and that is where the signal now belongs.
 		doc, err := a.documents.AddGitDocument(context.Background(), a.tenant, contextKey,
-			in.ID, in.Reference, in.ExpiresAt, in.CoverageCents, in.GoodsTypes, a.actor(req))
+			in.ID, in.DocumentName, in.ExpiresAt, in.CoverageCents, in.GoodsTypes, a.actor(req))
 		a.reply(req, documentResponse{doc}, err)
 		return
 	}
-	doc, err := a.documents.AddDocument(context.Background(), in.ID, in.Type, in.Reference, in.ExpiresAt)
-	a.reply(req, documentResponse{doc}, err)
+	// Phase 40: the four shared types are registered by dropping a file too,
+	// so add mints the upload ticket exactly as git-register does — same
+	// register-then-mint order, same reply shape.
+	if a.documentFiles == nil {
+		a.reply(req, nil, domain.ErrDocumentFileMissing)
+		return
+	}
+	doc, err := a.documents.AddDocument(context.Background(), in.ID, in.Type, in.DocumentName, in.ExpiresAt)
+	if err != nil {
+		a.reply(req, nil, err)
+		return
+	}
+	ticket, err := a.documentFiles.MintUploadTicket(context.Background(), a.tenant, contextKey, in.ID, doc.ID, a.actor(req))
+	a.reply(req, documentRegistrationResponse{
+		Document: doc, Ticket: ticket, MaxBytes: domain.MaxDocumentFileBytes,
+	}, err)
 }
 
 // coverChangedSignal is BR-TP61's re-arm, and follows BR-TP57's shape exactly:
@@ -800,7 +818,7 @@ func (a *Adapter) handleDocumentGitUpdate(req micro.Request) {
 	}
 	contextKey := sharedbrowserrpc.ContextFromSubject(req.Subject())
 	doc, err := a.documents.UpdateGitDocument(context.Background(), a.tenant, contextKey,
-		in.ID, in.DocumentID, in.Reference, in.GoodsTypes, in.CoverageCents,
+		in.ID, in.DocumentID, in.GoodsTypes, in.CoverageCents,
 		in.InsurerName, in.InsuranceContactName, in.InsuranceContactNumber, a.actor(req))
 	if err == nil {
 		a.coverChangedSignal(req, in.ID)
@@ -892,25 +910,12 @@ func (a *Adapter) handleDocumentReject(req micro.Request) {
 	a.documentTransition(req, a.documents.RejectDocument, reviewRejected)
 }
 
-func (a *Adapter) handleDocumentResubmit(req micro.Request) {
-	// Resubmit deliberately sends no signal: a rejection already ended the
-	// attempt (BR-TP23), and the workflow's required set was fixed at submit
-	// time. Putting the document back to Pending is what makes it eligible for
-	// the *next* attempt, which BR-TP56 starts.
-	//
-	// There is no GIT branch here, unlike approve and reject. A rejected
-	// certificate is replaced by registering a new one, not revived, so this
-	// subject reaches only the four CRUD types — and a client that addresses a
-	// certificate by ID anyway is refused by the domain, not by this adapter.
-	a.documentTransition(req, a.documents.ResubmitDocument, reviewNoSignal)
-}
-
-// documentTransition is the shared body of approve/reject/resubmit — all three
-// take (partnerID, documentID) and return the updated document, so the only
-// thing that varies is which command handler runs.
+// documentTransition is the shared body of approve/reject — both take
+// (partnerID, documentID) and return the updated document, so the only thing
+// that varies is which command handler runs.
 // reviewOutcome says whether a document transition carries a BR-TP57 signal,
-// and with what verdict. A three-valued type rather than a bool so resubmit's
-// "no signal at all" is stated at the call site instead of inferred.
+// and with what verdict. It keeps a three-valued shape rather than a bool so
+// "no signal at all" stays sayable at a call site.
 type reviewOutcome int
 
 const (
@@ -931,7 +936,7 @@ func (a *Adapter) documentTransition(
 	}
 	doc, err := fn(context.Background(), in.ID, in.DocumentID)
 	// Only a transition that actually happened is signalled — a rejected
-	// approval (BR-TP09's not-Pending guard) changed nothing, so telling the
+	// approval (BR-TP09's not-FOR_REVIEW guard) changed nothing, so telling the
 	// workflow about it would advance an attempt on a document that never
 	// moved.
 	if err == nil && outcome != reviewNoSignal {
@@ -942,21 +947,17 @@ func (a *Adapter) documentTransition(
 
 // --- Document file tickets (BR-TP41, Phase 38c-ii) ---
 
-// handleDocumentUploadTicket and handleDocumentDownloadTicket are the only
-// api.* endpoints whose result is a credential rather than data.
+// handleDocumentDownloadTicket is the only api.* endpoint whose result is a
+// credential rather than data. Phase 40 retired its upload counterpart: an
+// upload ticket is now only ever minted by a registration, because a document
+// exists only once a file has been dropped on it.
 //
-// Both take the tenant from a.tenant — this adapter's own authenticated
+// It takes the tenant from a.tenant — this adapter's own authenticated
 // connection — and {context} from the subject, exactly as every other endpoint
-// here does, and neither reads either from the request body. That is the whole
+// here does, and reads neither from the request body. That is the whole
 // mechanism: by the time the HTTP ingress sees a ticket, the tenancy decision
 // has already been made server-side by NATS, so the ingress never has to make
 // one. See the package doc's first rule, and internal/filetickets.
-func (a *Adapter) handleDocumentUploadTicket(req micro.Request) {
-	a.documentTicket(req, func(ctx context.Context, contextKey, partnerID, documentID string) (string, error) {
-		return a.documentFiles.MintUploadTicket(ctx, a.tenant, contextKey, partnerID, documentID, a.actor(req))
-	})
-}
-
 func (a *Adapter) handleDocumentDownloadTicket(req micro.Request) {
 	a.documentTicket(req, func(ctx context.Context, contextKey, partnerID, documentID string) (string, error) {
 		return a.documentFiles.MintDownloadTicket(ctx, a.tenant, contextKey, partnerID, documentID)
@@ -983,7 +984,7 @@ func (a *Adapter) handleDocumentGitRegister(req micro.Request) {
 	contextKey := sharedbrowserrpc.ContextFromSubject(req.Subject())
 	actor := a.actor(req)
 	doc, err := a.documents.AddGitDocument(context.Background(), a.tenant, contextKey,
-		in.ID, in.Reference, in.ExpiresAt, in.CoverageCents, in.GoodsTypes, actor)
+		in.ID, in.DocumentName, in.ExpiresAt, in.CoverageCents, in.GoodsTypes, actor)
 	if err != nil {
 		a.reply(req, nil, err)
 		return

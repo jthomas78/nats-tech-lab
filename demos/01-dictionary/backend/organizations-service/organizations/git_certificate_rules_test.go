@@ -112,12 +112,12 @@ func (r *recordingAppender) RejectCertificate(ctx context.Context, contextKey, o
 	return r.fakeCertificateAppender.RejectCertificate(ctx, contextKey, organizationID, documentID, actorName, sourceIP)
 }
 
-func (r *recordingAppender) UpdateCertificateDetails(ctx context.Context, contextKey, organizationID, documentID, reference string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (profiledomain.State, error) {
+func (r *recordingAppender) UpdateCertificateDetails(ctx context.Context, contextKey, organizationID, documentID string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (profiledomain.State, error) {
 	r.replay(contextKey, organizationID, func(agg *profiledomain.TransporterProfile) ([]profiledomain.Event, error) {
-		event, err := agg.UpdateCertificateDetails(documentID, reference, goodsTypes, coverageCents, insurerName, contactsChanged, actorName, sourceIP)
+		event, err := agg.UpdateCertificateDetails(documentID, goodsTypes, coverageCents, insurerName, contactsChanged, actorName, sourceIP)
 		return []profiledomain.Event{event}, err
 	})
-	return r.fakeCertificateAppender.UpdateCertificateDetails(ctx, contextKey, organizationID, documentID, reference, goodsTypes, coverageCents, insurerName, contactsChanged, actorName, sourceIP)
+	return r.fakeCertificateAppender.UpdateCertificateDetails(ctx, contextKey, organizationID, documentID, goodsTypes, coverageCents, insurerName, contactsChanged, actorName, sourceIP)
 }
 
 func (r *recordingAppender) AttachCertificateFile(ctx context.Context, contextKey, organizationID, documentID string, file domain.DocumentFile, actorName, sourceIP string) (profiledomain.State, error) {
@@ -185,9 +185,16 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 		partnerID = tp.ID
 	})
 
-	register := func(goodsTypes []string, coverageCents *int64, expiresAt *int64) (domain.ComplianceDocument, error) {
+	// Phase 40: registration takes the dropped file's name. Specs that
+	// register twice for one organization pass their own, since BR-TP74 makes
+	// the name unique per organization.
+	registerNamed := func(documentName string, goodsTypes []string, coverageCents *int64, expiresAt *int64) (domain.ComplianceDocument, error) {
 		return handler.AddGitDocument(context.Background(), tenant, contextKey, partnerID,
-			"s3://docs/git.pdf", expiresAt, coverageCents, goodsTypes, actor)
+			documentName, expiresAt, coverageCents, goodsTypes, actor)
+	}
+
+	register := func(goodsTypes []string, coverageCents *int64, expiresAt *int64) (domain.ComplianceDocument, error) {
+		return registerNamed("git.pdf", goodsTypes, coverageCents, expiresAt)
 	}
 
 	approve := func(documentID string) (domain.ComplianceDocument, error) {
@@ -215,11 +222,23 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 			Expect(appender.recorded()).To(BeEmpty())
 		})
 
+		It("refuses a second registration under a name the organization already used (BR-TP74)", func() {
+			_, err := register([]string{"FOOD"}, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+			before := len(appender.recorded())
+
+			_, err = register([]string{"FOOD"}, nil, nil)
+			Expect(errors.Is(err, domain.ErrDuplicateDocumentName)).To(BeTrue(),
+				"dropping the same file twice must be refused: %v", err)
+			Expect(appender.recorded()).To(HaveLen(before),
+				"the refusal has to land before the append — a duplicate on the log cannot be taken back")
+		})
+
 		It("refuses to register at all when no validator is configured", func() {
 			bare := commands.NewComplianceDocumentHandler(partners, docs).
 				WithCertificateAppender(appender)
 			_, err := bare.AddGitDocument(context.Background(), tenant, contextKey, partnerID,
-				"s3://docs/git.pdf", nil, nil, []string{"FOOD"}, actor)
+				"git.pdf", nil, nil, []string{"FOOD"}, actor)
 			Expect(err).To(HaveOccurred(),
 				"an unconfigured vocabulary must fail closed — accepting every code would silently disable the rule")
 		})
@@ -230,7 +249,7 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 			before := len(appender.recorded())
 
 			_, err = handler.UpdateGitDocument(context.Background(), tenant, contextKey, partnerID, doc.ID,
-				"edited.pdf", []string{"UNKNOWN"}, nil, "", "", "", actor)
+				[]string{"UNKNOWN"}, nil, "", "", "", actor)
 			Expect(errors.Is(err, domain.ErrGoodsTypeNotFound)).To(BeTrue())
 			Expect(appender.recorded()).To(HaveLen(before))
 		})
@@ -320,7 +339,7 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 			profile.Apply(event)
 
 			_, err = profile.ApproveCertificate("rejected", "Acme Insurance", now, actorName, sourceIP)
-			Expect(errors.Is(err, domain.ErrDocumentNotPending)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrDocumentNotForReview)).To(BeTrue())
 		})
 	})
 
@@ -328,11 +347,11 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 		It("accepts a renewal while cover is live and approved, and moves no cover", func() {
 			first, err := register([]string{"FOOD"}, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(first.Status).To(Equal(domain.DocumentStatusPending), "a registration with no file yet is PENDING (BR-TP68)")
+			Expect(first.Status).To(Equal(domain.DocumentStatusForReview), "a registration with no file yet is PENDING (BR-TP68)")
 			_, err = approve(first.ID)
 			Expect(err).NotTo(HaveOccurred())
 
-			second, err := register([]string{"FOOD"}, nil, nil)
+			second, err := registerNamed("git-renewal.pdf", []string{"FOOD"}, nil, nil)
 			Expect(err).NotTo(HaveOccurred(), "early renewal is legal in every state (BR-TP68)")
 
 			stored, err := docs.GetDocument(context.Background(), partnerID, first.ID)
@@ -364,7 +383,7 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 		It("supersedes every earlier certificate when a later one is approved", func() {
 			first, err := register([]string{"FOOD"}, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
-			second, err := register([]string{"FOOD"}, nil, nil)
+			second, err := registerNamed("git-renewal.pdf", []string{"FOOD"}, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = approve(second.ID)
@@ -497,11 +516,11 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 			_, err := superseded.ApproveCertificate("old", "Acme Insurance", time.Now().UTC(), actorName, sourceIP)
 			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
 
-			_, err = superseded.UpdateCertificateDetails("old", "changed.pdf", []string{"FOOD"}, nil, "Insurer", false, actorName, sourceIP)
+			_, err = superseded.UpdateCertificateDetails("old", []string{"FOOD"}, nil, "Insurer", false, actorName, sourceIP)
 			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
 
 			_, err = superseded.AttachCertificateFile("old", domain.DocumentFile{
-				FileName: "git.pdf", ContentType: "application/pdf", SizeBytes: 1,
+				DocumentName: "git.pdf", ContentType: "application/pdf", SizeBytes: 1,
 			}, actorName, sourceIP)
 			Expect(errors.Is(err, domain.ErrDocumentSuperseded)).To(BeTrue())
 		})
@@ -522,7 +541,7 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = appender.AttachCertificateFile(context.Background(), contextKey, partnerID, doc.ID,
-				domain.DocumentFile{FileName: "git.pdf", ContentType: "application/pdf", SizeBytes: 1, ObjectName: "obj"},
+				domain.DocumentFile{DocumentName: "git.pdf", ContentType: "application/pdf", SizeBytes: 1, ObjectName: "obj"},
 				actor.Name, actor.SourceIP)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -635,10 +654,11 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 			cover := int64(900_000)
 
 			updated, err := handler.UpdateGitDocument(context.Background(), tenant, contextKey, partnerID, doc.ID,
-				"renewal.pdf", []string{"FOOD", "CHEMICALS"}, &cover,
+				[]string{"FOOD", "CHEMICALS"}, &cover,
 				"Acme Insurance", "Jane Reviewer", "+27 11 555 0000", actor)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(updated.Reference).To(Equal("renewal.pdf"))
+			Expect(updated.DocumentName).To(Equal("git.pdf"),
+				"Phase 40: the document name is fixed at registration and no longer editable")
 			Expect(updated.GoodsTypes).To(Equal([]string{"FOOD", "CHEMICALS"}))
 
 			raw, err := json.Marshal(appender.recorded())
@@ -662,7 +682,7 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 	Context("BR-TP10 with BR-TP68: a certificate in the reviewer's queue can be rejected", func() {
 		attach := func(documentID string) {
 			_, err := appender.AttachCertificateFile(context.Background(), contextKey, partnerID, documentID,
-				domain.DocumentFile{FileName: "git.pdf", ContentType: "application/pdf", SizeBytes: 1, ObjectName: "obj"},
+				domain.DocumentFile{DocumentName: "git.pdf", ContentType: "application/pdf", SizeBytes: 1, ObjectName: "obj"},
 				actorName, sourceIP)
 			Expect(err).NotTo(HaveOccurred())
 		}
@@ -694,28 +714,25 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 			_, err = handler.RejectGitDocument(context.Background(), tenant, contextKey, partnerID, doc.ID, actor)
 			Expect(err).NotTo(HaveOccurred())
 
-			// The legacy CRUD verb is the only resubmission path left, and it
-			// must not reach a certificate by ID.
-			_, err = handler.ResubmitDocument(context.Background(), partnerID, doc.ID)
-			Expect(errors.Is(err, domain.ErrCertificateNotResubmittable)).To(BeTrue(),
-				"a rejected certificate is replaced by registering a new one, not put back in the queue")
-
+			// Phase 40 retired document resubmission entirely: there is no
+			// verb that puts a rejected row back in the queue, so the row
+			// stays rejected and the replacement is a fresh registration.
 			stored, err := docs.GetDocument(context.Background(), partnerID, doc.ID)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stored.Status).To(Equal(domain.DocumentStatusRejected))
 
 			// Registration is never gated, so the replacement is always available.
-			replacement, err := register([]string{"FOOD"}, nil, nil)
+			replacement, err := registerNamed("git-2.pdf", []string{"FOOD"}, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(replacement.ID).NotTo(Equal(doc.ID))
-			Expect(replacement.Status).To(Equal(domain.DocumentStatusPending))
+			Expect(replacement.Status).To(Equal(domain.DocumentStatusForReview))
 		})
 
 		It("still refuses a superseded certificate", func() {
 			target, err := register([]string{"FOOD"}, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			attach(target.ID)
-			later, err := register([]string{"FOOD"}, nil, nil)
+			later, err := registerNamed("git-later.pdf", []string{"FOOD"}, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			_, err = approve(later.ID)
 			Expect(err).NotTo(HaveOccurred())
@@ -740,19 +757,19 @@ var _ = Describe("GIT certificates (BR-TP64-BR-TP72)", func() {
 
 		It("writes the projection row on the command path, not only from the stream", func() {
 			doc, err := detached.AddGitDocument(context.Background(), tenant, contextKey, partnerID,
-				"s3://docs/git.pdf", nil, nil, []string{"FOOD"}, actor)
+				"git.pdf", nil, nil, []string{"FOOD"}, actor)
 			Expect(err).NotTo(HaveOccurred())
 
 			stored, err := docs.GetDocument(context.Background(), partnerID, doc.ID)
 			Expect(err).NotTo(HaveOccurred(),
 				"every later command on this certificate reads the projection first, so a row that lands late is a command that fails")
-			Expect(stored.Status).To(Equal(domain.DocumentStatusPending))
+			Expect(stored.Status).To(Equal(domain.DocumentStatusForReview))
 			Expect(stored.GoodsTypes).To(Equal([]string{"FOOD"}))
 		})
 
 		It("lets the certificate be approved immediately, contacts and all", func() {
 			doc, err := detached.AddGitDocument(context.Background(), tenant, contextKey, partnerID,
-				"s3://docs/git.pdf", nil, nil, []string{"FOOD"}, actor)
+				"git.pdf", nil, nil, []string{"FOOD"}, actor)
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = detached.ApproveGitDocument(context.Background(), tenant, contextKey, partnerID, doc.ID,

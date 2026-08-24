@@ -13,7 +13,7 @@ import { computed, reactive, ref, watch } from 'vue'
 
 import {
   activateOrganization,
-  addComplianceDocument,
+  registerComplianceDocumentWithFile,
   addFleetAsset,
   approveComplianceDocument,
   getOrganizationAudit,
@@ -23,7 +23,6 @@ import {
   reactivateOrganization,
   registerOrganization,
   rejectComplianceDocument,
-  resubmitComplianceDocument,
   suspendOrganization,
 } from '../api'
 import { useTenantStore } from '../stores/tenant'
@@ -223,22 +222,55 @@ const addDocOpen = ref(false)
 const addDocPartner = ref(null)
 const addDocSaving = ref(false)
 const addDocError = ref('')
-const addDocForm = reactive({ type: '', reference: '' })
+// Phase 40: a compliance document is a file. The form carries the type and
+// the dropped file; the document name is the file's own name (BR-TP74) and is
+// never typed.
+const addDocForm = reactive({ type: '', file: null })
+const docFileInput = ref(null)
 
 function openAddDocument(tp) {
   addDocPartner.value = tp
   addDocForm.type = documentTypesFor(tp.type)[0]
-  addDocForm.reference = ''
+  addDocForm.file = null
   addDocError.value = ''
   addDocOpen.value = true
 }
 
+function chooseDocFile() {
+  if (!docFileInput.value) return
+  docFileInput.value.value = ''
+  docFileInput.value.click()
+}
+
+function acceptDocFile(file) {
+  addDocError.value = ''
+  if (!file) return
+  if (file.size <= 0) {
+    addDocError.value = `${file.name} is empty.`
+    return
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    addDocError.value = `${file.name} is larger than the 10 MB limit.`
+    return
+  }
+  // BR-TP74's pre-check. The service refuses a duplicate anyway; this saves
+  // the operator the round trip.
+  const existing = documentsByPartner.value[addDocPartner.value?.id] ?? []
+  if (existing.some((doc) => (doc.documentName || '') === file.name)) {
+    addDocError.value = `${file.name} has already been registered for this organization.`
+    return
+  }
+  addDocForm.file = file
+}
+
 async function submitAddDocument() {
-  if (!addDocForm.type || !addDocForm.reference) return
+  if (!addDocForm.type || !addDocForm.file) return
   addDocSaving.value = true
   addDocError.value = ''
   try {
-    await addComplianceDocument(tenantStore.context, addDocPartner.value.id, { type: addDocForm.type, reference: addDocForm.reference })
+    await registerComplianceDocumentWithFile(
+      tenantStore.context, addDocPartner.value.id, addDocForm.type, addDocForm.file,
+    )
     addDocOpen.value = false
     await refreshDocuments(addDocPartner.value)
     toast.add({ severity: 'success', summary: 'Document registered', detail: addDocForm.type, life: 3000 })
@@ -267,14 +299,8 @@ async function rejectDoc(tp, doc) {
   }
 }
 
-async function resubmitDoc(tp, doc) {
-  try {
-    await resubmitComplianceDocument(tenantStore.context, tp.id, doc.id)
-    await refreshDocuments(tp)
-  } catch (e) {
-    toast.add({ severity: 'error', summary: 'Failed to resubmit', detail: e.message, life: 5000 })
-  }
-}
+// Phase 40 removed the Resubmit action: a rejected document is replaced by
+// dropping another file, which is a fresh registration.
 
 // ── Fleet assets (BR-TP12-BR-TP14, Transporter only) ──────────────────────
 
@@ -322,7 +348,7 @@ function statusSeverity(status) {
 function docStatusSeverity(status) {
   if (status === 'APPROVED') return 'success'
   if (status === 'REJECTED') return 'danger'
-  return 'secondary' // PENDING
+  return 'secondary' // FOR_REVIEW / SUPERSEDED
 }
 
 function formatDate(ts) {
@@ -444,8 +470,8 @@ const rowMenuItems = computed(() => {
                   </template>
                 </Column>
                 <Column
-                  header="Reference"
-                  field="reference"
+                  header="Document Name"
+                  field="documentName"
                   class="ref-col"
                 />
                 <Column
@@ -455,26 +481,19 @@ const rowMenuItems = computed(() => {
                   <template #body="{ data: doc }">
                     <div class="doc-actions">
                       <Button
-                        v-if="doc.status === 'PENDING'"
+                        v-if="doc.status === 'FOR_REVIEW'"
                         label="Approve"
                         size="small"
                         text
                         @click="approveDoc(tp, doc)"
                       />
                       <Button
-                        v-if="doc.status === 'PENDING'"
+                        v-if="doc.status === 'FOR_REVIEW'"
                         label="Reject"
                         size="small"
                         text
                         severity="danger"
                         @click="rejectDoc(tp, doc)"
-                      />
-                      <Button
-                        v-if="doc.status === 'REJECTED'"
-                        label="Resubmit"
-                        size="small"
-                        text
-                        @click="resubmitDoc(tp, doc)"
                       />
                     </div>
                   </template>
@@ -677,19 +696,25 @@ const rowMenuItems = computed(() => {
         />
       </div>
       <div class="form-field">
-        <label for="doc-reference">Reference</label>
-        <InputText
-          id="doc-reference"
-          v-model="addDocForm.reference"
-          placeholder="Opaque external document locator"
-        />
+        <label>Document</label>
+        <input
+          ref="docFileInput"
+          type="file"
+          accept="application/pdf,image/*"
+          class="hidden-file-input"
+          @change="acceptDocFile($event.target.files?.[0])"
+        >
+        <button
+          class="doc-drop-zone"
+          type="button"
+          @click="chooseDocFile"
+          @dragover.prevent
+          @drop.prevent="acceptDocFile($event.dataTransfer?.files?.[0])"
+        >
+          <span class="drop-title">{{ addDocForm.file ? addDocForm.file.name : 'Drop a file here, or click to choose' }}</span>
+          <span class="drop-copy">PDF or image, up to 10 MB. The file name becomes the document name.</span>
+        </button>
       </div>
-      <p
-        class="lab-muted"
-        style="font-size: 0.8rem; margin: 0"
-      >
-        Metadata-only in v1 — this is a reference to the document, not a file upload.
-      </p>
       <p
         v-if="addDocError"
         class="error-text"
@@ -705,7 +730,7 @@ const rowMenuItems = computed(() => {
         <Button
           label="Add"
           :loading="addDocSaving"
-          :disabled="!addDocForm.type || !addDocForm.reference"
+          :disabled="!addDocForm.type || !addDocForm.file"
           @click="submitAddDocument"
         />
       </template>
@@ -878,4 +903,31 @@ const rowMenuItems = computed(() => {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.8rem;
 }
+
+/* Phase 40 drop zone — same affordance as GitCertificatesTab's, since it is
+   the same gesture: a compliance document is a dropped file. */
+.hidden-file-input { display: none; }
+.doc-drop-zone {
+  min-height: 6rem;
+  border: 1px dashed var(--lab-border, #4a515b);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--lab-text, #dee0e3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  font: inherit;
+  padding: 0.75rem;
+  text-align: center;
+}
+.doc-drop-zone:hover, .doc-drop-zone:focus-visible {
+  border-color: var(--lab-accent);
+  outline: none;
+  background: color-mix(in srgb, var(--lab-accent) 5%, transparent);
+}
+.doc-drop-zone .drop-title { color: var(--lab-accent); font-weight: 600; }
+.doc-drop-zone .drop-copy { color: var(--lab-text-muted, #b7bcc2); font-size: 0.78rem; }
 </style>

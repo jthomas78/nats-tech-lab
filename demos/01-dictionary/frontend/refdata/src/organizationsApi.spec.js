@@ -34,7 +34,6 @@ const {
   getTransporterProfile,
   updateOrganization,
   rejectComplianceDocument,
-  resubmitComplianceDocument,
   updateGitCertificate,
   setGitCertificateExpiry,
   listFleetAssets,
@@ -158,15 +157,14 @@ describe('organizations api.* client', () => {
 
     // BR-TP31. This spec exists because its absence let a real break ship:
     // Phase 38c-i changed the backend to address a document by its minted id,
-    // and these three calls kept sending `type`. Every payload assertion
-    // still passed (they only checked the partner id), so approve/reject/
-    // resubmit reached the service with an empty documentId and failed at
-    // runtime with "compliance document not found".
+    // and these calls kept sending `type`. Every payload assertion
+    // still passed (they only checked the partner id), so approve/reject
+    // reached the service with an empty documentId and failed at runtime with
+    // "compliance document not found".
     it('addresses a document by documentId, never by type (BR-TP31)', () => {
       const transitions = [
         ['approve', approveComplianceDocument],
         ['reject', rejectComplianceDocument],
-        ['resubmit', resubmitComplianceDocument],
       ]
 
       for (const [label, call] of transitions) {
@@ -195,7 +193,7 @@ describe('organizations api.* client', () => {
 
     it('keeps GIT details and expiry on their distinct commands', () => {
       updateGitCertificate('c', 'tp-9', 'doc-abc', {
-        reference: 'cover.pdf', goodsTypes: ['GENERAL_FREIGHT'], coverageCents: 12300,
+        goodsTypes: ['GENERAL_FREIGHT'], coverageCents: 12300,
       })
       expect(subjectOf()).toBe('api.c.organizations.document.git-update.v1')
       expect(payloadOf()).toMatchObject({ id: 'tp-9', documentId: 'doc-abc', goodsTypes: ['GENERAL_FREIGHT'] })
@@ -219,10 +217,9 @@ describe('organizations api.* client', () => {
         ['partner-update', () => updateOrganization('c', 'tp-9', 1, { name: 'N' })],
         ['document-list', () => listComplianceDocuments('c', 'tp-9')],
         ['document-git-list', () => listGitCertificates('c', 'tp-9')],
-        ['document-add', () => addComplianceDocument('c', 'tp-9', { type: 'CIPC', reference: 'r' })],
+        ['document-add', () => addComplianceDocument('c', 'tp-9', { type: 'CIPC', documentName: 'cipc.pdf' })],
         ['document-approve', () => approveComplianceDocument('c', 'tp-9', 'doc-1')],
         ['document-reject', () => rejectComplianceDocument('c', 'tp-9', 'doc-1')],
-        ['document-resubmit', () => resubmitComplianceDocument('c', 'tp-9', 'doc-1')],
         ['fleet-asset-list', () => listFleetAssets('c', 'tp-9')],
         ['fleet-asset-add', () => addFleetAsset('c', 'tp-9', 't', { registrationNo: 'R1' })],
       ]
@@ -252,7 +249,6 @@ describe('organizations api.* client', () => {
         [() => updateOrganization('c', 'i', 1, {}), 'api.c.organizations.organization.update.v1'],
         [() => approveComplianceDocument('c', 'i', 'd'), 'api.c.organizations.document.approve.v1'],
         [() => rejectComplianceDocument('c', 'i', 'd'), 'api.c.organizations.document.reject.v1'],
-        [() => resubmitComplianceDocument('c', 'i', 'd'), 'api.c.organizations.document.resubmit.v1'],
         [() => updateGitCertificate('c', 'i', 'd', {}), 'api.c.organizations.document.git-update.v1'],
         [() => setGitCertificateExpiry('c', 'i', 'd', null), 'api.c.organizations.document.set-expiry.v1'],
         [() => listFleetAssets('c', 'i'), 'api.c.organizations.fleet-asset.list.v1'],
@@ -270,7 +266,7 @@ describe('organizations api.* client', () => {
       // Every organizations operation wrapped by this client must keep a
       // distinct subject; adding a feature without increasing this count
       // catches accidental aliasing onto an older endpoint.
-      expect(seen.size).toBe(18)
+      expect(seen.size).toBe(17)
     })
   })
 })

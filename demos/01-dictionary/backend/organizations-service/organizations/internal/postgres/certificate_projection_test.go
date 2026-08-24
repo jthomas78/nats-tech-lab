@@ -14,17 +14,21 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/google/uuid"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/identity"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/postgres"
 )
 
 var _ = Describe("GIT certificate projection (Phase 39a schema)", func() {
+	// Phase 40 (BR-TP74): the document name is unique per organization, so a
+	// helper that minted a fixed one would trip that index instead of the rule
+	// each spec is about. The name rides along with the ID.
 	certificate := func(status domain.DocumentStatus, goodsTypes ...string) domain.ProjectedCertificate {
+		id := identity.New()
 		return domain.ProjectedCertificate{
-			ID: uuid.NewString(), Status: status,
-			Reference: "s3://git.pdf", GoodsTypes: goodsTypes,
+			ID: id, Status: status,
+			DocumentName: id + ".pdf", GoodsTypes: goodsTypes,
 			InsurerName: "Acme Insurance",
 		}
 	}
@@ -181,7 +185,7 @@ var _ = Describe("GIT certificate projection (Phase 39a schema)", func() {
 			repo := postgres.NewComplianceDocumentRepository(db)
 			partnerID := freshPartner(db, "TRANSPORTER")
 
-			err := repo.SetInsuranceContact(context.Background(), partnerID, uuid.NewString(),
+			err := repo.SetInsuranceContact(context.Background(), partnerID, identity.New(),
 				"Acme Insurance", "Jane Reviewer", "+27 11 555 0000")
 			Expect(err).To(MatchError(domain.ErrDocumentNotFound))
 		})

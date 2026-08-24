@@ -97,7 +97,7 @@ type State struct {
 type Certificate struct {
 	ID            string                            `json:"id"`
 	Status        organizationdomain.DocumentStatus `json:"status"`
-	Reference     string                            `json:"reference"`
+	DocumentName  string                            `json:"documentName"`
 	GoodsTypes    []string                          `json:"goodsTypes,omitempty"`
 	CoverageCents *int64                            `json:"coverageCents,omitempty"`
 	ExpiresAt     *int64                            `json:"expiresAt,omitempty"`
@@ -317,7 +317,7 @@ func (p *TransporterProfile) RegisterCertificate(doc organizationdomain.Complian
 	// listed one by one so an exported row reads the same shape as every
 	// later edit (decision 16).
 	event.Changes = []FieldChange{
-		{Field: "reference", From: nil, To: doc.Reference},
+		{Field: "documentName", From: nil, To: doc.DocumentName},
 		{Field: "goodsTypes", From: nil, To: append([]string(nil), doc.GoodsTypes...)},
 		{Field: "coverageCents", From: nil, To: doc.CoverageCents},
 		{Field: "expiresAt", From: nil, To: doc.ExpiresAt},
@@ -423,12 +423,11 @@ func (p *TransporterProfile) RejectCertificate(documentID, actorName, sourceIP s
 	if certificate.Status == organizationdomain.DocumentStatusSuperseded {
 		return Event{}, organizationdomain.ErrDocumentSuperseded
 	}
-	// The same two statuses ComplianceDocument.Reject admits (BR-TP10 as
-	// amended by BR-TP68): a certificate with bytes attached sits in
-	// FOR_REVIEW, and that is the queue a reviewer rejects from.
-	if certificate.Status != organizationdomain.DocumentStatusPending &&
-		certificate.Status != organizationdomain.DocumentStatusForReview {
-		return Event{}, organizationdomain.ErrDocumentNotPending
+	// The one status ComplianceDocument.Reject admits (BR-TP10 as amended by
+	// Phase 40): a registered certificate sits in FOR_REVIEW, and that is the
+	// queue a reviewer rejects from.
+	if certificate.Status != organizationdomain.DocumentStatusForReview {
+		return Event{}, organizationdomain.ErrDocumentNotForReview
 	}
 	rejected := certificate
 	rejected.Status = organizationdomain.DocumentStatusRejected
@@ -443,7 +442,7 @@ func (p *TransporterProfile) RejectCertificate(documentID, actorName, sourceIP s
 // UpdateCertificateDetails is the edit view's replay-safe write. Expiry is a
 // separate command because BR-TP70 permits that one correction even after a
 // certificate is superseded; every field here remains locked then.
-func (p *TransporterProfile) UpdateCertificateDetails(documentID, reference string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (Event, error) {
+func (p *TransporterProfile) UpdateCertificateDetails(documentID string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (Event, error) {
 	if !p.exists {
 		return Event{}, ErrNotFound
 	}
@@ -454,7 +453,10 @@ func (p *TransporterProfile) UpdateCertificateDetails(documentID, reference stri
 	if certificate.Status == organizationdomain.DocumentStatusSuperseded {
 		return Event{}, organizationdomain.ErrDocumentSuperseded
 	}
-	probe, err := organizationdomain.AddDocument(organizationdomain.PartnerTypeTransporter, organizationdomain.DocumentTypeGoodsInTransit, reference)
+	// The probe re-runs registration validation over the edited values. It is
+	// handed the certificate's existing name rather than one from the caller:
+	// Phase 40 made the name read-only, so an edit can never change it.
+	probe, err := organizationdomain.AddDocument(organizationdomain.PartnerTypeTransporter, organizationdomain.DocumentTypeGoodsInTransit, certificate.DocumentName)
 	if err != nil {
 		return Event{}, err
 	}
@@ -464,16 +466,12 @@ func (p *TransporterProfile) UpdateCertificateDetails(documentID, reference stri
 	}
 
 	updated := certificate
-	updated.Reference = reference
 	updated.GoodsTypes = append([]string(nil), goodsTypes...)
 	updated.CoverageCents = cloneInt64(coverageCents)
 	updated.InsurerName = insurerName
 	event := p.event(DocumentDetailsUpdatedEvent, p.state.AttemptNumber, p.state.Status)
 	event.DocumentReference = documentID
 	event.Certificate = &updated
-	if reference != certificate.Reference {
-		event.Changes = append(event.Changes, FieldChange{Field: "reference", From: certificate.Reference, To: reference})
-	}
 	if !slices.Equal(goodsTypes, certificate.GoodsTypes) {
 		event.Changes = append(event.Changes, FieldChange{Field: "goodsTypes", From: certificate.GoodsTypes, To: goodsTypes})
 	}
@@ -491,10 +489,10 @@ func (p *TransporterProfile) UpdateCertificateDetails(documentID, reference stri
 }
 
 // AttachCertificateFile records that bytes landed against a certificate
-// (BR-TP68). The transition it carries is the one that moves a cheap
-// registration into the reviewer's queue: PENDING -> FOR_REVIEW. Any other
-// status keeps its own — re-uploading against an approved certificate does
-// not send it back for review, and a superseded one is not revived.
+// (BR-TP68 as amended by Phase 40). It carries no transition: a certificate
+// is registered in FOR_REVIEW, so the file has no cheaper state to promote it
+// out of. Re-uploading against an approved certificate still does not send it
+// back for review, and a superseded one is not revived.
 func (p *TransporterProfile) AttachCertificateFile(documentID string, file organizationdomain.DocumentFile, actorName, sourceIP string) (Event, error) {
 	if !p.exists {
 		return Event{}, ErrNotFound
@@ -511,13 +509,10 @@ func (p *TransporterProfile) AttachCertificateFile(documentID string, file organ
 	}
 	updated := certificate
 	updated.File = &file
+	// No status change accompanies the bytes any more: Phase 40 registers
+	// every certificate in FOR_REVIEW, so there is nothing for the file to
+	// promote it out of.
 	changes := []FieldChange{{Field: "file", From: nil, To: file.ObjectName}}
-	if updated.Status == organizationdomain.DocumentStatusPending {
-		updated.Status = organizationdomain.DocumentStatusForReview
-		changes = append(changes, FieldChange{
-			Field: "status", From: certificate.Status, To: updated.Status,
-		})
-	}
 	event := p.event(DocumentFileAttachedEvent, p.state.AttemptNumber, p.state.Status)
 	event.DocumentReference = documentID
 	event.Certificate = &updated
@@ -654,7 +649,7 @@ func (p *TransporterProfile) setCertificate(certificate Certificate) {
 }
 
 func certificateFromDocument(doc organizationdomain.ComplianceDocument) *Certificate {
-	return &Certificate{ID: doc.ID, Status: doc.Status, Reference: doc.Reference,
+	return &Certificate{ID: doc.ID, Status: doc.Status, DocumentName: doc.DocumentName,
 		GoodsTypes: append([]string(nil), doc.GoodsTypes...), CoverageCents: cloneInt64(doc.CoverageCents),
 		ExpiresAt: cloneInt64(doc.ExpiresAt), InsurerName: doc.InsurerName, File: cloneFile(doc.File)}
 }

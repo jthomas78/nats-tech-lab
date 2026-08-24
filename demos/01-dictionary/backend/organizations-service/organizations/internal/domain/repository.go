@@ -36,9 +36,13 @@ type ComplianceDocumentRepository interface {
 	// rows included, newest registration first. It deliberately does not
 	// alter ListDocuments' BR-TP31 current-document semantics.
 	ListGitCertificates(ctx context.Context, partnerID string) ([]ComplianceDocument, error)
+	// DocumentNameExists is BR-TP74's pre-check (Phase 40). The unique index
+	// is the real enforcement point, but a GIT registration appends to the
+	// event log before its projection row is written, so the duplicate has to
+	// be refused before anything reaches the stream.
+	DocumentNameExists(ctx context.Context, partnerID, documentName string) (bool, error)
 	ApproveDocument(ctx context.Context, partnerID, documentID string) (ComplianceDocument, error)
 	RejectDocument(ctx context.Context, partnerID, documentID string) (ComplianceDocument, error)
-	ResubmitDocument(ctx context.Context, partnerID, documentID string) (ComplianceDocument, error)
 
 	// GetDocument reads one document by ID including superseded rows —
 	// BR-TP43 keeps their bytes retrievable, so a download needs to find them.

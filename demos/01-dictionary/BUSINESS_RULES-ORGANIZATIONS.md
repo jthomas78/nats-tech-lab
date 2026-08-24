@@ -131,8 +131,15 @@ Phase 26 plan section).
   for both `SHIPPER` and `TRANSPORTER`) or `GOODS_IN_TRANSIT` (valid **only**
   for `TRANSPORTER` — rejected for `SHIPPER`). Any other value is rejected.
 - **BR-TP08 (`AddDocument`):** Adding a document requires a non-empty
-  `reference` and a `type` valid per BR-TP07 for the partner's `type`;
-  always creates the document in `Pending` status. **Repository-level
+  `documentName` and a `type` valid per BR-TP07 for the partner's `type`;
+  always creates the document in `FOR_REVIEW` status. *(Amended by Phase 40,
+  2026-08-24: was "a non-empty `reference` … in `Pending` status". `reference`
+  — an opaque external locator — left the model entirely, replaced by
+  `documentName`, the name of the file that was dropped to create the
+  document. `Pending` left with it: registration now requires the bytes, so
+  there is no state in which a document exists without a file. The capability
+  deliberately given up is recording that a document exists without holding a
+  copy of it.)* **Repository-level
   invariant, deferred to 26d (not a pure-domain spec — same scoping
   treatment as BR-TP06):** at most one `ComplianceDocument` exists per
   `(Organization, type)` — adding a document for a type that already
@@ -140,38 +147,45 @@ Phase 26 plan section).
   since new content always needs fresh review), enforced via a Postgres
   unique constraint (mirrors BR-P01/BR-AC01's uniqueness-via-DB-index
   pattern), not a pure-domain guard function.
-- **BR-TP09 (`Approve`):** Legal only from `Pending` → `Approved`. Called on
-  a document in any other status (`Approved` or `Rejected`), rejected with
-  `409 Conflict`. *(Amended by BR-TP68: `FOR_REVIEW` → `Approved` is also
-  legal, since a GIT certificate with bytes attached sits in `FOR_REVIEW`.)*
-- **BR-TP10 (`Reject`):** Legal only from `Pending` → `Rejected`. Called on
-  a document in any other status (`Approved` or `Rejected`), rejected with
-  `409 Conflict`. *(Amended by BR-TP68, 2026-08-22: `FOR_REVIEW` → `Rejected`
+- **BR-TP09 (`Approve`):** Legal only from `FOR_REVIEW` → `Approved`. Called
+  on a document in any other status (`Approved`, `Rejected` or `SUPERSEDED`),
+  rejected with `409 Conflict` and `ErrDocumentNotForReview`. *(Amended by
+  BR-TP68: `FOR_REVIEW` → `Approved` is legal, since a GIT certificate with
+  bytes attached sits in `FOR_REVIEW`. Amended again by Phase 40: `Pending` no
+  longer exists, so `FOR_REVIEW` is the only legal source — one guard now
+  instead of two.)*
+- **BR-TP10 (`Reject`):** Legal only from `FOR_REVIEW` → `Rejected`. Called on
+  a document in any other status, rejected with `409 Conflict` and
+  `ErrDocumentNotForReview`. *(Amended by Phase 40 the same way BR-TP09 was:
+  `Pending` is gone. Amended by BR-TP68, 2026-08-22: `FOR_REVIEW` → `Rejected`
   is also legal, for the same reason and by the same guard as BR-TP09's.
   Until this amendment `Approve` admitted `FOR_REVIEW` and `Reject` did not,
   so the reviewer's queue — which is exactly the set of certificates in
   `FOR_REVIEW` — could be approved from but never rejected from. Found by
   verification after 39b, before the 39c screen made it reachable by a
   human.)*
-- **BR-TP11 (`Resubmit`):** Legal only from `Rejected` → `Pending`,
-  confirmed 2026-08-13 (resubmission is in scope for v1, not deferred).
-  **Scoped to the four CRUD document types by Phase 39 (confirmed by the
-  user 2026-08-22).** A `GOODS_IN_TRANSIT` certificate is never resubmitted:
-  a rejection is final for that certificate, and the operator registers a new
-  one — which BR-TP63 permits at any time, gated by nothing. Resubmission and
-  register-a-replacement are two answers to the same question and only one can
-  be the workflow; with both, a rejected certificate has two futures and the
-  screen has to explain which is which. `Resubmit` refuses a GIT certificate
-  on **type, before status**, with `ErrCertificateNotResubmittable`, so the
-  legacy CRUD verb cannot reach a certificate by ID and revive it. The GIT tab
-  offers no Resubmit row action; the always-open drop zone is the path.
-  Called on a document in any other status (`Pending` or `Approved`),
-  rejected with `409 Conflict`. There is no `Approved` → anything transition
-  in v1 — an approved document is not un-approved or re-reviewed once
-  decided. *(Amended by BR-TP30: `Approved` → `SUPERSEDED` is legal from
-  38c-i. That is not an un-approval — the approval stands over the record it
-  was given for; supersession retires that record in favour of a newer
-  document, which starts its own review at `Pending`.)*
+- **BR-TP11 (`Resubmit`) — RETIRED by Phase 40, 2026-08-24.** Document
+  resubmission is gone from the model: there is no verb that returns a
+  rejected document to the review queue, no `Resubmit` on the aggregate, no
+  `api.*.organizations.document.resubmit.v1` subject and no row action. A
+  rejected document is replaced by **dropping another file**, which is an
+  ordinary registration under BR-TP08 (and, for a `GOODS_IN_TRANSIT`
+  certificate, under BR-TP63 — permitted at any time, gated by nothing).
+  Phase 39 had already scoped `Resubmit` away from GIT for exactly this
+  reason ("resubmission and register-a-replacement are two answers to the same
+  question and only one can be the workflow"); Phase 40 generalised that to
+  every type, and `Pending` — the status `Resubmit` was the only remaining way
+  to reach — went with it.
+
+  **Not to be confused with BR-TP26's vetting resubmission**, which stays
+  exactly as it is: that is a *profile* re-submitted for a new vetting attempt
+  under the same workflow ID, not a document put back in a queue.
+
+  Note what is unchanged: there is still no `Approved` → anything transition
+  other than BR-TP30's `Approved` → `SUPERSEDED`. That is not an un-approval —
+  the approval stands over the record it was given for; supersession retires
+  that record in favour of a newer document, which starts its own review at
+  `FOR_REVIEW`.
 
 Document status remains fully independent of the parent
 `Organization.status` in v1, per BR-TP04's note and the Phase 26 plan
@@ -922,18 +936,22 @@ whose four remaining amendments these rules discharge.
   `/jslimits` raise is needed. ADR-048's related worry that refdata's
   per-context *versioned* KV buckets would exhaust the budget is **misplaced**:
   those 9 buckets live in **PLATFORM** (limit 20), not in the tenant accounts.
-- **BR-TP45 (file metadata is projected):** `fileName`, `contentType`,
-  `sizeBytes`, `objectName` and `uploadedAt` are stored on the document row,
-  all nullable together — a document legitimately has no file until one is
-  uploaded, and BR-TP43 makes the transition one-way, so there is no "had a
-  file, now doesn't" state. Projecting it keeps the listing path off the object
+- **BR-TP45 (file metadata is projected):** `contentType`, `sizeBytes`,
+  `objectName` and `uploadedAt` are stored on the document row, all nullable
+  together. *(Amended by Phase 40, 2026-08-24: the separate `fileName` column
+  is gone — it would have duplicated its own row's `document_name`, which
+  BR-TP74 already makes the file's name. The remaining four stay nullable for
+  the window between a registration and the POST that spends its ticket, which
+  is the only state in which a row has no bytes; BR-TP43 makes the transition
+  one-way, so there is still no "had a file, now doesn't" state.)* Projecting it keeps the listing path off the object
   store entirely: the Documents tab renders names and sizes from one Postgres
   query, and the bucket is touched only when bytes actually move. Download
   sets `Content-Type` and an RFC 5987 `Content-Disposition` from the
   projection, and reads the **stored** object name rather than recomputing it
   — a name rebuilt from parts would diverge from the stored one the moment the
-  naming rule changed. Filenames cross the HTTP boundary percent-encoded,
-  because header values are ASCII and real filenames are not.
+  naming rule changed. Document names cross the HTTP boundary percent-encoded
+  in `X-Document-Name`, because header values are ASCII and real filenames are
+  not.
 
 - **Enforced in:** `internal/domain/compliance_document.go`
   (`AttachFile`, `DocumentObjectName`, `MaxDocumentFileBytes` — the size cap
@@ -1549,3 +1567,112 @@ this phase.
   `internal/domain/git_status.go`'s `CoverByGoodsType` — derived on every read
   against a caller-supplied `now`, never stored, and read by nothing that can
   refuse anything.
+
+---
+
+### BR-TP73 (ADR-051) — entity identity is a ULID
+
+**Confirmed 2026-08-24.** Scoped to `organizations-service`;
+`shipping-service` and `accounts-service` keep UUIDs by decision, not by
+oversight (see
+[ADR-051](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ADR-051-ulid-entity-identity.md)
+§ "Scope and what was deliberately left alone").
+
+- **BR-TP73 (the rule):** Every entity identifier this service mints is a
+  **ULID** — 26 Crockford-base32 characters, a 48-bit millisecond timestamp
+  followed by 80 bits of monotonic entropy — minted by the service, never by
+  Postgres. It replaces the 36-character UUID that `gen_random_uuid()` used
+  to supply as a column default. Applies to `organizations.id`,
+  `compliance_documents.id`, `audit_events.id` and
+  `transporter_operating_areas.id`.
+
+- **Why this is a business rule and not an implementation detail:** the ID is
+  a **subject token**. A `TransporterProfile`'s identity appears in every
+  event it publishes (`evt.{context}.organizations.transporter.{id}.{event}`)
+  on a `LimitsPolicy` stream, which makes it permanent, and both per-aggregate
+  replay (`InstanceSubject`) and ADR-049's per-subject optimistic concurrency
+  are keyed on it. So the *format* carries obligations: it must contain no
+  `.` (which would split the token and break the fixed-arity positional
+  parsing in ARCHITECTURE-COMMUNICATIONS.md § 2), no `*` or `>` (which would
+  turn one aggregate's subject into a wildcard), and nothing outside NATS KV's
+  `[-/_=.a-zA-Z0-9]` key set. Crockford base32 satisfies all three. This is
+  the reason a `<Country-Code>-<Company-Registration-Number>` identifier was
+  rejected — see ADR-051 for the full argument, including why GLEIF made LEI
+  jurisdiction-neutral on purpose and what the `XI` prefix cost EORI.
+
+- **`registrationNo` and `vatRegistrationNo` are not identity.** They remain
+  optional (BR-TP02/BR-TP35) and editable (BR-TP32) business attributes. Both
+  properties are disqualifying for a primary key: an ID is needed at
+  `Register`, which is before vetting supplies a registration number, and a
+  mutable identity on an event-sourced aggregate means the aggregate's name
+  changing underneath its own stream.
+
+- **Existing UUID rows are not renumbered.** The migration converts column
+  *types* (`uuid` → `TEXT`) and stops there. Renumbering a
+  `TransporterProfile` would orphan every event it has ever published, and
+  the aggregate would rehydrate as **empty with no error**. The supported
+  path to a uniformly-ULID database is a reseed — drop the `TRANSPORTER`
+  stream and the `organizations` / `organizations-secrets` KV buckets, then
+  re-run `cmd/seed-transporters`.
+
+- **Enforced in:** `internal/identity/identity.go` (`New`, `IsValid`, and the
+  reasoning in the package doc), `internal/postgres/migrate.go` (`TEXT`
+  columns, defaults removed, and the guarded `uuid` → `TEXT` conversion for a
+  pre-ADR-051 database), `transporterprofile/postgres/projection.go` (the same
+  conversion for `transporter_profiles.organization_id`),
+  `internal/postgres/organization_repository.go` (`Register` mints),
+  `internal/postgres/audit_repository.go`,
+  `internal/postgres/operating_area_repository.go`,
+  `internal/postgres/compliance_document_repository.go` (`AddDocument`, which
+  BR-TP29 describes as minting by column default — the contract is unchanged,
+  the mechanism moved), and
+  `internal/application/commands/compliance_document.go` (the GIT handler's
+  injected `newID`).
+
+- **Specs:** `internal/identity/identity_test.go` covers the format
+  guarantees — length, alphabet, subject-safety, KV-key-safety, uniqueness,
+  concurrency, lexicographic ordering, and the three things `IsValid` must
+  reject (a UUID, a non-Crockford character, and the overflow case where the
+  leading character exceeds `7`). `internal/postgres/repository_test.go`
+  covers `Register` minting a valid ULID that the row is actually keyed on —
+  Postgres-gated, so it needs `ORGANIZATIONS_TEST_DATABASE_URL`.
+
+- **Deliberately not decided:** a short human-quotable display reference
+  (`TRP-8FK2QX`) for URLs, and the scheme-qualified external-code table
+  (`code_list_provider` + `party_code`, per DCSA/UN-EDIFACT) that
+  `registrationNo` and `vatRegistrationNo` should eventually move into. Both
+  are recorded as candidates in ADR-051.
+
+### BR-TP74 (Phase 40) — A document name is unique per organization
+
+**Approved 2026-08-24.** Every compliance document — all five types — carries
+a `documentName`, which is the name of the file that was dropped to create it,
+and no two documents of one organization may share it.
+
+- **Unique across every status**, superseded and rejected rows included. The
+  index is deliberately *not* partial: a name that has been used is spent, so
+  the history of "which file was this" stays unambiguous. Re-registering the
+  same document means renaming the file.
+- **Scoped to one organization.** Two organizations may each hold a
+  `git.pdf`.
+- **Enforced in two places, and both are load-bearing.** The unique index
+  `compliance_documents_document_name_idx (organization_id, document_name)` is
+  the authority — a pre-check alone would race two concurrent drops. But a GIT
+  registration *appends to the event log before its projection row exists*, so
+  the command also pre-checks via `DocumentNameExists`: a duplicate caught only
+  by the index would already be on a `LimitsPolicy` stream, and nothing takes
+  that back.
+- **Read-only after registration.** The name describes bytes that exist; the
+  edit view shows it disabled, and `document.git-update` no longer accepts it.
+  The bytes must arrive under the registered name too — `AttachFile` refuses a
+  mismatch with `ErrDocumentNameMismatch`, checked before anything is written
+  to the object store.
+- **Label:** `Document Name` in the UI, matching Linebooker V2, on both the
+  GIT tab and the Documents tab. On the wire: `documentName` in every `api.*`
+  payload and `X-Document-Name` on the upload POST.
+- **Tests:** `internal/postgres/repository_test.go` (duplicate refused,
+  superseded row keeps its name reserved, scoped per organization,
+  `DocumentNameExists`), `git_certificate_rules_test.go` (the command refuses
+  before the append), `compliance_document_test.go` (name required;
+  `AttachFile` refuses a mismatched name), `document_file_test.go` (the upload
+  path refuses a mismatch before storing bytes).

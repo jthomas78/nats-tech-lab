@@ -140,7 +140,7 @@ func (p *Projector) Stop() {
 // direction only — there are no contact fields on either side of it.
 func projectedCertificate(c profiledomain.Certificate) organizationdomain.ProjectedCertificate {
 	return organizationdomain.ProjectedCertificate{
-		ID: c.ID, Status: c.Status, Reference: c.Reference,
+		ID: c.ID, Status: c.Status, DocumentName: c.DocumentName,
 		GoodsTypes:    append([]string(nil), c.GoodsTypes...),
 		CoverageCents: c.CoverageCents, ExpiresAt: c.ExpiresAt,
 		InsurerName: c.InsurerName, File: c.File,

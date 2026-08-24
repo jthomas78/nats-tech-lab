@@ -251,6 +251,36 @@ Value: JSON-encoded ShipState / ContainerState / metadata
   does not migrate its contents — it orphans the old stream and creates an
   empty new one. Check for existing data before renaming.
 
+### Entity identity — ULID in `organizations-service`, UUID elsewhere
+
+**Two ID formats coexist in this repo by decision, not by accident.**
+
+- **`organizations-service` mints ULIDs** (ADR-051, BR-TP73): 26
+  Crockford-base32 chars, minted in Go by `organizations/internal/identity`,
+  never by Postgres. Its `id` / `organization_id` columns are therefore
+  `TEXT` with no default — **don't "fix" them back to `uuid`, and don't add
+  a `gen_random_uuid()` default**; Postgres cannot produce a ULID, so a new
+  table in this service supplies its ID from `identity.New()` before the
+  INSERT.
+- **`shipping-service` and `accounts-service` stay on UUID.** Consciously
+  excluded from ADR-051's scope, not overlooked.
+
+Two rules that apply to any new ID anywhere in this repo:
+
+- **An ID that appears in a subject token or KV key must be
+  subject-safe.** No `.` (it would split the token and break the fixed-arity
+  positional parsing below), no `*` or `>`, and nothing outside NATS KV's
+  `[-/_=.a-zA-Z0-9]` set. This is why a country-prefixed company
+  registration number was rejected as an identifier — see ADR-051 for the
+  full case, and treat that ADR as settling the question rather than
+  reopening it.
+- **An aggregate's ID is immutable, because it is in the log.** An
+  event-sourced aggregate's id is embedded in every subject it has ever
+  published on a `LimitsPolicy` stream. Renumbering it orphans the whole
+  history and the aggregate then **rehydrates as empty with no error**. So
+  never migrate IDs in place: the supported path is `docker compose down -v`
+  plus a reseed, which clears streams, KV buckets and Postgres together.
+
 ### Subject families and `{context}` (Phase 16a)
 
 Full rules:

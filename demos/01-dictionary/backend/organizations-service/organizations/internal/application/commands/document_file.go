@@ -117,7 +117,7 @@ func (h *DocumentFileHandler) MintDownloadTicket(ctx context.Context, tenant, co
 // cannot be retrieved. Storing first and then failing leaves at worst an
 // orphan object — invisible to every reader, addressable by name, and
 // harmless. So: write bytes, then record them.
-func (h *DocumentFileHandler) Upload(ctx context.Context, token, fileName, contentType string, r io.Reader) (domain.ComplianceDocument, error) {
+func (h *DocumentFileHandler) Upload(ctx context.Context, token, documentName, contentType string, r io.Reader) (domain.ComplianceDocument, error) {
 	grant, err := h.tickets.Redeem(token, filetickets.DirectionUpload)
 	if err != nil {
 		return domain.ComplianceDocument{}, err
@@ -130,8 +130,14 @@ func (h *DocumentFileHandler) Upload(ctx context.Context, token, fileName, conte
 	if doc.File != nil {
 		return domain.ComplianceDocument{}, domain.ErrDocumentFileAlreadyAttached
 	}
-	if fileName == "" {
-		return domain.ComplianceDocument{}, domain.ErrFileNameRequired
+	if documentName == "" {
+		return domain.ComplianceDocument{}, domain.ErrDocumentNameRequired
+	}
+	// Phase 40: the name was fixed at registration, so the bytes must arrive
+	// under it. Checked here rather than only in AttachFile so a mismatch
+	// never puts an object in the store.
+	if documentName != doc.DocumentName {
+		return domain.ComplianceDocument{}, domain.ErrDocumentNameMismatch
 	}
 	if contentType == "" {
 		return domain.ComplianceDocument{}, domain.ErrContentTypeRequired
@@ -152,7 +158,7 @@ func (h *DocumentFileHandler) Upload(ctx context.Context, token, fileName, conte
 	// this handler is driven from somewhere else. Reading Max+1 is what makes
 	// an over-limit upload detectable — stopping at exactly Max would be
 	// indistinguishable from a file that happens to be the maximum size.
-	size, err := store.Put(ctx, objectName, fileName, contentType, io.LimitReader(r, domain.MaxDocumentFileBytes+1))
+	size, err := store.Put(ctx, objectName, documentName, contentType, io.LimitReader(r, domain.MaxDocumentFileBytes+1))
 	if err != nil {
 		return domain.ComplianceDocument{}, err
 	}
@@ -164,11 +170,11 @@ func (h *DocumentFileHandler) Upload(ctx context.Context, token, fileName, conte
 	}
 
 	file := domain.DocumentFile{
-		FileName:    fileName,
-		ContentType: contentType,
-		SizeBytes:   size,
-		ObjectName:  objectName,
-		UploadedAt:  h.now().Unix(),
+		DocumentName: documentName,
+		ContentType:  contentType,
+		SizeBytes:    size,
+		ObjectName:   objectName,
+		UploadedAt:   h.now().Unix(),
 	}
 
 	// GIT is event-sourced from 39a (ADR-050 Option A): the fact that bytes

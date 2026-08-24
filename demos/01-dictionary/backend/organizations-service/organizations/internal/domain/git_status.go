@@ -107,8 +107,8 @@ func gitStatusOf(doc ComplianceDocument, now time.Time) GitStatus {
 	case DocumentStatusForReview:
 		// BR-TP68: a file in a review queue is not cover, and deliberately
 		// derives to Pending rather than relying on default fall-through.
-		return GitStatusPending
-	case DocumentStatusPending:
+		// Phase 40 removed the document-side PENDING status; the *GIT badge*
+		// still has a Pending value, and this is what produces it.
 		return GitStatusPending
 	default:
 		return GitStatusNone

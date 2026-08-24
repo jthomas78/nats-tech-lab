@@ -311,6 +311,10 @@ export function listGitCertificates(context, id) {
   return tpRequest(context, 'document', 'git-list', { id })
 }
 
+// Phase 40: registration is a file drop for every type, so add returns the
+// upload ticket alongside the row — see registerComplianceDocumentWithFile,
+// which is what call sites use. This stays exported for the rare caller that
+// wants the two halves separately (and for the specs that assert the shape).
 export function addComplianceDocument(context, id, input) {
   return tpRequest(context, 'document', 'add', { id, ...input })
 }
@@ -326,10 +330,6 @@ export function approveComplianceDocument(context, id, documentId, insurance = {
 
 export function rejectComplianceDocument(context, id, documentId) {
   return tpRequest(context, 'document', 'reject', { id, documentId })
-}
-
-export function resubmitComplianceDocument(context, id, documentId) {
-  return tpRequest(context, 'document', 'resubmit', { id, documentId })
 }
 
 export function updateGitCertificate(context, id, documentId, input) {
@@ -355,10 +355,13 @@ export function setGitCertificateExpiry(context, id, documentId, expiresAt) {
 
 const DOCUMENT_FILE_URL = '/files/documents'
 const TICKET_HEADER = 'X-Document-Ticket'
-const FILE_NAME_HEADER = 'X-Document-File-Name'
+const DOCUMENT_NAME_HEADER = 'X-Document-Name'
 
-function mintDocumentFileTicket(context, id, documentId, direction) {
-  return tpRequest(context, 'document', `${direction}-ticket`, { id, documentId })
+// Download only. Phase 40 retired the upload-ticket verb: an upload ticket is
+// minted by a registration and by nothing else, because a document exists only
+// once a file has been dropped on it.
+function mintDocumentDownloadTicket(context, id, documentId) {
+  return tpRequest(context, 'document', 'download-ticket', { id, documentId })
 }
 
 // Reads the service's JSON error body so a caller can show why a transfer was
@@ -378,23 +381,15 @@ async function throwHttpError(response) {
   throw err
 }
 
-// uploadComplianceDocumentFile sends the file as the raw request body, not as
-// multipart/form-data: there is exactly one field, so a multipart envelope
-// would add a parser on both ends to carry nothing extra.
-export async function uploadComplianceDocumentFile(context, id, documentId, file) {
-  const { ticket } = await mintDocumentFileTicket(context, id, documentId, 'upload')
-
-  return postDocumentFile(ticket, file)
-}
-
 async function postDocumentFile(ticket, file) {
   const response = await fetch(DOCUMENT_FILE_URL, {
     method: 'POST',
     headers: {
       [TICKET_HEADER]: ticket,
-      // Percent-encoded because header values are ASCII and filenames are
-      // not. The service decodes it back before storing (BR-TP45).
-      [FILE_NAME_HEADER]: encodeURIComponent(file.name),
+      // Percent-encoded because header values are ASCII and document names
+      // are not. The service decodes it back and checks it against the name
+      // the document was registered under (BR-TP74).
+      [DOCUMENT_NAME_HEADER]: encodeURIComponent(file.name),
       // A browser can hand back an empty file.type for an unrecognised
       // extension, and the service requires one (BR-TP45) — so fall back
       // rather than letting the upload fail on a missing header.
@@ -409,8 +404,23 @@ async function postDocumentFile(ticket, file) {
 // registerGitCertificateWithFile spends the upload ticket returned by the
 // combined registration command. Minting a second ticket would create a
 // needless extra capability and turn one drop into three calls.
+//
+// Phase 40: the dropped file's name *is* the document name (BR-TP74), so it is
+// supplied by the drop rather than typed — no call site passes documentName.
 export async function registerGitCertificateWithFile(context, id, input, file) {
-  const { ticket } = await tpRequest(context, 'document', 'git-register', { id, ...input })
+  const { ticket } = await tpRequest(context, 'document', 'git-register', {
+    id, ...input, documentName: file.name,
+  })
+  return postDocumentFile(ticket, file)
+}
+
+// registerComplianceDocumentWithFile is the same gesture for the four shared
+// types (Phase 40). They carry no certificate fields, so `type` is the whole
+// input beyond the file itself.
+export async function registerComplianceDocumentWithFile(context, id, type, file, expiresAt = undefined) {
+  const { ticket } = await tpRequest(context, 'document', 'add', {
+    id, type, documentName: file.name, expiresAt,
+  })
   return postDocumentFile(ticket, file)
 }
 
@@ -420,7 +430,7 @@ export async function registerGitCertificateWithFile(context, id, input, file) {
 // capability token in a URL would leak it into history, logs and any pasted
 // link.
 export async function downloadComplianceDocumentFile(context, id, documentId) {
-  const { ticket } = await mintDocumentFileTicket(context, id, documentId, 'download')
+  const { ticket } = await mintDocumentDownloadTicket(context, id, documentId)
 
   const response = await fetch(DOCUMENT_FILE_URL, {
     method: 'GET',

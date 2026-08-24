@@ -7,7 +7,6 @@ const past = Math.floor(Date.parse('2026-01-01T00:00:00Z') / 1000)
 
 describe('GIT certificate row presentation', () => {
   it.each([
-    [{ status: 'PENDING', expiresAt: future }, 'PENDING'],
     [{ status: 'FOR_REVIEW', expiresAt: future }, 'FOR_REVIEW'],
     [{ status: 'REJECTED', expiresAt: future }, 'REJECTED'],
     [{ status: 'APPROVED', expiresAt: future }, 'APPROVED'],
@@ -26,7 +25,6 @@ describe('GIT certificate row presentation', () => {
   })
 
   it.each([
-    ['PENDING', future, { edit: true, correctExpiry: true, approve: true, reject: true }],
     ['FOR_REVIEW', future, { edit: true, correctExpiry: true, approve: true, reject: true }],
     ['REJECTED', future, { edit: true, correctExpiry: true, approve: false, reject: false }],
     ['APPROVED', future, { edit: true, correctExpiry: true, approve: false, reject: false }],
@@ -34,6 +32,13 @@ describe('GIT certificate row presentation', () => {
     ['SUPERSEDED', past, { edit: false, correctExpiry: true, approve: false, reject: false }],
   ])('maps %s rows to exactly the backend-supported actions', (status, expiresAt, expected) => {
     expect(gitCertificateActions({ status, expiresAt }, now)).toEqual(expected)
+  })
+
+  // Phase 40: PENDING is gone from the model — registration requires the
+  // bytes, so no certificate can exist without a file.
+  it('treats a PENDING status as nothing the UI can act on', () => {
+    expect(gitCertificateActions({ status: 'PENDING', expiresAt: future }, now))
+      .toEqual({ edit: true, correctExpiry: true, approve: false, reject: false })
   })
 
   it('offers a rejected certificate no way back into the review queue', () => {

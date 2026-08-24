@@ -10,11 +10,13 @@ require (
 	github.com/nats-io/nats-server/v2 v2.14.5
 	github.com/nats-io/nats.go v1.52.0
 	github.com/nats-io/nuid v1.0.1
+	github.com/oklog/ulid/v2 v2.1.2
 	github.com/onsi/ginkgo/v2 v2.32.0
 	github.com/onsi/gomega v1.42.1
 	go.temporal.io/api v1.34.0
 	go.temporal.io/sdk v1.27.0
 )
+
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect

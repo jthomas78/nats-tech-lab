@@ -75,6 +75,18 @@ holding on to:
 
 **Stream:** `TRANSPORTER` (JetStream, `LimitsPolicy` — replay is the point).
 
+![Topology of the tenant-scoped TRANSPORTER JetStream stream inside organizations-service. Browser API commands and tracking-credential commands converge on ProfileHandler, while Temporal activities call the event store's workflow append directly, so all three write sources share one append boundary. The event store hydrates through a disposable ordered consumer, and a single durable projector writes the canonical Postgres profile projection, the tenant KV write-through cache, and the optional compliance-certificate projection. A second figure traces one event end to end, from the guarded append to the projector's state-projection filter.](images/transporter-stream-producers-projections.png)
+
+> Editable source:
+> [transporter-stream-producers-projections.html](../../../../demos/01-dictionary/diagrams/transporter-stream-producers-projections.html)
+> — hand-authored inline SVG rather than a Draw.io workbook page, so
+> `./diagrams/export-png.sh` does **not** regenerate it. Re-export with
+> `node diagrams/export-html-png.mjs diagrams/transporter-stream-producers-projections.html \`
+> `  ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/transporter-stream-producers-projections.png 1024 --clip=".wrap"`
+> from `demos/01-dictionary/`. The 1024px width is the geometry the page was
+> reviewed at; changing it changes the layout. The `--clip=".wrap"` is
+> load-bearing, not optional.
+
 **Subject:** `evt.{context}.organizations.transporter.{organizationID}.{event}`
 — fixed six-token arity, matching the platform taxonomy
 `evt.{context}.{service}.{entity}.{entity-id}.{event}`. The leading token is
@@ -136,7 +148,7 @@ in the encrypted KV bucket (§ 4).
 > machinery to reach the saga. **Amends [ADR-046](ADR-046-transporter-aggregate-split.md).**
 
 **State** (`State` struct): `context`, `id`, `status`, `attemptNumber`,
-`fleetAvailabilityGate`, `gitVerified`, `documentReviews` (reference →
+`fleetAvailabilityGate`, `gitVerified`, `documentReviews` (document ID →
 `PendingReview` / `Approved` / `Rejected`), `trackingCredentials`,
 `updatedAt`.
 
@@ -203,15 +215,29 @@ so renaming a bucket orphans the old stream rather than migrating it.
 
 ```
 PRIMARY KEY (organization_id, id)          -- widened from (organization_id, type) in 38c-i
-status CHECK IN (PENDING, APPROVED, REJECTED, SUPERSEDED)
+status CHECK IN (FOR_REVIEW, APPROVED, REJECTED, SUPERSEDED)
+document_name TEXT NOT NULL              -- the file's name, fixed at registration (BR-TP74)
 expires_at TIMESTAMPTZ, coverage_cents BIGINT
-file_name / content_type / size / … (nullable together — a document has no file until one is uploaded)
+content_type / size / object_name / uploaded_at (nullable together, but Phase 40
+  means registration always fills them — see below)
 partial index (organization_id, type) WHERE status <> 'SUPERSEDED'
+unique index compliance_documents_document_name_idx (organization_id, document_name)
 ```
 
 The file columns are a projection of what is in the Object Store, so listing
 documents is one Postgres query and the bucket is touched only when bytes
 actually move.
+
+**Phase 40 (2026-08-24) — every compliance document is a file.** `PENDING` is
+gone from the status CHECK and the free-text `reference` column was replaced by
+`document_name`: a document cannot be registered without bytes, so there is no
+longer a state that means "row minted, nothing behind it". The separate
+`file_name` column went with it — it would have duplicated its own row's
+`document_name`. The name is unique per organization across *all* statuses
+(BR-TP74), enforced both by the non-partial unique index above and by a
+command-level `DocumentNameExists` pre-check, because GIT registration appends
+to a `LimitsPolicy` stream before its projection row exists and a duplicate
+caught only by the index would already be on the log permanently.
 
 ---
 
@@ -222,13 +248,20 @@ actually move.
 - **Types:** `CIPC`, `DIRECTOR_ID`, `BANK_CONFIRMATION_LETTER`,
   `TERMS_AND_CONDITIONS`, `GOODS_IN_TRANSIT`. Validated against the partner
   type.
-- **Statuses:** `PENDING` → `APPROVED` / `REJECTED`, plus terminal
-  `SUPERSEDED`. `Resubmit` returns a rejected document to review — for the
-  four CRUD types only. A rejected GIT certificate is replaced by registering
-  a new one, and `Resubmit` refuses it on type (BR-TP11, Phase 39).
-- **Files:** `AttachFile` is one-way (BR-TP43) and capped at
-  `MaxDocumentFileBytes` = 10 MiB. Object name:
-  `DocumentObjectName(context, partnerID, docType, documentID)`.
+- **Statuses:** `FOR_REVIEW` → `APPROVED` / `REJECTED`, plus terminal
+  `SUPERSEDED`. **Phase 40 retired document resubmission entirely** (BR-TP11):
+  a rejected document of any type is replaced by registering a new one, which
+  is what GIT already required. This is *not* BR-TP26's vetting resubmission,
+  which stands unchanged — that returns a rejected *transporter* to the queue.
+- **Files:** registration and upload are one gesture. The document name is an
+  input to the *register* command (it has to be: `DocumentRegistered` fires
+  before the bytes land, on a permanent stream), and the register reply carries
+  the upload ticket the browser immediately spends. `AttachFile` is one-way
+  (BR-TP43) and capped at `MaxDocumentFileBytes` = 10 MiB. Object name:
+  `DocumentObjectName(context, partnerID, docType, documentID)`. The upload
+  refuses a name that does not match the registered one
+  (`ErrDocumentNameMismatch`), checked before `store.Put` so a mismatched drop
+  never leaves an orphan object.
 - **Expiry:** `SetExpiry` refuses a past instant (`ErrDocumentExpiryInPast`,
   BR-TP59). **Phase 39 adds a second guard at approval** (BR-TP67) — a
   certificate can sit in the review queue until its expiry passes, and
@@ -294,16 +327,21 @@ Browser-facing subjects, all `api.*.organizations.{entity}.{verb}.v1` with
 
 - `organization.` — `register`, `list`, `get`, `update`, `activate`,
   `suspend`, `reactivate`, `audit`, `profile`, `submit-vetting`
-- `document.` — `add`, `list`, `approve`, `reject`, `resubmit`, `set-expiry`,
-  `upload-ticket`, `download-ticket`
+- `document.` — `add`, `list`, `approve`, `reject`, `set-expiry`,
+  `download-ticket` *(Phase 40 retired `resubmit` with resubmission itself, and
+  `upload-ticket` with its only caller — an upload ticket is now only ever
+  minted by a registration, and rides back in `add`'s / `git-register`'s reply)*
 - `fleet-asset.` — `add`, `list`
 - `operating-area.` — `add`, `list`, `remove`
 - `tracking-credential.` — `configure`, `list`
 
-File bytes do **not** travel over NATS: `upload-ticket` / `download-ticket`
+File bytes do **not** travel over NATS: registration and `download-ticket`
 mint one-shot tickets (`internal/filetickets`) redeemed against the REST
 endpoints in `internal/rest/document_files.go`, which stream to and from the
-Object Store.
+Object Store. The upload carries its ticket in `X-Document-Ticket` and the
+document name, percent-encoded, in `X-Document-Name`; on the wire and in the
+browser the field is `documentName`, labelled **Document Name** in the UI to
+match Linebooker V2.
 
 A browser credential is never granted `rpc.>`; backend code never calls
 `api.>`.
@@ -323,6 +361,12 @@ Structure: a list view, then a drill-in detail view with tabs —
 Tracking · Rate Sheets**. Pinia stores are the deliberate client-side
 analogue of a server-side materialized view: both are projected read models
 derived from an event source.
+
+Since Phase 40 the **Documents** tab registers by file drop for all five types:
+choosing a file supplies the document name, the register call returns an upload
+ticket, and the browser spends it in the same gesture — so there is no separate
+per-row Upload button and no Resubmit action. The Document Name column replaces
+the old Reference column, and the name is read-only once registered.
 
 ---
 
@@ -396,10 +440,15 @@ back into the queue.
 
 ![State model](images/phase39/phase39-StatusModel.png)
 
-- **`FOR_REVIEW` is inserted after `PENDING`, not a rename of it.** `PENDING`
-  keeps meaning "row minted, no file yet"; `FOR_REVIEW` means the bytes
-  landed and it is in the reviewer's queue. Drag-and-drop upload creates row
-  and file together and so goes straight to `FOR_REVIEW`.
+- **`FOR_REVIEW` was inserted after `PENDING`, not a rename of it.** `PENDING`
+  meant "row minted, no file yet"; `FOR_REVIEW` means the bytes landed and it
+  is in the reviewer's queue. Drag-and-drop upload creates row and file
+  together and so goes straight to `FOR_REVIEW`. **Phase 40 then deleted
+  `PENDING`**: with resubmission gone and every registration carrying bytes,
+  nothing could reach it, and drag-and-drop registration is now the *only*
+  way to create a document — for all five types, not just GIT. The accepted
+  capability loss: there is no longer any way to record that a document exists
+  without holding a copy of it.
 - **BR-TP30's supersede moves from on-upload to on-approval** (agreed
   2026-08-21). With early renewal allowed, on-upload supersede would retire
   cover that is still in force the instant a renewal was dropped.

@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The TRANSPORTER stream — producers and projections</title>
+  <style>
+    :root {
+      --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+      --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+      --accent: #006fff; --nested: #171c29;
+      --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+      --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+      --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+    .head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+    .head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+    .eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+    h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+    h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+    .sub { margin: 0; color: var(--muted); max-width: 68ch; }
+    figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+    .fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+    figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+    figcaption { padding: 9px 14px 11px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 18px; }
+    figcaption b { color: var(--text); font-weight: 600; }
+    figcaption code, .sub code, li code, p code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+    .sec { display: flex; flex-direction: column; gap: 11px; }
+    ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+    li b { color: var(--text); font-weight: 600; }
+
+    .n { fill: none; stroke: currentColor; stroke-width: 1; }
+    .nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+    .lbl { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+    .lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+    .grp { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+    .edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+    .flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+    .proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+    .rep { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+    .life { fill: none; stroke: var(--hop); stroke-width: 1; stroke-dasharray: 3 4; stroke-opacity: .72; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header class="head">
+      <div class="head-txt">
+        <div class="eyebrow">Phase 38–39 · ARCHITECTURE-ORGANIZATIONS-TRANSPORTERS §3</div>
+        <h1>The TRANSPORTER stream — producers and projections</h1>
+        <p class="sub">The stream is entirely internal to organizations-service: one event-sourced aggregate writes it, one durable consumer reads it, and that consumer feeds three read models.</p>
+      </div>
+    </header>
+
+    <figure>
+      <div class="fig-body">
+        <svg viewBox="0 0 1110 650" role="img" aria-label="Topology of the tenant-scoped TRANSPORTER JetStream stream inside organizations-service. Browser API commands and tracking credential commands flow into ProfileHandler, while Temporal activities call the event store's workflow append directly. The event store appends to the stream, hydrates through a disposable ordered consumer, and a durable projector writes the canonical Postgres profile projection, tenant KV cache, and optional compliance certificate projection.">
+          <defs>
+            <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+            <marker id="a-proj" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+            <marker id="a-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          </defs>
+
+          <text class="grp" x="20" y="34">WRITE SOURCES</text>
+          <text class="grp" x="240" y="34">ONE APPEND BOUNDARY</text>
+          <rect class="nb" x="530" y="20" width="290" height="565" rx="4"/>
+          <text class="grp" x="544" y="39">TENANT NATS ACCOUNT</text>
+          <text class="grp" x="842" y="34">READ SIDE</text>
+
+          <!-- write sources: widths derive from longest monospace line + 20px -->
+          <rect class="n" x="20" y="110" width="190" height="52" rx="3"/>
+          <text class="lbl" text-anchor="middle" x="115" y="133">browserrpc adapter</text>
+          <text class="lbl2" text-anchor="middle" x="115" y="146">api.* profile commands</text>
+
+          <rect class="n" x="20" y="245" width="190" height="52" rx="3"/>
+          <text class="lbl" text-anchor="middle" x="115" y="268">TrackingCredentialHandler</text>
+          <text class="lbl2" text-anchor="middle" x="115" y="281">BR-TP51–BR-TP55</text>
+
+          <rect class="n" x="20" y="405" width="190" height="52" rx="3"/>
+          <text class="lbl" text-anchor="middle" x="115" y="428">Temporal activities</text>
+          <text class="lbl2" text-anchor="middle" x="115" y="441">TransporterVettingWorkflow</text>
+
+          <rect class="n" x="240" y="150" width="276" height="64" rx="3"/>
+          <text class="lbl" text-anchor="middle" x="378" y="175">ProfileHandler</text>
+          <text class="lbl2" text-anchor="middle" x="378" y="188">hydrate → decide → append</text>
+          <text class="lbl2" text-anchor="middle" x="378" y="201">TransporterProfile aggregate</text>
+
+          <rect class="n" x="240" y="285" width="276" height="72" rx="3"/>
+          <text class="lbl" text-anchor="middle" x="378" y="314">JetStreamEventStore</text>
+          <text class="lbl2" text-anchor="middle" x="378" y="327">Append() — ExpectedLastSubjSeq guard</text>
+          <text class="lbl2" text-anchor="middle" x="378" y="340">AppendWorkflowEvent() — Nats-Msg-Id dedup</text>
+
+          <!-- open-top append-only stream cylinder -->
+          <path class="n" d="M550 138 L550 220 A124 9 0 0 0 798 220 L798 138"/>
+          <ellipse class="n" cx="674" cy="138" rx="124" ry="9"/>
+          <text class="lbl" text-anchor="middle" x="674" y="163">TRANSPORTER</text>
+          <text class="lbl2" text-anchor="middle" x="674" y="178">LimitsPolicy · FileStorage</text>
+          <text class="lbl2" text-anchor="middle" x="674" y="192">evt.*.organizations.transporter.&gt;</text>
+
+          <rect class="nb" x="550" y="245" width="248" height="50" rx="3"/>
+          <text class="lbl" text-anchor="middle" x="674" y="267">ephemeral ordered consumer</text>
+          <text class="lbl2" text-anchor="middle" x="674" y="280">per command · deleted after</text>
+
+          <rect class="n" x="550" y="495" width="250" height="62" rx="3"/>
+          <text class="lbl" text-anchor="middle" x="675" y="519">KV organizations</text>
+          <text class="lbl2" text-anchor="middle" x="675" y="532">write-through cache</text>
+          <text class="lbl2" text-anchor="middle" x="675" y="545">key {context}.transporter.{id}</text>
+
+          <rect class="n" x="842" y="135" width="250" height="66" rx="3"/>
+          <text class="lbl" text-anchor="middle" x="967" y="161">transporter-profile-projector</text>
+          <text class="lbl2" text-anchor="middle" x="967" y="174">durable · AckExplicit · FilterSubject</text>
+          <text class="lbl2" text-anchor="middle" x="967" y="187">evt.*.organizations.transporter.&gt;</text>
+
+          <rect class="n" x="842" y="265" width="250" height="52" rx="3"/>
+          <text class="lbl" text-anchor="middle" x="967" y="288">organizations.transporter_profiles</text>
+          <text class="lbl2" text-anchor="middle" x="967" y="301">Postgres — canonical read model</text>
+
+          <rect class="nb" x="842" y="390" width="250" height="76" rx="3"/>
+          <text class="lbl" text-anchor="middle" x="967" y="408">organizations.compliance_documents</text>
+          <text class="lbl2" text-anchor="middle" x="967" y="421">GIT certificates · ADR-050 Option A</text>
+          <text class="lbl2" text-anchor="middle" x="967" y="434">optional when a document repository</text>
+          <text class="lbl2" text-anchor="middle" x="967" y="447">is supplied</text>
+
+          <!-- all command sources converge before publishing -->
+          <path class="flow" d="M210 136 H225 V176 H232" marker-end="url(#a-sync)"/>
+          <path class="flow" d="M210 271 H225 V190 H232" marker-end="url(#a-sync)"/>
+          <text class="edge" x="20" y="230">per-tenant ProfileEventAppender</text>
+
+          <path class="flow" d="M378 214 V277" marker-end="url(#a-sync)"/>
+          <text class="edge" x="388" y="252">Append()</text>
+
+          <!-- Temporal deliberately bypasses ProfileHandler -->
+          <path class="flow" d="M210 431 H225 V331 H232" marker-end="url(#a-sync)"/>
+          <text class="edge" x="250" y="371">AppendWorkflowEvent() — bypasses ProfileHandler</text>
+
+          <path class="flow" d="M516 321 H532 V211 H542" marker-end="url(#a-sync)"/>
+          <text class="edge" x="480" y="250">publish</text>
+
+          <!-- replay travels through a disposable ordered consumer, then back to the write-side store -->
+          <path class="rep" d="M674 229 V237" marker-end="url(#a-rep)"/>
+          <path class="rep" d="M560 295 V332 H524" marker-end="url(#a-rep)"/>
+          <text class="edge" x="578" y="308">Hydrate() — replay via ordered consumer,</text>
+          <text class="edge" x="578" y="321">deleted after each command</text>
+
+          <path class="flow" d="M798 168 H834" marker-end="url(#a-sync)"/>
+          <text class="edge" x="800" y="162">deliver</text>
+
+          <!-- projection writes use a right-hand lane so no edge crosses another projection -->
+          <path class="proj" d="M1092 157 H1106 V291 H1100" marker-end="url(#a-proj)"/>
+          <text class="edge" x="1005" y="253">Upsert(state)</text>
+
+          <path class="proj" d="M1092 170 H1106 V421 H1100" marker-end="url(#a-proj)"/>
+          <text class="edge" x="846" y="372">UpsertCertificate() — if configured</text>
+
+          <path class="proj" d="M1092 183 H1106 V526 H808" marker-end="url(#a-proj)"/>
+          <text class="edge" x="826" y="520">Put(state)</text>
+        </svg>
+      </div>
+      <figcaption><b>Write sources → stream → read side.</b> Normal browser and tracking-credential commands converge on <code>ProfileHandler</code>; Temporal's activity uses the same <code>JetStreamEventStore</code> append boundary directly. The account boundary contains the tenant stream and cache, while the optional certificate table remains in organizations-service Postgres.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="fig-body">
+        <svg viewBox="0 0 1110 485" role="img" aria-label="A per-event sequence showing a command hydrating one TransporterProfile by ordered replay of its own stream subject, then appending with an expected-last-subject-sequence header. The TRANSPORTER stream delivers to the durable projector, which filters state-projecting events, acknowledges and skips unknown or audit-only events, terminates malformed payloads, and writes three projections.">
+          <defs>
+            <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--sync)"/></marker>
+            <marker id="b-proj" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--store)"/></marker>
+            <marker id="b-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><polygon points="0,1 8,4 0,7" fill="var(--evtl)"/></marker>
+          </defs>
+
+          <text class="grp" x="20" y="25">ONE WRITE, TWO READS — ONE EVENT</text>
+          <rect class="n" x="20" y="42" width="120" height="38" rx="3"/>
+          <text class="lbl" text-anchor="middle" x="80" y="65">command</text>
+          <rect class="n" x="230" y="42" width="180" height="38" rx="3"/>
+          <text class="lbl" text-anchor="middle" x="320" y="65">JetStreamEventStore</text>
+          <path class="n" d="M515 51 L515 78 A90 7 0 0 0 695 78 L695 51"/>
+          <ellipse class="n" cx="605" cy="51" rx="90" ry="7"/>
+          <text class="lbl" text-anchor="middle" x="605" y="68">TRANSPORTER</text>
+          <rect class="n" x="720" y="42" width="170" height="38" rx="3"/>
+          <text class="lbl" text-anchor="middle" x="805" y="65">durable projector</text>
+          <rect class="n" x="930" y="42" width="160" height="38" rx="3"/>
+          <text class="lbl" text-anchor="middle" x="1010" y="59">three projection</text>
+          <text class="lbl2" text-anchor="middle" x="1010" y="72">writes</text>
+
+          <path class="life" d="M80 80 V460 M320 80 V460 M605 80 V460 M805 80 V460 M1010 80 V460"/>
+
+          <path class="flow" d="M80 112 H320" marker-end="url(#b-sync)"/>
+          <text class="edge" x="154" y="106">command</text>
+
+          <path class="rep" d="M320 150 H605" marker-end="url(#b-rep)"/>
+          <text class="edge" x="339" y="144">Hydrate(): ordered consumer</text>
+          <path class="rep" d="M605 184 H320" marker-end="url(#b-rep)"/>
+          <text class="edge" x="339" y="199">replay this aggregate's own subject;</text>
+          <text class="edge" x="339" y="212">consumer deleted after</text>
+
+          <path class="flow" d="M320 280 H605" marker-end="url(#b-sync)"/>
+          <text class="edge" x="410" y="264">Append() — expected-subject guard</text>
+          <text class="edge" x="410" y="295">Nats-Expected-Last-Subject-</text>
+          <text class="edge" x="410" y="308">Sequence-Subject</text>
+          <text class="edge" x="410" y="321">evt.{context}.organizations.</text>
+          <text class="edge" x="410" y="334">transporter.{organizationID}.</text>
+          <text class="edge" x="410" y="347">{event}</text>
+
+          <path class="flow" d="M605 375 H805" marker-end="url(#b-sync)"/>
+          <text class="edge" x="642" y="369">durable receive · AckExplicit</text>
+
+          <path class="proj" d="M805 410 H1010" marker-end="url(#b-proj)"/>
+          <text class="edge" x="815" y="390">ProjectsState(eventType)</text>
+          <text class="edge" x="815" y="403">→ three projection writes</text>
+          <text class="edge" x="815" y="434">unknown / audit-only</text>
+          <text class="edge" x="815" y="447">→ Ack and skip</text>
+          <text class="edge" x="815" y="462">malformed JSON → Term</text>
+        </svg>
+      </div>
+      <figcaption><b>One write, two reads.</b> Each command replays only its aggregate subject before an optimistic guarded append; the separate durable consumer then performs the read-side projection work. The filter makes unknown and audit-only events harmless, while malformed event JSON is terminal.</figcaption>
+    </figure>
+
+    <section class="sec">
+      <h2>What the topology fixes in place</h2>
+      <ul>
+        <li><b>Exactly one aggregate writes the stream — TransporterProfile.</b> <code>Organization</code> itself is plain Postgres CRUD and never publishes here.</li>
+        <li><b>Three write sources, one append boundary.</b> Concurrency is enforced in exactly one place: BR-TP20’s <code>ExpectedLastSubjSeq</code> guard. The Temporal path adds stable <code>Nats-Msg-Id</code> <code>{organizationID}:{event}:{attempt}:{step}</code>, so a workflow retry receives the original PubAck rather than a second transition.</li>
+        <li><b>Two consumer kinds.</b> One ephemeral ordered consumer per command hydrates the write side and is deleted afterwards; one durable projector serves the read side.</li>
+        <li><b>Three projections from one consumer.</b> Postgres <code>transporter_profiles</code> is canonical, the <code>organizations</code> KV bucket is a non-canonical write-through cache, and <code>compliance_documents</code> receives GIT certificates only when a document repository is supplied because that table is in the service’s own Postgres, not the tenant account.</li>
+        <li><b>No other service consumes TRANSPORTER.</b> The stream is entirely internal to organizations-service; cross-service reads go through <code>rpc.*</code> / <code>api.*</code> instead.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

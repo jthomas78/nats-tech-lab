@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/identity"
 )
 
 // OperatingAreaRepository is BR-TP46-BR-TP50's Postgres adapter.
@@ -21,10 +22,13 @@ func NewOperatingAreaRepository(db *sql.DB) *OperatingAreaRepository {
 // layer would be racy, so a unique-violation here is translated rather than
 // pre-empted — the same treatment fleet_assets.registration_no gets.
 func (r *OperatingAreaRepository) AddOperatingArea(ctx context.Context, partnerID string, area domain.OperatingArea) (domain.OperatingArea, error) {
+	// BR-TP73: surrogate id minted here rather than by a column default. It is
+	// never read back — BR-TP48/BR-TP49 address a row by
+	// (organization_id, level, code) — but it is still the primary key.
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO organizations.transporter_operating_areas (organization_id, level, code, country_code)
-		VALUES ($1, $2, $3, $4)`,
-		partnerID, string(area.Level), area.Code, area.CountryCode)
+		INSERT INTO organizations.transporter_operating_areas (id, organization_id, level, code, country_code)
+		VALUES ($1, $2, $3, $4, $5)`,
+		identity.New(), partnerID, string(area.Level), area.Code, area.CountryCode)
 	if err != nil {
 		return domain.OperatingArea{}, mapUniqueViolation(err,
 			"transporter_operating_areas_unique_idx", domain.ErrOperatingAreaAlreadyAssigned)

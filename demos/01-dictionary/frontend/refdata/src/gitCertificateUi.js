@@ -22,7 +22,9 @@ export function carriesGitCover(certificate, nowMs = Date.now()) {
 // in a cluster of independent v-if expressions.
 export function gitCertificateActions(certificate, nowMs = Date.now()) {
   const superseded = certificate.status === 'SUPERSEDED'
-  const reviewable = certificate.status === 'PENDING' || certificate.status === 'FOR_REVIEW'
+  // Phase 40 retired PENDING: registration now requires the bytes, so a row
+  // in the reviewer's queue is always FOR_REVIEW.
+  const reviewable = certificate.status === 'FOR_REVIEW'
   return {
     edit: !superseded,
     correctExpiry: true,

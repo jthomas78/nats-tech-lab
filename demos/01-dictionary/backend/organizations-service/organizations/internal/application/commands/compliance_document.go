@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/identity"
 	profiledomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/domain"
 )
 
@@ -29,7 +28,7 @@ type CertificateAppender interface {
 	AttachCertificateFile(ctx context.Context, contextKey, organizationID, documentID string, file domain.DocumentFile, actorName, sourceIP string) (profiledomain.State, error)
 	ApproveCertificate(ctx context.Context, contextKey, organizationID, documentID, insurerName string, now time.Time, actorName, sourceIP string) (profiledomain.State, error)
 	RejectCertificate(ctx context.Context, contextKey, organizationID, documentID, actorName, sourceIP string) (profiledomain.State, error)
-	UpdateCertificateDetails(ctx context.Context, contextKey, organizationID, documentID, reference string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (profiledomain.State, error)
+	UpdateCertificateDetails(ctx context.Context, contextKey, organizationID, documentID string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (profiledomain.State, error)
 }
 
 // CertificateAppenderResolver resolves a tenant to its own event store, for
@@ -48,7 +47,7 @@ type ComplianceDocumentHandler struct {
 }
 
 func NewComplianceDocumentHandler(partners domain.OrganizationRepository, docs domain.ComplianceDocumentRepository) *ComplianceDocumentHandler {
-	return &ComplianceDocumentHandler{partners: partners, docs: docs, newID: func() string { return uuid.NewString() }}
+	return &ComplianceDocumentHandler{partners: partners, docs: docs, newID: identity.New}
 }
 
 // WithCertificateAppender supplies the aggregate write path for GIT documents.
@@ -95,8 +94,8 @@ func (h *ComplianceDocumentHandler) WithGoodsTypeValidator(v domain.GoodsTypeVal
 // Registration is never gated (BR-TP68). A transporter may register a renewal
 // while its current cover is live and approved; nothing about cover changes
 // until the new certificate is approved.
-func (h *ComplianceDocumentHandler) AddGitDocument(ctx context.Context, tenant, contextKey, partnerID, reference string, expiresAt, coverageCents *int64, goodsTypes []string, actor Actor) (domain.ComplianceDocument, error) {
-	doc, err := h.buildGitDocument(ctx, tenant, contextKey, partnerID, reference, expiresAt, coverageCents, goodsTypes)
+func (h *ComplianceDocumentHandler) AddGitDocument(ctx context.Context, tenant, contextKey, partnerID, documentName string, expiresAt, coverageCents *int64, goodsTypes []string, actor Actor) (domain.ComplianceDocument, error) {
+	doc, err := h.buildGitDocument(ctx, tenant, contextKey, partnerID, documentName, expiresAt, coverageCents, goodsTypes)
 	if err != nil {
 		return domain.ComplianceDocument{}, err
 	}
@@ -119,7 +118,7 @@ func (h *ComplianceDocumentHandler) AddGitDocument(ctx context.Context, tenant, 
 // written by anything that could be replayed (BR-TP72).
 func projectedFrom(doc domain.ComplianceDocument) domain.ProjectedCertificate {
 	return domain.ProjectedCertificate{
-		ID: doc.ID, Status: doc.Status, Reference: doc.Reference,
+		ID: doc.ID, Status: doc.Status, DocumentName: doc.DocumentName,
 		GoodsTypes:    append([]string(nil), doc.GoodsTypes...),
 		CoverageCents: doc.CoverageCents, ExpiresAt: doc.ExpiresAt,
 		InsurerName: doc.InsurerName, File: doc.File,
@@ -130,12 +129,15 @@ func projectedFrom(doc domain.ComplianceDocument) domain.ProjectedCertificate {
 // re-validation of the same inputs. Vocabulary membership is an application
 // concern (it is a tenant-scoped RPC); BR-TP64's cardinality rule stays on
 // ComplianceDocument itself.
-func (h *ComplianceDocumentHandler) buildGitDocument(ctx context.Context, tenant, contextKey, partnerID, reference string, expiresAt, coverageCents *int64, goodsTypes []string) (domain.ComplianceDocument, error) {
+func (h *ComplianceDocumentHandler) buildGitDocument(ctx context.Context, tenant, contextKey, partnerID, documentName string, expiresAt, coverageCents *int64, goodsTypes []string) (domain.ComplianceDocument, error) {
 	tp, err := h.partners.Get(ctx, partnerID)
 	if err != nil {
 		return domain.ComplianceDocument{}, err
 	}
-	doc, err := domain.AddDocument(tp.Type, domain.DocumentTypeGoodsInTransit, reference)
+	if err := h.requireUniqueDocumentName(ctx, partnerID, documentName); err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	doc, err := domain.AddDocument(tp.Type, domain.DocumentTypeGoodsInTransit, documentName)
 	if err != nil {
 		return domain.ComplianceDocument{}, err
 	}
@@ -233,7 +235,7 @@ func (h *ComplianceDocumentHandler) RejectGitDocument(ctx context.Context, tenan
 // UpdateGitDocument persists the edit view's ordinary certificate fields.
 // Expiry stays on SetGitDocumentExpiry because BR-TP70 admits that one
 // correction on a superseded certificate while locking everything here.
-func (h *ComplianceDocumentHandler) UpdateGitDocument(ctx context.Context, tenant, contextKey, partnerID, documentID, reference string, goodsTypes []string, coverageCents *int64, insurerName, contactName, contactNumber string, actor Actor) (domain.ComplianceDocument, error) {
+func (h *ComplianceDocumentHandler) UpdateGitDocument(ctx context.Context, tenant, contextKey, partnerID, documentID string, goodsTypes []string, coverageCents *int64, insurerName, contactName, contactNumber string, actor Actor) (domain.ComplianceDocument, error) {
 	doc, err := h.docs.GetDocument(ctx, partnerID, documentID)
 	if err != nil {
 		return domain.ComplianceDocument{}, err
@@ -241,7 +243,10 @@ func (h *ComplianceDocumentHandler) UpdateGitDocument(ctx context.Context, tenan
 	if doc.Status == domain.DocumentStatusSuperseded {
 		return domain.ComplianceDocument{}, domain.ErrDocumentSuperseded
 	}
-	probe, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeGoodsInTransit, reference)
+	// Phase 40: the document name is fixed at registration and read-only in
+	// the edit view, so the probe reuses the stored one rather than accepting
+	// a caller-supplied value.
+	probe, err := domain.AddDocument(domain.PartnerTypeTransporter, domain.DocumentTypeGoodsInTransit, doc.DocumentName)
 	if err != nil {
 		return domain.ComplianceDocument{}, err
 	}
@@ -280,10 +285,10 @@ func (h *ComplianceDocumentHandler) UpdateGitDocument(ctx context.Context, tenan
 			return domain.ComplianceDocument{}, err
 		}
 	}
-	if _, err := appender.UpdateCertificateDetails(ctx, contextKey, partnerID, documentID, reference, goodsTypes, coverageCents, insurerName, contactsChanged, actor.Name, actor.SourceIP); err != nil {
+	if _, err := appender.UpdateCertificateDetails(ctx, contextKey, partnerID, documentID, goodsTypes, coverageCents, insurerName, contactsChanged, actor.Name, actor.SourceIP); err != nil {
 		return domain.ComplianceDocument{}, err
 	}
-	doc.Reference, doc.GoodsTypes, doc.CoverageCents = reference, append([]string(nil), goodsTypes...), coverageCents
+	doc.GoodsTypes, doc.CoverageCents = append([]string(nil), goodsTypes...), coverageCents
 	doc.InsurerName, doc.InsuranceContactName, doc.InsuranceContactNumber = insurerName, contactName, contactNumber
 	return doc, nil
 }
@@ -323,12 +328,15 @@ func (h *ComplianceDocumentHandler) certificateCommands(tenant string) (Certific
 // expiresAt is optional (BR-TP59); when supplied it goes through the same
 // domain guard the standalone set-expiry command uses, so a past date cannot
 // enter by the registration door instead of the edit one.
-func (h *ComplianceDocumentHandler) AddDocument(ctx context.Context, partnerID string, docType domain.DocumentType, reference string, expiresAt *int64) (domain.ComplianceDocument, error) {
+func (h *ComplianceDocumentHandler) AddDocument(ctx context.Context, partnerID string, docType domain.DocumentType, documentName string, expiresAt *int64) (domain.ComplianceDocument, error) {
 	tp, err := h.partners.Get(ctx, partnerID)
 	if err != nil {
 		return domain.ComplianceDocument{}, err
 	}
-	doc, err := domain.AddDocument(tp.Type, docType, reference)
+	if err := h.requireUniqueDocumentName(ctx, partnerID, documentName); err != nil {
+		return domain.ComplianceDocument{}, err
+	}
+	doc, err := domain.AddDocument(tp.Type, docType, documentName)
 	if err != nil {
 		return domain.ComplianceDocument{}, err
 	}
@@ -373,6 +381,20 @@ func (h *ComplianceDocumentHandler) RejectDocument(ctx context.Context, partnerI
 	return h.docs.RejectDocument(ctx, partnerID, documentID)
 }
 
-func (h *ComplianceDocumentHandler) ResubmitDocument(ctx context.Context, partnerID, documentID string) (domain.ComplianceDocument, error) {
-	return h.docs.ResubmitDocument(ctx, partnerID, documentID)
+// requireUniqueDocumentName is BR-TP74. It runs ahead of every registration,
+// including GIT's — whose event is appended before the projection row exists,
+// so the unique index behind it would only ever catch the duplicate after the
+// log had already recorded it.
+func (h *ComplianceDocumentHandler) requireUniqueDocumentName(ctx context.Context, partnerID, documentName string) error {
+	if documentName == "" {
+		return domain.ErrDocumentNameRequired
+	}
+	taken, err := h.docs.DocumentNameExists(ctx, partnerID, documentName)
+	if err != nil {
+		return err
+	}
+	if taken {
+		return fmt.Errorf("%w: %q", domain.ErrDuplicateDocumentName, documentName)
+	}
+	return nil
 }

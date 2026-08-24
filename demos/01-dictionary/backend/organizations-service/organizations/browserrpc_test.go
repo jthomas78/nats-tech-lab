@@ -127,7 +127,7 @@ var _ = Describe("NATS micro registration", func() {
 		// Replaces 26g's "registers no endpoints yet" spec, which existed to pin
 		// that increment's deliberate scope. Phase 26h is the phase that spec
 		// said should replace it.
-		It("advertises all 28 api.* endpoints on $SRV.INFO", func() {
+		It("advertises all 26 api.* endpoints on $SRV.INFO", func() {
 			adapter, err := browserrpc.New(nc, browserrpc.Deps{Tenant: "acme"})
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(func() { _ = adapter.Stop() })
@@ -163,7 +163,6 @@ var _ = Describe("NATS micro registration", func() {
 				"api.*.organizations.document.git-update.v1",
 				"api.*.organizations.document.approve.v1",
 				"api.*.organizations.document.reject.v1",
-				"api.*.organizations.document.resubmit.v1",
 				// BR-TP59: expiry is set on its own subject rather than folded
 				// into approve — "this cover runs to date X" is a fact about
 				// the document, not a review decision.
@@ -175,7 +174,6 @@ var _ = Describe("NATS micro registration", func() {
 				// Phase 38c-ii (BR-TP41). Endpoints 17 and 18 mint capability
 				// tickets; the document bytes they authorize never travel over
 				// api.* at all — see internal/rest/document_files.go.
-				"api.*.organizations.document.upload-ticket.v1",
 				"api.*.organizations.document.download-ticket.v1",
 				"api.*.organizations.fleet-asset.add.v1",
 				"api.*.organizations.fleet-asset.list.v1",

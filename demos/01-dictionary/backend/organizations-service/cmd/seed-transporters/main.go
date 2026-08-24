@@ -2,10 +2,13 @@
 // stage of the vetting lifecycle (Phase 38g), for testing and demos.
 //
 // It drives the same api.* NATS endpoints the browser uses, over a tenant
-// credential — never Postgres, and never REST: BR-TP16 reduced this service's
-// HTTP surface to infra health, so NATS is the only business transport. That
-// also means every rung below goes through the real validation an operator
-// would hit, rather than writing rows that could never have been created.
+// credential — never Postgres. The one exception is the document bytes, and
+// it is the same exception the browser has: a file cannot ride the api.* JSON
+// request/reply path at all (BR-TP41), so the seeder spends the upload ticket
+// its registration returned against the same /files/documents ingress the UI
+// posts to. Everything else stays on NATS, which means every rung below goes
+// through the real validation an operator would hit, rather than writing rows
+// that could never have been created.
 //
 // Completeness is a deterministic ladder rather than randomness: rung N is
 // always the same state, so a re-run reproduces the same data and any row's
@@ -14,7 +17,7 @@
 //
 // Usage:
 //
-//	go run ./cmd/seed-transporters [-n 10] [-context acme] [-creds ../../nats/creds/acme.creds]
+//	go run ./cmd/seed-transporters [-n 10] [-context acme] [-creds ../../nats/creds/acme.creds] [-files-url http://localhost:7204/files/documents]
 //
 // Prerequisites, all of which the seeder checks and reports rather than
 // failing halfway with an opaque refdata error:
@@ -30,11 +33,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -55,6 +61,11 @@ func main() {
 	contextKey := flag.String("context", "acme", "business-unit context to seed into")
 	credsPath := flag.String("creds", "../../nats/creds/acme.creds", "tenant NATS credentials")
 	natsURL := flag.String("nats-url", nats.DefaultURL, "NATS URL")
+	// Phase 40: every compliance document is a file, so the seeder needs the
+	// HTTP ingress as well as NATS. Default is the host port from
+	// demos/01-dictionary/README.md's table, so a run from a checkout needs
+	// no flags.
+	filesURL := flag.String("files-url", "http://localhost:7204/files/documents", "organizations-service document-file ingress")
 	flag.Parse()
 
 	if *count < 1 {
@@ -69,7 +80,7 @@ func main() {
 	}
 	defer nc.Close()
 
-	s := &seeder{nc: nc, contextKey: *contextKey, run: int(time.Now().Unix() % 90000)}
+	s := &seeder{nc: nc, contextKey: *contextKey, filesURL: *filesURL, run: int(time.Now().Unix() % 90000)}
 	if err := s.checkPrerequisites(); err != nil {
 		log.Fatalf("%v", err)
 	}
@@ -148,6 +159,7 @@ var (
 type seeder struct {
 	nc         *nats.Conn
 	contextKey string
+	filesURL   string
 	seq        int
 
 	// run makes this invocation's fleet-asset registration numbers and VINs
@@ -478,18 +490,57 @@ func (s *seeder) addDocument(id string) (string, error) {
 		goodsTypes[s.seq%len(goodsTypes)],
 		goodsTypes[(s.seq+1)%len(goodsTypes)],
 	}
+	// Phase 40: registration is a file drop, so the seeder registers and then
+	// spends the ticket the reply carries. The stub PDF is deliberately a
+	// real, if minimal, PDF — a seeded row whose bytes no viewer can open
+	// would make the download path untestable from seeded data.
 	var out struct {
-		ID string `json:"id"`
+		Document struct {
+			ID string `json:"id"`
+		} `json:"document"`
+		Ticket string `json:"ticket"`
 	}
+	documentName := fmt.Sprintf("GIT-%05d.pdf", s.seq)
 	// GOODS_IN_TRANSIT is the Transporter-specific type (BR-TP07), and the one
 	// BR-TP38 derives the GIT badge from.
-	if err := s.request("document.add", map[string]any{
-		"id": id, "type": "GOODS_IN_TRANSIT", "reference": fmt.Sprintf("GIT-%05d", s.seq),
-		"goodsTypes": codes,
+	if err := s.request("document.git-register", map[string]any{
+		"id": id, "documentName": documentName, "goodsTypes": codes,
 	}, &out); err != nil {
 		return "", err
 	}
-	return out.ID, nil
+	if err := s.uploadStub(out.Ticket, documentName); err != nil {
+		return "", err
+	}
+	return out.Document.ID, nil
+}
+
+// stubPDF is the smallest thing a PDF reader will open. The bytes matter only
+// in that they are non-empty (BR-TP44 refuses a zero-length upload) and that
+// their content type is honest.
+const stubPDF = "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n"
+
+// uploadStub spends one upload ticket. A ticket is single-use (BR-TP41), so a
+// failure here is terminal for that rung rather than retryable — which is why
+// it aborts the seed instead of warning.
+func (s *seeder) uploadStub(ticket, documentName string) error {
+	req, err := http.NewRequest(http.MethodPost, s.filesURL, bytes.NewBufferString(stubPDF))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Document-Ticket", ticket)
+	req.Header.Set("X-Document-Name", url.QueryEscape(documentName))
+	req.Header.Set("Content-Type", "application/pdf")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("upload %s: %w (is -files-url reachable?)", documentName, err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode != http.StatusOK {
+		body := make([]byte, 512)
+		n, _ := resp.Body.Read(body)
+		return fmt.Errorf("upload %s: %s: %s", documentName, resp.Status, strings.TrimSpace(string(body[:n])))
+	}
+	return nil
 }
 
 // awaitStatus polls the profile until the vetting saga reaches want. The wait

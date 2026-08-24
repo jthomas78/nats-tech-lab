@@ -20,7 +20,7 @@ func (p *Projection) Migrate(ctx context.Context) error {
 	}
 	_, err := p.db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS organizations.transporter_profiles (
-			organization_id UUID        PRIMARY KEY,
+			organization_id TEXT        PRIMARY KEY,
 			context            TEXT        NOT NULL,
 			status             TEXT        NOT NULL CHECK (status IN ('Awaiting', 'InReview', 'Vetted', 'Rejected', 'CoverLapsed')),
 			attempt_number     INTEGER     NOT NULL DEFAULT 0,
@@ -35,6 +35,26 @@ func (p *Projection) Migrate(ctx context.Context) error {
 		ALTER TABLE organizations.transporter_profiles ADD COLUMN IF NOT EXISTS git_verified BOOLEAN NOT NULL DEFAULT FALSE;
 		ALTER TABLE organizations.transporter_profiles ADD COLUMN IF NOT EXISTS document_reviews JSONB NOT NULL DEFAULT '{}'::jsonb;
 		ALTER TABLE organizations.transporter_profiles ADD COLUMN IF NOT EXISTS certificates JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+		-- BR-TP73 (ADR-051): identity is a ULID, so this column is TEXT rather
+		-- than the native uuid type. No-op on a fresh database; on one created
+		-- before ADR-051 it is the difference between a projector that writes and
+		-- one that Naks every event forever because a 26-character ULID is not a
+		-- valid uuid. Same failure mode as the CoverLapsed CHECK below, and found
+		-- the same way, so it gets the same guarded treatment.
+		DO $$
+		BEGIN
+			IF EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'organizations'
+				  AND table_name = 'transporter_profiles'
+				  AND column_name = 'organization_id'
+				  AND data_type = 'uuid'
+			) THEN
+				ALTER TABLE organizations.transporter_profiles
+					ALTER COLUMN organization_id TYPE TEXT;
+			END IF;
+		END $$;
 
 		-- BR-TP63 (38h-ii) adds CoverLapsed. The CHECK is dropped and recreated
 		-- rather than left to the CREATE TABLE above, which only runs on a

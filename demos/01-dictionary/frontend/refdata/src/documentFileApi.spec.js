@@ -26,7 +26,7 @@ vi.mock('./nats/useRefdataAdminConnection.js', () => ({
   useRefdataAdminConnection: () => ({ request: vi.fn() }),
 }))
 
-const { uploadComplianceDocumentFile, downloadComplianceDocumentFile, registerGitCertificateWithFile } = await import('./api.js')
+const { registerComplianceDocumentWithFile, downloadComplianceDocumentFile, registerGitCertificateWithFile } = await import('./api.js')
 
 describe('compliance document file transfer', () => {
   let fetchMock
@@ -59,12 +59,14 @@ describe('compliance document file transfer', () => {
       const file = fileLike('renewal.pdf', 'application/pdf', 10)
 
       const result = await registerGitCertificateWithFile('acme', 'tp-1', {
-        reference: 'renewal.pdf', goodsTypes: ['GENERAL_FREIGHT'], coverageCents: 500000,
+        goodsTypes: ['GENERAL_FREIGHT'], coverageCents: 500000,
       }, file)
 
       expect(request).toHaveBeenCalledTimes(1)
+      // BR-TP74: the dropped file's own name is the document name, taken from
+      // the file rather than from anything the operator typed.
       expect(request).toHaveBeenCalledWith('api.acme.organizations.document.git-register.v1', {
-        id: 'tp-1', reference: 'renewal.pdf', goodsTypes: ['GENERAL_FREIGHT'], coverageCents: 500000,
+        id: 'tp-1', goodsTypes: ['GENERAL_FREIGHT'], coverageCents: 500000, documentName: 'renewal.pdf',
       })
       expect(request.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0])
       expect(fetchMock.mock.calls[0][1].headers['X-Document-Ticket']).toBe('git-ticket')
@@ -72,14 +74,16 @@ describe('compliance document file transfer', () => {
       expect(result.status).toBe('FOR_REVIEW')
     })
 
-    it('mints an upload ticket over NATS before sending any bytes', async () => {
+    it('registers one of the four shared types and spends that call\'s ticket', async () => {
       fetchMock.mockResolvedValue(okJson({ id: 'doc-1' }))
 
-      await uploadComplianceDocumentFile('acme', 'tp-1', 'doc-1', fileLike('cert.pdf', 'application/pdf', 10))
+      await registerComplianceDocumentWithFile('acme', 'tp-1', 'CIPC', fileLike('cipc.pdf', 'application/pdf', 10))
 
       expect(request).toHaveBeenCalledTimes(1)
-      expect(request.mock.calls[0][0]).toBe('api.acme.organizations.document.upload-ticket.v1')
-      expect(request.mock.calls[0][1]).toEqual({ id: 'tp-1', documentId: 'doc-1' })
+      expect(request.mock.calls[0][0]).toBe('api.acme.organizations.document.add.v1')
+      expect(request.mock.calls[0][1]).toEqual({
+        id: 'tp-1', type: 'CIPC', documentName: 'cipc.pdf', expiresAt: undefined,
+      })
 
       // Ordering, not just presence: the ticket has to exist before the POST.
       expect(request.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0])
@@ -89,7 +93,7 @@ describe('compliance document file transfer', () => {
       fetchMock.mockResolvedValue(okJson({ id: 'doc-1' }))
       const file = fileLike('cert.pdf', 'application/pdf', 10)
 
-      await uploadComplianceDocumentFile('acme', 'tp-1', 'doc-1', file)
+      await registerComplianceDocumentWithFile('acme', 'tp-1', 'CIPC', file)
 
       const [url, init] = fetchMock.mock.calls[0]
       expect(url).toBe('/files/documents')
@@ -105,16 +109,16 @@ describe('compliance document file transfer', () => {
     it('percent-encodes a non-ASCII filename', async () => {
       fetchMock.mockResolvedValue(okJson({ id: 'doc-1' }))
 
-      await uploadComplianceDocumentFile('acme', 'tp-1', 'doc-1', fileLike('GIT — cover (2026).pdf', 'application/pdf', 10))
+      await registerComplianceDocumentWithFile('acme', 'tp-1', 'CIPC', fileLike('GIT — cover (2026).pdf', 'application/pdf', 10))
 
-      expect(fetchMock.mock.calls[0][1].headers['X-Document-File-Name'])
+      expect(fetchMock.mock.calls[0][1].headers['X-Document-Name'])
         .toBe('GIT%20%E2%80%94%20cover%20(2026).pdf')
     })
 
     it('falls back to a generic content type when the browser reports none', async () => {
       fetchMock.mockResolvedValue(okJson({ id: 'doc-1' }))
 
-      await uploadComplianceDocumentFile('acme', 'tp-1', 'doc-1', fileLike('scan.xyz', '', 10))
+      await registerComplianceDocumentWithFile('acme', 'tp-1', 'CIPC', fileLike('scan.xyz', '', 10))
 
       expect(fetchMock.mock.calls[0][1].headers['Content-Type']).toBe('application/octet-stream')
     })
@@ -123,7 +127,7 @@ describe('compliance document file transfer', () => {
       fetchMock.mockResolvedValue(failure(409, { error: 'compliance document already has a file attached' }))
 
       await expect(
-        uploadComplianceDocumentFile('acme', 'tp-1', 'doc-1', fileLike('cert.pdf', 'application/pdf', 10)),
+        registerComplianceDocumentWithFile('acme', 'tp-1', 'CIPC', fileLike('cert.pdf', 'application/pdf', 10)),
       ).rejects.toMatchObject({
         status: 409,
         message: 'compliance document already has a file attached',
@@ -142,7 +146,7 @@ describe('compliance document file transfer', () => {
       })
 
       await expect(
-        uploadComplianceDocumentFile('acme', 'tp-1', 'doc-1', fileLike('big.pdf', 'application/pdf', 10)),
+        registerComplianceDocumentWithFile('acme', 'tp-1', 'CIPC', fileLike('big.pdf', 'application/pdf', 10)),
       ).rejects.toMatchObject({ status: 413 })
     })
   })
@@ -181,7 +185,7 @@ describe('compliance document file transfer', () => {
     // Same guard as every other tp call: a dotted context would shift every
     // later token and silently address the wrong context.
     await expect(
-      uploadComplianceDocumentFile('acme.north', 'tp-1', 'doc-1', fileLike('cert.pdf', 'application/pdf', 10)),
+      registerComplianceDocumentWithFile('acme.north', 'tp-1', 'CIPC', fileLike('cert.pdf', 'application/pdf', 10)),
     ).rejects.toThrow(/invalid context/)
     expect(fetchMock).not.toHaveBeenCalled()
   })

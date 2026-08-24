@@ -28,6 +28,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/identity"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/internal/postgres"
 )
 
@@ -59,11 +60,15 @@ func testDB() *sql.DB {
 // (cascading to its documents) afterwards — so the suite can run against a
 // developer's live dev database without disturbing what is already in it.
 func freshPartner(db *sql.DB, partnerType string) string {
-	var id string
-	err := db.QueryRow(`
-		INSERT INTO organizations.organizations (context, name, type, status)
-		VALUES ('spec-context', 'SPEC ' || gen_random_uuid()::text, $1, 'registered')
-		RETURNING id`, partnerType).Scan(&id)
+	// BR-TP73: the id is supplied rather than read back from a column default,
+	// because ADR-051 replaced gen_random_uuid() with a service-minted ULID.
+	// The spec mints its own instead of going through OrganizationRepository so
+	// it stays a fixture rather than a second test of Register.
+	id := identity.New()
+	_, err := db.Exec(`
+		INSERT INTO organizations.organizations (id, context, name, type, status)
+		VALUES ($1, 'spec-context', 'SPEC ' || $1, $2, 'registered')`,
+		id, partnerType)
 	Expect(err).NotTo(HaveOccurred())
 	DeferCleanup(func() {
 		_, _ = db.Exec(`DELETE FROM organizations.organizations WHERE id = $1`, id)

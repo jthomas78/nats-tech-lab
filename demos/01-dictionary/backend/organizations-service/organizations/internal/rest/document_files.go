@@ -45,9 +45,9 @@ const (
 	// credential that grants access to a compliance document.
 	ticketHeader = "X-Document-Ticket"
 
-	// fileNameHeader carries the client's original filename, percent-encoded
+	// documentNameHeader carries the client's original filename, percent-encoded
 	// because HTTP header values are ASCII and real filenames are not.
-	fileNameHeader = "X-Document-File-Name"
+	documentNameHeader = "X-Document-Name"
 )
 
 // DocumentFileRoutes is the "METHOD /pattern" list MountDocumentFiles
@@ -76,9 +76,9 @@ func (h *documentFileHandler) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fileName, err := url.QueryUnescape(r.Header.Get(fileNameHeader))
-	if err != nil || fileName == "" {
-		writeFileError(w, domain.ErrFileNameRequired)
+	documentName, err := url.QueryUnescape(r.Header.Get(documentNameHeader))
+	if err != nil || documentName == "" {
+		writeFileError(w, domain.ErrDocumentNameRequired)
 		return
 	}
 
@@ -94,7 +94,7 @@ func (h *documentFileHandler) upload(w http.ResponseWriter, r *http.Request) {
 	body := http.MaxBytesReader(w, r.Body, domain.MaxDocumentFileBytes+1)
 	defer body.Close() //nolint:errcheck
 
-	doc, err := h.files.Upload(r.Context(), ticket, fileName, contentType, body)
+	doc, err := h.files.Upload(r.Context(), ticket, documentName, contentType, body)
 	if err != nil {
 		// A MaxBytesReader trip surfaces as a read error from the object
 		// store's copy, not as one of the domain sentinels, so it is mapped
@@ -136,7 +136,7 @@ func (h *documentFileHandler) download(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.FormatInt(doc.File.SizeBytes, 10))
 	// RFC 5987 form only. A bare filename= parameter cannot carry a non-ASCII
 	// name, and the filename here is arbitrary operator input.
-	w.Header().Set("Content-Disposition", `attachment; filename*=UTF-8''`+url.PathEscape(doc.File.FileName))
+	w.Header().Set("Content-Disposition", `attachment; filename*=UTF-8''`+url.PathEscape(doc.File.DocumentName))
 
 	if _, err := io.Copy(w, body); err != nil {
 		// Headers are already sent, so there is no status code left to change
@@ -161,7 +161,7 @@ func writeFileError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	switch {
 	case errors.Is(err, commands.ErrTicketRequired),
-		errors.Is(err, domain.ErrFileNameRequired),
+		errors.Is(err, domain.ErrDocumentNameRequired),
 		errors.Is(err, domain.ErrContentTypeRequired),
 		errors.Is(err, domain.ErrFileEmpty):
 		status = http.StatusBadRequest

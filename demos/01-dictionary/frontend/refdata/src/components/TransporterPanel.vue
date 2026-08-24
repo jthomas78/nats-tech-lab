@@ -25,7 +25,7 @@ import { computed, reactive, ref, watch } from 'vue'
 
 import {
   activateOrganization,
-  addComplianceDocument,
+  registerComplianceDocumentWithFile,
   addFleetAsset,
   approveComplianceDocument,
   getOrganizationAudit,
@@ -43,10 +43,8 @@ import {
   reactivateOrganization,
   registerOrganization,
   rejectComplianceDocument,
-  resubmitComplianceDocument,
   suspendOrganization,
   updateOrganization,
-  uploadComplianceDocumentFile,
 } from '../api'
 import { useTenantStore } from '../stores/tenant'
 
@@ -485,7 +483,10 @@ const wizardForm = reactive({
 })
 const wizardFleet = reactive({ registrationNo: '', vin: '', make: '', model: '', vehicleTypeCode: '' })
 const wizardFleetAdded = ref([])
-const wizardDoc = reactive({ type: DOCUMENT_TYPES[0], reference: '' })
+// Phase 40: a compliance document is a dropped file, so the wizard's document
+// step carries the file rather than a typed reference.
+const wizardDoc = reactive({ type: DOCUMENT_TYPES[0], file: null })
+const wizardDocFileInput = ref(null)
 const wizardDocsAdded = ref([])
 
 function openWizard() {
@@ -494,7 +495,7 @@ function openWizard() {
   wizardError.value = ''
   Object.assign(wizardForm, { name: '', tradingAs: '', companyName: '', registrationNo: '', vatRegistrationNo: '' })
   Object.assign(wizardFleet, { registrationNo: '', vin: '', make: '', model: '', vehicleTypeCode: '' })
-  Object.assign(wizardDoc, { type: DOCUMENT_TYPES[0], reference: '' })
+  Object.assign(wizardDoc, { type: DOCUMENT_TYPES[0], file: null })
   wizardFleetAdded.value = []
   wizardDocsAdded.value = []
   wizardOpen.value = true
@@ -536,14 +537,32 @@ async function wizardAddFleet() {
   }
 }
 
+function chooseWizardDocFile() {
+  if (!wizardDocFileInput.value) return
+  wizardDocFileInput.value.value = ''
+  wizardDocFileInput.value.click()
+}
+
+function acceptWizardDocFile(file) {
+  wizardError.value = ''
+  const refusal = fileRefusal(file)
+  if (refusal) {
+    wizardError.value = refusal
+    return
+  }
+  wizardDoc.file = file
+}
+
 async function wizardAddDoc() {
-  if (!wizardDoc.type || !wizardDoc.reference) return
+  if (!wizardDoc.type || !wizardDoc.file) return
   wizardSaving.value = true
   wizardError.value = ''
   try {
-    await addComplianceDocument(tenantStore.context, wizardPartner.value.id, { ...wizardDoc })
+    await registerComplianceDocumentWithFile(
+      tenantStore.context, wizardPartner.value.id, wizardDoc.type, wizardDoc.file,
+    )
     wizardDocsAdded.value = [...wizardDocsAdded.value, wizardDoc.type]
-    wizardDoc.reference = ''
+    wizardDoc.file = null
   } catch (e) {
     wizardError.value = e.message
   } finally {
@@ -566,21 +585,45 @@ async function finishWizard() {
 const addDocOpen = ref(false)
 const addDocSaving = ref(false)
 const addDocError = ref('')
-const addDocForm = reactive({ type: DOCUMENT_TYPES[0], reference: '' })
+const addDocForm = reactive({ type: DOCUMENT_TYPES[0], file: null })
 
 function openAddDocument() {
   addDocForm.type = DOCUMENT_TYPES[0]
-  addDocForm.reference = ''
+  addDocForm.file = null
   addDocError.value = ''
   addDocOpen.value = true
 }
 
+function chooseAddDocFile() {
+  if (!fileInput.value) return
+  fileInput.value.value = ''
+  fileInput.value.click()
+}
+
+function acceptAddDocFile(file) {
+  addDocError.value = ''
+  const refusal = fileRefusal(file)
+  if (refusal) {
+    addDocError.value = refusal
+    return
+  }
+  // BR-TP74's pre-check against what this organization already holds. The
+  // service refuses a duplicate anyway; this saves a doomed round trip.
+  if ((documents.value ?? []).some((doc) => (doc.documentName || '') === file.name)) {
+    addDocError.value = `${file.name} has already been registered for this organization.`
+    return
+  }
+  addDocForm.file = file
+}
+
 async function submitAddDocument() {
-  if (!addDocForm.type || !addDocForm.reference) return
+  if (!addDocForm.type || !addDocForm.file) return
   addDocSaving.value = true
   addDocError.value = ''
   try {
-    await addComplianceDocument(tenantStore.context, selected.value.id, { ...addDocForm })
+    await registerComplianceDocumentWithFile(
+      tenantStore.context, selected.value.id, addDocForm.type, addDocForm.file,
+    )
     addDocOpen.value = false
     await refreshDetail()
     toast.add({ severity: 'success', summary: 'Document registered', detail: addDocForm.type, life: 3000 })
@@ -596,66 +639,28 @@ async function submitAddDocument() {
 // The transfer is two calls, not one: a ticket minted over the authenticated
 // NATS connection, then the bytes over HTTP carrying only that ticket
 // (BR-TP41). api.js owns both halves; this component owns the interaction.
+//
+// Phase 40 removed the per-row Upload control. Registration is the only way
+// bytes arrive now, so no row can exist without a file and there is nothing
+// left for that button to do.
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024
 const maxFileMb = MAX_FILE_BYTES / (1024 * 1024)
 
 const fileInput = ref(null)
-const uploadTargetId = ref('')
 const busyDocId = ref('')
 const fileError = ref('')
 
-function chooseFile(doc) {
-  fileError.value = ''
-  uploadTargetId.value = doc.id
-  // Clearing the value first means picking the *same* file twice still fires
-  // change — otherwise a retry after a failed upload would appear to do
-  // nothing at all.
-  if (fileInput.value) {
-    fileInput.value.value = ''
-    fileInput.value.click()
-  }
-}
-
-async function onFileChosen(event) {
-  const file = event.target.files?.[0]
-  const documentId = uploadTargetId.value
-  uploadTargetId.value = ''
-  if (!file || !documentId) return
-
-  // A courtesy check, not a control: the service enforces BR-TP44 regardless,
-  // and does so on the bytes it actually reads. Checking here only spares the
-  // operator a doomed upload and a spent ticket.
+// A courtesy check, not a control: the service enforces BR-TP44 regardless,
+// and does so on the bytes it actually reads. Checking here only spares the
+// operator a doomed upload and a spent ticket.
+function fileRefusal(file) {
+  if (!file) return 'No file chosen.'
   if (file.size > MAX_FILE_BYTES) {
-    fileError.value = `${file.name} is ${formatBytes(file.size)} — the limit is ${maxFileMb} MB.`
-    return
+    return `${file.name} is ${formatBytes(file.size)} — the limit is ${maxFileMb} MB.`
   }
-  if (file.size === 0) {
-    fileError.value = `${file.name} is empty.`
-    return
-  }
-
-  busyDocId.value = documentId
-  fileError.value = ''
-  try {
-    await uploadComplianceDocumentFile(tenantStore.context, selected.value.id, documentId, file)
-    await refreshDetail()
-    toast.add({ severity: 'success', summary: 'File uploaded', detail: file.name, life: 3000 })
-  } catch (e) {
-    // The status distinguishes three different next actions, so it is worth
-    // saying which one applies rather than showing the raw message alone.
-    if (e.status === 409) {
-      fileError.value = 'This document already has a file. Add a new document of the same type to replace it — the current one is superseded and both stay retrievable.'
-    } else if (e.status === 413) {
-      fileError.value = `${file.name} is larger than the ${maxFileMb} MB limit.`
-    } else if (e.status === 403) {
-      fileError.value = 'The upload authorization expired before the transfer finished. Try again.'
-    } else {
-      fileError.value = e.message
-    }
-  } finally {
-    busyDocId.value = ''
-  }
+  if (file.size === 0) return `${file.name} is empty.`
+  return ''
 }
 
 async function downloadFile(doc) {
@@ -669,7 +674,7 @@ async function downloadFile(doc) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = doc.file.fileName
+    link.download = doc.documentName
     link.click()
     URL.revokeObjectURL(url)
   } catch (e) {
@@ -689,7 +694,7 @@ function formatBytes(bytes) {
 }
 
 async function reviewDoc(action, doc) {
-  const fn = { approve: approveComplianceDocument, reject: rejectComplianceDocument, resubmit: resubmitComplianceDocument }[action]
+  const fn = { approve: approveComplianceDocument, reject: rejectComplianceDocument }[action]
   try {
     await fn(tenantStore.context, selected.value.id, doc.id)
     await refreshDetail()
@@ -739,7 +744,7 @@ function docStatusSeverity(status) {
   if (status === 'APPROVED') return 'success'
   if (status === 'REJECTED') return 'danger'
   if (status === 'SUPERSEDED') return 'contrast'
-  return 'secondary' // PENDING
+  return 'secondary' // FOR_REVIEW / SUPERSEDED
 }
 
 // BR-TP38's five values. Expired and Rejected are both "no cover today", so
@@ -854,6 +859,16 @@ function formatDate(ts) {
         <template #empty>
           <span class="lab-muted">No transporters registered in this context yet.</span>
         </template>
+        <!-- ADR-051/BR-TP73: the organization's ULID identity, shown first
+             because it is the token every evt.* subject and KV key for this
+             row is built from — so it is what you carry over to `nats stream
+             subjects` or the Admin KV browser when tracing one transporter. -->
+        <Column
+          header="Organization"
+          field="id"
+          class="mono-col"
+          style="width: 16rem"
+        />
         <Column
           header="Name"
           field="name"
@@ -1176,14 +1191,14 @@ function formatDate(ts) {
               <span>{{ fileError }}</span>
             </div>
 
-            <!-- One shared, hidden file input rather than one per row: the row
-                 is captured in uploadTargetId when the button is clicked, so a
-                 single element serves the whole table. -->
+            <!-- The Add Document dialog's picker. One hidden input serves it
+                 because registration is now the only path bytes take. -->
             <input
               ref="fileInput"
               type="file"
+              accept="application/pdf,image/*"
               class="hidden-file-input"
-              @change="onFileChosen"
+              @change="acceptAddDocFile($event.target.files?.[0])"
             >
 
             <DataTable
@@ -1207,8 +1222,8 @@ function formatDate(ts) {
                 </template>
               </Column>
               <Column
-                header="Reference"
-                field="reference"
+                header="Document Name"
+                field="documentName"
                 class="mono-col"
               />
               <Column
@@ -1226,16 +1241,12 @@ function formatDate(ts) {
                 style="width: 15rem"
               >
                 <template #body="{ data: doc }">
-                  <!-- Upload and Download are mutually exclusive on purpose:
-                       bytes are write-once (BR-TP43), so a document that has a
-                       file offers no upload control at all rather than one that
-                       fails on click. -->
-                  <div
-                    v-if="doc.file"
-                    class="file-cell"
-                  >
+                  <!-- Every document has bytes now (Phase 40), and they are
+                       write-once (BR-TP43) — so this cell only ever downloads.
+                       Replacing a file means registering another document. -->
+                  <div class="file-cell">
                     <Button
-                      :label="doc.file.fileName"
+                      :label="doc.documentName"
                       icon="pi pi-download"
                       size="small"
                       text
@@ -1243,17 +1254,8 @@ function formatDate(ts) {
                       class="file-name-button"
                       @click="downloadFile(doc)"
                     />
-                    <span class="lab-muted file-size">{{ formatBytes(doc.file.sizeBytes) }}</span>
+                    <span class="lab-muted file-size">{{ formatBytes(doc.file?.sizeBytes) }}</span>
                   </div>
-                  <Button
-                    v-else
-                    label="Upload"
-                    icon="pi pi-upload"
-                    size="small"
-                    text
-                    :loading="busyDocId === doc.id"
-                    @click="chooseFile(doc)"
-                  />
                 </template>
               </Column>
               <Column
@@ -1263,26 +1265,19 @@ function formatDate(ts) {
                 <template #body="{ data: doc }">
                   <div class="doc-actions">
                     <Button
-                      v-if="doc.status === 'PENDING'"
+                      v-if="doc.status === 'FOR_REVIEW'"
                       label="Approve"
                       size="small"
                       text
                       @click="reviewDoc('approve', doc)"
                     />
                     <Button
-                      v-if="doc.status === 'PENDING'"
+                      v-if="doc.status === 'FOR_REVIEW'"
                       label="Reject"
                       size="small"
                       text
                       severity="danger"
                       @click="reviewDoc('reject', doc)"
-                    />
-                    <Button
-                      v-if="doc.status === 'REJECTED'"
-                      label="Resubmit"
-                      size="small"
-                      text
-                      @click="reviewDoc('resubmit', doc)"
                     />
                   </div>
                 </template>
@@ -1770,8 +1765,8 @@ function formatDate(ts) {
 
           <StepPanel value="3">
             <p class="lab-muted hint">
-              Register the four shared compliance-document types by reference. GIT certificates use their dedicated
-              tab and register-plus-upload flow.
+              Register the four shared compliance-document types by dropping the document itself — its file name
+              becomes the document name (BR-TP74). GIT certificates use their dedicated tab.
             </p>
             <div class="form-grid">
               <div class="form-field">
@@ -1783,12 +1778,24 @@ function formatDate(ts) {
                 />
               </div>
               <div class="form-field">
-                <label for="wz-doc-ref">Reference</label>
-                <InputText
-                  id="wz-doc-ref"
-                  v-model="wizardDoc.reference"
-                  placeholder="Opaque external locator"
-                />
+                <label>Document</label>
+                <input
+                  ref="wizardDocFileInput"
+                  type="file"
+                  accept="application/pdf,image/*"
+                  class="hidden-file-input"
+                  @change="acceptWizardDocFile($event.target.files?.[0])"
+                >
+                <button
+                  class="doc-drop-zone"
+                  type="button"
+                  @click="chooseWizardDocFile"
+                  @dragover.prevent
+                  @drop.prevent="acceptWizardDocFile($event.dataTransfer?.files?.[0])"
+                >
+                  <span class="drop-title">{{ wizardDoc.file ? wizardDoc.file.name : 'Drop a file here, or click to choose' }}</span>
+                  <span class="drop-copy">PDF or image, up to {{ maxFileMb }} MB.</span>
+                </button>
               </div>
             </div>
             <p
@@ -1810,7 +1817,7 @@ function formatDate(ts) {
                 text
                 size="small"
                 :loading="wizardSaving"
-                :disabled="!wizardDoc.type || !wizardDoc.reference"
+                :disabled="!wizardDoc.type || !wizardDoc.file"
                 @click="wizardAddDoc"
               />
               <Button
@@ -1878,12 +1885,17 @@ function formatDate(ts) {
         />
       </div>
       <div class="form-field">
-        <label for="tr-doc-ref">Reference</label>
-        <InputText
-          id="tr-doc-ref"
-          v-model="addDocForm.reference"
-          placeholder="Opaque external document locator"
-        />
+        <label>Document</label>
+        <button
+          class="doc-drop-zone"
+          type="button"
+          @click="chooseAddDocFile"
+          @dragover.prevent
+          @drop.prevent="acceptAddDocFile($event.dataTransfer?.files?.[0])"
+        >
+          <span class="drop-title">{{ addDocForm.file ? addDocForm.file.name : 'Drop a file here, or click to choose' }}</span>
+          <span class="drop-copy">PDF or image, up to {{ maxFileMb }} MB. The file name becomes the document name.</span>
+        </button>
       </div>
       <p class="lab-muted hint">
         Adding a document of a type that already has a current one supersedes the incumbent rather than replacing it —
@@ -1904,7 +1916,7 @@ function formatDate(ts) {
         <Button
           label="Add"
           :loading="addDocSaving"
-          :disabled="!addDocForm.type || !addDocForm.reference"
+          :disabled="!addDocForm.type || !addDocForm.file"
           @click="submitAddDocument"
         />
       </template>
@@ -2404,4 +2416,30 @@ function formatDate(ts) {
 .cred-payload {
   min-width: 260px;
 }
+
+/* Phase 40 drop zone — the same affordance GitCertificatesTab uses, because
+   it is the same gesture: a compliance document is a dropped file. */
+.doc-drop-zone {
+  min-height: 6rem;
+  border: 1px dashed var(--lab-border, #4a515b);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--lab-text, #dee0e3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  font: inherit;
+  padding: 0.75rem;
+  text-align: center;
+}
+.doc-drop-zone:hover, .doc-drop-zone:focus-visible {
+  border-color: var(--lab-accent);
+  outline: none;
+  background: color-mix(in srgb, var(--lab-accent) 5%, transparent);
+}
+.doc-drop-zone .drop-title { color: var(--lab-accent); font-weight: 600; }
+.doc-drop-zone .drop-copy { color: var(--lab-text-muted, #b7bcc2); font-size: 0.78rem; }
 </style>

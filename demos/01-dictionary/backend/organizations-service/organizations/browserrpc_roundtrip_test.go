@@ -173,6 +173,19 @@ func (f *fakeDocRepo) AddDocument(_ context.Context, partnerID string, doc domai
 	return doc, nil
 }
 
+// DocumentNameExists is BR-TP74's pre-check (Phase 40) — every status counts,
+// superseded rows included, matching the unique index in Postgres.
+func (f *fakeDocRepo) DocumentNameExists(_ context.Context, partnerID, documentName string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, doc := range f.byID[partnerID] {
+		if doc.DocumentName == documentName {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (f *fakeDocRepo) ListDocuments(_ context.Context, partnerID string) ([]domain.ComplianceDocument, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -230,10 +243,6 @@ func (f *fakeDocRepo) RejectDocument(_ context.Context, partnerID, documentID st
 	return f.transition(partnerID, documentID, domain.ComplianceDocument.Reject)
 }
 
-func (f *fakeDocRepo) ResubmitDocument(_ context.Context, partnerID, documentID string) (domain.ComplianceDocument, error) {
-	return f.transition(partnerID, documentID, domain.ComplianceDocument.Resubmit)
-}
-
 // GetDocument and AttachFile arrived with the port in Phase 38c-ii. Unlike
 // ListDocuments, GetDocument returns superseded rows too — BR-TP43 keeps their
 // bytes retrievable.
@@ -272,7 +281,7 @@ func (f *fakeDocRepo) UpsertCertificate(_ context.Context, partnerID string, cer
 	}
 	doc := f.byID[partnerID][cert.ID]
 	doc.ID, doc.Type = cert.ID, domain.DocumentTypeGoodsInTransit
-	doc.Status, doc.Reference = cert.Status, cert.Reference
+	doc.Status, doc.DocumentName = cert.Status, cert.DocumentName
 	doc.GoodsTypes, doc.CoverageCents, doc.ExpiresAt = cert.GoodsTypes, cert.CoverageCents, cert.ExpiresAt
 	doc.InsurerName, doc.File = cert.InsurerName, cert.File
 	f.byID[partnerID][cert.ID] = doc
@@ -324,7 +333,7 @@ func (f *fakeCertificateAppender) aggregate(contextKey, organizationID string) *
 func (f *fakeCertificateAppender) project(organizationID string, agg *profiledomain.TransporterProfile) {
 	for _, certificate := range agg.State().Certificates {
 		_ = f.docs.UpsertCertificate(context.Background(), organizationID, domain.ProjectedCertificate{
-			ID: certificate.ID, Status: certificate.Status, Reference: certificate.Reference,
+			ID: certificate.ID, Status: certificate.Status, DocumentName: certificate.DocumentName,
 			GoodsTypes: certificate.GoodsTypes, CoverageCents: certificate.CoverageCents,
 			ExpiresAt: certificate.ExpiresAt, InsurerName: certificate.InsurerName, File: certificate.File,
 		})
@@ -398,11 +407,11 @@ func (f *fakeCertificateAppender) RejectCertificate(_ context.Context, contextKe
 	return agg.State(), nil
 }
 
-func (f *fakeCertificateAppender) UpdateCertificateDetails(_ context.Context, contextKey, organizationID, documentID, reference string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (profiledomain.State, error) {
+func (f *fakeCertificateAppender) UpdateCertificateDetails(_ context.Context, contextKey, organizationID, documentID string, goodsTypes []string, coverageCents *int64, insurerName string, contactsChanged bool, actorName, sourceIP string) (profiledomain.State, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	agg := f.aggregate(contextKey, organizationID)
-	event, err := agg.UpdateCertificateDetails(documentID, reference, goodsTypes, coverageCents, insurerName, contactsChanged, actorName, sourceIP)
+	event, err := agg.UpdateCertificateDetails(documentID, goodsTypes, coverageCents, insurerName, contactsChanged, actorName, sourceIP)
 	if err != nil {
 		return profiledomain.State{}, err
 	}
@@ -686,7 +695,7 @@ var _ = Describe("api.* round trips (Phase 26h)", func() {
 					ID string `json:"id"`
 				}
 				request("api.acme.organizations.document.add.v1", map[string]any{
-					"id": registered.ID, "type": "GOODS_IN_TRANSIT", "goodsTypes": []any{"FOOD"}, "reference": "s3://git.pdf",
+					"id": registered.ID, "type": "GOODS_IN_TRANSIT", "goodsTypes": []any{"FOOD"}, "documentName": "git.pdf",
 				}, &added)
 
 				request("api.acme.organizations.organization.profile.v1",
@@ -721,7 +730,7 @@ var _ = Describe("api.* round trips (Phase 26h)", func() {
 				}
 				request("api.acme.organizations.document.add.v1", map[string]any{
 					"id": registered.ID, "type": "GOODS_IN_TRANSIT", "goodsTypes": []any{"FOOD"},
-					"reference": "s3://git.pdf", "expiresAt": future,
+					"documentName": "git.pdf", "expiresAt": future,
 				}, &added)
 				Expect(added.ExpiresAt).NotTo(BeNil(), "the expiry must survive the api.* round trip")
 				Expect(*added.ExpiresAt).To(Equal(future))
@@ -1074,7 +1083,7 @@ var _ = Describe("BR-TP57 the api.* boundary signals document reviews", func() {
 			ID string `json:"id"`
 		}
 		request("api.acme.organizations.document.add.v1",
-			map[string]any{"id": registered.ID, "type": "GOODS_IN_TRANSIT", "goodsTypes": []any{"FOOD"}, "reference": "GIT-1"}, &added)
+			map[string]any{"id": registered.ID, "type": "GOODS_IN_TRANSIT", "goodsTypes": []any{"FOOD"}, "documentName": "git-1.pdf"}, &added)
 		Expect(added.ID).NotTo(BeEmpty(), "BR-TP29 mints the document ID this signal uses as its reference")
 		return registered.ID, added.ID
 	}
@@ -1140,18 +1149,6 @@ var _ = Describe("BR-TP57 the api.* boundary signals document reviews", func() {
 		reply := request("api.acme.organizations.document.approve.v1", approveGit(organizationID, documentID), nil)
 
 		Expect(reply.Header.Get("Nats-Service-Error-Code")).To(Equal("409"))
-		Expect(vetting.signals).To(BeEmpty())
-	})
-
-	It("sends nothing on resubmit, whose document rejoins the next attempt rather than the current one", func() {
-		organizationID, documentID := addTransporterDocument()
-		request("api.acme.organizations.document.reject.v1",
-			map[string]any{"id": organizationID, "documentId": documentID}, nil)
-		vetting.signals = nil
-
-		request("api.acme.organizations.document.resubmit.v1",
-			map[string]any{"id": organizationID, "documentId": documentID}, nil)
-
 		Expect(vetting.signals).To(BeEmpty())
 	})
 

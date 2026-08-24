@@ -17,7 +17,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// Organization (BR-TP01-BR-TP05). ID is server-generated — name is
 		// not a reliable natural key (not guaranteed unique per context).
 		`CREATE TABLE IF NOT EXISTS organizations.organizations (
-			id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+			id                  TEXT        PRIMARY KEY,
 			context             TEXT        NOT NULL,
 			name                TEXT        NOT NULL,
 			type                TEXT        NOT NULL CHECK (type IN ('SHIPPER', 'TRANSPORTER')),
@@ -35,10 +35,10 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// document for a type that already exists is an upsert (ON CONFLICT
 		// DO UPDATE in the repository), not a separate row.
 		`CREATE TABLE IF NOT EXISTS organizations.compliance_documents (
-			organization_id UUID        NOT NULL REFERENCES organizations.organizations(id) ON DELETE CASCADE,
+			organization_id TEXT        NOT NULL REFERENCES organizations.organizations(id) ON DELETE CASCADE,
 			type               TEXT        NOT NULL,
-			status             TEXT        NOT NULL CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')),
-			reference          TEXT        NOT NULL,
+			status             TEXT        NOT NULL CHECK (status IN ('FOR_REVIEW', 'APPROVED', 'REJECTED', 'SUPERSEDED')),
+			document_name      TEXT        NOT NULL,
 			expires_at         TIMESTAMPTZ,
 			coverage_cents     BIGINT,
 			updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -49,7 +49,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// BR-TP13's global-uniqueness invariant, not a separate surrogate ID.
 		`CREATE TABLE IF NOT EXISTS organizations.fleet_assets (
 			registration_no    TEXT        PRIMARY KEY,
-			organization_id UUID        NOT NULL REFERENCES organizations.organizations(id) ON DELETE CASCADE,
+			organization_id TEXT        NOT NULL REFERENCES organizations.organizations(id) ON DELETE CASCADE,
 			vin                TEXT        NOT NULL DEFAULT '',
 			make               TEXT        NOT NULL DEFAULT '',
 			model              TEXT        NOT NULL DEFAULT '',
@@ -61,8 +61,8 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// Audit trail (BR-TP06) — append-only, mirrors accounts.audit_events
 		// (BR-AC11) verbatim: no UPDATE, no DELETE, only Record and read paths.
 		`CREATE TABLE IF NOT EXISTS organizations.audit_events (
-			id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-			organization_id UUID        NOT NULL,
+			id                 TEXT        PRIMARY KEY,
+			organization_id TEXT        NOT NULL,
 			action             TEXT        NOT NULL,
 			actor              TEXT        NOT NULL,
 			source_ip          TEXT        NOT NULL DEFAULT '',
@@ -87,7 +87,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// the PK widens from (organization_id, type) to
 		// (organization_id, id). Done in three idempotent steps so a
 		// re-run is a no-op:
-		//   1. add the id column, minting one per existing row;
+		//   1. add the id column;
 		//   2. drop the old (organization_id, type) PK;
 		//   3. adopt the new PK.
 		// Step 2 is what stops the old one-row-per-type constraint from
@@ -96,8 +96,14 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// shape. Guarding on the actual key columns — rather than
 		// unconditionally dropping and re-adding — keeps a restart from
 		// rebuilding the primary index every boot.
+		//
+		// BR-TP73 (ADR-051): the column is added nullable and without a
+		// default, because a ULID cannot be minted by Postgres — the service
+		// mints it (identity.New) before the INSERT. Step 3 is what makes it
+		// NOT NULL: ADD CONSTRAINT ... PRIMARY KEY sets that implicitly, and
+		// on a fresh database the table is still empty when it runs.
 		`ALTER TABLE organizations.compliance_documents
-			ADD COLUMN IF NOT EXISTS id UUID NOT NULL DEFAULT gen_random_uuid()`,
+			ADD COLUMN IF NOT EXISTS id TEXT`,
 		`DO $$
 		DECLARE
 			key_columns TEXT;
@@ -181,8 +187,10 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// keeps the listing path off the object store entirely: a Documents tab
 		// renders names and sizes from one Postgres query, and the bucket is
 		// touched only when bytes actually move.
+		// Phase 40 removed file_name from this set: the document's name lives
+		// in document_name on the row itself, and a projection column holding
+		// a second copy of its own row's identity can only ever drift from it.
 		`ALTER TABLE organizations.compliance_documents
-			ADD COLUMN IF NOT EXISTS file_name TEXT,
 			ADD COLUMN IF NOT EXISTS file_content_type TEXT,
 			ADD COLUMN IF NOT EXISTS file_size_bytes BIGINT,
 			ADD COLUMN IF NOT EXISTS file_object_name TEXT,
@@ -244,8 +252,8 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// membership is validated over rpc.* at write time (BR-TP47) rather
 		// than by a constraint that cannot span the boundary.
 		`CREATE TABLE IF NOT EXISTS organizations.transporter_operating_areas (
-			id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-			organization_id UUID        NOT NULL REFERENCES organizations.organizations(id) ON DELETE CASCADE,
+			id                 TEXT        PRIMARY KEY,
+			organization_id TEXT        NOT NULL REFERENCES organizations.organizations(id) ON DELETE CASCADE,
 			level              TEXT        NOT NULL CHECK (level IN ('COUNTRY', 'REGION')),
 			code               TEXT        NOT NULL,
 			country_code       TEXT        NOT NULL,
@@ -271,7 +279,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// bucket (BR-TP52). A column added here for "just the username"
 		// would defeat the whole rule.
 		`CREATE TABLE IF NOT EXISTS organizations.tracking_credentials (
-			organization_id UUID        NOT NULL REFERENCES organizations.organizations(id) ON DELETE CASCADE,
+			organization_id TEXT        NOT NULL REFERENCES organizations.organizations(id) ON DELETE CASCADE,
 			provider           TEXT        NOT NULL,
 			credential_type    TEXT        NOT NULL CHECK (credential_type IN ('API_KEY', 'USERNAME_PASSWORD', 'METADATA_ONLY')),
 			configured_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -280,6 +288,182 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			-- the upsert conflicts on, not a constraint to work around.
 			PRIMARY KEY (organization_id, provider)
 		)`,
+
+		// --- BR-TP73 / ADR-051 — UUID identity retired in favour of ULID ----
+		// Every id and organization_id column above now reads TEXT rather than
+		// the native UUID type, because a ULID is 26 Crockford-base32
+		// characters and Postgres has no ULID type to hold it. On a fresh
+		// database the CREATE TABLE statements already say TEXT and this block
+		// is a no-op.
+		//
+		// It exists for the other case: a database created before ADR-051 has
+		// uuid columns, and every INSERT the service now issues supplies a
+		// 26-character ULID, which uuid rejects outright ("invalid input syntax
+		// for type uuid"). Without this conversion such a database does not
+		// fail at migrate time — it starts cleanly and then fails every write,
+		// which is a considerably worse way to find out.
+		//
+		// The conversion is one DO block, so it is one transaction: the foreign
+		// keys have to come off before organizations.id can change type and go
+		// back on afterwards, and a half-applied version of that leaves the
+		// schema without referential integrity. uuid -> text needs no USING
+		// clause; Postgres renders each value as its canonical 36-character
+		// hyphenated form.
+		//
+		// Note what this deliberately does NOT do: invent ULIDs for existing
+		// rows. Those rows keep their UUID text, and they are then wrong in a
+		// way no migration can fix — a TransporterProfile's id is embedded in
+		// every event subject it has ever published on the LimitsPolicy
+		// TRANSPORTER stream, so renumbering a row here would orphan its whole
+		// history and the aggregate would silently rehydrate as empty. The
+		// supported path from a pre-ADR-051 database is a reseed: drop the
+		// streams and KV buckets and re-run cmd/seed-transporters. See
+		// ARCHITECTURE-ORGANIZATIONS.md § "Entity identity".
+		`DO $$
+		DECLARE
+			fk RECORD;
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'organizations'
+				  AND table_name = 'organizations'
+				  AND column_name = 'id'
+				  AND data_type = 'uuid'
+			) THEN
+				RETURN;
+			END IF;
+
+			-- Drop every FK pointing at organizations.organizations(id).
+			-- Discovered rather than hardcoded: the four known ones are
+			-- compliance_documents, fleet_assets,
+			-- transporter_operating_areas and tracking_credentials, but a
+			-- fifth added later must not silently break this migration.
+			FOR fk IN
+				SELECT c.conname, c.conrelid::regclass AS tbl
+				FROM pg_constraint c
+				WHERE c.contype = 'f'
+				  AND c.confrelid = 'organizations.organizations'::regclass
+			LOOP
+				EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', fk.tbl, fk.conname);
+			END LOOP;
+
+			ALTER TABLE organizations.organizations
+				ALTER COLUMN id DROP DEFAULT,
+				ALTER COLUMN id TYPE TEXT;
+
+			ALTER TABLE organizations.compliance_documents
+				ALTER COLUMN organization_id TYPE TEXT,
+				ALTER COLUMN id DROP DEFAULT,
+				ALTER COLUMN id TYPE TEXT;
+
+			ALTER TABLE organizations.fleet_assets
+				ALTER COLUMN organization_id TYPE TEXT;
+
+			-- No FK on this one (the audit trail outlives the row it
+			-- describes), so it is converted here but was never in the loop
+			-- above.
+			ALTER TABLE organizations.audit_events
+				ALTER COLUMN organization_id TYPE TEXT,
+				ALTER COLUMN id DROP DEFAULT,
+				ALTER COLUMN id TYPE TEXT;
+
+			ALTER TABLE organizations.transporter_operating_areas
+				ALTER COLUMN organization_id TYPE TEXT,
+				ALTER COLUMN id DROP DEFAULT,
+				ALTER COLUMN id TYPE TEXT;
+
+			ALTER TABLE organizations.tracking_credentials
+				ALTER COLUMN organization_id TYPE TEXT;
+
+			ALTER TABLE organizations.compliance_documents
+				ADD CONSTRAINT compliance_documents_organization_id_fkey
+				FOREIGN KEY (organization_id)
+				REFERENCES organizations.organizations(id) ON DELETE CASCADE;
+			ALTER TABLE organizations.fleet_assets
+				ADD CONSTRAINT fleet_assets_organization_id_fkey
+				FOREIGN KEY (organization_id)
+				REFERENCES organizations.organizations(id) ON DELETE CASCADE;
+			ALTER TABLE organizations.transporter_operating_areas
+				ADD CONSTRAINT transporter_operating_areas_organization_id_fkey
+				FOREIGN KEY (organization_id)
+				REFERENCES organizations.organizations(id) ON DELETE CASCADE;
+			ALTER TABLE organizations.tracking_credentials
+				ADD CONSTRAINT tracking_credentials_organization_id_fkey
+				FOREIGN KEY (organization_id)
+				REFERENCES organizations.organizations(id) ON DELETE CASCADE;
+		END $$`,
+
+		// --- Phase 40 — every compliance document is a file -----------------
+		// Three changes to one table, in one guarded block so a partially
+		// applied state cannot exist:
+		//
+		//   1. `reference` becomes `document_name`. The column held an opaque
+		//      external locator in the metadata-only v1 shape; it now holds
+		//      the document's file name, which is its identity.
+		//   2. PENDING leaves the status vocabulary. Registration produces
+		//      FOR_REVIEW and document resubmission is retired, so nothing can
+		//      write it any more.
+		//   3. The document name is unique per organization.
+		//
+		// Rows are NOT repaired. A pre-Phase-40 database can hold PENDING
+		// rows, file-less rows, and duplicate names, none of which this
+		// vocabulary admits — and inventing file names for rows that never had
+		// bytes would fabricate the very identity the phase makes
+		// load-bearing. The supported path is `docker compose down -v` plus a
+		// reseed (ADR-051's standing rule, for the same reason: the streams
+		// carry the old shape too). So the rename runs, and the CHECK and the
+		// unique index are added only once the data already satisfies them —
+		// on a dirty database they are skipped, loudly, rather than failing
+		// the whole migration and taking the service down with it.
+		`DO $$
+		BEGIN
+			IF EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'organizations' AND table_name = 'compliance_documents'
+				  AND column_name = 'reference'
+			) AND NOT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'organizations' AND table_name = 'compliance_documents'
+				  AND column_name = 'document_name'
+			) THEN
+				ALTER TABLE organizations.compliance_documents RENAME COLUMN reference TO document_name;
+			END IF;
+
+			-- The old file_name column duplicated document_name once the two
+			-- were required to match. Dropping it is safe on any database this
+			-- migration will meet: a pre-Phase-40 row either has no file at
+			-- all, or has file_name equal to the name the reseed will mint
+			-- anyway.
+			ALTER TABLE organizations.compliance_documents DROP COLUMN IF EXISTS file_name;
+
+			IF EXISTS (SELECT 1 FROM organizations.compliance_documents WHERE status = 'PENDING') THEN
+				RAISE WARNING 'Phase 40: compliance_documents still holds PENDING rows; leaving the status CHECK as-is. Reseed (docker compose down -v) to adopt the Phase 40 vocabulary.';
+			ELSIF NOT EXISTS (
+				SELECT 1 FROM pg_constraint
+				WHERE conrelid = 'organizations.compliance_documents'::regclass
+				  AND conname = 'compliance_documents_status_check'
+				  AND pg_get_constraintdef(oid) NOT LIKE '%PENDING%'
+			) THEN
+				ALTER TABLE organizations.compliance_documents DROP CONSTRAINT IF EXISTS compliance_documents_status_check;
+				ALTER TABLE organizations.compliance_documents
+					ADD CONSTRAINT compliance_documents_status_check
+					CHECK (status IN ('FOR_REVIEW', 'APPROVED', 'REJECTED', 'SUPERSEDED'));
+			END IF;
+		END $$`,
+
+		// The uniqueness rule itself. Deliberately NOT partial: the name is
+		// read-only, so a rejected or superseded row keeps its name for good,
+		// and allowing a live row to reuse it would put two indistinguishable
+		// names in one organization's history. Correcting a rejected
+		// `scan0001.pdf` therefore means renaming the file before re-dropping
+		// it — the accepted cost of the name being the identity (Phase 40
+		// decision 4).
+		//
+		// CREATE UNIQUE INDEX fails on a database that already holds
+		// duplicates, which is the correct outcome for the same reason
+		// BR-TP69's index fails rather than repairing: reseed instead.
+		`CREATE UNIQUE INDEX IF NOT EXISTS compliance_documents_document_name_idx
+			ON organizations.compliance_documents (organization_id, document_name)`,
 	}
 
 	for _, stmt := range statements {
