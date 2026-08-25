@@ -440,7 +440,11 @@ services:
   # through the one restricted `observability.creds` connection below, not a
   # per-tenant credential fan-out.
   observability-service:
-    build: ./backend/observability-service
+    build:
+      # Phase 43d/43e: context is the repo root so the build can copy the
+      # shared modules (natsnotify, natstrace) alongside the service source.
+      context: ../..
+      dockerfile: demos/01-dictionary/backend/observability-service/Dockerfile
     container_name: lb-observability-service
     networks:
       - backend

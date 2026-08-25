@@ -21,6 +21,7 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
+	github.com/jthomas78/nats-tech-lab/shared/natstrace v0.0.0-00010101000000-000000000000 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/mailru/easyjson v0.7.6 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
@@ -44,3 +45,9 @@ require (
 // repo root); the replace keeps a non-workspace `go build` in this directory
 // resolving it too.
 replace github.com/jthomas78/nats-tech-lab/shared/natsnotify => ../../../../shared/natsnotify
+
+// natstrace is a transitive dependency of natsnotify. A replace directive in
+// a dependency's go.mod is ignored, so this module needs its own.
+replace github.com/jthomas78/nats-tech-lab/shared/natstrace => ../../../../shared/natstrace
+
+replace github.com/jthomas78/nats-tech-lab/shared/natstest => ../../../../shared/natstest

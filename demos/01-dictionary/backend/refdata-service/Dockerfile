@@ -4,6 +4,9 @@ WORKDIR /src
 # can COPY shared/natstrace alongside the service source — the same pattern
 # the frontend Dockerfiles already use for shared/unifi-theme.
 COPY shared/natstrace ./shared/natstrace
+COPY shared/jstream ./shared/jstream
+COPY shared/natsnotify ./shared/natsnotify
+COPY shared/natstest ./shared/natstest
 COPY shared/natstenants ./shared/natstenants
 COPY shared/browserrpc ./shared/browserrpc
 COPY demos/01-dictionary/backend/refdata-service ./demos/01-dictionary/backend/refdata-service
