@@ -971,6 +971,160 @@ Outcome, recorded in full in BR-046:
   both. The Traces panel loses four entry types; this is the one place Phase 43
   edits a shipped pipeline rather than adding beside it. See BR-AC34.
 
+#### 43d — APPROVED 2026-08-25 — `shared/natsnotify`: give `notify.*` the seam `evt.*` already has
+
+Follows 43a/43b, which are landed (`df96bec`). Arrived at through an
+architecture review and a full grilling pass on 2026-08-25; every decision
+below was put to the user and confirmed before any code was written.
+
+##### The problem 43a exposed
+
+43a instrumented `notify.*` **at each call site**, because there was no seam
+to instrument. Nine publishers across four services each concatenate a
+subject, call `nc.PublishMsg`, log-and-swallow, then separately ask
+`natstrace` to parse the subject back into observability tokens. That second
+step is the defect: the tokens were known when the subject was built, thrown
+away by concatenation, and guessed at afterwards by reading positions out of
+a string.
+
+Two of the nine subjects prove the guess is wrong rather than merely fragile:
+
+- `notify._platform.refdata.{ctx}.{typeKey}.changed` must observe with
+  `kvContext`, **not** the `_platform` sitting in token 1.
+- `notify.accounts.account.{action}` is four tokens, below
+  `ObservePublish`'s `< 5` floor, so the deriver skips it entirely.
+
+Both already compensate by calling `ObserveAs` with explicit tokens. That
+workaround is the design; this sub-phase makes it the only path.
+
+`evt.*` has had the seam since Phase 43a:
+`jstream.Publisher.PublishWithTrace`. `natsnotify` is its sibling — a
+different transport (core NATS, fire-and-forget, no PubAck) under the same
+contract.
+
+##### Design decisions
+
+- **Module.** `shared/natsnotify`, a new module at repo root beside
+  `natstrace`, `browserrpc` and `natstenants`. The shared→shared dependency
+  on `natstrace` is precedented: `browserrpc` and `natstenants` both already
+  `replace … => ../natstrace`.
+- **Two layers, deliberately split.** `natsnotify` owns publish, the
+  observation gate and the observation emit, and takes the four
+  observability tokens — context, service, entity, action — **explicitly,
+  always. It never derives them from the subject.** Each service owns its
+  own subject construction as named constructors. There is no shared subject
+  grammar because there isn't one: arities run 4 to 7, and
+  `notify.{ctx}.kv.{bucket}.{key}.changed` is structurally unbounded, since
+  KV keys contain dots.
+- **Constructor option, not two-phase.** `New(nc, log, WithObservation(obsNC))`
+  rather than `evt.*`'s `EnableObservation(nc)`. Same opt-in semantics, no
+  window in which a `Notifier` exists misconfigured. A knowing divergence
+  from the `evt.*` seam; `shared/jstream` converges on this shape when the
+  jstream-deduplication candidate lands.
+- **No error return.** Injected `*slog.Logger`, fire-and-forget, exactly as
+  today. The span is carried on `ctx` and pulled with
+  `natstrace.SpanFromContext`.
+- **The `Notifier` holds its connection.** BR-D45 requires the observation
+  envelope to be emitted on the tenant's *own* conn, or BR-AC34's import
+  remap attributes it to the wrong tenant. Holding the conn makes that
+  structural — a `Notifier` is a conn plus a gate, so publishing on the
+  wrong one is not expressible. Six of the seven observed sites already
+  capture a conn at construction; refdata's `tenantPublisher.PublishToAll`
+  is the exception and constructs one `Notifier` per tenant inside its
+  `natstenants.Manager`, which is already generic over a per-tenant value.
+  The rejected alternative — `Publish` taking a conn per call — hands the
+  conn back to every caller, which is precisely what BR-D45 says gets
+  misplaced.
+
+##### What this deletes
+
+- Package-level **`Observe` / `ObserveAs`** in `natstrace`. Their only
+  callers are the seven `notify.*` sites.
+- `Tracer.ObservePublish` (the positional deriver) and `ObservePublishAs`
+  **stay**: the three `evt.*` seams call the deriver directly, and
+  `ObservePublishAs` is the primitive `natsnotify` calls. Moving `evt.*` to
+  explicit tokens is the jstream candidate's business, not this one's.
+- The 206-line `notifycoverage` AST lint is **replaced, not deleted**. Its
+  premise — "every enumerated site is instrumented" — dies with the
+  refactor. Its guard — "nobody bypasses the seam" — is what keeps a deep
+  module deep, and survives as a few lines asserting no `"notify."` string
+  literal outside `natsnotify` and the per-service subject builders.
+
+##### Adopters
+
+| Service | Shapes | Subject builders | Observation |
+|---|---|---|---|
+| shipping | 4, across `eventhandler`, `kvstore`, `browserrpc` | new `dictionary/internal/notify/` package | on |
+| refdata | 1 | in place | on, per-tenant `Notifier` |
+| accounts | 1 | in place | on, explicit `_platform` context |
+| observability | 2 | in place | **never enabled** |
+
+`observability-service` adopts **without** `WithObservation`. Its
+`pubsubstore` publisher announces writes to the very bucket observation
+envelopes land in; observing it is an unbounded feedback loop. Under the
+opt-in gate that exclusion stops being a string in a hand-maintained table
+and becomes a fact about how the `Notifier` was constructed. The cost is
+honest and recorded here: this is the first shared-module dependency for a
+service that has deliberately had none.
+
+`notify.accounts.account.{action}` **keeps** its four-token, context-free
+shape — the deliberate consequence of accounts administering the tenant axis
+itself. Regularising it to `notify._platform.accounts.…` would cost a JWT
+grant change at `auth/token.go:180`, a shipping subscriber change, and a
+credential regeneration that `Provisioner.CreateUser` would silently strip
+of its scoped grants (see Phase 60). The irregularity is also load-bearing
+documentation: it is the subject family that has no context because it
+predates one.
+
+##### Business rules
+
+BR-046 and BR-047 are message properties and are untouched. The other three
+are reworded so the *rule* is a property of the message and the *seam* is
+named as the mechanism:
+
+- **BR-049** — from "every `notify.*` publish site is instrumented, enforced
+  by AST scan" to "every `notify.*` message is observed, because every
+  publisher goes through `natsnotify`."
+- **BR-045** — loses its enumerated `file:line` list; keeps the message
+  properties (emitted once per publish, redacted then truncated, only after
+  the publish succeeds).
+- **BR-D45** — keeps its tenant-attribution constraint verbatim,
+  reattributed from the call site to the `Notifier`'s connection.
+
+A rule phrased as "these seven places do X" must be re-verified against
+every new publisher. Phrased as a property of the message it is true by
+construction, and the seam is what makes it so — the same move the refactor
+makes in code, applied to the rules.
+
+##### Tasks
+
+- [ ] `shared/natsnotify`: module, `Notifier`, `New`/`WithObservation`,
+      `Publish`; `go.work` entry and per-consumer `require`/`replace`.
+- [ ] A small embedded-NATS test helper beside it. Phase 43 left four
+      near-identical bootstraps (`newTestNATS`, `newObservabilityTestNATS`
+      + `subscribeObservations`, `runEmbeddedNATS`); they migrate
+      opportunistically, **not** in this diff.
+- [ ] `natsnotify`'s own specs, including the `evt.*` seam's
+      `TestPublisherWithoutObservationStaysSilent` counterpart.
+- [ ] shipping: new `dictionary/internal/notify/` subject-builder package;
+      adopt at all four sites (`eventhandler` ×2, `kvstore`, `browserrpc`).
+- [ ] refdata: adopt, one `Notifier` per tenant inside `natstenants.Manager`.
+- [ ] accounts: adopt, explicit `_platform` context token.
+- [ ] observability: adopt both sites without `WithObservation`.
+- [ ] Delete `natstrace.Observe` / `ObserveAs`.
+- [ ] Replace `notifycoverage/coverage_test.go` with the literal-guard lint.
+- [ ] Rewrite `pubsub_observability_test.go`'s five stale `PIt` placeholders
+      as subject-construction tests against shipping's builder package — no
+      NATS required.
+- [ ] Reword BR-045 / BR-049 (`BUSINESS_RULES-SHIPPING.md`) and BR-D45
+      (`BUSINESS_RULES-REFDATA.md`) in the same commit.
+
+Subscriber blast radius is **zero**: every binding is by subject literal or
+builder, none by publisher identity — `shared/natstenants/tenants.go:167`,
+`seafreight-app/src/api.js:77`, `admin/src/nats/useTraceFeed.js:55`,
+`admin/src/nats/usePubsubFeed.js:68`, `refdata/src/stores/dictionary.js:23`,
+plus the subject-pinning grants in `accounts-service/auth/token.go:113,180`.
+
 ---
 
 ### Phase 46 — PROPOSED (follows 39a; design inherited from Phase 39) — GIT Certificate Change Log + `Awaiting` Presentation Fix
