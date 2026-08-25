@@ -86,6 +86,11 @@ const loading = ref(false)
 const error = ref('')
 // Keyed by partner id — { hasProfile, profile, gitStatus } from BR-TP37.
 const profiles = ref({})
+// Operating areas per row for the list view, keyed by organization id. A
+// separate ref from `operatingAreas` (the drill-in's editable copy) because the
+// list holds every partner while the drill-in holds one, so every write to the
+// drill-in must also write through here — see `toggleArea`.
+const areasByPartner = ref({})
 
 async function load() {
   if (!tenantStore.context) return
@@ -94,21 +99,31 @@ async function load() {
   try {
     const res = await listOrganizations(tenantStore.context)
     partners.value = (res.organizations ?? []).filter((tp) => tp.type === 'TRANSPORTER')
-    // One profile.get per row, in parallel. This is deliberately N+1: the list
-    // endpoint returns Organization rows only (the two aggregates are
-    // separate by ADR-046, and a list-level join would put vetting state on
-    // the wrong side of that boundary), and a context holds few partners in
-    // this POC. A per-row failure must not blank the whole table, so each
-    // result is settled independently and a rejection just leaves that row's
-    // vetting columns empty.
-    const results = await Promise.allSettled(
-      partners.value.map((tp) => getTransporterProfile(tenantStore.context, tp.id)),
-    )
+    // One profile.get and one operating-area.list per row, in parallel. This
+    // is deliberately N+1: the list endpoint returns Organization rows only
+    // (the two aggregates are separate by ADR-046, and a list-level join
+    // would put vetting state on the wrong side of that boundary), and a
+    // context holds few partners in this POC. A per-row failure must not
+    // blank the whole table, so each result is settled independently and a
+    // rejection just leaves that row's vetting or areas cell empty.
+    const [profileResults, areaResults] = await Promise.all([
+      Promise.allSettled(
+        partners.value.map((tp) => getTransporterProfile(tenantStore.context, tp.id)),
+      ),
+      Promise.allSettled(
+        partners.value.map((tp) => listOperatingAreas(tenantStore.context, tp.id)),
+      ),
+    ])
     const next = {}
-    results.forEach((r, i) => {
+    profileResults.forEach((r, i) => {
       if (r.status === 'fulfilled') next[partners.value[i].id] = r.value
     })
     profiles.value = next
+    const nextAreas = {}
+    areaResults.forEach((r, i) => {
+      if (r.status === 'fulfilled') nextAreas[partners.value[i].id] = r.value.operatingAreas ?? []
+    })
+    areasByPartner.value = nextAreas
   } catch (e) {
     error.value = e.message
   } finally {
@@ -229,6 +244,16 @@ async function loadRegionCorpus() {
   }
 }
 
+// areaCodes orders a row's grants countries-first, then alphabetically inside
+// each group, so the list reads the same way every time regardless of the
+// order the grants were added in.
+function areaCodes(partnerId) {
+  const areas = areasByPartner.value[partnerId] ?? []
+  const countries = areas.filter((a) => a.level === 'COUNTRY').map((a) => a.code).sort()
+  const regions = areas.filter((a) => a.level !== 'COUNTRY').map((a) => a.code).sort()
+  return [...countries, ...regions]
+}
+
 // assignedCodes is what both views render from, so a click on the map and a
 // tick in the list cannot disagree about what is selected.
 const assignedCodes = computed(() => new Set(operatingAreas.value.map((a) => a.code)))
@@ -280,6 +305,13 @@ async function toggleArea(level, code, country) {
     }
     const res = await listOperatingAreas(tenantStore.context, selected.value.id)
     operatingAreas.value = res.operatingAreas ?? []
+    // Write through to the list's own copy from the same response, so the
+    // Operating Areas column is already correct when the operator navigates
+    // back instead of showing pre-edit codes until the next full load().
+    areasByPartner.value = {
+      ...areasByPartner.value,
+      [selected.value.id]: operatingAreas.value,
+    }
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Coverage change failed', detail: e.message, life: 6000 })
   } finally {
@@ -859,20 +891,43 @@ function formatDate(ts) {
         <template #empty>
           <span class="lab-muted">No transporters registered in this context yet.</span>
         </template>
-        <!-- ADR-051/BR-TP73: the organization's ULID identity, shown first
-             because it is the token every evt.* subject and KV key for this
-             row is built from — so it is what you carry over to `nats stream
-             subjects` or the Admin KV browser when tracing one transporter. -->
         <Column
-          header="Organization"
-          field="id"
-          class="mono-col"
-          style="width: 16rem"
-        />
-        <Column
-          header="Name"
+          header="Company Name"
           field="name"
         />
+        <!-- Operating areas as codes, countries first: a COUNTRY grant
+             subsumes the regions inside it (BR-TP48), so showing it first is
+             what tells the operator the rest of that country's regions are
+             already covered. Codes rather than names because a name column
+             wide enough for "KwaZulu-Natal" crowds out the status badges the
+             list exists for.
+
+             Every grant is shown, with no truncation and no "+N" more count:
+             coverage is what an operator scans this column to compare, and a
+             hidden tail makes two rows look alike when they aren't. The codes
+             fill the column's width and wrap, growing the row instead. -->
+        <Column
+          header="Operating Areas"
+          style="min-width: 12rem; max-width: 20rem"
+        >
+          <template #body="{ data }">
+            <div
+              v-if="areaCodes(data.id).length"
+              class="area-codes"
+            >
+              <Tag
+                v-for="code in areaCodes(data.id)"
+                :key="code"
+                severity="secondary"
+                :value="code"
+              />
+            </div>
+            <span
+              v-else
+              class="lab-muted"
+            >—</span>
+          </template>
+        </Column>
         <Column header="Status">
           <template #body="{ data }">
             <Tag
@@ -2293,6 +2348,8 @@ function formatDate(ts) {
   width: 100%;
   --p-datatable-header-cell-background: color-mix(in srgb, var(--lab-nested-bg) 95%, var(--lab-accent) 5%);
 }
+.area-codes { display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; }
+
 .mono-col {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.8rem;

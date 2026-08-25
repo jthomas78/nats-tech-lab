@@ -1,0 +1,398 @@
+<!--
+  PROPOSED design, not yet approved (drafted 2026-08-24). A merged "Documents"
+  surface for the Transporter detail view, replacing today's split between
+  TransporterPanel.vue's Documents tab (four CRUD types) and
+  GitCertificatesTab.vue (GOODS_IN_TRANSIT, event-sourced per ADR-050).
+  Depicts the recommendation only — no code follows from this file until the
+  design gate closes. Same convention as the accounts-overview-*-mockup.html
+  set: the implementation should match the approved reference, not re-derive it.
+-->
+<title>Merged Documents Surface — Transporter</title>
+<style>
+/* ── UniFi theme tokens, copied verbatim from shared/unifi-theme/unifi.css ──
+   One fixed dark screen (the real app's default), so this commits to the
+   single palette rather than following a viewer's theme. */
+:root {
+  --lab-bg: #131416;
+  --lab-panel-bg: #131416;
+  --lab-panel-border: #2c3138;
+  --lab-accent: #006fff;
+  --lab-nav-active-bg: #1c1d1f;
+  --lab-nested-bg: #171c29;
+  --p-text-color: #dee0e3;
+  --p-text-muted-color: #b7bcc2;
+  --p-text-disabled-color: #737c87;
+  --ok: #2fbf71;
+  --err: #e5484d;
+  --warn: #d9a514;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body { background: var(--lab-bg); color: var(--p-text-color); font-family: var(--sans); font-size: 13px; line-height: 20px; margin: 0; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1024px; margin: 0 auto; padding: 22px 16px 56px; display: flex; flex-direction: column; gap: 22px; }
+.head { display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--p-text-disabled-color); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -.01em; }
+.sub { margin: 0; color: var(--p-text-muted-color); max-width: 74ch; }
+.sub code, li code, .note code { font-family: var(--mono); font-size: 11px; background: rgba(222,224,227,.08); border-radius: 3px; padding: 0 4px; }
+
+.mock { background: var(--lab-bg); border: 1px solid var(--lab-panel-border); border-radius: 8px; overflow: hidden; }
+.mock-cap { padding: 9px 14px 11px; border-top: 1px solid var(--lab-panel-border); color: var(--p-text-muted-color); font-size: 12px; line-height: 18px; }
+.mock-cap b { color: var(--p-text-color); font-weight: 600; }
+.mock-cap code { font-family: var(--mono); font-size: 11px; background: rgba(222,224,227,.08); border-radius: 3px; padding: 0 4px; }
+
+.review-banner { background: rgba(0,111,255,.08); border-bottom: 1px solid var(--lab-panel-border); color: var(--p-text-muted-color); font-size: 12px; padding: 7px 14px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.review-banner b { color: var(--p-text-color); }
+.review-banner .tag { font-family: var(--mono); font-size: 11px; color: var(--lab-accent); background: rgba(0,111,255,.12); border-radius: 3px; padding: 0 5px; }
+
+.topbar { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 14px; background: var(--lab-panel-bg); border-bottom: 1px solid var(--lab-panel-border); }
+.topbar .logo { width: 17px; height: 17px; border-radius: 4px; background: var(--lab-accent); display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; }
+.crumb { font-size: 12px; color: var(--p-text-muted-color); }
+.crumb b { color: var(--p-text-color); font-weight: 600; }
+.crumb .sep { margin: 0 5px; color: var(--p-text-disabled-color); }
+
+.shell { display: flex; }
+.sidebar { width: 146px; flex: none; padding: 10px 6px; background: var(--lab-panel-bg); border-right: 1px solid var(--lab-panel-border); font-size: 12px; }
+.sidebar .eyebrow { font-size: 9px; margin: 12px 6px 4px; }
+.sidebar .eyebrow:first-child { margin-top: 2px; }
+.sidebar .item { padding: 4px 8px; border-radius: 4px; color: var(--p-text-muted-color); }
+.sidebar .item.active { background: var(--lab-nav-active-bg); color: var(--p-text-color); border-left: 2px solid var(--lab-accent); padding-left: 6px; font-weight: 500; }
+
+.main { flex: 1; min-width: 0; padding: 13px 15px 18px; display: flex; flex-direction: column; gap: 11px; }
+.panel-head { display: flex; align-items: baseline; gap: 9px; }
+.panel-head h2 { font-size: 16px; margin: 0; font-weight: 600; }
+.panel-head .who { font-size: 12px; color: var(--p-text-disabled-color); }
+
+.tabbar { display: flex; gap: 3px; border-bottom: 1px solid var(--lab-panel-border); flex-wrap: wrap; }
+.tabbar span { font-size: 13px; padding: 7px 7px 9px; color: var(--p-text-muted-color); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabbar span.active { color: var(--p-text-color); border-bottom-color: var(--lab-accent); font-weight: 600; }
+.tabbar span.gone { color: var(--p-text-disabled-color); text-decoration: line-through; text-decoration-color: var(--err); }
+
+/* ── the signature element: goods-in-transit cover strip ── */
+.cover { display: flex; align-items: stretch; gap: 0; border: 1px solid var(--lab-panel-border); border-left: 2px solid var(--ok); border-radius: 5px; background: var(--lab-nested-bg); overflow: hidden; }
+.cover .cell { padding: 9px 14px; display: flex; flex-direction: column; gap: 2px; border-right: 1px solid var(--lab-panel-border); }
+.cover .cell:last-child { border-right: 0; margin-left: auto; text-align: right; align-items: flex-end; }
+.cover .k { font-family: var(--mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--p-text-disabled-color); }
+.cover .v { font-size: 13px; color: var(--p-text-color); }
+.cover .amount { font-family: var(--mono); font-size: 17px; line-height: 22px; color: var(--p-text-color); letter-spacing: -.01em; }
+.cover .state { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; color: var(--ok); font-size: 13px; }
+.cover .state i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.cover .days { font-size: 11px; color: var(--p-text-disabled-color); }
+
+.controls { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.chip { font-size: 12px; padding: 3px 9px; border: 1px solid var(--lab-panel-border); border-radius: 20px; color: var(--p-text-muted-color); }
+.chip.on { border-color: var(--lab-accent); color: var(--p-text-color); background: rgba(0,111,255,.10); }
+.toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--p-text-muted-color); }
+.toggle .sw { width: 26px; height: 14px; border-radius: 8px; background: rgba(222,224,227,.14); border: 1px solid var(--lab-panel-border); position: relative; }
+.toggle .sw::after { content: ''; position: absolute; top: 1px; left: 1px; width: 10px; height: 10px; border-radius: 50%; background: var(--p-text-disabled-color); }
+.toggle.on .sw { background: rgba(0,111,255,.35); border-color: var(--lab-accent); }
+.toggle.on .sw::after { left: 13px; background: var(--lab-accent); }
+.btn { font-size: 12px; font-weight: 500; padding: 4px 11px; border-radius: 4px; background: var(--lab-accent); color: #fff; }
+.btn.ghost { background: transparent; color: var(--p-text-muted-color); border: 1px solid var(--lab-panel-border); }
+.btn.danger { background: transparent; color: var(--err); border: 1px solid rgba(229,72,77,.4); }
+
+table { width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid var(--lab-panel-border); border-radius: 6px; overflow: hidden; }
+th { text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--p-text-disabled-color); padding: 6px 10px; border-bottom: 1px solid var(--lab-panel-border); background: rgba(255,255,255,.02); font-weight: 600; }
+td { padding: 6px 10px; border-bottom: 1px solid rgba(44,49,56,.55); color: var(--p-text-muted-color); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+tr.sel td { background: rgba(0,111,255,.10); color: var(--p-text-color); }
+tr.past td { color: var(--p-text-disabled-color); }
+td.name { font-family: var(--mono); font-size: 11.5px; color: var(--lab-accent); white-space: nowrap; }
+td.num, .cover .v, .cover .amount { white-space: nowrap; }
+tr.past td.name { color: var(--p-text-disabled-color); }
+td.num { font-family: var(--mono); font-size: 11px; }
+.badge { display: inline-block; font-size: 10px; font-weight: 600; letter-spacing: .02em; padding: 1px 7px; border-radius: 3px; }
+.b-review { color: var(--warn); background: rgba(217,165,20,.14); }
+.b-ok { color: var(--ok); background: rgba(47,191,113,.14); }
+.b-bad { color: var(--err); background: rgba(229,72,77,.14); }
+.b-past { color: var(--p-text-disabled-color); background: rgba(222,224,227,.07); }
+.gt { font-family: var(--mono); font-size: 10px; color: var(--p-text-disabled-color); }
+.row-acts { display: flex; gap: 5px; justify-content: flex-end; }
+.row-acts .a { font-size: 11.5px; color: var(--lab-accent); }
+.row-acts .a.d { color: var(--err); }
+.dl { display: inline-flex; align-items: baseline; gap: 6px; }
+.dl .sz { font-size: 10px; color: var(--p-text-disabled-color); }
+
+/* ── drill-in ── */
+.crumb-back { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--lab-accent); }
+.dd-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dd-head .fname { font-family: var(--mono); font-size: 14px; color: var(--p-text-color); }
+.dd-head .acts { margin-left: auto; display: flex; gap: 6px; }
+.sec-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px; }
+.sec { border: 1px solid var(--lab-panel-border); border-radius: 5px; padding: 10px 12px 12px; background: var(--lab-panel-bg); }
+.sec h3 { margin: 0 0 9px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--lab-accent); font-weight: 600; }
+.kv { display: grid; grid-template-columns: 8.5rem minmax(0,1fr); row-gap: 5px; column-gap: 8px; font-size: 12px; }
+.kv .k { color: var(--p-text-disabled-color); }
+.kv .v { color: var(--p-text-color); }
+.kv .v.mono { font-family: var(--mono); font-size: 11.5px; }
+.kv .v.lock { color: var(--p-text-muted-color); }
+.lineage { margin-top: 9px; padding-top: 8px; border-top: 1px dashed rgba(44,49,56,.9); font-size: 11.5px; color: var(--p-text-muted-color); }
+.lineage a { color: var(--lab-accent); font-family: var(--mono); font-size: 11px; }
+
+.hist { display: flex; flex-direction: column; }
+.hist .ev { display: grid; grid-template-columns: 14px minmax(0,1fr); column-gap: 9px; }
+.hist .rail { position: relative; }
+.hist .rail::before { content: ''; position: absolute; left: 5px; top: 12px; bottom: -4px; width: 1px; background: var(--lab-panel-border); }
+.hist .ev:last-child .rail::before { display: none; }
+.hist .dot { position: absolute; left: 1px; top: 5px; width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--p-text-disabled-color); background: var(--lab-bg); }
+.hist .dot.now { border-color: var(--warn); background: var(--warn); }
+.hist .dot.good { border-color: var(--ok); background: var(--ok); }
+.hist .body { padding-bottom: 11px; }
+.hist .what { font-size: 12px; color: var(--p-text-color); }
+.hist .meta { font-size: 11px; color: var(--p-text-disabled-color); font-family: var(--mono); }
+.hist .src { font-size: 10px; letter-spacing: .03em; padding: 0 5px; border-radius: 3px; margin-left: 5px; }
+.hist .src.log { color: var(--warn); background: rgba(217,165,20,.13); }
+.hist .src.audit { color: var(--p-text-disabled-color); background: rgba(222,224,227,.07); }
+
+.note { border: 1px solid var(--lab-panel-border); border-left: 2px solid var(--lab-accent); border-radius: 4px; background: var(--lab-nested-bg); padding: 9px 12px; font-size: 12px; color: var(--p-text-muted-color); }
+.note b { color: var(--p-text-color); }
+.secprose { display: flex; flex-direction: column; gap: 10px; }
+.secprose h2 { margin: 0; font-size: 15px; font-weight: 600; }
+ul { margin: 0; padding-left: 18px; color: var(--p-text-muted-color); display: flex; flex-direction: column; gap: 6px; max-width: 78ch; }
+li b { color: var(--p-text-color); font-weight: 600; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <span class="eyebrow">Proposed · Transporter detail · replaces the Documents / GIT Certificates split</span>
+    <h1>One Documents surface, with typed depth</h1>
+    <p class="sub">Today <code>GOODS_IN_TRANSIT</code> has its own tab because it carries extra fields and an event-sourced write path. Both tabs already run the same review workflow. This merges the two lists and pushes everything type-specific down into a drill-in, so the list stays uniform and GIT keeps its depth.</p>
+  </div>
+
+  <!-- ─────────────── MOCK 1: the merged list ─────────────── -->
+  <div class="mock">
+    <div class="review-banner">
+      <span class="tag">1 / 2</span>
+      <span><b>The list.</b> One row per document, all five types, uniform columns. The GIT Certificates tab is gone.</span>
+    </div>
+    <div class="topbar">
+      <span class="logo">L</span>
+      <span class="crumb">Tech Lab Operator<span class="sep">/</span>Transporters<span class="sep">/</span><b>Seed Transporter 07</b></span>
+    </div>
+    <div class="shell">
+      <div class="sidebar">
+        <div class="eyebrow">Operator</div>
+        <div class="item">Reference data</div>
+        <div class="item active">Transporters</div>
+        <div class="item">Shippers</div>
+        <div class="eyebrow">Network</div>
+        <div class="item">Lanes</div>
+        <div class="item">Rate sheets</div>
+      </div>
+      <div class="main">
+        <div class="panel-head">
+          <h2>Seed Transporter 07</h2>
+          <span class="who">Vetted · active · GIT active</span>
+        </div>
+        <div class="tabbar">
+          <span>Company</span>
+          <span>Fleet</span>
+          <span class="active">Documents</span>
+          <span class="gone">GIT Certificates</span>
+          <span>Vetting</span>
+          <span>Operating areas</span>
+          <span>Tracking</span>
+          <span>Rate sheets</span>
+        </div>
+
+        <div class="cover">
+          <div class="cell">
+            <span class="k">Goods in transit cover</span>
+            <span class="state"><i></i> Active</span>
+          </div>
+          <div class="cell">
+            <span class="k">Cover</span>
+            <span class="amount">R 2 500 000</span>
+          </div>
+          <div class="cell">
+            <span class="k">Goods types</span>
+            <span class="v">Food, Chemicals</span>
+          </div>
+          <div class="cell">
+            <span class="k">Insurer</span>
+            <span class="v">Acme Insurance</span>
+          </div>
+          <div class="cell">
+            <span class="k">Expires</span>
+            <span class="v">14 Mar 2027</span>
+            <span class="days">201 days</span>
+          </div>
+        </div>
+
+        <div class="controls">
+          <span class="chip on">All types</span>
+          <span class="chip">Goods in transit</span>
+          <span class="chip">Company</span>
+          <span class="chip">Banking</span>
+          <span class="chip">For review 2</span>
+          <span class="toggle on"><span class="sw"></span> Show superseded (1)</span>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width:5.6rem">Status</th>
+              <th style="width:9.2rem">Type</th>
+              <th>Document name</th>
+              <th style="width:5.6rem">Registered</th>
+              <th style="width:5.6rem">Expires</th>
+              <th style="width:7.4rem">File</th>
+              <th style="width:8.2rem"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="sel">
+              <td><span class="badge b-review">For review</span></td>
+              <td>Goods in transit<div class="gt">Food, Chemicals</div></td>
+              <td class="name">GIT-00011.pdf</td>
+              <td class="num">24 Aug</td>
+              <td class="num">14 Mar 27</td>
+              <td><span class="dl">↓ PDF <span class="sz">1.2 MB</span></span></td>
+              <td><div class="row-acts"><span class="a">Approve</span><span class="a d">Reject</span></div></td>
+            </tr>
+            <tr>
+              <td><span class="badge b-ok">Approved</span></td>
+              <td>Goods in transit<div class="gt">Food, Chemicals</div></td>
+              <td class="name">GIT-00007.pdf</td>
+              <td class="num">11 Aug</td>
+              <td class="num">14 Mar 27</td>
+              <td><span class="dl">↓ PDF <span class="sz">840 kB</span></span></td>
+              <td><div class="row-acts"><span class="a">Open</span></div></td>
+            </tr>
+            <tr>
+              <td><span class="badge b-review">For review</span></td>
+              <td>Bank confirmation</td>
+              <td class="name">absa-confirmation.pdf</td>
+              <td class="num">22 Aug</td>
+              <td class="num">—</td>
+              <td><span class="dl">↓ PDF <span class="sz">220 kB</span></span></td>
+              <td><div class="row-acts"><span class="a">Approve</span><span class="a d">Reject</span></div></td>
+            </tr>
+            <tr>
+              <td><span class="badge b-ok">Approved</span></td>
+              <td>CIPC</td>
+              <td class="name">cipc-registration.pdf</td>
+              <td class="num">09 Aug</td>
+              <td class="num">—</td>
+              <td><span class="dl">↓ PDF <span class="sz">1.1 MB</span></span></td>
+              <td><div class="row-acts"><span class="a">Open</span></div></td>
+            </tr>
+            <tr>
+              <td><span class="badge b-bad">Rejected</span></td>
+              <td>Director ID</td>
+              <td class="name">id-scan-jsmith.jpg</td>
+              <td class="num">09 Aug</td>
+              <td class="num">—</td>
+              <td><span class="dl">↓ JPG <span class="sz">2.8 MB</span></span></td>
+              <td><div class="row-acts"><span class="a">Open</span></div></td>
+            </tr>
+            <tr class="past">
+              <td><span class="badge b-past">Superseded</span></td>
+              <td>Goods in transit<div class="gt">Food</div></td>
+              <td class="name">GIT-00005.pdf</td>
+              <td class="num">02 Aug</td>
+              <td class="num">31 Aug 26</td>
+              <td><span class="dl">↓ PDF <span class="sz">69 B</span></span></td>
+              <td><div class="row-acts"><span class="a">Open</span></div></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="note"><b>Registration is one flow with a conditional step.</b> Drop a file anywhere on this tab, choose its type, and if the type is Goods in transit the goods-types and cover step appears before the upload is spent — because those values must be known at registration, not at approval.</div>
+      </div>
+    </div>
+    <div class="mock-cap"><b>Uniform columns, typed detail one level down.</b> Goods types ride under the Type cell as a secondary line rather than claiming their own column — four of five types would leave it empty. Cover, insurer and the insurance contact pair do not appear here at all. <b>Document ID is dropped</b>: since Phase 40 the document name is the identity (BR-TP74), and a 26-character ULID beside it was noise the operator never used. The derived cover badge stays in the strip and out of the rows — a per-row cover status is exactly the confusion Phase 39c's BR-TP38 amendment had to unpick.</div>
+  </div>
+
+  <!-- ─────────────── MOCK 2: the drill-in ─────────────── -->
+  <div class="mock">
+    <div class="review-banner">
+      <span class="tag">2 / 2</span>
+      <span><b>The drill-in.</b> Where type-specific depth lives — and where the audit log becomes per-document history.</span>
+    </div>
+    <div class="topbar">
+      <span class="logo">L</span>
+      <span class="crumb">Tech Lab Operator<span class="sep">/</span>Transporters<span class="sep">/</span>Seed Transporter 07<span class="sep">/</span><b>GIT-00011.pdf</b></span>
+    </div>
+    <div class="shell">
+      <div class="sidebar">
+        <div class="eyebrow">Operator</div>
+        <div class="item">Reference data</div>
+        <div class="item active">Transporters</div>
+        <div class="item">Shippers</div>
+        <div class="eyebrow">Network</div>
+        <div class="item">Lanes</div>
+        <div class="item">Rate sheets</div>
+      </div>
+      <div class="main">
+        <div class="crumb-back">← Documents</div>
+        <div class="dd-head">
+          <span class="fname">GIT-00011.pdf</span>
+          <span class="badge b-review">For review</span>
+          <span class="acts">
+            <span class="btn ghost">Download</span>
+            <span class="btn danger">Reject</span>
+            <span class="btn">Approve</span>
+          </span>
+        </div>
+
+        <div class="sec-grid">
+          <div class="sec">
+            <h3>Document</h3>
+            <div class="kv">
+              <span class="k">Type</span><span class="v">Goods in transit</span>
+              <span class="k">Document name</span><span class="v mono lock">GIT-00011.pdf · read-only</span>
+              <span class="k">Registered</span><span class="v">24 Aug 2026 09:12 · seed@lab</span>
+              <span class="k">Expires</span><span class="v">14 Mar 2027</span>
+              <span class="k">File</span><span class="v mono">application/pdf · 1.2 MB</span>
+            </div>
+            <div class="lineage">Renews <a>GIT-00007.pdf</a> — supersedes it on approval, not now, so live cover is never retired by a renewal that is still in the queue.</div>
+          </div>
+
+          <div class="sec">
+            <h3>Cover · goods in transit only</h3>
+            <div class="kv">
+              <span class="k">Goods types</span><span class="v">Food, Chemicals</span>
+              <span class="k">Cover</span><span class="v mono">R 2 500 000</span>
+              <span class="k">Insurer</span><span class="v">Acme Insurance</span>
+              <span class="k">Contact</span><span class="v lock">collected at approval</span>
+              <span class="k">Contact number</span><span class="v lock">collected at approval</span>
+            </div>
+            <div class="lineage">The contact pair lives only in the projection, never on the event log — so a projection rebuilt from replay restores it empty, by design.</div>
+          </div>
+        </div>
+
+        <div class="sec">
+          <h3>History</h3>
+          <div class="hist">
+            <div class="ev"><div class="rail"><span class="dot now"></span></div><div class="body">
+              <div class="what">Awaiting review</div>
+              <div class="meta">— · queued 24 Aug 09:12</div>
+            </div></div>
+            <div class="ev"><div class="rail"><span class="dot"></span></div><div class="body">
+              <div class="what">File attached <span class="src log">event log</span></div>
+              <div class="meta">seed@lab · 24 Aug 2026 09:12:04 · 1.2 MB</div>
+            </div></div>
+            <div class="ev"><div class="rail"><span class="dot"></span></div><div class="body">
+              <div class="what">Registered · cover R 2 500 000 · Food, Chemicals <span class="src log">event log</span></div>
+              <div class="meta">seed@lab · 24 Aug 2026 09:12:03 · 10.0.4.19</div>
+            </div></div>
+          </div>
+          <div class="lineage">A CIPC or bank letter shows the same panel with thinner entries and an <span class="src audit">audit</span> source tag — those four types are plain CRUD with no stream to replay. The panel says so rather than implying parity.</div>
+        </div>
+      </div>
+    </div>
+    <div class="mock-cap"><b>The audit log becomes per-document history, and this is where Phase 46 lands.</b> Phase 46's GIT certificate change log is this panel, generalized: goods-in-transit entries are reconstructed from the <code>TRANSPORTER</code> stream and tagged <code>event log</code>; the four CRUD types fall back to audit rows. Marking the source is the honest move — it shows the operator which history is replayable and which is merely recorded, instead of flattening two different guarantees into one identical-looking list.</div>
+  </div>
+
+  <div class="secprose">
+    <h2>What this design commits to</h2>
+    <ul>
+      <li><b>The cover strip is the one place goods-in-transit gets prominence.</b> It answers the real objection to merging — GIT is the only document that can suspend an organization, and a flat list makes it as cheap as a T&amp;C PDF. A strip is a better answer than a tab because it shows <em>derived cover status</em>, which is what the operator needs, rather than certificates they must interpret.</li>
+      <li><b>Superseded rows are shown, off by default, with a count.</b> This is the one place the two current tabs actively disagree: GIT lists superseded certificates, the Documents tab hides them (BR-TP31). A toggle plus lineage in the drill-in keeps both behaviours available — but it is a business-rule change and needs a decision, not a default.</li>
+      <li><b>Nothing changes on the backend.</b> GIT stays event-sourced on the profile aggregate, the four shared types stay CRUD. If the operator genuinely cannot tell which is which from this screen, that is a POC result worth recording: the CQRS shape is an implementation concern, not a product one.</li>
+      <li><b>It should ship as its own component.</b> <code>TransporterPanel.vue</code> is already 2,445 lines; a merged surface belongs beside <code>GitCertificatesTab.vue</code>, not inside it.</li>
+    </ul>
+  </div>
+</div>
