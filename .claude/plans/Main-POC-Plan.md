@@ -1304,6 +1304,44 @@ publishes exactly once (`RegisterContainer` resolves both of its
       `acme` on a repo shared by both `Deps` fields. This is the second time
       the bug surfaced as a phantom ship, after the `SMOKE-43E` cleanup.
 - [x] **47d** — `ginkgo ./...` green across all 9 suites.
+- [x] **47e** — *unrelated to BR-050; found while verifying 47 against a
+      reseeded stack.* `organizations-service` died on every cold
+      `docker compose up -d` after a `down -v`, taking `refdata-frontend`
+      down with it (nginx resolves upstreams at startup, so a dead
+      `organizations-service` crash-loops it). Temporal has two distinct
+      not-ready stages and the service tolerated neither: the frontend not
+      listening yet (`client.Dial` → "connection refused"), and the frontend
+      listening before `temporal-auto-setup` has created the default
+      namespace (`worker.Start` → "Namespace default is not found" — observed
+      appearing *one second* after the service gave up). `MountVetting` now
+      takes a ctx and retries its **whole construction** — dial, wire, start —
+      through one `retryUntilReady` helper, same bounded shape as
+      `cmd/main.go`'s `waitForPostgres`, under its own 2-minute budget rather
+      than `startupCtx`'s already-running 60s. The first cut probed for those
+      two failure modes specifically and was replaced: a point-probe only ever
+      covers what someone happened to observe, so anything else arriving late
+      (search attributes, say) would still have killed the service. Each
+      attempt builds a fresh client and worker via `buildVettingWorker` and
+      closes the client on failure; the SDK's `AggregatedWorker` is not
+      re-`Start()`ed, since it merges capabilities into state commented
+      "should be the only time it is written to" and stops its workflow worker
+      if the activity worker fails.
+      A `preflightTemporalAddr` fast path sits in front of the loop so a
+      typo'd `TEMPORAL_ADDRESS` fails in ~1s instead of burning the full
+      budget. It classifies only what can never work — a malformed `host:port`
+      or a host that does not resolve — and passes connection-refused,
+      timeouts and everything else straight through, because misjudging one of
+      those reintroduces the crash this whole change removes. Sound only
+      because compose already gives the service
+      `depends_on: temporal (service_started)`, so the DNS name exists before
+      the process does; the race is *inside* Temporal's startup, not container
+      ordering.
+      Still fatal if the dependency never arrives — a service answering
+      submit-for-vetting with no worker polling strands the workflow.
+      Verified by a cold start that hit **both** failure modes through the one
+      loop and came up in 2s, with the `organizations-vetting` task queue
+      showing live workflow and activity pollers.
+      No business rule: this is startup resilience, not domain behaviour.
 
 ---
 

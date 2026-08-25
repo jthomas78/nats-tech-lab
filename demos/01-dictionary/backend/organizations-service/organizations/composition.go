@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -175,6 +176,81 @@ func (v *Vetting) Close() {
 	}
 }
 
+// preflightTemporalAddr fails fast on an address that can never work, so a
+// typo'd TEMPORAL_ADDRESS surfaces in a second rather than after the whole
+// retry budget. It is only a fast path, never the readiness check: anything
+// that might merely be early is passed straight through to the retry loop.
+//
+// Sound here because docker-compose gives organizations-service a
+// `depends_on: temporal (service_started)`, so the container — and with it the
+// name's DNS entry — exists before this process does. A host that does not
+// resolve is therefore a wrong address, not a container that has yet to
+// appear. The race this whole file exists for is *inside* Temporal's startup,
+// after its container is already up.
+func preflightTemporalAddr(addr string) error {
+	conn, err := net.DialTimeout("tcp", addr, preflightDialTimeout)
+	if err == nil {
+		_ = conn.Close()
+		return nil
+	}
+	if permanentDialError(err) {
+		return fmt.Errorf("temporal address %q cannot be reached and no amount of waiting will change that: %w", addr, err)
+	}
+	return nil
+}
+
+// permanentDialError reports whether err rules the address out for good.
+// Deliberately narrow: connection refused, timeouts and everything else are
+// treated as "not yet", because the cost of misjudging one of those is the
+// crash-on-cold-start this file was written to remove.
+func permanentDialError(err error) bool {
+	var addrErr *net.AddrError
+	if errors.As(err, &addrErr) {
+		return true // malformed host:port — waiting cannot fix a missing colon
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return dnsErr.IsNotFound
+	}
+	return false
+}
+
+// preflightDialTimeout is a var so the check can be exercised without waiting
+// on a real network timeout.
+var preflightDialTimeout = 2 * time.Second
+
+// retryUntilReady polls attempt until it succeeds or ctx expires — the same
+// bounded shape as cmd/main.go's waitForPostgres: survive a dependency that is
+// merely slow, still fail loudly if it never arrives.
+//
+// Temporal needs this because it is unready in at least two distinct ways,
+// both observed on 2026-08-25 against a `docker compose up -d` after
+// `down -v`: the frontend not listening yet (client.Dial → "connection
+// refused"), and the frontend listening before temporal-auto-setup has created
+// the default namespace (worker.Start → "Namespace default is not found",
+// which appeared one second after the service gave up). Enumerating those two
+// as point-probes was the first fix and the wrong one — it covers only the
+// failure modes someone happened to see. The caller retries its whole
+// construction instead, so any late-arriving precondition is tolerated.
+func retryUntilReady(ctx context.Context, what string, log *slog.Logger, attempt func(context.Context) error) error {
+	for {
+		err := attempt(ctx)
+		if err == nil {
+			return nil
+		}
+		log.Info("waiting for dependency", "name", what, "err", err)
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("gave up waiting for %s: %w", what, ctx.Err())
+		case <-time.After(temporalProbeInterval):
+		}
+	}
+}
+
+// temporalProbeInterval is a var, not a const, so the retry loop can be
+// exercised without a one-second-per-attempt test.
+var temporalProbeInterval = time.Second
+
 // MountVetting starts BR-TP58's single Temporal worker: one process polling
 // the one constant task queue, with activities that resolve their tenant per
 // invocation from tenantMgr rather than binding a connection at construction.
@@ -188,15 +264,70 @@ func (v *Vetting) Close() {
 // gitOutcome selects activities.MockGitVerifier's behaviour: there is no real
 // GIT/insurance system in this lab, and the mock is what keeps BR-TP22's
 // compensation branch reachable by hand. An empty value means "pass".
-func MountVetting(temporalAddr, gitOutcome string, db *sql.DB, tenantMgr *tenants.Manager, log *slog.Logger) (*Vetting, error) {
-	temporalClient, err := client.Dial(client.Options{HostPort: temporalAddr, Logger: log})
-	if err != nil {
-		return nil, fmt.Errorf("dial temporal at %q: %w", temporalAddr, err)
-	}
-
+func MountVetting(ctx context.Context, temporalAddr, gitOutcome string, db *sql.DB, tenantMgr *tenants.Manager, log *slog.Logger) (*Vetting, error) {
 	outcome := activities.MockGitOutcome(gitOutcome)
 	if outcome == "" {
 		outcome = activities.GitPass
+	}
+
+	if err := preflightTemporalAddr(temporalAddr); err != nil {
+		return nil, err
+	}
+
+	// The whole construction retries, not a probe in front of it: Temporal is
+	// unready in more ways than can be enumerated up front, and a point-probe
+	// only ever covers the failure modes someone happened to observe. Dial,
+	// worker and Start are built fresh on each attempt — see buildVettingWorker
+	// for why a failed worker is rebuilt rather than re-Started.
+	var (
+		temporalClient client.Client
+		w              temporalworker.Worker
+		monitor        *gitMonitor
+	)
+	if err := retryUntilReady(ctx, "temporal vetting worker at "+temporalAddr, log, func(context.Context) error {
+		c, mon, built, err := buildVettingWorker(temporalAddr, outcome, tenantMgr, log)
+		if err != nil {
+			return err
+		}
+		temporalClient, monitor, w = c, mon, built
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	// D6: the polling Schedules 38h-ii replaced are deleted here rather than
+	// left to fire into a workflow type this worker no longer registers.
+	// Logged, never fatal — a service that cannot reach the schedule API
+	// should still come up and vet, and the stale schedules fail loudly on
+	// their own.
+	if deleted, err := worker.DeleteGitMonitorSchedules(context.Background(), temporalClient); err != nil {
+		log.Warn("could not clear retired GIT monitor schedules; they may keep firing into an unregistered workflow", "err", err)
+	} else if deleted > 0 {
+		log.Info("cleared retired GIT monitor schedules (38h-ii)", "count", deleted)
+	}
+	log.Info("vetting worker started", "taskQueue", workflow.TaskQueue, "temporal", temporalAddr, "gitOutcome", outcome)
+	return &Vetting{
+		worker: w, client: temporalClient, monitor: monitor,
+		profiles: profilepostgres.NewProjection(db),
+		timeouts: worker.ProductionActivityTimeouts,
+	}, nil
+}
+
+// buildVettingWorker performs one whole attempt at bringing the worker up:
+// dial, wire the activities, start polling. Every attempt starts from a fresh
+// client and a fresh worker, and closes the client on the way out if anything
+// fails, so a retry never reuses a half-built one.
+//
+// Rebuilding rather than re-calling Start() on the same worker is deliberate.
+// The SDK's AggregatedWorker.Start merges server capabilities into state
+// commented as "should be the only time it is written to", and if the activity
+// worker fails to start it stops the workflow worker it had already started —
+// so a second Start() would run over a half-torn-down worker. Nothing
+// documents the type as re-startable, and nothing needs it to be.
+func buildVettingWorker(temporalAddr string, outcome activities.MockGitOutcome, tenantMgr *tenants.Manager, log *slog.Logger) (client.Client, *gitMonitor, temporalworker.Worker, error) {
+	temporalClient, err := client.Dial(client.Options{HostPort: temporalAddr, Logger: log})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("dial temporal at %q: %w", temporalAddr, err)
 	}
 
 	// HandleGitStatusDrop is deliberately left unconfigured: BR-TP28's monitor
@@ -218,24 +349,9 @@ func MountVetting(temporalAddr, gitOutcome string, db *sql.DB, tenantMgr *tenant
 	w := worker.New(temporalClient, acts)
 	if err := w.Start(); err != nil {
 		temporalClient.Close()
-		return nil, fmt.Errorf("start vetting worker: %w", err)
+		return nil, nil, nil, fmt.Errorf("start vetting worker: %w", err)
 	}
-	// D6: the polling Schedules 38h-ii replaced are deleted here rather than
-	// left to fire into a workflow type this worker no longer registers.
-	// Logged, never fatal — a service that cannot reach the schedule API
-	// should still come up and vet, and the stale schedules fail loudly on
-	// their own.
-	if deleted, err := worker.DeleteGitMonitorSchedules(context.Background(), temporalClient); err != nil {
-		log.Warn("could not clear retired GIT monitor schedules; they may keep firing into an unregistered workflow", "err", err)
-	} else if deleted > 0 {
-		log.Info("cleared retired GIT monitor schedules (38h-ii)", "count", deleted)
-	}
-	log.Info("vetting worker started", "taskQueue", workflow.TaskQueue, "temporal", temporalAddr, "gitOutcome", outcome)
-	return &Vetting{
-		worker: w, client: temporalClient, monitor: monitor,
-		profiles: profilepostgres.NewProjection(db),
-		timeouts: worker.ProductionActivityTimeouts,
-	}, nil
+	return temporalClient, monitor, w, nil
 }
 
 // --- BR-TP28: the GIT monitor's runtime wiring -------------------------

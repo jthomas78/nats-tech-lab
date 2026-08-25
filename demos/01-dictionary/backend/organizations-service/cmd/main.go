@@ -80,7 +80,12 @@ func run(log *slog.Logger) error {
 	// Fatal rather than degraded — a service that answers submit-for-vetting
 	// with no worker polling would accept the command and strand the
 	// workflow, which is worse than not starting.
-	vetting, err := organizations.MountVetting(temporalAddr, gitOutcome, db, tenantMgr, log)
+	// Its own budget rather than startupCtx's: that deadline has been running
+	// since before MountTenants, and on a cold start temporal-auto-setup can
+	// still be creating the default namespace well past it.
+	temporalCtx, cancelTemporal := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancelTemporal()
+	vetting, err := organizations.MountVetting(temporalCtx, temporalAddr, gitOutcome, db, tenantMgr, log)
 	if err != nil {
 		return err
 	}
