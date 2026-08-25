@@ -29,7 +29,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
 )
 
 // accountResponse omits SigningKeySeed — never serialized to a listing or
@@ -177,7 +177,7 @@ func (h *Handlers) recordAudit(ctx context.Context, entry AuditEntry) {
 // this is called; EnsureAllTenants' startup scan or a later Admin UI
 // SwitchTenant remain fallback paths if this specific event is ever missed.
 func (h *Handlers) publishAccountCreated(ctx context.Context, name string) {
-	h.publishAccountEvent(ctx, "notify.accounts.account.created", "account-created", name)
+	h.publishAccountEvent(ctx, "created", "account-created", name)
 }
 
 // publishAccountEvent is the shared mechanics behind the four lifecycle
@@ -191,7 +191,35 @@ func (h *Handlers) publishAccountCreated(ctx context.Context, name string) {
 // forget channel it always belonged on — see the comment on the emit below
 // for why the intermediate span went with it. Nil-safe throughout: no
 // NotifyNC means neither the notify nor its observation happens.
-func (h *Handlers) publishAccountEvent(ctx context.Context, subject, label, name string) {
+// lifecycleSubject builds notify.accounts.account.{action} and the tokens it
+// is observed under.
+//
+// This is the notify.* family's irregular member: four tokens where its
+// siblings have five to seven, and no {context} at all, because this service
+// administers the tenant axis itself rather than operating inside one. That
+// puts it below natstrace.ObservePublish's five-token floor, so a subject-
+// derived attribution would not merely be wrong here — it would skip these
+// four events silently. The tokens are named instead, with the context this
+// service does belong to.
+//
+// The shape is deliberately not regularised: the subject is pinned in JWT
+// permission grants (auth/token.go), in shipping-service's subscribers and in
+// bootstrap-operator.sh's minted credentials, and Provisioner.CreateUser
+// mints unrestricted users, so a Go-side regeneration would silently drop the
+// scoped grants (see Phase 60).
+func lifecycleSubject(action string) natsnotify.Subject {
+	return natsnotify.Subject{
+		Name: "notify.accounts.account." + action,
+		Tokens: natsnotify.Tokens{
+			Context: "_platform",
+			Service: "accounts",
+			Entity:  "account",
+			Action:  action,
+		},
+	}
+}
+
+func (h *Handlers) publishAccountEvent(ctx context.Context, action, label, name string) {
 	if h.NotifyNC == nil {
 		return
 	}
@@ -202,38 +230,15 @@ func (h *Handlers) publishAccountEvent(ctx context.Context, subject, label, name
 		h.Log.Error("marshal "+label+" event", "name", name, "err", err)
 		return
 	}
-
-	action := subject
-	if i := strings.LastIndex(subject, "."); i >= 0 {
-		action = subject[i+1:]
-	}
 	// Phase 43a (BR-AC34): these four publishes moved from obs.trace.* to
 	// obs.pubsub.*. They are fire-and-forget notifications, and obs.trace.* is
 	// the request/reply channel — carrying them there was the anomaly, and one
-	// event on two channels would defeat BR-047's per-channel dedup.
-	//
-	// What went with the move is the synthetic outbound span this used to
-	// start purely to have something to End onto obs.trace.*. With that
-	// channel gone it would publish nothing, while the Traceparent header it
-	// minted would point at a span no store ever receives. So the notify now
-	// continues the *causing request's* span directly — the same thing every
-	// other instrumented notify.* call site does — which is the trace
-	// continuation BR-AC34 asked to keep. SpanFromContext and Traceparent are
-	// both nil-safe: with no request span in scope the publish carries no
-	// header and the observation roots its own trace.
-	parent := natstrace.SpanFromContext(ctx)
-	msg := &nats.Msg{Subject: subject, Data: payload}
-	if tp := parent.Traceparent(); tp != "" {
-		msg.Header = nats.Header{natstrace.TraceparentHeader: []string{tp}}
-	}
-	if err := h.NotifyNC.PublishMsg(msg); err != nil {
-		h.Log.Error("publish "+label+" event", "name", name, "err", err)
-		return // a notify that never reached the wire must not be observed
-	}
-	// notify.accounts.* carries no {context} token (this service administers
-	// the tenant axis itself), so the observability tokens are named rather
-	// than derived positionally.
-	natstrace.ObserveAs(h.NotifyNC, parent, subject, payload, "_platform", "accounts", "account", action)
+	// event on two channels would defeat BR-047's per-channel dedup. The
+	// notify continues the causing request's span, which is what BR-AC34 asked
+	// to keep; Phase 43d moved that continuation into the seam, where it is
+	// the same code path every other notify.* publisher now takes.
+	natsnotify.New(h.NotifyNC, h.Log, natsnotify.WithObservation(h.NotifyNC)).
+		Publish(ctx, lifecycleSubject(action), payload)
 }
 
 // publishAccountSuspended is the mirror of publishAccountCreated (BR-AC09):
@@ -250,7 +255,7 @@ func (h *Handlers) publishAccountEvent(ctx context.Context, subject, label, name
 // actual security boundary, this is only what makes shipping-service notice
 // promptly rather than eventually.
 func (h *Handlers) publishAccountSuspended(ctx context.Context, name string) {
-	h.publishAccountEvent(ctx, "notify.accounts.account.suspended", "account-suspended", name)
+	h.publishAccountEvent(ctx, "suspended", "account-suspended", name)
 }
 
 // publishAccountReactivated completes the lifecycle triple (BR-AC10). Without
@@ -266,7 +271,7 @@ func (h *Handlers) publishAccountSuspended(ctx context.Context, name string) {
 // creds file in particular must already exist, since shipping-service's
 // consumer resolves the tenant by scanning that directory (BR-032).
 func (h *Handlers) publishAccountReactivated(ctx context.Context, name string) {
-	h.publishAccountEvent(ctx, "notify.accounts.account.reactivated", "account-reactivated", name)
+	h.publishAccountEvent(ctx, "reactivated", "account-reactivated", name)
 }
 
 // publishAccountJSLimitsUpdated notifies interested services that an
@@ -274,7 +279,7 @@ func (h *Handlers) publishAccountReactivated(ctx context.Context, name string) {
 // context-free subject family and best-effort contract as the other three
 // lifecycle publishers.
 func (h *Handlers) publishAccountJSLimitsUpdated(ctx context.Context, name string) {
-	h.publishAccountEvent(ctx, "notify.accounts.account.jslimits_updated", "account-jslimits-updated", name)
+	h.publishAccountEvent(ctx, "jslimits_updated", "account-jslimits-updated", name)
 }
 
 // Mount registers this service's BasicAuth-gated /api/accounts* routes and

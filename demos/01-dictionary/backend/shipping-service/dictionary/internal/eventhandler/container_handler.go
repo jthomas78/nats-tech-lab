@@ -10,6 +10,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/notify"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
@@ -31,6 +32,7 @@ func RegisterContainers(
 	repo domain.ContainerRepository,
 	log *slog.Logger,
 ) (jetstream.ConsumeContext, error) {
+	n := notifier(nc, log)
 	// See handler.go's register() for why: the Consume callback below closes
 	// over this context for the projector's entire lifetime, so it must not
 	// be tied to whatever short-lived context the caller used to register it
@@ -94,9 +96,9 @@ func RegisterContainers(
 			_ = msg.Nak()
 			return
 		}
-		publishNotify(nc, log, event.Context, "container", data, sp)
+		n.Publish(spanCtx, notify.Changed(event.Context, "container"), data)
 		if rawData, err := json.Marshal(event); err == nil {
-			publishRawNotify(nc, log, event.Context, "container", eventType, rawData, sp)
+			n.Publish(spanCtx, notify.Raw(event.Context, "container", eventType), rawData)
 		}
 		sp.End(nil, nil)
 		_ = msg.Ack()

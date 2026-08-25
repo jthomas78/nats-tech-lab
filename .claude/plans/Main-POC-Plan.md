@@ -971,7 +971,7 @@ Outcome, recorded in full in BR-046:
   both. The Traces panel loses four entry types; this is the one place Phase 43
   edits a shipped pipeline rather than adding beside it. See BR-AC34.
 
-#### 43d — APPROVED 2026-08-25 — `shared/natsnotify`: give `notify.*` the seam `evt.*` already has
+#### 43d — IMPLEMENTED 2026-08-25 — `shared/natsnotify`: give `notify.*` the seam `evt.*` already has
 
 Follows 43a/43b, which are landed (`df96bec`). Arrived at through an
 architecture review and a full grilling pass on 2026-08-25; every decision
@@ -1054,7 +1054,7 @@ contract.
 
 | Service | Shapes | Subject builders | Observation |
 |---|---|---|---|
-| shipping | 4, across `eventhandler`, `kvstore`, `browserrpc` | new `dictionary/internal/notify/` package | on |
+| shipping | 5, across `eventhandler` ×2, `kvstore`, `browserrpc`, `platform_notify` | new `internal/notify/` package | on |
 | refdata | 1 | in place | on, per-tenant `Notifier` |
 | accounts | 1 | in place | on, explicit `_platform` context |
 | observability | 2 | in place | **never enabled** |
@@ -1098,25 +1098,35 @@ makes in code, applied to the rules.
 
 ##### Tasks
 
-- [ ] `shared/natsnotify`: module, `Notifier`, `New`/`WithObservation`,
+- [x] `shared/natsnotify`: module, `Notifier`, `New`/`WithObservation`,
       `Publish`; `go.work` entry and per-consumer `require`/`replace`.
-- [ ] A small embedded-NATS test helper beside it. Phase 43 left four
+- [x] A small embedded-NATS test helper beside it. Phase 43 left four
       near-identical bootstraps (`newTestNATS`, `newObservabilityTestNATS`
       + `subscribeObservations`, `runEmbeddedNATS`); they migrate
       opportunistically, **not** in this diff.
-- [ ] `natsnotify`'s own specs, including the `evt.*` seam's
+- [x] `natsnotify`'s own specs, including the `evt.*` seam's
       `TestPublisherWithoutObservationStaysSilent` counterpart.
-- [ ] shipping: new `dictionary/internal/notify/` subject-builder package;
-      adopt at all four sites (`eventhandler` ×2, `kvstore`, `browserrpc`).
-- [ ] refdata: adopt, one `Notifier` per tenant inside `natstenants.Manager`.
-- [ ] accounts: adopt, explicit `_platform` context token.
-- [ ] observability: adopt both sites without `WithObservation`.
-- [ ] Delete `natstrace.Observe` / `ObserveAs`.
-- [ ] Replace `notifycoverage/coverage_test.go` with the literal-guard lint.
-- [ ] Rewrite `pubsub_observability_test.go`'s five stale `PIt` placeholders
+- [x] shipping: new `internal/notify/` subject-builder package; adopt at
+      all five sites (`eventhandler` ×2, `kvstore`, `browserrpc`,
+      `platform_notify`'s refdata bridge).
+
+      **Corrected 2026-08-25 during implementation.** The design summary said
+      four shapes under `dictionary/internal/notify/`; both were wrong.
+      `platform_notify.go`'s `notify._platform.refdata.{ctx}.{typeKey}.changed`
+      bridge is a fifth shipping shape (the dossier filed it under refdata,
+      whose own shape is `notifybridge.go`'s). And the package cannot live
+      under `dictionary/internal/`: Go's internal visibility rule would put it
+      out of reach of `internal/kvstore`, which sits outside `dictionary/` and
+      is one of the five callers.
+- [x] refdata: adopt, one `Notifier` per tenant inside `natstenants.Manager`.
+- [x] accounts: adopt, explicit `_platform` context token.
+- [x] observability: adopt both sites without `WithObservation`.
+- [x] Delete `natstrace.Observe` / `ObserveAs`.
+- [x] Replace `notifycoverage/coverage_test.go` with the literal-guard lint.
+- [x] Rewrite `pubsub_observability_test.go`'s five stale `PIt` placeholders
       as subject-construction tests against shipping's builder package — no
       NATS required.
-- [ ] Reword BR-045 / BR-049 (`BUSINESS_RULES-SHIPPING.md`) and BR-D45
+- [x] Reword BR-045 / BR-049 (`BUSINESS_RULES-SHIPPING.md`) and BR-D45
       (`BUSINESS_RULES-REFDATA.md`) in the same commit.
 
 Subscriber blast radius is **zero**: every binding is by subject literal or

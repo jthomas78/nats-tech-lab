@@ -46,7 +46,9 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/queries"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/notify"
 	sharedbrowserrpc "github.com/jthomas78/nats-tech-lab/shared/browserrpc"
+	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
@@ -118,6 +120,7 @@ type Deps struct {
 // tenant connection.
 type Adapter struct {
 	nc         *nats.Conn
+	notifier   *natsnotify.Notifier
 	ships      *commands.ShipHandler
 	containers *commands.ContainerHandler
 	ports      *commands.PortHandler
@@ -192,6 +195,7 @@ type containerManifestRequest struct {
 func New(nc *nats.Conn, deps Deps) (*Adapter, error) {
 	a := &Adapter{
 		nc:         nc,
+		notifier:   natsnotify.New(nc, deps.Log, natsnotify.WithObservation(nc)),
 		ships:      deps.Ships,
 		containers: deps.Containers,
 		ports:      deps.Ports,
@@ -481,17 +485,7 @@ func (a *Adapter) publishPortsChanged(ctx context.Context, kvContext string) {
 	if err != nil {
 		return
 	}
-	subject := "notify." + kvContext + ".shipping.port.changed"
-	if err := a.nc.Publish(subject, data); err != nil {
-		if a.log != nil {
-			a.log.Warn("browserrpc: notify publish failed", "context", kvContext, "err", err)
-		}
-		return
-	}
-	// Phase 43a (BR-045). The span the caller is inside is on ctx when there
-	// is one (SpanFromContext is nil-safe), so a port change observed here
-	// joins the api.* call that caused it rather than rooting an orphan.
-	natstrace.Observe(a.nc, natstrace.SpanFromContext(ctx), subject, data)
+	a.notifier.Publish(ctx, notify.PortChanged(kvContext), data)
 }
 
 // handleMetaKnownContainers is the api.* counterpart of REST's

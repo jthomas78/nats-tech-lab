@@ -3,6 +3,7 @@ module github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observabil
 go 1.26
 
 require (
+	github.com/jthomas78/nats-tech-lab/shared/natsnotify v0.0.0-00010101000000-000000000000
 	github.com/nats-io/nats-server/v2 v2.14.5
 	github.com/nats-io/nats.go v1.52.0
 	github.com/onsi/gomega v1.42.1
@@ -38,3 +39,8 @@ require (
 	golang.org/x/tools v0.48.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
+
+// Phase 43d: shared/natsnotify is a workspace member (see go.work at the
+// repo root); the replace keeps a non-workspace `go build` in this directory
+// resolving it too.
+replace github.com/jthomas78/nats-tech-lab/shared/natsnotify => ../../../../shared/natsnotify

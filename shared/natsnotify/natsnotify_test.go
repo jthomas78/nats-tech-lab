@@ -43,8 +43,9 @@ func TestPublishDeliversTheDomainMessage(t *testing.T) {
 	got := natstest.Subscribe(t, nc, "notify.>")
 
 	n := natsnotify.New(nc, nil)
-	n.Publish(context.Background(), "notify.acme.shipping.ship.changed", []byte(`{"id":"S1"}`),
-		natsnotify.Tokens{Context: "acme", Service: "shipping", Entity: "ship", Action: "changed"})
+	n.Publish(context.Background(),
+		natsnotify.Subject{Name: "notify.acme.shipping.ship.changed", Tokens: natsnotify.Tokens{Context: "acme", Service: "shipping", Entity: "ship", Action: "changed"}},
+		[]byte(`{"id":"S1"}`))
 
 	m := recv(t, got, "the notify message")
 	if m.Subject != "notify.acme.shipping.ship.changed" {
@@ -64,8 +65,9 @@ func TestPublishObservesUnderTheTokensItWasGivenNotTheOnesInTheSubject(t *testin
 	obs := natstest.Observations(t, nc)
 
 	n := natsnotify.New(nc, nil, natsnotify.WithObservation(nc))
-	n.Publish(context.Background(), "notify._platform.refdata.acme.ports.changed", []byte(`{}`),
-		natsnotify.Tokens{Context: "acme", Service: "refdata", Entity: "ports", Action: "changed"})
+	n.Publish(context.Background(),
+		natsnotify.Subject{Name: "notify._platform.refdata.acme.ports.changed", Tokens: natsnotify.Tokens{Context: "acme", Service: "refdata", Entity: "ports", Action: "changed"}},
+		[]byte(`{}`))
 
 	m := recv(t, obs, "the observation")
 	if want := "obs.pubsub.acme.refdata.ports.changed"; m.Subject != want {
@@ -97,8 +99,9 @@ func TestPublishObservesAFourTokenSubjectThePositionalDeriverWouldSkip(t *testin
 	obs := natstest.Observations(t, nc)
 
 	n := natsnotify.New(nc, nil, natsnotify.WithObservation(nc))
-	n.Publish(context.Background(), "notify.accounts.account.created", []byte(`{}`),
-		natsnotify.Tokens{Context: "_platform", Service: "accounts", Entity: "account", Action: "created"})
+	n.Publish(context.Background(),
+		natsnotify.Subject{Name: "notify.accounts.account.created", Tokens: natsnotify.Tokens{Context: "_platform", Service: "accounts", Entity: "account", Action: "created"}},
+		[]byte(`{}`))
 
 	m := recv(t, obs, "the observation")
 	if want := "obs.pubsub._platform.accounts.account.created"; m.Subject != want {
@@ -115,8 +118,9 @@ func TestNotifierWithoutObservationStaysSilent(t *testing.T) {
 	got := natstest.Subscribe(t, nc, "notify.>")
 
 	n := natsnotify.New(nc, nil)
-	n.Publish(context.Background(), "notify.acme.kv.pubsub-messages.k1.changed", []byte(`{}`),
-		natsnotify.Tokens{Context: "acme", Service: "kv", Entity: "pubsub-messages", Action: "changed"})
+	n.Publish(context.Background(),
+		natsnotify.Subject{Name: "notify.acme.kv.pubsub-messages.k1.changed", Tokens: natsnotify.Tokens{Context: "acme", Service: "kv", Entity: "pubsub-messages", Action: "changed"}},
+		[]byte(`{}`))
 
 	recv(t, got, "the notify message") // the domain publish still happens
 	silence(t, obs, "observation")
@@ -130,8 +134,7 @@ func TestObservationContinuesTheSpanOnTheContext(t *testing.T) {
 	ctx := natstrace.ContextWithSpan(context.Background(), parent)
 
 	n := natsnotify.New(nc, nil, natsnotify.WithObservation(nc))
-	n.Publish(ctx, "notify.acme.shipping.ship.changed", []byte(`{}`),
-		natsnotify.Tokens{Context: "acme", Service: "shipping", Entity: "ship", Action: "changed"})
+	n.Publish(ctx, natsnotify.Subject{Name: "notify.acme.shipping.ship.changed", Tokens: natsnotify.Tokens{Context: "acme", Service: "shipping", Entity: "ship", Action: "changed"}}, []byte(`{}`))
 
 	m := recv(t, obs, "the observation")
 	var env struct {
@@ -153,11 +156,65 @@ func TestPublishToleratesNilConnLoggerAndContext(t *testing.T) {
 	// Every call site this replaces already tolerated an unconfigured notify
 	// connection as a supported deployment, and several are reached from a KV
 	// watch callback with no request context behind them.
-	natsnotify.New(nil, nil).Publish(context.Background(), "notify.acme.shipping.ship.changed", []byte(`{}`), natsnotify.Tokens{})
+	natsnotify.New(nil, nil).Publish(context.Background(), natsnotify.Subject{Name: "notify.acme.shipping.ship.changed"}, []byte(`{}`))
 
 	nc := natstest.Start(t, "natsnotify-test")
 	got := natstest.Subscribe(t, nc, "notify.>")
 	natsnotify.New(nc, nil, natsnotify.WithObservation(nil)).
-		Publish(nil, "notify.acme.shipping.ship.changed", []byte(`{}`), natsnotify.Tokens{}) //nolint:staticcheck // nil ctx is the property under test
+		Publish(nil, natsnotify.Subject{Name: "notify.acme.shipping.ship.changed"}, []byte(`{}`)) //nolint:staticcheck // nil ctx is the property under test
 	recv(t, got, "the notify message")
+}
+
+func TestPublishAttachesTraceparentWhenASpanIsOnTheContext(t *testing.T) {
+	// BR-037: the notify carries the trace forward the same way the evt.*
+	// seam does, so the waterfall shows the async tail past the KV write the
+	// caller already made. A NATS KV entry can never carry a traceparent of
+	// its own — jetstream.KeyValue.Put takes no headers — so this notify is
+	// the only place the trace can continue.
+	nc := natstest.Start(t, "natsnotify-test")
+	got := natstest.Subscribe(t, nc, "notify.>")
+
+	parent := natstrace.New(nc).StartOutbound(nil, "rpc.acme.shipping.ship.get", nil, "acme", "shipping", "ship", "get")
+	ctx := natstrace.ContextWithSpan(context.Background(), parent)
+
+	natsnotify.New(nc, nil).Publish(ctx,
+		natsnotify.Subject{Name: "notify.acme.shipping.ship.changed"}, []byte(`{}`))
+
+	m := recv(t, got, "the notify message")
+	if m.Header.Get(natstrace.TraceparentHeader) == "" {
+		t.Fatal("no traceparent — the trace stops at the KV write")
+	}
+}
+
+func TestPublishOmitsTraceparentWhenThereIsNoSpan(t *testing.T) {
+	nc := natstest.Start(t, "natsnotify-test")
+	got := natstest.Subscribe(t, nc, "notify.>")
+
+	natsnotify.New(nc, nil).Publish(context.Background(),
+		natsnotify.Subject{Name: "notify.acme.shipping.ship.changed"}, []byte(`{}`))
+
+	m := recv(t, got, "the notify message")
+	if m.Header.Get(natstrace.TraceparentHeader) != "" {
+		t.Fatal("traceparent on a message with no span behind it")
+	}
+}
+
+func TestObservationIsSkippedWhenThePublishNeverReachedTheWire(t *testing.T) {
+	// A notify that failed must not appear in the Messages panel as though it
+	// had happened. Observation runs on a separate, live connection here, so
+	// the absence of an envelope is the publish failure being respected
+	// rather than the observing conn being down too.
+	obsNC := natstest.Start(t, "natsnotify-obs")
+	obs := natstest.Observations(t, obsNC)
+
+	deadNC := natstest.Start(t, "natsnotify-dead")
+	deadNC.Close() // a closed conn fails every publish
+
+	natsnotify.New(deadNC, nil, natsnotify.WithObservation(obsNC)).Publish(context.Background(),
+		natsnotify.Subject{
+			Name:   "notify.acme.shipping.ship.changed",
+			Tokens: natsnotify.Tokens{Context: "acme", Service: "shipping", Entity: "ship", Action: "changed"},
+		}, []byte(`{}`))
+
+	silence(t, obs, "observation of a publish that failed")
 }

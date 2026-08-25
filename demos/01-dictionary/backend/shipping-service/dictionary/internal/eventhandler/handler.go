@@ -13,6 +13,8 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/notify"
+	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
@@ -30,6 +32,7 @@ import (
 // event" invariant). See notify_test.go for the payload contract this
 // relies on.
 func RegisterShips(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, nc *nats.Conn, repo domain.ShipRepository, log *slog.Logger) (jetstream.ConsumeContext, error) {
+	n := notifier(nc, log)
 	return register(ctx, js, "ship-projector", nc, log, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
 		oldKey := shipKVKey(subject, event)
 		agg := currentAgg(msgCtx, kv, event.Context, oldKey)
@@ -53,11 +56,10 @@ func RegisterShips(ctx context.Context, js jetstream.JetStream, kv *kvstore.Stor
 		if _, err := kv.Put(msgCtx, event.Context, newKey, data); err != nil {
 			return err
 		}
-		sp := natstrace.SpanFromContext(msgCtx)
-		publishNotify(nc, log, event.Context, "ship", data, sp)
+		n.Publish(msgCtx, notify.Changed(event.Context, "ship"), data)
 		if _, _, eventType, ok := domain.SubjectDetails(subject); ok {
 			if rawData, err := json.Marshal(event); err == nil {
-				publishRawNotify(nc, log, event.Context, "ship", eventType, rawData, sp)
+				n.Publish(msgCtx, notify.Raw(event.Context, "ship", eventType), rawData)
 			}
 		}
 		return nil
@@ -164,75 +166,18 @@ func register(
 	})
 }
 
-// publishNotify fire-and-forget publishes a notify.{kvContext}.shipping.
-// {entity}.changed event (Phase 15b) carrying payload (the full projected
-// entity, already-marshaled JSON) — plain core NATS pub/sub, no JetStream
-// retention: a missed notification during a brief browser disconnect is
-// covered by the bootstrap api.*.shipping.{entity}.list.v1 call on
-// reconnect (Main-POC-Plan.md Phase 15d), so no replay mechanism is needed
-// here, unlike refdata-service's obs.rpc.*/RPCTRACE (BR-D29).
+// notifier returns this package's notify.* seam.
 //
-// nc is nil-safe: every Register* caller in this package already passes nil
-// in contexts where no tenant connection is relevant (e.g. some tests), and
-// this must not fail or panic in that case — same nil-safe-Deps convention
-// used throughout this repo. A publish error is logged, never returned:
-// notify.* is a best-effort convenience for reactive UIs, not a correctness
-// requirement the projector's own success depends on.
+// Phase 43d: publishNotify and publishRawNotify used to live here — two
+// helpers that concatenated a subject, published it, log-and-swallowed the
+// error, and then asked natstrace to parse the subject back into
+// observability tokens. shared/natsnotify owns that sequence now, and
+// internal/notify owns the subjects; what is left is the choice this service
+// makes, which is that its projectors observe.
 //
-// sp is the per-message span (Phase 28d, BR-037) that caused this notify —
-// nil-safe both ways: a nil sp (or sp.Traceparent() == "", which is the same
-// nil-safe no-op) publishes with no traceparent header at all, identical to
-// the pre-28d behavior. When present, it lets the trace waterfall show the
-// async tail continuing past the KV write the caller already made.
-func publishNotify(nc *nats.Conn, log *slog.Logger, kvContext, entity string, payload []byte, sp *natstrace.Span) {
-	if nc == nil {
-		return
-	}
-	subject := "notify." + kvContext + ".shipping." + entity + ".changed"
-	msg := &nats.Msg{Subject: subject, Data: payload}
-	if tp := sp.Traceparent(); tp != "" {
-		msg.Header = nats.Header{natstrace.TraceparentHeader: []string{tp}}
-	}
-	if err := nc.PublishMsg(msg); err != nil {
-		if log != nil {
-			log.Warn("notify publish failed", "subject", subject, "err", err)
-		}
-		return // a notify that never reached the wire must not be observed
-	}
-	// Phase 43a (BR-045): observe the publish on obs.pubsub.*. The subject is
-	// notify.{context}.shipping.{entity}.changed — context/service/entity/
-	// action all sit where the positional deriver reads them, so no explicit
-	// token list is needed here.
-	natstrace.Observe(nc, sp, subject, payload)
-}
-
-// publishRawNotify fire-and-forget publishes
-// notify.{kvContext}.shipping.raw.{entity}.{event} (Phase 23) carrying the
-// raw domain event as received off the SHIPPING stream — distinct from
-// publishNotify's "current projected state" payload: the Admin UI's
-// JetStream watch panel wants the actual verb (arrived/departed/loaded/...),
-// not a projected snapshot, replacing the per-SSE-connection OrderedConsumer
-// dictionary/internal/rest/sse.go's watchJetStream used to create. Same
-// nil-safe, best-effort convention as publishNotify. sp is the same
-// per-message span publishNotify accepts, and behaves identically
-// (nil-safe, Phase 28d).
-func publishRawNotify(nc *nats.Conn, log *slog.Logger, kvContext, entity, event string, payload []byte, sp *natstrace.Span) {
-	if nc == nil {
-		return
-	}
-	subject := "notify." + kvContext + ".shipping.raw." + entity + "." + event
-	msg := &nats.Msg{Subject: subject, Data: payload}
-	if tp := sp.Traceparent(); tp != "" {
-		msg.Header = nats.Header{natstrace.TraceparentHeader: []string{tp}}
-	}
-	if err := nc.PublishMsg(msg); err != nil {
-		if log != nil {
-			log.Warn("raw notify publish failed", "subject", subject, "err", err)
-		}
-		return
-	}
-	// Phase 43a (BR-045): tokens given explicitly — this subject carries a
-	// literal "raw" where the deriver would read the entity, and its action is
-	// the domain verb rather than "changed".
-	natstrace.ObserveAs(nc, sp, subject, payload, kvContext, "shipping", entity, event)
+// Observation is enabled on the same connection the notify goes out on, which
+// is what BR-D45 requires: the envelope has to be inside the publishing
+// tenant's account for BR-AC34's import remap to attribute it correctly.
+func notifier(nc *nats.Conn, log *slog.Logger) *natsnotify.Notifier {
+	return natsnotify.New(nc, log, natsnotify.WithObservation(nc))
 }

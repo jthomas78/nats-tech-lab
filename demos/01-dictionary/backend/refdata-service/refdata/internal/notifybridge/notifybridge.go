@@ -28,6 +28,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
+	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
 )
 
 // retryDelay bounds how long the bridge waits before retrying consumer
@@ -35,9 +36,29 @@ import (
 // nothing has been published) or after its Messages() feed ends.
 const retryDelay = 5 * time.Second
 
+// Changed builds this service's one notify.* shape,
+// notify.{context}.refdata.{typeKey}.changed, paired with the tokens it is
+// observed under.
+//
+// The pair travels as one value so the fan-out below cannot attribute it to
+// anything else: the bridge knows the context and type key here, having just
+// parsed them out of the evt.* subject, and nothing downstream has to read
+// them back out of the subject it built.
+func Changed(contextKey, typeKey string) natsnotify.Subject {
+	return natsnotify.Subject{
+		Name: "notify." + contextKey + "." + kvcache.Domain + "." + typeKey + ".changed",
+		Tokens: natsnotify.Tokens{
+			Context: contextKey,
+			Service: kvcache.Domain,
+			Entity:  typeKey,
+			Action:  "changed",
+		},
+	}
+}
+
 // Publisher is the fan-out sink — satisfied by tenants.Manager.PublishToAll.
 type Publisher interface {
-	PublishToAll(subject string, data []byte)
+	PublishToAll(ctx context.Context, subj natsnotify.Subject, data []byte)
 }
 
 // parseChangedSubject splits an evt.{context}.refdata.{typeKey}.changed
@@ -91,7 +112,7 @@ func Run(ctx context.Context, platformJS jetstream.JetStream, pub Publisher, log
 				if !ok {
 					continue
 				}
-				pub.PublishToAll("notify."+contextKey+"."+kvcache.Domain+"."+typeKey+".changed", msg.Data())
+				pub.PublishToAll(ctx, Changed(contextKey, typeKey), msg.Data())
 			}
 			msgs.Stop()
 			sleepOrDone(ctx, retryDelay)

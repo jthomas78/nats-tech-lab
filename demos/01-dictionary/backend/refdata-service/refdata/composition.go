@@ -27,8 +27,8 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/notifybridge"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/postgres"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/rest"
+	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
 	"github.com/jthomas78/nats-tech-lab/shared/natstenants"
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 // ChangeStreamMaxAge bounds the REFDATA change-event feed — it is a
@@ -250,9 +250,9 @@ type tenantPublisher struct {
 	log *slog.Logger
 }
 
-func (p tenantPublisher) PublishToAll(subject string, data []byte) {
+func (p tenantPublisher) PublishToAll(ctx context.Context, subj natsnotify.Subject, data []byte) {
 	p.mgr.Range(func(tenant string, nc *nats.Conn, _ *browserrpc.Adapter) {
-		p.publishTo(tenant, nc, subject, data)
+		p.publishTo(ctx, tenant, nc, subj, data)
 	})
 }
 
@@ -261,27 +261,16 @@ func (p tenantPublisher) PublishToAll(subject string, data []byte) {
 // Manager the fan-out iterates needs a creds directory and live tenant
 // accounts, which would make a test of the observation a test of tenant
 // discovery instead.
-func (p tenantPublisher) publishTo(tenant string, nc *nats.Conn, subject string, data []byte) {
-	{
-		if err := nc.Publish(subject, data); err != nil {
-			if p.log != nil {
-				p.log.Warn("refdata notify publish failed", "tenant", tenant, "subject", subject, "err", err)
-			}
-			return
-		}
-		// Phase 43a (BR-D45): this service's one notify.* call site, observed
-		// here rather than inside notifybridge.Run itself — the bridge holds
-		// only the PublishToAll port and no connection, while this fan-out is
-		// where each tenant's own *nats.Conn is in hand. That matters for
-		// provenance: emitting per tenant connection is what puts the
-		// observation inside that tenant's account, so PLATFORM's import
-		// remap names the right tenant (BR-AC34). A single observation from
-		// the bridge could not be attributed at all.
-		//
-		// The subject is notify.{context}.refdata.{typeKey}.changed, whose
-		// tokens sit exactly where the positional deriver reads them.
-		natstrace.Observe(nc, nil, subject, data)
-	}
+func (p tenantPublisher) publishTo(ctx context.Context, tenant string, nc *nats.Conn, subj natsnotify.Subject, data []byte) {
+	// A Notifier per tenant, per publish. It is a connection plus a gate, and
+	// which connection is the whole point here (BR-D45): emitting on this
+	// tenant's own connection is what puts the observation inside that
+	// tenant's account, so PLATFORM's import remap names the right tenant
+	// (BR-AC34). A single Notifier shared across the fan-out could not be
+	// attributed at all — which is why Notifier holds its connection rather
+	// than taking one per call, and why this is the one site in the repo that
+	// builds one per message rather than at construction.
+	natsnotify.New(nc, p.log, natsnotify.WithObservation(nc)).Publish(ctx, subj, data)
 }
 
 // MountPlatformAPI additionally registers the api.* adapter on

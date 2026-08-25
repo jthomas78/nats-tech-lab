@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+
+	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -150,16 +152,32 @@ func appendSpan(ctx context.Context, kv jetstream.KeyValue, nc *nats.Conn, log *
 	return nil
 }
 
-// publishNotify fires notify.{context}.kv.{bucket}.{key}.changed after a
-// successful Put — best-effort, a publish error is logged, never returned.
-// Unlike shipping-service's internal/kvstore.Store.publishNotify, this
-// never attaches a traceparent header: that mechanism exists for a Put
-// caused by an in-flight request with a span already in its context, and
-// RegisterTraceStore's own consume callback never attaches one — the
-// omission changes nothing observable.
-func publishNotify(nc *nats.Conn, log *slog.Logger, key string, value []byte) {
-	subject := "notify." + kvContext + ".kv." + bucketName + "." + key + ".changed"
-	if err := nc.Publish(subject, value); err != nil && log != nil {
-		log.Warn("kv notify publish failed", "subject", subject, "err", err)
+func kvChanged(key string) natsnotify.Subject {
+	return natsnotify.Subject{
+		Name: "notify." + kvContext + ".kv." + bucketName + "." + key + ".changed",
+		Tokens: natsnotify.Tokens{
+			Context: kvContext,
+			Service: "kv",
+			Entity:  bucketName,
+			Action:  "changed",
+		},
 	}
+}
+
+// publishNotify fires notify.{context}.kv.{bucket}.{key}.changed after a
+// successful Put.
+//
+// Constructed WITHOUT natsnotify.WithObservation, and that omission is the
+// rule rather than an oversight: this is the service's own internal
+// KV-change plumbing for its trace-request-reply bucket, not a domain event,
+// and BR-045 names it as excluded. Under the seam's opt-in gate the exclusion
+// is a fact about how this Notifier was built, which is why it no longer
+// needs an entry in a hand-maintained coverage list.
+//
+// Unlike shipping-service's kvstore, which builds the same subject and IS
+// observed, no traceparent is attached either: that mechanism exists for a
+// Put caused by an in-flight request with a span in its context, and
+// RegisterTraceStore's consume callback never attaches one.
+func publishNotify(nc *nats.Conn, log *slog.Logger, key string, value []byte) {
+	natsnotify.New(nc, log).Publish(context.Background(), kvChanged(key), value)
 }

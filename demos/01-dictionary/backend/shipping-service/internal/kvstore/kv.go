@@ -19,7 +19,8 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/notify"
+	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
 )
 
 // Store manages a single KV bucket per Store instance. All operations accept
@@ -29,8 +30,7 @@ type Store struct {
 	js     jetstream.JetStream
 	prefix string // also the bucket name
 
-	notifyNC  *nats.Conn // optional (nil until EnableNotify) — see Put's notify publish
-	notifyLog *slog.Logger
+	notifier *natsnotify.Notifier // optional (nil until EnableNotify) — see Put's notify publish
 
 	mu sync.Mutex
 	kv jetstream.KeyValue // lazily initialised on first use
@@ -50,8 +50,10 @@ func New(js jetstream.JetStream, prefix string) *Store {
 // mechanical churn EnableNotify avoids. Unset (the default) means Put never
 // publishes, matching today's behavior exactly.
 func (s *Store) EnableNotify(nc *nats.Conn, log *slog.Logger) {
-	s.notifyNC = nc
-	s.notifyLog = log
+	// Observation goes out on the same connection the notify does, which is
+	// what BR-D45 requires: the envelope has to sit inside the publishing
+	// tenant's account for BR-AC34's import remap to name the right tenant.
+	s.notifier = natsnotify.New(nc, log, natsnotify.WithObservation(nc))
 }
 
 // bucket returns the KV bucket, creating it on first call.
@@ -91,44 +93,16 @@ func (s *Store) Put(ctx context.Context, kvContext, key string, value []byte) (u
 }
 
 // publishNotify fires notify.{context}.kv.{bucket}.{key}.changed after a
-// successful Put or Delete. Nil-safe (no-op until EnableNotify is called) and
-// best-effort: a publish error is logged, never returned — notify.* is a
-// reactive-UI convenience, not a correctness requirement Put/Delete's own
-// success depends on, same convention as eventhandler.publishNotify. value is
-// nil for a Delete (the wire message carries zero bytes) — the KV inspector
-// distinguishes PUT from DEL by whether the notify payload is empty, since
-// this repo's own KV values are always non-empty JSON.
+// successful Put or Delete.
 //
-// ctx carries the span (Phase 28d, BR-037) that caused the Put/Delete this
-// notify follows, attached via natstrace.ContextWithSpan by whichever
-// caller had one in scope (e.g. eventhandler's projectors). A NATS KV entry
-// itself can never carry a traceparent — jetstream.KeyValue.Put takes no
-// headers — so this derived notify is what lets the trace waterfall show
-// the write's async tail; SpanFromContext/Traceparent are both nil-safe, so
-// a ctx with no span attached publishes with no header at all, unchanged
-// from pre-28d behavior.
+// value is nil for a Delete (the wire message carries zero bytes) — the KV
+// inspector distinguishes PUT from DEL by whether the notify payload is
+// empty, since this repo's own KV values are always non-empty JSON. That is
+// the only thing this method decides; the publish, the gate, the traceparent
+// on ctx and the BR-045 observation all belong to shared/natsnotify, and the
+// subject to internal/notify.
 func (s *Store) publishNotify(ctx context.Context, kvContext, key string, value []byte) {
-	if s.notifyNC == nil {
-		return
-	}
-	subject := "notify." + kvContext + ".kv." + s.prefix + "." + key + ".changed"
-	msg := &nats.Msg{Subject: subject, Data: value}
-	if tp := natstrace.SpanFromContext(ctx).Traceparent(); tp != "" {
-		msg.Header = nats.Header{natstrace.TraceparentHeader: []string{tp}}
-	}
-	if err := s.notifyNC.PublishMsg(msg); err != nil {
-		if s.notifyLog != nil {
-			s.notifyLog.Warn("kv notify publish failed", "subject", subject, "err", err)
-		}
-		return
-	}
-	// Phase 43a (BR-045): tokens given explicitly. This subject is
-	// notify.{context}.kv.{bucket}.{key}.changed and the key itself is
-	// dotted ({context}.{entityType}.{id}), so the positional deriver would
-	// read "kv" as the service and the bucket as the entity by luck rather
-	// than by intent — naming them says which is which, and keeps the
-	// observation subject stable however many tokens a key grows.
-	natstrace.ObserveAs(s.notifyNC, natstrace.SpanFromContext(ctx), subject, value, kvContext, "kv", s.prefix, "changed")
+	s.notifier.Publish(ctx, notify.KVChanged(kvContext, s.prefix, key), value)
 }
 
 // Get reads a key, returning the value and its revision.

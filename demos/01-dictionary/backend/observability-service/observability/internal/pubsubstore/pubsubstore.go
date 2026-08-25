@@ -38,6 +38,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+
+	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -200,13 +202,29 @@ func storeEnvelope(ctx context.Context, kv jetstream.KeyValue, nc *nats.Conn, lo
 	return nil
 }
 
-// publishNotify fires notify.{context}.kv.{bucket}.{key}.changed after a
-// successful Put — best-effort, a publish error is logged, never returned.
-// This is 43c's live-update path, and the reason the Messages panel can reuse
-// the Traces panel's bootstrap-fetch-plus-subscribe shape unchanged.
-func publishNotify(nc *nats.Conn, log *slog.Logger, key string, value []byte) {
-	subject := "notify." + kvContext + ".kv." + bucketName + "." + key + ".changed"
-	if err := nc.Publish(subject, value); err != nil && log != nil {
-		log.Warn("kv notify publish failed", "subject", subject, "err", err)
+func kvChanged(key string) natsnotify.Subject {
+	return natsnotify.Subject{
+		Name: "notify." + kvContext + ".kv." + bucketName + "." + key + ".changed",
+		Tokens: natsnotify.Tokens{
+			Context: kvContext,
+			Service: "kv",
+			Entity:  bucketName,
+			Action:  "changed",
+		},
 	}
+}
+
+// publishNotify fires notify.{context}.kv.{bucket}.{key}.changed after a
+// successful Put. This is 43c's live-update path, and the reason the Messages
+// panel can reuse the Traces panel's bootstrap-fetch-plus-subscribe shape
+// unchanged.
+//
+// Constructed WITHOUT natsnotify.WithObservation, and here that is a
+// correctness requirement, not a preference: this notify announces a write to
+// the very bucket obs.pubsub.* envelopes are stored in. Observing it would
+// publish an obs.pubsub.* message that is ingested, stored, notified and
+// observed again — an unbounded feedback loop. The seam's opt-in gate is what
+// makes that exclusion structural.
+func publishNotify(nc *nats.Conn, log *slog.Logger, key string, value []byte) {
+	natsnotify.New(nc, log).Publish(context.Background(), kvChanged(key), value)
 }

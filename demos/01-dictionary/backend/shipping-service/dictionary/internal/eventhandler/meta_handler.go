@@ -12,6 +12,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/queries"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/notify"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
@@ -38,6 +39,7 @@ type metaEvent struct {
 // publishes notify.{context}.shipping.meta.changed carrying the full,
 // updated known-containers array.
 func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, nc *nats.Conn, log *slog.Logger) (jetstream.ConsumeContext, error) {
+	n := notifier(nc, log)
 	// See handler.go's register() for why: the Consume callback below closes
 	// over this context for the projector's entire lifetime, so it must not
 	// be tied to whatever short-lived context the caller used to register it
@@ -83,7 +85,7 @@ func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store
 			return
 		}
 		if data != nil {
-			publishNotify(nc, log, event.Context, "meta", data, sp)
+			n.Publish(spanCtx, notify.Changed(event.Context, "meta"), data)
 		}
 		sp.End(nil, nil)
 		_ = msg.Ack()

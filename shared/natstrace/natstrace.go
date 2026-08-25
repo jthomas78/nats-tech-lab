@@ -36,6 +36,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -701,6 +702,13 @@ func redact(payload []byte) (json.RawMessage, []string) {
 	}
 	var removed []string
 	scrubbed := redactValue(v, "", &removed)
+	// Sorted because redactValue walks a map[string]any, and Go randomises
+	// map iteration: an envelope with two redacted fields would otherwise
+	// name them in either order from one publish to the next. An operator
+	// comparing two envelopes should not see a spurious difference, and a
+	// spec asserting on the list should not be flaky (it was, roughly one run
+	// in six).
+	sort.Strings(removed)
 	out, err := json.Marshal(scrubbed)
 	if err != nil {
 		return payload, nil
@@ -836,22 +844,6 @@ func (t *Tracer) HTTPMiddleware(contextValue, service string, next http.Handler)
 // Fire-and-forget by contract (BR-045): the publish is not flushed, its error
 // is dropped, and a panic is swallowed. Observability must never fail, delay,
 // or reorder the business publish it is observing.
-// Observe and ObserveAs are the bare-call-site form of ObservePublish /
-// ObservePublishAs. BR-045's notify.* half has no seam to hang a Tracer on —
-// its publishers are scattered helpers holding a *nats.Conn and nothing else
-// (eventhandler.publishNotify, kvstore.Store.publishNotify, ...) — and a
-// Tracer is a one-field wrapper over exactly that conn, so building one per
-// observation costs nothing and keeps those call sites a single line. Both
-// are nil-conn-safe, like everything else on this channel.
-func Observe(nc *nats.Conn, parent *Span, subject string, payload []byte) {
-	New(nc).ObservePublish(parent, subject, payload)
-}
-
-// ObserveAs is Observe with the four observability tokens given explicitly.
-func ObserveAs(nc *nats.Conn, parent *Span, subject string, payload []byte, contextValue, service, entity, action string) {
-	New(nc).ObservePublishAs(parent, subject, payload, contextValue, service, entity, action)
-}
-
 func (t *Tracer) ObservePublish(parent *Span, subject string, payload []byte) {
 	if strings.HasPrefix(subject, "obs.") {
 		return

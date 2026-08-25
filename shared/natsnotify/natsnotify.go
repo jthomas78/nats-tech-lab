@@ -45,6 +45,16 @@ type Tokens struct {
 	Action  string
 }
 
+// Subject is a built notify.* subject together with the tokens describing
+// it. The two travel as one value, returned by a service's own subject
+// constructor, so a caller cannot pair a subject with another shape's tokens
+// — the mistake that has no symptom until an operator searches the Messages
+// panel for traffic filed under the wrong tenant.
+type Subject struct {
+	Name   string
+	Tokens Tokens
+}
+
 // Notifier publishes notify.* messages on one connection, and — when
 // observation is enabled — emits their BR-045 obs.pubsub.* envelopes on
 // another.
@@ -96,7 +106,7 @@ func New(nc *nats.Conn, log *slog.Logger, opts ...Option) *Notifier {
 	return n
 }
 
-// Publish sends payload on subject and, if observation is enabled, emits its
+// Publish sends payload on subj and, if observation is enabled, emits its
 // BR-045 envelope.
 //
 // It returns nothing. notify.* is a change notification, not a command: a
@@ -110,7 +120,7 @@ func New(nc *nats.Conn, log *slog.Logger, opts ...Option) *Notifier {
 // happened — and continues the span on ctx when there is one, so a
 // notification caused by an api.*/rpc.* call joins that call's waterfall
 // instead of arriving as an orphan.
-func (n *Notifier) Publish(ctx context.Context, subject string, payload []byte, tok Tokens) {
+func (n *Notifier) Publish(ctx context.Context, subj Subject, payload []byte) {
 	if n == nil || n.nc == nil {
 		return
 	}
@@ -121,17 +131,18 @@ func (n *Notifier) Publish(ctx context.Context, subject string, payload []byte, 
 	if ctx != nil {
 		sp = natstrace.SpanFromContext(ctx)
 	}
-	msg := &nats.Msg{Subject: subject, Data: payload}
+	msg := &nats.Msg{Subject: subj.Name, Data: payload}
 	if tp := sp.Traceparent(); tp != "" {
 		msg.Header = nats.Header{natstrace.TraceparentHeader: []string{tp}}
 	}
 
 	if err := n.nc.PublishMsg(msg); err != nil {
 		if n.log != nil {
-			n.log.Warn("notify publish failed", "subject", subject, "err", err)
+			n.log.Warn("notify publish failed", "subject", subj.Name, "err", err)
 		}
 		return
 	}
 
-	n.obs.ObservePublishAs(sp, subject, payload, tok.Context, tok.Service, tok.Entity, tok.Action)
+	tok := subj.Tokens
+	n.obs.ObservePublishAs(sp, subj.Name, payload, tok.Context, tok.Service, tok.Entity, tok.Action)
 }

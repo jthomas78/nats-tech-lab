@@ -10,7 +10,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/notify"
 )
 
 const (
@@ -111,6 +111,7 @@ func RegisterRefdataNotify(ctx context.Context, platformJS jetstream.JetStream, 
 	if platformJS == nil || platformNC == nil {
 		return
 	}
+	n := notifier(platformNC, log)
 	runPlatformNotifyBridge(ctx, platformJS, refdataChangeStreamName, jetstream.OrderedConsumerConfig{
 		FilterSubjects: []string{"evt.*.refdata.>"},
 		DeliverPolicy:  jetstream.DeliverNewPolicy,
@@ -119,17 +120,7 @@ func RegisterRefdataNotify(ctx context.Context, platformJS jetstream.JetStream, 
 		if !ok {
 			return
 		}
-		subject := "notify._platform.refdata." + kvContext + "." + typeKey + ".changed"
-		if err := platformNC.Publish(subject, msg.Data()); err != nil {
-			log.Warn("refdata notify publish failed", "subject", subject, "err", err)
-			return
-		}
-		// Phase 43a (BR-045): tokens given explicitly. The subject's own
-		// {context} token is the literal "_platform" (this bridge republishes
-		// into PLATFORM), but the change itself belongs to kvContext — so the
-		// observation is filed under the business context an operator would
-		// search for, not under the bridge's plumbing.
-		natstrace.ObserveAs(platformNC, nil, subject, msg.Data(), kvContext, "refdata", typeKey, "changed")
+		n.Publish(ctx, notify.RefdataChanged(kvContext, typeKey), msg.Data())
 	})
 }
 

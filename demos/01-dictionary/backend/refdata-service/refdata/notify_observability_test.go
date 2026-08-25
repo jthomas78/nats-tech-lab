@@ -11,6 +11,7 @@ package refdata
 //     one call site is the per-tenant fan-out below.
 
 import (
+	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -22,6 +23,8 @@ import (
 
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
+
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/notifybridge"
 )
 
 func runEmbeddedNATS(t *testing.T) *server.Server {
@@ -68,7 +71,7 @@ func TestNotifyFanOutIsObservedPerTenantConnection(t *testing.T) {
 	defer tenant.Close()
 
 	p := tenantPublisher{}
-	p.publishTo("acme", tenant, "notify.acme.refdata.port.changed", []byte(`{"typeKey":"port"}`))
+	p.publishTo(context.Background(), "acme", tenant, notifybridge.Changed("acme", "port"), []byte(`{"typeKey":"port"}`))
 	if err := tenant.Flush(); err != nil {
 		t.Fatalf("flush tenant: %v", err)
 	}
@@ -125,7 +128,7 @@ func TestNotifyObservationIsSkippedWhenTheTenantPublishFails(t *testing.T) {
 	tenant.Close()
 
 	p := tenantPublisher{}
-	p.publishTo("acme", tenant, "notify.acme.refdata.port.changed", []byte(`{"typeKey":"port"}`))
+	p.publishTo(context.Background(), "acme", tenant, notifybridge.Changed("acme", "port"), []byte(`{"typeKey":"port"}`))
 
 	select {
 	case msg := <-obs:
