@@ -1205,12 +1205,19 @@ covered by its own allowlist test since they live in separate packages:
   — `TestAuthMountRoutesMatchAdminAllowlist`. Each asserts its `Mount`'s
   returned route list `ConsistOf` its 13- or 5-entry allowlist above.
 
-### BR-AC34 (Phase 67a, PROPOSED — not yet implemented) — `tenantExports()` gains a second Stream export, `obs.pubsub.>`, mirrored into PLATFORM the same way `obs.trace.>` is
+### BR-AC34 (Phase 43a, CONFIRMED 2026-08-25 — not yet implemented) — `tenantExports()` gains a second Stream export, `obs.pubsub.>`, imported into PLATFORM under a per-tenant `LocalSubject` remap
 
-`tenantExports()` (`accounts/provisioner.go:315`) gains a second entry
-alongside the existing `obs.trace.>` export: `{Subject: jwt.Subject("obs.pubsub.>"), Type: jwt.Stream}` — no `AllowTrace`, no `ResponseType`, the same shape as `obs.trace.>`'s export and unlike `$SRV.>`/`$JS.API.*`'s Service exports (BR-AC31/32), because a Stream export needs no per-tenant `LocalSubject` remap: the importing account boundary itself, not a subject remap, is what disambiguates which tenant a given imported stream message came from (see BR-AC30's rationale, which applies identically here).
+`tenantExports()` (`accounts/provisioner.go:315`) gains a second entry alongside the existing `obs.trace.>` export: `{Subject: jwt.Subject("obs.pubsub.>"), Type: jwt.Stream}` — no `AllowTrace`, no `ResponseType`, the same export shape as `obs.trace.>`.
 
-PLATFORM's side gains a new `addPlatformPubsubImport`, mirroring `addPlatformTraceImport` (`accounts/provisioner.go:463`) exactly: same idempotency-by-`(Account, Subject)` scan over `claims.Imports` before adding, same `jwt.Import{Account: tenantAccountPub, Subject: "obs.pubsub.>", Type: jwt.Stream, AllowTrace: true}`, same re-sign-and-push via `$SYS.REQ.CLAIMS.UPDATE`. Called from `CreateAccount` alongside `addPlatformTraceImport`, gated the same way on `platformPublicKey != ""`.
+**PLATFORM's import side is where this rule was corrected** (ADR-047 A1). As originally drafted it mirrored `addPlatformTraceImport` exactly, on the reasoning that "a Stream export needs no per-tenant `LocalSubject` remap: the importing account boundary itself … is what disambiguates which tenant a given imported stream message came from." **That reasoning is wrong, and the rule no longer says it.** The account boundary disambiguates *delivery*, not *provenance*: once N tenants' `obs.pubsub.>` exports are imported onto one identical local subject, a PLATFORM subscriber receives messages with nothing indicating which account they came from. This is exactly why `$SRV.>` and `$JS.API.*` carry `monitorLocalSubjectTmpl` / `jsAPILocalSubjectTmpl` remaps (BR-AC31/BR-AC32), and why the existing `obs.trace.>` import — which has no remap — leaves `TraceWaterfall.vue`'s account gutter able to show only a coarse PLATFORM/TENANT split.
 
-- **Enforced in:** not yet — Phase 67a.
-- **Test:** not yet written — pending Phase 67a implementation.
+So: PLATFORM gains a new `addPlatformPubsubImport` mirroring `addPlatformTraceImport` (`accounts/provisioner.go:463`) in mechanism — same idempotency-by-`(Account, Subject)` scan over `claims.Imports` before adding, same re-sign-and-push via `$SYS.REQ.CLAIMS.UPDATE`, called from `CreateAccount` alongside it and gated the same way on `platformPublicKey != ""` — but adding `jwt.Import{Account: tenantAccountPub, Subject: "obs.pubsub.>", Type: jwt.Stream, LocalSubject: jwt.RenamingSubject(fmt.Sprintf(pubsubLocalSubjectTmpl, tenantName)), AllowTrace: true}`, with `pubsubLocalSubjectTmpl = "monitor.%s.pubsub.>"` declared alongside its siblings. The tenant token is inserted **by the NATS server**, so it is unspoofable — unlike an account field a tenant would fill in itself — and it is what BR-048's Messages panel reads to name the originating tenant.
+
+`obs.pubsub.>` is never granted to a browser credential, on the same reasoning as `obs.trace.*` (`auth/token.go:87`).
+
+**This service's own four `notify.accounts.account.*` publishes are also instrumented** (`accounts/handler.go:180/242/258/266`, via `publishAccountEvent`) — a `notify.*` call site like any other under BR-045's per-call-site half, and on BR-049's checked list. The rule as originally drafted covered only the export plumbing and missed them (ADR-047 A2).
+
+**Deliberately out of scope:** retrofitting the same remap onto the existing `obs.trace.>` import, which would fix the Traces panel's coarse gutter too. That is a change to a shipped pipeline and belongs in its own phase.
+
+- **Enforced in:** not yet — Phase 43a.
+- **Test:** not yet written — pending Phase 43a implementation.

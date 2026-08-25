@@ -789,42 +789,82 @@ to observe. The one real, currently-provisioned crossing is
 - **Enforced in:** `frontend/admin/src/components/AccountsOverviewPanel.vue` (`showSearch`, `filteredAccounts`, the `watch(showSearch, ...)` clear-on-hide guard).
 - **Test:** `AccountsOverviewPanel.spec.js` — search box hidden at ≤3 accounts, shown and filtering at 4, the named empty state on a non-matching query, and the "N of M" vs "N" count text.
 
-### BR-045 (Phase 67a, PROPOSED — not yet implemented) — `obs.pubsub.{context}.{service}.{entity}.{action}` is published once at each named publish choke point, redacted-then-truncated the same way as `obs.trace.*`, and continues the causing span's trace rather than minting an unrelated one
+### BR-045 (Phase 43a, CONFIRMED 2026-08-25 — not yet implemented) — `obs.pubsub.{context}.{service}.{entity}.{action}` is published once per `evt.*`/`notify.*` publish, from the `evt.*` seam and from each `notify.*` call site, redacted-then-truncated the same way as `obs.trace.*`, and continues the causing span's trace
 
-**A sibling channel to `obs.trace.*` (BR-036), not an extension of it.** `rpc.*`/`api.*` (request/reply) already have their own tap via `obs.trace.*`; this rule covers the fire-and-forget half — `evt.*` (event-sourcing) and `notify.*` (change notification) — that channel never carried. The hook is wired individually at each of these existing publish choke points, and nowhere else:
+**A sibling channel to `obs.trace.*` (BR-036), not an extension of it.** `rpc.*`/`api.*` (request/reply) already have their own tap via `obs.trace.*`; this rule covers the fire-and-forget half — `evt.*` (event-sourcing) and `notify.*` (change notification) — that channel never carried.
 
-- `ShipHandler.publish` (`dictionary/internal/application/commands/commands.go:317`), `ContainerHandler.publish` (`dictionary/internal/application/commands/container.go:232`) — `evt.*`
-- `publishNotify` (`dictionary/internal/eventhandler/handler.go:187`), `publishRawNotify` (`dictionary/internal/eventhandler/handler.go:211`), `publishPortsChanged` (`dictionary/internal/browserrpc/adapter.go:472`) — `notify.*`
+**The hook's placement differs by family, deliberately** (ADR-047's amendment A3):
 
-**Never inside a shared low-level `Publish`/`PublishWithTrace`/`PublishMsg` primitive** (`internal/jstream/stream.go`'s `Publisher`) — wrapping there would risk the hook observing its own `obs.pubsub.*` publish (a self-observation loop) or picking up unrelated JetStream control traffic that happens to share the same underlying client call. Explicitly **excluded**: `observability-service`'s own `tracestore.publishNotify` (`observability-service/observability/internal/tracestore/tracestore.go:160`) — that is the service's internal KV-change plumbing for its own `trace-request-reply` bucket, not a domain event.
+- **`evt.*` is instrumented *inside* the seam**, not at its callers: `Publisher.PublishWithTrace` (`internal/jstream/stream.go:64`) for shipping and refdata, and `JetStreamEventStore.append` (`organizations-service/organizations/transporterprofile/orchestration/event_store.go:103`, BR-TP75) for organizations. `PublishWithTrace` has exactly three call sites in the whole backend and all three are `evt.*` publishes — it is not a generic primitive, it is already the `evt.*` choke point, one per service. Instrumenting there makes coverage **structural**: a future `evt.*` publisher is observed by construction rather than by remembering to wire a hook.
+- **`notify.*` is instrumented at each call site**, because it has no seam — its publishes are scattered bare `nc.Publish` calls. The full instrumented set in this service:
+  - `publishNotify` (`dictionary/internal/eventhandler/handler.go:191`)
+  - `publishRawNotify` (`dictionary/internal/eventhandler/handler.go:215`)
+  - `publishPortsChanged` (`dictionary/internal/browserrpc/adapter.go:484`)
+  - `publishChange` (`internal/kvstore/kv.go:114`) — the KV-change notify helper
+  - `publishRefdataChanged` (`dictionary/internal/eventhandler/platform_notify.go:120`) — the `notify._platform.refdata.*` re-publish
+
+  Sibling services carry their own: BR-D45 (refdata's `notifybridge.go:94`), BR-AC34 (accounts' four `notify.accounts.account.*` publishes).
+
+**Still never inside a generic `Publish`/`PublishMsg` primitive** (`internal/jstream/stream.go`'s `Publisher`) — wrapping *there* would risk picking up unrelated JetStream control traffic that happens to share the same underlying client call. That ban is unchanged; it simply no longer extends to `PublishWithTrace`, which the self-observation argument never applied to (`obs.pubsub.*` is emitted over core `nc.Publish`, not through `jstream.Publisher`, so the seam cannot observe its own emission).
+
+**Explicitly excluded:** `observability-service`'s own `tracestore.publishNotify` (`observability-service/observability/internal/tracestore/tracestore.go:161`) — that is the service's internal KV-change plumbing for its own `trace-request-reply` bucket, not a domain event. Note this is a copy of `internal/kvstore/kv.go:114`'s helper, which **is** instrumented: the original carries domain KV changes, the copy does not.
 
 Each envelope derives its `traceId`/`parentSpanId` from the span already on the calling context (`natstrace.SpanFromContext(ctx)`) — the same span `PublishWithTrace` already reads to attach the `Traceparent` header — rather than minting a new, unrelated trace, so a future UI could correlate "this event was published as part of trace X" without any new plumbing.
 
+**Emission is fire-and-forget and must never fail or measurably delay the domain publish** (ADR-047 A7). The `evt.*` seam sits inside a command that already awaits a synchronous PubAck; the observation emit drops its error, exactly as `natstrace`'s existing span emit does (`natstrace.go:450`). It also sets `Nats-Msg-Id` to the envelope's `spanId`, which is what makes BR-047's dedup enforceable.
+
 **Not a duplicate of the existing `evt.*`-projector-callback spans** Phase 28d already publishes to `obs.trace.*` (`trace_async_test.go`) — those are consume-side ("a projector processed this event"); this rule is publish-side ("this was published"), independent of whether anything consumes it.
 
-- **Enforced in:** not yet — Phase 67a.
-- **Test:** not yet written — pending Phase 67a implementation.
+- **Enforced in:** not yet — Phase 43a.
+- **Test:** not yet written — pending Phase 43a implementation.
 
-### BR-046 (Phase 67a, PROPOSED — not yet implemented) — `obs.pubsub.*` payload redaction reuses the existing shared denylist unless a real-payload review says otherwise
+### BR-046 (Phase 43a, CONFIRMED 2026-08-25 — not yet implemented) — `obs.pubsub.*` payload redaction reuses the existing shared denylist, after a named payload review
 
-The redaction step is identical to BR-036's — same ordering (redact before the 4 KiB truncation cap), same shared denylist (`password`, `secret`, `token`, `apikey`/`api_key`, `ssn`, `creditcard`/`credit_card`, `authorization`, `privatekey`/`private_key`), matched case-insensitively at any JSON nesting depth. This rule stays unchanged unless a review of the real `evt.*`/`notify.*` payload shapes this phase taps (ship/container/port events, refdata type-change events, account-lifecycle events) surfaces a field these five services' event/notification payloads carry that the RPC-shaped denylist doesn't cover — in which case the shared denylist itself is extended, never forked into a second list for this channel alone.
+The redaction step is identical to BR-036's — same ordering (redact before the 4 KiB truncation cap), same shared denylist (`password`, `secret`, `token`, `apikey`/`api_key`, `ssn`, `creditcard`/`credit_card`, `authorization`, `privatekey`/`private_key`), matched case-insensitively at any JSON nesting depth. If the review below surfaces a field the RPC-shaped denylist doesn't cover, the **shared denylist itself is extended**, never forked into a second list for this channel alone.
 
-- **Enforced in:** not yet — Phase 67a. Payload-shape review to be done as part of implementing this sub-phase, not deferred further.
-- **Test:** not yet written — pending Phase 67a implementation.
+**The review is scoped and runs before 43a's hook is wired** (ADR-047 A8), not during it. The payload shapes to review, in priority order:
 
-### BR-047 (Phase 67b, PROPOSED — not yet implemented) — Every published `obs.pubsub.*` envelope becomes visible in the Messages feed, retained under a bounded stream, deduplicated at-least-once by span/message id
+1. **organizations-service transporter-profile events** — the real risk. After Phases 40/41 these carry compliance documents and sit beside the `organizations-secrets` bucket, so they are the most likely to carry personal or credential-shaped fields the RPC denylist never had to handle.
+2. accounts-service account-lifecycle notifications.
+3. refdata type-change events.
+4. ship/container/port events — lowest risk, structurally simple.
 
-Mirrors `tracestore`'s existing shape (BR-036's Phase 28f amendment) for a new, sibling `obs.pubsub.>` consumer in `observability-service`: `LimitsPolicy` retention, defaulting to `tracestore`'s existing `StreamMaxAge`/`StreamMaxBytes` constants (1 hour / 64 MiB) unless `evt.*` volume in practice needs a tighter cap — a tuning decision, not a new design decision. Redelivery of the same envelope (`spanId`/message id) must not produce a duplicate visible entry. Left open, not fixed by this rule: whether ingestion needs a KV bucket the way `trace-request-reply` does to merge multiple spans per `traceId` — a standalone `obs.pubsub.*` envelope has nothing to merge, so a stream-only design may be simpler and sufficient; decided at implementation time.
+- **Enforced in:** not yet — Phase 43a.
+- **Test:** not yet written — pending Phase 43a implementation.
 
-- **Enforced in:** not yet — Phase 67b.
-- **Test:** not yet written — pending Phase 67b implementation.
+### BR-047 (Phase 43b, CONFIRMED 2026-08-25 — not yet implemented) — Published `obs.pubsub.*` envelopes are ingested best-effort into their own bounded stream, deduplicated by `Nats-Msg-Id`
 
-### BR-048 (Phase 67c, PROPOSED — not yet implemented) — The Admin UI's Messages panel is a dedicated panel, not a `RpcPanel` tab, and filters by `evt`/`notify` family
+A new, sibling `obs.pubsub.>` consumer in `observability-service`, mirroring `tracestore`'s shape (BR-036's Phase 28f amendment): `LimitsPolicy` retention plus `MaxAge`/`MaxBytes`.
 
-`evt.*`/`notify.*` traffic answers "what was published," a different question from `RpcPanel`'s "what was called/replied to," so it gets its own nav entry rather than a fourth tab there. Both families share the `obs.pubsub.*` channel but mean different things (`evt.*` is durable/JetStream-backed event-sourcing traffic; `notify.*` is ephemeral, non-JetStream change notification), so the panel needs a family-toggle filter — the same chip pattern `RpcPanel.vue` already uses for `rpc`/`api` — rather than rendering both undifferentiated. Reuses `SubjectPath.vue` (clickable subject chips) and `TraceWaterfall.vue`'s account-swimlane convention rather than inventing new visual language.
+- **Its own stream, not a second subject set on `TRACES`** (ADR-047 A5). Sharing would let an `evt.*` burst evict RPC traces, which are the more expensive signal to lose. Named per CLAUDE.md's storage-naming rule (`SCREAMING_SNAKE`).
+- **Caps are measured, not inherited.** `TRACES`'s 1 hour / 64 MiB is the starting point, not the answer: at roughly 2 KiB an envelope, 64 MiB is on the order of 32k messages — under load, minutes of history rather than the hour the `MaxAge` advertises. Sizing from a seed run is part of 43b.
+- **Dedup is mechanical.** BR-045's emit sets `Nats-Msg-Id` to the envelope's `spanId`; this stream sets its `Duplicates` window **explicitly** rather than relying on the 2-minute default. Redelivery of the same envelope must not produce a duplicate visible entry. (Phase 101 covers the same ground for domain publishes — the two land on one convention.)
+- **Ingestion is best-effort, and the UI must not imply otherwise** (ADR-047 A7). BR-045's emit is a core-NATS fire-and-forget publish, which is lossy under a slow consumer or a reconnect. "Every published envelope becomes visible" is the intent, not a guarantee; a panel that silently drops entries under load while implying completeness would be worse than one that admits the bound.
 
-- **Enforced in:** not yet — Phase 67c.
-- **Test:** not yet written — pending Phase 67c implementation.
+Left open, not fixed by this rule: whether ingestion needs a KV bucket the way `trace-request-reply` does to merge multiple spans per `traceId` — a standalone `obs.pubsub.*` envelope has nothing to merge, so a stream-only design may be simpler and sufficient; decided at implementation time.
+
+- **Enforced in:** not yet — Phase 43b.
+- **Test:** not yet written — pending Phase 43b implementation.
+
+### BR-048 (Phase 43c, CONFIRMED 2026-08-25 — not yet implemented) — The Admin UI's Messages panel is a dedicated panel, names the originating tenant, and defaults to the `evt` family
+
+`evt.*`/`notify.*` traffic answers "what was published," a different question from `RpcPanel`'s "what was called/replied to," so it gets its own nav entry rather than a fourth tab there. It reuses `SubjectPath.vue` (clickable subject chips) rather than inventing new visual language.
+
+- **The tenant is named, not inferred.** The panel reads the originating tenant from the `monitor.{tenant}.pubsub.>` local subject BR-AC34's per-tenant `LocalSubject` remap produces — a token the NATS server inserts, so it cannot be spoofed by the tenant. This is **deliberately not** `TraceWaterfall.vue`'s account gutter, which keys off `service` and can only show a coarse PLATFORM/TENANT split (`TraceWaterfall.vue:33`) — reusing that convention here would leave the panel unable to answer the question the phase exists to answer (ADR-047 A1). The swimlane *visual* convention is reused; its data source is not.
+- **The family filter defaults to `evt` only.** Both families share `obs.pubsub.*` but mean different things (`evt.*` is durable/JetStream-backed event-sourcing traffic; `notify.*` is ephemeral, non-JetStream change notification), and `notify.*` is largely a fan-out of events already visible on the `evt` side — so an undifferentiated default would bury the signal. Same toggle-chip pattern `RpcPanel.vue` already uses for `rpc`/`api`.
+- **Bounded under volume.** The panel carries a client-side row cap and a pause control, reusing `RpcPanel`'s, since `evt.*` volume exceeds the RPC volume that panel was sized for (ADR-047 A9).
+
+- **Enforced in:** not yet — Phase 43c.
+- **Test:** not yet written — pending Phase 43c implementation.
+
+### BR-049 (Phase 43a, CONFIRMED 2026-08-25 — not yet implemented) — Every `notify.*` publish site is either instrumented or explicitly excluded, checked by a test
+
+ADR-047's headline cost is that an uninstrumented publisher is silently invisible, and the ADR itself requires this be "a checked convention, not tribal knowledge." BR-045's placement split discharges half of that structurally — a new `evt.*` publisher goes through the seam and is observed by construction. This rule discharges the other half.
+
+A source-scanning test asserts that every `notify.`-prefixed publish literal in the backend tree appears either on BR-045's instrumented list (including the sibling-service lists in BR-D45/BR-AC34) or on a documented exclusion list whose sole current entry is `observability-service`'s `tracestore.publishNotify`. A new `notify.*` publisher that is neither fails CI, rather than shipping as a silent gap in the Messages panel.
+
+- **Enforced in:** not yet — Phase 43a.
+- **Test:** not yet written — pending Phase 43a implementation.
 
 ---
 

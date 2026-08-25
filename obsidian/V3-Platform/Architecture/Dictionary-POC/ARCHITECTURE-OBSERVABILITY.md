@@ -15,11 +15,17 @@ keeps only the ADR as a historical record.
 
 ## ADR-047: Cross-Tenant Pub/Sub Observability ("Wire Tap") in the Admin UI
 
-**Status:** Accepted (2026-08-20) — implementation explicitly on hold at the
-repo owner's request; no business rules, tests, or code exist yet.
+**Status:** Accepted (2026-08-20), **amended 2026-08-25** after a
+pre-implementation design review — see "Amendment (2026-08-25)" at the end of
+this ADR, which changes the export/import shape, the placement of the `evt.*`
+hook, and the scope of instrumented call sites. **Cleared for implementation
+2026-08-25**: the hold placed at approval is lifted, and the business rules
+(BR-045–049, BR-D45, BR-AC34, BR-TP75) are confirmed. No code exists yet;
+Phase 43 is now in the live plan. One gate remains inside 43a — A8's
+redaction review runs before the hook is wired.
 **Date:** 2026-08-20
 **Deciders:** repo owner — this ADR gated
-[Phase 67](../../../../.claude/plans/Main-POC-Plan.md) per the repo's design
+[Phase 43](../../../../.claude/plans/Main-POC-Plan.md) per the repo's design
 gate, now approved.
 
 ### Context
@@ -202,3 +208,184 @@ traffic too.
        [ARCHITECTURE-ADMIN.md](ARCHITECTURE-ADMIN.md) §4 alongside its
        siblings (panel index table, data-flow archetype, UI design), and
        leave only this ADR behind here as the historical decision record.
+
+---
+
+## Amendment (2026-08-25) — pre-implementation design review
+
+The decision above (Option C over Options A/B) stands unchanged and was
+re-confirmed. This amendment records what a stress-test of the design against
+the code it would attach to found, and the resolutions taken. Where a
+resolution contradicts the body of the ADR above, **the resolution wins** —
+the body is left intact as the record of what was decided on 2026-08-20.
+
+### A1 — Tenant provenance is not recoverable, and the goal depends on it
+
+The goal is a view of traffic across *every tenant account*, but nothing in
+the design as approved recovers **which** account an entry came from:
+
+- PLATFORM imports every tenant's `obs.trace.>` onto the **identical local
+  subject**, with no `LocalSubject` remap (`addPlatformTraceImport`,
+  `accounts/provisioner.go`). `$SRV.>` and `$JS.API.*` *do* remap per tenant
+  (`monitorLocalSubjectTmpl`, `jsAPILocalSubjectTmpl`) for exactly this
+  reason — the comment there states that PLATFORM's import of a second tenant
+  would otherwise collide with the first.
+- `natstrace`'s wire envelope carries no account field.
+- `{context}` is the company / business-unit scope, explicitly **not** the
+  tenant (CLAUDE.md, Phase 16a), so the subject does not carry it either.
+- `TraceWaterfall.vue` already documents the consequence: its account gutter
+  "can only show a coarse PLATFORM/TENANT split … not which specific"
+  account.
+
+The account boundary disambiguates *delivery*, not *provenance*: once N
+tenants' streams are imported onto one local subject, a PLATFORM subscriber
+sees no indication of origin.
+
+**Resolved:** PLATFORM's import of `obs.pubsub.>` carries a per-tenant
+`LocalSubject` remap — `monitor.{tenant}.pubsub.>` — mirroring the pattern
+already proven twice in this file for `$SRV.>` and `$JS.API.*`. The tenant
+token is inserted **by the NATS server**, so it is unspoofable, unlike an
+envelope field a tenant fills in itself. The Messages panel reads the tenant
+from that token. BR-AC34 and BR-048 carry this.
+
+**Deliberately not in scope:** applying the same remap to `obs.trace.>`,
+which would fix the existing Traces panel's coarse gutter too. That is a
+change to a shipped pipeline and belongs in its own phase.
+
+### A2 — The instrumented-call-site list was incomplete, and one service had no rule
+
+BR-045 named five choke points. A sweep of the tree found these additional
+live `evt.*`/`notify.*` publishers, none of them covered:
+
+| Publisher | Disposition |
+|---|---|
+| `shipping-service/internal/kvstore/kv.go` — `notify.{ctx}.kv.*` | **In** — BR-045 |
+| `dictionary/internal/eventhandler/platform_notify.go` — `notify._platform.refdata.*` | **In** — BR-045 |
+| `refdata` `notifybridge.go` — `notify.{ctx}.refdata.*` | **In** — BR-D45 |
+| `accounts` `handler.go` ×4 — `notify.accounts.account.*` | **In** — BR-AC34 |
+| `organizations-service` transporter-profile `evt.*` | **In** — new BR-TP75 |
+
+Note the pre-existing asymmetry this exposed: BR-045 explicitly excluded
+`observability-service`'s copy of the KV-notify helper while saying nothing
+about the shipping-service original the copy was made from. Both are now
+addressed — the original is in, the observability copy stays out (it is that
+service's own internal plumbing, not a domain event).
+
+**Resolved:** all five are instrumented, and organizations-service gains a
+sibling rule (BR-TP75) per the BR-036/BR-D39/BR-P25/BR-TP15 convention.
+
+### A3 — The "never wrap a primitive" ban was over-broad
+
+The ADR bans the hook from `Publish` / `PublishMsg` / `PublishWithTrace`
+alike, on a self-observation-loop argument. That argument holds for the first
+two and does not hold for the third:
+
+- `PublishWithTrace` has exactly **three call sites in the entire backend**,
+  and all three are `evt.*` publishes — one per service. It is not a generic
+  primitive; it is already the `evt.*` seam.
+- `obs.pubsub.*` is emitted over core `nc.Publish`, not through
+  `jstream.Publisher`, so instrumenting the seam cannot observe its own
+  emission.
+
+Banning that seam is also what made this ADR's own headline "Harder"
+consequence — that every future call site must remember to wire the hook, and
+that this "needs to be a checked convention, not tribal knowledge" —
+impossible to discharge structurally.
+
+**Resolved:** the rule splits by family.
+
+- **`evt.*` is instrumented *in* the seam**: `PublishWithTrace`
+  (shipping, refdata) and `JetStreamEventStore.append`
+  (organizations-service). Coverage becomes structural — a new `evt.*`
+  publisher is observed by construction, and one test asserts the invariant.
+- **`notify.*` keeps per-call-site wiring**, because it genuinely has no
+  seam — its publishes are scattered bare `nc.Publish` calls across five
+  files.
+- The ban stands, unchanged, for `Publish` / `PublishMsg` and for any future
+  generic primitive.
+
+### A4 — Coverage enforcement is now a designed mechanism, not an aspiration
+
+A3 discharges the `evt.*` half by construction. For `notify.*`, a
+source-scanning test asserts that every `notify.` publish literal in the tree
+is either on the instrumented list or on a documented exclusion list, so a new
+uninstrumented publisher fails CI rather than going silently invisible.
+Carried by new **BR-049**.
+
+### A5 — Retention and volume
+
+- The `obs.pubsub.>` stream is **its own stream**, not a second subject set on
+  `TRACES`: sharing would let an event burst evict RPC traces, which are the
+  more expensive signal to lose. Named per the repo's storage-naming rule
+  (`SCREAMING_SNAKE`).
+- Inheriting `TRACES`'s 1 hour / 64 MiB unexamined is not safe. At roughly
+  2 KiB an envelope, 64 MiB is on the order of 32k messages — under load that
+  is minutes of history, not the hour the `MaxAge` advertises. Caps are sized
+  from a measured seed run at implementation time, and the measurement is part
+  of 43b rather than a follow-up.
+
+### A6 — Dedup needs a mechanism, not only a rule
+
+BR-047 required dedup "by span/message id," but JetStream dedup requires a
+`Nats-Msg-Id` header plus an explicit `Duplicates` window on the stream, and
+`natstrace`'s emit today is a bare `nc.Publish` with no headers. As written
+the rule was unenforceable.
+
+**Resolved:** 43a sets `Nats-Msg-Id` to the envelope's `spanId`; 43b sets the
+stream's `Duplicates` window explicitly rather than relying on the 2-minute
+default. This is the same ground Phase 101 covers for domain publishes — the
+two should land on the same convention.
+
+### A7 — Failure semantics on a command path
+
+The `evt.*` seam sits inside a command that already awaits a synchronous
+`PublishMsg` PubAck. Observation must never fail or measurably delay the
+domain publish: the emit is fire-and-forget, its error dropped, matching
+`natstrace`'s existing behavior.
+
+The honest consequence is that core-NATS publish is lossy under a slow
+consumer or a reconnect, so BR-047's "every published envelope becomes
+visible" is **best-effort, not guaranteed** — and is now worded that way. A
+Messages panel that silently drops entries under load while implying
+completeness would be worse than one that admits the bound.
+
+### A8 — Redaction review, scoped
+
+BR-046 deferred a payload review to implementation without naming the
+payloads. The one that matters is **organizations-service's
+transporter-profile events**: after Phases 40/41 those carry compliance
+documents and sit beside an `organizations-secrets` bucket. That is where an
+RPC-shaped denylist is most likely to be wrong — not in ship/container events.
+The review runs **before** 43a's hook is wired, not during.
+
+### A9 — Panel behavior under volume
+
+`evt.*`/`notify.*` volume exceeds RPC volume, and `notify.*` is largely a
+fan-out of events already visible on the `evt` side — so an undifferentiated
+feed would be dominated by low-information rows. The panel therefore needs a
+client-side row cap and a pause control (reusing `RpcPanel`'s), and the family
+filter defaults to `evt` only. Carried by BR-048.
+
+### A10 — Sequencing
+
+43a alone produces nothing visible and 43b without 43c is invisible, so the
+first real feedback would otherwise arrive very late — after the export shape
+is already committed. Implementation takes a **thin vertical slice first**:
+`evt.*` in shipping only, minimal stream, minimal panel, which puts A1's
+tenant-provenance decision on screen on day one where it is cheapest to
+correct. The remaining call sites and the `notify.*` family follow once the
+slice holds.
+
+### Revised action items
+
+1. [x] Business-rules-first pass — BR-045–049 (shipping), BR-D45 (refdata),
+       BR-AC34 (accounts), BR-TP75 (organizations) drafted and amended per
+       this review. Still PROPOSED, awaiting confirmation.
+2. [ ] Redaction review of real `evt.*`/`notify.*` payloads (A8) —
+       **before** 43a's hook is wired.
+3. [ ] Derive Ginkgo specs from those rules (red → green → refactor).
+4. [ ] Implement as a thin vertical slice first (A10), then widen.
+5. [ ] Once implemented, move this panel's description into
+       [ARCHITECTURE-ADMIN.md](ARCHITECTURE-ADMIN.md) §4 alongside its
+       siblings, and leave only this ADR behind here as the historical
+       decision record.

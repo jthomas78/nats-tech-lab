@@ -1676,3 +1676,35 @@ and no two documents of one organization may share it.
   before the append), `compliance_document_test.go` (name required;
   `AttachFile` refuses a mismatched name), `document_file_test.go` (the upload
   path refuses a mismatch before storing bytes).
+
+### BR-TP75 (Phase 43a, CONFIRMED 2026-08-25 — not yet implemented) — This service's `evt.*` seam gets the `obs.pubsub.*` hook of `BUSINESS_RULES-SHIPPING.md`'s BR-045
+
+organizations-service publishes transporter-profile events on
+`evt.{context}.organizations.transporter-profile.{organizationID}.{event}`
+(`profiledomain.Subject`), and every one of them goes through a single
+choke point: `JetStreamEventStore.append`
+(`organizations/transporterprofile/orchestration/event_store.go:103`),
+reached from both `Append` and its message-id-carrying sibling. That
+function is this service's `evt.*` seam — the equivalent of shipping's and
+refdata's `PublishWithTrace` — so the observation hook goes **there**, not at
+the workflow activities that call it, per BR-045's amended placement rule.
+Coverage is then structural: a new transporter-profile event type is observed
+by construction.
+
+This service had **no rule at all** in the design as originally approved — an
+entire service's `evt.*` traffic would have been invisible to the Messages
+panel (ADR-047 A2). It is also the service whose payloads matter most for
+BR-046's redaction review: after Phases 40/41 these events carry compliance
+documents and sit beside the `organizations-secrets` bucket, making them the
+likeliest to carry fields the RPC-shaped denylist never had to handle. That
+review runs **before** the hook is wired.
+
+No separate wire contract: same shared `natstrace` envelope and redaction
+discipline BR-045 defines, not a per-service clone (same reasoning as
+BR-D45's).
+
+This service publishes nothing on `notify.*`, so BR-049's per-call-site
+checked list has no entry here.
+
+- **Enforced in:** not yet — Phase 43a.
+- **Test:** not yet written — pending Phase 43a implementation.

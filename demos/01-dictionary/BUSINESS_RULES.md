@@ -44,16 +44,20 @@ Split by domain so a rule add/edit only requires reading its own file:
   Phase 45; see also BR-043/BR-044 for that phase's history/search rules),
   and
   `dictionary/internal/natstrace/` + `frontend/admin/src/components/
-  TraceWaterfall.vue` (BR-035–037). BR-045–048 (Phase 67, PROPOSED — design
-  approved, implementation on hold) add a sibling `obs.pubsub.*` channel for
-  `evt.*`/`notify.*` fire-and-forget traffic, complementing `obs.trace.*`'s
-  request/reply coverage; see
+  TraceWaterfall.vue` (BR-035–037). BR-045–049 (Phase 43, CONFIRMED
+  2026-08-25 — design approved, reviewed, amended, and cleared for
+  implementation) add a sibling `obs.pubsub.*` channel for `evt.*`/`notify.*`
+  fire-and-forget traffic, complementing `obs.trace.*`'s request/reply
+  coverage — instrumented **in the `evt.*` seam** and at each `notify.*` call
+  site, with BR-049 making that coverage a checked convention rather than a
+  remembered one; see
   [ARCHITECTURE-OBSERVABILITY.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-OBSERVABILITY.md)
   (ADR-047) for the full design.
 - **[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)** — Reference Data
   Service (BR-D01–BR-D48, BR-D39 being the Phase 28 `obs.trace.*` mirror of
-  BR-036 and BR-D45 (Phase 67a, PROPOSED) pointing this service's `evt.*`
-  publish site at the new `obs.pubsub.*` hook, BR-045). BR-D46–BR-D48
+  BR-036 and BR-D45 (Phase 43a, CONFIRMED) pointing this service's `evt.*`
+  seam and its `notifybridge.go` `notify.*` call site at the new
+  `obs.pubsub.*` hook, BR-045). BR-D46–BR-D48
   (Phase 38d-ii) add the `region` corpus and the Country → Region hierarchy
   behind Operating Areas — expressed entirely in the existing
   `DictionaryReference` mechanism with **no schema change**, and forbidding
@@ -83,10 +87,14 @@ Split by domain so a rule add/edit only requires reading its own file:
   BR-AC32 (Phase 30b) adds six narrow, explicit `$JS.API` service exports
   (imported by PLATFORM with a `monitor.{tenant}.js.>` local remap) for
   read-oriented JetStream/KV introspection, deliberately excluding stream
-  management subjects. BR-AC34 (Phase 67a, PROPOSED — design approved,
-  implementation on hold) mirrors BR-AC30 for a second Stream export,
-  `obs.pubsub.>`, needing no local remap for the same reason `obs.trace.>`
-  doesn't.
+  management subjects. BR-AC34 (Phase 43a, CONFIRMED
+  2026-08-25) mirrors BR-AC30 for a second
+  Stream export, `obs.pubsub.>` — but imported by PLATFORM **with** a
+  `monitor.{tenant}.pubsub.>` local remap, unlike `obs.trace.>`: without one,
+  N tenants' streams land on one local subject and the importer cannot tell
+  which account a message came from, which is the whole point of the Messages
+  panel. It also instruments this service's own four
+  `notify.accounts.account.*` publishes.
   Rules live in `backend/accounts-service/accounts/handler.go`,
   `provisioner.go`, `store.go`, `audit.go`, and `jwt.go`.
 - **[BUSINESS_RULES-PRICING.md](BUSINESS_RULES-PRICING.md)** — Pricing
@@ -154,7 +162,11 @@ Split by domain so a rule add/edit only requires reading its own file:
   editable post-`Vetted` coverage) and tracking credentials (BR-TP51–BR-TP55
   — the secret lives only in an at-rest-encrypted KV bucket and never on the
   event log, credentials overwrite where documents are write-once, and the
-  configured flag extends `AvailableForAssignment`). Rules will live in
+  configured flag extends `AvailableForAssignment`). BR-TP75 (Phase 43a,
+  CONFIRMED 2026-08-25) points this service's `evt.*` seam
+  (`JetStreamEventStore.append`) at the `obs.pubsub.*` hook, BR-045; its
+  transporter-profile payloads are the priority case for BR-046's redaction
+  review. Rules will live in
   `organizations-service/organizations/internal/domain/`.
 
 When CLAUDE.md's Quality Rule #4 says "update `BUSINESS_RULES.md`," it means:

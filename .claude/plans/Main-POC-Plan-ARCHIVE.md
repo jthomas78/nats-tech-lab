@@ -9054,3 +9054,58 @@ Status unchanged — a rename only.
 
 ---
 
+
+### Renumbering (2026-08-25 — Phase 67 → Phase 43, ahead of a design review)
+
+**Why:** the user asked for it on 2026-08-25, in the same spirit as the two
+2026-08-24 renames (Phase 48 → 41, Phase 47 → 42) — the 40s block is being
+packed with the phases actually in flight, and Cross-Tenant Pub/Sub
+Observability is about to be reviewed with `/engineering:system-design` before
+implementation starts, so it belongs there rather than parked in the 60s.
+
+**43 was free.** It was last held by NATS 2.11 Server-Hop Tracing, which
+vacated it on 2026-08-20b when the whole 40–49 block shifted to 60–69 (that
+phase is now Phase 63; its lineage reads 29 → 41 → 36 → 43 → 63). So, like
+the 2026-08-24b rename, this reuses a number that had already been recycled
+once.
+
+The phase has **no implementation** — design approved (ADR-047), status
+unchanged. Sub-phase labels were relettered (`67a`/`67b`/`67c` →
+`43a`/`43b`/`43c`) for the same reason they were on 2026-08-20b: nothing is
+built, so every reference is a PROPOSED business rule or a pending/skipped
+test stub, all swept in the same pass. The phase stays in
+`Main-POC-Plan-Candidates.md` until the design review concludes; it moves to
+the live plan when implementation actually begins.
+
+| Was | Now |
+|---|---|
+| Phase 67 (APPROVED 2026-08-20 — design approved, implementation on hold) — Cross-Tenant Pub/Sub Observability ("Wire Tap") in the Admin UI | **Phase 43** |
+| Sub-phases `67a` / `67b` / `67c` | **`43a` / `43b` / `43c`** |
+
+**Reference sweep:**
+
+- [x] `Main-POC-Plan-Candidates.md` — the section heading, the in-phase
+      renumbering note (rewritten to record the 47 → 67 → 43 lineage), the
+      three sub-phase bullets, and Phase 108's two back-references
+- [x] `Main-POC-Plan.md` — the Phase 67 stub line, and Phase 108's stub
+      ("deferred from Phase 67's design gate")
+- [x] `demos/01-dictionary/BUSINESS_RULES-SHIPPING.md` — BR-045–048
+      → Phase 43a/43b/43c
+- [x] `demos/01-dictionary/BUSINESS_RULES-REFDATA.md` — BR-D45 → Phase 43a
+- [x] `demos/01-dictionary/BUSINESS_RULES-ACCOUNTS.md` — BR-AC34 → Phase 43a
+- [x] `demos/01-dictionary/BUSINESS_RULES.md` — the index's BR-045–048,
+      BR-D45, BR-AC34 pointers → Phase 43/43a
+- [x] `obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-OBSERVABILITY.md`
+      — ADR-047's "Phase 67" gate link → Phase 43
+- [x] `.claude/memory/phase63_nats_hop_tracing_renumbered.md` — the aside
+      placing Phase 63 "ahead of Phase 67" in the candidates file
+- [x] Pending/skipped test stubs, all five: `pubsub_observability_test.go`
+      (shipping, refdata `kvcache`, observability `tracestore`),
+      `pubsub_export_test.go` (accounts), and
+      `frontend/admin/src/components/MessagesPanel.spec.js`
+- [x] Not edited, per the never-edit-the-archive rule: the 2026-08-20b table
+      recording "Phase 47 → Phase 67", the 2026-08-24b log's aside about that
+      same move, and the Phase 62 note at the top of this file — all describe
+      events at the time they happened
+
+---

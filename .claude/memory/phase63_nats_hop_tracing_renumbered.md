@@ -15,7 +15,7 @@ later on 2026-08-18 when the design gate deferred implementation pending
 further research, and 43→63 on 2026-08-20 when the whole 40–49 block was
 shifted to 60–69 to free the 40s). Status is **DEFERRED 2026-08-18 — design approved, implementation
 on hold**, not PROPOSED. In the candidates file it sits under
-"Deferred / on-hold (original numbering retained)", ahead of Phase 67 and the
+"Deferred / on-hold (original numbering retained)", ahead of Phase 43 and the
 Phase 100+ block; the live plan carries a one-line entry for it under
 "Candidate, deferred, and on-hold phases".
 

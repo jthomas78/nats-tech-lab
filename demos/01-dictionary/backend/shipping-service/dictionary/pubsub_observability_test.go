@@ -1,40 +1,51 @@
 package dictionary
 
-// Pending specs for Phase 67a (BUSINESS_RULES-SHIPPING.md's BR-045/BR-046):
-// a new obs.pubsub.* envelope, sibling to obs.trace.* (BR-036/BR-037),
-// published at each existing evt.*/notify.* choke point. Design approved
-// (ADR-047, ARCHITECTURE-OBSERVABILITY.md); implementation is explicitly on
+// Pending specs for Phase 43a (BUSINESS_RULES-SHIPPING.md's BR-045/BR-046/
+// BR-049): a new obs.pubsub.* envelope, sibling to obs.trace.* (BR-036/
+// BR-037), published from the evt.* seam and from each notify.* call site.
+// Design approved (ADR-047) and amended 2026-08-25 by a pre-implementation
+// review — the hook placement below reflects that amendment (A3), not the
+// original per-call-site-everywhere rule. Implementation is explicitly on
 // hold, so these are placeholders derived directly from the rules, not from
 // any implementation — no body references the not-yet-existing observation
 // hook, so `ginkgo ./...` stays green (reported pending, not failing) until
-// Phase 67a lands. Fill in real bodies (with gomega assertions) alongside
+// Phase 43a lands. Fill in real bodies (with gomega assertions) alongside
 // the implementation, per this repo's red -> green -> refactor workflow.
 
 import (
 	. "github.com/onsi/ginkgo/v2"
 )
 
-var _ = PDescribe("obs.pubsub.* observability (Phase 67a, BR-045/BR-046)", func() {
-	PContext("ShipHandler.publish — evt.* choke point (commands.go:317)", func() {
-		PIt("publishes one obs.pubsub.{context}.shipping.ship.{action} envelope alongside the real evt.* publish")
+var _ = PDescribe("obs.pubsub.* observability (Phase 43a, BR-045/BR-046/BR-049)", func() {
+	PContext("Publisher.PublishWithTrace — the evt.* seam (jstream/stream.go:64)", func() {
+		PIt("publishes one obs.pubsub.{context}.shipping.ship.{action} envelope alongside a ShipHandler.publish evt.* publish")
+		PIt("publishes one obs.pubsub.{context}.shipping.container.{action} envelope alongside a ContainerHandler.publish evt.* publish")
+		PIt("observes a new evt.* publisher with no per-call-site wiring — coverage is structural, not remembered (BR-045, ADR-047 A3)")
 		PIt("derives traceId/parentSpanId from natstrace.SpanFromContext(ctx) rather than minting an unrelated trace")
+		PIt("sets Nats-Msg-Id to the envelope's spanId, so BR-047's dedup is enforceable")
 	})
 
-	PContext("ContainerHandler.publish — evt.* choke point (container.go:232)", func() {
-		PIt("publishes one obs.pubsub.{context}.shipping.container.{action} envelope alongside the real evt.* publish")
-	})
-
-	PContext("publishNotify / publishRawNotify — notify.* choke points (handler.go:187, handler.go:211)", func() {
-		PIt("publishes one obs.pubsub.{context}.shipping.{entity}.{action} envelope alongside the real notify.* publish")
-	})
-
-	PContext("publishPortsChanged — notify.* choke point (adapter.go:472)", func() {
-		PIt("publishes one obs.pubsub.{context}.shipping.port.changed envelope alongside the real notify.* publish")
+	PContext("notify.* call sites — wired individually, no seam exists", func() {
+		PIt("publishNotify (handler.go:191) publishes one obs.pubsub.{context}.shipping.{entity}.changed envelope")
+		PIt("publishRawNotify (handler.go:215) publishes one obs.pubsub.{context}.shipping.raw.{entity}.{event} envelope")
+		PIt("publishPortsChanged (adapter.go:484) publishes one obs.pubsub.{context}.shipping.port.changed envelope")
+		PIt("publishChange (internal/kvstore/kv.go:114) publishes one envelope for the KV-change notify")
+		PIt("publishRefdataChanged (platform_notify.go:120) publishes one envelope for the notify._platform.refdata.* re-publish")
 	})
 
 	PContext("hook placement discipline (BR-045)", func() {
-		PIt("is never wired inside the shared low-level Publish/PublishWithTrace/PublishMsg primitive (internal/jstream)")
-		PIt("never fires for observability-service's own tracestore.publishNotify (excluded — self-observation risk)")
+		PIt("is never wired inside the generic Publish/PublishMsg primitives (internal/jstream)")
+		PIt("never fires for observability-service's own tracestore.publishNotify (excluded — internal plumbing, not a domain event)")
+		PIt("does fire for internal/kvstore's publishChange, the original that copy was made from")
+	})
+
+	PContext("failure semantics (BR-045, ADR-047 A7)", func() {
+		PIt("drops its own publish error and never fails the domain publish it observes")
+		PIt("does not measurably delay a command already awaiting a synchronous PubAck")
+	})
+
+	PContext("coverage is a checked convention (BR-049)", func() {
+		PIt("fails when a notify.* publish literal exists that is on neither the instrumented list nor the documented exclusion list")
 	})
 
 	PContext("relationship to the existing Phase 28d evt.*-projector-callback spans", func() {

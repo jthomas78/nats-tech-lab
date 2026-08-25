@@ -629,20 +629,17 @@ does not fix.
   `TestMountRoutesMatchAdminAllowlist` asserts `Mount(mux)`'s returned route
   list `ConsistOf` the 24-entry allowlist above.
 
-### BR-D45 (Phase 67a, PROPOSED — not yet implemented) — This service's `evt.*` publish call site gets the same `obs.pubsub.*` hook as `BUSINESS_RULES-SHIPPING.md`'s BR-045
+### BR-D45 (Phase 43a, CONFIRMED 2026-08-25 — not yet implemented) — This service's `evt.*` seam and its `notify.*` call site both get the `obs.pubsub.*` hook of `BUSINESS_RULES-SHIPPING.md`'s BR-045
 
-refdata-service's own `evt.*` publish choke point — the publish-change
-helper inside `refdata/internal/kvcache/kvcache.go:146` (the same call site
-that already builds the `evt.{context}.refdata.{typeKey}.changed` subject
-via `ChangeSubject`) — gets the BR-045 observation hook, on refdata-service's
-own publisher side. No separate wire contract: this is the same shared
-`natstrace`-based envelope and redaction discipline BR-045 defines, not a
-per-service clone of it (unlike the pre-Phase-35 `obs.trace.*` mirrors
-BR-D39/BR-P25/BR-TP15, which existed only because `natstrace` was duplicated
-per service at the time).
+Two publishers in this service, instrumented in the two different ways BR-045's amended placement rule prescribes:
 
-- **Enforced in:** not yet — Phase 67a.
-- **Test:** not yet written — pending Phase 67a implementation.
+- **`evt.*` — in the seam, not at the call site.** refdata-service reaches JetStream through the same `PublishWithTrace` primitive shipping does (`refdata/internal/kvcache/kvcache.go:104`'s publisher port, called at `kvcache.go:146` to publish `evt.{context}.refdata.{typeKey}.changed`). Instrumenting the seam covers this service's `evt.*` traffic by construction; no per-call-site wiring here.
+- **`notify.*` — at the call site.** `notifybridge.go:94`'s `PublishToAll("notify."+contextKey+"."+kvcache.Domain+"."+typeKey+".changed", …)` is a bare publish with no seam, so it is wired individually, and appears on BR-049's instrumented list. This site was missed in the rule as originally drafted (ADR-047 A2).
+
+No separate wire contract: this is the same shared `natstrace`-based envelope and redaction discipline BR-045 defines, not a per-service clone of it (unlike the pre-Phase-35 `obs.trace.*` mirrors BR-D39/BR-P25/BR-TP15, which existed only because `natstrace` was duplicated per service at the time).
+
+- **Enforced in:** not yet — Phase 43a.
+- **Test:** not yet written — pending Phase 43a implementation.
 
 ### BR-D46–BR-D48 (Phase 38d-ii) — The `region` corpus and Country → Region hierarchy
 

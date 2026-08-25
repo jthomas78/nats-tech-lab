@@ -769,6 +769,137 @@ would re-hide exactly what the rename made visible.
 
 ---
 
+### Phase 43 — APPROVED 2026-08-25 (design approved 2026-08-20, reviewed and amended 2026-08-25, cleared for implementation) — Cross-Tenant Pub/Sub Observability ("Wire Tap") in the Admin UI
+
+> **Renumbered 2026-08-25** from Phase 67 to Phase 43, ahead of a design
+> review, to sit in the 40s block with the other in-flight phases. Lineage:
+> Phase 47 → 67 (2026-08-20b, when the whole 40–49 block was shifted to
+> 60–69) → 43. See the "Renumbering (2026-08-25)" and
+> "Renumbering (2026-08-20b)" logs in the archive's "Renumbering history"
+> section. Sub-phase labels **were** relettered on both occasions
+> (`47a`/`47b`/`47c` → `67a`/`67b`/`67c` → `43a`/`43b`/`43c`), unlike Phase
+> 60’s `24a`–`24c`: nothing is implemented yet, so the only references are
+> the PROPOSED BR-045–048/BR-D45/BR-AC34 entries and their pending/skipped
+> test stubs, all swept in the same pass.
+
+#### Goal
+
+Give the Admin UI a live view of pub/sub traffic across every tenant
+account — not just the RPC calls `natstrace`/`obs.trace.*` already covers
+(BR-036/BR-037) — triggered by evaluating NATS's own wire-tap/monitoring
+pattern (`docs.nats.io/concepts/subjects#wire-taps-and-monitoring`, a plain
+`sub >`) against this lab's hard NATS-account tenant boundary.
+
+#### Design decisions
+
+Full ADR lives in
+[ARCHITECTURE-OBSERVABILITY.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-OBSERVABILITY.md)
+(ADR-047) — not duplicated here. Summary of the decision it records:
+
+- A plain wildcard subscription (`>`), or the dormant `$SYS` account's
+  `account-monitoring-streams`/`account-monitoring-services` exports,
+  cannot give message-payload visibility across NATS accounts — account
+  boundaries are server-enforced subject-space isolation in this lab by
+  design, and `$SYS`'s monitoring exports only surface
+  connection/subscription metadata, never payloads.
+- **Rejected: (A) blanket per-tenant export of `>`** into the observability
+  account — the only design with zero instrumentation gaps, but a
+  first-time breach of the narrow-grant pattern BR-AC30/31/32 established
+  and Phase 30h reinforced (Phase 30h specifically retired an earlier
+  *unrestricted* second PLATFORM connection). Revisit only if "see every
+  byte, even uninstrumented paths" becomes a hard requirement, with its own
+  new safety design.
+- **Deferred, not rejected: (B) import the dormant `$SYS` account-monitoring
+  exports** — cheap, safe, gives connection/rate metadata with no payload
+  visibility, so it doesn't answer the actual ask on its own. Candidate
+  follow-on phase for a complementary "account activity" panel.
+- **Selected: (C) a new, sibling `obs.pubsub.*` envelope**, instrumented
+  only at `evt.*`/`notify.*` publish call sites (never a generic
+  `Publish()` wrap — that risks self-observation or picking up JetStream
+  control traffic), reusing BR-036/037's redact-before-truncate discipline
+  and BR-AC30's narrow per-tenant export/import. `rpc.*`/`api.*`
+  (request/reply) keep using the existing `obs.trace.*` channel — the split
+  is clean by construction, so no request/reply or JetStream-internals
+  filter is needed on this new channel. Gets its own dedicated "Messages"
+  panel in the Admin UI (with an `evt`/`notify` family filter), not a tab
+  inside `RpcPanel.vue`. Accepted trade-off: only instrumented publish call
+  sites are visible.
+- **Resolved (2026-08-20):** (B) does become a follow-on — tracked below as
+  candidate **Phase 108**, requiring its own UI account filter
+  (`$SYS.ACCOUNT.*.>` spans every account at once). Consumer-side behavior
+  (redelivery counts, ack latency) is **out of scope** for this phase —
+  publish-only for now, may evolve later once this ships and proves useful.
+
+#### Amendment (2026-08-25) — pre-implementation design review
+
+Reviewed with `/engineering:system-design` before any code. The Option C
+decision stands; ten findings were folded into ADR-047 as
+"Amendment (2026-08-25)" and into the rules. The four that change the design
+rather than sharpen it:
+
+- **A1 — the panel could not name the tenant.** PLATFORM imports every
+  tenant's `obs.trace.>` onto one identical local subject with no remap, the
+  envelope has no account field, and `{context}` is the business unit, not the
+  tenant — so "across every tenant account" was unanswerable as designed.
+  `obs.pubsub.>` now imports under a per-tenant `monitor.{tenant}.pubsub.>`
+  remap, mirroring `$SRV.>`/`$JS.API.*`. Changes BR-AC34's shape.
+- **A2 — the call-site list was incomplete**, and organizations-service had
+  no rule at all. Five more publishers are in scope; BR-TP75 is new.
+- **A3 — the "never wrap a primitive" ban was over-broad.** `PublishWithTrace`
+  has three call sites, all `evt.*` — it is the `evt.*` seam, not a generic
+  primitive. `evt.*` is now instrumented **in** the seam (structural
+  coverage); `notify.*` stays per-call-site. The ban stands for
+  `Publish`/`PublishMsg`.
+- **A4 — coverage enforcement is now designed**, not aspirational: new
+  BR-049 makes the `notify.*` list a CI-checked convention, discharging the
+  ADR's own headline "Harder" consequence.
+
+Sharpened, not changed: separate bounded stream with measured caps (A5),
+`Nats-Msg-Id` + explicit `Duplicates` window so dedup is enforceable (A6),
+best-effort ingestion stated honestly rather than implied complete (A7),
+redaction review scoped and scheduled before 43a with transporter-profile
+payloads first (A8), panel row cap / pause / `evt`-only default (A9), and a
+thin vertical slice first so A1 lands on screen early (A10).
+
+Rules: BR-045–049 (SHIPPING), BR-D45 (REFDATA), BR-AC34 (ACCOUNTS), BR-TP75
+(ORGANIZATIONS) — all still PROPOSED, all amended or added in this pass.
+
+#### Sub-phases
+
+Implementation takes a **thin vertical slice first** (A10): shipping's `evt.*`
+seam → minimal stream → minimal panel, which puts the tenant-provenance
+decision on screen before the export shape is committed. The sub-phases below
+then widen it.
+
+- [ ] **43a** — `obs.pubsub.*` envelope; hook **in** the `evt.*` seam
+      (`PublishWithTrace`, `JetStreamEventStore.append`) and at each
+      `notify.*` call site; `Nats-Msg-Id` = `spanId`; per-tenant
+      export + `monitor.{tenant}.pubsub.>` import remap; BR-049's
+      coverage test. Redaction review (A8) runs **before** the hook is wired
+- [ ] **43b** — `observability-service`: sibling consumer to `tracestore`
+      for `obs.pubsub.>`, on its **own** bounded stream with caps measured
+      from a seed run and an explicit `Duplicates` window
+- [ ] **43c** — Admin UI: new "Messages" panel — tenant named from the
+      import remap (not `TraceWaterfall`'s coarse gutter), `evt`/`notify`
+      family filter defaulting to `evt`, row cap + pause, reusing
+      `SubjectPath.vue`
+
+**Cleared for implementation 2026-08-25**, after the design review above.
+The hold placed on 2026-08-20 is lifted; the business-rules-first pass is
+**done** — BR-045–049 (`BUSINESS_RULES-SHIPPING.md`), BR-D45 (REFDATA),
+BR-AC34 (ACCOUNTS), BR-TP75 (ORGANIZATIONS), all confirmed 2026-08-25 and
+carrying the amendment. Ginkgo specs still come **before** implementation
+per the standing AI Agent Workflow — the pending stubs already in the tree
+(`pubsub_observability_test.go` ×4, `pubsub_export_test.go`,
+`MessagesPanel.spec.js`) are the red half, derived from the rules, and get
+real bodies as each sub-phase lands.
+
+**One gate remains inside 43a:** BR-046's redaction review of real
+`evt.*`/`notify.*` payloads — transporter-profile documents first — runs
+**before** the hook is wired, not during.
+
+---
+
 ### Phase 46 — PROPOSED (follows 39a; design inherited from Phase 39) — GIT Certificate Change Log + `Awaiting` Presentation Fix
 
 > Split out of Phase 39 at the 2026-08-22 design gate. The design decisions
@@ -1001,9 +1132,6 @@ starts.
 - [ ] **Phase 63** (DEFERRED 2026-08-18 — design approved, implementation
       on hold) — NATS 2.11 Server-Hop Tracing ("Trace this subject").
       Lineage: Phase 29 → 41 → 36 → 43 → 63.
-- [ ] **Phase 67** (APPROVED 2026-08-20 — design approved, implementation
-      on hold) — Cross-Tenant Pub/Sub Observability ("Wire Tap") in the
-      Admin UI.
 - [ ] **Phase 100** (PROPOSED) — Ship Container Capacity Limit (BR-019).
 - [ ] **Phase 101** — Write-Side Safety (optimistic concurrency + publish
       dedup).
@@ -1017,7 +1145,7 @@ starts.
       Inheritance on the Live Read Path.
 - [ ] **Phase 107** (candidate, deferred from Phase 36's design gate,
       2026-08-18) — Re-fire a Captured Trace with Server-Hop Tracing.
-- [ ] **Phase 108** (candidate, deferred from Phase 67's design gate,
+- [ ] **Phase 108** (candidate, deferred from Phase 43's design gate,
       2026-08-20) — Live Account Activity Panel via `$SYS`
       Account-Monitoring Exports.
 

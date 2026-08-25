@@ -245,87 +245,6 @@ directly against `lb-nats`), each corrected the previous assumption:
 ---
 
 
-### Phase 67 (APPROVED 2026-08-20 — design approved, implementation on hold) — Cross-Tenant Pub/Sub Observability ("Wire Tap") in the Admin UI
-
-> **Renumbered 2026-08-20b** from Phase 47 to Phase 67, when the whole
-> 40–49 block was shifted to 60–69 (see the "Renumbering (2026-08-20b)" log in the archive's "Renumbering
-> history" section). Sub-phase labels **were** relettered here
-> (`47a`/`47b`/`47c` → `67a`/`67b`/`67c`), unlike Phase 60’s `24a`–`24c`:
-> nothing is implemented yet, so the only references were the PROPOSED
-> BR-045–048/BR-D45/BR-AC34 entries and their pending/skipped test stubs,
-> all swept in the same pass.
-
-#### Goal
-
-Give the Admin UI a live view of pub/sub traffic across every tenant
-account — not just the RPC calls `natstrace`/`obs.trace.*` already covers
-(BR-036/BR-037) — triggered by evaluating NATS's own wire-tap/monitoring
-pattern (`docs.nats.io/concepts/subjects#wire-taps-and-monitoring`, a plain
-`sub >`) against this lab's hard NATS-account tenant boundary.
-
-#### Design decisions
-
-Full ADR lives in
-[ARCHITECTURE-OBSERVABILITY.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-OBSERVABILITY.md)
-(ADR-047) — not duplicated here. Summary of the decision it records:
-
-- A plain wildcard subscription (`>`), or the dormant `$SYS` account's
-  `account-monitoring-streams`/`account-monitoring-services` exports,
-  cannot give message-payload visibility across NATS accounts — account
-  boundaries are server-enforced subject-space isolation in this lab by
-  design, and `$SYS`'s monitoring exports only surface
-  connection/subscription metadata, never payloads.
-- **Rejected: (A) blanket per-tenant export of `>`** into the observability
-  account — the only design with zero instrumentation gaps, but a
-  first-time breach of the narrow-grant pattern BR-AC30/31/32 established
-  and Phase 30h reinforced (Phase 30h specifically retired an earlier
-  *unrestricted* second PLATFORM connection). Revisit only if "see every
-  byte, even uninstrumented paths" becomes a hard requirement, with its own
-  new safety design.
-- **Deferred, not rejected: (B) import the dormant `$SYS` account-monitoring
-  exports** — cheap, safe, gives connection/rate metadata with no payload
-  visibility, so it doesn't answer the actual ask on its own. Candidate
-  follow-on phase for a complementary "account activity" panel.
-- **Selected: (C) a new, sibling `obs.pubsub.*` envelope**, instrumented
-  only at `evt.*`/`notify.*` publish call sites (never a generic
-  `Publish()` wrap — that risks self-observation or picking up JetStream
-  control traffic), reusing BR-036/037's redact-before-truncate discipline
-  and BR-AC30's narrow per-tenant export/import. `rpc.*`/`api.*`
-  (request/reply) keep using the existing `obs.trace.*` channel — the split
-  is clean by construction, so no request/reply or JetStream-internals
-  filter is needed on this new channel. Gets its own dedicated "Messages"
-  panel in the Admin UI (with an `evt`/`notify` family filter), not a tab
-  inside `RpcPanel.vue`. Accepted trade-off: only instrumented publish call
-  sites are visible.
-- **Resolved (2026-08-20):** (B) does become a follow-on — tracked below as
-  candidate **Phase 108**, requiring its own UI account filter
-  (`$SYS.ACCOUNT.*.>` spans every account at once). Consumer-side behavior
-  (redelivery counts, ack latency) is **out of scope** for this phase —
-  publish-only for now, may evolve later once this ships and proves useful.
-
-#### Sub-phases
-
-- [ ] **67a** — `natstrace` (or equivalent) publish-side hook at
-      `evt.*`/`notify.*` call sites; `obs.pubsub.*` envelope; BR-AC30-style
-      narrow per-tenant export/import
-- [ ] **67b** — `observability-service`: sibling consumer to `tracestore`
-      for `obs.pubsub.>`, bounded retention (`tracestore`/`TRACES`-stream
-      convention)
-- [ ] **67c** — Admin UI: new "Messages" panel, `evt`/`notify` family
-      filter, reusing `SubjectPath.vue`/account-swimlane conventions
-
-**Design approved 2026-08-20 — implementation explicitly on hold at the
-repo owner's request.** No business-rules-first pass, Ginkgo specs, or
-code have been started. When work resumes, each sub-phase gets its own
-business-rules-first pass (candidate rules continuing the `BR-04x`
-sequence in `BUSINESS_RULES-SHIPPING.md` after BR-044, plus sibling-service
-equivalents per the BR-036/BR-D39/BR-P25/BR-TP15 convention) and Ginkgo
-specs derived from those rules before implementation, per the standing AI
-Agent Workflow.
-
----
-
-
 ## Candidates (100+ block)
 
 ### Phase 100 (PROPOSED — awaiting approval) — Ship Container Capacity Limit
@@ -625,11 +544,11 @@ take?" rather than "what path would a call to this subject take?"
 
 ---
 
-### Phase 108 (candidate, deferred from Phase 67's design gate, 2026-08-20) — Live Account Activity Panel via `$SYS` Account-Monitoring Exports
+### Phase 108 (candidate, deferred from Phase 43's design gate, 2026-08-20) — Live Account Activity Panel via `$SYS` Account-Monitoring Exports
 
 #### Goal
 
-Phase 67 (ADR-047,
+Phase 43 (ADR-047,
 [ARCHITECTURE-OBSERVABILITY.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-OBSERVABILITY.md))
 deliberately deferred Option B out of its own scope: importing the
 `SYS` account's already-present, currently-unused
@@ -648,7 +567,7 @@ just a maybe.
 - **Confirmed requirement: the UI needs an account filter.** `$SYS.ACCOUNT.*.>`
   fires for every account at once, so a live feed with no way to narrow to
   one (or a small set of) accounts would read as an undifferentiated
-  cross-tenant firehose — the same reasoning behind Phase 67's `evt`/
+  cross-tenant firehose — the same reasoning behind Phase 43's `evt`/
   `notify` family filter, applied here to account instead of subject
   family.
 - Relationship to the existing (poll-only) Account Activity panel
