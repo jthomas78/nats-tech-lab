@@ -44,14 +44,17 @@ func (s *JetStreamEventStore) AppendWorkflowEvent(ctx context.Context, event pro
 type JetStreamEventStore struct {
 	js jetstream.JetStream
 
-	// observer, when set by EnableObservation, emits an obs.pubsub.* copy of
+	// observer, when set by WithObservation, emits an obs.pubsub.* copy of
 	// every event appended through this store (Phase 43a, BR-TP75). Nil by
 	// default, so a store built for a test or for the projector's own
 	// hydration path stays silent.
 	observer *natstrace.Tracer
 }
 
-// EnableObservation turns on BR-045's publish-side observation for this store,
+// Option configures a JetStreamEventStore at construction.
+type Option func(*JetStreamEventStore)
+
+// WithObservation turns on BR-045's publish-side observation for this store,
 // emitting one
 // obs.pubsub.{context}.organizations.transporter-profile.{eventType} envelope
 // per appended event. Wired once per tenant runtime (transporterprofile.Start),
@@ -62,12 +65,22 @@ type JetStreamEventStore struct {
 // transporter-profile event in this service reaches JetStream through that one
 // function, so coverage is structural — a new event type is observed by
 // construction rather than by someone remembering to wire it.
-func (s *JetStreamEventStore) EnableObservation(nc *nats.Conn) {
-	s.observer = natstrace.New(nc)
+//
+// This store keeps its own append rather than delegating to shared/jstream
+// (Phase 43e): the optimistic-concurrency headers and the ErrSequenceConflict
+// mapping below are the whole point of it, and folding them into the shared
+// seam would produce a generic that served neither caller. What it does share
+// is the construction idiom — observer nil unless asked for.
+func WithObservation(nc *nats.Conn) Option {
+	return func(s *JetStreamEventStore) { s.observer = natstrace.New(nc) }
 }
 
-func NewJetStreamEventStore(js jetstream.JetStream) *JetStreamEventStore {
-	return &JetStreamEventStore{js: js}
+func NewJetStreamEventStore(js jetstream.JetStream, opts ...Option) *JetStreamEventStore {
+	s := &JetStreamEventStore{js: js}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func (s *JetStreamEventStore) Hydrate(ctx context.Context, contextKey, organizationID string) (*profiledomain.TransporterProfile, uint64, error) {
@@ -140,6 +153,15 @@ func (s *JetStreamEventStore) append(ctx context.Context, contextKey, organizati
 	if messageID != "" {
 		msg.Header.Set(nats.MsgIdHdr, messageID)
 	}
+	// BR-037: every evt.* publish carries a traceparent derived from the span
+	// that caused it. This seam went without one from Phase 28 until Phase
+	// 43e — the rule existed, nothing enforced it here, and nothing on the
+	// consume side missed it loudly enough to notice. Nil-safe: no span
+	// reachable on ctx means no header, exactly as shared/jstream behaves.
+	sp := natstrace.SpanFromContext(ctx)
+	if tp := sp.Traceparent(); tp != "" {
+		msg.Header.Set(natstrace.TraceparentHeader, tp)
+	}
 	ack, err := s.js.PublishMsg(ctx, msg)
 	if err != nil {
 		var jsErr jetstream.JetStreamError
@@ -153,6 +175,6 @@ func (s *JetStreamEventStore) append(ctx context.Context, contextKey, organizati
 	// appear on an operator's wire tap. The emit itself is fire-and-forget —
 	// it drops its own error and cannot change this function's result or
 	// meaningfully delay it (ADR-047 A7).
-	s.observer.ObservePublish(natstrace.SpanFromContext(ctx), msg.Subject, data)
+	s.observer.ObservePublish(sp, msg.Subject, data)
 	return ack.Sequence, nil
 }

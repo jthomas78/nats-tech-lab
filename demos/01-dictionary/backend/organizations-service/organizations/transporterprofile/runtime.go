@@ -51,10 +51,9 @@ func Start(ctx context.Context, nc *nats.Conn, db *sql.DB, certificates orchestr
 	if err := projector.Start(ctx); err != nil {
 		return nil, err
 	}
-	events := orchestration.NewJetStreamEventStore(js)
 	// Phase 43a (BR-TP75): observe this tenant's evt.* traffic on the same
 	// connection it is published from.
-	events.EnableObservation(nc)
+	events := orchestration.NewJetStreamEventStore(js, orchestration.WithObservation(nc))
 	return &Runtime{
 		Commands:   orchestration.NewProfileHandler(events),
 		Projection: projection,

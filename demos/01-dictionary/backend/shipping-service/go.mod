@@ -5,8 +5,9 @@ go 1.26
 require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jthomas78/nats-tech-lab/shared/browserrpc v0.0.0-00010101000000-000000000000
-	github.com/jthomas78/nats-tech-lab/shared/natstenants v0.0.0-00010101000000-000000000000
+	github.com/jthomas78/nats-tech-lab/shared/jstream v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natsnotify v0.0.0-00010101000000-000000000000
+	github.com/jthomas78/nats-tech-lab/shared/natstenants v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natstrace v0.0.0-00010101000000-000000000000
 	github.com/nats-io/jwt/v2 v2.8.2
 	github.com/nats-io/nats-server/v2 v2.14.5
@@ -57,6 +58,10 @@ require (
 // primary resolution mechanism, since plain `go mod` subcommands (tidy, in
 // particular) don't reliably honor go.work's implicit local override once
 // the replaced module has its own external dependencies.
+replace github.com/jthomas78/nats-tech-lab/shared/jstream => ../../../../shared/jstream
+
+replace github.com/jthomas78/nats-tech-lab/shared/natstest => ../../../../shared/natstest
+
 replace github.com/jthomas78/nats-tech-lab/shared/natsnotify => ../../../../shared/natsnotify
 
 replace github.com/jthomas78/nats-tech-lab/shared/natstrace => ../../../../shared/natstrace

@@ -18,11 +18,12 @@ import (
 
 var _ = PDescribe("obs.pubsub.* observability (Phase 43a, BR-045/BR-046/BR-049)", func() {
 	// The evt.* seam itself LANDED in the Phase 43a vertical slice and is
-	// covered by real specs next to the code it tests, in
-	// internal/jstream/stream_test.go: TestPublishWithTraceObservesShipEvent,
-	// ...ObservesContainerEvent, ...ContinuesTheCausingTrace,
-	// ...RedactsBeforeObserving, and TestPublisherWithoutObservationStaysSilent.
-	// Nothing is pending for it here.
+	// covered by real specs. Phase 43e merged the two copies of that seam
+	// into shared/jstream, so its contract — traceparent, the observation
+	// gate, trace continuation, redaction, no-observation-on-failure — is
+	// asserted once in shared/jstream/jstream_test.go, and this service's own
+	// ship/container subject shapes in evt_observability_test.go beside this
+	// file. Nothing is pending for it here.
 
 	PContext("notify.* call sites — wired individually, no seam exists", func() {
 		PIt("publishNotify (handler.go:191) publishes one obs.pubsub.{context}.shipping.{entity}.changed envelope")
@@ -33,7 +34,7 @@ var _ = PDescribe("obs.pubsub.* observability (Phase 43a, BR-045/BR-046/BR-049)"
 	})
 
 	PContext("hook placement discipline (BR-045)", func() {
-		PIt("is never wired inside the generic Publish/PublishMsg primitives (internal/jstream)")
+		PIt("is never wired inside the generic publish primitives beneath the shared/jstream seam")
 		PIt("never fires for observability-service's own tracestore.publishNotify (excluded — internal plumbing, not a domain event)")
 		PIt("does fire for internal/kvstore's publishChange, the original that copy was made from")
 	})

@@ -22,7 +22,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/jstream"
+	"github.com/jthomas78/nats-tech-lab/shared/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvstore"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
@@ -45,7 +45,7 @@ func newRefdataJetStream() jetstream.JetStream {
 	js, err := jetstream.New(nc)
 	Expect(err).NotTo(HaveOccurred())
 
-	_, err = jstream.CreateChangeStream(context.Background(), js, kvcache.ChangeStreamName, []string{kvcache.ChangeSubjectWildcard}, time.Hour)
+	_, err = jstream.CreateStream(context.Background(), js, kvcache.ChangeStreamName, []string{kvcache.ChangeSubjectWildcard}, jstream.WithMaxAge(time.Hour))
 	Expect(err).NotTo(HaveOccurred())
 	return js
 }

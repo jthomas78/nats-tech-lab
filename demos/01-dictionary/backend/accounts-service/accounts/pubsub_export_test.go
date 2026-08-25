@@ -99,7 +99,9 @@ func TestAccountLifecycleNotifiesAreInstrumented(t *testing.T) {
 			for len(obs) > 0 {
 				<-obs
 			}
-			h.publishAccountEvent(context.Background(), tc.subject, tc.label, "acme")
+			// Phase 43d made this take the bare action and build the subject
+			// from it; tc.subject stays as the expected wire subject.
+			h.publishAccountEvent(context.Background(), tc.action, tc.label, "acme")
 
 			select {
 			case m := <-obs:

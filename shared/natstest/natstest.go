@@ -5,9 +5,13 @@
 // newObservabilityTestNATS + subscribeObservations, runEmbeddedNATS), each
 // starting a server on a random port, waiting for readiness and returning a
 // named connection plus a cleanup. They differ only in whether they enable
-// JetStream and what they name the connection. This is that shape, once;
-// the existing copies migrate onto it opportunistically rather than in the
-// commit that introduced it.
+// JetStream and what they name the connection. This is that shape, once.
+//
+// Phase 43e promoted it from shared/natsnotify/natstest to a module of its
+// own, because shared/jstream's specs need it too and a test helper that
+// lives inside one seam's module cannot be reached from a sibling seam's.
+// The remaining hand-rolled copies (organizations, accounts) migrate onto it
+// opportunistically rather than in the commit that moved it.
 package natstest
 
 import (
@@ -16,18 +20,35 @@ import (
 
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
+// Option configures the embedded server Start runs.
+type Option func(*server.Options, *testing.T)
+
+// WithJetStream enables JetStream on the embedded server, backed by a store
+// directory scoped to the test. Off by default: notify.* is core NATS, and a
+// spec that needs a stream should say so rather than have every spec pay for
+// a store directory.
+func WithJetStream() Option {
+	return func(o *server.Options, t *testing.T) {
+		o.JetStream = true
+		o.StoreDir = t.TempDir()
+	}
+}
+
 // Start runs an embedded NATS server for the life of the test and returns a
-// connection to it. JetStream is off: notify.* is core NATS, and a caller
-// that needs a stream should ask for one explicitly rather than have every
-// spec pay for a store directory.
+// connection to it.
 //
 // The connection is named, because an anonymous one is indistinguishable in
 // `nats server list connections` — the same rule the services follow.
-func Start(t *testing.T, name string) *nats.Conn {
+func Start(t *testing.T, name string, opts ...Option) *nats.Conn {
 	t.Helper()
-	srv, err := server.NewServer(&server.Options{Port: -1})
+	sopts := &server.Options{Port: -1}
+	for _, opt := range opts {
+		opt(sopts, t)
+	}
+	srv, err := server.NewServer(sopts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,6 +64,19 @@ func Start(t *testing.T, name string) *nats.Conn {
 	}
 	t.Cleanup(func() { nc.Close(); srv.Shutdown() })
 	return nc
+}
+
+// StartJetStream runs an embedded JetStream-enabled server and returns both
+// the connection and a JetStream context on it — the pair every evt.* spec
+// opens with.
+func StartJetStream(t *testing.T, name string) (*nats.Conn, jetstream.JetStream) {
+	t.Helper()
+	nc := Start(t, name, WithJetStream())
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return nc, js
 }
 
 // Subscribe collects messages on subject for the life of the test. The

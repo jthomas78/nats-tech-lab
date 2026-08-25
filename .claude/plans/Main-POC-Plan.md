@@ -1137,6 +1137,90 @@ plus the subject-pinning grants in `accounts-service/auth/token.go:113,180`.
 
 ---
 
+#### 43e — IMPLEMENTED 2026-08-25 — `shared/jstream`: one `evt.*` seam instead of two copies
+
+The `evt.*` sibling of 43d, and the second candidate from the same
+2026-08-25 architecture review. Grilled to an empty frontier (13 questions
+over three rounds) and confirmed before any code was written.
+
+##### The problem
+
+`jstream` existed twice — `shipping-service/internal/jstream/stream.go` (102
+lines) and `refdata-service/refdata/internal/jstream/stream.go` (99 lines).
+`Publisher`, `Publish`, `PublishMsg`, `PublishWithTrace` and
+`EnableObservation` were byte-identical apart from comment wording and
+declaration order; four of the thirteen tests across the two suites were the
+same test written twice. The copies diverged in exactly one place:
+`CreateStream(ctx, js, name, subjects)` vs
+`CreateChangeStream(ctx, js, name, subjects, maxAge)`.
+
+##### Design decisions (confirmed 2026-08-25)
+
+| # | Decision |
+|---|---|
+| Q1 | Scope is the two `jstream` copies only. Organizations' `JetStreamEventStore` keeps its own `append` — the `ExpectedLastSubjSeq` headers, `ErrSequenceConflict` and the returned `ack.Sequence` *are* the reason it exists, and merging would make a shallow generic |
+| Q2 | `shared/jstream` owns `Publisher` plus one `CreateStream` taking options, **and** narrows the exported surface to `PublishWithTrace` — `Publish`/`PublishMsg` become unexported. Neither had a caller outside its own package, so the duplicated public surface was larger than the used one |
+| Q3 | `NewPublisher(js, WithObservation(nc))`; `EnableObservation` gone — the convergence 43d promised |
+| Q4 | `evt.*` keeps positional token derivation. Every `evt.*` subject in the tree is read correctly by it, unlike the two `notify.*` shapes that forced 43d to explicit tokens |
+| Q5 | The duplicated specs move to `shared/jstream`; each service keeps only the specs that assert something about **its** events |
+| Q6 | Lands as 43e, under the already-approved Phase 43 |
+| Q7 | Fix organizations' missing `Traceparent` in this sub-phase |
+| Q8 | Converge organizations' gate too: `NewJetStreamEventStore(js, WithObservation(nc))` |
+| Q9 | Promote `natstest` to `shared/natstest` and give it a JetStream option |
+| Q10 | Keep the local one-method port interfaces in `commands` and `kvcache` — hexagonal rule |
+| Q11 | Migrate only the two `jstream` suites onto `shared/natstest`; organizations' and accounts' bootstraps stay opportunistic |
+| Q12 | Record organizations' traceparent compliance by extending BR-TP75 and updating BR-037's *Enforced in* — no new BR number |
+| Q13 | Delete both `internal/jstream` package directories outright; no re-exporting shim |
+
+##### The BR-037 finding
+
+Organizations' `evt.*` appends carried no `traceparent`. **BR-037 has required
+one on every `evt.*` publish since Phase 28** — so this was not a design gap
+to fill but a documented rule with one service silently out of compliance,
+and nothing failing. Nothing on the consume side read the header, which is
+why it stayed invisible. The fix is four lines in `append` plus two specs;
+the specs were confirmed red against the unfixed code before the fix landed.
+
+##### Business rules
+
+No new rules. BR-037's *Enforced in* now names the third seam; BR-TP75 gained
+the traceparent requirement and the reason this store keeps its own `append`;
+BR-045 and BR-D45 were reworded for the merged seam and the construction-time
+gate.
+
+##### Tasks
+
+- [x] `shared/natstest`: promote out of `shared/natsnotify/natstest`, add
+      `WithJetStream()` / `StartJetStream`; `go.work` entry and
+      `require`/`replace` in every consumer.
+- [x] `shared/jstream`: module, `Publisher`, `NewPublisher`/`WithObservation`,
+      exported `PublishWithTrace` over unexported `publish`/`publishMsg`,
+      `CreateStream` with `WithMaxAge`.
+- [x] Merge the duplicated specs into `shared/jstream/jstream_test.go`, plus
+      two new ones: `TestFailedPublishIsNotObserved` and the pair pinning
+      `CreateStream`'s bounded/unbounded retention.
+- [x] Delete both `internal/jstream` directories; repoint every importer.
+- [x] Narrow `commands.Publisher` and `kvcache.Publisher` to one method.
+- [x] Gates: `rest/tenant.go` and `refdata/composition.go` build their
+      Publisher with `WithObservation`. `Startup` widened to take the
+      `*nats.Conn`; `Handlers.EnableEventObservation` deleted.
+- [x] Organizations: `WithObservation` option, `Traceparent` header in
+      `append`, and the two BR-037 specs.
+- [x] Each service keeps its own subject-shape spec —
+      `shipping-service/dictionary/evt_observability_test.go`,
+      `refdata-service/refdata/evt_observability_test.go`.
+- [x] BR-037 / BR-045 / BR-D45 / BR-TP75 updated in the same commit.
+
+**Deviation from the design summary, recorded during implementation.**
+`TestPublishMsgCarriesHeaders` was one of the four duplicated tests slated to
+move, but Q2 unexported `PublishMsg`, so there is nothing left for it to call
+from outside the package. It is not lost: the header path it covered is the
+one `PublishWithTrace` takes whenever a span is present, which
+`TestPublishWithTraceAttachesTraceparentWhenSpanPresent` asserts end-to-end
+off the wire.
+
+---
+
 ### Phase 46 — PROPOSED (follows 39a; design inherited from Phase 39) — GIT Certificate Change Log + `Awaiting` Presentation Fix
 
 > Split out of Phase 39 at the 2026-08-22 design gate. The design decisions

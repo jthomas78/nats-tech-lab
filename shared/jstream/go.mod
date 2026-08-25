@@ -1,4 +1,4 @@
-module github.com/jthomas78/nats-tech-lab/shared/natsnotify
+module github.com/jthomas78/nats-tech-lab/shared/jstream
 
 go 1.26
 

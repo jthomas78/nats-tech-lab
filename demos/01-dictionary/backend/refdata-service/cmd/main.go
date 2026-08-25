@@ -78,13 +78,10 @@ func run(log *slog.Logger) error {
 	}
 	defer nc.Drain() //nolint:errcheck
 
-	h, err := refdata.Startup(ctx, db, js, anthropicAPIKey)
+	h, err := refdata.Startup(ctx, db, nc, js, anthropicAPIKey)
 	if err != nil {
 		return err
 	}
-	// Phase 43a (BR-D45): opt this service's evt.* seam into obs.pubsub.*
-	// observation, now that the connection JetStream was built on is in hand.
-	h.EnableEventObservation(nc)
 	if anthropicAPIKey == "" {
 		log.Info("ANTHROPIC_API_KEY not set — AI-assisted translation drafting (Phase 11.12) is disabled")
 	}

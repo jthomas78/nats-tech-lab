@@ -16,7 +16,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/eventhandler"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/jstream"
+	"github.com/jthomas78/nats-tech-lab/shared/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/kvstore"
 	"github.com/jthomas78/nats-tech-lab/shared/natstenants"
 )
@@ -165,11 +165,11 @@ func buildTenantResources(ctx context.Context, nc *nats.Conn, tenant string, dep
 		return nil, fmt.Errorf("register projectors for tenant %q: %w", tenant, err)
 	}
 
-	pub := jstream.NewPublisher(js)
 	// Phase 43a (BR-045): every evt.* publish this tenant makes also emits an
 	// obs.pubsub.* observation, which PLATFORM imports under
-	// monitor.{tenant}.pubsub.> for the Admin UI's Messages panel.
-	pub.EnableObservation(nc)
+	// monitor.{tenant}.pubsub.> for the Admin UI's Messages panel. nc must be
+	// this tenant's own connection — see jstream.WithObservation.
+	pub := jstream.NewPublisher(js, jstream.WithObservation(nc))
 	ships := commands.NewShipHandler(pub, js, deps.PortRepo)
 	containers := commands.NewContainerHandler(pub, js, deps.PortRepo)
 	terminal := queries.NewTerminal(kvContainers)

@@ -17,7 +17,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/eventhandler"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/jstream"
+	"github.com/jthomas78/nats-tech-lab/shared/jstream"
 )
 
 func newPlatformNotifyTestNATS() (*nats.Conn, jetstream.JetStream) {

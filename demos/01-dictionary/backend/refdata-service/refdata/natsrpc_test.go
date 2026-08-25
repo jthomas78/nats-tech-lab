@@ -18,7 +18,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/jstream"
+	"github.com/jthomas78/nats-tech-lab/shared/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvstore"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/natsrpc"
@@ -332,7 +332,7 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 
 			js, err := jetstream.New(jsNC)
 			Expect(err).NotTo(HaveOccurred())
-			_, err = jstream.CreateChangeStream(ctx, js, kvcache.ChangeStreamName, []string{kvcache.ChangeSubjectWildcard}, time.Hour)
+			_, err = jstream.CreateStream(ctx, js, kvcache.ChangeStreamName, []string{kvcache.ChangeSubjectWildcard}, jstream.WithMaxAge(time.Hour))
 			Expect(err).NotTo(HaveOccurred())
 
 			kv := kvstore.New(js, "refdata")
@@ -388,7 +388,7 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 
 			js, err := jetstream.New(jsNC)
 			Expect(err).NotTo(HaveOccurred())
-			_, err = jstream.CreateChangeStream(ctx, js, kvcache.ChangeStreamName, []string{kvcache.ChangeSubjectWildcard}, time.Hour)
+			_, err = jstream.CreateStream(ctx, js, kvcache.ChangeStreamName, []string{kvcache.ChangeSubjectWildcard}, jstream.WithMaxAge(time.Hour))
 			Expect(err).NotTo(HaveOccurred())
 
 			kv := kvstore.New(js, "refdata")
@@ -445,7 +445,7 @@ var _ = Describe("NATS RPC Adapter (Phase 12.10)", func() {
 
 			js, err := jetstream.New(jsNC)
 			Expect(err).NotTo(HaveOccurred())
-			_, err = jstream.CreateChangeStream(ctx, js, kvcache.ChangeStreamName, []string{kvcache.ChangeSubjectWildcard}, time.Hour)
+			_, err = jstream.CreateStream(ctx, js, kvcache.ChangeStreamName, []string{kvcache.ChangeSubjectWildcard}, jstream.WithMaxAge(time.Hour))
 			Expect(err).NotTo(HaveOccurred())
 
 			kv := kvstore.New(js, "refdata")

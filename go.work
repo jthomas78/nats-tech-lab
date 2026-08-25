@@ -9,7 +9,9 @@ use (
 	./demos/01-dictionary/backend/shipping-service
 	./demos/01-dictionary/backend/organizations-service
 	./shared/browserrpc
+	./shared/jstream
 	./shared/natsnotify
+	./shared/natstest
 	./shared/natstenants
 	./shared/natstrace
 )

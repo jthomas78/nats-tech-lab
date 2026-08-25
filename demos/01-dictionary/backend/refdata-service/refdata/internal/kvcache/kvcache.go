@@ -98,9 +98,9 @@ type ChangeEvent struct {
 // derived from an in-flight *natstrace.Span, so the change-event pointer a
 // mutation causes rides the same trace as the rpc.*/REST request that caused
 // it (BR-037, BR-D39) — nil-safe, matching jstream.Publisher's own
-// nil-sp-means-plain-Publish behavior.
+// nil-sp-means-plain-publish behavior. One method, because that is all this
+// package uses — Phase 43e unexported the primitives beneath the seam.
 type Publisher interface {
-	Publish(ctx context.Context, subject string, data []byte) error
 	PublishWithTrace(ctx context.Context, sp *natstrace.Span, subject string, data []byte) error
 }
 

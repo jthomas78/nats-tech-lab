@@ -14,7 +14,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
-	"github.com/jthomas78/nats-tech-lab/shared/natsnotify/natstest"
+	"github.com/jthomas78/nats-tech-lab/shared/natstest"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 

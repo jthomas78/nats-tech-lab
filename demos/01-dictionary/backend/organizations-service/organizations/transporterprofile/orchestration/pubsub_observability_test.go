@@ -22,6 +22,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	profiledomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/domain"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 func newObservabilityTestNATS(t *testing.T) (*nats.Conn, jetstream.JetStream, func()) {
@@ -64,8 +65,7 @@ func TestAppendIsTheEvtSeamAndIsObserved(t *testing.T) {
 	defer cleanup()
 	obs := subscribeObservations(t, nc)
 
-	store := NewJetStreamEventStore(js)
-	store.EnableObservation(nc)
+	store := NewJetStreamEventStore(js, WithObservation(nc))
 
 	event := profiledomain.NewCreatedEvent("acme", "01J0TRANSPORTER0000000001")
 	if _, err := store.Append(context.Background(), "acme", "01J0TRANSPORTER0000000001", event, 0); err != nil {
@@ -104,8 +104,7 @@ func TestAppendObservationNeverFailsOrDelaysTheDomainAppend(t *testing.T) {
 	defer cleanup()
 	obs := subscribeObservations(t, nc)
 
-	store := NewJetStreamEventStore(js)
-	store.EnableObservation(nil) // a nil conn must degrade to silence, not panic
+	store := NewJetStreamEventStore(js, WithObservation(nil)) // a nil conn must degrade to silence, not panic
 
 	ctx := context.Background()
 	event := profiledomain.NewCreatedEvent("acme", "01J0TRANSPORTER0000000002")
@@ -118,8 +117,11 @@ func TestAppendObservationNeverFailsOrDelaysTheDomainAppend(t *testing.T) {
 	}
 
 	// A rejected append (BR-TP20's optimistic-concurrency guard) must observe
-	// nothing at all: the event never reached the stream, so it did not happen.
-	store.EnableObservation(nc)
+	// nothing at all: the event never reached the stream, so it did not
+	// happen. A second store on the same stream, this one observing for real
+	// — Phase 43e made observation a construction-time choice, so the switch
+	// is a new store rather than a mutation of this one.
+	store = NewJetStreamEventStore(js, WithObservation(nc))
 	if _, err := store.Append(ctx, "acme", "01J0TRANSPORTER0000000002", event, 0); err != ErrSequenceConflict {
 		t.Fatalf("expected ErrSequenceConflict, got %v", err)
 	}
@@ -138,8 +140,7 @@ func TestTransporterProfilePayloadsPassTheRedactionReview(t *testing.T) {
 	defer cleanup()
 	obs := subscribeObservations(t, nc)
 
-	store := NewJetStreamEventStore(js)
-	store.EnableObservation(nc)
+	store := NewJetStreamEventStore(js, WithObservation(nc))
 
 	event := profiledomain.NewCreatedEvent("acme", "01J0TRANSPORTER0000000003")
 	event.ActorName = "Dana Whitfield"
@@ -165,5 +166,62 @@ func TestTransporterProfilePayloadsPassTheRedactionReview(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("no observation to inspect")
+	}
+}
+
+// --- BR-037 / BR-TP75: the traceparent (Phase 43e) -----------------------
+//
+// BR-037 has required a traceparent on every evt.* publish since Phase 28.
+// This service's seam never attached one — the rule was in the book, nothing
+// enforced it here, and no consumer of these events read the header, so the
+// gap cost nothing and stayed invisible. These two specs are the enforcement.
+
+func appendedMsg(t *testing.T, ctx context.Context) *nats.Msg {
+	t.Helper()
+	nc, js, cleanup := newObservabilityTestNATS(t)
+	t.Cleanup(cleanup)
+
+	received := make(chan *nats.Msg, 1)
+	sub, err := nc.Subscribe(profiledomain.SubjectWildcard, func(m *nats.Msg) { received <- m })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sub.Unsubscribe() })
+
+	store := NewJetStreamEventStore(js, WithObservation(nc))
+	event := profiledomain.NewCreatedEvent("acme", "01J0TRANSPORTER0000000003")
+	if _, err := store.Append(ctx, "acme", "01J0TRANSPORTER0000000003", event, 0); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case m := <-received:
+		return m
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the appended event")
+		return nil
+	}
+}
+
+func TestAppendCarriesTheCausingTraceparent(t *testing.T) {
+	tracer := natstrace.New(nil)
+	sp := tracer.StartOutbound(nil, "rpc.acme.organizations.transporter-profile.create.v1", nil,
+		"acme", "organizations", "transporter-profile", "create")
+	ctx := natstrace.ContextWithSpan(context.Background(), sp)
+
+	got := appendedMsg(t, ctx).Header.Get(natstrace.TraceparentHeader)
+	if got == "" {
+		t.Fatal("BR-037: an evt.* append must carry the traceparent of the span that caused it")
+	}
+	if want := sp.Traceparent(); got != want {
+		t.Fatalf("traceparent = %q, want the causing span's %q", got, want)
+	}
+}
+
+func TestAppendOmitsTraceparentWhenNoSpanIsReachable(t *testing.T) {
+	// Nil-safe, exactly as shared/jstream behaves: a hydration or a tool with
+	// no span on its ctx publishes an unheadered event rather than a
+	// malformed one.
+	if got := appendedMsg(t, context.Background()).Header.Get(natstrace.TraceparentHeader); got != "" {
+		t.Fatalf("expected no traceparent when ctx carries no span, got %q", got)
 	}
 }

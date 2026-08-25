@@ -22,8 +22,11 @@ import (
 // natstrace.ContextWithSpan — nil-safe, matching jstream.Publisher's own
 // PublishWithTrace exactly (that concrete type already satisfies this
 // interface unchanged).
+//
+// One method, because that is all this package uses: Phase 43e unexported
+// the seam's plain and header-carrying primitives, so PublishWithTrace is
+// the whole of the evt.* surface a caller can reach.
 type Publisher interface {
-	Publish(ctx context.Context, subject string, data []byte) error
 	PublishWithTrace(ctx context.Context, sp *natstrace.Span, subject string, data []byte) error
 }
 

@@ -24,7 +24,7 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary/internal/domain"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/jstream"
+	"github.com/jthomas78/nats-tech-lab/shared/jstream"
 )
 
 // consumerCount reports how many consumers currently exist on the SHIPPING

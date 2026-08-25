@@ -5,7 +5,8 @@ package refdata
 //
 //   - evt.* is instrumented *inside* the shared jstream.Publisher seam, so a
 //     future evt.* publisher in this service is covered by construction —
-//     asserted behaviourally in internal/jstream/stream_test.go, and as a
+//     asserted behaviourally in shared/jstream/jstream_test.go (the seam) and
+//     evt_observability_test.go (this service's subject shape), and as a
 //     checked convention here (no call site does its own observing).
 //   - notify.* has no seam, so it is wired per call site — for refdata, the
 //     one call site is the per-tenant fan-out below.

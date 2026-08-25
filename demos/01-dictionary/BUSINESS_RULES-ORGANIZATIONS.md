@@ -1712,6 +1712,26 @@ No separate wire contract: same shared `natstrace` envelope and redaction
 discipline BR-045 defines, not a per-service clone (same reasoning as
 BR-D45's).
 
+**Phase 43e — this seam also carries the `traceparent` BR-037 has required
+since Phase 28.** It did not, from Phase 28 until 2026-08-25. The rule was
+written; nothing enforced it here; no consumer of these events read the
+header, so the omission cost nothing and stayed invisible. `append` now
+derives the span from `ctx` (`natstrace.SpanFromContext`) and sets
+`natstrace.TraceparentHeader` beside the optimistic-concurrency headers it
+already sets — nil-safe, so a hydration or a tool with no span on its `ctx`
+publishes an unheadered event rather than a malformed one, exactly as
+`shared/jstream` behaves. No new rule was needed: BR-037 already said this,
+and what was missing was a test.
+
+**This store keeps its own `append` rather than delegating to
+`shared/jstream`** (Phase 43e, which merged shipping's and refdata's two
+copies of that seam into one module). What lives here — the
+`ExpectedLastSubjSeq` headers, the `ErrSequenceConflict` mapping, the returned
+`ack.Sequence` — *is* the reason this function exists, and folding it into the
+shared seam would produce a generic serving neither caller. What the two do
+share is the construction idiom: `WithObservation(nc)` at construction, no
+post-construction setter, observer nil otherwise.
+
 This service publishes nothing on `notify.*`, so BR-049's per-call-site
 checked list has no entry here.
 
@@ -1723,8 +1743,9 @@ also what keeps the emit off the failure path: it cannot turn a rejected
 append into a reported one, and it drops its own error.
 
 - **Enforced in:** `organizations/transporterprofile/orchestration/event_store.go` —
-  `JetStreamEventStore.EnableObservation` and the `ObservePublish` call at the
-  end of `append` (after the PubAck, parented on whatever span `ctx` carries).
+  `JetStreamEventStore.WithObservation` and the `ObservePublish` call at the
+  end of `append` (after the PubAck, parented on whatever span `ctx` carries),
+  plus the `Traceparent` header `append` sets on the outgoing message (BR-037).
   Opted in per tenant runtime at `organizations/transporterprofile/runtime.go`'s
   `Start`, on the same `*nats.Conn` JetStream was built from — so the envelope
   is published inside that tenant's account and BR-AC34's import remap can name
@@ -1737,4 +1758,6 @@ append into a reported one, and it drops its own error.
   changes neither the returned sequence nor the error, and a rejected append
   emits nothing), and `TestTransporterProfilePayloadsPassTheRedactionReview`
   (`actorName`/`actorSourceIP` stripped and named in `redacted`, with the
-  benign organization id still present).
+  benign organization id still present). Phase 43e adds
+  `TestAppendCarriesTheCausingTraceparent` and
+  `TestAppendOmitsTraceparentWhenNoSpanIsReachable` for BR-037's header.
