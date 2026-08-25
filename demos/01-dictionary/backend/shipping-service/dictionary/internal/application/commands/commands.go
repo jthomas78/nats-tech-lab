@@ -67,18 +67,26 @@ func (h *ShipHandler) ArrivePort(ctx context.Context, in ShipInput) (domain.Ship
 	if err != nil {
 		return domain.ShipState{}, err
 	}
-	if !agg.IsRegistered() {
-		if err := h.register(ctx, agg, in.Context, in.ShipName); err != nil {
-			return domain.ShipState{}, err
-		}
-	}
 	portKnown, err := h.ports.Exists(ctx, in.Context, in.Port)
 	if err != nil {
 		return domain.ShipState{}, err
 	}
+	// BR-050: the arrival is decided in full before anything is published.
+	// This is the only command that emits two events — the implicit
+	// registration of BR-021 followed by the arrival — so it is the only one
+	// that could half-commit. Arrive() reads the natural key and current port,
+	// never agg.ID, so evaluating it ahead of registration is safe; the
+	// alternative (merely hoisting the BR-017 lookup) would be correct only
+	// for as long as every *other* rejection in Arrive() implies an
+	// already-registered ship.
 	event, err := agg.Arrive(in.Port, in.ShipName, portKnown)
 	if err != nil {
 		return domain.ShipState{}, err
+	}
+	if !agg.IsRegistered() {
+		if err := h.register(ctx, agg, in.Context, in.ShipName); err != nil {
+			return domain.ShipState{}, err
+		}
 	}
 	event.Context = in.Context
 	subject := domain.ShipSubject(in.Context, agg.ID, domain.ShipArrivedEvent)

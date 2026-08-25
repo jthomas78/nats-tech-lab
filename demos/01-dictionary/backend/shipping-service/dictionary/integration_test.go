@@ -53,6 +53,16 @@ func newJetStream() jetstream.JetStream {
 	return js
 }
 
+// streamMsgs reports how many messages the SHIPPING stream currently holds.
+func streamMsgs(ctx context.Context, js jetstream.JetStream) uint64 {
+	GinkgoHelper()
+	stream, err := js.Stream(ctx, domain.StreamName)
+	Expect(err).NotTo(HaveOccurred())
+	info, err := stream.Info(ctx)
+	Expect(err).NotTo(HaveOccurred())
+	return info.State.Msgs
+}
+
 // eventually retries fn until it returns nil or the timeout elapses.
 func eventually(fn func() error) {
 	GinkgoHelper()
@@ -141,11 +151,12 @@ var _ = Describe("Domain Rules", func() {
 	var (
 		ctx  context.Context
 		ship *commands.ShipHandler
+		js   jetstream.JetStream
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		js := newJetStream()
+		js = newJetStream()
 		ship = commands.NewShipHandler(jstream.NewPublisher(js), js, newFakePortRepo())
 	})
 
@@ -192,6 +203,40 @@ var _ = Describe("Domain Rules", func() {
 				Context: fleetCtx, ShipID: "br017-vessel", ShipName: "BR017", Port: "Atlantis",
 			})
 			Expect(errors.Is(err, domain.ErrUnknownPort)).To(BeTrue())
+		})
+
+		It("does not register the ship on the way to rejecting it", func() {
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br017-vessel", ShipName: "BR017", Port: "Atlantis",
+			})
+			Expect(errors.Is(err, domain.ErrUnknownPort)).To(BeTrue())
+			Expect(streamMsgs(ctx, js)).To(BeZero())
+		})
+	})
+
+	// BR-050: a command that returns an error publishes no events. ArrivePort
+	// is the only command that emits two (the implicit .registered of BR-021
+	// followed by .arrived), so it is the only one that can half-commit.
+	Context("BR-050: a rejected command publishes no events", func() {
+		It("leaves the stream empty when the arrival is rejected", func() {
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br050-vessel", ShipName: "BR050", Port: "Atlantis",
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(streamMsgs(ctx, js)).To(BeZero())
+		})
+
+		It("leaves the shipID free to register afterwards", func() {
+			_, err := ship.ArrivePort(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br050-vessel", ShipName: "BR050", Port: "Atlantis",
+			})
+			Expect(err).To(HaveOccurred())
+
+			// The surrogate id is minted into the log and is immutable, so a
+			// half-committed registration would take the natural key for good.
+			Expect(ship.RegisterShip(ctx, commands.ShipInput{
+				Context: fleetCtx, ShipID: "br050-vessel", ShipName: "BR050",
+			})).Error().NotTo(HaveOccurred())
 		})
 	})
 

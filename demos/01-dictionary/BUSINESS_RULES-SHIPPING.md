@@ -84,8 +84,8 @@ A ship can only depart the port it is currently docked at. Attempting to depart 
 Ports are reference data (a Postgres `ports` table, not an event-sourced aggregate — registered via `POST /api/ports`). Arriving at a port that isn't registered is rejected.
 
 - **Error:** `ErrUnknownPort` — "port is not registered"
-- **Enforced in:** `ShipAggregate.Arrive()` — the application layer (`ShipHandler.ArrivePort`) resolves `portKnown` via `domain.PortRepository.Exists()` and passes it in as a parameter, the same pattern used for the cross-aggregate checks in `container.go`.
-- **Test:** `Domain Rules / BR-017`
+- **Enforced in:** `ShipAggregate.Arrive()` — the application layer (`ShipHandler.ArrivePort`) resolves `portKnown` via `domain.PortRepository.Exists()` and passes it in as a parameter, the same pattern used for the cross-aggregate checks in `container.go`. Since Phase 47 that resolution happens **before** the implicit registration of BR-021, so a rejected arrival leaves nothing in the log — see BR-050.
+- **Test:** `Domain Rules / BR-017` (including "does not register the ship on the way to rejecting it")
 
 ---
 
@@ -922,6 +922,21 @@ Matching `publish` case-insensitively is retained from the original scan and is 
 
 - **Enforced in:** `shipping-service/internal/notifycoverage/coverage_test.go` — the scan, the `subjectBuilders` allowlist and its reasons. Test-only package: the rule *is* the test.
 - **Test:** `TestNotifySubjectsAreNamedOnlyInSubjectBuilders`, `TestNoFunctionBothNamesANotifySubjectAndPublishesIt`, and `TestSubjectBuilderListHasNoStaleEntries`.
+
+### BR-050 (Phase 47, IMPLEMENTED 2026-08-25) — A command that returns an error publishes no events
+
+A command either commits in full or leaves the event log untouched. There is no partial commit.
+
+**Why this needed to become a rule.** Most commands in this service satisfy it trivially — they hydrate, consult the aggregate, and publish exactly once, so a rejection returns before anything is written. `ShipHandler.ArrivePort` is the one command that emits **two** events: BR-021's implicit `.registered` on a ship's first arrival, followed by `.arrived`. From Phase 8 until Phase 47 it published the first before resolving BR-017, so an arrival at an unregistered port returned `ErrUnknownPort` **and** committed a `.registered` event.
+
+**Why that is worse than it looks.** The SHIPPING stream is `LimitsPolicy`, and the write side rehydrates an aggregate by replaying it. A half-committed registration is therefore real to the write side while the Postgres projection and the KV cache — which only ever saw a registration, never an arrival — show a ship that no command created. And per the surrogate-identity rules the aggregate's id is immutable *because it is in the log*, so the natural key is taken: a later `RegisterShip` for the same `shipID` fails with `ErrShipExists`. A failed command silently consumed a name.
+
+**How it is enforced.** `ArrivePort` decides the arrival in full — `ports.Exists` then `agg.Arrive()` — before it registers anything. Hoisting only the BR-017 lookup would also have worked *today*, because `Arrive()`'s other two rejections (`ErrAlreadyDocked`, `ErrMustDepart`) both require `CurrentPort != ""` and so imply an already-registered ship. That is an argument that has to be re-derived every time a rule is added to `Arrive()`; evaluating the whole event first makes the property structural instead.
+
+**This rule found a false-green test.** `tenant_switch_test.go`'s reactivation spec asserted that a rebuilt tenant's projectors were running by arriving a ship and expecting it in the read model. Its `api.acme.shipping.*` subject means the adapter resolves the context to `acme` (`browserrpc/adapter.go` takes the context from the subject token, not the body), which the fake port repo never seeded — so the arrival had always failed, and the ship reached the read model via the half-committed registration. The spec now seeds its own port.
+
+- **Enforced in:** `ShipHandler.ArrivePort()` — the only command that publishes more than once. The container commands and the remaining ship commands conform by construction (single publish, after all validation).
+- **Test:** `Domain Rules / BR-050`, and `Domain Rules / BR-017` for the specific ordering.
 
 ---
 

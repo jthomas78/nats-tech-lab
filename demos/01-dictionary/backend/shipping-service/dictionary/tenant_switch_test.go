@@ -40,12 +40,20 @@ var _ = Describe("Phase 13b — tenant switch", func() {
 		ctx = context.Background()
 		synthSrv = newTenantSwitchServer()
 
+		// One repo shared by both deps, seeded for "acme" as well as the
+		// default fleet contexts: the api.* adapter takes the context from the
+		// subject token (adapter.go:295), so a request on
+		// api.acme.shipping.* resolves BR-017 against context "acme"
+		// regardless of what the body says.
+		portRepo := newFakePortRepo()
+		Expect(portRepo.Register(ctx, "acme", "Hamburg")).To(Succeed())
+
 		deps := rest.Deps{
-			Ports:         commands.NewPortHandler(newFakePortRepo()),
+			Ports:         commands.NewPortHandler(portRepo),
 			Log:           slog.New(slog.DiscardHandler),
 			ShipRepo:      newFakeRepo(),
 			ContainerRepo: newFakeContainerRepo(),
-			PortRepo:      newFakePortRepo(),
+			PortRepo:      portRepo,
 			NatsURL:       synthSrv.srv.ClientURL(),
 			CredsDir:      synthSrv.CredsDir,
 		}

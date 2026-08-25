@@ -1257,6 +1257,56 @@ Certificates screen and neither buildable before 39a's events exist:
 
 ---
 
+### Phase 47 — IMPLEMENTED 2026-08-25 — A rejected command must publish no events (BR-050)
+
+Found by inspecting a trace produced during Phase 43e's live verification, but
+not a Phase 43 concern: a correctness bug in the write side, filed on its own
+number rather than as 43f.
+
+**The bug.** `ShipHandler.ArrivePort` published BR-021's implicit
+`evt.…ship.{id}.registered` *before* resolving BR-017's port lookup. An arrival
+at an unregistered port therefore returned `ErrUnknownPort` and still committed
+a registration to the `LimitsPolicy` SHIPPING stream. The write side rehydrates
+by replay, so the ship existed to it; the Postgres projection and KV cache,
+having seen only a registration, showed a ship no command had created; and
+because an aggregate's surrogate id is immutable once it is in the log, the
+natural key was consumed — a later `RegisterShip` failed with `ErrShipExists`.
+
+**Scope.** `ArrivePort` is the only site. It is the only command that emits two
+events; every other ship and container command hydrates, validates, and
+publishes exactly once (`RegisterContainer` resolves both of its
+`ports.Exists` calls before its single publish).
+
+**Design decisions** (approved 2026-08-25):
+
+| # | Decision | Chosen |
+|---|---|---|
+| 1 | Rule shape | New general rule **BR-050** ("a command that returns an error publishes no events") rather than an ordering clause bolted onto BR-017 — the defect is the class, and it gives a future two-event command something to be checked against. |
+| 2 | Fix shape | Structural: compute the arrive event in full (`ports.Exists` → `agg.Arrive()`) before registering, so *every* rejection path precedes any publish. Hoisting only the BR-017 lookup would be correct today but only via an argument about `Arrive()`'s other two rejections implying an already-registered ship — one that must be re-derived whenever a rule is added there. |
+| 3 | Test | Strengthen the BR-017 spec to assert the stream is untouched, plus a BR-050 `Context` asserting both an empty stream and that the shipID stays free to register afterwards. Confirmed red first. |
+| 4 | Where it lands | Its own numbered phase. Found-by is provenance, not theme. |
+
+- [x] **47a** — three specs added, confirmed red against the unfixed handler
+      (`Domain Rules / BR-017 / does not register the ship on the way to
+      rejecting it`; `Domain Rules / BR-050 / leaves the stream empty when the
+      arrival is rejected`; `… / leaves the shipID free to register
+      afterwards`), plus a `streamMsgs` helper.
+- [x] **47b** — `ArrivePort` reordered; BR-050 written up and BR-017
+      cross-referenced in `BUSINESS_RULES-SHIPPING.md`.
+- [x] **47c** — fixed the false-green spec the rule exposed.
+      `tenant_switch_test.go`'s reactivation spec claimed to prove the rebuilt
+      tenant's projectors were running by arriving a ship and finding it in the
+      read model. Its `api.acme.shipping.*` subject resolves the context to
+      `acme` (`browserrpc/adapter.go:295` takes the context from the subject
+      token, overwriting the body's), which the fake port repo never seeded —
+      so the arrival had *always* failed and the ship arrived in the read model
+      via the half-committed registration. The spec now seeds `Hamburg` for
+      `acme` on a repo shared by both `Deps` fields. This is the second time
+      the bug surfaced as a phantom ship, after the `SMOKE-43E` cleanup.
+- [x] **47d** — `ginkgo ./...` green across all 9 suites.
+
+---
+
 ### Phase 60 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning
 
 > **Renumbered 2026-08-17** from Phase 24 to Phase 40, alongside Phase
