@@ -18,9 +18,12 @@
 // function rather than reusing MintAdminToken or MintBrowserToken).
 
 import { createConnectionState } from './connectionFactory.js'
+import { REQUESTOR_HEADER, REST_REQUESTOR_ID } from '../requestorId.js'
 
 async function fetchRefdataAdminConnectInfo() {
-  const res = await fetch('/api/auth/refdataAdminConnectInfo')
+  const res = await fetch('/api/auth/refdataAdminConnectInfo', {
+    headers: { [REQUESTOR_HEADER]: REST_REQUESTOR_ID },
+  })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
   return body

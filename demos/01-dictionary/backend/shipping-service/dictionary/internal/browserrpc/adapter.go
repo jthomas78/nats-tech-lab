@@ -481,9 +481,17 @@ func (a *Adapter) publishPortsChanged(ctx context.Context, kvContext string) {
 	if err != nil {
 		return
 	}
-	if err := a.nc.Publish("notify."+kvContext+".shipping.port.changed", data); err != nil && a.log != nil {
-		a.log.Warn("browserrpc: notify publish failed", "context", kvContext, "err", err)
+	subject := "notify." + kvContext + ".shipping.port.changed"
+	if err := a.nc.Publish(subject, data); err != nil {
+		if a.log != nil {
+			a.log.Warn("browserrpc: notify publish failed", "context", kvContext, "err", err)
+		}
+		return
 	}
+	// Phase 43a (BR-045). The span the caller is inside is on ctx when there
+	// is one (SpanFromContext is nil-safe), so a port change observed here
+	// joins the api.* call that caused it rather than rooting an orphan.
+	natstrace.Observe(a.nc, natstrace.SpanFromContext(ctx), subject, data)
 }
 
 // handleMetaKnownContainers is the api.* counterpart of REST's

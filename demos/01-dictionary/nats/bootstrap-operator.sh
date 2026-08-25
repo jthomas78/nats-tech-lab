@@ -146,6 +146,13 @@ for account in ACME GLOBEX; do
   # *import* of it below.
   nsc add export --account "$account" --subject "obs.trace.>" >/dev/null
 
+  # Phase 43a (BR-AC34) — the same reverse leg for obs.pubsub.>, so the Admin
+  # UI's Messages panel sees this tenant's evt.*/notify.* publish traffic.
+  # Day-0 equivalent of accounts-service's Provisioner.addPlatformPubsubImport
+  # path (pubsubExportSubject), which does this at runtime for accounts minted
+  # after boot. A Stream export, same shape as obs.trace.> above.
+  nsc add export --account "$account" --subject "obs.pubsub.>" >/dev/null
+
   # BR-AC31 (Phase 30a) — a second reverse leg: this tenant exports its own
   # $SRV.> control subjects (nats.go/micro's PING/INFO/STATS discovery
   # protocol) back to PLATFORM, so observability-service's Services panel
@@ -197,6 +204,24 @@ for account in ACME GLOBEX; do
   nsc add import --account PLATFORM --src-account "$account_pub" \
     --remote-subject "obs.trace.>" \
     --local-subject "obs.trace.>" \
+    --allow-trace >/dev/null
+done
+
+echo "==> PLATFORM imports each tenant's obs.pubsub.> (Phase 43a cross-tenant Messages panel)"
+# Day-0 equivalent of accounts-service's Provisioner.addPlatformPubsubImport
+# (accounts/provisioner.go). Unlike the obs.trace.> import above this one MUST
+# carry a per-tenant --local-subject remap (ADR-047 amendment A1): every tenant
+# exports the identical literal "obs.pubsub.>", and the local subject is the
+# only thing on the wire that tells a PLATFORM subscriber which account a
+# message came from. Without it GLOBEX's stream lands on ACME's local subject
+# and provenance is unrecoverable — the Messages panel's Tenant column is
+# derived from exactly this remap.
+for account in ACME GLOBEX; do
+  account_pub="$(nsc describe account "$account" --json | jq -r '.sub')"
+  account_name="$(echo "$account" | tr '[:upper:]' '[:lower:]')"
+  nsc add import --account PLATFORM --src-account "$account_pub" \
+    --remote-subject "obs.pubsub.>" \
+    --local-subject "monitor.${account_name}.pubsub.>" \
     --allow-trace >/dev/null
 done
 
@@ -254,8 +279,15 @@ nsc add user --account PLATFORM shipping-admin >/dev/null
 # connection instead). Added to allow-pub, matching the existing allow-sub
 # breadth, so the service-discovery broadcast/reply round-trip actually
 # completes.
+# obs.pubsub.> (Phase 43a, BR-045/BR-049) is the observation of the very
+# republish above: this bridge is one of the instrumented notify.* call sites,
+# and its emit goes out on this same restricted connection. Without the grant
+# the publish is dropped server-side as a Publish Violation and the refdata
+# change is simply missing from the Messages panel — silently, which is the
+# failure mode BR-049 exists to prevent. Publish-only: this user never
+# subscribes to obs.pubsub.>, that is observability-service's job.
 nsc edit user --account PLATFORM --name shipping-admin \
-  --allow-pub '$JS.API.CONSUMER.CREATE.REFDATA.>,$JS.API.CONSUMER.INFO.REFDATA.>,$JS.API.CONSUMER.DELETE.REFDATA.>,$JS.API.CONSUMER.MSG.NEXT.REFDATA.>,notify._platform.>,$SRV.>' \
+  --allow-pub '$JS.API.CONSUMER.CREATE.REFDATA.>,$JS.API.CONSUMER.INFO.REFDATA.>,$JS.API.CONSUMER.DELETE.REFDATA.>,$JS.API.CONSUMER.MSG.NEXT.REFDATA.>,notify._platform.>,obs.pubsub.>,$SRV.>' \
   --allow-sub '$SRV.>,_INBOX.>,$JS.API.CONSUMER.MSG.NEXT.REFDATA.>' >/dev/null
 nsc generate creds --account PLATFORM --name shipping-admin >"$NATS_DIR/creds/shipping-admin.creds"
 
@@ -384,9 +416,22 @@ echo "==> restricted PLATFORM observability creds (Phase 30c)"
 # flow-control window fills, since the server simply stops pushing further
 # updates rather than erroring the request. Scoped to the
 # KV_trace-request-reply backing stream, mirroring fix #3/#4's scoping.
+# Phase 43b (BR-047) — the pub/sub store owns two more resources in THIS
+# account, exactly the same resource-scoped shape as Phase 30g's pair above:
+# the PUBSUB stream and its KV_pubsub-messages backing stream, plus that
+# bucket's $KV/$JS.FC/$JS.API.DIRECT.GET subjects, the $JS.ACK subject for
+# its durable pubsub-store-projector consumer, and the
+# notify._platform.kv.pubsub-messages.> subject its writes fire for the
+# Messages panel's live feed. Every one of these is the direct analogue of a
+# grant the trace store already needed — including the two (FC and DIRECT.GET)
+# that Phase 30i only found live, which is why they are wired here up front
+# rather than waiting to be rediscovered the same way. Note there is no new
+# --allow-sub: the stream captures obs.pubsub.>/monitor.*.pubsub.> server-side
+# (stream ingestion is not a subscription), and the projector's own consumer
+# delivers on _INBOX.>, which is already granted.
 nsc add user --account PLATFORM observability >/dev/null
 nsc edit user --account PLATFORM --name observability \
-  --allow-pub 'monitor.>,$SRV.>,$JS.API.INFO,$JS.API.STREAM.LIST,$JS.API.STREAM.INFO.*,$JS.API.CONSUMER.CREATE.*,$JS.API.CONSUMER.CREATE.*.*,$JS.API.CONSUMER.CREATE.*.*.>,$JS.API.CONSUMER.MSG.NEXT.*.*,$JS.API.CONSUMER.DELETE.*.*,$JS.API.STREAM.CREATE.TRACES,$JS.API.STREAM.UPDATE.TRACES,$JS.API.STREAM.CREATE.KV_trace-request-reply,$JS.API.STREAM.UPDATE.KV_trace-request-reply,$JS.API.DIRECT.GET.KV_trace-request-reply.>,$JS.ACK.TRACES.trace-store-projector.>,$JS.FC.KV_trace-request-reply.>,$KV.trace-request-reply.>,notify._platform.kv.trace-request-reply.>' \
+  --allow-pub 'monitor.>,$SRV.>,$JS.API.INFO,$JS.API.STREAM.LIST,$JS.API.STREAM.INFO.*,$JS.API.CONSUMER.CREATE.*,$JS.API.CONSUMER.CREATE.*.*,$JS.API.CONSUMER.CREATE.*.*.>,$JS.API.CONSUMER.MSG.NEXT.*.*,$JS.API.CONSUMER.DELETE.*.*,$JS.API.STREAM.CREATE.TRACES,$JS.API.STREAM.UPDATE.TRACES,$JS.API.STREAM.CREATE.KV_trace-request-reply,$JS.API.STREAM.UPDATE.KV_trace-request-reply,$JS.API.DIRECT.GET.KV_trace-request-reply.>,$JS.ACK.TRACES.trace-store-projector.>,$JS.FC.KV_trace-request-reply.>,$KV.trace-request-reply.>,notify._platform.kv.trace-request-reply.>,$JS.API.STREAM.CREATE.PUBSUB,$JS.API.STREAM.UPDATE.PUBSUB,$JS.API.STREAM.CREATE.KV_pubsub-messages,$JS.API.STREAM.UPDATE.KV_pubsub-messages,$JS.API.DIRECT.GET.KV_pubsub-messages.>,$JS.ACK.PUBSUB.pubsub-store-projector.>,$JS.FC.KV_pubsub-messages.>,$KV.pubsub-messages.>,notify._platform.kv.pubsub-messages.>' \
   --allow-sub 'monitor.>,$SRV.>,_INBOX.>' >/dev/null
 nsc generate creds --account PLATFORM --name observability >"$NATS_DIR/creds/observability.creds"
 

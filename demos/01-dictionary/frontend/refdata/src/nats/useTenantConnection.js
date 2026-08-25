@@ -23,9 +23,12 @@
 
 import { ref } from 'vue'
 import { createConnectionState } from './connectionFactory.js'
+import { REQUESTOR_HEADER, REST_REQUESTOR_ID } from '../requestorId.js'
 
 async function fetchConnectInfo(forTenant) {
-  const res = await fetch(`/api/auth/connectInfo?tenant=${encodeURIComponent(forTenant)}`)
+  const res = await fetch(`/api/auth/connectInfo?tenant=${encodeURIComponent(forTenant)}`, {
+    headers: { [REQUESTOR_HEADER]: REST_REQUESTOR_ID },
+  })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
   return body

@@ -365,6 +365,52 @@ var _ = Describe("Handlers", func() {
 		Expect(tp).NotTo(ContainSubstring(parentSpanID), "the notify's own span mints a fresh child span id, not the inbound request's own span id")
 	})
 
+	// BR-AC35: the span POST /api/accounts publishes must name both ends —
+	// the Admin UI's self-declared caller identity and this instance. Driven
+	// through the real Mount'ed routes and BasicAuth, since that is the exact
+	// path the Accounts panel takes (the browser calls
+	// /api/platform/accounts, which nginx/vite rewrite onto this route).
+	It("BR-AC35: the POST /api/accounts span records the caller's Nats-Requestor and this instance's Nats-Responder", func() {
+		traceNC := ots.ConnectSys(GinkgoT())
+		defer traceNC.Close()
+		spans := make(chan *nats.Msg, 8)
+		sub, err := traceNC.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+		Expect(err).NotTo(HaveOccurred())
+		defer sub.Unsubscribe() //nolint:errcheck
+		Expect(traceNC.Flush()).To(Succeed())
+
+		tracedHandlers := accounts.NewHandlers(store, provisioner, GinkgoT().TempDir(), slog.New(slog.DiscardHandler), nil, auditLog)
+		mux := http.NewServeMux()
+		tracedHandlers.Mount(mux, authSecret)
+		tracedServer := httptest.NewServer(natstrace.New(traceNC).HTTPMiddleware("_platform", "accounts", mux))
+		defer tracedServer.Close()
+
+		req, err := http.NewRequest(http.MethodPost, tracedServer.URL+"/api/accounts", bytes.NewReader([]byte(`{"name":"identity-tenant"}`)))
+		Expect(err).NotTo(HaveOccurred())
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(natstrace.RequestorHeader, "admin-app/0123456789abcdef")
+		req.SetBasicAuth(accounts.BasicAuthUser, authSecret)
+		resp, err := tracedServer.Client().Do(req)
+		Expect(err).NotTo(HaveOccurred())
+		defer resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		var span struct {
+			Subject   string              `json:"subject"`
+			Requester string              `json:"requester"`
+			Headers   map[string][]string `json:"headers"`
+		}
+		var msg *nats.Msg
+		Eventually(spans, 3*time.Second).Should(Receive(&msg))
+		Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+		Expect(span.Subject).To(Equal("/api/accounts"), "this is the span the Traces panel labels /api/accounts")
+		Expect(span.Requester).To(Equal("admin-app/0123456789abcdef"))
+		Expect(span.Headers).To(HaveKeyWithValue(natstrace.RequestorHeader, []string{"admin-app/0123456789abcdef"}))
+		Expect(span.Headers[natstrace.ResponderHeader]).To(HaveLen(1))
+		Expect(span.Headers[natstrace.ResponderHeader][0]).To(HavePrefix(traceNC.Opts.Name+"/"),
+			"the responder's name half is the publishing connection's own nats.Name")
+	})
+
 	It("does not fail account creation when NotifyNC is unset", func() {
 		resp := doRequest(http.MethodPost, "/api/accounts", map[string]any{"name": "no-notify-tenant"}, accounts.BasicAuthUser, authSecret)
 		defer resp.Body.Close()

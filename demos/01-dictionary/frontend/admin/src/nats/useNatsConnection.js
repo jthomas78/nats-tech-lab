@@ -13,9 +13,16 @@
 
 import { ref } from 'vue'
 import { createConnectionState } from './connectionFactory.js'
+import { REQUESTOR_HEADER, REST_REQUESTOR_ID } from '../requestorId.js'
 
 async function fetchConnectInfo(forTenant) {
-  const res = await fetch(`/api/auth/connectInfo?tenant=${encodeURIComponent(forTenant)}`)
+  // Declares this tab's identity like every other REST call (BR-AC35).
+  // This one is not routed through api.js's request() helper — it must work
+  // before any connection exists, which is exactly why it's here — so it
+  // needs the header set explicitly rather than inheriting it.
+  const res = await fetch(`/api/auth/connectInfo?tenant=${encodeURIComponent(forTenant)}`, {
+    headers: { [REQUESTOR_HEADER]: REST_REQUESTOR_ID },
+  })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
   return body

@@ -1205,7 +1205,7 @@ covered by its own allowlist test since they live in separate packages:
   — `TestAuthMountRoutesMatchAdminAllowlist`. Each asserts its `Mount`'s
   returned route list `ConsistOf` its 13- or 5-entry allowlist above.
 
-### BR-AC34 (Phase 43a, CONFIRMED 2026-08-25 — not yet implemented) — `tenantExports()` gains a second Stream export, `obs.pubsub.>`, imported into PLATFORM under a per-tenant `LocalSubject` remap
+### BR-AC34 (Phase 43a, IMPLEMENTED 2026-08-25) — `tenantExports()` gains a second Stream export, `obs.pubsub.>`, imported into PLATFORM under a per-tenant `LocalSubject` remap
 
 `tenantExports()` (`accounts/provisioner.go:315`) gains a second entry alongside the existing `obs.trace.>` export: `{Subject: jwt.Subject("obs.pubsub.>"), Type: jwt.Stream}` — no `AllowTrace`, no `ResponseType`, the same export shape as `obs.trace.>`.
 
@@ -1223,5 +1223,99 @@ Instrumenting them on `obs.pubsub.*` as well would put one event on two channels
 
 **Deliberately out of scope:** retrofitting the same remap onto the existing `obs.trace.>` import, which would fix the Traces panel's coarse gutter too. That is a change to a shipped pipeline and belongs in its own phase.
 
-- **Enforced in:** not yet — Phase 43a.
-- **Test:** not yet written — pending Phase 43a implementation.
+**The channel move landed 2026-08-25, and the intermediate span went with it.** This rule said `publishAccountEvent` "keeps its span for trace continuation." In implementation that span turned out to be an artifact of the old channel: it was started (`natstrace.StartOutbound`) purely so there was something to `End` onto `obs.trace.*`. With that channel gone it would publish nothing at all, while the `Traceparent` header it minted would point at a span no store ever receives — a dangling parent in every consumer's waterfall. So the notify now continues the **causing request's** span directly, exactly as every other instrumented `notify.*` call site does. That is the trace continuation this rule asked to keep; what was dropped is a synthetic hop with nothing left to publish.
+
+**Day-0 accounts need the same pair in `nats/bootstrap-operator.sh`, and did not have it (found 2026-08-25 against the running stack).** `Provisioner.CreateAccount` only covers accounts minted **after** boot; ACME and GLOBEX are created by the bootstrap script, which had the day-0 equivalents of the `obs.trace.>` export, the `$SRV.>` export/import and the `$JS.API` exports but nothing for `obs.pubsub.>`. The script now adds both legs — the per-tenant `obs.pubsub.>` export beside the `obs.trace.>` one, and a PLATFORM import loop carrying the `monitor.{tenant}.pubsub.>` remap and `--allow-trace`, mirroring `addPlatformPubsubImport` exactly. **The lesson is general:** every export/import pair this rule family adds has two homes, the provisioner and the bootstrap script, and only the provisioner has tests — a new pair is not done until the script has it too. The related symptom, from the same root cause: `bootstrap-operator.sh` short-circuits on an existing `operator.jwt`, so the checked-in `.creds`/account JWTs kept whatever grants they were generated with. Phase 43a's new `obs.pubsub.>` allow-pub for `shipping-admin` and the six `PUBSUB`/`KV_pubsub-messages` grants for `observability` were in the script but not in the artifacts, and the running stack logged `Permissions Violation for Publish to "obs.pubsub.…"` on every refdata change while the panel stayed empty. A grant change to that script is only live after `./bootstrap-operator.sh --force` plus `docker compose down -v && up --build`.
+
+- **Enforced in:** `accounts/provisioner.go` — `pubsubExportSubject` / `pubsubLocalSubjectTmpl` (declared alongside their `traceExportSubject` / `monitorLocalSubjectTmpl` siblings), the `obs.pubsub.>` entry in `tenantExports()`, and `addPlatformPubsubImport`, called from `CreateAccount` under the same `platformPublicKey != ""` gate as the trace and `$SRV.>` imports. `accounts/handler.go` — `publishAccountEvent` now emits one `obs.pubsub._platform.accounts.account.{action}` envelope (`natstrace.ObserveAs`, tokens named because this family carries no `{context}`) after a successful publish, and no longer publishes an `obs.trace.*` span.
+- **Test:** `accounts/pubsub_export_test.go` — `TestTenantExportsIncludesObsPubsubStreamExport` (Stream type, no `AllowTrace`/`ResponseType`, survives a plain re-sign); `accounts/provisioner_test.go` — "re-signs PLATFORM's own claims to import each new tenant's `obs.pubsub.>` export under a tenant-scoped local subject" (two tenants get `monitor.acme.pubsub.>` / `monitor.globex.pubsub.>` side by side, and a retry does not duplicate the import). `accounts/pubsub_export_test.go` — `TestAccountLifecycleNotifiesAreInstrumented` is now a real spec: each of the four subjects produces exactly one envelope, on `obs.pubsub.*` and not `obs.trace.*` (it subscribes to `obs.>`, so landing on the old channel fails loudly rather than silently passing), with the `direction`/`subject` the envelope should carry. The four call sites also appear on BR-049's scan as delegating to the shared publisher.
+
+### BR-AC35 (IMPLEMENTED 2026-08-25) — A REST-transport span carries the same `Nats-Requestor`/`Nats-Responder` identity pair an `api.*`/`rpc.*` span does
+
+BR-027/BR-D37 gave every `rpc.*`/`api.*` hop an instance-qualified identity
+pair: the caller declares `Nats-Requestor: "<name>/<instance ID>"` on the
+request, and the answering adapter stamps `Nats-Responder` on the reply.
+Both were scoped to the NATS transports, so the REST entry points — the ones
+`natstrace.HTTPMiddleware` (accounts-service) and shipping-service's
+`httpTraceMiddleware` wrap — recorded **neither** half: the Admin UI's trace
+detail read "no `Nats-Requestor` on this span" / "no `Nats-Responder` on this
+span" for every REST hop, sitting beside `api.*` hops that showed both. A
+`POST /api/accounts` span in particular named nobody at either end, despite
+being the root of the whole trace.
+
+This rule extends the same pair to the REST hops, with the two halves coming
+from different places because the transports differ:
+
+- **Requestor** — the browser declares it, exactly as it already does on
+  `api.*`. Each frontend now derives *one* per-tab instance ID
+  (`src/requestorId.js`) and uses it for both transports: `"<app>/<tab id>"`
+  on REST (`api.js`) and `"<connection name>/<tab id>"` on that app's NATS
+  connections (`nats/connectionFactory.js`). Sharing the instance half is the
+  point — a REST call and an `api.*` call from the same click must read as
+  one actor, not two unrelated ones. `natstrace` needs no change to receive
+  it: both middlewares already capture the full inbound header set, and
+  `net/http` canonicalizes any casing to exactly `Nats-Requestor`, so
+  `finish()`'s existing BR-041 lift onto `traceSpan.Requester` works
+  unmodified.
+- **Responder** — derived server-side from the publishing connection's own
+  `nats.Name`, since a REST entry point has no `micro.Service` to read an
+  identity off: `natstrace.ResponderIdentity(nc)` is
+  `"<nats.Name>/<instance ID>"`, and `Tracer.ResponderHeaders()` is the
+  header map the middlewares pass to `End`/`Fail`. The instance half is
+  minted **once per process** (a package-level `var`), deliberately not per
+  `Tracer`: shipping-service's `httpTraceMiddleware` builds a fresh `Tracer`
+  on every request to follow `SwitchTenant`, so a per-`Tracer` value would
+  report a new "instance" per request and tell no two replicas apart. A
+  connection with no `nats.Name` yields `""` and the middleware then stamps
+  no header at all — a half-formed `"/abc123"` identity would read as a real
+  service whose name is the empty string.
+
+**Unlike the NATS case, the responder half exists only on the span, not on
+the wire.** `browserrpc.Respond` puts `Nats-Responder` on the real reply
+message *and* the span (BR-027's parity claim); an HTTP response has no
+equivalent — adding a response header would change bytes a browser sees for
+a purely observability-side field. The wire name itself is now defined once,
+in `natstrace` (`RequestorHeader`/`ResponderHeader`), and re-exported by
+`shared/browserrpc` so the two identity sources — `micro.Service.Info()`
+there, `nats.Conn.Opts.Name` here — cannot drift onto different field names.
+
+**BR-041 still governs the requestor half unchanged:** it is self-declared,
+carried for observability only, and no handler may branch on it. Widening it
+to a second transport widens what the Traces panel can *display*, and
+nothing else — a browser can put any string it likes in this header over
+REST exactly as it can over NATS.
+
+- **Enforced in:** `shared/natstrace/natstrace.go` — `RequestorHeader`/
+  `ResponderHeader` constants, package-level `instanceID`,
+  `ResponderIdentity`, `Tracer.ResponderHeaders`, and `HTTPMiddleware`'s
+  `End`/`Fail` calls; `shipping-service`'s
+  `dictionary/internal/rest/trace_middleware.go` (same `End`/`Fail` change);
+  `shared/browserrpc/browserrpc.go` (`ResponderHeader` re-export);
+  `frontend/{admin,refdata,seafreight-app}/src/requestorId.js` plus each
+  app's `api.js` (REST) and `nats/connectionFactory.js` /
+  `nats/useNatsConnection.js` (NATS).
+- **Test:** `shared/natstrace/natstrace_test.go` — "records the requestor
+  from the inbound HTTP header and the responder from the connection's
+  `nats.Name`" (asserts the requestor reaches both `Headers` and the
+  `Requester` field, and that the responder's name half comes from the
+  connection rather than a hardcoded string), "still records the responder on
+  a failed (>=400) REST span", and the `ResponderIdentity`/
+  `ResponderHeaders` context (stable across two `Tracer`s on one connection;
+  no header at all for a nil/unnamed connection or a nil `Tracer`).
+  `shipping-service`'s `trace_middleware_test.go` —
+  `TestHTTPTraceMiddlewareRecordsBothHalvesOfTheIdentityPair` and
+  `TestHTTPTraceMiddlewareResponderInstanceIsStableAcrossRequests` (the
+  latter is the per-request-`Tracer` guard). `frontend/admin`'s
+  `src/restRequestor.spec.js` — every REST call carries the header, the
+  format is `"<name>/<tab id>"`, and the REST and `api.*` identities share
+  one tab id. `src/restRequestorAudit.spec.js` (all three apps) — a
+  source-level audit that every `fetch()` call site in the app carries the
+  header, with a per-app exemption list for requests that reach no traced
+  HTTP entry point (a static asset; organizations-service's document
+  endpoints, which have no HTTP trace middleware). This audit exists because
+  the first cut of this rule missed a whole class of call site: the
+  credential fetches (`/api/auth/connectInfo`, `/api/auth/adminConnectInfo`,
+  `/api/auth/refdataAdminConnectInfo`, `/api/auth/tenants`) live in the
+  connection modules rather than `api.js`'s shared helper — they must work
+  before any connection exists — so a spec that only exercised `api.js`
+  passed while those spans stayed anonymous.

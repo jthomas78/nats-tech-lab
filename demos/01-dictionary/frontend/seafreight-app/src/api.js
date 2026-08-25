@@ -13,6 +13,7 @@
 // Phase 15's Context section).
 
 import { request } from './nats/useNatsConnection'
+import { REQUESTOR_HEADER, REST_REQUESTOR_ID } from './requestorId.js'
 
 function apiSubject(context, entity, action) {
   return `api.${context}.shipping.${entity}.${action}.v1`
@@ -87,7 +88,13 @@ export function notifySubject(context, entity) {
 // fallback"). ──
 
 export async function getBusinessUnits(tenant) {
-  const res = await fetch(`/api/platform/accounts/${encodeURIComponent(tenant)}/business-units`)
+  // The only REST call left in this app — it still declares this tab's
+  // Nats-Requestor identity (the same value the api.* calls send) so
+  // accounts-service's HTTP span can name its caller. Observability only
+  // (BR-041).
+  const res = await fetch(`/api/platform/accounts/${encodeURIComponent(tenant)}/business-units`, {
+    headers: { [REQUESTOR_HEADER]: REST_REQUESTOR_ID },
+  })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
   return Array.isArray(body) ? body : []

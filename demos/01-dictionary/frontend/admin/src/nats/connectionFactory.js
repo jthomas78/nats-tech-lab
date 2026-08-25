@@ -29,6 +29,8 @@
 import { ref } from 'vue'
 import { headers, jwtAuthenticator, wsconnect } from '@nats-io/nats-core'
 
+import { REQUESTOR_HEADER, requestorID as buildRequestorID } from '../requestorId.js'
+
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
@@ -36,7 +38,6 @@ const decoder = new TextDecoder()
 // Admin UI's own Request/Reply panel can attribute traffic to, and the value
 // organizations-service records as an audit row's sourceIP (NATS has no
 // client address to record instead — see browserrpc's actor()).
-const REQUESTOR_HEADER = 'Nats-Requestor'
 const REQUEST_TIMEOUT_MS = 10000
 
 function errorMessage(err) {
@@ -56,10 +57,11 @@ export function createConnectionState({ fetchConnectInfo, connectionName }) {
   const connected = ref(false)
   const lastError = ref('')
 
-  // Per-instance so the tenant and PLATFORM connections are distinguishable in
-  // the Request/Reply panel, and stable for the tab's lifetime so a series of
-  // calls is attributable to one session.
-  const requestorID = `${connectionName}/${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
+  // Named per connection so the tenant and PLATFORM connections are
+  // distinguishable in the Request/Reply panel, over one tab-wide instance
+  // half (requestorId.js) so this app's REST calls and its api.* calls read
+  // as the same actor rather than two unrelated ones.
+  const requestorID = buildRequestorID(connectionName)
 
   let nc = null
   let connectSeq = 0

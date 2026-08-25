@@ -164,7 +164,7 @@ var _ = Describe("MintAdminToken", func() {
 	// (Phase 28g) — no publish grant, no $JS.API.>/$KV.>, no tenant-shaped
 	// api.>/notify.{tenant}.* access. notify._platform.rpctrace.> (Phase 23)
 	// was retired in Phase 28g along with the RPCTRACE stream itself.
-	It("mints a sub-only JWT scoped to notify.accounts.account.>, notify._platform.refdata.>, and notify._platform.kv.trace-request-reply.>, with publish denied entirely", func() {
+	It("mints a sub-only JWT scoped to notify.accounts.account.>, notify._platform.refdata.>, and the two KV-notify buckets the observability panels read, with publish denied entirely", func() {
 		info, err := auth.MintAdminToken(accountPub, accountSigningSeed, "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(info.WSUrl).To(Equal("ws://localhost:9222"))
@@ -176,9 +176,16 @@ var _ = Describe("MintAdminToken", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(claims.IssuerAccount).To(Equal(accountPub))
 
+		// Phase 43b (BR-047) adds the second KV-notify subject, for the
+		// Messages panel's live feed. obs.pubsub.> itself is deliberately
+		// absent — a browser credential is never granted it (BR-AC34), it
+		// reads the projected bucket over HTTP and only *watches* for changes
+		// here.
 		Expect(claims.Permissions.Sub.Allow).To(ConsistOf(
-			"notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.kv.trace-request-reply.>",
+			"notify.accounts.account.>", "notify._platform.refdata.>",
+			"notify._platform.kv.trace-request-reply.>", "notify._platform.kv.pubsub-messages.>",
 		))
+		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("obs.")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("rpctrace")))
 		Expect(claims.Permissions.Pub.Allow).To(BeEmpty())
 		Expect(claims.Permissions.Pub.Deny).To(ConsistOf(">"))

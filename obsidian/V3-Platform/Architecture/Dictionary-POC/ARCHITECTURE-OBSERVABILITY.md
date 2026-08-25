@@ -381,11 +381,43 @@ slice holds.
 1. [x] Business-rules-first pass — BR-045–049 (shipping), BR-D45 (refdata),
        BR-AC34 (accounts), BR-TP75 (organizations) drafted and amended per
        this review. Still PROPOSED, awaiting confirmation.
-2. [ ] Redaction review of real `evt.*`/`notify.*` payloads (A8) —
-       **before** 43a's hook is wired.
-3. [ ] Derive Ginkgo specs from those rules (red → green → refactor).
-4. [ ] Implement as a thin vertical slice first (A10), then widen.
-5. [ ] Once implemented, move this panel's description into
-       [ARCHITECTURE-ADMIN.md](ARCHITECTURE-ADMIN.md) §4 alongside its
-       siblings, and leave only this ADR behind here as the historical
-       decision record.
+2. [x] Redaction review of real `evt.*`/`notify.*` payloads (A8) —
+       completed 2026-08-25, before 43a's hook was wired. Two fields added
+       to the shared denylist (`actorName`, `actorSourceIP`); recorded in
+       full in BR-046.
+3. [x] Derive specs from those rules (red → green → refactor) — done for
+       the slice below; the widening step's specs are still the pending
+       stubs.
+4. [x] Implement as a thin vertical slice first (A10), then widen. Both
+       halves landed 2026-08-25. **Slice:** `natstrace.ObservePublish`/`ObservePublishAs`
+       (the envelope, its subject derivation, trace continuation,
+       `Nats-Msg-Id` = `spanId`, redact-then-truncate, the
+       self-observation guard), the `evt.*` seam in shipping only
+       (`Publisher.EnableObservation` + `PublishWithTrace`), and A1's
+       `obs.pubsub.>` export + `monitor.{tenant}.pubsub.>` import remap.
+       **Widening (same day):** all five of shipping's `notify.*` call
+       sites, the accounts channel move off `obs.trace.*`, refdata's and
+       organizations' `evt.*` seams, and BR-049's `go/ast` coverage scan.
+       Three things the widening settled that the design had not: the
+       accounts channel move made the outbound span it used to publish
+       redundant (it now continues the causing request's span instead of
+       minting a hop nothing receives); refdata's `notify.*` observation
+       belongs in the per-tenant fan-out rather than the bridge, since only
+       the fan-out holds a tenant connection to make the envelope
+       attributable — A1's provenance argument again, on the emit side; and
+       `pubsubstore.publishNotify` had to join the exclusion list, because
+       observing a notify about the obs.pubsub bucket feeds that bucket
+       from itself without bound. **43b landed 2026-08-25** — `pubsubstore`, its own `PUBSUB`
+       stream over both subject sets, the `pubsub-messages` bucket, and
+       measured caps (A5/A6/A7). Two corrections it produced: a real
+       envelope is 454–592 B, not the ~2 KiB A5 assumed, and the stream
+       must capture `monitor.*.pubsub.>` as well as `obs.pubsub.>` or it
+       sees no tenant traffic at all. 43c is what puts any of it on screen.
+5. [x] Panel description moved into
+       [ARCHITECTURE-ADMIN.md](ARCHITECTURE-ADMIN.md) §4.9 alongside its
+       siblings (2026-08-25, with 43c); this ADR remains behind as the
+       historical decision record. **43c landed 2026-08-25** —
+       `MessagesPanel.vue` on its own `pubsub` nav entry, fed by
+       `usePubsubFeed.js`, with the tenant named per row from the import
+       remap, an `evt`-default family filter, a 500-row cap, pause/resume,
+       and an explicit best-effort disclaimer (A1/A9 discharged on screen).

@@ -252,6 +252,26 @@ var _ = Describe("KVStore — per-tenant bucket with context-prefixed keys", fun
 			Expect(msg.Header.Get(natstrace.TraceparentHeader)).To(Equal(sp.Traceparent()))
 		})
 
+		// Phase 43a (BR-045): the KV-change notify is one of the five
+		// instrumented notify.* call sites. Its observation names its tokens
+		// explicitly — the key is itself dotted, so nothing positional would
+		// be reliable here.
+		It("observes the notify publish on obs.pubsub.{context}.kv.{bucket}.changed", func() {
+			store.EnableNotify(nc, nil)
+
+			sub, err := nc.SubscribeSync("obs.pubsub.>")
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(sub.Unsubscribe)
+
+			_, err = store.Put(ctx, "acme-pacific-fleet", "ship.SHIP1", []byte(`{"id":"SHIP1"}`))
+			Expect(err).NotTo(HaveOccurred())
+
+			msg, err := sub.NextMsg(2 * time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(msg.Subject).To(Equal("obs.pubsub.acme-pacific-fleet.kv.ships.changed"))
+			Expect(string(msg.Data)).To(ContainSubstring(`"subject":"notify.acme-pacific-fleet.kv.ships.ship.SHIP1.changed"`))
+		})
+
 		It("omits the Traceparent header cleanly when ctx carries no span", func() {
 			store.EnableNotify(nc, nil)
 

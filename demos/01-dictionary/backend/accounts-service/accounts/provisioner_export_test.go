@@ -23,3 +23,10 @@ func (p *Provisioner) AddPlatformMonitorImportForTest(ctx context.Context, platf
 func (p *Provisioner) AddPlatformJSAPIImportForTest(ctx context.Context, platformPublicKey, tenantAccountPub, tenantName string) error {
 	return p.addPlatformJSAPIImport(ctx, platformPublicKey, tenantAccountPub, tenantName)
 }
+
+// AddPlatformPubsubImportForTest exposes the unexported
+// addPlatformPubsubImport (BR-AC34, Phase 43a) the same way, for the
+// "obs.pubsub.>" remap/idempotency spec in provisioner_test.go.
+func (p *Provisioner) AddPlatformPubsubImportForTest(ctx context.Context, platformPublicKey, tenantAccountPub, tenantName string) error {
+	return p.addPlatformPubsubImport(ctx, platformPublicKey, tenantAccountPub, tenantName)
+}

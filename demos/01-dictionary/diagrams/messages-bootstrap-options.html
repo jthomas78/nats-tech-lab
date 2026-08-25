@@ -1,0 +1,237 @@
+<meta charset="utf-8">
+<title>Messages panel bootstrap — bounding the unbounded read</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code, td code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+
+table { border-collapse: collapse; font-size: 12px; color: var(--muted); }
+th, td { border: 1px solid var(--border); padding: 5px 9px; text-align: left; vertical-align: top; }
+th { color: var(--text); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+.hopline { fill: none; stroke: var(--hop); stroke-width: 1.4; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <div class="eyebrow">Phase 43c · BR-047 / BR-048 · ADR-047 A7</div>
+      <h1>Messages panel bootstrap — bounding the unbounded read</h1>
+      <p class="sub">The Messages panel fetches <b>every</b> entry in the
+        <code>pubsub-messages</code> KV bucket on mount, then renders at most 500 of them.
+        The bucket is capped at 15&nbsp;min / 8&nbsp;MiB, so the worst case is a multi-megabyte
+        response to display a few hundred kilobytes of it. Four ways to fix that, and where each one cuts.</p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 350" role="img" aria-label="Today's Messages panel bootstrap path. usePubsubFeed.bootstrap() issues one GET to the observability-service kvBucketEntriesOnce endpoint, which drains the whole KV_pubsub-messages bucket via an ephemeral pull consumer and returns every entry as a single JSON array of up to eight megabytes. MessagesPanel.vue keeps only the newest 500 rows and drops the rest. Separately, a live notify subscription over the same bucket feeds the panel after mount.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="a-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--bad)"/>
+          </marker>
+          <marker id="a-evtl" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--evtl)"/>
+          </marker>
+        </defs>
+
+        <!-- request row -->
+        <rect class="n" x="20" y="56" width="250" height="48" rx="3"/>
+        <text class="lbl"  x="145" y="79" text-anchor="middle">usePubsubFeed.bootstrap()</text>
+        <text class="lbl2" x="145" y="92" text-anchor="middle">one-shot read on mount</text>
+
+        <rect class="n" x="350" y="56" width="250" height="48" rx="3"/>
+        <text class="lbl"  x="475" y="79" text-anchor="middle">kvBucketEntriesOnce</text>
+        <text class="lbl2" x="475" y="92" text-anchor="middle">observability-service REST</text>
+
+        <path class="n" d="M680 64 L680 166 A110 10 0 0 0 900 166 L900 64"/>
+        <ellipse class="n" cx="790" cy="64" rx="110" ry="10"/>
+        <text class="lbl"  x="790" y="102" text-anchor="middle">KV_pubsub-messages</text>
+        <text class="lbl2" x="790" y="120" text-anchor="middle">15 min · 8 MiB cap</text>
+        <text class="lbl2" x="790" y="136" text-anchor="middle">few thousand entries</text>
+
+        <path class="flow" d="M270 80 L342 80" marker-end="url(#a-sync)"/>
+        <text class="edge" x="306" y="72" text-anchor="middle">GET</text>
+
+        <path class="flow" d="M600 80 L672 80" marker-end="url(#a-sync)"/>
+        <text class="edge" x="636" y="72" text-anchor="middle">drain all</text>
+
+        <!-- response row -->
+        <rect class="n" x="20" y="228" width="250" height="58" rx="3"/>
+        <text class="lbl"  x="145" y="250" text-anchor="middle">MessagesPanel.vue</text>
+        <text class="lbl2" x="145" y="264" text-anchor="middle">keeps newest 500 rows</text>
+        <text class="lbl2" x="145" y="278" text-anchor="middle">the rest: parsed, dropped</text>
+
+        <path class="err" d="M475 104 L475 257 L278 257" marker-end="url(#a-bad)"/>
+        <text class="edge" x="376" y="230" text-anchor="middle">one JSON array — EVERY entry</text>
+        <text class="edge" x="376" y="243" text-anchor="middle">up to ~8 MiB on the wire</text>
+
+        <!-- live feed -->
+        <path class="rep" d="M790 190 L790 310 L145 310 L145 294" marker-end="url(#a-evtl)"/>
+        <text class="edge" x="467" y="325" text-anchor="middle">live: notify._platform.kv.pubsub-messages.&gt;</text>
+
+        <text class="grp" x="20" y="40">BOOTSTRAP — ONE-SHOT, UNBOUNDED</text>
+        <text class="grp" x="20" y="212">RENDER — CAPPED AT 500 ROWS</text>
+      </svg>
+    </div>
+    <figcaption><b>Today: the bound is on the wrong side of the wire.</b>
+      <code>usePubsubFeed.bootstrap()</code> calls the generic
+      <code>GET /api/kv/buckets/platform/pubsub-messages/entries</code>. That handler opens an
+      ephemeral pull consumer with <code>DeliverLastPerSubjectPolicy</code> and loops
+      <code>FetchNoWait(256)</code> until the consumer is drained — deliberately never truncating —
+      then serialises every entry into one JSON array. The 500-row cap
+      (<code>MAX_ROWS</code> in <code>MessagesPanel.vue</code>) is applied <i>after</i> all of that
+      has crossed the network and been parsed. The dashed amber path is the live feed, which is
+      already bounded and unaffected by any of this.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 400" role="img" aria-label="The four options and where each one cuts the same path. Option A adds a limit query parameter to the KV entries endpoint so the server returns only the newest N entries. Option B deletes the bootstrap call entirely, leaving the panel live-only. Option C shrinks the bucket's age and byte caps. Option D adds a dedicated bootstrap RPC in observability-service beside the existing KV endpoint.">
+        <defs>
+          <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="b-hop" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--hop)"/>
+          </marker>
+        </defs>
+
+        <!-- option callouts, above -->
+        <rect class="n" x="20" y="60" width="240" height="60" rx="3"/>
+        <text class="lbl"  x="140" y="83" text-anchor="middle">B — drop the bootstrap</text>
+        <text class="lbl2" x="140" y="96" text-anchor="middle">live-only; starts empty</text>
+        <text class="lbl2" x="140" y="109" text-anchor="middle">a deletion, zero new code</text>
+
+        <rect class="n" x="290" y="60" width="260" height="60" rx="3"/>
+        <text class="lbl"  x="420" y="83" text-anchor="middle">A — ?limit=N  (pick)</text>
+        <text class="lbl2" x="420" y="96" text-anchor="middle">server sorts by Created,</text>
+        <text class="lbl2" x="420" y="109" text-anchor="middle">returns newest N only</text>
+
+        <!-- the shared path -->
+        <rect class="n" x="30" y="190" width="180" height="44" rx="3"/>
+        <text class="lbl"  x="120" y="209" text-anchor="middle">panel · 500</text>
+        <text class="lbl2" x="120" y="222" text-anchor="middle">render cap</text>
+
+        <rect class="n" x="300" y="190" width="240" height="44" rx="3"/>
+        <text class="lbl"  x="420" y="209" text-anchor="middle">/entries endpoint</text>
+        <text class="lbl2" x="420" y="222" text-anchor="middle">shared by every KV panel</text>
+
+        <path class="n" d="M630 196 L630 246 A130 10 0 0 0 890 246 L890 196"/>
+        <ellipse class="n" cx="760" cy="196" rx="130" ry="10"/>
+        <text class="lbl"  x="760" y="218" text-anchor="middle">pubsub-messages</text>
+        <text class="lbl2" x="760" y="234" text-anchor="middle">15 min · 8 MiB</text>
+
+        <path class="flow" d="M540 212 L622 212" marker-end="url(#b-sync)"/>
+        <text class="edge" x="581" y="204" text-anchor="middle">read</text>
+        <path class="flow" d="M300 212 L218 212" marker-end="url(#b-sync)"/>
+        <text class="edge" x="259" y="204" text-anchor="middle">rows</text>
+
+        <!-- callout connectors -->
+        <path class="hopline" d="M140 120 L140 182" marker-end="url(#b-hop)"/>
+        <path class="flow"    d="M420 120 L420 182" marker-end="url(#b-sync)"/>
+        <path class="hopline" d="M420 300 L420 242" marker-end="url(#b-hop)"/>
+        <path class="hopline" d="M760 300 L760 262" marker-end="url(#b-hop)"/>
+
+        <!-- option callouts, below -->
+        <rect class="n" x="290" y="300" width="260" height="60" rx="3"/>
+        <text class="lbl"  x="420" y="323" text-anchor="middle">D — bootstrap RPC</text>
+        <text class="lbl2" x="420" y="336" text-anchor="middle">newest N + real paging</text>
+        <text class="lbl2" x="420" y="349" text-anchor="middle">duplicates the KV read path</text>
+
+        <rect class="n" x="620" y="300" width="280" height="60" rx="3"/>
+        <text class="lbl"  x="760" y="323" text-anchor="middle">C — shrink the caps</text>
+        <text class="lbl2" x="760" y="336" text-anchor="middle">3 min / 1 MiB, config only</text>
+        <text class="lbl2" x="760" y="349" text-anchor="middle">pays with everyone's retention</text>
+
+        <text class="grp" x="20" y="44">WHERE EACH OPTION CUTS</text>
+        <text class="grp" x="240" y="170">THE PATH, SIMPLIFIED</text>
+      </svg>
+    </div>
+    <figcaption><b>Four cuts, three of them somewhere other than the defect.</b>
+      <b>A</b> moves the existing 500 cap to the server side of the same endpoint, so the wire
+      carries what the panel renders. <b>B</b> removes the bootstrap edge entirely and leans on the
+      live <code>notify.*</code> feed the panel already has. <b>C</b> leaves the shape alone and
+      makes the unbounded thing smaller. <b>D</b> builds a second, better read path next to the one
+      that already works. Blue marks the recommended cut.</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>What each option actually costs</h2>
+    <table>
+      <tr><th>Option</th><th>Wire</th><th>Server work</th><th>Blast radius</th><th>Cost</th></tr>
+      <tr><td><b>A</b> — <code>?limit=N</code></td><td>bounded at N</td><td>still drains + sorts the bucket</td><td>the shared endpoint — every KV panel</td><td>one handler change + specs</td></tr>
+      <tr><td><b>B</b> — live-only</td><td>nothing</td><td>none</td><td>the Messages panel only</td><td>a deletion</td></tr>
+      <tr><td><b>C</b> — smaller caps</td><td>still unbounded, just smaller</td><td>proportionally less</td><td>everyone reading the bucket</td><td>two constants</td></tr>
+      <tr><td><b>D</b> — dedicated RPC</td><td>bounded, paginated</td><td>bounded if the consumer is bounded</td><td>a new endpoint, nothing existing</td><td>handler + RPC + specs + Swagger</td></tr>
+    </table>
+    <ul>
+      <li><b>A bounds bandwidth and parse cost, not server work.</b> The handler still walks the
+        whole bucket to know which N are newest — <code>DeliverLastPerSubjectPolicy</code> delivers
+        by subject, not by recency, so there is no cheap "last N" fetch here. What disappears is the
+        multi-megabyte serialise, transfer, and <code>JSON.parse</code> for entries the panel was
+        always going to drop.</li>
+      <li><b>A touches a shared endpoint, which is the one thing to weigh.</b>
+        <code>/api/kv/buckets/{account}/{bucket}/entries</code> also backs the ships/container/meta
+        inspectors. An <i>optional</i> <code>limit</code> is additive — absent means today's
+        behaviour — so existing callers are unaffected, and the ones with big buckets get an opt-in
+        bound.</li>
+      <li><b>B is honest but reads as broken.</b> Ingestion is already best-effort
+        (ADR-047 A7): nothing here can recover an envelope that never reached the stream, and the
+        panel says so. But opening Messages on a quiet system and seeing an empty table is a support
+        question, not a design statement.</li>
+      <li><b>C fixes the symptom at everyone else's expense.</b> The caps exist to bound the panel's
+        visible window; shrinking them to bound a page load means the operator loses history for a
+        reason that has nothing to do with history.</li>
+      <li><b>D is the right long-term shape and the wrong amount of work now.</b> A bootstrap RPC
+        with real pagination is what this wants at scale — but it duplicates a KV read path that
+        already exists and is already tested, for a panel whose cap is 500 rows.</li>
+    </ul>
+  </section>
+</div>

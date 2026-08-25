@@ -186,15 +186,11 @@ func (h *Handlers) publishAccountCreated(ctx context.Context, name string) {
 // method because the *reason* each event exists differs (and is documented on
 // each); only the plumbing is shared.
 //
-// Phase 28e (BR-037): mints a new outbound span (natstrace.Tracer.
-// StartOutbound) continuing whatever span natstrace.HTTPMiddleware attached
-// to ctx (nil parent, i.e. a fresh root span, if tracing isn't wired or the
-// caller carried none) — this publish is its own hop in the trace, not a
-// re-forward of the HTTP handler's own span id, the same way an outbound
-// rpc.* call mints its own client-side span in refdataclient/refdataconsumer
-// (Phase 28c). The span is published to obs.trace.* (PLATFORM account, same
-// connection as the notify itself) via End/Fail, nil-safe throughout: no
-// NotifyNC means neither the notify nor the span publish happens.
+// Phase 28e (BR-037) traced this publish as its own outbound span on
+// obs.trace.*. Phase 43a (BR-AC34) moved it to obs.pubsub.*, the fire-and-
+// forget channel it always belonged on — see the comment on the emit below
+// for why the intermediate span went with it. Nil-safe throughout: no
+// NotifyNC means neither the notify nor its observation happens.
 func (h *Handlers) publishAccountEvent(ctx context.Context, subject, label, name string) {
 	if h.NotifyNC == nil {
 		return
@@ -211,18 +207,33 @@ func (h *Handlers) publishAccountEvent(ctx context.Context, subject, label, name
 	if i := strings.LastIndex(subject, "."); i >= 0 {
 		action = subject[i+1:]
 	}
-	sp := natstrace.New(h.NotifyNC).StartOutbound(natstrace.SpanFromContext(ctx), subject, payload, "_platform", "accounts", "account", action)
+	// Phase 43a (BR-AC34): these four publishes moved from obs.trace.* to
+	// obs.pubsub.*. They are fire-and-forget notifications, and obs.trace.* is
+	// the request/reply channel — carrying them there was the anomaly, and one
+	// event on two channels would defeat BR-047's per-channel dedup.
+	//
+	// What went with the move is the synthetic outbound span this used to
+	// start purely to have something to End onto obs.trace.*. With that
+	// channel gone it would publish nothing, while the Traceparent header it
+	// minted would point at a span no store ever receives. So the notify now
+	// continues the *causing request's* span directly — the same thing every
+	// other instrumented notify.* call site does — which is the trace
+	// continuation BR-AC34 asked to keep. SpanFromContext and Traceparent are
+	// both nil-safe: with no request span in scope the publish carries no
+	// header and the observation roots its own trace.
+	parent := natstrace.SpanFromContext(ctx)
 	msg := &nats.Msg{Subject: subject, Data: payload}
-	if tp := sp.Traceparent(); tp != "" {
+	if tp := parent.Traceparent(); tp != "" {
 		msg.Header = nats.Header{natstrace.TraceparentHeader: []string{tp}}
 	}
-	sp.SetRequestHeaders(map[string][]string(msg.Header))
 	if err := h.NotifyNC.PublishMsg(msg); err != nil {
 		h.Log.Error("publish "+label+" event", "name", name, "err", err)
-		sp.Fail(err, payload, nil)
-		return
+		return // a notify that never reached the wire must not be observed
 	}
-	sp.End(payload, nil)
+	// notify.accounts.* carries no {context} token (this service administers
+	// the tenant axis itself), so the observability tokens are named rather
+	// than derived positionally.
+	natstrace.ObserveAs(h.NotifyNC, parent, subject, payload, "_platform", "accounts", "account", action)
 }
 
 // publishAccountSuspended is the mirror of publishAccountCreated (BR-AC09):

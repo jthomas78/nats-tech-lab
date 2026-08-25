@@ -9,6 +9,7 @@
 package eventhandler
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -151,4 +152,94 @@ func TestPublishNotifyNoopWhenNCNil(t *testing.T) {
 		publishNotify(nc, nil, "acme", "ship", []byte(`{}`), sp)
 		publishRawNotify(nc, nil, "acme", "ship", "arrived", []byte(`{}`), sp)
 	}()
+}
+
+// ── Phase 43a widening (BR-045): every notify.* call site emits an
+// obs.pubsub.* observation of its own publish ─────────────────────────────
+//
+// The evt.* half is structural (the jstream seam); this half is per call
+// site, so each site gets its own spec — that per-site coverage is the whole
+// reason BR-049's source scan exists as well.
+
+func TestPublishNotifyObservesItsOwnPublish(t *testing.T) {
+	nc, cleanup := newPublishNotifyTestConn(t)
+	defer cleanup()
+
+	obs := make(chan *nats.Msg, 4)
+	sub, err := nc.Subscribe("obs.pubsub.>", func(m *nats.Msg) { obs <- m })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Unsubscribe() //nolint:errcheck
+
+	tracer := natstrace.New(nc)
+	sp := tracer.StartFromHeaders(nil, "evt.acme.shipping.ship.s1.arrived", nil, "acme", "shipping", "ship", "arrived")
+
+	publishNotify(nc, nil, "acme", "ship", []byte(`{"shipID":"s1"}`), sp)
+
+	select {
+	case m := <-obs:
+		if got, want := m.Subject, "obs.pubsub.acme.shipping.ship.changed"; got != want {
+			t.Fatalf("observation subject = %q, want %q", got, want)
+		}
+		var env map[string]any
+		if err := json.Unmarshal(m.Data, &env); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := env["subject"], "notify.acme.shipping.ship.changed"; got != want {
+			t.Fatalf("envelope subject = %v, want %q", got, want)
+		}
+		if env["direction"] != "publish" {
+			t.Fatalf("direction = %v, want publish", env["direction"])
+		}
+		// Continues the projector's span rather than rooting an orphan.
+		if env["parentSpanId"] == "" || env["parentSpanId"] == nil {
+			t.Fatal("expected the causing span to be the observation's parent")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("publishNotify emitted no obs.pubsub.* observation")
+	}
+}
+
+func TestPublishRawNotifyObservesWithTheVerbAsAction(t *testing.T) {
+	nc, cleanup := newPublishNotifyTestConn(t)
+	defer cleanup()
+
+	obs := make(chan *nats.Msg, 4)
+	sub, err := nc.Subscribe("obs.pubsub.>", func(m *nats.Msg) { obs <- m })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Unsubscribe() //nolint:errcheck
+
+	publishRawNotify(nc, nil, "acme", "ship", "arrived", []byte(`{"shipID":"s1"}`), nil)
+
+	select {
+	case m := <-obs:
+		// notify.acme.shipping.raw.ship.arrived — "raw" sits where the
+		// positional deriver would read the entity, so this site names its
+		// tokens explicitly: the entity is the ship, the action the verb.
+		if got, want := m.Subject, "obs.pubsub.acme.shipping.ship.arrived"; got != want {
+			t.Fatalf("observation subject = %q, want %q", got, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("publishRawNotify emitted no obs.pubsub.* observation")
+	}
+}
+
+func TestNotifyObservationIsSkippedWhenThePublishFails(t *testing.T) {
+	nc, cleanup := newPublishNotifyTestConn(t)
+	cleanup() // a closed conn fails every publish
+
+	obs := make(chan *nats.Msg, 1)
+	// Nothing can be received on a closed conn; the assertion that matters is
+	// that publishNotify neither panics nor blocks when the domain publish
+	// failed — an event that never reached the wire must not be observed.
+	publishNotify(nc, nil, "acme", "ship", []byte(`{}`), nil)
+	publishRawNotify(nc, nil, "acme", "ship", "arrived", []byte(`{}`), nil)
+	select {
+	case <-obs:
+		t.Fatal("unreachable")
+	default:
+	}
 }

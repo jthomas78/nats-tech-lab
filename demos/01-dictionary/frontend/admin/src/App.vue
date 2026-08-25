@@ -12,6 +12,7 @@ import KvInspector from './components/KvInspector.vue'
 import LogPanel from './components/LogPanel.vue'
 import OverviewPanel from './components/OverviewPanel.vue'
 import PostgresTablesPanel from './components/PostgresTablesPanel.vue'
+import MessagesPanel from './components/MessagesPanel.vue'
 import RpcPanel from './components/RpcPanel.vue'
 import ServicesPanel from './components/ServicesPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
@@ -21,6 +22,7 @@ import IconConnections from './components/icons/IconConnections.vue'
 import IconKv from './components/icons/IconKv.vue'
 import IconLog from './components/icons/IconLog.vue'
 import IconOverview from './components/icons/IconOverview.vue'
+import IconActivity from './components/icons/IconActivity.vue'
 import IconRpc from './components/icons/IconRpc.vue'
 import IconServices from './components/icons/IconServices.vue'
 import IconSettings from './components/icons/IconSettings.vue'
@@ -104,10 +106,11 @@ const sections = [
         items: [
           { key: 'connections', label: 'Connections', icon: IconConnections },
           { key: 'services', label: 'Services', icon: IconServices },
-          { key: 'log', label: 'Log', icon: IconLog },
+          { key: 'pubsub', label: 'Messages', icon: IconActivity },
           { key: 'rpc', label: 'Request/Reply', icon: IconRpc },
           { key: 'streams', label: 'Streams', icon: IconStreams },
           { key: 'kv', label: 'KV Buckets', icon: IconKv },
+          { key: 'log', label: 'Log', icon: IconLog },
         ],
       },
       {
@@ -123,6 +126,7 @@ const SUBTITLES = {
   streams: 'raw NATS messages · live tail and full replay',
   kv: 'every registered bucket · contents and live changes',
   rpc: 'rpc.* + api.* request/reply traffic · rpc.* replays last 10 min, api.* live only',
+  pubsub: 'evt.* + notify.* publish traffic across every tenant · best-effort, last 15 min',
   connections: 'nats connections · all accounts',
   services: 'nats micro services · $SRV.* discovery',
   log: 'nats server log · level + text filter, no rotation',
@@ -230,6 +234,14 @@ onUnmounted(() => {
          treatment applied only to each tab's content (see RpcPanel.vue's .rpc-card). -->
     <section v-else-if="activeView === 'rpc'" class="group group--flush" data-testid="rpc-view">
       <RpcPanel />
+    </section>
+
+    <!-- Messages — cross-tenant evt.*/notify.* publish traffic (Phase 43c, BR-048).
+         Its own entry rather than a fourth RpcPanel tab: different bucket, different
+         stream, and a tenant column none of the Request/Reply tabs can populate.
+         MessagesPanel is its own .lab-panel, so the section stays flush. -->
+    <section v-else-if="activeView === 'pubsub'" class="group group--flush" data-testid="pubsub-view">
+      <MessagesPanel />
     </section>
 
     <!-- Connections — every active NATS connection, server-wide (Phase 17c).

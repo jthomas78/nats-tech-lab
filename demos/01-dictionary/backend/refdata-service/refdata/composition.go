@@ -28,6 +28,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/postgres"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/rest"
 	"github.com/jthomas78/nats-tech-lab/shared/natstenants"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 // ChangeStreamMaxAge bounds the REFDATA change-event feed — it is a
@@ -64,6 +65,23 @@ type Handlers struct {
 	Corpus        *commands.CorpusHandler
 	VersionReader *kvcache.VersionReader
 	Translations  *commands.TranslationHandler
+
+	// eventPublisher is the evt.* seam (Phase 43a, BR-D45) — held so
+	// EnableEventObservation can opt it in once main has a *nats.Conn. Nil
+	// when Startup ran without JetStream.
+	eventPublisher *jstream.Publisher
+}
+
+// EnableEventObservation opts this service's evt.* seam into BR-045's
+// publish-side observation, emitting one obs.pubsub.* envelope per
+// evt.{context}.refdata.{typeKey}.changed publish. Called from main once the
+// NATS connection JetStream was built on is in hand; a no-op when Startup ran
+// without JetStream, same nil-safe convention as the rest of this wiring.
+func (h *Handlers) EnableEventObservation(nc *nats.Conn) {
+	if h.eventPublisher == nil {
+		return
+	}
+	h.eventPublisher.EnableObservation(nc)
 }
 
 // Startup runs the schema migration, seeds reference-standard data, wires
@@ -92,13 +110,15 @@ func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream, anthropicA
 	var notifier domain.ChangeNotifier // stays a true nil interface when js is nil
 	var corpusNotifier domain.CorpusNotifier
 	var versionReader *kvcache.VersionReader
+	var eventPublisher *jstream.Publisher
 	if js != nil {
 		if _, err := jstream.CreateChangeStream(ctx, js, kvcache.ChangeStreamName, []string{kvcache.ChangeSubjectWildcard}, ChangeStreamMaxAge); err != nil {
 			return nil, err
 		}
 		kv = kvstore.New(js, KVBucketPrefix)
 		namespaces := kvcache.NewTypeNamespaces(types)
-		projector = kvcache.NewProjector(kv, items, locs, refs, versions, namespaces, jstream.NewPublisher(js))
+		eventPublisher = jstream.NewPublisher(js)
+		projector = kvcache.NewProjector(kv, items, locs, refs, versions, namespaces, eventPublisher)
 		notifier = projector
 		corpusNotifier = kvcache.NewVersionNotifier(kv, corpus, namespaces)
 		versionReader = kvcache.NewVersionReader(kv, namespaces)
@@ -122,6 +142,8 @@ func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream, anthropicA
 		Corpus:        commands.NewCorpusHandler(corpus, corpusNotifier),
 		VersionReader: versionReader,
 		Translations:  translations,
+
+		eventPublisher: eventPublisher,
 	}
 
 	if err := Seed(ctx, h); err != nil {
@@ -230,10 +252,36 @@ type tenantPublisher struct {
 
 func (p tenantPublisher) PublishToAll(subject string, data []byte) {
 	p.mgr.Range(func(tenant string, nc *nats.Conn, _ *browserrpc.Adapter) {
-		if err := nc.Publish(subject, data); err != nil && p.log != nil {
-			p.log.Warn("refdata notify publish failed", "tenant", tenant, "subject", subject, "err", err)
-		}
+		p.publishTo(tenant, nc, subject, data)
 	})
+}
+
+// publishTo is one tenant's leg of the fan-out, split out from the Range
+// callback so it can be exercised directly against a real connection — the
+// Manager the fan-out iterates needs a creds directory and live tenant
+// accounts, which would make a test of the observation a test of tenant
+// discovery instead.
+func (p tenantPublisher) publishTo(tenant string, nc *nats.Conn, subject string, data []byte) {
+	{
+		if err := nc.Publish(subject, data); err != nil {
+			if p.log != nil {
+				p.log.Warn("refdata notify publish failed", "tenant", tenant, "subject", subject, "err", err)
+			}
+			return
+		}
+		// Phase 43a (BR-D45): this service's one notify.* call site, observed
+		// here rather than inside notifybridge.Run itself — the bridge holds
+		// only the PublishToAll port and no connection, while this fan-out is
+		// where each tenant's own *nats.Conn is in hand. That matters for
+		// provenance: emitting per tenant connection is what puts the
+		// observation inside that tenant's account, so PLATFORM's import
+		// remap names the right tenant (BR-AC34). A single observation from
+		// the bridge could not be attributed at all.
+		//
+		// The subject is notify.{context}.refdata.{typeKey}.changed, whose
+		// tokens sit exactly where the positional deriver reads them.
+		natstrace.Observe(nc, nil, subject, data)
+	}
 }
 
 // MountPlatformAPI additionally registers the api.* adapter on

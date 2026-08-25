@@ -84,6 +84,30 @@ var _ = Describe("RegisterRefdataNotify (Phase 23)", func() {
 		Expect(string(payload)).To(ContainSubstring("hazard-class"))
 	})
 
+	// Phase 43a (BR-045): this bridge is one of the five notify.* call sites
+	// in this service. Its observation is filed under the refdata change's
+	// own {context}, not the "_platform" token its republish subject carries.
+	It("observes its republish on obs.pubsub.{context}.refdata.{typeKey}.changed", func() {
+		nc, js := newPlatformNotifyTestNATS()
+		ctx, cancel := context.WithCancel(context.Background())
+		DeferCleanup(cancel)
+
+		_, err := jstream.CreateStream(ctx, js, "REFDATA", []string{"evt.*.refdata.>"})
+		Expect(err).NotTo(HaveOccurred())
+
+		eventhandler.RegisterRefdataNotify(ctx, js, nc, discardLogger())
+
+		notifyCh := subscribeSync(nc, "notify._platform.refdata.>")
+		obsCh := subscribeSync(nc, "obs.pubsub.acme.refdata.hazard-class.changed")
+
+		publishUntilReceived(nc, "evt.acme.refdata.hazard-class.changed", []byte(`{"typeKey":"hazard-class"}`), notifyCh)
+
+		var envelope []byte
+		Eventually(obsCh, 2*time.Second).Should(Receive(&envelope))
+		Expect(string(envelope)).To(ContainSubstring(`"subject":"notify._platform.refdata.acme.hazard-class.changed"`))
+		Expect(string(envelope)).To(ContainSubstring(`"direction":"publish"`))
+	})
+
 	It("does not publish or panic when platformJS or platformNC is nil", func() {
 		nc, js := newPlatformNotifyTestNATS()
 		ctx, cancel := context.WithCancel(context.Background())

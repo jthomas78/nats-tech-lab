@@ -53,6 +53,64 @@ import (
 // so the same constant is correct on both sides with no special-casing.
 const TraceparentHeader = "Traceparent"
 
+// RequestorHeader and ResponderHeader are BR-027/BR-D37's self-declared
+// identity pair, in the instance-qualified "<name>/<instance ID>" format.
+// They live here rather than in shared/browserrpc (which re-exports
+// ResponderHeader) because this package is the one that reads them off a
+// span's headers, and — since BR-AC35 — the one that stamps the responder
+// half on the REST entry points, which have no micro.Service to take an
+// identity from.
+//
+// Both are NATS header keys (nats.Header.Get is case-sensitive) and HTTP
+// header names at once: net/http canonicalizes any casing to exactly these
+// strings, the same property TraceparentHeader relies on above.
+const (
+	RequestorHeader = "Nats-Requestor"
+	ResponderHeader = "Nats-Responder"
+)
+
+// instanceID is this process's half of ResponderIdentity — minted once at
+// package load, deliberately NOT per Tracer: shipping-service's
+// httpTraceMiddleware builds a fresh Tracer on every request (to follow
+// SwitchTenant onto the currently active tenant connection), so a
+// per-Tracer value would report a brand-new "instance" for every request
+// and be worthless for telling replicas apart. Random per process, exactly
+// like micro.AddService's own instance ID; a stable infra identity (a pod
+// name, say) can seed it later without changing the header's format.
+var instanceID = randomHex(8)
+
+// ResponderIdentity is "<nats.Name>/<instance ID>" for nc — the REST-side
+// counterpart of browserrpc.ResponderIdentity, which reads the same two
+// halves off micro.Service.Info() instead. Every nats.Connect in this repo
+// is required to set nats.Name (CLAUDE.md), so the name half is the
+// service's own; a connection that somehow has none yields "" rather than a
+// half-formed "/abc123" identity, and the caller then stamps no header at
+// all.
+func ResponderIdentity(nc *nats.Conn) string {
+	if nc == nil || nc.Opts.Name == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/%s", nc.Opts.Name, instanceID)
+}
+
+// ResponderHeaders is the header map an HTTP entry point passes to End/Fail
+// so its span records who answered — the REST equivalent of the headers
+// browserrpc.Respond attaches to a micro reply. Returns nil (not an empty
+// map) when no identity is derivable, so mergeHeaders behaves exactly as it
+// did before this existed. There is no wire reply to attach these to: unlike
+// the api.*/rpc.* case, where Nats-Responder rides the real message, an HTTP
+// response's identity is recorded on the span only.
+func (t *Tracer) ResponderHeaders() map[string][]string {
+	if t == nil {
+		return nil
+	}
+	identity := ResponderIdentity(t.nc)
+	if identity == "" {
+		return nil
+	}
+	return map[string][]string{ResponderHeader: {identity}}
+}
+
 // maxPayloadBytes is BR-036's 4 KiB cap, applied after redaction, never
 // before — truncating first could leave a partially-redacted field's tail
 // bytes in the published payload.
@@ -433,7 +491,7 @@ func (sp *Span) finish(statusCode, errMsg string, payload []byte, headers map[st
 		Payload:       respPayload,
 		Error:         errMsg,
 		Headers:       mergedHeaders,
-		Requester:     firstHeaderValue(mergedHeaders, "Nats-Requestor"),
+		Requester:     firstHeaderValue(mergedHeaders, RequestorHeader),
 		Timestamp:     time.Now().UTC(),
 		PayloadBytes:  payloadBytes,
 
@@ -740,10 +798,125 @@ func (t *Tracer) HTTPMiddleware(contextValue, service string, next http.Handler)
 		next.ServeHTTP(rec, r.WithContext(ContextWithSpan(r.Context(), sp)))
 
 		sp.SetAttribute("http.status_code", strconv.Itoa(rec.status))
+		// ResponderHeaders is the "who answered" half BR-AC35 adds; the
+		// "who called" half needs nothing here — StartFromHeaders above
+		// already captured whatever Nats-Requestor the browser sent, and
+		// finish() lifts it onto the span's Requester field.
+		respHeaders := t.ResponderHeaders()
 		if rec.status >= 400 {
-			sp.Fail(fmt.Errorf("http %d", rec.status), nil, nil)
+			sp.Fail(fmt.Errorf("http %d", rec.status), nil, respHeaders)
 			return
 		}
-		sp.End(nil, nil)
+		sp.End(nil, respHeaders)
 	})
+}
+
+// ---------------------------------------------------------------------------
+// obs.pubsub.* — publish-side observation (Phase 43a, BR-045/BR-046/BR-047)
+// ---------------------------------------------------------------------------
+
+// ObservePublish emits an obs.pubsub.* observation for a message just
+// published on an evt.*/notify.* subject, deriving the four observability
+// tokens from that subject by position: {context} is token 1, {service}
+// token 2, {entity} token 3, and {action} the LAST token.
+//
+// Taking the action from the end rather than a fixed index is what separates
+// this from splitSubject (which serves the fixed-arity api.*/rpc.* families
+// and reads parts[4]): evt.* carries the aggregate id between entity and
+// action — evt.{context}.{service}.{entity}.{id}.{action} — so a fixed index
+// would report the ship id as the verb. notify.* is 5 tokens and notify.*.raw.*
+// is 6, and both land correctly under the same rule.
+//
+// Subjects the deriver cannot read safely are skipped rather than guessed at:
+// anything already on obs.* (a Tracer must never observe its own channel into
+// a feedback loop) and anything shorter than five tokens. A family whose
+// tokens genuinely don't sit in those positions — notify.accounts.* carries no
+// {context} at all — uses ObservePublishAs instead.
+//
+// Fire-and-forget by contract (BR-045): the publish is not flushed, its error
+// is dropped, and a panic is swallowed. Observability must never fail, delay,
+// or reorder the business publish it is observing.
+// Observe and ObserveAs are the bare-call-site form of ObservePublish /
+// ObservePublishAs. BR-045's notify.* half has no seam to hang a Tracer on —
+// its publishers are scattered helpers holding a *nats.Conn and nothing else
+// (eventhandler.publishNotify, kvstore.Store.publishNotify, ...) — and a
+// Tracer is a one-field wrapper over exactly that conn, so building one per
+// observation costs nothing and keeps those call sites a single line. Both
+// are nil-conn-safe, like everything else on this channel.
+func Observe(nc *nats.Conn, parent *Span, subject string, payload []byte) {
+	New(nc).ObservePublish(parent, subject, payload)
+}
+
+// ObserveAs is Observe with the four observability tokens given explicitly.
+func ObserveAs(nc *nats.Conn, parent *Span, subject string, payload []byte, contextValue, service, entity, action string) {
+	New(nc).ObservePublishAs(parent, subject, payload, contextValue, service, entity, action)
+}
+
+func (t *Tracer) ObservePublish(parent *Span, subject string, payload []byte) {
+	if strings.HasPrefix(subject, "obs.") {
+		return
+	}
+	parts := strings.Split(subject, ".")
+	if len(parts) < 5 {
+		return
+	}
+	t.ObservePublishAs(parent, subject, payload, parts[1], parts[2], parts[3], parts[len(parts)-1])
+}
+
+// ObservePublishAs is ObservePublish with the four observability tokens given
+// explicitly, for publishers whose subject arity the positional deriver can't
+// read. Same fire-and-forget contract.
+//
+// The observation is its own span: it mints a fresh span id and, when parent
+// is non-nil, continues that trace as a child — so a publish caused by an
+// api.*/rpc.* call joins that call's waterfall rather than appearing as an
+// orphan. With no parent reachable at the call site it roots a new trace.
+//
+// Nats-Msg-Id carries the span id. obs.pubsub.* is emitted from every tenant
+// account and imported into PLATFORM, and a consumer stream with a Duplicates
+// window uses that id to collapse a redelivered observation (BR-047) — the
+// span id is the only value here that is unique per observation and stable
+// across a redelivery of the same one.
+func (t *Tracer) ObservePublishAs(parent *Span, subject string, payload []byte, contextValue, service, entity, action string) {
+	if t == nil || t.nc == nil {
+		return
+	}
+	defer func() { _ = recover() }() // BR-045 inherits BR-036/BR-D26: observing must never fail the business path
+
+	traceID := newTraceID()
+	parentSpanID := ""
+	if parent != nil {
+		traceID = parent.traceID
+		parentSpanID = parent.spanID
+	}
+	spanID := newSpanID()
+
+	// Redact before truncating, so a secret can't survive by sitting past the
+	// 4 KiB cap where the denylist never looks (BR-046, shared with obs.trace.*).
+	body, payloadBytes, redactedFields, truncated := preparePayload(payload)
+
+	span := traceSpan{
+		Direction:    "publish", // no reply half exists to pair this with
+		Subject:      subject,   // the real published subject, entity ids included
+		Payload:      body,
+		Timestamp:    time.Now().UTC(),
+		PayloadBytes: payloadBytes,
+
+		TraceID:      traceID,
+		SpanID:       spanID,
+		ParentSpanID: parentSpanID,
+		Service:      service,
+		Entity:       entity,
+		Action:       action,
+		Redacted:     redactedFields,
+		Truncated:    truncated,
+	}
+	data, err := json.Marshal(span)
+	if err != nil {
+		return
+	}
+	msg := nats.NewMsg(fmt.Sprintf("obs.pubsub.%s.%s.%s.%s", contextValue, service, entity, action))
+	msg.Header.Set(nats.MsgIdHdr, spanID)
+	msg.Data = data
+	_ = t.nc.PublishMsg(msg)
 }

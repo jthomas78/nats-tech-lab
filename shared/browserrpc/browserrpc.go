@@ -36,7 +36,13 @@ import (
 // NATS doesn't propagate responder identity onto a reply either, and the
 // subject alone doesn't distinguish which replica of a horizontally-scaled
 // service actually handled the call.
-const ResponderHeader = "Nats-Responder"
+//
+// Re-exported from natstrace rather than declared here (BR-AC35): the REST
+// entry points stamp the same header from natstrace.ResponderHeaders, and one
+// definition of the wire name is what keeps the two identity sources —
+// micro.Service.Info() here, nats.Conn.Opts.Name there — landing on the same
+// field of the same span envelope.
+const ResponderHeader = natstrace.ResponderHeader
 
 // ErrorResponse is the wire shape for every failed api.* call, shared
 // across every service's adapter so a browser client handles all of their

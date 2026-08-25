@@ -606,6 +606,7 @@ throwaway tenant was minted, connected to, suspended, and observed via
 `/connz`, `nats sub`, and `docker logs`), not derived from reading the code.
 
 ```mermaid
+
 sequenceDiagram
     participant Browser as Sea Freight Flow (browser)
     participant Auth as accounts-service (auth routes)

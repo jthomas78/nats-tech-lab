@@ -64,11 +64,17 @@ func (h *Handlers) httpTraceMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		next(rec, r.WithContext(natstrace.ContextWithSpan(r.Context(), sp)))
 
 		sp.SetAttribute("http.status_code", strconv.Itoa(rec.status))
+		// The responder half of BR-AC35's identity pair, from the tenant
+		// connection's own nats.Name — the REST counterpart of the
+		// Nats-Responder header browserrpc.Respond puts on an api.* reply.
+		// The requestor half arrives on the request itself and is lifted
+		// onto the span by StartFromHeaders/finish, so it needs nothing here.
+		respHeaders := tracer.ResponderHeaders()
 		if rec.status >= 400 {
-			sp.Fail(fmt.Errorf("http %d", rec.status), nil, nil)
+			sp.Fail(fmt.Errorf("http %d", rec.status), nil, respHeaders)
 			return
 		}
-		sp.End(nil, nil)
+		sp.End(nil, respHeaders)
 	}
 }
 

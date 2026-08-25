@@ -6,8 +6,8 @@ package dictionary
 // Design approved (ADR-047) and amended 2026-08-25 by a pre-implementation
 // review — the hook placement below reflects that amendment (A3), not the
 // original per-call-site-everywhere rule. Implementation is explicitly on
-// hold, so these are placeholders derived directly from the rules, not from
-// any implementation — no body references the not-yet-existing observation
+// hold for the remaining call sites, so these are placeholders derived
+// directly from the rules, not from any implementation — no body references the not-yet-existing observation
 // hook, so `ginkgo ./...` stays green (reported pending, not failing) until
 // Phase 43a lands. Fill in real bodies (with gomega assertions) alongside
 // the implementation, per this repo's red -> green -> refactor workflow.
@@ -17,13 +17,12 @@ import (
 )
 
 var _ = PDescribe("obs.pubsub.* observability (Phase 43a, BR-045/BR-046/BR-049)", func() {
-	PContext("Publisher.PublishWithTrace — the evt.* seam (jstream/stream.go:64)", func() {
-		PIt("publishes one obs.pubsub.{context}.shipping.ship.{action} envelope alongside a ShipHandler.publish evt.* publish")
-		PIt("publishes one obs.pubsub.{context}.shipping.container.{action} envelope alongside a ContainerHandler.publish evt.* publish")
-		PIt("observes a new evt.* publisher with no per-call-site wiring — coverage is structural, not remembered (BR-045, ADR-047 A3)")
-		PIt("derives traceId/parentSpanId from natstrace.SpanFromContext(ctx) rather than minting an unrelated trace")
-		PIt("sets Nats-Msg-Id to the envelope's spanId, so BR-047's dedup is enforceable")
-	})
+	// The evt.* seam itself LANDED in the Phase 43a vertical slice and is
+	// covered by real specs next to the code it tests, in
+	// internal/jstream/stream_test.go: TestPublishWithTraceObservesShipEvent,
+	// ...ObservesContainerEvent, ...ContinuesTheCausingTrace,
+	// ...RedactsBeforeObserving, and TestPublisherWithoutObservationStaysSilent.
+	// Nothing is pending for it here.
 
 	PContext("notify.* call sites — wired individually, no seam exists", func() {
 		PIt("publishNotify (handler.go:191) publishes one obs.pubsub.{context}.shipping.{entity}.changed envelope")

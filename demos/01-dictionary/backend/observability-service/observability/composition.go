@@ -13,6 +13,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability/internal/pubsubstore"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability/internal/rest"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability/internal/tracestore"
 )
@@ -20,8 +21,9 @@ import (
 // Handlers is the composition root Startup returns — cmd/main.go calls
 // Mount on it once the HTTP mux exists, and Stop before shutdown.
 type Handlers struct {
-	rest       *rest.Handlers
-	traceStore jetstream.ConsumeContext
+	rest        *rest.Handlers
+	traceStore  jetstream.ConsumeContext
+	pubsubStore jetstream.ConsumeContext
 }
 
 // Config is Startup's non-NATS configuration — the HTTP-reachable
@@ -54,6 +56,13 @@ func Startup(ctx context.Context, nc *nats.Conn, log *slog.Logger, cfg Config) (
 	if err != nil {
 		return nil, err
 	}
+	// Phase 43b (BR-047): the publish-side sibling of the trace store, on its
+	// own PUBSUB stream and pubsub-messages bucket so an evt.* burst cannot
+	// evict RPC traces.
+	pubsubStore, err := pubsubstore.Register(ctx, js, nc, log)
+	if err != nil {
+		return nil, err
+	}
 	// BR-043 — the Overview tab's trend charts need real history, not just
 	// /accstatz's live snapshot. Tied to ctx like traceStore's consumer:
 	// Run exits on its own once the process's shutdown signal cancels ctx,
@@ -74,7 +83,8 @@ func Startup(ctx context.Context, nc *nats.Conn, log *slog.Logger, cfg Config) (
 			},
 			History: history,
 		}),
-		traceStore: traceStore,
+		traceStore:  traceStore,
+		pubsubStore: pubsubStore,
 	}, nil
 }
 
@@ -83,9 +93,12 @@ func (h *Handlers) Mount(mux *http.ServeMux) {
 	h.rest.Mount(mux)
 }
 
-// Stop drains the trace-store projector's consumer. Nil-safe (Register
-// returns a nil ConsumeContext if nc/js were nil).
+// Stop drains the trace-store and pubsub-store projectors' consumers.
+// Nil-safe (either Register returns a nil ConsumeContext if nc/js were nil).
 func (h *Handlers) Stop() {
+	if h.pubsubStore != nil {
+		h.pubsubStore.Stop()
+	}
 	if h.traceStore != nil {
 		h.traceStore.Stop()
 	}

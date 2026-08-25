@@ -33,6 +33,8 @@
 import { ref } from 'vue'
 import { headers, jwtAuthenticator, wsconnect } from '@nats-io/nats-core'
 
+import { REQUESTOR_HEADER, REST_REQUESTOR_ID } from '../requestorId.js'
+
 const REQUEST_TIMEOUT_MS = 5000
 
 // Identifies this frontend as the caller on every api.* request — NATS auth
@@ -49,8 +51,9 @@ const REQUEST_TIMEOUT_MS = 5000
 // load — i.e. per browser tab — so two tabs of the same app are
 // distinguishable in the Request/Reply panel, which a bare app name never
 // could be.
-const REQUESTOR_HEADER = 'Nats-Requestor'
-const REQUESTOR_ID = `seafreight-app/${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
+// Both halves now come from requestorId.js so this app's one REST call
+// (api.js's getBusinessUnits) declares the same identity as its api.* calls.
+const REQUESTOR_ID = REST_REQUESTOR_ID
 
 const connected = ref(false)
 const tenant = ref('')
@@ -84,7 +87,9 @@ function notConnectedError() {
 }
 
 async function fetchConnectInfo(forTenant) {
-  const res = await fetch(`/api/auth/connectInfo?tenant=${encodeURIComponent(forTenant)}`)
+  const res = await fetch(`/api/auth/connectInfo?tenant=${encodeURIComponent(forTenant)}`, {
+    headers: { [REQUESTOR_HEADER]: REST_REQUESTOR_ID },
+  })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
   return body // { wsUrl, jwt, nkeySeed, tenant }

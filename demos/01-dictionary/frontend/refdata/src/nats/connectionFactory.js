@@ -12,12 +12,14 @@
 import { ref } from 'vue'
 import { headers, jwtAuthenticator, wsconnect } from '@nats-io/nats-core'
 
+import { REQUESTOR_HEADER, requestorID as buildRequestorID } from '../requestorId.js'
+
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
 // Matches every other frontend in this repo (Phase 18): a per-tab identity
-// the Request/Reply panel can attribute traffic to.
-const REQUESTOR_HEADER = 'Nats-Requestor'
+// the Request/Reply panel can attribute traffic to — shared with this app's
+// REST calls via requestorId.js.
 const REQUEST_TIMEOUT_MS = 10000
 
 function errorMessage(err) {
@@ -35,8 +37,9 @@ export function createConnectionState({ fetchConnectInfo, connectionName }) {
   const lastError = ref('')
 
   // Stable for the tab's lifetime so a series of calls is attributable to
-  // one session in the Request/Reply panel.
-  const requestorID = `${connectionName}/${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
+  // one session in the Request/Reply panel, over the same tab-wide instance
+  // half this app's REST calls use (requestorId.js).
+  const requestorID = buildRequestorID(connectionName)
 
   let nc = null
   let connectSeq = 0

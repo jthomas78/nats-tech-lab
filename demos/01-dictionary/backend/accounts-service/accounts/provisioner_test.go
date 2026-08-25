@@ -279,6 +279,58 @@ var _ = Describe("Provisioner", func() {
 		Expect(retryCount).To(Equal(2), "re-registering an already-imported tenant must not duplicate the import")
 	})
 
+	// BR-AC34 (Phase 43a): CreateAccount must also re-sign PLATFORM's own
+	// claims to import each new tenant's obs.pubsub.> export — BR-AC30's
+	// trace import with one deliberate difference, a per-tenant LocalSubject
+	// remap (ADR-047 amendment A1). The trace import needs none because the
+	// Traces panel only ever shows a coarse PLATFORM/TENANT split; the
+	// Messages panel names the tenant, and the only thing on the wire that
+	// can tell it which tenant published a message is the local subject it
+	// arrived on.
+	It("re-signs PLATFORM's own claims to import each new tenant's obs.pubsub.> export under a tenant-scoped local subject", func() {
+		platformKP, err := nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		platformPub, err := platformKP.PublicKey()
+		Expect(err).NotTo(HaveOccurred())
+
+		sysNC := ots.ConnectSys(GinkgoT())
+		defer sysNC.Close()
+		ots.PushAccountClaims(sysNC, ots.OperatorSigningKeySeed, jwt.NewAccountClaims(platformPub))
+
+		limits := accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5}
+
+		mintedA, err := provisioner.CreateAccount(ctx, limits, "acme", platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		mintedB, err := provisioner.CreateAccount(ctx, limits, "globex", platformPub)
+		Expect(err).NotTo(HaveOccurred())
+
+		claims, err := provisioner.LookupAccountClaims(ctx, platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		byAccount := map[string]*jwt.Import{}
+		for _, imp := range claims.Imports {
+			if string(imp.Subject) == "obs.pubsub.>" {
+				byAccount[imp.Account] = imp
+			}
+		}
+		Expect(byAccount).To(HaveLen(2), "a second tenant's obs.pubsub.> import must be added alongside the first, not replace it")
+		Expect(byAccount[mintedA.PublicKey].Type).To(Equal(jwt.Stream))
+		Expect(string(byAccount[mintedA.PublicKey].LocalSubject)).To(Equal("monitor.acme.pubsub.>"),
+			"without the remap both tenants land on one identical local subject and the panel cannot name the publisher")
+		Expect(string(byAccount[mintedB.PublicKey].LocalSubject)).To(Equal("monitor.globex.pubsub.>"))
+
+		// Idempotent on retry, same contract as the trace and $SRV.> imports.
+		Expect(provisioner.AddPlatformPubsubImportForTest(ctx, platformPub, mintedA.PublicKey, "acme")).To(Succeed())
+		afterRetry, err := provisioner.LookupAccountClaims(ctx, platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		retryCount := 0
+		for _, imp := range afterRetry.Imports {
+			if string(imp.Subject) == "obs.pubsub.>" {
+				retryCount++
+			}
+		}
+		Expect(retryCount).To(Equal(2), "re-registering an already-imported tenant must not duplicate the import")
+	})
+
 	// BR-AC32 (Phase 30b/30i): CreateAccount must also re-sign PLATFORM's
 	// own claims to import each new tenant's seven $JS.API introspection
 	// exports — the JetStream/KV-introspection counterpart to BR-AC30's

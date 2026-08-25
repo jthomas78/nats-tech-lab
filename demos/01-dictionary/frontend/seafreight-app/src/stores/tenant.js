@@ -15,6 +15,7 @@
 import { defineStore } from 'pinia'
 
 import { useNatsConnection } from '../nats/useNatsConnection'
+import { REQUESTOR_HEADER, REST_REQUESTOR_ID } from '../requestorId.js'
 import { usePortStore } from './port'
 import { usePricingStore } from './pricing'
 
@@ -24,7 +25,9 @@ import { usePricingStore } from './pricing'
 const DEFAULT_TENANT = 'acme'
 
 async function fetchAvailableTenants() {
-  const res = await fetch('/api/auth/tenants')
+  const res = await fetch('/api/auth/tenants', {
+    headers: { [REQUESTOR_HEADER]: REST_REQUESTOR_ID },
+  })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
   return body.tenants ?? []

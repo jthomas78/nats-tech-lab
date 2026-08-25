@@ -510,6 +510,86 @@ var _ = Describe("natstrace (Phase 35 — shared package — BR-036/BR-037)", fu
 			Expect(span.StatusCode).To(Equal("ERROR"))
 			Expect(span.Entity).To(Equal("auth"))
 		})
+
+		// BR-AC35: a REST span records the same identity pair an api.*/rpc.*
+		// span does — the caller's self-declared Nats-Requestor (lifted onto
+		// the envelope's own Requester field by BR-041) and the answering
+		// instance's Nats-Responder, derived here from the connection's
+		// nats.Name since a REST entry point has no micro.Service to read an
+		// identity off.
+		It("records the requestor from the inbound HTTP header and the responder from the connection's nats.Name (BR-AC35)", func() {
+			spans := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = sub.Unsubscribe() })
+			Expect(nc.Flush()).To(Succeed())
+
+			tracer := natstrace.New(nc)
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+			ts := httptest.NewServer(tracer.HTTPMiddleware("_platform", "accounts", next))
+			DeferCleanup(ts.Close)
+
+			req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/accounts", nil)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set(natstrace.RequestorHeader, "admin-app/deadbeefdeadbeef")
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = resp.Body.Close() })
+
+			var msg *nats.Msg
+			Eventually(spans).Should(Receive(&msg))
+			var span fullSpan
+			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+			Expect(span.Requester).To(Equal("admin-app/deadbeefdeadbeef"))
+			Expect(span.Headers).To(HaveKeyWithValue(natstrace.RequestorHeader, []string{"admin-app/deadbeefdeadbeef"}))
+			Expect(span.Headers[natstrace.ResponderHeader]).To(HaveLen(1))
+			Expect(span.Headers[natstrace.ResponderHeader][0]).To(HavePrefix("natstrace-test/"),
+				"the name half comes from the publishing connection, never a hardcoded service string")
+		})
+
+		It("still records the responder on a failed (>=400) REST span (BR-AC35)", func() {
+			spans := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = sub.Unsubscribe() })
+			Expect(nc.Flush()).To(Succeed())
+
+			tracer := natstrace.New(nc)
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusConflict) })
+			ts := httptest.NewServer(tracer.HTTPMiddleware("_platform", "accounts", next))
+			DeferCleanup(ts.Close)
+
+			resp, err := http.Get(ts.URL + "/api/accounts")
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = resp.Body.Close() })
+
+			var msg *nats.Msg
+			Eventually(spans).Should(Receive(&msg))
+			var span fullSpan
+			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+			Expect(span.StatusCode).To(Equal("ERROR"))
+			Expect(span.Headers[natstrace.ResponderHeader]).To(HaveLen(1),
+				"a failed request answered by this instance is exactly when knowing which instance matters")
+		})
+	})
+
+	Context("ResponderIdentity / ResponderHeaders (BR-AC35)", func() {
+		It("is <nats.Name>/<instance> and stable for the process, so two Tracers on one connection agree", func() {
+			first := natstrace.New(nc).ResponderHeaders()
+			second := natstrace.New(nc).ResponderHeaders()
+			Expect(first).To(HaveKey(natstrace.ResponderHeader))
+			Expect(first).To(Equal(second),
+				"the instance half is per-process, not per-Tracer — shipping's httpTraceMiddleware builds one Tracer per request")
+			Expect(first[natstrace.ResponderHeader][0]).To(HavePrefix("natstrace-test/"))
+		})
+
+		It("yields no identity — and so no header at all — for a nil or unnamed connection", func() {
+			Expect(natstrace.ResponderIdentity(nil)).To(Equal(""))
+			Expect(natstrace.New(nil).ResponderHeaders()).To(BeNil(),
+				"a half-formed \"/abc123\" identity is worse than none: it reads as a real service named \"\"")
+			var nilTracer *natstrace.Tracer
+			Expect(nilTracer.ResponderHeaders()).To(BeNil())
+		})
 	})
 
 	Context("nil-safety — a Span from an unwrapped request never panics", func() {
@@ -522,6 +602,165 @@ var _ = Describe("natstrace (Phase 35 — shared package — BR-036/BR-037)", fu
 				_ = sp.Traceparent()
 			}).NotTo(Panic())
 			Expect(sp.Traceparent()).To(Equal(""))
+		})
+	})
+})
+
+// parentTraceID/parentSpanID read a span's ids off the traceparent header it
+// would attach, since the fields themselves are unexported.
+func parentTraceID(sp *natstrace.Span) string {
+	GinkgoHelper()
+	parts := strings.Split(sp.Traceparent(), "-")
+	Expect(parts).To(HaveLen(4))
+	return parts[1]
+}
+
+func parentSpanID(sp *natstrace.Span) string {
+	GinkgoHelper()
+	parts := strings.Split(sp.Traceparent(), "-")
+	Expect(parts).To(HaveLen(4))
+	return parts[2]
+}
+
+// ---------------------------------------------------------------------------
+// BR-045 / BR-047 (Phase 43a) — obs.pubsub.*, the fire-and-forget sibling of
+// obs.trace.*. These cover the emit primitive and its subject derivation; the
+// per-service wiring (the evt.* seam, the notify.* call sites) is tested in
+// each service alongside its own publisher.
+// ---------------------------------------------------------------------------
+
+var _ = Describe("obs.pubsub.* publish observation (Phase 43a, BR-045)", func() {
+	var nc *nats.Conn
+	var envelopes chan *nats.Msg
+
+	BeforeEach(func() {
+		nc = newTestConn()
+		envelopes = make(chan *nats.Msg, 8)
+		sub, err := nc.Subscribe("obs.pubsub.>", func(m *nats.Msg) { envelopes <- m })
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() { _ = sub.Unsubscribe() })
+		Expect(nc.Flush()).To(Succeed())
+	})
+
+	receive := func() (*nats.Msg, fullSpan) {
+		GinkgoHelper()
+		var msg *nats.Msg
+		Eventually(envelopes).Should(Receive(&msg))
+		var env fullSpan
+		Expect(json.Unmarshal(msg.Data, &env)).To(Succeed())
+		return msg, env
+	}
+
+	Context("subject derivation (ObservePublish)", func() {
+		It("derives context/service/entity/action from a 6-token evt.* subject, taking action from the last token", func() {
+			natstrace.New(nc).ObservePublish(nil, "evt.acme.shipping.ship.SHIP-1.arrived", []byte(`{"shipID":"SHIP-1"}`))
+
+			msg, env := receive()
+			Expect(msg.Subject).To(Equal("obs.pubsub.acme.shipping.ship.arrived"))
+			Expect(env.Subject).To(Equal("evt.acme.shipping.ship.SHIP-1.arrived"),
+				"the envelope records the real published subject, ids included")
+		})
+
+		It("derives from a 5-token notify.* subject", func() {
+			natstrace.New(nc).ObservePublish(nil, "notify.acme.shipping.ship.changed", []byte(`{}`))
+
+			msg, _ := receive()
+			Expect(msg.Subject).To(Equal("obs.pubsub.acme.shipping.ship.changed"))
+		})
+
+		It("derives from a 6-token notify.*.raw.* subject", func() {
+			natstrace.New(nc).ObservePublish(nil, "notify.acme.shipping.raw.container.loaded", []byte(`{}`))
+
+			msg, _ := receive()
+			Expect(msg.Subject).To(Equal("obs.pubsub.acme.shipping.raw.loaded"))
+		})
+
+		It("marks direction as publish — there is no reply half to pair", func() {
+			natstrace.New(nc).ObservePublish(nil, "evt.acme.shipping.ship.SHIP-1.arrived", []byte(`{}`))
+
+			_, env := receive()
+			Expect(env.Direction).To(Equal("publish"))
+		})
+	})
+
+	Context("trace continuation (BR-045)", func() {
+		It("continues the causing span's trace rather than minting an unrelated one", func() {
+			parent := natstrace.New(nc).StartOutbound(nil, "api.acme.shipping.ship.arrive.v1", []byte(`{}`), "acme", "shipping", "ship", "arrive")
+
+			natstrace.New(nc).ObservePublish(parent, "evt.acme.shipping.ship.SHIP-1.arrived", []byte(`{}`))
+
+			_, env := receive()
+			Expect(env.TraceID).To(Equal(parentTraceID(parent)))
+			Expect(env.ParentSpanID).To(Equal(parentSpanID(parent)))
+			Expect(env.SpanID).NotTo(BeEmpty())
+			Expect(env.SpanID).NotTo(Equal(parentSpanID(parent)), "the observation is its own span")
+		})
+
+		It("mints a root trace when no span was reachable at the call site", func() {
+			natstrace.New(nc).ObservePublish(nil, "evt.acme.shipping.ship.SHIP-1.arrived", []byte(`{}`))
+
+			_, env := receive()
+			Expect(env.TraceID).NotTo(BeEmpty())
+			Expect(env.ParentSpanID).To(BeEmpty())
+		})
+	})
+
+	Context("dedup and redaction (BR-045/BR-046/BR-047)", func() {
+		It("sets Nats-Msg-Id to the envelope's spanId, which is what makes BR-047's dedup enforceable", func() {
+			natstrace.New(nc).ObservePublish(nil, "evt.acme.shipping.ship.SHIP-1.arrived", []byte(`{}`))
+
+			msg, env := receive()
+			Expect(msg.Header.Get(nats.MsgIdHdr)).To(Equal(env.SpanID))
+			Expect(env.SpanID).NotTo(BeEmpty())
+		})
+
+		It("redacts denylisted fields before the 4 KiB cap, exactly as obs.trace.* does", func() {
+			body, err := json.Marshal(map[string]any{
+				"shipID":   "SHIP-1",
+				"password": "s3cr3t",
+				"blob":     strings.Repeat("x", 5000),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			natstrace.New(nc).ObservePublish(nil, "evt.acme.shipping.ship.SHIP-1.arrived", body)
+
+			_, env := receive()
+			Expect(env.Redacted).To(ContainElement("password"))
+			Expect(string(env.Payload)).NotTo(ContainSubstring("s3cr3t"))
+			Expect(env.Truncated).To(BeTrue())
+			Expect(env.PayloadBytes).To(BeNumerically(">", 4096), "payloadBytes holds the pre-truncation length")
+		})
+	})
+
+	Context("self-observation guard (BR-045)", func() {
+		It("never observes a publish that is itself on an obs.* subject", func() {
+			natstrace.New(nc).ObservePublish(nil, "obs.pubsub.acme.shipping.ship.arrived", []byte(`{}`))
+			natstrace.New(nc).ObservePublish(nil, "obs.trace.acme.shipping.ship.arrive", []byte(`{}`))
+
+			Expect(nc.Flush()).To(Succeed())
+			Consistently(envelopes).ShouldNot(Receive())
+		})
+
+		It("ignores a subject too short to carry the four tokens rather than publishing a malformed obs subject", func() {
+			natstrace.New(nc).ObservePublish(nil, "evt.acme.shipping", []byte(`{}`))
+
+			Expect(nc.Flush()).To(Succeed())
+			Consistently(envelopes).ShouldNot(Receive())
+		})
+	})
+
+	Context("the explicit primitive (ObservePublishAs)", func() {
+		It("takes the four tokens as given, for subject families whose arity the deriver cannot read", func() {
+			// notify.accounts.account.created carries no {context} token
+			// (CLAUDE.md: accounts-service subjects administer the tenant
+			// axis itself), so deriving by position would read "accounts"
+			// as the context.
+			natstrace.New(nc).ObservePublishAs(nil, "notify.accounts.account.created", []byte(`{"name":"acme"}`),
+				"_platform", "accounts", "account", "created")
+
+			msg, env := receive()
+			Expect(msg.Subject).To(Equal("obs.pubsub._platform.accounts.account.created"))
+			Expect(env.Subject).To(Equal("notify.accounts.account.created"))
 		})
 	})
 })

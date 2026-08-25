@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,6 +39,15 @@ type fullSpan struct {
 type spanWithSubject struct {
 	fullSpan
 	Subject string `json:"subject"`
+}
+
+// spanWithIdentity is fullSpan plus the two BR-AC35 identity fields — the
+// self-declared caller (lifted onto its own envelope field by BR-041) and
+// the answering instance (a header, like it is on an api.* reply).
+type spanWithIdentity struct {
+	fullSpan
+	Requester string              `json:"requester"`
+	Headers   map[string][]string `json:"headers"`
 }
 
 func newTraceMiddlewareTestHandlers(t *testing.T, nc *nats.Conn) *Handlers {
@@ -195,5 +205,93 @@ func TestHTTPTraceMiddlewareSkipsTracingWithNoTenantNC(t *testing.T) {
 	}
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+}
+
+// TestHTTPTraceMiddlewareRecordsBothHalvesOfTheIdentityPair covers BR-AC35 on
+// this service's REST entry point: the requestor half arrives as an HTTP
+// header the browser set and is lifted onto the span's own Requester field,
+// and the responder half is derived from the tenant connection's nats.Name.
+// Before this, a REST span showed neither — the Admin UI's trace detail read
+// "no Nats-Requestor / no Nats-Responder on this span" for every REST hop
+// while showing both for every api.* hop beside it.
+func TestHTTPTraceMiddlewareRecordsBothHalvesOfTheIdentityPair(t *testing.T) {
+	nc, _, cleanup := newTestNATSJS(t)
+	defer cleanup()
+
+	spans := make(chan *nats.Msg, 4)
+	sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Unsubscribe() //nolint:errcheck
+
+	h := newTraceMiddlewareTestHandlers(t, nc)
+	wrapped := h.httpTraceMiddleware(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/refdata/locales", nil)
+	req.Header.Set(natstrace.RequestorHeader, "refdata-app/abc123")
+	rec := httptest.NewRecorder()
+	wrapped(rec, req)
+
+	select {
+	case got := <-spans:
+		var span spanWithIdentity
+		if err := json.Unmarshal(got.Data, &span); err != nil {
+			t.Fatal(err)
+		}
+		if span.Requester != "refdata-app/abc123" {
+			t.Fatalf("expected requester lifted from the inbound header, got %q", span.Requester)
+		}
+		responder := span.Headers[natstrace.ResponderHeader]
+		// "rest-test" is newTestNATSJS's nats.Name — the assertion is on the
+		// name coming from the connection, not on a hardcoded service string.
+		if len(responder) != 1 || !strings.HasPrefix(responder[0], "rest-test/") {
+			t.Fatalf("expected a rest-test/<instance> responder header, got %v", responder)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for obs.trace.* span")
+	}
+}
+
+// TestHTTPTraceMiddlewareResponderInstanceIsStableAcrossRequests guards the
+// reason natstrace mints its instance ID at package level rather than per
+// Tracer: this middleware builds a fresh Tracer on every request (to follow
+// SwitchTenant), so a per-Tracer ID would report a new "instance" per
+// request and tell nothing apart.
+func TestHTTPTraceMiddlewareResponderInstanceIsStableAcrossRequests(t *testing.T) {
+	nc, _, cleanup := newTestNATSJS(t)
+	defer cleanup()
+
+	spans := make(chan *nats.Msg, 4)
+	sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Unsubscribe() //nolint:errcheck
+
+	h := newTraceMiddlewareTestHandlers(t, nc)
+	wrapped := h.httpTraceMiddleware(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	var seen []string
+	for range 2 {
+		wrapped(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/refdata/locales", nil))
+		select {
+		case got := <-spans:
+			var span spanWithIdentity
+			if err := json.Unmarshal(got.Data, &span); err != nil {
+				t.Fatal(err)
+			}
+			seen = append(seen, span.Headers[natstrace.ResponderHeader]...)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for obs.trace.* span")
+		}
+	}
+	if len(seen) != 2 || seen[0] != seen[1] {
+		t.Fatalf("expected one stable responder identity across requests, got %v", seen)
 	}
 }

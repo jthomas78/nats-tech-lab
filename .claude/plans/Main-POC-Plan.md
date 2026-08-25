@@ -871,18 +871,73 @@ seam → minimal stream → minimal panel, which puts the tenant-provenance
 decision on screen before the export shape is committed. The sub-phases below
 then widen it.
 
-- [ ] **43a** — `obs.pubsub.*` envelope; hook **in** the `evt.*` seam
+- [x] **43a** — `obs.pubsub.*` envelope; hook **in** the `evt.*` seam
       (`PublishWithTrace`, `JetStreamEventStore.append`) and at each
       `notify.*` call site; `Nats-Msg-Id` = `spanId`; per-tenant
       export + `monitor.{tenant}.pubsub.>` import remap; BR-049's
       coverage test. Redaction review (A8) runs **before** the hook is wired
-- [ ] **43b** — `observability-service`: sibling consumer to `tracestore`
-      for `obs.pubsub.>`, on its **own** bounded stream with caps measured
-      from a seed run and an explicit `Duplicates` window
-- [ ] **43c** — Admin UI: new "Messages" panel — tenant named from the
-      import remap (not `TraceWaterfall`'s coarse gutter), `evt`/`notify`
-      family filter defaulting to `evt`, row cap + pause, reusing
-      `SubjectPath.vue`
+  - [x] **vertical slice** (A10) — `natstrace.ObservePublish`/
+        `ObservePublishAs` (envelope, subject derivation with action as the
+        *last* token, trace continuation, `Nats-Msg-Id` = `spanId`,
+        redact-then-truncate, self-observation guard); the `evt.*` seam in
+        shipping only (`Publisher.EnableObservation` +
+        `PublishWithTrace`, opted in per tenant in `rest/tenant.go`);
+        `obs.pubsub.>` export + `addPlatformPubsubImport` with the
+        `monitor.{tenant}.pubsub.>` remap. All green 2026-08-25
+  - [x] **widening** (2026-08-25) — all five of shipping's `notify.*` call
+        sites (`publishNotify`, `publishRawNotify`, `publishPortsChanged`,
+        `kvstore.publishNotify`, the refdata bridge), plus
+        `natstrace.Observe`/`ObserveAs` for bare call sites; the accounts
+        channel move off `obs.trace.*` (which also retired the synthetic
+        outbound span that channel was the only reason for); the `evt.*`
+        seams in refdata (`jstream.Publisher`, opted in via
+        `EnableEventObservation`) and organizations
+        (`JetStreamEventStore.append`, opted in per tenant runtime); the
+        `obs.pubsub.>` allow-pub grant the restricted `shipping-admin` user
+        needed; and BR-049's `go/ast` coverage scan
+        (`internal/notifycoverage/`). Two findings recorded in the rules:
+        refdata's `notify.*` observation belongs in `composition.go`'s
+        per-tenant fan-out, not in `notifybridge` which holds no connection
+        to attribute it to; and `pubsubstore.publishNotify` is a **second**
+        exclusion, because observing it would feed obs.pubsub back into its
+        own bucket in an unbounded loop
+  - [x] **skip cleanup** (2026-08-25) — the last stubs that still read
+        "pending Phase 43a implementation" replaced by real specs:
+        accounts' four lifecycle notifies, organizations' event-store seam
+        (including the actor-PII redaction list), and refdata's two, which
+        moved to `refdata/notify_observability_test.go` — a live per-tenant
+        fan-out spec plus a checked convention that `internal/kvcache` never
+        calls `natstrace.Observe*`, keeping the `evt.*` hook in the seam.
+        `tenantPublisher.publishTo` was split out of the `Range` callback so
+        the fan-out's one leg is testable without a tenant `Manager`
+- [x] **43b** — `observability-service`: `pubsubstore`, sibling to
+      `tracestore` — the `PUBSUB` stream capturing **both**
+      `obs.pubsub.>` and `monitor.*.pubsub.>` (tenant exports arrive
+      remapped, so one wildcard would have missed them), bounded 1 h /
+      32 MiB with an explicit 2 min `Duplicates` window, projecting into
+      the `pubsub-messages` bucket (15 min / 8 MiB — a visible window,
+      deliberately tighter than the stream) with the tenant derived from
+      the arrival subject. Caps measured, not inherited: a real envelope
+      is 454–592 B, not the ~2 KiB the ADR assumed. Grants wired in
+      `bootstrap-operator.sh` and `MintAdminToken`. All green 2026-08-25.
+      **Re-measured after 43a's widening (2026-08-25):** 317 B – 2 019 B
+      across the full publisher set (flat ~303 B overhead + payload; the
+      biggest is the KV-change notify carrying a whole bucket value), and
+      ~4.4 KiB worst case since the 4 KiB truncation cap is a hard ceiling.
+      Caps unchanged and comfortable — full table in BR-047. One open
+      sizing item, left deliberately unmade: the Messages panel fetches
+      every bucket entry on load but renders 500, so a full 8 MiB bucket is
+      a multi-megabyte page load; bounding it touches both BR-047's caps
+      and 43c's feed
+- [x] **43c** — Admin UI: `MessagesPanel.vue` on its own SYSTEM → NATS nav
+      entry (`pubsub`), fed by `usePubsubFeed.js` over the
+      `pubsub-messages` bucket. Tenant named per row from the import remap
+      (not `TraceWaterfall`'s coarse gutter) and click-to-filter,
+      `evt`/`notify` family filter defaulting to `evt`, 500-row cap with an
+      eviction note, pause/resume freezing only the visible ordering, and
+      `SubjectPath.vue` for every subject. Best-effort disclaimer on the
+      panel rather than implied completeness. 9 specs + the feed's 7, all
+      green 2026-08-25.
 
 **Cleared for implementation 2026-08-25**, after the design review above.
 The hold placed on 2026-08-20 is lifted; the business-rules-first pass is

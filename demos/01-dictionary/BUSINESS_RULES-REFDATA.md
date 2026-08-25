@@ -479,6 +479,14 @@ Both headers share one **instance-qualified format**: `"<name>/<instance ID>"` �
 
 > **Phase 28g amendment:** BR-D36's `obs.rpc.*`/`obs.api.*` channel this rule parity-checks against (the last sentence above) is now retired outright — see BR-D36's Phase 28g amendment. This rule's own subject (the real wire headers on the actual `rpc.*`/`api.*` request/reply) is unaffected either way; it was never about `obs.*` traffic itself, only about what an `obs.*` copy could or couldn't parity-check against.
 
+> **BR-AC35 extension (2026-08-25):** the same pair now also rides this
+> repo's **REST** entry points (accounts-service's `HTTPMiddleware`,
+> shipping-service's `httpTraceMiddleware`), with the responder half derived
+> from the publishing connection's `nats.Name` instead of a `micro.Service`
+> instance ID. The `frontend/refdata` app's REST calls declare the same
+> per-tab `Nats-Requestor` its `api.*` calls do (`src/requestorId.js`). See
+> `BUSINESS_RULES-ACCOUNTS.md`'s BR-AC35.
+
 - **Enforced in:** `internal/refdataconsumer/consumer.go`'s `requestRPC` (sets `Nats-Requestor`); `frontend/seafreight-app/src/nats/useNatsConnection.js`'s `request()` (sets `Nats-Requestor`); `natsrpc.Adapter.respondOK()`/`respondError()` (refdata) and `browserrpc.Adapter.respond()`/`respondError()` (shipping) (both set `Nats-Responder`); both adapters' `micro.AddService` `Config.Name`.
 - **Test:** `NATS RPC Adapter (Phase 12.10) / BR-D37` (`refdata/natsrpc_test.go`) — a caller's instance-qualified `Nats-Requestor` header is forwarded into the obs event; a successful reply carries `Nats-Responder` (prefixed `refdata-service/`) on both the real wire reply and the obs event; a failed reply carries it too. The requestor side's format itself is asserted in shipping-service's `TestLookupCarriesInstanceQualifiedRequestorHeader` (`internal/refdataconsumer/consumer_test.go`).
 
@@ -629,7 +637,7 @@ does not fix.
   `TestMountRoutesMatchAdminAllowlist` asserts `Mount(mux)`'s returned route
   list `ConsistOf` the 24-entry allowlist above.
 
-### BR-D45 (Phase 43a, CONFIRMED 2026-08-25 — not yet implemented) — This service's `evt.*` seam and its `notify.*` call site both get the `obs.pubsub.*` hook of `BUSINESS_RULES-SHIPPING.md`'s BR-045
+### BR-D45 (Phase 43a, IMPLEMENTED 2026-08-25) — This service's `evt.*` seam and its `notify.*` call site both get the `obs.pubsub.*` hook of `BUSINESS_RULES-SHIPPING.md`'s BR-045
 
 Two publishers in this service, instrumented in the two different ways BR-045's amended placement rule prescribes:
 
@@ -638,8 +646,10 @@ Two publishers in this service, instrumented in the two different ways BR-045's 
 
 No separate wire contract: this is the same shared `natstrace`-based envelope and redaction discipline BR-045 defines, not a per-service clone of it (unlike the pre-Phase-35 `obs.trace.*` mirrors BR-D39/BR-P25/BR-TP15, which existed only because `natstrace` was duplicated per service at the time).
 
-- **Enforced in:** not yet — Phase 43a.
-- **Test:** not yet written — pending Phase 43a implementation.
+**The `notify.*` hook moved one level out from where this rule pointed, and the move matters.** The rule named `notifybridge.go:94`'s `PublishToAll` call. That function holds only the `Publisher` *port* and no connection at all — the fan-out onto each tenant's own `*nats.Conn` happens in the port's single implementation, `refdata/composition.go`'s `tenantPublisher.PublishToAll`. The observation is emitted there, once per tenant publish. This is not tidiness: emitting on the tenant's connection is what puts the envelope inside that tenant's account, so BR-AC34's import remap names the right tenant. An emit from the bridge would have had no tenant connection to publish on and would have been unattributable — the same provenance mistake ADR-047 A1 corrected on the import side. `notifybridge.Run` therefore appears on BR-049's list as *instrumented elsewhere*, with that pointer as its recorded reason.
+
+- **Enforced in:** `refdata/internal/jstream/stream.go` — `Publisher.EnableObservation` and the observation in `PublishWithTrace` (the `evt.*` seam, mirroring shipping's exactly), opted in via `Handlers.EnableEventObservation` (`refdata/composition.go`) from `cmd/main.go` once the connection JetStream was built on is in hand. `refdata/composition.go` — `tenantPublisher.PublishToAll`'s per-tenant observation (the `notify.*` site), emitted only after that tenant's publish succeeds.
+- **Test:** `refdata/internal/jstream/stream_test.go` — `TestPublishWithTraceObservesRefdataChange` (subject `obs.pubsub.{context}.refdata.{typeKey}.changed`, `Nats-Msg-Id` present for BR-047's dedup, and the causing `rpc.*` span's trace continued) and `TestPublisherWithoutObservationStaysSilent` (a Publisher nobody enabled emits nothing). `refdata/notify_observability_test.go` — `TestNotifyFanOutIsObservedPerTenantConnection` (one `obs.pubsub.acme.refdata.port.changed` envelope, carrying the observed subject, emitted on the tenant's own connection — subscribed on `obs.>` so an envelope landing on `obs.trace.*` fails loudly, and asserting exactly one envelope per publish), `TestNotifyObservationIsSkippedWhenTheTenantPublishFails` (a failed tenant publish is not observed) and `TestEvtPublishIsObservedViaTheSeamNotTheCallSite` (a checked convention in BR-049's style: no file in `internal/kvcache` may call `natstrace.Observe*`, so the `evt.*` hook stays in the seam and the next `evt.*` caller inherits it; carrying a span through with `SpanFromContext` is still allowed, and the test fails loudly if the `evt.*` call site ever leaves that package). The fan-out's per-tenant leg was split into `tenantPublisher.publishTo` to make it testable without standing up a tenant `Manager`. The `notify.*` site is additionally held by BR-049's scan, which records it as instrumented-elsewhere rather than letting it pass unnoticed.
 
 ### BR-D46–BR-D48 (Phase 38d-ii) — The `region` corpus and Country → Region hierarchy
 

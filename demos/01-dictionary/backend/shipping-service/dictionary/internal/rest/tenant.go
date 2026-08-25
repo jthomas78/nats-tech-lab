@@ -166,6 +166,10 @@ func buildTenantResources(ctx context.Context, nc *nats.Conn, tenant string, dep
 	}
 
 	pub := jstream.NewPublisher(js)
+	// Phase 43a (BR-045): every evt.* publish this tenant makes also emits an
+	// obs.pubsub.* observation, which PLATFORM imports under
+	// monitor.{tenant}.pubsub.> for the Admin UI's Messages panel.
+	pub.EnableObservation(nc)
 	ships := commands.NewShipHandler(pub, js, deps.PortRepo)
 	containers := commands.NewContainerHandler(pub, js, deps.PortRepo)
 	terminal := queries.NewTerminal(kvContainers)

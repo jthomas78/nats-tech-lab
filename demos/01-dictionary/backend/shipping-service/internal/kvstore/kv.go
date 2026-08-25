@@ -116,9 +116,19 @@ func (s *Store) publishNotify(ctx context.Context, kvContext, key string, value 
 	if tp := natstrace.SpanFromContext(ctx).Traceparent(); tp != "" {
 		msg.Header = nats.Header{natstrace.TraceparentHeader: []string{tp}}
 	}
-	if err := s.notifyNC.PublishMsg(msg); err != nil && s.notifyLog != nil {
-		s.notifyLog.Warn("kv notify publish failed", "subject", subject, "err", err)
+	if err := s.notifyNC.PublishMsg(msg); err != nil {
+		if s.notifyLog != nil {
+			s.notifyLog.Warn("kv notify publish failed", "subject", subject, "err", err)
+		}
+		return
 	}
+	// Phase 43a (BR-045): tokens given explicitly. This subject is
+	// notify.{context}.kv.{bucket}.{key}.changed and the key itself is
+	// dotted ({context}.{entityType}.{id}), so the positional deriver would
+	// read "kv" as the service and the bucket as the entity by luck rather
+	// than by intent — naming them says which is which, and keeps the
+	// observation subject stable however many tokens a key grows.
+	natstrace.ObserveAs(s.notifyNC, natstrace.SpanFromContext(ctx), subject, value, kvContext, "kv", s.prefix, "changed")
 }
 
 // Get reads a key, returning the value and its revision.

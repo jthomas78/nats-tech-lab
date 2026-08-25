@@ -123,6 +123,11 @@ func (p *Provisioner) CreateAccount(ctx context.Context, limits JSLimits, tenant
 		if err := p.addPlatformTraceImport(ctx, platformPublicKey, accountPub); err != nil {
 			return MintedAccount{}, fmt.Errorf("register platform trace import for new tenant: %w", err)
 		}
+		// BR-AC34 (Phase 43a): same re-sign, same gate, for the new
+		// tenant's obs.pubsub.> export.
+		if err := p.addPlatformPubsubImport(ctx, platformPublicKey, accountPub, tenantName); err != nil {
+			return MintedAccount{}, fmt.Errorf("register platform pubsub import for new tenant: %w", err)
+		}
 		// BR-AC31 (Phase 30a): same re-sign, same gate, for the new
 		// tenant's $SRV.> service-discovery export.
 		if err := p.addPlatformMonitorImport(ctx, platformPublicKey, accountPub, tenantName); err != nil {
@@ -236,6 +241,22 @@ func tenantImports(tenantName, platformPublicKey string) jwt.Imports {
 // addPlatformTraceImport's idempotency check can't drift apart.
 const traceExportSubject = "obs.trace.>"
 
+// pubsubExportSubject is the third tenant-to-PLATFORM export (BR-AC34,
+// Phase 43a) — the reverse leg needed so the Admin UI's Messages panel can
+// see every tenant's evt.*/notify.* publish traffic as obs.pubsub.* spans.
+// A Stream export, the same shape as traceExportSubject above; declared once
+// so tenantExports and addPlatformPubsubImport's idempotency check can't
+// drift apart.
+const pubsubExportSubject = "obs.pubsub.>"
+
+// pubsubLocalSubjectTmpl is PLATFORM's per-tenant remap for that import
+// (BR-AC34, ADR-047 amendment A1). Unlike the obs.trace.> import, which
+// takes no remap, this one must have it: every tenant exports the identical
+// literal "obs.pubsub.>", and the local subject is the only thing on the
+// wire that tells a PLATFORM subscriber which account a message came from.
+// The account boundary disambiguates *delivery*, not *provenance*.
+const pubsubLocalSubjectTmpl = "monitor.%s.pubsub.>"
+
 // srvExportSubject is the second tenant-to-PLATFORM export (BR-AC31,
 // Phase 30a) — the reverse leg needed so cross-account service discovery
 // (observability-service's Services panel, Phase 30f) can reach every
@@ -322,6 +343,7 @@ var jsAPIExportSubjects = []struct {
 func tenantExports() jwt.Exports {
 	exports := jwt.Exports{
 		{Subject: jwt.Subject(traceExportSubject), Type: jwt.Stream},
+		{Subject: jwt.Subject(pubsubExportSubject), Type: jwt.Stream},
 		{Subject: jwt.Subject(srvExportSubject), Type: jwt.Service, ResponseType: jwt.ResponseTypeStream},
 	}
 	for _, e := range jsAPIExportSubjects {
@@ -475,6 +497,41 @@ func (p *Provisioner) addPlatformTraceImport(ctx context.Context, platformPublic
 		Subject:    jwt.Subject(traceExportSubject),
 		Type:       jwt.Stream,
 		AllowTrace: true,
+	})
+	token, err := claims.Encode(p.operatorSigningKey)
+	if err != nil {
+		return fmt.Errorf("encode platform account jwt: %w", err)
+	}
+	return p.pushClaimsUpdate(ctx, token)
+}
+
+// addPlatformPubsubImport re-signs and re-pushes PLATFORM's own account JWT
+// so it imports the newly-minted tenant's obs.pubsub.> export (BR-AC34,
+// Phase 43a) — addPlatformTraceImport's sibling, same mechanism, same
+// idempotency contract (safe to call unconditionally from CreateAccount).
+//
+// The one difference is the LocalSubject remap (ADR-047 amendment A1): the
+// trace import takes none because the Traces panel only ever shows a coarse
+// PLATFORM/TENANT split, but the Messages panel names the publishing tenant,
+// and the local subject an imported message arrives on is the only thing that
+// carries that. Without the remap every tenant's stream lands on one identical
+// local subject and provenance is unrecoverable.
+func (p *Provisioner) addPlatformPubsubImport(ctx context.Context, platformPublicKey, tenantAccountPub, tenantName string) error {
+	claims, err := p.LookupAccountClaims(ctx, platformPublicKey)
+	if err != nil {
+		return fmt.Errorf("lookup platform account claims: %w", err)
+	}
+	for _, imp := range claims.Imports {
+		if imp.Account == tenantAccountPub && imp.Subject == jwt.Subject(pubsubExportSubject) {
+			return nil
+		}
+	}
+	claims.Imports.Add(&jwt.Import{
+		Account:      tenantAccountPub,
+		Subject:      jwt.Subject(pubsubExportSubject),
+		LocalSubject: jwt.RenamingSubject(fmt.Sprintf(pubsubLocalSubjectTmpl, tenantName)),
+		Type:         jwt.Stream,
+		AllowTrace:   true,
 	})
 	token, err := claims.Encode(p.operatorSigningKey)
 	if err != nil {

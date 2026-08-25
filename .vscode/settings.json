@@ -1,7 +1,9 @@
 {
     "cSpell.words": [
+        "creds",
         "datatable",
         "eventhandler",
+        "GLOBEX",
         "healthcheck",
         "healthz",
         "httpx",
@@ -11,6 +13,7 @@
         "jetstream",
         "jstream",
         "kvstore",
+        "NKEYS",
         "nolint",
         "nums",
         "Pinia",

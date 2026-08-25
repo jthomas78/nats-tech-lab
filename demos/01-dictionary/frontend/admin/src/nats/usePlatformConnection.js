@@ -11,9 +11,12 @@
 // param) — subscribe-only, publish denied entirely at the JWT level.
 
 import { createConnectionState } from './connectionFactory.js'
+import { REQUESTOR_HEADER, REST_REQUESTOR_ID } from '../requestorId.js'
 
 async function fetchAdminConnectInfo() {
-  const res = await fetch('/api/auth/adminConnectInfo')
+  const res = await fetch('/api/auth/adminConnectInfo', {
+    headers: { [REQUESTOR_HEADER]: REST_REQUESTOR_ID },
+  })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
   return body

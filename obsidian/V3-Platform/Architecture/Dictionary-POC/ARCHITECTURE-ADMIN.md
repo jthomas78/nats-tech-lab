@@ -55,10 +55,11 @@ alternatives that were rejected and why (§4.1, §4.3, §4.5).
 | Services | `services` | `ServicesPanel.vue` | `GET /api/nats/services` |
 | Log | `log` | `LogPanel.vue` | `GET /api/nats/log` |
 | Request/Reply & Traces | `rpc` | `RpcPanel.vue`, `PulsePanel.vue`, `TraceWaterfall.vue`, `SubjectPath.vue` | `GET /api/kv/buckets/platform/trace-request-reply/entries` + live `notify._platform.kv.trace-request-reply.>` — all three tabs read the same feed (pulse: unfiltered, grouped by trace, Phase 44; traces: grouped by trace, toolbar-filtered; messages: flattened one row per span, Phase 28g retirement; bucket renamed `traces` → `trace-request-reply` in Phase 28l) |
+| Messages | `pubsub` | `MessagesPanel.vue`, `usePubsubFeed.js`, `SubjectPath.vue` | `GET /api/kv/buckets/platform/pubsub-messages/entries` + live `notify._platform.kv.pubsub-messages.>` (Phase 43c) |
 | Streams | `streams` | `JetStreamPanel.vue`, `StreamView.vue` | `GET /api/jetstream/streams`, `GET /api/jetstream/replay` |
 | KV Buckets | `kv` | `KvInspector.vue` | `GET /api/kv/buckets`, `GET /api/kv/buckets/{account}/{bucket}/entries` + live `notify.*.kv.{bucket}.>` |
 
-All six are wired in `App.vue`'s `<template>` as `v-else-if="activeView === '<key>'"` sections; the five that manage their own internal scroll region (Connections, Services, Request/Reply & Traces, Streams, KV Buckets) render inside `class="group group--flush"` so their content fills the remaining viewport instead of being capped at page height. Log renders as a plain (non-flush) `group` section.
+All seven are wired in `App.vue`'s `<template>` as `v-else-if="activeView === '<key>'"` sections; the six that manage their own internal scroll region (Connections, Services, Request/Reply & Traces, Messages, Streams, KV Buckets) render inside `class="group group--flush"` so their content fills the remaining viewport instead of being capped at page height. Log renders as a plain (non-flush) `group` section.
 
 **Account Activity moved out of this group in Phase 45** — its component
 (now `AccountsOverviewPanel.vue`) is Accounts' `Overview` tab
@@ -766,9 +767,64 @@ SHIPPING.md's BR-038/BR-039.
 
 ---
 
+### 4.9 Messages (cross-tenant pub/sub)
+
+Added in Phase 43c; sits between *Request/Reply & Traces* and *Streams* in
+the nav, numbered last here only so the existing §4.6–§4.8 cross-references
+elsewhere in this document keep pointing at the panels they were written
+about. The decision record is ADR-047 in
+[ARCHITECTURE-OBSERVABILITY.md](ARCHITECTURE-OBSERVABILITY.md); the rules are
+BR-045–049 (BUSINESS_RULES-SHIPPING.md), BR-D45, BR-AC34 and BR-TP75.
+
+**What it shows.** Every `evt.*`/`notify.*` publish observed across *every*
+tenant, one row per envelope: originating tenant, family, subject, wall time,
+payload size, with a detail pane carrying the redacted-and-truncated body.
+This is the publish side of the wire — a different question from §4.5's
+"what was called and what replied," which is why it is its own nav entry
+rather than a fourth tab on `RpcPanel.vue`. The three tabs there are three
+aggregations of *one* dataset (`obs.trace.*` spans); this reads a different
+bucket, fed by a different stream, and carries a column none of them can
+populate.
+
+**Data flow.** §3.1's snapshot+notify archetype, KV-watch variant — the same
+shape §4.7 uses, and `usePubsubFeed.js` is deliberately the same
+bootstrap-fetch-plus-live-subscribe seam as `useTraceFeed.js` rather than a
+third hand-rolled copy. Publishers emit `obs.pubsub.{context}.{service}.
+{entity}.{action}` from `natstrace.ObservePublish`; each tenant account
+*exports* `obs.pubsub.>` and PLATFORM *imports* it under a per-tenant
+`monitor.{tenant}.pubsub.>` local subject (BR-AC34);
+`observability-service`'s `pubsubstore` consumes both subject sets into the
+`PUBSUB` stream and projects into the `pubsub-messages` KV bucket. The
+browser is granted `notify._platform.kv.pubsub-messages.>` and nothing else —
+never `obs.pubsub.>` itself.
+
+**Why the tenant column is trustworthy.** The tenant is read from the
+`monitor.{tenant}.pubsub.>` arrival subject, a token the NATS server inserts
+via the import remap, so a tenant cannot claim to be another by writing a
+field into its own payload. This is why the panel can name the publisher
+where `TraceWaterfall.vue`'s account gutter — which keys off `service` — can
+only show a coarse PLATFORM/TENANT split. The swimlane *visual* convention is
+reused here; its data source is not.
+
+**Defaults that follow from volume.** The family filter starts on `evt` only:
+`notify.*` is largely a fan-out of state changes already visible on the `evt`
+side, so an undifferentiated default doubles the rows for no new information.
+A 500-row client-side cap with a visible eviction note, and a pause that
+freezes the displayed ordering while the feed keeps ingesting underneath
+(so resuming shows everything that arrived, not a gap), both follow §4.5's
+precedent — `evt.*` volume exceeds the RPC volume that panel was sized for.
+
+**It says what it is.** A footer states the feed is best-effort: observation
+is a fire-and-forget core-NATS publish onto a short-retention bounded stream
+(BR-047), so this is a sample of the wire, not an audit log. Bootstrap
+failure and a dropped live feed are surfaced rather than rendering as
+silence.
+
+---
+
 ## 5. Extending this group
 
-Adding a seventh panel to this navbar group means, in order: (1) decide which
+Adding an eighth panel to this navbar group means, in order: (1) decide which
 of the three data-flow archetypes in §3.1 fits — poll-only is the default,
 reach for snapshot+notify only if genuinely-live matters and a `notify.*`
 subject already exists or is worth adding, and prefer its KV-watch variant

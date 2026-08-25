@@ -193,9 +193,17 @@ func publishNotify(nc *nats.Conn, log *slog.Logger, kvContext, entity string, pa
 	if tp := sp.Traceparent(); tp != "" {
 		msg.Header = nats.Header{natstrace.TraceparentHeader: []string{tp}}
 	}
-	if err := nc.PublishMsg(msg); err != nil && log != nil {
-		log.Warn("notify publish failed", "subject", subject, "err", err)
+	if err := nc.PublishMsg(msg); err != nil {
+		if log != nil {
+			log.Warn("notify publish failed", "subject", subject, "err", err)
+		}
+		return // a notify that never reached the wire must not be observed
 	}
+	// Phase 43a (BR-045): observe the publish on obs.pubsub.*. The subject is
+	// notify.{context}.shipping.{entity}.changed — context/service/entity/
+	// action all sit where the positional deriver reads them, so no explicit
+	// token list is needed here.
+	natstrace.Observe(nc, sp, subject, payload)
 }
 
 // publishRawNotify fire-and-forget publishes
@@ -217,7 +225,14 @@ func publishRawNotify(nc *nats.Conn, log *slog.Logger, kvContext, entity, event 
 	if tp := sp.Traceparent(); tp != "" {
 		msg.Header = nats.Header{natstrace.TraceparentHeader: []string{tp}}
 	}
-	if err := nc.PublishMsg(msg); err != nil && log != nil {
-		log.Warn("raw notify publish failed", "subject", subject, "err", err)
+	if err := nc.PublishMsg(msg); err != nil {
+		if log != nil {
+			log.Warn("raw notify publish failed", "subject", subject, "err", err)
+		}
+		return
 	}
+	// Phase 43a (BR-045): tokens given explicitly — this subject carries a
+	// literal "raw" where the deriver would read the entity, and its action is
+	// the domain verb rather than "changed".
+	natstrace.ObserveAs(nc, sp, subject, payload, kvContext, "shipping", entity, event)
 }

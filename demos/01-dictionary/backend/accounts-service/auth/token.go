@@ -142,7 +142,8 @@ func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string, t
 // deliberately isn't "MintBrowserToken with tenant=platform": it has its own
 // subscribe-only subject set (notify.accounts.account.> plus the REFDATA
 // notify.* subject Phase 23 adds, plus notify._platform.kv.trace-request-reply.> for the
-// Admin UI's trace waterfall/messages panel, Phase 28g —
+// Admin UI's trace waterfall/RPC panel, Phase 28g, and
+// notify._platform.kv.pubsub-messages.> for the Messages panel, Phase 43b —
 // internal/kvstore.Store.EnableNotify's existing
 // notify.{context}.kv.{bucket}.{key}.changed publish, reused unchanged for
 // the trace-request-reply KV bucket rather than a bespoke trace-notify subject) and,
@@ -176,7 +177,12 @@ func MintAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl time.Du
 	claims.Name = "admin-platform"
 	claims.IssuerAccount = accountPub
 	claims.Permissions.Pub.Deny.Add(">")
-	claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.kv.trace-request-reply.>")
+	claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.kv.trace-request-reply.>",
+		// Phase 43b (BR-047): the Messages panel's live feed, the same
+		// bucket-notify shape as trace-request-reply above. This grants the
+		// KV-change notify only — obs.pubsub.> itself is still never granted
+		// to a browser credential (BR-AC34).
+		"notify._platform.kv.pubsub-messages.>")
 	claims.Expires = time.Now().Add(ttl).Unix()
 
 	token, err := claims.Encode(signingKP)

@@ -11,10 +11,17 @@
 // first if a by-port terminal view is ever built.
 
 import { useNatsConnection } from './nats/useNatsConnection.js'
+import { REQUESTOR_HEADER, REST_REQUESTOR_ID } from './requestorId.js'
 
+// Every REST call carries this tab's Nats-Requestor identity, the same one
+// the api.* calls below send (requestorId.js) — accounts-service's and
+// shipping-service's HTTP trace middleware lift it onto their span's
+// requester field, so a REST hop in the Traces panel names its caller
+// instead of reading "no Nats-Requestor on this span". Observability only,
+// never authorization (BR-041).
 async function request(path, options = {}) {
   const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', [REQUESTOR_HEADER]: REST_REQUESTOR_ID },
     ...options,
   })
   if (res.status === 204) return null

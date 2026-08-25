@@ -1677,7 +1677,7 @@ and no two documents of one organization may share it.
   `AttachFile` refuses a mismatched name), `document_file_test.go` (the upload
   path refuses a mismatch before storing bytes).
 
-### BR-TP75 (Phase 43a, CONFIRMED 2026-08-25 — not yet implemented) — This service's `evt.*` seam gets the `obs.pubsub.*` hook of `BUSINESS_RULES-SHIPPING.md`'s BR-045
+### BR-TP75 (Phase 43a, IMPLEMENTED 2026-08-25) — This service's `evt.*` seam gets the `obs.pubsub.*` hook of `BUSINESS_RULES-SHIPPING.md`'s BR-045
 
 organizations-service publishes transporter-profile events on
 `evt.{context}.organizations.transporter-profile.{organizationID}.{event}`
@@ -1715,5 +1715,26 @@ BR-D45's).
 This service publishes nothing on `notify.*`, so BR-049's per-call-site
 checked list has no entry here.
 
-- **Enforced in:** not yet — Phase 43a.
-- **Test:** not yet written — pending Phase 43a implementation.
+**A rejected append is never observed.** The emit sits after the `PublishMsg`
+PubAck, so BR-TP20's optimistic-concurrency rejection (`ErrSequenceConflict`)
+produces no envelope at all — the event never reached the stream, so it did
+not happen, and an operator's wire tap must not suggest otherwise. This is
+also what keeps the emit off the failure path: it cannot turn a rejected
+append into a reported one, and it drops its own error.
+
+- **Enforced in:** `organizations/transporterprofile/orchestration/event_store.go` —
+  `JetStreamEventStore.EnableObservation` and the `ObservePublish` call at the
+  end of `append` (after the PubAck, parented on whatever span `ctx` carries).
+  Opted in per tenant runtime at `organizations/transporterprofile/runtime.go`'s
+  `Start`, on the same `*nats.Conn` JetStream was built from — so the envelope
+  is published inside that tenant's account and BR-AC34's import remap can name
+  it.
+- **Test:** `organizations/transporterprofile/orchestration/pubsub_observability_test.go` —
+  `TestAppendIsTheEvtSeamAndIsObserved` (one
+  `obs.pubsub.{context}.organizations.transporter.{eventType}` envelope per
+  appended event, carrying `Nats-Msg-Id` for BR-047's dedup),
+  `TestAppendObservationNeverFailsOrDelaysTheDomainAppend` (a nil-conn observer
+  changes neither the returned sequence nor the error, and a rejected append
+  emits nothing), and `TestTransporterProfilePayloadsPassTheRedactionReview`
+  (`actorName`/`actorSourceIP` stripped and named in `redacted`, with the
+  benign organization id still present).

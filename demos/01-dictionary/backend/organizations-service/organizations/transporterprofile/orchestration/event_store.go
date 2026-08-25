@@ -12,6 +12,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	profiledomain "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/organizations-service/organizations/transporterprofile/domain"
+	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
 func EnsureStream(ctx context.Context, js jetstream.JetStream) error {
@@ -40,7 +41,30 @@ func (s *JetStreamEventStore) AppendWorkflowEvent(ctx context.Context, event pro
 	return err
 }
 
-type JetStreamEventStore struct{ js jetstream.JetStream }
+type JetStreamEventStore struct {
+	js jetstream.JetStream
+
+	// observer, when set by EnableObservation, emits an obs.pubsub.* copy of
+	// every event appended through this store (Phase 43a, BR-TP75). Nil by
+	// default, so a store built for a test or for the projector's own
+	// hydration path stays silent.
+	observer *natstrace.Tracer
+}
+
+// EnableObservation turns on BR-045's publish-side observation for this store,
+// emitting one
+// obs.pubsub.{context}.organizations.transporter-profile.{eventType} envelope
+// per appended event. Wired once per tenant runtime (transporterprofile.Start),
+// on the same connection JetStream was built from, so the observation lands
+// inside that tenant's account and PLATFORM's import remap can name it.
+//
+// The hook sits on append, not on the workflow activities that call it: every
+// transporter-profile event in this service reaches JetStream through that one
+// function, so coverage is structural — a new event type is observed by
+// construction rather than by someone remembering to wire it.
+func (s *JetStreamEventStore) EnableObservation(nc *nats.Conn) {
+	s.observer = natstrace.New(nc)
+}
 
 func NewJetStreamEventStore(js jetstream.JetStream) *JetStreamEventStore {
 	return &JetStreamEventStore{js: js}
@@ -124,5 +148,11 @@ func (s *JetStreamEventStore) append(ctx context.Context, contextKey, organizati
 		}
 		return 0, fmt.Errorf("publish transporter profile event: %w", err)
 	}
+	// Only after the PubAck: a rejected append (BR-TP20's optimistic-
+	// concurrency guard, above) never reached the stream, so it must not
+	// appear on an operator's wire tap. The emit itself is fire-and-forget —
+	// it drops its own error and cannot change this function's result or
+	// meaningfully delay it (ADR-047 A7).
+	s.observer.ObservePublish(natstrace.SpanFromContext(ctx), msg.Subject, data)
 	return ack.Sequence, nil
 }

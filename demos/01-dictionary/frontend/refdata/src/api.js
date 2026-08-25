@@ -19,6 +19,7 @@
 
 import { useRefdataAdminConnection } from './nats/useRefdataAdminConnection.js'
 import { useTenantConnection } from './nats/useTenantConnection.js'
+import { REQUESTOR_HEADER, REST_REQUESTOR_ID } from './requestorId.js'
 
 // assertContextToken guards against a context value that isn't a legal
 // single NATS subject token — mirrors frontend/admin's api.js tpSubject:
@@ -228,8 +229,14 @@ export async function listContextsForTenant(tenant) {
 // Transporters list for either. /api/auth/tenants already excludes them
 // (accounts.Store.ListActiveTenantNames), so this reuses that filtering
 // instead of re-implementing it here.
+// Carries this tab's Nats-Requestor identity, the same one the api.* calls
+// in this file send (requestorId.js), so accounts-service's HTTP trace
+// middleware can name the caller of a REST hop. Observability only (BR-041).
 async function restRequest(path, options = {}) {
-  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options })
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json', [REQUESTOR_HEADER]: REST_REQUESTOR_ID },
+    ...options,
+  })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
   return body
