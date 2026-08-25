@@ -1693,11 +1693,20 @@ by construction.
 
 This service had **no rule at all** in the design as originally approved — an
 entire service's `evt.*` traffic would have been invisible to the Messages
-panel (ADR-047 A2). It is also the service whose payloads matter most for
-BR-046's redaction review: after Phases 40/41 these events carry compliance
-documents and sit beside the `organizations-secrets` bucket, making them the
-likeliest to carry fields the RPC-shaped denylist never had to handle. That
-review runs **before** the hook is wired.
+panel (ADR-047 A2). It was also the priority case for BR-046's redaction
+review, which **completed 2026-08-25** before any hook was wired and found the
+only two fields in the whole review that needed action: `actorName` and
+`actorSourceIP`, now on the shared denylist.
+
+**This service's own domain discipline is what makes the rest of the payload
+safe, and BR-046 now depends on it.** `Event.Changes` is
+`[]FieldChange{Field, From, To}`, so a sensitive value would sit under `to` —
+not under a denylisted *key* — where a key-based denylist cannot reach it.
+BR-TP72's named redaction exception, `Certificate` deliberately not being a
+`ComplianceDocument`, and `WithheldChange` being the only way a redacted field
+enters the log are collectively what keeps such values off the log in the first
+place. **Weakening any of the three now also leaks cross-tenant through
+`obs.pubsub.*`**, which it did not before this phase.
 
 No separate wire contract: same shared `natstrace` envelope and redaction
 discipline BR-045 defines, not a per-service clone (same reasoning as

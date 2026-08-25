@@ -230,6 +230,52 @@ var _ = Describe("natstrace (Phase 35 — shared package — BR-036/BR-037)", fu
 			Expect(len(truncatedContent)).To(BeNumerically("<=", 4096))
 		})
 
+		It("redacts actor PII — actorName and actorSourceIP — at any nesting depth (BR-046, Phase 43a)", func() {
+			registerEcho("api.acme.widget.actor.action.v1")
+
+			spans := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = sub.Unsubscribe() })
+			Expect(nc.Flush()).To(Succeed())
+
+			// Shaped after organizations-service's transporter-profile event
+			// (BR-TP75): actor fields sit beside benign ones, and the snake_case
+			// spellings must match too since the denylist is case- and
+			// separator-explicit rather than normalizing.
+			body, err := json.Marshal(map[string]any{
+				"organizationID": "01J0ABCDEF",
+				"actorName":      "Jane Wilkinson",
+				"actorSourceIP":  "203.0.113.47",
+				"nested": map[string]any{
+					"actor_name":      "Ravi Chandrasekaran",
+					"actor_source_ip": "198.51.100.12",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = nc.Request("api.acme.widget.actor.action.v1", body, 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			var msg *nats.Msg
+			Eventually(spans).Should(Receive(&msg))
+			var span fullSpan
+			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+
+			payload := string(span.Payload)
+			Expect(payload).NotTo(ContainSubstring("Jane Wilkinson"))
+			Expect(payload).NotTo(ContainSubstring("203.0.113.47"))
+			Expect(payload).NotTo(ContainSubstring("Ravi Chandrasekaran"))
+			Expect(payload).NotTo(ContainSubstring("198.51.100.12"))
+
+			Expect(span.Redacted).To(ContainElement("actorName"))
+			Expect(span.Redacted).To(ContainElement("actorSourceIP"))
+
+			// The benign identifier survives — redaction is targeted, not a
+			// blanket drop of the payload.
+			Expect(payload).To(ContainSubstring("01J0ABCDEF"))
+		})
+
 		It("captures the request payload independently of the reply payload, each with its own redaction/truncation (Phase 28h)", func() {
 			tracer := natstrace.New(nc)
 			svc, err := micro.AddService(nc, micro.Config{Name: "natstrace-test-svc", Version: "0.0.1"})

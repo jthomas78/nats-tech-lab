@@ -822,15 +822,26 @@ Each envelope derives its `traceId`/`parentSpanId` from the span already on the 
 
 The redaction step is identical to BR-036's — same ordering (redact before the 4 KiB truncation cap), same shared denylist (`password`, `secret`, `token`, `apikey`/`api_key`, `ssn`, `creditcard`/`credit_card`, `authorization`, `privatekey`/`private_key`), matched case-insensitively at any JSON nesting depth. If the review below surfaces a field the RPC-shaped denylist doesn't cover, the **shared denylist itself is extended**, never forked into a second list for this channel alone.
 
-**The review is scoped and runs before 43a's hook is wired** (ADR-047 A8), not during it. The payload shapes to review, in priority order:
+**Review completed 2026-08-25**, before any hook was wired (ADR-047 A8). Every publisher in scope was read; the outcome:
 
-1. **organizations-service transporter-profile events** — the real risk. After Phases 40/41 these carry compliance documents and sit beside the `organizations-secrets` bucket, so they are the most likely to carry personal or credential-shaped fields the RPC denylist never had to handle.
-2. accounts-service account-lifecycle notifications.
-3. refdata type-change events.
-4. ship/container/port events — lowest risk, structurally simple.
+| Publisher | Payload | Outcome |
+|---|---|---|
+| organizations `JetStreamEventStore.append` (evt) | transporter-profile `Event` | **`actorName`, `actorSourceIP` added to the shared denylist** |
+| shipping `ShipHandler`/`ContainerHandler` (evt) | `ShipEvent`/`ContainerEvent` — ids, ports, cargo, timestamps | no change |
+| shipping `publishNotify`/`publishRawNotify`/`publishPortsChanged` | projected state, raw event, port list | no change |
+| shipping `publishChange` (kvstore) | the whole KV value — `ships`/`container`/`meta` | no change; see the bucket caveat below |
+| shipping `publishRefdataChanged` | refdata change | no change |
+| refdata `kvcache` (evt) / `notifybridge` (notify) | `{typeKey, context, version}` | no change |
+| accounts `publishAccountEvent` ×4 | `{name}` | no change |
 
-- **Enforced in:** not yet — Phase 43a.
-- **Test:** not yet written — pending Phase 43a implementation.
+**The two fields added.** `actorName` is a person's name and `actorSourceIP` an IP address, neither covered by the RPC-shaped list. Both spellings and their snake_case variants are on the list (`actorname`, `actor_name`, `actorsourceip`, `actor_source_ip`), matched case-insensitively at any depth like every other entry. Per this rule the **shared** list was extended, not forked — so both are now redacted from `obs.trace.*` payloads too. That is deliberate: a cross-tenant operator plane needs to see *that* a change happened, not which person made it or from where.
+
+**A structural limit worth stating.** `Event.Changes` is `[]FieldChange{Field, From, To}` — the sensitive value would sit under `to`, not under a denylisted *key*, so a key-based denylist **cannot** protect it. It is safe today only because organizations-service's domain already withholds such values structurally: BR-TP72's named redaction exception, `Certificate` deliberately not being a `ComplianceDocument`, and `WithheldChange` being the only way a redacted field enters the log. **`obs.pubsub.*`'s safety for this payload is therefore a dependency on BR-TP72 holding, not a property of the denylist.** A future field logged with a real value where it should have been withheld propagates cross-tenant through this channel.
+
+**A bucket-dependent site.** `publishChange` (`internal/kvstore/kv.go:114`) publishes whatever value was `Put`, so its safety is a property of which buckets are wired through `kvstore.New` — three benign ones today (`ships`, `container`, `meta`). `organizations-secrets` lives in a different service and does not use this helper, so it is not exposed here. Any new bucket wired through `kvstore.New` is automatically published *and* automatically observed, and needs its own look.
+
+- **Enforced in:** `shared/natstrace/natstrace.go`'s `redactDenylist` (the four actor keys; the redact-then-truncate pipeline itself is BR-036's, unchanged).
+- **Test:** `shared/natstrace/natstrace_test.go` — "redacts actor PII — actorName and actorSourceIP — at any nesting depth (BR-046, Phase 43a)": both spellings at top level and nested are stripped, recorded in `Redacted`, and a benign sibling identifier survives.
 
 ### BR-047 (Phase 43b, CONFIRMED 2026-08-25 — not yet implemented) — Published `obs.pubsub.*` envelopes are ingested best-effort into their own bounded stream, deduplicated by `Nats-Msg-Id`
 

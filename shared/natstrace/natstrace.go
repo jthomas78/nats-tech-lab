@@ -72,6 +72,19 @@ var redactDenylist = map[string]struct{}{
 	"authorization": {},
 	"privatekey":    {},
 	"private_key":   {},
+
+	// Actor PII (BR-046's payload review, Phase 43a). Added when
+	// obs.pubsub.* brought organizations-service's transporter-profile
+	// events onto an observability channel: those carry actorName and
+	// actorSourceIP, neither of which the RPC-shaped list above covered.
+	// The list is shared by design (BR-046 extends it rather than forking
+	// a second one for obs.pubsub), so these are redacted from obs.trace.*
+	// payloads too — deliberate: a cross-tenant operator plane needs to see
+	// that a change happened, not which person made it or from where.
+	"actorname":       {},
+	"actor_name":      {},
+	"actorsourceip":   {},
+	"actor_source_ip": {},
 }
 
 // traceSpan is BR-036's wire envelope — a strict superset of the pre-existing

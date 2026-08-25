@@ -1215,7 +1215,11 @@ So: PLATFORM gains a new `addPlatformPubsubImport` mirroring `addPlatformTraceIm
 
 `obs.pubsub.>` is never granted to a browser credential, on the same reasoning as `obs.trace.*` (`auth/token.go:87`).
 
-**This service's own four `notify.accounts.account.*` publishes are also instrumented** (`accounts/handler.go:180/242/258/266`, via `publishAccountEvent`) — a `notify.*` call site like any other under BR-045's per-call-site half, and on BR-049's checked list. The rule as originally drafted covered only the export plumbing and missed them (ADR-047 A2).
+**This service's own four `notify.accounts.account.*` publishes move from `obs.trace.*` to `obs.pubsub.*`** (`accounts/handler.go:180/242/258/266`, via `publishAccountEvent`) — they are on BR-049's checked list. The rule as originally drafted covered only the export plumbing and missed them entirely (ADR-047 A2); BR-046's payload review then found they are **already** traced: `publishAccountEvent` calls `natstrace.StartOutbound` and `sp.End`, which publishes an `obs.trace.*` span today (`handler.go:214`, `handler.go:225`).
+
+Instrumenting them on `obs.pubsub.*` as well would put one event on two channels, which BR-047's dedup does not span. **Decided 2026-08-25: they move.** These are fire-and-forget notifications, and `obs.trace.*` is the request/reply channel — carrying them there was the anomaly, and moving them is what makes ADR-047's claim that "the split is clean by construction" actually true rather than aspirational. `publishAccountEvent` keeps its span for trace continuation (the `Traceparent` header it sets is what links the notify to the request that caused it, and BR-045's envelope derives `traceId`/`parentSpanId` from exactly that span) — what changes is which subject the resulting envelope is published on.
+
+**Known cost, accepted:** the Admin UI's Request/Reply & Traces panel stops showing these four account-lifecycle entries; they appear in the Messages panel instead. This is a change to shipped behavior, not a pure addition, and is the one place Phase 43 edits an existing pipeline rather than adding beside it.
 
 **Deliberately out of scope:** retrofitting the same remap onto the existing `obs.trace.>` import, which would fix the Traces panel's coarse gutter too. That is a change to a shipped pipeline and belongs in its own phase.
 

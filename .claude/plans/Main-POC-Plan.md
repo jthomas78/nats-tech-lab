@@ -894,9 +894,27 @@ per the standing AI Agent Workflow — the pending stubs already in the tree
 `MessagesPanel.spec.js`) are the red half, derived from the rules, and get
 real bodies as each sub-phase lands.
 
-**One gate remains inside 43a:** BR-046's redaction review of real
-`evt.*`/`notify.*` payloads — transporter-profile documents first — runs
-**before** the hook is wired, not during.
+**43a's gate is cleared.** BR-046's redaction review of real
+`evt.*`/`notify.*` payloads completed 2026-08-25, before any hook was wired.
+Outcome, recorded in full in BR-046:
+
+- **Two fields added to the shared denylist** — `actorName` and
+  `actorSourceIP`, from organizations-service's transporter-profile events;
+  the only action items in the whole review. Shared list extended, not forked,
+  so both are redacted from `obs.trace.*` too. Green in
+  `shared/natstrace/natstrace_test.go`.
+- **A dependency, now written down:** `Event.Changes`'s `from`/`to` values sit
+  under a field name, not a denylisted key, so the denylist cannot reach them.
+  They are safe only because BR-TP72 withholds such values structurally —
+  weakening BR-TP72 now leaks cross-tenant through this channel.
+- **A caveat, now written down:** `publishChange` publishes whatever value was
+  `Put`, so any new bucket wired through `kvstore.New` is automatically
+  observed and needs its own review. Three benign buckets today.
+- **A scope change the review turned up:** accounts-service's four
+  `notify.accounts.account.*` publishes already emit `obs.trace.*` spans.
+  Decided 2026-08-25 — they **move** to `obs.pubsub.*` rather than appearing on
+  both. The Traces panel loses four entry types; this is the one place Phase 43
+  edits a shipped pipeline rather than adding beside it. See BR-AC34.
 
 ---
 
