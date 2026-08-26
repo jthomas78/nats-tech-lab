@@ -33,7 +33,6 @@ import { useTenantStore } from './stores/tenant'
 import { useUiStore } from './stores/ui'
 import { setRefdataTransport, useRefdataLabels } from '@refdata/useRefdataLabels.js'
 import { useL10nCopy } from '@refdata/useL10nCopy.js'
-import { useNatsConnection } from './nats/useNatsConnection.js'
 import { i18n } from './i18n.js'
 import AppShell from '@ui-shell/AppShell.vue'
 import NavList from '@ui-shell/NavList.vue'
@@ -51,26 +50,16 @@ const {
 const { usingFallback, partialFallback, connect: connectL10nCopy, disconnect: disconnectL10nCopy } = useL10nCopy()
 const { t } = useI18n()
 
-// Phase 32: refdata labels/UI copy read refdata-service directly over api.*
-// instead of shipping-service's retired REST relay. This uses the TENANT
-// connection, not platformConnection below — MintAdminToken denies all
-// publish (Pub.Deny = ">"), so an api.* request can only go out on the
-// tenant credential. shared/ can't import @nats-io/nats-core itself (see
-// useRefdataLabels' doc comment), so this app lends it request/subscribe.
-const tenantConnection = useNatsConnection()
-setRefdataTransport({
-  request: tenantConnection.request,
-  subscribe: tenantConnection.subscribe,
-})
-
-// Phase 23: the topbar connection indicator below is driven by this
-// PLATFORM-account connection specifically, not the tenant one — PLATFORM
-// has no tenant/BU lifecycle (auth/token.go's MintAdminToken doc comment),
-// so "connected" stops being a side effect of which tenant/BU happens to be
-// selected, which is what it was under the old /api/watch/{context}
-// EventSource (empty context → connection error → "disconnected", even
-// though NATS itself was fine).
+// The Admin UI has one browser NATS connection, authenticated into PLATFORM.
+// It watches the centrally projected observability buckets and lends the
+// shared refdata composables a narrowly allowlisted read transport for UI
+// labels/copy. shared/ can't import @nats-io/nats-core itself, so this app
+// injects the connection's request/subscribe pair.
 const platformConnection = usePlatformConnection()
+setRefdataTransport({
+  request: platformConnection.request,
+  subscribe: platformConnection.subscribe,
+})
 
 // ── View selection (grouped activity bar) — one view rendered at a time, no
 // router. Two top-level groups, PLATFORM before SYSTEM, split by what the
@@ -147,14 +136,13 @@ const subtitle = computed(() =>
 )
 
 onMounted(async () => {
-  // Platform connection first (no tenant dependency, drives the connection
-  // indicator on its own) — fire-and-forget, its own connected/lastError
-  // refs track outcome.
-  platformConnection.connect().catch(() => {})
-  // tenantStore.refresh() also establishes the tenant NATS connection
-  // (Phase 23) and is awaited so loadContexts()/store.connect() below run
-  // against a settled connection attempt, not mid-authentication.
-  await tenantStore.refresh()
+  // The refdata reads below need the PLATFORM request transport, while the
+  // legacy overview snapshot still needs the backend's active account label.
+  // Neither opens a tenant-account browser connection.
+  await Promise.all([
+    platformConnection.connect().catch(() => {}),
+    tenantStore.refresh(),
+  ])
   await store.loadContexts()
   store.connect()
   connectRefdata()

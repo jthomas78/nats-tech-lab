@@ -47,10 +47,9 @@ const REQUEST_TIMEOUT_MS = 5000
 //
 // The value is "<app>/<instance ID>", symmetric with Nats-Responder's
 // format (the same service.name/service.instance.id split OpenTelemetry's
-// resource conventions use). The instance half is generated once per module
-// load — i.e. per browser tab — so two tabs of the same app are
-// distinguishable in the Request/Reply panel, which a bare app name never
-// could be.
+// resource conventions use). The instance half is persisted by requestorId.js
+// in localStorage, so it survives refreshes and identifies one browser profile
+// across its tabs.
 // Both halves now come from requestorId.js so this app's one REST call
 // (api.js's getBusinessUnits) declares the same identity as its api.* calls.
 const REQUESTOR_ID = REST_REQUESTOR_ID

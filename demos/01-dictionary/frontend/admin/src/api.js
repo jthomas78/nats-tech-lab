@@ -1,16 +1,9 @@
-// Thin client over the demo backend. Most of this file is REST — relative
-// paths so the vite dev proxy (dev) or nginx (docker) routes them to the
-// backend. The ship/container/port/meta functions below and the
-// organizations functions further down are the exceptions: Phase 26h moved
-// organizations calls onto NATS api.* subjects, and Phase 33.8 did the same
-// for shipping-service's ship/container/port/meta business calls once its
-// REST routes were retired (Phase 33, BR-039) — shipTerminal/getTerminal's
-// Terminal.ListByPort query has no api.* equivalent (browserrpc/adapter.go
-// only exposes container-list/container-manifest) and was unused by any
-// component, so it was dropped rather than migrated; add an api.* endpoint
-// first if a by-port terminal view is ever built.
+// Thin client over the demo backends. Diagnostics/control-plane calls use
+// relative REST paths so Vite/nginx can route them. The one NATS exception is
+// the Admin UI's narrowly-scoped refdata read below, sent on its single
+// PLATFORM browser connection.
 
-import { useNatsConnection } from './nats/useNatsConnection.js'
+import { usePlatformConnection } from './nats/usePlatformConnection.js'
 import { REQUESTOR_HEADER, REST_REQUESTOR_ID } from './requestorId.js'
 
 // Every REST call carries this tab's Nats-Requestor identity, the same one
@@ -34,75 +27,10 @@ async function request(path, options = {}) {
   return body
 }
 
-// shippingSubject builds one shipping-service api.* subject
-// (api.{context}.shipping.{entity}.{action}.v1 — browserrpc/adapter.go),
-// failing loudly if context isn't a legal single subject token. Mirrors
-// tpSubject below for organizations-service.
-function shippingSubject(context, entity, action) {
-  if (!context || /[.\s*>]/.test(context)) {
-    throw new Error(`invalid context for a NATS subject token: ${JSON.stringify(context)}`)
-  }
-  return `api.${context}.shipping.${entity}.${action}.v1`
-}
-
-function shippingRequest(context, entity, action, payload) {
-  return useNatsConnection().request(shippingSubject(context, entity, action), payload)
-}
-
-// ── Ship commands ─────────────────────────────────────────────────────────────
-
-export function arrivePort(input) {
-  return shippingRequest(input.context, 'ship', 'arrive', input)
-}
-
-export function departPort(input) {
-  return shippingRequest(input.context, 'ship', 'depart', input)
-}
-
-// ── Container commands ────────────────────────────────────────────────────────
-
-export function registerContainer(input) {
-  return shippingRequest(input.context, 'container', 'register', input)
-}
-
-export function loadContainer(input) {
-  return shippingRequest(input.context, 'container', 'load', input)
-}
-
-export function unloadContainer(input) {
-  return shippingRequest(input.context, 'container', 'unload', input)
-}
-
-// ── Terminal / meta queries ───────────────────────────────────────────────────
-
-export function listContainers(context) {
-  return shippingRequest(context, 'container', 'list')
-}
-
-export function getManifest(context, shipID) {
-  return shippingRequest(context, 'container', 'manifest', { shipID })
-}
-
-// ── Ports (Postgres-backed reference table, BR-017/BR-018) ───────────────────
-
-export function getPorts(context) {
-  return shippingRequest(context, 'port', 'list')
-}
-
-export function registerPort(context, name) {
-  return shippingRequest(context, 'port', 'register', { name })
-}
-
 // Raw ports table rows (name + createdAt) for the admin Postgres Tables
-// panel — distinct from getPorts, which returns names only for dropdowns.
-// Stays on REST: an admin diagnostics route (/api/admin/ports/{context}),
-// never a business one — see BR-039/Phase 33's admin vs. business split.
+// panel. This is an admin diagnostics route, not a business command surface.
 export function getPortsTable(context) {
   return request(`/api/admin/ports/${context}`)
-}
-
-export function getKnownContainers(context) {
-  return shippingRequest(context, 'meta', 'known-containers')
 }
 
 // Every event stream across every account this backend reaches (tagged with
@@ -120,11 +48,10 @@ export function listKVBuckets() {
   return request('/api/kv/buckets')
 }
 
-// ── One-shot bootstrap reads (Phase 23) ──────────────────────────────────────
-// Replace the snapshot/replay half of the SSE streams below — each returns a
-// single JSON array reflecting current state at request time. Live updates
-// after this snapshot arrive over the tenant/platform NATS WebSocket
-// connections (src/nats/) via notify.* subscriptions instead.
+// ── One-shot diagnostics reads ───────────────────────────────────────────────
+// Each returns a point-in-time cross-account snapshot through
+// observability-service. Raw tenant updates are not subscribed in the Admin
+// browser; only centralized trace/pub-sub projections have a live continuation.
 
 export function getKvBucketEntries(account, bucket) {
   return request(`/api/kv/buckets/${encodeURIComponent(account)}/${encodeURIComponent(bucket)}/entries`)
@@ -140,17 +67,10 @@ export function getJetstreamReplay(account, stream = 'SHIPPING') {
   return request(`/api/jetstream/replay?${query}`)
 }
 
-// ── Tenant switch (Phase 13b) ─────────────────────────────────────────────────
-// Distinct from fleet context (getPorts above): this reconnects
-// shipping-service's NATS connection under a different account entirely, so
-// every ship/container endpoint's data changes, not just what a query filters.
-
+// The backend's active account label is still used to select the legacy
+// Overview snapshot. It does not cause the browser to connect to that account.
 export function getTenant() {
   return request('/api/tenant')
-}
-
-export function switchTenant(tenant) {
-  return request('/api/tenant/switch', { method: 'POST', body: JSON.stringify({ tenant }) })
 }
 
 // ── Refdata contexts (Phase 16f; moved onto api.* in Phase 32) ────────────────
@@ -164,14 +84,13 @@ export function switchTenant(tenant) {
 // reaches it without the denied api.*.refdata.admin.> prefix.
 //
 // The tenant filter travels in the request body (BR-D35) — refdata-service
-// has no server-supplied caller identity to derive it from (BR-D34), and the
-// per-tenant connection only proves which ACCOUNT the caller is in, which is
-// a different axis from the `tenant` column contexts are tagged with.
+// has no server-supplied caller identity to derive it from (BR-D34). The
+// browser connection is PLATFORM-scoped, so the body is the only tenant
+// selector on this read.
 // Returns bare context names, matching the shape the REST relay returned so
 // stores/dictionary.js's loadContexts() is unchanged.
-export function getRefdataContexts() {
-  const { request: natsRequest, tenant } = useNatsConnection()
-  return natsRequest('api._platform.refdata.context.list.v1', { tenant: tenant.value }).then((body) =>
+export function getRefdataContexts(tenant) {
+  return usePlatformConnection().request('api._platform.refdata.context.list.v1', { tenant }).then((body) =>
     (body.contexts ?? []).map((c) => c.context),
   )
 }
@@ -179,9 +98,9 @@ export function getRefdataContexts() {
 // ── Accounts (Phase 14c) ───────────────────────────────────────────────────────
 // Dynamic tenant provisioning via accounts-service, proxied at /api/platform/
 // (nginx.conf / vite.config.js inject the shared basic-auth secret — the
-// browser never handles it). Distinct from getTenant/switchTenant above:
-// those talk to shipping-service about which account it's *currently*
-// connected as; these talk to accounts-service about which accounts *exist*.
+// browser never handles it). Distinct from getTenant above: that reports
+// shipping-service's current snapshot account; these calls manage the full
+// accounts-service roster.
 
 export function listAccounts() {
   return request('/api/platform/accounts')

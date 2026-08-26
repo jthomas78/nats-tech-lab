@@ -4,8 +4,8 @@
 // dropped; see CLAUDE.md). See CLAUDE.md for the server-side projection analogy.
 import { defineStore } from 'pinia'
 
-import { getKvBucketEntries, getPorts, getRefdataContexts } from '../api'
-import { useNatsConnection } from '../nats/useNatsConnection.js'
+import { getKvBucketEntries, getRefdataContexts } from '../api'
+import { useTenantStore } from './tenant.js'
 
 export const useDictionaryStore = defineStore('dictionary', {
   state: () => ({
@@ -15,8 +15,6 @@ export const useDictionaryStore = defineStore('dictionary', {
     ships: {},
     // rolling log of raw watch events, newest first
     events: [],
-    // ports seen across all events so the shipping form can auto-populate
-    seenPorts: [],
   }),
 
   getters: {
@@ -34,13 +32,13 @@ export const useDictionaryStore = defineStore('dictionary', {
       this.connect()
     },
 
-    // Fetches this tenant's real context list (Phase 16f/22). Called from
-    // stores/tenant.js on tenant switch. Filters "_"-reserved contexts (e.g.
+    // Fetches the backend active account's context list (Phase 16f/22).
+    // Filters "_"-reserved contexts (e.g.
     // "_platform", "_default_bu") — those are platform roots, not fleet scopes.
     // A failed fetch leaves availableContexts empty (no stale fallback — Phase 22).
     async loadContexts() {
       try {
-        const contexts = (await getRefdataContexts()).filter((c) => !c.startsWith('_'))
+        const contexts = (await getRefdataContexts(useTenantStore().tenant)).filter((c) => !c.startsWith('_'))
         this.availableContexts = contexts
         if (contexts.length > 0 && !contexts.includes(this.context)) {
           this.setContext(contexts[0])
@@ -56,16 +54,11 @@ export const useDictionaryStore = defineStore('dictionary', {
       if (!this.context) return
       this.ships = {}
       this.events = []
-      this.seenPorts = []
-
-      const { tenant } = useNatsConnection()
-
-      getPorts(this.context)
-        .then((res) => this.mergePorts(res?.values ?? []))
-        .catch(() => {})
+      const account = useTenantStore().tenant
+      if (!account) return
 
       try {
-        const rows = await getKvBucketEntries(tenant.value, 'ships')
+        const rows = await getKvBucketEntries(account, 'ships')
         const prefix = this.context + '.'
         for (const row of rows ?? []) {
           if (!row.key.startsWith(prefix)) continue
@@ -80,16 +73,9 @@ export const useDictionaryStore = defineStore('dictionary', {
 
     disconnect() {},
 
-    mergePorts(ports) {
-      const merged = new Set([...this.seenPorts, ...ports])
-      this.seenPorts = [...merged].sort()
-    },
-
     applyWatchEvent(event) {
       if (event.op === 'PUT') {
         this.ships[event.key] = { state: event.value, revision: event.revision }
-        const port = event.value?.currentPort
-        if (port) this.mergePorts([port])
       } else {
         // Delete/purge: an evicted cache key reappears on the next read via
         // the Postgres fallthrough + backfill.

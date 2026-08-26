@@ -19,14 +19,13 @@ export const REQUESTOR_HEADER = 'Nats-Requestor'
 // TAB_ID is the instance half, shared by every identity below.
 export const TAB_ID = crypto.randomUUID().replaceAll('-', '').slice(0, 16)
 
-// requestorID qualifies TAB_ID with a caller name — a connection name for a
-// NATS connection ('admin-app-tenant'), the app's own name for REST, which has
-// no connection to name.
+// requestorID qualifies TAB_ID with the app name shared by its single NATS
+// connection and its REST calls.
 export function requestorID(name) {
   return `${name}/${TAB_ID}`
 }
 
 // REST_REQUESTOR_ID is the value api.js stamps on every fetch. The app name
-// rather than a connection name: a REST call belongs to the tab, not to
-// either of its NATS connections.
+// rather than a connection name: a REST call belongs to the tab, not to its
+// PLATFORM connection specifically.
 export const REST_REQUESTOR_ID = requestorID('admin-app')

@@ -292,93 +292,60 @@ Sourcing vs Plain CRUD" above.
 
 ### Frontend Data Store (Pinia) Bindings to Backend
 
-Each demo frontend has its own Pinia store — all are browser-side equivalents of server-side projections: materialized views that stay current by receiving pushed events rather than polling.
+Each demo frontend has its own Pinia store. Some are live browser-side
+projections; Admin's legacy Overview store is now explicitly a point-in-time
+snapshot.
 
 | Frontend | Store | Live-update transport |
 |---|---|---|
-| `frontend/admin/` (admin, :7100) | `stores/dictionary.js` | **NATS WebSocket** (Phase 23) — `notify.{context}.kv.ships.>` on the tenant connection, bootstrapped by `GET /api/kv/buckets/{account}/{bucket}/entries`. **No SSE.** |
+| `frontend/admin/` (admin, :7100) | `stores/dictionary.js` | **REST snapshot only** — `GET /api/kv/buckets/{account}/{bucket}/entries`; no raw tenant live tail and no tenant browser connection. Central trace/pub-sub panels separately use the single PLATFORM WebSocket. |
 | `frontend/seafreight-app/` (Port Management, :7101) | `stores/port.js` | **NATS WebSocket** (Phase 15d) — `notify.{context}.shipping.{ship,container,meta,port}.changed`, bootstrapped by `api.*` list calls. **No SSE.** |
-| `frontend/refdata/` (reference data, :7102) | `stores/dictionary.js` | SSE — `/api/refdata-watch/{context}`, served by **refdata-service** |
+| `frontend/refdata/` (Tech Lab Operator, :7102) | `stores/dictionary.js` | **NATS WebSocket** — refdata `api.*` plus `notify._platform.refdata.*.changed`; no SSE. |
 
-> **Updated Phase 15d, then Phase 23.** Phase 15d moved Sea Freight Flow off
-> `EventSource` onto one NATS WebSocket subscribing to `notify.*` (see
-> [ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) § 2.1),
-> replacing the ~5 SSE streams per tab that were exhausting the browser's
-> 6-connection-per-origin HTTP/1.1 limit. **Phase 23 then did the same for the
-> Admin UI**, which had been the last consumer of `shipping-service`'s SSE
-> handlers: all four of its streams (dictionary KV watch, KV inspector,
-> JetStream raw watch, RPC trace) became "one-shot REST bootstrap +
-> `notify.*` subscribe", `rest/sse.go` and `/api/watch/{context}` were deleted
-> outright, and the Admin UI gained two browser NATS connections rather than
-> one (see [ARCHITECTURE-ACCOUNTS.md](ARCHITECTURE-ACCOUNTS.md) § "Admin UI
-> browser connections"). `frontend/refdata` is now the only SSE consumer left
-> anywhere in the demo, and its endpoint belongs to refdata-service, not the
-> shipping backend.
+> **Current Admin topology.** Phase 23 originally replaced Admin's SSE feeds
+> with PLATFORM and tenant WebSockets. Later phases centralized request/reply
+> and pub/sub observations in PLATFORM and removed Admin's raw tenant live
+> subscriptions. The leftover `admin-tenant` socket was then removed. Admin
+> now has one PLATFORM WebSocket for centralized notifications and three exact
+> read-only refdata requests; cross-account Stream/KV contents are REST
+> snapshots served by observability-service.
 
 The sections below describe **the admin store**. The port store no longer
 follows this pattern for transport — only for the client-side joins
 (`dockedShips`, `yardContainers`, `manifestFor`), which are unchanged.
 
-#### Connection lifecycle
+#### Admin Overview snapshot lifecycle
 
 ```
-connect()                                        ← no context ⇒ return early (see below)
-  ├─ subscribe(notify.{context}.kv.ships.>)      ← tenant NATS WebSocket
-  │    └─ applyWatchEvent({key, op, value})         payload IS the value; key comes
-  │                                                  from the subject (kvNotifySubject.js)
-  └─ getKvBucketEntries(tenant, 'ships')          ← one-shot REST bootstrap, AFTER subscribing
+GET /api/tenant                                  ← backend's active snapshot account label
+api._platform.refdata.context.list.v1            ← exact read on Admin's PLATFORM connection
+connect()
+  └─ getKvBucketEntries(account, 'ships')         ← backend-mediated REST snapshot
        └─ applyWatchEvent({key, op:'PUT', revision, value})
 ```
 
-`connect()` is called on app mount and whenever the Fleet context dropdown
-changes; `disconnect()` drops the previous subscriptions first. Two ordering
-details are load-bearing:
-
-- **Subscribe before bootstrapping.** A write landing in the gap between the
-  two would otherwise be lost entirely; in this order it may instead be
-  applied twice, which is harmless because `applyWatchEvent` is idempotent per
-  key.
-- **Return early when `context` is empty.** `App.vue` calls `connect()`
-  unconditionally after `loadContexts()`, which leaves `context` at `''` if
-  `getRefdataContexts()` failed (e.g. refdata-service not yet up).
-  Subscribing anyway built a malformed `notify..kv.{bucket}.>` subject — an
-  empty `{context}` token — that the NATS server correctly rejected as a
-  Subscription Violation. A real failure mode, first surfaced by the Log panel.
+`connect()` returns early when either context or account is empty. The account
+is a REST selection parameter, not a credential: the browser never
+authenticates into that tenant. No subscribe-before-bootstrap race exists
+because this store has no live subscription.
 
 Bootstrap rows arrive with the `{context}.` key prefix still attached, because
-`kvBucketEntriesOnce` reads the raw bucket, unlike the deleted SSE handler's
+the REST entry reader reads the raw bucket, unlike the deleted SSE handler's
 `kvstore.Store.Watch`, which stripped it. The store filters and strips it so
 `ships` keeps the bare-key shape (`ship.SHIP1`) its consumers (Overview
 panel's KV rev card, `TelemetryStrip.vue`) expect.
 
-#### Server push path
+#### No raw tenant server-push path
 
-```
-NATS KV write (ship projector)
-  └─ kvstore.Store.EnableNotify publishes         ← backend re-publishes each KV change
-       notify.{context}.kv.{bucket}.{key}.changed    as a core NATS message
-       └─ browser subscription fires               ← tenant NATS WebSocket, in the store
-            └─ applyWatchEvent(event)               ← mutates Pinia state
-                 └─ Vue components re-render        ← reactive binding
-```
-
-No polling. No manual refresh. The component re-renders because it reads from reactive Pinia state, and `applyWatchEvent` mutates that state directly.
-
-Note the payload difference from the SSE era: a `notify.*` message carries
-**only the raw value**, so `op` and `key` are derived — key from the subject
-(`parseKvNotifySubject`), `op` from whether the payload is null (`DEL`) or
-present (`PUT`). `revision` is not available on the live path at all; only
-bootstrap rows carry one.
-
-#### `applyWatchEvent` — what it does
-
-Every applied event — from either the live subscription or the bootstrap fetch — is normalized to the same four fields before reaching this method: `op` (PUT / DEL / PURGE), `key`, `value` (the `ShipState` JSON), and `revision` (NATS KV sequence number; `undefined` on the live path). That normalization is what let the transport change underneath in Phase 23 without touching this method at all. (Before Phase 31 retired the second shape this store watched, the event also carried a `shape` field selecting which of two state objects to mutate; with one shape left, `applyWatchEvent` mutates `this.ships` directly.)
+The store applies only snapshot rows. Central observability remains live, but
+through `useTraceFeed`/`usePubsubFeed` watching PLATFORM projection-bucket
+notifications; it is intentionally separate from this legacy fleet snapshot.
+`applyWatchEvent` is retained as the snapshot-row normalization helper.
 
 ```js
 applyWatchEvent(event) {
   if (event.op === 'PUT') {
     this.ships[event.key] = { state: event.value, revision: event.revision }
-    // also merges any new port into seenPorts for the dropdown
   } else {
     delete this.ships[event.key]   // DEL or PURGE — ship removed from view
   }
@@ -390,18 +357,8 @@ applyWatchEvent(event) {
 
 #### EventSource vs WebSocket
 
-> **Revised Phase 15d, settled Phase 23.** The original reasoning below —
-> SSE is the right fit for a one-directional push — was locally sound but
-> turned out to be answering the wrong question. The deciding factor was never
-> directionality; it was the browser's **6-connections-per-origin HTTP/1.1
-> limit**. Sea Freight Flow's ~5 SSE streams per tab meant a second tab hung
-> indefinitely, and the Admin UI had four of its own. One multiplexed WebSocket
-> removes the ceiling regardless of how many subjects a panel watches, so
-> Phase 15d moved Sea Freight Flow and Phase 23 moved the Admin UI. The table
-> is kept as the trade-off reference; the "used for" row is what actually
-> changed. See `ARCHITECTURE-COMMUNICATIONS.md` § 2.1.
-
-The original argument for the admin store was that `EventSource` (SSE) suits a one-directional flow — the server pushes, the browser only reads, and commands travel back as separate `fetch` POST requests that need no watch channel. That still describes the *shape* of the admin data flow accurately; it just stopped being the deciding factor once connection count became the binding constraint.
+The Admin UI has no SSE and one multiplexed PLATFORM WebSocket. Sea Freight
+Flow and Tech Lab Operator own their separate app-specific WebSockets.
 
 | | EventSource (SSE) | WebSocket |
 |---|---|---|
@@ -409,14 +366,16 @@ The original argument for the admin store was that `EventSource` (SSE) suits a o
 | Protocol | Plain HTTP | `ws://` upgrade |
 | Proxy/firewall support | Works without config | Requires explicit support |
 | Auto-reconnect | Built in | Must implement manually (`connectionFactory.js`'s `closed()` handler) |
-| Used for | `/api/refdata-watch/{context}` → `frontend/refdata` — the only SSE left | **NATS WebSocket → `frontend/seafreight-app`** (Phase 15d) **and `frontend/admin`** (Phase 23), `api.*` + `notify.*` |
-| Connections per tab | One per watch channel — ~5 for Sea Freight Flow, 4 for the Admin UI, against a 6-per-origin HTTP/1.1 ceiling | One, multiplexing every subject — no ceiling (two for the Admin UI, split by account, not by channel) |
+| Used for | Retired in these three frontends | Per-app NATS connections; Admin has one PLATFORM connection |
+| Connections per Admin tab | 0 | 1 — PLATFORM only, multiplexing central notifications and exact refdata reads |
 
 #### Context scoping
 
-The Fleet dropdown sets `store.context`. Changing it calls `connect()`, which re-subscribes to `notify.{newContext}.kv.ships.>` and re-runs the bootstrap fetch. Isolation now comes from the subject filter and the key-prefix check rather than from a per-context backend endpoint: `{context}` is a token in the subject, so the server only delivers that context's changes, and bootstrap rows outside the `{context}.` key prefix are skipped client-side. `ships` is cleared on reconnect so stale data from the previous context does not bleed through.
-
-Note that context and **account** are different scopes here, and only one of them is enforced: `{context}` is a business-unit token the subscription filters on, while the tenant account is the hard, server-enforced boundary the connection itself authenticates into. See [ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md) § 2.3.
+The bootstrap resolves contexts for the backend's active account, chooses a
+context, then filters the raw bucket snapshot by its `{context}.` key prefix.
+Account and context remain different axes, but neither is encoded in an Admin
+browser credential: account selects the backend-mediated REST read and context
+filters that result. The Admin NATS connection stays in PLATFORM throughout.
 
 ---
 

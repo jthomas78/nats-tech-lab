@@ -158,11 +158,11 @@ func (h *Handlers) connectInfo(w http.ResponseWriter, r *http.Request) {
 // Admin UI's own PLATFORM-account connection (Phase 23, BR-AC18). PLATFORM
 // is not a tenant — deliberately not routed through connectInfo's
 // Status-gated tenant lookup; it looks up the fixed "platform" row directly
-// and mints via MintAdminToken's own restricted, sub-only permission
-// profile instead of MintBrowserToken's tenant-shaped one.
+// and mints via MintAdminToken's own restricted PLATFORM permission profile
+// instead of MintBrowserToken's tenant-shaped one.
 //
 // @Summary      Mint a browser NATS credential for the Admin UI
-// @Description  Mints a sub-only PLATFORM-account credential for the Admin UI's own connection (Phase 23, BR-AC18).
+// @Description  Mints a PLATFORM credential for centralized notifications and exact read-only refdata requests (BR-AC18).
 // @Tags         auth
 // @Produce      json
 // @Success      200  {object}  auth.ConnectInfo
@@ -201,8 +201,8 @@ func (h *Handlers) adminConnectInfo(w http.ResponseWriter, r *http.Request) {
 // refdataAdminConnectInfo mints and returns a fresh NATS credential for the
 // refdata admin UI's (frontend/refdata) own PLATFORM-account connection
 // (Phase 32) — sibling to adminConnectInfo above, same fixed "platform" row
-// lookup, but MintRefdataAdminToken's publish-capable, refdata-scoped
-// permission profile instead of MintAdminToken's subscribe-only one (see
+// lookup, but MintRefdataAdminToken's full refdata-scoped permission profile
+// instead of MintAdminToken's three exact read subjects (see
 // MintRefdataAdminToken's doc comment for why this needs its own PLATFORM
 // credential rather than reusing either MintAdminToken or MintBrowserToken).
 //

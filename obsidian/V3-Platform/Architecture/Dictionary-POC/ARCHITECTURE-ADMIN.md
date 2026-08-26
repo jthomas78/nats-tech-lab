@@ -95,9 +95,9 @@ summary-card rule, and one color vocabulary.
    row-list + bottom detail). A left rail lists every
    item — streams for Streams, buckets for KV Buckets, traces for the trace
    view — grouped into
-   collapsible `.account-group` bands, with a colored `.account-dot` (green =
-   the browser's own authenticated tenant account, gray = a read-only/other
-   account); selecting a row fills a detail pane on the right.
+   collapsible `.account-group` bands, with a colored `.account-dot` showing
+   the account's active/suspended lifecycle status (not browser connection
+   ownership); selecting a row fills a detail pane on the right.
    `JetStreamPanel.vue` and `KvInspector.vue` explicitly share this CSS
    (`.account-group`/`.account-dot`/`.rail-item`) so the two "pick one thing
    from a list, inspect it on the right" panels read as one pattern rather
@@ -792,19 +792,15 @@ credential the listing call uses.
 ### 4.7 KV Buckets
 
 **What it shows.** Every registered KV bucket across every account reached
-— every tenant's `ships`/`container`/`meta` plus PLATFORM's
-refdata caches — contents snapshot plus a genuinely live "recent updates"
-feed for the selected bucket.
+— every tenant's `ships`/`container`/`meta` plus PLATFORM's refdata caches —
+with a periodically refreshed contents snapshot for the selected bucket.
 
-**Backend + data flow.** Rail: poll-only, `GET /api/kv/buckets` (15s).
-Detail: **snapshot + live notify** (§3.1) — `GET
-/api/kv/buckets/{account}/{bucket}/entries` bootstraps current contents,
-then a live subscribe to `notify.*.kv.{bucket}.>` picks up anything
-afterward, but *only* when the selected bucket's account equals the
-browser's currently-connected tenant — PLATFORM buckets (refdata-service
-doesn't yet publish those `notify.*` subjects) and other tenants' buckets
-(NATS account isolation) both fall back to snapshot-only, each with its own
-stated reason rather than a silently stale feed.
+**Backend + data flow.** Rail: `GET /api/kv/buckets` every 15s. Detail:
+`GET /api/kv/buckets/{account}/{bucket}/entries` on selection and every 15s
+while selected. Both calls are backend-mediated through
+observability-service; the Admin browser has no tenant-account connection and
+subscribes to no raw `notify.*.kv` tenant subject. The only live KV-notify
+feeds in Admin are the two centralized PLATFORM observability projections.
 
 **UI design.** Rail + detail split-pane (§2.1.2) — the pattern KV Buckets
 and Streams share pixel-for-pixel. Rail is 340px wide specifically because

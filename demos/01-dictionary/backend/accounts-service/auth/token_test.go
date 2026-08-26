@@ -159,12 +159,10 @@ var _ = Describe("MintAdminToken", func() {
 		accountSigningSeed = string(seed)
 	})
 
-	// BR-AC18: subscribe-only, scoped to notify.accounts.account.> plus the
-	// REFDATA notify.* subject Phase 23 adds and notify._platform.kv.trace-request-reply.>
-	// (Phase 28g) — no publish grant, no $JS.API.>/$KV.>, no tenant-shaped
-	// api.>/notify.{tenant}.* access. notify._platform.rpctrace.> (Phase 23)
-	// was retired in Phase 28g along with the RPCTRACE stream itself.
-	It("mints a sub-only JWT scoped to notify.accounts.account.>, notify._platform.refdata.>, and the two KV-notify buckets the observability panels read, with publish denied entirely", func() {
+	// BR-AC18: one PLATFORM credential for centralized notifications and the
+	// three read-only refdata calls Admin needs for UI copy/context bootstrap.
+	// No broad api.>, tenant notify.*, obs.*, $JS.API.>, or $KV.> access.
+	It("mints one PLATFORM JWT scoped to centralized notifications and exact read-only refdata requests", func() {
 		info, err := auth.MintAdminToken(accountPub, accountSigningSeed, "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(info.WSUrl).To(Equal("ws://localhost:9222"))
@@ -174,6 +172,7 @@ var _ = Describe("MintAdminToken", func() {
 
 		claims, err := jwt.DecodeUserClaims(info.JWT)
 		Expect(err).NotTo(HaveOccurred())
+		Expect(claims.Name).To(Equal("admin-app"))
 		Expect(claims.IssuerAccount).To(Equal(accountPub))
 
 		// Phase 43b (BR-047) adds the second KV-notify subject, for the
@@ -184,13 +183,19 @@ var _ = Describe("MintAdminToken", func() {
 		Expect(claims.Permissions.Sub.Allow).To(ConsistOf(
 			"notify.accounts.account.>", "notify._platform.refdata.>",
 			"notify._platform.kv.trace-request-reply.>", "notify._platform.kv.pubsub-messages.>",
+			"_INBOX.>",
 		))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("obs.")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("rpctrace")))
-		Expect(claims.Permissions.Pub.Allow).To(BeEmpty())
-		Expect(claims.Permissions.Pub.Deny).To(ConsistOf(">"))
+		Expect(claims.Permissions.Pub.Allow).To(ConsistOf(
+			"api._platform.refdata.type.list.v1",
+			"api._platform.refdata.locales.list.v1",
+			"api._platform.refdata.context.list.v1",
+		))
+		Expect(claims.Permissions.Pub.Deny).To(BeEmpty())
 
-		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("api.")))
+		Expect(claims.Permissions.Pub.Allow).NotTo(ContainElement(Equal("api.>")))
+		Expect(claims.Permissions.Pub.Allow).NotTo(ContainElement(ContainSubstring("shipping")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("rpc.")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("$KV")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("$JS.API")))
@@ -232,14 +237,14 @@ var _ = Describe("MintRefdataAdminToken", func() {
 		accountSigningSeed = string(seed)
 	})
 
-	// Phase 32: unlike MintAdminToken (subscribe-only), this credential DOES
-	// publish — it drives refdata-service's api.*.refdata.> business AND
+	// Phase 32: unlike MintAdminToken's three read-only subjects, this
+	// credential drives refdata-service's full api.*.refdata.> business AND
 	// admin endpoints for frontend/refdata's cross-tenant operator UI. The
 	// grant is scoped to exactly api.*.refdata.>, never bare api.> — this
 	// credential must not be able to reach any other service's api.*
 	// surface (pricing, organizations, shipping), which a broader grant
 	// would silently allow purely because it shares the PLATFORM account
-	// with MintAdminToken.
+	// with MintAdminToken's narrow read profile.
 	It("mints a JWT scoped to api.*.refdata.> (pub+sub) and notify._platform.refdata.> (sub), with no broader api.> or notify.> grant", func() {
 		info, err := auth.MintRefdataAdminToken(accountPub, accountSigningSeed, "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
@@ -250,6 +255,7 @@ var _ = Describe("MintRefdataAdminToken", func() {
 
 		claims, err := jwt.DecodeUserClaims(info.JWT)
 		Expect(err).NotTo(HaveOccurred())
+		Expect(claims.Name).To(Equal("operator-app"))
 		Expect(claims.IssuerAccount).To(Equal(accountPub))
 
 		Expect(claims.Permissions.Pub.Allow).To(ConsistOf("api.*.refdata.>", "_INBOX.>"))

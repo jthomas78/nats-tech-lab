@@ -313,11 +313,12 @@ these was at 93%+ checklist completion; their few genuinely-open items were
 not left stranded in an archived file — see Phase 62 below, which
 consolidates them.
 
-- [x] Phase 23 (IMPLEMENTED 2026-08-04) — Admin UI: SSE → NATS WebSocket
-      Migration (Dual-Connection Model): all four `frontend/admin` SSE
-      streams replaced with direct browser NATS WebSocket pub/sub via a
-      dedicated Admin/Platform connection (`MintAdminToken`, BR-AC18) plus
-      the existing per-tenant connection; `sse.go`'s watch handlers deleted.
+- [x] Phase 23 (IMPLEMENTED 2026-08-04; topology simplified 2026-08-26) —
+      Admin UI: SSE → NATS WebSocket Migration. The original dual-connection
+      model was reduced to one Admin/Platform connection after centralized
+      observability and Phase 36 removed every tenant-live consumer;
+      `admin-tenant` no longer exists. `sse.go`'s watch handlers remain
+      deleted.
       One item carried forward to Phase 62 (a specific multi-tab
       live-verification pass never explicitly run, though since covered in
       substance by later full-stack rebuilds).

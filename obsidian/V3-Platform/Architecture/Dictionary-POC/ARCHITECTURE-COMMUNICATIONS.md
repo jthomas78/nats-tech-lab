@@ -816,11 +816,12 @@ shows otherwise.
 > (shipping-service's `rpc.*` caller) sets `Nats-Requestor` to
 > `nats.Name(...)` plus a NUID generated once per `Consumer`;
 > `useNatsConnection.js`'s `request()` (the browser's `api.*` caller) sets
-> `"seafreight-app/"` plus a random ID generated once per tab — making
-> concurrent tabs tellable apart, which a bare app name never could;
+> `"seafreight-app/"` plus a random ID persisted in `localStorage` — making
+> one browser profile stable across refreshes and its tabs;
 > `natsrpc`/`browserrpc`'s reply paths set `Nats-Responder` to
 > `"<service's nats.Name>/<micro instance ID>"` on every reply, success or
-> error. Instance IDs are random per process/tab; a stable infra identity
+> error. Service instance IDs are random per process; the browser instance ID
+> is stable until that browser profile's site data is cleared. A stable infra identity
 > (e.g. a Kubernetes pod name) can seed the instance half later without a
 > format change. Fixing this exposed a pre-existing inconsistency: each adapter's
 > `micro.AddService` `Config.Name` (`refdata-rpc`, `shipping-api`) didn't
@@ -830,50 +831,24 @@ shows otherwise.
 > were renamed to match their connection's `nats.Name` as part of this
 > change.
 
-> **Extended again (Phase 23) — `/api/rpc-watch`'s single SSE stream is
-> retired; the browser subscribes to both halves directly instead.** The
-> pattern above — one Go handler holding both a `RPCTRACE` ordered consumer
-> and a tenant-account `obs.api.>` subscription, merging them into one SSE
-> feed — is gone. Two independent browser-held NATS WebSocket connections
-> (Phase 15's model, now extended to `frontend/admin`) each carry one half
-> directly:
+> **Phase 23 history, superseded by centralized observability and the
+> single-connection Admin UI.** Phase 23 first retired `/api/rpc-watch` and
+> replaced it with two browser WebSockets: PLATFORM for retained `obs.rpc.*`
+> traffic and one selected tenant for live `obs.api.*`. Phase 28g then retired
+> both old channels in favor of `obs.trace.*`; Phase 43 added the sibling
+> `obs.pubsub.*` path. Tenant account exports now carry both families into
+> PLATFORM, where observability-service projects them into the
+> `trace-request-reply` and `pubsub-messages` KV buckets. The Admin browser
+> bootstraps those buckets over REST and receives live changes through its
+> **single** PLATFORM connection on `notify._platform.kv.*`.
 >
-> ```mermaid
-> flowchart LR
->     subgraph Platform["Admin/Platform connection (opened once, never reconnects)"]
->         RPCTRACE[("RPCTRACE stream<br/>PLATFORM account")]
->         Bridge["eventhandler.RegisterRPCTraceNotify<br/>permanent background bridge"]
->         NotifyRPC["notify._platform.rpctrace.entry<br/>(live tail only)"]
->         RPCTRACE --> Bridge --> NotifyRPC
->     end
->     subgraph Tenant["Tenant connection (reconnects on tenant switch)"]
->         ObsApi["obs.api.&gt;<br/>tenant account, published directly<br/>by browserrpc/adapter.go"]
->     end
->     Replay["GET /api/rpctrace/replay<br/>one-shot REST bootstrap"]
->     Browser["RpcPanel.vue<br/>merges both into one row list by correlationId"]
->     RPCTRACE -.snapshot at page load.-> Replay --> Browser
->     NotifyRPC --> Browser
->     ObsApi --> Browser
-> ```
->
-> `RPCTRACE`'s retained backlog ("last N minutes," `BR-D29`) is now served by
-> a one-shot `GET /api/rpctrace/replay` bootstrap fetch instead of an
-> SSE-replay-then-live merge — the panel calls it once on mount, then relies
-> on the two subscriptions above for anything published afterward. `obs.api.>`
-> is no longer relayed through a Go handler at all: the tenant browser JWT
-> (`auth/token.go`'s `MintBrowserToken`) already carries a direct `obs.api.>`
-> subscribe grant, so `RpcPanel.vue` subscribes to it on its own tenant
-> connection — removing a hop, and removing the "pinned to whichever tenant
-> was active when the SSE connection opened" staleness this section
-> previously called out, since the tenant connection itself now reconnects
-> on tenant switch (`stores/tenant.js`'s `useNatsConnection().switchTenant`)
-> rather than requiring the whole panel to reconnect. See `BR-AC18` in
-> `BUSINESS_RULES-ACCOUNTS.md` for the Admin/Platform connection's own
-> credential (`MintAdminToken`) and `Main-POC-Plan.md`'s Phase 23 entry for
-> the full design (this same shape — permanent background bridge,
-> `notify.*` publish, REST bootstrap — replaced the Admin UI's other three
-> SSE streams too: dictionary KV watch, KV inspector, and JetStream raw
-> watch).
+> The old `admin-tenant` connection outlived its observability consumer for a
+> while because UI-copy/refdata reads still borrowed its broad `api.>` grant.
+> That residue is removed: `MintAdminToken` now allows only the three exact
+> read-only refdata subjects Admin needs, so `usePlatformConnection.js` serves
+> both centralized notifications and those reads. Admin no longer calls
+> `/api/auth/connectInfo?tenant=...`, never authenticates its browser into
+> `acme`/`globex`, and has no raw tenant live-tail subscription.
 
 > **Extended again (Phase 28) — `obs.trace.*`, W3C `traceparent`
 > propagation, and the exporter as a consumer rather than a library.** The

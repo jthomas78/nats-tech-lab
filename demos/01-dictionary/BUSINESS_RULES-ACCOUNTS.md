@@ -571,24 +571,32 @@ of `accounts.Store`'s `Status`/`SigningKeySeed`/reactivation state machine —
 that machine governs tenant accounts only, and PLATFORM has no
 suspend/reactivate lifecycle to gate on. `GET /api/auth/adminConnectInfo`
 looks up the fixed `"platform"` row directly rather than going through
-`connectInfo`'s tenant-shaped, `Status`-gated lookup. The minted JWT carries
-subscribe-only permissions (no `$JS.API.>`, `$KV.>`, or publish grants at
-all — `Pub.Deny` is set to `>` explicitly, since an unset Allow list means
-"allow everything" in NATS permission semantics, not "allow nothing") scoped
-to `notify.accounts.account.>`, the REFDATA `notify.*` subject Phase 23 adds
-(`notify._platform.refdata.>`), and `notify._platform.kv.traces.>` (Phase
-28g, the trace waterfall/messages panel). `notify._platform.rpctrace.>`
-(Phase 23) was retired in Phase 28g along with the RPCTRACE stream and its
-notify bridge — nothing publishes there anymore.
-This is the Admin UI's PLATFORM-account browser connection
-(`frontend/admin/src/nats/usePlatformConnection.js`) — opened once at boot,
-never reconnected on tenant/BU switch, and the one connection the topbar's
-connection indicator is driven by for exactly that reason.
+`connectInfo`'s tenant-shaped, `Status`-gated lookup.
+
+This is the Admin UI's **only** browser NATS credential. Its subscriptions
+are restricted to `notify.accounts.account.>`,
+`notify._platform.refdata.>`, the centralized trace projection
+(`notify._platform.kv.trace-request-reply.>`), the centralized pub/sub
+projection (`notify._platform.kv.pubsub-messages.>`), and `_INBOX.>` for
+request replies. Its publish allowlist contains exactly three read-only
+refdata subjects used for UI copy and the legacy Overview bootstrap:
+`api._platform.refdata.type.list.v1`,
+`api._platform.refdata.locales.list.v1`, and
+`api._platform.refdata.context.list.v1`. A non-empty `Pub.Allow` denies every
+unlisted publish; in particular there is no tenant business `api.>`, `rpc.>`,
+direct `obs.>`, `$JS.API.>`, or `$KV.>` access.
+
+`frontend/admin/src/nats/usePlatformConnection.js` opens this connection once
+at boot and never connects the browser to `acme`, `globex`, or any other
+tenant account. Central observability arrives through the PLATFORM KV-notify
+subjects above. Cross-account Stream/KV snapshots remain backend-mediated
+REST reads with an explicit account parameter; that parameter selects data
+but is not a browser credential.
 
 - **Enforced in:** `auth/token.go` (`MintAdminToken`); `auth/handler.go`
   (`adminConnectInfo`).
 - **Test:** `auth/token_test.go` (`MintAdminToken` — asserts the exact
-  `Sub.Allow` set, `Pub.Allow` empty, `Pub.Deny` contains `>`); `auth/
+  notification/inbox `Sub.Allow` and three-subject `Pub.Allow` sets); `auth/
   handler_test.go` (`GET /api/auth/adminConnectInfo` — 200 with a signing key
   on record, 404 when PLATFORM isn't seeded, 409 with no signing key).
 
@@ -944,7 +952,7 @@ export/import declaration — no existing `Sub.Allow`/`Pub.Allow` entry is
 narrowed or removed.
 
 **Critically, no browser-facing JWT gains this grant.** `MintBrowserToken`
-(the credential seafreight/admin tenant connections use) is unaffected —
+(the credential Sea Freight Flow and tenant-scoped operator flows use) is unaffected —
 `obs.trace.>` is a service-to-service and PLATFORM-only concern
 (BR-036), so a tenant browser credential must never carry `Sub.Allow` for
 it, the same way it is never granted `rpc.>` at all.
@@ -1247,12 +1255,14 @@ This rule extends the same pair to the REST hops, with the two halves coming
 from different places because the transports differ:
 
 - **Requestor** — the browser declares it, exactly as it already does on
-  `api.*`. Each frontend now derives *one* per-tab instance ID
-  (`src/requestorId.js`) and uses it for both transports: `"<app>/<tab id>"`
-  on REST (`api.js`) and `"<connection name>/<tab id>"` on that app's NATS
-  connections (`nats/connectionFactory.js`). Sharing the instance half is the
-  point — a REST call and an `api.*` call from the same click must read as
-  one actor, not two unrelated ones. `natstrace` needs no change to receive
+  `api.*`. Each frontend derives one instance ID (`src/requestorId.js`) and
+  uses it for both transports: `"<app>/<instance id>"` on REST (`api.js`) and
+  `"<connection name>/<instance id>"` on that app's NATS connections
+  (`nats/connectionFactory.js`). Admin and refdata currently scope that ID to
+  a tab; seafreight-app persists it in `localStorage` to identify the browser
+  profile across refreshes and tabs. Sharing the instance half between
+  transports is the point — a REST call and an `api.*` call from the same
+  browser actor must not read as two unrelated callers. `natstrace` needs no change to receive
   it: both middlewares already capture the full inbound header set, and
   `net/http` canonicalizes any casing to exactly `Nats-Requestor`, so
   `finish()`'s existing BR-041 lift onto `traceSpan.Requester` works
@@ -1292,8 +1302,8 @@ REST exactly as it can over NATS.
   `dictionary/internal/rest/trace_middleware.go` (same `End`/`Fail` change);
   `shared/browserrpc/browserrpc.go` (`ResponderHeader` re-export);
   `frontend/{admin,refdata,seafreight-app}/src/requestorId.js` plus each
-  app's `api.js` (REST) and `nats/connectionFactory.js` /
-  `nats/useNatsConnection.js` (NATS).
+  app's `api.js` (REST), Admin's `nats/usePlatformConnection.js`, and the
+  tenant apps' NATS connection modules.
 - **Test:** `shared/natstrace/natstrace_test.go` — "records the requestor
   from the inbound HTTP header and the responder from the connection's
   `nats.Name`" (asserts the requestor reaches both `Headers` and the

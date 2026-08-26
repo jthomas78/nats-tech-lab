@@ -1,23 +1,6 @@
-// Shared connect/reconnect/subscribe/request machinery behind
-// useNatsConnection.js (tenant) and usePlatformConnection.js (PLATFORM) —
-// Phase 23's dual-connection model for frontend/admin, replacing its
-// EventSource/SSE streams.
-//
-// This factory was subscribe-only until Phase 26h, on the explicit grounds
-// that "adding [a request surface] before anything needs it would be exactly
-// the speculative feature CLAUDE.md's 'don't design for hypothetical future
-// requirements' warns against". Phase 26h is that need arriving: the Admin
-// UI's Organizations screens call organizations-service over
-// api.{context}.organizations.* instead of REST.
-//
-// request() is only usable on the *tenant* connection. The PLATFORM
-// credential from GET /api/auth/adminConnectInfo is publish-denied at the JWT
-// level (auth/token.go's MintAdminToken sets Pub.Deny = ">"), while the tenant
-// credential from GET /api/auth/connectInfo?tenant=… already carries
-// Pub.Allow = ["api.>", "_INBOX.>"] — the same MintBrowserToken seafreight
-// uses. Calling request() on the platform connection will fail the publish
-// authorization, by design; nothing here needs to guard it because no caller
-// has a reason to try.
+// Connect/reconnect/subscribe/request machinery for frontend/admin's single
+// PLATFORM connection. MintAdminToken restricts request() to three read-only
+// refdata subjects; every other publish is denied by omission from Pub.Allow.
 //
 // Modeled directly on seafreight-app/src/nats/useNatsConnection.js's
 // connect/disconnect/auto-reconnect-on-close shape (same short-lived-JWT,
@@ -34,8 +17,8 @@ import { REQUESTOR_HEADER, requestorID as buildRequestorID } from '../requestorI
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
-// Matches seafreight-app's convention (Phase 18): a per-tab identity the
-// Admin UI's own Request/Reply panel can attribute traffic to, and the value
+// The Admin UI retains Phase 18's per-tab identity, which its own
+// Request/Reply panel can attribute traffic to, and the value
 // organizations-service records as an audit row's sourceIP (NATS has no
 // client address to record instead — see browserrpc's actor()).
 const REQUEST_TIMEOUT_MS = 10000
@@ -44,9 +27,8 @@ function errorMessage(err) {
   return err instanceof Error ? err.message : String(err)
 }
 
-// createConnectionState builds one independent connection's reactive state
-// + connect/disconnect/subscribe, closing over its own nc/connectSeq so two
-// instances (tenant + platform) never share connection state.
+// createConnectionState builds the PLATFORM connection's reactive state and
+// connect/disconnect/subscribe/request operations.
 //
 // fetchConnectInfo() must return { wsUrl, jwt, nkeySeed } (accounts-service
 // auth/handler.go's ConnectInfo shape) and is called fresh on every
@@ -76,10 +58,8 @@ export function createConnectionState({ fetchConnectInfo, connectionName }) {
   // throughout and fired no resync at all until this was added.
   const epoch = ref(0)
 
-  // Named per connection so the tenant and PLATFORM connections are
-  // distinguishable in the Request/Reply panel, over one tab-wide instance
-  // half (requestorId.js) so this app's REST calls and its api.* calls read
-  // as the same actor rather than two unrelated ones.
+  // Uses the same tab-wide instance half as REST so both transports read as
+  // one actor in the Request/Reply panel.
   const requestorID = buildRequestorID(connectionName)
 
   let nc = null

@@ -1,14 +1,9 @@
-// PLATFORM-account NATS WebSocket connection (Phase 23) — replaces the
-// PLATFORM-scoped half of frontend/admin's EventSource/SSE streams (REFDATA
-// change notify, RPCTRACE live tail). Connects once at app boot and never
-// reconnects on tenant/BU switch — PLATFORM has no tenant lifecycle (see
-// accounts-service/auth/token.go's MintAdminToken doc comment) — which is
-// exactly why this connection, not the tenant one in useNatsConnection.js,
-// drives the topbar's connection indicator: "connected" stops being a side
-// effect of which BU/tenant happens to be selected.
+// The Admin UI's single browser NATS WebSocket connection. It authenticates
+// into PLATFORM, receives centralized observability/refdata notifications,
+// and issues only the exact read-only refdata api.* requests MintAdminToken
+// allowlists. It connects once at app boot and has no tenant lifecycle.
 //
-// Credentials come from GET /api/auth/adminConnectInfo (Phase 23, no tenant
-// param) — subscribe-only, publish denied entirely at the JWT level.
+// Credentials come from GET /api/auth/adminConnectInfo (no tenant parameter).
 
 import { createConnectionState } from './connectionFactory.js'
 import { REQUESTOR_HEADER, REST_REQUESTOR_ID } from '../requestorId.js'
@@ -24,7 +19,7 @@ async function fetchAdminConnectInfo() {
 
 const state = createConnectionState({
   fetchConnectInfo: fetchAdminConnectInfo,
-  connectionName: 'admin-platform',
+  connectionName: 'admin-app',
 })
 
 export function usePlatformConnection() {

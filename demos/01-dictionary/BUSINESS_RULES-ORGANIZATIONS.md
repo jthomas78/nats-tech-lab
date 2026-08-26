@@ -309,8 +309,8 @@ inbound transport, and no BR-TP rule changed. 6 new specs
 (`organizations/browserrpc_test.go`, embedded NATS) assert discoverability
 over a real `$SRV.PING` broadcast; 43 total green.
 
-**26h status (2026-08-13): IMPLEMENTED, live-verified in-browser.** The Admin
-UI now reaches this service over
+**26h status (2026-08-13, historical transport; moved in Phase 36):** The
+Admin UI originally reached this service over
 `api.{context}.organizations.{entity}.{action}.v1` (14 endpoints, 6 tokens
 each) instead of REST — **`api.*`, not `rpc.*`**, because `rpc.*` is
 service-to-service and "a browser credential is never granted `rpc.>`"
@@ -338,15 +338,16 @@ NATS header over the same `"admin"` placeholder REST uses — deliberately the
 same (low) trust level, not a new claim of authenticated identity.
 `source_ip` has no NATS equivalent (`micro.Request` exposes no client
 address), so it records the caller's `Nats-Requestor` identity prefixed with
-`nats:` — e.g. `nats:admin-tenant/50439daa0ae847f7` — which also makes a row's
-originating transport self-evident next to REST's `192.168.65.1:35243`.
+`nats:` — today, for example, `nats:refdata-tenant/50439daa0ae847f7` from
+Tech Lab Operator — which also makes a row's originating transport
+self-evident next to REST's `192.168.65.1:35243`.
 
-**No credential change was required**, contrary to this phase's original
-scoping: the Admin UI's *tenant* connection already carries
-`Pub.Allow = ["api.>", "_INBOX.>"]` from the same `MintBrowserToken`
-seafreight uses. Only the PLATFORM connection is publish-denied, and it isn't
-the one used here. See Phase 26h in `.claude/plans/Main-POC-Plan.md` for the
-correction.
+**Phase 36 amendment:** the Organizations screens moved from Admin into Tech
+Lab Operator (`frontend/refdata`), which owns its own tenant-scoped connection.
+Admin's leftover tenant connection was removed later; Admin no longer calls
+any organizations `api.*` subject. The Phase 26h credential observation
+remains historical rationale for the Operator connection, not a statement
+about Admin's current topology.
 
 **Phase 26 is now fully implemented (26a-26e) and live-verified**, closing
 out `.claude/plans/Main-POC-Plan.md`'s Phase 26 checklist. Remaining named
@@ -365,7 +366,7 @@ Mirrors `BUSINESS_RULES-SHIPPING.md`'s BR-036 for this service's own tracing pub
 
 ### BR-TP16 (Phase 33.5) — Business operations are reachable only over `api.*`/`rpc.*`; REST reduces to infra health
 
-All 14 `/api/organizations/{context}/...` REST routes (Organization registration/lifecycle/audit, ComplianceDocument review, FleetAsset registration) are deleted now that `internal/browserrpc`'s `api.*` adapter (Phase 26h) has full 1:1 parity with them. Nothing outside organizations-service ever called them: `frontend/admin`'s `OrganizationsPanel.vue` already talks to organizations-service exclusively over `api.*` (`api.js`'s `tpRequest` helper, predating this phase). REST's only remaining surface is `GET /healthz`, mirroring the convention `dictionary/internal/rest` and `pricing/internal/rest` already established (`BUSINESS_RULES-PRICING.md`'s BR-P26). organizations-service has no admin-only or BasicAuth-gated REST route distinct from its business CRUD to carve out an exception for — every one of the 14 deleted routes was tenant-facing business data (even the ones the whole-mux `BasicAuth` wrapper gated), so there is no third "admin REST" category here, only the two: infra (`/healthz`) and business (`api.*`/`rpc.*`). The now-unused `BasicAuth`/`auditActor` helpers (`internal/rest/middleware.go`) and the `ORGANIZATIONS_AUTH_SECRET` env var were removed with the routes they gated, rather than left wired to nothing.
+All 14 `/api/organizations/{context}/...` REST routes (Organization registration/lifecycle/audit, ComplianceDocument review, FleetAsset registration) are deleted now that `internal/browserrpc`'s `api.*` adapter (Phase 26h) has full 1:1 parity with them. The browser consumer is now `frontend/refdata`'s Organizations panel (moved from Admin in Phase 36), which talks to organizations-service exclusively over `api.*`. REST's only remaining surface is `GET /healthz`, mirroring the convention `dictionary/internal/rest` and `pricing/internal/rest` already established (`BUSINESS_RULES-PRICING.md`'s BR-P26). organizations-service has no admin-only or BasicAuth-gated REST route distinct from its business CRUD to carve out an exception for — every one of the 14 deleted routes was tenant-facing business data (even the ones the whole-mux `BasicAuth` wrapper gated), so there is no third "admin REST" category here, only the two: infra (`/healthz`) and business (`api.*`/`rpc.*`). The now-unused `BasicAuth`/`auditActor` helpers (`internal/rest/middleware.go`) and the `ORGANIZATIONS_AUTH_SECRET` env var were removed with the routes they gated, rather than left wired to nothing.
 
 - **Enforced in:** `organizations/internal/rest/handlers.go` (now just `Mount()` registering `/healthz`); `organizations/composition.go`'s `Handlers.Mount(mux)` no longer takes command-handler dependencies or an auth secret since the REST layer has none left to wire; `cmd/main.go` serves the mux directly, unauthenticated, instead of wrapping it in a BasicAuth gate that no longer protects anything.
 - **Test:** N/A — this is a route-deletion/transport-contract rule, not a domain rule; correctness is covered by `go build ./...` compiling cleanly with `internal/rest` down to zero business handlers, and the full `ginkgo ./...` suite staying green since `api.*`/`rpc.*` and the domain layer are untouched.

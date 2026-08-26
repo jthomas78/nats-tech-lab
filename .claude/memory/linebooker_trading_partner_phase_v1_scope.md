@@ -38,15 +38,12 @@ kept as a dual transport.
 
 **Two corrections worth remembering, both from over-scoping on a misread:**
 
-1. **The Admin UI has *two* NATS connections with different permissions, and
-   they are easy to conflate.** `usePlatformConnection.js` (PLATFORM account,
-   `adminConnectInfo`) is publish-denied — `MintAdminToken` sets
-   `Pub.Deny = ">"`. `useNatsConnection.js` (tenant account, `connectInfo?tenant=`)
-   already carries `Pub.Allow = ["api.>", "_INBOX.>"]`, the same
-   `MintBrowserToken` seafreight uses. Reading the platform file's comment and
-   generalising cost a whole phase of imagined `auth-service` work: 26h needed
-   **no** credential change. Check *which* connection before concluding a
-   browser can't publish.
+1. **Historical Admin transport, since superseded.** Phase 26h used Admin's
+   then-existing tenant connection for organizations `api.*`; Phase 36 moved
+   those screens to Tech Lab Operator and its own `refdata-tenant` connection.
+   Admin's tenant connection was later removed. Admin now has one PLATFORM
+   connection whose publish allowlist contains only three read-only refdata
+   subjects; this history must not be used to infer current Admin permissions.
 2. **Scoped signing keys are not in play** (`provisioner.go` uses the unscoped
    `SigningKeys.Add`; resolver JWTs carry flat key arrays), so a user JWT's own
    permissions are authoritative. [[nats_scoped_signing_keys]] describes

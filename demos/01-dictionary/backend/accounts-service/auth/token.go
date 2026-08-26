@@ -134,24 +134,24 @@ func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string, t
 	}, nil
 }
 
-// MintAdminToken mints an ephemeral NATS user JWT under the PLATFORM
-// account for the Admin UI's own connection-health/observability surface
-// (Main-POC-Plan.md Phase 23, BR-AC18) — a distinct profile from
-// MintBrowserToken's tenant-shaped one, not a parameterization of it.
-// PLATFORM is not a tenant (no Status/Suspend/Reactivate lifecycle), so this
-// deliberately isn't "MintBrowserToken with tenant=platform": it has its own
-// subscribe-only subject set (notify.accounts.account.> plus the REFDATA
-// notify.* subject Phase 23 adds, plus notify._platform.kv.trace-request-reply.> for the
+// MintAdminToken mints an ephemeral NATS user JWT under PLATFORM for the
+// Admin UI's single browser connection (BR-AC18). PLATFORM is not a tenant,
+// so this is a separate least-privilege profile rather than MintBrowserToken
+// parameterized with tenant=platform. It subscribes to account/refdata and
+// centralized observability notifications, plus reply inboxes for exactly
+// three read-only refdata requests: type.list, locales.list, and context.list.
+// No tenant business api.* or direct obs.* subject is reachable.
+//
+// The notification set is notify.accounts.account.>, the REFDATA notify.*
+// subject, notify._platform.kv.trace-request-reply.> for the
 // Admin UI's trace waterfall/RPC panel, Phase 28g, and
 // notify._platform.kv.pubsub-messages.> for the Messages panel, Phase 43b —
 // internal/kvstore.Store.EnableNotify's existing
 // notify.{context}.kv.{bucket}.{key}.changed publish, reused unchanged for
 // the trace-request-reply KV bucket rather than a bespoke trace-notify subject) and,
-// unlike MintBrowserToken, no publish grant at all — this connection only
-// watches, it never issues commands. Pub is explicitly denied
-// (Deny.Add(">")) rather than left unset, because an empty/unset Allow list
-// means "allow everything" in NATS permission semantics, not "allow
-// nothing". notify._platform.rpctrace.> (Phase 23) was retired in Phase
+// Unlike MintBrowserToken, it has no broad api.> grant. A non-empty Pub.Allow
+// list makes every unlisted publish forbidden in NATS permission semantics.
+// notify._platform.rpctrace.> (Phase 23) was retired in Phase
 // 28g along with the RPCTRACE stream and its notify bridge
 // (eventhandler.RegisterRPCTraceNotify) — nothing publishes there anymore.
 func MintAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl time.Duration) (ConnectInfo, error) {
@@ -174,15 +174,19 @@ func MintAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl time.Du
 	}
 
 	claims := jwt.NewUserClaims(userPub)
-	claims.Name = "admin-platform"
+	claims.Name = "admin-app"
 	claims.IssuerAccount = accountPub
-	claims.Permissions.Pub.Deny.Add(">")
+	claims.Permissions.Pub.Allow.Add(
+		"api._platform.refdata.type.list.v1",
+		"api._platform.refdata.locales.list.v1",
+		"api._platform.refdata.context.list.v1",
+	)
 	claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.kv.trace-request-reply.>",
 		// Phase 43b (BR-047): the Messages panel's live feed, the same
 		// bucket-notify shape as trace-request-reply above. This grants the
 		// KV-change notify only — obs.pubsub.> itself is still never granted
 		// to a browser credential (BR-AC34).
-		"notify._platform.kv.pubsub-messages.>")
+		"notify._platform.kv.pubsub-messages.>", "_INBOX.>")
 	claims.Expires = time.Now().Add(ttl).Unix()
 
 	token, err := claims.Encode(signingKP)
@@ -210,9 +214,8 @@ func MintAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl time.Du
 // could edit shared _platform standards) or would have no natural tenant to
 // authenticate as in the first place.
 //
-// Unlike MintAdminToken (subscribe-only, no publish grant at all — that
-// connection only watches), this credential DOES publish: it is the one
-// that actually drives refdata-service's api.*.refdata.> business AND
+// Unlike MintAdminToken's three read-only subjects, this credential drives
+// refdata-service's full api.*.refdata.> business AND
 // admin endpoints (corpus draft/publish/rollback, item/type/locale/
 // reference/localization registration, business reads alike) — mounted on
 // refdata-service's PLATFORM connection precisely so this credential can
@@ -246,7 +249,7 @@ func MintRefdataAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl 
 	}
 
 	claims := jwt.NewUserClaims(userPub)
-	claims.Name = "refdata-admin-platform"
+	claims.Name = "operator-app"
 	claims.IssuerAccount = accountPub
 	claims.Permissions.Pub.Allow.Add("api.*.refdata.>", "_INBOX.>")
 	claims.Permissions.Sub.Allow.Add("api.*.refdata.>", "notify._platform.refdata.>", "_INBOX.>")

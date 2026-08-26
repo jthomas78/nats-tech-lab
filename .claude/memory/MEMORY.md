@@ -21,7 +21,7 @@
 - [Phase 21 account exports/imports](phase21_account_exports_imports.md) — IMPLEMENTED 2026-08-03 + Phase 28f trace leg; PLATFORM/tenant two-account partitioning via NATS exports/imports
 - [$SYS.REQ.CLAIMS reference](nats_sys_claims_subjects.md) — core NATS request-reply (not JetStream), for JWT resolver mgmt in operator mode
 - [refdata database-per-service](refdata_database_per_service.md) — refdata-service moved off shared postgres to its own instance (port 5433)
-- [Admin UI realtime transport options](admin_ui_realtime_transport_options.md) — Phase 15+23 IMPLEMENTED; live docker verification of Phase 23 pending
+- [Admin UI realtime transport options](admin_ui_realtime_transport_options.md) — Admin now uses one PLATFORM WebSocket; Phase 23 tenant connection retired
 - [Phase 16 tenancy/taxonomy](phase16_tenancy_taxonomy.md) — 13-point record, 16a-16f DONE; gap: refdata reads don't track Sea Freight Flow's own tenant
 - [Phase 17 Request/Reply panel](phase17_request_reply_panel.md) — DONE (obs envelope + RpcPanel.vue rebuild); admin frontend has no Vitest infra
 - [Phase 18 Requestor/Responder headers](phase18_requestor_responder_headers.md) — DONE; also fixed micro.Config.Name vs nats.Name mismatch

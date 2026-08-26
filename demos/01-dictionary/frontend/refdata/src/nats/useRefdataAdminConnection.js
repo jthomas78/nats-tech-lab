@@ -6,11 +6,10 @@
 // never reconnects on a context switch — its context Select changes only
 // which {context} subject token business/admin calls carry, never which
 // NATS account this connection authenticates into. Mirrors
-// frontend/admin/src/nats/usePlatformConnection.js's shape exactly, one
-// level up: that connection is subscribe-only (MintAdminToken denies all
-// Pub); this one publishes too (MintRefdataAdminToken grants Pub scoped to
-// api.*.refdata.>) since this app actually drives refdata-service's
-// business and admin endpoints, not just watches them.
+// frontend/admin/src/nats/usePlatformConnection.js's shape, but with a wider
+// permission profile: Admin may publish only three exact read subjects,
+// while MintRefdataAdminToken grants this app the full api.*.refdata.>
+// business/admin surface.
 //
 // Credentials come from GET /api/auth/refdataAdminConnectInfo (Phase 32,
 // no tenant param — see accounts-service/auth/token.go's
@@ -31,7 +30,7 @@ async function fetchRefdataAdminConnectInfo() {
 
 const state = createConnectionState({
   fetchConnectInfo: fetchRefdataAdminConnectInfo,
-  connectionName: 'refdata-admin-platform',
+  connectionName: 'operator-app',
 })
 
 export function useRefdataAdminConnection() {

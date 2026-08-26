@@ -9,22 +9,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api', () => ({
   getKvBucketEntries: vi.fn(),
-  getPorts: vi.fn(),
   getRefdataContexts: vi.fn(),
 }))
-vi.mock('../nats/useNatsConnection.js', () => ({
-  useNatsConnection: vi.fn(),
-}))
 
-import { getKvBucketEntries, getPorts } from '../api'
-import { useNatsConnection } from '../nats/useNatsConnection.js'
+import { getKvBucketEntries } from '../api'
 import { useDictionaryStore } from './dictionary'
+import { useTenantStore } from './tenant.js'
 
 describe('useDictionaryStore.connect (context guard)', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
-    useNatsConnection.mockReturnValue({ tenant: { value: 'acme' } })
+    useTenantStore().tenant = 'acme'
   })
 
   it('does nothing when context is empty — no fetch', async () => {
@@ -33,21 +29,18 @@ describe('useDictionaryStore.connect (context guard)', () => {
 
     await store.connect()
 
-    expect(getPorts).not.toHaveBeenCalled()
     expect(getKvBucketEntries).not.toHaveBeenCalled()
   })
 
-  it('fetches ports and KV snapshot once a context is set', async () => {
-    getPorts.mockResolvedValue({ values: [] })
+  it('fetches the REST KV snapshot for the backend active account once a context is set', async () => {
     getKvBucketEntries.mockResolvedValue([])
     const store = useDictionaryStore()
 
     store.setContext('acme')
     await Promise.resolve() // let the fire-and-forget connect() microtask settle
 
-    // Bootstrap fetch must pass the connected NATS account (from useNatsConnection),
-    // not just the business-unit context, because bucket names collide across accounts.
+    // Account remains explicit because bucket names collide across accounts;
+    // this parameter does not authenticate the browser into that account.
     expect(getKvBucketEntries).toHaveBeenCalledWith('acme', 'ships')
-    expect(getPorts).toHaveBeenCalledWith('acme')
   })
 })

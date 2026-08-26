@@ -1,5 +1,4 @@
-// Mirrors useNatsConnection.spec.js's not-connected-error coverage for the
-// PLATFORM connection's subscribe() guard (Phase 23).
+// Covers the Admin UI's single PLATFORM connection.
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import { usePlatformConnection } from './usePlatformConnection.js'

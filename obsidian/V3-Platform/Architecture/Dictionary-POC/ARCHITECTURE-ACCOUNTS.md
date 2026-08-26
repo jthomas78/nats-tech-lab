@@ -339,74 +339,56 @@ versioned API today, not through the plain `GET /api/refdata/{context}/...`
 routes or the live KV cache. Tracked as `Main-POC-Plan.md`'s Phase 106, not
 solved by this design.
 
-### Admin UI browser connections (Phase 23)
+### Admin UI browser connection (Phase 23, simplified after centralized observability)
 
-`frontend/admin` holds two independent browser-side NATS WebSocket
-connections, not one — extending Phase 15's "browser holds its own NATS
-credential" model (previously Sea Freight Flow only) to the Admin UI's own
-EventSource/SSE streams:
+`frontend/admin` holds exactly one browser-side NATS WebSocket connection,
+authenticated into PLATFORM. Phase 23 originally introduced a second,
+tenant-account connection for tenant KV/raw notifications and `obs.api.>`.
+Those consumers disappeared in later phases: centralized `obs.trace.>` and
+`obs.pubsub.>` projections replaced the direct observability feed, Phase 36.2
+removed the tenant selector/live dictionary subscriptions, and the
+Organizations screens moved to Tech Lab Operator. Keeping an unconditional
+`admin-tenant` connection after that point only exposed the backend's default
+`acme` account in `/connz` without serving an observability purpose, so it was
+removed.
 
 ```mermaid
 
 flowchart TB
     subgraph Browser["frontend/admin (one browser tab)"]
-        Tenant["useNatsConnection.js<br/>tenant connection"]
-        Platform["usePlatformConnection.js<br/>Admin/Platform connection"]
+        Platform["usePlatformConnection.js<br/>single PLATFORM connection"]
     end
-    Tenant -- "GET /api/auth/connectInfo?tenant=" --> MintBrowser["MintBrowserToken<br/>(tenant account signing key)"]
     Platform -- "GET /api/auth/adminConnectInfo" --> MintAdmin["MintAdminToken<br/>(PLATFORM signing key)"]
-    MintBrowser -.->|"api.&gt;/notify.&gt;<br/>reconnects on tenant switch"| Tenant
-    MintAdmin -.->|"sub-only: notify.accounts.account.&gt;,<br/>notify._platform.refdata.&gt;,<br/>notify._platform.kv.trace-request-reply.&gt;<br/>publish denied entirely"| Platform
+    MintAdmin -.->|"central notify.* subscriptions<br/>three exact read-only refdata api.* subjects"| Platform
+    TenantExports["tenant obs.trace.&gt; / obs.pubsub.&gt; exports"] --> PlatformStores["PLATFORM trace/pubsub projections"]
+    PlatformStores -->|"notify._platform.kv.*"| Platform
 ```
 
-The two connections are not symmetric, and deliberately so:
-
-- **Tenant** (`useNatsConnection.js`) reconnects on every tenant switch —
-  same `MintBrowserToken` credential and permission profile Sea Freight Flow
-  already used (Phase 15c), just reused by a second app. Carries the
-  dictionary/KV/JetStream-raw `notify.*` subjects. (A direct `obs.api.>`
-  subscribe was added this phase for the Request/Reply panel's live
-  tenant-side tail; retired in Phase 28g along with that channel.)
-- **Admin/Platform** (`usePlatformConnection.js`) connects once at boot and
-  never reconnects on tenant/BU switch — PLATFORM has no tenant lifecycle to
-  switch against (see `MintAdminToken`'s doc comment, `auth/token.go`). This
-  is deliberate: the Admin UI's topbar connection indicator is driven by
-  *this* connection specifically, so "connected" stops being a side effect
-  of which tenant/BU happens to be selected, which is what it was under the
-  SSE-era `/api/watch/{context}` (empty context → connection error →
-  "disconnected," even though NATS itself was fine).
+The connection subscribes to account/refdata notifications and the two
+central observability projection buckets. It may publish only the exact
+read-only refdata queries needed for locale/UI copy and context bootstrap;
+there is no broad `api.>` grant and no tenant business surface. The topbar
+connection indicator therefore reports the only browser NATS connection the
+Admin UI owns.
 
 See `BUSINESS_RULES-ACCOUNTS.md` BR-AC18 for `MintAdminToken`'s exact
-permission grant and why it's issued outside the tenant `Status`/
-`SigningKeySeed` lifecycle this section otherwise documents, and
-`ARCHITECTURE-COMMUNICATIONS.md` § 6 for how the Request/Reply panel used to
-split `obs.rpc.*`/`obs.api.*` across these two connections before Phase 28g
-retired that channel in favor of both tabs reading `obs.trace.*` (the
-`traces` KV bucket) over the Platform connection alone.
+permission grant and why it is issued outside the tenant `Status`/
+`SigningKeySeed` lifecycle this section otherwise documents.
 
-**What the tenant connection can and cannot reach (Phase 23).** The tenant
-connection is authenticated into exactly one account at a time, and NATS
-enforces account isolation at the server — so a browser connected as ACME
-cannot subscribe to GLOBEX's or PLATFORM's `notify.*`, full stop. There is no
-cross-account workaround at this layer, nor should there be: this is the same
-boundary that makes the account the tenancy primitive in the first place. The
-consequence for UI design is a hard split the cross-account panels have to
-make explicit, because the two halves of a panel no longer share a scope:
+Cross-account Streams/KV contents are backend-mediated REST snapshots. The
+browser passes an account label to select the snapshot, but does not receive a
+credential for that account:
 
 | | Reaches every account | Mechanism |
 |---|---|---|
 | Contents / history snapshot | **yes** | backend-mediated REST — `shipping-service` holds a connection per account and fetches on the browser's behalf |
-| Live tail | **no** | browser's own NATS connection, one account only |
-
-A panel that shows another account's snapshot must therefore *say* the live
-feed is unavailable and why, rather than leaving a feed that silently never
-fires — `KvInspector.vue`'s `liveUnavailableReason` and `StreamView.vue`'s
-`snapshotReason` are that message. See § 12 of
-[ARCHITECTURE-COMMUNICATIONS.md](ARCHITECTURE-COMMUNICATIONS.md).
+| Central trace/pub-sub live tail | **yes** | observability-service projects imported tenant envelopes in PLATFORM; browser watches `notify._platform.kv.*` |
+| Raw Stream/KV snapshot | **yes** | backend-mediated REST with an explicit account parameter |
+| Raw tenant live tail | **no** | deliberately absent; Admin opens no tenant browser connection |
 
 #### Runtime — browser JWT expiry & reconnect
 
-Both mint paths stamp `claims.Expires = now + ttl`, where `ttl` is the
+All browser mint paths stamp `claims.Expires = now + ttl`, where `ttl` is the
 **configurable** browser/admin JWT expiry setting (BR-AC20) — a durable
 `accounts.system_config` row, **default 15 minutes**, editable from the Admin
 UI's System → Settings screen and read fresh on every mint. It replaces the

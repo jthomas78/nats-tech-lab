@@ -1,11 +1,23 @@
 ---
 name: admin-ui-realtime-transport-options
-description: Design discussion that led to Phase 15 — replacing per-panel SSE with a single browser-side NATS WebSocket connection; resolved for Sea Freight Flow (Phase 15) and now for frontend/admin (Phase 23, IMPLEMENTED 2026-08-04, live verification still pending)
+description: Admin browser NATS topology — one PLATFORM WebSocket; the Phase 23 tenant connection was removed after observability centralized
 metadata:
   type: project
 ---
 
-**Phase 23 (IMPLEMENTED 2026-08-04 — code landed, tests green; live docker verification not yet run — see `Main-POC-Plan.md`):** `frontend/admin` got the same SSE→NATS-WebSocket treatment as Phase 15, with a **dual-connection model**: `usePlatformConnection.js` (new `MintAdminToken` under `PLATFORM`, minted independently of the tenant `Store`/`SigningKeySeed` lifecycle — PLATFORM isn't a tenant, `BUSINESS_RULES-ACCOUNTS.md` BR-AC18) plus `useNatsConnection.js` (existing tenant `MintBrowserToken` flow, reused from Phase 15's pattern, sharing a `connectionFactory.js` with the platform one). The topbar connection indicator now reads the Admin/Platform connection specifically, decoupling it from BU/tenant selection (the bug this whole thing started from: `store.connected` used to be a side effect of `/api/watch/{context}` failing on an empty context). KV/JetStream/RPCTRACE watch moved to new `notify.*` publish points (`internal/kvstore.Store.EnableNotify`; `eventhandler.publishRawNotify`/`RegisterRefdataNotify`/`RegisterRPCTraceNotify`) + one-shot REST bootstrap for replay (`GET /api/kv/buckets/{bucket}/entries`, `/api/jetstream/replay`, `/api/rpctrace/replay`) — not direct browser JetStream/KV API access.
+**Current topology (2026-08-26):** `frontend/admin` has exactly one browser
+NATS WebSocket, `usePlatformConnection.js`, authenticated into PLATFORM.
+Centralized trace/pub-sub feeds arrive from observability-service's PLATFORM
+KV projections. The Phase 23 `admin-tenant` connection was removed after its
+direct `obs.api.>` and raw tenant notify consumers had already been retired.
+UI copy/context bootstrap now use three exact read-only refdata subjects added
+to `MintAdminToken`; cross-account Stream/KV contents remain backend-mediated
+REST snapshots with an account parameter. Admin never calls
+`connectInfo?tenant=` and should not appear as an `acme`/`globex` connection.
+
+**Historical Phase 23 shape:** the original SSE→WebSocket migration used a
+dual-connection model: PLATFORM plus a selected tenant. Keep the discussion
+below as the reasoning trail, not as current topology.
 
 **Scope correction found mid-implementation:** `watchRefdata`/`GET /api/refdata-watch` was NOT migrated or deleted — it backs `shared/refdata/useRefdataLabels.js`'s UI-text/label refresh, used by every frontend (admin, seafreight-app, refdata), not just the four admin-specific panels Phase 23 targeted (dictionary watch, KV inspector, JetStream watch, RPC panel). The original Phase 23 plan's `notify.*` bullet list conflated this shared SSE endpoint with the four in-scope ones — caught before landing; it now lives untouched in its own `rest/refdata_watch.go`. **Correction to this note's earlier text below**: there is no `DEFAULT` account in this system — RPCTRACE/REFDATA both already live on `PLATFORM` (confirmed via `bootstrap-operator.sh` and the old `sse.go`'s doc comments during Phase 23 design). See [[phase16_tenancy_taxonomy]] for account topology.
 
@@ -72,12 +84,8 @@ note (symptom + 3 SSE-side fixes + the 4th NATS-WebSocket option), kept as-is fo
 trail. Superseded by the Resolution note at the top for `seafreight-app`'s scope — still accurate
 background if the same question comes up for `frontend/admin`/`frontend/refdata`.
 
-**How Phase 23 actually handled RPCTRACE's replay-then-live semantics** (superseding the paragraph
-this replaces, which predated the implementation): `RpcPanel.vue` no longer has a single JetStream-
-backed replay-then-live stream — it does a one-shot `GET /api/rpctrace/replay` bootstrap fetch
-(server-side, still reads the RPCTRACE JetStream stream via the ordered-consumer API, since the
-browser never gets `$JS.API.>` access) followed by a `notify._platform.rpctrace.entry` subscribe on
-the Admin/Platform connection for anything published afterward. `obs.api.>` (the tenant-side half)
-is no longer relayed through a Go handler at all — the tenant browser JWT already carries a direct
-`obs.api.>` subscribe grant, so the panel subscribes to it straight on its own tenant connection.
-`frontend/refdata` did not get any of this treatment (still out of scope, per the goal line above).
+**Historical Phase 23 RPCTRACE implementation:** it once combined a PLATFORM
+RPCTRACE replay/notify path with a direct tenant `obs.api.>` subscription.
+Phase 28g retired both in favor of centralized `obs.trace.*`; Phase 43 added
+the parallel centralized `obs.pubsub.*` projection. Neither current feed uses
+a tenant browser connection.

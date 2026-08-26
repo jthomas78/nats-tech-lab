@@ -597,7 +597,7 @@ const docTemplate = `{
         },
         "/api/auth/adminConnectInfo": {
             "get": {
-                "description": "Mints a sub-only PLATFORM-account credential for the Admin UI's own connection (Phase 23, BR-AC18).",
+                "description": "Mints a PLATFORM credential for centralized notifications and exact read-only refdata requests (BR-AC18).",
                 "produces": [
                     "application/json"
                 ],

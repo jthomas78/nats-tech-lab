@@ -4,8 +4,8 @@
 // reads "no Nats-Requestor on this span" for every REST hop.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('./nats/useNatsConnection.js', () => ({
-  useNatsConnection: () => ({ request: vi.fn() }),
+vi.mock('./nats/usePlatformConnection.js', () => ({
+  usePlatformConnection: () => ({ request: vi.fn() }),
 }))
 
 const { REQUESTOR_HEADER, REST_REQUESTOR_ID, TAB_ID, requestorID } = await import('./requestorId.js')
@@ -38,10 +38,7 @@ describe('REST caller identity (BR-AC35)', () => {
     expect(TAB_ID).toMatch(/^[0-9a-f]{16}$/)
   })
 
-  it('shares one tab id with the api.* connections, so both transports read as one actor', () => {
-    // connectionFactory.js builds its per-connection identity through this
-    // same helper — the connection name differs, the instance half does not.
-    expect(requestorID('admin-tenant')).toBe(`admin-tenant/${TAB_ID}`)
-    expect(requestorID('admin-platform').endsWith(TAB_ID)).toBe(true)
+  it('shares one tab id with the PLATFORM connection, so both transports read as one actor', () => {
+    expect(requestorID('admin-app')).toBe(`admin-app/${TAB_ID}`)
   })
 })
