@@ -107,6 +107,32 @@ var _ = Describe("natstrace (Phase 35 — shared package — BR-036/BR-037)", fu
 		nc = newTestConn()
 	})
 
+	Context("BR-053 — an obs.trace.* span carries Nats-Msg-Id", func() {
+		It("sets it to the span id, so the TRACES stream's Duplicates window can collapse a redelivery", func() {
+			registerEcho("api.acme.widget.thing.action.v1")
+
+			spans := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = sub.Unsubscribe() })
+			Expect(nc.Flush()).To(Succeed())
+
+			_, err = nc.Request("api.acme.widget.thing.action.v1", []byte(`{"ok":true}`), 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			var msg *nats.Msg
+			Eventually(spans).Should(Receive(&msg))
+
+			var span fullSpan
+			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+			// The span id and nothing else: a Duplicates window keyed on
+			// anything per-request rather than per-span would collapse the
+			// distinct spans of one trace into one.
+			Expect(msg.Header.Get(nats.MsgIdHdr)).To(Equal(span.SpanID),
+				"without this the TRACES Duplicates window has nothing to de-duplicate on")
+		})
+	})
+
 	Context("BR-036 — traceSpan is a strict superset of obsEnvelope", func() {
 		It("publishes one span per call, decodable as both the old envelope shape and the new one", func() {
 			registerEcho("api.acme.widget.thing.action.v1")

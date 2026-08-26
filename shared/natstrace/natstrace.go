@@ -543,8 +543,16 @@ func (sp *Span) finish(statusCode, errMsg string, payload []byte, headers map[st
 	if err != nil {
 		return
 	}
-	subject := fmt.Sprintf("obs.trace.%s.%s.%s.%s", sp.context, sp.service, sp.entity, sp.action)
-	_ = sp.tracer.nc.Publish(subject, data)
+	// Nats-Msg-Id carries the span id, so the TRACES stream's Duplicates
+	// window (tracestore.StreamDuplicates) can collapse a redelivered span
+	// before the projector ever sees it. Same reason, same value, as
+	// ObservePublishAs sets it on obs.pubsub.* — a span id is the only thing
+	// here that is unique per span and stable across a redelivery of it.
+	// Until Phase 48g this half was missing, which made that window inert.
+	msg := nats.NewMsg(fmt.Sprintf("obs.trace.%s.%s.%s.%s", sp.context, sp.service, sp.entity, sp.action))
+	msg.Header.Set(nats.MsgIdHdr, sp.spanID)
+	msg.Data = data
+	_ = sp.tracer.nc.PublishMsg(msg)
 }
 
 // spanCarrier lets SpanFrom recover a Span from a micro.Request without an

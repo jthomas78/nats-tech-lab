@@ -297,3 +297,171 @@ describe('useTraceFeed span attribution (Phase 48c, BR-051)', () => {
     expect(feed().traces.value.get('t1')).toEqual([{ spanId: 'a1', attributedTenant: '' }])
   })
 })
+
+// ── Phase 48g (BR-053) ───────────────────────────────────────────────────
+// One KV entry is one span now, keyed trace.{traceId}.{spanId}, and the join
+// moved here. Every spec ABOVE still uses the pre-48g merged {traceId, spans}
+// shape on purpose — that is the back-compat window, since a record written
+// before the projector was deployed sits in the bucket for one BucketMaxAge
+// and the panel must not go blank for 15 minutes. These cover the shape the
+// projector actually writes today.
+describe('useTraceFeed per-span records (Phase 48g, BR-053)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockPlatformConnection = { connected: ref(false), epoch: ref(0), subscribe: vi.fn() }
+  })
+
+  const perSpan = (traceId, spanId, tenant) => ({
+    op: 'PUT',
+    key: `_platform.trace.${traceId}.${spanId}`,
+    value: { tenant, span: { traceId, spanId } },
+  })
+  const notifySubject = (traceId, spanId) =>
+    `notify._platform.kv.trace-request-reply.trace.${traceId}.${spanId}.changed`
+
+  it('joins separate per-span entries of one trace into one spans array', async () => {
+    getKvBucketEntries.mockResolvedValue([
+      perSpan('t1', 'a1', 'acme'),
+      perSpan('t1', 'a2', '_platform'),
+      perSpan('t2', 'b1', 'acme'),
+    ])
+    const { feed } = mountFeed()
+    await flushPromises()
+
+    expect(feed().traces.value.size).toBe(2)
+    expect(feed().traces.value.get('t1')).toEqual([
+      { traceId: 't1', spanId: 'a1', attributedTenant: 'acme' },
+      { traceId: 't1', spanId: 'a2', attributedTenant: '_platform' },
+    ])
+    expect(feed().traces.value.get('t2')).toHaveLength(1)
+  })
+
+  it('keeps each span its own attribution across the join', async () => {
+    // The ordinary cross-account trace: an acme root and a PLATFORM handler.
+    // The join must not let either span's tenant win for the whole trace.
+    getKvBucketEntries.mockResolvedValue([
+      perSpan('t1', 'root', 'acme'),
+      perSpan('t1', 'handler', '_platform'),
+    ])
+    const { feed } = mountFeed()
+    await flushPromises()
+
+    expect(feed().traces.value.get('t1').map((s) => s.attributedTenant)).toEqual([
+      'acme',
+      '_platform',
+    ])
+  })
+
+  it('fires onUpsert once per trace with its whole span list, not once per span', async () => {
+    getKvBucketEntries.mockResolvedValue([perSpan('t1', 'a1', 'acme'), perSpan('t1', 'a2', 'acme')])
+    const onUpsert = vi.fn()
+    mountFeed({ onUpsert })
+    await flushPromises()
+
+    expect(onUpsert).toHaveBeenCalledTimes(1)
+    expect(onUpsert.mock.calls[0][1]).toHaveLength(2)
+  })
+
+  it('merges a live per-span notify into the spans already held', async () => {
+    getKvBucketEntries.mockResolvedValue([perSpan('t1', 'a1', 'acme')])
+    mockPlatformConnection.connected.value = true
+    const { feed } = mountFeed()
+    await flushPromises()
+
+    const [, callback] = mockPlatformConnection.subscribe.mock.calls[0]
+    callback({ tenant: '_platform', span: { traceId: 't1', spanId: 'a2' } }, notifySubject('t1', 'a2'))
+
+    // The arriving span is ADDED, not substituted for the trace — the same
+    // lost-span failure this rewrite removed from the write side, which the
+    // read side would otherwise reintroduce.
+    expect(feed().traces.value.get('t1')).toHaveLength(2)
+  })
+
+  it('is idempotent: the same span seen twice does not grow the trace', async () => {
+    getKvBucketEntries.mockResolvedValue([perSpan('t1', 'a1', 'acme')])
+    mockPlatformConnection.connected.value = true
+    const { feed } = mountFeed()
+    await flushPromises()
+
+    const [, callback] = mockPlatformConnection.subscribe.mock.calls[0]
+    const notify = () =>
+      callback(
+        { tenant: 'acme', span: { traceId: 't1', spanId: 'a1', statusCode: 'OK' } },
+        notifySubject('t1', 'a1'),
+      )
+    notify()
+    notify()
+
+    const spans = feed().traces.value.get('t1')
+    expect(spans).toHaveLength(1)
+    // Overwritten in place, so a redelivery carrying a fuller span wins rather
+    // than being ignored.
+    expect(spans[0].statusCode).toBe('OK')
+  })
+
+  it('lets a re-read after a live update add nothing rather than roll it back', async () => {
+    // The race the old span-count guard existed for: a snapshot issued before
+    // a live notify but resolving after it. With per-span merging the stale
+    // read is a no-op, so no guard is needed to make it safe.
+    getKvBucketEntries.mockResolvedValue([perSpan('t1', 'a1', 'acme')])
+    mockPlatformConnection.connected.value = true
+    const { feed } = mountFeed()
+    await flushPromises()
+
+    const [, callback] = mockPlatformConnection.subscribe.mock.calls[0]
+    callback({ tenant: 'acme', span: { traceId: 't1', spanId: 'a2' } }, notifySubject('t1', 'a2'))
+    expect(feed().traces.value.get('t1')).toHaveLength(2)
+
+    mockPlatformConnection.epoch.value += 1
+    await flushPromises()
+    expect(feed().traces.value.get('t1')).toHaveLength(2)
+  })
+
+  // A span with no spanId is refused at BOTH gates, which are reached by
+  // different shapes: a per-span record without one is not recognisable as a
+  // per-span record at all, while a legacy merged record is recognised by its
+  // envelope and carries its bad span through to the merge.
+  it('does not recognise a per-span record with no spanId', async () => {
+    getKvBucketEntries.mockResolvedValue([
+      { op: 'PUT', key: '_platform.trace.t1.a1', value: { tenant: 'acme', span: { traceId: 't1' } } },
+    ])
+    const { feed } = mountFeed()
+    await flushPromises()
+
+    expect(feed().traces.value.size).toBe(0)
+  })
+
+  it('drops a spanId-less span out of a legacy record rather than re-adding it each read', async () => {
+    getKvBucketEntries.mockResolvedValue([
+      {
+        op: 'PUT',
+        value: {
+          traceId: 't1',
+          spans: [{ tenant: 'acme', span: {} }, { tenant: 'acme', span: { spanId: 'a1' } }],
+        },
+      },
+    ])
+    mockPlatformConnection.connected.value = true
+    const { feed } = mountFeed()
+    await flushPromises()
+
+    expect(feed().traces.value.get('t1')).toHaveLength(1)
+
+    // Re-read: an undroppable span would grow the trace on every resync.
+    mockPlatformConnection.epoch.value += 1
+    await flushPromises()
+    expect(feed().traces.value.get('t1')).toHaveLength(1)
+  })
+
+  it('reads a pre-48g merged record and a post-48g per-span one into the same trace', async () => {
+    // Exactly what the bucket holds for the first BucketMaxAge after deploy.
+    getKvBucketEntries.mockResolvedValue([
+      { op: 'PUT', value: { traceId: 't1', spans: [{ tenant: 'acme', span: { spanId: 'old' } }] } },
+      perSpan('t1', 'new', '_platform'),
+    ])
+    const { feed } = mountFeed()
+    await flushPromises()
+
+    expect(feed().traces.value.get('t1').map((s) => s.spanId)).toEqual(['old', 'new'])
+  })
+})

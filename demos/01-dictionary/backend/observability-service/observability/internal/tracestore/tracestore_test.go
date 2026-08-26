@@ -4,13 +4,21 @@ package tracestore
 // prior art file — this package didn't exist standalone in shipping-service,
 // RegisterTraceStore was covered indirectly through eventhandler's suite).
 // Written fresh against a real embedded JetStream-enabled NATS server: the
-// real risk here is the read-modify-write merge/dedup logic and the notify
-// side-effect, not HTTP plumbing.
+// real risk here is the write shape and the notify side-effect, not HTTP
+// plumbing.
+//
+// Phase 48g moved trace ASSEMBLY out of this package — one KV entry is now
+// one span, and the reader joins them (BR-053). So traceRecord and readTrace
+// below are test-local on purpose: they are this suite standing in for the
+// Admin UI, not a shape the projector still knows about. The equivalent
+// assembly in JavaScript, including its tolerance for records written before
+// this phase, is covered by frontend/admin/src/nats/useTraceFeed.spec.js.
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -52,24 +60,70 @@ func newTestNATS(t *testing.T) (*nats.Conn, jetstream.JetStream, func()) {
 	return nc, js, func() { nc.Close(); srv.Shutdown() }
 }
 
-// waitForRecord polls the KV bucket until traceID's record has at least
-// wantSpans spans, or fails the test after a short deadline — the consume
-// callback runs asynchronously off the publish that triggers it.
-func waitForRecord(t *testing.T, kv jetstream.KeyValue, traceID string, wantSpans int) traceRecord {
+// traceRecord is the assembled trace — what the reader builds, and what this
+// suite asserts against. Test-local by design: see the file comment.
+type traceRecord struct {
+	TraceID string
+	Spans   []storedSpan
+}
+
+// readTrace assembles one trace out of the bucket the way useTraceFeed.js
+// does: every key sharing the trace.{traceId}. prefix holds exactly one span,
+// so the join is a prefix scan and dedup-by-spanId is free.
+func readTrace(t *testing.T, kv jetstream.KeyValue, traceID string) traceRecord {
+	t.Helper()
+	record := traceRecord{TraceID: traceID}
+	prefix := kvContext + "." + keyPrefix + traceID + "."
+	keys, err := kv.ListKeys(context.Background())
+	if err != nil {
+		t.Fatalf("list keys: %v", err)
+	}
+	for key := range keys.Keys() {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		entry, err := kv.Get(context.Background(), key)
+		if err != nil {
+			t.Fatalf("get %s: %v", key, err)
+		}
+		var stored storedSpan
+		if err := json.Unmarshal(entry.Value(), &stored); err != nil {
+			t.Fatalf("unmarshal %s: %v", key, err)
+		}
+		record.Spans = append(record.Spans, stored)
+	}
+	return record
+}
+
+// waitForSpans polls until traceID has at least wantSpans spans stored, or
+// fails after a short deadline — the consume callback runs asynchronously off
+// the publish that triggers it.
+func waitForSpans(t *testing.T, kv jetstream.KeyValue, traceID string, wantSpans int) traceRecord {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		entry, err := kv.Get(context.Background(), kvContext+"."+keyPrefix+traceID)
-		if err == nil {
-			var record traceRecord
-			if json.Unmarshal(entry.Value(), &record) == nil && len(record.Spans) >= wantSpans {
-				return record
-			}
+		if record := readTrace(t, kv, traceID); len(record.Spans) >= wantSpans {
+			return record
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for trace %s to reach %d spans", traceID, wantSpans)
 	return traceRecord{}
+}
+
+// spanIDsByTenant reads back the (spanId -> tenant) pairs of an assembled
+// trace — the two facts nearly every spec below asserts on.
+func spanIDsByTenant(t *testing.T, record traceRecord) map[string]string {
+	t.Helper()
+	got := map[string]string{}
+	for _, stored := range record.Spans {
+		var k traceSpanKey
+		if err := json.Unmarshal(stored.Span, &k); err != nil {
+			t.Fatalf("unmarshal stored span: %v", err)
+		}
+		got[k.SpanID] = stored.Tenant
+	}
+	return got
 }
 
 func publishSpan(t *testing.T, nc *nats.Conn, traceID, spanID string) {
@@ -99,7 +153,11 @@ func TestRegisterReturnsNilForNilInputs(t *testing.T) {
 	}
 }
 
-func TestRegisterAssemblesMultipleSpansIntoOneRecord(t *testing.T) {
+// TestRegisterAssemblesMultipleSpansIntoOneTrace is the join, end to end: two
+// spans of one trace go in on separate publishes and come back out of a
+// prefix scan as one trace. Since 48g the assembly is the READER's, so what
+// this really pins is that both spans landed under keys the scan finds.
+func TestRegisterAssemblesMultipleSpansIntoOneTrace(t *testing.T) {
 	nc, js, cleanup := newTestNATS(t)
 	defer cleanup()
 
@@ -116,23 +174,69 @@ func TestRegisterAssemblesMultipleSpansIntoOneRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open kv bucket: %v", err)
 	}
-	record := waitForRecord(t, kv, "trace-1", 2)
-	if record.TraceID != "trace-1" {
-		t.Fatalf("expected traceId trace-1, got %q", record.TraceID)
+	seen := spanIDsByTenant(t, waitForSpans(t, kv, "trace-1", 2))
+	if _, ok := seen["span-a"]; !ok {
+		t.Fatalf("expected span-a in the assembled trace, got %+v", seen)
 	}
-	seen := map[string]bool{}
-	for _, raw := range record.Spans {
-		var k traceSpanKey
-		if err := json.Unmarshal(raw.Span, &k); err != nil {
-			t.Fatalf("unmarshal stored span: %v", err)
-		}
-		seen[k.SpanID] = true
-	}
-	if !seen["span-a"] || !seen["span-b"] {
-		t.Fatalf("expected both span-a and span-b in the merged record, got %+v", seen)
+	if _, ok := seen["span-b"]; !ok {
+		t.Fatalf("expected span-b in the assembled trace, got %+v", seen)
 	}
 }
 
+// TestSpanIsStoredUnderItsOwnKey is BR-053's write shape stated directly. Every
+// other spec here reads through readTrace, which assembles by prefix and so
+// passes just as happily against the old one-key-per-trace record — this is
+// the one that does not.
+func TestSpanIsStoredUnderItsOwnKey(t *testing.T) {
+	nc, js, cleanup := newTestNATS(t)
+	defer cleanup()
+
+	cons, err := Register(context.Background(), js, nc, discardLogger())
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	defer cons.Stop()
+
+	publishSpan(t, nc, "trace-keys", "span-a")
+	publishSpan(t, nc, "trace-keys", "span-b")
+
+	kv, err := js.KeyValue(context.Background(), bucketName)
+	if err != nil {
+		t.Fatalf("open kv bucket: %v", err)
+	}
+	waitForSpans(t, kv, "trace-keys", 2)
+
+	for _, spanID := range []string{"span-a", "span-b"} {
+		key := kvContext + "." + keyPrefix + "trace-keys." + spanID
+		entry, err := kv.Get(context.Background(), key)
+		if err != nil {
+			t.Fatalf("expected a KV entry at %s: %v", key, err)
+		}
+		var stored storedSpan
+		if err := json.Unmarshal(entry.Value(), &stored); err != nil {
+			t.Fatalf("value at %s is not a storedSpan: %v", key, err)
+		}
+		var k traceSpanKey
+		if err := json.Unmarshal(stored.Span, &k); err != nil {
+			t.Fatal(err)
+		}
+		if k.SpanID != spanID {
+			t.Errorf("key %s holds span %q — a key must hold its own span, and only it", key, k.SpanID)
+		}
+	}
+	// The pre-48g merged key must not be written alongside the per-span ones:
+	// a projector that wrote both would pass every assertion above and double
+	// the bucket.
+	if _, err := kv.Get(context.Background(), kvContext+"."+keyPrefix+"trace-keys"); err == nil {
+		t.Error("the pre-48g merged trace key is still being written")
+	}
+}
+
+// TestRegisterDedupsRedeliveredSpan still holds after 48g, but for a
+// different reason worth keeping straight: the projector no longer SCANS for
+// the span id before writing — the redelivered span simply overwrites its own
+// key with identical content. Dedup became a property of the key rather than
+// a step in the write.
 func TestRegisterDedupsRedeliveredSpan(t *testing.T) {
 	nc, js, cleanup := newTestNATS(t)
 	defer cleanup()
@@ -148,21 +252,14 @@ func TestRegisterDedupsRedeliveredSpan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open kv bucket: %v", err)
 	}
-	waitForRecord(t, kv, "trace-2", 1)
+	waitForSpans(t, kv, "trace-2", 1)
 
 	// Republish the identical (traceId, spanId) — simulates an at-least-once
 	// redelivery. Give it time to land, then assert the count never grows.
 	publishSpan(t, nc, "trace-2", "span-a")
 	time.Sleep(200 * time.Millisecond)
 
-	entry, err := kv.Get(context.Background(), kvContext+"."+keyPrefix+"trace-2")
-	if err != nil {
-		t.Fatalf("get record: %v", err)
-	}
-	var record traceRecord
-	if err := json.Unmarshal(entry.Value(), &record); err != nil {
-		t.Fatalf("unmarshal record: %v", err)
-	}
+	record := readTrace(t, kv, "trace-2")
 	if len(record.Spans) != 1 {
 		t.Fatalf("expected exactly 1 span after a duplicate delivery, got %d: %+v", len(record.Spans), record.Spans)
 	}
@@ -173,7 +270,10 @@ func TestRegisterFiresNotifyOnWrite(t *testing.T) {
 	defer cleanup()
 
 	notifyCh := make(chan *nats.Msg, 4)
-	sub, err := nc.ChanSubscribe("notify._platform.kv.trace-request-reply.trace.trace-3.changed", notifyCh)
+	// The key — and so the notify subject — carries the span id since 48g:
+	// a subscriber that wants a whole trace watches the prefix, which is what
+	// useTraceFeed.js's "...trace-request-reply.>" subscription already did.
+	sub, err := nc.ChanSubscribe("notify._platform.kv.trace-request-reply.trace.trace-3.span-a.changed", notifyCh)
 	if err != nil {
 		t.Fatalf("subscribe notify: %v", err)
 	}
@@ -189,12 +289,16 @@ func TestRegisterFiresNotifyOnWrite(t *testing.T) {
 
 	select {
 	case msg := <-notifyCh:
-		var record traceRecord
-		if err := json.Unmarshal(msg.Data, &record); err != nil {
-			t.Fatalf("notify payload not the stored record: %v", err)
+		var stored storedSpan
+		if err := json.Unmarshal(msg.Data, &stored); err != nil {
+			t.Fatalf("notify payload not the stored span: %v", err)
 		}
-		if record.TraceID != "trace-3" {
-			t.Fatalf("expected traceId trace-3 in notify payload, got %q", record.TraceID)
+		var k traceSpanKey
+		if err := json.Unmarshal(stored.Span, &k); err != nil {
+			t.Fatalf("notify payload carries no span: %v", err)
+		}
+		if k.TraceID != "trace-3" || k.SpanID != "span-a" {
+			t.Fatalf("expected trace-3/span-a in the notify payload, got %s/%s", k.TraceID, k.SpanID)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for the notify publish")
@@ -220,7 +324,7 @@ func TestRegisterDropsMalformedSpanWithoutBlockingLaterOnes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open kv bucket: %v", err)
 	}
-	waitForRecord(t, kv, "trace-4", 1)
+	waitForSpans(t, kv, "trace-4", 1)
 }
 
 func TestRegisterIsIdempotentAcrossTwoCalls(t *testing.T) {
@@ -396,7 +500,7 @@ func TestTenantIsDerivedFromSubjectNotEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := waitForRecord(t, kv, "trace-5", 1)
+	record := waitForSpans(t, kv, "trace-5", 1)
 	if got := record.Spans[0].Tenant; got != "acme" {
 		t.Fatalf("tenant = %q, want acme — attribution must come from the subject, not the envelope", got)
 	}
@@ -420,7 +524,7 @@ func TestPlatformArrivalIsAttributedToPlatform(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := waitForRecord(t, kv, "trace-6", 1)
+	record := waitForSpans(t, kv, "trace-6", 1)
 	if got := record.Spans[0].Tenant; got != kvContext {
 		t.Fatalf("tenant = %q, want %q for a bare obs.trace.> arrival", got, kvContext)
 	}
@@ -452,19 +556,10 @@ func TestCrossAccountTraceKeepsBothAttributions(t *testing.T) {
 
 	publishSpanOn(t, nc, "monitor.acme.trace.acme.organizations.vehicle.create",
 		map[string]string{"traceId": "trace-7", "spanId": "span-root"})
-	waitForRecord(t, kv, "trace-7", 1)
+	waitForSpans(t, kv, "trace-7", 1)
 	publishSpanOn(t, nc, "obs.trace.acme.refdata.item.get",
 		map[string]string{"traceId": "trace-7", "spanId": "span-handler"})
-	record := waitForRecord(t, kv, "trace-7", 2)
-
-	got := map[string]string{}
-	for _, stored := range record.Spans {
-		var k traceSpanKey
-		if err := json.Unmarshal(stored.Span, &k); err != nil {
-			t.Fatal(err)
-		}
-		got[k.SpanID] = stored.Tenant
-	}
+	got := spanIDsByTenant(t, waitForSpans(t, kv, "trace-7", 2))
 	if got["span-root"] != "acme" {
 		t.Errorf("root span tenant = %q, want acme", got["span-root"])
 	}
@@ -478,12 +573,13 @@ func TestCrossAccountTraceKeepsBothAttributions(t *testing.T) {
 	}
 }
 
-// TestLegacyBareSpansStillDecode covers the at-most-BucketMaxAge window in
-// which a record written before Phase 48c is still in the bucket. Its spans
-// have no wrapper and no attribution to recover, but the projector must
-// append to them rather than decode them into empty wrappers and drop them —
-// which is precisely what the default struct decoding would do.
-func TestLegacyBareSpansStillDecode(t *testing.T) {
+// TestStreamSetsDuplicatesExplicitly is the second half of decision 15's
+// dedup contract, at the stream rather than the key. Like the bucket bound
+// above it is invisible in behaviour — a stream inheriting the server's
+// 2-minute default de-duplicates exactly the same as one that names it, right
+// up until a server upgrade moves the default — so the config is the only
+// thing that can be asserted.
+func TestStreamSetsDuplicatesExplicitly(t *testing.T) {
 	nc, js, cleanup := newTestNATS(t)
 	defer cleanup()
 
@@ -493,35 +589,22 @@ func TestLegacyBareSpansStillDecode(t *testing.T) {
 	}
 	defer cons.Stop()
 
-	kv, err := js.KeyValue(context.Background(), bucketName)
+	si, err := js.Stream(context.Background(), StreamName)
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy := `{"traceId":"trace-8","spans":[{"traceId":"trace-8","spanId":"span-old"}]}`
-	if _, err := kv.Put(context.Background(), kvContext+"."+keyPrefix+"trace-8", []byte(legacy)); err != nil {
+	info, err := si.Info(context.Background())
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	publishSpanOn(t, nc, "monitor.acme.trace.acme.refdata.item.get",
-		map[string]string{"traceId": "trace-8", "spanId": "span-new"})
-	record := waitForRecord(t, kv, "trace-8", 2)
-
-	byID := map[string]string{}
-	for _, stored := range record.Spans {
-		var k traceSpanKey
-		if err := json.Unmarshal(stored.Span, &k); err != nil {
-			t.Fatalf("legacy span did not survive the round trip: %v", err)
-		}
-		byID[k.SpanID] = stored.Tenant
+	if info.Config.Duplicates != StreamDuplicates {
+		t.Errorf("TRACES Duplicates = %v, want %v", info.Config.Duplicates, StreamDuplicates)
 	}
-	if _, ok := byID["span-old"]; !ok {
-		t.Errorf("the pre-48c span was dropped; got %v", byID)
-	}
-	if byID["span-old"] != "" {
-		t.Errorf("pre-48c span tenant = %q, want empty — there is nothing to recover, so it must not guess", byID["span-old"])
-	}
-	if byID["span-new"] != "acme" {
-		t.Errorf("new span tenant = %q, want acme", byID["span-new"])
+	// A window with no message id on the wire is inert, so the two halves are
+	// asserted together — natstrace's own suite covers the publish side, this
+	// records that the window exists for a reason.
+	if StreamDuplicates > StreamMaxAge {
+		t.Errorf("Duplicates %v outlives the stream's own MaxAge %v", StreamDuplicates, StreamMaxAge)
 	}
 }
 
@@ -544,4 +627,57 @@ func (b *safeBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
+}
+
+// TestConcurrentSpanWritesLoseNothing is BR-053's write-shape half, and the
+// spec that forced Phase 48g's rewrite. Until then the projector read the
+// whole trace record, appended one span and wrote it back — a read-modify-
+// write with no CAS, so two writers racing on one traceId each read the same
+// record and the second Put silently discarded the first's span. That it
+// never bit in production was a property of the deployment (one durable
+// consumer, one goroutine), not of the design: it breaks the moment the
+// projector is scaled out or a redelivery overlaps a live span.
+//
+// Written against the store function directly rather than through Register,
+// because the race is in the write and driving it through a single-threaded
+// consume callback is exactly what hides it.
+func TestConcurrentSpanWritesLoseNothing(t *testing.T) {
+	nc, js, cleanup := newTestNATS(t)
+	defer cleanup()
+
+	cons, err := Register(context.Background(), js, nc, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cons.Stop()
+
+	kv, err := js.KeyValue(context.Background(), bucketName)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const traceID = "trace-concurrent"
+	const spanCount = 16
+	var wg sync.WaitGroup
+	for i := 0; i < spanCount; i++ {
+		spanID := fmt.Sprintf("span-%02d", i)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			payload, err := json.Marshal(map[string]string{"traceId": traceID, "spanId": spanID})
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if err := storeSpan(context.Background(), kv, nc, discardLogger(), kvContext, traceID, spanID, payload); err != nil {
+				t.Errorf("storeSpan(%s): %v", spanID, err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	record := readTrace(t, kv, traceID)
+	if len(record.Spans) != spanCount {
+		t.Fatalf("%d concurrent writers stored %d spans, want %d — an overlapping write lost one", spanCount, len(record.Spans), spanCount)
+	}
 }

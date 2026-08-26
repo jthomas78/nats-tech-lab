@@ -266,11 +266,6 @@ type storedSpan struct {
 	Attributes map[string]string `json:"attributes"`
 }
 
-type traceRecord struct {
-	TraceID string            `json:"traceId"`
-	Spans   []json.RawMessage `json:"spans"`
-}
-
 // wireSpan is the projector's stored element as of 48c: the span document the
 // observed account wrote, wrapped in the account token the NATS server
 // inserted. The two are kept apart on the wire precisely so the second cannot
@@ -340,46 +335,63 @@ func (h *harness) run(ctx context.Context, name, partnerID, vehicleType string, 
 	return h.assert(spans, rootSpanID, wantErr)
 }
 
-// awaitTrace polls the KV entry until it holds at least want spans or settle
+// awaitTrace polls until the trace's spans number at least want, or settle
 // expires. Polling rather than watching is deliberate: a watch would report
-// the record's first revision immediately and the harness would then have to
-// decide when to stop waiting anyway, with the extra failure mode of a missed
-// update. The last-seen count is reported on timeout so a short trace is
+// the first revision immediately and the harness would then have to decide
+// when to stop waiting anyway, with the extra failure mode of a missed update.
+// The last-seen count is reported on timeout so a short trace is
 // distinguishable from no trace at all.
+//
+// Since 48g (BR-053) one span is one key, so "the trace" is a key-prefix scan
+// rather than a Get — the assembly the Admin UI's useTraceFeed.js also does.
+// This is what makes the harness's span-count wait meaningful again: a partial
+// trace is now a partial *set of keys*, and reading it mid-write can only ever
+// under-count, never observe a torn record.
 func (h *harness) awaitTrace(ctx context.Context, traceID string, want int) ([]storedSpan, error) {
-	key := kvContext + "." + keyPrefix + traceID
+	prefix := kvContext + "." + keyPrefix + traceID + "."
 	deadline := time.Now().Add(h.settle)
 	var last int
 	for {
-		entry, err := h.kv.Get(ctx, key)
-		switch {
-		case err == nil:
-			var record traceRecord
-			if unmarshalErr := json.Unmarshal(entry.Value(), &record); unmarshalErr != nil {
-				return nil, fmt.Errorf("decoding trace record %s: %w", key, unmarshalErr)
-			}
-			if len(record.Spans) >= want {
-				spans := make([]storedSpan, 0, len(record.Spans))
-				for _, raw := range record.Spans {
-					s, unmarshalErr := decodeSpan(raw)
-					if unmarshalErr != nil {
-						return nil, fmt.Errorf("decoding span in %s: %w", key, unmarshalErr)
-					}
-					spans = append(spans, s)
-				}
-				return spans, nil
-			}
-			last = len(record.Spans)
-		case errors.Is(err, jetstream.ErrKeyNotFound):
-			// projector has not written the first span yet
-		default:
-			return nil, fmt.Errorf("reading %s: %w", key, err)
+		spans, err := h.readTrace(ctx, prefix)
+		if err != nil {
+			return nil, err
 		}
+		if len(spans) >= want {
+			return spans, nil
+		}
+		last = len(spans)
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("trace %s never reached %d spans (last saw %d) within %s", traceID, want, last, h.settle)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+// readTrace collects every span key under one trace's prefix. A key that
+// vanishes between the listing and the read is an ordinary race against the
+// bucket's MaxAge, not a failure — it is skipped, and the caller's span-count
+// wait treats the result as "not yet complete".
+func (h *harness) readTrace(ctx context.Context, prefix string) ([]storedSpan, error) {
+	lister, err := h.kv.ListKeysFiltered(ctx, prefix+"*")
+	if err != nil {
+		return nil, fmt.Errorf("listing keys under %s: %w", prefix, err)
+	}
+	var spans []storedSpan
+	for key := range lister.Keys() {
+		entry, getErr := h.kv.Get(ctx, key)
+		if getErr != nil {
+			if errors.Is(getErr, jetstream.ErrKeyNotFound) {
+				continue
+			}
+			return nil, fmt.Errorf("reading %s: %w", key, getErr)
+		}
+		span, decodeErr := decodeSpan(entry.Value())
+		if decodeErr != nil {
+			return nil, fmt.Errorf("decoding span in %s: %w", key, decodeErr)
+		}
+		spans = append(spans, span)
+	}
+	return spans, nil
 }
 
 // assert checks the four properties BR-054 names: span count, parent/child

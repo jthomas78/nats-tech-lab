@@ -1671,10 +1671,27 @@ Two things settled in the writing that the drafts above had left open:
       with one fact worth knowing: a `MaxAge` is retroactive, so the live
       bucket went 1,638 → 133 records on the first restart. Decision 15's
       `Duplicates` on `TRACES` stays with 48g as sequenced.
-- [ ] **48g** — `appendSpan` rewrite per decisions 13–15, including the
+- [x] **48g** — `appendSpan` rewrite per decisions 13–15, including the
       `useTraceFeed.js` read-path change, and a concurrency spec that fails
       against today's read-modify-write (two overlapping appends to one
-      `traceId` must not lose a span).
+      `traceId` must not lose a span). Done 2026-08-26.
+      `appendSpan` is now `storeSpan`: one `Put` per span at
+      `trace.{traceId}.{spanId}`, with the trace assembled at read time in
+      `useTraceFeed.js`. Three things worth carrying forward:
+      **(a)** the concurrency spec only goes red when it calls the store
+      function directly — driven through `Register`'s consume callback it
+      passes, because that callback is serialised, which is precisely what
+      hid the defect. Sixteen concurrent writers stored 1 span of 16.
+      **(b)** decision 15's `Duplicates` window was inert as specified:
+      nothing set `Nats-Msg-Id`, so JetStream had nothing to compare.
+      `natstrace`'s `finish` now sets it to the span id — the two are one
+      contract and neither half is worth having alone.
+      **(c)** the feed's monotonic-merge guard was **removed** rather than
+      carried across, since per-span merging makes a stale snapshot a no-op
+      instead of a rollback; the spec that pinned the old behaviour passes
+      unchanged. The frontend reads the pre-48g merged shape too, for one
+      `BucketMaxAge` after deploy; the Go-side legacy decoder was deleted,
+      since nothing on the write side reads a stored record any more.
 
 > **Sequencing note:** 48f is small, self-contained, and independent of the
 > tenant-provenance work — it could ship first or even separately. 48g is

@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -32,9 +32,18 @@ func measure(ctx context.Context, kv jetstream.KeyValue) error {
 		bytes int
 		spans int
 	}
-	var records []record
-	var total int
-	bySpanCount := map[int]int{}
+
+	// Since 48g one key is one span, so the unit being sized is reassembled
+	// here: bytes are summed per traceId and the span count is how many keys
+	// that traceId has. That keeps this reporting the same quantity BR-053's
+	// measured table reports — the stored cost of a whole trace, split by span
+	// count — rather than silently switching to a per-span figure that would
+	// look like a 3× improvement that did not happen.
+	type accum struct {
+		bytes int
+		spans int
+	}
+	byTrace := map[string]*accum{}
 
 	for key := range lister.Keys() {
 		entry, err := kv.Get(ctx, key)
@@ -44,14 +53,26 @@ func measure(ctx context.Context, kv jetstream.KeyValue) error {
 			// failure — skip it rather than abandoning the sample.
 			continue
 		}
-		var rec traceRecord
-		if err := json.Unmarshal(entry.Value(), &rec); err != nil {
+		traceID := traceIDFromKey(key)
+		if traceID == "" {
 			continue
 		}
-		n := len(entry.Value())
-		records = append(records, record{bytes: n, spans: len(rec.Spans)})
-		bySpanCount[len(rec.Spans)]++
-		total += n
+		a := byTrace[traceID]
+		if a == nil {
+			a = &accum{}
+			byTrace[traceID] = a
+		}
+		a.bytes += len(entry.Value())
+		a.spans++
+	}
+
+	var records []record
+	var total int
+	bySpanCount := map[int]int{}
+	for _, a := range byTrace {
+		records = append(records, record{bytes: a.bytes, spans: a.spans})
+		bySpanCount[a.spans]++
+		total += a.bytes
 	}
 
 	if len(records) == 0 {
@@ -113,4 +134,19 @@ func humanBytes(n int) string {
 	default:
 		return fmt.Sprintf("%d B", n)
 	}
+}
+
+// traceIDFromKey pulls the traceId out of "{context}.trace.{traceId}.{spanId}".
+// It returns "" for anything else, so a key shape this tool does not
+// understand is skipped rather than counted as a one-span trace.
+func traceIDFromKey(key string) string {
+	rest, ok := strings.CutPrefix(key, kvContext+"."+keyPrefix)
+	if !ok {
+		return ""
+	}
+	traceID, _, ok := strings.Cut(rest, ".")
+	if !ok {
+		return ""
+	}
+	return traceID
 }

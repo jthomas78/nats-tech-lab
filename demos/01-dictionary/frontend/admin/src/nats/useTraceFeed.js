@@ -2,7 +2,10 @@
 // had Pulse/Traces/Messages each hand-roll this same bootstrap+subscribe
 // pair — an architecture review found ~150 duplicated lines across three
 // near-identical copies and this composable is the seam that replaces them).
-// One KV entry is one whole trace's spans array, keyed by traceId — this
+// One KV entry is ONE SPAN, keyed trace.{traceId}.{spanId} (BR-053, Phase
+// 48g) — assembling the trace is this composable's job, and the reason the
+// projector can get away with a plain idempotent Put per span instead of the
+// read-modify-write that used to lose spans under concurrent writes. This
 // owns fetching and keeping that Map current; it does no filtering or
 // aggregation of its own, since Pulse/Traces/Messages each need a different
 // shape (unfiltered histogram buckets, toolbar-filtered waterfall rows,
@@ -20,9 +23,9 @@ import { getKvBucketEntries } from '../api'
 import { parseKvNotifySubject } from './kvNotifySubject.js'
 import { usePlatformConnection } from './usePlatformConnection.js'
 
-// normalizeSpans unwraps the KV record's stored spans into the flat span
-// objects every consumer here already expects, carrying the one thing the
-// wire span does not have onto each: `attributedTenant`, the account the span
+// normalizeSpan flattens one stored {tenant, span} record into the flat span
+// object every consumer here already expects, carrying the one thing the wire
+// span does not have onto it: `attributedTenant`, the account the span
 // arrived from.
 //
 // The wrapper exists on the server precisely so that a server-derived token
@@ -36,16 +39,40 @@ import { usePlatformConnection } from './usePlatformConnection.js'
 // A record written before Phase 48c has bare spans and no attribution to
 // recover; those normalize with `attributedTenant: ''` and render as
 // unattributed rather than being guessed at. The window is one BucketMaxAge.
-function normalizeSpans(spans) {
-  return spans.map((entry) =>
-    entry && typeof entry === 'object' && entry.span
-      ? { ...entry.span, attributedTenant: entry.tenant ?? '' }
-      : { ...entry, attributedTenant: '' },
-  )
+function normalizeSpan(entry) {
+  return entry && typeof entry === 'object' && entry.span
+    ? { ...entry.span, attributedTenant: entry.tenant ?? '' }
+    : { ...entry, attributedTenant: '' }
+}
+
+// spansFromRecord reads a KV value — or the identical notify payload — into
+// [traceId, spans]. Two shapes are accepted, and the second one has a
+// deadline:
+//
+//   - {tenant, span} — one span, its traceId inside the span. What the
+//     projector writes since 48g.
+//   - {traceId, spans[]} — a whole trace merged into one entry. What it wrote
+//     BEFORE 48g, and what is still sitting in the bucket for at most one
+//     BucketMaxAge (15 min) after the projector is deployed. Reading it here
+//     is what makes that deploy invisible rather than a blank panel; it can
+//     be deleted once no such record can exist, and nothing else depends on
+//     it.
+//
+// Anything else returns null and is dropped, which is also how a malformed
+// live notify is refused.
+function spansFromRecord(record) {
+  if (!record || typeof record !== 'object') return null
+  if (record.span?.traceId && record.span?.spanId) {
+    return [record.span.traceId, [normalizeSpan(record)]]
+  }
+  if (record.traceId && Array.isArray(record.spans)) {
+    return [record.traceId, record.spans.map(normalizeSpan)]
+  }
+  return null
 }
 
 export function useTraceFeed({ onUpsert } = {}) {
-  const traces = ref(new Map()) // traceId -> span objects, each with attributedTenant (see normalizeSpans)
+  const traces = ref(new Map()) // traceId -> span objects, each with attributedTenant (see normalizeSpan)
   // NOT sticky: it reflects the MOST RECENT snapshot read, and a successful
   // resync clears it. A snapshot that failed once but succeeded on reconnect
   // has left no gap behind, so there is nothing left to warn about.
@@ -58,17 +85,53 @@ export function useTraceFeed({ onUpsert } = {}) {
     onUpsert?.(traceId, spans)
   }
 
+  // mergeSpans folds spans into whatever this trace already holds, replacing
+  // by spanId rather than appending — the join that the projector no longer
+  // does (BR-053). Idempotent for the same reason its per-span Put is: a span
+  // seen twice overwrites itself.
+  //
+  // A span with no spanId is dropped. It cannot be de-duplicated, so keeping
+  // it would grow the trace by one on every re-read — and every consumer here
+  // keys on spanId anyway.
+  //
+  // onUpsert still fires once per TRACE with its whole merged span list, not
+  // once per span, which is what lets RpcPanel's flat per-span list stay
+  // insertion-ordered across a bootstrap that reads the spans of one trace
+  // out of several separate KV entries.
+  function mergeSpans(traceId, spans) {
+    const merged = [...(traces.value.get(traceId) ?? [])]
+    const indexBySpanId = new Map(merged.map((span, i) => [span.spanId, i]))
+    for (const span of spans) {
+      if (!span?.spanId) continue
+      const at = indexBySpanId.get(span.spanId)
+      if (at === undefined) {
+        indexBySpanId.set(span.spanId, merged.length)
+        merged.push(span)
+      } else {
+        merged[at] = span
+      }
+    }
+    upsertTrace(traceId, merged)
+  }
+
   // bootstrap reads the whole KV bucket and merges it in. It runs on mount AND
   // on every reconnect (see the watch below), which is what makes a dropped
   // socket a non-event for completeness rather than a permanent hole.
   //
-  // The span-count guard is what makes it safe to re-run against a live feed.
-  // A trace record is append-only server-side (tracestore.appendSpan appends
-  // and de-duplicates by spanId), so span count is a monotonic version number
-  // for that key. Without the guard, a snapshot read that was issued before a
+  // What made it safe to re-run against a live feed used to be a span-count
+  // guard: the whole trace arrived in one entry, so a snapshot issued before a
   // live notify but resolved after it would overwrite the newer spans array
-  // with an older one — turning the resync that closes gaps into a source of
-  // them.
+  // with an older one, and comparing lengths was the only defence.
+  //
+  // Since 48g there is nothing to overwrite. Each span arrives on its own and
+  // is merged by spanId, so a late-resolving snapshot can only re-state spans
+  // already held — a stale read is a no-op instead of a rollback, and the
+  // guard is gone rather than merely satisfied. The spec that pinned the old
+  // behaviour still passes, which is the point.
+  //
+  // The one thing the grouping below buys: the spans of one trace now arrive
+  // as several separate KV entries, so they are collected first and merged
+  // once per trace, rather than firing onUpsert once per span.
   async function readSnapshot() {
     let entries
     try {
@@ -78,13 +141,17 @@ export function useTraceFeed({ onUpsert } = {}) {
       return false // best-effort — the live subscribe still works even if this fails
     }
     bootstrapFailed.value = false
+    const grouped = new Map()
     for (const entry of entries ?? []) {
-      const record = entry?.value
-      if (entry?.op !== 'PUT' || !record?.traceId || !Array.isArray(record.spans)) continue
-      const existing = traces.value.get(record.traceId)
-      if (existing && existing.length >= record.spans.length) continue
-      upsertTrace(record.traceId, normalizeSpans(record.spans))
+      if (entry?.op !== 'PUT') continue
+      const parsed = spansFromRecord(entry.value)
+      if (!parsed) continue
+      const [traceId, spans] = parsed
+      const acc = grouped.get(traceId)
+      if (acc) acc.push(...spans)
+      else grouped.set(traceId, [...spans])
     }
+    for (const [traceId, spans] of grouped) mergeSpans(traceId, spans)
     return true
   }
 
@@ -113,14 +180,18 @@ export function useTraceFeed({ onUpsert } = {}) {
 
   function connectLive() {
     if (!connected.value) return
+    // One subject per SPAN since 48g — "...trace.{traceId}.{spanId}.changed" —
+    // which this wildcard subscription already covered unchanged, since it was
+    // always watching the whole bucket rather than a per-trace subject.
     unsubscribe = subscribePlatform('notify._platform.kv.trace-request-reply.>', (payload, subject) => {
-      const parsed = parseKvNotifySubject(subject)
-      if (!parsed || !payload?.traceId || !Array.isArray(payload.spans)) return
-      // internal/kvstore's internal key is {kvContext}.{key} — here
-      // "_platform.trace.{traceId}" — so the notify's key segment (everything
-      // after the bucket token) already carries the "trace." prefix baked in.
-      const traceId = parsed.key.startsWith('trace.') ? parsed.key.slice('trace.'.length) : payload.traceId
-      upsertTrace(traceId, normalizeSpans(payload.spans))
+      if (!parseKvNotifySubject(subject)) return
+      // The ids come from the payload, not the key. They are the same values —
+      // the projector derives the key FROM the span — and reading the payload
+      // is what keeps the pre-48g merged shape decodable through one code
+      // path. The same choice usePubsubFeed.js already makes.
+      const parsed = spansFromRecord(payload)
+      if (!parsed) return
+      mergeSpans(parsed[0], parsed[1])
     })
   }
   function disconnectLive() {
