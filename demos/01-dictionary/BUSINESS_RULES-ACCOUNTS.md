@@ -1320,7 +1320,7 @@ REST exactly as it can over NATS.
   before any connection exists — so a spec that only exercised `api.js`
   passed while those spans stayed anonymous.
 
-### BR-AC36 (Phase 48a, APPROVED 2026-08-26 — not yet implemented) — The existing `obs.trace.>` import gains the same per-tenant `LocalSubject` remap BR-AC34 gave `obs.pubsub.>`
+### BR-AC36 (Phase 48a, IMPLEMENTED 2026-08-26) — The existing `obs.trace.>` import gains the same per-tenant `LocalSubject` remap BR-AC34 gave `obs.pubsub.>`
 
 BR-AC34 closed with a deliberate exclusion: *"retrofitting the same remap onto the existing `obs.trace.>` import, which would fix the Traces panel's coarse gutter too. That is a change to a shipped pipeline and belongs in its own phase."* This is that rule. It does not re-argue BR-AC34's correction (ADR-047 A1) — the account boundary disambiguates *delivery*, not *provenance* — it applies the conclusion to the one import BR-AC34 left alone.
 
@@ -1332,5 +1332,10 @@ BR-AC34 closed with a deliberate exclusion: *"retrofitting the same remap onto t
 
 `obs.trace.>` remains ungranted to any browser credential (`auth/token.go:87`), unchanged.
 
-- **Enforced in:** `accounts/provisioner.go` — `traceLocalSubjectTmpl` and the `LocalSubject` on `addPlatformTraceImport`; `nats/bootstrap-operator.sh` — the day-0 PLATFORM import loop.
-- **Test:** `accounts/provisioner_test.go` — mirroring BR-AC34's spec: two tenants get `monitor.acme.trace.>` / `monitor.globex.trace.>` side by side, and a retry does not duplicate the import. Consuming side: BR-051.
+**Re-provisioning must *converge*, not merely dedupe — found while implementing.** The rollout clause above ("already-minted accounts keep the un-remapped import until they are re-provisioned") is only true if re-provisioning changes something. Every other import in `provisioner.go` scans for an existing entry by `(Account, Subject)` and returns early on a match, which for a pre-BR-AC36 account means: the un-remapped import is found, provisioning reports success, and nothing changes. The failure is silent in the worst way — the panel keeps attributing every tenant's spans to one bucket, and the only remaining fix is a full wipe and reseed. So `addPlatformTraceImport` compares the `LocalSubject` too and **corrects it in place** when it differs. `addPlatformPubsubImport` still dedupes on `(Account, Subject)` alone and has not been changed: it has carried its remap since the day it was introduced, so nothing has ever needed it to converge, but the same limitation applies there the day its remap has to change.
+
+**Ordering constraint against BR-051 — this rule cannot be reseeded alone.** With the remap live and PLATFORM's `TRACES` stream still filtering only `obs.trace.>`, tenant spans are remapped *away* from the one subject the stream captures, and the Traces panel goes empty for every tenant. PLATFORM's own spans are unaffected, which is exactly what would make the breakage easy to misread as "no traffic". The provisioner half only affects accounts minted after the change, and the `bootstrap-operator.sh` half only takes effect on `--force` plus `docker compose down -v`, so a running stack is not disturbed by this rule landing — but **the stack must not be reseeded until BR-051's second subject filter is in place.**
+
+- **Enforced in:** `accounts/provisioner.go` — `traceLocalSubjectTmpl`, the `LocalSubject` on `addPlatformTraceImport`, and that function's converge-on-mismatch scan; `nats/bootstrap-operator.sh` — the day-0 PLATFORM import loop.
+- **Test:** `accounts/provisioner_test.go` — mirroring BR-AC34's spec: two tenants get `monitor.acme.trace.>` / `monitor.globex.trace.>` side by side, `AllowTrace` survives the change, and a retry does not duplicate the import. Plus a convergence spec that stands up PLATFORM as a pre-BR-AC36 deployment left it — the import present and correct in every respect except the remap — and asserts it is corrected in place rather than reported as a no-op success. Both verified red against the un-remapped provisioner. Consuming side: BR-051.
+- **Not needed:** any new NATS permission. PLATFORM's `observability` user already holds `monitor.>` on both pub and sub, so `monitor.{tenant}.trace.>` is covered by the same grant that carries `monitor.{tenant}.pubsub.>`.

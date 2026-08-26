@@ -210,10 +210,113 @@ var _ = Describe("Provisioner", func() {
 		// A repeated call for a tenant PLATFORM already imports (simulating
 		// a caller retry after some unrelated transient failure) must be a
 		// no-op, not append a duplicate entry.
-		Expect(provisioner.AddPlatformTraceImportForTest(ctx, platformPub, mintedA.PublicKey)).To(Succeed())
+		Expect(provisioner.AddPlatformTraceImportForTest(ctx, platformPub, mintedA.PublicKey, "acme")).To(Succeed())
 		afterRetry, err := provisioner.LookupAccountClaims(ctx, platformPub)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(traceImportsFor(afterRetry)).To(HaveLen(2), "re-registering an already-imported tenant must not duplicate the import")
+	})
+
+	// BR-AC36 (Phase 48a): the obs.trace.> import above gains the same
+	// per-tenant LocalSubject remap BR-AC34 gave obs.pubsub.>. BR-AC34
+	// deliberately left the trace import alone — the Traces panel showed
+	// only a coarse PLATFORM/TENANT split, so a remap would have changed a
+	// shipped pipeline for no gain. Once the panel names the tenant
+	// (BR-054), the argument that forced the pubsub remap applies here
+	// unchanged: every tenant exports the identical literal "obs.trace.>",
+	// so the local subject is the only thing on the wire that says which
+	// account a span came from.
+	It("re-signs PLATFORM's own claims to import each new tenant's obs.trace.> export under a tenant-scoped local subject", func() {
+		platformKP, err := nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		platformPub, err := platformKP.PublicKey()
+		Expect(err).NotTo(HaveOccurred())
+
+		sysNC := ots.ConnectSys(GinkgoT())
+		defer sysNC.Close()
+		ots.PushAccountClaims(sysNC, ots.OperatorSigningKeySeed, jwt.NewAccountClaims(platformPub))
+
+		limits := accounts.JSLimits{MaxMem: 64 << 20, MaxFile: 128 << 20, MaxStreams: 3, MaxConsumers: 5}
+
+		mintedA, err := provisioner.CreateAccount(ctx, limits, "acme", platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		mintedB, err := provisioner.CreateAccount(ctx, limits, "globex", platformPub)
+		Expect(err).NotTo(HaveOccurred())
+
+		claims, err := provisioner.LookupAccountClaims(ctx, platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		byAccount := map[string]*jwt.Import{}
+		for _, imp := range claims.Imports {
+			if string(imp.Subject) == "obs.trace.>" {
+				byAccount[imp.Account] = imp
+			}
+		}
+		Expect(byAccount).To(HaveLen(2), "a second tenant's obs.trace.> import must be added alongside the first, not replace it")
+		Expect(byAccount[mintedA.PublicKey].Type).To(Equal(jwt.Stream))
+		Expect(byAccount[mintedA.PublicKey].AllowTrace).To(BeTrue(), "the remap must not cost the AllowTrace flag the import already carried")
+		Expect(string(byAccount[mintedA.PublicKey].LocalSubject)).To(Equal("monitor.acme.trace.>"),
+			"without the remap both tenants land on one identical local subject and the panel cannot name the origin account")
+		Expect(string(byAccount[mintedB.PublicKey].LocalSubject)).To(Equal("monitor.globex.trace.>"))
+
+		// Idempotent on retry, same contract as the pubsub and $SRV.> imports.
+		Expect(provisioner.AddPlatformTraceImportForTest(ctx, platformPub, mintedA.PublicKey, "acme")).To(Succeed())
+		afterRetry, err := provisioner.LookupAccountClaims(ctx, platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		retryCount := 0
+		for _, imp := range afterRetry.Imports {
+			if string(imp.Subject) == "obs.trace.>" {
+				retryCount++
+			}
+		}
+		Expect(retryCount).To(Equal(2), "re-registering an already-imported tenant must not duplicate the import")
+	})
+
+	// BR-AC36's rollout clause — "already-minted accounts keep the
+	// un-remapped import until they are re-provisioned" — is only true if
+	// re-provisioning actually changes something. An idempotency scan that
+	// matches on (Account, Subject) alone, which is what every other import
+	// in this file does, would report success and leave a pre-BR-AC36
+	// account's un-remapped import exactly as it found it. That failure is
+	// silent in the worst way: provisioning succeeds, the panel keeps
+	// attributing every tenant's spans to one bucket, and the only remaining
+	// fix is a full wipe and reseed.
+	It("corrects an obs.trace.> import that already exists without the remap, rather than reporting a no-op success", func() {
+		platformKP, err := nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		platformPub, err := platformKP.PublicKey()
+		Expect(err).NotTo(HaveOccurred())
+
+		sysNC := ots.ConnectSys(GinkgoT())
+		defer sysNC.Close()
+
+		tenantKP, err := nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		tenantPub, err := tenantKP.PublicKey()
+		Expect(err).NotTo(HaveOccurred())
+
+		// Stand up PLATFORM exactly as a pre-BR-AC36 deployment left it: the
+		// trace import present, correct in every respect except the remap.
+		legacy := jwt.NewAccountClaims(platformPub)
+		legacy.Imports.Add(&jwt.Import{
+			Account:    tenantPub,
+			Subject:    jwt.Subject("obs.trace.>"),
+			Type:       jwt.Stream,
+			AllowTrace: true,
+		})
+		ots.PushAccountClaims(sysNC, ots.OperatorSigningKeySeed, legacy)
+
+		Expect(provisioner.AddPlatformTraceImportForTest(ctx, platformPub, tenantPub, "acme")).To(Succeed())
+
+		after, err := provisioner.LookupAccountClaims(ctx, platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		var traceImports []*jwt.Import
+		for _, imp := range after.Imports {
+			if string(imp.Subject) == "obs.trace.>" {
+				traceImports = append(traceImports, imp)
+			}
+		}
+		Expect(traceImports).To(HaveLen(1), "correcting the remap must update the existing import in place, not add a second one")
+		Expect(string(traceImports[0].LocalSubject)).To(Equal("monitor.acme.trace.>"))
+		Expect(traceImports[0].AllowTrace).To(BeTrue(), "correcting the remap must not drop the flag the legacy import carried")
 	})
 
 	// BR-AC31 (Phase 30a): CreateAccount must also re-sign PLATFORM's own

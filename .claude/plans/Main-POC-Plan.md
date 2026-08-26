@@ -1477,10 +1477,25 @@ Two things settled in the writing that the drafts above had left open:
 
 #### Sub-phases — tenant provenance (draft — not started)
 
-- [ ] **48a** — `accounts-service`: add the `LocalSubject` remap to the
+- [x] **48a** — `accounts-service`: add the `LocalSubject` remap to the
       trace import (`addPlatformTraceImport`), with a
       `traceLocalSubjectTmpl` constant beside `pubsubLocalSubjectTmpl`.
       Provisioner tests assert the minted claim, mirroring BR-AC34's.
+      **DONE 2026-08-26**, plus the day-0 half in `bootstrap-operator.sh`
+      that BR-AC36 names. Two things came out of the implementation:
+      **(a)** re-provisioning had to be made to *converge*. The dedupe
+      scan every other import uses matches on `(Account, Subject)` alone,
+      so a pre-BR-AC36 account's un-remapped import would be found,
+      reported as success, and left unchanged — making decision 8's
+      re-provision pass a no-op and a wipe the only fix. It now corrects a
+      wrong `LocalSubject` in place; there is a spec for it, verified red.
+      **(b) An ordering constraint 48d must respect:** with the remap live
+      and `TRACES` still filtering only `obs.trace.>`, tenant spans are
+      remapped away from the only subject the stream captures and the
+      Traces panel goes empty **for tenants only** — PLATFORM's own spans
+      keep arriving, which is what makes it read as "no traffic" rather
+      than as breakage. Nothing is disturbed until someone reseeds
+      (`--force` + `down -v`), so **do not reseed until 48b lands.**
 - [ ] **48b** — `tracestore`: second subject filter on `TRACES`,
       `tenantFromSubject`, tenant threaded into the stored record, and the
       decision-6 conflict rule.

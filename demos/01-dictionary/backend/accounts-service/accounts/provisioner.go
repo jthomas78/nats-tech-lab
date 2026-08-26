@@ -120,7 +120,7 @@ func (p *Provisioner) CreateAccount(ctx context.Context, limits JSLimits, tenant
 	// of cross-account wiring altogether (e.g. low-level provisioner tests
 	// that mint bare, unconnected accounts).
 	if platformPublicKey != "" {
-		if err := p.addPlatformTraceImport(ctx, platformPublicKey, accountPub); err != nil {
+		if err := p.addPlatformTraceImport(ctx, platformPublicKey, accountPub, tenantName); err != nil {
 			return MintedAccount{}, fmt.Errorf("register platform trace import for new tenant: %w", err)
 		}
 		// BR-AC34 (Phase 43a): same re-sign, same gate, for the new
@@ -250,12 +250,29 @@ const traceExportSubject = "obs.trace.>"
 const pubsubExportSubject = "obs.pubsub.>"
 
 // pubsubLocalSubjectTmpl is PLATFORM's per-tenant remap for that import
-// (BR-AC34, ADR-047 amendment A1). Unlike the obs.trace.> import, which
-// takes no remap, this one must have it: every tenant exports the identical
+// (BR-AC34, ADR-047 amendment A1). The obs.trace.> import took no remap when
+// this was written and gained one in BR-AC36 (see traceLocalSubjectTmpl
+// below); the argument was always the same: every tenant exports the identical
 // literal "obs.pubsub.>", and the local subject is the only thing on the
 // wire that tells a PLATFORM subscriber which account a message came from.
 // The account boundary disambiguates *delivery*, not *provenance*.
 const pubsubLocalSubjectTmpl = "monitor.%s.pubsub.>"
+
+// traceLocalSubjectTmpl is the same remap for the obs.trace.> import
+// (BR-AC36, Phase 48a). It was added a phase later than its pubsub sibling
+// above, and the reason is worth keeping: the trace import genuinely did not
+// need a remap while the Traces panel showed only a coarse PLATFORM/TENANT
+// split, so BR-AC34 deliberately left it alone rather than changing a shipped
+// pipeline in passing. Once the panel names the tenant (BR-054), the same
+// argument that forced the pubsub remap applies here unchanged — every tenant
+// exports the identical literal "obs.trace.>", so the local subject is the
+// only thing on the wire that says which account a span came from.
+//
+// The token is trustworthy precisely because the NATS server inserts it at
+// the account boundary. A tenant cannot write its own account name into a
+// span payload and be believed; it cannot publish onto another tenant's
+// monitor.* subject either, because it never sees one.
+const traceLocalSubjectTmpl = "monitor.%s.trace.>"
 
 // srvExportSubject is the second tenant-to-PLATFORM export (BR-AC31,
 // Phase 30a) — the reverse leg needed so cross-account service discovery
@@ -482,21 +499,42 @@ func (p *Provisioner) pushClaimsUpdate(ctx context.Context, accountJWT string) e
 // claims already import tenantAccountPub's obs.trace.>, this is a no-op —
 // safe to call unconditionally from CreateAccount without checking whether
 // a prior attempt already succeeded.
-func (p *Provisioner) addPlatformTraceImport(ctx context.Context, platformPublicKey, tenantAccountPub string) error {
+func (p *Provisioner) addPlatformTraceImport(ctx context.Context, platformPublicKey, tenantAccountPub, tenantName string) error {
 	claims, err := p.LookupAccountClaims(ctx, platformPublicKey)
 	if err != nil {
 		return fmt.Errorf("lookup platform account claims: %w", err)
 	}
+	want := jwt.RenamingSubject(fmt.Sprintf(traceLocalSubjectTmpl, tenantName))
 	for _, imp := range claims.Imports {
-		if imp.Account == tenantAccountPub && imp.Subject == jwt.Subject(traceExportSubject) {
+		if imp.Account != tenantAccountPub || imp.Subject != jwt.Subject(traceExportSubject) {
+			continue
+		}
+		// Converge rather than merely dedupe. An account minted before
+		// BR-AC36 already carries this import WITHOUT the remap, so a scan
+		// that matched on (Account, Subject) alone — which is all the
+		// pubsub sibling below does — would report success and change
+		// nothing, and BR-AC36's stated rollout ("already-minted accounts
+		// keep the un-remapped import until they are re-provisioned") would
+		// be unachievable: re-provisioning would be a no-op and the only
+		// path left would be a full wipe and reseed. Correcting a wrong
+		// LocalSubject in place is what makes 48d's re-provision pass a real
+		// operation.
+		if imp.LocalSubject == want {
 			return nil
 		}
+		imp.LocalSubject = want
+		token, err := claims.Encode(p.operatorSigningKey)
+		if err != nil {
+			return fmt.Errorf("encode platform account jwt: %w", err)
+		}
+		return p.pushClaimsUpdate(ctx, token)
 	}
 	claims.Imports.Add(&jwt.Import{
-		Account:    tenantAccountPub,
-		Subject:    jwt.Subject(traceExportSubject),
-		Type:       jwt.Stream,
-		AllowTrace: true,
+		Account:      tenantAccountPub,
+		Subject:      jwt.Subject(traceExportSubject),
+		LocalSubject: want,
+		Type:         jwt.Stream,
+		AllowTrace:   true,
 	})
 	token, err := claims.Encode(p.operatorSigningKey)
 	if err != nil {
@@ -510,12 +548,19 @@ func (p *Provisioner) addPlatformTraceImport(ctx context.Context, platformPublic
 // Phase 43a) — addPlatformTraceImport's sibling, same mechanism, same
 // idempotency contract (safe to call unconditionally from CreateAccount).
 //
-// The one difference is the LocalSubject remap (ADR-047 amendment A1): the
-// trace import takes none because the Traces panel only ever shows a coarse
-// PLATFORM/TENANT split, but the Messages panel names the publishing tenant,
-// and the local subject an imported message arrives on is the only thing that
-// carries that. Without the remap every tenant's stream lands on one identical
-// local subject and provenance is unrecoverable.
+// Both carry a LocalSubject remap (ADR-047 amendment A1) for the same reason:
+// the local subject an imported message arrives on is the only thing that
+// carries provenance, and without it every tenant's stream lands on one
+// identical local subject. This one got the remap first, in Phase 43a,
+// because the Messages panel named the publishing tenant while the Traces
+// panel still showed a coarse PLATFORM/TENANT split; BR-AC36 (Phase 48a)
+// closed that gap, so the two imports now differ only in subject.
+//
+// Unlike its trace sibling, this one still only dedupes on
+// (Account, Subject) — it does not correct a LocalSubject that is present
+// but wrong. Nothing has ever needed it to, since this import has carried
+// its remap from the day it was introduced, but see addPlatformTraceImport's
+// convergence note for what that costs when a remap has to change.
 func (p *Provisioner) addPlatformPubsubImport(ctx context.Context, platformPublicKey, tenantAccountPub, tenantName string) error {
 	claims, err := p.LookupAccountClaims(ctx, platformPublicKey)
 	if err != nil {

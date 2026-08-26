@@ -199,18 +199,42 @@ echo "==> PLATFORM imports each tenant's obs.trace.> (Phase 28f cross-account tr
 # This is the day-0 nsc equivalent of accounts-service's
 # Provisioner.addPlatformTraceImport, which does the same thing at runtime
 # for accounts minted after boot (see accounts/provisioner.go).
+#
+# The --local-subject remap is BR-AC36 (Phase 48a), and it is the reason this
+# block cannot be read as "just the identity mapping". Every tenant exports
+# the identical literal "obs.trace.>", so before the remap every tenant's
+# spans arrived on one indistinguishable local subject and the Traces panel
+# could only show a coarse PLATFORM/TENANT split. The token is trustworthy
+# because the NATS server inserts it here, at the account boundary — a tenant
+# cannot assert its own account name in a span payload and be believed.
+#
+# BR-AC34's general lesson applies to this pair as much as to obs.pubsub.>:
+# every export/import pair has two homes, this script and the provisioner,
+# and only the provisioner has tests. A change in one is not a change in the
+# other, and this half is only live after `./bootstrap-operator.sh --force`
+# plus `docker compose down -v && up --build`.
+#
+# ORDERING: PLATFORM's TRACES stream must filter monitor.*.trace.> as well as
+# obs.trace.> before this remap can be reseeded (BR-051, Phase 48b) — with
+# the remap live and the stream still filtering only obs.trace.>, tenant
+# spans are remapped away from the one subject the stream captures and the
+# Traces panel goes empty for every tenant. PLATFORM's own spans are
+# unaffected, which is exactly what makes the breakage easy to miss.
 for account in ACME GLOBEX; do
   account_pub="$(nsc describe account "$account" --json | jq -r '.sub')"
+  account_name="$(echo "$account" | tr '[:upper:]' '[:lower:]')"
   nsc add import --account PLATFORM --src-account "$account_pub" \
     --remote-subject "obs.trace.>" \
-    --local-subject "obs.trace.>" \
+    --local-subject "monitor.${account_name}.trace.>" \
     --allow-trace >/dev/null
 done
 
 echo "==> PLATFORM imports each tenant's obs.pubsub.> (Phase 43a cross-tenant Messages panel)"
 # Day-0 equivalent of accounts-service's Provisioner.addPlatformPubsubImport
-# (accounts/provisioner.go). Unlike the obs.trace.> import above this one MUST
-# carry a per-tenant --local-subject remap (ADR-047 amendment A1): every tenant
+# (accounts/provisioner.go). Like the obs.trace.> import above, this one
+# carries a per-tenant --local-subject remap (ADR-047 amendment A1) — it just
+# got one a phase earlier, in 43a, because the Messages panel named the
+# publishing tenant while the Traces panel did not yet. Every tenant
 # exports the identical literal "obs.pubsub.>", and the local subject is the
 # only thing on the wire that tells a PLATFORM subscriber which account a
 # message came from. Without it GLOBEX's stream lands on ACME's local subject
