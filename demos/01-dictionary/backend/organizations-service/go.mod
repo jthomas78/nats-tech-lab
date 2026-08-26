@@ -5,6 +5,7 @@ go 1.26.5
 require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jthomas78/nats-tech-lab/shared/browserrpc v0.0.0-00010101000000-000000000000
+	github.com/jthomas78/nats-tech-lab/shared/natsconn v0.0.0-00010101000000-000000000000 // indirect
 	github.com/jthomas78/nats-tech-lab/shared/natstenants v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natstrace v0.0.0-00010101000000-000000000000
 	github.com/nats-io/nats-server/v2 v2.14.5
@@ -90,3 +91,5 @@ replace github.com/jthomas78/nats-tech-lab/shared/natstrace => ../../../../share
 replace github.com/jthomas78/nats-tech-lab/shared/natstenants => ../../../../shared/natstenants
 
 replace github.com/jthomas78/nats-tech-lab/shared/browserrpc => ../../../../shared/browserrpc
+
+replace github.com/jthomas78/nats-tech-lab/shared/natsconn => ../../../../shared/natsconn

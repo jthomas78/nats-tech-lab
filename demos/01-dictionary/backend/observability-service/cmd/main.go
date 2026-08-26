@@ -26,6 +26,7 @@ import (
 
 	_ "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/docs"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observability-service/observability"
+	"github.com/jthomas78/nats-tech-lab/shared/natsconn"
 )
 
 func main() {
@@ -67,7 +68,7 @@ func run(log *slog.Logger) error {
 	defer cancel()
 
 	var nc *nats.Conn
-	if err := waitForNATS(startupCtx, natsURL, natsCredsPath, func(conn *nats.Conn) error {
+	if err := waitForNATS(startupCtx, natsURL, natsCredsPath, log, func(conn *nats.Conn) error {
 		nc = conn
 		return nil
 	}); err != nil {
@@ -105,11 +106,8 @@ func run(log *slog.Logger) error {
 	}
 }
 
-func waitForNATS(ctx context.Context, url, credsPath string, connect func(*nats.Conn) error) error {
-	opts := []nats.Option{nats.Name("observability-service")}
-	if credsPath != "" {
-		opts = append(opts, nats.UserCredentials(credsPath))
-	}
+func waitForNATS(ctx context.Context, url, credsPath string, log *slog.Logger, connect func(*nats.Conn) error) error {
+	opts := natsconn.Options("observability-service", credsPath, log)
 	for {
 		conn, err := nats.Connect(url, opts...)
 		if err == nil {

@@ -2,7 +2,7 @@ import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import { flushPromises, mount } from '@vue/test-utils'
 import { ref } from 'vue'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import MessagesPanel from './MessagesPanel.vue'
 import SubjectPath from './SubjectPath.vue'
@@ -47,8 +47,21 @@ const EVT_ACME = envelope('s1', 'evt.acme.shipping.ship.SHIP-1.arrived')
 const EVT_GLOBEX = envelope('s2', 'evt.globex.shipping.container.C-9.loaded')
 const NOTIFY_ACME = envelope('s3', 'notify.acme.shipping.ship.changed')
 
+// Every wrapper is unmounted between specs. Not hygiene-for-its-own-sake: a
+// mounted MessagesPanel keeps a PrimeVue DataTable (scrollable +
+// resizable-columns) alive with its document-level listeners, so leaving nine
+// of them attached makes the row-cap spec below do roughly nine panels' worth
+// of layout work per render. That spec ran in 1.3s alone and timed out at 5s
+// in-file until this afterEach was added. usePubsubFeed.spec.js already
+// carries the same guard for the same reason.
+const mounted = []
+afterEach(() => {
+  while (mounted.length) mounted.pop().unmount()
+})
+
 async function mountPanel() {
   const wrapper = mount(MessagesPanel, { global: { plugins: [PrimeVue, createPinia()] } })
+  mounted.push(wrapper)
   await flushPromises()
   return wrapper
 }

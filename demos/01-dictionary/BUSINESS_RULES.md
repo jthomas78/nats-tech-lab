@@ -53,6 +53,13 @@ Split by domain so a rule add/edit only requires reading its own file:
   remembered one; see
   [ARCHITECTURE-OBSERVABILITY.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-OBSERVABILITY.md)
   (ADR-047) for the full design.
+  BR-051–054 (Phase 48, APPROVED 2026-08-26 — not yet implemented) do the
+  same for the *other* channel: a trace span's tenant comes from its arrival
+  subject and never from its envelope (BR-051), first-writer-wins on a
+  disputed `traceId` (BR-052), `trace-request-reply` becomes a bounded window
+  written one idempotent span at a time (BR-053), and both panels name the
+  originating account, proven by a multi-span cross-account harness
+  (BR-054). See BR-AC36, ACCOUNTS file, for the JWT remap they depend on.
 - **[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)** — Reference Data
   Service (BR-D01–BR-D48, BR-D39 being the Phase 28 `obs.trace.*` mirror of
   BR-036 and BR-D45 (Phase 43a, CONFIRMED) pointing this service's `evt.*`
@@ -94,7 +101,10 @@ Split by domain so a rule add/edit only requires reading its own file:
   N tenants' streams land on one local subject and the importer cannot tell
   which account a message came from, which is the whole point of the Messages
   panel. It also instruments this service's own four
-  `notify.accounts.account.*` publishes.
+  `notify.accounts.account.*` publishes. BR-AC36 (Phase 48a, APPROVED
+  2026-08-26 — not yet implemented) retrofits that same remap onto the
+  `obs.trace.>` import, which BR-AC34 explicitly left out of scope; the
+  consuming side is BR-051–054, SHIPPING file.
   Rules live in `backend/accounts-service/accounts/handler.go`,
   `provisioner.go`, `store.go`, `audit.go`, and `jwt.go`.
 - **[BUSINESS_RULES-PRICING.md](BUSINESS_RULES-PRICING.md)** — Pricing

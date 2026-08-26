@@ -37,7 +37,7 @@ function mountFeed(options) {
 describe('useTraceFeed', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockPlatformConnection = { connected: ref(false), subscribe: vi.fn() }
+    mockPlatformConnection = { connected: ref(false), epoch: ref(0), subscribe: vi.fn() }
   })
 
   it('bootstraps traces from the trace-request-reply KV bucket on mount', async () => {
@@ -77,6 +77,7 @@ describe('useTraceFeed', () => {
     expect(mockPlatformConnection.subscribe).not.toHaveBeenCalled()
 
     mockPlatformConnection.connected.value = true
+    mockPlatformConnection.epoch.value += 1
     await flushPromises()
     expect(mockPlatformConnection.subscribe).toHaveBeenCalledTimes(1)
   })
@@ -108,13 +109,33 @@ describe('useTraceFeed', () => {
     expect(onUpsert).toHaveBeenCalledWith('t2', [{ spanId: 'b1' }])
   })
 
-  it('sets bootstrapFailed when the initial KV read throws', async () => {
+  it('sets bootstrapFailed when the snapshot read throws', async () => {
     getKvBucketEntries.mockRejectedValue(new Error('boom'))
     const { feed } = mountFeed()
     await flushPromises()
 
     expect(feed().bootstrapFailed.value).toBe(true)
-    expect(feed().everDisconnected.value).toBe(false)
+  })
+
+  // A snapshot read that fails on the freshly-reconnected socket is usually a
+  // race with NATS still coming up, so it must not wait for the *next*
+  // reconnect to try again.
+  it('retries a failed snapshot read on its own, without waiting for another reconnect', async () => {
+    vi.useFakeTimers()
+    try {
+      getKvBucketEntries.mockRejectedValueOnce(new Error('boom')).mockResolvedValue([])
+      const { feed } = mountFeed()
+      await flushPromises()
+      expect(feed().bootstrapFailed.value).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(600)
+      await flushPromises()
+
+      expect(getKvBucketEntries).toHaveBeenCalledTimes(2)
+      expect(feed().bootstrapFailed.value).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('leaves bootstrapFailed false when the initial KV read succeeds', async () => {
@@ -125,16 +146,111 @@ describe('useTraceFeed', () => {
     expect(feed().bootstrapFailed.value).toBe(false)
   })
 
-  it('sets everDisconnected once the live feed drops after having connected', async () => {
+  it('clears bootstrapFailed once a later snapshot read succeeds', async () => {
+    getKvBucketEntries.mockRejectedValueOnce(new Error('boom')).mockResolvedValue([])
+    mockPlatformConnection.connected.value = false
+    const { feed } = mountFeed()
+    await flushPromises()
+    expect(feed().bootstrapFailed.value).toBe(true)
+
+    mockPlatformConnection.connected.value = true
+    mockPlatformConnection.epoch.value += 1
+    await flushPromises()
+
+    expect(feed().bootstrapFailed.value).toBe(false)
+  })
+
+  // The whole point of the fix this spec guards: notify.* is core NATS with no
+  // replay, so a span published while the socket was down is never redelivered
+  // — but it IS in the durable KV bucket, so re-reading the snapshot on
+  // reconnect recovers it. Without the re-read the trace is missing until the
+  // page is reloaded, which is what the old "some spans may be missing" banner
+  // was reporting.
+  it('re-reads the KV snapshot on reconnect, recovering a trace missed while offline', async () => {
     getKvBucketEntries.mockResolvedValue([])
     mockPlatformConnection.connected.value = true
     const { feed } = mountFeed()
     await flushPromises()
-    expect(feed().everDisconnected.value).toBe(false)
+    expect(feed().traces.value.size).toBe(0)
+
+    // socket drops; a trace lands in KV that this client never sees on the wire
+    mockPlatformConnection.connected.value = false
+    await flushPromises()
+    getKvBucketEntries.mockResolvedValue([
+      { op: 'PUT', value: { traceId: 'offline1', spans: [{ spanId: 'x1' }] } },
+    ])
+
+    mockPlatformConnection.connected.value = true
+    mockPlatformConnection.epoch.value += 1
+    await flushPromises()
+
+    expect(getKvBucketEntries).toHaveBeenCalledTimes(2)
+    expect(feed().traces.value.get('offline1')).toEqual([{ spanId: 'x1' }])
+  })
+
+  // The regression this whole change exists for: nats-core absorbs a NATS
+  // restart internally, so `connected` never flips — only epoch bumps. A feed
+  // watching `connected` sleeps through it and keeps a permanent hole.
+  it('resyncs on an epoch bump alone, when connected never flips', async () => {
+    getKvBucketEntries.mockResolvedValue([])
+    mockPlatformConnection.connected.value = true
+    const { feed } = mountFeed()
+    await flushPromises()
+    expect(getKvBucketEntries).toHaveBeenCalledTimes(1)
+
+    getKvBucketEntries.mockResolvedValue([
+      { op: 'PUT', value: { traceId: 'inner1', spans: [{ spanId: 'i1' }] } },
+    ])
+    mockPlatformConnection.epoch.value += 1 // connected stays true throughout
+    await flushPromises()
+
+    expect(getKvBucketEntries).toHaveBeenCalledTimes(2)
+    expect(feed().traces.value.get('inner1')).toEqual([{ spanId: 'i1' }])
+  })
+
+  it('re-subscribes exactly once per reconnect, without leaking the old subscription', async () => {
+    getKvBucketEntries.mockResolvedValue([])
+    const unsubscribe = vi.fn()
+    mockPlatformConnection.subscribe.mockReturnValue(unsubscribe)
+    mockPlatformConnection.connected.value = true
+    mountFeed()
+    await flushPromises()
 
     mockPlatformConnection.connected.value = false
     await flushPromises()
+    mockPlatformConnection.connected.value = true
+    mockPlatformConnection.epoch.value += 1
+    await flushPromises()
 
-    expect(feed().everDisconnected.value).toBe(true)
+    expect(mockPlatformConnection.subscribe).toHaveBeenCalledTimes(2)
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  // A snapshot read issued before a live notify but resolving after it must not
+  // overwrite the newer, longer spans array with its own stale one — otherwise
+  // the resync that closes gaps becomes a source of them.
+  it('does not let a stale snapshot clobber a longer spans array from the live feed', async () => {
+    getKvBucketEntries.mockResolvedValue([
+      { op: 'PUT', value: { traceId: 't1', spans: [{ spanId: 'a1' }] } },
+    ])
+    mockPlatformConnection.connected.value = true
+    const { feed } = mountFeed()
+    await flushPromises()
+
+    const [, callback] = mockPlatformConnection.subscribe.mock.calls[0]
+    callback(
+      { traceId: 't1', spans: [{ spanId: 'a1' }, { spanId: 'a2' }] },
+      'notify._platform.kv.trace-request-reply.trace.t1.changed',
+    )
+    expect(feed().traces.value.get('t1')).toHaveLength(2)
+
+    // a reconnect re-reads the same one-span snapshot
+    mockPlatformConnection.connected.value = false
+    await flushPromises()
+    mockPlatformConnection.connected.value = true
+    mockPlatformConnection.epoch.value += 1
+    await flushPromises()
+
+    expect(feed().traces.value.get('t1')).toHaveLength(2)
   })
 })

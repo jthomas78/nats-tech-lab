@@ -22,8 +22,10 @@ import { usePlatformConnection } from './usePlatformConnection.js'
 
 export function useTraceFeed({ onUpsert } = {}) {
   const traces = ref(new Map()) // traceId -> raw span objects (from the KV record's `spans` array)
-  const bootstrapFailed = ref(false) // sticky — the initial KV read never succeeded
-  const everDisconnected = ref(false) // sticky — the live feed has dropped at least once since mount
+  // NOT sticky: it reflects the MOST RECENT snapshot read, and a successful
+  // resync clears it. A snapshot that failed once but succeeded on reconnect
+  // has left no gap behind, so there is nothing left to warn about.
+  const bootstrapFailed = ref(false)
 
   function upsertTrace(traceId, spans) {
     const next = new Map(traces.value)
@@ -32,22 +34,57 @@ export function useTraceFeed({ onUpsert } = {}) {
     onUpsert?.(traceId, spans)
   }
 
-  async function bootstrap() {
+  // bootstrap reads the whole KV bucket and merges it in. It runs on mount AND
+  // on every reconnect (see the watch below), which is what makes a dropped
+  // socket a non-event for completeness rather than a permanent hole.
+  //
+  // The span-count guard is what makes it safe to re-run against a live feed.
+  // A trace record is append-only server-side (tracestore.appendSpan appends
+  // and de-duplicates by spanId), so span count is a monotonic version number
+  // for that key. Without the guard, a snapshot read that was issued before a
+  // live notify but resolved after it would overwrite the newer spans array
+  // with an older one — turning the resync that closes gaps into a source of
+  // them.
+  async function readSnapshot() {
     let entries
     try {
       entries = await getKvBucketEntries('platform', 'trace-request-reply')
     } catch {
       bootstrapFailed.value = true
-      return // best-effort bootstrap — live subscribe below still works even if this fails
+      return false // best-effort — the live subscribe still works even if this fails
     }
+    bootstrapFailed.value = false
     for (const entry of entries ?? []) {
       const record = entry?.value
       if (entry?.op !== 'PUT' || !record?.traceId || !Array.isArray(record.spans)) continue
+      const existing = traces.value.get(record.traceId)
+      if (existing && existing.length >= record.spans.length) continue
       upsertTrace(record.traceId, record.spans)
+    }
+    return true
+  }
+
+  // A failed snapshot read retries on its own, with backoff, until a newer
+  // resync supersedes it or the composable is torn down. The read goes over a
+  // connection that has only just been re-established, to a NATS that may still
+  // be coming up (the projector reconnecting, the bucket not yet served), so a
+  // single failure there is a race, not a verdict — waiting for the *next*
+  // reconnect to retry would leave the panel warning about a gap that no longer
+  // exists.
+  let snapshotGen = 0
+  let stopped = false
+
+  async function bootstrap() {
+    const gen = ++snapshotGen
+    let delay = 500
+    while (gen === snapshotGen && !stopped) {
+      if (await readSnapshot()) return
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      delay = Math.min(delay * 2, 10000)
     }
   }
 
-  const { connected, subscribe: subscribePlatform } = usePlatformConnection()
+  const { connected, epoch, subscribe: subscribePlatform } = usePlatformConnection()
   let unsubscribe = null
 
   function connectLive() {
@@ -67,19 +104,36 @@ export function useTraceFeed({ onUpsert } = {}) {
     unsubscribe = null
   }
 
-  onMounted(() => {
-    bootstrap()
+  // Subscribe BEFORE reading the snapshot, on mount and on reconnect alike.
+  // The two are not interchangeable: snapshot-then-subscribe leaves the gap
+  // between the read and the subscription uncovered, while subscribe-then-
+  // snapshot covers it twice (the guard in bootstrap absorbs the overlap).
+  // connectLive is a no-op until connected, so on a cold start the watch
+  // below does the real work.
+  function resync() {
+    disconnectLive()
     connectLive()
-  })
-  onUnmounted(disconnectLive)
-  watch(connected, (isConnected) => {
-    if (isConnected) {
-      disconnectLive()
-      connectLive()
-    } else {
-      everDisconnected.value = true
-    }
-  })
+    bootstrap()
+  }
 
-  return { traces, connected, bootstrapFailed, everDisconnected }
+  onMounted(resync)
+  onUnmounted(() => {
+    stopped = true
+    disconnectLive()
+  })
+  // Watch `epoch`, NOT `connected`. Both matter but only epoch covers both
+  // reconnect kinds — nats-core absorbs the common ones internally without
+  // ever flipping `connected` (see connectionFactory.js's epoch comment), so a
+  // watch on `connected` resyncs for the rare outer reconnect and sleeps
+  // through the frequent inner one.
+  //
+  // What makes the resync sufficient: notify.* is a core-NATS, fire-and-forget
+  // publish with no replay, so nothing sent while the socket was down is
+  // redelivered — but the KV bucket it notifies about is a durable JetStream
+  // projection, so every message missed on the wire is still readable. That is
+  // exactly the contract connectionFactory.subscribe documents, and which this
+  // composable used to state and then not honour.
+  watch(epoch, resync)
+
+  return { traces, connected, bootstrapFailed }
 }

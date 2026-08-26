@@ -1,13 +1,15 @@
 module github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service
 
-go 1.26.4
+go 1.26
 
 require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jthomas78/nats-tech-lab/shared/browserrpc v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/jstream v0.0.0-00010101000000-000000000000
+	github.com/jthomas78/nats-tech-lab/shared/natsconn v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natsnotify v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natstenants v0.0.0-00010101000000-000000000000
+	github.com/jthomas78/nats-tech-lab/shared/natstest v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natstrace v0.0.0-00010101000000-000000000000
 	github.com/nats-io/nats-server/v2 v2.14.5
 	github.com/nats-io/nats.go v1.52.0
@@ -69,3 +71,5 @@ replace github.com/jthomas78/nats-tech-lab/shared/natstrace => ../../../../share
 replace github.com/jthomas78/nats-tech-lab/shared/natstenants => ../../../../shared/natstenants
 
 replace github.com/jthomas78/nats-tech-lab/shared/browserrpc => ../../../../shared/browserrpc
+
+replace github.com/jthomas78/nats-tech-lab/shared/natsconn => ../../../../shared/natsconn

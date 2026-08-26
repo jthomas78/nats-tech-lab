@@ -1,0 +1,217 @@
+<script>document.documentElement.setAttribute("data-theme","dark")</script>
+<title>Observability message path — tenant to Admin UI</title>
+<style>
+/* Tokens lifted from shared/unifi-theme/unifi.css. Dark only. */
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+
+/* SVG text and shape conventions */
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <span class="eyebrow">ARCHITECTURE-OBSERVABILITY · BR-036 / BR-045 / BR-AC34</span>
+      <h1>How an observation reaches the Admin UI</h1>
+      <p class="sub">Two near-identical pipelines that differ in exactly three places: whether the import remaps the subject, whether the projector merges or overwrites, and whether the KV bucket is bounded. Everything else — one stream each, one durable consumer each, one <code>notify.*</code> nudge each — is the same shape.</p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1020 412" role="img"
+        aria-label="Two parallel ingest paths on the same column grid. In the upper path a tenant service publishes obs.trace.> inside its own NATS account; a JWT stream export carries it into the PLATFORM account with no LocalSubject remap, so it arrives still named obs.trace.> on the TRACES stream, a LimitsPolicy stream capped at one hour and 64 mebibytes; a single durable AckExplicit consumer, the trace projector, merges each span into the KV bucket trace-request-reply under key _platform.trace.{traceId}, de-duplicating by spanId, with no TTL. In the lower path a tenant service publishes obs.pubsub.>; the same kind of export applies a LocalSubject remap, so it arrives as monitor.{tenant}.pubsub.> on the separate PUBSUB stream, capped at one hour and 32 mebibytes; its durable consumer plainly puts each envelope into the KV bucket pubsub-messages under key _platform.msg.{spanId}, which does carry a TTL and a MaxBytes limit.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="a-proj" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--store)"/>
+          </marker>
+        </defs>
+
+        <!-- account boundary -->
+        <line class="nb" x1="320" y1="30" x2="320" y2="390"/>
+        <text class="grp" x="320" y="22" text-anchor="middle">NATS ACCOUNT BOUNDARY</text>
+
+        <rect class="nb" x="14" y="40" width="292" height="340" rx="4"/>
+        <text class="grp" x="26" y="56">TENANT ACCOUNT</text>
+
+        <rect class="nb" x="332" y="40" width="672" height="340" rx="4"/>
+        <text class="grp" x="344" y="56">PLATFORM ACCOUNT — observability-service</text>
+
+        <!-- ===== trace row ===== -->
+        <rect class="n" x="26" y="96" width="150" height="48" rx="3"/>
+        <text class="lbl" x="34" y="117">tenant service</text>
+        <text class="lbl2" x="34" y="130">publishes obs.trace.&gt;</text>
+
+        <path class="n" d="M204 108 L251 96 L298 108 L298 132 L251 144 L204 132 Z"/>
+        <text class="lbl2" x="251" y="124" text-anchor="middle">export</text>
+        <text class="lbl2" x="240" y="164" text-anchor="middle">no remap</text>
+
+        <path class="flow" d="M176 120 L196 120" marker-end="url(#a-sync)"/>
+        <path class="flow" d="M298 120 L378 120" marker-end="url(#a-sync)"/>
+
+        <text class="lbl" x="486" y="78" text-anchor="middle">arrives as obs.trace.&gt;</text>
+        <ellipse class="n" cx="486" cy="96" rx="100" ry="9"/>
+        <path class="n" d="M386 96 L386 150 A100 9 0 0 0 586 150 L586 96"/>
+        <text class="lbl" x="486" y="118" text-anchor="middle">TRACES</text>
+        <text class="lbl2" x="486" y="132" text-anchor="middle">LimitsPolicy · 1h · 64 MiB</text>
+
+        <path class="flow" d="M586 120 L622 120" marker-end="url(#a-sync)"/>
+
+        <rect class="n" x="630" y="96" width="170" height="48" rx="3"/>
+        <text class="lbl" x="638" y="117">trace projector</text>
+        <text class="lbl2" x="638" y="130">durable · AckExplicit</text>
+
+        <path class="proj" d="M800 120 L820 120" marker-end="url(#a-proj)"/>
+
+        <rect class="n" x="828" y="90" width="168" height="60" rx="3"/>
+        <text class="lbl" x="836" y="113">KV trace-request-reply</text>
+        <text class="lbl2" x="836" y="126">_platform.trace.{traceId}</text>
+        <text class="lbl2" x="836" y="139">merge by spanId · no TTL</text>
+
+        <!-- ===== pubsub row ===== -->
+        <rect class="n" x="26" y="296" width="150" height="48" rx="3"/>
+        <text class="lbl" x="34" y="317">tenant service</text>
+        <text class="lbl2" x="34" y="330">publishes obs.pubsub.&gt;</text>
+
+        <path class="n" d="M204 308 L251 296 L298 308 L298 332 L251 344 L204 332 Z"/>
+        <text class="lbl2" x="251" y="324" text-anchor="middle">export</text>
+        <text class="lbl2" x="240" y="364" text-anchor="middle">LocalSubject remap</text>
+
+        <path class="flow" d="M176 320 L196 320" marker-end="url(#a-sync)"/>
+        <path class="flow" d="M298 320 L378 320" marker-end="url(#a-sync)"/>
+
+        <text class="lbl" x="486" y="278" text-anchor="middle">arrives as monitor.{tenant}.pubsub.&gt;</text>
+        <ellipse class="n" cx="486" cy="296" rx="100" ry="9"/>
+        <path class="n" d="M386 296 L386 350 A100 9 0 0 0 586 350 L586 296"/>
+        <text class="lbl" x="486" y="318" text-anchor="middle">PUBSUB</text>
+        <text class="lbl2" x="486" y="332" text-anchor="middle">LimitsPolicy · 1h · 32 MiB</text>
+
+        <path class="flow" d="M586 320 L622 320" marker-end="url(#a-sync)"/>
+
+        <rect class="n" x="630" y="296" width="170" height="48" rx="3"/>
+        <text class="lbl" x="638" y="317">pubsub projector</text>
+        <text class="lbl2" x="638" y="330">durable · AckExplicit</text>
+
+        <path class="proj" d="M800 320 L820 320" marker-end="url(#a-proj)"/>
+
+        <rect class="n" x="828" y="290" width="168" height="60" rx="3"/>
+        <text class="lbl" x="836" y="313">KV pubsub-messages</text>
+        <text class="lbl2" x="836" y="326">_platform.msg.{spanId}</text>
+        <text class="lbl2" x="836" y="339">plain Put · TTL + MaxBytes</text>
+      </svg>
+    </div>
+    <figcaption><b>Ingest, both paths.</b> The tenant publish is core NATS and fire-and-forget — an observation is best-effort by rule, and a service never blocks or fails on it. The account boundary is the tenancy boundary: a tenant can only publish on its own <code>obs.*</code>, and only the JWT export makes it visible to PLATFORM. <code>obs.trace.&gt;</code> is imported unremapped, so PLATFORM sees a flat trace namespace and tells tenants apart from the envelope, not the subject. <code>obs.pubsub.&gt;</code> is imported with a <code>LocalSubject</code> of <code>monitor.{tenant}.pubsub.&gt;</code>, so the tenant is a first-class subject token and a consumer can filter one tenant at the server. <code>PUBSUB</code> is deliberately a second stream, not another filter on <code>TRACES</code> — an <code>evt.*</code> burst would otherwise evict RPC traces out from under the Request/Reply panel.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1030 300" role="img"
+        aria-label="Both KV buckets emit a best-effort core-NATS notify subject on every change. observability-service serves the buckets over REST for the initial snapshot and bridges the notify subjects to the browser over WebSocket. In the Admin UI, useTraceFeed and usePubsubFeed each hold a monotonic merge of what they have seen and drive the Request/Reply, Traces and Pulse panels and the Messages panel respectively.">
+        <defs>
+          <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="b-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--evtl)"/>
+          </marker>
+        </defs>
+
+        <rect class="n" x="20" y="60" width="190" height="40" rx="3"/>
+        <text class="lbl" x="28" y="84">KV trace-request-reply</text>
+
+        <rect class="n" x="20" y="200" width="190" height="40" rx="3"/>
+        <text class="lbl" x="28" y="224">KV pubsub-messages</text>
+
+        <path class="rep" d="M210 80 L252 80 L252 126 L292 126" marker-end="url(#b-rep)"/>
+        <text class="edge" x="238" y="74">notify.&gt;</text>
+        <path class="rep" d="M210 220 L252 220 L252 154 L292 154" marker-end="url(#b-rep)"/>
+        <text class="edge" x="238" y="214">notify.&gt;</text>
+
+        <rect class="n" x="300" y="110" width="210" height="60" rx="3"/>
+        <text class="lbl" x="308" y="128">observability-service</text>
+        <text class="lbl2" x="308" y="142">REST /entries snapshot</text>
+        <text class="lbl2" x="308" y="155">WS bridge for notify.&gt;</text>
+
+        <rect class="nb" x="560" y="40" width="444" height="230" rx="4"/>
+        <text class="grp" x="572" y="56">ADMIN UI — BROWSER</text>
+
+        <path class="flow" d="M510 126 L545 126 L545 84 L572 84" marker-end="url(#b-sync)"/>
+        <path class="flow" d="M510 154 L545 154 L545 224 L572 224" marker-end="url(#b-sync)"/>
+
+        <rect class="n" x="580" y="60" width="180" height="48" rx="3"/>
+        <text class="lbl" x="588" y="81">useTraceFeed</text>
+        <text class="lbl2" x="588" y="94">monotonic merge</text>
+
+        <rect class="n" x="580" y="200" width="180" height="48" rx="3"/>
+        <text class="lbl" x="588" y="221">usePubsubFeed</text>
+        <text class="lbl2" x="588" y="234">monotonic merge</text>
+
+        <path class="flow" d="M760 84 L802 84" marker-end="url(#b-sync)"/>
+        <path class="flow" d="M760 224 L802 224" marker-end="url(#b-sync)"/>
+
+        <rect class="n" x="810" y="60" width="180" height="48" rx="3"/>
+        <text class="lbl" x="818" y="81">Request/Reply</text>
+        <text class="lbl2" x="818" y="94">Traces · Pulse</text>
+
+        <rect class="n" x="810" y="200" width="180" height="48" rx="3"/>
+        <text class="lbl" x="818" y="221">Messages panel</text>
+        <text class="lbl2" x="818" y="234">live envelopes</text>
+      </svg>
+    </div>
+    <figcaption><b>Egress to the browser.</b> The projector's KV write is the durable step; the <code>notify.{context}.kv.{bucket}.{key}.changed</code> publish that follows it is core NATS, best-effort, and has no replay — a dropped nudge is a missed repaint, never a lost record. That is why each feed bootstraps from a REST snapshot of the bucket and re-reads it after every reconnect: the bucket is the truth, the <code>notify.&gt;</code> stream is only a hint that it moved.</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>The three places the two paths diverge</h2>
+    <ul>
+      <li><b>Remap vs. no remap.</b> <code>obs.pubsub.&gt;</code> is imported as <code>monitor.{tenant}.pubsub.&gt;</code>, so tenancy survives into the subject and a consumer can filter one tenant server-side. <code>obs.trace.&gt;</code> is imported as-is, so the only split available downstream is PLATFORM's own traffic versus everything a tenant sent.</li>
+      <li><b>Merge vs. overwrite.</b> The trace projector does a read-modify-write append keyed by <code>traceId</code>, de-duplicated on <code>spanId</code>, because a trace is assembled from spans that arrive separately. The pubsub projector does a plain <code>Put</code> under <code>_platform.msg.{spanId}</code> — one envelope, one key, nothing to assemble.</li>
+      <li><b>Bounded vs. unbounded.</b> <code>pubsub-messages</code> is created with a TTL and a <code>MaxBytes</code>; <code>trace-request-reply</code> is created with neither, even though the <code>TRACES</code> stream feeding it is capped at 1h/64 MiB. The stream forgets and the bucket does not, so the bucket is the one that grows without a ceiling.</li>
+    </ul>
+  </section>
+</div>

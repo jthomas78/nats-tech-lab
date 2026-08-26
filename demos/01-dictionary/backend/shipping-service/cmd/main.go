@@ -26,6 +26,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	_ "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/docs"
+	"github.com/jthomas78/nats-tech-lab/shared/natsconn"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/dictionary"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/shipping-service/internal/httpx"
@@ -84,10 +85,7 @@ func run(log *slog.Logger) error {
 	// NATS — permanent, restricted shipping-admin PLATFORM connection
 	// (monolith.Monolith.NC/JS). Tenant-scoped connections are separate and
 	// opened by rest.Handlers.SwitchTenant.
-	platformOpts := []nats.Option{nats.Name("shipping-service")}
-	if adminCredsPath != "" {
-		platformOpts = append(platformOpts, nats.UserCredentials(adminCredsPath))
-	}
+	platformOpts := natsconn.Options("shipping-service", adminCredsPath, log)
 	var nc *nats.Conn
 	err := waiter.Wait(startupCtx, "nats", log, func(context.Context) error {
 		var err error

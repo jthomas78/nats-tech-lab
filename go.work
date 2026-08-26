@@ -10,6 +10,7 @@ use (
 	./demos/01-dictionary/backend/organizations-service
 	./shared/browserrpc
 	./shared/jstream
+	./shared/natsconn
 	./shared/natsnotify
 	./shared/natstest
 	./shared/natstenants

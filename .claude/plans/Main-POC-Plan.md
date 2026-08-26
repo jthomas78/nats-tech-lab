@@ -1345,6 +1345,310 @@ publishes exactly once (`RegisterContainer` resolves both of its
 
 ---
 
+### Phase 48 — APPROVED (design gate closed 2026-08-26; business rules outstanding) — Tenant provenance for `obs.trace.*`
+
+> Closes the one item ADR-047 amendment A1 explicitly deferred: *"Deliberately
+> not in scope: applying the same remap to `obs.trace.>`, which would fix the
+> existing Traces panel's coarse gutter too. That is a change to a shipped
+> pipeline and belongs in its own phase."* This is that phase. It does not
+> re-decide A1 — it applies A1's already-proven mechanism to the pipeline A1
+> chose not to touch.
+>
+> **APPROVED 2026-08-26.** Design decisions 1–21 are settled — including
+> decision 13's per-span key shape over the revision-CAS alternative offered
+> beside it, and decision 18's exclusion of user-level JWT attribution.
+> Reopen one only with a stated reason, not by re-deriving it.
+>
+> **Still gated on business rules.** The five entries under "Business rules
+> to confirm" have not been confirmed or supplied, so per CLAUDE.md's
+> workflow no tests or code start yet: rules first, then specs derived from
+> the rules, then implementation. Sub-phase **48h** is the one exception
+> worth noting — it is a test harness rather than a rule-bearing change, so
+> it can begin as soon as you want it to, and the sequencing note already
+> puts it first.
+
+#### Goal
+
+Give `obs.trace.*` the same server-inserted, unspoofable tenant token that
+Phase 43 gave `obs.pubsub.*` (BR-AC34), so a span can be attributed to a
+*specific* tenant account rather than a coarse PLATFORM/TENANT split.
+
+Today PLATFORM imports every tenant's `obs.trace.>` onto the identical local
+subject with no `LocalSubject` remap. Once N tenants are imported onto one
+subject, a PLATFORM subscriber has no indication of origin, and
+`natstrace`'s envelope carries no account field to fall back on.
+`TraceWaterfall.vue` already documents the consequence in a comment.
+
+**Scope widened 2026-08-26** at your request to carry two defects found in
+the same pipeline while tracing it — the unbounded `trace-request-reply`
+bucket and `appendSpan`'s write amplification. Both touch the same
+projector and the same record, so they are cheaper here than as separate
+phases. See decisions 10–15 and sub-phases 48f/48g.
+
+**Scope widened again 2026-08-26** to answer Q1 (there is no multi-span,
+cross-account, OK/ERROR trace harness anywhere in the repo) and Q2
+(the Admin UI shows no NATS account for either path). Q2 turned out to be
+this phase's decision 1 rather than new scope; Q1 is the instrument that
+verifies it. See decisions 16–21 and sub-phases 48h/48i.
+
+#### Design decisions — tenant provenance
+
+1. **Mirror `pubsubLocalSubjectTmpl`, don't invent a family.** PLATFORM's
+   import of each tenant's `obs.trace.>` gains
+   `LocalSubject: monitor.{tenant}.trace.>`, exactly parallel to
+   `monitor.{tenant}.pubsub.>`, `monitor.{tenant}.srv.>` and
+   `monitor.{tenant}.js.*`. `monitor.*` stays what it already is — a
+   PLATFORM-local family that nothing publishes on and no tenant can reach.
+
+2. **The token is inserted by the NATS server, never asserted by the
+   publisher.** `jwt.RenamingSubject` on the import is the whole mechanism.
+   `natstrace`'s wire envelope gains **no** account/tenant field — an
+   envelope field a tenant fills in itself is spoofable, which is precisely
+   why A1 rejected that route for pubsub.
+
+3. **Tenant-side publishing does not change.** A service still publishes
+   `obs.trace.{context}.{service}.{entity}.{action}`
+   (`natstrace.go:521`). `shared/natstrace` needs no change at all — the
+   rename happens at the account boundary.
+
+4. **`TRACES` gains a second subject filter rather than replacing the
+   first.** The stream captures both `obs.trace.>` (PLATFORM's own services,
+   which are already in PLATFORM and cross no import) and
+   `monitor.*.trace.>` (every tenant). This is the identical two-filter
+   shape `PUBSUB` already runs — `PlatformSubjectWildcard` +
+   `TenantSubjectWildcard` — so it is a stream *update*, not a recreate.
+
+5. **Tenant extraction is by subject position at the projector.** Add
+   `tenantFromSubject` to `tracestore` mirroring `pubsubstore.go:179`
+   verbatim in shape: `parts[0] == "monitor" && parts[2] == "trace"` →
+   `parts[1]`, else the `_platform` context constant. Trace subjects are
+   fixed-arity, so positional parsing is safe on both the 6-token
+   unremapped and 7-token remapped forms.
+
+6. **The KV key shape does not change; the tenant goes in the value.**
+   Keep `_platform.trace.{traceId}`. `pubsubstore` already set this
+   precedent — `pubsubRecord{Tenant, Span}` carries the tenant inside the
+   stored value while the key stays `_platform.msg.{spanId}`. Putting the
+   tenant in the key instead would change every Admin UI read path and the
+   REST entries surface for no gain, since a trace belongs to exactly one
+   tenant and is fetched by `traceId`, never scanned by tenant prefix.
+   **Consequence to accept:** the tenant is stored per-span inside the
+   merged record, not once per trace — `appendSpan` must not let a later
+   span silently rewrite an earlier span's tenant.
+
+7. **No data migration.** `TRACES` is `LimitsPolicy` capped at 1h, so any
+   backlog on the old subject ages out within an hour of the change, and
+   decision 4 keeps `obs.trace.>` a live filter regardless. Spans already
+   merged into KV under the old shape keep their `_platform` tenant until
+   they are superseded — acceptable for a diagnostic surface, and visible
+   as such rather than silently wrong.
+
+8. **Existing tenants need a re-provision pass.** The remap lives in the
+   tenant account's JWT import claims, so already-minted accounts do not
+   get it for free. Same rollout shape BR-AC34 needed in Phase 43 — this
+   is the real blast radius of the phase, not the code change.
+
+9. **The Admin UI gutter becomes real.** `TraceWaterfall.vue`'s account
+   gutter shows the actual tenant name, and the comment documenting the
+   coarse split is removed rather than left stale.
+
+#### Business rules — written 2026-08-26
+
+All five are drafted and in place. The design gate is closed; specs derive
+from these rules, not from the implementation.
+
+| Rule | File | Covers | Sub-phase |
+|---|---|---|---|
+| **BR-AC36** | `BUSINESS_RULES-ACCOUNTS.md` | the per-tenant `LocalSubject` remap on the `obs.trace.>` import — the item BR-AC34 explicitly deferred | 48a |
+| **BR-051** | `BUSINESS_RULES-SHIPPING.md` | tenant attributed from the arrival subject, never the envelope; `TRACES`'s two subject sets | 48b |
+| **BR-052** | `BUSINESS_RULES-SHIPPING.md` | first-writer-wins on a `traceId` whose spans disagree on tenant, mismatch logged | 48b |
+| **BR-053** | `BUSINESS_RULES-SHIPPING.md` | `trace-request-reply` bounded from measurement; one span, one idempotent write | 48f / 48g |
+| **BR-054** | `BUSINESS_RULES-SHIPPING.md` | both panels name the originating account; the multi-span cross-account harness that proves it | 48h / 48i |
+
+Two things settled in the writing that the drafts above had left open:
+
+- **The conflict rule took the proposed shape** — first writer wins, mismatch
+  logged at warn level, the disagreeing span still stored so the evidence is
+  not hidden. Last-write-wins is what a plain struct assignment does by
+  default, which is why BR-052 exists as a rule rather than a comment.
+- **BR-054 absorbed the user-JWT exclusion** (decision 18) as part of the
+  rule rather than leaving it as a design note, so the reason is recorded
+  where someone adding a "user" column would read it.
+
+#### Sub-phases — tenant provenance (draft — not started)
+
+- [ ] **48a** — `accounts-service`: add the `LocalSubject` remap to the
+      trace import (`addPlatformTraceImport`), with a
+      `traceLocalSubjectTmpl` constant beside `pubsubLocalSubjectTmpl`.
+      Provisioner tests assert the minted claim, mirroring BR-AC34's.
+- [ ] **48b** — `tracestore`: second subject filter on `TRACES`,
+      `tenantFromSubject`, tenant threaded into the stored record, and the
+      decision-6 conflict rule.
+- [ ] **48c** — Admin UI: real tenant in `TraceWaterfall.vue`'s gutter;
+      remove the stale comment; specs for the new attribution.
+- [ ] **48d** — re-provision pass for existing tenant accounts (decision 8),
+      and live verification across two tenants that spans land under
+      distinct tenant names.
+- [ ] **48e** — docs: `ARCHITECTURE-OBSERVABILITY.md` (A1's deferred item
+      marked closed), `ARCHITECTURE-COMMUNICATIONS.md` §6 notes and the
+      `observability-message-path` diagram — the trace row's `no remap`
+      annotation becomes the remap, which is the whole point of the phase.
+
+#### Design decisions — bucket bounding (added 2026-08-26 at your request)
+
+10. **`trace-request-reply` gets a `TTL` and a `MaxBytes`, for the reason
+    `pubsub-messages` already has them.** It is created today as a bare
+    `jetstream.KeyValueConfig{Bucket: bucketName}` (`tracestore.go:87`) —
+    no bound of any kind — while the `TRACES` stream feeding it is capped at
+    1h/64 MiB. The stream forgets and the bucket does not, so the bucket is
+    the only unbounded thing in the whole path. `pubsubstore.go:82` states
+    the governing reason: the panel **bootstrap-fetches every entry in the
+    bucket on load**, so bucket size is a page-load cost, not just disk. The
+    Traces panel does the same fetch, so it inherits the same argument.
+
+11. **The bound is tighter than the stream's, and it is measured, not
+    guessed.** `pubsub-messages` landed on 15 min / 8 MiB from a seed run
+    over representative payloads (BR-047's reasoning). A trace record is a
+    *merged multi-span* document, not a single envelope, so pubsub's numbers
+    do not transfer. **Proposed starting point: 30 min / 16 MiB**, to be
+    replaced by whatever a seed run over representative `rpc.*` traffic
+    actually measures — the sub-phase produces the number, this plan does
+    not assert it.
+
+12. **Applied in place via `CreateOrUpdateKeyValue`, no recreate.** A KV
+    bucket's TTL and `MaxBytes` are its backing stream's `MaxAge` and
+    `MaxBytes`, both updatable on a live stream, so the existing bucket
+    keeps its name and contents. Renaming is explicitly *not* on the table
+    (CLAUDE.md: "a bucket name is a stream name" — renaming orphans the old
+    stream and creates an empty one).
+
+#### Design decisions — `appendSpan` write amplification (added 2026-08-26 at your request)
+
+13. **Replace the read-modify-write merge with one key per span.** Today
+    `appendSpan` reads the whole trace record, appends one span, dedupes by
+    `spanId`, and writes the whole thing back — so a trace of *n* spans
+    writes O(n²) bytes, and every append is a lost-update race that survives
+    only because a single durable consumer happens to be the only writer.
+    That is a property of the current deployment, not a guarantee of the
+    design: it breaks the moment the projector is scaled or a redelivery
+    overlaps. Proposed shape: key `_platform.trace.{traceId}.{spanId}`,
+    a plain idempotent `Put`, with the trace assembled at read time from a
+    key-prefix scan — which is what makes dedup-by-`spanId` free rather than
+    a merge step, since the same span overwrites its own key.
+
+14. **This changes the read path and the `notify.*` key, so it moves with
+    the frontend.** `useTraceFeed.js` currently keys entries by `traceId`
+    and the projector notifies on
+    `notify._platform.kv.trace-request-reply.trace.{traceId}.changed`.
+    Per-span keys mean a prefix-grouped read and a per-span notify subject.
+    **This is the one genuinely risky part of the phase** — it touches the
+    surface Phase 43e's reconnect/resync work just stabilised, and the
+    monotonic-merge guard in the feed has to keep holding across the new key
+    shape.
+    **Alternative if you'd rather not move the read path:** keep the single
+    merged key and make the write safe with a revision-CAS `Update` plus
+    bounded retry. That fixes the *race* but not the O(n²) *write
+    amplification* — worth choosing deliberately rather than defaulting.
+
+15. **`TRACES` should also set `Duplicates` explicitly**, the way ADR-047 A6
+    made `PUBSUB` do (`pubsubstore.go:66`) rather than inheriting the
+    server's 2-minute default. Noticed while reading the two stream configs
+    side by side; small, and it belongs with 48g's dedup work rather than in
+    its own phase.
+
+#### Additional sub-phases
+
+- [ ] **48f** — bound `trace-request-reply`: seed run to measure a real
+      trace-record size, `TTL` + `MaxBytes` on the bucket config
+      (decisions 10–12), and a spec asserting the bucket is created bounded
+      — the kind of regression that is invisible until disk fills.
+- [ ] **48g** — `appendSpan` rewrite per decisions 13–15, including the
+      `useTraceFeed.js` read-path change, and a concurrency spec that fails
+      against today's read-modify-write (two overlapping appends to one
+      `traceId` must not lose a span).
+
+> **Sequencing note:** 48f is small, self-contained, and independent of the
+> tenant-provenance work — it could ship first or even separately. 48g is
+> the opposite: it should land *after* 48b, because both touch the same
+> record shape and doing them in one pass avoids rewriting `appendSpan`
+> twice.
+
+#### Design decisions — account provenance in the Admin UI (Q2)
+
+16. **The account is read from the subject, never from the envelope.**
+    `natstrace`'s `traceSpan` carries `Requester`
+    (`shared/natstrace/natstrace.go:161`) and its own comment says why it
+    cannot answer this: it "lifts BR-041's self-declared `Nats-Requestor`
+    header onto its own field so the Admin UI can read it **without treating
+    it as authorization**". There is no account or JWT field on the envelope
+    at all. Adding one would be publisher-asserted and therefore spoofable —
+    exactly the objection ADR-047 A1 raised for pubsub, which is why pubsub
+    got a server-inserted subject token instead. So **Q2 is not separate
+    scope: it is decision 1**. `monitor.{tenant}.trace.>` gives request/reply
+    the same unspoofable provenance pubsub already has, decision 5's
+    `tenantFromSubject` lifts it, decision 9 renders it.
+
+17. **Pubsub needs a display change only.** The tenant is already stored on
+    the record (`pubsubRecord{Tenant, Span}`, `pubsubstore.go:192`) and has
+    been since ADR-047 — the Messages panel simply doesn't surface it. No
+    backend work on that path.
+
+18. **The *user* JWT is deliberately out of scope.** NATS does not put the
+    signing user's subject on a published message, so identifying *which
+    user within the account* would mean either correlating against `$SYS`
+    connz or having the publisher assert it — the same spoofable-assertion
+    problem one level down. Account-level provenance is what makes the panel
+    trustworthy; user-level attribution is a separate design, and folding it
+    in here would quietly reintroduce the assertion model this phase exists
+    to avoid.
+
+#### Design decisions — cross-account multi-span trace harness (Q1)
+
+19. **Nothing exercises a multi-hop trace today, and that is the gap.** The
+    only `cmd/` CLIs are the four data seeders. Trace coverage is per-service
+    and single-hop — `trace_async_test.go`, `trace_middleware_test.go`,
+    `browserrpc_test.go`, `natsrpc_test.go`,
+    `browserrpc_roundtrip_test.go` — each asserting that *its own* span is
+    emitted correctly. None builds a `traceId` with a real parent/child chain
+    across two services, and none crosses an account boundary. The Admin UI's
+    waterfall (parent/child nesting, span ordering, ERROR row styling) has
+    therefore never been checked against a trace it did not hand-construct in
+    a fixture.
+
+20. **The harness drives the real stack, not fixtures.** A `cmd/seed-traces`
+    (or a Ginkgo integration spec against the running compose stack) issuing
+    a genuine `api.*` call with browser credentials from a tenant account →
+    `shipping-service` → `rpc.*` into `refdata-service`, run twice: once with
+    a valid payload (every span `StatusCode` OK) and once with a payload the
+    callee rejects, so the error span carries `StatusCode`/`StatusMessage`
+    **and the parent still closes**. Hand-built fixtures would re-assert what
+    the existing unit specs already cover.
+
+21. **This is the phase's verification instrument, not an extra.** Decisions
+    5, 6 and 13–14 cannot honestly be verified without it: tenant attribution
+    needs a trace that actually crosses an account boundary, and the
+    `appendSpan` rewrite needs a trace with several spans arriving
+    concurrently under one `traceId`.
+
+#### Additional sub-phases — Q1/Q2
+
+- [ ] **48h** — cross-account multi-span trace harness per decisions 19–21:
+      OK and ERROR runs, driven against the compose stack, plus assertions on
+      the resulting stored trace (span count, parent/child linkage, the error
+      span's status fields).
+- [ ] **48i** — surface the account in the Admin UI for both paths
+      (decisions 16–17): real tenant in `TraceWaterfall.vue`'s gutter — the
+      same work as 48c, listed here because it is what actually answers Q2 —
+      and a tenant column/badge in the Messages panel from the record field
+      that already exists.
+
+> **Sequencing note (Q1/Q2):** 48h should land early — before 48b — because
+> it is the only thing that can demonstrate the tenant token actually arrives
+> end to end, and it is equally useful as a regression net for 48g. 48i is
+> the tail of 48c and 48b; it has no independent backend work.
+
+---
+
 ### Phase 60 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning
 
 > **Renumbered 2026-08-17** from Phase 24 to Phase 40, alongside Phase

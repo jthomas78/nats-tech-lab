@@ -628,7 +628,10 @@ services:
       - backend
 
   otlp-bridge:
-    build: ./backend/otlp-bridge
+    build:
+      # Repo root, so the build can copy shared/natsconn (see the Dockerfile).
+      context: ../..
+      dockerfile: demos/01-dictionary/backend/otlp-bridge/Dockerfile
     container_name: lb-otlp-bridge
     profiles: ["otlp"]
     networks:

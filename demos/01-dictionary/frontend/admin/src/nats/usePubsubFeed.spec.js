@@ -13,8 +13,9 @@ vi.mock('../api', () => ({ getKvBucketEntries: vi.fn() }))
 
 const subscribeMock = vi.fn()
 const connected = ref(false)
+const epoch = ref(0)
 vi.mock('./usePlatformConnection.js', () => ({
-  usePlatformConnection: () => ({ connected, subscribe: subscribeMock }),
+  usePlatformConnection: () => ({ connected, epoch, subscribe: subscribeMock }),
 }))
 
 import { getKvBucketEntries } from '../api'
@@ -89,6 +90,25 @@ describe('usePubsubFeed (Phase 43c, BR-048)', () => {
     expect([...api().messages.value.keys()]).toEqual(['s1'])
   })
 
+  // A snapshot read that fails on the freshly-reconnected socket is usually a
+  // race with NATS still coming up, so it must not wait for the *next*
+  // reconnect to try again.
+  it('retries a failed snapshot read on its own, without waiting for another reconnect', async () => {
+    vi.useFakeTimers()
+    try {
+      getKvBucketEntries.mockRejectedValueOnce(new Error('nope')).mockResolvedValue([])
+      const { api } = await mountFeed()
+      expect(api().bootstrapFailed.value).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(600)
+
+      expect(getKvBucketEntries).toHaveBeenCalledTimes(2)
+      expect(api().bootstrapFailed.value).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('reports a failed bootstrap without throwing, since the live feed still works', async () => {
     getKvBucketEntries.mockRejectedValue(new Error('nope'))
 
@@ -120,14 +140,39 @@ describe('usePubsubFeed (Phase 43c, BR-048)', () => {
     expect(onUpsert).toHaveBeenCalledWith('live1', expect.objectContaining({ tenant: 'acme' }))
   })
 
-  it('marks the feed as having dropped once the connection goes down', async () => {
+  // Same fix, same reasoning as useTraceFeed's: delivery of notify.* is lossy
+  // across a disconnect, but the pubsub-messages bucket behind it is not, so
+  // the reconnect re-read recovers whatever the wire dropped.
+  it('re-reads the KV snapshot on reconnect, recovering an envelope missed while offline', async () => {
+    getKvBucketEntries.mockResolvedValue([])
     connected.value = true
     const { api } = await mountFeed()
-    expect(api().everDisconnected.value).toBe(false)
+    expect(api().messages.value.size).toBe(0)
 
     connected.value = false
     await flushPromises()
+    getKvBucketEntries.mockResolvedValue([
+      { op: 'PUT', value: { tenant: 'acme', span: envelope('offline1', 'evt.acme.shipping.ship.S1.arrived') } },
+    ])
 
-    expect(api().everDisconnected.value).toBe(true)
+    connected.value = true
+    epoch.value += 1
+    await flushPromises()
+
+    expect(getKvBucketEntries).toHaveBeenCalledTimes(2)
+    expect(api().messages.value.get('offline1').tenant).toBe('acme')
+  })
+
+  it('clears bootstrapFailed once a later snapshot read succeeds', async () => {
+    getKvBucketEntries.mockRejectedValueOnce(new Error('nope')).mockResolvedValue([])
+    connected.value = false
+    const { api } = await mountFeed()
+    expect(api().bootstrapFailed.value).toBe(true)
+
+    connected.value = true
+    epoch.value += 1
+    await flushPromises()
+
+    expect(api().bootstrapFailed.value).toBe(false)
   })
 })

@@ -1,6 +1,6 @@
 module github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service
 
-go 1.26.4
+go 1.26
 
 require (
 	github.com/jackc/pgx/v5 v5.10.0
@@ -33,6 +33,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
+	github.com/jthomas78/nats-tech-lab/shared/natsconn v0.0.0-00010101000000-000000000000 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/mailru/easyjson v0.7.6 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
@@ -58,3 +59,5 @@ require (
 replace github.com/jthomas78/nats-tech-lab/shared/natsnotify => ../../../../shared/natsnotify
 
 replace github.com/jthomas78/nats-tech-lab/shared/natstrace => ../../../../shared/natstrace
+
+replace github.com/jthomas78/nats-tech-lab/shared/natsconn => ../../../../shared/natsconn

@@ -56,6 +56,25 @@ function errorMessage(err) {
 export function createConnectionState({ fetchConnectInfo, connectionName }) {
   const connected = ref(false)
   const lastError = ref('')
+  // epoch increments on every (re)establishment of the underlying socket —
+  // BOTH kinds. A consumer of a fire-and-forget subscription must resync its
+  // REST snapshot on each bump, so it needs a signal that fires for both:
+  //
+  //   - the OUTER reconnect, where closed() resolved and connect() built a
+  //     brand-new NatsConnection. `connected` flips false then true, so a
+  //     watch on `connected` alone does see this one.
+  //   - the INNER reconnect, where nats-core's own reconnect logic re-dialled
+  //     and restored subscriptions on the SAME NatsConnection. closed() never
+  //     resolves and `connected` never flips, so a watch on `connected` is
+  //     blind to it — yet it drops core-NATS messages exactly like the outer
+  //     one does, because a re-established subscription is not a replayed one.
+  //
+  // The inner case is the common one: a NATS restart or a brief network blip
+  // is absorbed entirely inside the client, so watching `connected` for
+  // "should I resync?" silently misses most real gaps. Verified against a
+  // running stack — `docker compose restart nats` left `connected` true
+  // throughout and fired no resync at all until this was added.
+  const epoch = ref(0)
 
   // Named per connection so the tenant and PLATFORM connections are
   // distinguishable in the Request/Reply panel, over one tab-wide instance
@@ -65,12 +84,24 @@ export function createConnectionState({ fetchConnectInfo, connectionName }) {
 
   let nc = null
   let connectSeq = 0
+  // wantConnected records intent, separately from whether a socket is up right
+  // now: it stays true across a failed reconnect so the retry loop below knows
+  // it should keep going, and only a caller-initiated disconnect() clears it.
+  let wantConnected = false
+  let retrying = false
 
   function notConnectedError() {
     return new Error(lastError.value || 'not connected')
   }
 
-  async function disconnect() {
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+  }
+
+  // teardown drops the current socket without clearing intent — connect()'s own
+  // "close whatever is open first" step. The exported disconnect() below is
+  // this plus "and stay down".
+  async function teardown() {
     connectSeq++
     connected.value = false
     if (!nc) return
@@ -83,8 +114,44 @@ export function createConnectionState({ fetchConnectInfo, connectionName }) {
     }
   }
 
+  async function disconnect() {
+    wantConnected = false
+    await teardown()
+  }
+
+  // retryConnect keeps trying until it succeeds or a caller disconnects.
+  //
+  // The single non-retrying attempt this replaces left the app permanently
+  // dark: nats-core resolves closed() only after exhausting its OWN reconnect
+  // budget, so by the time we get here the server has usually been unreachable
+  // for a while and the one retry fails too — after which nothing ever tried
+  // again and every panel stayed frozen until the user reloaded the page.
+  // Verified against a running stack: `docker compose stop nats`, wait ~30s,
+  // `docker compose start nats` left the UI disconnected indefinitely while a
+  // manual reload connected instantly.
+  async function retryConnect() {
+    if (retrying) return
+    retrying = true
+    let delay = 500
+    try {
+      while (wantConnected && !nc) {
+        try {
+          await connect()
+          return
+        } catch (err) {
+          lastError.value = errorMessage(err)
+        }
+        await sleep(delay)
+        delay = Math.min(delay * 2, 10000)
+      }
+    } finally {
+      retrying = false
+    }
+  }
+
   async function connect() {
-    await disconnect()
+    wantConnected = true
+    await teardown()
     const mySeq = ++connectSeq
 
     const info = await fetchConnectInfo()
@@ -99,14 +166,33 @@ export function createConnectionState({ fetchConnectInfo, connectionName }) {
     nc = conn
     connected.value = true
     lastError.value = ''
+    epoch.value++
+
+    // Track nats-core's own reconnect cycle. `connected` is reported honestly
+    // through it (false while re-dialling) so a panel can say it is stale, and
+    // epoch bumps on recovery so it can resync. The iteration ends by itself
+    // when the connection closes.
+    ;(async () => {
+      for await (const status of conn.status()) {
+        if (nc !== conn) return
+        if (status.type === 'disconnect') {
+          connected.value = false
+        } else if (status.type === 'reconnect') {
+          connected.value = true
+          epoch.value++
+        }
+      }
+    })().catch(() => {
+      // status() iteration errors are not actionable — closed() below is the
+      // authoritative end-of-connection signal.
+    })
 
     conn.closed().then((err) => {
       if (nc !== conn) return
+      nc = null
       connected.value = false
       if (err) lastError.value = errorMessage(err)
-      connect().catch((reconnectErr) => {
-        lastError.value = errorMessage(reconnectErr)
-      })
+      retryConnect()
     })
   }
 
@@ -119,8 +205,10 @@ export function createConnectionState({ fetchConnectInfo, connectionName }) {
   // payload=null rather than being treated as a JSON parse failure — only a
   // non-empty, malformed body is silently skipped. Fire-and-forget (matches
   // seafreight-app's own subscribe): a missed message during a brief
-  // disconnect is covered by whichever REST bootstrap call the panel already
-  // makes on (re)connect, not by anything this function does.
+  // disconnect is covered by the caller re-reading its REST snapshot on every
+  // `epoch` bump, not by anything this function does. Watch `epoch`, not
+  // `connected` — see epoch's comment above for why `connected` misses the
+  // reconnect that actually happens most often.
   function subscribe(subject, callback) {
     if (!nc) throw notConnectedError()
     const sub = nc.subscribe(subject)
@@ -159,5 +247,5 @@ export function createConnectionState({ fetchConnectInfo, connectionName }) {
     return body
   }
 
-  return { connected, lastError, connect, disconnect, subscribe, request }
+  return { connected, epoch, lastError, connect, disconnect, subscribe, request }
 }

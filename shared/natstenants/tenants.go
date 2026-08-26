@@ -50,6 +50,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 
+	"github.com/jthomas78/nats-tech-lab/shared/natsconn"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
@@ -297,7 +298,11 @@ func (m *Manager[R]) ensure(ctx context.Context, tenant, credsPath string) (*ent
 		return e, nil
 	}
 
-	nc, err := nats.Connect(m.natsURL, nats.Name(m.serviceName), nats.UserCredentials(credsPath))
+	// Shared policy — reconnect forever, not nats.go's default 60 attempts.
+	// A tenant connection that gives up leaves that tenant's panels dead for
+	// the life of the process, since ensure() treats an existing entry as
+	// good and never re-dials it (see the doc comment above).
+	nc, err := nats.Connect(m.natsURL, natsconn.Options(m.serviceName, credsPath, m.log)...)
 	if err != nil {
 		return nil, fmt.Errorf("connect as tenant %q: %w", tenant, err)
 	}

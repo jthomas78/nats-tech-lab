@@ -9109,3 +9109,34 @@ the live plan when implementation actually begins.
       events at the time they happened
 
 ---
+
+### Renumbering (2026-08-26 — Phase 49 → Phase 48, reusing the number freed on 2026-08-24)
+
+**Why:** the user asked for it on 2026-08-26. The tenant-provenance phase was
+originally drafted as 49 specifically to *avoid* 48, on the reasoning that the
+2026-08-24 log above had just moved a different Phase 48 to Phase 41 and
+reusing the number so soon would read ambiguously against that log. The user
+took the opposite view — 48 is genuinely free, and leaving a gap in the live
+plan is the worse outcome. This entry is what disambiguates the two: any
+"Phase 48" dated 2026-08-24 or earlier is the ULID entity-identity phase, now
+**Phase 41**; any "Phase 48" dated 2026-08-26 or later is **Tenant provenance
+for `obs.trace.*`**, drafted as Phase 49 and renamed the same day.
+
+| Before | After |
+| --- | --- |
+| Phase 49 (PROPOSED 2026-08-26) — Tenant provenance for `obs.trace.*` | **Phase 48** |
+| Sub-phases 49a–49g | **48a–48g** |
+
+**Reference sweep (2026-08-26):**
+
+- [x] `.claude/plans/Main-POC-Plan.md` — heading, the decision-block
+      cross-reference, all sub-phase checkboxes and both sequencing notes
+- [x] `.claude/plans/Main-POC-Plan-ARCHIVE.md` — no live "Phase 49"; the
+      pre-existing "Phase 48" mentions all belong to the 2026-08-24 entry
+      above and are correct as written
+- [x] `obsidian/V3-Platform/Architecture/Dictionary-POC/` — no "Phase 49"
+- [x] `demos/01-dictionary/` (including `BUSINESS_RULES-*.md` and the
+      `diagrams/` HTML eyebrow labels) — no "Phase 49"
+
+The phase had not been implemented, so nothing in code, tests, or ADRs
+referenced the old number.

@@ -11,6 +11,23 @@ here ships, its panel/data-flow detail moves into
 the same way every other panel in that document is described, and this file
 keeps only the ADR as a historical record.
 
+## The message path, end to end
+
+![Two parallel ingest paths: a tenant service publishes obs.trace.> and obs.pubsub.> inside its own NATS account; JWT stream exports carry both into the PLATFORM account, obs.trace.> unremapped and obs.pubsub.> remapped to monitor.{tenant}.pubsub.>; each lands on its own LimitsPolicy stream (TRACES 1h/64 MiB, PUBSUB 1h/32 MiB), is read by one durable AckExplicit consumer, and is projected into a KV bucket — trace-request-reply merged by spanId with no TTL, pubsub-messages plain-Put with a TTL and MaxBytes. Both buckets emit a best-effort notify subject that observability-service bridges to the Admin UI over WebSocket, alongside the REST snapshot each feed bootstraps from.](images/observability-message-path.png)
+
+Editable source: [observability-message-path.html](../../../../demos/01-dictionary/diagrams/observability-message-path.html)
+— hand-authored inline SVG rather than a Draw.io workbook page, so
+`./diagrams/export-png.sh` does **not** regenerate it. Re-export with
+
+```
+node diagrams/export-html-png.mjs diagrams/observability-message-path.html \
+  ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/observability-message-path.png 1024 --clip=".wrap"
+```
+
+from `demos/01-dictionary/`. The 1024px width is the geometry the page was
+reviewed at; changing it changes the layout. The `--clip=".wrap"` is
+load-bearing, not optional.
+
 ---
 
 ## ADR-047: Cross-Tenant Pub/Sub Observability ("Wire Tap") in the Admin UI

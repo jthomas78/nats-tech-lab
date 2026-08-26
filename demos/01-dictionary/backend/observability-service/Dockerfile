@@ -7,6 +7,7 @@ WORKDIR /src
 # adopting shared/natsnotify made that impossible, since a Dockerfile cannot
 # reach outside its build context.
 COPY shared/natsnotify ./shared/natsnotify
+COPY shared/natsconn ./shared/natsconn
 COPY shared/natstrace ./shared/natstrace
 COPY shared/natstest ./shared/natstest
 COPY demos/01-dictionary/backend/observability-service ./demos/01-dictionary/backend/observability-service

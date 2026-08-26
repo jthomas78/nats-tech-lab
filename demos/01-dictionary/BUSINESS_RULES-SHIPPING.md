@@ -938,6 +938,70 @@ A command either commits in full or leaves the event log untouched. There is no 
 - **Enforced in:** `ShipHandler.ArrivePort()` — the only command that publishes more than once. The container commands and the remaining ship commands conform by construction (single publish, after all validation).
 - **Test:** `Domain Rules / BR-050`, and `Domain Rules / BR-017` for the specific ordering.
 
+### BR-051 (Phase 48b, APPROVED 2026-08-26 — not yet implemented) — A trace span's tenant is derived from its arrival subject, never from its envelope
+
+The exact rule BR-047 already states for `obs.pubsub.*`, applied to `obs.trace.*` once BR-AC36's remap exists. `monitor.{tenant}.trace.>` yields that tenant; a bare `obs.trace.>` arrival was published inside PLATFORM and is attributed to `_platform`. The envelope is **never** consulted for attribution.
+
+**Why it is worth stating as a rule rather than left as an implementation detail.** `traceSpan` carries `Requester` (`shared/natstrace/natstrace.go:161`), and it is the field someone reaching for "which tenant sent this" would find first. Its own comment says why that is wrong: it *"lifts BR-041's self-declared `Nats-Requestor` header onto its own field so the Admin UI can read it without treating it as authorization."* Self-declared is the operative word. The subject token is inserted by the NATS server and cannot be forged by the publishing account; the envelope is written by the account under observation. A future change that "simplifies" attribution by reading a payload field would silently convert an unspoofable signal into a spoofable one, and nothing about the code shape would make that obvious.
+
+**`TRACES` therefore captures two subject sets, not one** — `obs.trace.>` **and** `monitor.*.trace.>`, exactly as `PUBSUB` does. This is a stream *update*, not a recreate: adding a filter to an existing `LimitsPolicy` stream preserves its contents. Capturing only the remapped form would make the stream blind to PLATFORM's own services, which cross no import and so never carry a tenant token.
+
+**Extraction is positional, and safe because trace subjects are fixed-arity.** `tenantFromSubject` in `tracestore` mirrors `pubsubstore.go:179` in shape — `parts[0] == "monitor" && parts[2] == "trace"` → `parts[1]`, else the `_platform` constant — and is correct on both the 6-token unremapped and 7-token remapped forms. This is also why CLAUDE.md forbids a `.` in any id that appears in a subject token: one dotted id would split a token and shift every position after it.
+
+**No migration, and the gap is visible rather than silently wrong.** `TRACES` is `LimitsPolicy` capped at 1 h, so any backlog on the old subject shape ages out within an hour. Spans already merged into KV keep their `_platform` attribution until superseded — acceptable on a diagnostic surface, and it reads as "PLATFORM" rather than as a wrong tenant name.
+
+- **Enforced in:** `observability-service/observability/internal/tracestore/tracestore.go` — the second subject filter on `TRACES`, `tenantFromSubject`, and the tenant threaded into the stored record.
+- **Test:** `tracestore_test.go` — both subject sets on the stream, tenant derived from a remapped arrival and `_platform` from a bare one, and a spec asserting the envelope's own fields cannot influence attribution (a span whose payload names a *different* tenant is still attributed by subject). Publishing side: BR-AC36. Panel side: BR-054.
+
+### BR-052 (Phase 48b, APPROVED 2026-08-26 — not yet implemented) — Within one `traceId`, the first tenant attributed wins, and a later disagreement is logged rather than applied
+
+BR-053 keeps the KV key at `_platform.trace.{traceId}` and stores the tenant inside the value, following `pubsubRecord{Tenant, Span}`'s precedent. A trace is therefore a merged record whose spans arrive separately, and BR-051 attributes each span independently — so two spans under one `traceId` can in principle report different tenants.
+
+**That is never normal traffic.** A `traceId` is minted once at the root of a request and propagated; two tenants under one `traceId` means either a `traceId` collision or a deliberate attempt to attach spans to another tenant's trace. Neither is something to resolve by taking the newest value.
+
+**So: first writer wins, and the mismatch is logged.** `appendSpan` must not let a later span rewrite an established tenant. The span itself is still stored — dropping it would hide the evidence — but the trace's tenant attribution does not move, and the disagreement is recorded at warn level with both tenant names and the `traceId`.
+
+This is the one consequence BR-053's key-shape decision creates, which is why it is a rule and not a code comment: the safe-looking alternative (last write wins, the default behaviour of a plain struct field assignment) is exactly the wrong one here.
+
+- **Enforced in:** `tracestore.go` — `appendSpan`'s tenant handling.
+- **Test:** `tracestore_test.go` — a second span reporting a different tenant leaves the record's tenant unchanged, is itself still visible, and produces a logged mismatch.
+
+### BR-053 (Phase 48f/48g, APPROVED 2026-08-26 — not yet implemented) — `trace-request-reply` is a bounded visible window, sized from measurement, and one span is one idempotent write
+
+Two properties of the trace KV bucket that `pubsub-messages` has had since BR-047 and this one has never had.
+
+**Bounded, for the reason BR-047 already gives.** `trace-request-reply` is created today as a bare `jetstream.KeyValueConfig{Bucket: bucketName}` (`tracestore.go:87`) — no `TTL`, no `MaxBytes` — while its `PUBSUB` sibling runs 15 min / 8 MiB against a 1 h / 32 MiB stream. The bucket *is* the Admin UI's read path: the panel bootstrap-fetches every entry on load, so bucket size is a page-load cost and not merely a disk cost. That is BR-047's own open sizing note, and it applies with more force here, where a single value is a whole merged trace rather than one envelope.
+
+**The bound is measured, not guessed**, per BR-047's precedent — where the ADR's ~2 KiB estimate turned out 4× high and the real range was 317 B to ~2 KiB. A trace record's size is driven by span count and by `RequestPayload`/`Payload` after redact-then-truncate, so the measurement must come from a seed run over representative multi-span traces (BR-054's harness produces exactly those), not from an envelope figure scaled by a guessed span count. The bound must be **tighter than the stream's** 1 h / 64 MiB.
+
+**One span is one idempotent write.** `appendSpan` today is a read-modify-write: read the whole trace, append, write it back. Two properties follow, one already holding and one holding only by accident.
+- Storing the same `spanId` twice must produce exactly one visible span. This holds today by dedup-on-merge.
+- Two overlapping writers for one `traceId` must not lose a span. This holds today **only because there is a single projector instance**. It breaks the moment the projector is scaled or a redelivery overlaps — a lost span in a diagnostic tool is worse than a missing trace, because the waterfall still renders and looks complete.
+
+The rule requires both **by construction**: key each span at `_platform.trace.{traceId}.{spanId}`, write it with a plain idempotent `Put`, and assemble the trace at read time from a key-prefix scan. Dedup then costs nothing — the same span overwrites its own key — and the read-modify-write window disappears rather than being narrowed. The read-modify-write is also O(n²) in span count for a single trace, which the per-span key removes as a side effect rather than as its purpose.
+
+**`TRACES` sets its `Duplicates` window explicitly**, the way BR-047 made `PUBSUB` do, rather than inheriting the server's 2-minute default.
+
+**Known cost, accepted:** this changes the Admin UI's read path. `useTraceFeed.js` keys entries by `traceId` and subscribes to `notify._platform.kv.trace-request-reply.trace.{traceId}.changed`; per-span keys mean a prefix-grouped read and a per-span notify subject, on the surface Phase 43e's reconnect/resync work has just stabilised. The feed's monotonic-merge guard must keep holding across the new key shape. The narrower alternative — keep the merged key and make the write safe with a revision-CAS `Update` plus bounded retry — fixes the race but not the write amplification, and was considered and declined in Phase 48's decision 13.
+
+- **Enforced in:** `tracestore.go` — the bucket config (`TTL`, `MaxBytes`), the stream's `Duplicates`, and `appendSpan`'s key shape and `Put`; `frontend/admin/src/nats/useTraceFeed.js` — the prefix-grouped read.
+- **Test:** `tracestore_test.go` — the bucket is created bounded (a regression that is invisible until disk fills), the same `spanId` stored twice yields one visible span, and a concurrency spec in which two overlapping appends to one `traceId` lose nothing — the last of which must fail against today's read-modify-write.
+
+### BR-054 (Phase 48h/48i, APPROVED 2026-08-26 — not yet implemented) — The Admin UI names the originating account on both observability paths, and a multi-span cross-account trace is what proves it
+
+The presentation half of BR-051, plus the harness that verifies it. BR-048 already requires the Messages panel to name the originating tenant; this extends the same requirement to the Request/Reply & Traces panel and closes the gap BR-035's panel has carried since Phase 28.
+
+**`TraceWaterfall.vue`'s account gutter shows the real tenant name**, read from BR-051's stored attribution, replacing the coarse PLATFORM/TENANT split — and the comment documenting that split is removed rather than left stale. The Messages panel needs no backend work: the tenant has been on `pubsubRecord` since BR-AC34, it is simply not surfaced.
+
+**The *user* JWT is deliberately not shown.** NATS does not put the signing user's subject on a published message, so identifying which user within an account produced a span would mean either correlating against `$SYS` connz or having the publisher assert it. The second is the spoofable-assertion model BR-051 exists to avoid, one level down. Account-level provenance is what makes the panel trustworthy; user-level attribution is a separate design and is out of scope here, not overlooked.
+
+**Nothing in this repo currently exercises a multi-hop trace, which is why the verification is part of the rule.** Trace coverage is per-service and single-hop — `trace_async_test.go`, `trace_middleware_test.go`, `browserrpc_test.go`, `refdata-service/refdata/natsrpc_test.go`, `organizations-service/organizations/browserrpc_roundtrip_test.go` — each asserting that its *own* span is emitted correctly. None builds a `traceId` with a real parent/child chain across two services, and none crosses an account boundary. So the waterfall's nesting, span ordering and error-row rendering have never been checked against a trace they did not hand-construct in a fixture, and neither BR-051's attribution nor BR-053's concurrency property can be demonstrated end to end.
+
+**The harness drives the real stack, in both outcomes.** A genuine `api.*` call with browser credentials from a tenant account → `shipping-service` → `rpc.*` into `refdata-service`, run twice: once with a valid payload, where every span reports OK; once with a payload the callee rejects, where the error span carries `StatusCode`/`StatusMessage` **and the parent span still closes**. A parent left open on the error path is the failure this specifically guards — it renders as a truncated waterfall rather than as an error.
+
+- **Enforced in:** `frontend/admin/src/components/TraceWaterfall.vue` (the gutter) and the Messages panel (a tenant column from the existing record field).
+- **Test:** a `cmd/seed-traces` harness or a Ginkgo integration spec against the running compose stack, asserting on the stored trace: span count, parent/child linkage, the tenant attributed to the tenant account rather than `_platform`, and the error run's status fields with a closed parent. Component specs for the gutter alongside the existing panel specs.
+
 ---
 
 ## Guards (not numbered rules)

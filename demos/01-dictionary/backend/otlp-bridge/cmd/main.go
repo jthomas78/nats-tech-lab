@@ -25,6 +25,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/otlp-bridge/internal/otlpmap"
+	"github.com/jthomas78/nats-tech-lab/shared/natsconn"
 )
 
 const (
@@ -46,7 +47,7 @@ func main() {
 	endpoint := envOr("OTLP_ENDPOINT", "http://jaeger:4318/v1/traces")
 	replay := os.Getenv("OTLP_BRIDGE_REPLAY") == "true"
 
-	nc, err := nats.Connect(natsURL, nats.Name("otlp-bridge"), nats.UserCredentials(credsPath))
+	nc, err := nats.Connect(natsURL, natsconn.Options("otlp-bridge", credsPath, log)...)
 	if err != nil {
 		log.Error("nats connect failed", "err", err)
 		os.Exit(1)

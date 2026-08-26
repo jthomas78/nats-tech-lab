@@ -104,13 +104,13 @@ const sections = [
       {
         eyebrow: 'NATS',
         items: [
-          { key: 'connections', label: 'Connections', icon: IconConnections },
           { key: 'services', label: 'Services', icon: IconServices },
-          { key: 'pubsub', label: 'Messages', icon: IconActivity },
+          { key: 'connections', label: 'Connections', icon: IconConnections },
+          { key: 'pubsub', label: 'Pub/Sub', icon: IconActivity },
           { key: 'rpc', label: 'Request/Reply', icon: IconRpc },
           { key: 'streams', label: 'Streams', icon: IconStreams },
           { key: 'kv', label: 'KV Buckets', icon: IconKv },
-          { key: 'log', label: 'Log', icon: IconLog },
+          { key: 'log', label: 'Logs', icon: IconLog },
         ],
       },
       {

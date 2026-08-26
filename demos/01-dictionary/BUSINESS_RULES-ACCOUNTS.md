@@ -1319,3 +1319,18 @@ REST exactly as it can over NATS.
   connection modules rather than `api.js`'s shared helper — they must work
   before any connection exists — so a spec that only exercised `api.js`
   passed while those spans stayed anonymous.
+
+### BR-AC36 (Phase 48a, APPROVED 2026-08-26 — not yet implemented) — The existing `obs.trace.>` import gains the same per-tenant `LocalSubject` remap BR-AC34 gave `obs.pubsub.>`
+
+BR-AC34 closed with a deliberate exclusion: *"retrofitting the same remap onto the existing `obs.trace.>` import, which would fix the Traces panel's coarse gutter too. That is a change to a shipped pipeline and belongs in its own phase."* This is that rule. It does not re-argue BR-AC34's correction (ADR-047 A1) — the account boundary disambiguates *delivery*, not *provenance* — it applies the conclusion to the one import BR-AC34 left alone.
+
+`addPlatformTraceImport` (`accounts/provisioner.go:463`) gains `LocalSubject: jwt.RenamingSubject(fmt.Sprintf(traceLocalSubjectTmpl, tenantName))`, with `traceLocalSubjectTmpl = "monitor.%s.trace.>"` declared alongside `pubsubLocalSubjectTmpl`, `monitorLocalSubjectTmpl` and `jsAPILocalSubjectTmpl`. Everything else about the import is unchanged: same idempotency-by-`(Account, Subject)` scan, same re-sign-and-push via `$SYS.REQ.CLAIMS.UPDATE`, same `platformPublicKey != ""` gate. The tenant export side (`traceExportSubject` in `tenantExports()`) does not change at all.
+
+**The tenant-side publisher does not change either.** A service still publishes `obs.trace.{context}.{service}.{entity}.{action}` (`shared/natstrace/natstrace.go:521`), and `shared/natstrace` needs no edit. The rename happens at the account boundary, which is the entire reason the token is trustworthy: it is inserted **by the NATS server**, not asserted by the publisher. An account field written into the envelope would be spoofable — which is why `traceSpan` gains no such field, and why BR-041's `Requester` explicitly is not treated as authorization.
+
+**Existing accounts do not get this for free, and that is the rule's real cost.** The remap lives in the tenant account's JWT import claims, so already-minted accounts keep the un-remapped import until they are re-provisioned. Same rollout shape BR-AC34 needed. And per BR-AC34's own general lesson — *"every export/import pair this rule family adds has two homes, the provisioner and the bootstrap script, and only the provisioner has tests"* — day-0 ACME and GLOBEX are minted by `nats/bootstrap-operator.sh`, whose PLATFORM import loop must carry the `monitor.{tenant}.trace.>` remap too. A change there is only live after `./bootstrap-operator.sh --force` plus `docker compose down -v && up --build`.
+
+`obs.trace.>` remains ungranted to any browser credential (`auth/token.go:87`), unchanged.
+
+- **Enforced in:** `accounts/provisioner.go` — `traceLocalSubjectTmpl` and the `LocalSubject` on `addPlatformTraceImport`; `nats/bootstrap-operator.sh` — the day-0 PLATFORM import loop.
+- **Test:** `accounts/provisioner_test.go` — mirroring BR-AC34's spec: two tenants get `monitor.acme.trace.>` / `monitor.globex.trace.>` side by side, and a retry does not duplicate the import. Consuming side: BR-051.

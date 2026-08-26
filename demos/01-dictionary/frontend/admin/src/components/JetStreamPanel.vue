@@ -506,6 +506,12 @@ const totalVisibleKinds = computed(() => kindVisible.value.length)
 .account-group {
   display: flex;
   flex-direction: column;
+  /* The rail is a scrolling flex column, so a group MUST NOT shrink: without
+     this, expanding every account (or widening the kind filter to KV +
+     OBJSTORE) makes each group compress to fit the rail's height instead of
+     overflowing it, and `overflow: hidden` below then clips the last rows
+     with nothing to scroll to. */
+  flex-shrink: 0;
   border: 1px solid var(--lab-panel-border);
   border-radius: 4px;
   overflow: hidden;

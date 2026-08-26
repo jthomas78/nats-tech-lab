@@ -368,7 +368,6 @@ NATS account to lean on?**
 ```mermaid
 
 flowchart TD
-
     Q1{"Does this operation administer\nthe tenant/account axis itself?\n(create/suspend account, mint token)"}
     Q1 -->|yes| A["No {context} token at all.\nrpc.accounts.account.create.v1\nTenant name, if needed, travels as an\nordinary payload field — never as {context}."]
     Q1 -->|no| Q2{"Does this service run on a\ndedicated per-tenant NATS account?\n(tenant already implicit in the connection)"}
@@ -611,6 +610,55 @@ The Admin UI wants to show `rpc.*` calls and replies as they happen, with no
 requirement to see history from before the panel was opened. This is **not**
 a JetStream concern — it's a separate, best-effort side-channel off the
 `natsrpc/` adapter.
+
+### The observability message path, end to end
+
+Both supportive subject families — `obs.trace.*` and `obs.pubsub.*` — travel
+the same five hops from a tenant service to an Admin UI panel, and the
+diagram below puts them on one column grid so the places they diverge are
+the only things that differ visually.
+
+![Two parallel ingest paths: a tenant service publishes obs.trace.> and obs.pubsub.> inside its own NATS account; JWT stream exports carry both into the PLATFORM account, obs.trace.> unremapped and obs.pubsub.> remapped to monitor.{tenant}.pubsub.>; each lands on its own LimitsPolicy stream (TRACES 1h/64 MiB, PUBSUB 1h/32 MiB), is read by one durable AckExplicit consumer, and is projected into a KV bucket — trace-request-reply merged by spanId with no TTL, pubsub-messages plain-Put with a TTL and MaxBytes. Both buckets emit a best-effort notify subject that observability-service bridges to the Admin UI over WebSocket, alongside the REST snapshot each feed bootstraps from.](images/observability-message-path.png)
+
+Notes, in the terms this document uses elsewhere:
+
+- **The account boundary is the tenancy boundary, and the subject never
+  carries the tenant** (§ 2.3) — except where an *import* deliberately puts
+  it there. `obs.pubsub.>` is imported with a `LocalSubject` of
+  `monitor.{tenant}.pubsub.>` (BR-AC34), which is the one sanctioned way a
+  tenant name reaches a subject token: it is minted by the PLATFORM side of
+  the trust chain, not asserted by the publisher. `obs.trace.>` is imported
+  unremapped, so PLATFORM sees a flat trace namespace and recovers
+  provenance from the envelope instead.
+- **`monitor.*` is a PLATFORM-local family, not a publishable one.** No
+  tenant can publish on it and no service subscribes to it from inside a
+  tenant account; it exists only as the local name an import lands under.
+  Treat it the way § 2.1 treats `obs.*` — supportive, never on a business
+  path.
+- **Both are best-effort by rule** (BR-036, BR-045). The tenant-side publish
+  is core NATS and fire-and-forget: a service never blocks on it and never
+  fails a business call because an observation was dropped.
+- **`PUBSUB` is a second stream, not another filter on `TRACES`** (ADR-047
+  A5). Sharing one stream would let an `evt.*` burst evict RPC traces out
+  from under the Request/Reply panel.
+- **The `notify.*` hop out of each KV bucket is core NATS with no replay**,
+  matching § 2.1's description of the family. Durability lives in the bucket,
+  not the nudge — which is why each Admin UI feed bootstraps from a REST
+  snapshot and re-reads it after every reconnect.
+
+Editable source:
+[observability-message-path.html](../../../../demos/01-dictionary/diagrams/observability-message-path.html)
+— hand-authored inline SVG rather than a Draw.io workbook page, so
+`./diagrams/export-png.sh` does **not** regenerate it. Re-export with, from
+`demos/01-dictionary/`:
+
+```
+node diagrams/export-html-png.mjs diagrams/observability-message-path.html \
+  ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/observability-message-path.png 1024 --clip=".wrap"
+```
+
+The 1024px width is the geometry the page was reviewed at; changing it
+changes the layout. The `--clip=".wrap"` is load-bearing, not optional.
 
 ### `natstrace` and `browserrpc` also moved into `shared/` (Phase 35 — implemented 2026-08-18)
 

@@ -171,8 +171,83 @@ them. Naming them once here avoids re-deriving "is this live?" per panel:
 | Archetype | Description | Panels |
 |---|---|---|
 | **Poll-only** | A REST endpoint re-fetched on an interval; no NATS subscription backs it at all. | Log (4s poll), Connections/Services (10s poll), Streams' rail and KV Buckets' rail (15s poll) — also, outside this group, Accounts' `Overview` tab (10s poll, plus its own 10s poll against the Phase 45 history route on a duration change) |
-| **Snapshot + live notify** | One-shot REST bootstrap, immediately followed by a live NATS subscription (`notify.*` for anything published afterward. | KV Buckets' selected-bucket detail (`notify.*.kv.{bucket}.>`), Request/Reply & Traces (both tabs — `GET /api/kv/buckets/platform/trace-request-reply/entries` + `notify._platform.kv.trace-request-reply.>`, Phase 28g retirement) |
+| **Snapshot + live notify** | A REST snapshot read paired with a live NATS subscription (`notify.*`) for anything published afterward — **subscribe first, then read**, and re-run the pair on every reconnect (see "Resync, not a one-shot bootstrap" below). | KV Buckets' selected-bucket detail (`notify.*.kv.{bucket}.>`), Request/Reply & Traces (both tabs — `GET /api/kv/buckets/platform/trace-request-reply/entries` + `notify._platform.kv.trace-request-reply.>`, Phase 28g retirement) |
 | **Live-only** | A direct NATS subscription with no REST snapshot/replay at all — nothing to catch up on, or catching up was deliberately out of scope. | No panel currently instantiates this archetype — Request/Reply & Traces' old `api.*` half (`obs.api.>`) was the one example, retired in Phase 28g along with the rest of that channel. Kept here as a named shape in case a future panel needs it, not as a claim that one exists today. |
+
+**Resync, not a one-shot bootstrap.** The snapshot half runs on mount *and*
+on every reconnect. This matters because the two halves have different
+durability: `notify.*` is a core-NATS, fire-and-forget publish with no
+replay, so anything sent while the browser's WebSocket was down is never
+redelivered — but the KV bucket it notifies about is a durable JetStream
+projection (for traces: the `TRACES` stream projected by an explicit-ack
+durable consumer), so every missed message is still readable. Re-reading the
+snapshot on reconnect therefore closes the gap completely, and a dropped
+socket is a staleness event, not a completeness one. `connectionFactory.js`'s
+`subscribe` has always documented this as the contract ("a missed message
+during a brief disconnect is covered by whichever REST bootstrap call the
+panel already makes on (re)connect"); `useTraceFeed.js`/`usePubsubFeed.js`
+did not honour it until this was fixed, and their panels warned about
+permanently-missing spans that were in fact sitting in KV the whole time.
+
+Two rules follow, and a panel adopting this archetype needs both:
+
+- **Watch the connection's `epoch`, not its `connected` flag.** There are two
+  kinds of reconnect and only one of them moves `connected`. The *outer* one —
+  nats-core resolved `closed()` and `connectionFactory.connect()` built a new
+  `NatsConnection` — flips it. The *inner* one — nats-core re-dialled and
+  restored subscriptions on the same connection — does not: `closed()` never
+  resolves, so `connected` stays true start to finish. Both drop core-NATS
+  messages identically, because a *re-established* subscription is not a
+  *replayed* one, and the inner kind is the common one: an ordinary NATS
+  restart is absorbed entirely inside the client. `connectionFactory.js`
+  therefore exports `epoch`, incremented on every establishment of either
+  kind, and feeds watch that. Verified on a running stack: with a `connected`
+  watch, `docker compose restart nats` fired **zero** resyncs; with an `epoch`
+  watch it fired one per consumer and the panel's trace count matched the KV
+  bucket's exactly.
+- **Subscribe before reading the snapshot.** The reverse order leaves the
+  window between the read and the subscription uncovered; this order covers
+  it twice, which is the safe direction.
+- **A failed snapshot read retries itself.** The re-read is issued the moment
+  the socket comes back, against a backend that may still be recovering from
+  the same outage — in testing, `docker compose restart nats` left
+  `observability-service` unable to serve `/entries` for far longer than the
+  browser took to reconnect, so the first read after every restart failed.
+  Waiting for the *next* reconnect to try again would leave the panel warning
+  about a gap that no longer exists, so `bootstrap()` retries with exponential
+  backoff (500 ms → 10 s cap) until it succeeds, a newer resync supersedes it
+  (generation counter), or the composable unmounts. The failure banner says
+  "Retrying…" because that is now literally true.
+  The backend half of the same outage was a separate bug, fixed alongside it:
+  `observability-service` used nats.go's default `MaxReconnects` of 60, so ~2
+  minutes after NATS went away its connection closed for good and every REST
+  endpoint returned "nats: connection closed" until the container was
+  restarted by hand. Every service had open-coded the same connect lines, so
+  every service had the same bug; the policy now lives once in
+  `shared/natsconn` (`Options(name, credsPath, log)` — reconnect forever,
+  jittered backoff, logged transitions) and is used by all five services that
+  call `nats.Connect` directly, plus `shared/natstenants`, which opens the
+  per-tenant connections for four more. `natsconn_test.go` pins the policy and
+  proves recovery against a real server restart. Short-lived CLIs
+  (`cmd/seed-*`) deliberately stay on the library default — they should fail
+  fast, not wait.
+- **A re-read must not be able to move data backwards.** Overlapping the two
+  halves means a snapshot issued before a live update can resolve after it. A
+  record that accumulates server-side needs a monotonic guard on the merge —
+  `useTraceFeed.js` compares span count, which works because
+  `tracestore.appendSpan` is append-only and de-duplicates by `spanId`.
+  `usePubsubFeed.js` needs no guard: one entry there is a standalone envelope
+  written once. Without the guard the resync that closes gaps becomes a
+  source of them.
+
+**The outer reconnect must retry.** Related, and found the same way: nats-core
+resolves `closed()` only after exhausting its *own* reconnect budget, so by the
+time the factory's outer reconnect runs the server has usually been unreachable
+for a while and that attempt fails too. A single non-retrying attempt therefore
+leaves the app permanently dark — every panel frozen, no path back except a
+manual page reload — which is what a 30-second `docker compose stop nats`
+produced before `connectionFactory.js` grew a backoff loop. Any live panel
+inherits this from the factory; none of them should implement their own.
 
 **The trace view is a variant of snapshot+notify, not a fourth archetype**
 (Phase 28). A NATS **KV watch** replays every existing key and then stays
@@ -814,11 +889,16 @@ freezes the displayed ordering while the feed keeps ingesting underneath
 (so resuming shows everything that arrived, not a gap), both follow §4.5's
 precedent — `evt.*` volume exceeds the RPC volume that panel was sized for.
 
-**It says what it is.** A footer states the feed is best-effort: observation
+**It says what it is — and only about the part that is actually lossy.**
+Two different "best-effort"s meet in this panel and the warning text must not
+conflate them. *Ingestion* is genuinely lossy and unrecoverable: observation
 is a fire-and-forget core-NATS publish onto a short-retention bounded stream
-(BR-047), so this is a sample of the wire, not an audit log. Bootstrap
-failure and a dropped live feed are surfaced rather than rendering as
-silence.
+(BR-047), so this is a sample of the wire, not an audit log, and a footer
+says so. *Delivery to the browser* is lossy on the wire but recoverable from
+KV, per "Resync, not a one-shot bootstrap" in §3.1 — so a dropped connection
+gets an amber "this view is frozen, not losing data" note, not the red
+"some messages may be missing" it used to get. Only a failed snapshot read
+claims incompleteness, because only it produces any.
 
 ---
 
@@ -829,7 +909,9 @@ of the three data-flow archetypes in §3.1 fits — poll-only is the default,
 reach for snapshot+notify only if genuinely-live matters and a `notify.*`
 subject already exists or is worth adding, and prefer its KV-watch variant
 when the data can be modelled as keyed current state, since one watch gives
-bootstrap and live feed together with no gap window; (2) if it proxies a NATS
+bootstrap and live feed together with no gap window — and if you take the
+two-mechanism form, take its resync-on-reconnect and monotonic-merge rules
+with it, not just its happy path; (2) if it proxies a NATS
 monitoring endpoint, follow §3.2's primary/secondary split rather than
 letting one flaky secondary read fail the whole panel; (3) pick a layout
 from §2.1 by matching the data's shape — a handful of named things with a

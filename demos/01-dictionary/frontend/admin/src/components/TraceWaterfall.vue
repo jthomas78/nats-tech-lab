@@ -43,7 +43,7 @@ import SubjectPath from './SubjectPath.vue'
 // to sit above the toolbar here out to its own Pulse tab (PulsePanel.vue) —
 // see this file's git history for the removed `pulse` computed and markup.
 
-const { traces, connected: platformConnected, bootstrapFailed, everDisconnected } = useTraceFeed()
+const { traces, connected: platformConnected, bootstrapFailed } = useTraceFeed()
 
 const PLATFORM_SERVICES = new Set(['refdata', 'accounts'])
 function accountOf(span) {
@@ -512,10 +512,16 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
     </div>
 
     <p
-      v-if="bootstrapFailed || everDisconnected"
+      v-if="bootstrapFailed"
       class="err-line"
     >
-      {{ bootstrapFailed ? 'Initial trace snapshot failed to load.' : 'Live feed dropped at least once — some traces may be missing.' }}
+      Trace snapshot failed to load — this view may be incomplete. Retrying…
+    </p>
+    <p
+      v-else-if="!platformConnected"
+      class="stale-line"
+    >
+      Disconnected — this view is frozen, not losing data. It resyncs from the durable KV snapshot on reconnect.
     </p>
 
     <div
@@ -897,6 +903,16 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
   margin: 0;
   font-size: 12px;
   color: #e5484d;
+}
+/* Deliberately NOT .err-line's red: a dropped socket freezes this view, it
+   does not put a hole in it — the feed resyncs from the durable KV snapshot
+   on reconnect. Amber matches .paged-note, the repo's other "this view is
+   showing you less than everything, on purpose" note. */
+.stale-line {
+  flex: none;
+  margin: 0;
+  font-size: 12px;
+  color: var(--p-amber-400, #fbbf24);
 }
 
 .tw-toolbar {

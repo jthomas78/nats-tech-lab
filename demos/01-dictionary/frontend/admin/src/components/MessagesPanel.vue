@@ -24,7 +24,7 @@ const order = ref([]) // spanIds, newest first
 const MAX_ROWS = 500
 const truncated = ref(false) // sticky — set once eviction has happened at least once
 
-const { upsertMessage: feedUpsert, connected, bootstrapFailed, everDisconnected } = usePubsubFeed({
+const { upsertMessage: feedUpsert, connected, bootstrapFailed } = usePubsubFeed({
   onUpsert: (spanId, record) => {
     if (!messagesById[spanId]) order.value = [spanId, ...order.value]
     messagesById[spanId] = { ...record.span, tenant: record.tenant }
@@ -160,10 +160,16 @@ defineExpose({ upsertMessage, MAX_ROWS })
     </div>
 
     <p
-      v-if="bootstrapFailed || everDisconnected"
+      v-if="bootstrapFailed"
       class="err-line"
     >
-      {{ bootstrapFailed ? 'Initial message snapshot failed to load.' : 'Live feed dropped at least once — some messages may be missing.' }}
+      Message snapshot failed to load — this view may be incomplete. Retrying…
+    </p>
+    <p
+      v-else-if="!connected"
+      class="stale-line"
+    >
+      Disconnected — this view is frozen, not losing data. It resyncs from the durable KV snapshot on reconnect.
     </p>
     <div
       v-if="truncated"
@@ -390,6 +396,16 @@ defineExpose({ upsertMessage, MAX_ROWS })
   margin: 0;
   font-size: 12px;
   color: #e5484d;
+}
+/* Deliberately NOT .err-line's red: a dropped socket freezes this view, it
+   does not put a hole in it — the feed resyncs from the durable KV snapshot
+   on reconnect. Amber matches .paged-note, the repo's other "this view is
+   showing you less than everything, on purpose" note. */
+.stale-line {
+  flex: none;
+  margin: 0;
+  font-size: 12px;
+  color: var(--p-amber-400, #fbbf24);
 }
 .paged-note {
   margin-top: 5px;

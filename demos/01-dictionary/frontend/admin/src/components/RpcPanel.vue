@@ -75,7 +75,7 @@ function upsertSpan(span) {
   spansById[span.spanId] = span
 }
 
-const { connected, bootstrapFailed, everDisconnected } = useTraceFeed({
+const { connected, bootstrapFailed } = useTraceFeed({
   onUpsert: (traceId, spans) => {
     for (const span of spans) upsertSpan(span)
   },
@@ -298,10 +298,16 @@ function copyHeaders(headers) {
       </div>
 
       <p
-        v-if="bootstrapFailed || everDisconnected"
+        v-if="bootstrapFailed"
         class="err-line"
       >
-        {{ bootstrapFailed ? 'Initial trace snapshot failed to load.' : 'Live feed dropped at least once — some spans may be missing.' }}
+        Trace snapshot failed to load — this view may be incomplete. Retrying…
+      </p>
+      <p
+        v-else-if="!connected"
+        class="stale-line"
+      >
+        Disconnected — this view is frozen, not losing data. It resyncs from the durable KV snapshot on reconnect.
       </p>
       <div
         v-if="truncated"
@@ -618,6 +624,16 @@ function copyHeaders(headers) {
   margin: 0;
   font-size: 12px;
   color: #e5484d;
+}
+/* Deliberately NOT .err-line's red: a dropped socket freezes this view, it
+   does not put a hole in it — the feed resyncs from the durable KV snapshot
+   on reconnect. Amber matches .paged-note, the repo's other "this view is
+   showing you less than everything, on purpose" note. */
+.stale-line {
+  flex: none;
+  margin: 0;
+  font-size: 12px;
+  color: var(--p-amber-400, #fbbf24);
 }
 .paged-note {
   margin-top: 5px;

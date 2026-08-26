@@ -31,6 +31,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/auth"
 	_ "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/docs"
+	"github.com/jthomas78/nats-tech-lab/shared/natsconn"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
@@ -93,10 +94,7 @@ func run(log *slog.Logger) error {
 	}
 
 	var sysNC *nats.Conn
-	sysOpts := []nats.Option{nats.Name("accounts-service")}
-	if natsCredsPath != "" {
-		sysOpts = append(sysOpts, nats.UserCredentials(natsCredsPath))
-	}
+	sysOpts := natsconn.Options("accounts-service", natsCredsPath, log)
 	if err := waitForNATS(startupCtx, natsURL, sysOpts, func(conn *nats.Conn) error {
 		sysNC = conn
 		return nil
@@ -115,8 +113,7 @@ func run(log *slog.Logger) error {
 	// remain the fallback paths — see EnsureTenantByName's doc comment).
 	var platformNC *nats.Conn
 	if natsPlatformCredsPath != "" {
-		platformOpts := []nats.Option{nats.Name("accounts-service-platform")}
-		platformOpts = append(platformOpts, nats.UserCredentials(natsPlatformCredsPath))
+		platformOpts := natsconn.Options("accounts-service-platform", natsPlatformCredsPath, log)
 		if err := waitForNATS(startupCtx, natsURL, platformOpts, func(conn *nats.Conn) error {
 			platformNC = conn
 			return nil

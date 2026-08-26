@@ -2,6 +2,9 @@ import PrimeVue from 'primevue/config'
 import { mount, flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import JetStreamPanel from './JetStreamPanel.vue'
 
 // Phase 38e follow-on — the stream rail became an honest stream-budget view:
@@ -132,5 +135,23 @@ describe('JetStreamPanel — kind tags and filtering', () => {
     // StreamView would render key revisions as if they were events.
     expect(wrapper.find('.stream-view-stub').exists()).toBe(false)
     expect(wrapper.find('.kind-placeholder').text()).toContain('KV bucket')
+  })
+})
+
+// The rail is an overflow-y:auto flex column, and every .account-group inside
+// it is `overflow: hidden`. A flex item in a column container shrinks by
+// default, so without an explicit flex-shrink:0 the groups compress to fit the
+// rail's height instead of overflowing it — the last rows of each group get
+// clipped and there is no scrollback to reach them. Reported against the fully
+// expanded rail with both the KV and OBJSTORE filters on, which is exactly
+// when total content first exceeds the rail. jsdom does not apply <style
+// scoped>, so this asserts against the SFC's own CSS block.
+describe('JetStreamPanel — rail overflow', () => {
+  it('keeps account groups from shrinking, so a full rail scrolls instead of clipping', () => {
+    const sfc = readFileSync(resolve('src/components/JetStreamPanel.vue'), 'utf8')
+    const rule = /\.account-group\s*\{([^}]*)\}/.exec(sfc)
+
+    expect(rule).not.toBeNull()
+    expect(rule[1]).toMatch(/flex-shrink:\s*0\s*;|flex:\s*none\s*;/)
   })
 })

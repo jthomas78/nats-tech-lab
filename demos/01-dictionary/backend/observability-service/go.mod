@@ -3,6 +3,7 @@ module github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/observabil
 go 1.26
 
 require (
+	github.com/jthomas78/nats-tech-lab/shared/natsconn v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natsnotify v0.0.0-00010101000000-000000000000
 	github.com/nats-io/nats-server/v2 v2.14.5
 	github.com/nats-io/nats.go v1.52.0
@@ -51,3 +52,5 @@ replace github.com/jthomas78/nats-tech-lab/shared/natsnotify => ../../../../shar
 replace github.com/jthomas78/nats-tech-lab/shared/natstrace => ../../../../shared/natstrace
 
 replace github.com/jthomas78/nats-tech-lab/shared/natstest => ../../../../shared/natstest
+
+replace github.com/jthomas78/nats-tech-lab/shared/natsconn => ../../../../shared/natsconn
