@@ -1,0 +1,287 @@
+<title>V3 logistics platform — multi-region architecture</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 76ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 86ch; }
+li b { color: var(--text); font-weight: 600; }
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round; }
+.halo { paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round; }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.hop  { fill: none; stroke: var(--hop); stroke-width: 1.2; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <span class="eyebrow">V3 target architecture · system design §1.3 / DD-04a</span>
+      <h1>Three-plane, multi-region logistics platform</h1>
+      <p class="sub">A global SaaS control plane governs repeatable regional cells. Each tenant is a marketplace-operating business with a server-enforced NATS account boundary; its shippers, transporters and users work in the tenant product plane.</p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 710" role="img"
+        aria-label="V3 logistics target architecture with a global SaaS control plane above two independent regional deployments. Each region contains a marketplace operations plane, regional platform services, isolated tenant product planes, a three-node NATS cluster with SYS, PLATFORM and tenant accounts, and per-service Postgres databases. The control plane also owns the cluster and container fleet, the AuthN and AuthZ model, the catalogue of product modules and the app harness contract those modules register into. Tenant subscription billing sits in the global control plane while transport payments and settlement stay inside each tenant product plane. Cross-region failover and replication remain undecided.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="a-proj" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--store)"/>
+          </marker>
+          <marker id="a-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--evtl)"/>
+          </marker>
+          <marker id="a-hop" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--hop)"/>
+          </marker>
+        </defs>
+
+        <!-- Plane 1: global SaaS control plane -->
+        <rect class="nb" x="20" y="20" width="960" height="172" rx="4"/>
+        <text class="grp" x="34" y="42">1 · GLOBAL SAAS CONTROL PLANE — PLATFORM ADMINISTRATORS</text>
+
+        <rect class="n" x="35" y="60" width="214" height="50" rx="3"/>
+        <text class="lbl" x="142" y="82" text-anchor="middle">region registry + deployment</text>
+        <text class="lbl2" x="142" y="98" text-anchor="middle">create · upgrade · retire regions</text>
+
+        <rect class="n" x="263" y="60" width="220" height="50" rx="3"/>
+        <text class="lbl" x="373" y="82" text-anchor="middle">cluster + container fleet</text>
+        <text class="lbl2" x="373" y="98" text-anchor="middle">docker images · cell rollout</text>
+
+        <rect class="n" x="497" y="60" width="200" height="50" rx="3"/>
+        <text class="lbl" x="597" y="82" text-anchor="middle">NATS operator trust root</text>
+        <text class="lbl2" x="597" y="98" text-anchor="middle">account JWT + credential signing</text>
+
+        <rect class="n" x="711" y="60" width="254" height="50" rx="3"/>
+        <text class="lbl" x="838" y="82" text-anchor="middle">plans · entitlements · tenant billing</text>
+        <text class="lbl2" x="838" y="98" text-anchor="middle">usage metering · subscription invoices</text>
+
+        <rect class="n" x="35" y="122" width="214" height="50" rx="3"/>
+        <text class="lbl" x="142" y="144" text-anchor="middle">tenant catalogue + placement</text>
+        <text class="lbl2" x="142" y="160" text-anchor="middle">provision · suspend · home region</text>
+
+        <rect class="n" x="263" y="122" width="220" height="50" rx="3"/>
+        <text class="lbl" x="373" y="144" text-anchor="middle">AuthN + AuthZ model</text>
+        <text class="lbl2" x="373" y="160" text-anchor="middle">identity · roles · permissions</text>
+
+        <rect class="n" x="497" y="122" width="200" height="50" rx="3"/>
+        <text class="lbl" x="597" y="144" text-anchor="middle">module catalogue</text>
+        <text class="lbl2" x="597" y="160" text-anchor="middle">product modules · vertical slices</text>
+
+        <rect class="n" x="711" y="122" width="254" height="50" rx="3"/>
+        <text class="lbl" x="838" y="144" text-anchor="middle">app harness contract</text>
+        <text class="lbl2" x="838" y="160" text-anchor="middle">shell + nav from registration</text>
+
+        <!-- Global-to-region provisioning lanes -->
+        <path class="flow" marker-end="url(#a-sync)" d="M142 172 L142 222 L254 222 L254 244"/>
+        <path class="flow" marker-end="url(#a-sync)" d="M142 172 L142 222 L746 222 L746 244"/>
+        <text class="edge" x="500" y="225" text-anchor="middle">place + provision · deploy harness + modules</text>
+
+        <g transform="translate(0,30)">
+        <!-- Region ZA -->
+        <rect class="nb" x="20" y="220" width="468" height="420" rx="4"/>
+        <text class="grp halo" x="34" y="242">REGION ZA — INDEPENDENT DEPLOYMENT + DATA-RESIDENCY BOUNDARY</text>
+
+        <rect class="nb" x="35" y="258" width="438" height="92" rx="4"/>
+        <text class="grp" x="48" y="278">2 · MARKETPLACE OPERATIONS PLANE</text>
+        <rect class="n" x="50" y="286" width="198" height="46" rx="3"/>
+        <text class="lbl" x="149" y="305" text-anchor="middle">marketplace admin</text>
+        <text class="lbl2" x="149" y="319" text-anchor="middle">tenants · orgs · users · support</text>
+        <rect class="n" x="260" y="286" width="198" height="46" rx="3"/>
+        <text class="lbl" x="359" y="305" text-anchor="middle">regional platform services</text>
+        <text class="lbl2" x="359" y="319" text-anchor="middle">accounts · auth · refdata · obs</text>
+        <path class="flow" marker-end="url(#a-sync)" d="M248 309 L249 309"/>
+
+        <rect class="nb" x="35" y="366" width="438" height="158" rx="4"/>
+        <text class="grp halo" x="48" y="386">3 · PRODUCT / BUSINESS DATA PLANE — ONE ISOLATED CELL PER TENANT</text>
+        <rect class="n" x="50" y="402" width="198" height="102" rx="3"/>
+        <text class="lbl" x="149" y="423" text-anchor="middle">tenant A · Marketplace A</text>
+        <text class="lbl2" x="149" y="439" text-anchor="middle">NATS account · hard boundary</text>
+        <text class="lbl2" x="149" y="455" text-anchor="middle">shipper · transporter · integrator</text>
+        <text class="lbl2" x="149" y="471" text-anchor="middle">marketplace · logistics · tracking</text>
+        <text class="lbl2" x="149" y="487" text-anchor="middle">transport payments + settlement</text>
+
+        <rect class="n" x="260" y="402" width="198" height="102" rx="3"/>
+        <text class="lbl" x="359" y="423" text-anchor="middle">tenant B · Marketplace B</text>
+        <text class="lbl2" x="359" y="439" text-anchor="middle">separate NATS account</text>
+        <text class="lbl2" x="359" y="455" text-anchor="middle">separate users + organisations</text>
+        <text class="lbl2" x="359" y="471" text-anchor="middle">separate workflows + limits</text>
+        <text class="lbl2" x="359" y="487" text-anchor="middle">same harness + entitled modules</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M149 332 L149 360"/>
+        <path class="flow" marker-end="url(#a-sync)" d="M359 332 L359 360"/>
+        <text class="edge" x="157" y="351">manage</text>
+        <text class="edge" x="367" y="351">manage</text>
+
+        <rect class="nb" x="35" y="540" width="438" height="82" rx="4"/>
+        <text class="grp halo" x="48" y="558">REGIONAL RUNTIME</text>
+        <path class="n" d="M50 574 L50 606 A107 7 0 0 0 264 606 L264 574"/>
+        <ellipse class="n" cx="157" cy="574" rx="107" ry="7"/>
+        <text class="lbl" x="157" y="590" text-anchor="middle">regional NATS HA cluster</text>
+        <text class="lbl2" x="157" y="604" text-anchor="middle">3 nodes · SYS · PLATFORM · tenants</text>
+        <rect class="n" x="278" y="567" width="180" height="46" rx="3"/>
+        <text class="lbl" x="368" y="586" text-anchor="middle">per-service Postgres</text>
+        <text class="lbl2" x="368" y="600" text-anchor="middle">transactional source of truth</text>
+
+        <path class="proj" marker-end="url(#a-proj)" d="M149 504 L149 534"/>
+        <path class="proj" marker-end="url(#a-proj)" d="M359 504 L359 534"/>
+
+        <!-- Region AU -->
+        <rect class="nb" x="512" y="220" width="468" height="420" rx="4"/>
+        <text class="grp" x="526" y="242">REGION AU — SAME REPEATABLE REGIONAL CELL</text>
+
+        <rect class="nb" x="527" y="258" width="438" height="92" rx="4"/>
+        <text class="grp" x="540" y="278">2 · MARKETPLACE OPERATIONS PLANE</text>
+        <rect class="n" x="542" y="286" width="198" height="46" rx="3"/>
+        <text class="lbl" x="641" y="305" text-anchor="middle">marketplace admin</text>
+        <text class="lbl2" x="641" y="319" text-anchor="middle">tenant + marketplace management</text>
+        <rect class="n" x="752" y="286" width="198" height="46" rx="3"/>
+        <text class="lbl" x="851" y="305" text-anchor="middle">regional platform services</text>
+        <text class="lbl2" x="851" y="319" text-anchor="middle">accounts · auth · refdata · obs</text>
+        <path class="flow" marker-end="url(#a-sync)" d="M740 309 L741 309"/>
+
+        <rect class="nb" x="527" y="366" width="438" height="158" rx="4"/>
+        <text class="grp halo" x="540" y="386">3 · PRODUCT / BUSINESS DATA PLANE — REPEATED PER TENANT</text>
+        <rect class="n" x="542" y="402" width="198" height="102" rx="3"/>
+        <text class="lbl" x="641" y="423" text-anchor="middle">tenant C · Marketplace C</text>
+        <text class="lbl2" x="641" y="439" text-anchor="middle">NATS account · hard boundary</text>
+        <text class="lbl2" x="641" y="455" text-anchor="middle">shipper + transporter users</text>
+        <text class="lbl2" x="641" y="471" text-anchor="middle">logistics products + workflows</text>
+        <text class="lbl2" x="641" y="487" text-anchor="middle">transport payments + settlement</text>
+
+        <rect class="n" x="752" y="402" width="198" height="102" rx="3"/>
+        <text class="lbl" x="851" y="423" text-anchor="middle">tenant D · … · tenant N</text>
+        <text class="lbl2" x="851" y="439" text-anchor="middle">same isolated product stack</text>
+        <text class="lbl2" x="851" y="455" text-anchor="middle">independent identities</text>
+        <text class="lbl2" x="851" y="471" text-anchor="middle">independent resource limits</text>
+        <text class="lbl2" x="851" y="487" text-anchor="middle">independent blast radius</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M641 332 L641 360"/>
+        <path class="flow" marker-end="url(#a-sync)" d="M851 332 L851 360"/>
+        <text class="edge" x="649" y="351">manage</text>
+        <text class="edge" x="859" y="351">manage</text>
+
+        <rect class="nb" x="527" y="540" width="438" height="82" rx="4"/>
+        <text class="grp halo" x="540" y="558">REGIONAL RUNTIME</text>
+        <path class="n" d="M542 574 L542 606 A107 7 0 0 0 756 606 L756 574"/>
+        <ellipse class="n" cx="649" cy="574" rx="107" ry="7"/>
+        <text class="lbl" x="649" y="590" text-anchor="middle">regional NATS HA cluster</text>
+        <text class="lbl2" x="649" y="604" text-anchor="middle">3 nodes · SYS · PLATFORM · tenants</text>
+        <rect class="n" x="770" y="567" width="180" height="46" rx="3"/>
+        <text class="lbl" x="860" y="586" text-anchor="middle">per-service Postgres</text>
+        <text class="lbl2" x="860" y="600" text-anchor="middle">transactional source of truth</text>
+
+        <path class="proj" marker-end="url(#a-proj)" d="M641 504 L641 534"/>
+        <path class="proj" marker-end="url(#a-proj)" d="M851 504 L851 534"/>
+
+        <!-- Cross-region policy is deliberately unresolved -->
+        <path class="rep" marker-start="url(#a-rep)" marker-end="url(#a-rep)" d="M157 613 L157 650 L649 650 L649 613"/>
+        <text class="edge" x="403" y="654" text-anchor="middle">cross-region DR / replication · TBD</text>
+        <text class="lbl2" x="500" y="674" text-anchor="middle">A NATS leaf node belongs only at a remote port / warehouse edge — application services connect as normal clients.</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption><b>Plane split and regional topology.</b> “Management &amp; Control Plane” is the industry umbrella: the global system layer provisions regions and tenants, the marketplace operations layer manages each tenant, and the product/data plane runs shipper and transporter workflows. A product module is a vertical slice — backend service plus frontend — and the harness is an otherwise empty app shell each entitled module’s frontend injects into, with navigation populated from what registered. Each region is an independent NATS and data deployment; a cross-region supercluster or replicated JetStream topology is intentionally not assumed.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 290" role="img"
+        aria-label="Tenant definition for the V3 logistics platform. A region is a deployment and data-residency boundary containing multiple tenants. A tenant is the business operating one marketplace and maps to one NATS account. Organisations such as shippers, transporters, integrators and operator-self live within the tenant. Business units or contexts are application naming scopes, while users access the tenant through memberships in one or more organisations.">
+        <defs>
+          <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="b-hop" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--hop)"/>
+          </marker>
+        </defs>
+
+        <rect class="nb" x="20" y="24" width="960" height="232" rx="4"/>
+        <text class="grp" x="34" y="46">REGION — DEPLOYMENT + DATA-RESIDENCY AXIS</text>
+
+        <rect class="n" x="42" y="105" width="154" height="56" rx="3"/>
+        <text class="lbl" x="119" y="128" text-anchor="middle">regional cell</text>
+        <text class="lbl2" x="119" y="144" text-anchor="middle">NATS cluster + databases</text>
+
+        <rect class="nb" x="232" y="58" width="718" height="174" rx="4"/>
+        <text class="grp" x="246" y="80">TENANT — MARKETPLACE-OPERATING BUSINESS · ONE NATS ACCOUNT</text>
+
+        <rect class="n" x="254" y="102" width="176" height="54" rx="3"/>
+        <text class="lbl" x="342" y="124" text-anchor="middle">Marketplace A</text>
+        <text class="lbl2" x="342" y="140" text-anchor="middle">commercial + security boundary</text>
+
+        <rect class="n" x="468" y="94" width="224" height="70" rx="3"/>
+        <text class="lbl" x="580" y="115" text-anchor="middle">organisations</text>
+        <text class="lbl2" x="580" y="131" text-anchor="middle">shipper · transporter · integrator</text>
+        <text class="lbl2" x="580" y="147" text-anchor="middle">operator-self · future partner types</text>
+
+        <rect class="n" x="730" y="94" width="198" height="70" rx="3"/>
+        <text class="lbl" x="829" y="115" text-anchor="middle">business unit / context</text>
+        <text class="lbl2" x="829" y="131" text-anchor="middle">application naming scope</text>
+        <text class="lbl2" x="829" y="147" text-anchor="middle">not tenant · not region</text>
+
+        <rect class="n" x="468" y="184" width="224" height="36" rx="3"/>
+        <text class="lbl" x="580" y="206" text-anchor="middle">users + organisation memberships</text>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M196 133 L243 133"/>
+        <text class="edge" x="219" y="123" text-anchor="middle">hosts many</text>
+        <path class="flow" marker-end="url(#b-sync)" d="M430 129 L457 129"/>
+        <text class="edge" x="444" y="119" text-anchor="middle">contains</text>
+        <path class="flow" marker-end="url(#b-sync)" d="M692 129 L719 129"/>
+        <text class="edge" x="706" y="119" text-anchor="middle">scopes</text>
+        <path class="hop" marker-end="url(#b-hop)" d="M580 184 L580 175"/>
+        <text class="edge" x="593" y="178">membership grants access</text>
+      </svg>
+    </div>
+    <figcaption><b>Tenant definition.</b> The hard boundary is the tenant’s NATS account, not a subject prefix. Region, tenant, organisation, business unit/context and user are separate axes; neither region nor tenant is encoded in business subjects.</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>Decisions made visible</h2>
+    <ul>
+      <li><b>Subscription billing is control-plane work.</b> SaaS plans, entitlements, metering and invoices to tenants are cross-tenant concerns. Freight payments and shipper/transporter settlement remain product-plane concerns.</li>
+      <li><b>“Operator” is reserved for the NATS trust root.</b> Human-facing administration is named platform administration or marketplace operations to avoid an overloaded term.</li>
+      <li><b>Shared platform capabilities remain separate services.</b> Accounts/Auth, RefData/Config and Observability are not collapsed into one high-privilege “platform” service.</li>
+      <li><b>Multi-region data movement is still a design decision.</b> Residency, replication and disaster-recovery policy must be agreed before adding cross-region NATS federation.</li>
+    </ul>
+  </section>
+</div>
