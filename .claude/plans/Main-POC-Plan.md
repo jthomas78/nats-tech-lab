@@ -1632,10 +1632,24 @@ Two things settled in the writing that the drafts above had left open:
 
 #### Additional sub-phases — Q1/Q2
 
-- [ ] **48h** — cross-account multi-span trace harness per decisions 19–21:
+- [x] **48h** — cross-account multi-span trace harness per decisions 19–21:
       OK and ERROR runs, driven against the compose stack, plus assertions on
       the resulting stored trace (span count, parent/child linkage, the error
-      span's status fields).
+      span's status fields). **DONE 2026-08-26** —
+      `observability-service/cmd/seed-traces`. Both runs green against the
+      live stack: 3 spans each, root parented to the harness's own injected
+      `traceparent`, spans from both `organizations` and `refdata`. Two
+      corrections to BR-054 came out of building it, and are now written into
+      the rule: the chain is `organizations-service` → `refdata-service`
+      (Phase 32 left shipping-service's `refdataconsumer` with no live
+      callers, so the chain the rule originally named is dead), and it drives
+      the hop with the tenant's own credential because `connectInfo` 409s
+      with *"tenant has no signing key on record"* for the seeded accounts.
+      The error run's real span shape — root ERROR, caller-side hop OK,
+      refdata's handler span ERROR — is recorded in BR-054 rather than
+      asserted around. Tenant attribution is behind an opt-in
+      `-expect-tenant` flag and currently reads `(none)`, the expected red
+      state until 48b lands.
 - [ ] **48i** — surface the account in the Admin UI for both paths
       (decisions 16–17): real tenant in `TraceWaterfall.vue`'s gutter — the
       same work as 48c, listed here because it is what actually answers Q2 —
