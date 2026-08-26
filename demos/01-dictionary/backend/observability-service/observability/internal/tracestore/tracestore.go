@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -26,13 +27,26 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// StreamName / SubjectWildcard / StreamMaxAge / StreamMaxBytes mirror
-// shipping-service's originals exactly.
+// StreamName / StreamMaxAge / StreamMaxBytes mirror shipping-service's
+// originals exactly.
 const (
-	StreamName      = "TRACES"
-	SubjectWildcard = "obs.trace.>"
-	StreamMaxAge    = time.Hour
-	StreamMaxBytes  = 64 << 20 // 64 MiB
+	StreamName     = "TRACES"
+	StreamMaxAge   = time.Hour
+	StreamMaxBytes = 64 << 20 // 64 MiB
+
+	// PlatformSubjectWildcard captures spans published inside PLATFORM
+	// itself; TenantSubjectWildcard captures every tenant's imported export,
+	// which BR-AC36's LocalSubject remap lands on monitor.{tenant}.trace.>.
+	// Both are required and neither is redundant (BR-051): capturing only
+	// the remapped form would blind the stream to PLATFORM's own services,
+	// which cross no import and so never carry a tenant token, and capturing
+	// only the bare form is what this stream did before Phase 48b — which
+	// went unnoticed only because the remap did not exist yet.
+	//
+	// Adding the second filter is a stream UPDATE, not a recreate: a
+	// LimitsPolicy stream keeps its contents when a subject is added.
+	PlatformSubjectWildcard = "obs.trace.>"
+	TenantSubjectWildcard   = "monitor.*.trace.>"
 
 	// bucketName is bare — no "-_platform" suffix — matching this bucket's
 	// pre-existing naming (context lives in the KEY via kvContext below).
@@ -83,8 +97,30 @@ const (
 // one outbound hop it causes), so a later span must append to the existing
 // entry rather than replace it.
 type traceRecord struct {
-	TraceID string            `json:"traceId"`
-	Spans   []json.RawMessage `json:"spans"`
+	TraceID string `json:"traceId"`
+	// Tenant is the one piece of information that is NOT in any span: which
+	// account published it. It comes from the subject the span arrived on —
+	// a token the NATS server inserts via BR-AC36's import remap — and never
+	// from the envelope, which is written by the account under observation
+	// (BR-051). traceSpan carries a Requester field that looks like the
+	// answer and is self-declared; see natstrace.go's own comment on it.
+	Tenant string            `json:"tenant"`
+	Spans  []json.RawMessage `json:"spans"`
+}
+
+// tenantFromSubject reads the tenant token out of the subject the span
+// arrived on. "monitor.{tenant}.trace.>" is an imported tenant export
+// (BR-AC36's remap); anything else — "obs.trace.>" — was published inside
+// PLATFORM itself and has no tenant, so it reports the platform context.
+// Mirrors pubsubstore.tenantFromSubject, and is positional for the same
+// reason: trace subjects are fixed-arity, which is why CLAUDE.md forbids a
+// "." inside any id that appears in a subject token.
+func tenantFromSubject(subject string) string {
+	parts := strings.Split(subject, ".")
+	if len(parts) >= 3 && parts[0] == "monitor" && parts[2] == "trace" {
+		return parts[1]
+	}
+	return kvContext
 }
 
 // traceSpanKey is the minimal shape read out of an obs.trace.* span
@@ -112,7 +148,7 @@ func Register(ctx context.Context, js jetstream.JetStream, nc *nats.Conn, log *s
 
 	if _, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 		Name:      StreamName,
-		Subjects:  []string{SubjectWildcard},
+		Subjects:  []string{PlatformSubjectWildcard, TenantSubjectWildcard},
 		Retention: jetstream.LimitsPolicy,
 		MaxAge:    StreamMaxAge,
 		MaxBytes:  StreamMaxBytes,
@@ -134,9 +170,12 @@ func Register(ctx context.Context, js jetstream.JetStream, nc *nats.Conn, log *s
 	}
 
 	cons, err := js.CreateOrUpdateConsumer(ctx, StreamName, jetstream.ConsumerConfig{
-		Durable:       consumerName,
-		FilterSubject: SubjectWildcard,
-		AckPolicy:     jetstream.AckExplicitPolicy,
+		// No FilterSubject: this projector wants everything on the stream,
+		// and naming one wildcard here is what would silently drop the other
+		// subject set the moment it was added above. pubsubstore's consumer
+		// omits it for the same reason.
+		Durable:   consumerName,
+		AckPolicy: jetstream.AckExplicitPolicy,
 	})
 	if err != nil {
 		return nil, err
@@ -149,7 +188,7 @@ func Register(ctx context.Context, js jetstream.JetStream, nc *nats.Conn, log *s
 			_ = msg.Ack()
 			return
 		}
-		if err := appendSpan(ctx, kv, nc, log, key.TraceID, key.SpanID, msg.Data()); err != nil {
+		if err := appendSpan(ctx, kv, nc, log, tenantFromSubject(msg.Subject()), key.TraceID, key.SpanID, msg.Data()); err != nil {
 			log.Error("trace store projection failed, will redeliver", "traceId", key.TraceID, "err", err)
 			_ = msg.Nak()
 			return
@@ -163,10 +202,10 @@ func Register(ctx context.Context, js jetstream.JetStream, nc *nats.Conn, log *s
 // other at-least-once duplicate), and otherwise appends span and writes
 // back, then fires the same best-effort notify.{context}.kv.{bucket}.
 // {key}.changed publish every other KV panel's writes already produce.
-func appendSpan(ctx context.Context, kv jetstream.KeyValue, nc *nats.Conn, log *slog.Logger, traceID, spanID string, span json.RawMessage) error {
+func appendSpan(ctx context.Context, kv jetstream.KeyValue, nc *nats.Conn, log *slog.Logger, tenant, traceID, spanID string, span json.RawMessage) error {
 	key := keyPrefix + traceID
 	fullKey := kvContext + "." + key
-	record := traceRecord{TraceID: traceID}
+	record := traceRecord{TraceID: traceID, Tenant: tenant}
 	entry, err := kv.Get(ctx, fullKey)
 	switch {
 	case err == nil:
@@ -178,6 +217,21 @@ func appendSpan(ctx context.Context, kv jetstream.KeyValue, nc *nats.Conn, log *
 	default:
 		return err
 	}
+	// BR-052: first writer wins on the tenant. Two tenants under one traceId
+	// is never normal traffic — a traceId is minted once at a request's root
+	// and propagated, so a disagreement is either a collision or an attempt
+	// to attach spans to another tenant's trace. The span is still stored,
+	// because dropping it would hide the evidence, but the established
+	// attribution does not move. This is a deliberate override of the
+	// zero-value assignment above, whose plain-struct-field default would be
+	// last-writer-wins — the wrong answer, arrived at by doing nothing.
+	if record.Tenant != "" && record.Tenant != tenant {
+		log.Warn("trace span reports a different tenant than the trace it joins; keeping the first attribution",
+			"traceId", traceID, "spanId", spanID, "attributed", record.Tenant, "reported", tenant)
+		tenant = record.Tenant
+	}
+	record.Tenant = tenant
+
 	for _, existing := range record.Spans {
 		var existingKey traceSpanKey
 		if json.Unmarshal(existing, &existingKey) == nil && existingKey.SpanID == spanID {

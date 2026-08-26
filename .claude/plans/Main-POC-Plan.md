@@ -1496,9 +1496,23 @@ Two things settled in the writing that the drafts above had left open:
       keep arriving, which is what makes it read as "no traffic" rather
       than as breakage. Nothing is disturbed until someone reseeds
       (`--force` + `down -v`), so **do not reseed until 48b lands.**
-- [ ] **48b** — `tracestore`: second subject filter on `TRACES`,
+- [x] **48b** — `tracestore`: second subject filter on `TRACES`,
       `tenantFromSubject`, tenant threaded into the stored record, and the
-      decision-6 conflict rule.
+      decision-6 conflict rule. **DONE 2026-08-26** — BR-051 + BR-052.
+      Five specs, all verified red against a deliberately broken
+      implementation first. Two things worth carrying forward:
+      **(a)** the projector's consumer now names **no** `FilterSubject`
+      rather than being taught the second one. It carried
+      `FilterSubject: obs.trace.>`, which was harmless while the stream
+      had one subject and would have silently swallowed every tenant span
+      the moment the second was added — the exact failure 48a warned
+      about, one layer further in. An unfiltered consumer is what this
+      projector actually means, and `pubsubstore`'s already omits it.
+      **(b)** No migration: a record stored before this has no `tenant`
+      field, so it unmarshals to the arriving span's own attribution and
+      corrects itself on the next span. **48a's reseed hazard is now
+      cleared** — the stream captures both subject shapes, so 48d can
+      re-provision and reseed.
 - [ ] **48c** — Admin UI: real tenant in `TraceWaterfall.vue`'s gutter;
       remove the stale comment; specs for the new attribution.
 - [ ] **48d** — re-provision pass for existing tenant accounts (decision 8),

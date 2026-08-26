@@ -53,7 +53,9 @@ Split by domain so a rule add/edit only requires reading its own file:
   remembered one; see
   [ARCHITECTURE-OBSERVABILITY.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-OBSERVABILITY.md)
   (ADR-047) for the full design.
-  BR-051–054 (Phase 48, APPROVED 2026-08-26 — not yet implemented) do the
+  BR-051–054 (Phase 48, PARTLY IMPLEMENTED 2026-08-26 — 051/052 done in
+  48b, 053's bound in 48f, 054's harness in 48h; 053's write shape and
+  054's panel side outstanding) do the
   same for the *other* channel: a trace span's tenant comes from its arrival
   subject and never from its envelope (BR-051), first-writer-wins on a
   disputed `traceId` (BR-052), `trace-request-reply` becomes a bounded window

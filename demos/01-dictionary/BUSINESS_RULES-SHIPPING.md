@@ -938,7 +938,7 @@ A command either commits in full or leaves the event log untouched. There is no 
 - **Enforced in:** `ShipHandler.ArrivePort()` — the only command that publishes more than once. The container commands and the remaining ship commands conform by construction (single publish, after all validation).
 - **Test:** `Domain Rules / BR-050`, and `Domain Rules / BR-017` for the specific ordering.
 
-### BR-051 (Phase 48b, APPROVED 2026-08-26 — not yet implemented) — A trace span's tenant is derived from its arrival subject, never from its envelope
+### BR-051 (Phase 48b, IMPLEMENTED 2026-08-26) — A trace span's tenant is derived from its arrival subject, never from its envelope
 
 The exact rule BR-047 already states for `obs.pubsub.*`, applied to `obs.trace.*` once BR-AC36's remap exists. `monitor.{tenant}.trace.>` yields that tenant; a bare `obs.trace.>` arrival was published inside PLATFORM and is attributed to `_platform`. The envelope is **never** consulted for attribution.
 
@@ -950,10 +950,14 @@ The exact rule BR-047 already states for `obs.pubsub.*`, applied to `obs.trace.*
 
 **No migration, and the gap is visible rather than silently wrong.** `TRACES` is `LimitsPolicy` capped at 1 h, so any backlog on the old subject shape ages out within an hour. Spans already merged into KV keep their `_platform` attribution until superseded — acceptable on a diagnostic surface, and it reads as "PLATFORM" rather than as a wrong tenant name.
 
-- **Enforced in:** `observability-service/observability/internal/tracestore/tracestore.go` — the second subject filter on `TRACES`, `tenantFromSubject`, and the tenant threaded into the stored record.
-- **Test:** `tracestore_test.go` — both subject sets on the stream, tenant derived from a remapped arrival and `_platform` from a bare one, and a spec asserting the envelope's own fields cannot influence attribution (a span whose payload names a *different* tenant is still attributed by subject). Publishing side: BR-AC36. Panel side: BR-054.
+**The projector's consumer names no `FilterSubject` at all**, rather than being updated to name the second one. It had `FilterSubject: SubjectWildcard` — harmless while the stream carried exactly one subject, and the thing that would have silently dropped every tenant span the moment the second was added. An unfiltered consumer wants everything on the stream, which is what this projector actually means; `pubsubstore`'s consumer already omits it for the same reason.
 
-### BR-052 (Phase 48b, APPROVED 2026-08-26 — not yet implemented) — Within one `traceId`, the first tenant attributed wins, and a later disagreement is logged rather than applied
+**A record written before this rule upgrades in place rather than needing a migration.** The stored JSON simply has no `tenant` field, so unmarshalling it leaves the arriving span's own attribution in place, and the next span to join the trace names it correctly. BR-052's first-writer-wins guard reads an *established* tenant, and a legacy record has none.
+
+- **Enforced in:** `observability-service/observability/internal/tracestore/tracestore.go` — `PlatformSubjectWildcard`/`TenantSubjectWildcard` on `TRACES`, the removal of the consumer's `FilterSubject`, `tenantFromSubject`, and `Tenant` threaded through `appendSpan` onto `traceRecord`.
+- **Test:** `tracestore_test.go` — `TestRegisterCapturesBothSubjectSets` (verified red with the second subject removed), `TestTenantFromSubject` (both real shapes plus the near-misses that must *not* read as a tenant, including `monitor.*.pubsub.>`, which is a real subject on this server), `TestPlatformArrivalIsAttributedToPlatform`, and `TestTenantIsDerivedFromSubjectNotEnvelope` — a span whose payload names a *different* tenant than its subject does, which is the spec the rule exists for and which an envelope-reading implementation would fail while passing every other spec in the file. Publishing side: BR-AC36. Panel side: BR-054.
+
+### BR-052 (Phase 48b, IMPLEMENTED 2026-08-26) — Within one `traceId`, the first tenant attributed wins, and a later disagreement is logged rather than applied
 
 BR-053 keeps the KV key at `_platform.trace.{traceId}` and stores the tenant inside the value, following `pubsubRecord{Tenant, Span}`'s precedent. A trace is therefore a merged record whose spans arrive separately, and BR-051 attributes each span independently — so two spans under one `traceId` can in principle report different tenants.
 
@@ -964,7 +968,7 @@ BR-053 keeps the KV key at `_platform.trace.{traceId}` and stores the tenant ins
 This is the one consequence BR-053's key-shape decision creates, which is why it is a rule and not a code comment: the safe-looking alternative (last write wins, the default behaviour of a plain struct field assignment) is exactly the wrong one here.
 
 - **Enforced in:** `tracestore.go` — `appendSpan`'s tenant handling.
-- **Test:** `tracestore_test.go` — a second span reporting a different tenant leaves the record's tenant unchanged, is itself still visible, and produces a logged mismatch.
+- **Test:** `tracestore_test.go` — `TestFirstTenantWinsOnMismatch`: a second span reporting a different tenant leaves the record's tenant unchanged, is itself still visible, and produces a logged mismatch naming both tenants and the `traceId`. Verified red with the guard removed, where the record flipped to the second tenant — which is the point, since removing the guard is not an edit anyone would make deliberately, it is what writing the obvious assignment gets you.
 
 ### BR-053 (Phase 48f/48g, APPROVED 2026-08-26 — bound implemented 48f, write shape 48g outstanding) — `trace-request-reply` is a bounded visible window, sized from measurement, and one span is one idempotent write
 

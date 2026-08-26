@@ -8,9 +8,12 @@ package tracestore
 // side-effect, not HTTP plumbing.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -71,11 +74,20 @@ func waitForRecord(t *testing.T, kv jetstream.KeyValue, traceID string, wantSpan
 
 func publishSpan(t *testing.T, nc *nats.Conn, traceID, spanID string) {
 	t.Helper()
-	data, err := json.Marshal(traceSpanKey{TraceID: traceID, SpanID: spanID})
+	publishSpanOn(t, nc, "obs.trace.acme.shipping.ship.arrived", map[string]string{"traceId": traceID, "spanId": spanID})
+}
+
+// publishSpanOn publishes an arbitrary span payload on an arbitrary subject —
+// the subject is the whole point of BR-051, so it has to be a parameter, and
+// the payload is a map rather than traceSpanKey so a spec can put fields in
+// it that the struct deliberately does not model.
+func publishSpanOn(t *testing.T, nc *nats.Conn, subject string, payload map[string]string) {
+	t.Helper()
+	data, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("marshal span: %v", err)
 	}
-	if err := nc.Publish("obs.trace.acme.shipping.ship.arrived", data); err != nil {
+	if err := nc.Publish(subject, data); err != nil {
 		t.Fatalf("publish span: %v", err)
 	}
 }
@@ -289,4 +301,194 @@ func TestRegisterCreatesBoundedBucket(t *testing.T) {
 	if BucketMaxAge >= StreamMaxAge {
 		t.Errorf("bucket MaxAge %v must be tighter than the stream's %v", BucketMaxAge, StreamMaxAge)
 	}
+}
+
+// TestTenantFromSubject is BR-051's extraction, unit-level. The positional
+// read is only safe because trace subjects are fixed-arity, so the cases that
+// matter are the two real shapes plus the near-misses that must NOT be read
+// as a tenant.
+func TestTenantFromSubject(t *testing.T) {
+	cases := []struct {
+		subject string
+		want    string
+	}{
+		// The remapped form BR-AC36 mints — 7 tokens.
+		{"monitor.acme.trace.acme.refdata.item.get", "acme"},
+		{"monitor.globex.trace.globex.shipping.ship.arrived", "globex"},
+		// PLATFORM's own services cross no import and carry no tenant token.
+		{"obs.trace.acme.shipping.ship.arrived", kvContext},
+		// Near-misses: right prefix, wrong third token. monitor.*.pubsub.> is
+		// a real subject on this server and must never be read as a trace
+		// tenant if it somehow reaches this projector.
+		{"monitor.acme.pubsub.acme.shipping.ship.arrived", kvContext},
+		{"monitor.acme", kvContext},
+		{"", kvContext},
+	}
+	for _, tc := range cases {
+		if got := tenantFromSubject(tc.subject); got != tc.want {
+			t.Errorf("tenantFromSubject(%q) = %q, want %q", tc.subject, got, tc.want)
+		}
+	}
+}
+
+// TestRegisterCapturesBothSubjectSets is the half of BR-051 that is invisible
+// in behaviour until a tenant actually publishes: capturing only the remapped
+// form would blind the stream to PLATFORM's own services, and capturing only
+// the bare form would blind it to every tenant the moment BR-AC36's remap is
+// reseeded. Neither failure shows up in a spec that publishes on one shape.
+func TestRegisterCapturesBothSubjectSets(t *testing.T) {
+	nc, js, cleanup := newTestNATS(t)
+	defer cleanup()
+
+	cons, err := Register(context.Background(), js, nc, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cons.Stop()
+
+	si, err := js.Stream(context.Background(), StreamName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := si.Info(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{PlatformSubjectWildcard: false, TenantSubjectWildcard: false}
+	for _, subj := range info.Config.Subjects {
+		if _, ok := want[subj]; ok {
+			want[subj] = true
+		}
+	}
+	for subj, seen := range want {
+		if !seen {
+			t.Errorf("TRACES does not capture %q; it has %v", subj, info.Config.Subjects)
+		}
+	}
+}
+
+// TestTenantIsDerivedFromSubjectNotEnvelope is the spec BR-051 exists for.
+// The payload names a different tenant than the subject does — the subject
+// token is inserted by the NATS server and the payload is written by the
+// account under observation, so the subject must win. A change that
+// "simplified" attribution by reading the envelope would pass every other
+// spec in this file.
+func TestTenantIsDerivedFromSubjectNotEnvelope(t *testing.T) {
+	nc, js, cleanup := newTestNATS(t)
+	defer cleanup()
+
+	cons, err := Register(context.Background(), js, nc, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cons.Stop()
+
+	publishSpanOn(t, nc, "monitor.acme.trace.acme.refdata.item.get", map[string]string{
+		"traceId": "trace-5",
+		"spanId":  "span-a",
+		// A span claiming to be someone else's, the way a hostile or simply
+		// buggy publisher would.
+		"tenant":    "globex",
+		"requester": "globex",
+	})
+
+	kv, err := js.KeyValue(context.Background(), bucketName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := waitForRecord(t, kv, "trace-5", 1)
+	if record.Tenant != "acme" {
+		t.Fatalf("tenant = %q, want acme — attribution must come from the subject, not the envelope", record.Tenant)
+	}
+}
+
+// TestPlatformArrivalIsAttributedToPlatform is the other side of BR-051: a
+// bare obs.trace.> arrival crossed no import and so has no tenant token.
+func TestPlatformArrivalIsAttributedToPlatform(t *testing.T) {
+	nc, js, cleanup := newTestNATS(t)
+	defer cleanup()
+
+	cons, err := Register(context.Background(), js, nc, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cons.Stop()
+
+	publishSpan(t, nc, "trace-6", "span-a")
+
+	kv, err := js.KeyValue(context.Background(), bucketName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := waitForRecord(t, kv, "trace-6", 1)
+	if record.Tenant != kvContext {
+		t.Fatalf("tenant = %q, want %q for a bare obs.trace.> arrival", record.Tenant, kvContext)
+	}
+}
+
+// TestFirstTenantWinsOnMismatch is BR-052. Two tenants under one traceId is
+// never normal traffic — it is a traceId collision or an attempt to attach
+// spans to someone else's trace — so the established attribution must not
+// move, while the span itself stays visible because dropping it would hide
+// the evidence. The wrong-looking alternative here is the *default* one: a
+// plain field assignment on each write is last-writer-wins.
+func TestFirstTenantWinsOnMismatch(t *testing.T) {
+	nc, js, cleanup := newTestNATS(t)
+	defer cleanup()
+
+	var logs safeBuffer
+	log := slog.New(slog.NewTextHandler(&logs, nil))
+
+	cons, err := Register(context.Background(), js, nc, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cons.Stop()
+
+	kv, err := js.KeyValue(context.Background(), bucketName)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	publishSpanOn(t, nc, "monitor.acme.trace.acme.refdata.item.get",
+		map[string]string{"traceId": "trace-7", "spanId": "span-a"})
+	waitForRecord(t, kv, "trace-7", 1)
+
+	publishSpanOn(t, nc, "monitor.globex.trace.globex.refdata.item.get",
+		map[string]string{"traceId": "trace-7", "spanId": "span-b"})
+	record := waitForRecord(t, kv, "trace-7", 2)
+
+	if record.Tenant != "acme" {
+		t.Errorf("tenant = %q, want acme — the first attribution wins", record.Tenant)
+	}
+	if len(record.Spans) != 2 {
+		t.Errorf("got %d spans, want 2 — the disagreeing span is still stored", len(record.Spans))
+	}
+	out := logs.String()
+	for _, want := range []string{"trace-7", "acme", "globex"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("mismatch log does not mention %q; got: %s", want, out)
+		}
+	}
+}
+
+// safeBuffer is a bytes.Buffer the consume callback's goroutine and the test
+// goroutine can both touch. Without the mutex this spec is a data race that
+// only shows under -race, which is exactly the kind of flake a diagnostic
+// test should not introduce.
+type safeBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *safeBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *safeBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
