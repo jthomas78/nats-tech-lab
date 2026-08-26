@@ -19,6 +19,15 @@ const loading = ref(false)
 const portRows = ref([])
 
 async function loadPorts() {
+  // The store's context is '' until loadContexts() resolves, and this panel
+  // mounts before that. `/api/admin/ports/` with an empty {context} segment
+  // matches no route on shipping-service, so firing anyway only logged a 404
+  // in the browser console on every page load. The watch below re-runs this
+  // the moment a real context arrives.
+  if (!store.context) {
+    portRows.value = []
+    return
+  }
   loading.value = true
   try {
     const res = await getPortsTable(store.context)

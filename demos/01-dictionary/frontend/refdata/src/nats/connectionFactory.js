@@ -11,6 +11,7 @@
 
 import { ref } from 'vue'
 import { headers, jwtAuthenticator, wsconnect } from '@nats-io/nats-core'
+import { resolveWsUrl } from '@nats-shared/resolveWsUrl.js'
 
 import { REQUESTOR_HEADER, requestorID as buildRequestorID } from '../requestorId.js'
 
@@ -68,7 +69,11 @@ export function createConnectionState({ fetchConnectInfo, connectionName }) {
     const info = await fetchConnectInfo()
     const authenticator = jwtAuthenticator(info.jwt, encoder.encode(info.nkeySeed))
 
-    const conn = await wsconnect({ servers: info.wsUrl, authenticator, name: connectionName })
+    const conn = await wsconnect({
+      servers: resolveWsUrl(info.wsUrl),
+      authenticator,
+      name: connectionName,
+    })
     if (mySeq !== connectSeq) {
       conn.close()
       return

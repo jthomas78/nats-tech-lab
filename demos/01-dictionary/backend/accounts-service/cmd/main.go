@@ -65,7 +65,17 @@ func run(log *slog.Logger) error {
 	// verbatim in connectInfo. Not the in-cluster `nats:9222` hostname,
 	// since the browser resolves DNS from the host, not the backend
 	// network.
-	natsWSUrl := envOr("NATS_WS_URL", "ws://localhost:9222")
+	//
+	// Phase 45 — the default is now the path `/nats` rather than an
+	// absolute URL. This process cannot know the origin the page was
+	// served from, so any absolute URL it names is a guess, and the old
+	// `ws://localhost:9222` guess was wrong for every deployment where the
+	// browser and the stack are not the same machine. A path defers the
+	// question to the only party that can answer it: each frontend proxies
+	// /nats to the websocket listener and the browser resolves the path
+	// against its own origin (shared/nats/resolveWsUrl.js). Set an absolute
+	// ws:// or wss:// value to point at a dedicated NATS hostname instead.
+	natsWSUrl := envOr("NATS_WS_URL", "/nats")
 	httpAddr := envOr("HTTP_ADDR", ":8080")
 	// Phase 22: base URL of refdata-service for BU context registration.
 	// Optional: if unset, BU endpoints still persist locally but skip refdata sync.

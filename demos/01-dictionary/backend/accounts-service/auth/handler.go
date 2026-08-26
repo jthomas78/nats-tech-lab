@@ -45,7 +45,11 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 // the browser should dial into the HTTP layer.
 type Handlers struct {
 	Store *accounts.Store
-	WSUrl string // e.g. "ws://localhost:9222" — returned verbatim in connectInfo
+	// Returned verbatim in connectInfo — this package never inspects or
+	// rewrites it. Either a same-origin path the browser resolves against
+	// its own origin ("/nats", the deployed default since Phase 45) or an
+	// absolute "ws://host:port" / "wss://host" URL.
+	WSUrl string
 	Log   *slog.Logger
 }
 

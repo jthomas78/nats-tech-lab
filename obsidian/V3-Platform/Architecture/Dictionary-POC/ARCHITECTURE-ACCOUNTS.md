@@ -409,12 +409,13 @@ lapses, and the frontend's `conn.closed()` handler
 sequenceDiagram
     participant Tab as Browser tab<br/>(admin / seafreight-app)
     participant Backend as accounts-service<br/>(auth/token.go)
-    participant NATS as NATS Server<br/>(:9222 websocket)
+    participant NATS as NATS Server<br/>(:9222 websocket, via the app's own nginx at /nats)
 
     Note over Tab,NATS: Bootstrap — first connect
     Tab->>Backend: GET /api/auth/connectInfo (or /adminConnectInfo)
     Backend->>Backend: read configured TTL (system_config, default 15m)<br/>MintBrowserToken / MintAdminToken<br/>fresh NKey · sign w/ account signing key · Expires = now + TTL
     Backend-->>Tab: 200 { wsUrl, jwt, nkeySeed }
+    Tab->>Tab: resolveWsUrl(wsUrl) — "/nats" → wss://<this page's origin>/nats
     Tab->>NATS: wsconnect · jwtAuthenticator(jwt, nkeySeed)
     NATS-->>Tab: CONNECTED — server starts expiry timer (configured TTL)
 
@@ -450,6 +451,42 @@ typically the browser tab being backgrounded/throttled so the `conn.closed()`
 handler is deferred, rather than a code fault. (The original incident that
 surfaced this showed ~5-min spacing because the TTL was the old hardcoded
 5 min; with the BR-AC20 default the cadence is now ~15 min.)
+
+#### `wsUrl` — where the browser actually dials
+
+`connectInfo.wsUrl` is `NATS_WS_URL` returned **verbatim**: `auth/token.go`
+copies it into the response and never inspects it. That is deliberate, because
+accounts-service cannot know the origin the page was served from, so any
+absolute URL it names is a guess.
+
+Until Phase 45 that guess was the literal `ws://localhost:9222` — correct only
+when the browser and the stack share a machine. On a remote deployment it
+fails twice over:
+
+- `localhost` resolves to the **viewer's** machine, not the Docker host.
+- A `ws://` dial from an `https://` page is blocked as **mixed content**
+  before it leaves the browser, so even the right hostname would not help
+  without `wss://`.
+
+The deployed value is therefore now the path **`/nats`**. Each frontend's
+nginx (`frontend/*/nginx.conf`) proxies `/nats` to the NATS websocket
+listener, and the browser resolves the path against its own origin in
+`shared/nats/resolveWsUrl.js` — picking `wss:` whenever the page is `https:`.
+One config value then works on a laptop-local stack and behind a remote TLS
+proxy alike, and the deployment's existing certificate covers the bus
+connection for free. An absolute `ws://`/`wss://` value is still honoured
+unchanged, for a deployment that prefers a dedicated NATS hostname.
+
+Two consequences:
+
+- **`nats` joins the `frontend` docker network** so the nginx containers can
+  reach it. The trust-tier invariant is unchanged and arguably tighter: what
+  must not reach the bus directly is the *browser*, and it still cannot — it
+  dials nginx, which forwards exactly one path, and it still needs an
+  account-scoped JWT minted here to get past the server's own authorization.
+- **The NATS host port 9222 stays published**, but only for the `nats-ui`
+  container (under review), whose own browser page dials it directly. The
+  demo's three frontends no longer do.
 
 ### NATS operator-mode trust chain
 

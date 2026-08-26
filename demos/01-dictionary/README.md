@@ -141,7 +141,8 @@ re-export the whole retained hour on the next start instead.
 | organizations-service API | http://localhost:7204                                |
 | NATS client           | nats://localhost:4222                                       |
 | NATS monitor          | http://localhost:8222                                       |
-| NATS WebSocket        | ws://localhost:9222                                          |
+| NATS WebSocket (direct)   | ws://localhost:9222                                     |
+| NATS WebSocket (via a frontend) | http://localhost:7100/nats (also :7101, :7102)     |
 | Postgres (shipping-service) | localhost:5432                                         |
 | Postgres (refdata-service)  | localhost:5433                                         |
 | Postgres (accounts-service) | localhost:5434                                         |

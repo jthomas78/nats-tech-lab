@@ -14,6 +14,8 @@ export default defineConfig({
       // Shared refdata helpers — BR-D32's locale ordering/labelling lives here
       // so this app and the two shipping apps present locales identically.
       '@refdata': fileURLToPath(new URL('../../shared/refdata', import.meta.url)),
+      // Demo-01 shared NATS WebSocket URL resolver (Phase 45).
+      '@nats-shared': fileURLToPath(new URL('../../shared/nats', import.meta.url)),
     },
   },
   server: {
@@ -23,6 +25,17 @@ export default defineConfig({
       allow: [fileURLToPath(new URL('../../../..', import.meta.url))],
     },
     proxy: {
+      // Phase 45 — the browser's NATS WebSocket connection, same-origin so
+      // it works identically on localhost and behind a remote TLS proxy
+      // (see shared/nats/resolveWsUrl.js). Mirrors this app's nginx.conf
+      // `location /nats` rule. `ws: true` is what makes Vite forward the
+      // Upgrade handshake rather than answering it as a plain HTTP request.
+      '/nats': {
+        target: 'ws://localhost:9222',
+        ws: true,
+        rewriteWsOrigin: true,
+        rewrite: (path) => path.replace(/^\/nats/, ''),
+      },
       // Phase 32 — accounts-service's auth routes (refdataAdminConnectInfo
       // mints this app's PLATFORM-account NATS credential). More specific
       // than '/api' below, so Vite's prefix match picks this one first —

@@ -16,9 +16,19 @@ services:
     ports:
       - "4222:4222"
       - "8222:8222" # monitoring
-      - "9222:9222" # websocket (nats-ui, under review)
+      # Still published for the nats-ui container (under review), whose
+      # browser page dials this host port directly. The demo's own three
+      # frontends no longer do — since Phase 45 they reach the listener
+      # through their own nginx at /nats (same origin), which is what makes
+      # them work behind a remote TLS proxy.
+      - "9222:9222" # websocket
     networks:
       - backend
+      # Phase 45 — reachable by the frontend nginx containers so they can
+      # proxy /nats. This does not put the browser on the bus: nginx exposes
+      # exactly one location for it, and nothing else on `frontend` gains a
+      # NATS credential by being able to resolve the hostname.
+      - frontend
     volumes:
       - nats-data:/data
       - nats-logs:/logs
@@ -313,10 +323,16 @@ services:
       # human auth is a later phase (.claude/memory/accounts_service_plan.md).
       ACCOUNTS_AUTH_SECRET: accounts-spike-pass
       # Phase 19 (folded in from auth-service) — returned verbatim in
-      # connectInfo as the address the browser itself should dial — not the
-      # in-cluster `nats:9222` hostname, since the browser resolves DNS from
-      # the host, not the backend network.
-      NATS_WS_URL: ws://localhost:9222
+      # connectInfo as the address the browser itself should dial. Phase 45
+      # made that a *path* rather than an absolute URL: each frontend's nginx
+      # proxies /nats to the websocket listener below, and the browser
+      # resolves the path against the origin it was served from
+      # (shared/nats/resolveWsUrl.js). The previous `ws://localhost:9222`
+      # was correct only when the browser and the stack shared a machine —
+      # remotely, `localhost` is the viewer's own box, and a ws:// dial from
+      # an https:// page is blocked as mixed content. An absolute ws://wss://
+      # value still works if a deployment prefers a dedicated NATS hostname.
+      NATS_WS_URL: /nats
       # Phase 2 / BR-AC12 — proxies the NATS server's /jsz monitoring endpoint
       # (same pattern as shipping-service's NATS_MONITOR_URL) to serve the
       # GET /api/accounts/usage endpoint used by the Admin UI's usage column.
@@ -661,7 +677,13 @@ networks:
   # Trust-tier split (not per-service-pair): anything needing NATS/Postgres
   # joins `backend`; anything the browser talks to joins `frontend`.
   # shipping-service/refdata-service straddle both — they're the only bridge
-  # point, so frontend apps can reach them but never nats/postgres directly.
+  # point for REST, so frontend apps can reach them but never postgres
+  # directly. Phase 45 added `nats` to `frontend` as well, so each frontend's
+  # nginx can proxy the browser's WebSocket at /nats. The invariant that
+  # rule protects is unchanged and in fact tighter: what must not reach the
+  # bus directly is the *browser*, and it still cannot — it dials nginx,
+  # which forwards one path, and it still needs an account-scoped JWT from
+  # accounts-service to get past the NATS server's own authorization.
   backend:
   frontend:
 
