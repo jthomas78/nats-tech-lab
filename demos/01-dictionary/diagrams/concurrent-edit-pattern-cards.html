@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Concurrent Record Editing — Pattern Cards</title>
+<style>
+  :root{
+    --bg:#0d0f11; --bg2:#131416; --panel:#1A1E23; --panel2:#15181c;
+    --line:#2a3038; --line2:#3a424c; --stroke:#4A515B;
+    --tx:#DEE0E3; --tx2:#B7BCC2; --tx3:#8b929b;
+    --blue:#3b8bff; --cyan:#2fd4e8; --green:#34d399; --amber:#f5b13d;
+    --purple:#a78bfa; --red:#f87171; --teal:#2dd4bf;
+  }
+  @page { size: A4; margin: 0; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{
+    background:var(--bg); color:var(--tx);
+    font-family:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    font-size:13px; line-height:20px; font-feature-settings:"cv05","ss01";
+  }
+  .page{
+    width:210mm; height:297mm; overflow:hidden; padding:15mm 13mm 11mm;
+    display:flex; flex-direction:column; page-break-after:always;
+    background:radial-gradient(120% 80% at 80% -10%, #16202c 0%, var(--bg) 55%);
+  }
+  .page:last-child{page-break-after:auto}
+
+  /* ---------- cover ---------- */
+  .eyebrow-pill{
+    display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line2);
+    border-radius:999px;padding:7px 16px;font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--tx2);background:rgba(255,255,255,.02);
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan)}
+  h1.cover{font-size:47px;line-height:54px;letter-spacing:-.02em;font-weight:800;margin:26px 0 0}
+  h1.cover .hl{color:var(--blue);outline:1.5px solid var(--blue);padding:0 6px;margin-left:2px}
+  .cover-sub{color:var(--tx2);font-size:15px;line-height:24px;max-width:78%;margin-top:16px}
+  .cover-q{
+    margin-top:26px;border-left:3px solid var(--blue);background:var(--panel);
+    border-radius:0 8px 8px 0;padding:16px 20px;max-width:92%;
+  }
+  .cover-q .lbl{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan);margin-bottom:7px}
+  .cover-q p{font-size:14px;line-height:23px}
+  .cover-foot{margin-top:auto;border-top:1px solid var(--line);padding-top:14px}
+  .fam-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px 30px;margin-top:10px}
+  .fam{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--tx2)}
+  .sw{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+  .cover-meta{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.1em;color:var(--tx3);margin-top:16px}
+  .lbl-s{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--tx3)}
+
+  /* ---------- card chrome ---------- */
+  .chead{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);
+    padding-bottom:10px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3)}
+  .chead .r{color:var(--fam)}
+  .titleblock{
+    margin-top:16px;background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--fam);border-radius:0 10px 10px 0;padding:16px 20px 18px;
+    display:grid;grid-template-columns:56px 1fr;gap:4px 14px;
+  }
+  .num{font-size:30px;font-weight:800;color:var(--fam);letter-spacing:-.02em;line-height:34px;grid-row:span 3}
+  .fam-lbl{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--fam)}
+  h2{font-size:25px;line-height:31px;letter-spacing:-.01em;font-weight:700;margin:1px 0 6px}
+  .lede{color:var(--tx2);font-size:12.5px;line-height:19px}
+  .decision{
+    margin-top:12px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+    padding:14px 18px;display:grid;grid-template-columns:78px 1fr;gap:14px;align-items:start;
+  }
+  .decision .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--fam);padding-top:3px}
+  .decision p{font-size:14px;line-height:22px}
+  .decision b{color:var(--tx)}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:11px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:13px 16px}
+  .panel.flat{background:var(--panel2)}
+  .panel > .lbl{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx3);margin-bottom:10px}
+  .panel.pro{border-left:2px solid var(--green)}
+  .panel.con{border-left:2px solid var(--red)}
+  .panel.pro > .lbl{color:var(--green)}
+  .panel.con > .lbl{color:var(--red)}
+  .panel.note{border-left:2px solid var(--amber)}
+  .panel.note > .lbl{color:var(--amber)}
+  ul{list-style:none}
+  li{position:relative;padding-left:14px;margin-bottom:6px;font-size:12px;line-height:18px;color:var(--tx2)}
+  li:last-child{margin-bottom:0}
+  li:before{content:"›";position:absolute;left:0;top:-1px;color:var(--stroke);font-size:13px}
+  li b{color:var(--tx);font-weight:600}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--cyan);
+    background:rgba(47,212,232,.07);padding:1px 4px;border-radius:3px}
+  .flow{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:2px}
+  .step{background:var(--panel2);border:1px solid var(--line2);border-radius:6px;padding:6px 10px;
+    font-size:11px;color:var(--tx);line-height:15px}
+  .step.hi{border-color:var(--fam);color:var(--fam)}
+  .arw{color:var(--stroke);font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:11.5px}
+  th{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--tx3);text-align:left;
+    padding:0 8px 8px 0;font-weight:500}
+  td{padding:5px 8px 5px 0;border-top:1px solid var(--line);color:var(--tx2);vertical-align:top;line-height:16px}
+  td b{color:var(--tx);font-weight:600}
+  .good{color:var(--green)} .bad{color:var(--red)} .mid{color:var(--amber)}
+  .verdict{
+    margin-top:auto;padding-top:14px;border-top:1px solid var(--line);
+    display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;
+  }
+  .pill{border:1px solid var(--fam);color:var(--fam);border-radius:5px;padding:6px 11px;
+    font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+  .verdict p{font-size:12.5px;line-height:19px}
+  .verdict .side{font-size:10.5px;color:var(--tx3);letter-spacing:.06em;white-space:nowrap}
+  .spacer{flex:1}
+  /* Two cards carry more material than the others; step their body type down a
+     notch rather than cutting content, so every card still fits exactly one page. */
+  .page.tight li{font-size:11.1px;line-height:16px;margin-bottom:5px}
+  .page.tight .lede{font-size:12px;line-height:18px}
+  .page.tight .panel{padding:11px 15px}
+  .page.tight td{font-size:11px}
+  .src{font-size:10px;line-height:15px;color:var(--tx3);padding:11px 13px;break-inside:avoid}
+  .src li{font-size:10px;line-height:15px;margin-bottom:5px}
+  .src .lbl{margin-bottom:7px}
+  .srcwrap{column-count:2;column-gap:12px}
+  .srcwrap .panel{margin:0 0 12px!important}
+  .src a{color:var(--tx3);text-decoration:none}
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<section class="page">
+  <div><span class="eyebrow-pill"><span class="dot"></span>Interaction pattern reference · nats-tech-lab</span></div>
+  <h1 class="cover">Concurrent Editing<br>of a Record <span class="hl">in the UI</span></h1>
+  <p class="cover-sub">Eight ways two people can want the same row — or two related rows — at the same time. Each card
+    states the mechanism, the pros, the cons, and where it fits in a logistics platform.</p>
+
+  <div class="cover-q">
+    <div class="lbl">The question every card serves</div>
+    <p>Two dispatchers open the same shipment. One saves. What should the other one see —
+      a locked form, a rejected save, a merged record, or the other person's cursor?</p>
+  </div>
+
+  <div class="cover-q" style="border-left-color:var(--amber);margin-top:14px">
+    <div class="lbl" style="color:var(--amber)">The rule that orders the deck</div>
+    <p>Contention is a <b>domain</b> question before it is a technical one. Pick the weakest
+      mechanism that still protects the invariant — every step up in strength buys safety with
+      availability, latency, or build cost.</p>
+  </div>
+
+  <div class="cover-foot">
+    <div class="lbl-s">The eight patterns</div>
+    <div class="fam-grid">
+      <div class="fam"><span class="sw" style="background:var(--amber)"></span>01 · Pessimistic lock — hold the row while editing</div>
+      <div class="fam"><span class="sw" style="background:var(--cyan)"></span>05 · Real-time collaboration — CRDT / OT + presence</div>
+      <div class="fam"><span class="sw" style="background:var(--blue)"></span>02 · Optimistic concurrency — version check on save</div>
+      <div class="fam"><span class="sw" style="background:var(--green)"></span>06 · Command / intent writes — stop editing rows</div>
+      <div class="fam"><span class="sw" style="background:var(--teal)"></span>03 · Reservation / lease — a lock with an expiry</div>
+      <div class="fam"><span class="sw" style="background:var(--red)"></span>07 · Cascade — when one edit invalidates another</div>
+      <div class="fam"><span class="sw" style="background:var(--purple)"></span>04 · Field-level merge — per-field last-write-wins</div>
+      <div class="fam"><span class="sw" style="background:var(--blue)"></span>08 · Choosing — one screen at a time</div>
+    </div>
+    <div class="cover-meta"><span>Companion to “Event Sourcing + CQRS + NATS — Pattern Cards”</span><span>7 patterns · 1 selection guide · presence throughout</span></div>
+  </div>
+</section>
+
+<!-- ============ 01 PESSIMISTIC ============ -->
+<section class="page" style="--fam:var(--amber)">
+  <div class="chead"><span>Concurrent editing · nats-tech-lab</span><span class="r">Exclusion · Card 01 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">01</div><div class="fam-lbl">Exclusion</div>
+    <h2>Pessimistic lock — hold the row while editing</h2>
+    <p class="lede">The record is locked the moment someone opens it for edit. Everyone else gets a
+      read-only form and a “locked by Sarah, 14:02” banner until it is released.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Is a <b>conflict expensive enough</b> that it is better to make the second user wait than to let
+      them work and lose it?</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <div class="flow">
+      <span class="step">open for edit</span><span class="arw">→</span>
+      <span class="step hi">acquire lock<br><code>owner + acquired_at</code></span><span class="arw">→</span>
+      <span class="step">form editable</span><span class="arw">→</span>
+      <span class="step">save</span><span class="arw">→</span>
+      <span class="step hi">release</span>
+    </div>
+    <ul style="margin-top:11px">
+      <li>The lock is <b>application-level and long-lived</b> — a row in a locks table, a KV entry, a Redis key.
+        It is <b>not</b> a database transaction: never hold a DB transaction open across a user's think time.</li>
+      <li>Needs an escape hatch from day one: admin force-unlock, and release on logout / tab close.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">Pros</div><ul>
+      <li><b>No lost work, ever.</b> The second user is stopped before typing, not after.</li>
+      <li><b>Easiest to explain</b> to non-technical users — the mental model is a physical file on a desk.</li>
+      <li>No merge UI, no conflict dialog, no diffing to build.</li>
+      <li>Right by default where the edit is a <b>multi-step, high-value</b> transaction (rate contract, customs declaration).</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">Cons</div><ul>
+      <li><b>The lunch-break lock.</b> A user who wanders off leaves the record frozen — the single most-reported
+        complaint against this pattern.</li>
+      <li>Needs timeouts, heartbeats and force-unlock anyway — which is Card 03, arrived at the hard way.</li>
+      <li><b>Blocks readers-who-would-not-have-conflicted</b>: two users editing different fields still queue.</li>
+      <li>Poor fit for mobile / warehouse handhelds where sessions die without a clean release.</li>
+      <li>Degrades badly on hot rows — a bottleneck under load.</li>
+    </ul></div>
+  </div>
+
+  <div class="panel note" style="margin-top:12px"><div class="lbl">In a logistics platform</div>
+    <ul><li>Fits the <b>slow, deliberate, back-office</b> edits: a tariff/rate table version, a customer master
+      record, a customs entry being prepared by one clerk.</li>
+      <li>Wrong for anything on the <b>operational hot path</b> — shipment status, dock slots, pick tasks —
+        where the record is touched from many places, some of them machines.</li></ul></div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Choose it only when the conflict is genuinely expensive <i>and</i> the edit is short and human.
+      Otherwise you will end up bolting on expiry, heartbeats and force-unlock — at which point you have
+      built Card 03 without deciding to.</p>
+    <span class="side">strength: highest</span></div>
+</section>
+
+<!-- ============ 02 OPTIMISTIC ============ -->
+<section class="page" style="--fam:var(--blue)">
+  <div class="chead"><span>Concurrent editing · nats-tech-lab</span><span class="r">Detection · Card 02 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">02</div><div class="fam-lbl">Detection</div>
+    <h2>Optimistic concurrency — check the version on save</h2>
+    <p class="lede">Everyone edits freely. The version the client loaded rides along with the save, and the
+      write is rejected if the record moved underneath it. First save wins; the second is told.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Is contention <b>rare enough</b> that it is cheaper to detect a conflict at save time than to prevent it
+      at open time?</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <div class="flow">
+      <span class="step">GET record<br><code>version 7 / ETag</code></span><span class="arw">→</span>
+      <span class="step">user edits</span><span class="arw">→</span>
+      <span class="step hi">PUT <code>If-Match: 7</code></span><span class="arw">→</span>
+      <span class="step">v = 7 ? write, v→8</span><span class="arw">·</span>
+      <span class="step hi" style="--fam:var(--red);border-color:var(--red);color:var(--red)">else <code>412</code> / <code>409</code></span>
+    </div>
+    <ul style="margin-top:11px">
+      <li>Carried as a <code>version</code> column, an <code>updated_at</code>, or an HTTP <b>ETag + If-Match</b>.
+        <code>412 Precondition Failed</code> is the precise code for a failed conditional header;
+        <code>409 Conflict</code> for a state conflict the request itself creates.</li>
+      <li>The same idea, one layer down, is JetStream's <code>Nats-Expected-Last-Subject-Sequence</code> —
+        already the write-side safety mechanism in this repo's event-sourced services.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">Pros</div><ul>
+      <li><b>No blocking, no state to clean up.</b> Nothing is held between requests; a dead client costs nothing.</li>
+      <li>Scales — read paths stay lock-free, so hot rows don't serialize.</li>
+      <li>Safe across <b>long-lived</b> edits (a form open for 40 minutes) where a lock would be intolerable.</li>
+      <li>Works uniformly for humans, APIs and integrations — an EDI partner gets the same guarantee.</li>
+      <li>Cheap: one column, one <code>WHERE version = ?</code>.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">Cons</div><ul>
+      <li><b>The loser finds out last</b> — after doing the work. That is the whole cost, and users feel it.</li>
+      <li>Needs a real conflict UX. “Someone else changed this, please try again” is the failure mode people hate.</li>
+      <li>Under high contention it thrashes: retries pile up and throughput falls below a lock.</li>
+      <li>Whole-record versioning flags <b>false conflicts</b> — two people editing unrelated fields.
+        (Card 04 answers this.)</li>
+    </ul></div>
+  </div>
+
+  <div class="panel note" style="margin-top:12px"><div class="lbl">Make the rejection useful</div>
+    <ul><li>Return <b>the current server state and the conflicting fields</b> in the error body, not just a status
+      code — that is what lets the client auto-merge or draw a three-way diff.</li>
+      <li>Offer the user the three real choices: <b>overwrite</b>, <b>discard mine</b>, or <b>merge field by field</b>.</li></ul></div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>The correct default for most business records. Its reputation is damaged almost entirely by lazy
+      conflict UX, not by the mechanism.</p>
+    <span class="side">strength: medium · cost: low</span></div>
+</section>
+
+<!-- ============ 03 RESERVATION ============ -->
+<section class="page" style="--fam:var(--teal)">
+  <div class="chead"><span>Concurrent editing · nats-tech-lab</span><span class="r">Exclusion · Card 03 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">03</div><div class="fam-lbl">Exclusion, bounded</div>
+    <h2>Reservation / lease — a lock that expires</h2>
+    <p class="lede">A soft lock with a TTL. The editor holds the record for N minutes and renews by heartbeat
+      while the tab is alive; if the browser dies or the user leaves, the reservation lapses on its own.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>You want exclusivity, but you refuse to let a <b>crashed client</b> or an absent human freeze the
+      record indefinitely.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <div class="flow">
+      <span class="step hi">acquire<br><code>ttl = 120s</code></span><span class="arw">→</span>
+      <span class="step">heartbeat every ~40s<br><span style="color:var(--tx3)">renew at ⅓ TTL, with jitter</span></span><span class="arw">→</span>
+      <span class="step">release on save/cancel</span><span class="arw">·</span>
+      <span class="step hi">no heartbeat → auto-expire</span>
+    </div>
+    <ul style="margin-top:11px">
+      <li>Renew well before expiry (a third of TTL is the common rule) and add jitter so clients don't all
+        renew on the same tick.</li>
+      <li>A lease alone is <b>not</b> safe against a paused holder that wakes after expiry: pair it with a
+        <b>fencing token</b> — a monotonically increasing number the write path validates — or with Card 02's
+        version check as the real guard.</li>
+      <li>Natural fit for NATS KV: <code>Create</code> for acquire-if-absent, <code>Update</code> with revision for
+        renew, per-bucket TTL for expiry, and <code>Watch</code> to push lock state to every other tab.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">Pros</div><ul>
+      <li><b>Self-healing</b> — no stuck records, no admin force-unlock queue.</li>
+      <li>Keeps the pessimistic pattern's clarity (“Sarah has this until 14:07”) without its worst failure.</li>
+      <li>Extends naturally to <b>business</b> reservations: a dock slot held for 10 minutes, capacity held
+        while a quote is accepted.</li>
+      <li>Survives handheld/mobile sessions dropping — the common warehouse reality.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">Cons</div><ul>
+      <li><b>Most moving parts of any pattern here:</b> TTL, heartbeat, renewal, jitter, expiry, fencing.</li>
+      <li>TTL is a guess. Too short interrupts real work; too long recreates the lunch-break lock.</li>
+      <li>Clock and pause hazards — expiry does not stop an in-flight write, so it needs a second guard anyway.</li>
+      <li>Adds a write-side store and a background timer to every editing screen that uses it.</li>
+    </ul></div>
+  </div>
+
+  <div class="panel note" style="margin-top:12px"><div class="lbl">In a logistics platform</div>
+    <ul><li>This is the pattern that generalises beyond editing: <b>reserving inventory</b> during checkout,
+      <b>holding a dock appointment</b> while the carrier confirms, <b>claiming a pick task</b> so two pickers
+      don't walk the same aisle.</li>
+      <li>Once a reservation is a business fact rather than a UI concern, it stops being a lock and becomes
+        an event on the log — which is Card 06.</li></ul></div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>The right upgrade path from Card 01, and the right primitive for scarce physical resources.
+      Don't build it as generic infrastructure for every screen — build it where the exclusivity is real.</p>
+    <span class="side">strength: high · cost: high</span></div>
+</section>
+
+<!-- ============ 04 FIELD MERGE ============ -->
+<section class="page" style="--fam:var(--purple)">
+  <div class="chead"><span>Concurrent editing · nats-tech-lab</span><span class="r">Reconciliation · Card 04 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">04</div><div class="fam-lbl">Reconciliation</div>
+    <h2>Field-level merge — send changes, not records</h2>
+    <p class="lede">The client PATCHes only the fields the user actually touched. Edits to different fields
+      merge silently; only a genuine same-field collision is a conflict.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Is the unit of concurrency the <b>record</b>, or the <b>field</b>? Whole-record versioning declares a conflict
+      the domain does not actually have.</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <ul>
+      <li>Send a <b>sparse patch</b> — dirty fields only. Untouched fields are absent, not null.</li>
+      <li>Default resolution is <b>last-write-wins per field</b>: the two dispatchers who changed
+        <code>eta</code> and <code>driver_notes</code> both get their change.</li>
+      <li>Escalate to a conflict dialog only when the same field moved. Keep whole-record versioning
+        as the outer guard for edits that must be <b>consistent across fields</b>.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">Pros</div><ul>
+      <li><b>Eliminates false conflicts</b> — the biggest practical complaint about Card 02.</li>
+      <li>Most of the collaborative feel of Card 05 for a fraction of the build cost.</li>
+      <li>Smaller payloads, and a natural audit trail: you know which field changed and who changed it.</li>
+      <li>Composes with optimistic concurrency rather than replacing it.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">Cons</div><ul>
+      <li><b>Last-write-wins silently loses data</b> when the same field does collide — dangerous where the
+        value matters.</li>
+      <li>Breaks <b>cross-field invariants</b>: merging one user's route with another's ETA can yield a record
+        neither person would have saved.</li>
+      <li>Wrong for <b>counters and quantities</b> — two clerks decrementing stock need both decrements, not the
+        later value. That needs a counter/CRDT or a command (Card 06).</li>
+      <li>Requires the client to track dirty state accurately; a naive form that PATCHes everything gets none
+        of the benefit.</li>
+    </ul></div>
+  </div>
+
+  <div class="panel note" style="margin-top:12px"><div class="lbl">The invariant test</div>
+    <ul><li>Ask, per field: <b>“is this field independently meaningful?”</b> Free text, notes, flags, contact details —
+      yes, merge them. Status, quantity, price, and anything two fields must agree on — no, guard the whole record.</li></ul></div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Not an alternative to Card 02 — a refinement of it. Merge the independent fields, version-guard the
+      dependent ones, and never let a quantity be resolved by last-write-wins.</p>
+    <span class="side">strength: low–medium · cost: medium</span></div>
+</section>
+
+<!-- ============ 05 REALTIME ============ -->
+<section class="page" style="--fam:var(--cyan)">
+  <div class="chead"><span>Concurrent editing · nats-tech-lab</span><span class="r">Reconciliation · Card 05 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">05</div><div class="fam-lbl">Convergence</div>
+    <h2>Real-time collaboration — CRDT / OT + presence</h2>
+    <p class="lede">Nobody waits and nobody is rejected: edits stream between clients and converge.
+      The Google-Docs model, applied to a business form.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Is <b>simultaneous</b> editing a feature people are asking for — or are you buying a distributed-systems
+      problem to avoid writing a conflict dialog?</p></div>
+
+  <div class="grid2" style="margin-top:12px">
+    <div class="panel"><div class="lbl">CRDT</div><ul>
+      <li>Data types whose merges commute — conflicts are <b>mathematically impossible</b> rather than resolved.</li>
+      <li>Offline-first falls out for free; no central transform server required, and it is the
+        recommended starting point for new work (e.g. Yjs).</li>
+      <li>Cost: metadata growth, and a state model that is no longer just your row.</li>
+    </ul></div>
+    <div class="panel"><div class="lbl">Operational Transformation</div><ul>
+      <li>Concurrent operations are transformed against each other to preserve intent — the Google Docs lineage.</li>
+      <li>Needs a central server and correct transform functions per operation type.</li>
+      <li>Harder for mixed/structured content than for plain text.</li>
+    </ul></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">Pros</div><ul>
+      <li><b>No conflict is ever surfaced to the user.</b> Best possible experience when it fits.</li>
+      <li>Presence, cursors and live values make contention <b>visible before</b> it becomes a conflict.</li>
+      <li>Offline-tolerant (CRDT) — attractive for drivers and yard staff with poor connectivity.</li>
+      <li>Removes the conflict-dialog design problem entirely.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">Cons</div><ul>
+      <li><b>By far the highest complexity</b> — a new sync layer, new storage, new failure modes.</li>
+      <li>Convergence is <b>not correctness</b>: a merged form can be internally invalid. Business invariants
+        still need a server-side gate.</li>
+      <li>Poor fit for records governed by a <b>state machine</b> — you cannot CRDT-merge “dispatched” and “cancelled”.</li>
+      <li>Auditing “who changed the ETA” gets harder — a real problem under freight/customs scrutiny.</li>
+    </ul></div>
+  </div>
+
+  <div class="panel note" style="margin-top:12px"><div class="lbl">Take the cheap half</div>
+    <ul><li><b>Presence without CRDTs.</b> “Tom is viewing · Sarah is editing the ETA” costs one pub/sub subject
+      and prevents most collisions socially. In this stack it is a <code>notify.*</code> subject and a KV watch —
+      days of work, not quarters.</li>
+      <li>Adopt presence first, measure how often real conflicts remain, and only then consider merging.</li></ul></div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Justified for genuinely co-authored free-form content. For a shipment record with a lifecycle, take the
+      presence layer and leave the merge engine.</p>
+    <span class="side">strength: n/a · cost: very high</span></div>
+</section>
+
+<!-- ============ 06 COMMANDS ============ -->
+<section class="page" style="--fam:var(--green)">
+  <div class="chead"><span>Concurrent editing · nats-tech-lab</span><span class="r">Avoidance · Card 06 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">06</div><div class="fam-lbl">Avoidance</div>
+    <h2>Command / intent writes — stop editing rows</h2>
+    <p class="lede">The conflict exists because two users are submitting <i>whole records</i>. Submit intent instead —
+      <code>reroute</code>, <code>assign driver</code>, <code>mark delivered</code> — and most conflicts stop being conflicts.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Are these two users really editing the same thing, or performing <b>two different operations</b> that a
+      CRUD form has flattened into one <code>PUT</code>?</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">Mechanism</div>
+    <div class="flow">
+      <span class="step">user intent</span><span class="arw">→</span>
+      <span class="step hi">command<br><code>+ idempotency key</code></span><span class="arw">→</span>
+      <span class="step">hydrate + validate<br><span style="color:var(--tx3)">state machine</span></span><span class="arw">→</span>
+      <span class="step hi">append event</span><span class="arw">→</span>
+      <span class="step">projections + live UI</span>
+    </div>
+    <ul style="margin-top:11px">
+      <li>Two commands touching <b>different</b> aspects both succeed. Two commands touching the same one are
+        adjudicated by <b>domain rules</b>, not by a version number — and the loser gets a meaningful message
+        (“already assigned to Driver 12”), not “someone else saved first”.</li>
+      <li>Each command carries an <b>idempotency key</b> so a retry or a double-tap on a handheld can never
+        apply twice.</li>
+      <li>Claiming a task becomes a <b>conditional write</b>: <code>UPDATE … SET picker = me WHERE picker IS NULL</code>,
+        or a KV <code>Create</code>. Exactly one caller wins, by construction.</li>
+      <li>In this repo this is the existing shape: <code>cmd → rule → event</code>, guarded by
+        <code>Nats-Expected-Last-Subject-Sequence</code> and <code>Nats-Msg-Id</code>.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel pro"><div class="lbl">Pros</div><ul>
+      <li><b>Removes most conflicts rather than resolving them</b> — the cheapest conflict is the one that
+        never happens.</li>
+      <li>Rejections are <b>domain-meaningful</b> and actionable by an operator.</li>
+      <li>Full audit trail of who did what, in order — which freight, customs and claims work needs anyway.</li>
+      <li>Naturally idempotent and retry-safe; correct for machine actors (EDI, telematics, scanners) too.</li>
+    </ul></div>
+    <div class="panel con"><div class="lbl">Cons</div><ul>
+      <li><b>Redesigns the UI</b> — action-shaped screens, not one big editable form. Real work, and a change
+        users must be walked through.</li>
+      <li>More endpoints/subjects and more domain modelling up front.</li>
+      <li><b>Does not help bulk attribute editing</b> — someone correcting ten address fields still wants a form,
+        and still needs Cards 02/04.</li>
+      <li>Read models are eventually consistent; the UI must handle “accepted, not yet visible”.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>The pattern with the highest leverage in logistics, because operational records are lifecycles, not
+      forms. Apply it to the hot path; keep Cards 02/04 for the master-data screens behind it.</p>
+    <span class="side">strength: strong, per-rule</span></div>
+</section>
+
+<!-- ============ 07 CASCADE ============ -->
+<section class="page tight" style="--fam:var(--red)">
+  <div class="chead"><span>Concurrent editing · nats-tech-lab</span><span class="r">Cascade · Card 07 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">07</div><div class="fam-lbl">Cascade</div>
+    <h2>When one edit invalidates another</h2>
+    <p class="lede">The hardest case is not two people on one row. It is one person editing a record whose
+      change ripples downstream — into a second record someone else already has open, and whose edit was
+      valid when they started.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>Your write is guarded against <b>the record you are writing</b>. What guards it against the
+      <b>records you read</b> to decide it was legal?</p></div>
+
+  <div class="panel flat" style="margin-top:12px">
+    <div class="lbl">The shape of the problem</div>
+    <div class="flow">
+      <span class="step">Ann opens Shipment 88<br><span style="color:var(--tx3)">reads route R4, ETA, slot D2</span></span><span class="arw">→</span>
+      <span class="step hi">Bob reroutes R4</span><span class="arw">→</span>
+      <span class="step">slot D2 released,<br>ETA recalculated</span><span class="arw">→</span>
+      <span class="step hi" style="--fam:var(--red)">Ann saves — her record<br>is untouched, her <i>premises</i> are not</span>
+    </div>
+    <ul style="margin-top:11px">
+      <li>Card 02's version check passes — nobody else edited Shipment 88. The lost update is <b>invisible to a
+        per-record guard</b>: the conflict is on the <b>read set</b>, not the write set. The event-sourced side
+        calls this a <b>cross-aggregate invariant</b>.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="panel"><div class="lbl">Mechanisms</div><ul>
+      <li><b>Read-set / dependency versioning.</b> The form submits the versions of everything it read;
+        the server re-checks all of them. The direct generalisation of Card 02.</li>
+      <li><b>Live invalidation.</b> The upstream change publishes a notification and every open editor
+        holding that dependency is told <i>while</i> they work — “Route R4 changed, your ETA is stale”.
+        Here: a <code>notify.*</code> subject plus a KV watch.</li>
+      <li><b>Re-validate on save.</b> Never trust the client's premises — re-run the domain rules against
+        current state at write time.</li>
+      <li><b>Saga / compensation.</b> Let both land and correct forward — release the slot, re-book, notify
+        the carrier. The honest option across service boundaries.</li>
+    </ul></div>
+    <div class="panel"><div class="lbl">Pros &amp; cons, by mechanism</div><ul>
+      <li><b>Read-set versioning</b> — <span class="good">precise, no extra transport</span>;
+        <span class="bad">false conflicts if the read set is drawn too wide, and someone must define
+        “was read” per screen.</span></li>
+      <li><b>Live invalidation</b> — <span class="good">the user finds out early, when the edit is still cheap
+        to redo</span>; <span class="bad">needs a dependency-to-subscriber map and does not, on its own,
+        stop the save.</span></li>
+      <li><b>Re-validate on save</b> — <span class="good">simple, always correct to do</span>;
+        <span class="bad">worst-timed rejection, and silent if the rule was never written down.</span></li>
+      <li><b>Saga</b> — <span class="good">no distributed lock, self-correcting, crosses services</span>;
+        <span class="bad">compensation is a forward transition, not a rollback — it can itself fail, and
+        intermediate states are visible.</span></li>
+    </ul></div>
+  </div>
+
+  <div class="panel note" style="margin-top:12px"><div class="lbl">In a logistics platform this is the common case, not the edge case</div>
+    <ul><li>Change a <b>vessel ETA</b> → every booking's cut-off, every haulage slot, every customs deadline moves.
+      Cancel an <b>order line</b> → the pick task, the load plan and the invoice are all mid-flight elsewhere.
+      Re-rate a <b>tariff</b> → quotes already being accepted change price.</li>
+      <li>Practical rule: <b>make the dependency explicit in the model</b>. If a record's validity depends on another
+        record, that is a domain relationship worth naming — then invalidation, re-validation and compensation
+        all have something concrete to hang off, instead of being rediscovered per screen.</li>
+      <li>Decide per relationship whether the downstream edit should be <b>blocked</b>, <b>warned</b>, or
+        <b>auto-corrected</b>. Blocking everything recreates Card 01 across the whole graph.</li></ul></div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Re-validate on save as the floor; add read-set versioning where a stale premise is expensive; push
+      live invalidation into the UI so the user learns early; reach for a saga only across services.</p>
+    <span class="side">the case per-record guards miss</span></div>
+</section>
+
+<!-- ============ 08 CHOOSING ============ -->
+<section class="page tight" style="--fam:var(--blue)">
+  <div class="chead"><span>Concurrent editing · nats-tech-lab</span><span class="r">Selection · Card 08 / 08</span></div>
+  <div class="titleblock">
+    <div class="num">08</div><div class="fam-lbl">Selection</div>
+    <h2>Choosing — one screen at a time</h2>
+    <p class="lede">There is no platform-wide answer. Contention differs per screen, so the mechanism should
+      too — with one house default so most screens need no decision at all.</p>
+  </div>
+
+  <div class="decision"><div class="lbl">Decision</div>
+    <p>For <b>this</b> screen: how likely is a collision, and what does losing an edit actually cost?</p></div>
+
+  <div class="panel" style="margin-top:12px">
+    <div class="lbl">Selection matrix</div>
+    <table>
+      <tr><th style="width:22%">Contention</th><th style="width:26%">Cost of a lost edit</th><th style="width:26%">Pattern</th><th>Because</th></tr>
+      <tr><td><b>Rare</b></td><td>Low — retype it</td><td class="good"><b>02 · Optimistic</b></td><td>Cheapest thing that is still correct</td></tr>
+      <tr><td><b>Rare</b></td><td>High — long form, legal record</td><td class="mid"><b>02 + 04</b>, presence on top</td><td>Merge the independent fields, warn early</td></tr>
+      <tr><td><b>Frequent</b></td><td>Low</td><td class="good"><b>06 · Commands</b></td><td>Different intents stop colliding</td></tr>
+      <tr><td><b>Frequent</b></td><td>High</td><td class="mid"><b>03 · Lease</b> (+ 02 as the guard)</td><td>Exclusivity that cannot get stuck</td></tr>
+      <tr><td><b>Constant, co-authored</b></td><td>Any</td><td class="bad"><b>05 · CRDT/OT</b></td><td>Only when co-editing is the feature</td></tr>
+      <tr><td><b>Cross-record</b></td><td>A stale premise, not a stale row</td><td class="mid"><b>07 · Cascade</b></td><td>Guard the read set, not just the write</td></tr>
+      <tr><td colspan="4" style="color:var(--tx3);border-top:1px solid var(--line)">
+        A <b>scarce physical resource</b> (dock slot, stock, pick task) is not an editing question at all —
+        it is a reservation (03) or a conditional claim (06), whatever the screen looks like.</td></tr>
+    </table>
+  </div>
+
+  <div class="grid2">
+    <div class="panel note"><div class="lbl">A workable house policy</div><ul>
+      <li><b>Default:</b> optimistic concurrency (02) on every record, no exceptions — it is the floor, not a choice.</li>
+      <li><b>Add</b> field-level patches (04) where forms are wide and fields independent.</li>
+      <li><b>Add</b> presence (“who else has this open”) as a shared UI component — it prevents more
+        conflicts than any algorithm.</li>
+      <li><b>Escalate</b> to a lease (03) or a command model (06) only per screen, with a stated reason.</li>
+      <li><b>Never</b> silently last-write-wins a quantity, a price, or a status.</li>
+      <li><b>Always</b> re-validate against current state at write time — the cascade case (07) is invisible
+        to a per-record version check.</li>
+    </ul></div>
+    <div class="panel"><div class="lbl">Fit with this stack</div><ul>
+      <li>Optimistic writes already exist server-side as <code>Nats-Expected-Last-Subject-Sequence</code> —
+        the UI contract is the same idea as a version/ETag.</li>
+      <li>Presence and lock state are a <code>notify.*</code> subject plus a KV watch — the mechanism the demo
+        frontend already uses for live panels.</li>
+      <li>Leases map onto NATS KV: <code>Create</code> to acquire, revision <code>Update</code> to renew, bucket TTL to expire.</li>
+      <li>Commands and idempotency keys are the shape the event-sourced services are already built in.</li>
+    </ul></div>
+  </div>
+
+  <div class="verdict"><span class="pill">Verdict</span>
+    <p>Set one default, make every escalation a documented per-screen decision, and treat presence as a
+      first-class UI concern rather than a nice-to-have.</p>
+    <span class="side">8 cards · 1 default</span></div>
+</section>
+
+<!-- ============ SOURCES ============ -->
+<section class="page">
+  <div class="chead"><span>Concurrent editing · nats-tech-lab</span><span class="r" style="--fam:var(--tx3);color:var(--tx3)">References</span></div>
+  <h2 style="margin-top:18px;font-size:22px;line-height:28px">Where this came from</h2>
+  <p class="lede" style="max-width:80%;margin-bottom:12px">Public sources consulted while assembling the deck,
+    grouped by the card they informed.</p>
+  <div class="srcwrap">
+  <div class="panel src">
+    <div class="lbl">01–02 · Locking strategies, optimistic vs pessimistic</div>
+    <ul>
+      <li>Record locking — Wikipedia · <a href="https://en.wikipedia.org/wiki/Record_locking">en.wikipedia.org/wiki/Record_locking</a></li>
+      <li>Record locking strategies — Progress Community · <a href="https://community.progress.com/s/article/P25938">community.progress.com/s/article/P25938</a></li>
+      <li>Record and field locking strategies — HomeBase Software · <a href="https://hbase.net/2014/02/14/record-and-field-locking-strategies/">hbase.net</a></li>
+      <li>Optimistic vs. pessimistic locking — Adam Djellouli · <a href="https://adamdjellouli.com/articles/backend_engineers_guide/10_distributed_systems/07_optimistic_vs_pessimistic_locking">adamdjellouli.com</a></li>
+      <li>Optimistic vs pessimistic locking — Code Maze · <a href="https://code-maze.com/dotnet-optimistic-locking-vs-pessimistic-locking/">code-maze.com</a></li>
+    </ul>
+  </div>
+  <div class="panel src" style="margin-top:12px">
+    <div class="lbl">02 · Version checks over HTTP</div>
+    <ul>
+      <li>Handling optimistic concurrency with ETags — Ed-Fi Alliance · <a href="https://docs.ed-fi.org/reference/data-exchange/api-guidelines/design-and-implementation-guidelines/api-implementation-guidelines/handling-optimistic-concurrency-with-etags/">docs.ed-fi.org</a></li>
+      <li>Optimistic concurrency control in HTTP services — Bestmile · <a href="https://medium.com/bestmile/optimistic-concurrency-control-in-http-services-c1bd911b89ad">medium.com/bestmile</a></li>
+      <li>409 vs 412 — Conflict vs Precondition Failed · <a href="https://www.dev-toolbox.tech/tools/http-status-codes/examples/http-409-vs-412-conflict-vs-precondition-failed">dev-toolbox.tech</a></li>
+    </ul>
+  </div>
+  <div class="panel src" style="margin-top:12px">
+    <div class="lbl">03 · Leases, TTL and fencing</div>
+    <ul>
+      <li>Lease pattern in distributed systems — Ajit Singh · <a href="https://singhajit.com/distributed-systems/lease/">singhajit.com</a></li>
+      <li>The lease pattern: a lock with an expiration date — Chris Woodruff · <a href="https://www.woodruff.dev/lease-pattern-in-net-a-lock-with-an-expiration-date-that-saves-your-data/">woodruff.dev</a></li>
+      <li>Leases — Kubernetes docs · <a href="https://kubernetes.io/docs/concepts/architecture/leases/">kubernetes.io</a></li>
+      <li>Record-locking module spec (acquire / heartbeat / release / force-release) — open-mercato · <a href="https://github.com/open-mercato/open-mercato">github.com/open-mercato</a></li>
+    </ul>
+  </div>
+  <div class="panel src" style="margin-top:12px">
+    <div class="lbl">04–05 · Merge, last-write-wins, CRDT / OT</div>
+    <ul>
+      <li>Custom conflict resolution — PowerSync docs · <a href="https://docs.powersync.com/handling-writes/custom-conflict-resolution">docs.powersync.com</a></li>
+      <li>How to implement last-write-wins — OneUptime · <a href="https://oneuptime.com/blog/post/2026-01-30-last-write-wins/view">oneuptime.com</a></li>
+      <li>How collaborative apps handle conflicting edits — Tyler Crosse · <a href="https://www.tylercrosse.com/ideas/2026/real-time-collaboration-contention">tylercrosse.com</a></li>
+      <li>Real-time collaboration: OT vs CRDT — Tiny · <a href="https://www.tiny.cloud/blog/real-time-collaboration-ot-vs-crdt/">tiny.cloud</a></li>
+      <li>Real differences between OT and CRDT for co-editors — arXiv · <a href="https://arxiv.org/pdf/1810.02137">arxiv.org/pdf/1810.02137</a></li>
+    </ul>
+  </div>
+  <div class="panel src" style="margin-top:12px">
+    <div class="lbl">07 · Cascading edits, read sets and sagas</div>
+    <ul>
+      <li>Saga pattern for distributed transactions — Conduktor · <a href="https://www.conduktor.io/glossary/saga-pattern-for-distributed-transactions">conduktor.io</a></li>
+      <li>Mastering saga patterns — Temporal · <a href="https://temporal.io/blog/mastering-saga-patterns-for-distributed-transactions-in-microservices">temporal.io</a></li>
+      <li>Meeting transaction isolation with the saga pattern (lost updates, dirty reads) · <a href="https://medium.com/@t.shalash1/how-to-meet-transaction-isolation-with-the-saga-microservice-pattern-f91cdf111afd">medium.com</a></li>
+      <li>Saga concurrency — Particular / NServiceBus docs · <a href="https://docs.particular.net/persistence/nhibernate/saga-concurrency">docs.particular.net</a></li>
+      <li>Cooperative update exchange &amp; read dependencies (Youtopia) — arXiv · <a href="https://arxiv.org/pdf/0903.5346">arxiv.org/pdf/0903.5346</a></li>
+    </ul>
+  </div>
+  <div class="panel src" style="margin-top:12px">
+    <div class="lbl">06 · Logistics context</div>
+    <ul>
+      <li>Logistics middleware patterns for ERP / WMS / TMS integration — Sysgenpro · <a href="https://sysgenpro.com/integration/logistics-middleware-patterns-for-erp-integration-with-wms-and-tms-platforms">sysgenpro.com</a></li>
+      <li>TMS–WMS–ERP integration architecture — Locus · <a href="https://locus.sh/blogs/tms-wms-erp-integration-architecture/">locus.sh</a></li>
+      <li>Pick task assignment — Oracle NetSuite WMS · <a href="https://docs.oracle.com/en/cloud/saas/netsuite/ns-online-help/section_1548079991.html">docs.oracle.com</a></li>
+      <li>An uncomfortably deep dive into the idempotency key — Sameer Ahmed · <a href="https://sameerahmed56.medium.com/an-uncomfortably-deep-dive-into-the-idempotency-key-67626c8d3f3d">medium.com</a></li>
+    </ul>
+  </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="cover-meta" style="border-top:1px solid var(--line);padding-top:12px">
+    <span>Concurrent Record Editing — Pattern Cards</span><span>nats-tech-lab · August 2026</span></div>
+</section>
+
+</body>
+</html>
