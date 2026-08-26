@@ -1546,9 +1546,29 @@ Two things settled in the writing that the drafts above had left open:
       rather than uniformity, which this chain rightly violates.
       Every spec verified red first, in both languages. 48g's per-span
       keys were going to touch this code anyway.
-- [ ] **48d** — re-provision pass for existing tenant accounts (decision 8),
+- [x] **48d** — re-provision pass for existing tenant accounts (decision 8),
       and live verification across two tenants that spans land under
       distinct tenant names.
+
+      **DONE 2026-08-26.** (1) Decision 8's manual pass was replaced by
+      boot-time convergence (BR-AC37): the four `addPlatform*Import` calls
+      are reached through one exported `EnsurePlatformImports`, which
+      `seedPreexistingAccounts` now runs per tenant on every start. Each
+      call is a no-op when the claim is already correct, so a healthy
+      stack signs and pushes nothing — that property is what makes it safe
+      unconditionally, and it is the spec that guards it. (2) The
+      idempotency spec had to observe `$SYS.REQ.CLAIMS.UPDATE` directly: a
+      jti is a content hash of the claims, so the obvious
+      compare-the-JWT-before-and-after check passes against a provisioner
+      that re-signs unchanged claims every time — it was written that way
+      first and caught by red-checking it. (3) Live: PLATFORM's runtime
+      claims in `/data/jwt` gained `obs.trace.> -> monitor.acme.trace.>`
+      and `-> monitor.globex.trace.>` on the first restart after the
+      change, without a reseed. `cmd/seed-traces` then passed OK and ERROR
+      for both `-expect-tenant acme` and `-expect-tenant globex`. (4) The
+      harness's `-settle` default went 10s → 30s: the projector was
+      measured taking 10–13s to store a three-span chain, so the old
+      default intermittently reported a late trace as a missing one.
 - [ ] **48e** — docs: `ARCHITECTURE-OBSERVABILITY.md` (A1's deferred item
       marked closed), `ARCHITECTURE-COMMUNICATIONS.md` §6 notes and the
       `observability-message-path` diagram — the trace row's `no remap`

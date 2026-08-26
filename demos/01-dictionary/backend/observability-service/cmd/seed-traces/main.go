@@ -131,7 +131,12 @@ func main() {
 	credsPath := flag.String("creds", "../../nats/creds/acme.creds", "tenant NATS credentials (drives the api.* call)")
 	platformCredsPath := flag.String("platform-creds", "../../nats/creds/platform.creds", "PLATFORM NATS credentials (reads the stored trace)")
 	natsURL := flag.String("nats-url", nats.DefaultURL, "NATS URL")
-	settle := flag.Duration("settle", 10*time.Second, "how long to wait for the trace projector to store every span")
+	// 30s, not the 10s this started at: on a cold-ish stack the projector has
+	// been measured taking 10-13s to store all three spans of a chain, so the
+	// old default reported "never reached 3 spans (last saw 0)" for a trace
+	// that was merely late. A timeout that fires before the thing it waits for
+	// is a worse harness than a slow one.
+	settle := flag.Duration("settle", 30*time.Second, "how long to wait for the trace projector to store every span")
 	expectTenant := flag.String("expect-tenant", "", "assert BR-051's attribution: this tenant must appear and be the only non-PLATFORM value")
 	doMeasure := flag.Bool("measure", false, "after the runs, report the stored trace-record size distribution (BR-053's sizing input)")
 	runCount := flag.Int("runs", 1, "repeat the OK/ERROR pair N times — use a larger N with -measure to build a multi-span sample worth sizing against")

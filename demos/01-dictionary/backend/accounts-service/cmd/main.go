@@ -236,6 +236,11 @@ func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, provisi
 		{"acme", "ACME", "ACME.jwt", accounts.JSLimits{MaxMem: 256 << 20, MaxFile: 1 << 30, MaxStreams: 10, MaxConsumers: 20}},
 		{"globex", "GLOBEX", "GLOBEX.jwt", accounts.JSLimits{MaxMem: 256 << 20, MaxFile: 1 << 30, MaxStreams: 10, MaxConsumers: 20}},
 	}
+	// BR-AC37: PLATFORM's public key, captured on the first iteration (platform
+	// leads the slice) so the tenant iterations that follow can converge its
+	// cross-account imports. Empty if PLATFORM.jwt was unreadable, in which case
+	// the convergence is skipped rather than guessed at.
+	platformPub := ""
 	for _, s := range seeds {
 		raw, err := os.ReadFile(resolverSeedDir + "/" + s.File)
 		if err != nil {
@@ -270,6 +275,20 @@ func seedPreexistingAccounts(ctx context.Context, store *accounts.Store, provisi
 			return err
 		}
 		if err := ensureSigningKey(ctx, store, provisioner, s.Name, s.Limits, claims, bootstrapSeed, log); err != nil {
+			return err
+		}
+		// BR-AC37: converge PLATFORM's side of the cross-account wiring for every
+		// tenant this service already knows about, on every start. Each of the
+		// four import helpers is a no-op when the claim is already correct, so a
+		// healthy stack signs and pushes nothing here; a stack whose PLATFORM.jwt
+		// predates a change to the export/import pair (48b's monitor.{tenant}.*
+		// remap being the case this was written for) is corrected by a restart
+		// instead of by remembering to run a one-off pass.
+		if s.Name == "platform" {
+			platformPub = claims.Subject
+		} else if platformPub == "" {
+			log.Warn("platform imports: PLATFORM public key unknown, skipping convergence", "tenant", s.Name)
+		} else if err := provisioner.EnsurePlatformImports(ctx, platformPub, claims.Subject, s.Name); err != nil {
 			return err
 		}
 		// BR-AC16/BR-AC28: createAccount auto-creates {tenant}-default for every

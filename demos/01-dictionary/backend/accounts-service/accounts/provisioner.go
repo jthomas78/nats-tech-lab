@@ -3,6 +3,7 @@ package accounts
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -482,6 +483,54 @@ func (p *Provisioner) pushClaimsUpdate(ctx context.Context, accountJWT string) e
 	}
 	if parsed.Error != nil {
 		return fmt.Errorf("claims update rejected: %s", parsed.Error.Description)
+	}
+	return nil
+}
+
+// EnsurePlatformImports re-runs the whole PLATFORM-side import wiring for one
+// tenant account (BR-AC37). CreateAccount makes these same four calls for a
+// tenant it has just minted; this is the same wiring reached for a tenant that
+// already exists, which is what every rule changing an already-minted claim
+// has needed and none of them had: BR-AC34 and BR-AC36 both shipped with the
+// footnote "existing tenants need a re-provision pass", and with all four
+// calls unexported behind CreateAccount the only pass available was a wipe and
+// reseed.
+//
+// Safe to call unconditionally, and called unconditionally — from
+// seedPreexistingAccounts on every start. Each of the four returns without a
+// push when its import is already present and correct, so a converged
+// deployment costs four resolver lookups per tenant and no claims update at
+// all. That is a property with a spec, not an assumption: a pass that re-signed
+// every time would turn each restart into a live claims update for every
+// tenant.
+//
+// It converges only as far as the calls below do. addPlatformTraceImport
+// corrects a wrong LocalSubject in place; addPlatformPubsubImport still only
+// dedupes on (Account, Subject), so a stale *pubsub* remap would survive this
+// pass. See addPlatformTraceImport's convergence note — that is where the next
+// change to that import starts.
+func (p *Provisioner) EnsurePlatformImports(ctx context.Context, platformPublicKey, tenantAccountPub, tenantName string) error {
+	if platformPublicKey == "" || tenantAccountPub == "" {
+		return errors.New("ensure platform imports: platform and tenant public keys are both required")
+	}
+	// An account importing its own exports is not a no-op, it is a claim the
+	// server will happily accept and that nothing can consume. Refused here
+	// rather than skipped, because reaching this with PLATFORM's own key means
+	// the caller's tenant list is wrong.
+	if platformPublicKey == tenantAccountPub {
+		return fmt.Errorf("ensure platform imports: refusing to import PLATFORM (%s) into itself", tenantAccountPub)
+	}
+	if err := p.addPlatformTraceImport(ctx, platformPublicKey, tenantAccountPub, tenantName); err != nil {
+		return fmt.Errorf("platform trace import for %s: %w", tenantName, err)
+	}
+	if err := p.addPlatformPubsubImport(ctx, platformPublicKey, tenantAccountPub, tenantName); err != nil {
+		return fmt.Errorf("platform pubsub import for %s: %w", tenantName, err)
+	}
+	if err := p.addPlatformMonitorImport(ctx, platformPublicKey, tenantAccountPub, tenantName); err != nil {
+		return fmt.Errorf("platform monitor import for %s: %w", tenantName, err)
+	}
+	if err := p.addPlatformJSAPIImport(ctx, platformPublicKey, tenantAccountPub, tenantName); err != nil {
+		return fmt.Errorf("platform jsapi import for %s: %w", tenantName, err)
 	}
 	return nil
 }

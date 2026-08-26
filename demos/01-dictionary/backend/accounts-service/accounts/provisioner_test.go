@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/nats-io/jwt/v2"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
 	. "github.com/onsi/ginkgo/v2"
@@ -317,6 +318,106 @@ var _ = Describe("Provisioner", func() {
 		Expect(traceImports).To(HaveLen(1), "correcting the remap must update the existing import in place, not add a second one")
 		Expect(string(traceImports[0].LocalSubject)).To(Equal("monitor.acme.trace.>"))
 		Expect(traceImports[0].AllowTrace).To(BeTrue(), "correcting the remap must not drop the flag the legacy import carried")
+	})
+
+	// BR-AC37 (Phase 48d): the same convergence, reachable without minting an
+	// account. Every rule that changes an already-minted claim — BR-AC34,
+	// then BR-AC36 — has landed with the footnote "existing tenants need a
+	// re-provision pass", and until this there was no pass to run: all four
+	// addPlatform*Import calls were unexported with a single call site inside
+	// CreateAccount, so the only way to re-wire an existing tenant was to
+	// wipe the deployment and reseed.
+	It("re-wires an existing tenant's PLATFORM-side imports without minting an account", func() {
+		platformKP, err := nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		platformPub, err := platformKP.PublicKey()
+		Expect(err).NotTo(HaveOccurred())
+
+		sysNC := ots.ConnectSys(GinkgoT())
+		defer sysNC.Close()
+
+		tenantKP, err := nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		tenantPub, err := tenantKP.PublicKey()
+		Expect(err).NotTo(HaveOccurred())
+
+		// A pre-BR-AC36 PLATFORM, exactly as the live stack was found in 48d:
+		// the trace import present and un-remapped, nothing else wired.
+		legacy := jwt.NewAccountClaims(platformPub)
+		legacy.Imports.Add(&jwt.Import{
+			Account:    tenantPub,
+			Subject:    jwt.Subject("obs.trace.>"),
+			Type:       jwt.Stream,
+			AllowTrace: true,
+		})
+		ots.PushAccountClaims(sysNC, ots.OperatorSigningKeySeed, legacy)
+
+		Expect(provisioner.EnsurePlatformImports(ctx, platformPub, tenantPub, "acme")).To(Succeed())
+
+		after, err := provisioner.LookupAccountClaims(ctx, platformPub)
+		Expect(err).NotTo(HaveOccurred())
+		local := map[string]string{}
+		for _, imp := range after.Imports {
+			if imp.Account == tenantPub {
+				local[string(imp.Subject)] = string(imp.LocalSubject)
+			}
+		}
+		Expect(local).To(HaveKeyWithValue("obs.trace.>", "monitor.acme.trace.>"),
+			"the stale remap is the one this pass exists to correct")
+		Expect(local).To(HaveKeyWithValue("obs.pubsub.>", "monitor.acme.pubsub.>"))
+		Expect(local).To(HaveKeyWithValue("$SRV.>", "monitor.acme.srv.>"))
+	})
+
+	// The property that makes it safe to run unconditionally at boot: a
+	// converged deployment must push nothing. A pass that re-signed and
+	// re-pushed PLATFORM's claims on every start would satisfy every
+	// assertion above while making each restart a live claims update for
+	// every tenant — which is the reason the boot-time shape was rejected in
+	// favour of a CLI elsewhere, and why it has to be checked rather than
+	// assumed.
+	It("pushes nothing when PLATFORM's imports are already correct", func() {
+		platformKP, err := nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		platformPub, err := platformKP.PublicKey()
+		Expect(err).NotTo(HaveOccurred())
+
+		tenantKP, err := nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		tenantPub, err := tenantKP.PublicKey()
+		Expect(err).NotTo(HaveOccurred())
+
+		sysNC := ots.ConnectSys(GinkgoT())
+		defer sysNC.Close()
+		ots.PushAccountClaims(sysNC, ots.OperatorSigningKeySeed, jwt.NewAccountClaims(platformPub))
+
+		Expect(provisioner.EnsurePlatformImports(ctx, platformPub, tenantPub, "acme")).To(Succeed())
+
+		// Watch the wire, not the claims. Comparing the JWT before and after
+		// proves nothing here: a jti is a content hash of the claims, so a
+		// gratuitous re-sign of unchanged claims produces a byte-identical
+		// token and an identical ID. The only observable difference between
+		// "converged, pushed nothing" and "re-signed and re-pushed the same
+		// thing" is whether a CLAIMS.UPDATE request was made at all.
+		pushes := make(chan *nats.Msg, 4)
+		sub, err := sysNC.Subscribe("$SYS.REQ.CLAIMS.UPDATE", func(m *nats.Msg) { pushes <- m })
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { _ = sub.Unsubscribe() }()
+		Expect(sysNC.Flush()).To(Succeed())
+
+		Expect(provisioner.EnsurePlatformImports(ctx, platformPub, tenantPub, "acme")).To(Succeed())
+		Expect(sysNC.Flush()).To(Succeed())
+
+		Consistently(pushes, 300*time.Millisecond, 50*time.Millisecond).ShouldNot(Receive(),
+			"a second pass over correct claims must not re-sign and re-push PLATFORM's JWT")
+	})
+
+	It("refuses PLATFORM's own public key rather than importing it into itself", func() {
+		platformKP, err := nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		platformPub, err := platformKP.PublicKey()
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(provisioner.EnsurePlatformImports(ctx, platformPub, platformPub, "platform")).NotTo(Succeed())
 	})
 
 	// BR-AC31 (Phase 30a): CreateAccount must also re-sign PLATFORM's own
