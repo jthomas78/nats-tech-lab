@@ -88,50 +88,18 @@ type ConnectInfo struct {
 // 28g amendment, BUSINESS_RULES-SHIPPING.md). obs.trace.* itself is never
 // granted here — it publishes to the PLATFORM account only, per BR-036.
 func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string, ttl time.Duration) (ConnectInfo, error) {
-	signingKP, err := nkeys.FromSeed([]byte(accountSigningKeySeed))
-	if err != nil {
-		return ConnectInfo{}, fmt.Errorf("load account signing key: %w", err)
-	}
-
-	userKP, err := nkeys.CreateUser()
-	if err != nil {
-		return ConnectInfo{}, fmt.Errorf("generate user key: %w", err)
-	}
-	userPub, err := userKP.PublicKey()
-	if err != nil {
-		return ConnectInfo{}, fmt.Errorf("user public key: %w", err)
-	}
-	userSeed, err := userKP.Seed()
-	if err != nil {
-		return ConnectInfo{}, fmt.Errorf("user seed: %w", err)
-	}
-
-	claims := jwt.NewUserClaims(userPub)
-	claims.Name = "browser-" + tenant
-	claims.IssuerAccount = accountPub
-	claims.Permissions.Pub.Allow.Add("api.>", "_INBOX.>")
-	claims.Permissions.Sub.Allow.Add("api.>", "notify.>", "_INBOX.>")
-	// BR-D41 (Phase 32): refdata-service's api.*.refdata.admin.* namespace is
-	// corpus/context/type/locale/item/reference/localization administration —
-	// never a browser operation. Deny wins over the broader api.> Allow above
-	// on both directions, so a browser credential can reach every other
-	// api.*.refdata.* subject but never this prefix, regardless of which
-	// tenant account it authenticates into.
-	claims.Permissions.Pub.Deny.Add("api.*.refdata.admin.>")
-	claims.Permissions.Sub.Deny.Add("api.*.refdata.admin.>")
-	claims.Expires = time.Now().Add(ttl).Unix()
-
-	token, err := claims.Encode(signingKP)
-	if err != nil {
-		return ConnectInfo{}, fmt.Errorf("encode user jwt: %w", err)
-	}
-
-	return ConnectInfo{
-		WSUrl:    wsURL,
-		JWT:      token,
-		NKeySeed: string(userSeed),
-		Tenant:   tenant,
-	}, nil
+	return mintUserToken(accountPub, accountSigningKeySeed, "browser-"+tenant, tenant, wsURL, ttl, func(claims *jwt.UserClaims) {
+		claims.Permissions.Pub.Allow.Add("api.>", "_INBOX.>")
+		claims.Permissions.Sub.Allow.Add("api.>", "notify.>", "_INBOX.>")
+		// BR-D41 (Phase 32): refdata-service's api.*.refdata.admin.* namespace is
+		// corpus/context/type/locale/item/reference/localization administration —
+		// never a browser operation. Deny wins over the broader api.> Allow above
+		// on both directions, so a browser credential can reach every other
+		// api.*.refdata.* subject but never this prefix, regardless of which
+		// tenant account it authenticates into.
+		claims.Permissions.Pub.Deny.Add("api.*.refdata.admin.>")
+		claims.Permissions.Sub.Deny.Add("api.*.refdata.admin.>")
+	})
 }
 
 // MintAdminToken mints an ephemeral NATS user JWT under PLATFORM for the
@@ -155,51 +123,19 @@ func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string, t
 // 28g along with the RPCTRACE stream and its notify bridge
 // (eventhandler.RegisterRPCTraceNotify) — nothing publishes there anymore.
 func MintAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl time.Duration) (ConnectInfo, error) {
-	signingKP, err := nkeys.FromSeed([]byte(accountSigningKeySeed))
-	if err != nil {
-		return ConnectInfo{}, fmt.Errorf("load account signing key: %w", err)
-	}
-
-	userKP, err := nkeys.CreateUser()
-	if err != nil {
-		return ConnectInfo{}, fmt.Errorf("generate user key: %w", err)
-	}
-	userPub, err := userKP.PublicKey()
-	if err != nil {
-		return ConnectInfo{}, fmt.Errorf("user public key: %w", err)
-	}
-	userSeed, err := userKP.Seed()
-	if err != nil {
-		return ConnectInfo{}, fmt.Errorf("user seed: %w", err)
-	}
-
-	claims := jwt.NewUserClaims(userPub)
-	claims.Name = "admin-app"
-	claims.IssuerAccount = accountPub
-	claims.Permissions.Pub.Allow.Add(
-		"api._platform.refdata.type.list.v1",
-		"api._platform.refdata.locales.list.v1",
-		"api._platform.refdata.context.list.v1",
-	)
-	claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.kv.trace-request-reply.>",
-		// Phase 43b (BR-047): the Messages panel's live feed, the same
-		// bucket-notify shape as trace-request-reply above. This grants the
-		// KV-change notify only — obs.pubsub.> itself is still never granted
-		// to a browser credential (BR-AC34).
-		"notify._platform.kv.pubsub-messages.>", "_INBOX.>")
-	claims.Expires = time.Now().Add(ttl).Unix()
-
-	token, err := claims.Encode(signingKP)
-	if err != nil {
-		return ConnectInfo{}, fmt.Errorf("encode user jwt: %w", err)
-	}
-
-	return ConnectInfo{
-		WSUrl:    wsURL,
-		JWT:      token,
-		NKeySeed: string(userSeed),
-		Tenant:   "platform",
-	}, nil
+	return mintUserToken(accountPub, accountSigningKeySeed, "admin-app", "platform", wsURL, ttl, func(claims *jwt.UserClaims) {
+		claims.Permissions.Pub.Allow.Add(
+			"api._platform.refdata.type.list.v1",
+			"api._platform.refdata.locales.list.v1",
+			"api._platform.refdata.context.list.v1",
+		)
+		claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.kv.trace-request-reply.>",
+			// Phase 43b (BR-047): the Messages panel's live feed, the same
+			// bucket-notify shape as trace-request-reply above. This grants the
+			// KV-change notify only — obs.pubsub.> itself is still never granted
+			// to a browser credential (BR-AC34).
+			"notify._platform.kv.pubsub-messages.>", "_INBOX.>")
+	})
 }
 
 // MintRefdataAdminToken mints an ephemeral NATS user JWT under the PLATFORM
@@ -230,6 +166,16 @@ func MintAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl time.Du
 // /api/refdata-watch SSE stream, the same subject MintAdminToken already
 // grants the Admin UI for the identical reason.
 func MintRefdataAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl time.Duration) (ConnectInfo, error) {
+	return mintUserToken(accountPub, accountSigningKeySeed, "operator-app", "platform", wsURL, ttl, func(claims *jwt.UserClaims) {
+		claims.Permissions.Pub.Allow.Add("api.*.refdata.>", "_INBOX.>")
+		claims.Permissions.Sub.Allow.Add("api.*.refdata.>", "notify._platform.refdata.>", "_INBOX.>")
+	})
+}
+
+// mintUserToken holds the key-generation/claims/encode boilerplate shared by
+// every Mint*Token above; configure applies the profile-specific permission
+// grants (and any other claims) before the claims are signed.
+func mintUserToken(accountPub, accountSigningKeySeed, name, tenant, wsURL string, ttl time.Duration, configure func(*jwt.UserClaims)) (ConnectInfo, error) {
 	signingKP, err := nkeys.FromSeed([]byte(accountSigningKeySeed))
 	if err != nil {
 		return ConnectInfo{}, fmt.Errorf("load account signing key: %w", err)
@@ -249,10 +195,9 @@ func MintRefdataAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl 
 	}
 
 	claims := jwt.NewUserClaims(userPub)
-	claims.Name = "operator-app"
+	claims.Name = name
 	claims.IssuerAccount = accountPub
-	claims.Permissions.Pub.Allow.Add("api.*.refdata.>", "_INBOX.>")
-	claims.Permissions.Sub.Allow.Add("api.*.refdata.>", "notify._platform.refdata.>", "_INBOX.>")
+	configure(claims)
 	claims.Expires = time.Now().Add(ttl).Unix()
 
 	token, err := claims.Encode(signingKP)
@@ -264,6 +209,6 @@ func MintRefdataAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl 
 		WSUrl:    wsURL,
 		JWT:      token,
 		NKeySeed: string(userSeed),
-		Tenant:   "platform",
+		Tenant:   tenant,
 	}, nil
 }
