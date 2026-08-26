@@ -30,6 +30,10 @@ const CONNECTIONS = [
     port: 48046,
     account: 'AA57B6BPPV3JQPCHSSCEALTMKL7YXGTT4WZI4CVVAHSO2TDQK6PYK2H6',
     tenantLabel: 'PLATFORM',
+    // The credential's own `name` claim — one platform.creds user JWT shared
+    // by several services, so it diverges from this connection's name.
+    user: 'platform',
+    userKey: 'UASXO6QQZGVB',
     rtt: '779µs',
     uptime: '1h56m',
     idle: '16s',
@@ -48,6 +52,8 @@ const CONNECTIONS = [
     port: 49001,
     account: 'AB56H4HBPU4ZVCTWCY6RZIVEAIE37CE7VKCQMJANMLO7YJZ2IELZAFJT',
     // No tenantLabel — the SYS-account gap (BR-028's "wherever possible").
+    user: 'accounts-service',
+    userKey: 'UBSYSKEY123',
     rtt: '962µs',
     uptime: '11h',
     idle: '11h',
@@ -65,6 +71,8 @@ const CONNECTIONS = [
     ip: '192.168.65.1',
     port: 52520,
     account: 'AAFBCA52VV7PAJSYANHENP4XR7PPY2ACIJLVDMW2YLGV24VD6MWAPPNX',
+    // No user/userKey — a connection whose auth carried no user JWT and whose
+    // account JWT had no name_tag either, so the backend sent nothing.
     tenantLabel: 'acme',
     rtt: '1.76ms',
     uptime: '1m',
@@ -284,6 +292,104 @@ describe('ConnectionsPanel', () => {
     await detail.find('.close').trigger('click')
     await flushPromises()
     expect(wrapper.find('.detail').exists()).toBe(false)
+  })
+
+  it('renders the credential name the backend decoded out of the user JWT', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const creds = wrapper.findAll('tbody .cred').map((el) => el.text())
+    expect(creds).toEqual(['platform', 'accounts-service'])
+  })
+
+  it('marks a credential that diverges from the connection name, and leaves a matching one plain', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const creds = wrapper.findAll('tbody .cred')
+    // refdata-service connects with the shared `platform` credential…
+    expect(creds[0].classes()).toContain('diverged')
+    // …accounts-service's credential is named for the service itself.
+    expect(creds[1].classes()).not.toContain('diverged')
+  })
+
+  it('carries the user NKey on the credential cell rather than in a column of its own', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.findAll('tbody .cred')[0].attributes('title')).toBe('platform\nUASXO6QQZGVB')
+  })
+
+  it('shows an em-dash for a connection the backend could not name a credential for', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows[2].find('.cred').exists()).toBe(false)
+    expect(rows[2].text()).toContain('\u2014')
+  })
+
+  it('filters rows by credential text', async () => {
+    // The fixture's own credential names all echo a name or tenantLabel that
+    // was already searchable, so this row carries a credential that appears
+    // nowhere else — matching it can only have come from the new field.
+    getNatsConnections.mockResolvedValue({
+      connections: [{ ...CONNECTIONS[0], user: 'seafreight-app' }, CONNECTIONS[1], CONNECTIONS[2]],
+      page: { numConnections: 3, total: 3, offset: 0, limit: 1024 },
+      server: { maxConnections: 65536 },
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.find('.search-box input').setValue('seafreight')
+    await flushPromises()
+
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].text()).toContain('refdata-service')
+  })
+
+  it('splits Account and Account NKey into their own rows, matching the Credential pair', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.findAll('tbody tr')[0].trigger('click')
+    await flushPromises()
+
+    const rows = wrapper.findAll('.detail .kv .row').map((r) => [
+      r.find('.k').text(),
+      r.find('.v').text().trim(),
+    ])
+    expect(rows).toContainEqual(['Account', 'PLATFORM'])
+    expect(rows).toContainEqual(['Account NKey', CONNECTIONS[0].account])
+  })
+
+  it('shows an em-dash for an account whose label could not be resolved, keeping the NKey on its own row', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    // Row 2 is the SYS-account gap — no tenantLabel to render.
+    await wrapper.findAll('tbody tr')[1].trigger('click')
+    await flushPromises()
+
+    const rows = wrapper.findAll('.detail .kv .row').map((r) => [
+      r.find('.k').text(),
+      r.find('.v').text().trim(),
+    ])
+    expect(rows).toContainEqual(['Account', '\u2014'])
+    expect(rows).toContainEqual(['Account NKey', CONNECTIONS[1].account])
+  })
+
+  it('shows the credential and its user NKey in the detail pane', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.findAll('tbody tr')[0].trigger('click')
+    await flushPromises()
+
+    const detail = wrapper.find('.detail')
+    expect(detail.find('.cred').text()).toBe('platform')
+    expect(detail.text()).toContain('UASXO6QQZGVB')
   })
 
   it('shows an error message when the fetch fails', async () => {

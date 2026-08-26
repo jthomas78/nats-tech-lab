@@ -11,10 +11,12 @@ package rest
 // nats_ops.go) is Phase 30f, not lifted here.
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -46,6 +48,21 @@ type natsConnection struct {
 	// accounts-service's own SYS-account connection, which has no
 	// accounts-service Postgres row to resolve from — see BR-028).
 	TenantLabel string `json:"tenantLabel,omitempty"`
+	// User is the connection's credential NAME — the `name` claim decoded
+	// out of /connz's `jwt` field, e.g. "observability" or "acme". It
+	// identifies the CREDENTIAL, not the connection: several connections
+	// presenting the same .creds file all report the same value here
+	// (refdata-service and accounts-service both hold platform.creds; all
+	// four ACME-side services hold acme.creds). Falls back to `name_tag`
+	// — the ACCOUNT JWT's own name — for any connection that authenticated
+	// without a user JWT, where `jwt` comes back empty.
+	User string `json:"user,omitempty"`
+	// UserKey is `authorized_user`: the user's public NKey, and the only
+	// stable identity for a credential — two distinct users can carry the
+	// same Name. Ephemeral browser credentials (auth/token.go's
+	// mintUserToken) generate a fresh key per session, so this rotates on
+	// every browser reconnect by design.
+	UserKey string `json:"userKey,omitempty"`
 }
 
 // connzPage is /connz's own paging envelope, passed through so the panel can
@@ -91,6 +108,40 @@ type connzConnection struct {
 	Version           string    `json:"version"`
 	Account           string    `json:"account"`
 	SubscriptionsList []string  `json:"subscriptions_list"`
+	// The three auth fields below are only populated because the proxy
+	// requests ?auth=true; without it /connz omits them entirely.
+	AuthorizedUser string `json:"authorized_user"`
+	// JWT is the connection's full, signed user JWT. It is decoded for its
+	// `name` claim and then DROPPED — never forwarded to the browser. It is
+	// not a secret (the seed is), but it is ~1.5KB per row and embeds the
+	// credential's entire pub/sub permission grid, neither of which the
+	// panel has any use for.
+	JWT     string `json:"jwt"`
+	NameTag string `json:"name_tag"`
+}
+
+// credentialName returns the `name` claim from a NATS user JWT, or "" if
+// the token is absent or unparseable. The signature is NOT verified —
+// nothing here trusts the claim for authorization, the NATS server has
+// already done that by accepting the connection; this only reads a label
+// the server itself vouched for by admitting the client.
+func credentialName(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	// NATS JWTs are base64url with padding stripped, so RawURLEncoding.
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+	return claims.Name
 }
 
 type connzResponse struct {
@@ -109,7 +160,7 @@ type varzResponse struct {
 // listNatsConnections godoc
 //
 // @Summary      List NATS connections
-// @Description  Every active connection on the NATS server, across all accounts — proxies the server's own /connz monitoring endpoint (subs=true&auth=true), reshaped to camelCase. tenantLabel is resolved against accounts-service's own name<->publicKey mapping (GET /api/accounts), not a live-connection-matching trick — see BR-028 and Phase 30's design note. The page object passes through /connz's paging envelope; the server object carries the real ceiling from /varz.
+// @Description  Every active connection on the NATS server, across all accounts — proxies the server's own /connz monitoring endpoint (subs=true&auth=true), reshaped to camelCase. tenantLabel is resolved against accounts-service's own name<->publicKey mapping (GET /api/accounts), not a live-connection-matching trick — see BR-028 and Phase 30's design note. user is the credential's name claim decoded from the connection's user JWT (falling back to the account's name_tag when there is no user JWT) and userKey is its public NKey; the raw JWT itself is never forwarded. The page object passes through /connz's paging envelope; the server object carries the real ceiling from /varz.
 // @Tags         nats
 // @Produce      json
 // @Success      200  {object}  natsConnectionsResponse
@@ -148,6 +199,10 @@ func (h *Handlers) listNatsConnections(w http.ResponseWriter, r *http.Request) {
 	accountLabels := deps.Accounts.Labels(r.Context())
 	out := make([]natsConnection, 0, len(connz.Connections))
 	for _, c := range connz.Connections {
+		user := credentialName(c.JWT)
+		if user == "" {
+			user = c.NameTag
+		}
 		out = append(out, natsConnection{
 			CID: c.CID, Name: c.Name, Type: c.Type, Lang: c.Lang, Version: c.Version,
 			IP: c.IP, Port: c.Port, Account: c.Account,
@@ -156,6 +211,8 @@ func (h *Handlers) listNatsConnections(w http.ResponseWriter, r *http.Request) {
 			InMsgs: c.InMsgs, OutMsgs: c.OutMsgs, InBytes: c.InBytes, OutBytes: c.OutBytes,
 			Subscriptions: c.Subscriptions, SubscriptionsList: c.SubscriptionsList,
 			TenantLabel: accountLabels[c.Account],
+			User:        user,
+			UserKey:     c.AuthorizedUser,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CID < out[j].CID })

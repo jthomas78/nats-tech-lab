@@ -8,12 +8,25 @@ package rest
 // design note in accounts_client.go).
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+// fakeUserJWT builds a token shaped like a NATS user JWT — three
+// base64url segments, unpadded — carrying just the `name` claim the
+// panel reads. It is deliberately unsigned: credentialName never
+// verifies the signature (the NATS server already did, by admitting the
+// connection), so a valid signature would prove nothing this test needs.
+func fakeUserJWT(name string) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"JWT","alg":"ed25519-nkey"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"name":"` + name + `","sub":"UTEST","nats":{"type":"user"}}`))
+	return header + "." + payload + ".c2lnbmF0dXJl"
+}
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(discardWriter{}, nil))
@@ -164,6 +177,107 @@ func TestListNatsConnectionsReshapesAndSortsConnz(t *testing.T) {
 	}
 	if body.Server.MaxConnections != 65536 {
 		t.Fatalf("expected maxConnections 65536 read from /varz, got %d", body.Server.MaxConnections)
+	}
+}
+
+// TestListNatsConnectionsExposesCredentialNameAndKey pins the Credential
+// column's two inputs: the `name` claim decoded out of the connection's
+// user JWT, and `authorized_user` (the user's public NKey) passed through
+// as-is. Two connections sharing one .creds file — the real
+// refdata-service/accounts-service case on platform.creds — must report
+// the SAME user and userKey, since the value identifies the credential
+// rather than the connection.
+func TestListNatsConnectionsExposesCredentialNameAndKey(t *testing.T) {
+	rawJWT := fakeUserJWT("platform")
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/varz" {
+			_ = json.NewEncoder(w).Encode(varzResponse{MaxConnections: 65536})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(connzResponse{NumConnections: 2, Total: 2, Connections: []connzConnection{
+			{CID: 1, Name: "refdata-service", Account: "PLATFORM", JWT: rawJWT, AuthorizedUser: "UASXO6QQZGVB", NameTag: "PLATFORM"},
+			{CID: 2, Name: "accounts-service-platform", Account: "PLATFORM", JWT: rawJWT, AuthorizedUser: "UASXO6QQZGVB", NameTag: "PLATFORM"},
+		}})
+	}))
+	defer mock.Close()
+
+	h := New(Deps{Log: discardLogger(), NatsMonitorURL: mock.URL})
+	w := httptest.NewRecorder()
+	h.listNatsConnections(w, httptest.NewRequest(http.MethodGet, "/api/nats/connections", nil))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var body natsConnectionsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	for _, c := range body.Connections {
+		if c.User != "platform" {
+			t.Errorf("cid %d: expected user %q decoded from the jwt name claim, got %q", c.CID, "platform", c.User)
+		}
+		if c.UserKey != "UASXO6QQZGVB" {
+			t.Errorf("cid %d: expected userKey from authorized_user, got %q", c.CID, c.UserKey)
+		}
+	}
+	// The raw JWT is decoded server-side and dropped — it must never reach
+	// the browser, where it is ~1.5KB of the credential's full permission
+	// grid that the panel has no use for.
+	if strings.Contains(w.Body.String(), rawJWT) {
+		t.Error("expected the raw user JWT to be dropped from the response, but it was forwarded")
+	}
+}
+
+// TestListNatsConnectionsFallsBackToNameTagWithoutUserJWT covers a
+// connection that authenticated without a user JWT, where /connz returns
+// an empty `jwt`. name_tag — the ACCOUNT JWT's own name — is the only
+// label left, so the column shows that rather than going blank.
+func TestListNatsConnectionsFallsBackToNameTagWithoutUserJWT(t *testing.T) {
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/varz" {
+			_ = json.NewEncoder(w).Encode(varzResponse{})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(connzResponse{NumConnections: 1, Total: 1, Connections: []connzConnection{
+			{CID: 1, Name: "nats-cli", Account: "PLATFORM", JWT: "", NameTag: "PLATFORM"},
+		}})
+	}))
+	defer mock.Close()
+
+	h := New(Deps{Log: discardLogger(), NatsMonitorURL: mock.URL})
+	w := httptest.NewRecorder()
+	h.listNatsConnections(w, httptest.NewRequest(http.MethodGet, "/api/nats/connections", nil))
+
+	var body natsConnectionsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got := body.Connections[0].User; got != "PLATFORM" {
+		t.Fatalf("expected fallback to name_tag %q, got %q", "PLATFORM", got)
+	}
+}
+
+// TestCredentialNameIgnoresMalformedTokens — a token the panel cannot
+// parse degrades to the name_tag fallback above, never to a panic or a
+// garbage label. /connz is a trusted local endpoint, but this decodes
+// attacker-influenceable bytes (a client supplies its own JWT), so every
+// malformed shape has to return "" rather than assume three segments or
+// valid base64.
+func TestCredentialNameIgnoresMalformedTokens(t *testing.T) {
+	for _, tc := range []struct{ name, token string }{
+		{"empty", ""},
+		{"not a jwt", "definitely-not-a-jwt"},
+		{"too few segments", "aGVhZGVy.cGF5bG9hZA"},
+		{"too many segments", "a.b.c.d"},
+		{"payload is not base64url", "aGVhZGVy.!!!not-base64!!!.c2ln"},
+		{"payload is not json", "aGVhZGVy." + base64.RawURLEncoding.EncodeToString([]byte("plain text")) + ".c2ln"},
+		{"payload has no name claim", "aGVhZGVy." + base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"UTEST"}`)) + ".c2ln"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := credentialName(tc.token); got != "" {
+				t.Fatalf("expected %q to decode to an empty name, got %q", tc.token, got)
+			}
+		})
 	}
 }
 

@@ -501,6 +501,108 @@ friendly name — see `ARCHITECTURE-COMMUNICATIONS.md`) is exactly the case
 where you're staring at a bare key like this and need to know what you're
 looking at.
 
+### Credential naming (the user JWT `name` claim)
+
+Every user JWT carries a `name` claim. It is the credential's only human
+label: `nsc` writes it into the `.creds` file it generates, `mintUserToken`
+(`auth/token.go`) stamps it on every ephemeral browser credential, and the
+Admin UI's Connections panel surfaces it in the **Credential** column
+(ARCHITECTURE-ADMIN.md §4.1) by decoding it out of `/connz`'s `jwt` field.
+Nothing authorizes on it — permissions live in the same JWT's `pub`/`sub`
+grants and the account it is issued under — so the name's entire job is to
+tell an operator, at a glance, *whose credential this is*.
+
+**This section is a convention, not a business rule.** Nothing enforces it —
+`nsc` accepts any string, and `mintUserToken` stamps whatever it is given.
+What *is* a rule is BR-058 (BUSINESS_RULES-SHIPPING.md): that the panel reads
+this claim, drops the token afterwards, and marks a credential whose name
+diverges from its connection's name. BR-058 is what makes a violation of the
+convention below visible; it does not prevent one.
+
+Three mint paths produce these names, and the scheme has to cover all three:
+
+| Mint path | Lifetime | Shape |
+|---|---|---|
+| `nats/bootstrap-operator.sh` | long-lived `.creds` file | one static user per account/role |
+| `Provisioner.CreateUser` (`accounts/provisioner.go`) | long-lived `.creds` file | `<tenant>`, minted per new tenant |
+| `mintUserToken` (`auth/token.go`) | ephemeral, per browser session | one per frontend app |
+
+**Rule 0 — the name identifies the *credential*, not the connection.**
+Everything else follows from this. Several connections presenting one JWT
+are one credential, and the name has to stay true for all of them —
+which is why the Connections panel documents the column as a credential
+identity rather than a per-row one.
+
+**Rule 1 — a dedicated credential is named for its holder, spelled exactly
+as that process's `nats.Name()`.** `observability-service`, not
+`observability`; `shipping-service`, not `shipping-admin`. The payoff is
+that a healthy dedicated credential reads identically in the panel's Name
+and Credential columns, so **divergence between the two becomes the
+signal**: it means either a legitimately shared credential (Rule 3) or the
+wrong `.creds` file mounted. The panel renders that divergence in amber for
+exactly this reason.
+
+**Rule 2 — when one holder legitimately needs several credentials, suffix
+the account it authenticates into.** `accounts-service-sys` and
+`accounts-service-platform`. This is the only case where an account name
+belongs in a credential name; everywhere else it is redundant with the
+connection's own `name_tag`/Account column.
+
+**Rule 3 — a credential with more than one holder is never named after a
+holder; it is named for the grant.** `acme` is correct under this rule —
+four services share it because it *is* "all of ACME", and the name says so.
+Note that Rule 3 justifies the *name*, not the sharing: `platform`, shared
+by `refdata-service`, `accounts-service` and `otlp-bridge`, is accurately
+named, but three unrelated processes sharing one unrestricted credential is
+its own problem (see the split below).
+
+**Form:** lowercase-kebab, matching the KV/Object-Store convention in
+CLAUDE.md's storage-naming section. These names double as `.creds`
+filenames, so no spaces and no case games. A `_token`/`_user` suffix was
+considered and rejected: it would appear on 100% of values, so it
+distinguishes nothing, it mixes `_` into an otherwise `-` separated
+identifier against the settled storage-naming rule, it says "credential"
+twice in a `.creds` filename, and `_token` would misdescribe the long-lived
+file-based credentials outright.
+
+**What deliberately stays out of a credential name:**
+
+- **The account** (Rule 2 excepted) — `name_tag` already carries it.
+- **The tenant** — the Account column carries it, which is why
+  `browser-<tenant>` should become `seafreight-app`: the app is the holder,
+  the tenant is context the row already shows.
+- **Ephemerality** — the Type column reads `websocket` for exactly the
+  ephemeral browser credentials, so encoding it in the name repeats the
+  `browser-<tenant>` mistake.
+
+**Applied to today's credentials** (proposed; **not yet implemented** —
+see the two costs below):
+
+| Today | Proposed | Rule |
+|---|---|---|
+| `shipping-admin` | `shipping-service` | 1 |
+| `observability` | `observability-service` | 1 |
+| `sys` | `accounts-service-sys` | 2 |
+| `platform` (accounts-service) | `accounts-service-platform` | 2 |
+| `platform` (refdata-service) | `refdata-service` | 1 — needs the split |
+| `platform` (otlp-bridge) | `otlp-bridge` | 1 — needs the split |
+| `acme` / `globex` / `<tenant>` | unchanged | 3 |
+| `browser-<tenant>` | `seafreight-app` | 1 |
+| `admin-app`, `operator-app` | unchanged | 1 — already match their apps |
+
+Two costs make this a deliberate migration rather than a rename pass:
+
+- **The three `platform` rows need one nsc user split into three** before
+  Rule 1 can name any of them, since one JWT cannot be named after three
+  holders.
+- **A rename is delete-and-re-add in `nsc`, so it mints a new user NKey.**
+  That requires `docker compose down -v` plus a bootstrap reseed, with the
+  compose env vars and volume mounts moving to the new filenames in the
+  same change. Note also that a *tenant* credential's filename is
+  load-bearing — `shipping-service`'s `SwitchTenant` scans for
+  `<tenant>.creds` — which is a second reason Rule 3 leaves `acme`/`globex`
+  alone.
+
 ### 1t. Tenant account creation
 
 BR-AC01, BR-AC02 — mint account + user JWTs, push to resolver, write `.creds`.

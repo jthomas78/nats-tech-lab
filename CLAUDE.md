@@ -251,6 +251,34 @@ Value: JSON-encoded ShipState / ContainerState / metadata
   does not migrate its contents — it orphans the old stream and creates an
   empty new one. Check for existing data before renaming.
 
+### Credential naming (NATS user JWT `name` claim)
+
+**Same `lowercase-kebab` form as KV buckets above — these names double as
+`.creds` filenames.** The `name` claim is the credential's only human label
+and is what the Admin UI's Connections panel shows in its **Credential**
+column. Full rules, the applied rename table, and the migration costs:
+`obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-ACCOUNTS.md`
+§ "Credential naming". The short form:
+
+- **The name identifies the credential, not the connection** — several
+  connections sharing one JWT are one credential.
+- **A dedicated credential is named for its holder, spelled exactly as that
+  process's `nats.Name()`** (`observability-service`, not `observability`).
+  This is what makes a Name/Credential mismatch in the panel a *signal* —
+  shared credential, or wrong `.creds` file mounted.
+- **One holder needing several credentials suffixes the account**
+  (`accounts-service-sys`, `accounts-service-platform`). That is the only
+  place an account name belongs in a credential name.
+- **A shared credential is named for the grant, not a holder** (`acme`).
+- **Don't encode the account (except above), the tenant, ephemerality, or a
+  `_token`/`_user` suffix** — the Connections panel's other columns already
+  carry all of it, and a suffix on 100% of values distinguishes nothing.
+- **Renaming an nsc user is delete-and-re-add**, so it mints a new user
+  NKey and needs `docker compose down -v` + a bootstrap reseed, with
+  compose mounts/env moving to the new filenames in the same change. A
+  *tenant* creds filename is additionally load-bearing (`SwitchTenant`
+  scans `<tenant>.creds`).
+
 ### Entity identity — ULID in `organizations-service`, UUID elsewhere
 
 **Two ID formats coexist in this repo by decision, not by accident.**

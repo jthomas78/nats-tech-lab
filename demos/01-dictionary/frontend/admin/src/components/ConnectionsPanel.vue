@@ -164,6 +164,7 @@ function rowMatches(row) {
     (row.account || '').toLowerCase().includes(q) ||
     (resolveLabel(row) || '').toLowerCase().includes(q) ||
     (row.ip || '').toLowerCase().includes(q) ||
+    (row.user || '').toLowerCase().includes(q) ||
     (row.subscriptionsList || []).some((s) => s.toLowerCase().includes(q))
   )
 }
@@ -202,6 +203,34 @@ function shortAccount(acc) {
   if (!acc) return '—'
   return acc.length > 12 ? `${acc.slice(0, 10)}…` : acc
 }
+
+// ── Credential column ────────────────────────────────────────────────────
+// row.user is the credential's NAME (the `name` claim decoded from the
+// connection's user JWT by observability-service, falling back to the
+// account's name_tag); row.userKey is its public NKey — the only stable
+// identity, since two distinct users can carry the same name.
+//
+// credentialDiverges() drives the amber highlight, and it is NOT an error
+// state. Under the credential naming scheme a dedicated credential is
+// named for its holder, spelled exactly as that process's nats.Name() —
+// so an unhighlighted row is the healthy case, and a highlighted one
+// means either a deliberately SHARED credential (platform.creds, held by
+// refdata-service and accounts-service alike; acme.creds, held by all
+// four ACME-side services) or the wrong creds file mounted. Those two are
+// worth telling apart by eye, which is the whole reason the column earns
+// its width over the Name column beside it.
+function credentialDiverges(row) {
+  if (!row.user || !row.name) return false
+  return row.user !== row.name
+}
+// The NKey lives in the tooltip rather than the cell: it is a debugging
+// detail, and for the ephemeral browser credentials (accounts-service's
+// auth/token.go mintUserToken) it is regenerated per session, so a
+// permanently visible value would churn on every browser reconnect.
+function credentialTitle(row) {
+  if (!row.userKey) return row.user || ''
+  return `${row.user}\n${row.userKey}`
+}
 </script>
 
 <template>
@@ -235,7 +264,7 @@ function shortAccount(acc) {
     <div class="conn-toolbar">
       <span class="search-box">
         <i class="pi pi-search" />
-        <input v-model="searchText" type="text" placeholder="filter by name, account, ip, or subscription subject" />
+        <input v-model="searchText" type="text" placeholder="filter by name, account, credential, ip, or subscription subject" />
       </span>
       <button
         v-for="opt in ['all', 'nats', 'websocket']"
@@ -283,6 +312,17 @@ function shortAccount(acc) {
           <code v-else class="acct" :title="data.account">{{ shortAccount(data.account) }}</code>
         </template>
       </Column>
+      <Column header="Credential" style="width:150px">
+        <template #body="{ data }">
+          <code
+            v-if="data.user"
+            class="cred"
+            :class="{ diverged: credentialDiverges(data) }"
+            :title="credentialTitle(data)"
+          >{{ data.user }}</code>
+          <span v-else class="lab-muted">—</span>
+        </template>
+      </Column>
       <Column header="Host" style="width:150px">
         <template #body="{ data }">
           <code class="acct">{{ data.ip }}:{{ data.port }}</code>
@@ -325,12 +365,33 @@ function shortAccount(acc) {
             <div class="kv">
               <div class="row"><span class="k">CID</span><span class="v">{{ selectedRow.cid }}</span></div>
               <div class="row"><span class="k">IP</span><span class="v">{{ selectedRow.ip }}:{{ selectedRow.port }}</span></div>
+              <!-- Account and Account NKey are two rows, not one, to match the
+                   Credential / User NKey pair below: in both, the friendly
+                   value and the raw NKey behind it are separate facts. The
+                   table column still collapses them (label, or a truncated
+                   key when none resolved) because it has one cell to work
+                   with; the pane doesn't, so it doesn't. -->
               <div class="row">
                 <span class="k">Account</span>
                 <span class="v">
                   <span v-if="resolveLabel(selectedRow)" class="tenant-label">{{ resolveLabel(selectedRow) }}</span>
-                  {{ selectedRow.account || '—' }}
+                  <span v-else class="lab-muted">—</span>
                 </span>
+              </div>
+              <div class="row">
+                <span class="k">Account NKey</span>
+                <span class="v">{{ selectedRow.account || '—' }}</span>
+              </div>
+              <div class="row">
+                <span class="k">Credential</span>
+                <span class="v">
+                  <code v-if="selectedRow.user" class="cred" :class="{ diverged: credentialDiverges(selectedRow) }">{{ selectedRow.user }}</code>
+                  <span v-else class="lab-muted">—</span>
+                </span>
+              </div>
+              <div class="row">
+                <span class="k">User NKey</span>
+                <span class="v">{{ selectedRow.userKey || '—' }}</span>
               </div>
               <div class="row"><span class="k">Started</span><span class="v">{{ formatTime(selectedRow.start) }}</span></div>
               <div class="row"><span class="k">Uptime</span><span class="v">{{ selectedRow.uptime || '—' }}</span></div>
@@ -516,6 +577,15 @@ function shortAccount(acc) {
 .acct {
   font-size: 11px;
   color: var(--p-text-muted-color);
+}
+/* The Credential column. .diverged is a signal, not an error — see
+   credentialDiverges() above for what it means and why it isn't red. */
+.cred {
+  font-size: 11px;
+  color: var(--p-text-color);
+}
+.cred.diverged {
+  color: #f0b429;
 }
 .tenant-label {
   font-size: 11px;

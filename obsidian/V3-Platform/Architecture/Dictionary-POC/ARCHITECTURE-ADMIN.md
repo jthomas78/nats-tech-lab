@@ -394,6 +394,48 @@ keeping exactly one ratio, one bar, on the Total card. See
 `.claude/memory/connz_limit_is_page_size_not_capacity.md` in the repo for
 the full exchange this rule came out of.
 
+**The Credential column (BR-058, 2026-08-26).** The panel names the *credential*
+each connection authenticated with, between Account and Host: the `name`
+claim decoded out of `/connz`'s `jwt` field, which the proxy already fetches
+(`?auth=true`) and previously discarded. The full signed JWT is decoded for
+that one claim and then dropped — it is ~1.5KB per row and embeds the
+credential's entire permission grid, neither of which the panel has any use
+for, so it never reaches the browser (asserted in
+`nats_connections_test.go`). The signature is not verified: the NATS server
+already vouched for the claim by admitting the connection, and nothing here
+authorizes on it. Connections that authenticated without a user JWT fall
+back to `name_tag` — the *account* JWT's own name — and render an em-dash
+when even that is empty. `authorized_user`, the user's public NKey and the
+only stable identity for a credential (two users can share a `name`), rides
+along on the cell's `title` and in the detail pane rather than taking a
+column of its own; the ephemeral browser credentials mint a fresh NKey per
+session, so it legitimately changes on every reconnect.
+
+A credential whose name differs from the connection's own name renders
+amber. That is a signal, not an error — it means either a deliberately
+shared credential or the wrong `.creds` file mounted — and it is the
+practical payoff of the credential-naming rules in
+ARCHITECTURE-ACCOUNTS.md § "Credential naming". On today's stack most rows
+are amber; once those renames land, only the genuinely shared credentials
+should be, which makes the column double as a progress check on that work.
+
+![Connections — the Credential column, Option A vs Option B](images/admin-connections-credential-column-mockup.png)
+
+The mockup above is the reviewed design, built on the real 16-connection
+snapshot rather than invented rows — which is why the two `platform` rows
+and two `acme` rows land in it exactly as they do in the panel. **Option A**
+(shipped) puts the column after Account as a single mono line with the NKey
+on hover; **Option B** put it after Name over a truncated NKey on a second
+line. Both carried the same amber treatment, so the decision was placement
+plus whether the NKey is permanently on screen — and Option A won on the
+grounds that the NKey is a debugging detail rather than something you scan a
+table for, doubly so for the websocket rows whose NKey rotates each
+reconnect. Editable source:
+[admin-connections-credential-column-mockup.html](../../../../demos/01-dictionary/diagrams/admin-connections-credential-column-mockup.html);
+re-export with
+`node diagrams/export-html-png.mjs diagrams/admin-connections-credential-column-mockup.html ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/admin-connections-credential-column-mockup.png 1240 --clip=".mock"`
+from `demos/01-dictionary/`.
+
 ### 4.2 Services
 
 **What it shows.** Every service registered via `nats.go/micro`

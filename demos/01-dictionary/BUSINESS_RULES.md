@@ -74,6 +74,17 @@ Split by domain so a rule add/edit only requires reading its own file:
   (BR-056, no millisecond field beside it), and the waterfall clamps a
   child's bar never to start left of its parent's (BR-057) so the picture
   stays possible under the clock skew that microseconds cannot fix.
+  BR-058 (IMPLEMENTED 2026-08-26) adds the Connections panel's Credential
+  column — the user JWT's `name` claim, decoded out of `/connz`'s `jwt` and
+  the token then dropped rather than forwarded to the browser, `name_tag` as
+  its fallback, and an amber mark where a credential's name diverges from
+  the connection's own. Independent of BR-028, which resolves the *account*:
+  one account holds many credentials and one credential serves many
+  connections. BR-028 gained a same-day amendment for the detail pane, where
+  its raw-NKey fallback is retired in favour of a dedicated `Account NKey`
+  row, matching BR-058's `Credential` / `User NKey` pair. The credential
+  *naming* convention those rules make visible is not itself a rule — see
+  `ARCHITECTURE-ACCOUNTS.md` § "Credential naming"; nothing enforces it yet.
 - **[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)** — Reference Data
   Service (BR-D01–BR-D48, BR-D39 being the Phase 28 `obs.trace.*` mirror of
   BR-036 and BR-D45 (Phase 43a, CONFIRMED) pointing this service's `evt.*`
