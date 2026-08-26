@@ -575,8 +575,19 @@ file-based credentials outright.
   ephemeral browser credentials, so encoding it in the name repeats the
   `browser-<tenant>` mistake.
 
-**Applied to today's credentials** (proposed; **not yet implemented** —
-see the two costs below):
+**Applied to today's credentials** — **DEFERRED 2026-08-26, undecided.** This
+table is what the rules above would produce; it is not planned work and
+should not be picked up as such. The three static renames
+(`shipping-admin`, `observability`, the `sys` suffixing) buy only a quieter
+divergence signal in the Connections panel and cost a full `down -v` +
+reseed, which does not carry them on its own. The two ephemeral ones
+(`browser-<tenant>`) are the opposite — a string in `mintUserToken`, no
+migration at all — and can be taken any time in isolation. The `platform`
+rows are the item worth revisiting, but as a **least-privilege** question
+rather than a naming one: three unrelated processes share one credential
+that is unrestricted within PLATFORM, which would be worth fixing even if
+every name here were already correct. Naming only surfaced it, because
+Rule 1 cannot name one JWT after three holders.
 
 | Today | Proposed | Rule |
 |---|---|---|
