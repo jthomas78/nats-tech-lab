@@ -1062,6 +1062,40 @@ Two details of that chain were written into this rule from the design and correc
 
 ---
 
+### BR-056 (Phase 49a, IMPLEMENTED 2026-08-26) — A span's duration is published in microseconds, and a start time is only ever derived from it
+
+`natstrace` publishes no start timestamp — a span's `timestamp` is its **finish** moment, and every consumer that needs a start time subtracts the duration from it. That contract is fine; the resolution it was published at was not.
+
+**The defect.** `finish()` reported `time.Since(sp.startedAt).Milliseconds()`, which truncates toward zero, while `timestamp` carries full nanosecond precision. Subtracting one from the other mixes a precise value with a coarse one, and the error is **one-directional**: the derived start is always *too late*, by up to 0.999ms. In a sub-millisecond trace that error is on the order of the entire chart width, and it is largest for the span that ran longest — the root. The observed result was a waterfall in which the root span's bar began *after* its own grandchild's, an ordering that is impossible by construction. Three consumers derived a start this way and all three were wrong together: `TraceWaterfall.vue`, `PulsePanel.vue`, and `otlp-bridge`'s `ToSpan` — which exported the same inverted start into OTLP, so any Jaeger/Tempo fed by the bridge showed the same impossible nesting.
+
+**The rule.** The wire field is `durationUs`, an `int64` count of microseconds from the span's construction moment to its `finish()` call, measured with `time.Since` on one host's monotonic clock. It is **not** `omitempty`: 0µs is meaningful data (a fast span), not absence. There is no second duration field — `durationMs` is gone from the envelope rather than kept alongside, so there is no way for a consumer to pick the coarse one by accident, which is the only failure this rule is really guarding against. Milliseconds remain the *display* unit everywhere they already were; the conversion happens at the point of formatting, never on the wire and never before a start time is derived from it.
+
+**Why duration and not a start timestamp.** Publishing `startedAt` would invite a consumer to compare two wall-clock instants stamped on two different hosts. A duration is measured within one process against a monotonic clock, so it stays meaningful across a boundary where wall clocks do not. This rule sharpens the existing contract rather than replacing it — and BR-057 exists because sharpening it is still not sufficient.
+
+**Migration.** A record already in the `trace-request-reply` bucket carries `durationMs` and no `durationUs`, for at most one `BucketMaxAge` (15 min) after deploy. The frontend's `spanTiming.js` reads that legacy field as a fallback so the deploy is invisible rather than a panel of zero-width bars; it is dated for deletion and nothing else depends on it. The Go side carries no such fallback — same split as BR-053's 48g migration, for the same reason: the Go consumers read a live stream, not a 15-minute backlog.
+
+- **Enforced in:** `shared/natstrace/natstrace.go` (`traceSpan.DurationUs`, `finish`), `otlp-bridge/internal/otlpmap/map.go` (`WireSpan.DurationUs`, `ToSpan`), `frontend/admin/src/nats/spanTiming.js` (the one place a start time is derived).
+- **Test:** `natstrace_test.go` — a handler delayed by a known sub-millisecond amount reports a `durationUs` inside that band and **not** a whole multiple of 1000, which is what fails against `Milliseconds()`. `otlpmap/map_test.go` — a span whose duration is not a whole millisecond maps to a `startTimeUnixNano` matching it to the microsecond. `spanTiming.spec.js` — `durationUs` wins over a legacy `durationMs`, and a record carrying only `durationMs` still resolves.
+
+---
+
+### BR-057 (Phase 49b, IMPLEMENTED 2026-08-26) — The waterfall never draws a span starting before its own parent
+
+BR-056 fixes the resolution that caused the inversion. It does not make the inversion unrepresentable, and a rendering invariant is the only thing that can: the spans of one trace are stamped by several services on several hosts, so their `timestamp` values are wall-clock instants from **different clocks**. Skew of a few milliseconds between two containers is ordinary, needs no bug to occur, and produces exactly the same impossible picture that truncation did.
+
+**The rule.** In the rendered waterfall, for every span whose parent is present in the trace, `start(child) >= start(parent)`. Where the derived values violate that, the *drawing* is clamped to satisfy it: the child's bar is pulled right to its parent's, applied top-down through the tree so clamping one span carries its whole subtree with it.
+
+**The clamp only ever moves a child, never a parent** — deliberately, and not merely because one direction is easier. The parent is the causal ancestor: it provably existed before the child, because it is what issued the call. Pulling a parent left to meet an early-looking child would let a single skewed clock rewrite the start of a span measured on a host that was right. Moving the child is the correction that cannot conflict with itself, which is also why the rule is one inequality and not two.
+
+**The span's own reported duration is still what the row's duration column prints**, unchanged: the panel must not invent a number and attribute it to a service. The clamp adjusts where a bar is drawn, never what the trace is said to have measured. Because clamping shifts bars within the trace window, the axis and the bars are scaled from that same clamped geometry — an axis drawn from the raw window while the bars are drawn from the clamped one would just relocate the lie instead of removing it.
+
+Ordering is already structural — `waterfallRows` walks the `parentSpanId` tree in pre-order rather than flat-sorting by derived start, a defence added in Phase 28m against this same truncation. This rule extends that defence from the row order to the bar geometry, which is the half 28m left trusting the arithmetic.
+
+- **Enforced in:** `frontend/admin/src/components/TraceWaterfall.vue` (`waterfallRows`).
+- **Test:** `TraceWaterfall.spec.js` — a three-span trace whose derived starts are inverted by a skewed clock (spans whose durations are correct to the microsecond, so BR-056 alone cannot save it) renders with monotonically non-decreasing bar offsets down the chain, the root bar starting at 0, while each row's printed duration still equals what its span reported. Verified red by removing the clamp.
+
+---
+
 ## Guards (not numbered rules)
 
 - **Unregistered container** — load/unload of a container with no `.registered`

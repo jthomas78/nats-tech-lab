@@ -66,6 +66,14 @@ Split by domain so a rule add/edit only requires reading its own file:
   written one idempotent span at a time (BR-053), and both panels name the
   originating account, proven by a multi-span cross-account harness
   (BR-054). See BR-AC36, ACCOUNTS file, for the JWT remap they depend on.
+  BR-056–057 (Phase 49, IMPLEMENTED 2026-08-26) fix the arithmetic that
+  panel draws with: a span carries no start time on the wire, so a start is
+  derived as finish minus duration, and publishing that duration truncated
+  to whole milliseconds biased every derived start LATE — worst for the
+  longest span, which is the root. The wire field is now `durationUs`
+  (BR-056, no millisecond field beside it), and the waterfall clamps a
+  child's bar never to start left of its parent's (BR-057) so the picture
+  stays possible under the clock skew that microseconds cannot fix.
 - **[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)** — Reference Data
   Service (BR-D01–BR-D48, BR-D39 being the Phase 28 `obs.trace.*` mirror of
   BR-036 and BR-D45 (Phase 43a, CONFIRMED) pointing this service's `evt.*`

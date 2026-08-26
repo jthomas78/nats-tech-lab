@@ -581,7 +581,7 @@ const ENV = [
   ['new','traceId','The whole panel. One id shared by every hop, minted at the browser as W3C traceparent.'],
   ['new','spanId / parentSpanId','The tree. This is what turns two unrelated rows into a parent and its child.'],
   ['new','spanKind','client · server · producer · consumer · internal — drives the bar treatment.'],
-  ['new','durationMs','Measured at the span, not subtracted from two timestamps in the browser. Gives real self-time.'],
+  ['new','durationUs','Measured at the span in microseconds (BR-056), not subtracted from two timestamps in the browser. Gives real self-time, and a start time derived from it is not truncated.'],
   ['new','account','The swimlane gutter, and boundary-crossing detection.'],
   ['new','service / instance','Which replica served it, when more than one is running.'],
   ['new','attrs','Typed extras: stream + sequence, KV bucket + revision, db rows, pool wait, delivery attempt.'],

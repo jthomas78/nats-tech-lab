@@ -258,7 +258,7 @@ type storedSpan struct {
 	Subject       string `json:"subject"`
 	StatusCode    string `json:"statusCode"`
 	StatusMessage string `json:"statusMessage"`
-	DurationMs    int64  `json:"durationMs"`
+	DurationUs    int64  `json:"durationUs"`
 	Tenant        string `json:"tenant"`
 	// Attributes carries BR-037's rpc.retry_count, which is what separates a
 	// domain rejection from a transport failure now that BR-055 makes both

@@ -929,6 +929,44 @@ assertion — the spoofable model BR-051 exists to avoid.
 
 ---
 
+### Phase 49 — Completed (archived 2026-08-26)
+
+Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
+(not read into context by default — open only when you need the original
+rationale, the design decisions, or the verification log).
+
+- [x] Phase 49 (IMPLEMENTED 2026-08-26) — **Span timing precision, and a
+      waterfall that cannot draw an impossible trace.** Found by inspection
+      of a live 3-span trace whose root bar started after its own
+      grandchild's.
+- [x] **49a** — the wire duration is `durationUs`, microseconds, with no
+      millisecond field beside it (BR-056). A span carries no start time, so
+      a start is derived as finish minus duration; `Milliseconds()` truncates
+      while the finish timestamp is nanosecond-precise, which biased every
+      derived start LATE by up to 0.999ms — worst for the longest span, the
+      root. Three consumers derived a start independently and were wrong
+      together: `TraceWaterfall.vue`, `PulsePanel.vue`, and `otlp-bridge`,
+      which exported the same inversion into OTLP. They now share one seam,
+      `nats/spanTiming.js`.
+- [x] **49b** — the waterfall clamps a child's bar never to start left of
+      its parent's, top-down through the tree, with the axis scaled from the
+      same clamped geometry (BR-057). 49a removed the *cause* of the
+      observed inversion; it cannot make inversion unrepresentable, because
+      a trace's spans are stamped by several hosts and a few ms of clock
+      skew is ordinary. The clamp moves only children — the parent is the
+      causal ancestor, so letting a skewed child pull it left would be the
+      worse error — and adjusts geometry only, never the duration a row
+      prints.
+
+**Worth keeping:** Phase 28m had already met this defect and fixed only half
+of it. It made row ORDER structural (walk the `parentSpanId` tree instead of
+sorting by derived start) and left the bar geometry trusting the same
+arithmetic it had just declared untrustworthy. The lesson is the shape of
+49b: where a derived value is known to be unreliable, every consumer of it
+needs the structural defence, not just the one where the symptom was noticed.
+
+---
+
 ### Phase 60 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning
 
 > **Renumbered 2026-08-17** from Phase 24 to Phase 40, alongside Phase

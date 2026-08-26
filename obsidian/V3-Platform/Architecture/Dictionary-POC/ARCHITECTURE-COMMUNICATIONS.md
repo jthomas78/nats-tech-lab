@@ -742,9 +742,10 @@ predates Phase 35 and was never folded into `browserrpc` since it answers
 `req.Respond`, putting that work between the caller getting its answer and
 the caller actually receiving it. Both were reordered — reply first, finish
 the span after — so an `rpc.*`/`api.*` call's measured duration no longer
-includes `natstrace`'s own overhead (this also makes `DurationMs` itself
+includes `natstrace`'s own overhead (this also makes `DurationUs` itself
 slightly more accurate: it's now stamped after the real reply's send, not
-before). `natstrace.HTTPMiddleware`/shipping-service's own
+before — and since BR-056 it is measured in microseconds, so that accuracy
+survives onto the wire instead of being truncated away). `natstrace.HTTPMiddleware`/shipping-service's own
 `httpTraceMiddleware` needed no change — both already finish their span
 *after* `next.ServeHTTP`/`next` returns, since the HTTP response is written
 inside that call, not by a separate statement after it.

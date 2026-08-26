@@ -42,7 +42,7 @@ type WireSpan struct {
 	StatusCode    string            `json:"statusCode,omitempty"`
 	StatusMessage string            `json:"statusMessage,omitempty"`
 	Attributes    map[string]string `json:"attributes,omitempty"`
-	DurationMs    int64             `json:"durationMs"`
+	DurationUs    int64             `json:"durationUs"`
 }
 
 // Span is the intermediate shape ToSpan produces from a WireSpan — plain
@@ -64,7 +64,14 @@ type Span struct {
 // ToSpan maps one wire span field-for-field. w.Timestamp is the span's
 // finish moment (natstrace.go's traceSpan doc comment: "there is no separate
 // wire 'start' timestamp"), so the start time is recovered the same way the
-// Admin UI would: Timestamp minus DurationMs.
+// Admin UI would: Timestamp minus DurationUs.
+//
+// Microseconds, not milliseconds (BR-056). This subtraction is the reason
+// the wire field's resolution is a rule at all: Timestamp is nanosecond
+// precise, so a millisecond-truncated duration puts the derived start up to
+// 0.999ms too late — always late — and the bridge exported that error
+// straight into OTLP, inverting nested spans in whatever backend consumes it
+// exactly as it inverted the Admin UI's own waterfall.
 //
 // spanKind is never set (OTLP's SPAN_KIND_UNSPECIFIED, the zero value) —
 // natstrace has no real kind data (BR-035's Phase 28g amendment: direction
@@ -76,7 +83,7 @@ type Span struct {
 // redaction bookkeeping) is out of scope per WireSpan's own doc comment.
 func ToSpan(w WireSpan) Span {
 	end := w.Timestamp
-	start := end.Add(-time.Duration(w.DurationMs) * time.Millisecond)
+	start := end.Add(-time.Duration(w.DurationUs) * time.Microsecond)
 
 	attrs := make(map[string]string, len(w.Attributes)+5)
 	for k, v := range w.Attributes {

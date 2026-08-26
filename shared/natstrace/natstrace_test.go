@@ -68,7 +68,7 @@ type fullSpan struct {
 	Attributes    map[string]string `json:"attributes,omitempty"`
 	Redacted      []string          `json:"redacted,omitempty"`
 	Truncated     bool              `json:"truncated,omitempty"`
-	DurationMs    int64             `json:"durationMs"`
+	DurationUs    int64             `json:"durationUs"`
 
 	RequestPayload      json.RawMessage `json:"requestPayload,omitempty"`
 	RequestPayloadBytes int             `json:"requestPayloadBytes,omitempty"`
@@ -194,7 +194,56 @@ var _ = Describe("natstrace (Phase 35 — shared package — BR-036/BR-037)", fu
 
 			var span fullSpan
 			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
-			Expect(span.DurationMs).To(BeNumerically(">=", handlerDelay.Milliseconds()), "duration must reflect the handler's own elapsed time, not read as 0 or a value shorter than the deliberate delay")
+			Expect(span.DurationUs).To(BeNumerically(">=", handlerDelay.Microseconds()), "duration must reflect the handler's own elapsed time, not read as 0 or a value shorter than the deliberate delay")
+		})
+
+		// BR-056 — the resolution is the rule, not an implementation detail.
+		// A consumer derives a span's START by subtracting this duration from
+		// the span's nanosecond-precise finish timestamp, so a duration
+		// truncated to whole milliseconds puts that derived start up to
+		// 0.999ms too LATE — always late, never early. Across a trace whose
+		// spans nest inside one another the outermost span carries the largest
+		// truncated remainder, so it is dragged the furthest right, and a
+		// sub-millisecond trace renders with the root starting after its own
+		// descendants. Asserting a sub-millisecond band is what fails against
+		// Milliseconds(); asserting a non-multiple of 1000 is what fails
+		// against a Microseconds() value that was rounded from a millisecond
+		// one rather than measured.
+		It("reports duration at microsecond resolution, so a derived start time is not truncated (BR-056)", func() {
+			tracer := natstrace.New(nc)
+			svc, err := micro.AddService(nc, micro.Config{Name: "natstrace-test-svc", Version: "0.0.1"})
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = svc.Stop() })
+
+			const handlerDelay = 1500 * time.Microsecond
+			handler := func(req micro.Request) {
+				time.Sleep(handlerDelay)
+				natstrace.SpanFrom(req).End(req.Data(), nil)
+				_ = req.Respond(req.Data())
+			}
+			Expect(svc.AddEndpoint("echo", tracer.Middleware(handler), micro.WithEndpointSubject("api.acme.widget.thing.brief.v1"))).To(Succeed())
+
+			spans := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = sub.Unsubscribe() })
+			Expect(nc.Flush()).To(Succeed())
+
+			_, err = nc.Request("api.acme.widget.thing.brief.v1", []byte(`{"ok":true}`), 2*time.Second)
+			Expect(err).NotTo(HaveOccurred())
+
+			var msg *nats.Msg
+			Eventually(spans).Should(Receive(&msg))
+
+			var span fullSpan
+			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+			Expect(span.DurationUs).To(BeNumerically(">=", handlerDelay.Microseconds()), "a 1.5ms handler must not report less than 1500us")
+			Expect(span.DurationUs%1000).NotTo(BeZero(), "duration must be MEASURED in microseconds, not a millisecond value scaled up by 1000")
+
+			// The whole point of the field, stated as the consumer states it.
+			Expect(span.Timestamp.Add(-time.Duration(span.DurationUs)*time.Microsecond)).
+				To(BeTemporally("~", span.Timestamp.Add(-handlerDelay), 3*time.Millisecond),
+					"a start time derived as finish minus duration must land within a hair of the real start")
 		})
 
 		It("marks a failed call with statusCode ERROR and the error message, never blocking the reply", func() {

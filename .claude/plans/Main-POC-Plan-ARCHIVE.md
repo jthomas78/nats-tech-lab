@@ -9529,6 +9529,80 @@ Two things settled in the writing that the drafts above had left open:
 
 ---
 
+## Phase 49 — Completed (archived 2026-08-26)
+
+### Phase 49 (IMPLEMENTED 2026-08-26) — Span Timing Precision and Waterfall Geometry Invariants
+
+*(The number is a reuse, not a collision: "Phase 49" was drafted and
+renamed to Phase 48 earlier the same day — see the renumbering log below —
+which left 49 unused and free to claim.)*
+
+**Trigger.** Not a failing test — a live trace, read off the Request/Reply &
+Traces panel. Three spans (`api.acme.organizations.fleet-asset.add.v1` →
+`refdata.item.get.v1` → `rpc.acme.refdata.item.get.v1`), correctly nested in
+the row tree, each reporting `1ms`, and the root's bar starting to the RIGHT
+of its own grandchild's. Rows said one thing, bars said the opposite.
+
+**Diagnosis.** `natstrace` publishes no start timestamp by design — a span's
+`timestamp` is its finish moment, and a start is recoverable as finish minus
+duration. The finish is nanosecond-precise; the duration was
+`time.Since(startedAt).Milliseconds()`, truncated toward zero. Subtracting a
+coarse value from a precise one biases the result in ONE direction: the
+derived start is always too late, by up to 0.999ms. Within a trace the
+outermost span has run longest and carries the largest discarded remainder,
+so it is dragged furthest right. On a sub-millisecond trace that is the whole
+chart width, and the root lands after its descendants. The right-hand edge of
+every bar was correct throughout — `offset + width` collapses back to the
+precise finish — which is why the picture looked plausible enough to ship.
+
+**Design decisions.**
+
+1. **Microseconds on the wire, not a start timestamp.** A duration is
+   measured inside one process against a monotonic clock; two timestamps
+   stamped on two hosts are not comparable. Publishing `startedAt` would
+   invite exactly that comparison.
+2. **`durationUs` replaces `durationMs`; there is no second field.** Keeping
+   both would leave a consumer able to pick the coarse one by accident,
+   which is the only failure the rule is really guarding. Milliseconds stay
+   a display unit, converted at the point of formatting.
+3. **One frontend seam.** `nats/spanTiming.js` owns `spanDurationMs`,
+   `spanFinishMs`, `spanStartMs`. `PulsePanel.vue` had kept a deliberately
+   coarser local copy on the reasoning that a histogram has no
+   parent-above-child order to protect — sound reasoning, and it still meant
+   the bias lived in its bucketing while only the waterfall's copy got
+   looked at.
+4. **A rendering invariant on top, because precision alone is not enough.**
+   Clock skew between hosts reproduces the same impossible picture with no
+   bug at all.
+5. **Legacy `durationMs` read for one `BucketMaxAge`, frontend only.** Same
+   migration split as 48g, for the same reason — the Go consumers read a
+   live stream, not a 15-minute backlog.
+
+**Verification.**
+
+- `natstrace_test.go` — a 1.5ms handler must report `durationUs >= 1500`
+  **and** not a multiple of 1000 (which fails a value scaled up from
+  milliseconds rather than measured), plus the consumer's own statement of
+  the field: finish minus duration lands within a hair of the real start.
+  Both new and existing specs verified red first.
+- `otlpmap/map_test.go` — a 1.437ms span maps to a `startTimeUnixNano`
+  accurate to the microsecond.
+- `spanTiming.spec.js` (9 specs) — including one that keeps the regression
+  executable: the same two spans with `durationMs` alone still derive
+  backwards.
+- `TraceWaterfall.spec.js` (4 new specs) — a trace with microsecond-accurate
+  durations, inverted by a 3ms-slow host, renders with non-decreasing bar
+  offsets, the root at 0, every bar inside its track, and each row still
+  printing its own span's duration. Verified red by removing the clamp (2 of
+  4 fail).
+- Full suites green: 167 frontend specs across 21 files; `ginkgo ./...` in
+  `shipping-service` (9 suites); `go test ./...` in every other backend
+  service.
+
+**Docs.** `BUSINESS_RULES-SHIPPING.md` BR-056/BR-057 and the
+`BUSINESS_RULES.md` index; `ARCHITECTURE-COMMUNICATIONS.md`'s reply-ordering
+note; `admin-traces-panel.html`'s field table, re-exported.
+
 ## Renumbering history
 
 Every renumbering log, moved out of the live plan on 2026-08-21 (it had

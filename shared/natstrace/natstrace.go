@@ -200,14 +200,28 @@ type traceSpan struct {
 	RequestRedacted     []string        `json:"requestRedacted,omitempty"`
 	RequestTruncated    bool            `json:"requestTruncated,omitempty"`
 
-	// DurationMs is the span's own measured duration (Phase 28g) — from
-	// Start/StartFromHeaders/StartOutbound/HTTPMiddleware's construction
-	// moment to End/Fail's finish() call, never derived by a consumer
-	// subtracting two timestamps (Timestamp above is only the finish moment;
-	// there is no separate wire "start" timestamp — a span's start time is
-	// recoverable as Timestamp minus DurationMs, if ever needed). Not
-	// omitempty: 0ms is meaningful data (a fast span), not absence.
-	DurationMs int64 `json:"durationMs"`
+	// DurationUs is the span's own measured duration in MICROSECONDS
+	// (Phase 28g; microseconds since BR-056) — from Start/StartFromHeaders/
+	// StartOutbound/HTTPMiddleware's construction moment to End/Fail's
+	// finish() call, measured with time.Since against one host's monotonic
+	// clock and never derived by a consumer subtracting two timestamps
+	// (Timestamp above is only the finish moment; there is no separate wire
+	// "start" timestamp — a span's start time is recoverable as Timestamp
+	// minus DurationUs). Not omitempty: 0us is meaningful data (a fast
+	// span), not absence.
+	//
+	// Microseconds, and no millisecond field beside it, because of how that
+	// derived start time goes wrong (BR-056). Timestamp is nanosecond
+	// precise; a duration truncated to whole milliseconds — what
+	// Milliseconds() returns — makes the subtraction mix a precise value
+	// with a coarse one, and the error is ONE-DIRECTIONAL: the derived start
+	// is always too late, by up to 0.999ms. Within one trace the outermost
+	// span has run the longest and so carries the largest truncated
+	// remainder, which drags it the furthest right; on a sub-millisecond
+	// trace that was enough to render a root span starting after its own
+	// grandchild. Milliseconds stay a DISPLAY unit, converted at the point
+	// of formatting, never on the wire.
+	DurationUs int64 `json:"durationUs"`
 }
 
 // Tracer publishes obs.trace.* spans on one NATS connection. Constructed
@@ -255,9 +269,12 @@ type Span struct {
 	attributes map[string]string
 
 	// startedAt is stamped at construction (Start/StartFromHeaders/
-	// StartOutbound/HTTPMiddleware) so finish() can compute DurationMs
+	// StartOutbound/HTTPMiddleware) so finish() can compute DurationUs
 	// (Phase 28g) — never exposed on the wire itself, only the derived
-	// duration is.
+	// duration is. Deliberately not published: a start timestamp would
+	// invite a consumer to compare two wall clocks stamped on two different
+	// hosts, where a duration measured inside one process against a
+	// monotonic clock stays meaningful across that boundary (BR-056).
 	startedAt time.Time
 }
 
@@ -532,7 +549,7 @@ func (sp *Span) finish(statusCode, errMsg string, payload []byte, headers map[st
 		Attributes:    sp.attributes,
 		Redacted:      redactedFields,
 		Truncated:     truncated,
-		DurationMs:    time.Since(sp.startedAt).Milliseconds(),
+		DurationUs:    time.Since(sp.startedAt).Microseconds(),
 
 		RequestPayload:      reqPayload,
 		RequestPayloadBytes: reqPayloadBytes,

@@ -636,3 +636,111 @@ describe('TraceWaterfall error rendering (Phase 48j, BR-055)', () => {
     expect(responder.find('.v').classes()).not.toContain('errv')
   })
 })
+
+// BR-057 — the waterfall never draws a span starting before its own parent.
+//
+// BR-056 raised the wire duration to microsecond resolution, which removed
+// the cause of the inversion that was actually observed. It did not make the
+// inversion unrepresentable: a trace's spans are stamped by several services
+// on several hosts, so their `timestamp` values come from DIFFERENT wall
+// clocks, and a few milliseconds of skew between two containers needs no bug
+// at all. These fixtures therefore carry microsecond-accurate durations —
+// BR-056 is doing its job — and still derive backwards, because the two
+// inner spans were stamped by a host running 3ms slow.
+describe('TraceWaterfall bar geometry under clock skew (BR-057)', () => {
+  const BASE_SKEW = 1755000000000
+
+  // An ISO timestamp with a real sub-millisecond fraction. Date's own
+  // toISOString() stops at milliseconds, which is the precision this whole
+  // pair of rules exists to preserve.
+  function isoAt(msFloat) {
+    const whole = Math.floor(msFloat)
+    const micros = Math.round((msFloat - whole) * 1e6)
+    return new Date(whole).toISOString().slice(0, -1) + String(micros).padStart(6, '0') + 'Z'
+  }
+
+  // Truth: root runs [0, 1.9], child [0.15, 1.75], grandchild [0.3, 1.5].
+  // The child and grandchild's host clock is 3ms slow, so their published
+  // finish timestamps land BEFORE the root's start.
+  const SKEW = 3
+  const SK_ROOT = {
+    traceId: 'ts',
+    spanId: 's1',
+    service: 'organizations',
+    subject: 'api.acme.organizations.fleet-asset.add.v1',
+    statusCode: 'OK',
+    durationUs: 1900,
+    timestamp: isoAt(BASE_SKEW + 1.9),
+  }
+  const SK_CHILD = {
+    traceId: 'ts',
+    spanId: 's2',
+    parentSpanId: 's1',
+    service: 'refdata',
+    subject: 'refdata.item.get.v1',
+    statusCode: 'OK',
+    durationUs: 1600,
+    timestamp: isoAt(BASE_SKEW + 1.75 - SKEW),
+  }
+  const SK_GRANDCHILD = {
+    _tenant: '_platform',
+    traceId: 'ts',
+    spanId: 's3',
+    parentSpanId: 's2',
+    service: 'refdata',
+    subject: 'rpc.acme.refdata.item.get.v1',
+    statusCode: 'OK',
+    durationUs: 1200,
+    timestamp: isoAt(BASE_SKEW + 1.5 - SKEW),
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getKvBucketEntries.mockResolvedValue([kvEntry('ts', [SK_ROOT, SK_CHILD, SK_GRANDCHILD])])
+  })
+
+  function barLefts(wrapper) {
+    return wrapper.findAll('.tw-row .tw-bar').map((b) => parseFloat(b.attributes('style').match(/left:\s*([-\d.]+)%/)[1]))
+  }
+
+  it('never starts a child bar left of its parent, however the clocks disagree', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const lefts = barLefts(wrapper)
+    expect(lefts).toHaveLength(3)
+    // Rows are already in pre-order (root, child, grandchild) — Phase 28m.
+    expect(lefts[1]).toBeGreaterThanOrEqual(lefts[0])
+    expect(lefts[2]).toBeGreaterThanOrEqual(lefts[1])
+  })
+
+  it('starts the root bar at the left edge rather than at a phantom lead-in', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(barLefts(wrapper)[0]).toBeCloseTo(0, 5)
+  })
+
+  it('keeps every bar inside the track it is drawn in', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    for (const bar of wrapper.findAll('.tw-row .tw-bar')) {
+      const style = bar.attributes('style')
+      const left = parseFloat(style.match(/left:\s*([-\d.]+)%/)[1])
+      const width = parseFloat(style.match(/width:\s*([-\d.]+)%/)[1])
+      expect(left).toBeGreaterThanOrEqual(0)
+      expect(left + width).toBeLessThanOrEqual(100.01)
+    }
+  })
+
+  it('still prints each span its own measured duration, not the clamped geometry', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    // 1.9ms / 1.6ms / 1.2ms all format to "2ms"/"2ms"/"1ms" — what matters is
+    // that the column reports the SPAN, so a clamped bar must not rewrite it.
+    const durations = wrapper.findAll('.tw-row .tw-dur').map((d) => d.text())
+    expect(durations).toEqual(['2ms', '2ms', '1ms'])
+  })
+})

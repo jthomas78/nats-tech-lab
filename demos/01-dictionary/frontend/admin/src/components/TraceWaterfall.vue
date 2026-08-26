@@ -3,6 +3,7 @@ import Tag from 'primevue/tag'
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 
 import { highlightJson } from '../jsonHighlight.js'
+import { spanDurationMs, spanFinishMs, spanStartMs } from '../nats/spanTiming.js'
 import { useTraceFeed } from '../nats/useTraceFeed.js'
 import { useUiStore } from '../stores/ui.js'
 import SubjectPath from './SubjectPath.vue'
@@ -165,19 +166,13 @@ function adjustSpanListHeight(delta) {
 // Date) keeps that sub-millisecond delta, so causally-ordered spans (parent
 // always finishes at or after the child that caused it) sort correctly even
 // when they're only a fraction of a millisecond apart.
-function preciseFinishMs(iso) {
-  const match = /\.(\d+)Z$/.exec(iso)
-  if (!match) return new Date(iso).getTime()
-  const wholeSecondMs = new Date(iso.slice(0, match.index) + 'Z').getTime()
-  const fractionMs = Number(match[1].padEnd(9, '0').slice(0, 9)) / 1e6
-  return wholeSecondMs + fractionMs
-}
-function ownStart(span) {
-  return ownFinish(span) - (span.durationMs || 0)
-}
-function ownFinish(span) {
-  return preciseFinishMs(span.timestamp)
-}
+// Timing lives in ../nats/spanTiming.js (BR-056), not here. It used to be
+// three local functions, and PulsePanel.vue carried its own coarser copy of
+// the same idea — which is how a precision defect could be fixed in one
+// panel and left standing in the other. These two aliases remain only
+// because this file reads better naming a span's OWN start and finish.
+const ownStart = spanStartMs
+const ownFinish = spanFinishMs
 
 // A trace's transport kind is read off its ROOT span's subject: an HTTP
 // entry point's subject is always a URL path ("/api/..." — httpEntity in
@@ -198,7 +193,7 @@ function summarize(traceId, spans) {
   const traceStart = Math.min(...spans.map(ownStart))
   const traceEnd = Math.max(...spans.map(ownFinish))
   const total = Math.max(traceEnd - traceStart, 0)
-  const replyMs = root?.durationMs ?? total
+  const replyMs = root ? spanDurationMs(root) : total
   const rootFinish = root ? ownFinish(root) : traceEnd
   const hasAsyncTail = spans.some((s) => s !== root && ownFinish(s) > rootFinish)
   const consistentMs = hasAsyncTail ? total : null
@@ -317,7 +312,7 @@ const waterfallRows = computed(() => {
     }
     return d
   }
-  const rootReplyMs = t.root?.durationMs ?? t.total
+  const rootReplyMs = t.root ? spanDurationMs(t.root) : t.total
   const rowById = new Map(
     t.spans.map((span) => {
       const offset = ownStart(span) - t.at
@@ -327,7 +322,7 @@ const waterfallRows = computed(() => {
           span,
           depth: depthOf(span),
           offset,
-          durationMs: span.durationMs || 0,
+          durationMs: spanDurationMs(span),
           account: accountOf(span),
           kind: span.statusCode === 'ERROR' ? 'bad' : offset >= rootReplyMs && span !== t.root ? 'evtl' : 'sync',
         },
@@ -337,18 +332,17 @@ const waterfallRows = computed(() => {
   // Walk the known parentSpanId tree (pre-order: a span always immediately
   // precedes its own subtree) rather than flat-sorting every row by `offset`
   // alone — `offset` only breaks ties AMONG SIBLINGS below, never reorders a
-  // span relative to its own ancestor/descendant. A flat sort trusted
-  // `ownStart` (finish minus `durationMs`) completely, but `durationMs` is
-  // whole-millisecond-truncated server-side (Go's `time.Duration.
-  // Milliseconds()`): a parent whose true duration is only a fraction of a
-  // millisecond longer than its child's can truncate to the SAME integer
-  // duration, so subtracting that duration from each one's own (precise)
-  // finish time can land the parent's estimated start AFTER the child's —
-  // inverting a relationship parentSpanId already tells us is true, no
-  // clock-precision bug required. Real example (Phase 28m): an HTTP root
-  // span (66ms) and its own outbound rpc.* child (66ms, truncated from a
-  // hair less) sorted the child above the root. Walking the tree makes
-  // parent-before-descendant structural rather than incidental.
+  // span relative to its own ancestor/descendant. A flat sort trusts
+  // `ownStart` — a DERIVED value (finish minus duration), never a measured
+  // one — and derived starts invert for two independent reasons. Phase 28m
+  // hit the first: a server-side duration truncated to whole milliseconds
+  // put every derived start too late, worst for the longest span, so an HTTP
+  // root (66ms) sorted below its own 66ms child. BR-056 removed that cause
+  // by publishing microseconds. The second cause cannot be removed at all —
+  // a trace's spans are stamped by several services on several HOSTS, and
+  // two wall clocks a few milliseconds apart is ordinary. Walking the tree
+  // makes parent-before-descendant structural rather than incidental, which
+  // holds under both.
   const childrenByParent = new Map()
   for (const row of rowById.values()) {
     const parentId = row.span.parentSpanId
@@ -357,13 +351,34 @@ const waterfallRows = computed(() => {
     childrenByParent.get(key).push(row)
   }
   for (const siblings of childrenByParent.values()) siblings.sort((a, b) => a.offset - b.offset)
+  // BR-057 — clamp the bar GEOMETRY as the same walk descends: a child is
+  // never drawn starting left of its parent. The tree already fixes row
+  // order; this fixes the picture, which Phase 28m left trusting the
+  // arithmetic. Top-down, so clamping one span carries its whole subtree.
+  //
+  // Only ever move a CHILD, never a parent. The parent is the causal
+  // ancestor — it issued the call, so it provably ran first — and pulling it
+  // left to meet an early-looking child would let one skewed clock rewrite
+  // the start of a span measured on a host that was right. One inequality,
+  // applied in one direction, cannot conflict with itself.
+  //
+  // `offset` is geometry from here on. `durationMs` is untouched: the row's
+  // duration column must keep reporting what the SPAN measured, or the panel
+  // is inventing a number and attributing it to a service.
   const rows = []
-  ;(function visit(parentKey) {
+  ;(function visit(parentKey, floor) {
     for (const row of childrenByParent.get(parentKey) ?? []) {
+      row.offset = Math.max(row.offset, floor)
       rows.push(row)
-      visit(row.span.spanId)
+      visit(row.span.spanId, row.offset)
     }
-  })(null)
+  })(null, -Infinity)
+
+  // Re-base so the earliest bar sits at the left edge. After the clamp the
+  // earliest offset is a root's, but it is not necessarily 0 — `t.at` is the
+  // minimum RAW derived start, which a skewed descendant may well own.
+  const base = rows.length ? Math.min(...rows.map((r) => r.offset)) : 0
+  for (const row of rows) row.offset -= base
 
   if (!t.consistentMs) return rows
 
@@ -377,6 +392,20 @@ const waterfallRows = computed(() => {
     out.push(row)
   }
   return out
+})
+
+// The denominator for BOTH the bars and the axis above them (BR-057).
+//
+// It is derived from the CLAMPED rows rather than from `selectedTrace.total`,
+// which is computed in summarize() from raw derived starts and so describes a
+// window the bars are no longer drawn in. Scaling the axis from the raw
+// window while the bars use the clamped one would relocate the lie rather
+// than remove it: every bar would still be somewhere, just not where the tick
+// marks claim.
+const waterfallWindow = computed(() => {
+  const spanRows = waterfallRows.value.filter((r) => !r.ack)
+  if (!spanRows.length) return selectedTrace.value?.total || 1
+  return Math.max(...spanRows.map((r) => r.offset + r.durationMs), 1e-6)
 })
 
 const selectedSpan = computed(() => selectedTrace.value?.spans.find((s) => s.spanId === selectedSpanId.value) ?? null)
@@ -658,7 +687,7 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
                       :key="f"
                       class="tw-tick"
                       :style="{ left: f * 100 + '%' }"
-                    >{{ formatDuration(Math.round(selectedTrace.total * f)) }}</span>
+                    >{{ formatDuration(Math.round(waterfallWindow * f)) }}</span>
                   </span>
                 </div>
 
@@ -709,7 +738,7 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
                         <span
                           class="tw-bar"
                           :class="row.kind"
-                          :style="{ left: (row.offset / (selectedTrace.total || 1)) * 100 + '%', width: Math.max((row.durationMs / (selectedTrace.total || 1)) * 100, 0.4) + '%' }"
+                          :style="{ left: (row.offset / waterfallWindow) * 100 + '%', width: Math.max((row.durationMs / waterfallWindow) * 100, 0.4) + '%' }"
                         />
                       </span>
                     </button>
@@ -745,7 +774,7 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
                 <template v-if="selectedSpan">
                   <div class="tw-det-head">
                     <SubjectPath :subject="selectedSpan.subject" />
-                    <span class="tw-dur">{{ formatDuration(selectedSpan.durationMs) }}</span>
+                    <span class="tw-dur">{{ formatDuration(spanDurationMs(selectedSpan)) }}</span>
                     <span
                       class="tw-acct"
                       :class="accountClass(selectedSpanAccount)"

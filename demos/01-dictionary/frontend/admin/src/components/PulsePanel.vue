@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 
+import { spanDurationMs, spanFinishMs, spanStartMs } from '../nats/spanTiming.js'
 import { useTraceFeed } from '../nats/useTraceFeed.js'
 
 // Phase 44 — first tab in the Request/Reply panel (Pulse | Traces |
@@ -34,17 +35,20 @@ function isRoot(span) {
 }
 
 // Trimmed relative to TraceWaterfall.vue's own summarize(): this only needs
-// ok/replyMs/at for bucketing, not the waterfall's sub-millisecond ordering
-// precision (preciseFinishMs there exists solely to fix parent-above-child
-// render order, which this histogram has no equivalent of) or the account/
-// span-count/kind fields TraceWaterfall's rail+detail view needs.
-function ownStartMs(span) {
-  return new Date(span.timestamp).getTime() - (span.durationMs || 0)
-}
+// ok/replyMs/at for bucketing, not the account/span-count/kind fields
+// TraceWaterfall's rail+detail view needs.
+//
+// The TIMING, though, is now the same seam both panels read (BR-056). This
+// used to keep a deliberately coarser local copy — Date.getTime() against a
+// millisecond-truncated duration — on the reasoning that a histogram has no
+// parent-above-child order to protect. That reasoning was sound and the
+// conclusion still cost something: when the derived start turned out to be
+// biased LATE rather than merely imprecise, the bias was in this panel's
+// bucketing too, and only the waterfall's copy got looked at.
 function summarize(traceId, spans) {
-  const root = spans.find(isRoot) ?? spans.reduce((a, b) => (ownStartMs(a) <= ownStartMs(b) ? a : b), spans[0])
-  const at = Math.min(...spans.map(ownStartMs))
-  const replyMs = root?.durationMs ?? Math.max(...spans.map((s) => new Date(s.timestamp).getTime())) - at
+  const root = spans.find(isRoot) ?? spans.reduce((a, b) => (spanStartMs(a) <= spanStartMs(b) ? a : b), spans[0])
+  const at = Math.min(...spans.map(spanStartMs))
+  const replyMs = root ? spanDurationMs(root) : Math.max(...spans.map(spanFinishMs)) - at
   const ok = !spans.some((s) => s.statusCode === 'ERROR')
   return { traceId, ok, replyMs, at }
 }

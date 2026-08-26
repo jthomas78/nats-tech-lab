@@ -13,6 +13,7 @@ import PulsePanel from './PulsePanel.vue'
 import SubjectPath from './SubjectPath.vue'
 import TraceWaterfall from './TraceWaterfall.vue'
 import { highlightJson } from '../jsonHighlight.js'
+import { spanDurationMs } from '../nats/spanTiming.js'
 import { useTraceFeed } from '../nats/useTraceFeed.js'
 import { useUiStore } from '../stores/ui.js'
 
@@ -378,7 +379,7 @@ function copyHeaders(headers) {
           body-class="num-cell"
         >
           <template #body="{ data }">
-            {{ formatDuration(data.durationMs) }}
+            {{ formatDuration(spanDurationMs(data)) }}
           </template>
         </Column>
         <Column
@@ -407,7 +408,7 @@ function copyHeaders(headers) {
               :severity="statusSeverity(spanStatus(selectedSpan))"
               :value="spanStatus(selectedSpan)"
             />
-            <span>duration <b>{{ formatDuration(selectedSpan.durationMs) }}</b></span>
+            <span>duration <b>{{ formatDuration(spanDurationMs(selectedSpan)) }}</b></span>
             <span>trace <b :title="selectedSpan.traceId">{{ selectedSpan.traceId }}</b></span>
           </span>
           <span

@@ -13,14 +13,14 @@ const (
 	spanIDHex  = "0123456789abcdef"                 // 16 hex chars = 8 bytes
 )
 
-func TestToSpanRecoversStartTimeFromDurationMs(t *testing.T) {
+func TestToSpanRecoversStartTimeFromDurationUs(t *testing.T) {
 	end := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
 	w := otlpmap.WireSpan{
 		Subject:    "rpc.acme.refdata.item.get.v1",
 		Service:    "refdata",
 		StatusCode: "OK",
 		Timestamp:  end,
-		DurationMs: 250,
+		DurationUs: 250_000,
 		TraceID:    traceIDHex,
 		SpanID:     spanIDHex,
 	}
@@ -33,6 +33,31 @@ func TestToSpanRecoversStartTimeFromDurationMs(t *testing.T) {
 	}
 	if sp.EndUnixNano != end.UnixNano() {
 		t.Fatalf("EndUnixNano = %d, want %d", sp.EndUnixNano, end.UnixNano())
+	}
+}
+
+// BR-056 — the bridge exports the same derived start time the Admin UI
+// draws, so a duration read at millisecond resolution inverted a trace in
+// Jaeger/Tempo exactly as it did in the waterfall. A duration that is not a
+// whole number of milliseconds is the case that distinguishes a real
+// microsecond mapping from one that rounds on the way through.
+func TestToSpanKeepsSubMillisecondPrecision(t *testing.T) {
+	end := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+	w := otlpmap.WireSpan{
+		Subject:    "rpc.acme.refdata.item.get.v1",
+		Service:    "refdata",
+		StatusCode: "OK",
+		Timestamp:  end,
+		DurationUs: 1_437,
+		TraceID:    traceIDHex,
+		SpanID:     spanIDHex,
+	}
+
+	sp := otlpmap.ToSpan(w)
+
+	wantStart := end.Add(-1437 * time.Microsecond).UnixNano()
+	if sp.StartUnixNano != wantStart {
+		t.Fatalf("StartUnixNano = %d, want %d (a 1.437ms span must not start 1ms or 2ms before its end)", sp.StartUnixNano, wantStart)
 	}
 }
 
