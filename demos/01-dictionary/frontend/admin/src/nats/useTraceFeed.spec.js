@@ -42,8 +42,8 @@ describe('useTraceFeed', () => {
 
   it('bootstraps traces from the trace-request-reply KV bucket on mount', async () => {
     getKvBucketEntries.mockResolvedValue([
-      { op: 'PUT', value: { traceId: 't1', spans: [{ spanId: 'a1' }] } },
-      { op: 'PUT', value: { traceId: 't2', spans: [{ spanId: 'b1' }] } },
+      { op: 'PUT', value: { traceId: 't1', spans: [{ tenant: 'acme', span: { spanId: 'a1' } }] } },
+      { op: 'PUT', value: { traceId: 't2', spans: [{ tenant: 'acme', span: { spanId: 'b1' } }] } },
       { op: 'DEL', value: { traceId: 't3', spans: [] } }, // ignored — not a PUT
     ])
     const { feed } = mountFeed()
@@ -51,7 +51,7 @@ describe('useTraceFeed', () => {
 
     expect(getKvBucketEntries).toHaveBeenCalledWith('platform', 'trace-request-reply')
     expect(feed().traces.value.size).toBe(2)
-    expect(feed().traces.value.get('t1')).toEqual([{ spanId: 'a1' }])
+    expect(feed().traces.value.get('t1')).toEqual([{ spanId: 'a1', attributedTenant: 'acme' }])
   })
 
   it('subscribes live once connected, and upserts on a matching notify', async () => {
@@ -65,9 +65,9 @@ describe('useTraceFeed', () => {
       expect.any(Function),
     )
     const [, callback] = mockPlatformConnection.subscribe.mock.calls[0]
-    callback({ traceId: 't1', spans: [{ spanId: 'a1' }] }, 'notify._platform.kv.trace-request-reply.trace.t1.changed')
+    callback({ traceId: 't1', spans: [{ tenant: 'acme', span: { spanId: 'a1' } }] }, 'notify._platform.kv.trace-request-reply.trace.t1.changed')
 
-    expect(feed().traces.value.get('t1')).toEqual([{ spanId: 'a1' }])
+    expect(feed().traces.value.get('t1')).toEqual([{ spanId: 'a1', attributedTenant: 'acme' }])
   })
 
   it('reconnects when connected flips from false to true after mount', async () => {
@@ -89,24 +89,24 @@ describe('useTraceFeed', () => {
     await flushPromises()
 
     const [, callback] = mockPlatformConnection.subscribe.mock.calls[0]
-    callback({ spans: [{ spanId: 'a1' }] }, 'notify._platform.kv.trace-request-reply.trace.t1.changed') // no traceId
+    callback({ spans: [{ tenant: 'acme', span: { spanId: 'a1' } }] }, 'notify._platform.kv.trace-request-reply.trace.t1.changed') // no traceId
     callback({ traceId: 't2' }, 'notify._platform.kv.trace-request-reply.trace.t2.changed') // no spans
 
     expect(feed().traces.value.size).toBe(0)
   })
 
   it('calls onUpsert for every trace upserted, from bootstrap and from live updates alike', async () => {
-    getKvBucketEntries.mockResolvedValue([{ op: 'PUT', value: { traceId: 't1', spans: [{ spanId: 'a1' }] } }])
+    getKvBucketEntries.mockResolvedValue([{ op: 'PUT', value: { traceId: 't1', spans: [{ tenant: 'acme', span: { spanId: 'a1' } }] } }])
     mockPlatformConnection.connected.value = true
     const onUpsert = vi.fn()
     mountFeed({ onUpsert })
     await flushPromises()
 
-    expect(onUpsert).toHaveBeenCalledWith('t1', [{ spanId: 'a1' }])
+    expect(onUpsert).toHaveBeenCalledWith('t1', [{ spanId: 'a1', attributedTenant: 'acme' }])
 
     const [, callback] = mockPlatformConnection.subscribe.mock.calls[0]
-    callback({ traceId: 't2', spans: [{ spanId: 'b1' }] }, 'notify._platform.kv.trace-request-reply.trace.t2.changed')
-    expect(onUpsert).toHaveBeenCalledWith('t2', [{ spanId: 'b1' }])
+    callback({ traceId: 't2', spans: [{ tenant: 'acme', span: { spanId: 'b1' } }] }, 'notify._platform.kv.trace-request-reply.trace.t2.changed')
+    expect(onUpsert).toHaveBeenCalledWith('t2', [{ spanId: 'b1', attributedTenant: 'acme' }])
   })
 
   it('sets bootstrapFailed when the snapshot read throws', async () => {
@@ -177,7 +177,7 @@ describe('useTraceFeed', () => {
     mockPlatformConnection.connected.value = false
     await flushPromises()
     getKvBucketEntries.mockResolvedValue([
-      { op: 'PUT', value: { traceId: 'offline1', spans: [{ spanId: 'x1' }] } },
+      { op: 'PUT', value: { traceId: 'offline1', spans: [{ tenant: 'acme', span: { spanId: 'x1' } }] } },
     ])
 
     mockPlatformConnection.connected.value = true
@@ -185,7 +185,7 @@ describe('useTraceFeed', () => {
     await flushPromises()
 
     expect(getKvBucketEntries).toHaveBeenCalledTimes(2)
-    expect(feed().traces.value.get('offline1')).toEqual([{ spanId: 'x1' }])
+    expect(feed().traces.value.get('offline1')).toEqual([{ spanId: 'x1', attributedTenant: 'acme' }])
   })
 
   // The regression this whole change exists for: nats-core absorbs a NATS
@@ -199,13 +199,13 @@ describe('useTraceFeed', () => {
     expect(getKvBucketEntries).toHaveBeenCalledTimes(1)
 
     getKvBucketEntries.mockResolvedValue([
-      { op: 'PUT', value: { traceId: 'inner1', spans: [{ spanId: 'i1' }] } },
+      { op: 'PUT', value: { traceId: 'inner1', spans: [{ tenant: '_platform', span: { spanId: 'i1' } }] } },
     ])
     mockPlatformConnection.epoch.value += 1 // connected stays true throughout
     await flushPromises()
 
     expect(getKvBucketEntries).toHaveBeenCalledTimes(2)
-    expect(feed().traces.value.get('inner1')).toEqual([{ spanId: 'i1' }])
+    expect(feed().traces.value.get('inner1')).toEqual([{ spanId: 'i1', attributedTenant: '_platform' }])
   })
 
   it('re-subscribes exactly once per reconnect, without leaking the old subscription', async () => {
@@ -231,7 +231,7 @@ describe('useTraceFeed', () => {
   // the resync that closes gaps becomes a source of them.
   it('does not let a stale snapshot clobber a longer spans array from the live feed', async () => {
     getKvBucketEntries.mockResolvedValue([
-      { op: 'PUT', value: { traceId: 't1', spans: [{ spanId: 'a1' }] } },
+      { op: 'PUT', value: { traceId: 't1', spans: [{ tenant: 'acme', span: { spanId: 'a1' } }] } },
     ])
     mockPlatformConnection.connected.value = true
     const { feed } = mountFeed()
@@ -239,7 +239,7 @@ describe('useTraceFeed', () => {
 
     const [, callback] = mockPlatformConnection.subscribe.mock.calls[0]
     callback(
-      { traceId: 't1', spans: [{ spanId: 'a1' }, { spanId: 'a2' }] },
+      { traceId: 't1', spans: [{ tenant: 'acme', span: { spanId: 'a1' } }, { tenant: 'acme', span: { spanId: 'a2' } }] },
       'notify._platform.kv.trace-request-reply.trace.t1.changed',
     )
     expect(feed().traces.value.get('t1')).toHaveLength(2)
@@ -252,5 +252,48 @@ describe('useTraceFeed', () => {
     await flushPromises()
 
     expect(feed().traces.value.get('t1')).toHaveLength(2)
+  })
+})
+
+// Phase 48c — the composable is where the KV record's per-span {tenant, span}
+// wrapper is flattened, so this is where the flattening contract is pinned.
+describe('useTraceFeed span attribution (Phase 48c, BR-051)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('flattens the per-span wrapper onto each span, keeping two accounts in one trace distinct', async () => {
+    getKvBucketEntries.mockResolvedValue([
+      {
+        op: 'PUT',
+        value: {
+          traceId: 't1',
+          spans: [
+            { tenant: 'acme', span: { spanId: 'a1' } },
+            { tenant: '_platform', span: { spanId: 'a2' } },
+          ],
+        },
+      },
+    ])
+    const { feed } = mountFeed()
+    await flushPromises()
+
+    // The cross-account trace, which is the ordinary shape here: a tenant's
+    // service calling a PLATFORM one. Collapsing this to one value per trace
+    // is what Phase 48c had to undo.
+    expect(feed().traces.value.get('t1')).toEqual([
+      { spanId: 'a1', attributedTenant: 'acme' },
+      { spanId: 'a2', attributedTenant: '_platform' },
+    ])
+  })
+
+  it('leaves a pre-48c bare span unattributed instead of inferring one', async () => {
+    getKvBucketEntries.mockResolvedValue([
+      { op: 'PUT', value: { traceId: 't1', spans: [{ spanId: 'a1' }] } },
+    ])
+    const { feed } = mountFeed()
+    await flushPromises()
+
+    expect(feed().traces.value.get('t1')).toEqual([{ spanId: 'a1', attributedTenant: '' }])
   })
 })

@@ -123,7 +123,7 @@ func TestRegisterAssemblesMultipleSpansIntoOneRecord(t *testing.T) {
 	seen := map[string]bool{}
 	for _, raw := range record.Spans {
 		var k traceSpanKey
-		if err := json.Unmarshal(raw, &k); err != nil {
+		if err := json.Unmarshal(raw.Span, &k); err != nil {
 			t.Fatalf("unmarshal stored span: %v", err)
 		}
 		seen[k.SpanID] = true
@@ -397,8 +397,8 @@ func TestTenantIsDerivedFromSubjectNotEnvelope(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := waitForRecord(t, kv, "trace-5", 1)
-	if record.Tenant != "acme" {
-		t.Fatalf("tenant = %q, want acme — attribution must come from the subject, not the envelope", record.Tenant)
+	if got := record.Spans[0].Tenant; got != "acme" {
+		t.Fatalf("tenant = %q, want acme — attribution must come from the subject, not the envelope", got)
 	}
 }
 
@@ -421,25 +421,25 @@ func TestPlatformArrivalIsAttributedToPlatform(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := waitForRecord(t, kv, "trace-6", 1)
-	if record.Tenant != kvContext {
-		t.Fatalf("tenant = %q, want %q for a bare obs.trace.> arrival", record.Tenant, kvContext)
+	if got := record.Spans[0].Tenant; got != kvContext {
+		t.Fatalf("tenant = %q, want %q for a bare obs.trace.> arrival", got, kvContext)
 	}
 }
 
-// TestFirstTenantWinsOnMismatch is BR-052. Two tenants under one traceId is
-// never normal traffic — it is a traceId collision or an attempt to attach
-// spans to someone else's trace — so the established attribution must not
-// move, while the span itself stays visible because dropping it would hide
-// the evidence. The wrong-looking alternative here is the *default* one: a
-// plain field assignment on each write is last-writer-wins.
-func TestFirstTenantWinsOnMismatch(t *testing.T) {
+// TestCrossAccountTraceKeepsBothAttributions is the spec that retired BR-052.
+// That rule called two accounts under one traceId "never normal traffic" — but
+// it is the single most ordinary cross-account trace this stack produces:
+// organizations-service holds tenant-scoped connections and refdata-service
+// runs on platform.creds, so an api.* root, its rpc.* hop and refdata's
+// handler land in one trace as two tenant spans and one _platform span. A
+// record-level tenant could not represent that, and first-writer-wins would
+// have logged a warning on every one of them.
+func TestCrossAccountTraceKeepsBothAttributions(t *testing.T) {
 	nc, js, cleanup := newTestNATS(t)
 	defer cleanup()
 
 	var logs safeBuffer
-	log := slog.New(slog.NewTextHandler(&logs, nil))
-
-	cons, err := Register(context.Background(), js, nc, log)
+	cons, err := Register(context.Background(), js, nc, slog.New(slog.NewTextHandler(&logs, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -450,25 +450,78 @@ func TestFirstTenantWinsOnMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	publishSpanOn(t, nc, "monitor.acme.trace.acme.refdata.item.get",
-		map[string]string{"traceId": "trace-7", "spanId": "span-a"})
+	publishSpanOn(t, nc, "monitor.acme.trace.acme.organizations.vehicle.create",
+		map[string]string{"traceId": "trace-7", "spanId": "span-root"})
 	waitForRecord(t, kv, "trace-7", 1)
-
-	publishSpanOn(t, nc, "monitor.globex.trace.globex.refdata.item.get",
-		map[string]string{"traceId": "trace-7", "spanId": "span-b"})
+	publishSpanOn(t, nc, "obs.trace.acme.refdata.item.get",
+		map[string]string{"traceId": "trace-7", "spanId": "span-handler"})
 	record := waitForRecord(t, kv, "trace-7", 2)
 
-	if record.Tenant != "acme" {
-		t.Errorf("tenant = %q, want acme — the first attribution wins", record.Tenant)
-	}
-	if len(record.Spans) != 2 {
-		t.Errorf("got %d spans, want 2 — the disagreeing span is still stored", len(record.Spans))
-	}
-	out := logs.String()
-	for _, want := range []string{"trace-7", "acme", "globex"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("mismatch log does not mention %q; got: %s", want, out)
+	got := map[string]string{}
+	for _, stored := range record.Spans {
+		var k traceSpanKey
+		if err := json.Unmarshal(stored.Span, &k); err != nil {
+			t.Fatal(err)
 		}
+		got[k.SpanID] = stored.Tenant
+	}
+	if got["span-root"] != "acme" {
+		t.Errorf("root span tenant = %q, want acme", got["span-root"])
+	}
+	if got["span-handler"] != kvContext {
+		t.Errorf("handler span tenant = %q, want %q — a PLATFORM span inside a tenant trace keeps its own attribution", got["span-handler"], kvContext)
+	}
+	// The crossing is normal traffic. A warning here would fire on every
+	// cross-account request in the stack, which is what BR-052's guard did.
+	if strings.Contains(logs.String(), "WARN") {
+		t.Errorf("a cross-account trace must not warn; got: %s", logs.String())
+	}
+}
+
+// TestLegacyBareSpansStillDecode covers the at-most-BucketMaxAge window in
+// which a record written before Phase 48c is still in the bucket. Its spans
+// have no wrapper and no attribution to recover, but the projector must
+// append to them rather than decode them into empty wrappers and drop them —
+// which is precisely what the default struct decoding would do.
+func TestLegacyBareSpansStillDecode(t *testing.T) {
+	nc, js, cleanup := newTestNATS(t)
+	defer cleanup()
+
+	cons, err := Register(context.Background(), js, nc, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cons.Stop()
+
+	kv, err := js.KeyValue(context.Background(), bucketName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"traceId":"trace-8","spans":[{"traceId":"trace-8","spanId":"span-old"}]}`
+	if _, err := kv.Put(context.Background(), kvContext+"."+keyPrefix+"trace-8", []byte(legacy)); err != nil {
+		t.Fatal(err)
+	}
+
+	publishSpanOn(t, nc, "monitor.acme.trace.acme.refdata.item.get",
+		map[string]string{"traceId": "trace-8", "spanId": "span-new"})
+	record := waitForRecord(t, kv, "trace-8", 2)
+
+	byID := map[string]string{}
+	for _, stored := range record.Spans {
+		var k traceSpanKey
+		if err := json.Unmarshal(stored.Span, &k); err != nil {
+			t.Fatalf("legacy span did not survive the round trip: %v", err)
+		}
+		byID[k.SpanID] = stored.Tenant
+	}
+	if _, ok := byID["span-old"]; !ok {
+		t.Errorf("the pre-48c span was dropped; got %v", byID)
+	}
+	if byID["span-old"] != "" {
+		t.Errorf("pre-48c span tenant = %q, want empty — there is nothing to recover, so it must not guess", byID["span-old"])
+	}
+	if byID["span-new"] != "acme" {
+		t.Errorf("new span tenant = %q, want acme", byID["span-new"])
 	}
 }
 

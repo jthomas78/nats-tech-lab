@@ -1460,8 +1460,8 @@ from these rules, not from the implementation.
 | Rule | File | Covers | Sub-phase |
 |---|---|---|---|
 | **BR-AC36** | `BUSINESS_RULES-ACCOUNTS.md` | the per-tenant `LocalSubject` remap on the `obs.trace.>` import — the item BR-AC34 explicitly deferred | 48a |
-| **BR-051** | `BUSINESS_RULES-SHIPPING.md` | tenant attributed from the arrival subject, never the envelope; `TRACES`'s two subject sets | 48b |
-| **BR-052** | `BUSINESS_RULES-SHIPPING.md` | first-writer-wins on a `traceId` whose spans disagree on tenant, mismatch logged | 48b |
+| **BR-051** | `BUSINESS_RULES-SHIPPING.md` | tenant attributed from the arrival subject, never the envelope; `TRACES`'s two subject sets; stored **per span** | 48b, amended 48c |
+| **BR-052** | `BUSINESS_RULES-SHIPPING.md` | ~~first-writer-wins on a `traceId` whose spans disagree on tenant~~ — **retired in 48c**, it fires on ordinary cross-account traffic | 48b, retired 48c |
 | **BR-053** | `BUSINESS_RULES-SHIPPING.md` | `trace-request-reply` bounded from measurement; one span, one idempotent write | 48f / 48g |
 | **BR-054** | `BUSINESS_RULES-SHIPPING.md` | both panels name the originating account; the multi-span cross-account harness that proves it | 48h / 48i |
 
@@ -1470,7 +1470,9 @@ Two things settled in the writing that the drafts above had left open:
 - **The conflict rule took the proposed shape** — first writer wins, mismatch
   logged at warn level, the disagreeing span still stored so the evidence is
   not hidden. Last-write-wins is what a plain struct assignment does by
-  default, which is why BR-052 exists as a rule rather than a comment.
+  default, which is why BR-052 existed as a rule rather than a comment.
+  *(Retired in 48c: both options were wrong, because the premise — one
+  tenant per trace — was. See 48c's note below.)*
 - **BR-054 absorbed the user-JWT exclusion** (decision 18) as part of the
   rule rather than leaving it as a design note, so the reason is recorded
   where someone adding a "user" column would read it.
@@ -1512,9 +1514,38 @@ Two things settled in the writing that the drafts above had left open:
       field, so it unmarshals to the arriving span's own attribution and
       corrects itself on the next span. **48a's reseed hazard is now
       cleared** — the stream captures both subject shapes, so 48d can
-      re-provision and reseed.
-- [ ] **48c** — Admin UI: real tenant in `TraceWaterfall.vue`'s gutter;
+      re-provision and reseed. **Superseded in part by 48c:** BR-052 was
+      retired and the record-level tenant moved onto each span — see below.
+- [x] **48c** — Admin UI: real tenant in `TraceWaterfall.vue`'s gutter;
       remove the stale comment; specs for the new attribution.
+      **DONE 2026-08-26** — BR-051 (amended) + BR-054's traces-panel half;
+      BR-052 retired. Building the gutter exposed a defect in what 48b had
+      just landed, so this sub-phase reworked part of it (user decision:
+      "per-span tenant, retire BR-052"):
+      **(a)** the trace this stack actually produces is *mixed*, not
+      single-tenant — `organizations-service` runs tenant-scoped
+      connections and `refdata-service` runs `platform.creds`, so one
+      `api.*` call yields two `acme` spans and one `_platform` span. A
+      per-trace tenant would label refdata's PLATFORM span `acme`: a wrong
+      attribution on the panel whose whole point is trustworthy
+      provenance, and worse than the coarse split it replaced.
+      **(b)** BR-052 fired on that same legitimate traffic — it called two
+      tenants under one `traceId` "never normal traffic" and would have
+      warned on every cross-account request. Retired, with the reasoning
+      kept in `BUSINESS_RULES-SHIPPING.md` rather than deleted.
+      **(c)** a stored element is now `{tenant, span}`, mirroring
+      `pubsubRecord`. This one *does* need a decoder: the default struct
+      decoding reads a pre-48c bare span into an empty wrapper and
+      silently drops it, so `storedSpan.UnmarshalJSON` probes for a `span`
+      key. An unattributed span renders as `unattributed`, never as a
+      guess.
+      **(d)** `cmd/seed-traces` was updated in the same pass — it decodes
+      the record, so the wrapper would have broken it — and its
+      `-expect-tenant` now asserts the *correct* property (the tenant
+      appears, `_platform` is the only other value, nothing unattributed)
+      rather than uniformity, which this chain rightly violates.
+      Every spec verified red first, in both languages. 48g's per-span
+      keys were going to touch this code anyway.
 - [ ] **48d** — re-provision pass for existing tenant accounts (decision 8),
       and live verification across two tenants that spans land under
       distinct tenant names.

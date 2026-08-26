@@ -27,13 +27,15 @@ import SubjectPath from './SubjectPath.vue'
 // (diagrams/admin-traces-panel.html), both because the wire span
 // (natstrace.go's traceSpan) doesn't carry the fields the mockup's fixture
 // data assumed:
-//  - No per-span "context"/tenant field is ever serialized (only
-//    StartOutbound's caller-supplied contextValue, used solely to build the
-//    obs.trace.{context}... publish subject, never stored in the payload
-//    itself) — so the account gutter can only show a coarse PLATFORM/TENANT
-//    split (accountOf below, keyed off `service`), not which specific
-//    tenant. This still surfaces the one crossing BR-035's crux scenario
-//    cares about (a tenant service calling a PLATFORM service).
+//  - (Closed in Phase 48c.) The account gutter used to show a coarse
+//    PLATFORM/TENANT split derived from a hardcoded set of service names,
+//    because no per-span tenant was serialized anywhere. It now shows the
+//    real account, read from `attributedTenant` — which useTraceFeed
+//    flattens off the KV record's per-span wrapper, and which the NATS
+//    server put there by remapping the tenant's export subject (BR-051 /
+//    BR-AC36). The distinction matters on this panel more than most: the
+//    old value was inferred by the UI, the new one cannot be forged by the
+//    account being observed.
 //  - No OTel spanKind (client/server/producer/consumer/internal) exists on
 //    the wire either — direction is always "reply" (BR-037's one-span-per-
 //    call design), so the mockup's detail-pane "kind" tag is omitted rather
@@ -45,9 +47,31 @@ import SubjectPath from './SubjectPath.vue'
 
 const { traces, connected: platformConnected, bootstrapFailed } = useTraceFeed()
 
-const PLATFORM_SERVICES = new Set(['refdata', 'accounts'])
+// Attribution is per SPAN, not per trace, and the ordinary cross-account
+// trace is what forces that: organizations-service runs on tenant-scoped
+// connections while refdata-service runs on platform.creds, so one api.*
+// request produces two `acme` spans and one `_platform` span under a single
+// traceId. Anything that collapses those to one value per trace has to
+// mislabel at least one row.
 function accountOf(span) {
-  return PLATFORM_SERVICES.has(span?.service) ? 'PLATFORM' : 'TENANT'
+  return span?.attributedTenant || ''
+}
+
+// A span stored before Phase 48c carries no attribution and there is nothing
+// to recover, so it renders as unattributed rather than being guessed at. The
+// window is one bucket TTL wide (15 min) and then it is gone.
+function accountLabel(tenant) {
+  if (!tenant) return 'unattributed'
+  return tenant === '_platform' ? 'PLATFORM' : tenant
+}
+
+// The class keeps the existing two-color vocabulary — PLATFORM blue, tenant
+// amber — rather than minting a color per tenant name: the point of the
+// gutter is to make an account CROSSING visible at a glance, and the name
+// beside the bar is what identifies which tenant.
+function accountClass(tenant) {
+  if (!tenant) return 'unattributed'
+  return tenant === '_platform' ? 'platform' : 'tenant'
 }
 
 function isRoot(span) {
@@ -659,8 +683,8 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
                     >
                       <span
                         class="tw-acctbar"
-                        :class="row.account.toLowerCase()"
-                        :title="row.account"
+                        :class="accountClass(row.account)"
+                        :title="accountLabel(row.account)"
                       />
                       <span class="tw-nm">
                         <span
@@ -670,7 +694,7 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
                         >↳</span>
                         <span class="tw-txt"><SubjectPath :subject="row.span.subject" /></span>
                       </span>
-                      <span class="tw-acctsvc">{{ row.account }}:{{ row.span.service }}</span>
+                      <span class="tw-acctsvc">{{ accountLabel(row.account) }}:{{ row.span.service }}</span>
                       <span
                         class="tw-dur"
                         :class="{ bad: row.span.statusCode === 'ERROR' }"
@@ -724,8 +748,8 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
                     <span class="tw-dur">{{ formatDuration(selectedSpan.durationMs) }}</span>
                     <span
                       class="tw-acct"
-                      :class="selectedSpanAccount.toLowerCase()"
-                    >{{ selectedSpanAccount }}</span>
+                      :class="accountClass(selectedSpanAccount)"
+                    >{{ accountLabel(selectedSpanAccount) }}</span>
                   </div>
                   <div
                     v-if="selectedSpan.error"
@@ -1476,6 +1500,10 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
 .tw-acct.tenant {
   border-left-color: rgba(226, 184, 107, 0.55);
 }
+.tw-acct.unattributed {
+  border-left-color: var(--lab-panel-border);
+  font-style: italic;
+}
 
 /* Span-list row account marker (Phase 34.x) — a plain color bar flush
    against the row's own left edge, before the subject/depth-arrow content,
@@ -1493,6 +1521,9 @@ const AXIS_TICKS = [0, 0.25, 0.5, 0.75, 1]
 }
 .tw-acctbar.tenant {
   background: rgba(226, 184, 107, 0.55);
+}
+.tw-acctbar.unattributed {
+  background: var(--lab-panel-border);
 }
 
 .tw-nm {

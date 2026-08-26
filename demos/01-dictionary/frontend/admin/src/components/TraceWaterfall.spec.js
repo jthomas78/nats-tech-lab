@@ -47,6 +47,11 @@ const ROOT = {
   payload: { status: 'arrived' },
 }
 const SYNC_CHILD = {
+  // refdata-service runs on platform.creds, so its handler span arrives on a
+  // bare obs.trace.> subject and is attributed to PLATFORM — inside a trace
+  // whose other two spans are acme's. That crossing is the ordinary case, not
+  // an anomaly, and it is why attribution is per span.
+  _tenant: '_platform',
   traceId: 't1',
   spanId: 'a2',
   parentSpanId: 'a1',
@@ -180,8 +185,21 @@ const HTTP_ROOT_SIMPLE = {
   timestamp: new Date(BASE + 100).toISOString(),
 }
 
+// Phase 48c: a stored span is wrapped as {tenant, span} so each one carries
+// the account it arrived from (BR-051). Fixtures stay flat and declare their
+// account with a test-only `_tenant`, defaulting to the tenant that owns most
+// of these traces — the wrapping is the store's shape, not something every
+// fixture should have to restate.
 function kvEntry(traceId, spans) {
-  return { key: `_platform.trace.${traceId}`, op: 'PUT', revision: 1, value: { traceId, spans } }
+  return {
+    key: `_platform.trace.${traceId}`,
+    op: 'PUT',
+    revision: 1,
+    value: {
+      traceId,
+      spans: spans.map(({ _tenant, ...span }) => ({ tenant: _tenant ?? 'acme', span })),
+    },
+  }
 }
 
 function mountPanel() {
@@ -232,17 +250,24 @@ describe('TraceWaterfall (Phase 28g, BR-035)', () => {
     expect(rows).toHaveLength(3)
 
     const acctBars = rows.map((r) => r.find('.tw-acctbar'))
-    // Root (a1, shipping/TENANT, no parent).
+    // Root (a1, acme).
     expect(acctBars[0].classes()).toContain('tenant')
-    // Sync child (a2, refdata/PLATFORM, parent a1/TENANT) — the bar's color
-    // changes from its parent's, surfacing the crossing.
+    // Sync child (a2, _platform, parent a1/acme) — the bar's color changes
+    // from its parent's, surfacing the crossing.
     expect(acctBars[1].classes()).toContain('platform')
-    // Async tail (a3, shipping/TENANT, parent a1/TENANT) — same account as
-    // its parent, so no color change.
+    // Async tail (a3, acme, parent a1/acme) — same account as its parent, so
+    // no color change.
     expect(acctBars[2].classes()).toContain('tenant')
 
     const acctSvcCells = rows.map((r) => r.find('.tw-acctsvc'))
     expect(acctSvcCells[1].text()).toBe('PLATFORM:refdata')
+
+    // Phase 48c / BR-054: the tenant rows now name the ACCOUNT, not the word
+    // "TENANT". This is the assertion the old service-name heuristic could
+    // never have satisfied — it had no idea which tenant it was looking at,
+    // and would have said "TENANT" for acme and globex alike.
+    expect(acctSvcCells[0].text()).toBe('acme:shipping')
+    expect(acctBars[0].attributes('title')).toBe('acme')
   })
 
   it('renders both durations in the header, with read-model-consistent always >= reply latency', async () => {
@@ -428,4 +453,56 @@ describe('TraceWaterfall (Phase 28g, BR-035)', () => {
   // PulsePanel.spec.js (Phase 44) along with the strip itself — Pulse now
   // reads the full unfiltered trace set rather than displayedSummaries, so
   // it no longer makes sense as a spec against this component's toolbar.
+})
+
+// Phase 48c / BR-054 — the attribution the gutter renders comes off the KV
+// record's per-span wrapper, which the NATS server populated by remapping the
+// tenant's export subject (BR-051/BR-AC36). These cover the two things the
+// previous service-name heuristic got structurally wrong and the one case the
+// new shape has to degrade gracefully on.
+describe('TraceWaterfall account attribution (Phase 48c, BR-054)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('names the specific tenant, so two tenants are distinguishable rather than both reading "TENANT"', async () => {
+    getKvBucketEntries.mockResolvedValue([
+      kvEntry('t9', [{ ...ROOT, _tenant: 'globex', traceId: 't9', spanId: 'g1' }]),
+    ])
+    const wrapper = mountPanel()
+    await flushPromises()
+    await wrapper.find('.tw-trace').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.tw-acctsvc').text()).toBe('globex:shipping')
+    // Same class as acme's rows: the color says "a tenant, not PLATFORM", and
+    // the name says which. Minting a color per tenant would make the gutter's
+    // actual job — showing a crossing at a glance — harder, not easier.
+    expect(wrapper.find('.tw-acctbar').classes()).toContain('tenant')
+  })
+
+  it('counts distinct real accounts in a trace, which is what makes the cross-account summary meaningful', async () => {
+    getKvBucketEntries.mockResolvedValue([kvEntry('t1', [ROOT, SYNC_CHILD, ASYNC_TAIL])])
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    // acme + _platform = 2. Under the old heuristic this happened to be 2 as
+    // well, by inferring it from a hardcoded service-name set.
+    expect(wrapper.find('.tw-trace').text()).toContain('2 accounts')
+  })
+
+  it('renders a pre-48c span as unattributed rather than guessing an account for it', async () => {
+    // A record written before the wrapper existed: bare spans, no tenant.
+    // These age out within one bucket TTL, but while they are there the panel
+    // must not invent provenance for them — an invented account on this panel
+    // is worse than an absent one.
+    getKvBucketEntries.mockResolvedValue([
+      { key: '_platform.trace.t1', op: 'PUT', revision: 1, value: { traceId: 't1', spans: [ROOT] } },
+    ])
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.find('.tw-acctbar').classes()).toContain('unattributed')
+    expect(wrapper.find('.tw-acctsvc').text()).toBe('unattributed:shipping')
+  })
 })

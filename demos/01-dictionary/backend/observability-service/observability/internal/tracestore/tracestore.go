@@ -98,14 +98,55 @@ const (
 // entry rather than replace it.
 type traceRecord struct {
 	TraceID string `json:"traceId"`
-	// Tenant is the one piece of information that is NOT in any span: which
-	// account published it. It comes from the subject the span arrived on —
-	// a token the NATS server inserts via BR-AC36's import remap — and never
-	// from the envelope, which is written by the account under observation
-	// (BR-051). traceSpan carries a Requester field that looks like the
-	// answer and is self-declared; see natstrace.go's own comment on it.
-	Tenant string            `json:"tenant"`
-	Spans  []json.RawMessage `json:"spans"`
+	// Spans are wrapped rather than stored bare, so that each one carries the
+	// account it arrived from (BR-051). The tenant is deliberately NOT merged
+	// into the span object: the span is a document the observed account
+	// wrote, the tenant is a token the NATS server inserted, and a reader has
+	// to be able to tell those apart at a glance. Same shape, and the same
+	// reason, as pubsubstore's pubsubRecord{Tenant, Span}.
+	//
+	// Per SPAN, not per trace, and that is the correction Phase 48c forced.
+	// A record-level tenant looked right until the panel needed to render it:
+	// organizations-service holds tenant-scoped connections while
+	// refdata-service runs on platform.creds, so the most ordinary
+	// cross-account trace in this stack — an api.* root, its rpc.* hop, and
+	// refdata's handler — contains two acme spans and one _platform span.
+	// One tenant per trace cannot express that, and forcing it would have the
+	// panel label refdata's PLATFORM span with a tenant's name, which is a
+	// false statement on the one surface whose whole value is trustworthy
+	// provenance.
+	Spans []storedSpan `json:"spans"`
+}
+
+// storedSpan is one span plus the account it arrived from.
+type storedSpan struct {
+	Tenant string          `json:"tenant"`
+	Span   json.RawMessage `json:"span"`
+}
+
+// UnmarshalJSON accepts a record written before Phase 48c, whose spans array
+// held bare span objects with no wrapper. Such a span has no attribution to
+// recover — it predates the subject being read at all — so it decodes with an
+// empty Tenant and the panel renders it as unattributed rather than guessing.
+// The window this covers is at most BucketMaxAge wide, but the projector must
+// not silently decode a bare span into an empty wrapper and drop it, which is
+// what the default struct decoding would do.
+func (s *storedSpan) UnmarshalJSON(data []byte) error {
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return err
+	}
+	if inner, ok := probe["span"]; ok {
+		s.Span = inner
+		if raw, ok := probe["tenant"]; ok {
+			return json.Unmarshal(raw, &s.Tenant)
+		}
+		s.Tenant = ""
+		return nil
+	}
+	s.Tenant = ""
+	s.Span = append(json.RawMessage(nil), data...)
+	return nil
 }
 
 // tenantFromSubject reads the tenant token out of the subject the span
@@ -205,7 +246,7 @@ func Register(ctx context.Context, js jetstream.JetStream, nc *nats.Conn, log *s
 func appendSpan(ctx context.Context, kv jetstream.KeyValue, nc *nats.Conn, log *slog.Logger, tenant, traceID, spanID string, span json.RawMessage) error {
 	key := keyPrefix + traceID
 	fullKey := kvContext + "." + key
-	record := traceRecord{TraceID: traceID, Tenant: tenant}
+	record := traceRecord{TraceID: traceID}
 	entry, err := kv.Get(ctx, fullKey)
 	switch {
 	case err == nil:
@@ -217,28 +258,13 @@ func appendSpan(ctx context.Context, kv jetstream.KeyValue, nc *nats.Conn, log *
 	default:
 		return err
 	}
-	// BR-052: first writer wins on the tenant. Two tenants under one traceId
-	// is never normal traffic — a traceId is minted once at a request's root
-	// and propagated, so a disagreement is either a collision or an attempt
-	// to attach spans to another tenant's trace. The span is still stored,
-	// because dropping it would hide the evidence, but the established
-	// attribution does not move. This is a deliberate override of the
-	// zero-value assignment above, whose plain-struct-field default would be
-	// last-writer-wins — the wrong answer, arrived at by doing nothing.
-	if record.Tenant != "" && record.Tenant != tenant {
-		log.Warn("trace span reports a different tenant than the trace it joins; keeping the first attribution",
-			"traceId", traceID, "spanId", spanID, "attributed", record.Tenant, "reported", tenant)
-		tenant = record.Tenant
-	}
-	record.Tenant = tenant
-
 	for _, existing := range record.Spans {
 		var existingKey traceSpanKey
-		if json.Unmarshal(existing, &existingKey) == nil && existingKey.SpanID == spanID {
+		if json.Unmarshal(existing.Span, &existingKey) == nil && existingKey.SpanID == spanID {
 			return nil
 		}
 	}
-	record.Spans = append(record.Spans, span)
+	record.Spans = append(record.Spans, storedSpan{Tenant: tenant, Span: span})
 	data, err := json.Marshal(record)
 	if err != nil {
 		return err

@@ -53,12 +53,16 @@ Split by domain so a rule add/edit only requires reading its own file:
   remembered one; see
   [ARCHITECTURE-OBSERVABILITY.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-OBSERVABILITY.md)
   (ADR-047) for the full design.
-  BR-051–054 (Phase 48, PARTLY IMPLEMENTED 2026-08-26 — 051/052 done in
-  48b, 053's bound in 48f, 054's harness in 48h; 053's write shape and
-  054's panel side outstanding) do the
+  BR-051–054 (Phase 48, PARTLY IMPLEMENTED 2026-08-26 — 051 done in
+  48b/48c, 052 retired, 053's bound in 48f, 054's harness in 48h and its
+  traces panel in 48c; 053's write shape and 054's Messages panel
+  outstanding) do the
   same for the *other* channel: a trace span's tenant comes from its arrival
-  subject and never from its envelope (BR-051), first-writer-wins on a
-  disputed `traceId` (BR-052), `trace-request-reply` becomes a bounded window
+  subject and never from its envelope, and is stored per span (BR-051);
+  BR-052's first-writer-wins guard was retired the day it landed, because a
+  tenant span and a PLATFORM span under one `traceId` is the most ordinary
+  cross-account trace in the stack, not a dispute; `trace-request-reply`
+  becomes a bounded window
   written one idempotent span at a time (BR-053), and both panels name the
   originating account, proven by a multi-span cross-account harness
   (BR-054). See BR-AC36, ACCOUNTS file, for the JWT remap they depend on.

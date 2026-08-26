@@ -20,8 +20,32 @@ import { getKvBucketEntries } from '../api'
 import { parseKvNotifySubject } from './kvNotifySubject.js'
 import { usePlatformConnection } from './usePlatformConnection.js'
 
+// normalizeSpans unwraps the KV record's stored spans into the flat span
+// objects every consumer here already expects, carrying the one thing the
+// wire span does not have onto each: `attributedTenant`, the account the span
+// arrived from.
+//
+// The wrapper exists on the server precisely so that a server-derived token
+// and a publisher-authored document stay distinguishable (BR-051), so
+// flattening it here needs a name that keeps saying so — `attributedTenant`
+// is not a field on natstrace's traceSpan and must never be looked for on
+// one. It is a per-SPAN value: an ordinary cross-account trace holds spans
+// from a tenant account and from PLATFORM, so there is no such thing as
+// "the trace's tenant" except by convention (the root span's).
+//
+// A record written before Phase 48c has bare spans and no attribution to
+// recover; those normalize with `attributedTenant: ''` and render as
+// unattributed rather than being guessed at. The window is one BucketMaxAge.
+function normalizeSpans(spans) {
+  return spans.map((entry) =>
+    entry && typeof entry === 'object' && entry.span
+      ? { ...entry.span, attributedTenant: entry.tenant ?? '' }
+      : { ...entry, attributedTenant: '' },
+  )
+}
+
 export function useTraceFeed({ onUpsert } = {}) {
-  const traces = ref(new Map()) // traceId -> raw span objects (from the KV record's `spans` array)
+  const traces = ref(new Map()) // traceId -> span objects, each with attributedTenant (see normalizeSpans)
   // NOT sticky: it reflects the MOST RECENT snapshot read, and a successful
   // resync clears it. A snapshot that failed once but succeeded on reconnect
   // has left no gap behind, so there is nothing left to warn about.
@@ -59,7 +83,7 @@ export function useTraceFeed({ onUpsert } = {}) {
       if (entry?.op !== 'PUT' || !record?.traceId || !Array.isArray(record.spans)) continue
       const existing = traces.value.get(record.traceId)
       if (existing && existing.length >= record.spans.length) continue
-      upsertTrace(record.traceId, record.spans)
+      upsertTrace(record.traceId, normalizeSpans(record.spans))
     }
     return true
   }
@@ -96,7 +120,7 @@ export function useTraceFeed({ onUpsert } = {}) {
       // "_platform.trace.{traceId}" — so the notify's key segment (everything
       // after the bucket token) already carries the "trace." prefix baked in.
       const traceId = parsed.key.startsWith('trace.') ? parsed.key.slice('trace.'.length) : payload.traceId
-      upsertTrace(traceId, payload.spans)
+      upsertTrace(traceId, normalizeSpans(payload.spans))
     })
   }
   function disconnectLive() {

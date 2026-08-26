@@ -24,6 +24,13 @@
 // the outbound rpc hop, and refdata's own handler on the far side of the
 // account boundary.
 //
+// That boundary is also what makes the trace's attribution mixed rather than
+// uniform: the first two spans are published inside the tenant's account and
+// attribute to it, while refdata's span is published inside PLATFORM and
+// attributes to "_platform". BR-051 is per span for exactly this reason, so
+// -expect-tenant asserts that the named tenant appears and that PLATFORM is
+// the only other value — not that every span carries the same one.
+//
 // BR-054's own wording names shipping-service as the middle hop. That is
 // wrong and this harness deliberately does not follow it: Phase 32 removed
 // shipping-service's five refdata relay routes, leaving
@@ -125,7 +132,7 @@ func main() {
 	platformCredsPath := flag.String("platform-creds", "../../nats/creds/platform.creds", "PLATFORM NATS credentials (reads the stored trace)")
 	natsURL := flag.String("nats-url", nats.DefaultURL, "NATS URL")
 	settle := flag.Duration("settle", 10*time.Second, "how long to wait for the trace projector to store every span")
-	expectTenant := flag.String("expect-tenant", "", "assert BR-051's attributed tenant on every span (leave empty until 48b lands)")
+	expectTenant := flag.String("expect-tenant", "", "assert BR-051's attribution: this tenant must appear and be the only non-PLATFORM value")
 	doMeasure := flag.Bool("measure", false, "after the runs, report the stored trace-record size distribution (BR-053's sizing input)")
 	runCount := flag.Int("runs", 1, "repeat the OK/ERROR pair N times — use a larger N with -measure to build a multi-span sample worth sizing against")
 	flag.Parse()
@@ -226,11 +233,12 @@ type harness struct {
 	quiet        bool
 }
 
-// storedSpan is the subset of natstrace's wire span this harness asserts on.
-// Tenant is BR-051's attribution and is absent until 48b lands — which is why
-// -expect-tenant is opt-in rather than always-on: before 48b the field is not
-// written at all, and a hard assertion here would make 48h unrunnable in the
-// order the plan sequences it.
+// storedSpan is the subset of natstrace's wire span this harness asserts on,
+// flattened: Tenant is BR-051's attribution, which the projector stores in a
+// wrapper *around* the span rather than inside it (see wireSpan below), and
+// the rest are natstrace's own fields. Tenant is absent from records written
+// before 48b/48c, which is why -expect-tenant stays opt-in rather than
+// always-on — a hard assertion here would make an older bucket unreadable.
 type storedSpan struct {
 	TraceID       string `json:"traceId"`
 	SpanID        string `json:"spanId"`
@@ -248,6 +256,37 @@ type storedSpan struct {
 type traceRecord struct {
 	TraceID string            `json:"traceId"`
 	Spans   []json.RawMessage `json:"spans"`
+}
+
+// wireSpan is the projector's stored element as of 48c: the span document the
+// observed account wrote, wrapped in the account token the NATS server
+// inserted. The two are kept apart on the wire precisely so the second cannot
+// be forged by the first, so this harness unwraps rather than decoding the
+// span's own "tenant" field — there isn't one.
+type wireSpan struct {
+	Tenant string          `json:"tenant"`
+	Span   json.RawMessage `json:"span"`
+}
+
+// decodeSpan reads either shape: the 48c wrapper, or a bare span from a record
+// written before it. A bare span simply has no attribution, and reports as
+// such rather than being dropped.
+func decodeSpan(raw json.RawMessage) (storedSpan, error) {
+	var wrapper wireSpan
+	if err := json.Unmarshal(raw, &wrapper); err == nil && len(wrapper.Span) > 0 {
+		var s storedSpan
+		if err := json.Unmarshal(wrapper.Span, &s); err != nil {
+			return storedSpan{}, err
+		}
+		s.Tenant = wrapper.Tenant
+		return s, nil
+	}
+	var s storedSpan
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return storedSpan{}, err
+	}
+	s.Tenant = ""
+	return s, nil
 }
 
 // run issues one api.* call under a traceparent this harness minted itself —
@@ -309,8 +348,8 @@ func (h *harness) awaitTrace(ctx context.Context, traceID string, want int) ([]s
 			if len(record.Spans) >= want {
 				spans := make([]storedSpan, 0, len(record.Spans))
 				for _, raw := range record.Spans {
-					var s storedSpan
-					if unmarshalErr := json.Unmarshal(raw, &s); unmarshalErr != nil {
+					s, unmarshalErr := decodeSpan(raw)
+					if unmarshalErr != nil {
 						return nil, fmt.Errorf("decoding span in %s: %w", key, unmarshalErr)
 					}
 					spans = append(spans, s)
@@ -426,11 +465,28 @@ func (h *harness) assert(spans []storedSpan, rootSpanID string, wantErr bool) er
 		}
 	}
 
+	// BR-051 attribution is per span, not per trace, and this chain crosses an
+	// account boundary: the two organizations hops arrive from the tenant's own
+	// account, the refdata hop arrives inside PLATFORM. So "every span is the
+	// expected tenant" is the wrong assertion — it would fail on a correctly
+	// attributed trace. What must hold is that the tenant is present, that
+	// PLATFORM is the only other value, and that nothing is unattributed.
 	if h.expectTenant != "" {
+		seen := false
 		for _, s := range spans {
-			if s.Tenant != h.expectTenant {
-				return fmt.Errorf("span %s (%s) attributed to tenant %q, want %q", s.SpanID, s.Subject, s.Tenant, h.expectTenant)
+			switch s.Tenant {
+			case h.expectTenant:
+				seen = true
+			case kvContext:
+				// the PLATFORM-side hop; expected on this chain
+			case "":
+				return fmt.Errorf("span %s (%s) carries no tenant attribution", s.SpanID, s.Subject)
+			default:
+				return fmt.Errorf("span %s (%s) attributed to %q, want %q or %q", s.SpanID, s.Subject, s.Tenant, h.expectTenant, kvContext)
 			}
+		}
+		if !seen {
+			return fmt.Errorf("no span attributed to %q; stored tenants: %v", h.expectTenant, tenantsOf(spans))
 		}
 	} else if !h.quiet {
 		log.Printf("      tenant attribution not asserted (-expect-tenant unset); stored tenants: %v", tenantsOf(spans))
