@@ -506,3 +506,133 @@ describe('TraceWaterfall account attribution (Phase 48c, BR-054)', () => {
     expect(wrapper.find('.tw-acctsvc').text()).toBe('unattributed:shipping')
   })
 })
+
+// BR-055 (Phase 48j) — the render side of "a refused reply is an error".
+// The defect this block exists for was visible only here: the middle hop of a
+// refused cross-account chain drew a BLUE bar while, three rows below, this
+// same panel rendered that span's own Nats-Service-Error in red. The status
+// fix landed in natstrace.End (the record is right at rest, not repaired at
+// render time), but nothing pinned the panel's error vocabulary at all —
+// every fixture in the block above is statusCode OK except FAILED_ROOT, which
+// is only ever used to assert a responder label. These four cover the bar, the
+// trace tile, the errors filter, and the header pane, against the exact chain
+// seed-traces drives against the live stack.
+const REFUSED_ROOT = {
+  traceId: 't9',
+  spanId: 'e1',
+  service: 'organizations',
+  entity: 'fleet-asset',
+  action: 'add',
+  subject: 'api.acme.organizations.fleet-asset.add.v1',
+  statusCode: 'ERROR',
+  statusMessage: 'dictionary item not found',
+  durationMs: 15,
+  timestamp: new Date(BASE + 5000 + 15).toISOString(),
+}
+
+// The hop the defect was about: the caller-side outbound span. The transport
+// succeeded and it holds no error of its own making — only the callee's
+// refusal, in the headers it captured.
+const REFUSED_HOP = {
+  traceId: 't9',
+  spanId: 'e2',
+  parentSpanId: 'e1',
+  service: 'refdata',
+  entity: 'item',
+  action: 'get',
+  subject: 'refdata.item.get.v1',
+  statusCode: 'ERROR',
+  statusMessage: 'dictionary item not found',
+  headers: {
+    'Nats-Responder': ['refdata-service/rdfBdp7UUVgdcir14CkjjR'],
+    'Nats-Service-Error': ['dictionary item not found'],
+    'Nats-Service-Error-Code': ['404'],
+  },
+  attributes: { 'rpc.retry_count': '0' },
+  durationMs: 6,
+  timestamp: new Date(BASE + 5000 + 14).toISOString(),
+}
+
+// refdata's own inbound handler span, inside PLATFORM — the account crossing.
+const REFUSED_HANDLER = {
+  traceId: 't9',
+  spanId: 'e3',
+  parentSpanId: 'e2',
+  service: 'refdata',
+  entity: 'item',
+  action: 'get',
+  subject: 'rpc.acme.refdata.item.get.v1',
+  statusCode: 'ERROR',
+  statusMessage: 'dictionary item not found',
+  durationMs: 3,
+  timestamp: new Date(BASE + 5000 + 12).toISOString(),
+  _tenant: '_platform',
+}
+
+describe('TraceWaterfall error rendering (Phase 48j, BR-055)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getKvBucketEntries.mockResolvedValue([
+      kvEntry('t9', [REFUSED_ROOT, REFUSED_HOP, REFUSED_HANDLER]),
+      kvEntry('t1', [ROOT, SYNC_CHILD, ASYNC_TAIL]),
+    ])
+  })
+
+  it('draws every span of a refused chain as an error bar — including the caller-side hop, whose own transport succeeded', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    // t9 sorts first (newest), so it is the bootstrap selection.
+    expect(wrapper.find('.tw-wf-tid').text()).toContain('t9')
+
+    const bars = wrapper.findAll('.tw-bar')
+    expect(bars).toHaveLength(3)
+    bars.forEach((bar) => {
+      expect(bar.classes()).toContain('bad')
+    })
+    // The middle row is the one the defect was about: a completed request/reply
+    // that came back refused. A blue bar here is the regression.
+    expect(bars[1].classes()).not.toContain('sync')
+  })
+
+  it('marks the trace itself as failed in the list and the header, not just the individual spans', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const dots = wrapper.findAll('.tw-dot')
+    expect(dots[0].classes()).toContain('err')
+    expect(dots[1].classes()).toContain('ok')
+    expect(wrapper.findAll('.tw-trace-dur')[0].classes()).toContain('err')
+  })
+
+  it('keeps a refused trace under the errors filter and drops a clean one', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.findAll('.tw-trace')).toHaveLength(2)
+
+    const errorsChip = wrapper.findAll('.chip').find((c) => c.text() === 'errors')
+    await errorsChip.trigger('click')
+    await flushPromises()
+
+    const remaining = wrapper.findAll('.tw-trace')
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0].find('.tw-dot').classes()).toContain('err')
+  })
+
+  it('renders the refusal header in the response pane in its error style, the half of the panel that was always right', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    // Select the caller-side hop, the span that carries the header.
+    await wrapper.findAll('.tw-row')[1].trigger('click')
+    await flushPromises()
+
+    const errorValues = wrapper.findAll('.kv .v.errv')
+    expect(errorValues.length).toBeGreaterThanOrEqual(1)
+    expect(errorValues.map((v) => v.text())).toContain('dictionary item not found')
+    // The responder rides in the same pane and must NOT pick up the error style.
+    const responder = wrapper.findAll('.kv .row').find((r) => r.find('.k').text() === 'Nats-Responder')
+    expect(responder.find('.v').classes()).not.toContain('errv')
+  })
+})

@@ -454,6 +454,100 @@ var _ = Describe("natstrace (Phase 35 — shared package — BR-036/BR-037)", fu
 		})
 	})
 
+	// BR-055 (Phase 48j) — micro's Nats-Service-Error header *is* the error
+	// channel on a reply, so a span holding one when it finishes is not OK,
+	// whichever of End/Fail the caller reached for. Before this, a
+	// request/reply hop that got a 404 back published statusCode OK — the
+	// transport had, after all, succeeded — while the very same span's stored
+	// headers rendered red in the Admin UI's detail pane, so one panel
+	// disagreed with itself. Fixing it here rather than at either end means
+	// every outbound span in the repo agrees at once and the stored KV record
+	// is right, instead of being repaired at render time.
+	Context("BR-055 — a reply carrying Nats-Service-Error finishes the span as ERROR", func() {
+		// subscribeSpans is the same obs.trace.> tap the specs above build
+		// inline; the four cases here differ only in how the span finishes.
+		subscribeSpans := func() chan *nats.Msg {
+			GinkgoHelper()
+			spans := make(chan *nats.Msg, 4)
+			sub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = sub.Unsubscribe() })
+			Expect(nc.Flush()).To(Succeed())
+			return spans
+		}
+
+		receiveSpan := func(spans chan *nats.Msg) fullSpan {
+			GinkgoHelper()
+			var msg *nats.Msg
+			Eventually(spans).Should(Receive(&msg))
+			var span fullSpan
+			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+			return span
+		}
+
+		It("marks an End'd outbound hop ERROR with the header as the status message, though the transport itself succeeded", func() {
+			spans := subscribeSpans()
+
+			// The exact shape organizations-service's refdataclient produces:
+			// a reply arrived, so it calls End, and the refusal rides in the
+			// headers it hands over without ever being inspected.
+			sp := natstrace.New(nc).StartOutbound(nil, "rpc.globex.refdata.item.get.v1", []byte(`{"typeKey":"vehicle-type"}`), "globex", "refdata", "item", "get")
+			sp.End([]byte(`{"error":"dictionary item not found","notFound":true}`), map[string][]string{
+				"Nats-Responder":          {"refdata-service/rdfBdp7UUVgdcir14CkjjR"},
+				"Nats-Service-Error":      {"dictionary item not found"},
+				"Nats-Service-Error-Code": {"404"},
+			})
+
+			span := receiveSpan(spans)
+			Expect(span.StatusCode).To(Equal("ERROR"), "a reply carrying Nats-Service-Error is not a successful call, even though the request/reply hop completed")
+			Expect(span.StatusMessage).To(Equal("dictionary item not found"), "the header value is the status message — the caller has no error object to supply one")
+			Expect(span.Error).To(Equal("dictionary item not found"), "the legacy obsEnvelope error field carries it too, so a pre-Phase-28 consumer sees the failure")
+		})
+
+		It("leaves a clean reply OK, including one carrying unrelated headers", func() {
+			spans := subscribeSpans()
+
+			sp := natstrace.New(nc).StartOutbound(nil, "rpc.globex.refdata.item.get.v1", []byte(`{"typeKey":"vehicle-type"}`), "globex", "refdata", "item", "get")
+			sp.End([]byte(`{"value":"rigid"}`), map[string][]string{
+				"Nats-Responder": {"refdata-service/rdfBdp7UUVgdcir14CkjjR"},
+			})
+
+			span := receiveSpan(spans)
+			Expect(span.StatusCode).To(Equal("OK"))
+			Expect(span.StatusMessage).To(BeEmpty())
+		})
+
+		It("reads only the reply's headers, so an inbound request that carried the header does not turn its own span red", func() {
+			spans := subscribeSpans()
+
+			// A handler span retains the inbound headers (Phase 28h). If those
+			// were consulted, a service relaying a failed upstream call's
+			// headers would report its own successful work as ERROR.
+			inbound := nats.Header{
+				natstrace.RequestorHeader: []string{"organizations-service/uB4O77dOFo1YpkRTz2CpS9"},
+				"Nats-Service-Error":      {"dictionary item not found"},
+			}
+			sp := natstrace.New(nc).StartFromHeaders(inbound, "api.globex.organizations.fleet-asset.add.v1", []byte(`{"ok":true}`), "globex", "organizations", "fleet-asset", "add")
+			sp.End([]byte(`{"id":"01J..."}`), nil)
+
+			span := receiveSpan(spans)
+			Expect(span.StatusCode).To(Equal("OK"), "the header belongs to the request this span received, not to the reply it sent")
+		})
+
+		It("keeps Fail's own error as the status message when the reply also carries the header", func() {
+			spans := subscribeSpans()
+
+			sp := natstrace.New(nc).StartOutbound(nil, "rpc.globex.refdata.item.get.v1", []byte(`{"typeKey":"vehicle-type"}`), "globex", "refdata", "item", "get")
+			sp.Fail(errors.New("refdata rpc unavailable"), nil, map[string][]string{
+				"Nats-Service-Error": {"dictionary item not found"},
+			})
+
+			span := receiveSpan(spans)
+			Expect(span.StatusCode).To(Equal("ERROR"))
+			Expect(span.StatusMessage).To(Equal("refdata rpc unavailable"), "an explicit failure the caller diagnosed outranks a header it merely relayed")
+		})
+	})
+
 	Context("HTTPMiddleware — the REST-transport symmetric counterpart of Middleware", func() {
 		It("wraps an http.Handler, publishing an OK span for a 2xx response", func() {
 			spans := make(chan *nats.Msg, 4)

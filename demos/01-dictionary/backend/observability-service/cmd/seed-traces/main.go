@@ -47,28 +47,32 @@
 //
 //   - ERROR — a code that cannot exist. This is the more interesting shape
 //     than a transport failure, and the observed span statuses are worth
-//     stating exactly, because they are not the obvious guess:
+//     stating exactly:
 //
 //     api.{ctx}.organizations.fleet-asset.add.v1   ERROR  (organizations)
-//     refdata.item.get.v1                          OK     (organizations)
+//     refdata.item.get.v1                          ERROR  (organizations)
 //     rpc.{ctx}.refdata.item.get.v1                ERROR  (refdata)
 //
 //     The middle span is the *caller-side* outbound hop, named for the local
-//     alias the tenant account publishes on; it closes OK because the
-//     request/reply round trip genuinely succeeded — "not found" is a
-//     delivered answer, not a transport failure. The third is refdata's own
-//     inbound handler span, named for the subject the server remapped that
-//     alias to, and it reports ERROR because the handler answered over
-//     browserrpc's respondError path. So the two ERROR spans sit at the two
-//     ends of the domain decision with an OK hop between them, and the root
-//     closes in ERROR over a child that closed OK — which is exactly the
-//     shape the waterfall has never been checked against.
+//     alias the tenant account publishes on. Until BR-055 it closed OK —
+//     the request/reply round trip genuinely succeeded, and the caller
+//     reaches for End rather than Fail on any reply that arrives — so the
+//     trace read as ERROR/OK/ERROR and the waterfall drew a blue bar between
+//     two red ones while its own detail pane rendered that hop's
+//     Nats-Service-Error in red. BR-055 moved the decision into
+//     natstrace.End: a reply carrying micro's error header finishes ERROR,
+//     so the chain now reads red end to end, which is what actually
+//     happened. The third span is refdata's own inbound handler span, named
+//     for the subject the server remapped that alias to, reporting ERROR
+//     from browserrpc's respondError path.
 //
-//     Whether a domain not-found *should* read as ERROR on the callee's own
-//     span is a fair question, but not one this harness can settle:
-//     natstrace has only OK and ERROR, so drawing that distinction means
-//     widening the status vocabulary everywhere. Recorded here rather than
-//     quietly asserted around.
+//     "Every span is ERROR" therefore no longer distinguishes a domain
+//     rejection from a transport failure, and the check below does not use
+//     it. Two things separate them and both are asserted: a transport
+//     failure produces no refdata span at all (the rejection has to be
+//     attributable across the account boundary), and it exhausts
+//     refdataclient's retries, so the caller-side hop's rpc.retry_count is
+//     non-zero. A domain rejection answers first time.
 //
 // # Credentials
 //
@@ -256,6 +260,10 @@ type storedSpan struct {
 	StatusMessage string `json:"statusMessage"`
 	DurationMs    int64  `json:"durationMs"`
 	Tenant        string `json:"tenant"`
+	// Attributes carries BR-037's rpc.retry_count, which is what separates a
+	// domain rejection from a transport failure now that BR-055 makes both
+	// close every span in ERROR. See the ERROR run's notes above.
+	Attributes map[string]string `json:"attributes"`
 }
 
 type traceRecord struct {
@@ -462,11 +470,16 @@ func (h *harness) assert(spans []storedSpan, rootSpanID string, wantErr bool) er
 		if !anyErroredFrom(errored, "refdata") {
 			return errors.New("expected an ERROR span from refdata, the service that rejected the code")
 		}
-		// And the round trip itself succeeded — the caller-side hop closes
-		// OK. Without this, a transport failure would satisfy every check
-		// above while proving nothing about the cross-account path.
-		if len(errored) == len(spans) {
-			return errors.New("expected the caller-side rpc hop to close OK; every span is in ERROR, which is a transport failure, not a domain rejection")
+		// And the round trip itself succeeded. Before BR-055 this was read
+		// off the caller-side hop's OK status; that hop is now ERROR too (it
+		// holds a Nats-Service-Error), so the surviving discriminator is the
+		// retry counter BR-037 already puts on it. A transport failure
+		// exhausts refdataclient's retries and records a non-zero count;
+		// a rejected lookup answers on the first attempt. Without this, a
+		// transport failure would satisfy every check above while proving
+		// nothing about the cross-account path.
+		if !anyFirstAttemptRoundTrip(spans) {
+			return errors.New("no span records a completed first-attempt round trip (rpc.retry_count 0); every ERROR here looks like a transport failure, not a domain rejection")
 		}
 	}
 
@@ -595,6 +608,20 @@ func parentLabel(s storedSpan, rootSpanID string) string {
 func anyErroredFrom(errored []storedSpan, service string) bool {
 	for _, s := range errored {
 		if s.Service == service {
+			return true
+		}
+	}
+	return false
+}
+
+// anyFirstAttemptRoundTrip reports whether some span completed its outbound
+// request/reply on the first attempt — BR-037 stamps rpc.retry_count on every
+// outbound hop, and only a span that got a reply back records "0". This is the
+// harness's transport-failure discriminator since BR-055 (see the ERROR run's
+// notes at the top of this file).
+func anyFirstAttemptRoundTrip(spans []storedSpan) bool {
+	for _, s := range spans {
+		if s.Attributes["rpc.retry_count"] == "0" {
 			return true
 		}
 	}

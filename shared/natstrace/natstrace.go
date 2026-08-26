@@ -70,6 +70,17 @@ const (
 	ResponderHeader = "Nats-Responder"
 )
 
+// ServiceErrorHeader is micro's own error channel on a reply — the framework
+// sets it (with a numeric ServiceErrorCodeHeader beside it) whenever a
+// handler answers via micro.Request.Error, and every caller in this repo
+// treats its presence as the refusal. End reads it for exactly that reason:
+// see BR-055 and End's doc comment. Same NATS-header/HTTP-header duality as
+// the two identity headers above.
+const (
+	ServiceErrorHeader     = "Nats-Service-Error"
+	ServiceErrorCodeHeader = "Nats-Service-Error-Code"
+)
+
 // instanceID is this process's half of ResponderIdentity — minted once at
 // package load, deliberately NOT per Tracer: shipping-service's
 // httpTraceMiddleware builds a fresh Tracer on every request (to follow
@@ -441,8 +452,11 @@ func (sp *Span) SetAttribute(key, value string) {
 	sp.attributes[key] = value
 }
 
-// End finishes sp successfully, publishing the reply-side span. No-op on a
-// nil Span (an unwrapped request never started one).
+// End finishes sp for a reply that arrived, publishing the reply-side span.
+// Successfully unless the reply's headers carry micro's
+// Nats-Service-Error, in which case the span finishes ERROR with that
+// header as its status message (BR-055) — a caller need not decide.
+// No-op on a nil Span (an unwrapped request never started one).
 //
 // Contract for every micro.Request-shaped caller: call this AFTER
 // req.Respond, never before. finish() does a redact scan, a full
@@ -460,6 +474,17 @@ func (sp *Span) SetAttribute(key, value string) {
 // § 6's Phase 35 note for why fully decoupling that (an async handoff) was
 // deliberately deferred rather than built speculatively.
 func (sp *Span) End(payload []byte, headers map[string][]string) {
+	// BR-055: a reply carrying micro's Nats-Service-Error is a refusal, not a
+	// success, and the caller reaching for End rather than Fail says only that
+	// the request/reply hop itself completed. Reading it here — rather than at
+	// every call site, or at render time in the Admin UI — is what makes every
+	// outbound span in the repo agree at once and keeps the stored KV record
+	// right. It is deliberately the reply's headers and not sp.reqHeaders: a
+	// handler that received a header-bearing request has not itself failed.
+	if msg := firstHeaderValue(headers, ServiceErrorHeader); msg != "" {
+		sp.finish("ERROR", msg, payload, headers)
+		return
+	}
 	sp.finish("OK", "", payload, headers)
 }
 

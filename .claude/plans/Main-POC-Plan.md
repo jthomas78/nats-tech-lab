@@ -1464,6 +1464,7 @@ from these rules, not from the implementation.
 | **BR-052** | `BUSINESS_RULES-SHIPPING.md` | ~~first-writer-wins on a `traceId` whose spans disagree on tenant~~ — **retired in 48c**, it fires on ordinary cross-account traffic | 48b, retired 48c |
 | **BR-053** | `BUSINESS_RULES-SHIPPING.md` | `trace-request-reply` bounded from measurement; one span, one idempotent write | 48f / 48g |
 | **BR-054** | `BUSINESS_RULES-SHIPPING.md` | both panels name the originating account; the multi-span cross-account harness that proves it | 48h / 48i |
+| **BR-055** | `BUSINESS_RULES-SHIPPING.md` | a reply carrying `Nats-Service-Error` finishes its span as ERROR — added 2026-08-26, after the defect surfaced while reading 48h's own error run in the panel | 48j |
 
 Two things settled in the writing that the drafts above had left open:
 
@@ -1758,11 +1759,56 @@ Two things settled in the writing that the drafts above had left open:
       asserted around. Tenant attribution is behind an opt-in
       `-expect-tenant` flag and currently reads `(none)`, the expected red
       state until 48b lands.
-- [ ] **48i** — surface the account in the Admin UI for both paths
+- [x] **48i** — surface the account in the Admin UI for both paths
       (decisions 16–17): real tenant in `TraceWaterfall.vue`'s gutter — the
       same work as 48c, listed here because it is what actually answers Q2 —
       and a tenant column/badge in the Messages panel from the record field
-      that already exists.
+      that already exists. **No code was needed for the Messages half:** the
+      tenant column, its per-row cell and the tenant filter chips landed in
+      `df96bec` (Phase 43c), which BR-054 had not caught up with. Closed
+      2026-08-26 by verifying it live rather than by grep: the Pub/Sub panel
+      was empty only because `pubsub-messages` has a 900s TTL and the stack
+      had been idle, so `seed-vehicle-types -context acme` was run to drive
+      real `evt.*` traffic and the panel then rendered 840 rows with the
+      Tenant column populated. Worth recording what it shows — `_platform`,
+      not `acme`, on `evt.acme.refdata.vehicle-type.changed`: the column is
+      the *publisher's NATS account* (refdata-service runs in PLATFORM),
+      while the `acme` in the subject is `{context}`. Exactly the two axes
+      Phase 16a insists are different, visible side by side in one row.
+
+- [x] **48j** — `natstrace.End` honours micro's `Nats-Service-Error`
+      (BR-055), added to the phase 2026-08-26 after 48h's error run was read
+      back in the Traces panel and the middle hop drew blue between two red
+      rows while its own detail pane rendered that hop's `Nats-Service-Error`
+      in red. Not a UI bug: `End` hardcoded `finish("OK", …)`, every caller
+      calls `End` on any reply that arrives, and nothing anywhere consulted
+      the header when deciding a status. Fixed in `End` rather than at the
+      call site or at render time, so every outbound span in the repo agrees
+      at once and the stored KV record is right. Scope confirmed as *any*
+      `Nats-Service-Error` regardless of code — a 404 is a refusal — and
+      deliberately not the body-only `{"notFound":true}` shape, which would
+      put payload parsing inside `natstrace`. Two specs, both verified red
+      first: the package contract in `shared/natstrace`, and a call-site
+      regression net in `refdataclient` driving a real micro refusal.
+      **Consequence carried in the same change:** BR-054's recorded ERROR-run
+      shape (ERROR / OK / ERROR) is now ERROR / ERROR / ERROR, so
+      `seed-traces`' "at least one span closed OK" transport-failure
+      discriminator no longer separates a domain rejection from a dead
+      responder — it asserts BR-037's `rpc.retry_count` of `0` instead.
+      **Live-verified 2026-08-26** after rebuilding `organizations-service`
+      (the fix compiles into it via `shared/natstrace`): `seed-traces
+      -context acme -expect-tenant acme` passes both runs, with the ERROR run
+      now reading ERROR/ERROR/ERROR and the OK run unchanged.
+      **Coverage audit, same session:** the emitter and every service adapter
+      already asserted their own ERROR spans, and `tracestore` stores span
+      JSON opaquely so no field can be dropped there — but the *render* side
+      had nothing. Every `TraceWaterfall.spec.js` fixture was OK except one
+      used only for a responder label, so the bar colour, the trace tile, the
+      `errors` filter and the header pane's error style were all unpinned —
+      the panel where the defect was visible was the layer with no coverage.
+      Four specs added over the refused chain, all verified red against a
+      component mutated back to the pre-48j vocabulary (the sixteen existing
+      specs stayed green under that mutation). Full admin suite: 145 green.
 
 > **Sequencing note (Q1/Q2):** 48h should land early — before 48b — because
 > it is the only thing that can demonstrate the tenant token actually arrives

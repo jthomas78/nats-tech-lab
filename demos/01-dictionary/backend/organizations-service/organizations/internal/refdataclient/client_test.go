@@ -174,6 +174,46 @@ var _ = Describe("refdataclient.Client (BR-TP14/BR-037)", func() {
 		})
 	})
 
+	// BR-055 (Phase 48j) — the regression net at the call site that produced
+	// the defect: this client calls sp.End on *any* reply that arrives, and
+	// only sp.Fail when the transport itself gave up after retries. A 404 is a
+	// reply, so a trace of an organizations -> refdata lookup for a missing
+	// item drew this hop blue between two red rows. The fix lives in
+	// natstrace.End (so every outbound span agrees at once), but the assertion
+	// belongs here too — nothing else pins the behaviour of this client's own
+	// End/Fail choice against a refusing responder.
+	Context("BR-055 — a refused reply is an ERROR span, not an OK one", func() {
+		It("publishes an ERROR span carrying the responder's Nats-Service-Error, though End was called and no retry was needed", func() {
+			spans := make(chan *nats.Msg, 4)
+			spanSub, err := nc.Subscribe("obs.trace.>", func(m *nats.Msg) { spans <- m })
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = spanSub.Unsubscribe() })
+
+			// micro's own refusal shape: the error rides in the headers with a
+			// numeric code beside it, and the reply is otherwise ordinary.
+			sub, err := nc.Subscribe("refdata.item.get.v1", func(m *nats.Msg) {
+				reply := nats.NewMsg(m.Reply)
+				reply.Header.Set(natstrace.ServiceErrorHeader, "dictionary item not found")
+				reply.Header.Set(natstrace.ServiceErrorCodeHeader, "404")
+				_ = m.RespondMsg(reply)
+			})
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = sub.Unsubscribe() })
+			Expect(nc.Flush()).To(Succeed())
+
+			client := refdataclient.New(nc)
+			_, _ = client.Exists(context.Background(), "globex", "NOT-A-TYPE")
+
+			var msg *nats.Msg
+			Eventually(spans).Should(Receive(&msg))
+			var span fullSpan
+			Expect(json.Unmarshal(msg.Data, &span)).To(Succeed())
+			Expect(span.StatusCode).To(Equal("ERROR"), "the hop got a refusal back; a completed request/reply is not by itself a success")
+			Expect(span.StatusMessage).To(Equal("dictionary item not found"))
+			Expect(span.Attributes["rpc.retry_count"]).To(Equal("0"), "nothing went wrong at the transport level — that is precisely why this used to read OK")
+		})
+	})
+
 	Context("BR-037 — one span per logical call, not one per retry attempt", func() {
 		It("publishes a single ERROR span with rpc.retry_count reflecting every failed attempt, when no responder ever exists", func() {
 			spans := make(chan *nats.Msg, 4)
