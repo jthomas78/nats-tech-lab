@@ -8494,6 +8494,1041 @@ level rather than as display labels.
 
 ---
 
+## Phase 43 — Completed (archived 2026-08-26)
+
+### Phase 43 — IMPLEMENTED 2026-08-25 (design approved 2026-08-20, reviewed and amended 2026-08-25) — Cross-Tenant Pub/Sub Observability ("Wire Tap") in the Admin UI
+
+> **Renumbered 2026-08-25** from Phase 67 to Phase 43, ahead of a design
+> review, to sit in the 40s block with the other in-flight phases. Lineage:
+> Phase 47 → 67 (2026-08-20b, when the whole 40–49 block was shifted to
+> 60–69) → 43. See the "Renumbering (2026-08-25)" and
+> "Renumbering (2026-08-20b)" logs in the archive's "Renumbering history"
+> section. Sub-phase labels **were** relettered on both occasions
+> (`47a`/`47b`/`47c` → `67a`/`67b`/`67c` → `43a`/`43b`/`43c`), unlike Phase
+> 60’s `24a`–`24c`: nothing is implemented yet, so the only references are
+> the PROPOSED BR-045–048/BR-D45/BR-AC34 entries and their pending/skipped
+> test stubs, all swept in the same pass.
+
+#### Goal
+
+Give the Admin UI a live view of pub/sub traffic across every tenant
+account — not just the RPC calls `natstrace`/`obs.trace.*` already covers
+(BR-036/BR-037) — triggered by evaluating NATS's own wire-tap/monitoring
+pattern (`docs.nats.io/concepts/subjects#wire-taps-and-monitoring`, a plain
+`sub >`) against this lab's hard NATS-account tenant boundary.
+
+#### Design decisions
+
+Full ADR lives in
+[ARCHITECTURE-OBSERVABILITY.md](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-OBSERVABILITY.md)
+(ADR-047) — not duplicated here. Summary of the decision it records:
+
+- A plain wildcard subscription (`>`), or the dormant `$SYS` account's
+  `account-monitoring-streams`/`account-monitoring-services` exports,
+  cannot give message-payload visibility across NATS accounts — account
+  boundaries are server-enforced subject-space isolation in this lab by
+  design, and `$SYS`'s monitoring exports only surface
+  connection/subscription metadata, never payloads.
+- **Rejected: (A) blanket per-tenant export of `>`** into the observability
+  account — the only design with zero instrumentation gaps, but a
+  first-time breach of the narrow-grant pattern BR-AC30/31/32 established
+  and Phase 30h reinforced (Phase 30h specifically retired an earlier
+  *unrestricted* second PLATFORM connection). Revisit only if "see every
+  byte, even uninstrumented paths" becomes a hard requirement, with its own
+  new safety design.
+- **Deferred, not rejected: (B) import the dormant `$SYS` account-monitoring
+  exports** — cheap, safe, gives connection/rate metadata with no payload
+  visibility, so it doesn't answer the actual ask on its own. Candidate
+  follow-on phase for a complementary "account activity" panel.
+- **Selected: (C) a new, sibling `obs.pubsub.*` envelope**, instrumented
+  only at `evt.*`/`notify.*` publish call sites (never a generic
+  `Publish()` wrap — that risks self-observation or picking up JetStream
+  control traffic), reusing BR-036/037's redact-before-truncate discipline
+  and BR-AC30's narrow per-tenant export/import. `rpc.*`/`api.*`
+  (request/reply) keep using the existing `obs.trace.*` channel — the split
+  is clean by construction, so no request/reply or JetStream-internals
+  filter is needed on this new channel. Gets its own dedicated "Messages"
+  panel in the Admin UI (with an `evt`/`notify` family filter), not a tab
+  inside `RpcPanel.vue`. Accepted trade-off: only instrumented publish call
+  sites are visible.
+- **Resolved (2026-08-20):** (B) does become a follow-on — tracked below as
+  candidate **Phase 108**, requiring its own UI account filter
+  (`$SYS.ACCOUNT.*.>` spans every account at once). Consumer-side behavior
+  (redelivery counts, ack latency) is **out of scope** for this phase —
+  publish-only for now, may evolve later once this ships and proves useful.
+
+#### Amendment (2026-08-25) — pre-implementation design review
+
+Reviewed with `/engineering:system-design` before any code. The Option C
+decision stands; ten findings were folded into ADR-047 as
+"Amendment (2026-08-25)" and into the rules. The four that change the design
+rather than sharpen it:
+
+- **A1 — the panel could not name the tenant.** PLATFORM imports every
+  tenant's `obs.trace.>` onto one identical local subject with no remap, the
+  envelope has no account field, and `{context}` is the business unit, not the
+  tenant — so "across every tenant account" was unanswerable as designed.
+  `obs.pubsub.>` now imports under a per-tenant `monitor.{tenant}.pubsub.>`
+  remap, mirroring `$SRV.>`/`$JS.API.*`. Changes BR-AC34's shape.
+- **A2 — the call-site list was incomplete**, and organizations-service had
+  no rule at all. Five more publishers are in scope; BR-TP75 is new.
+- **A3 — the "never wrap a primitive" ban was over-broad.** `PublishWithTrace`
+  has three call sites, all `evt.*` — it is the `evt.*` seam, not a generic
+  primitive. `evt.*` is now instrumented **in** the seam (structural
+  coverage); `notify.*` stays per-call-site. The ban stands for
+  `Publish`/`PublishMsg`.
+- **A4 — coverage enforcement is now designed**, not aspirational: new
+  BR-049 makes the `notify.*` list a CI-checked convention, discharging the
+  ADR's own headline "Harder" consequence.
+
+Sharpened, not changed: separate bounded stream with measured caps (A5),
+`Nats-Msg-Id` + explicit `Duplicates` window so dedup is enforceable (A6),
+best-effort ingestion stated honestly rather than implied complete (A7),
+redaction review scoped and scheduled before 43a with transporter-profile
+payloads first (A8), panel row cap / pause / `evt`-only default (A9), and a
+thin vertical slice first so A1 lands on screen early (A10).
+
+Rules: BR-045–049 (SHIPPING), BR-D45 (REFDATA), BR-AC34 (ACCOUNTS), BR-TP75
+(ORGANIZATIONS) — all still PROPOSED, all amended or added in this pass.
+
+#### Sub-phases
+
+Implementation takes a **thin vertical slice first** (A10): shipping's `evt.*`
+seam → minimal stream → minimal panel, which puts the tenant-provenance
+decision on screen before the export shape is committed. The sub-phases below
+then widen it.
+
+- [x] **43a** — `obs.pubsub.*` envelope; hook **in** the `evt.*` seam
+      (`PublishWithTrace`, `JetStreamEventStore.append`) and at each
+      `notify.*` call site; `Nats-Msg-Id` = `spanId`; per-tenant
+      export + `monitor.{tenant}.pubsub.>` import remap; BR-049's
+      coverage test. Redaction review (A8) runs **before** the hook is wired
+  - [x] **vertical slice** (A10) — `natstrace.ObservePublish`/
+        `ObservePublishAs` (envelope, subject derivation with action as the
+        *last* token, trace continuation, `Nats-Msg-Id` = `spanId`,
+        redact-then-truncate, self-observation guard); the `evt.*` seam in
+        shipping only (`Publisher.EnableObservation` +
+        `PublishWithTrace`, opted in per tenant in `rest/tenant.go`);
+        `obs.pubsub.>` export + `addPlatformPubsubImport` with the
+        `monitor.{tenant}.pubsub.>` remap. All green 2026-08-25
+  - [x] **widening** (2026-08-25) — all five of shipping's `notify.*` call
+        sites (`publishNotify`, `publishRawNotify`, `publishPortsChanged`,
+        `kvstore.publishNotify`, the refdata bridge), plus
+        `natstrace.Observe`/`ObserveAs` for bare call sites; the accounts
+        channel move off `obs.trace.*` (which also retired the synthetic
+        outbound span that channel was the only reason for); the `evt.*`
+        seams in refdata (`jstream.Publisher`, opted in via
+        `EnableEventObservation`) and organizations
+        (`JetStreamEventStore.append`, opted in per tenant runtime); the
+        `obs.pubsub.>` allow-pub grant the restricted `shipping-admin` user
+        needed; and BR-049's `go/ast` coverage scan
+        (`internal/notifycoverage/`). Two findings recorded in the rules:
+        refdata's `notify.*` observation belongs in `composition.go`'s
+        per-tenant fan-out, not in `notifybridge` which holds no connection
+        to attribute it to; and `pubsubstore.publishNotify` is a **second**
+        exclusion, because observing it would feed obs.pubsub back into its
+        own bucket in an unbounded loop
+  - [x] **skip cleanup** (2026-08-25) — the last stubs that still read
+        "pending Phase 43a implementation" replaced by real specs:
+        accounts' four lifecycle notifies, organizations' event-store seam
+        (including the actor-PII redaction list), and refdata's two, which
+        moved to `refdata/notify_observability_test.go` — a live per-tenant
+        fan-out spec plus a checked convention that `internal/kvcache` never
+        calls `natstrace.Observe*`, keeping the `evt.*` hook in the seam.
+        `tenantPublisher.publishTo` was split out of the `Range` callback so
+        the fan-out's one leg is testable without a tenant `Manager`
+- [x] **43b** — `observability-service`: `pubsubstore`, sibling to
+      `tracestore` — the `PUBSUB` stream capturing **both**
+      `obs.pubsub.>` and `monitor.*.pubsub.>` (tenant exports arrive
+      remapped, so one wildcard would have missed them), bounded 1 h /
+      32 MiB with an explicit 2 min `Duplicates` window, projecting into
+      the `pubsub-messages` bucket (15 min / 8 MiB — a visible window,
+      deliberately tighter than the stream) with the tenant derived from
+      the arrival subject. Caps measured, not inherited: a real envelope
+      is 454–592 B, not the ~2 KiB the ADR assumed. Grants wired in
+      `bootstrap-operator.sh` and `MintAdminToken`. All green 2026-08-25.
+      **Re-measured after 43a's widening (2026-08-25):** 317 B – 2 019 B
+      across the full publisher set (flat ~303 B overhead + payload; the
+      biggest is the KV-change notify carrying a whole bucket value), and
+      ~4.4 KiB worst case since the 4 KiB truncation cap is a hard ceiling.
+      Caps unchanged and comfortable — full table in BR-047. One open
+      sizing item, left deliberately unmade: the Messages panel fetches
+      every bucket entry on load but renders 500, so a full 8 MiB bucket is
+      a multi-megabyte page load; bounding it touches both BR-047's caps
+      and 43c's feed
+- [x] **43c** — Admin UI: `MessagesPanel.vue` on its own SYSTEM → NATS nav
+      entry (`pubsub`), fed by `usePubsubFeed.js` over the
+      `pubsub-messages` bucket. Tenant named per row from the import remap
+      (not `TraceWaterfall`'s coarse gutter) and click-to-filter,
+      `evt`/`notify` family filter defaulting to `evt`, 500-row cap with an
+      eviction note, pause/resume freezing only the visible ordering, and
+      `SubjectPath.vue` for every subject. Best-effort disclaimer on the
+      panel rather than implied completeness. 9 specs + the feed's 7, all
+      green 2026-08-25.
+
+**Cleared for implementation 2026-08-25**, after the design review above.
+The hold placed on 2026-08-20 is lifted; the business-rules-first pass is
+**done** — BR-045–049 (`BUSINESS_RULES-SHIPPING.md`), BR-D45 (REFDATA),
+BR-AC34 (ACCOUNTS), BR-TP75 (ORGANIZATIONS), all confirmed 2026-08-25 and
+carrying the amendment. Ginkgo specs still come **before** implementation
+per the standing AI Agent Workflow — the pending stubs already in the tree
+(`pubsub_observability_test.go` ×4, `pubsub_export_test.go`,
+`MessagesPanel.spec.js`) are the red half, derived from the rules, and get
+real bodies as each sub-phase lands.
+
+**43a's gate is cleared.** BR-046's redaction review of real
+`evt.*`/`notify.*` payloads completed 2026-08-25, before any hook was wired.
+Outcome, recorded in full in BR-046:
+
+- **Two fields added to the shared denylist** — `actorName` and
+  `actorSourceIP`, from organizations-service's transporter-profile events;
+  the only action items in the whole review. Shared list extended, not forked,
+  so both are redacted from `obs.trace.*` too. Green in
+  `shared/natstrace/natstrace_test.go`.
+- **A dependency, now written down:** `Event.Changes`'s `from`/`to` values sit
+  under a field name, not a denylisted key, so the denylist cannot reach them.
+  They are safe only because BR-TP72 withholds such values structurally —
+  weakening BR-TP72 now leaks cross-tenant through this channel.
+- **A caveat, now written down:** `publishChange` publishes whatever value was
+  `Put`, so any new bucket wired through `kvstore.New` is automatically
+  observed and needs its own review. Three benign buckets today.
+- **A scope change the review turned up:** accounts-service's four
+  `notify.accounts.account.*` publishes already emit `obs.trace.*` spans.
+  Decided 2026-08-25 — they **move** to `obs.pubsub.*` rather than appearing on
+  both. The Traces panel loses four entry types; this is the one place Phase 43
+  edits a shipped pipeline rather than adding beside it. See BR-AC34.
+
+#### 43d — IMPLEMENTED 2026-08-25 — `shared/natsnotify`: give `notify.*` the seam `evt.*` already has
+
+Follows 43a/43b, which are landed (`df96bec`). Arrived at through an
+architecture review and a full grilling pass on 2026-08-25; every decision
+below was put to the user and confirmed before any code was written.
+
+##### The problem 43a exposed
+
+43a instrumented `notify.*` **at each call site**, because there was no seam
+to instrument. Nine publishers across four services each concatenate a
+subject, call `nc.PublishMsg`, log-and-swallow, then separately ask
+`natstrace` to parse the subject back into observability tokens. That second
+step is the defect: the tokens were known when the subject was built, thrown
+away by concatenation, and guessed at afterwards by reading positions out of
+a string.
+
+Two of the nine subjects prove the guess is wrong rather than merely fragile:
+
+- `notify._platform.refdata.{ctx}.{typeKey}.changed` must observe with
+  `kvContext`, **not** the `_platform` sitting in token 1.
+- `notify.accounts.account.{action}` is four tokens, below
+  `ObservePublish`'s `< 5` floor, so the deriver skips it entirely.
+
+Both already compensate by calling `ObserveAs` with explicit tokens. That
+workaround is the design; this sub-phase makes it the only path.
+
+`evt.*` has had the seam since Phase 43a:
+`jstream.Publisher.PublishWithTrace`. `natsnotify` is its sibling — a
+different transport (core NATS, fire-and-forget, no PubAck) under the same
+contract.
+
+##### Design decisions
+
+- **Module.** `shared/natsnotify`, a new module at repo root beside
+  `natstrace`, `browserrpc` and `natstenants`. The shared→shared dependency
+  on `natstrace` is precedented: `browserrpc` and `natstenants` both already
+  `replace … => ../natstrace`.
+- **Two layers, deliberately split.** `natsnotify` owns publish, the
+  observation gate and the observation emit, and takes the four
+  observability tokens — context, service, entity, action — **explicitly,
+  always. It never derives them from the subject.** Each service owns its
+  own subject construction as named constructors. There is no shared subject
+  grammar because there isn't one: arities run 4 to 7, and
+  `notify.{ctx}.kv.{bucket}.{key}.changed` is structurally unbounded, since
+  KV keys contain dots.
+- **Constructor option, not two-phase.** `New(nc, log, WithObservation(obsNC))`
+  rather than `evt.*`'s `EnableObservation(nc)`. Same opt-in semantics, no
+  window in which a `Notifier` exists misconfigured. A knowing divergence
+  from the `evt.*` seam; `shared/jstream` converges on this shape when the
+  jstream-deduplication candidate lands.
+- **No error return.** Injected `*slog.Logger`, fire-and-forget, exactly as
+  today. The span is carried on `ctx` and pulled with
+  `natstrace.SpanFromContext`.
+- **The `Notifier` holds its connection.** BR-D45 requires the observation
+  envelope to be emitted on the tenant's *own* conn, or BR-AC34's import
+  remap attributes it to the wrong tenant. Holding the conn makes that
+  structural — a `Notifier` is a conn plus a gate, so publishing on the
+  wrong one is not expressible. Six of the seven observed sites already
+  capture a conn at construction; refdata's `tenantPublisher.PublishToAll`
+  is the exception and constructs one `Notifier` per tenant inside its
+  `natstenants.Manager`, which is already generic over a per-tenant value.
+  The rejected alternative — `Publish` taking a conn per call — hands the
+  conn back to every caller, which is precisely what BR-D45 says gets
+  misplaced.
+
+##### What this deletes
+
+- Package-level **`Observe` / `ObserveAs`** in `natstrace`. Their only
+  callers are the seven `notify.*` sites.
+- `Tracer.ObservePublish` (the positional deriver) and `ObservePublishAs`
+  **stay**: the three `evt.*` seams call the deriver directly, and
+  `ObservePublishAs` is the primitive `natsnotify` calls. Moving `evt.*` to
+  explicit tokens is the jstream candidate's business, not this one's.
+- The 206-line `notifycoverage` AST lint is **replaced, not deleted**. Its
+  premise — "every enumerated site is instrumented" — dies with the
+  refactor. Its guard — "nobody bypasses the seam" — is what keeps a deep
+  module deep, and survives as a few lines asserting no `"notify."` string
+  literal outside `natsnotify` and the per-service subject builders.
+
+##### Adopters
+
+| Service | Shapes | Subject builders | Observation |
+|---|---|---|---|
+| shipping | 5, across `eventhandler` ×2, `kvstore`, `browserrpc`, `platform_notify` | new `internal/notify/` package | on |
+| refdata | 1 | in place | on, per-tenant `Notifier` |
+| accounts | 1 | in place | on, explicit `_platform` context |
+| observability | 2 | in place | **never enabled** |
+
+`observability-service` adopts **without** `WithObservation`. Its
+`pubsubstore` publisher announces writes to the very bucket observation
+envelopes land in; observing it is an unbounded feedback loop. Under the
+opt-in gate that exclusion stops being a string in a hand-maintained table
+and becomes a fact about how the `Notifier` was constructed. The cost is
+honest and recorded here: this is the first shared-module dependency for a
+service that has deliberately had none.
+
+`notify.accounts.account.{action}` **keeps** its four-token, context-free
+shape — the deliberate consequence of accounts administering the tenant axis
+itself. Regularising it to `notify._platform.accounts.…` would cost a JWT
+grant change at `auth/token.go:180`, a shipping subscriber change, and a
+credential regeneration that `Provisioner.CreateUser` would silently strip
+of its scoped grants (see Phase 60). The irregularity is also load-bearing
+documentation: it is the subject family that has no context because it
+predates one.
+
+##### Business rules
+
+BR-046 and BR-047 are message properties and are untouched. The other three
+are reworded so the *rule* is a property of the message and the *seam* is
+named as the mechanism:
+
+- **BR-049** — from "every `notify.*` publish site is instrumented, enforced
+  by AST scan" to "every `notify.*` message is observed, because every
+  publisher goes through `natsnotify`."
+- **BR-045** — loses its enumerated `file:line` list; keeps the message
+  properties (emitted once per publish, redacted then truncated, only after
+  the publish succeeds).
+- **BR-D45** — keeps its tenant-attribution constraint verbatim,
+  reattributed from the call site to the `Notifier`'s connection.
+
+A rule phrased as "these seven places do X" must be re-verified against
+every new publisher. Phrased as a property of the message it is true by
+construction, and the seam is what makes it so — the same move the refactor
+makes in code, applied to the rules.
+
+##### Tasks
+
+- [x] `shared/natsnotify`: module, `Notifier`, `New`/`WithObservation`,
+      `Publish`; `go.work` entry and per-consumer `require`/`replace`.
+- [x] A small embedded-NATS test helper beside it. Phase 43 left four
+      near-identical bootstraps (`newTestNATS`, `newObservabilityTestNATS`
+      + `subscribeObservations`, `runEmbeddedNATS`); they migrate
+      opportunistically, **not** in this diff.
+- [x] `natsnotify`'s own specs, including the `evt.*` seam's
+      `TestPublisherWithoutObservationStaysSilent` counterpart.
+- [x] shipping: new `internal/notify/` subject-builder package; adopt at
+      all five sites (`eventhandler` ×2, `kvstore`, `browserrpc`,
+      `platform_notify`'s refdata bridge).
+
+      **Corrected 2026-08-25 during implementation.** The design summary said
+      four shapes under `dictionary/internal/notify/`; both were wrong.
+      `platform_notify.go`'s `notify._platform.refdata.{ctx}.{typeKey}.changed`
+      bridge is a fifth shipping shape (the dossier filed it under refdata,
+      whose own shape is `notifybridge.go`'s). And the package cannot live
+      under `dictionary/internal/`: Go's internal visibility rule would put it
+      out of reach of `internal/kvstore`, which sits outside `dictionary/` and
+      is one of the five callers.
+- [x] refdata: adopt, one `Notifier` per tenant inside `natstenants.Manager`.
+- [x] accounts: adopt, explicit `_platform` context token.
+- [x] observability: adopt both sites without `WithObservation`.
+- [x] Delete `natstrace.Observe` / `ObserveAs`.
+- [x] Replace `notifycoverage/coverage_test.go` with the literal-guard lint.
+- [x] Rewrite `pubsub_observability_test.go`'s five stale `PIt` placeholders
+      as subject-construction tests against shipping's builder package — no
+      NATS required.
+- [x] Reword BR-045 / BR-049 (`BUSINESS_RULES-SHIPPING.md`) and BR-D45
+      (`BUSINESS_RULES-REFDATA.md`) in the same commit.
+
+Subscriber blast radius is **zero**: every binding is by subject literal or
+builder, none by publisher identity — `shared/natstenants/tenants.go:167`,
+`seafreight-app/src/api.js:77`, `admin/src/nats/useTraceFeed.js:55`,
+`admin/src/nats/usePubsubFeed.js:68`, `refdata/src/stores/dictionary.js:23`,
+plus the subject-pinning grants in `accounts-service/auth/token.go:113,180`.
+
+---
+
+#### 43e — IMPLEMENTED 2026-08-25 — `shared/jstream`: one `evt.*` seam instead of two copies
+
+The `evt.*` sibling of 43d, and the second candidate from the same
+2026-08-25 architecture review. Grilled to an empty frontier (13 questions
+over three rounds) and confirmed before any code was written.
+
+##### The problem
+
+`jstream` existed twice — `shipping-service/internal/jstream/stream.go` (102
+lines) and `refdata-service/refdata/internal/jstream/stream.go` (99 lines).
+`Publisher`, `Publish`, `PublishMsg`, `PublishWithTrace` and
+`EnableObservation` were byte-identical apart from comment wording and
+declaration order; four of the thirteen tests across the two suites were the
+same test written twice. The copies diverged in exactly one place:
+`CreateStream(ctx, js, name, subjects)` vs
+`CreateChangeStream(ctx, js, name, subjects, maxAge)`.
+
+##### Design decisions (confirmed 2026-08-25)
+
+| # | Decision |
+|---|---|
+| Q1 | Scope is the two `jstream` copies only. Organizations' `JetStreamEventStore` keeps its own `append` — the `ExpectedLastSubjSeq` headers, `ErrSequenceConflict` and the returned `ack.Sequence` *are* the reason it exists, and merging would make a shallow generic |
+| Q2 | `shared/jstream` owns `Publisher` plus one `CreateStream` taking options, **and** narrows the exported surface to `PublishWithTrace` — `Publish`/`PublishMsg` become unexported. Neither had a caller outside its own package, so the duplicated public surface was larger than the used one |
+| Q3 | `NewPublisher(js, WithObservation(nc))`; `EnableObservation` gone — the convergence 43d promised |
+| Q4 | `evt.*` keeps positional token derivation. Every `evt.*` subject in the tree is read correctly by it, unlike the two `notify.*` shapes that forced 43d to explicit tokens |
+| Q5 | The duplicated specs move to `shared/jstream`; each service keeps only the specs that assert something about **its** events |
+| Q6 | Lands as 43e, under the already-approved Phase 43 |
+| Q7 | Fix organizations' missing `Traceparent` in this sub-phase |
+| Q8 | Converge organizations' gate too: `NewJetStreamEventStore(js, WithObservation(nc))` |
+| Q9 | Promote `natstest` to `shared/natstest` and give it a JetStream option |
+| Q10 | Keep the local one-method port interfaces in `commands` and `kvcache` — hexagonal rule |
+| Q11 | Migrate only the two `jstream` suites onto `shared/natstest`; organizations' and accounts' bootstraps stay opportunistic |
+| Q12 | Record organizations' traceparent compliance by extending BR-TP75 and updating BR-037's *Enforced in* — no new BR number |
+| Q13 | Delete both `internal/jstream` package directories outright; no re-exporting shim |
+
+##### The BR-037 finding
+
+Organizations' `evt.*` appends carried no `traceparent`. **BR-037 has required
+one on every `evt.*` publish since Phase 28** — so this was not a design gap
+to fill but a documented rule with one service silently out of compliance,
+and nothing failing. Nothing on the consume side read the header, which is
+why it stayed invisible. The fix is four lines in `append` plus two specs;
+the specs were confirmed red against the unfixed code before the fix landed.
+
+##### Business rules
+
+No new rules. BR-037's *Enforced in* now names the third seam; BR-TP75 gained
+the traceparent requirement and the reason this store keeps its own `append`;
+BR-045 and BR-D45 were reworded for the merged seam and the construction-time
+gate.
+
+##### Tasks
+
+- [x] `shared/natstest`: promote out of `shared/natsnotify/natstest`, add
+      `WithJetStream()` / `StartJetStream`; `go.work` entry and
+      `require`/`replace` in every consumer.
+- [x] `shared/jstream`: module, `Publisher`, `NewPublisher`/`WithObservation`,
+      exported `PublishWithTrace` over unexported `publish`/`publishMsg`,
+      `CreateStream` with `WithMaxAge`.
+- [x] Merge the duplicated specs into `shared/jstream/jstream_test.go`, plus
+      two new ones: `TestFailedPublishIsNotObserved` and the pair pinning
+      `CreateStream`'s bounded/unbounded retention.
+- [x] Delete both `internal/jstream` directories; repoint every importer.
+- [x] Narrow `commands.Publisher` and `kvcache.Publisher` to one method.
+- [x] Gates: `rest/tenant.go` and `refdata/composition.go` build their
+      Publisher with `WithObservation`. `Startup` widened to take the
+      `*nats.Conn`; `Handlers.EnableEventObservation` deleted.
+- [x] Organizations: `WithObservation` option, `Traceparent` header in
+      `append`, and the two BR-037 specs.
+- [x] Each service keeps its own subject-shape spec —
+      `shipping-service/dictionary/evt_observability_test.go`,
+      `refdata-service/refdata/evt_observability_test.go`.
+- [x] BR-037 / BR-045 / BR-D45 / BR-TP75 updated in the same commit.
+
+**Deviation from the design summary, recorded during implementation.**
+`TestPublishMsgCarriesHeaders` was one of the four duplicated tests slated to
+move, but Q2 unexported `PublishMsg`, so there is nothing left for it to call
+from outside the package. It is not lost: the header path it covered is the
+one `PublishWithTrace` takes whenever a span is present, which
+`TestPublishWithTraceAttachesTraceparentWhenSpanPresent` asserts end-to-end
+off the wire.
+
+---
+
+## Phase 47 — Completed (archived 2026-08-26)
+
+### Phase 47 — IMPLEMENTED 2026-08-25 — A rejected command must publish no events (BR-050)
+
+Found by inspecting a trace produced during Phase 43e's live verification, but
+not a Phase 43 concern: a correctness bug in the write side, filed on its own
+number rather than as 43f.
+
+**The bug.** `ShipHandler.ArrivePort` published BR-021's implicit
+`evt.…ship.{id}.registered` *before* resolving BR-017's port lookup. An arrival
+at an unregistered port therefore returned `ErrUnknownPort` and still committed
+a registration to the `LimitsPolicy` SHIPPING stream. The write side rehydrates
+by replay, so the ship existed to it; the Postgres projection and KV cache,
+having seen only a registration, showed a ship no command had created; and
+because an aggregate's surrogate id is immutable once it is in the log, the
+natural key was consumed — a later `RegisterShip` failed with `ErrShipExists`.
+
+**Scope.** `ArrivePort` is the only site. It is the only command that emits two
+events; every other ship and container command hydrates, validates, and
+publishes exactly once (`RegisterContainer` resolves both of its
+`ports.Exists` calls before its single publish).
+
+**Design decisions** (approved 2026-08-25):
+
+| # | Decision | Chosen |
+|---|---|---|
+| 1 | Rule shape | New general rule **BR-050** ("a command that returns an error publishes no events") rather than an ordering clause bolted onto BR-017 — the defect is the class, and it gives a future two-event command something to be checked against. |
+| 2 | Fix shape | Structural: compute the arrive event in full (`ports.Exists` → `agg.Arrive()`) before registering, so *every* rejection path precedes any publish. Hoisting only the BR-017 lookup would be correct today but only via an argument about `Arrive()`'s other two rejections implying an already-registered ship — one that must be re-derived whenever a rule is added there. |
+| 3 | Test | Strengthen the BR-017 spec to assert the stream is untouched, plus a BR-050 `Context` asserting both an empty stream and that the shipID stays free to register afterwards. Confirmed red first. |
+| 4 | Where it lands | Its own numbered phase. Found-by is provenance, not theme. |
+
+- [x] **47a** — three specs added, confirmed red against the unfixed handler
+      (`Domain Rules / BR-017 / does not register the ship on the way to
+      rejecting it`; `Domain Rules / BR-050 / leaves the stream empty when the
+      arrival is rejected`; `… / leaves the shipID free to register
+      afterwards`), plus a `streamMsgs` helper.
+- [x] **47b** — `ArrivePort` reordered; BR-050 written up and BR-017
+      cross-referenced in `BUSINESS_RULES-SHIPPING.md`.
+- [x] **47c** — fixed the false-green spec the rule exposed.
+      `tenant_switch_test.go`'s reactivation spec claimed to prove the rebuilt
+      tenant's projectors were running by arriving a ship and finding it in the
+      read model. Its `api.acme.shipping.*` subject resolves the context to
+      `acme` (`browserrpc/adapter.go:295` takes the context from the subject
+      token, overwriting the body's), which the fake port repo never seeded —
+      so the arrival had *always* failed and the ship arrived in the read model
+      via the half-committed registration. The spec now seeds `Hamburg` for
+      `acme` on a repo shared by both `Deps` fields. This is the second time
+      the bug surfaced as a phantom ship, after the `SMOKE-43E` cleanup.
+- [x] **47d** — `ginkgo ./...` green across all 9 suites.
+- [x] **47e** — *unrelated to BR-050; found while verifying 47 against a
+      reseeded stack.* `organizations-service` died on every cold
+      `docker compose up -d` after a `down -v`, taking `refdata-frontend`
+      down with it (nginx resolves upstreams at startup, so a dead
+      `organizations-service` crash-loops it). Temporal has two distinct
+      not-ready stages and the service tolerated neither: the frontend not
+      listening yet (`client.Dial` → "connection refused"), and the frontend
+      listening before `temporal-auto-setup` has created the default
+      namespace (`worker.Start` → "Namespace default is not found" — observed
+      appearing *one second* after the service gave up). `MountVetting` now
+      takes a ctx and retries its **whole construction** — dial, wire, start —
+      through one `retryUntilReady` helper, same bounded shape as
+      `cmd/main.go`'s `waitForPostgres`, under its own 2-minute budget rather
+      than `startupCtx`'s already-running 60s. The first cut probed for those
+      two failure modes specifically and was replaced: a point-probe only ever
+      covers what someone happened to observe, so anything else arriving late
+      (search attributes, say) would still have killed the service. Each
+      attempt builds a fresh client and worker via `buildVettingWorker` and
+      closes the client on failure; the SDK's `AggregatedWorker` is not
+      re-`Start()`ed, since it merges capabilities into state commented
+      "should be the only time it is written to" and stops its workflow worker
+      if the activity worker fails.
+      A `preflightTemporalAddr` fast path sits in front of the loop so a
+      typo'd `TEMPORAL_ADDRESS` fails in ~1s instead of burning the full
+      budget. It classifies only what can never work — a malformed `host:port`
+      or a host that does not resolve — and passes connection-refused,
+      timeouts and everything else straight through, because misjudging one of
+      those reintroduces the crash this whole change removes. Sound only
+      because compose already gives the service
+      `depends_on: temporal (service_started)`, so the DNS name exists before
+      the process does; the race is *inside* Temporal's startup, not container
+      ordering.
+      Still fatal if the dependency never arrives — a service answering
+      submit-for-vetting with no worker polling strands the workflow.
+      Verified by a cold start that hit **both** failure modes through the one
+      loop and came up in 2s, with the `organizations-vetting` task queue
+      showing live workflow and activity pollers.
+      No business rule: this is startup resilience, not domain behaviour.
+
+---
+
+## Phase 48 — Completed (archived 2026-08-26)
+
+### Phase 48 — IMPLEMENTED 2026-08-26 (design gate closed 2026-08-26) — Tenant provenance for `obs.trace.*`
+
+> Closes the one item ADR-047 amendment A1 explicitly deferred: *"Deliberately
+> not in scope: applying the same remap to `obs.trace.>`, which would fix the
+> existing Traces panel's coarse gutter too. That is a change to a shipped
+> pipeline and belongs in its own phase."* This is that phase. It does not
+> re-decide A1 — it applies A1's already-proven mechanism to the pipeline A1
+> chose not to touch.
+>
+> **APPROVED 2026-08-26.** Design decisions 1–21 are settled — including
+> decision 13's per-span key shape over the revision-CAS alternative offered
+> beside it, and decision 18's exclusion of user-level JWT attribution.
+> Reopen one only with a stated reason, not by re-deriving it.
+>
+> **Still gated on business rules.** The five entries under "Business rules
+> to confirm" have not been confirmed or supplied, so per CLAUDE.md's
+> workflow no tests or code start yet: rules first, then specs derived from
+> the rules, then implementation. Sub-phase **48h** is the one exception
+> worth noting — it is a test harness rather than a rule-bearing change, so
+> it can begin as soon as you want it to, and the sequencing note already
+> puts it first.
+
+#### Goal
+
+Give `obs.trace.*` the same server-inserted, unspoofable tenant token that
+Phase 43 gave `obs.pubsub.*` (BR-AC34), so a span can be attributed to a
+*specific* tenant account rather than a coarse PLATFORM/TENANT split.
+
+Today PLATFORM imports every tenant's `obs.trace.>` onto the identical local
+subject with no `LocalSubject` remap. Once N tenants are imported onto one
+subject, a PLATFORM subscriber has no indication of origin, and
+`natstrace`'s envelope carries no account field to fall back on.
+`TraceWaterfall.vue` already documents the consequence in a comment.
+
+**Scope widened 2026-08-26** at your request to carry two defects found in
+the same pipeline while tracing it — the unbounded `trace-request-reply`
+bucket and `appendSpan`'s write amplification. Both touch the same
+projector and the same record, so they are cheaper here than as separate
+phases. See decisions 10–15 and sub-phases 48f/48g.
+
+**Scope widened again 2026-08-26** to answer Q1 (there is no multi-span,
+cross-account, OK/ERROR trace harness anywhere in the repo) and Q2
+(the Admin UI shows no NATS account for either path). Q2 turned out to be
+this phase's decision 1 rather than new scope; Q1 is the instrument that
+verifies it. See decisions 16–21 and sub-phases 48h/48i.
+
+#### Design decisions — tenant provenance
+
+1. **Mirror `pubsubLocalSubjectTmpl`, don't invent a family.** PLATFORM's
+   import of each tenant's `obs.trace.>` gains
+   `LocalSubject: monitor.{tenant}.trace.>`, exactly parallel to
+   `monitor.{tenant}.pubsub.>`, `monitor.{tenant}.srv.>` and
+   `monitor.{tenant}.js.*`. `monitor.*` stays what it already is — a
+   PLATFORM-local family that nothing publishes on and no tenant can reach.
+
+2. **The token is inserted by the NATS server, never asserted by the
+   publisher.** `jwt.RenamingSubject` on the import is the whole mechanism.
+   `natstrace`'s wire envelope gains **no** account/tenant field — an
+   envelope field a tenant fills in itself is spoofable, which is precisely
+   why A1 rejected that route for pubsub.
+
+3. **Tenant-side publishing does not change.** A service still publishes
+   `obs.trace.{context}.{service}.{entity}.{action}`
+   (`natstrace.go:521`). `shared/natstrace` needs no change at all — the
+   rename happens at the account boundary.
+
+4. **`TRACES` gains a second subject filter rather than replacing the
+   first.** The stream captures both `obs.trace.>` (PLATFORM's own services,
+   which are already in PLATFORM and cross no import) and
+   `monitor.*.trace.>` (every tenant). This is the identical two-filter
+   shape `PUBSUB` already runs — `PlatformSubjectWildcard` +
+   `TenantSubjectWildcard` — so it is a stream *update*, not a recreate.
+
+5. **Tenant extraction is by subject position at the projector.** Add
+   `tenantFromSubject` to `tracestore` mirroring `pubsubstore.go:179`
+   verbatim in shape: `parts[0] == "monitor" && parts[2] == "trace"` →
+   `parts[1]`, else the `_platform` context constant. Trace subjects are
+   fixed-arity, so positional parsing is safe on both the 6-token
+   unremapped and 7-token remapped forms.
+
+6. **The KV key shape does not change; the tenant goes in the value.**
+   Keep `_platform.trace.{traceId}`. `pubsubstore` already set this
+   precedent — `pubsubRecord{Tenant, Span}` carries the tenant inside the
+   stored value while the key stays `_platform.msg.{spanId}`. Putting the
+   tenant in the key instead would change every Admin UI read path and the
+   REST entries surface for no gain, since a trace belongs to exactly one
+   tenant and is fetched by `traceId`, never scanned by tenant prefix.
+   **Consequence to accept:** the tenant is stored per-span inside the
+   merged record, not once per trace — `appendSpan` must not let a later
+   span silently rewrite an earlier span's tenant.
+
+7. **No data migration.** `TRACES` is `LimitsPolicy` capped at 1h, so any
+   backlog on the old subject ages out within an hour of the change, and
+   decision 4 keeps `obs.trace.>` a live filter regardless. Spans already
+   merged into KV under the old shape keep their `_platform` tenant until
+   they are superseded — acceptable for a diagnostic surface, and visible
+   as such rather than silently wrong.
+
+8. **Existing tenants need a re-provision pass.** The remap lives in the
+   tenant account's JWT import claims, so already-minted accounts do not
+   get it for free. Same rollout shape BR-AC34 needed in Phase 43 — this
+   is the real blast radius of the phase, not the code change.
+
+9. **The Admin UI gutter becomes real.** `TraceWaterfall.vue`'s account
+   gutter shows the actual tenant name, and the comment documenting the
+   coarse split is removed rather than left stale.
+
+#### Business rules — written 2026-08-26
+
+All five are drafted and in place. The design gate is closed; specs derive
+from these rules, not from the implementation.
+
+| Rule | File | Covers | Sub-phase |
+|---|---|---|---|
+| **BR-AC36** | `BUSINESS_RULES-ACCOUNTS.md` | the per-tenant `LocalSubject` remap on the `obs.trace.>` import — the item BR-AC34 explicitly deferred | 48a |
+| **BR-051** | `BUSINESS_RULES-SHIPPING.md` | tenant attributed from the arrival subject, never the envelope; `TRACES`'s two subject sets; stored **per span** | 48b, amended 48c |
+| **BR-052** | `BUSINESS_RULES-SHIPPING.md` | ~~first-writer-wins on a `traceId` whose spans disagree on tenant~~ — **retired in 48c**, it fires on ordinary cross-account traffic | 48b, retired 48c |
+| **BR-053** | `BUSINESS_RULES-SHIPPING.md` | `trace-request-reply` bounded from measurement; one span, one idempotent write | 48f / 48g |
+| **BR-054** | `BUSINESS_RULES-SHIPPING.md` | both panels name the originating account; the multi-span cross-account harness that proves it | 48h / 48i |
+| **BR-055** | `BUSINESS_RULES-SHIPPING.md` | a reply carrying `Nats-Service-Error` finishes its span as ERROR — added 2026-08-26, after the defect surfaced while reading 48h's own error run in the panel | 48j |
+
+Two things settled in the writing that the drafts above had left open:
+
+- **The conflict rule took the proposed shape** — first writer wins, mismatch
+  logged at warn level, the disagreeing span still stored so the evidence is
+  not hidden. Last-write-wins is what a plain struct assignment does by
+  default, which is why BR-052 existed as a rule rather than a comment.
+  *(Retired in 48c: both options were wrong, because the premise — one
+  tenant per trace — was. See 48c's note below.)*
+- **BR-054 absorbed the user-JWT exclusion** (decision 18) as part of the
+  rule rather than leaving it as a design note, so the reason is recorded
+  where someone adding a "user" column would read it.
+
+#### Sub-phases — tenant provenance (draft — not started)
+
+- [x] **48a** — `accounts-service`: add the `LocalSubject` remap to the
+      trace import (`addPlatformTraceImport`), with a
+      `traceLocalSubjectTmpl` constant beside `pubsubLocalSubjectTmpl`.
+      Provisioner tests assert the minted claim, mirroring BR-AC34's.
+      **DONE 2026-08-26**, plus the day-0 half in `bootstrap-operator.sh`
+      that BR-AC36 names. Two things came out of the implementation:
+      **(a)** re-provisioning had to be made to *converge*. The dedupe
+      scan every other import uses matches on `(Account, Subject)` alone,
+      so a pre-BR-AC36 account's un-remapped import would be found,
+      reported as success, and left unchanged — making decision 8's
+      re-provision pass a no-op and a wipe the only fix. It now corrects a
+      wrong `LocalSubject` in place; there is a spec for it, verified red.
+      **(b) An ordering constraint 48d must respect:** with the remap live
+      and `TRACES` still filtering only `obs.trace.>`, tenant spans are
+      remapped away from the only subject the stream captures and the
+      Traces panel goes empty **for tenants only** — PLATFORM's own spans
+      keep arriving, which is what makes it read as "no traffic" rather
+      than as breakage. Nothing is disturbed until someone reseeds
+      (`--force` + `down -v`), so **do not reseed until 48b lands.**
+- [x] **48b** — `tracestore`: second subject filter on `TRACES`,
+      `tenantFromSubject`, tenant threaded into the stored record, and the
+      decision-6 conflict rule. **DONE 2026-08-26** — BR-051 + BR-052.
+      Five specs, all verified red against a deliberately broken
+      implementation first. Two things worth carrying forward:
+      **(a)** the projector's consumer now names **no** `FilterSubject`
+      rather than being taught the second one. It carried
+      `FilterSubject: obs.trace.>`, which was harmless while the stream
+      had one subject and would have silently swallowed every tenant span
+      the moment the second was added — the exact failure 48a warned
+      about, one layer further in. An unfiltered consumer is what this
+      projector actually means, and `pubsubstore`'s already omits it.
+      **(b)** No migration: a record stored before this has no `tenant`
+      field, so it unmarshals to the arriving span's own attribution and
+      corrects itself on the next span. **48a's reseed hazard is now
+      cleared** — the stream captures both subject shapes, so 48d can
+      re-provision and reseed. **Superseded in part by 48c:** BR-052 was
+      retired and the record-level tenant moved onto each span — see below.
+- [x] **48c** — Admin UI: real tenant in `TraceWaterfall.vue`'s gutter;
+      remove the stale comment; specs for the new attribution.
+      **DONE 2026-08-26** — BR-051 (amended) + BR-054's traces-panel half;
+      BR-052 retired. Building the gutter exposed a defect in what 48b had
+      just landed, so this sub-phase reworked part of it (user decision:
+      "per-span tenant, retire BR-052"):
+      **(a)** the trace this stack actually produces is *mixed*, not
+      single-tenant — `organizations-service` runs tenant-scoped
+      connections and `refdata-service` runs `platform.creds`, so one
+      `api.*` call yields two `acme` spans and one `_platform` span. A
+      per-trace tenant would label refdata's PLATFORM span `acme`: a wrong
+      attribution on the panel whose whole point is trustworthy
+      provenance, and worse than the coarse split it replaced.
+      **(b)** BR-052 fired on that same legitimate traffic — it called two
+      tenants under one `traceId` "never normal traffic" and would have
+      warned on every cross-account request. Retired, with the reasoning
+      kept in `BUSINESS_RULES-SHIPPING.md` rather than deleted.
+      **(c)** a stored element is now `{tenant, span}`, mirroring
+      `pubsubRecord`. This one *does* need a decoder: the default struct
+      decoding reads a pre-48c bare span into an empty wrapper and
+      silently drops it, so `storedSpan.UnmarshalJSON` probes for a `span`
+      key. An unattributed span renders as `unattributed`, never as a
+      guess.
+      **(d)** `cmd/seed-traces` was updated in the same pass — it decodes
+      the record, so the wrapper would have broken it — and its
+      `-expect-tenant` now asserts the *correct* property (the tenant
+      appears, `_platform` is the only other value, nothing unattributed)
+      rather than uniformity, which this chain rightly violates.
+      Every spec verified red first, in both languages. 48g's per-span
+      keys were going to touch this code anyway.
+- [x] **48d** — re-provision pass for existing tenant accounts (decision 8),
+      and live verification across two tenants that spans land under
+      distinct tenant names.
+
+      **DONE 2026-08-26.** (1) Decision 8's manual pass was replaced by
+      boot-time convergence (BR-AC37): the four `addPlatform*Import` calls
+      are reached through one exported `EnsurePlatformImports`, which
+      `seedPreexistingAccounts` now runs per tenant on every start. Each
+      call is a no-op when the claim is already correct, so a healthy
+      stack signs and pushes nothing — that property is what makes it safe
+      unconditionally, and it is the spec that guards it. (2) The
+      idempotency spec had to observe `$SYS.REQ.CLAIMS.UPDATE` directly: a
+      jti is a content hash of the claims, so the obvious
+      compare-the-JWT-before-and-after check passes against a provisioner
+      that re-signs unchanged claims every time — it was written that way
+      first and caught by red-checking it. (3) Live: PLATFORM's runtime
+      claims in `/data/jwt` gained `obs.trace.> -> monitor.acme.trace.>`
+      and `-> monitor.globex.trace.>` on the first restart after the
+      change, without a reseed. `cmd/seed-traces` then passed OK and ERROR
+      for both `-expect-tenant acme` and `-expect-tenant globex`. (4) The
+      harness's `-settle` default went 10s → 30s: the projector was
+      measured taking 10–13s to store a three-span chain, so the old
+      default intermittently reported a late trace as a missing one.
+- [x] **48e** — docs: `ARCHITECTURE-OBSERVABILITY.md` (A1's deferred item
+      marked closed), `ARCHITECTURE-COMMUNICATIONS.md` §6 notes and the
+      `observability-message-path` diagram — the trace row's `no remap`
+      annotation becomes the remap, which is the whole point of the phase.
+      **DONE 2026-08-26.** A1 now carries a resolution note naming the three
+      things the implementation settled that the ADR did not anticipate
+      (per-span attribution and BR-052's retirement; convergence rather than
+      one-off re-provisioning, BR-AC37; no migration needed because `TRACES`
+      is `LimitsPolicy`), plus a new action item 5. §6 gained notes on
+      subject-derived per-span attribution, on each stream carrying two
+      subject sets, and on both buckets being bounded at 15 min / 8 MiB.
+      The diagram lost two of its three divergences: both rows now draw the
+      same `LocalSubject remap` and the same bucket bound, so the only
+      difference left is merge-vs-overwrite, and the retired pair is
+      recorded in a "what used to diverge" bullet rather than deleted.
+      Re-exported at 1024px with `--clip=".wrap"`; `audit-svg-layout.mjs`
+      clean. Two stale sentences in `BUSINESS_RULES-ACCOUNTS.md` and
+      `BUSINESS_RULES-SHIPPING.md` that asserted the trace import "has no
+      remap" in the present tense were put into the past tense — outside the
+      sub-phase's literal scope, but they were wrong as written.
+
+#### Design decisions — bucket bounding (added 2026-08-26 at your request)
+
+10. **`trace-request-reply` gets a `TTL` and a `MaxBytes`, for the reason
+    `pubsub-messages` already has them.** It is created today as a bare
+    `jetstream.KeyValueConfig{Bucket: bucketName}` (`tracestore.go:87`) —
+    no bound of any kind — while the `TRACES` stream feeding it is capped at
+    1h/64 MiB. The stream forgets and the bucket does not, so the bucket is
+    the only unbounded thing in the whole path. `pubsubstore.go:82` states
+    the governing reason: the panel **bootstrap-fetches every entry in the
+    bucket on load**, so bucket size is a page-load cost, not just disk. The
+    Traces panel does the same fetch, so it inherits the same argument.
+
+11. **The bound is tighter than the stream's, and it is measured, not
+    guessed.** `pubsub-messages` landed on 15 min / 8 MiB from a seed run
+    over representative payloads (BR-047's reasoning). A trace record is a
+    *merged multi-span* document, not a single envelope, so pubsub's numbers
+    do not transfer. **Proposed starting point: 30 min / 16 MiB**, to be
+    replaced by whatever a seed run over representative `rpc.*` traffic
+    actually measures — the sub-phase produces the number, this plan does
+    not assert it.
+
+12. **Applied in place via `CreateOrUpdateKeyValue`, no recreate.** A KV
+    bucket's TTL and `MaxBytes` are its backing stream's `MaxAge` and
+    `MaxBytes`, both updatable on a live stream, so the existing bucket
+    keeps its name and contents. Renaming is explicitly *not* on the table
+    (CLAUDE.md: "a bucket name is a stream name" — renaming orphans the old
+    stream and creates an empty one).
+
+#### Design decisions — `appendSpan` write amplification (added 2026-08-26 at your request)
+
+13. **Replace the read-modify-write merge with one key per span.** Today
+    `appendSpan` reads the whole trace record, appends one span, dedupes by
+    `spanId`, and writes the whole thing back — so a trace of *n* spans
+    writes O(n²) bytes, and every append is a lost-update race that survives
+    only because a single durable consumer happens to be the only writer.
+    That is a property of the current deployment, not a guarantee of the
+    design: it breaks the moment the projector is scaled or a redelivery
+    overlaps. Proposed shape: key `_platform.trace.{traceId}.{spanId}`,
+    a plain idempotent `Put`, with the trace assembled at read time from a
+    key-prefix scan — which is what makes dedup-by-`spanId` free rather than
+    a merge step, since the same span overwrites its own key.
+
+14. **This changes the read path and the `notify.*` key, so it moves with
+    the frontend.** `useTraceFeed.js` currently keys entries by `traceId`
+    and the projector notifies on
+    `notify._platform.kv.trace-request-reply.trace.{traceId}.changed`.
+    Per-span keys mean a prefix-grouped read and a per-span notify subject.
+    **This is the one genuinely risky part of the phase** — it touches the
+    surface Phase 43e's reconnect/resync work just stabilised, and the
+    monotonic-merge guard in the feed has to keep holding across the new key
+    shape.
+    **Alternative if you'd rather not move the read path:** keep the single
+    merged key and make the write safe with a revision-CAS `Update` plus
+    bounded retry. That fixes the *race* but not the O(n²) *write
+    amplification* — worth choosing deliberately rather than defaulting.
+
+15. **`TRACES` should also set `Duplicates` explicitly**, the way ADR-047 A6
+    made `PUBSUB` do (`pubsubstore.go:66`) rather than inheriting the
+    server's 2-minute default. Noticed while reading the two stream configs
+    side by side; small, and it belongs with 48g's dedup work rather than in
+    its own phase.
+
+#### Additional sub-phases
+
+- [x] **48f** — bound `trace-request-reply`: seed run to measure a real
+      trace-record size, `TTL` + `MaxBytes` on the bucket config
+      (decisions 10–12), and a spec asserting the bucket is created bounded
+      — the kind of regression that is invisible until disk fills.
+      **DONE 2026-08-26.** Measured with a new `seed-traces -measure
+      -runs N` mode (the sizing input BR-053 names): 1,638 records, mean
+      997 B, 1-span p90 1.5 KiB, 3-span p90 3.2 KiB — about 1.1 KiB per
+      span. Landed on **15 min / 8 MiB**, tighter than decision 11's
+      proposed 30 min / 16 MiB, which the measurement did not support;
+      15 min matches `pubsub-messages` so a message and its trace stay
+      cross-referenceable in the two panels. `TestRegisterCreatesBoundedBucket`
+      verified red against the bare `KeyValueConfig{Bucket}` first. Decision
+      12 held — `CreateOrUpdateKeyValue` applied it in place, no recreate —
+      with one fact worth knowing: a `MaxAge` is retroactive, so the live
+      bucket went 1,638 → 133 records on the first restart. Decision 15's
+      `Duplicates` on `TRACES` stays with 48g as sequenced.
+- [x] **48g** — `appendSpan` rewrite per decisions 13–15, including the
+      `useTraceFeed.js` read-path change, and a concurrency spec that fails
+      against today's read-modify-write (two overlapping appends to one
+      `traceId` must not lose a span). Done 2026-08-26.
+      `appendSpan` is now `storeSpan`: one `Put` per span at
+      `trace.{traceId}.{spanId}`, with the trace assembled at read time in
+      `useTraceFeed.js`. Three things worth carrying forward:
+      **(a)** the concurrency spec only goes red when it calls the store
+      function directly — driven through `Register`'s consume callback it
+      passes, because that callback is serialised, which is precisely what
+      hid the defect. Sixteen concurrent writers stored 1 span of 16.
+      **(b)** decision 15's `Duplicates` window was inert as specified:
+      nothing set `Nats-Msg-Id`, so JetStream had nothing to compare.
+      `natstrace`'s `finish` now sets it to the span id — the two are one
+      contract and neither half is worth having alone.
+      **(c)** the feed's monotonic-merge guard was **removed** rather than
+      carried across, since per-span merging makes a stale snapshot a no-op
+      instead of a rollback; the spec that pinned the old behaviour passes
+      unchanged. The frontend reads the pre-48g merged shape too, for one
+      `BucketMaxAge` after deploy; the Go-side legacy decoder was deleted,
+      since nothing on the write side reads a stored record any more.
+
+> **Sequencing note:** 48f is small, self-contained, and independent of the
+> tenant-provenance work — it could ship first or even separately. 48g is
+> the opposite: it should land *after* 48b, because both touch the same
+> record shape and doing them in one pass avoids rewriting `appendSpan`
+> twice.
+
+#### Design decisions — account provenance in the Admin UI (Q2)
+
+16. **The account is read from the subject, never from the envelope.**
+    `natstrace`'s `traceSpan` carries `Requester`
+    (`shared/natstrace/natstrace.go:161`) and its own comment says why it
+    cannot answer this: it "lifts BR-041's self-declared `Nats-Requestor`
+    header onto its own field so the Admin UI can read it **without treating
+    it as authorization**". There is no account or JWT field on the envelope
+    at all. Adding one would be publisher-asserted and therefore spoofable —
+    exactly the objection ADR-047 A1 raised for pubsub, which is why pubsub
+    got a server-inserted subject token instead. So **Q2 is not separate
+    scope: it is decision 1**. `monitor.{tenant}.trace.>` gives request/reply
+    the same unspoofable provenance pubsub already has, decision 5's
+    `tenantFromSubject` lifts it, decision 9 renders it.
+
+17. **Pubsub needs a display change only.** The tenant is already stored on
+    the record (`pubsubRecord{Tenant, Span}`, `pubsubstore.go:192`) and has
+    been since ADR-047 — the Messages panel simply doesn't surface it. No
+    backend work on that path.
+
+18. **The *user* JWT is deliberately out of scope.** NATS does not put the
+    signing user's subject on a published message, so identifying *which
+    user within the account* would mean either correlating against `$SYS`
+    connz or having the publisher assert it — the same spoofable-assertion
+    problem one level down. Account-level provenance is what makes the panel
+    trustworthy; user-level attribution is a separate design, and folding it
+    in here would quietly reintroduce the assertion model this phase exists
+    to avoid.
+
+#### Design decisions — cross-account multi-span trace harness (Q1)
+
+19. **Nothing exercises a multi-hop trace today, and that is the gap.** The
+    only `cmd/` CLIs are the four data seeders. Trace coverage is per-service
+    and single-hop — `trace_async_test.go`, `trace_middleware_test.go`,
+    `browserrpc_test.go`, `natsrpc_test.go`,
+    `browserrpc_roundtrip_test.go` — each asserting that *its own* span is
+    emitted correctly. None builds a `traceId` with a real parent/child chain
+    across two services, and none crosses an account boundary. The Admin UI's
+    waterfall (parent/child nesting, span ordering, ERROR row styling) has
+    therefore never been checked against a trace it did not hand-construct in
+    a fixture.
+
+20. **The harness drives the real stack, not fixtures.** A `cmd/seed-traces`
+    (or a Ginkgo integration spec against the running compose stack) issuing
+    a genuine `api.*` call with browser credentials from a tenant account →
+    `shipping-service` → `rpc.*` into `refdata-service`, run twice: once with
+    a valid payload (every span `StatusCode` OK) and once with a payload the
+    callee rejects, so the error span carries `StatusCode`/`StatusMessage`
+    **and the parent still closes**. Hand-built fixtures would re-assert what
+    the existing unit specs already cover.
+
+21. **This is the phase's verification instrument, not an extra.** Decisions
+    5, 6 and 13–14 cannot honestly be verified without it: tenant attribution
+    needs a trace that actually crosses an account boundary, and the
+    `appendSpan` rewrite needs a trace with several spans arriving
+    concurrently under one `traceId`.
+
+#### Additional sub-phases — Q1/Q2
+
+- [x] **48h** — cross-account multi-span trace harness per decisions 19–21:
+      OK and ERROR runs, driven against the compose stack, plus assertions on
+      the resulting stored trace (span count, parent/child linkage, the error
+      span's status fields). **DONE 2026-08-26** —
+      `observability-service/cmd/seed-traces`. Both runs green against the
+      live stack: 3 spans each, root parented to the harness's own injected
+      `traceparent`, spans from both `organizations` and `refdata`. Two
+      corrections to BR-054 came out of building it, and are now written into
+      the rule: the chain is `organizations-service` → `refdata-service`
+      (Phase 32 left shipping-service's `refdataconsumer` with no live
+      callers, so the chain the rule originally named is dead), and it drives
+      the hop with the tenant's own credential because `connectInfo` 409s
+      with *"tenant has no signing key on record"* for the seeded accounts.
+      The error run's real span shape — root ERROR, caller-side hop OK,
+      refdata's handler span ERROR — is recorded in BR-054 rather than
+      asserted around. Tenant attribution is behind an opt-in
+      `-expect-tenant` flag and currently reads `(none)`, the expected red
+      state until 48b lands.
+- [x] **48i** — surface the account in the Admin UI for both paths
+      (decisions 16–17): real tenant in `TraceWaterfall.vue`'s gutter — the
+      same work as 48c, listed here because it is what actually answers Q2 —
+      and a tenant column/badge in the Messages panel from the record field
+      that already exists. **No code was needed for the Messages half:** the
+      tenant column, its per-row cell and the tenant filter chips landed in
+      `df96bec` (Phase 43c), which BR-054 had not caught up with. Closed
+      2026-08-26 by verifying it live rather than by grep: the Pub/Sub panel
+      was empty only because `pubsub-messages` has a 900s TTL and the stack
+      had been idle, so `seed-vehicle-types -context acme` was run to drive
+      real `evt.*` traffic and the panel then rendered 840 rows with the
+      Tenant column populated. Worth recording what it shows — `_platform`,
+      not `acme`, on `evt.acme.refdata.vehicle-type.changed`: the column is
+      the *publisher's NATS account* (refdata-service runs in PLATFORM),
+      while the `acme` in the subject is `{context}`. Exactly the two axes
+      Phase 16a insists are different, visible side by side in one row.
+
+- [x] **48j** — `natstrace.End` honours micro's `Nats-Service-Error`
+      (BR-055), added to the phase 2026-08-26 after 48h's error run was read
+      back in the Traces panel and the middle hop drew blue between two red
+      rows while its own detail pane rendered that hop's `Nats-Service-Error`
+      in red. Not a UI bug: `End` hardcoded `finish("OK", …)`, every caller
+      calls `End` on any reply that arrives, and nothing anywhere consulted
+      the header when deciding a status. Fixed in `End` rather than at the
+      call site or at render time, so every outbound span in the repo agrees
+      at once and the stored KV record is right. Scope confirmed as *any*
+      `Nats-Service-Error` regardless of code — a 404 is a refusal — and
+      deliberately not the body-only `{"notFound":true}` shape, which would
+      put payload parsing inside `natstrace`. Two specs, both verified red
+      first: the package contract in `shared/natstrace`, and a call-site
+      regression net in `refdataclient` driving a real micro refusal.
+      **Consequence carried in the same change:** BR-054's recorded ERROR-run
+      shape (ERROR / OK / ERROR) is now ERROR / ERROR / ERROR, so
+      `seed-traces`' "at least one span closed OK" transport-failure
+      discriminator no longer separates a domain rejection from a dead
+      responder — it asserts BR-037's `rpc.retry_count` of `0` instead.
+      **Live-verified 2026-08-26** after rebuilding `organizations-service`
+      (the fix compiles into it via `shared/natstrace`): `seed-traces
+      -context acme -expect-tenant acme` passes both runs, with the ERROR run
+      now reading ERROR/ERROR/ERROR and the OK run unchanged.
+      **Coverage audit, same session:** the emitter and every service adapter
+      already asserted their own ERROR spans, and `tracestore` stores span
+      JSON opaquely so no field can be dropped there — but the *render* side
+      had nothing. Every `TraceWaterfall.spec.js` fixture was OK except one
+      used only for a responder label, so the bar colour, the trace tile, the
+      `errors` filter and the header pane's error style were all unpinned —
+      the panel where the defect was visible was the layer with no coverage.
+      Four specs added over the refused chain, all verified red against a
+      component mutated back to the pre-48j vocabulary (the sixteen existing
+      specs stayed green under that mutation). Full admin suite: 145 green.
+
+> **Sequencing note (Q1/Q2):** 48h should land early — before 48b — because
+> it is the only thing that can demonstrate the tenant token actually arrives
+> end to end, and it is equally useful as a regression net for 48g. 48i is
+> the tail of 48c and 48b; it has no independent backend work.
+
+---
+
 ## Renumbering history
 
 Every renumbering log, moved out of the live plan on 2026-08-21 (it had
