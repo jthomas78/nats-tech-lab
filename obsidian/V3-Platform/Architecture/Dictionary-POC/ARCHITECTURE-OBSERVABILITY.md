@@ -13,7 +13,7 @@ keeps only the ADR as a historical record.
 
 ## The message path, end to end
 
-![Two parallel ingest paths: a tenant service publishes obs.trace.> and obs.pubsub.> inside its own NATS account; JWT stream exports carry both into the PLATFORM account, obs.trace.> unremapped and obs.pubsub.> remapped to monitor.{tenant}.pubsub.>; each lands on its own LimitsPolicy stream (TRACES 1h/64 MiB, PUBSUB 1h/32 MiB), is read by one durable AckExplicit consumer, and is projected into a KV bucket — trace-request-reply merged by spanId with no TTL, pubsub-messages plain-Put with a TTL and MaxBytes. Both buckets emit a best-effort notify subject that observability-service bridges to the Admin UI over WebSocket, alongside the REST snapshot each feed bootstraps from.](images/observability-message-path.png)
+![Two parallel ingest paths: a tenant service publishes obs.trace.> and obs.pubsub.> inside its own NATS account; JWT stream exports carry both into the PLATFORM account, each with a per-tenant LocalSubject remap onto monitor.{tenant}.trace.> and monitor.{tenant}.pubsub.>; each lands on its own LimitsPolicy stream (TRACES 1h/64 MiB, PUBSUB 1h/32 MiB) that captures both the remapped tenant form and the bare obs.* form PLATFORM publishes itself, is read by one durable AckExplicit consumer, and is projected into a KV bucket — trace-request-reply merged by spanId with the tenant stored per span, pubsub-messages plain-Put, both bounded at 15 min / 8 MiB. Both buckets emit a best-effort notify subject that observability-service bridges to the Admin UI over WebSocket, alongside the REST snapshot each feed bootstraps from.](images/observability-message-path.png)
 
 Editable source: [observability-message-path.html](../../../../demos/01-dictionary/diagrams/observability-message-path.html)
 — hand-authored inline SVG rather than a Draw.io workbook page, so
@@ -265,9 +265,30 @@ token is inserted **by the NATS server**, so it is unspoofable, unlike an
 envelope field a tenant fills in itself. The Messages panel reads the tenant
 from that token. BR-AC34 and BR-048 carry this.
 
-**Deliberately not in scope:** applying the same remap to `obs.trace.>`,
-which would fix the existing Traces panel's coarse gutter too. That is a
-change to a shipped pipeline and belongs in its own phase.
+**Closed 2026-08-26 (Phase 48).** The deferred half — applying the same
+remap to `obs.trace.>` — is done, and it is the whole point of that phase:
+`addPlatformTraceImport` now carries `monitor.{tenant}.trace.>` (BR-AC36),
+`TRACES` captures both that and the bare `obs.trace.>` PLATFORM publishes
+itself, and `TraceWaterfall.vue`'s gutter names the real account instead of
+the coarse PLATFORM/TENANT split this item predicted it would be stuck with
+(BR-051, BR-054). Three things the implementation settled that this ADR did
+not anticipate:
+
+- **Attribution is per span, not per trace.** An ordinary cross-account
+  chain has spans on both sides of the boundary, so a single tenant on the
+  record would have to label one of its own spans falsely — on the one panel
+  whose entire value is trustworthy provenance. BR-052, drafted as a
+  first-writer-wins tie-break, was retired for the same reason: the
+  disagreement it arbitrated is the normal case, not a conflict.
+- **The remap must be converged, not just minted.** An account provisioned
+  before the change keeps the old import until something rewrites it, so
+  `accounts-service` now re-converges PLATFORM's imports for every known
+  tenant on every start (BR-AC37) rather than relying on a one-off
+  re-provision pass someone has to remember.
+- **A shipped pipeline needed no migration.** `TRACES` is `LimitsPolicy`
+  capped at 1 h, so the old subject shape ages out on its own; records
+  written before the change decode through an explicit legacy path and
+  render as `unattributed` rather than as a guessed tenant.
 
 ### A2 — The instrumented-call-site list was incomplete, and one service had no rule
 
@@ -430,7 +451,12 @@ slice holds.
        envelope is 454–592 B, not the ~2 KiB A5 assumed, and the stream
        must capture `monitor.*.pubsub.>` as well as `obs.pubsub.>` or it
        sees no tenant traffic at all. 43c is what puts any of it on screen.
-5. [x] Panel description moved into
+5. [x] A1's deferred `obs.trace.>` remap — **closed 2026-08-26 in Phase
+       48**; see the resolution note under A1 above for what it changed and
+       what it did not anticipate. `trace-request-reply`, unbounded at the
+       time this ADR was written, was bounded in the same phase on measured
+       numbers (BR-053).
+6. [x] Panel description moved into
        [ARCHITECTURE-ADMIN.md](ARCHITECTURE-ADMIN.md) §4.9 alongside its
        siblings (2026-08-25, with 43c); this ADR remains behind as the
        historical decision record. **43c landed 2026-08-25** —

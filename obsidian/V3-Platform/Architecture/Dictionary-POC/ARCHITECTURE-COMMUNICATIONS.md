@@ -618,18 +618,33 @@ the same five hops from a tenant service to an Admin UI panel, and the
 diagram below puts them on one column grid so the places they diverge are
 the only things that differ visually.
 
-![Two parallel ingest paths: a tenant service publishes obs.trace.> and obs.pubsub.> inside its own NATS account; JWT stream exports carry both into the PLATFORM account, obs.trace.> unremapped and obs.pubsub.> remapped to monitor.{tenant}.pubsub.>; each lands on its own LimitsPolicy stream (TRACES 1h/64 MiB, PUBSUB 1h/32 MiB), is read by one durable AckExplicit consumer, and is projected into a KV bucket — trace-request-reply merged by spanId with no TTL, pubsub-messages plain-Put with a TTL and MaxBytes. Both buckets emit a best-effort notify subject that observability-service bridges to the Admin UI over WebSocket, alongside the REST snapshot each feed bootstraps from.](images/observability-message-path.png)
+![Two parallel ingest paths: a tenant service publishes obs.trace.> and obs.pubsub.> inside its own NATS account; JWT stream exports carry both into the PLATFORM account, each with a per-tenant LocalSubject remap onto monitor.{tenant}.trace.> and monitor.{tenant}.pubsub.>; each lands on its own LimitsPolicy stream (TRACES 1h/64 MiB, PUBSUB 1h/32 MiB) that captures both the remapped tenant form and the bare obs.* form PLATFORM publishes itself, is read by one durable AckExplicit consumer, and is projected into a KV bucket — trace-request-reply merged by spanId with the tenant stored per span, pubsub-messages plain-Put, both bounded at 15 min / 8 MiB. Both buckets emit a best-effort notify subject that observability-service bridges to the Admin UI over WebSocket, alongside the REST snapshot each feed bootstraps from.](images/observability-message-path.png)
 
 Notes, in the terms this document uses elsewhere:
 
 - **The account boundary is the tenancy boundary, and the subject never
   carries the tenant** (§ 2.3) — except where an *import* deliberately puts
-  it there. `obs.pubsub.>` is imported with a `LocalSubject` of
-  `monitor.{tenant}.pubsub.>` (BR-AC34), which is the one sanctioned way a
+  it there. Both supportive families are imported with a `LocalSubject`
+  remap — `monitor.{tenant}.pubsub.>` (BR-AC34) and, since Phase 48,
+  `monitor.{tenant}.trace.>` (BR-AC36) — which is the one sanctioned way a
   tenant name reaches a subject token: it is minted by the PLATFORM side of
-  the trust chain, not asserted by the publisher. `obs.trace.>` is imported
-  unremapped, so PLATFORM sees a flat trace namespace and recovers
-  provenance from the envelope instead.
+  the trust chain, not asserted by the publisher. That asymmetry is worth
+  remembering as a *former* state, because the flat trace namespace it left
+  behind is exactly what made the Traces panel's account gutter unable to
+  say more than PLATFORM-or-tenant.
+- **A span's tenant is read from the subject it arrived on, never from its
+  payload** (BR-051), and is stored per span rather than per trace — an
+  ordinary chain crosses the boundary (`api.{ctx}.organizations.…` inside
+  the tenant, `rpc.{ctx}.refdata.…` answered inside PLATFORM), so a
+  trace-level tenant would have to label one of its own spans falsely. The
+  envelope's `Requester` field is the thing not to reach for here: it is
+  self-declared by the account under observation, where the subject token is
+  inserted by the server.
+- **Each stream captures two subject sets, not one.** `TRACES` filters
+  `obs.trace.>` *and* `monitor.*.trace.>`, `PUBSUB` the same pair for
+  pubsub. The remapped form is every tenant's traffic; the bare form is
+  PLATFORM's own services, which cross no import and so carry no tenant
+  token. Capturing only one makes the stream blind to half the estate.
 - **`monitor.*` is a PLATFORM-local family, not a publishable one.** No
   tenant can publish on it and no service subscribes to it from inside a
   tenant account; it exists only as the local name an import lands under.
@@ -641,6 +656,12 @@ Notes, in the terms this document uses elsewhere:
 - **`PUBSUB` is a second stream, not another filter on `TRACES`** (ADR-047
   A5). Sharing one stream would let an `evt.*` burst evict RPC traces out
   from under the Request/Reply panel.
+- **Both KV buckets are bounded at 15 min / 8 MiB** (BR-047, BR-053). A
+  bucket outliving the stream that fills it is the failure mode here: the
+  stream forgets on its cap and the bucket would not, and both panels
+  bootstrap by fetching every entry, so bucket size is a page-load cost
+  before it is a disk cost. The numbers are measured, not chosen — see
+  BR-053.
 - **The `notify.*` hop out of each KV bucket is core NATS with no replay**,
   matching § 2.1's description of the family. Durability lives in the bucket,
   not the nudge — which is why each Admin UI feed bootstraps from a REST

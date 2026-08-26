@@ -53,16 +53,16 @@ li b { color: var(--text); font-weight: 600; }
 <div class="wrap">
   <div class="head">
     <div class="head-txt">
-      <span class="eyebrow">ARCHITECTURE-OBSERVABILITY · BR-036 / BR-045 / BR-AC34</span>
+      <span class="eyebrow">ARCHITECTURE-OBSERVABILITY · BR-036 / BR-045 / BR-AC34 / BR-AC36 / BR-051</span>
       <h1>How an observation reaches the Admin UI</h1>
-      <p class="sub">Two near-identical pipelines that differ in exactly three places: whether the import remaps the subject, whether the projector merges or overwrites, and whether the KV bucket is bounded. Everything else — one stream each, one durable consumer each, one <code>notify.*</code> nudge each — is the same shape.</p>
+      <p class="sub">Two near-identical pipelines that differ in exactly one place: whether the projector merges or overwrites. Phase 48 closed the other two — <code>obs.trace.&gt;</code> now carries the same per-tenant <code>LocalSubject</code> remap <code>obs.pubsub.&gt;</code> always had, and <code>trace-request-reply</code> is bounded on measured numbers. Everything else — one export each, one stream over two subject sets each, one durable consumer each, one <code>notify.*</code> nudge each — is the same shape.</p>
     </div>
   </div>
 
   <figure>
     <div class="fig-body">
       <svg viewBox="0 0 1020 412" role="img"
-        aria-label="Two parallel ingest paths on the same column grid. In the upper path a tenant service publishes obs.trace.> inside its own NATS account; a JWT stream export carries it into the PLATFORM account with no LocalSubject remap, so it arrives still named obs.trace.> on the TRACES stream, a LimitsPolicy stream capped at one hour and 64 mebibytes; a single durable AckExplicit consumer, the trace projector, merges each span into the KV bucket trace-request-reply under key _platform.trace.{traceId}, de-duplicating by spanId, with no TTL. In the lower path a tenant service publishes obs.pubsub.>; the same kind of export applies a LocalSubject remap, so it arrives as monitor.{tenant}.pubsub.> on the separate PUBSUB stream, capped at one hour and 32 mebibytes; its durable consumer plainly puts each envelope into the KV bucket pubsub-messages under key _platform.msg.{spanId}, which does carry a TTL and a MaxBytes limit.">
+        aria-label="Two parallel ingest paths on the same column grid. In the upper path a tenant service publishes obs.trace.&gt; inside its own NATS account; a JWT stream export carries it into the PLATFORM account with a per-tenant LocalSubject remap, so it arrives as monitor.{tenant}.trace.&gt; on the TRACES stream, a LimitsPolicy stream capped at one hour and 64 mebibytes that captures both that remapped form and PLATFORM's own bare obs.trace.&gt;; a single durable AckExplicit consumer, the trace projector, merges each span into the KV bucket trace-request-reply under key _platform.trace.{traceId}, de-duplicating by spanId and storing the arrival-derived tenant alongside each span, under a fifteen-minute TTL and an eight-mebibyte MaxBytes. In the lower path a tenant service publishes obs.pubsub.&gt;; the same kind of export applies the same kind of remap, so it arrives as monitor.{tenant}.pubsub.&gt; on the separate PUBSUB stream, capped at one hour and 32 mebibytes; its durable consumer plainly puts each envelope into the KV bucket pubsub-messages under key _platform.msg.{spanId}, under the same fifteen-minute, eight-mebibyte bound.">
         <defs>
           <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
@@ -89,12 +89,12 @@ li b { color: var(--text); font-weight: 600; }
 
         <path class="n" d="M204 108 L251 96 L298 108 L298 132 L251 144 L204 132 Z"/>
         <text class="lbl2" x="251" y="124" text-anchor="middle">export</text>
-        <text class="lbl2" x="240" y="164" text-anchor="middle">no remap</text>
+        <text class="lbl2" x="240" y="164" text-anchor="middle">LocalSubject remap</text>
 
         <path class="flow" d="M176 120 L196 120" marker-end="url(#a-sync)"/>
         <path class="flow" d="M298 120 L378 120" marker-end="url(#a-sync)"/>
 
-        <text class="lbl" x="486" y="78" text-anchor="middle">arrives as obs.trace.&gt;</text>
+        <text class="lbl" x="486" y="78" text-anchor="middle">arrives as monitor.{tenant}.trace.&gt;</text>
         <ellipse class="n" cx="486" cy="96" rx="100" ry="9"/>
         <path class="n" d="M386 96 L386 150 A100 9 0 0 0 586 150 L586 96"/>
         <text class="lbl" x="486" y="118" text-anchor="middle">TRACES</text>
@@ -111,7 +111,7 @@ li b { color: var(--text); font-weight: 600; }
         <rect class="n" x="828" y="90" width="168" height="60" rx="3"/>
         <text class="lbl" x="836" y="113">KV trace-request-reply</text>
         <text class="lbl2" x="836" y="126">_platform.trace.{traceId}</text>
-        <text class="lbl2" x="836" y="139">merge by spanId · no TTL</text>
+        <text class="lbl2" x="836" y="139">merge by spanId · 15m/8 MiB</text>
 
         <!-- ===== pubsub row ===== -->
         <rect class="n" x="26" y="296" width="150" height="48" rx="3"/>
@@ -142,10 +142,10 @@ li b { color: var(--text); font-weight: 600; }
         <rect class="n" x="828" y="290" width="168" height="60" rx="3"/>
         <text class="lbl" x="836" y="313">KV pubsub-messages</text>
         <text class="lbl2" x="836" y="326">_platform.msg.{spanId}</text>
-        <text class="lbl2" x="836" y="339">plain Put · TTL + MaxBytes</text>
+        <text class="lbl2" x="836" y="339">plain Put · 15m/8 MiB</text>
       </svg>
     </div>
-    <figcaption><b>Ingest, both paths.</b> The tenant publish is core NATS and fire-and-forget — an observation is best-effort by rule, and a service never blocks or fails on it. The account boundary is the tenancy boundary: a tenant can only publish on its own <code>obs.*</code>, and only the JWT export makes it visible to PLATFORM. <code>obs.trace.&gt;</code> is imported unremapped, so PLATFORM sees a flat trace namespace and tells tenants apart from the envelope, not the subject. <code>obs.pubsub.&gt;</code> is imported with a <code>LocalSubject</code> of <code>monitor.{tenant}.pubsub.&gt;</code>, so the tenant is a first-class subject token and a consumer can filter one tenant at the server. <code>PUBSUB</code> is deliberately a second stream, not another filter on <code>TRACES</code> — an <code>evt.*</code> burst would otherwise evict RPC traces out from under the Request/Reply panel.</figcaption>
+    <figcaption><b>Ingest, both paths.</b> The tenant publish is core NATS and fire-and-forget — an observation is best-effort by rule, and a service never blocks or fails on it. The account boundary is the tenancy boundary: a tenant can only publish on its own <code>obs.*</code>, and only the JWT export makes it visible to PLATFORM. Both families are imported with a per-tenant <code>LocalSubject</code> — <code>monitor.{tenant}.trace.&gt;</code> and <code>monitor.{tenant}.pubsub.&gt;</code> — so the tenant is a first-class subject token inserted by the NATS server rather than a field the observed account asserts about itself. Each stream therefore captures <em>two</em> subject sets: the remapped tenant form and the bare <code>obs.*</code> form PLATFORM's own services publish, which cross no import and so carry no tenant token. <code>PUBSUB</code> is deliberately a second stream, not another filter on <code>TRACES</code> — an <code>evt.*</code> burst would otherwise evict RPC traces out from under the Request/Reply panel.</figcaption>
   </figure>
 
   <figure>
@@ -207,11 +207,10 @@ li b { color: var(--text); font-weight: 600; }
   </figure>
 
   <section class="sec">
-    <h2>The three places the two paths diverge</h2>
+    <h2>The one place the two paths still diverge</h2>
     <ul>
-      <li><b>Remap vs. no remap.</b> <code>obs.pubsub.&gt;</code> is imported as <code>monitor.{tenant}.pubsub.&gt;</code>, so tenancy survives into the subject and a consumer can filter one tenant server-side. <code>obs.trace.&gt;</code> is imported as-is, so the only split available downstream is PLATFORM's own traffic versus everything a tenant sent.</li>
       <li><b>Merge vs. overwrite.</b> The trace projector does a read-modify-write append keyed by <code>traceId</code>, de-duplicated on <code>spanId</code>, because a trace is assembled from spans that arrive separately. The pubsub projector does a plain <code>Put</code> under <code>_platform.msg.{spanId}</code> — one envelope, one key, nothing to assemble.</li>
-      <li><b>Bounded vs. unbounded.</b> <code>pubsub-messages</code> is created with a TTL and a <code>MaxBytes</code>; <code>trace-request-reply</code> is created with neither, even though the <code>TRACES</code> stream feeding it is capped at 1h/64 MiB. The stream forgets and the bucket does not, so the bucket is the one that grows without a ceiling.</li>
+      <li><b>What used to diverge, and no longer does.</b> Two of the three differences this page originally drew were defects rather than design. <code>obs.trace.&gt;</code> was imported unremapped, which left the Traces panel able to show only a coarse PLATFORM-or-tenant split; Phase 48 gave it the same remap (BR-AC36), and the tenant is now derived from the arrival subject and stored per span, never read from the envelope (BR-051). <code>trace-request-reply</code> was created with no bound at all while the stream feeding it was capped, so the bucket was the only unbounded thing in the path; it is now 15 min / 8 MiB, from a measured 1,638-record seed run rather than a guess (BR-053) — the same bound <code>pubsub-messages</code> carries, so a message and its trace stay cross-referenceable in the two panels.</li>
     </ul>
   </section>
 </div>

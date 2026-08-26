@@ -1569,10 +1569,26 @@ Two things settled in the writing that the drafts above had left open:
       harness's `-settle` default went 10s → 30s: the projector was
       measured taking 10–13s to store a three-span chain, so the old
       default intermittently reported a late trace as a missing one.
-- [ ] **48e** — docs: `ARCHITECTURE-OBSERVABILITY.md` (A1's deferred item
+- [x] **48e** — docs: `ARCHITECTURE-OBSERVABILITY.md` (A1's deferred item
       marked closed), `ARCHITECTURE-COMMUNICATIONS.md` §6 notes and the
       `observability-message-path` diagram — the trace row's `no remap`
       annotation becomes the remap, which is the whole point of the phase.
+      **DONE 2026-08-26.** A1 now carries a resolution note naming the three
+      things the implementation settled that the ADR did not anticipate
+      (per-span attribution and BR-052's retirement; convergence rather than
+      one-off re-provisioning, BR-AC37; no migration needed because `TRACES`
+      is `LimitsPolicy`), plus a new action item 5. §6 gained notes on
+      subject-derived per-span attribution, on each stream carrying two
+      subject sets, and on both buckets being bounded at 15 min / 8 MiB.
+      The diagram lost two of its three divergences: both rows now draw the
+      same `LocalSubject remap` and the same bucket bound, so the only
+      difference left is merge-vs-overwrite, and the retired pair is
+      recorded in a "what used to diverge" bullet rather than deleted.
+      Re-exported at 1024px with `--clip=".wrap"`; `audit-svg-layout.mjs`
+      clean. Two stale sentences in `BUSINESS_RULES-ACCOUNTS.md` and
+      `BUSINESS_RULES-SHIPPING.md` that asserted the trace import "has no
+      remap" in the present tense were put into the past tense — outside the
+      sub-phase's literal scope, but they were wrong as written.
 
 #### Design decisions — bucket bounding (added 2026-08-26 at your request)
 
