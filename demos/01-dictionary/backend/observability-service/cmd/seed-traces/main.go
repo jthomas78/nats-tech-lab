@@ -126,6 +126,8 @@ func main() {
 	natsURL := flag.String("nats-url", nats.DefaultURL, "NATS URL")
 	settle := flag.Duration("settle", 10*time.Second, "how long to wait for the trace projector to store every span")
 	expectTenant := flag.String("expect-tenant", "", "assert BR-051's attributed tenant on every span (leave empty until 48b lands)")
+	doMeasure := flag.Bool("measure", false, "after the runs, report the stored trace-record size distribution (BR-053's sizing input)")
+	runCount := flag.Int("runs", 1, "repeat the OK/ERROR pair N times — use a larger N with -measure to build a multi-span sample worth sizing against")
 	flag.Parse()
 
 	// nats.Name is required of every connection in this repo — an anonymous
@@ -177,15 +179,39 @@ func main() {
 		{"ERROR", unknownVehicleTypePrefix + randomHex(4), true},
 	}
 
+	// Repeat runs are quiet: the per-span dump is what makes a single pair
+	// readable, and 2N of them is what makes a sizing run unreadable.
+	h.quiet = *runCount > 1
+
 	var failures int
-	for _, r := range runs {
-		if err := h.run(ctx, r.name, partnerID, r.vehicleType, r.wantErr); err != nil {
-			log.Printf("FAIL  %-5s  %v", r.name, err)
-			failures++
-			continue
+	for i := 0; i < *runCount; i++ {
+		for _, r := range runs {
+			// Each ERROR run needs its own unresolvable code, or the second
+			// one measures a cached/repeated lookup rather than a fresh miss.
+			vt := r.vehicleType
+			if r.wantErr {
+				vt = unknownVehicleTypePrefix + randomHex(4)
+			}
+			if err := h.run(ctx, r.name, partnerID, vt, r.wantErr); err != nil {
+				log.Printf("FAIL  %-5s  %v", r.name, err)
+				failures++
+				continue
+			}
+			if !h.quiet {
+				log.Printf("PASS  %-5s", r.name)
+			}
 		}
-		log.Printf("PASS  %-5s", r.name)
 	}
+	if h.quiet {
+		log.Printf("PASS  %d run(s) of the OK/ERROR pair", *runCount)
+	}
+	if *doMeasure {
+		if err := measure(ctx, kv); err != nil {
+			log.Printf("FAIL  measure  %v", err)
+			failures++
+		}
+	}
+
 	if failures > 0 {
 		os.Exit(1)
 	}
@@ -197,6 +223,7 @@ type harness struct {
 	contextKey   string
 	settle       time.Duration
 	expectTenant string
+	quiet        bool
 }
 
 // storedSpan is the subset of natstrace's wire span this harness asserts on.
@@ -315,8 +342,10 @@ func (h *harness) assert(spans []storedSpan, rootSpanID string, wantErr bool) er
 	// Print the trace before asserting on it. This is a diagnostic harness as
 	// much as a check: a bare "expected 1 ERROR span, got 2" sends the reader
 	// to the KV bucket to find out which two, and the answer is right here.
-	for _, s := range spans {
-		log.Printf("      span %s parent=%s %-6s %s", s.SpanID, parentLabel(s, rootSpanID), s.StatusCode, s.Subject)
+	if !h.quiet {
+		for _, s := range spans {
+			log.Printf("      span %s parent=%s %-6s %s", s.SpanID, parentLabel(s, rootSpanID), s.StatusCode, s.Subject)
+		}
 	}
 
 	// Linkage: exactly one span descends from the traceparent this harness
@@ -403,11 +432,13 @@ func (h *harness) assert(spans []storedSpan, rootSpanID string, wantErr bool) er
 				return fmt.Errorf("span %s (%s) attributed to tenant %q, want %q", s.SpanID, s.Subject, s.Tenant, h.expectTenant)
 			}
 		}
-	} else {
+	} else if !h.quiet {
 		log.Printf("      tenant attribution not asserted (-expect-tenant unset); stored tenants: %v", tenantsOf(spans))
 	}
 
-	log.Printf("      %d spans, root %s %s", len(spans), root.Subject, root.StatusCode)
+	if !h.quiet {
+		log.Printf("      %d spans, root %s %s", len(spans), root.Subject, root.StatusCode)
+	}
 	return nil
 }
 

@@ -40,6 +40,42 @@ const (
 	kvContext    = "_platform"
 	consumerName = "trace-store-projector"
 	keyPrefix    = "trace."
+
+	// BucketMaxAge / BucketMaxBytes bound the Traces panel's visible window
+	// (BR-053). Until Phase 48f this bucket was created as a bare
+	// KeyValueConfig{Bucket} — no TTL, no MaxBytes — which made it the only
+	// unbounded thing in the whole trace path, since the TRACES stream
+	// feeding it is capped at StreamMaxAge/StreamMaxBytes above. The stream
+	// forgot and the bucket did not.
+	//
+	// The governing cost is the same one pubsubstore.go states for
+	// pubsub-messages: the panel bootstrap-fetches every entry in the bucket
+	// on load, so bucket size is a page-load cost and not merely a disk
+	// cost. A trace record is a *merged multi-span* document rather than one
+	// envelope, so pubsub's measured numbers do not transfer and these were
+	// measured separately.
+	//
+	// Measured 2026-08-26 by `seed-traces -measure -runs 20` over the
+	// running stack — 1,638 stored records, mean 997 B:
+	//
+	//	1-span   ×1589   p50 611 B    p90 1.5 KiB   max 5.5 KiB
+	//	3-span   ×49     p50 3.1 KiB  p90 3.2 KiB   max 3.2 KiB
+	//
+	// So roughly 1.1 KiB per span at p90, and 8 MiB is on the order of 5,200
+	// records — or ~2,500 three-span traces. That is deliberate headroom:
+	// measured demo traffic fills about 0.1 MiB per 15 minutes, so MaxAge is
+	// the bound that actually bites and MaxBytes is the backstop against a
+	// payload spike, which is the property pubsubstore.go argues for rather
+	// than a byte cap that silently overrides the time window first.
+	//
+	// The 15 minutes matches pubsub-messages exactly, and that is a
+	// functional choice rather than tidiness: the two panels are read side
+	// by side for one incident, so a message visible in the Messages panel
+	// must still have its trace visible in the Traces panel. Equal windows
+	// are what guarantee that; unequal ones break the cross-reference in
+	// whichever direction is shorter.
+	BucketMaxAge   = 15 * time.Minute
+	BucketMaxBytes = 8 << 20 // 8 MiB
 )
 
 // traceRecord is the KV-stored assembly of every span seen so far for one
@@ -84,7 +120,15 @@ func Register(ctx context.Context, js jetstream.JetStream, nc *nats.Conn, log *s
 		return nil, err
 	}
 
-	kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: bucketName})
+	// CreateOrUpdate, not recreate: a KV bucket's TTL and MaxBytes are its
+	// backing stream's MaxAge and MaxBytes, both updatable on a live stream,
+	// so an existing bucket keeps its name and contents when the bound is
+	// applied.
+	kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
+		Bucket:   bucketName,
+		TTL:      BucketMaxAge,
+		MaxBytes: BucketMaxBytes,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("create kv bucket %s: %w", bucketName, err)
 	}

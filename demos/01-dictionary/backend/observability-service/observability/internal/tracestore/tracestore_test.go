@@ -229,3 +229,64 @@ func TestRegisterIsIdempotentAcrossTwoCalls(t *testing.T) {
 	}
 	defer cons2.Stop()
 }
+
+// TestRegisterCreatesBoundedBucket is BR-053's guard. The bucket was
+// unbounded until Phase 48f, and the failure mode of losing the bound again
+// is invisible in every other spec in this file: an unbounded bucket stores
+// and reads back exactly like a bounded one, so nothing here would go red
+// until a disk filled or a panel load got slow enough to notice. Asserting
+// the config directly is the only thing that catches it.
+func TestRegisterCreatesBoundedBucket(t *testing.T) {
+	nc, js, cleanup := newTestNATS(t)
+	defer cleanup()
+
+	cc, err := Register(context.Background(), js, nc, discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cc.Stop()
+
+	kv, err := js.KeyValue(context.Background(), bucketName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := kv.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := status.TTL(); got != BucketMaxAge {
+		t.Errorf("bucket TTL = %v, want %v", got, BucketMaxAge)
+	}
+	if got := status.Bytes(); got > uint64(BucketMaxBytes) {
+		t.Errorf("bucket already holds %d bytes, over its %d cap", got, BucketMaxBytes)
+	}
+	// MaxBytes is not on the KeyValueStatus interface, so it comes off the
+	// backing stream — which is the same value, and worth reading through
+	// deliberately rather than skipping the half of the bound that governs
+	// disk.
+	si, err := js.Stream(context.Background(), "KV_"+bucketName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := si.Info(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Config.MaxBytes != int64(BucketMaxBytes) {
+		t.Errorf("bucket MaxBytes = %d, want %d", info.Config.MaxBytes, BucketMaxBytes)
+	}
+	if info.Config.MaxAge != BucketMaxAge {
+		t.Errorf("bucket MaxAge = %v, want %v", info.Config.MaxAge, BucketMaxAge)
+	}
+
+	// The bucket must stay strictly tighter than the stream feeding it —
+	// BR-053's actual requirement, and the thing a future "just bump it"
+	// edit would quietly violate.
+	if BucketMaxBytes >= StreamMaxBytes {
+		t.Errorf("bucket MaxBytes %d must be tighter than the stream's %d", BucketMaxBytes, StreamMaxBytes)
+	}
+	if BucketMaxAge >= StreamMaxAge {
+		t.Errorf("bucket MaxAge %v must be tighter than the stream's %v", BucketMaxAge, StreamMaxAge)
+	}
+}

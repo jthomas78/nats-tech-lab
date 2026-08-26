@@ -1558,10 +1558,22 @@ Two things settled in the writing that the drafts above had left open:
 
 #### Additional sub-phases
 
-- [ ] **48f** — bound `trace-request-reply`: seed run to measure a real
+- [x] **48f** — bound `trace-request-reply`: seed run to measure a real
       trace-record size, `TTL` + `MaxBytes` on the bucket config
       (decisions 10–12), and a spec asserting the bucket is created bounded
       — the kind of regression that is invisible until disk fills.
+      **DONE 2026-08-26.** Measured with a new `seed-traces -measure
+      -runs N` mode (the sizing input BR-053 names): 1,638 records, mean
+      997 B, 1-span p90 1.5 KiB, 3-span p90 3.2 KiB — about 1.1 KiB per
+      span. Landed on **15 min / 8 MiB**, tighter than decision 11's
+      proposed 30 min / 16 MiB, which the measurement did not support;
+      15 min matches `pubsub-messages` so a message and its trace stay
+      cross-referenceable in the two panels. `TestRegisterCreatesBoundedBucket`
+      verified red against the bare `KeyValueConfig{Bucket}` first. Decision
+      12 held — `CreateOrUpdateKeyValue` applied it in place, no recreate —
+      with one fact worth knowing: a `MaxAge` is retroactive, so the live
+      bucket went 1,638 → 133 records on the first restart. Decision 15's
+      `Duplicates` on `TRACES` stays with 48g as sequenced.
 - [ ] **48g** — `appendSpan` rewrite per decisions 13–15, including the
       `useTraceFeed.js` read-path change, and a concurrency spec that fails
       against today's read-modify-write (two overlapping appends to one

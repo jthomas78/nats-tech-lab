@@ -966,13 +966,28 @@ This is the one consequence BR-053's key-shape decision creates, which is why it
 - **Enforced in:** `tracestore.go` — `appendSpan`'s tenant handling.
 - **Test:** `tracestore_test.go` — a second span reporting a different tenant leaves the record's tenant unchanged, is itself still visible, and produces a logged mismatch.
 
-### BR-053 (Phase 48f/48g, APPROVED 2026-08-26 — not yet implemented) — `trace-request-reply` is a bounded visible window, sized from measurement, and one span is one idempotent write
+### BR-053 (Phase 48f/48g, APPROVED 2026-08-26 — bound implemented 48f, write shape 48g outstanding) — `trace-request-reply` is a bounded visible window, sized from measurement, and one span is one idempotent write
 
 Two properties of the trace KV bucket that `pubsub-messages` has had since BR-047 and this one has never had.
 
 **Bounded, for the reason BR-047 already gives.** `trace-request-reply` is created today as a bare `jetstream.KeyValueConfig{Bucket: bucketName}` (`tracestore.go:87`) — no `TTL`, no `MaxBytes` — while its `PUBSUB` sibling runs 15 min / 8 MiB against a 1 h / 32 MiB stream. The bucket *is* the Admin UI's read path: the panel bootstrap-fetches every entry on load, so bucket size is a page-load cost and not merely a disk cost. That is BR-047's own open sizing note, and it applies with more force here, where a single value is a whole merged trace rather than one envelope.
 
 **The bound is measured, not guessed**, per BR-047's precedent — where the ADR's ~2 KiB estimate turned out 4× high and the real range was 317 B to ~2 KiB. A trace record's size is driven by span count and by `RequestPayload`/`Payload` after redact-then-truncate, so the measurement must come from a seed run over representative multi-span traces (BR-054's harness produces exactly those), not from an envelope figure scaled by a guessed span count. The bound must be **tighter than the stream's** 1 h / 64 MiB.
+
+**Measured 2026-08-26** by `seed-traces -measure -runs 20` against the running stack — 1,638 stored records, mean 997 B, broken down by the variable that actually drives size:
+
+| spans | records | p50 | p90 | max |
+|---|---|---|---|---|
+| 1 | 1,589 | 611 B | 1.5 KiB | 5.5 KiB |
+| 3 | 49 | 3.1 KiB | 3.2 KiB | 3.2 KiB |
+
+So roughly **1.1 KiB per span at p90** — and the plan's proposed 30 min / 16 MiB starting point was, like ADR-047's estimate before it, larger than the measurement supports.
+
+**The bound is 15 min / 8 MiB**, which at the measured p90 is ~5,200 records or ~2,500 three-span traces. That is deliberate headroom, not slack: measured demo traffic fills about 0.1 MiB per 15 minutes, so `MaxAge` is the bound that actually bites and `MaxBytes` is the backstop against a payload spike — the same property BR-047 argues for, rather than a byte cap that silently overrides the time window first.
+
+**The 15 minutes matches `pubsub-messages` exactly, and that is functional rather than tidiness.** The two panels are read side by side for one incident, so a message visible in the Messages panel must still have its trace visible in the Traces panel. Equal windows are what guarantee that; unequal ones break the cross-reference in whichever direction is shorter.
+
+**Applying the bound expires what is already outside it, immediately.** `CreateOrUpdateKeyValue` updates the backing stream in place, so the bucket keeps its name and identity — but a `MaxAge` applies retroactively, and the live bucket dropped from 1,638 records to 133 the moment the service restarted with it. That is correct behaviour and not data loss in any sense that matters here (this bucket is a visible window, never a source of truth), but it is worth stating rather than discovering: there is no migration step, and the first restart after a TTL change is where the old window disappears.
 
 **One span is one idempotent write.** `appendSpan` today is a read-modify-write: read the whole trace, append, write it back. Two properties follow, one already holding and one holding only by accident.
 - Storing the same `spanId` twice must produce exactly one visible span. This holds today by dedup-on-merge.
@@ -984,8 +999,9 @@ The rule requires both **by construction**: key each span at `_platform.trace.{t
 
 **Known cost, accepted:** this changes the Admin UI's read path. `useTraceFeed.js` keys entries by `traceId` and subscribes to `notify._platform.kv.trace-request-reply.trace.{traceId}.changed`; per-span keys mean a prefix-grouped read and a per-span notify subject, on the surface Phase 43e's reconnect/resync work has just stabilised. The feed's monotonic-merge guard must keep holding across the new key shape. The narrower alternative — keep the merged key and make the write safe with a revision-CAS `Update` plus bounded retry — fixes the race but not the write amplification, and was considered and declined in Phase 48's decision 13.
 
-- **Enforced in:** `tracestore.go` — the bucket config (`TTL`, `MaxBytes`), the stream's `Duplicates`, and `appendSpan`'s key shape and `Put`; `frontend/admin/src/nats/useTraceFeed.js` — the prefix-grouped read.
-- **Test:** `tracestore_test.go` — the bucket is created bounded (a regression that is invisible until disk fills), the same `spanId` stored twice yields one visible span, and a concurrency spec in which two overlapping appends to one `traceId` lose nothing — the last of which must fail against today's read-modify-write.
+- **Enforced in:** `tracestore.go` — the bucket config (`BucketMaxAge`, `BucketMaxBytes`, applied in `Register`), the stream's `Duplicates`, and `appendSpan`'s key shape and `Put`; `frontend/admin/src/nats/useTraceFeed.js` — the prefix-grouped read.
+- **Test:** `tracestore_test.go` — `TestRegisterCreatesBoundedBucket` asserts the TTL and `MaxBytes` the bucket was actually created with **and** that both stay strictly tighter than the stream's, which is the half a future "just bump it" edit would quietly violate. Verified red against the bare `KeyValueConfig{Bucket}` before the fix; every other spec in the file passes either way, because an unbounded bucket stores and reads back identically to a bounded one. Still outstanding for 48g: the same `spanId` stored twice yields one visible span, and a concurrency spec in which two overlapping appends to one `traceId` lose nothing — the latter must fail against today's read-modify-write.
+- **Measurement tool:** `observability-service/cmd/seed-traces -measure` reports the stored size distribution split by span count; `-runs N` repeats the OK/ERROR pair to build a multi-span sample worth sizing against.
 
 ### BR-054 (Phase 48h/48i, APPROVED 2026-08-26 — harness implemented 48h, panel side 48i outstanding) — The Admin UI names the originating account on both observability paths, and a multi-span cross-account trace is what proves it
 
