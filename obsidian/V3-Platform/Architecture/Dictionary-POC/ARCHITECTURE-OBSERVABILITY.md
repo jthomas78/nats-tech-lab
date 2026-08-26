@@ -28,6 +28,23 @@ from `demos/01-dictionary/`. The 1024px width is the geometry the page was
 reviewed at; changing it changes the layout. The `--clip=".wrap"` is
 load-bearing, not optional.
 
+## Phase 48 — what changed, before and after
+
+![Before and after Phase 48: on the left, three arriving spans each read-modify-write the single KV key _platform.trace.{traceId} holding the whole trace, which costs O(n squared) bytes per trace, silently loses spans (16 concurrent writers stored 1 span), and is safe only while exactly one projector runs; on the right, each span is Put idempotently under its own key trace.{traceId}.{spanId}, and useTraceFeed.js joins the trace at read time from a prefix scan, so dedup is a property of the key, a stale re-read is a no-op, and scaling the projector is safe. Below, a seven-row table contrasts before and after for who says which tenant, where the tenant is read, bucket size, write shape, dedup, error status, and how each is verified.](images/phase48-before-after.png)
+
+Editable source: [phase48-before-after.html](../../../../demos/01-dictionary/diagrams/phase48-before-after.html)
+— hand-authored inline SVG rather than a Draw.io workbook page, so
+`./diagrams/export-png.sh` does **not** regenerate it. Re-export with
+
+```
+node diagrams/export-html-png.mjs diagrams/phase48-before-after.html \
+  ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/phase48-before-after.png 1024 --clip=".wrap"
+```
+
+from `demos/01-dictionary/`. The 1024px width is the geometry the page was
+reviewed at; changing it changes the layout. The `--clip=".wrap"` is
+load-bearing, not optional.
+
 ---
 
 ## ADR-047: Cross-Tenant Pub/Sub Observability ("Wire Tap") in the Admin UI

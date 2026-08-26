@@ -1,0 +1,197 @@
+<title>Phase 48 — before and after</title>
+<style>
+/* Tokens lifted from shared/unifi-theme/unifi.css. Dark only. */
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 40px; display: flex; flex-direction: column; gap: 24px; }
+.head-txt { display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; }
+.sub { margin: 0; color: var(--muted); max-width: 78ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; }
+figure svg { display: block; width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+/* SVG conventions, same vocabulary as observability-message-path.html */
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.warn { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+
+table { border-collapse: collapse; width: 100%; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; }
+caption { text-align: left; padding: 0 0 8px; font-size: 15px; font-weight: 600; color: var(--text); }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-top: 1px solid var(--border); }
+thead th { border-top: 0; font-size: 10px; font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.07em; color: var(--dim); font-weight: 500; padding-bottom: 6px; }
+tbody th { font-weight: 600; color: var(--text); width: 15%; }
+td { color: var(--muted); width: 30%; }
+td.after { color: var(--text); }
+td.after b { color: var(--store); font-weight: 600; }
+td.before b { color: var(--bad); font-weight: 600; }
+.why { width: 25%; font-size: 12px; line-height: 17px; color: var(--dim); }
+.sp { font-family: var(--mono); font-size: 9.5px; color: var(--dim); display: block; margin-top: 3px; letter-spacing: 0.06em; }
+</style>
+
+<div class="wrap">
+  <div class="head-txt">
+    <span class="eyebrow">PHASE 48 · 48a–48j · BR-051 / BR-053 / BR-054 / BR-055 / BR-AC36</span>
+    <h1>Tenant provenance for <code>obs.trace.*</code> — before and after</h1>
+    <p class="sub">Phase 48 closed the item ADR-047 amendment A1 deferred: a span's originating account is now established by the NATS server rather than asserted by whoever published it. Fixing that exposed three more defects in the same path — an unbounded bucket, a write that lost spans, and a delivered refusal that closed green.</p>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1020 250" role="img"
+        aria-label="Two panels comparing the trace write shape. Before: three spans of one trace all read-modify-write a single KV key, _platform.trace.{traceId}, whose value is a merged spans array; concurrent writers overwrite each other and a span is lost. After: each span writes its own key, _platform.trace.{traceId}.{spanId}, with a plain idempotent Put, and the Admin UI's useTraceFeed.js joins them by key prefix at read time.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="a-proj" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--store)"/>
+          </marker>
+          <marker id="a-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--bad)"/>
+          </marker>
+        </defs>
+
+        <!-- BEFORE -->
+        <text class="grp" x="6" y="14">BEFORE · READ-MODIFY-WRITE</text>
+        <rect class="n" x="6" y="24" width="486" height="214" rx="4"/>
+
+        <text class="lbl2" x="24" y="48">spans arriving</text>
+        <rect class="n" x="24" y="58" width="104" height="26" rx="3"/>
+        <text class="lbl" x="36" y="75">span a1</text>
+        <rect class="n" x="24" y="98" width="104" height="26" rx="3"/>
+        <text class="lbl" x="36" y="115">span a2</text>
+        <rect class="n" x="24" y="138" width="104" height="26" rx="3"/>
+        <text class="lbl" x="36" y="155">span a3</text>
+
+        <path class="warn" marker-end="url(#a-bad)" d="M132 71 H236"/>
+        <path class="warn" marker-end="url(#a-bad)" d="M132 111 H236"/>
+        <path class="warn" marker-end="url(#a-bad)" d="M132 151 H236"/>
+        <text class="edge" x="146" y="50">get</text>
+        <text class="edge" x="180" y="50">→ append → put</text>
+
+        <rect class="n" x="242" y="58" width="234" height="106" rx="3" fill="var(--nested)"/>
+        <text class="lbl" x="256" y="80">_platform.trace.{traceId}</text>
+        <text class="lbl2" x="256" y="100">{ spans: [ a1, a2, a3 ] }</text>
+        <text class="lbl2" x="256" y="118">one key holds the whole trace</text>
+        <line class="n" x1="256" y1="130" x2="462" y2="130" stroke-dasharray="3 3"/>
+        <text class="edge" x="256" y="150" fill="var(--bad)" stroke="none">16 concurrent writers → 1 span stored</text>
+
+        <text class="lbl2" x="24" y="196">· O(n²) bytes written per trace</text>
+        <text class="lbl2" x="24" y="212">· last writer wins, silently</text>
+        <text class="lbl2" x="24" y="228">· safe only while ONE projector runs</text>
+
+        <!-- AFTER -->
+        <text class="grp" x="534" y="14">AFTER · ONE SPAN, ONE KEY</text>
+        <rect class="n" x="534" y="24" width="480" height="214" rx="4"/>
+
+        <rect class="n" x="552" y="58" width="104" height="26" rx="3"/>
+        <text class="lbl" x="564" y="75">span a1</text>
+        <rect class="n" x="552" y="98" width="104" height="26" rx="3"/>
+        <text class="lbl" x="564" y="115">span a2</text>
+        <rect class="n" x="552" y="138" width="104" height="26" rx="3"/>
+        <text class="lbl" x="564" y="155">span a3</text>
+
+        <path class="proj" marker-end="url(#a-proj)" d="M660 71 H744"/>
+        <path class="proj" marker-end="url(#a-proj)" d="M660 111 H744"/>
+        <path class="proj" marker-end="url(#a-proj)" d="M660 151 H744"/>
+        <text class="edge" x="672" y="50">put</text>
+
+        <rect class="n" x="750" y="58" width="248" height="26" rx="3" fill="var(--nested)"/>
+        <text class="lbl" x="762" y="75">…trace.{traceId}.a1</text>
+        <rect class="n" x="750" y="98" width="248" height="26" rx="3" fill="var(--nested)"/>
+        <text class="lbl" x="762" y="115">…trace.{traceId}.a2</text>
+        <rect class="n" x="750" y="138" width="248" height="26" rx="3" fill="var(--nested)"/>
+        <text class="lbl" x="762" y="155">…trace.{traceId}.a3</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M874 170 V196"/>
+        <text class="edge" x="884" y="188">prefix scan</text>
+        <rect class="n" x="750" y="200" width="248" height="26" rx="3"/>
+        <text class="lbl" x="762" y="217">useTraceFeed.js joins</text>
+
+        <text class="lbl2" x="552" y="196">· dedup is a property of the key</text>
+        <text class="lbl2" x="552" y="212">· a stale re-read is a no-op</text>
+        <text class="lbl2" x="552" y="228">· scaling the projector is safe</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>48g.</b> The read-modify-write held together only because there is one projector instance and JetStream serialises its consume callback — which is also why the defect never surfaced in a test until a spec bypassed that callback and called the store directly. A lost span is worse than a missing trace: the waterfall still renders, and still looks complete.
+    </figcaption>
+  </figure>
+
+  <table>
+    <caption>What changed, by sub-phase</caption>
+    <thead>
+      <tr><th></th><th>Before</th><th>After</th><th class="why">Why it mattered</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th>Who says<br>which tenant<span class="sp">48a · 48d · BR-AC36</span></th>
+        <td class="before">Every tenant's <code>obs.trace.&gt;</code> imported <b>bare</b> — once inside PLATFORM, two accounts' spans were indistinguishable.</td>
+        <td class="after">Each import carries a <b>per-tenant <code>LocalSubject</code> remap</b>, arriving as <code>monitor.{tenant}.trace.&gt;</code>. Re-provisioning converges every existing account on each boot, not just new ones.</td>
+        <td class="why">The account boundary is the tenancy boundary in this repo. If provenance is asserted by the publisher, it is spoofable one level down.</td>
+      </tr>
+      <tr>
+        <th>Where the<br>tenant is read<span class="sp">48b · 48c · BR-051</span></th>
+        <td class="before">Inferred in the frontend from a <b>hardcoded service-name list</b>, and only ever coarse: PLATFORM or TENANT.</td>
+        <td class="after">Derived positionally from the <b>arrival subject</b>, server-inserted, and stored <b>per span</b> beside the publisher's own document — never merged into it.</td>
+        <td class="why">A trace legitimately spans two accounts, so there is no "the trace's tenant". BR-052 assumed there was and was retired in 48c.</td>
+      </tr>
+      <tr>
+        <th>Bucket<br>size<span class="sp">48f · BR-053</span></th>
+        <td class="before"><b>Unbounded</b> — a bare <code>KeyValueConfig{Bucket}</code>, no TTL, no MaxBytes, while its <code>PUBSUB</code> sibling was already capped.</td>
+        <td class="after"><b>15 min / 8 MiB</b>, from a measured seed run rather than the ADR's estimate, and matched to <code>pubsub-messages</code> exactly.</td>
+        <td class="why">The bucket is the panel's read path, so its size is a page-load cost. Equal windows are what let the two panels cross-reference one incident.</td>
+      </tr>
+      <tr>
+        <th>Write<br>shape<span class="sp">48g · BR-053</span></th>
+        <td class="before"><b>Read-modify-write</b> on one merged key: O(n²) bytes, and a lost span whenever two writers overlapped.</td>
+        <td class="after">One idempotent <code>Put</code> per span at <b><code>trace.{traceId}.{spanId}</code></b>, joined at read time. The feed's monotonic-merge guard was <b>removed</b>, not ported — a stale snapshot is now a no-op.</td>
+        <td class="why">Diagrammed above. The narrower fix — a revision-CAS <code>Update</code> with retry — closes the race but not the write amplification.</td>
+      </tr>
+      <tr>
+        <th>Dedup<span class="sp">48g · BR-053</span></th>
+        <td class="before"><code>Duplicates</code> left at the server default <b>and inert</b>: no message carried <code>Nats-Msg-Id</code>, so JetStream had nothing to compare.</td>
+        <td class="after">Window set explicitly to <b>2 min</b>, and <code>natstrace</code>'s publish sets <b><code>Nats-Msg-Id</code> = span id</b>. Both halves are one contract.</td>
+        <td class="why">A dedup window with no message id looks configured and does nothing — the failure mode is silence, not an error.</td>
+      </tr>
+      <tr>
+        <th>Error<br>status<span class="sp">48j · BR-055</span></th>
+        <td class="before">A delivered refusal closed the caller-side hop <b>OK</b>, so a failed call rendered green in the middle of a red chain.</td>
+        <td class="after">A reply carrying <b><code>Nats-Service-Error</code></b> finishes its span ERROR whichever method the caller used, and the chain reads red end to end.</td>
+        <td class="why">Found by reading 48h's own error run in the panel — the harness had been asserting around the wrong status rather than on it.</td>
+      </tr>
+      <tr>
+        <th>How it is<br>verified<span class="sp">48h · 48i · BR-054</span></th>
+        <td class="before"><b>Nothing exercised a multi-hop trace.</b> Every test asserted its own single span; none crossed a service, let alone an account.</td>
+        <td class="after"><code>seed-traces</code> drives a real <b>cross-account, three-span chain</b> — organizations → refdata — in both outcomes, asserting parentage, both services, and per-span attribution.</td>
+        <td class="why">The waterfall's nesting and error rendering had only ever been checked against fixtures it built itself.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
