@@ -49,7 +49,7 @@ func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store
 	// rationale.
 	tracer := natstrace.New(nc)
 	cons, err := js.CreateOrUpdateConsumer(ctx, domain.StreamName, jetstream.ConsumerConfig{
-		Durable:       "meta-projector",
+		Durable:       MetaProjectorDurable,
 		FilterSubject: domain.SubjectContainerWildcard,
 		AckPolicy:     jetstream.AckExplicitPolicy,
 	})
@@ -75,6 +75,7 @@ func RegisterMeta(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store
 		// register() for the full rationale.
 		sp := tracer.StartFromHeaders(msg.Headers(), msg.Subject(), msg.Data(), event.Context, "shipping", aggregate, eventType)
 		sp.SetAttribute("entity_id", id)
+		sp.SetAttribute(consumerDurableAttr, MetaProjectorDurable)
 		spanCtx := natstrace.ContextWithSpan(msgCtx, sp)
 
 		data, err := mergeSet(spanCtx, kv, event.Context, queries.MetaKeyKnownContainers, event.ContainerID)

@@ -18,6 +18,32 @@ import (
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 
+// The three durable consumer names this package registers on the SHIPPING
+// stream. Declared here rather than inline in each ConsumerConfig because
+// each one is now used twice — as the durable itself and as the
+// consumer.durable span attribute (BR-037) — and the two must not drift: the
+// attribute is what tells two spans of the SAME evt.* message apart in the
+// Admin UI's trace waterfall, so a stale copy would mislabel a projector
+// rather than fail loudly.
+//
+// ShipProjectorDurable filters evt.*.shipping.ship.>; the other two BOTH
+// filter evt.*.shipping.container.> — which is exactly why the attribute
+// exists (see RegisterMeta's doc comment).
+const (
+	ShipProjectorDurable      = "ship-projector"
+	ContainerProjectorDurable = "container-projector"
+	MetaProjectorDurable      = "meta-projector"
+)
+
+// consumerDurableAttr is the span attribute key carrying the durable name of
+// the projector that produced the span. Dotted, like natstrace's other
+// namespaced attribute keys (http.method, http.path, rpc.retry_count) rather
+// than a bare "consumer" — it names one specific thing about the consumer,
+// and TraceWaterfall.vue's REQUEST_ATTRIBUTE_KEYS set (which it is
+// deliberately absent from) routes it to the RESPONSE side of the detail
+// pane, where "who processed this" belongs.
+const consumerDurableAttr = "consumer.durable"
+
 // RegisterShips starts the ship projector: events update the canonical
 // Postgres projection first, then eagerly write the result through to the KV
 // cache so subsequent reads are served from KV without hitting Postgres.
@@ -33,7 +59,7 @@ import (
 // relies on.
 func RegisterShips(ctx context.Context, js jetstream.JetStream, kv *kvstore.Store, nc *nats.Conn, repo domain.ShipRepository, log *slog.Logger) (jetstream.ConsumeContext, error) {
 	n := notifier(nc, log)
-	return register(ctx, js, "ship-projector", nc, log, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
+	return register(ctx, js, ShipProjectorDurable, nc, log, func(msgCtx context.Context, subject string, event domain.ShipEvent) error {
 		oldKey := shipKVKey(subject, event)
 		agg := currentAgg(msgCtx, kv, event.Context, oldKey)
 		agg.Apply(subject, event)
@@ -153,6 +179,7 @@ func register(
 		// comment).
 		sp := tracer.StartFromHeaders(msg.Headers(), msg.Subject(), msg.Data(), event.Context, "shipping", aggregate, eventType)
 		sp.SetAttribute("entity_id", id)
+		sp.SetAttribute(consumerDurableAttr, durable)
 		spanCtx := natstrace.ContextWithSpan(msgCtx, sp)
 
 		if err := project(spanCtx, msg.Subject(), event); err != nil {

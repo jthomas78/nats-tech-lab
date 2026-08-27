@@ -8,7 +8,7 @@ package dictionary
 // register(), used by RegisterShips; container_handler.go's
 // RegisterContainers; meta_handler.go's RegisterMeta) publishes exactly one
 // obs.trace.* span per message it processes, labeled with the entity/action
-// parsed off the evt.* subject plus an entity_id attribute (Piece 3). Uses
+// parsed off the evt.* subject plus entity_id and consumer.durable attributes (Piece 3). Uses
 // newNatsConnAndJS() (browserrpc_test.go) for a real embedded NATS/JetStream
 // server, same convention as notify_test.go.
 
@@ -234,6 +234,7 @@ var _ = Describe("BR-037 (Phase 28d): each JetStream projector Consume callback 
 		Expect(span.Entity).To(Equal("ship"))
 		Expect(span.Attributes).NotTo(BeEmpty())
 		Expect(span.Attributes["entity_id"]).NotTo(BeEmpty())
+		Expect(span.Attributes["consumer.durable"]).To(Equal("ship-projector"))
 
 		noMoreMatching(spans, "arrived")
 	})
@@ -257,6 +258,7 @@ var _ = Describe("BR-037 (Phase 28d): each JetStream projector Consume callback 
 		Expect(span.Service).To(Equal("shipping"))
 		Expect(span.Entity).To(Equal("container"))
 		Expect(span.Attributes["entity_id"]).NotTo(BeEmpty())
+		Expect(span.Attributes["consumer.durable"]).To(Equal("container-projector"))
 
 		noMoreMatching(spans, "registered")
 	})
@@ -286,7 +288,83 @@ var _ = Describe("BR-037 (Phase 28d): each JetStream projector Consume callback 
 		Expect(span.Service).To(Equal("shipping"))
 		Expect(span.Entity).To(Equal("container"))
 		Expect(span.Attributes["entity_id"]).NotTo(BeEmpty())
+		Expect(span.Attributes["consumer.durable"]).To(Equal("meta-projector"))
 
 		noMoreMatching(spans, "registered")
+	})
+
+	// The reason consumer.durable exists at all, asserted directly rather
+	// than inferred from the two single-projector specs above: with BOTH
+	// container-subject projectors running, ONE published .registered event
+	// produces TWO spans, same trace, same subject, same entity_id. Before
+	// the attribute they were indistinguishable in the Admin UI's waterfall
+	// and read as a duplicate publish. Deliberately does NOT use
+	// firstMatching/noMoreMatching — "exactly one" is the wrong assertion
+	// here; two is correct, and what matters is that they are told apart.
+	It("labels the two spans one .registered event produces with the distinct durable of each projector that consumed it", func() {
+		kvContainers := kvstore.New(js, "container")
+		ccCont, err := eventhandler.RegisterContainers(ctx, js, kvContainers, nc, newFakeContainerRepo(), log)
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(ccCont.Stop)
+
+		kvMeta := kvstore.New(js, "meta")
+		ccMeta, err := eventhandler.RegisterMeta(ctx, js, kvMeta, nc, log)
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(ccMeta.Stop)
+
+		// Driven through the api.* adapter rather than by calling the command
+		// handler directly, as the two specs above do: only that path seeds a
+		// span into ctx (Piece 1), so the evt.* publish carries a traceparent
+		// and both projectors CONTINUE one trace instead of each minting its
+		// own root. Continuing one trace is the condition under which the two
+		// spans actually collide in the waterfall — which is the case this
+		// spec exists to pin.
+		containers := commands.NewContainerHandler(jstream.NewPublisher(js), js, newFakePortRepo())
+		adapter, err := browserrpc.New(nc, browserrpc.Deps{
+			Containers: containers,
+			Terminal:   queries.NewTerminal(kvContainers),
+			Meta:       queries.NewMeta(kvMeta),
+			Log:        log,
+			Tenant:     fleetCtx,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() { Expect(adapter.Stop()).To(Succeed()) })
+
+		spans := subscribeMsgs(nc, "obs.trace.>")
+		Expect(nc.Flush()).To(Succeed())
+
+		reqBody, err := json.Marshal(commands.ContainerInput{
+			Context: fleetCtx, ContainerID: "TCKU7778889", Cargo: "coffee", OriginPort: "Hamburg", DestPort: "Rotterdam",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = nc.Request("api."+fleetCtx+".shipping.container.register.v1", reqBody, 2*time.Second)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Collect every .registered span that arrives, keyed by the durable
+		// that emitted it, until both projectors have reported.
+		byDurable := map[string]traceparentSpan{}
+		Eventually(func() int {
+			for {
+				select {
+				case m := <-spans:
+					var sp traceparentSpan
+					if json.Unmarshal(m.Data, &sp) == nil && sp.Action == "registered" {
+						byDurable[sp.Attributes["consumer.durable"]] = sp
+					}
+				default:
+					return len(byDurable)
+				}
+			}
+		}, 3*time.Second, 20*time.Millisecond).Should(Equal(2), "both projectors should report a distinctly-labeled span")
+
+		Expect(byDurable).To(HaveKey("container-projector"))
+		Expect(byDurable).To(HaveKey("meta-projector"))
+
+		// Same event, so same trace and same aggregate — the durable is the
+		// ONLY thing separating the two rows.
+		cont, meta := byDurable["container-projector"], byDurable["meta-projector"]
+		Expect(cont.TraceID).To(Equal(meta.TraceID))
+		Expect(cont.Attributes["entity_id"]).To(Equal(meta.Attributes["entity_id"]))
+		Expect(cont.SpanID).NotTo(Equal(meta.SpanID))
 	})
 })

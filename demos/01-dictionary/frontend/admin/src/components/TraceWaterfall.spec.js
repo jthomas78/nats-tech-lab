@@ -72,6 +72,12 @@ const ASYNC_TAIL = {
   action: 'projected',
   subject: 'evt.acme.shipping.ship.MV-AURELIA.arrived',
   statusCode: 'OK',
+  // A projector span's two attributes: the aggregate it projected, and which
+  // durable consumer did the projecting (BR-037). The latter is what tells
+  // two spans of the SAME evt.* message apart — container-projector and
+  // meta-projector both consume evt.*.shipping.container.>, so one published
+  // .registered event yields two otherwise-identical rows.
+  attributes: { entity_id: 'MV-AURELIA', 'consumer.durable': 'ship-projector' },
   durationMs: 3,
   timestamp: new Date(BASE + 54).toISOString(),
 }
@@ -310,6 +316,42 @@ describe('TraceWaterfall (Phase 28g, BR-035)', () => {
     const rows = wrapper.findAll('.tw-row')
     await rows[2].trigger('click')
     await flushPromises()
+
+    const identities = wrapper.findAll('.tw-who-id')
+    expect(identities[1].text()).toBe('async event — no NATS responder')
+  })
+
+  it("shows a projector span's consumer.durable on the RESPONSE side, without fabricating a responder identity for it", async () => {
+    // consumer.durable answers "which projector processed this", so it belongs
+    // on the response side — and it gets there with no code in this component:
+    // splitRows routes every attribute NOT in REQUEST_ATTRIBUTE_KEYS to the
+    // response cell. The second assertion is the load-bearing one: naming the
+    // consumer must NOT turn into a Nats-Responder header, because an evt.*
+    // hop sends no reply and never had a responder (the spec above pins that
+    // wording). Attribute, not header, is what keeps both true at once.
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const rows = wrapper.findAll('.tw-row')
+    await rows[2].trigger('click')
+    await flushPromises()
+
+    // Several .tw-rr-cell.a cells stack down the response column (identity,
+    // headers+attributes, body), so assert against the column as a whole
+    // rather than whichever one happens to be first in the DOM.
+    const respText = wrapper
+      .findAll('.tw-rr-cell.a')
+      .map((c) => c.text())
+      .join(' ')
+    expect(respText).toContain('consumer.durable')
+    expect(respText).toContain('ship-projector')
+
+    // ...and it is genuinely on the response side, not leaking into request.
+    const reqText = wrapper
+      .findAll('.tw-rr-cell.q')
+      .map((c) => c.text())
+      .join(' ')
+    expect(reqText).not.toContain('consumer.durable')
 
     const identities = wrapper.findAll('.tw-who-id')
     expect(identities[1].text()).toBe('async event — no NATS responder')

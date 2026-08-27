@@ -42,7 +42,7 @@ func RegisterContainers(
 	// rationale.
 	tracer := natstrace.New(nc)
 	cons, err := js.CreateOrUpdateConsumer(ctx, domain.StreamName, jetstream.ConsumerConfig{
-		Durable:       "container-projector",
+		Durable:       ContainerProjectorDurable,
 		FilterSubject: domain.SubjectContainerWildcard,
 		AckPolicy:     jetstream.AckExplicitPolicy,
 	})
@@ -70,6 +70,7 @@ func RegisterContainers(
 		// re-derived by StartFromHeaders itself.
 		sp := tracer.StartFromHeaders(msg.Headers(), msg.Subject(), msg.Data(), event.Context, "shipping", aggregate, eventType)
 		sp.SetAttribute("entity_id", id)
+		sp.SetAttribute(consumerDurableAttr, ContainerProjectorDurable)
 		spanCtx := natstrace.ContextWithSpan(msgCtx, sp)
 
 		agg := currentContainerAgg(spanCtx, kv, event)
