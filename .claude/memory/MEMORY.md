@@ -41,10 +41,11 @@
 - [Platform vs tenant service split](linebooker_platform_vs_tenant_service_split.md) — Refdata+Accounts/Auth are platform; Marketplace/Payments likely tenant-scoped (corrects original diagram)
 - [Registration UI placement](linebooker_registration_ui_placement.md) — Trading-partner Registration belongs in Admin UI ("Trading partners"), not RefData UI — master data, not a vocabulary
 - [Trading partners term + fleet cardinality](linebooker_trading_partners_term_and_fleet_cardinality.md) — collective term "Trading partners"; Transporter→truck is one-to-many via FleetAssetEntity FK
-- [Trading Partner phase v1 scope](linebooker_trading_partner_phase_v1_scope.md) — Phase 26 IMPLEMENTED end-to-end (trading-partner-service + Admin UI), live-verified; BR-TP01-14
+- [Trading Partner phase v1 scope](linebooker_trading_partner_phase_v1_scope.md) — Phase 26 IMPLEMENTED end-to-end (organizations-service + Admin UI), live-verified; BR-TP01-14
 - [Phase 38b transporter vetting](phase38b_transporter_vetting.md) — Temporal two-branch saga, attempt-keyed JetStream dedup, aggregate fleet gate, Schedule-based GIT-drop handling; BR-TP21-28
 - [Phase 38c-i/38d-i Transporter UI](phase38di_transporter_ui.md) — dedicated panel + drill-in tabs; branch on the error envelope's conflict/notFound flags, never message prose; dev-stack gaps (no vehicle-type corpus, 7103 taken)
 - [Phase 38c-ii document Object Store](phase38_document_object_store.md) — an OBJ bucket is a JetStream stream sharing the tenant's 1 GiB; blob-before-record, write-once bytes, service-minted names; nginx 1 MiB body default
+- [Phase 38e organizations rename](phase38e_organizations_rename.md) — `trading-partner-service`→`organizations-service`, `TradingPartnersPanel.vue`→`OrganizationsPanel.vue`; read before trusting any older doc's names, but "trading partner" stays as domain vocabulary and BR-TP* keep their numbers
 - [NATS account is the only authn](nats_account_is_the_only_authn.md) — nothing in this repo verifies a JWT; a new HTTP ingress has nothing to reuse — use a capability ticket minted over NATS
 - [Admin stat card conventions](admin_stat_card_one_ratio_rule.md) — one `value / max` + bar per card, one 20px value size per row; long counters shorten, rows wrap
 - [/connz limit vs max_connections](connz_limit_is_page_size_not_capacity.md) — `/connz` limit 1024 is a page size; the real ceiling is `/varz` max_connections

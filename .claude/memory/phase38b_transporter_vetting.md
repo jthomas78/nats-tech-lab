@@ -1,6 +1,6 @@
 # Phase 38b — Transporter vetting
 
-Implemented 2026-08-20 in `trading-partner-service` under
+Implemented 2026-08-20 in `organizations-service` under
 `tradingpartner/transporterprofile` against BR-TP21–28.
 
 - `TransporterProfile` owns monotonic `AttemptNumber`, document-review state,

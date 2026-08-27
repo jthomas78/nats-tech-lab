@@ -23,7 +23,7 @@ same pattern the frontend Dockerfiles already used for `shared/unifi-theme`.
 
 **Three packages, three different consumer sets:**
 - `shared/natstenants` (`Manager[R any]`, generic over each service's
-  per-tenant resource type) — `pricing-service`, `trading-partner-service`,
+  per-tenant resource type) — `pricing-service`, `organizations-service`,
   `refdata-service` consume the full `Manager`; `shipping-service` consumes
   only `Discover`/`SubscribeLifecycle` (connection lifecycle), keeping its
   JetStream/KV provisioning local since it already owned an equivalent

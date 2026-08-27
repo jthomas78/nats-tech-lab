@@ -36,7 +36,7 @@ apps. If it resurfaces there, this note plus the trade-off table below is the st
 but confirm with the user before assuming the same NATS-WebSocket approach should extend to them.
 
 **Original symptom (external chat, not this session):** opening a 2nd browser tab to
-`http://localhost:7101/` (the Admin UI) leaves both tabs stuck in a "busy"/spinner state and
+`http://localhost:7100/` (the Admin UI) leaves both tabs stuck in a "busy"/spinner state and
 never finishes loading. Root cause: the Admin UI opens ~4-5 long-lived SSE streams per tab
 (dictionary watch, KV inspector, JetStream watch, RPC watch/obs). Chrome caps concurrent
 HTTP/1.1 connections per origin at 6; one tab already uses several of those slots, so a second

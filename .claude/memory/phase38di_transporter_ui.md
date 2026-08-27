@@ -6,7 +6,7 @@ Implemented 2026-08-20 in `frontend/refdata` against BR-TP29–39.
 
 - Transporters get a **dedicated `TransporterPanel.vue`** with a **drill-in
   detail view** (list is replaced, back-link breadcrumb), not a DataTable
-  expansion row or a drawer. `TradingPartnersPanel.vue` stays for Shippers;
+  expansion row or a drawer. `OrganizationsPanel.vue` stays for Shippers;
   its `partnerType` prop was kept rather than hard-coded, to avoid an
   unrelated edit.
 - Tabs: Company Information, Fleet, Documents, Vetting, Rate Sheets. 38d-ii's

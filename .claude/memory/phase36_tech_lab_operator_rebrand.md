@@ -24,7 +24,7 @@ Phase 36 in `.claude/plans/Main-POC-Plan.md` (added 2026-08-19, design gate
   `Dictionary-POC` obsidian vault/demo path, which all stay as-is.
 - **36.2** — migrate the "Trading Partners" nav (Platform group > Shippers/
   Transporters) from `admin` into Tech Lab Operator. Known risk carried
-  into this sub-phase's design decisions: `TradingPartnersPanel.vue`
+  into this sub-phase's design decisions: `OrganizationsPanel.vue`
   depends on admin's full `useTenantStore()`, while refdata only has a
   lighter `context` concept — needs a shim or rework before the panel can
   run standalone in Tech Lab Operator.
@@ -69,18 +69,18 @@ Phase 36.2 is complete.**
 independently gated on its own mockup per the Approval terms above.
 
 **36.2 `useTenantStore()` risk RESOLVED (2026-08-19):** investigation showed
-`TradingPartnersPanel.vue`'s actual dependency on admin's tenant store is
+`OrganizationsPanel.vue`'s actual dependency on admin's tenant store is
 trivial (two reads, one a documented no-op); the real gap is that
-`trading-partner-service` derives tenant identity from NATS-account
+`organizations-service` derives tenant identity from NATS-account
 connection identity (admin's per-tenant reconnect model), while Tech Lab
 Operator has one cross-tenant PLATFORM connection with no tenant identity
 at all. User's target end-state: both refdata-service and
-trading-partner-service are PLATFORM-tier, so Tech Lab Operator should keep
+organizations-service are PLATFORM-tier, so Tech Lab Operator should keep
 its single platform connection and treat "tenant" as an explicit
 operator-selected request parameter — mirroring refdata-service's existing
 Phase 32 `MountPlatformAPI` pattern (see
 [[phase32_refdata_platform_credential]]) — not admin's per-tenant-reconnect
-model. Giving `trading-partner-service` that platform-mounted path (plus an
+model. Giving `organizations-service` that platform-mounted path (plus an
 authorization check, since a platform credential acting on a tenant by
 parameter is a wider trust surface than today's connection-scoped model) is
 real backend work the user explicitly deferred out of 36.2 — they want to
@@ -126,7 +126,7 @@ strip, not a second panel-owning tab set), dynamically listing whichever
 `DOMAIN_CATEGORIES` actually have types rather than hardcoding Enums/
 Strings, so a future `config`-category type shows up automatically.
 
-**36.2 IMPLEMENTED (2026-08-19):** `TradingPartnersPanel.vue` +
+**36.2 IMPLEMENTED (2026-08-19):** `OrganizationsPanel.vue` +
 `IconShippers.vue`/`IconTransporters.vue` moved from `admin` into `refdata`
 as a `Trading Partners` eyebrow alongside `Reference Data`. A real design gap
 surfaced mid-implementation and was resolved with the user before writing
@@ -153,7 +153,7 @@ right endpoint. Once a tenant is selected, its own context list comes from
 refdata-service's existing `context.list.v1` subject with an explicit
 `{tenant}` filter in the body (BR-D35) — this already existed for exactly
 this purpose and needed no backend change. Live-verified: registered a real
-shipper against `trading-partner-service` under the `globex` tenant, expanded
+shipper against `organizations-service` under the `globex` tenant, expanded
 a transporter row (Compliance Documents/Fleet Assets/Audit Trail all
 populated with real data), and switched tenants (`acme` ↔ `globex`)
 confirming each tenant's own fleet-context list loads independently. See

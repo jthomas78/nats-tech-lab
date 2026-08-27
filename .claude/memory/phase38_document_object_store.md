@@ -1,6 +1,6 @@
 # Phase 38c-ii — NATS Object Store document files
 
-Implemented 2026-08-20 in `trading-partner-service` against BR-TP40–45. First
+Implemented 2026-08-20 in `organizations-service` against BR-TP40–45. First
 use of NATS Object Store in this repo.
 
 ## Facts about Object Store worth not rediscovering

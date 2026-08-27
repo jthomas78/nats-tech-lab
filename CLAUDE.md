@@ -379,9 +379,9 @@ working in; the layout rule that isn't visible from the tree is in
 These apply to every task — new features, changes, and bug fixes alike:
 
 1. **Every business rule must have a test.** If a domain rule is added or changed, a corresponding integration test must be added or updated in the same task before marking it complete.
-2. **All tests must be green before a task is complete.** Run `ginkgo ./...` from `demos/01-dictionary/backend/shipping-service/` as the final step of any backend change. A task is not done until this passes clean.
-3. **Business rules live in the domain layer** (`dictionary/internal/domain/`). Rule enforcement must not leak into handlers or application services.
-4. **The business rules summary must be kept in sync.** When a rule is added or removed, update the relevant domain file — `demos/01-dictionary/BUSINESS_RULES-SHIPPING.md` (Ship/Container) or `demos/01-dictionary/BUSINESS_RULES-REFDATA.md` (refdata-service) — as part of the same task. `BUSINESS_RULES.md` is just an index; don't add rule detail there.
+2. **All tests must be green before a task is complete.** Run `ginkgo ./...` from the service you changed — the backend is seven modules (`accounts-service`, `observability-service`, `organizations-service`, `otlp-bridge`, `pricing-service`, `refdata-service`, `shipping-service`), not one. Run `shipping-service`'s suite as well whenever the change reaches into it. A task is not done until this passes clean.
+3. **Business rules live in the domain layer.** Each service keeps its own domain package and the path differs per service (`dictionary/internal/domain/` in `shipping-service`, `refdata/internal/domain/` in `refdata-service`, and so on) — read the module you're in rather than assuming shipping's layout. Rule enforcement must not leak into handlers or application services.
+4. **The business rules summary must be kept in sync.** When a rule is added or removed, update the matching domain file under `demos/01-dictionary/` — `BUSINESS_RULES-SHIPPING.md` (Ship/Container), `-REFDATA.md`, `-ACCOUNTS.md`, `-ORGANIZATIONS.md`, or `-PRICING.md` — as part of the same task. `BUSINESS_RULES.md` is just an index; don't add rule detail there.
 
 ## AI Agent Workflow
 
