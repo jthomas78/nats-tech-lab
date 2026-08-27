@@ -30,6 +30,14 @@
       "port": 7107
     },
     {
+      "//": "Added Phase 50e. Same collision refdata-dev-docker-7107 documents: docker-compose publishes the built admin image on 7100, so `admin` (autoPort) lets vite bind localhost:7100 alongside it and every request to 127.0.0.1:7100 still reaches the container, not the dev server. --strictPort on a port docker does not hold is the only way to be sure which one you are looking at.",
+      "name": "admin-dev-7108",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "7108", "--strictPort"],
+      "cwd": "demos/01-dictionary/frontend/admin",
+      "port": 7108
+    },
+    {
       "name": "seafreight-app",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
@@ -37,6 +45,7 @@
       "port": 7101
     },
     {
+      "//": "Use admin-dev-7108 above when the docker stack is up. This entry's autoPort resolves the bind collision on 7100 but not the ambiguity it creates: docker-compose publishes the built admin image there, so requests to 127.0.0.1:7100 keep reaching the CONTAINER while vite serves your edits somewhere else. It is only safe with the stack down.",
       "name": "admin",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],

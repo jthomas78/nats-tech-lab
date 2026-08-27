@@ -329,6 +329,7 @@ function copyHeaders(headers) {
         data-key="spanId"
         selection-mode="single"
         :meta-key-selection="false"
+        :selection="selectedSpan"
         @row-click="selectRow($event.data)"
       >
         <template #empty>
@@ -652,6 +653,18 @@ function copyHeaders(headers) {
 }
 .rpc-table :deep(.p-datatable-tbody > tr) {
   cursor: pointer;
+}
+
+/* The selected row keeps the accent tint and the inset bar for as long as the
+   detail pane below is open — it is the pane's anchor, not a hover state, so
+   it must survive the pointer leaving the table. Explicit rather than left to
+   Aura's default highlight, which is a flat fill with no left marker and does
+   not read as "this is the row the pane is showing". */
+.rpc-table :deep(.p-datatable-tbody > tr.p-datatable-row-selected > td) {
+  background: rgba(0, 111, 255, 0.08);
+}
+.rpc-table :deep(.p-datatable-tbody > tr.p-datatable-row-selected > td:first-child) {
+  box-shadow: inset 2px 0 0 var(--lab-accent, #006fff);
 }
 .rpc-table :deep(.p-datatable-tbody > tr > td) {
   padding-top: 3px;

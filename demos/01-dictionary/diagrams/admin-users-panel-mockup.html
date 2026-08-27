@@ -1,0 +1,377 @@
+<!--
+  Design-gate mockup for Phase 50 — the Admin UI gains a SYSTEM → Identity →
+  Users panel, and today's bare `accounts` nav item moves into that same
+  Identity group (App.vue's `sections`).
+
+  Two things are under review here:
+
+    A. the panel itself — the credential/session roster, stat row and filter
+       chrome, drawn in ConnectionsPanel.vue's existing idiom (summary cards,
+       one filter input + segmented kind filter, dense table);
+    B. the drill-in — clicking a row opens the same bottom detail pane the
+       Connections panel already opens on a connection, carrying the user's
+       claim permissions as a table.
+
+  Rows are drawn from the REAL credential set the running stack has today
+  (nats/bootstrap-operator.sh: platform, shipping-admin, observability, sys,
+  acme, globex) and today's JWT `name` claims, not the post-rename names —
+  same convention the Credential-column mockup used, for the same reason: the
+  panel has to be legible in the state the stack is actually in. NKeys,
+  counts and timestamps are illustrative.
+
+  State B exists because of the one hazard this panel can't ignore: under a
+  scoped signing key the server applies the KEY's permission template and
+  discards the user JWT's own, so a claims table that renders the JWT
+  verbatim would lie. Static mockup — the two states are resting states of
+  one pane, shown together because the decision is between what each shows.
+-->
+<title>Admin UI — Users panel + claim permissions drill-in</title>
+<style>
+:root {
+  --lab-bg: #131416;
+  --lab-panel-border: #2c3138;
+  --lab-nav-active-bg: #1c1d1f;
+  --lab-accent: #006fff;
+  --p-text-color: #dee0e3;
+  --p-text-muted-color: #b7bcc2;
+  --p-text-disabled-color: #737c87;
+  --ok: #27c07f;
+  --warn: #d9a514;
+  --amber: #f0b429;
+  --danger: #e0525f;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--lab-bg); margin: 0; padding: 24px;
+  display: flex; justify-content: center; align-items: flex-start;
+}
+.mock {
+  width: 1180px; max-width: 100%;
+  background: var(--lab-bg); color: var(--p-text-color);
+  font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased;
+  border: 1px solid var(--lab-panel-border); border-radius: 8px; overflow: hidden;
+}
+
+/* ── review banner ── */
+.review-banner { background: rgba(217,165,20,.08); border-bottom: 1px solid var(--lab-panel-border); padding: 9px 16px 11px; }
+.review-banner .headline { font-size: 12px; font-weight: 700; }
+.review-banner .headline b { color: var(--warn); }
+.review-banner p.note { margin: 6px 0 0; font-size: 12px; color: var(--p-text-muted-color); max-width: 108ch; }
+.review-banner code { font-family: var(--mono); font-size: 11px; color: var(--lab-accent); background: rgba(0,111,255,.10); border-radius: 3px; padding: 0 4px; }
+
+.state-cap { font-family: var(--mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--p-text-disabled-color); padding: 14px 16px 6px; }
+.state-cap b { color: var(--p-text-color); font-weight: 700; }
+.state-cap .q { color: var(--amber); }
+
+/* ── app frame ── */
+.app { display: grid; grid-template-columns: 152px 1fr; border-top: 1px solid var(--lab-panel-border); }
+.topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--lab-panel-border); }
+.dot { width: 16px; height: 16px; border-radius: 4px; background: var(--lab-accent); color: #fff; font-size: 10px; font-weight: 700; display: grid; place-items: center; }
+.brand { font-weight: 600; }
+.crumb { color: var(--p-text-muted-color); font-size: 12px; }
+.topbar .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.pill-ok { font-size: 11px; font-weight: 600; color: #0b1f16; background: var(--ok); border-radius: 4px; padding: 1px 7px; }
+
+.rail { border-right: 1px solid var(--lab-panel-border); padding: 10px 0 16px; }
+.rail .group { font-size: 10px; letter-spacing: .08em; color: var(--p-text-disabled-color); padding: 12px 12px 4px; }
+.rail .eyebrow { font-size: 10px; letter-spacing: .08em; color: var(--p-text-disabled-color); padding: 10px 12px 3px; }
+.rail .eyebrow.new { color: var(--lab-accent); }
+.rail a { display: block; padding: 4px 12px 4px 22px; color: var(--p-text-muted-color); text-decoration: none; font-size: 12.5px; }
+.rail a.top { padding-left: 12px; }
+.rail a.active { color: var(--p-text-color); background: var(--lab-nav-active-bg); box-shadow: inset 2px 0 0 var(--lab-accent); font-weight: 600; }
+.rail a.new { color: var(--p-text-color); }
+.rail .moved { font-size: 10px; color: var(--amber); padding: 1px 12px 0 22px; font-family: var(--mono); white-space: nowrap; }
+
+.panel { padding: 12px 14px 16px; min-width: 0; }
+
+/* ── summary cards (ConnectionsPanel idiom: one number, optional / max + bar) ── */
+.summary-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.card { border: 1px solid var(--lab-panel-border); border-radius: 6px; padding: 8px 10px 9px; }
+.card .k { font-size: 10px; letter-spacing: .06em; color: var(--p-text-muted-color); }
+.card .v { font-family: var(--mono); font-size: 20px; line-height: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.card .v span { font-size: 13px; color: var(--p-text-muted-color); }
+.bar { height: 3px; border-radius: 2px; background: #23272d; margin-top: 5px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--lab-accent); }
+.card .v em { font-style: normal; color: var(--amber); }
+
+/* ── filter row ── */
+.filter-row { display: flex; align-items: center; gap: 8px; margin: 10px 0 8px; }
+.search { flex: 1; border: 1px solid var(--lab-panel-border); border-radius: 5px; padding: 4px 9px; color: var(--p-text-disabled-color); font-size: 12px; font-family: var(--mono); }
+.seg { display: flex; border: 1px solid var(--lab-panel-border); border-radius: 5px; overflow: hidden; }
+.seg span { font-size: 11px; padding: 3px 9px; color: var(--p-text-muted-color); border-right: 1px solid var(--lab-panel-border); }
+.seg span:last-child { border-right: none; }
+.seg span.on { background: var(--lab-accent); color: #fff; font-weight: 600; }
+
+/* ── table ── */
+table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+th { text-align: left; font-size: 11px; font-weight: 700; color: var(--p-text-muted-color); padding: 6px 8px; border-bottom: 1px solid var(--lab-panel-border); }
+td { padding: 5px 8px; border-bottom: 1px solid rgba(44,49,56,.55); vertical-align: middle; font-size: 12.5px; }
+tbody tr:last-child td { border-bottom: none; }
+th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; color: var(--p-text-muted-color); font-family: var(--mono); font-size: 11.5px; }
+tr.sel td { background: rgba(0,111,255,.08); }
+tr.sel td:first-child { box-shadow: inset 2px 0 0 var(--lab-accent); }
+.name { font-weight: 500; font-family: var(--mono); font-size: 12px; }
+.acct { font-size: 11px; font-weight: 600; color: var(--lab-accent); background: rgba(0,111,255,.10); border-radius: 3px; padding: 1px 6px; }
+.acct.sys { color: var(--p-text-muted-color); background: rgba(183,188,194,.10); }
+.kind { font-family: var(--mono); font-size: 10.5px; color: var(--p-text-muted-color); border: 1px solid var(--lab-panel-border); border-radius: 3px; padding: 0 5px; }
+.kind.session { color: var(--amber); border-color: rgba(240,180,41,.4); }
+.h { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--p-text-muted-color); }
+.h i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); display: block; }
+.h.warn i { background: var(--amber); } .h.warn { color: var(--amber); }
+.h.dead i { background: var(--p-text-disabled-color); }
+.h.bad i { background: var(--danger); } .h.bad { color: var(--danger); }
+.muted { color: var(--p-text-muted-color); }
+.mono { font-family: var(--mono); font-size: 11.5px; }
+
+/* ── drill-in detail pane (ConnectionsPanel's own bottom pane) ── */
+.detail { border: 1px solid var(--lab-panel-border); border-radius: 6px; margin-top: 10px; }
+.detail-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--lab-panel-border); font-size: 12px; }
+.detail-head .name { font-weight: 600; }
+.detail-head .meta { color: var(--p-text-disabled-color); font-family: var(--mono); font-size: 11px; }
+.detail-head .x { margin-left: auto; color: var(--p-text-disabled-color); }
+.detail-body { display: grid; grid-template-columns: 320px 1fr; gap: 0; }
+.detail-body > div { padding: 8px 10px 10px; }
+.detail-body > div + div { border-left: 1px solid var(--lab-panel-border); }
+.sec { font-size: 10px; letter-spacing: .07em; color: var(--p-text-disabled-color); margin-bottom: 5px; }
+.kv { display: grid; grid-template-columns: 96px 1fr; row-gap: 2px; column-gap: 8px; font-size: 11.5px; }
+.kv dt { color: var(--p-text-muted-color); }
+.kv dd { margin: 0; font-family: var(--mono); font-size: 11px; word-break: break-all; }
+
+.claims { border-collapse: collapse; width: 100%; }
+.claims th { font-size: 10px; padding: 3px 6px; }
+.claims td { padding: 2px 6px; font-family: var(--mono); font-size: 11px; border-bottom: 1px solid rgba(44,49,56,.4); }
+.eff { font-weight: 700; font-size: 10px; letter-spacing: .04em; }
+.eff.allow { color: var(--ok); }
+.eff.deny { color: var(--danger); }
+.dir { color: var(--p-text-muted-color); font-size: 10.5px; }
+.limits { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--lab-panel-border); font-size: 11px; }
+.limits span { color: var(--p-text-muted-color); }
+.limits b { color: var(--p-text-color); font-family: var(--mono); font-weight: 500; }
+
+.override { margin: 0 0 8px; padding: 5px 8px; border-radius: 4px; background: rgba(240,180,41,.10); border: 1px solid rgba(240,180,41,.35); font-size: 11.5px; color: var(--amber); }
+.override b { color: var(--p-text-color); }
+.struck td { color: var(--p-text-disabled-color); text-decoration: line-through; }
+.struck .eff { color: var(--p-text-disabled-color); }
+
+.legend { display: flex; gap: 16px; padding: 8px 16px 14px; font-size: 11px; color: var(--p-text-muted-color); border-top: 1px solid var(--lab-panel-border); }
+.legend .h { font-size: 11px; }
+</style>
+
+<div class="mock">
+  <div class="review-banner">
+    <div class="headline"><b>FOR REVIEW — Phase 50</b> · SYSTEM → Identity → Users, and the claim-permissions drill-in</div>
+    <p class="note">
+      Nav: today's bare <code>accounts</code> item moves into a new <code>Identity</code> eyebrow group with <code>users</code>, above the existing <code>NATS</code> group.
+      The roster answers open question 1 by listing two kinds in one table — <code>credential</code> (an nsc-defined user, one row per <code>.creds</code>) and <code>session</code> (a token minted by
+      <code>accounts-service</code>, which exists only while it is connected). <b>Sessions are observed, not enumerable</b>: nothing persists them, so an idle session has no row at all.
+      Health reads the JWT, not the connection: <span class="h"><i></i>valid</span> · <span class="h warn"><i></i>expiring</span> · <span class="h bad"><i></i>expired</span> · <span class="h dead"><i></i>unused</span> (valid, zero connections).
+    </p>
+  </div>
+
+  <div class="app">
+    <div class="topbar">
+      <span class="dot">A</span><span class="brand">Tech Lab Admin</span>
+      <span class="crumb">nats users · credentials and live sessions, all accounts</span>
+      <span class="right"><span class="pill-ok">watching</span></span>
+    </div>
+
+    <div class="rail">
+      <a class="top">Overview</a>
+      <div class="group">PLATFORM</div>
+      <a class="top">Settings</a>
+      <div class="group">SYSTEM</div>
+      <div class="eyebrow new">IDENTITY</div>
+      <a>Accounts</a>
+      <div class="moved">↑ moved here</div>
+      <a class="active new">Users</a>
+      <div class="eyebrow">NATS</div>
+      <a>Services</a>
+      <a>Connections</a>
+      <a>Pub/Sub</a>
+      <a>Request/Reply</a>
+      <a>Streams</a>
+      <a>KV Buckets</a>
+      <a>Logs</a>
+      <div class="eyebrow">POSTGRES</div>
+      <a>Tables</a>
+    </div>
+
+    <div class="panel">
+      <div class="summary-row">
+        <div class="card"><div class="k">USERS</div><div class="v">9</div></div>
+        <div class="card"><div class="k">CONNECTED</div><div class="v">6 <span>/ 9</span></div><div class="bar"><i style="width:67%"></i></div></div>
+        <div class="card"><div class="k">BEARER</div><div class="v">0</div></div>
+        <div class="card"><div class="k">EXPIRING &lt; 1H</div><div class="v"><em>2</em></div></div>
+      </div>
+
+      <div class="filter-row">
+        <div class="search">filter by name, account, credential, or subject in claims</div>
+        <div class="seg"><span class="on">all</span><span>credential</span><span>session</span></div>
+      </div>
+
+      <table>
+        <colgroup>
+          <col style="width:88px"><col><col style="width:96px"><col style="width:86px">
+          <col style="width:60px"><col style="width:104px"><col style="width:62px"><col style="width:54px">
+        </colgroup>
+        <thead>
+          <tr><th>Health</th><th>Name</th><th>Account</th><th>Kind</th><th>Bearer</th><th>Expires</th><th class="num">Conns</th><th class="num">Subs</th></tr>
+        </thead>
+        <tbody>
+          <tr class="sel">
+            <td><span class="h"><i></i>valid</span></td><td><span class="name">shipping-admin</span></td>
+            <td><span class="acct">platform</span></td><td><span class="kind">credential</span></td>
+            <td class="muted">no</td><td class="mono muted">never</td><td class="num">1</td><td class="num">2</td>
+          </tr>
+          <tr>
+            <td><span class="h"><i></i>valid</span></td><td><span class="name">observability</span></td>
+            <td><span class="acct">platform</span></td><td><span class="kind">credential</span></td>
+            <td class="muted">no</td><td class="mono muted">never</td><td class="num">1</td><td class="num">3</td>
+          </tr>
+          <tr>
+            <td><span class="h"><i></i>valid</span></td><td><span class="name">platform</span></td>
+            <td><span class="acct">platform</span></td><td><span class="kind">credential</span></td>
+            <td class="muted">no</td><td class="mono muted">never</td><td class="num">4</td><td class="num">96</td>
+          </tr>
+          <tr>
+            <td><span class="h"><i></i>valid</span></td><td><span class="name">acme</span></td>
+            <td><span class="acct">acme</span></td><td><span class="kind">credential</span></td>
+            <td class="muted">no</td><td class="mono muted">never</td><td class="num">6</td><td class="num">115</td>
+          </tr>
+          <tr>
+            <td><span class="h"><i></i>valid</span></td><td><span class="name">globex</span></td>
+            <td><span class="acct">globex</span></td><td><span class="kind">credential</span></td>
+            <td class="muted">no</td><td class="mono muted">never</td><td class="num">4</td><td class="num">88</td>
+          </tr>
+          <tr>
+            <td><span class="h dead"><i></i>unused</span></td><td><span class="name">sys</span></td>
+            <td><span class="acct sys">sys</span></td><td><span class="kind">credential</span></td>
+            <td class="muted">no</td><td class="mono muted">never</td><td class="num">0</td><td class="num">0</td>
+          </tr>
+          <tr>
+            <td><span class="h warn"><i></i>expiring</span></td><td><span class="name">admin-ui</span></td>
+            <td><span class="acct">platform</span></td><td><span class="kind session">session</span></td>
+            <td class="muted">no</td><td class="mono" style="color:var(--amber)">in 41m</td><td class="num">1</td><td class="num">4</td>
+          </tr>
+          <tr>
+            <td><span class="h warn"><i></i>expiring</span></td><td><span class="name">seafreight-app</span></td>
+            <td><span class="acct">acme</span></td><td><span class="kind session">session</span></td>
+            <td class="muted">no</td><td class="mono" style="color:var(--amber)">in 12m</td><td class="num">1</td><td class="num">6</td>
+          </tr>
+          <tr>
+            <td><span class="h"><i></i>valid</span></td><td><span class="name">refdata-operator</span></td>
+            <td><span class="acct">platform</span></td><td><span class="kind session">session</span></td>
+            <td class="muted">no</td><td class="mono muted">in 3h 51m</td><td class="num">1</td><td class="num">5</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- ── state A: drill-in on an nsc credential ── -->
+      <div class="detail">
+        <div class="detail-head">
+          <span class="kind">credential</span>
+          <span class="name">shipping-admin</span>
+          <span class="meta">· creds/shipping-admin.creds · issued by PLATFORM · 1 connection</span>
+          <span class="x">✕</span>
+        </div>
+        <div class="detail-body">
+          <div>
+            <div class="sec">USER</div>
+            <dl class="kv">
+              <dt>Name</dt><dd>shipping-admin</dd>
+              <dt>Account</dt><dd><span class="acct">platform</span></dd>
+              <dt>User NKey</dt><dd>UBQ4KZ3T6LJ2FQWMD5RXH7YAPN3VJC2XKQ6TSFA4RB7WZHM2EYUD5PLQ</dd>
+              <dt>Issuer</dt><dd>ADD65FGGSNLNULTYAQBYB43MLGPHHZY7IKUOCJRMWQ4W6WZ5CDI2RTQM</dd>
+              <dt>Issued</dt><dd>2026-08-27 06:36:02</dd>
+              <dt>Expires</dt><dd class="muted">never</dd>
+              <dt>Bearer</dt><dd class="muted">no</dd>
+              <dt>Scoped key</dt><dd class="muted">no — JWT permissions apply</dd>
+            </dl>
+          </div>
+          <div>
+            <div class="sec">CLAIM PERMISSIONS (10)</div>
+            <table class="claims">
+              <colgroup><col style="width:56px"><col style="width:44px"><col></colgroup>
+              <thead><tr><th>Effect</th><th>Dir</th><th>Subject</th></tr></thead>
+              <tbody>
+                <tr><td class="eff allow">ALLOW</td><td class="dir">pub</td><td>$JS.API.CONSUMER.CREATE.REFDATA.&gt;</td></tr>
+                <tr><td class="eff allow">ALLOW</td><td class="dir">pub</td><td>$JS.API.CONSUMER.INFO.REFDATA.&gt;</td></tr>
+                <tr><td class="eff allow">ALLOW</td><td class="dir">pub</td><td>$JS.API.CONSUMER.DELETE.REFDATA.&gt;</td></tr>
+                <tr><td class="eff allow">ALLOW</td><td class="dir">pub</td><td>$JS.API.CONSUMER.MSG.NEXT.REFDATA.&gt;</td></tr>
+                <tr><td class="eff allow">ALLOW</td><td class="dir">pub</td><td>notify._platform.&gt;</td></tr>
+                <tr><td class="eff allow">ALLOW</td><td class="dir">pub</td><td>obs.pubsub.&gt;</td></tr>
+                <tr><td class="eff allow">ALLOW</td><td class="dir">pub</td><td>$SRV.&gt;</td></tr>
+                <tr><td class="eff allow">ALLOW</td><td class="dir">sub</td><td>$SRV.&gt;</td></tr>
+                <tr><td class="eff allow">ALLOW</td><td class="dir">sub</td><td>_INBOX.&gt;</td></tr>
+                <tr><td class="eff allow">ALLOW</td><td class="dir">sub</td><td>$JS.API.CONSUMER.MSG.NEXT.REFDATA.&gt;</td></tr>
+              </tbody>
+            </table>
+            <div class="limits">
+              <span>Max subs <b>unlimited</b></span><span>Payload <b>unlimited</b></span>
+              <span>Data <b>unlimited</b></span><span>Connection types <b>any</b></span>
+              <span>Response permissions <b>none</b></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="state-cap"><b>STATE B</b> — same pane, a minted session under a scoped signing key. <span class="q">The claims table must show what the SERVER will enforce, not what the JWT carries.</span></div>
+
+  <div class="app" style="grid-template-columns:1fr">
+    <div class="panel" style="padding-top:0">
+      <div class="detail">
+        <div class="detail-head">
+          <span class="kind session">session</span>
+          <span class="name">seafreight-app</span>
+          <span class="meta">· minted 2026-08-27 07:43:10 · TTL 30m · 1 connection · cid 512</span>
+          <span class="x">✕</span>
+        </div>
+        <div class="detail-body">
+          <div>
+            <div class="sec">USER</div>
+            <dl class="kv">
+              <dt>Name</dt><dd>seafreight-app</dd>
+              <dt>Account</dt><dd><span class="acct">acme</span></dd>
+              <dt>User NKey</dt><dd>UASDJ7Q03Z5T5TZ0KAK3YQNWYUJMI2UY3BTQL75LBYF2AWVLMYEMPPXW</dd>
+              <dt>Issuer</dt><dd>ADD65FGGSNLNULTYAQBYB43MLGPHHZY7IKUOCJRMWQ4W6WZ5CDI2RTQM <span class="muted">(signing key)</span></dd>
+              <dt>Issued</dt><dd>2026-08-27 07:43:10</dd>
+              <dt>Expires</dt><dd style="color:var(--amber)">2026-08-27 08:13:10 · in 12m</dd>
+              <dt>Bearer</dt><dd class="muted">no</dd>
+              <dt>Scoped key</dt><dd style="color:var(--amber)">yes — template applies</dd>
+            </dl>
+          </div>
+          <div>
+            <div class="sec">EFFECTIVE PERMISSIONS (5)</div>
+            <p class="override">Enforced from the account signing key's template. <b>The JWT's own permissions are discarded by the server</b> — they are shown struck through below so a mismatch is visible rather than silent.</p>
+            <table class="claims">
+              <colgroup><col style="width:56px"><col style="width:44px"><col></colgroup>
+              <thead><tr><th>Effect</th><th>Dir</th><th>Subject</th></tr></thead>
+              <tbody>
+                <tr><td class="eff allow">ALLOW</td><td class="dir">pub</td><td>api.acme.&gt;</td></tr>
+                <tr><td class="eff allow">ALLOW</td><td class="dir">pub</td><td>_INBOX.&gt;</td></tr>
+                <tr><td class="eff allow">ALLOW</td><td class="dir">sub</td><td>api.acme.&gt;</td></tr>
+                <tr><td class="eff allow">ALLOW</td><td class="dir">sub</td><td>notify.&gt;</td></tr>
+                <tr><td class="eff allow">ALLOW</td><td class="dir">sub</td><td>_INBOX.&gt;</td></tr>
+                <tr class="struck"><td class="eff">ALLOW</td><td class="dir">pub</td><td>api.&gt; <span class="muted">— in JWT, not enforced</span></td></tr>
+                <tr class="struck"><td class="eff">ALLOW</td><td class="dir">sub</td><td>api.&gt; <span class="muted">— in JWT, not enforced</span></td></tr>
+              </tbody>
+            </table>
+            <div class="limits">
+              <span>Max subs <b>50</b></span><span>Payload <b>1 MiB</b></span>
+              <span>Data <b>unlimited</b></span><span>Connection types <b>WEBSOCKET</b></span>
+              <span>Response permissions <b>none</b></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span>Open at the design gate: where the list is read from (nsc store · resolver JWTs · <code>$SYS.REQ.*</code>), and whether a row is a credential or a connection when several connections share one <code>.creds</code>.</span>
+  </div>
+</div>

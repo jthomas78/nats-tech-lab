@@ -33,7 +33,7 @@ const CONNECTIONS = [
     // The credential's own `name` claim — one platform.creds user JWT shared
     // by several services, so it diverges from this connection's name.
     user: 'platform',
-    userKey: 'UASXO6QQZGVB',
+    userKey: 'UASXO6QQZGVBTMHYQ7ZJZ4VNJ7Y3LWRR2PZLK4WRLK3PJ4DHCQFPL2JD55',
     rtt: '779µs',
     uptime: '1h56m',
     idle: '16s',
@@ -53,7 +53,7 @@ const CONNECTIONS = [
     account: 'AB56H4HBPU4ZVCTWCY6RZIVEAIE37CE7VKCQMJANMLO7YJZ2IELZAFJT',
     // No tenantLabel — the SYS-account gap (BR-028's "wherever possible").
     user: 'accounts-service',
-    userKey: 'UBSYSKEY123',
+    userKey: 'UBSYSKEY123HFMQ7ZJZ4VNJ7Y3LWRR2PZLK4WRLK3PJ4DHCQFPL2AB99',
     rtt: '962µs',
     uptime: '11h',
     idle: '11h',
@@ -108,16 +108,36 @@ describe('ConnectionsPanel', () => {
     expect(labels).toEqual(expect.arrayContaining(['PLATFORM', 'acme']))
   })
 
-  it('BR-028: falls back to a truncated raw account NKey when no tenantLabel was resolved', async () => {
+  it('BR-028/BR-061: falls back to an ELIDED raw account NKey when no tenantLabel was resolved', async () => {
     const wrapper = mountPanel()
     await flushPromises()
 
-    // `.acct[title]` narrows to the Account cell — the Host cell shares the
-    // .acct type style but carries no title.
-    const raw = wrapper.findAll('.acct[title]')
-    expect(raw).toHaveLength(1)
-    expect(raw[0].text()).toBe('AB56H4HBPU…')
-    expect(raw[0].attributes('title')).toBe(CONNECTIONS[1].account)
+    const raw = wrapper.findAll('tbody [data-testid="nkey"]')
+    const acct = CONNECTIONS[1].account
+    const shown = raw.map((el) => el.text())
+    expect(shown).toContain(`[${acct.slice(0, 5)}...${acct.slice(-5)}]`)
+  })
+
+  it('BR-061: never puts a full NKey on a table cell, on screen or in a tooltip', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    // The rule is an absence, so it is asserted as one. Before BR-061 the
+    // Account cell carried `title=account` and the Credential cell carried
+    // `title="name\nuserKey"` — 56 characters one hover deep, which is the
+    // full render the rule forbids, merely delayed.
+    const body = wrapper.find('tbody')
+    for (const key of [CONNECTIONS[0].account, CONNECTIONS[1].account, CONNECTIONS[0].userKey]) {
+      expect(body.html()).not.toContain(key)
+    }
+    expect(body.findAll('[title]')).toHaveLength(0)
+  })
+
+  it('BR-061: offers no copy affordance in a table cell — a column is for recognising a row', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.find('tbody').findAll('.nk-copy')).toHaveLength(0)
   })
 
   it('shows the summary counts derived from the fetched connections', async () => {
@@ -287,11 +307,45 @@ describe('ConnectionsPanel', () => {
     expect(detail.exists()).toBe(true)
     expect(detail.text()).toContain('PLATFORM')
     expect(detail.text()).toContain('refdata-service')
-    expect(detail.findAll('.sub-item').map((el) => el.text())).toContain('rpc.*.refdata.type.list.v1')
+    expect(detail.findAll('.subs-table tbody td').map((el) => el.text())).toContain('rpc.*.refdata.type.list.v1')
 
     await detail.find('.close').trigger('click')
     await flushPromises()
     expect(wrapper.find('.detail').exists()).toBe(false)
+  })
+
+  // The selected row is the detail pane's anchor, so its highlight has to
+  // outlive the pointer. Before this was bound, `selection` was left unset and
+  // PrimeVue — which keeps no selection state of its own — rendered only
+  // :hover, so the "selection" appeared to clear the moment the pointer moved
+  // down into the pane.
+  it('marks the selected row as selected for as long as the detail pane is open, not just while hovered', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const rowAt = (i) => wrapper.findAll('tbody tr')[i]
+    expect(rowAt(0).attributes('aria-selected')).not.toBe('true')
+
+    await rowAt(0).trigger('click')
+    await flushPromises()
+    expect(rowAt(0).attributes('aria-selected')).toBe('true')
+    expect(rowAt(1).attributes('aria-selected')).not.toBe('true')
+
+    // A click inside the pane must not disturb it — this is the reported bug.
+    await wrapper.find('.detail .pane-body').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.detail').exists()).toBe(true)
+    expect(rowAt(0).attributes('aria-selected')).toBe('true')
+
+    // Selecting another row moves the mark rather than adding a second.
+    await rowAt(1).trigger('click')
+    await flushPromises()
+    expect(rowAt(0).attributes('aria-selected')).not.toBe('true')
+    expect(rowAt(1).attributes('aria-selected')).toBe('true')
+
+    await wrapper.find('.detail .close').trigger('click')
+    await flushPromises()
+    expect(rowAt(1).attributes('aria-selected')).not.toBe('true')
   })
 
   it('renders the credential name the backend decoded out of the user JWT', async () => {
@@ -313,11 +367,18 @@ describe('ConnectionsPanel', () => {
     expect(creds[1].classes()).not.toContain('diverged')
   })
 
-  it('carries the user NKey on the credential cell rather than in a column of its own', async () => {
+  it('BR-058 as amended: shows the user NKey IN the credential cell, elided, not on its title', async () => {
     const wrapper = mountPanel()
     await flushPromises()
 
-    expect(wrapper.findAll('tbody .cred')[0].attributes('title')).toBe('platform\nUASXO6QQZGVB')
+    // BR-058 originally hung `name\nuserKey` off this cell's title. BR-061
+    // relocated the key into the cell — the same fact, no longer 56 characters
+    // deep in a hover, and no longer complete.
+    const cell = wrapper.findAll('tbody td').find((td) => td.find('.cred').exists())
+    const key = CONNECTIONS[0].userKey
+    expect(cell.find('.cred').text()).toBe('platform')
+    expect(cell.find('[data-testid="nkey"]').text()).toBe(`[${key.slice(0, 5)}...${key.slice(-5)}]`)
+    expect(cell.attributes('title')).toBeUndefined()
   })
 
   it('shows an em-dash for a connection the backend could not name a credential for', async () => {
@@ -358,10 +419,11 @@ describe('ConnectionsPanel', () => {
 
     const rows = wrapper.findAll('.detail .kv .row').map((r) => [
       r.find('.k').text(),
-      r.find('.v').text().trim(),
+      r.find('.v').text().trim().replace(/\s+/g, ' '),
     ])
+    const acct = CONNECTIONS[0].account
     expect(rows).toContainEqual(['Account', 'PLATFORM'])
-    expect(rows).toContainEqual(['Account NKey', CONNECTIONS[0].account])
+    expect(rows).toContainEqual(['Account NKey', `[${acct.slice(0, 5)}...${acct.slice(-5)}]copy`])
   })
 
   it('shows an em-dash for an account whose label could not be resolved, keeping the NKey on its own row', async () => {
@@ -374,10 +436,11 @@ describe('ConnectionsPanel', () => {
 
     const rows = wrapper.findAll('.detail .kv .row').map((r) => [
       r.find('.k').text(),
-      r.find('.v').text().trim(),
+      r.find('.v').text().trim().replace(/\s+/g, ' '),
     ])
+    const acct = CONNECTIONS[1].account
     expect(rows).toContainEqual(['Account', '\u2014'])
-    expect(rows).toContainEqual(['Account NKey', CONNECTIONS[1].account])
+    expect(rows).toContainEqual(['Account NKey', `[${acct.slice(0, 5)}...${acct.slice(-5)}]copy`])
   })
 
   it('shows the credential and its user NKey in the detail pane', async () => {
@@ -388,8 +451,49 @@ describe('ConnectionsPanel', () => {
     await flushPromises()
 
     const detail = wrapper.find('.detail')
+    const key = CONNECTIONS[0].userKey
     expect(detail.find('.cred').text()).toBe('platform')
-    expect(detail.text()).toContain('UASXO6QQZGVB')
+    expect(detail.text()).toContain(`[${key.slice(0, 5)}...${key.slice(-5)}]`)
+    expect(detail.text()).not.toContain(key)
+  })
+
+  it('BR-061: a detail pane can COPY the full key even though it never shows one', async () => {
+    const writeText = vi.fn().mockResolvedValue()
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+
+    const wrapper = mountPanel()
+    await flushPromises()
+    await wrapper.findAll('tbody tr')[0].trigger('click')
+    await flushPromises()
+
+    // The rule is that a key is never SHOWN in full, not that it can never be
+    // OBTAINED: the pane is where an operator goes to fetch a key for `nsc`.
+    // The clipboard gets all 56 characters; the screen never does.
+    const copies = wrapper.find('.detail').findAll('.nk-copy')
+    expect(copies).toHaveLength(2)
+    await copies[1].trigger('click')
+    expect(writeText).toHaveBeenCalledWith(CONNECTIONS[0].userKey)
+
+    vi.unstubAllGlobals()
+  })
+
+  it('lists subscriptions as a single-column table, always sorted alphabetically', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+    await wrapper.findAll('tbody tr')[0].trigger('click')
+    await flushPromises()
+
+    const table = wrapper.find('.detail .subs-table')
+    // One column. The family IS the leading token, so a Family gutter would
+    // only restate the characters beside it (CLAUDE.md § "Subject families").
+    expect(table.findAll('thead th').map((th) => th.text())).toEqual(['Subject'])
+
+    // The fixture is deliberately in /connz's order, which is not sorted:
+    // without the sort the same connection reorders between refreshes and the
+    // pane reads as if it were changing when nothing has.
+    const shown = table.findAll('tbody td').map((td) => td.text())
+    expect(CONNECTIONS[0].subscriptionsList).not.toEqual([...shown])
+    expect(shown).toEqual([...shown].sort())
   })
 
   it('shows an error message when the fetch fails', async () => {

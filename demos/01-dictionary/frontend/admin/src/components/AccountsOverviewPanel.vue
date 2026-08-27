@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { getNatsAccountActivity, getNatsAccountActivityHistory } from '../api'
-import { compactCount, exactCount } from '../format'
+import { compactCount, elideNKey, exactCount } from '../format'
 
 // Overview tab (Phase 45) — supersedes the old standalone Account Activity
 // panel (BUSINESS_RULES-SHIPPING.md BR-034, now folded into BR-043/BR-044).
@@ -77,15 +77,13 @@ function toggle(account) {
   expanded.value = next
 }
 
-// Matches ConnectionsPanel's raw-NKey fallback: truncated, full value in title.
-function shortAccount(acc) {
-  return acc.length > 12 ? `${acc.slice(0, 10)}…` : acc
-}
+// An account with no resolved tenantLabel is identified by its raw NKey, which
+// BR-061 renders elided and never on a title. displayName() still returns a
+// STRING because the filter above searches it — the elided form is what an
+// operator can see, so it is what they can search; searching a value the UI
+// never shows would be a filter that matches invisibly.
 function displayName(acct) {
-  return acct.tenantLabel || shortAccount(acct.account)
-}
-function rawFallback(acct) {
-  return acct.tenantLabel ? null : acct.account
+  return acct.tenantLabel || elideNKey(acct.account)
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────
@@ -337,10 +335,7 @@ function lagNote(acct) {
             class="dot"
             :class="acct.slowConsumers > 0 ? 'crit' : 'ok'"
           />
-          <span
-            class="acct-name"
-            :title="rawFallback(acct)"
-          >{{ displayName(acct) }}</span>
+          <span class="acct-name">{{ displayName(acct) }}</span>
           <span
             v-if="isReserved(displayName(acct))"
             class="acct-tag"

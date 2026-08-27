@@ -6,6 +6,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import { getNatsConnections, listAccounts } from '../api'
 import { compactCount, exactCount } from '../format'
+import NKey from './NKey.vue'
 
 // Connections panel (Phase 17c) — every active NATS connection, proxied
 // from the server's own /connz monitoring endpoint. Distinct from the
@@ -173,6 +174,14 @@ const rows = computed(() => connections.value.filter(rowMatches).sort((a, b) => 
 // ── Selection / detail pane ─────────────────────────────────────────────
 const selectedCid = ref(null)
 const selectedRow = computed(() => connections.value.find((c) => c.cid === selectedCid.value) || null)
+
+// Always alphabetical. /connz returns subscriptions in its own order, so the
+// same connection reorders between refreshes and the pane reads as if it were
+// changing when nothing has. Sorting also groups the subject families for
+// free, because the family is the leading token — which is why the pane needs
+// no Family column to make the grouping legible. Sorted in the browser: the
+// wire format is untouched.
+const sortedSubscriptions = computed(() => [...(selectedRow.value?.subscriptionsList || [])].sort())
 function selectRow(row) {
   const selection = window.getSelection()
   if (selection && selection.toString().length > 0) return
@@ -197,12 +206,10 @@ function formatTime(iso) {
 // the backend's tenantLabel (nats_ops.go's tenantLabelsByAccount, resolved
 // from shipping-service's own connection set) only if accounts-service's
 // list didn't cover this row — which in practice means accounts-service
-// itself is unreachable. Truncated the way most NATS admin tooling
-// displays account identifiers.
-function shortAccount(acc) {
-  if (!acc) return '—'
-  return acc.length > 12 ? `${acc.slice(0, 10)}…` : acc
-}
+// itself is unreachable. The raw key is rendered through <NKey> (BR-061)
+// rather than truncated locally: this cell used to carry a `slice(0, 10)…` of
+// its own AND the full 56 characters on a `title`, which is exactly the
+// pattern that rule exists to end.
 
 // ── Credential column ────────────────────────────────────────────────────
 // row.user is the credential's NAME (the `name` claim decoded from the
@@ -223,14 +230,12 @@ function credentialDiverges(row) {
   if (!row.user || !row.name) return false
   return row.user !== row.name
 }
-// The NKey lives in the tooltip rather than the cell: it is a debugging
-// detail, and for the ephemeral browser credentials (accounts-service's
-// auth/token.go mintUserToken) it is regenerated per session, so a
-// permanently visible value would churn on every browser reconnect.
-function credentialTitle(row) {
-  if (!row.userKey) return row.user || ''
-  return `${row.user}\n${row.userKey}`
-}
+// The user NKey used to live on this cell's `title` (BR-058). It now renders
+// in the cell as an elided token — BR-061's same-task amendment to BR-058 —
+// the same fact relocated, no longer 56 characters deep in a hover. It stays
+// a secondary value either way: for the ephemeral browser credentials
+// (accounts-service's auth/token.go mintUserToken) it is regenerated per
+// session, so it churns on every browser reconnect.
 </script>
 
 <template>
@@ -288,62 +293,65 @@ function credentialTitle(row) {
       data-key="cid"
       selectionMode="single"
       :metaKeySelection="false"
+      :selection="selectedRow"
       @row-click="selectRow($event.data)"
     >
       <template #empty>
         <span class="lab-muted">No connections found.</span>
       </template>
-      <Column header="Name" style="min-width:160px">
+      <Column header="Name" style="width:195px">
         <template #body="{ data }">
           <span :class="{ 'lab-muted': !data.name }" class="conn-name">{{ data.name || '(unnamed)' }}</span>
         </template>
       </Column>
-      <Column header="Type" style="width:90px">
+      <Column header="Type" style="width:70px">
         <template #body="{ data }">
           <span class="type-badge" :class="data.type">{{ data.type }}</span>
         </template>
       </Column>
-      <Column header="Lang" style="width:80px">
+      <Column header="Lang" style="width:52px">
         <template #body="{ data }">{{ data.lang || '—' }}</template>
       </Column>
-      <Column header="Account" style="width:110px">
+      <Column header="Account" bodyClass="pair-cell" style="width:190px">
         <template #body="{ data }">
-          <span v-if="resolveLabel(data)" class="tenant-label" :title="data.account">{{ resolveLabel(data) }}</span>
-          <code v-else class="acct" :title="data.account">{{ shortAccount(data.account) }}</code>
+          <!-- Label *and* key, the same pairing the Credential cell uses. The
+               label alone answered "whose account", but two tenants' rows were
+               then indistinguishable from a row whose label had resolved to
+               the wrong thing; the key is what settles it. -->
+          <span v-if="resolveLabel(data)" class="tenant-label">{{ resolveLabel(data) }}</span>
+          <NKey :value="data.account" class="cell-nkey" />
         </template>
       </Column>
-      <Column header="Credential" style="width:150px">
+      <Column header="Credential" bodyClass="pair-cell" style="width:225px">
         <template #body="{ data }">
-          <code
-            v-if="data.user"
-            class="cred"
-            :class="{ diverged: credentialDiverges(data) }"
-            :title="credentialTitle(data)"
-          >{{ data.user }}</code>
+          <template v-if="data.user">
+            <code class="cred" :class="{ diverged: credentialDiverges(data) }">{{ data.user }}</code>
+            <NKey v-if="data.userKey" :value="data.userKey" class="cell-nkey" />
+          </template>
           <span v-else class="lab-muted">—</span>
         </template>
       </Column>
-      <Column header="Host" style="width:150px">
+      <Column header="Host" style="width:120px">
         <template #body="{ data }">
           <code class="acct">{{ data.ip }}:{{ data.port }}</code>
         </template>
       </Column>
-      <Column header="RTT" style="width:70px" bodyClass="num-cell">
+      <Column header="RTT" style="width:75px" bodyClass="num-cell">
         <template #body="{ data }">{{ data.rtt || '—' }}</template>
       </Column>
-      <Column header="Uptime" style="width:80px" bodyClass="num-cell">
+      <Column header="Uptime" style="width:65px" bodyClass="num-cell">
         <template #body="{ data }">{{ data.uptime || '—' }}</template>
       </Column>
-      <Column header="Idle" style="width:80px" bodyClass="num-cell">
+      <Column header="Idle" style="width:60px" bodyClass="num-cell">
         <template #body="{ data }">{{ data.idle || '—' }}</template>
       </Column>
-      <Column header="In" style="width:70px" bodyClass="num-cell">
+      <Column header="In" style="width:55px" bodyClass="num-cell">
         <template #body="{ data }">{{ data.inMsgs?.toLocaleString() ?? 0 }}</template>
       </Column>
-      <Column header="Out" style="width:70px" bodyClass="num-cell">
+      <Column header="Out" style="width:55px" bodyClass="num-cell">
         <template #body="{ data }">{{ data.outMsgs?.toLocaleString() ?? 0 }}</template>
       </Column>
-      <Column header="Subs" style="width:60px" bodyClass="num-cell">
+      <Column header="Subs" style="width:50px" bodyClass="num-cell">
         <template #body="{ data }">{{ data.subscriptions ?? 0 }}</template>
       </Column>
     </DataTable>
@@ -380,7 +388,7 @@ function credentialTitle(row) {
               </div>
               <div class="row">
                 <span class="k">Account NKey</span>
-                <span class="v">{{ selectedRow.account || '—' }}</span>
+                <span class="v"><NKey :value="selectedRow.account" copyable /></span>
               </div>
               <div class="row">
                 <span class="k">Credential</span>
@@ -391,7 +399,7 @@ function credentialTitle(row) {
               </div>
               <div class="row">
                 <span class="k">User NKey</span>
-                <span class="v">{{ selectedRow.userKey || '—' }}</span>
+                <span class="v"><NKey :value="selectedRow.userKey" copyable /></span>
               </div>
               <div class="row"><span class="k">Started</span><span class="v">{{ formatTime(selectedRow.start) }}</span></div>
               <div class="row"><span class="k">Uptime</span><span class="v">{{ selectedRow.uptime || '—' }}</span></div>
@@ -406,9 +414,17 @@ function credentialTitle(row) {
             Subscriptions <span class="count">({{ selectedRow.subscriptions ?? 0 }})</span>
           </div>
           <div class="pane-body">
-            <div v-if="selectedRow.subscriptionsList?.length" class="subs-list">
-              <code v-for="s in selectedRow.subscriptionsList" :key="s" class="sub-item">{{ s }}</code>
-            </div>
+            <!-- A table in the Users panel's `.claims` shape, not a chip
+                 cloud: two adjacent detail panes were drawing a list of
+                 subjects two different ways. One column, because the family
+                 IS the leading token (CLAUDE.md § "Subject families") — a
+                 Family gutter would only restate the characters beside it. -->
+            <table v-if="sortedSubscriptions.length" class="claims subs-table">
+              <thead><tr><th>Subject</th></tr></thead>
+              <tbody>
+                <tr v-for="s in sortedSubscriptions" :key="s"><td><code>{{ s }}</code></td></tr>
+              </tbody>
+            </table>
             <span v-else class="lab-muted no-headers">no subscriptions</span>
           </div>
         </div>
@@ -563,6 +579,18 @@ function credentialTitle(row) {
 .conn-table :deep(.p-datatable-tbody > tr) {
   cursor: pointer;
 }
+
+/* The selected row keeps the accent tint and the inset bar for as long as the
+   detail pane below is open — it is the pane's anchor, not a hover state, so
+   it must survive the pointer leaving the table. Explicit rather than left to
+   Aura's default highlight, which is a flat fill with no left marker and does
+   not read as "this is the row the pane is showing". */
+.conn-table :deep(.p-datatable-tbody > tr.p-datatable-row-selected > td) {
+  background: rgba(0, 111, 255, 0.08);
+}
+.conn-table :deep(.p-datatable-tbody > tr.p-datatable-row-selected > td:first-child) {
+  box-shadow: inset 2px 0 0 var(--lab-accent, #006fff);
+}
 .conn-table :deep(.p-datatable-tbody > tr > td) {
   padding-top: 3px;
   padding-bottom: 3px;
@@ -711,20 +739,46 @@ function credentialTitle(row) {
   padding: 1px 8px;
   overflow-wrap: anywhere;
 }
-.subs-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 4px;
-}
-.sub-item {
-  font-size: 11px;
+/* Deliberately a copy of UsersPanel's `.claims` rather than an import: the two
+   panels have scoped styles and no shared stylesheet to hang this on. If a
+   third panel needs it, it moves to `shared/unifi-theme/` — two is not yet a
+   pattern. Same density, same header treatment, so the two adjacent detail
+   panes read as one design. */
+.claims {
+  width: 100%;
+  border-collapse: collapse;
   font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
-  background: var(--lab-bg);
-  border: 1px solid var(--lab-panel-border);
-  padding: 2px 6px;
-  border-radius: 3px;
-  color: var(--p-text-muted-color);
+  font-size: 11px;
+}
+.claims th {
+  text-align: left;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--p-text-disabled-color);
+  border-bottom: 1px solid var(--lab-panel-border);
+  padding: 1px 6px 2px;
+}
+.claims td {
+  padding: 1px 6px;
+  overflow-wrap: anywhere;
+}
+.claims tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+/* The key sits *beside* the value it identifies, not under it: stacking made
+   every row two lines tall to carry one short token, and the pair reads as one
+   value when it stays on one line. .pair-cell is what keeps it that way — the
+   two columns carrying a pair are sized to fit both halves and refuse to wrap
+   between them, paid for out of the widths of the columns around them. Every
+   column here is a fixed width on purpose: leaving one on `min-width` makes it
+   absorb all the table's slack, which is where the dead space beside Name came
+   from. Sized against the 1920px design viewport (CLAUDE.md § Frontend Design
+   System), not against the preview pane. */
+.cell-nkey {
+  margin-left: 6px;
+}
+:deep(td.pair-cell) {
+  white-space: nowrap;
 }
 .no-headers {
   font-size: 11px;

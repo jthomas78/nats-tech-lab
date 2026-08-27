@@ -11,6 +11,8 @@ import Textarea from 'primevue/textarea'
 import { useToast } from 'primevue/usetoast'
 import { computed, onMounted, reactive, ref } from 'vue'
 
+import NKey from './NKey.vue'
+
 import { createAccount, createBusinessUnit, getAccountsUsage, listAccounts, listBusinessUnits, reactivateAccount, suspendAccount, updateAccountLimits, updateBusinessUnit } from '../api'
 
 const toast = useToast()
@@ -492,7 +494,7 @@ const rowMenuItems = computed(() => {
       </Column>
       <Column header="Public Key">
         <template #body="{ data }">
-          <code class="pubkey">{{ data.publicKey.slice(0, 12) }}…</code>
+          <NKey :value="data.publicKey" />
         </template>
       </Column>
       <Column

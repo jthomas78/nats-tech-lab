@@ -37,3 +37,43 @@ export function compactCount(value) {
     maximumFractionDigits: 1,
   })
 }
+
+// ── NKey elision (BR-061) ────────────────────────────────────────────────────
+//
+// A NATS NKey is never rendered in full in the Admin UI. It renders as
+// `[FIRST5...LAST5]` — brackets and glyph included — beside whatever friendly
+// value identifies it.
+//
+// This is one helper rather than a per-panel `slice()` because it replaced four
+// different idioms for the same fact: `slice(0, 10)…` in ConnectionsPanel,
+// `slice(0, 12)…` in AccountsPanel's pubkey cell, a copy of the first in
+// AccountsOverviewPanel, and the full 56 characters in two detail panes. A rule
+// that binds every panel needs one place it can actually be enforced from.
+//
+// Ten characters is well past the point of collision for a stack with tens of
+// keys, and that is the whole job: an NKey here is for RECOGNISING a row, not
+// for verifying a key. Anything that needs the real value copies it (see
+// `NKEY_ELISION` consumers' copy affordance) rather than reading it off screen.
+
+/** The literal glyph, three periods — not `…`. Exported so specs can't drift. */
+export const NKEY_GLYPH = '...'
+
+// Below this there is nothing to elide: the two halves plus the glyph would be
+// longer than the key itself, so the "shortened" form would be the lie.
+const NKEY_MIN_LENGTH = 15
+
+/**
+ * `[ADD65 ... 2RTQM]` for a real NKey; the value unchanged for anything too
+ * short to elide, and an empty string for nothing at all.
+ *
+ * Callers pass raw keys. This does not validate that the input IS an NKey —
+ * `SharingPanel`'s edge labels, for instance, are a name OR a key and are
+ * deliberately NOT routed through here (BR-061), because bracketing a friendly
+ * name would say "this is a key" about something that isn't one.
+ */
+export function elideNKey(key) {
+  const s = String(key ?? '').trim()
+  if (!s) return ''
+  if (s.length < NKEY_MIN_LENGTH) return s
+  return `[${s.slice(0, 5)}${NKEY_GLYPH}${s.slice(-5)}]`
+}

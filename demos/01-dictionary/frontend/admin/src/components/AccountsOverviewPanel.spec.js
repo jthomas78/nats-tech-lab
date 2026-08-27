@@ -59,16 +59,20 @@ describe('AccountsOverviewPanel', () => {
     expect(names).toEqual(['PLATFORM', 'acme'])
   })
 
-  it('falls back to a truncated raw account NKey when no tenantLabel was resolved', async () => {
+  it('BR-061: falls back to an ELIDED raw account NKey when no tenantLabel was resolved', async () => {
+    const KEY = 'AAFUNRESOLVEDKEYHFMQ7ZJZ4VNJ7Y3LWRR2PZLK4WRLK3PJ4DHCQ2JD55'
     getNatsAccountActivity.mockResolvedValue({
-      accounts: [acct({ tenantLabel: undefined, account: 'AAFUNRESOLVEDKEY' })],
+      accounts: [acct({ tenantLabel: undefined, account: KEY })],
     })
     const wrapper = mountPanel()
     await flushPromises()
 
     const name = wrapper.find('.acct-name')
-    expect(name.text()).toBe('AAFUNRESOL…')
-    expect(name.attributes('title')).toBe('AAFUNRESOLVEDKEY')
+    expect(name.text()).toBe('[AAFUN...2JD55]')
+    // The title used to carry all 56 characters — the full render the rule
+    // forbids, merely one hover deep.
+    expect(name.attributes('title')).toBeUndefined()
+    expect(wrapper.html()).not.toContain(KEY)
   })
 
   it('tags reserved accounts (platform/sys) but not tenant accounts', async () => {

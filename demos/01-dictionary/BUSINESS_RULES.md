@@ -85,6 +85,22 @@ Split by domain so a rule add/edit only requires reading its own file:
   row, matching BR-058's `Credential` / `User NKey` pair. The credential
   *naming* convention those rules make visible is not itself a rule — see
   `ARCHITECTURE-ACCOUNTS.md` § "Credential naming"; nothing enforces it yet.
+  BR-060 (Phase 50c, IMPLEMENTED 2026-08-27) is the Admin UI's Users panel:
+  the roster comes from accounts-service's mint-time registry (BR-AC38/AC40)
+  and the live connection and subscription counts from `/connz`, joined in
+  the browser on the user NKey — BR-058's key, for BR-058's reason — so the
+  two halves fail independently and a `/connz` outage empties the counts
+  without emptying the roster. Health is derived from the JWT and `status`
+  alone (`pending` / `valid` / `expiring` / `expired`), never from a
+  connection; the claims table renders BR-AC41's resolved permissions, with
+  the grants a scoped signing key discarded struck through beneath them.
+  BR-061 (Phase 50e, IMPLEMENTED 2026-08-27) applies across every panel of
+  the four above and every future one: an NKey is never rendered in full,
+  only as `[FIRST5...LAST5]` — and never behind a `title` tooltip either,
+  which is why the specs assert an absence (no rendered key, no `[title]`
+  carrying one) rather than a format. It relocates BR-058's user NKey off
+  the cell tooltip and into the cell. The clipboard may carry all 56
+  characters where the screen may not, from a detail pane only.
 - **[BUSINESS_RULES-REFDATA.md](BUSINESS_RULES-REFDATA.md)** — Reference Data
   Service (BR-D01–BR-D48, BR-D39 being the Phase 28 `obs.trace.*` mirror of
   BR-036 and BR-D45 (Phase 43a, CONFIRMED) pointing this service's `evt.*`
@@ -129,9 +145,23 @@ Split by domain so a rule add/edit only requires reading its own file:
   `notify.accounts.account.*` publishes. BR-AC36 (Phase 48a, APPROVED
   2026-08-26 — not yet implemented) retrofits that same remap onto the
   `obs.trace.>` import, which BR-AC34 explicitly left out of scope; the
-  consuming side is BR-051–054, SHIPPING file.
+  consuming side is BR-051–054, SHIPPING file. BR-AC38 and BR-AC39
+  (Phase 50a, IMPLEMENTED 2026-08-27) add the user registry that makes a
+  Users panel possible at all — nothing in an operator-mode stack stores a
+  user, so this service records one at mint time (write `pending`, sign,
+  flip to `active`) and converges on start over the bootstrap `.creds`
+  directory for users `nsc` minted before it ever ran. BR-AC40 and BR-AC41
+  (Phase 50b, IMPLEMENTED 2026-08-27) read that registry back over exactly two
+  browser-facing subjects, `api._platform.accounts.user.{list,get}.v1` —
+  `api.*` rather than `rpc.*` because the consumer is a browser, mounted on
+  the PLATFORM connection only so the account boundary is the authorization,
+  and returning metadata only, never a seed or a signed token — and resolve a
+  user's permissions before reporting them, since a scoped signing key makes
+  the account's template authoritative and discards the JWT's own grants.
   Rules live in `backend/accounts-service/accounts/handler.go`,
-  `provisioner.go`, `store.go`, `audit.go`, and `jwt.go`.
+  `provisioner.go`, `store.go`, `users.go`, `users_backfill.go`,
+  `userclaims.go`, `usersrpc.go`,
+  `audit.go`, and `jwt.go`.
 - **[BUSINESS_RULES-PRICING.md](BUSINESS_RULES-PRICING.md)** — Pricing
   Service (BR-P01–BR-P25, the last being the Phase 28 `obs.trace.*` mirror of
   BR-036): all three of the ported source aggregates —

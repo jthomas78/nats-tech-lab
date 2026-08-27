@@ -16,6 +16,7 @@ import MessagesPanel from './components/MessagesPanel.vue'
 import RpcPanel from './components/RpcPanel.vue'
 import ServicesPanel from './components/ServicesPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
+import UsersPanel from './components/UsersPanel.vue'
 import TelemetryStrip from './components/TelemetryStrip.vue'
 import IconAccounts from './components/icons/IconAccounts.vue'
 import IconConnections from './components/icons/IconConnections.vue'
@@ -28,6 +29,7 @@ import IconServices from './components/icons/IconServices.vue'
 import IconSettings from './components/icons/IconSettings.vue'
 import IconStreams from './components/icons/IconStreams.vue'
 import IconTables from './components/icons/IconTables.vue'
+import IconUsers from './components/icons/IconUsers.vue'
 import { useDictionaryStore } from './stores/dictionary'
 import { useTenantStore } from './stores/tenant'
 import { useUiStore } from './stores/ui'
@@ -84,12 +86,22 @@ const sections = [
   {
     group: 'System',
     sections: [
-      // Accounts moved here from PLATFORM (Phase 45) once its Overview tab
-      // absorbed the standalone Account Activity panel below — Accounts is
-      // now the one home for both the business roster and NATS-account
-      // health, so a PLATFORM item displaying SYSTEM content stopped making
-      // sense. First entry, above the NATS eyebrow group it partly reports on.
-      { items: [{ key: 'accounts', label: 'Accounts', icon: IconAccounts }] },
+      // Identity (Phase 50c) — the two rosters of who exists on this stack,
+      // in containment order: an account holds users. Accounts was a bare
+      // ungrouped item here until Users arrived beside it; one item needs no
+      // eyebrow, two related ones do. It moved here from PLATFORM in Phase
+      // 45, once its Overview tab absorbed the standalone Account Activity
+      // panel — Accounts is the one home for both the business roster and
+      // NATS-account health, so a PLATFORM item displaying SYSTEM content
+      // stopped making sense. The group sits above the NATS eyebrow group it
+      // partly reports on.
+      {
+        eyebrow: 'Identity',
+        items: [
+          { key: 'accounts', label: 'Accounts', icon: IconAccounts },
+          { key: 'users', label: 'Users', icon: IconUsers },
+        ],
+      },
       {
         eyebrow: 'NATS',
         items: [
@@ -117,6 +129,7 @@ const SUBTITLES = {
   rpc: 'rpc.* + api.* request/reply traffic · rpc.* replays last 10 min, api.* live only',
   pubsub: 'evt.* + notify.* publish traffic across every tenant · best-effort, last 15 min',
   connections: 'nats connections · all accounts',
+  users: 'nats users · credentials and live sessions, all accounts',
   services: 'nats micro services · $SRV.* discovery',
   log: 'nats server log · level + text filter, no rotation',
   tables: 'canonical Postgres tables by schema',
@@ -260,6 +273,16 @@ onUnmounted(() => {
     <!-- System — platform-global configuration (BR-AC20) -->
     <section v-else-if="activeView === 'settings'" class="group" data-testid="settings-view">
       <SettingsPanel />
+    </section>
+
+    <!-- Users — the credential/session roster from accounts-service's user
+         registry, joined to /connz for live counts (Phase 50c, BR-060).
+         UsersPanel owns its own internal scroll regions and detail split, so
+         the section is flush. -->
+    <section v-else-if="activeView === 'users'" class="group group--flush" data-testid="users-view">
+      <div class="lab-panel streams-panel">
+        <UsersPanel />
+      </div>
     </section>
 
     <!-- Accounts — fleet activity overview (Phase 45, absorbing the old

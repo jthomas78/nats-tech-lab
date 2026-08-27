@@ -95,6 +95,29 @@ export function getRefdataContexts(tenant) {
   )
 }
 
+// ── NATS users (Phase 50b/50c, BR-AC40) ──────────────────────────────────────
+// The user registry accounts-service writes at mint time (BR-AC38), read back
+// over the same PLATFORM browser connection as the refdata call above. These
+// are the only two accounts-service subjects MintAdminToken allowlists, and
+// they are granted individually rather than as a prefix — so a typo here is a
+// permissions error from the server, not a call to a neighbouring endpoint.
+//
+// Deliberately NOT the /api/platform/ REST proxy the account calls below use:
+// a browser business path in this repo is NATS-only (Phases 31–34), and the
+// registry never had a REST surface to begin with.
+export function listNatsUsers() {
+  return usePlatformConnection().request('api._platform.accounts.user.list.v1', {}).then(
+    (body) => body.users ?? [],
+  )
+}
+
+// One user's claims, resolved against its issuing signing key (BR-AC41) — the
+// drill-in read. Separate from the list because permissions are the expensive
+// half and no roster row displays them.
+export function getNatsUser(publicKey) {
+  return usePlatformConnection().request('api._platform.accounts.user.get.v1', { publicKey })
+}
+
 // ── Accounts (Phase 14c) ───────────────────────────────────────────────────────
 // Dynamic tenant provisioning via accounts-service, proxied at /api/platform/
 // (nginx.conf / vite.config.js inject the shared basic-auth secret — the
