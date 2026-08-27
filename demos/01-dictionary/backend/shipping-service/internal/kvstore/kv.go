@@ -56,6 +56,29 @@ func (s *Store) EnableNotify(nc *nats.Conn, log *slog.Logger) {
 	s.notifier = natsnotify.New(nc, log, natsnotify.WithObservation(nc))
 }
 
+// Ensure creates the bucket now rather than on first Put/Get/Keys.
+//
+// Every other operation on this Store provisions lazily, which is fine for
+// correctness but leaves a bucket that has simply never been written
+// indistinguishable, from outside, from one that does not exist: the Admin
+// UI's cross-account reader (observability-service's
+// GET /api/kv/buckets/{account}/{bucket}/entries) answers ErrBucketNotFound
+// with a 400, so a tenant with no ships yet made the Admin UI log a red
+// "unknown bucket: ships" on every page load. Which of a tenant's three
+// buckets happened to exist was decided by whichever query ran first, not by
+// anything about the tenant — "container" and "meta" were routinely present
+// and "ships" was not.
+//
+// Calling this at tenant-provisioning time makes the three buckets an
+// invariant of a provisioned tenant, alongside the SHIPPING stream that is
+// already created eagerly beside them. It is deliberately NOT folded into
+// New: most of this package's call sites are tests that want the lazy
+// behaviour and have no ctx to give.
+func (s *Store) Ensure(ctx context.Context) error {
+	_, err := s.bucket(ctx)
+	return err
+}
+
 // bucket returns the KV bucket, creating it on first call.
 func (s *Store) bucket(ctx context.Context) (jetstream.KeyValue, error) {
 	s.mu.Lock()

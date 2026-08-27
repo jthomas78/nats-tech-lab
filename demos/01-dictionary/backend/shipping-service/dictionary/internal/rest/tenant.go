@@ -156,8 +156,18 @@ func buildTenantResources(ctx context.Context, nc *nats.Conn, tenant string, dep
 	// Phase 23: the Admin UI's KV inspector watches these over
 	// notify.{context}.kv.{bucket}.{key}.changed instead of the SSE
 	// watchKVBucket handler it replaces.
+	//
+	// Ensure provisions all three eagerly, so "this tenant has no ships yet"
+	// reads as an empty bucket rather than a missing one — see
+	// kvstore.Store.Ensure. Same eager treatment as CreateStream above;
+	// without it, which of the three exists is decided by whichever query a
+	// given stack happened to run first, and the KV inspector 400s on the
+	// rest.
 	for _, kv := range []*kvstore.Store{kvShips, kvContainers, kvMeta} {
 		kv.EnableNotify(nc, deps.Log)
+		if err := kv.Ensure(ctx); err != nil {
+			return nil, fmt.Errorf("provision kv bucket for tenant %q: %w", tenant, err)
+		}
 	}
 
 	projectors, err := registerProjectors(ctx, js, kvShips, kvContainers, kvMeta, nc, deps.ShipRepo, deps.ContainerRepo, deps.Log)

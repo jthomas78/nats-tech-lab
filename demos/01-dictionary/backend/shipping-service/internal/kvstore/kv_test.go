@@ -52,6 +52,33 @@ var _ = Describe("KVStore — per-tenant bucket with context-prefixed keys", fun
 		store = kvstore.New(js, "ships")
 	})
 
+	Describe("Ensure()", func() {
+		It("creates the bucket without writing anything, so a never-written bucket still exists", func() {
+			// The defect this covers: the Admin UI's cross-account reader
+			// answers a not-yet-created bucket with 400 "unknown bucket", so
+			// a freshly provisioned tenant with no ships logged an error on
+			// every page load. After Ensure the bucket exists and is empty.
+			fresh := kvstore.New(js, "ensure-probe")
+
+			_, err := js.KeyValue(ctx, "ensure-probe")
+			Expect(err).To(MatchError(jetstream.ErrBucketNotFound),
+				"precondition: New() alone must not provision the bucket")
+
+			Expect(fresh.Ensure(ctx)).To(Succeed())
+
+			kv, err := js.KeyValue(ctx, "ensure-probe")
+			Expect(err).NotTo(HaveOccurred())
+			status, err := kv.Status(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(status.Values()).To(BeZero(), "Ensure must not write a placeholder entry")
+		})
+
+		It("is idempotent — a second call on an existing bucket succeeds", func() {
+			Expect(store.Ensure(ctx)).To(Succeed())
+			Expect(store.Ensure(ctx)).To(Succeed())
+		})
+	})
+
 	Describe("Put / Get", func() {
 		It("stores and retrieves a value by context and key", func() {
 			_, err := store.Put(ctx, "acme-pacific-fleet", "ship.SHIP1", []byte(`{"id":"SHIP1"}`))
