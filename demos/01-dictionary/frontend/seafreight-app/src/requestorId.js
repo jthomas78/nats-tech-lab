@@ -14,26 +14,25 @@
 //
 // BR-041: this value is self-declared and carried for observability only. No
 // handler in any service may branch on it.
+
+import { newInstanceID } from '@identity/instanceId.js'
+
 export const REQUESTOR_HEADER = 'Nats-Requestor'
 
 export const BROWSER_ID_STORAGE_KEY = 'seafreight-app.browserInstanceId'
-
-function newBrowserID() {
-  return crypto.randomUUID().replaceAll('-', '').slice(0, 16)
-}
 
 function loadOrCreateBrowserID() {
   try {
     const stored = localStorage.getItem(BROWSER_ID_STORAGE_KEY)
     if (/^[0-9a-f]{16}$/.test(stored ?? '')) return stored
 
-    const id = newBrowserID()
+    const id = newInstanceID()
     localStorage.setItem(BROWSER_ID_STORAGE_KEY, id)
     return id
   } catch {
     // Storage may be disabled by browser privacy settings. Requests still need
     // a valid observability identity even though it cannot survive a refresh.
-    return newBrowserID()
+    return newInstanceID()
   }
 }
 

@@ -16,6 +16,10 @@ export default defineConfig({
       '@refdata': fileURLToPath(new URL('../../shared/refdata', import.meta.url)),
       // Demo-01 shared NATS WebSocket URL resolver (Phase 45).
       '@nats-shared': fileURLToPath(new URL('../../shared/nats', import.meta.url)),
+      // Demo-01 shared browser instance-ID generator, hoisted out of the
+      // three apps' own requestorId.js so the secure-context fix behind it
+      // lives in one place (see shared/identity/instanceId.js).
+      '@identity': fileURLToPath(new URL('../../shared/identity', import.meta.url)),
     },
   },
   server: {

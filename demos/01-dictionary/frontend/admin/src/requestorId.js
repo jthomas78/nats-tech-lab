@@ -14,10 +14,13 @@
 //
 // BR-041: this value is self-declared and carried for observability only. No
 // handler in any service may branch on it.
+
+import { newInstanceID } from '@identity/instanceId.js'
+
 export const REQUESTOR_HEADER = 'Nats-Requestor'
 
 // TAB_ID is the instance half, shared by every identity below.
-export const TAB_ID = crypto.randomUUID().replaceAll('-', '').slice(0, 16)
+export const TAB_ID = newInstanceID()
 
 // requestorID qualifies TAB_ID with the app name shared by its single NATS
 // connection and its REST calls.
