@@ -61,3 +61,4 @@
 - [Phase 36 Tech Lab Operator rebrand](phase36_tech_lab_operator_rebrand.md) — 36.1 + 36.2 IMPLEMENTED 2026-08-19 (refdata → "Tech Lab Operator" + Trading Partners migrated from admin, own tenant-scoped NATS connection)
 - [Accounts Overview/Sharing redesign](accounts_overview_pulse_design.md) — IMPLEMENTED Phase 45 (2026-08-18): ring buffer + duration selector (BR-043) + gated search (BR-044), live-verified
 - [Mockup fidelity: functional capability](mockup_fidelity_functional_capability.md) — design-gate mockups must show real create/edit affordances verified against the running app, not read-only layout
+- [Admin UI design viewport](admin_ui_design_viewport.md) — UIs target **1920x1080**; verify layout at that width, not the preview pane's default

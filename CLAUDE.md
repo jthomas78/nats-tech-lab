@@ -98,6 +98,20 @@ around it.
   badges) live as local theme components/containers in
   `.vitepress/theme/`, not forked into `shared/unifi-theme/` unless a
   second app needs them.
+- **Design viewport — 1920x1080. Check layout there, always.** Every UI
+  in this repo is designed for that size, so it is the width any layout
+  judgement has to be made at: column widths, table density, wrapping,
+  dead space, whether something needs to scroll. This matters because the
+  Browser pane opens at roughly 800px and its `resize_window` `desktop`
+  preset returns the tab to the *pane's* size, not to a design width — so
+  the default view is never the target, and sizing decisions taken there
+  come out cramped on the real thing. **Before assessing or reporting on
+  any layout, call `resize_window` with `{width: 1920, height: 1080}`**,
+  and reset with the `desktop` preset when finished. Narrower widths are
+  worth a look for graceful degradation, but they are not what the design
+  is *for*: don't spend column budget or introduce horizontal scroll to
+  satisfy them, and don't report a constraint measured at a narrower
+  width as if it were a real limit.
 
 ### Generated reports, sketches, and diagrams
 

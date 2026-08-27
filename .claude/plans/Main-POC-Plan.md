@@ -968,6 +968,65 @@ needs the structural defence, not just the one where the symptom was noticed.
 
 ---
 
+### Phase 50 — Completed (archived 2026-08-27)
+
+Full detail archived in [Main-POC-Plan-ARCHIVE.md](Main-POC-Plan-ARCHIVE.md)
+(not read into context by default — open only when you need the original
+rationale, the design decisions, or the verification log).
+
+- [x] Phase 50 (IMPLEMENTED 2026-08-27) — **the Admin UI can list NATS users,
+      which nothing in the stack could do before.** An operator-mode stack
+      stores no users anywhere: minting keeps nothing, the resolver holds
+      account JWTs only, and `/connz` knows only who is connected right now.
+      So "list users" meant *build a registry*, not *read one*.
+- [x] **50a** — the registry (BR-AC38, BR-AC39). `accounts.users` in
+      accounts-service's schema, written at mint **before** the credential is
+      returned, so a mint path with no registry fails at construction rather
+      than issuing a credential nothing can account for. Users minted outside
+      the service by `nsc` (`platform`, `sys`, `acme`, `globex`,
+      `shipping-admin`, `observability`) converge via a creds-dir backfill on
+      start — idempotent, no re-sign, on BR-AC37's model.
+- [x] **50b** — the read path (BR-AC40, BR-AC41).
+      `api._platform.accounts.user.{list,get}.v1` — **`api.*`, not the
+      `rpc.*` the design gate proposed**: the consumer is a browser, and a
+      browser credential is never granted `rpc.>`. Mounted on the PLATFORM
+      connection only, so "PLATFORM-only" is a server-enforced account
+      boundary rather than a handler check. `.get.v1` resolves **effective**
+      permissions: under a scoped signing key the key's template is what the
+      server enforces and the JWT's own grants are returned separately, to be
+      shown struck through.
+- [x] **50c** — the panel (BR-060). `UsersPanel.vue`, the `Identity` eyebrow
+      group (Accounts + Users, in containment order), live counts joined from
+      `/connz` in the browser. Two design-gate proposals were reconciled
+      during the build and the reasons recorded in BR-060: Health's `unused`
+      state was dropped as connection-derived (the rule's own clause forbids
+      Health reading `/connz`) with BR-AC38's `pending` in its place, and the
+      "roster never complete" caveat narrowed to the paged `/connz` join,
+      since 50a's registry made sessions enumerable.
+- [x] **50e** — detail-pane and presentation pass (BR-061, BR-058 amendment).
+      **An NKey is never rendered in full anywhere in the Admin UI** —
+      `[FIRST5...LAST5]`, one helper and one component, enforced as an
+      *absence* (no full key in the render, no `title` carrying one), which is
+      what surfaced a fourth hover tooltip nobody had catalogued. Detail panes
+      get click-to-copy; table cells don't. A live review then corrected the
+      first cut: the key sits *beside* its value rather than stacked, the
+      glyph is unspaced, and every column moved to a fixed width — the Name
+      column's lone `min-width` had been absorbing all the table's slack,
+      which was the real cause of the dead space beside it.
+- [x] **50d** — docs. `ARCHITECTURE-ACCOUNTS.md` § "NATS user registry"
+      (including the `### Scoped signing keys and effective permissions`
+      subsection `ARCHITECTURE-ADMIN.md` had been citing by name since the
+      design gate without it existing), and §4.10 + §1's `Identity` group in
+      `ARCHITECTURE-ADMIN.md`.
+
+**Worth keeping:** an empty permission set on a NATS user means
+*unrestricted*, not *locked out* — a bare `nsc add user` grants everything
+within the account, which is why `platform`/`sys`/`acme`/`globex` show no
+claims in the drill-in. The pane cannot distinguish that from "nothing
+granted", because for a user JWT the two genuinely are the same state.
+
+---
+
 ### Phase 60 (following on from Phase 24; 24a DONE, 24b/24c not started) — Credential Lifecycle Hardening: Hermetic Tests, Volume-Backed Creds, Runtime Tenant Provisioning
 
 > **Renumbered 2026-08-17** from Phase 24 to Phase 40, alongside Phase

@@ -33,7 +33,10 @@ own deeper pieces of it:
   all share.
 - [ARCHITECTURE-ACCOUNTS.md](ARCHITECTURE-ACCOUNTS.md) owns the NATS
   operator-mode trust chain and the "two PLATFORM connections" split that
-  determines which credential each snapshot endpoint uses.
+  determines which credential each snapshot endpoint uses — and, since Phase
+  50, the **NATS user registry** (why one had to be built, record-at-mint,
+  the bootstrap backfill, and the scoped-signing-key permission resolution)
+  that feeds the Users panel in §4.10.
 - [ARCHITECTURE.md](ARCHITECTURE.md) owns the CQRS shape taxonomy (Shape
   A/B/C) — no longer visualized by a panel in this group; the CQRS Shapes
   panel that once did was retired (§4.8's history).
@@ -67,6 +70,29 @@ All seven are wired in `App.vue`'s `<template>` as `v-else-if="activeView === '<
 `v-else-if` branch in this list. `GET /api/nats/account-activity` is
 unchanged; Phase 45 additionally added
 `GET /api/nats/account-activity/history` (BR-043) alongside it.
+
+### The `Identity` group, and why one of its panels is documented here
+
+SYSTEM gained a second eyebrow group in Phase 50c, sitting **above** the
+`NATS` group it partly reports on:
+
+| Panel | Nav key | Component(s) | Backend subject(s) |
+|---|---|---|---|
+| Accounts | `accounts` | `AccountsView.vue`, `AccountsPanel.vue`, `AccountsOverviewPanel.vue` | `GET /api/platform/accounts`, `GET /api/nats/account-activity` |
+| Users | `users` | `UsersPanel.vue` | `api._platform.accounts.user.list.v1`, `.get.v1` + the shared `/connz` fetch |
+
+`Accounts` had been a bare ungrouped SYSTEM item since Phase 45; one item
+needs no eyebrow, two related ones do, and the two are in containment order
+— an account holds users.
+
+**Users is documented in §4.10 of this doc despite not being in the `NATS`
+group**, which is a deliberate exception rather than an oversight. It is
+built from §2's design system, mixes §3.1's archetypes, and its drill-in *is*
+§4.1's detail pane — splitting it into a doc of its own would have separated
+a panel from the four sections that explain how it was built, to honour a
+nav boundary. What is *not* here is the registry behind it: that is
+accounts-service's, and lives in
+[ARCHITECTURE-ACCOUNTS.md](ARCHITECTURE-ACCOUNTS.md) § "NATS user registry".
 
 ---
 
@@ -158,6 +184,36 @@ One vocabulary, reused rather than reinvented per panel:
 | Critical / needs action | `--p-red-400`/`#f87171`, `.errv`/`.err-line`, `.dot.crit` | Slow-consumer alarm, error counts, `[ERR]` log lines, RPC error status |
 | Interactive accent | `--lab-accent` `#006fff` | Nav selection, positional subject-token highlighting, active facet chips |
 | Read-only / snapshot-only | muted gray, `snapshot` `Tag` | Streams' per-stream header tag (no live tail exists for that panel — see §4.6) |
+
+### 2.4 NKeys are always elided (BR-061)
+
+**This binds every panel in this group, including ones not yet written.** An
+NKey is 56 characters, and no panel here renders one in full. The single way to
+put one on screen is `<NKey :value="…" />`
+(`admin/src/components/NKey.vue`), which draws `elideNKey()`'s
+`[FIRST5...LAST5]` in 9px mono at `#8a9099` — first five because the leading
+character carries the type (`A` account, `U` user, `O` operator), last five to
+tell two keys of the same type apart. The glyph is three literal periods with
+no spaces around them, not `…`. It sits **beside** the value it identifies on
+the same line, never stacked under it; the columns carrying such a pair take
+`bodyClass="pair-cell"` and a width that fits both halves.
+
+Two constraints that are easy to violate by accident:
+
+- **No `title` tooltip may carry the full key.** A tooltip is the full render
+  one hover deep, and it is worse than a visible one — unreachable by keyboard
+  and on touch, while still sitting in the DOM. Three of the four call sites
+  this rule replaced were exactly that. The specs assert the absence (rendered
+  HTML does not contain the key; no `[title]` carries one), so a panel that
+  reintroduces one fails without anyone recalling the rule.
+- **`copyable` is for detail panes only.** The clipboard may carry all 56
+  characters; the screen may not. A table column exists so an operator can
+  *recognise* a row, not extract a key from one, so cells pass no copy control.
+
+`SharingPanel.vue`'s account field is deliberately outside this — its input is
+a name *or* a key, and eliding a name would corrupt what the operator typed.
+
+Full rule and rationale: `BUSINESS_RULES-SHIPPING.md` § BR-061.
 
 ---
 
@@ -937,6 +993,79 @@ KV, per "Resync, not a one-shot bootstrap" in §3.1 — so a dropped connection
 gets an amber "this view is frozen, not losing data" note, not the red
 "some messages may be missing" it used to get. Only a failed snapshot read
 claims incompleteness, because only it produces any.
+
+### 4.10 Users (Phase 50 — SHIPPED 2026-08-27)
+
+Nav key `users`, in the **`Identity`** eyebrow group rather than this doc's
+`NATS` one — see §1's Identity note for why a panel documented here lives
+next door.
+
+![Users — the roster and both drill-in states](images/admin-users-panel-mockup.png)
+
+**The roster lists two kinds of user in one table.** `credential` is an
+nsc/`accounts-service`-minted user with a `.creds` file behind it; `session`
+is a short-TTL token minted for a browser (`auth/token.go`'s
+`mintUserToken`). Kind is a column and a segmented filter, not a footnote,
+because the two behave differently in the one way that matters to a roster:
+a session's TTL is measured in minutes, so most of what this table shows at
+any moment is churn, and an operator looking for a *credential* wants the
+churn out of the way.
+
+**There was no user list to read, which is why 50a exists.** The registry
+`accounts-service` writes at mint time is the whole reason this panel can
+exist; its design, the record-at-mint rule and the bootstrap backfill are
+[ARCHITECTURE-ACCOUNTS.md](ARCHITECTURE-ACCOUNTS.md) § "NATS user registry",
+not repeated here. What belongs to this panel is the **join**: the roster
+arrives over `api._platform.accounts.user.list.v1` with no connection data
+on it, and the `Conns`/`Subs` columns come from the same `/connz` fetch the
+Connections panel already makes, matched on the user NKey (§4.1's
+`userKey`). The Admin UI does the join rather than accounts-service, which
+keeps accounts-service free of an HTTP-monitor dependency for what is a
+presentation concern.
+
+**Health reads the JWT, never the connection (BR-060).** Four values, in the
+order `healthOf()` tests them: `pending` (BR-AC38's recorded-but-unreturned
+mint), `valid` (no expiry, or expiry more than an hour out), `expired`, and
+`expiring` (within an hour). A credential nothing is connected with is *not*
+unhealthy — it is a valid credential sitting on disk, which is the resting
+state of most rows here, and the `Conns` column already says zero.
+
+> **The design's `unused` state was dropped during the build, and `pending`
+> took its slot.** "Never connected" is a fact about `/connz`, and admitting
+> it into Health would make one column mean two incompatible things at once
+> — which the rule's own "never reads the connection" clause forbids. The
+> reconciliation is recorded in BR-060 itself.
+
+**The `/connz` join is honest about being partial.** `/connz` is paged, so a
+roster larger than the page carries live counts for only part of itself; the
+panel renders an amber `partial · /connz paged` note beside the Connected
+card rather than presenting a partial join as a complete one. This replaced
+the design's broader "a session roster is never presented as complete"
+caveat, which stopped being true once 50a's registry recorded sessions at
+mint: the roster *is* complete, and it is the connection join that isn't.
+
+**The drill-in reuses §4.1's detail pane, and shows *effective*
+permissions.** Clicking a row opens the same bottom pane the Connections
+panel opens on a connection: identity key/values on the left, claims on the
+right. The effective/discarded resolution is BR-AC41's and belongs to
+accounts-service — see ARCHITECTURE-ACCOUNTS.md § "Scoped signing keys and
+effective permissions"; the pane's job is only to render what it is handed,
+leading with the enforced set and striking through the discarded grants in
+amber. Its header line states which it is showing (`Effective permissions`
+vs `Claim permissions`), because the two look identical otherwise.
+
+One thing the pane cannot currently distinguish: **unrestricted** and
+**nothing granted** both render as `no permissions recorded`. For a NATS user
+JWT those genuinely are the same state — a bare `nsc add user` grants
+everything within the account — so it is not wrong, but it is the least
+informative wording in exactly the case an operator most often wants
+confirmed. Worth a word rather than a redesign if it ever irritates.
+
+Editable source:
+[admin-users-panel-mockup.html](../../../../demos/01-dictionary/diagrams/admin-users-panel-mockup.html);
+re-export with
+`node diagrams/export-html-png.mjs diagrams/admin-users-panel-mockup.html ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/admin-users-panel-mockup.png 1240 --clip=".mock"`
+from `demos/01-dictionary/`.
 
 ---
 

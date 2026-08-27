@@ -927,6 +927,137 @@ sequenceDiagram
 
 ---
 
+## NATS user registry (Phase 50)
+
+> Scope note: this section is about **NATS users** — the things that hold a
+> `.creds` file or a browser token and authenticate into an account. The
+> "User account lifecycle" section immediately below is about **human
+> operators** (BR-UA01–UA10) and is a different axis entirely. A single
+> person maps to many NATS users; a NATS user maps to a process as often as
+> to a person.
+
+**Nothing in an operator-mode stack stores a user, which is why a registry
+had to be built rather than read.** The three places one might look all come
+up empty by design:
+
+- `Provisioner.CreateUser` mints a JWT and a seed, returns the `.creds` blob
+  and keeps nothing.
+- The **resolver holds account JWTs only**. A user JWT is verified by
+  signature at connect time and is never written down server-side, so
+  `$SYS.REQ.ACCOUNT.<pub>.CLAIMS.LOOKUP` cannot enumerate users any more than
+  the resolver can — and it is account-scoped besides.
+- `/connz?auth=true` knows only who is **connected right now**.
+
+So "list the users" is *create a registry*, not *read one* — `accounts.users`
+in accounts-service's own Postgres schema
+([accounts/users.go](../../../../demos/01-dictionary/backend/accounts-service/accounts/users.go),
+table in `store.go`'s `Migrate`), one row per minted user: public NKey, name,
+account + account key, issuer key, kind, status, source, issued/expires, and
+the claims' own permissions as JSONB.
+
+**The registry records what this service minted; it is not an authority over
+what NATS will accept.** Two consequences that matter operationally:
+
+- **Deleting a row is a registry operation, never a revocation.** A signed
+  user JWT that has escaped is revoked only by adding its NKey to the
+  account's revocation list and pushing the account claims update
+  (`$SYS.REQ.CLAIMS.UPDATE` — `Provisioner.pushClaimsUpdate`).
+- **A row can exist for a credential nobody ever received.** BR-AC38 records
+  the mint *before* the credential is returned, so a mint that fails after
+  the record leaves a `pending` row. That is the honest state and the Admin
+  UI shows it as its own health value rather than hiding it.
+
+**Record-at-mint, not record-afterwards (BR-AC38).** Recording is part of
+minting, so a mint path constructed without a registry fails at construction
+(`NewProvisioner`) or at the call (`auth`'s `Mint*` functions) with
+`ErrNoUserRegistry` — never by silently issuing a credential nothing can
+account for. Both mint paths go through it: `Provisioner.CreateUser` for
+`.creds` files and `auth.mintUserToken` for browser sessions.
+
+**Bootstrap users are backfilled on start (BR-AC39).**
+`nats/bootstrap-operator.sh` creates `sys`, `acme`, `globex`, `platform`,
+`shipping-admin` and `observability` with `nsc add user` before
+accounts-service has ever run; the only trace they leave is a `.creds` file
+on the shared volume. `BackfillCredsDirUsers` reads that directory on every
+start and records each decodable file it doesn't already know
+(`users_backfill.go`, called from `cmd/main.go`). It is the same idempotent,
+no-re-sign, no-claims-update shape BR-AC37 established for PLATFORM's
+cross-account imports: a healthy stack writes **zero rows** on its second
+start, and a stray or unreadable file is logged and skipped rather than
+failing the boot. Backfilled rows carry `source: bootstrap`, which is what
+lets the Admin UI distinguish "nsc made this" from "we made this".
+
+### Reading the registry — `api.*`, not `rpc.*`
+
+```
+api._platform.accounts.user.list.v1   → roster, metadata only
+api._platform.accounts.user.get.v1    → one user's claims (drill-in)
+```
+
+Both are **PLATFORM-only, cross-tenant, read-only** (BR-AC40), and neither
+ever returns a seed or a `.creds` body — a list is a roster, and permissions
+are a drill-in.
+
+Two transport choices here are deliberate departures worth stating, because
+both contradict a default that holds elsewhere in this repo:
+
+- **`api.*`, not `rpc.*`.** Phase 50's design gate provisionally named these
+  `rpc._platform.accounts.user.*`. The consumer is a browser talking to NATS
+  directly with no service in between, and **a browser credential is never
+  granted `rpc.>`** anywhere in this repo (CLAUDE.md § "Subject families").
+  The subject family follows the consumer.
+- **Not REST.** accounts-service's *provisioning* API is REST, but Phases
+  31–34 made browser business paths NATS-only and Phase 34's mux allowlist
+  (BR-040) exists to keep them that way. The Phase 33 refdata admin REST
+  exemption does not extend here — it exists because accounts-service calls
+  refdata server-to-server with no NATS path available, which is not the
+  case for a browser panel.
+
+`_platform` is a fixed literal rather than a wildcard: the registry is
+cross-tenant and one operator call covers every account, so there is no
+per-tenant subject to route by (the same reasoning behind refdata-service's
+`ContextListSubject`). The adapter is mounted on the **PLATFORM connection
+only**, which is what makes BR-AC40's "PLATFORM-only" a server-enforced
+account boundary rather than a handler-level check.
+
+### Scoped signing keys and effective permissions
+
+**A user JWT's own permissions are not necessarily the permissions the server
+enforces.** When an account signs a user with a **scoped** signing key, the
+server applies that key's permission template and **discards everything the
+user's own claims asked for**. A claims view that rendered the recorded JWT
+verbatim would therefore show an operator access the user does not have.
+
+BR-AC41's shape, resolved by `UserClaimsReader`
+([accounts/userclaims.go](../../../../demos/01-dictionary/backend/accounts-service/accounts/userclaims.go)):
+
+| Field | Meaning |
+|---|---|
+| `effective` | what the server actually enforces — the scope template when the issuer is scoped, the JWT's own grants otherwise |
+| `jwtGrants` | populated **only** when the two differ, i.e. only when a scoped key discarded them |
+| `unresolved` | this service could not establish which of the two it is looking at |
+
+The client never has to decide for itself whether the JWT's grants apply: if
+`jwtGrants` is present, they don't, and it renders them struck through.
+
+Two rejected alternatives, both for the same reason. **Effective-only** was
+rejected because it makes a credential minted with the wrong permissions look
+identical to a correct one — and finding exactly that is the reason to open
+the drill-in. **Failing on an unresolvable scope** was rejected because the
+row is still worth showing; `unresolved` is a first-class field carrying a
+stated reason, since labelling unverified grants "effective" is precisely the
+failure BR-AC41 exists to prevent.
+
+**An empty permission set means unrestricted, not locked out.** A user minted
+with a bare `nsc add user` — which is how `platform`, `sys`, `acme` and
+`globex` are created — carries no pub/sub grants at all, and in NATS that is
+*allow everything within the account*. Verify with
+`nsc describe jwt -f nats/creds/<name>.creds`: an unrestricted credential
+prints no Pub/Sub rows, where `shipping-admin` prints its explicit
+`--allow-pub`/`--allow-sub` lists.
+
+---
+
 ## User account lifecycle
 
 User accounts represent human operators within a tenant (NATS account).

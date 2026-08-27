@@ -9603,6 +9603,379 @@ precise finish — which is why the picture looked plausible enough to ship.
 `BUSINESS_RULES.md` index; `ARCHITECTURE-COMMUNICATIONS.md`'s reply-ordering
 note; `admin-traces-panel.html`'s field table, re-exported.
 
+## Phase 50 — Completed (archived 2026-08-27)
+
+### Phase 50 — IMPLEMENTED (2026-08-27) — Admin UI `Users` Panel + `Identity` Nav Group
+
+> Captured 2026-08-27 from a user request, with a Synadia Insights "Users"
+> screen supplied as a loose visual reference (not a spec to match).
+
+#### Goal
+
+Give the Admin UI a first-class view of the **NATS users (credentials)** that
+exist under each account, alongside the existing Accounts panel, and let an
+operator drill into one user to read its **JWT claim permissions**.
+
+#### Requirements as stated
+
+- A new **`Users`** nav item and panel in the Admin UI.
+- Nav taxonomy under **SYSTEM** becomes:
+
+  ```
+  - Identity
+     - Accounts
+     - Users
+  - NATS
+  ```
+
+  i.e. today's bare `accounts` item ([App.vue](../../demos/01-dictionary/frontend/admin/src/App.vue))
+  moves into a new `eyebrow: 'Identity'` group that also carries `users`, and
+  that group sits above the existing `NATS` eyebrow group.
+- The panel **lists the users' credentials** — the reference screenshot shows a
+  stat row (`USERS`, `BEARER` counts) over a filterable table with
+  `Health | Name | Account | Bearer | Connections` columns and pagination. Treat
+  that as guidance for the *shape*, not a pixel target.
+- **Clicking a user opens its claim permissions in a table** (pub/sub allow-deny,
+  subscription/payload/data limits, expiry, bearer flag, signing key, etc.).
+- **Keep the `Bearer` column** — supplied as a second reference crop on
+  2026-08-27. Every row in this stack reads `no` today (browser tokens are
+  minted with an NKey seed, not as bearer JWTs), so the column's job here is
+  to make a `yes` conspicuous if one ever appears.
+
+#### Design decisions (APPROVED)
+
+- **D1 — a row is a *user*, of one of two kinds: `credential` or `session`**
+  (approved 2026-08-27 from the mockup). `credential` = an nsc/accounts-service
+  minted user with a `.creds` file behind it; `session` = a short-TTL token
+  minted by `accounts-service` for a browser. Kind is a first-class column and
+  a segmented filter, not a derived footnote. Consequence to hold onto: a
+  `session` is **observed, not enumerable** unless the mint is recorded — see
+  the source question below, which D1 now forces to an answer.
+
+- **D2 — the list comes from a registry `accounts-service` writes at mint
+  time, joined to `/connz` for live counts** (approved 2026-08-27). Established
+  while answering it: **nothing in the stack stores a user today.**
+  `Provisioner.CreateUser` mints a JWT + seed and returns the `.creds` blob,
+  keeping nothing (`accounts/provisioner.go:716`), and the resolver holds
+  *account* JWTs only — a user JWT is verified by signature and never stored,
+  so `$SYS.REQ.*` cannot enumerate users either. "List users" is therefore
+  **create a registry**, not read one. New Postgres table in
+  `accounts-service`, one row per minted user (name, account, user NKey,
+  issuer/signing key, kind, issued, expires, bearer); `/connz?auth=true`
+  supplies connections/subs per row, matched on user NKey the way the
+  Connections panel's Credential column already does. Bootstrap-minted users
+  (`platform`, `sys`, `acme`, `globex`, `shipping-admin`, `observability`) are
+  minted by nsc *outside* the service, so they need a backfill pass — see
+  BR-AC39.
+- **D3 — transport is a new `rpc.*` on `accounts-service`** (approved
+  2026-08-27), consumed by the Admin UI's existing PLATFORM browser connection
+  over `api.*`. Not REST: Phases 31–34 made business paths NATS-only and
+  Phase 34's mux allowlist tests (BR-040) exist to keep them that way. The
+  Phase 33 refdata admin REST exemption does not extend here — it exists
+  because `accounts-service` calls refdata server-to-server with no NATS path
+  available, which is not the case for a browser panel.
+- **D4 — the claims table shows *effective* permissions first, with the JWT's
+  discarded grants struck through beneath** (approved 2026-08-27, State B of
+  the mockup). Under a scoped signing key the server applies the key's
+  template and discards the user JWT's own permissions, so a table rendering
+  the JWT verbatim would show access the user does not have. Effective-only
+  was rejected for the same reason the strike-through exists: a credential
+  minted with the wrong permissions must not look identical to a correct one.
+
+#### Proposed business rules (CONFIRM BEFORE CODE — workflow step 1)
+
+- **BR-AC38** — every user `accounts-service` mints is recorded in its own
+  registry before the credential is returned; a mint that cannot be recorded
+  fails rather than issuing an unlisted credential.
+- **BR-AC39** — the registry converges on start for users minted outside the
+  service (bootstrap/nsc), on the model of BR-AC37: idempotent, no re-sign, no
+  claims update.
+- **BR-AC40** — `rpc._platform.accounts.user.list.v1` / `.get.v1` are
+  PLATFORM-only and cross-tenant read-only; they never return a seed or a
+  `.creds` body, only claims metadata.
+- **BR-AC41** — `.get.v1` returns **effective** permissions: when the user's
+  issuer is a scoped signing key, the key's template is authoritative and the
+  JWT's own grants are returned separately, flagged as not enforced.
+- **BR-060** (Admin UI presentation, SHIPPING file with BR-028/BR-034/BR-051)
+  — a `session` row is observed-only: absent when not connected, and never
+  presented as if the roster were complete. Health reads the JWT (valid /
+  expiring / expired / unused), not the connection.
+
+#### Sub-phases
+
+- [x] **50a** — registry table + migration, record-at-mint, start-up backfill
+      (BR-AC38, BR-AC39) — DONE 2026-08-27. `accounts.users` + `users_account_idx`
+      in `accounts/store.go`'s `Migrate`; registry types, `UserRegistry` /
+      `BootstrapUserSink` and the `*Store` methods in `accounts/users.go`;
+      record → sign → activate in `Provisioner.CreateUser` (now
+      `NewUserRequest`) and `auth.mintUserToken` (now takes `ctx`, `reg`);
+      `BackfillCredsDirUsers` in `accounts/users_backfill.go`, called from
+      `cmd/main.go` alongside the expired-pending-session sweep.
+- [x] **50b** — `api.*` list/get + effective-permission resolution (BR-AC40,
+      BR-AC41) — DONE 2026-08-27. Named `api._platform.accounts.user.{list,get}.v1`,
+      **not** the `rpc._platform.accounts.user.*` this entry originally proposed:
+      the consumer is the Admin UI's browser connection, and a browser credential
+      is never granted `rpc.>`. `accounts/usersrpc.go` (micro adapter, mounted on
+      the PLATFORM connection only, so the account boundary *is* the
+      authorization); `accounts/userclaims.go` (`UserClaimsReader` — scoped
+      signing key → template is effective, JWT's own grants returned separately
+      for the struck-through row; unresolvable scope is a stated reason, not an
+      error); `issuer_key` + `permissions` columns added to `accounts.users` by
+      ALTER, so a 50a stack converges without a reseed; `MintAdminToken` grants
+      the two subjects individually. The `/connz` live-connection join stays in
+      50c — the Admin UI already fetches `/connz` from observability-service, so
+      joining there avoids giving accounts-service an HTTP-monitor dependency.
+- [x] **50c** — Admin UI: `Identity` nav group, Users panel, drill-in (BR-060)
+      — DONE 2026-08-27. `UsersPanel.vue` + `IconUsers.vue`, `listNatsUsers`/
+      `getNatsUser` in `api.js`, the `Identity` eyebrow group (Accounts, Users)
+      and the `users` view in `App.vue`; 14 specs in `UsersPanel.spec.js`
+      (admin suite 24 files / 195 tests green) and verified against the running
+      stack. **BR-060 was reconciled with the design-gate draft before being
+      written down:** sessions are enumerable now that 50a's registry records
+      them at mint, so the "never presented as complete" caveat moved off the
+      roster and onto the `/connz` join (surfaced as the amber `partial ·
+      /connz paged` note); and Health's proposed `unused` state was dropped as
+      connection-derived — the rule's own clause forbids Health from reading
+      `/connz` — with `pending` (BR-AC38's stuck-mint state) in its place. The
+      reconciliation is recorded in BR-060 itself.
+- [x] **50d** — docs: `ARCHITECTURE-ADMIN.md`, `ARCHITECTURE-ACCOUNTS.md`,
+      BUSINESS_RULES — DONE 2026-08-27. The BUSINESS_RULES half had already
+      landed with the sub-phases that introduced each rule (BR-AC38–AC41 in
+      `BUSINESS_RULES-ACCOUNTS.md`, BR-060/BR-061 in `-SHIPPING.md`, all six
+      indexed); this entry closed the two architecture docs.
+      **ARCHITECTURE-ACCOUNTS.md** gained a `## NATS user registry (Phase 50)`
+      section before the human-operator `## User account lifecycle` one, with
+      a scope note separating the two axes — why nothing in an operator-mode
+      stack stores a user (mint keeps nothing, the resolver holds account JWTs
+      only, `/connz` knows only the connected), record-at-mint and
+      `ErrNoUserRegistry`, the creds-dir backfill, the `api.*`-not-`rpc.*`
+      transport argument, and a `### Scoped signing keys and effective
+      permissions` subsection — which also **resolves a dangling
+      cross-reference**: `ARCHITECTURE-ADMIN.md` §4.10 had been citing that
+      section by name since the design gate, and it did not exist. It records
+      one thing neither doc said before: an empty permission set is
+      *unrestricted*, not locked out, which is why `platform`/`sys`/`acme`/
+      `globex` show no claims, plus the `nsc describe jwt -f <creds>` check.
+      **ARCHITECTURE-ADMIN.md** §4.10 rewritten from "design approved, not yet
+      built" to shipped, recording what the build changed: `unused` dropped
+      for `pending`, the "never complete" caveat narrowed to the paged
+      `/connz` join, and the join living in the UI rather than in
+      accounts-service. §1 gained an `Identity` group table and states plainly
+      that documenting a non-`NATS` panel here is a deliberate exception —
+      Users is built from §2's design system and its drill-in *is* §4.1's
+      pane, so a nav boundary was not worth splitting it over.
+- [x] **50e** — **IMPLEMENTED (2026-08-27)** — approved and built the same
+      day. Detail-pane pass over `ConnectionsPanel.vue` /
+      `UsersPanel.vue`: NKey elision as a general rule, the Account/Credential
+      hover tooltips removed, and the connection detail pane's subscription
+      chips replaced by a claims-shaped, alphabetically sorted table. Mockup:
+      [admin-nkey-elision-mockup.html](../../demos/01-dictionary/diagrams/admin-nkey-elision-mockup.html).
+
+      **Design decisions (proposed — need a ruling)**
+
+      1. **An NKey is never rendered in full anywhere in the Admin UI.** It
+         renders as `[FIRST5...LAST5]` — brackets included — in
+         `--p-text-muted-color` (#b7bcc2), appended after the friendly value it
+         identifies. Deliberately *not* the disabled grey: the key is secondary
+         to the name beside it but is still read character by character, so it
+         stays above the contrast floor, with only the brackets and the ellipsis
+         taking the dimmer tone so the ten significant characters are what the
+         eye lands on. This is a **general presentational rule** and becomes its
+         own BR, not a clause inside BR-058 — it binds four panels today
+         (`ConnectionsPanel`, `UsersPanel`, `AccountsPanel`, `AccountsOverviewPanel`)
+         and every panel that renders a key hereafter.
+      2. **One shared helper, replacing three idioms.** Today the same fact is
+         drawn four ways: `slice(0,10)…` (`ConnectionsPanel.shortAccount`),
+         `slice(0,12)…` (`AccountsPanel`'s `pubkey` cell), a copy of the first
+         in `AccountsOverviewPanel`, and the full 56 characters in both detail
+         panes. The helper lives beside the other cross-panel formatters rather
+         than in any one component, so the rule has one enforcement point.
+      3. **The tooltips are removed, not kept as a back door.** The elided key
+         moves *into* the Account and Credential cells, so `title` has nothing
+         left to carry. This relocates two things BR-058 explicitly placed on
+         those titles — the user NKey on Credential, the full account on Account
+         — so **BR-058 needs a same-task amendment** recording that the value
+         moved into the cell rather than being dropped.
+      4. **Detail panes get a click-to-copy on the elided token.** The rule says
+         a key is never *shown* in full, which does not mean it can never be
+         *obtained*; the detail panes are where an operator goes to fetch a key
+         for `nsc`, and removing the full render without a copy affordance makes
+         them worse at their actual job. The clipboard gets all 56 characters,
+         the screen never does. **RULED IN (2026-08-27).** Its counterpart was
+         ruled at the same time: **table cells get no copy affordance.** The
+         Account and Credential columns exist to let an operator recognise a
+         row, not to extract a key from one.
+      5. **The connection detail pane's `SUBSCRIPTIONS` chip cloud becomes a
+         table in the Users panel's `.claims` shape**, its `Effect | Dir |
+         Subject` collapsing to **`Subject` alone**. Same CSS, same density,
+         same header treatment — the point of the change is that two adjacent
+         detail panes stop drawing a list of subjects two different ways. A
+         `Family` gutter was proposed and **ruled out (2026-08-27)**: every
+         value would restate the leading token of the string beside it, and the
+         sort already groups the families visibly without a column announcing
+         it. Cheap to add back if the grouping turns out to be missed.
+      6. **The list is always sorted alphabetically by subject.** `/connz`
+         returns them in its own order, so today the same connection reorders
+         between refreshes. Sorting on the subject groups the families for free,
+         because the family *is* the leading token (CLAUDE.md § "Subject
+         families") — which is why the gutter in (5) had nothing left to add.
+         Sorting is done in the browser; **no wire change**.
+      7. **Queue groups, SIDs and delivered counts are out of scope.**
+         `/connz?subs=true` returns bare subject strings; the richer objects
+         need `subs=detail`, a wire change in `observability-service` and a
+         bigger payload on every connection row. The obvious follow-on, flagged
+         rather than smuggled in.
+
+      8. **A row that opens a sub-detail panel stays visibly selected until the
+         panel is dismissed.** A general Admin UI rule, not a
+         `ConnectionsPanel` one. **Landed ahead of the gate (2026-08-27) as a
+         bug fix**, since the reported symptom — the highlight vanishing the
+         moment the pointer moved into the pane below — was a highlight that
+         had never existed: PrimeVue v4's DataTable keeps no selection state of
+         its own (it only emits `update:selection`), so an unbound table renders
+         nothing but `:hover`. Fixed in all four panels that open a bottom pane
+         — `ConnectionsPanel`, `UsersPanel`, `MessagesPanel`, `RpcPanel` — by
+         binding `:selection` to the same ref that drives the pane, plus an
+         explicit accent tint and inset left bar on
+         `tr.p-datatable-row-selected` (Aura's default is a flat fill with no
+         marker and does not read as "this is the row the pane is showing").
+         Deliberately not applied to `AccountsPanel` (row *expansion* — the
+         chevron and the expanded body are the state), `KvInspector`, or
+         `StreamView` (both expand a value in place inside the row itself);
+         those have no ambiguity about which row is open.
+
+      **All open points ruled (2026-08-27):** `copy` is in scope for detail
+      panes and excluded from table cells (4); the `Family` column is dropped
+      (5); the glyph is the literal `...` (three periods), applied everywhere.
+      **Block approved 2026-08-27; built as designed, no decision revised.**
+
+      **DONE (2026-08-27).** `format.js` gained `elideNKey`/`NKEY_GLYPH`; the
+      new `NKey.vue` is the only way a key is drawn, with `copyable` for detail
+      panes alone. Four panels converted, three truncation idioms deleted
+      (`ConnectionsPanel.shortAccount`/`credentialTitle`,
+      `AccountsOverviewPanel.shortAccount`/`rawFallback`, `AccountsPanel`'s
+      inline `slice(0,12)`). **A fourth tooltip surfaced during the build** —
+      `UsersPanel.vue`'s Account cell `:title="data.accountKey"`, which was not
+      in the pre-build inventory and was found only because the spec asserts an
+      *absence* (`findAll('[title]')`) rather than a format. That is the case
+      for writing the rule that way. Subscriptions became a single-`Subject`
+      `.claims` table sorted in the browser. Rules: **BR-061** written, BR-058
+      amended (relocation, not deletion), `BUSINESS_RULES.md` index and
+      `ARCHITECTURE-ADMIN.md` § 2.4 updated. Tests: **25 spec files, 209
+      passing** (`AccountsPanel.spec.js` is new and exists for BR-061 alone).
+      Live-verified against the running stack via a new `admin-dev-7108`
+      launch entry — 7100 is bound by the docker-published admin image, so a
+      vite dev server there silently serves the *container's* build.
+
+      **Follow-up pass (2026-08-27, same day, from live review).** The first
+      cut stacked the key under the value it identifies and spaced the glyph as
+      ` ... `; both were wrong against the running stack, where it made every
+      row of two dense tables two lines tall. Settled: the pair is **inline**
+      (`pair-cell` + column widths sized for both halves), the glyph is
+      unspaced, the token drops to **9px** at **`#8a9099`** (10px first, then a
+      second step down; a matching walk-down of the *colour* to `#6b7079` was
+      tried in the same review and reverted — size only), and the Account
+      column carries its key too rather than the label alone. Column widths in
+      both panels were rebalanced in the same pass — the Name column's
+      `min-width` had been absorbing all the table's leftover space, which is
+      where the dead space between Name and Type came from. Every column is on
+      a fixed `width` now, so the table's slack distributes evenly; a trailing
+      `width:auto` spacer column was tried as the alternative and reverted —
+      measured, it swallowed 651px into a single void at the right edge.
+
+      Re-measured at the **1920x1080 design viewport** (a rule this pass added
+      to CLAUDE.md, after a 1440px measurement here was reported as if it were
+      the bar): `tall: 0` in both panels — every row single-line, including
+      `accounts-service-platform`, the longest credential name. The
+      "one row costs a horizontal scrollbar" trade recorded mid-review was an
+      artifact of measuring at the wrong width and does not exist.
+
+      Worth noting that the mockup had drawn all of this correctly; the
+      implementation drifted from it and the live review caught it back.
+
+      **Checklist**
+
+      - [x] Design decisions approved — **blocking**
+      - [x] New BR for the elision rule + BR-058 amendment for the moved tooltips
+      - [x] Shared elision helper; the four panels converted onto it
+      - [x] `SubscriptionsTable` shape in `ConnectionsPanel.vue` — `Subject`
+            column alone, sorted
+      - [x] Persistent row selection while a sub-detail panel is open (8) —
+            landed 2026-08-27 with a red-proven spec in `ConnectionsPanel.spec.js`
+      - [x] Specs — `format.spec.js`, `ConnectionsPanel.spec.js` (29),
+            `UsersPanel.spec.js`, `AccountsPanel.spec.js` (new),
+            `AccountsOverviewPanel.spec.js`; 25 files / 209 tests green
+      - [x] Docs: `ARCHITECTURE-ADMIN.md` § 2.4 — the elision rule sits in the
+            shared-design-system section, since it binds every future panel
+
+#### Mockup (design gate)
+
+[admin-users-panel-mockup.html](../../demos/01-dictionary/diagrams/admin-users-panel-mockup.html)
+— nav change, roster, and both drill-in states, drawn against the running
+stack's real credential set. Two proposals in it need a ruling: the
+`credential` / `session` row-kind split, and rendering **effective**
+permissions (signing-key template) with the JWT's discarded grants struck
+through beneath them.
+
+#### Open questions for the design gate (unanswered — do not start building)
+
+1. **~~Where does the user list come from?~~ DECIDED (2026-08-27): a
+   user-listing API will be added.** There is none today — `accounts-service`
+   only mints (`auth/token.go`'s `mintUserToken`) — so this phase builds one.
+   Still to settle at the design gate: its *source* (the nsc store on disk, the
+   JWT account resolver, `$SYS.REQ.*` account claims) and its *transport* (a new
+   `rpc.*` on accounts-service vs. its admin REST surface). Ephemeral browser
+   tokens are minted and never persisted, so the API also has to answer what a
+   "user" is — the mockup proposes two kinds in one list, `credential`
+   (nsc-defined, one row per `.creds`) and `session` (minted, observed only via
+   `/connz`) — see question 4 below.
+2. **What is `Health` and what is `Connections`?** Presumably JWT validity
+   (expired / not-yet-valid / revoked) and a `/connz` join by user name — needs
+   confirming, and the `/connz` page-size caveat applies (see the
+   `connz_limit_is_page_size_not_capacity` memory).
+3. **Scoped signing keys.** When an account uses a scoped signing key the server
+   applies the *key's* permission template and discards the user JWT's own — so
+   the claims table must show the effective permissions, not just what the JWT
+   carries, or it will lie. See the `nats_scoped_signing_keys` memory.
+4. **Naming.** The `Credential` column contract from CLAUDE.md § "Credential
+   naming" — one credential can back several connections — decides whether the
+   table's unit of a row is a credential or a connection.
+5. **Business rules + docs.** Which `BUSINESS_RULES-*.md` this lands in (likely a
+   new accounts/admin section), and the `ARCHITECTURE-ADMIN.md` /
+   `ARCHITECTURE-ACCOUNTS.md` updates that go with it.
+
+#### Related, captured but OUT of scope
+
+A second Synadia Insights panel was supplied on 2026-08-27 for reference —
+**"No Subscription Interest"**: it lists an account's active imports and
+exports and flags the ones where no client in the importing account actually
+subscribes to the imported subject (NATS wildcard matching), with
+`Direction | Subject | Type | Remote account | Status` columns and a remedy
+line ("verify clients subscribe to the correct subject; remove the import if
+it is no longer needed"). Its natural home here is the existing
+**Accounts → Sharing** tab ([SharingPanel.vue](../../demos/01-dictionary/frontend/admin/src/components/SharingPanel.vue)),
+which already reads the declared export/import edges out of the resolver JWTs
+— the missing half is joining those edges to live subscription interest. Noted
+as informational; **not part of this phase**, and it should become its own
+phase (or a Sharing sub-phase) rather than widening this one. Worth flagging
+that our own known unbounded `evt.*.refdata.*.changed` tenant import (the
+`refdata_cross_tenant_stream_import` memory) is exactly the kind of edge such
+a panel would surface.
+
+#### Checklist
+
+- [x] Design decisions written and approved (design gate) — **blocking**
+- [x] Business rules confirmed/added — BR-AC38–AC41, BR-060, BR-061
+- [x] Backend user-listing + claims read path (50a, 50b)
+- [x] `Identity` nav group + `Users` panel + drill-in claims table (50c)
+- [x] Specs (backend Ginkgo; admin frontend Vitest — the note here that it has
+      no Vitest infra was stale, corrected 2026-08-27: 25 spec files / 209
+      tests after 50e)
+- [x] Docs: `ARCHITECTURE-ADMIN.md`, `ARCHITECTURE-ACCOUNTS.md`, BUSINESS_RULES
+      (50d)
+
+---
+
 ## Renumbering history
 
 Every renumbering log, moved out of the live plan on 2026-08-21 (it had
