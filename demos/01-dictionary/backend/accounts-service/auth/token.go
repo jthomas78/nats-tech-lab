@@ -132,12 +132,21 @@ func MintAdminToken(ctx context.Context, reg accounts.UserRegistry, accountPub, 
 			"api._platform.refdata.locales.list.v1",
 			"api._platform.refdata.context.list.v1",
 		)
-		// Phase 50b (BR-AC40) — the Users panel's two reads, served by this
-		// service's own api.* adapter on the PLATFORM connection. Added as
-		// individual subjects, not an api._platform.accounts.> prefix: the
+		// Phase 50b (BR-AC40) — the Users panel's subjects, served by this
+		// service's own api.* adapter on the PLATFORM connection. Enumerated
+		// as individual subjects, not an api._platform.accounts.> prefix: the
 		// Pub.Allow list above is an explicit allowlist precisely so a future
 		// accounts endpoint is not reachable by a browser credential merely
 		// by being named consistently.
+		//
+		// Phase 51b adds user.revoke.v1, which makes this set no longer
+		// read-only. That is intended — the Users panel performs the
+		// revocation itself — but it does mean the set now grows straight
+		// from UsersAdapterSubjects(), so a new endpoint IS granted to the
+		// Admin UI the moment it is registered. token_test.go's exact
+		// ConsistOf is what forces that to be a deliberate decision: adding
+		// an endpoint breaks it, and the fix is to look at the subject and
+		// decide, not to paste it in.
 		claims.Permissions.Pub.Allow.Add(accounts.UsersAdapterSubjects()...)
 		claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.kv.trace-request-reply.>",
 			// Phase 43b (BR-047): the Messages panel's live feed, the same
@@ -199,7 +208,7 @@ func MintRefdataAdminToken(ctx context.Context, reg accounts.UserRegistry, accou
 //
 // Unlike a service credential, a session carries an expiry — which is what
 // lets a row stuck at pending be swept once its TTL passes
-// (Store.SweepExpiredPendingUsers) instead of waiting for an operator.
+// (Store.ReapExpiredSessions, Phase 52) instead of waiting for an operator.
 func mintUserToken(ctx context.Context, reg accounts.UserRegistry, accountPub, accountSigningKeySeed, name, tenant, wsURL string, ttl time.Duration, configure func(*jwt.UserClaims)) (ConnectInfo, error) {
 	if reg == nil {
 		return ConnectInfo{}, accounts.ErrNoUserRegistry

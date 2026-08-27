@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin Users data flow</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+.thin { stroke-width: 1; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="head">
+    <div class="head-txt">
+      <span class="eyebrow">Phases 50–52 · ARCHITECTURE-ACCOUNTS "NATS user registry" · BR-AC38–AC41, BR-AC44–AC45, BR-060</span>
+      <h1>Where Users data lives, and how it reaches the panel</h1>
+      <p class="sub">The Admin UI's Users panel joins two independent sources in the browser: a Postgres registry of every NATS user this service has ever minted, and a live <code>/connz</code> read from the NATS monitor. The registry is <b>Postgres only — there is no KV bucket behind it</b>.</p>
+    </div>
+  </header>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 700" role="img"
+        aria-label="Figure A, Record at mint and reap on a schedule: Provisioner.CreateUser and auth.mintUserToken follow BR-AC38's nkeys, pending-record, signing, and active-record order before writing accounts.users in Postgres, while BackfillCredsDirUsers reconciles .creds files once per boot with an idempotent insert; a fourth path, SessionReaper.reapOnce, runs at boot and every fifteen minutes and is the only path that deletes, removing expired session rows through a whitelist predicate that can never match a credential or a revoked row. All four paths terminate at the same Postgres-only user registry and no NATS KV bucket is involved.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="a-proj" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--store)"/>
+          </marker>
+          <marker id="a-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--evtl)"/>
+          </marker>
+          <marker id="a-del" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--bad)"/>
+          </marker>
+        </defs>
+
+        <text class="grp" x="16" y="16">FIGURE A · RECORD AT MINT, REAP ON A SCHEDULE</text>
+        <rect class="nb" x="16" y="26" width="760" height="662" rx="4"/>
+        <text class="grp" x="28" y="44">ACCOUNTS-SERVICE — ONE PROCESS</text>
+
+        <rect class="n" x="32" y="56" width="264" height="48" rx="3"/>
+        <text class="lbl" x="164" y="77" text-anchor="middle">Provisioner.CreateUser</text>
+        <text class="lbl2" x="164" y="91" text-anchor="middle">provisioner.go:752 · kind=credential</text>
+        <rect class="n" x="32" y="126" width="264" height="48" rx="3"/>
+        <text class="lbl" x="164" y="147" text-anchor="middle">auth.mintUserToken</text>
+        <text class="lbl2" x="164" y="161" text-anchor="middle">token.go:203 · kind=session</text>
+
+        <rect class="n" x="340" y="52" width="252" height="48" rx="3"/>
+        <text class="lbl" x="466" y="80" text-anchor="middle">nkeys.CreateUser()</text>
+        <rect class="n" x="340" y="132" width="252" height="48" rx="3"/>
+        <text class="lbl" x="466" y="160" text-anchor="middle">RecordPendingUser()  status=pending</text>
+        <rect class="n" x="340" y="212" width="252" height="48" rx="3"/>
+        <text class="lbl" x="466" y="240" text-anchor="middle">claims.Encode(signingKP)</text>
+        <rect class="n" x="340" y="292" width="252" height="48" rx="3"/>
+        <text class="lbl" x="466" y="320" text-anchor="middle">MarkUserActive()  status=active</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M296 80 H316 V70 H330"/>
+        <path class="flow" marker-end="url(#a-sync)" d="M296 150 H312 V88 H330"/>
+        <path class="proj" marker-end="url(#a-proj)" d="M466 100 V122"/>
+        <text class="edge" x="474" y="117">write · pending</text>
+        <path class="flow" marker-end="url(#a-sync)" d="M466 180 V202"/>
+        <text class="edge" x="474" y="197">sign</text>
+        <path class="proj" marker-end="url(#a-proj)" d="M466 260 V282"/>
+        <text class="edge" x="474" y="277">write · active</text>
+        <path class="proj" marker-end="url(#a-proj)" d="M592 316 H652 V286 H790"/>
+
+        <rect class="n" x="32" y="388" width="264" height="48" rx="3"/>
+        <text class="lbl" x="164" y="409" text-anchor="middle">BackfillCredsDirUsers</text>
+        <text class="lbl2" x="164" y="423" text-anchor="middle">users_backfill.go:38 · at startup</text>
+        <rect class="n" x="340" y="388" width="192" height="48" rx="3"/>
+        <text class="lbl" x="436" y="409" text-anchor="middle">os.ReadDir(NATS_CREDS_DIR)</text>
+        <text class="lbl2" x="436" y="423" text-anchor="middle">*.creds</text>
+        <rect class="n" x="360" y="468" width="152" height="48" rx="3"/>
+        <text class="lbl" x="436" y="489" text-anchor="middle">jwt.DecodeUserClaims</text>
+        <text class="lbl2" x="436" y="503" text-anchor="middle">decode each file</text>
+        <rect class="n" x="540" y="468" width="146" height="48" rx="3"/>
+        <text class="lbl" x="613" y="489" text-anchor="middle">InsertUserIfMissing</text>
+        <text class="lbl2" x="613" y="503" text-anchor="middle">source=bootstrap</text>
+
+        <path class="rep" marker-end="url(#a-rep)" d="M296 412 H330"/>
+        <path class="rep" marker-end="url(#a-rep)" d="M436 436 V458"/>
+        <path class="rep" marker-end="url(#a-rep)" d="M512 492 H530"/>
+        <path class="rep" marker-end="url(#a-rep)" d="M613 516 V540 H790"/>
+        <text class="edge" x="768" y="534" text-anchor="end">ON CONFLICT (public_key)</text>
+        <text class="edge" x="768" y="555" text-anchor="end">DO NOTHING</text>
+
+        <rect class="n" x="32" y="596" width="264" height="56" rx="3"/>
+        <text class="lbl" x="164" y="619" text-anchor="middle">SessionReaper.reapOnce</text>
+        <text class="lbl2" x="164" y="633" text-anchor="middle">reaper.go · at boot, then every 15m</text>
+        <text class="lbl2" x="164" y="646" text-anchor="middle">a failed run waits for the next tick</text>
+        <rect class="n" x="340" y="596" width="252" height="56" rx="3"/>
+        <text class="lbl" x="466" y="619" text-anchor="middle">ReapExpiredSessions()</text>
+        <text class="lbl2" x="466" y="633" text-anchor="middle">users.go · whitelist predicate</text>
+        <text class="lbl2" x="466" y="646" text-anchor="middle">retention 24h past expires_at</text>
+
+        <path class="err" marker-end="url(#a-del)" d="M296 624 H330"/>
+        <path class="err" marker-end="url(#a-del)" d="M592 624 H790"/>
+        <text class="edge" x="768" y="612" text-anchor="end">DELETE — kind=&#39;session&#39; only,</text>
+        <text class="edge" x="768" y="648" text-anchor="end">never revoked, never a credential</text>
+
+        <path class="n" d="M800 198 L800 664 A99 10 0 0 0 998 664 L998 198"/>
+        <ellipse class="n" cx="899" cy="198" rx="99" ry="10"/>
+        <text class="lbl" x="899" y="396" text-anchor="middle">accounts.users</text>
+        <text class="lbl2" x="899" y="410" text-anchor="middle">Postgres · store.go:182</text>
+        <text class="lbl2" x="899" y="424" text-anchor="middle">PK public_key · no KV</text>
+      </svg>
+    </div>
+    <figcaption><b>Three producers and one reaper, on one table.</b> The pending/active bracket is <code>BR-AC38</code>'s ordering: the pending row is written before the JWT is signed and flipped active after, so a crash mid-mint leaves a pending row rather than a signed credential nobody recorded. <code>ErrNoUserRegistry</code> is returned at construction and at both mint sites if the registry is nil, so a user cannot be minted without being recorded. Backfill is idempotent and never updates an existing row, so a row's <code>source</code> tells you whether it was minted by this service or discovered on disk. The reaper is the <b>only path that deletes</b>, and its predicate is a whitelist rather than an exclusion list (<code>BR-AC44</code>) — so the failure mode of a future edit is a row that outstays its welcome, never a credential that disappears. See <b>Figure D</b> for the window it applies.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 610" role="img"
+        aria-label="Figure B, Two fetches joined in the browser: UsersPanel.vue fans out to a Postgres-backed user roster over NATS WebSocket subjects through UsersAdapter and UserClaimsReader, and independently to live NATS monitor connection data over HTTP through nginx and observability-service; both responses return to a browser join keyed by public NKey, and the roster remains usable if the connz request fails.">
+        <defs>
+          <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="b-proj" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--store)"/>
+          </marker>
+        </defs>
+
+        <text class="grp" x="16" y="16">FIGURE B · TWO FETCHES, JOINED IN THE BROWSER</text>
+        <rect class="nb" x="16" y="34" width="270" height="560" rx="4"/>
+        <text class="grp" x="28" y="52">ADMIN UI — BROWSER</text>
+        <rect class="n" x="34" y="72" width="230" height="48" rx="3"/>
+        <text class="lbl" x="149" y="93" text-anchor="middle">UsersPanel.vue</text>
+        <text class="lbl2" x="149" y="107" text-anchor="middle">poll setInterval 10 000 ms</text>
+        <rect class="n" x="34" y="504" width="230" height="66" rx="3"/>
+        <text class="lbl" x="149" y="530" text-anchor="middle">connsByUserKey[publicKey]</text>
+        <text class="lbl2" x="149" y="543" text-anchor="middle">the join · UsersPanel.vue:77</text>
+        <text class="lbl2" x="149" y="556" text-anchor="middle">on user NKey, never on name</text>
+
+        <rect class="n" x="320" y="72" width="200" height="48" rx="3"/>
+        <text class="lbl" x="420" y="100" text-anchor="middle">listNatsUsers()  api.js:108</text>
+        <rect class="n" x="592" y="72" width="226" height="48" rx="3"/>
+        <text class="lbl" x="705" y="93" text-anchor="middle">UsersAdapter</text>
+        <text class="lbl2" x="705" y="107" text-anchor="middle">usersrpc.go:52 · PLATFORM conn only</text>
+        <rect class="n" x="850" y="72" width="140" height="48" rx="3"/>
+        <text class="lbl" x="920" y="93" text-anchor="middle">UserClaimsReader</text>
+        <text class="lbl2" x="920" y="107" text-anchor="middle">userclaims.go:81</text>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M264 96 H310"/>
+        <path class="flow" marker-end="url(#b-sync)" d="M390 120 V154 H675 V130"/>
+        <text class="edge" x="532" y="148" text-anchor="middle">NATS WebSocket</text>
+        <text class="edge" x="532" y="169" text-anchor="middle">api._platform.accounts.user.list.v1</text>
+        <path class="flow thin" marker-end="url(#b-sync)" d="M450 120 V202 H735 V130"/>
+        <text class="edge" x="592" y="196" text-anchor="middle">api._platform.accounts.user.get.v1</text>
+        <text class="edge" x="592" y="217" text-anchor="middle">on row click</text>
+        <path class="flow" marker-end="url(#b-sync)" d="M818 96 H840"/>
+
+        <path class="n" d="M792 174 L792 274 A99 10 0 0 0 990 274 L990 174"/>
+        <ellipse class="n" cx="891" cy="174" rx="99" ry="10"/>
+        <text class="lbl" x="891" y="215" text-anchor="middle">accounts.users</text>
+        <text class="lbl2" x="891" y="229" text-anchor="middle">Postgres · store.go:182</text>
+        <text class="lbl2" x="891" y="243" text-anchor="middle">PK public_key · no KV</text>
+        <path class="flow" marker-end="url(#b-sync)" d="M920 120 V144 H891 V154"/>
+
+        <rect class="n" x="320" y="310" width="234" height="48" rx="3"/>
+        <text class="lbl" x="437" y="338" text-anchor="middle">getNatsConnections()  api.js:203</text>
+        <rect class="n" x="600" y="310" width="110" height="48" rx="3"/>
+        <text class="lbl" x="655" y="331" text-anchor="middle">nginx</text>
+        <text class="lbl2" x="655" y="345" text-anchor="middle">nginx.conf:86</text>
+        <rect class="n" x="750" y="310" width="184" height="48" rx="3"/>
+        <text class="lbl" x="842" y="331" text-anchor="middle">observability-service</text>
+        <text class="lbl2" x="842" y="345" text-anchor="middle">rest/nats_connections.go:169</text>
+        <rect class="n" x="733" y="398" width="218" height="52" rx="3"/>
+        <text class="lbl" x="842" y="419" text-anchor="middle">NATS monitor :8222</text>
+        <text class="lbl2" x="842" y="433" text-anchor="middle">GET /connz?subs=true&amp;auth=true</text>
+
+        <path class="proj" marker-end="url(#b-proj)" d="M149 120 V334 H310"/>
+        <path class="proj" marker-end="url(#b-proj)" d="M554 334 H590"/>
+        <text class="edge" x="572" y="328" text-anchor="middle">HTTP</text>
+        <path class="proj" marker-end="url(#b-proj)" d="M710 334 H740"/>
+        <path class="proj" marker-end="url(#b-proj)" d="M842 358 V388"/>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M792 236 H728 V524 H274"/>
+        <text class="edge" x="500" y="518" text-anchor="middle">registry roster</text>
+        <path class="proj" marker-end="url(#b-proj)" d="M842 450 V548 H274"/>
+        <text class="edge" x="500" y="563" text-anchor="middle">live connections</text>
+      </svg>
+    </div>
+    <figcaption><b>Two transports on purpose.</b> The roster goes over NATS because the roster is a NATS resource and the browser already holds a credential for it; <code>/connz</code> goes over HTTP because it is an HTTP monitor endpoint and giving accounts-service a dependency on it was rejected. The subjects are <code>api.*</code>, never <code>rpc.*</code>, because the consumer is a browser. The join happens in the browser, keyed on the user's public NKey — two users can share a <code>name</code> (<code>BR-058</code>), so a name-keyed join would be wrong. A <code>/connz</code> failure is swallowed: the roster still renders with zero connection counts.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 242" role="img"
+        aria-label="Figure C, What a row can say about its permissions: GetUser resolves the user's signing-key scope and reports one of three outcomes—unresolved when the issuer or account key cannot be established, scoped when the signing-key template is effective and the JWT grants are discarded, or unscoped when the JWT's own permissions are effective.">
+        <defs>
+          <marker id="c-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="c-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--evtl)"/>
+          </marker>
+          <marker id="c-err" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--bad)"/>
+          </marker>
+        </defs>
+
+        <text class="grp" x="16" y="16">FIGURE C · WHAT A ROW CAN SAY ABOUT ITS PERMISSIONS</text>
+        <rect class="n" x="20" y="100" width="150" height="48" rx="3"/>
+        <text class="lbl" x="95" y="128" text-anchor="middle">GetUser(publicKey)</text>
+        <rect class="n" x="240" y="96" width="160" height="56" rx="3"/>
+        <text class="lbl" x="320" y="121" text-anchor="middle">resolveScope()</text>
+        <text class="lbl2" x="320" y="135" text-anchor="middle">userclaims.go:168</text>
+        <path class="flow" marker-end="url(#c-sync)" d="M170 124 H230"/>
+
+        <rect class="n" x="700" y="28" width="280" height="56" rx="3"/>
+        <text class="lbl" x="840" y="49" text-anchor="middle">unresolved</text>
+        <text class="lbl2" x="840" y="62" text-anchor="middle">issuerKey or accountKey missing,</text>
+        <text class="lbl2" x="840" y="75" text-anchor="middle">no lookup, or key since rotated</text>
+        <rect class="n" x="700" y="100" width="280" height="56" rx="3"/>
+        <text class="lbl" x="840" y="121" text-anchor="middle">scoped</text>
+        <text class="lbl2" x="840" y="134" text-anchor="middle">effective = scope.Template</text>
+        <text class="lbl2" x="840" y="147" text-anchor="middle">jwtGrants shown struck through</text>
+        <rect class="n" x="700" y="172" width="280" height="52" rx="3"/>
+        <text class="lbl" x="840" y="193" text-anchor="middle">unscoped</text>
+        <text class="lbl2" x="840" y="207" text-anchor="middle">effective = the JWT's own permissions</text>
+
+        <path class="err" marker-end="url(#c-err)" d="M400 108 H500 V56 H690"/>
+        <text class="edge" x="596" y="50" text-anchor="middle">issuer/account key unavailable</text>
+        <path class="rep" marker-end="url(#c-rep)" d="M400 128 H690"/>
+        <text class="edge" x="545" y="122" text-anchor="middle">issuer resolves to scoped key</text>
+        <path class="flow" marker-end="url(#c-sync)" d="M400 148 H520 V198 H690"/>
+        <text class="edge" x="600" y="192" text-anchor="middle">issuer resolves, no scope</text>
+      </svg>
+    </div>
+    <figcaption><b>The effective set is explicit.</b> A scoped signing key means the server applies the key's template and discards the user JWT's own permissions — the panel shows both, with the discarded set struck through, so the difference is visible rather than silently misleading. The honest limitation is that an empty permission set in a user JWT means unrestricted within the account in NATS and is indistinguishable from “this service recorded nothing”, so <code>no permissions recorded</code> in the detail pane is genuinely ambiguous. Check the credential with <code>nsc describe jwt -f nats/creds/&lt;name&gt;.creds</code>.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 246" role="img"
+        aria-label="Figure D, The life of one session row: a row is minted at connect time and expires 15 to 30 minutes later, after which it is kept for a 24 hour retention window during which the /connz closed ring can still explain how the session ended; only past that window does it become reapable, and the next sweep, at most one 15 minute interval later, deletes it.">
+        <defs>
+          <marker id="d-del" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--bad)"/>
+          </marker>
+        </defs>
+
+        <text class="grp" x="16" y="16">FIGURE D · THE LIFE OF ONE SESSION ROW</text>
+
+        <rect x="60" y="130" width="190" height="40" fill="var(--sync)" fill-opacity="0.10" stroke="var(--sync)" stroke-opacity="0.4" stroke-width="1"/>
+        <rect x="250" y="130" width="390" height="40" fill="var(--store)" fill-opacity="0.10" stroke="var(--store)" stroke-opacity="0.4" stroke-width="1"/>
+        <rect x="640" y="130" width="300" height="40" fill="var(--bad)" fill-opacity="0.10" stroke="var(--bad)" stroke-opacity="0.4" stroke-width="1"/>
+
+        <text class="lbl" x="155" y="155" text-anchor="middle">live</text>
+        <text class="lbl" x="445" y="155" text-anchor="middle">expired &#183; kept, and still explainable</text>
+        <text class="lbl" x="790" y="155" text-anchor="middle">reapable</text>
+
+        <text class="lbl" x="110" y="76" text-anchor="middle">T + 0</text>
+        <text class="lbl2" x="110" y="90" text-anchor="middle">minted &#183; kind=session</text>
+        <path class="n thin" d="M110 100 V130"/>
+
+        <text class="lbl" x="250" y="76" text-anchor="middle">T + 15&#8211;30m</text>
+        <text class="lbl2" x="250" y="90" text-anchor="middle">expires_at &#183; BR-AC20</text>
+        <path class="n thin" d="M250 100 V130"/>
+
+        <text class="lbl" x="640" y="76" text-anchor="middle">+ 24h</text>
+        <text class="lbl2" x="640" y="90" text-anchor="middle">ACCOUNTS_SESSION_RETENTION</text>
+        <path class="n thin" d="M640 100 V130"/>
+
+        <text class="lbl" x="830" y="76" text-anchor="middle">+ up to 15m</text>
+        <text class="lbl2" x="830" y="90" text-anchor="middle">ACCOUNTS_REAPER_INTERVAL</text>
+        <path class="err" marker-end="url(#d-del)" d="M830 100 V126"/>
+        <text class="edge" x="842" y="118">DELETE</text>
+
+        <text class="edge" x="155" y="192" text-anchor="middle">counted as Connected</text>
+        <text class="edge" x="445" y="192" text-anchor="middle">the bounded /connz closed ring still carries the reason,</text>
+        <text class="edge" x="445" y="208" text-anchor="middle">so the Last outcome column can still explain this row</text>
+        <text class="edge" x="790" y="192" text-anchor="middle">the ring has long since rolled over &#8212; the row</text>
+        <text class="edge" x="790" y="208" text-anchor="middle">could no longer be explained anyway</text>
+
+        <text class="lbl2" x="60" y="236">A credential has no expires_at and never enters this timeline. A revoked row leaves it at the point of revocation and is kept indefinitely.</text>
+      </svg>
+    </div>
+    <figcaption><b>Retention is not cadence.</b> The window (<code>24h</code>) is the operator knob: it is roughly how long the row stays <em>explainable</em>, because past it the bounded <code>/connz</code> closed ring feeding <b>Last outcome</b> has rolled over and the row has no outcome left to pair with. The interval (<code>15m</code>) is a load knob only &#8212; one minimum-TTL period, about 1&#37; overshoot against a 24h window &#8212; and changing it changes cost, not policy. Reaping on expiry instead would destroy the row at exactly the moment someone is reading it to find out why their tab dropped. Retention <code>0</code> therefore means <em>disabled</em>, not <em>reap immediately</em>; a negative, non-positive or unparseable value is fatal at boot rather than silently defaulted (<code>BR-AC45</code>).</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>Implementation notes</h2>
+    <ul>
+      <li><b>Postgres, not KV.</b> <code>accounts.users</code>, created in <code>store.go:182</code>; columns <code>public_key</code> (UNIQUE, the natural key), <code>name</code>, <code>account</code>, <code>account_key</code>, <code>kind</code>, <code>status</code>, <code>bearer</code>, <code>source</code>, <code>issued_at</code>, <code>expires_at</code>, <code>activated_at</code>, <code>issuer_key</code>, <code>permissions JSONB</code>. Index <code>users_account_idx (account, name)</code>. Deliberately no FK to <code>accounts.accounts</code>.</li>
+      <li><b>Health reads the JWT, never the connection count.</b> <code>healthOf()</code> at <code>UsersPanel.vue:114</code> returns exactly four values in this order: <code>pending</code> (status is pending), <code>valid</code> (no <code>exp</code> claim at all), <code>expired</code> (<code>exp</code> in the past), <code>expiring</code> (<code>exp</code> within <code>EXPIRING_MS</code> = 1 hour). A user with zero connections is not unhealthy.</li>
+      <li><b>No caching anywhere.</b> Every 10 s tick re-requests both sources.</li>
+      <li><b>The roster is unpaged; <code>/connz</code> is not.</b> <code>ListUsers</code> returns everything and <code>UserListResponse</code> is an envelope leaving room for paging later. <code>/connz</code> paging is passed through as <code>page{numConnections,total,offset,limit}</code> and surfaced as the <code>partial · /connz paged</code> note on the Connected summary card when <code>offset + shown &lt; total</code> — a connection on an unread page counts as zero.</li>
+      <li><b>NKeys are elided everywhere on screen.</b> <code>elideNKey()</code> in <code>format.js:74</code> renders <code>[FIRST5…LAST5]</code> at 9px; there is no <code>title</code> attribute carrying the full key (<code>BR-061</code> is enforced as an absence). The clipboard may carry all 56 characters; the screen may not. <code>copyable</code> is detail-pane-only.</li>
+      <li><b>Session rows are bounded, not permanent.</b> A session NKey rotates on every browser reconnect, so the table gains a row per connect. Phase 52 replaced the start-up-only pending sweep (<code>SweepExpiredPendingUsers</code>) with a background reaper that subsumes it: <code>SessionReaper</code> (<code>reaper.go</code>) calls <code>Store.ReapExpiredSessions</code> at boot and every <code>ACCOUNTS_REAPER_INTERVAL</code>, deleting session rows more than <code>ACCOUNTS_SESSION_RETENTION</code> past their own <code>expires_at</code>. The table is therefore bounded at <em>mint-rate × retention</em> (<code>BR-AC44</code>, <code>BR-AC45</code>). Because the table is bounded, <code>hide expired</code> in the panel now defaults <em>off</em> (<code>BR-060</code>, amended).</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

@@ -818,6 +818,54 @@ func (p *Provisioner) CreateUser(ctx context.Context, in NewUserRequest) ([]byte
 	return jwt.FormatUserConfig(token, userSeed)
 }
 
+// RevokeUser adds userPub to the issuing account's JWT revocation list and
+// pushes the updated account claims (Phase 51b, BR-AC42).
+//
+// This is the ONLY thing in this repo that actually stops a signed user JWT
+// from working. Nothing else does — not deleting the registry row
+// (Store.DeleteUser reaches no server at all), not expiry (a credential has
+// none). Before this existed, the honest answer to "this credential must
+// stop working" was to edit the account by hand with nsc.
+//
+// The claims are read from the resolver and amended in place rather than
+// rebuilt through newAccountClaims: an account JWT carries exports, imports,
+// signing keys and limits that this call has no business re-deriving, and
+// rebuilding them would make a revocation quietly capable of reverting an
+// unrelated claim. Signed with the OPERATOR signing key, because the thing
+// being re-signed is the account JWT itself — the account's own signing key
+// signs users, not accounts.
+//
+// Three properties worth stating, all verified against jwt v2.8.2 on
+// 2026-08-27:
+//
+//   - There is no same-second escape gap. jwt's IsRevoked compares the
+//     revocation timestamp against the user JWT's `iat` with `ts >= iat`, so
+//     revoking at time.Now() covers a credential issued in the same second.
+//   - The entry is PERMANENT for the credentials this service mints.
+//     RevocationList.MaybeCompact prunes only entries superseded by a `*`
+//     (jwt.All) revocation — there is no expiry-based pruning — and our
+//     credentials have no expiry, so nothing will ever remove this.
+//   - It is not the whole-account tool. Revoking every user in an account is
+//     what suspendAccount already does via $SYS.REQ.CLAIMS.DELETE, and that
+//     path is reversible; this one is per-credential and is not.
+func (p *Provisioner) RevokeUser(ctx context.Context, accountPub, userPub string) error {
+	if accountPub == "" || userPub == "" {
+		return errors.New("revoke user: account and user public keys are both required")
+	}
+
+	claims, err := p.LookupAccountClaims(ctx, accountPub)
+	if err != nil {
+		return err
+	}
+	claims.Revocations.Revoke(userPub, time.Now())
+
+	token, err := claims.Encode(p.operatorSigningKey)
+	if err != nil {
+		return fmt.Errorf("encode account jwt: %w", err)
+	}
+	return p.pushClaimsUpdate(ctx, token)
+}
+
 // DeleteAccount revokes accountPub via $SYS.REQ.CLAIMS.DELETE — a
 // self-signed request from the operator (or, as here, its signing key)
 // naming the account to remove from every server's resolver. The resolver's

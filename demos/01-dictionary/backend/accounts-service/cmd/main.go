@@ -176,15 +176,22 @@ func run(log *slog.Logger) error {
 	if err := backfillBootstrapUsers(ctx, store, credsDir, log); err != nil {
 		log.Warn("backfill bootstrap users", "err", err)
 	}
-	// BR-AC38: a session row that never reached active is dead once its TTL
-	// has passed — sweep those on start rather than leaving them to
-	// accumulate. Credentials have no expiry and are never swept; a pending
-	// one persists until an operator resolves it.
-	if swept, err := store.SweepExpiredPendingUsers(ctx); err != nil {
-		log.Warn("sweep expired pending sessions", "err", err)
-	} else if swept > 0 {
-		log.Info("swept expired pending sessions", "count", swept)
+	// Phase 52 (BR-AC44/BR-AC45): every browser connect writes a registry row
+	// (BR-AC38) and nothing used to delete one — measured at 44 expired
+	// sessions out of 56 rows after a day's uptime. The reaper removes an
+	// expired SESSION once it is older than the retention window past its own
+	// expires_at; credentials and revoked rows are never reaped. It runs once
+	// here and then on its interval, in its own goroutine, and a failing tick
+	// waits for the next one rather than stopping the service or itself.
+	reaperCfg, err := accounts.ReaperConfigFromEnv(
+		os.Getenv("ACCOUNTS_SESSION_RETENTION"), os.Getenv("ACCOUNTS_REAPER_INTERVAL"))
+	if err != nil {
+		// Fatal on purpose. A deployment that meant to keep a week of
+		// sessions and mistyped the value must find out at boot, not a week
+		// later when the rows it wanted are already gone.
+		return err
 	}
+	go accounts.NewSessionReaper(store, reaperCfg, log).Run(ctx)
 
 	// Phase 50b (BR-AC40) — the Admin UI's Users panel, served on the
 	// PLATFORM connection the Admin UI's own browser credential authenticates
@@ -194,8 +201,12 @@ func run(log *slog.Logger) error {
 	// all. Skipped without platformNC — the panel is simply absent, which is
 	// the same graceful degradation notify.accounts.* already accepts.
 	if platformNC != nil {
+		// Phase 51b: the same provisioner backs the revoker. It is the
+		// operator-signing-key holder, so it is the only thing in this
+		// process that can re-sign an account JWT.
 		usersAdapter, err := accounts.NewUsersAdapter(platformNC,
-			accounts.NewUserClaimsReader(store, provisioner, log), log)
+			accounts.NewUserClaimsReader(store, provisioner, log),
+			accounts.NewUserRevoker(store, provisioner, log), log)
 		if err != nil {
 			log.Warn("users api adapter: not registered", "err", err)
 		} else {

@@ -987,6 +987,19 @@ start, and a stray or unreadable file is logged and skipped rather than
 failing the boot. Backfilled rows carry `source: bootstrap`, which is what
 lets the Admin UI distinguish "nsc made this" from "we made this".
 
+![Figure A, Record at mint and reap on a schedule: Provisioner.CreateUser and auth.mintUserToken follow BR-AC38's nkeys, pending-record, signing, and active-record order before writing accounts.users in Postgres, while BackfillCredsDirUsers reconciles .creds files once per boot with an idempotent insert; a fourth path, SessionReaper.reapOnce, runs at boot and every fifteen minutes and is the only path that deletes, removing expired session rows through a whitelist predicate that can never match a credential or a revoked row. All four paths terminate at the same Postgres-only user registry and no NATS KV bucket is involved. Figure D on the same sheet plots the life of one session row across the retention window.](images/admin-users-data-flow.png)
+
+> Editable source: [admin-users-data-flow.html](../../../../demos/01-dictionary/diagrams/admin-users-data-flow.html)
+> — hand-authored inline SVG rather than a Draw.io workbook page, so
+> `./diagrams/export-png.sh` does **not** regenerate it. Re-export with
+> `node diagrams/export-html-png.mjs diagrams/admin-users-data-flow.html \`
+> `  ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/admin-users-data-flow.png 1024 --clip=".wrap"`
+> from `demos/01-dictionary/`. The 1024px width is the geometry the page
+> was reviewed at; changing it changes the layout. The `--clip=".wrap"`
+> is load-bearing, not optional — see the Workflow section's step 5 for
+> why (dropping it can silently reintroduce a dead-space band at the
+> bottom of the export).
+
 ### Reading the registry — `api.*`, not `rpc.*`
 
 ```
@@ -1055,6 +1068,145 @@ with a bare `nsc add user` — which is how `platform`, `sys`, `acme` and
 `nsc describe jwt -f nats/creds/<name>.creds`: an unrestricted credential
 prints no Pub/Sub rows, where `shipping-admin` prints its explicit
 `--allow-pub`/`--allow-sub` lists.
+
+### Session reaping (Phase 52)
+
+**A registry that only ever gains rows is not a registry, it is a log.** Every
+browser connect mints a row (BR-AC38) whose token lives 15–30 minutes
+(BR-AC20, `MinTTLMinutes = 15` / `MaxTTLMinutes = 30`), and until Phase 52 the
+row outlived the credential by forever. The measurement that forced the issue:
+after roughly one day of stack uptime, **56 rows, 44 of them expired
+sessions**. The only sweep that existed —`SweepExpiredPendingUsers`, called
+once from `cmd/main.go` at start-up — deleted `status = 'pending'` rows only,
+which is the mint-crash case rather than the ordinary one.
+
+`SessionReaper`
+([accounts/reaper.go](../../../../demos/01-dictionary/backend/accounts-service/accounts/reaper.go))
+replaces it and subsumes it. **Figure D** on the sheet above plots the window
+it applies.
+
+#### The predicate is a whitelist, and that is the whole safety argument
+
+`Store.ReapExpiredSessions`
+([accounts/users.go](../../../../demos/01-dictionary/backend/accounts-service/accounts/users.go)):
+
+```sql
+DELETE FROM accounts.users
+WHERE kind        = 'session'        -- credentials are never candidates
+  AND revoked_at IS NULL             -- a revoked row is kept at any age
+  AND expires_at IS NOT NULL         -- no expiry means not a session to reap
+  AND expires_at < now()             -- must already be expired
+  AND (status = 'pending'            -- a never-completed mint goes with no grace
+       OR expires_at < now() - retention)
+```
+
+Written as an exclusion list (`DELETE … WHERE NOT <things we like>`) the same
+rule would be one forgotten clause away from deleting a credential. Written as
+a whitelist, the failure mode of every future edit is a row that outstays its
+welcome. That asymmetry is deliberate and should survive any later
+optimisation of this statement.
+
+**The two exemptions are permanent, not conservatism.**
+
+- **A credential is never a candidate.** It carries no `expires_at` at all —
+  it is a long-lived service or tenant identity, and this row is its only
+  record on this side of NATS.
+- **A revoked row is kept at any age.** It is the only human-readable mirror
+  of an entry in the account JWT's revocation list, and
+  `jwt.RevocationList.MaybeCompact` prunes only by wildcard, **never by
+  expiry** — so that list keeps the NKey forever. Reaping the row would leave
+  a revocation nobody could explain. See "Admin-initiated revocation" below
+  for the other half of that pair.
+
+#### Two knobs, because cadence is not retention
+
+Conflating them yields a reaper that is either useless or destructive. Both
+are set at their defaults in `docker-compose.yml` so they are discoverable
+where the stack is configured rather than only in Go.
+
+| Variable | Default | Governs | Why |
+|---|---|---|---|
+| `ACCOUNTS_SESSION_RETENTION` | `24h` | how long a row survives past its own `expires_at` — **the operator knob** | roughly how long the row stays *explainable*: past 24h the bounded `/connz?state=closed` ring feeding the **Last outcome** column (~59 entries, measured) has rolled over, so the row has no outcome left to pair with |
+| `ACCOUNTS_REAPER_INTERVAL` | `15m` | how often the sweep runs — **a load knob only** | one minimum-TTL period; ~1% overshoot against a 24h window, so a row goes between `expiry + 24h` and `expiry + 24h15m`. Changing it changes cost, not policy |
+
+**Reaping on expiry was rejected.** A session that lapsed four minutes ago is
+exactly the row an operator is reading when they ask why their tab dropped;
+deleting it destroys the answer at the moment it is wanted.
+
+#### Configuration is validated; a failed sweep is not fatal
+
+The two are opposite on purpose (BR-AC45):
+
+- **Retention `0` disables the reaper.** It does *not* mean reap-on-expiry —
+  that reading of a bare zero would quietly destroy data. A negative
+  retention, a non-positive interval, or an unparseable duration is **fatal at
+  boot**: a deployment that meant to keep a week of sessions and mistyped the
+  value must find out immediately, not discover a silent fallback a week
+  later. `ReaperConfigFromEnv` never falls back on a parse error.
+- **A failing sweep logs a warning and waits for the next tick.** A reaper
+  that dies on the first Postgres blip has silently stopped reaping, which is
+  the failure this exists to prevent. It runs **once at start-up before the
+  ticker** — a stack down for a week must not wait out an interval — and says
+  nothing at all when it removes nothing.
+
+#### Verification (2026-08-27)
+
+The predicate was dry-run as a `SELECT` at five retentions against the live
+registry before anything was deleted. Monotonic, and never exceeding the 51
+expired sessions present — so the 6 credentials and 2 live sessions are
+provably untouched at every setting, including `0`:
+
+| Retention | Rows deleted | Reading |
+|---|---:|---|
+| `24h` (shipped) | 0 | every expired session is younger than the window — the correct outcome on a stack up for one day |
+| `8h` | 3 | the oldest three fall out |
+| `4h` | 19 | |
+| `1h` | 36 | |
+| `0` (hypothetical reap-on-expiry) | 51 | all expired sessions and **nothing else** — the credentials and live sessions still survive, which is the point: the predicate, not the window, is the safety argument. In the shipped code `0` disables the reaper outright |
+
+In the running stack `accounts-service` logs
+`session reaper started retention=24h0m0s interval=15m0s` at boot and has been
+silent since, correctly removing nothing.
+
+#### Panel consequence — and two defects the change exposed
+
+Because the table is now bounded at *mint-rate × retention*, `hide expired` in
+the Users panel **defaults off** (BR-060, amended): the panel no longer needs
+to hide most of itself to be readable.
+
+Flipping that default changed which filter runs first, and that uncovered two
+bugs the old default had masked. Both are worth recording because neither was
+visible to a test written against the old default:
+
+1. **`Authentication Expired` was being classed as a refusal.** It matches
+   BR-062's `/Authentication|Authorization|Revoked/i` colour test *textually*,
+   but it is the server's word for a session whose TTL simply ran out — the
+   ordinary end of every browser session here, and 35 of the 59 reasons in the
+   Phase 51 measurement. Since a refusal is deliberately treated as never-idle
+   (so genuinely rejected rows survive `hide idle`), this made `hide idle`
+   **structurally unable to hide the largest class of dead rows**: 41 rows
+   visible on a roster with 8 live connections. Fixed with an `Expired`
+   exclusion that runs *before* the refusal test (BR-062, amended).
+2. **A chip reported a held-back count while holding nothing back** — "51"
+   beside an unchecked box, which reads as *51 hidden* when nothing was. Each
+   chip now renders its count only while its filter is actually filtering.
+
+The generalisable lesson: **two filters that overlap can hide each other's
+bugs, and changing which one runs first is a real test of both.**
+
+#### Pagination, deliberately deferred
+
+`ListUsers` still returns everything. The panel's `hide expired` / `hide idle`
+chips can report an *honest* held-back count only because the client holds the
+whole population; a paged `api._platform.accounts.user.list.v1` would need
+server-computed totals shipped alongside every page, or those counts begin to
+lie — and a filter that misreports what it is hiding is worse than no filter.
+With retention in force the pressure that motivated paging is gone, so buy it
+with a re-measurement showing the bounded table is *still* too big to ship
+whole, not with a hypothesis. `UserListResponse` remains an envelope, so the
+room is there when the measurement arrives.
+
+---
 
 ---
 

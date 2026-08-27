@@ -42,6 +42,13 @@ import (
 const (
 	UserListSubject = "api._platform.accounts.user.list.v1"
 	UserGetSubject  = "api._platform.accounts.user.get.v1"
+	// UserRevokeSubject is Phase 51b (BR-AC43). It is a write on an api.*
+	// subject, which the two reads above are not — worth stating, because
+	// the guard is not in this file. What keeps a tenant from calling it is
+	// the same thing that keeps them from calling .list.v1: the adapter is
+	// mounted on the PLATFORM connection only, so a tenant credential has no
+	// route to the subject at all.
+	UserRevokeSubject = "api._platform.accounts.user.revoke.v1"
 )
 
 // ErrPublicKeyRequired is the .get.v1 argument check. A get with no key is a
@@ -50,16 +57,24 @@ var ErrPublicKeyRequired = errors.New("publicKey is required")
 
 // UsersAdapter serves the two Users-panel subjects on one connection.
 type UsersAdapter struct {
-	svc    micro.Service
-	reader *UserClaimsReader
-	log    *slog.Logger
-	tracer *natstrace.Tracer
+	svc     micro.Service
+	reader  *UserClaimsReader
+	revoker *UserRevoker
+	log     *slog.Logger
+	tracer  *natstrace.Tracer
 }
 
 // UserGetRequest is .get.v1's body. The user NKey is the identity everything
 // else joins on — /connz reports it as authorized_user — so it is the only
 // argument.
 type UserGetRequest struct {
+	PublicKey string `json:"publicKey"`
+}
+
+// UserRevokeRequest is .revoke.v1's body. Same single argument as .get.v1
+// and for the same reason: the user NKey is the identity, and a name is not
+// unique enough to revoke by (BR-058).
+type UserRevokeRequest struct {
 	PublicKey string `json:"publicKey"`
 }
 
@@ -71,8 +86,12 @@ type UserListResponse struct {
 
 // NewUsersAdapter registers the endpoints on nc — expected to be this
 // process's PLATFORM connection. Callers Stop() it on shutdown.
-func NewUsersAdapter(nc *nats.Conn, reader *UserClaimsReader, log *slog.Logger) (*UsersAdapter, error) {
-	a := &UsersAdapter{reader: reader, log: log, tracer: natstrace.New(nc)}
+// revoker may be nil, in which case .revoke.v1 is still served and answers
+// every request with an error. That is deliberate: an endpoint that is
+// absent looks to a browser exactly like a NATS timeout, whereas one that
+// refuses can say why.
+func NewUsersAdapter(nc *nats.Conn, reader *UserClaimsReader, revoker *UserRevoker, log *slog.Logger) (*UsersAdapter, error) {
+	a := &UsersAdapter{reader: reader, revoker: revoker, log: log, tracer: natstrace.New(nc)}
 
 	svc, err := micro.AddService(nc, micro.Config{
 		// Matches this connection's own nats.Name (natsconn.Options
@@ -108,6 +127,7 @@ func (a *UsersAdapter) endpoints() []usersEndpoint {
 	return []usersEndpoint{
 		{"user-list", a.handleList, UserListSubject},
 		{"user-get", a.handleGet, UserGetSubject},
+		{"user-revoke", a.handleRevoke, UserRevokeSubject},
 	}
 }
 
@@ -161,4 +181,29 @@ func (a *UsersAdapter) handleGet(req micro.Request) {
 		return
 	}
 	sharedbrowserrpc.Respond(req, a.svc, a.log, UserGetSubject, "", view)
+}
+
+func (a *UsersAdapter) handleRevoke(req micro.Request) {
+	var in UserRevokeRequest
+	if len(req.Data()) > 0 {
+		if err := json.Unmarshal(req.Data(), &in); err != nil {
+			a.respondError(req, UserRevokeSubject, err)
+			return
+		}
+	}
+	if in.PublicKey == "" {
+		a.respondError(req, UserRevokeSubject, ErrPublicKeyRequired)
+		return
+	}
+	if a.revoker == nil {
+		a.respondError(req, UserRevokeSubject, errors.New("revocation is not configured on this deployment"))
+		return
+	}
+	out, err := a.revoker.Revoke(sharedbrowserrpc.SpanContext(req), in.PublicKey)
+	if err != nil {
+		a.respondError(req, UserRevokeSubject, err)
+		return
+	}
+	a.log.Info("nats user credential revoked", "user", out.PublicKey, "account", out.Account)
+	sharedbrowserrpc.Respond(req, a.svc, a.log, UserRevokeSubject, "", out)
 }

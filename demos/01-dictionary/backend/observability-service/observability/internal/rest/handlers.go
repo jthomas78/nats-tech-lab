@@ -63,6 +63,7 @@ func (h *Handlers) Mount(mux *http.ServeMux) []string {
 
 	handle("GET /healthz", h.healthz)
 	handle("GET /api/nats/connections", h.listNatsConnections)
+	handle("GET /api/nats/connections/closed", h.listNatsClosedConnections)
 	handle("GET /api/nats/account-activity", h.listNatsAccountActivity)
 	handle("GET /api/nats/account-activity/history", h.accountActivityHistory)
 	handle("GET /api/nats/log", h.tailNatsLog)

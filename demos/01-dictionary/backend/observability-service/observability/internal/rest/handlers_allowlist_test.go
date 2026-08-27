@@ -24,6 +24,7 @@ func TestMountRoutesMatchAdminAllowlist(t *testing.T) {
 	g.Expect(routes).To(ConsistOf(
 		"GET /healthz",
 		"GET /api/nats/connections",
+		"GET /api/nats/connections/closed",
 		"GET /api/nats/account-activity",
 		"GET /api/nats/account-activity/history",
 		"GET /api/nats/log",

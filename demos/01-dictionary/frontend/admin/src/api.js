@@ -118,6 +118,16 @@ export function getNatsUser(publicKey) {
   return usePlatformConnection().request('api._platform.accounts.user.get.v1', { publicKey })
 }
 
+// Revoke one credential (Phase 51b, BR-AC43). The only write on this surface,
+// and terminal: there is no un-revoke call to pair with it, by design —
+// recovery from a mis-revocation is minting a replacement credential.
+//
+// Takes the public NKey and nothing else. A name is not unique enough to
+// revoke by (BR-058), which is the same reason the panel joins on the key.
+export function revokeNatsUser(publicKey) {
+  return usePlatformConnection().request('api._platform.accounts.user.revoke.v1', { publicKey })
+}
+
 // ── Accounts (Phase 14c) ───────────────────────────────────────────────────────
 // Dynamic tenant provisioning via accounts-service, proxied at /api/platform/
 // (nginx.conf / vite.config.js inject the shared basic-auth secret — the
@@ -202,6 +212,17 @@ export function updateBusinessUnit(name, buName, input) {
 
 export function getNatsConnections() {
   return request('/api/nats/connections')
+}
+
+// The server's ring of recently-closed connections (Phase 51a, BR-062) — a
+// credential's last connection OUTCOME, which the live list above cannot
+// supply: it knows only who is connected now, so it cannot tell an idle
+// credential from one being refused every few seconds.
+//
+// Its own route rather than a field on getNatsConnections: the closed ring is
+// much larger than the live list and only the Users panel reads it.
+export function getNatsClosedConnections() {
+  return request('/api/nats/connections/closed')
 }
 
 export function getNatsServices() {

@@ -118,6 +118,11 @@ type connzConnection struct {
 	// panel has any use for.
 	JWT     string `json:"jwt"`
 	NameTag string `json:"name_tag"`
+	// Stop and Reason are populated only by ?state=closed (Phase 51a,
+	// BR-062) and are absent on every live row — a connection that is still
+	// open has neither. See nats_connections_closed.go.
+	Stop   time.Time `json:"stop"`
+	Reason string    `json:"reason"`
 }
 
 // credentialName returns the `name` claim from a NATS user JWT, or "" if

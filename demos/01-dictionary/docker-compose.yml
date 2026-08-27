@@ -341,6 +341,21 @@ services:
       # Phase 22: used by accounts-service to register/hide BU contexts in
       # refdata-service when BUs are created or their visibility is toggled.
       REFDATA_URL: http://refdata-service:8080
+      # Phase 52 (BR-AC44/BR-AC45) — the session reaper. Every browser connect
+      # writes a registry row (BR-AC38) and nothing used to delete one.
+      #
+      # Two knobs, deliberately separate. RETENTION is the operator knob: how
+      # long an expired session row survives past its own expires_at. 24h is
+      # roughly how long the row stays explainable — beyond it the /connz
+      # closed ring feeding the panel's Last outcome column has rolled over.
+      # INTERVAL is a load knob only: one minimum-TTL period, ~1% overshoot
+      # against a 24h window.
+      #
+      # Both shown at their defaults rather than omitted, so the values are
+      # discoverable here instead of only in accounts/reaper.go. Setting
+      # RETENTION to 0 DISABLES the reaper; it does not mean reap-on-expiry.
+      ACCOUNTS_SESSION_RETENTION: 24h
+      ACCOUNTS_REAPER_INTERVAL: 15m
     ports:
       - "7202:8080"
     volumes:

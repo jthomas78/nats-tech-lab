@@ -214,6 +214,22 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// Migrate is idempotent and runs on every start.
 		`ALTER TABLE accounts.users ADD COLUMN IF NOT EXISTS issuer_key TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE accounts.users ADD COLUMN IF NOT EXISTS permissions JSONB`,
+
+		// Phase 51b (BR-AC42). revoked_at mirrors the account JWT's own
+		// revocation list, which is where revocation actually lives — this
+		// column is a mirror of a server-side fact, never the fact itself.
+		//
+		// A TIMESTAMPTZ and NOT a `status = 'revoked'`, which is what the
+		// first draft of the phase proposed. Two reasons, both load-bearing:
+		// `status` is documented in users.go as "the mint outcome as the
+		// issuer knows it" and a revocation is not a mint outcome; and
+		// overloading it would destroy information, because a credential
+		// revoked while stuck at `pending` is the ALARMING case and BR-AC38
+		// names revocation as the resolution for a stuck pending credential,
+		// so that combination has to stay representable. The shape also
+		// mirrors the JWT revocation list's own (key -> timestamp) form,
+		// which is what makes drift between the two detectable at all.
+		`ALTER TABLE accounts.users ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {

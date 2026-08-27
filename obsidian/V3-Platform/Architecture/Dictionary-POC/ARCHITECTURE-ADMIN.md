@@ -1000,6 +1000,8 @@ Nav key `users`, in the **`Identity`** eyebrow group rather than this doc's
 `NATS` one — see §1's Identity note for why a panel documented here lives
 next door.
 
+The complete write, read, browser-join, and permission-resolution flow is shown in the diagram in [ARCHITECTURE-ACCOUNTS.md § NATS user registry](ARCHITECTURE-ACCOUNTS.md#nats-user-registry-phase-50).
+
 ![Users — the roster and both drill-in states](images/admin-users-panel-mockup.png)
 
 **The roster lists two kinds of user in one table.** `credential` is an

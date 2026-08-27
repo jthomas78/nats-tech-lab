@@ -188,17 +188,20 @@ var _ = Describe("MintAdminToken", func() {
 		))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("obs.")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("rpctrace")))
-		// Phase 50b (BR-AC40) adds the two user-registry subjects. They are
-		// listed individually rather than as an api._platform.accounts.>
-		// prefix: this allowlist is exact precisely so a future accounts
-		// endpoint is not reachable from the browser merely by being named
-		// consistently with these two.
+		// Phase 50b (BR-AC40) adds the user-registry subjects; Phase 51b
+		// (BR-AC43) adds the revoke write to them. They are enumerated here
+		// rather than matched as an api._platform.accounts.> prefix on
+		// purpose: MintAdminToken builds this set from
+		// UsersAdapterSubjects(), so a new accounts endpoint would otherwise
+		// reach the browser silently. Failing this assertion is the intended
+		// behaviour — it forces a decision about the new subject.
 		Expect(claims.Permissions.Pub.Allow).To(ConsistOf(
 			"api._platform.refdata.type.list.v1",
 			"api._platform.refdata.locales.list.v1",
 			"api._platform.refdata.context.list.v1",
 			"api._platform.accounts.user.list.v1",
 			"api._platform.accounts.user.get.v1",
+			"api._platform.accounts.user.revoke.v1",
 		))
 		Expect(claims.Permissions.Pub.Deny).To(BeEmpty())
 

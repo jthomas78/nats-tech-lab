@@ -16,7 +16,10 @@ package accounts
 //   - Deleting a row is a registry operation, never a revocation. A signed
 //     user JWT that has escaped is revoked only by adding its NKey to the
 //     account's revocation list and pushing the account claims update
-//     ($SYS.REQ.CLAIMS.UPDATE) — see Provisioner.pushClaimsUpdate.
+//     ($SYS.REQ.CLAIMS.UPDATE) — Provisioner.RevokeUser, added in Phase 51b
+//     (BR-AC42). That is the mechanism; MarkUserRevoked below only mirrors
+//     its outcome onto the row, and DeleteUser still reaches the server not
+//     at all.
 //   - A row may exist for a credential that was never returned to anyone
 //     (see UserStatusPending below). That is the honest state, and the panel
 //     shows it rather than hiding it.
@@ -35,6 +38,14 @@ import (
 // ErrUserNotFound is returned by the registry reads when no user has the
 // given public NKey.
 var ErrUserNotFound = errors.New("user not found")
+
+// ErrUserAlreadyRevoked is returned when a revocation is attempted against a
+// row that already carries revoked_at. Revocation is terminal (BR-AC43), so
+// this is a no-op reported rather than an idempotent success: a second
+// operator pressing the button is asking a question ("is this dead?") that
+// deserves a truthful answer, not a silent re-push of a claims update to
+// every server in the deployment.
+var ErrUserAlreadyRevoked = errors.New("user is already revoked")
 
 // ErrNoUserRegistry is returned by every mint path constructed without a
 // registry. BR-AC38 makes recording part of minting rather than a courtesy
@@ -144,6 +155,12 @@ type User struct {
 	IssuedAt    time.Time
 	ExpiresAt   *time.Time
 	ActivatedAt *time.Time
+	// RevokedAt mirrors the issuing account's JWT revocation list (BR-AC42).
+	// Nil means this service has not revoked the credential; a value means
+	// it pushed the revocation and the server refused the credential from
+	// that instant on. It is a MIRROR of a server-side fact and never the
+	// fact itself — the authority is the account JWT.
+	RevokedAt *time.Time
 }
 
 // UserRegistry is the write side of the registry as the mint paths need it —
@@ -162,13 +179,13 @@ type BootstrapUserSink interface {
 
 // userColumns is the select list every user read shares, so a new column
 // can't be added to one query and forgotten in another.
-const userColumns = `id, public_key, name, account, account_key, issuer_key, permissions, kind, status, bearer, source, issued_at, expires_at, activated_at`
+const userColumns = `id, public_key, name, account, account_key, issuer_key, permissions, kind, status, bearer, source, issued_at, expires_at, activated_at, revoked_at`
 
 // scanUser binds a row into dest. permissions comes back as raw JSONB and is
 // decoded by finishUser, since database/sql has no hook for it.
 func scanUser(dest *User, perms *[]byte) []any {
 	return []any{&dest.ID, &dest.PublicKey, &dest.Name, &dest.Account, &dest.AccountKey, &dest.IssuerKey, perms,
-		&dest.Kind, &dest.Status, &dest.Bearer, &dest.Source, &dest.IssuedAt, &dest.ExpiresAt, &dest.ActivatedAt}
+		&dest.Kind, &dest.Status, &dest.Bearer, &dest.Source, &dest.IssuedAt, &dest.ExpiresAt, &dest.ActivatedAt, &dest.RevokedAt}
 }
 
 // finishUser decodes the permissions JSONB scanned alongside dest. A row
@@ -310,8 +327,45 @@ func (s *Store) GetUser(ctx context.Context, publicKey string) (User, error) {
 	return u, nil
 }
 
+// MarkUserRevoked stamps revoked_at on a registry row, mirroring a
+// revocation already pushed to the issuing account's JWT (BR-AC42).
+//
+// It is called AFTER the claims update lands, never before: if the push
+// succeeds and this write fails, the credential is genuinely dead and the
+// registry merely does not say so yet — recoverable, and visible as drift.
+// The other ordering fails the dangerous way round, marking a row revoked
+// while the credential keeps working.
+//
+// The WHERE clause refuses a second revocation rather than moving the
+// timestamp: revocation is terminal (BR-AC43), and the instant that matters
+// is the FIRST one — it is what the account JWT's own list records, and
+// overwriting it here would manufacture drift against the authority this
+// column exists to mirror. Returns ErrUserAlreadyRevoked when the row is
+// already stamped, and ErrUserNotFound when there is no such row.
+func (s *Store) MarkUserRevoked(ctx context.Context, publicKey string) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE accounts.users SET revoked_at = now() WHERE public_key = $1 AND revoked_at IS NULL`, publicKey)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		// Nothing updated is two different facts; tell them apart rather
+		// than reporting the more alarming one for both.
+		if _, err := s.GetUser(ctx, publicKey); err != nil {
+			return err
+		}
+		return ErrUserAlreadyRevoked
+	}
+	return nil
+}
+
 // DeleteUser removes a registry row. Not a revocation — see this file's
-// header. Returns ErrUserNotFound if there was nothing to remove.
+// header, and BR-AC42 for what a revocation actually is. Returns
+// ErrUserNotFound if there was nothing to remove.
 func (s *Store) DeleteUser(ctx context.Context, publicKey string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM accounts.users WHERE public_key = $1`, publicKey)
 	if err != nil {
@@ -327,16 +381,42 @@ func (s *Store) DeleteUser(ctx context.Context, publicKey string) error {
 	return nil
 }
 
-// SweepExpiredPendingUsers removes pending rows whose expiry has already
-// passed, and returns how many it removed. This only ever touches sessions:
-// a credential has no expiry (expires_at IS NULL), so a credential stuck at
-// pending persists until an operator resolves it, while a session that never
-// reached active is already dead on its TTL and carries no information worth
-// keeping (BR-AC38).
-func (s *Store) SweepExpiredPendingUsers(ctx context.Context) (int64, error) {
+// ReapExpiredSessions removes expired session rows and returns how many it
+// removed (BR-AC44). Phase 52; it subsumes the start-up-only
+// SweepExpiredPendingUsers that preceded it.
+//
+// The predicate is a WHITELIST — every clause below narrows what may be
+// deleted, so the failure mode of a future edit is a row that survives
+// rather than a credential that does not:
+//
+//   - kind = 'session'. A credential has no expiry and so cannot match
+//     today; the clause is belt-and-braces, and it means a bug that stamps
+//     expires_at onto a credential costs a wrong badge in the panel, not a
+//     deleted credential.
+//   - expires_at IS NOT NULL AND already in the past. The window is measured
+//     from the row's own expiry, never from now alone, so a retention of 0
+//     still cannot touch a live session.
+//   - revoked_at IS NULL. A revoked row is never reaped, at ANY age. The row
+//     is the only human-readable mirror of an entry in the account JWT's
+//     revocation list (BR-AC42/BR-AC43); that list keeps the NKey forever,
+//     and deleting the row leaves an operator staring at a revocation whose
+//     subject nothing in the stack can name. Revocations are rare and
+//     operator-driven, so exempting them does not reintroduce unbounded
+//     growth.
+//
+// A pending row is reaped the moment its TTL passes, with no retention
+// grace, which is the behaviour BR-AC38 already had. The window exists to
+// keep an EXPLAINABLE row around long enough to be read; a mint that never
+// produced a credential has nothing to explain.
+func (s *Store) ReapExpiredSessions(ctx context.Context, retention time.Duration) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `
 		DELETE FROM accounts.users
-		WHERE status = $1 AND expires_at IS NOT NULL AND expires_at < now()`, string(UserStatusPending))
+		WHERE kind = $1
+		  AND revoked_at IS NULL
+		  AND expires_at IS NOT NULL
+		  AND expires_at < now()
+		  AND (status = $2 OR expires_at < now() - $3::interval)`,
+		string(UserKindSession), string(UserStatusPending), retention.String())
 	if err != nil {
 		return 0, err
 	}

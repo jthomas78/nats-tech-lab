@@ -232,7 +232,7 @@ const docTemplate = `{
         },
         "/api/nats/connections": {
             "get": {
-                "description": "Every active connection on the NATS server, across all accounts — proxies the server's own /connz monitoring endpoint (subs=true\u0026auth=true), reshaped to camelCase. tenantLabel is resolved against accounts-service's own name\u003c-\u003epublicKey mapping (GET /api/accounts), not a live-connection-matching trick — see BR-028 and Phase 30's design note. The page object passes through /connz's paging envelope; the server object carries the real ceiling from /varz.",
+                "description": "Every active connection on the NATS server, across all accounts — proxies the server's own /connz monitoring endpoint (subs=true\u0026auth=true), reshaped to camelCase. tenantLabel is resolved against accounts-service's own name\u003c-\u003epublicKey mapping (GET /api/accounts), not a live-connection-matching trick — see BR-028 and Phase 30's design note. user is the credential's name claim decoded from the connection's user JWT (falling back to the account's name_tag when there is no user JWT) and userKey is its public NKey; the raw JWT itself is never forwarded. The page object passes through /connz's paging envelope; the server object carries the real ceiling from /varz.",
                 "produces": [
                     "application/json"
                 ],
@@ -245,6 +245,32 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/rest.natsConnectionsResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "NATS monitoring endpoint unreachable or returned an unexpected body",
+                        "schema": {
+                            "$ref": "#/definitions/rest.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/nats/connections/closed": {
+            "get": {
+                "description": "The server's closed-connection ring — proxies /connz?state=closed\u0026auth=true, reshaped to camelCase — supplying the Users panel with the OUTCOME of a credential's most recent connection (BR-062). reason is the server's own verbatim wording (\"Authentication Expired\", \"Client Closed\", \"Authentication Failure\"), never remapped. userKey is authorized_user, the same BR-058 join key the live connections endpoint reports, and the raw JWT is decoded for its name claim and dropped exactly as it is there. The ring is bounded and is not a history: an entry's ABSENCE means the connection fell outside the retained window, never that a credential has never connected, and the page envelope is passed through so a caller can say which it is looking at.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "nats"
+                ],
+                "summary": "List recently closed NATS connections",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/rest.natsClosedConnectionsResponse"
                         }
                     },
                     "502": {
@@ -388,6 +414,38 @@ const docTemplate = `{
                 },
                 "status": {
                     "description": "accounts.StatusActive (\"active\") | accounts.StatusSuspended (\"suspended\")",
+                    "type": "string"
+                }
+            }
+        },
+        "rest.closedConnection": {
+            "type": "object",
+            "properties": {
+                "account": {
+                    "type": "string"
+                },
+                "cid": {
+                    "type": "integer"
+                },
+                "name": {
+                    "description": "Name is the client's own nats.Name(), carried through for the same\nreason the live path carries it: a Name/Credential mismatch is the\nsignal that a process is holding someone else's .creds file.",
+                    "type": "string"
+                },
+                "reason": {
+                    "description": "Reason is the server's own words for how the connection ended:\n\"Authentication Expired\", \"Client Closed\", \"Authentication Failure\",\nand so on. Passed through VERBATIM and never mapped to a friendlier\nvocabulary of our own — an operator correlating this against the\nserver log needs the string the server used, and a translation layer\nwould silently swallow any reason NATS adds in a future release.",
+                    "type": "string"
+                },
+                "start": {
+                    "type": "string"
+                },
+                "stop": {
+                    "type": "string"
+                },
+                "user": {
+                    "description": "User and UserKey are the credential's ` + "`" + `name` + "`" + ` claim and its public\nNKey, identical in meaning to the live path's fields — see\nnatsConnection's own comments. UserKey is the join key (BR-058).",
+                    "type": "string"
+                },
+                "userKey": {
                     "type": "string"
                 }
             }
@@ -602,6 +660,20 @@ const docTemplate = `{
                 }
             }
         },
+        "rest.natsClosedConnectionsResponse": {
+            "type": "object",
+            "properties": {
+                "connections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/rest.closedConnection"
+                    }
+                },
+                "page": {
+                    "$ref": "#/definitions/rest.connzPage"
+                }
+            }
+        },
         "rest.natsConnection": {
             "type": "object",
             "properties": {
@@ -665,6 +737,14 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "uptime": {
+                    "type": "string"
+                },
+                "user": {
+                    "description": "User is the connection's credential NAME — the ` + "`" + `name` + "`" + ` claim decoded\nout of /connz's ` + "`" + `jwt` + "`" + ` field, e.g. \"observability\" or \"acme\". It\nidentifies the CREDENTIAL, not the connection: several connections\npresenting the same .creds file all report the same value here\n(refdata-service and accounts-service both hold platform.creds; all\nfour ACME-side services hold acme.creds). Falls back to ` + "`" + `name_tag` + "`" + `\n— the ACCOUNT JWT's own name — for any connection that authenticated\nwithout a user JWT, where ` + "`" + `jwt` + "`" + ` comes back empty.",
+                    "type": "string"
+                },
+                "userKey": {
+                    "description": "UserKey is ` + "`" + `authorized_user` + "`" + `: the user's public NKey, and the only\nstable identity for a credential — two distinct users can carry the\nsame Name. Ephemeral browser credentials (auth/token.go's\nmintUserToken) generate a fresh key per session, so this rotates on\nevery browser reconnect by design.",
                     "type": "string"
                 },
                 "version": {

@@ -28,6 +28,11 @@ import (
 type fakeUserReadStore struct {
 	users  []accounts.User
 	getErr error
+	// Phase 51b: markErr and marked let this same fake serve as a
+	// UserRevokeStore, so the revocation specs test against the same
+	// registry shape the read specs do.
+	markErr error
+	marked  []string
 }
 
 func (f *fakeUserReadStore) ListUsers(_ context.Context) ([]accounts.User, error) {
@@ -44,6 +49,27 @@ func (f *fakeUserReadStore) GetUser(_ context.Context, publicKey string) (accoun
 		}
 	}
 	return accounts.User{}, accounts.ErrUserNotFound
+}
+
+// MarkUserRevoked mirrors Store.MarkUserRevoked, including its refusal to
+// move an existing timestamp (Phase 51b, BR-AC42).
+func (f *fakeUserReadStore) MarkUserRevoked(_ context.Context, publicKey string) error {
+	if f.markErr != nil {
+		return f.markErr
+	}
+	for i := range f.users {
+		if f.users[i].PublicKey != publicKey {
+			continue
+		}
+		if f.users[i].RevokedAt != nil {
+			return accounts.ErrUserAlreadyRevoked
+		}
+		now := time.Now()
+		f.users[i].RevokedAt = &now
+		f.marked = append(f.marked, publicKey)
+		return nil
+	}
+	return accounts.ErrUserNotFound
 }
 
 // fakeAccountLookup stands in for $SYS.REQ.ACCOUNT.<pub>.CLAIMS.LOOKUP.

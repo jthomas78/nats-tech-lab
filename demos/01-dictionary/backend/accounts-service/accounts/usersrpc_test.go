@@ -9,6 +9,8 @@ package accounts_test
 
 import (
 	"encoding/json"
+	"io"
+	"log/slog"
 	"time"
 
 	"github.com/nats-io/jwt/v2"
@@ -38,13 +40,14 @@ func startEmbeddedNATS(name string) *nats.Conn {
 
 var _ = Describe("Users api.* adapter", func() {
 	var (
-		nc         *nats.Conn
-		adapter    *accounts.UsersAdapter
-		store      *fakeUserReadStore
-		lookup     *fakeAccountLookup
-		userPub    string
-		accountPub string
-		signingPub string
+		nc          *nats.Conn
+		adapter     *accounts.UsersAdapter
+		store       *fakeUserReadStore
+		lookup      *fakeAccountLookup
+		userPub     string
+		accountPub  string
+		signingPub  string
+		natsRevoker *fakeNATSRevoker
 	)
 
 	BeforeEach(func() {
@@ -72,8 +75,12 @@ var _ = Describe("Users api.* adapter", func() {
 		}}}
 		lookup = &fakeAccountLookup{claims: map[string]*jwt.AccountClaims{accountPub: acct}}
 
+		natsRevoker = &fakeNATSRevoker{}
 		var err error
-		adapter, err = accounts.NewUsersAdapter(nc, accounts.NewUserClaimsReader(store, lookup, nil), nil)
+		adapter, err = accounts.NewUsersAdapter(nc,
+			accounts.NewUserClaimsReader(store, lookup, nil),
+			accounts.NewUserRevoker(store, natsRevoker, nil),
+			slog.New(slog.NewTextHandler(io.Discard, nil)))
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(func() { _ = adapter.Stop() })
 	})
@@ -93,10 +100,11 @@ var _ = Describe("Users api.* adapter", func() {
 	}
 
 	Context("BR-AC40 — the subjects are PLATFORM-only", func() {
-		It("registers exactly the two fixed-literal _platform subjects", func() {
+		It("registers exactly the fixed-literal _platform subjects", func() {
 			Expect(accounts.UsersAdapterSubjects()).To(ConsistOf(
 				"api._platform.accounts.user.list.v1",
 				"api._platform.accounts.user.get.v1",
+				"api._platform.accounts.user.revoke.v1",
 			))
 		})
 
@@ -167,6 +175,41 @@ var _ = Describe("Users api.* adapter", func() {
 		It("rejects a request with no public key", func() {
 			out := request("api._platform.accounts.user.get.v1", map[string]string{})
 			Expect(out["error"]).NotTo(BeEmpty())
+		})
+	})
+
+	// Phase 51b (BR-AC43) — the revoke write, exercised on the wire for the
+	// same reason the reads are: the Admin UI talks to this subject directly.
+	Context("BR-AC43 — .revoke.v1", func() {
+		It("revokes the named credential and returns the stamped row", func() {
+			out := request("api._platform.accounts.user.revoke.v1", accounts.UserRevokeRequest{PublicKey: userPub})
+			Expect(out).To(HaveKeyWithValue("publicKey", userPub))
+			Expect(out["revokedAt"]).NotTo(BeEmpty())
+			Expect(natsRevoker.users).To(ConsistOf(userPub))
+		})
+
+		It("rejects a request with no public key rather than revoking something arbitrary", func() {
+			out := request("api._platform.accounts.user.revoke.v1", accounts.UserRevokeRequest{})
+			Expect(out["error"]).NotTo(BeEmpty())
+			Expect(natsRevoker.users).To(BeEmpty())
+		})
+
+		It("rejects a session, carrying the domain refusal out to the caller", func() {
+			store.users[0].Kind = accounts.UserKindSession
+			out := request("api._platform.accounts.user.revoke.v1", accounts.UserRevokeRequest{PublicKey: userPub})
+			Expect(out["error"]).NotTo(BeEmpty())
+			Expect(natsRevoker.users).To(BeEmpty())
+		})
+
+		It("returns no seed, creds body or signed JWT (BR-AC40)", func() {
+			out := request("api._platform.accounts.user.revoke.v1", accounts.UserRevokeRequest{PublicKey: userPub})
+			raw, err := json.Marshal(out)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(raw)).NotTo(ContainSubstring("eyJ"))
+			Expect(string(raw)).NotTo(ContainSubstring("-----BEGIN"))
+			for _, k := range []string{"seed", "nkeySeed", "creds", "jwt", "permissions"} {
+				Expect(out).NotTo(HaveKey(k))
+			}
 		})
 	})
 })

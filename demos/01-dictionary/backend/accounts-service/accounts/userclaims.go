@@ -55,6 +55,13 @@ type UserSummary struct {
 	IssuedAt    time.Time  `json:"issuedAt"`
 	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
 	ActivatedAt *time.Time `json:"activatedAt,omitempty"`
+	// RevokedAt is set once this credential's public key has been written
+	// into its account JWT's revocation list (Phase 51b, BR-AC42). It is a
+	// timestamp rather than a status value because Status already carries a
+	// different axis — whether the mint completed — and a revoked row keeps
+	// that history: a credential that was active and is now revoked is not
+	// the same thing as one whose mint never finished.
+	RevokedAt *time.Time `json:"revokedAt,omitempty"`
 }
 
 // UserClaimsView is one user's drill-in (BR-AC41).
@@ -105,6 +112,7 @@ func summarize(u User) UserSummary {
 		IssuedAt:    u.IssuedAt,
 		ExpiresAt:   u.ExpiresAt,
 		ActivatedAt: u.ActivatedAt,
+		RevokedAt:   u.RevokedAt,
 	}
 }
 
