@@ -477,6 +477,12 @@ proxy alike, and the deployment's existing certificate covers the bus
 connection for free. An absolute `ws://`/`wss://` value is still honoured
 unchanged, for a deployment that prefers a dedicated NATS hostname.
 
+![Before and after: the browser's NATS WebSocket path](images/browser-nats-ws-path.png)
+
+> Editable source: `demos/01-dictionary/diagrams/browser-nats-ws-path.html`
+> (hand-authored HTML + inline SVG, not a Draw.io workbook page). Re-export with:
+> `node demos/01-dictionary/diagrams/export-html-png.mjs demos/01-dictionary/diagrams/browser-nats-ws-path.html obsidian/V3-Platform/Architecture/Dictionary-POC/images/browser-nats-ws-path.png 1024 --clip=".wrap"`
+
 Two consequences:
 
 - **`nats` joins the `frontend` docker network** so the nginx containers can

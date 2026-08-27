@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Browser NATS WebSocket path — before and after</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 68ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 74ch; }
+li b { color: var(--text); font-weight: 600; }
+
+/* --- SVG diagram style --- */
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.life { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 3 4; stroke-opacity: 0.45; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.lblbad { font-family: var(--mono); font-size: 11px; fill: var(--bad); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+/* A sequence diagram's message labels sit over dashed lifelines by
+   construction. The knockout halo keeps them legible rather than pretending
+   the crossings can be routed away — see SKILL.md, "Never put a label on a
+   line". */
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted);
+        paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="head">
+    <div class="head-txt">
+      <div class="eyebrow">Phase 45 · ARCHITECTURE-ACCOUNTS § connectInfo</div>
+      <h1>Where the browser dials NATS: <code>ws://localhost:9222</code> → same-origin <code>/nats</code></h1>
+      <p class="sub">
+        <code>connectInfo.wsUrl</code> is <code>NATS_WS_URL</code> returned verbatim — accounts-service
+        never inspects it. It also cannot know the origin the page was served from, so any absolute URL
+        it names is a guess. These two diagrams show the guess failing on a remote deployment, and the
+        path that replaced it.
+      </p>
+    </div>
+  </header>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 292" role="img"
+           aria-label="Before. A sequence diagram with four participants: the browser tab at https://lb-admin.xacthomelab.net, the admin-frontend nginx container, accounts-service, and the NATS server's websocket listener on port 9222. The browser fetches /api/auth/adminConnectInfo through nginx, which proxies it to accounts-service, and receives 200 with wsUrl set to the literal ws://localhost:9222. The browser then calls wsconnect with that URL and the dial fails before reaching NATS, because localhost resolves to the viewer's own machine rather than the Proxmox VM, and because a ws:// connection opened from an https:// page is blocked as mixed content. The NATS participant is never reached.">
+        <defs>
+          <marker id="a-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="a-err" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--bad)"/>
+          </marker>
+        </defs>
+
+        <text class="grp" x="15" y="13">BEFORE — DIALS THE NATS HOST PORT DIRECTLY</text>
+
+        <!-- participants -->
+        <rect class="n" x="15"  y="20" width="210" height="40" rx="3"/>
+        <text class="lbl"  x="120" y="37" text-anchor="middle">browser tab</text>
+        <text class="lbl2" x="120" y="50" text-anchor="middle">https://lb-admin.xacthomelab.net</text>
+
+        <rect class="n" x="315" y="20" width="170" height="40" rx="3"/>
+        <text class="lbl"  x="400" y="37" text-anchor="middle">nginx</text>
+        <text class="lbl2" x="400" y="50" text-anchor="middle">admin-frontend</text>
+
+        <rect class="n" x="585" y="20" width="150" height="40" rx="3"/>
+        <text class="lbl"  x="660" y="37" text-anchor="middle">accounts-service</text>
+        <text class="lbl2" x="660" y="50" text-anchor="middle">auth/token.go</text>
+
+        <rect class="n" x="830" y="20" width="140" height="40" rx="3"/>
+        <text class="lbl"  x="900" y="37" text-anchor="middle">nats</text>
+        <text class="lbl2" x="900" y="50" text-anchor="middle">websocket :9222</text>
+
+        <!-- lifelines -->
+        <path class="life" d="M120 60 V206"/>
+        <path class="life" d="M400 60 V206"/>
+        <path class="life" d="M660 60 V206"/>
+        <path class="life" d="M900 60 V206"/>
+
+        <!-- messages -->
+        <path class="flow" marker-end="url(#a-sync)" d="M120 92 H391"/>
+        <text class="edge" x="260" y="86" text-anchor="middle">GET /api/auth/adminConnectInfo</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M400 118 H651"/>
+        <text class="edge" x="530" y="112" text-anchor="middle">proxy_pass</text>
+
+        <path class="flow" marker-end="url(#a-sync)" d="M660 146 H129"/>
+        <text class="edge" x="390" y="140" text-anchor="middle">200 { wsUrl: "ws://localhost:9222" }</text>
+
+        <path class="err" marker-end="url(#a-err)" d="M120 190 H520 V205"/>
+        <text class="edge" x="130" y="184">wsconnect("ws://localhost:9222")</text>
+
+        <rect class="n" x="120" y="214" width="540" height="62" rx="3"/>
+        <text class="lblbad" x="128" y="238">the dial fails twice over</text>
+        <text class="lbl2"   x="128" y="251">localhost is the viewer's own machine, not the Proxmox VM</text>
+        <text class="lbl2"   x="128" y="264">ws:// from an https:// page is blocked as mixed content</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>Before — the guess that only held on a laptop.</b> The mint path was already correct: the JWT is
+      account-scoped and short-lived, and <code>nginx</code> proxies <code>/api/auth/*</code> to
+      accounts-service exactly as it should. What broke was the last hop. <code>NATS_WS_URL</code> was the
+      literal <code>ws://localhost:9222</code>, which is only ever right when the browser and the stack share
+      a machine. Behind <code>https://lb-admin.xacthomelab.net</code> the dial never left the browser — and
+      note the second failure would survive fixing the first: pointing the same value at the VM's real
+      hostname still leaves a <code>ws://</code> dial on an <code>https://</code> page.
+    </figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 292" role="img"
+           aria-label="After. The same four participants. The browser fetches /api/auth/adminConnectInfo through nginx to accounts-service and receives 200 with wsUrl set to the path slash nats. The browser then resolves that path against its own origin with resolveWsUrl, producing wss colon slash slash the page origin slash nats, choosing the wss scheme because the page is https. It opens the WebSocket upgrade to its own nginx at the same origin, and nginx's location slash nats rule proxies the connection to nats colon 9222 inside the Docker frontend network. NATS responds CONNECTED, authorizing the connection with the same account-scoped JWT as before.">
+        <defs>
+          <marker id="b-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+        </defs>
+
+        <text class="grp" x="15" y="13">AFTER — SAME ORIGIN, THROUGH THE APP'S OWN NGINX</text>
+
+        <!-- participants -->
+        <rect class="n" x="15"  y="20" width="210" height="40" rx="3"/>
+        <text class="lbl"  x="120" y="37" text-anchor="middle">browser tab</text>
+        <text class="lbl2" x="120" y="50" text-anchor="middle">https://lb-admin.xacthomelab.net</text>
+
+        <rect class="n" x="315" y="20" width="170" height="40" rx="3"/>
+        <text class="lbl"  x="400" y="37" text-anchor="middle">nginx</text>
+        <text class="lbl2" x="400" y="50" text-anchor="middle">admin-frontend</text>
+
+        <rect class="n" x="585" y="20" width="150" height="40" rx="3"/>
+        <text class="lbl"  x="660" y="37" text-anchor="middle">accounts-service</text>
+        <text class="lbl2" x="660" y="50" text-anchor="middle">auth/token.go</text>
+
+        <rect class="n" x="830" y="20" width="140" height="40" rx="3"/>
+        <text class="lbl"  x="900" y="37" text-anchor="middle">nats</text>
+        <text class="lbl2" x="900" y="50" text-anchor="middle">websocket :9222</text>
+
+        <!-- lifelines -->
+        <path class="life" d="M120 60 V280"/>
+        <path class="life" d="M400 60 V280"/>
+        <path class="life" d="M660 60 V280"/>
+        <path class="life" d="M900 60 V280"/>
+
+        <!-- messages -->
+        <path class="flow" marker-end="url(#b-sync)" d="M120 92 H391"/>
+        <text class="edge" x="260" y="86" text-anchor="middle">GET /api/auth/adminConnectInfo</text>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M400 118 H651"/>
+        <text class="edge" x="530" y="112" text-anchor="middle">proxy_pass</text>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M660 146 H129"/>
+        <text class="edge" x="390" y="140" text-anchor="middle">200 { wsUrl: "/nats" }</text>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M120 168 H170 V186 H129"/>
+        <text class="edge" x="182" y="170">resolveWsUrl("/nats")</text>
+        <text class="edge" x="182" y="184">→ wss://&lt;page origin&gt;/nats</text>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M120 214 H391"/>
+        <text class="edge" x="260" y="208" text-anchor="middle">wss upgrade · same origin</text>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M400 240 H891"/>
+        <text class="edge" x="650" y="234" text-anchor="middle">location /nats → proxy_pass nats:9222</text>
+
+        <path class="flow" marker-end="url(#b-sync)" d="M900 266 H129"/>
+        <text class="edge" x="510" y="260" text-anchor="middle">CONNECTED · account-scoped JWT</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>After — the path is resolved by the only party that knows the origin.</b> accounts-service still
+      returns <code>wsUrl</code> verbatim; it just returns a <i>path</i> now, so it no longer has to guess.
+      <code>shared/nats/resolveWsUrl.js</code> resolves it against <code>window.location</code> and picks
+      <code>wss:</code> whenever the page is <code>https:</code>, and each frontend's
+      <code>location /nats</code> rule forwards the upgrade to <code>nats:9222</code> over the Docker
+      <code>frontend</code> network. One config value now works on a laptop-local stack and behind the
+      Proxmox VM's HAProxy alike, and the deployment's existing certificate covers the bus connection for
+      free. An absolute <code>ws://</code>/<code>wss://</code> value is still honoured for a deployment that
+      prefers a dedicated NATS hostname.
+    </figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>What actually changed</h2>
+    <ul>
+      <li><b>Only the last hop moved.</b> Token minting, TTL, account scoping and the reconnect-on-expiry
+        loop are untouched — the browser still presents the same short-lived, account-scoped JWT, and NATS
+        still authorizes it the same way. nginx forwards the upgrade; it does not authenticate it.</li>
+      <li><b>The resolution lives in the browser because only the browser knows its own origin.</b> Putting
+        it in Go would mean re-guessing the same thing that was wrong before, just later.</li>
+      <li><b><code>nats</code> joined the <code>frontend</code> Docker network</b> so the nginx containers
+        can reach it. The trust-tier invariant is unchanged, and arguably tighter: what must not reach the
+        bus directly is the <i>browser</i>, and it still cannot — it dials nginx, which forwards exactly one
+        path.</li>
+      <li><b>Host port 9222 stays published</b>, but now only for the <code>nats-ui</code> container (under
+        review), whose own page dials it directly. The demo's three frontends no longer do.</li>
+      <li><b>Mixed content is the failure that would have outlived a hostname fix.</b> Worth stating plainly,
+        because "point it at the real host" looks like the obvious repair and only solves half of it.</li>
+    </ul>
+  </section>
+
+</div>
+</body>
+</html>
