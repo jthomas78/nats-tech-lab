@@ -20,13 +20,13 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
-	"github.com/jthomas78/nats-tech-lab/shared/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvstore"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/natsrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/notifybridge"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/postgres"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/rest"
+	"github.com/jthomas78/nats-tech-lab/shared/jstream"
 	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
 	"github.com/jthomas78/nats-tech-lab/shared/natstenants"
 )
@@ -65,7 +65,6 @@ type Handlers struct {
 	Corpus        *commands.CorpusHandler
 	VersionReader *kvcache.VersionReader
 	Translations  *commands.TranslationHandler
-
 }
 
 // Startup runs the schema migration, seeds reference-standard data, wires

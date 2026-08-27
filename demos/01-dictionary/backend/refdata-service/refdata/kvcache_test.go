@@ -22,9 +22,9 @@ import (
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/application/commands"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/domain"
-	"github.com/jthomas78/nats-tech-lab/shared/jstream"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvcache"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata/internal/kvstore"
+	"github.com/jthomas78/nats-tech-lab/shared/jstream"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
 

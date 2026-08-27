@@ -96,9 +96,9 @@ func newTestServer(t *testing.T) *natsserver.Server {
 // resource bundle (a browserrpc.Adapter in the real services) — just enough
 // to prove provision/deprovision run at the right times.
 type testResource struct {
-	tenant   string
-	stopped  bool
-	extra    string
+	tenant  string
+	stopped bool
+	extra   string
 }
 
 func newManager(t *testing.T, srv *natsserver.Server, credsDir string) (*Manager[*testResource], *int32) {
