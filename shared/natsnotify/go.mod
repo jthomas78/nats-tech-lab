@@ -1,6 +1,6 @@
 module github.com/jthomas78/nats-tech-lab/shared/natsnotify
 
-go 1.26
+go 1.27
 
 require (
 	github.com/jthomas78/nats-tech-lab/shared/natstest v0.0.0-00010101000000-000000000000

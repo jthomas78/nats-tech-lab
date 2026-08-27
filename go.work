@@ -1,18 +1,18 @@
-go 1.26.5
+go 1.27
 
 use (
 	./demos/01-dictionary/backend/accounts-service
 	./demos/01-dictionary/backend/observability-service
+	./demos/01-dictionary/backend/organizations-service
 	./demos/01-dictionary/backend/otlp-bridge
 	./demos/01-dictionary/backend/pricing-service
 	./demos/01-dictionary/backend/refdata-service
 	./demos/01-dictionary/backend/shipping-service
-	./demos/01-dictionary/backend/organizations-service
 	./shared/browserrpc
 	./shared/jstream
 	./shared/natsconn
 	./shared/natsnotify
-	./shared/natstest
 	./shared/natstenants
+	./shared/natstest
 	./shared/natstrace
 )

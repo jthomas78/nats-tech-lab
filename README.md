@@ -26,7 +26,7 @@ demos/
 
 - **Docker** (with the compose plugin) — runs the demos
 - **Node.js 20+** — runs the lab shell
-- **Go 1.26+** — only needed to develop/test the backend outside Docker
+- **Go 1.27+** — only needed to develop/test the backend outside Docker
 
 ## Launching
 

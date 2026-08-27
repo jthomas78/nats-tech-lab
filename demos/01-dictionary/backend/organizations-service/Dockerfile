@@ -1,4 +1,4 @@
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 # Phase 35: build context is the repo root (see docker-compose.yml) so this
 # can COPY shared/natstrace alongside the service source — the same pattern

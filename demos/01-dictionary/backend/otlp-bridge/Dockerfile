@@ -1,4 +1,4 @@
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 # Context is the repo root (see docker-compose.yml), the same pattern the other
 # backend services use, so the build can COPY the shared modules this service
