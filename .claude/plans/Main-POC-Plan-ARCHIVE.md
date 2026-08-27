@@ -9976,6 +9976,328 @@ a panel would surface.
 
 ---
 
+## Phase 51 — Completed (archived 2026-08-27)
+
+### Phase 51 — IMPLEMENTED (2026-08-27) — Credential Revocation and Connection Outcome
+
+> **Status: APPROVED 2026-08-27 — design gate passed.** The three open
+> design questions were resolved the same day and folded in below, and
+> the design as it now stands was approved for implementation of **both**
+> 51a and 51b. The proposed business rules (BR-062, BR-AC42, BR-AC43)
+> are approved to be written into their domain files.
+> Prompted by a 2026-08-27 comparison against Synadia's `OPT_IDLE_006`
+> ("NATS Disconnected Users") check, which reaches the same
+> inventory-x-`/connz` join Phase 50 built, but treats a disconnected
+> credential as an *actionable finding* with a *revocation* remedy rather
+> than as a display state.
+
+#### Goal
+
+Phase 50 made NATS users enumerable. It did not make them *actionable*. Two
+gaps fall out of that, and they are independent — either can ship alone:
+
+- **A `0/0` row is ambiguous.** The panel cannot distinguish "this
+  credential has never been used" from "this credential disconnected ninety
+  seconds ago". Both render as zeros.
+- **There is no revocation path anywhere in the stack.** `Store.DeleteUser`
+  exists, has **no caller outside tests**, and its own header comment says it
+  is *"Not a revocation"* — deleting a registry row leaves the credential
+  working. So the honest answer to "this credential should stop working" is
+  currently *edit the account by hand with `nsc`*.
+
+The second is the one that matters. Roster noise is cosmetic; the absence of
+revocation is a missing capability.
+
+#### Verified 2026-08-27 against the running stack and `jwt` v2.8.2 — read this before revising the design
+
+Four facts established empirically rather than assumed. The first one
+partly undercuts 51a as originally drafted.
+
+1. **`/connz?state=closed` is feasible and carries everything the join
+   needs** — a closed entry has `jwt`, `authorized_user`, `stop`,
+   `reason`, `last_activity`, so BR-058's decode path and BR-060's NKey
+   join both work unchanged.
+2. **The closed ring is ~100% session churn.** Observed: 59 closed
+   connections, every one a short-TTL session JWT, 31 distinct NKeys,
+   **zero** long-lived service credentials — the service credentials
+   never disconnect. Reasons: 35 `Authentication Expired`, 19 `Client
+   Closed`, 5 `Authentication Failure`. **Consequence: a last-seen
+   *timestamp* would be blank on exactly the credential rows it was
+   meant to explain.** `reason` is the field with value — a refused
+   connection (`Authentication Failure`) is invisible in the Admin UI
+   today, and is also precisely what a revoked credential produces,
+   which makes 51a the verification surface for 51b.
+3. **A revocation entry for one of our credentials is permanent.**
+   `RevocationList.MaybeCompact` prunes *only* entries superseded by a
+   `*` (`jwt.All`) revocation — there is no expiry-based pruning. Our
+   credentials are `expires_at IS NULL`, so every per-credential
+   revocation is a permanent addition to the account JWT pushed to the
+   resolver. Also confirmed: `IsRevoked` compares `ts >= iat`, so
+   revoking at `time.Now()` has **no same-second escape gap**.
+4. **`*` (revoke-every-user-in-an-account) is redundant here.**
+   `suspendAccount` already issues `$SYS.REQ.CLAIMS.DELETE` against the
+   account JWT, taking the whole tenant offline, and is reversible via
+   `reactivate`. Per-user is the only new grain 51b needs.
+
+#### Design decisions
+
+**51a — connection outcome (`/connz?state=closed`)**
+
+- **Source stays in observability-service.** It already owns the NATS-monitor
+  HTTP dependency; Phase 50 deliberately kept accounts-service free of one
+  and that decision stands. This extends `rest/nats_connections.go`, not the
+  `api._platform.accounts.user.*` subjects.
+- **Join key is unchanged** — the user public NKey, per BR-058.
+- **`reason` is the primary signal, `stop` is supporting detail** — see
+  finding 2. Drafted originally as a last-seen timestamp; that framing
+  did not survive contact with the data. *(Confirmed 2026-08-27.)*
+- **`reason` is shown for every row kind; `stop` only for
+  `kind=credential`.** *(Decided 2026-08-27.)* The credential-only
+  scoping inherited from Phase 50 was an argument about *timestamps*
+  being meaningless for rotating session NKeys; it does not transfer to
+  a refusal reason. Sessions are where essentially the whole closed ring
+  lives (finding 2) — including all five `Authentication Failure`
+  entries — so scoping reason to credentials would discard the rows that
+  generate nearly all of it.
+- **Best-effort, and must present as such.** The closed-connection ring
+  is bounded and finding 2 shows session churn is what fills it, so an
+  absent entry means "outside the retained window", **not** "never
+  connected" — the same honesty constraint as the existing
+  `partial · /connz paged` note, surfaced the same way.
+
+**51b — Revocation**
+
+- **Mechanism is the account JWT's revocation list**, not row deletion:
+  `jwt.AccountClaims.Revocations.Revoke(pubKey, time.Now())`, re-sign the
+  account JWT with the operator signing key, push via
+  `$SYS.REQ.CLAIMS.UPDATE`. `Provisioner` already holds all three
+  prerequisites (operator signing key, `sysNC`, `LookupAccountClaims` at
+  `provisioner.go:461`). No revocation code exists anywhere in the repo
+  today — verified.
+- **This is BR-AC38's continuation, not a new claim.** That rule's closing
+  paragraph already states this mechanism as the thing deletion *is not*,
+  and lists revocation under "Not covered".
+- **It disconnects live clients** when the claims update lands — so the UI
+  must confirm, naming the credential and its current connection count.
+- **The registry gets a `revoked_at TIMESTAMPTZ NULL` column — not a
+  `revoked` status.** *(Revised 2026-08-27; the first draft of this phase
+  said `status = revoked`.)* `UserStatus` is documented at `users.go:65`
+  as "the mint outcome as the issuer knows it", and a revocation is not a
+  mint outcome. Overloading it also destroys information: a credential
+  revoked while stuck at `pending` is the alarming case, and BR-AC38
+  explicitly names revocation as the resolution for a stuck `pending`
+  credential, so that combination must stay representable. A timestamp
+  column additionally mirrors the JWT list's own (key -> timestamp) shape,
+  making drift between registry and account JWT detectable.
+- **Scope to `kind=credential`.** Revoking a 15-minute session is pointless.
+- **PLATFORM-only**, same server-enforced account boundary as the Phase 50
+  read path — a new `api._platform.accounts.user.revoke.v1` mounted on the
+  PLATFORM connection, not a handler check.
+- **No actor is recorded.** There is no operator identity in this POC — the
+  Admin UI connects as the shared `admin-app` credential — so a
+  `revoked_by` column would record the same worthless string every time
+  and imply an audit trail that does not exist.
+- **Revocation is terminal — the panel exposes no un-revoke.** *(Decided
+  2026-08-27.)* `jwt.RevocationList.ClearRevocation` exists and would
+  reuse the same re-sign-and-push path, but it is deliberately not
+  surfaced: recovery from a mis-revocation is minting a replacement
+  credential. That keeps the account JWT's revocation list append-only
+  in practice as well as in mechanism, and matches the mental model that
+  a revoked key is burned. Accept the consequence knowingly — revoking a
+  service credential by mistake takes that service down until a new
+  credential is minted and mounted, and per finding 3 the entry it
+  leaves behind in the account JWT is permanent. Whole-tenant recovery
+  remains available (`suspend`/`reactivate`, finding 4); per-credential
+  recovery does not.
+
+#### Open questions — resolved 2026-08-27
+
+All three are answered and folded into the design decisions above; kept
+here so the reasoning is not lost, and so a later revision does not
+reopen them by accident.
+
+1. **Does the BR-062 reframing land?** **Yes** — refusal/disconnect
+   *reason* is the primary signal, not a last-seen timestamp, per
+   finding 2.
+2. **Does `reason` cover sessions too, or credentials only?** **All
+   kinds**, with `stop` detail on `kind=credential` only.
+3. **Is revocation reversible from the panel?** **No** — revocation is
+   terminal; recovery is a replacement credential, not `ClearRevocation`.
+
+#### Business rules to confirm before any code (per CLAUDE.md's rules-first workflow)
+
+These are **proposed, not agreed** — this is the step the workflow asks
+for. They are no longer blocked on open questions (all three resolved
+above); they are blocked only on approval of this design:
+
+- **BR-062** (`BUSINESS_RULES-SHIPPING.md`, joining BR-060/061) — a row with
+  no live connections shows *why* its most recent connection ended or was
+  refused, when the server still remembers. The reason is shown for every
+  row kind (credentials and sessions alike); the `stop` time is shown only
+  for `kind=credential`. An absent entry reads as "outside the retained
+  window", never as "never connected".
+- **BR-AC42** (`BUSINESS_RULES-ACCOUNTS.md`) — revocation is by public key
+  into the issuing account's JWT revocation list and is server-enforced. The
+  registry mirrors it via `revoked_at` and the row is **never deleted**;
+  deleting a row is not and never has been a revocation. A revocation entry
+  for a never-expiring credential is permanent (finding 3); whole-account
+  revocation is `suspend`, not this (finding 4).
+- **BR-AC43** — revoking disconnects live connections using that credential.
+  It requires explicit confirmation naming the credential and its current
+  connection count, is restricted to `kind=credential`, is served
+  PLATFORM-only, and records no actor. It is **terminal**: there is no
+  un-revoke, and recovery from a mistaken revocation is minting a
+  replacement credential.
+
+#### Checklist (not started — gated on approval above)
+
+- [x] 51a: `/connz?state=closed` added to observability-service's monitor read
+- [x] 51a: disconnect/refusal `reason` surfaced per row (all kinds), `stop` detail on `kind=credential` only; absent value presented as "outside retained window"
+- [x] 51a: `BUSINESS_RULES-SHIPPING.md` — BR-062
+- [x] 51b: `Provisioner.RevokeUser` — revoke, re-sign, `$SYS.REQ.CLAIMS.UPDATE` push
+- [x] 51b: `revoked_at` column added to `accounts.users`; `MarkUserRevoked` store method
+- [x] 51b: `api._platform.accounts.user.revoke.v1`, PLATFORM connection only
+- [x] 51b: confirmation dialog naming credential + live connection count
+- [x] 51b: `BUSINESS_RULES-ACCOUNTS.md` — BR-AC42, BR-AC43, each with a Ginkgo `Context`
+- [x] 51a: live verification — `GET :7205/api/nats/connections/closed` returns 75 closed
+  connections with `reason`/`stop`/`userKey` and no `jwt`; the Users panel renders the
+  **Last outcome** column (`Authentication Expired`, `Client Closed`, "outside the
+  retained window", suppressed while a row has live connections)
+- [ ] 51b: live verification — revoke a credential, confirm the server drops its connection and that the reconnect attempt surfaces in 51a's panel as `Authentication Failure`
+  (2026-08-27: everything up to the press is verified against the running stack — the
+  `revoked_at` migration applied, the adapter logs all three subjects including
+  `.revoke.v1`, and the confirmation dialog renders with the credential name, account,
+  elided NKeys, live connection count and the "cannot be undone" warning. The press
+  itself is left for the operator: all six credentials in the registry are load-bearing
+  in the running stack and revocation is terminal, so confirming one costs a
+  `docker compose down -v` + reseed to recover.)
+- [x] `ginkgo ./...` green in `accounts-service` and `shipping-service` (2026-08-27: accounts 143+31 specs, shipping all suites, `Test Suite Passed`; admin `vitest run` 222 tests)
+
+## Phase 52 — Completed (archived 2026-08-27)
+
+### Phase 52 — IMPLEMENTED (2026-08-27) — Reaping Expired Sessions from the User Registry
+
+> **Status: APPROVED and IMPLEMENTED 2026-08-27 — design gate passed the
+> same day it opened.** The three open questions were answered: retention
+> **24h**, `hide expired` default **OFF**, pagination **deferred**.
+> Prompted by the live reading taken at the end of Phase 51: **56 registry
+> rows, 44 of them expired sessions**, after roughly one day of stack
+> uptime, with nothing in the stack deleting them.
+
+#### Goal
+
+`accounts.users` grew without bound. A browser session mints a row on every
+connect (BR-AC38) with a 15–30 minute TTL (BR-AC20), and the row outlived the
+credential by forever. The only sweep that existed —
+`Store.SweepExpiredPendingUsers`, called once at start-up — deleted
+`status = 'pending'` rows only, the mint-crash case rather than the ordinary
+one. Phase 51's `hide expired` checkbox made this survivable in the panel but
+not in the table.
+
+#### Design decisions (as approved)
+
+**D1 — Two knobs, not one. Cadence is not retention.**
+
+- **Retention** (`ACCOUNTS_SESSION_RETENTION`, **24h**) — how long a row
+  survives past its own `expires_at`. The operator knob. A session that
+  expired four minutes ago is exactly the row someone is reading when they
+  ask "why did my tab drop"; reaping on expiry destroys the answer at the
+  moment it is wanted. 24h is roughly how long the row stays *explainable* —
+  past it, the `/connz` closed ring feeding the **Last outcome** column
+  (bounded, measured at ~59 entries) has rolled over.
+- **Cadence** (`ACCOUNTS_REAPER_INTERVAL`, **15m**) — a load knob only. One
+  minimum-TTL period; ~1% overshoot against a 24h window.
+- Retention `0` **disables** the reaper rather than meaning reap-on-expiry;
+  a negative or unparseable value is fatal at boot.
+
+**D2 — What may be deleted is a whitelist:** `kind = 'session'` AND
+`expires_at` already past AND `revoked_at IS NULL`. A revoked row is never
+reaped at any age — it is the only human-readable mirror of an entry in the
+account JWT's revocation list, which keeps the NKey forever. A pending row
+keeps its existing no-grace semantics. The old start-up-only sweep folded in.
+
+**D3 — Start-up run first, then the ticker.** A stack down for a week must
+not wait out an interval, and the start-up run surfaces a misconfiguration
+now rather than fifteen minutes from now.
+
+**D4 — A failing tick logs and waits for the next one.** A reaper that dies
+on the first Postgres blip has silently stopped reaping. Silent when it
+removes nothing.
+
+**D5 — Pagination deferred.** With D1 in force the table is bounded at
+`mint-rate x retention`. Pagination costs the panel's honest counting: the
+`hide expired` / `hide idle` chips can report a held-back count only because
+the client holds the whole population, so a paged `.list.v1` would need
+server-computed totals shipped alongside every page or the counts start
+lying. Buy it with a measurement, not a hypothesis.
+
+#### Two defects the default flip exposed — worth recording
+
+Turning `hide expired` off did not merely change a default; it uncovered two
+bugs that the ON default had been masking.
+
+1. **`Authentication Expired` was being grouped as a refusal.** It matches
+   BR-062's `/Authentication|Authorization|Revoked/i` colour test textually,
+   but it is the server's word for a session whose TTL ran out — the ordinary
+   end of every browser session here, and 35 of the 59 reasons in the Phase 51
+   measurement. Because `isQuietlyIdle` deliberately treats a refusal as
+   never-idle (so BR-062's rows survive `hide idle`), this made `hide idle`
+   structurally unable to hide the largest class of dead rows. Invisible while
+   `hide expired` claimed those rows first; the flip exposed it as **41 rows
+   visible on a roster with 8 live connections**. Fixed with an `Expired`
+   exclusion that runs before the refusal test.
+2. **A chip reported a held-back count while holding nothing back** — "51"
+   beside an unchecked box, which reads as "51 hidden" when nothing is. Each
+   chip now renders its count only while it is actually filtering.
+
+The lesson worth keeping: **two filters that overlap can hide each other's
+bugs, and changing which one runs first is a real test of both.**
+
+#### Business rules
+
+- **BR-AC44** — an expired session row is reaped once older than the
+  retention window past its `expires_at`; credentials and revoked rows never
+  are. Written into `BUSINESS_RULES-ACCOUNTS.md`.
+- **BR-AC45** — the reaper runs at start-up then on a fixed interval; a
+  failed run never stops it, but a bad config is fatal at boot. Written into
+  `BUSINESS_RULES-ACCOUNTS.md`.
+- **BR-060 amended** — `hide expired` now defaults OFF, and the
+  non-double-counting rule restated for the case where it is off.
+- **BR-062 amended** — the `Expired` exclusion, and why it has to come first.
+
+#### Tasks
+
+- [x] `Store.ReapExpiredSessions(ctx, retention)` — the whitelist DELETE,
+  subsuming `SweepExpiredPendingUsers` (`accounts/users.go`)
+- [x] `ReaperConfig` / `ReaperConfigFromEnv` / `SessionReaper` — defaults,
+  explicit-zero-is-off, reject-rather-than-fall-back, start-up run, ticker,
+  retry-on-failure (`accounts/reaper.go`)
+- [x] Wired in `cmd/main.go` as a goroutine on the process context, fatal on
+  a bad config; both variables added to `docker-compose.yml` at their
+  defaults so they are discoverable there
+- [x] `hideExpired` default flipped to `false` (`UsersPanel.vue`)
+- [x] `isRefusal` excludes `Expired`; chip counts gated on the filter
+  actually filtering (`UsersPanel.vue`)
+- [x] BR-AC44 / BR-AC45 written into `BUSINESS_RULES-ACCOUNTS.md`; BR-060 and
+  BR-062 amended in `BUSINESS_RULES-SHIPPING.md`
+- [x] Specs: `accounts/reaper_test.go` (11), `accounts/users_store_test.go`
+  BR-AC44 (6), `UsersPanel.spec.js` (54 total)
+- [x] `ginkgo -r` green — accounts **160 + 31**, shipping **9 suites**;
+  admin `vitest run` **247 tests / 25 files**
+- [x] Live verification (2026-08-27): reaper logged
+  `session reaper started retention=24h0m0s interval=15m0s` and reaped
+  nothing, correctly — the predicate dry-run against the live registry
+  returned `24h → 0, 8h → 3, 4h → 19, 1h → 36, 0 → 51`, monotonic and never
+  exceeding the 51 expired sessions, with the 6 credentials and 2 live
+  sessions untouched at every retention. Panel at 1920x1080: 62 users,
+  `hide expired` unchecked with no count shown, `hide idle` holding back 46,
+  **16 rows visible = 6 credentials + 2 live sessions + 8 genuine
+  `Authentication Failure` rows** kept by the refusal exemption.
+- [ ] **Deferred to a later phase (D5):** pagination on `.list.v1`, with
+  server-computed population totals so the filter counts stay honest. Open
+  it only if a re-measurement shows the bounded table is still too big to
+  ship whole.
+
 ## Renumbering history
 
 Every renumbering log, moved out of the live plan on 2026-08-21 (it had
