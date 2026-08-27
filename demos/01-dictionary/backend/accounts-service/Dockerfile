@@ -6,6 +6,9 @@ WORKDIR /src
 COPY shared/natstrace ./shared/natstrace
 COPY shared/natsconn ./shared/natsconn
 COPY shared/natsnotify ./shared/natsnotify
+# Phase 50b: accounts/usersrpc.go answers the browser over api.* through the
+# shared browserrpc envelope, so its module has to be in the build context too.
+COPY shared/browserrpc ./shared/browserrpc
 COPY demos/01-dictionary/backend/accounts-service ./demos/01-dictionary/backend/accounts-service
 WORKDIR /src/demos/01-dictionary/backend/accounts-service
 RUN go mod download

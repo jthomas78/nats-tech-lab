@@ -38,6 +38,9 @@ type JSLimits struct {
 type Provisioner struct {
 	operatorSigningKey nkeys.KeyPair
 	sysNC              *nats.Conn
+	// users records every credential this provisioner mints, before it is
+	// signed (BR-AC38). Required, not optional — see ErrNoUserRegistry.
+	users UserRegistry
 }
 
 // CrossAccountOpts describes the PLATFORM exports a tenant account imports.
@@ -52,7 +55,10 @@ type CrossAccountOpts struct {
 // NewProvisioner loads the operator signing key seed (as exported by
 // nats/bootstrap-operator.sh to nats/keys/operator-signing-key.nk) and pairs
 // it with a NATS connection already authenticated as the SYS account.
-func NewProvisioner(operatorSigningKeySeed []byte, sysNC *nats.Conn) (*Provisioner, error) {
+func NewProvisioner(operatorSigningKeySeed []byte, sysNC *nats.Conn, users UserRegistry) (*Provisioner, error) {
+	if users == nil {
+		return nil, ErrNoUserRegistry
+	}
 	kp, err := nkeys.FromSeed(operatorSigningKeySeed)
 	if err != nil {
 		return nil, fmt.Errorf("load operator signing key: %w", err)
@@ -60,7 +66,7 @@ func NewProvisioner(operatorSigningKeySeed []byte, sysNC *nats.Conn) (*Provision
 	if _, err := kp.Seed(); err != nil {
 		return nil, fmt.Errorf("operator signing key file does not contain a private seed: %w", err)
 	}
-	return &Provisioner{operatorSigningKey: kp, sysNC: sysNC}, nil
+	return &Provisioner{operatorSigningKey: kp, sysNC: sysNC, users: users}, nil
 }
 
 // MintedAccount is a freshly created account: its public key (for
@@ -709,12 +715,45 @@ func (p *Provisioner) addPlatformJSAPIImport(ctx context.Context, platformPublic
 	return p.pushClaimsUpdate(ctx, token)
 }
 
-// CreateUser mints a user JWT for accountPub, signed by that account's
-// signing key seed (never the operator key), and returns a ready-to-use
-// .creds file — the same format nats/bootstrap-operator.sh produces via
-// `nsc generate creds`, just generated live instead of ahead of time.
-func (p *Provisioner) CreateUser(accountPub, accountSigningKeySeed, userName string) ([]byte, error) {
-	signingKP, err := nkeys.FromSeed([]byte(accountSigningKeySeed))
+// NewUserRequest names the user to mint and the account to mint it under. A
+// struct rather than four positional strings: the account name and the user
+// name are frequently the same value (a tenant's own credential), and the
+// public key and signing seed are equally easy to transpose at a call site.
+type NewUserRequest struct {
+	// AccountName is the account's own lowercase row name — recorded on the
+	// registry row so the Users panel can group by account without resolving
+	// public keys.
+	AccountName    string
+	AccountPub     string
+	SigningKeySeed string
+	UserName       string
+}
+
+// CreateUser mints a user JWT for the named account, signed by that
+// account's signing key seed (never the operator key), and returns a
+// ready-to-use .creds file — the same format nats/bootstrap-operator.sh
+// produces via `nsc generate creds`, just generated live instead of ahead of
+// time.
+//
+// The order of operations is BR-AC38 and is deliberate: generate the
+// keypair, record a pending row carrying its public NKey, sign, then flip
+// the row to active. Key generation is safe to do before anything is
+// recorded because an NKey on its own grants nothing — it becomes a
+// credential only once an account signs a JWT for it — so this is the
+// earliest point at which the user has an identity to record at all.
+//
+// Both registry failures are fatal to the mint, for the same reason: this
+// service already reads Postgres on every mint path before it signs anything
+// (the account row supplying the signing key seed), so a registry write
+// failing is a real outage, not an incidental extra dependency, and issuing
+// a credential nothing can account for is the worse outcome. A row left at
+// pending — signed but not confirmed — is exactly the unknown-outcome state
+// the Users panel surfaces rather than hides.
+func (p *Provisioner) CreateUser(ctx context.Context, in NewUserRequest) ([]byte, error) {
+	if p.users == nil {
+		return nil, ErrNoUserRegistry
+	}
+	signingKP, err := nkeys.FromSeed([]byte(in.SigningKeySeed))
 	if err != nil {
 		return nil, fmt.Errorf("load account signing key: %w", err)
 	}
@@ -732,13 +771,48 @@ func (p *Provisioner) CreateUser(accountPub, accountSigningKeySeed, userName str
 		return nil, fmt.Errorf("user seed: %w", err)
 	}
 
+	// The signing key's own public key, recorded as the row's issuer
+	// (BR-AC41): it — not the account key — is what identifies the scope, if
+	// any, the account applies to this user, and therefore whether the
+	// claims below are enforced at all.
+	signingPub, err := signingKP.PublicKey()
+	if err != nil {
+		return nil, fmt.Errorf("account signing key public key: %w", err)
+	}
+
 	claims := jwt.NewUserClaims(userPub)
-	claims.Name = userName
-	claims.IssuerAccount = accountPub // this JWT is signed by a signing key, not the account's own identity key
+	claims.Name = in.UserName
+	claims.IssuerAccount = in.AccountPub // this JWT is signed by a signing key, not the account's own identity key
+
+	account := normalizeAccountName(in.AccountName)
+	if account == "" {
+		account = in.AccountPub
+	}
+	// Recorded after the claims are built but before they are signed: the
+	// permissions are known as soon as the claims exist, and BR-AC38's whole
+	// point is that the row lands before the signature does.
+	perms := claims.UserPermissionLimits
+	if err := p.users.RecordPendingUser(ctx, NewUser{
+		PublicKey:   userPub,
+		Name:        in.UserName,
+		Account:     account,
+		AccountKey:  in.AccountPub,
+		IssuerKey:   signingPub,
+		Permissions: &perms,
+		Kind:        UserKindCredential,
+		Bearer:      claims.BearerToken,
+		Source:      UserSourceService,
+	}); err != nil {
+		return nil, err
+	}
 
 	token, err := claims.Encode(signingKP)
 	if err != nil {
 		return nil, fmt.Errorf("encode user jwt: %w", err)
+	}
+
+	if err := p.users.MarkUserActive(ctx, userPub); err != nil {
+		return nil, err
 	}
 
 	return jwt.FormatUserConfig(token, userSeed)

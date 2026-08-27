@@ -451,7 +451,12 @@ func (h *Handlers) createAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	credsBytes, err := h.Provisioner.CreateUser(minted.PublicKey, minted.SigningKeySeed, in.Name)
+	credsBytes, err := h.Provisioner.CreateUser(r.Context(), NewUserRequest{
+		AccountName:    in.Name,
+		AccountPub:     minted.PublicKey,
+		SigningKeySeed: minted.SigningKeySeed,
+		UserName:       in.Name,
+	})
 	if err != nil {
 		h.Log.Error("mint user", "name", in.Name, "err", err)
 		h.recordAudit(r.Context(), AuditEntry{Account: in.Name, Action: AuditActionCreated, Actor: actor, SourceIP: sourceIP,
@@ -734,7 +739,12 @@ func (h *Handlers) reactivateAccount(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	credsBytes, err := h.Provisioner.CreateUser(acc.PublicKey, signingKeySeed, acc.Name)
+	credsBytes, err := h.Provisioner.CreateUser(r.Context(), NewUserRequest{
+		AccountName:    acc.Name,
+		AccountPub:     acc.PublicKey,
+		SigningKeySeed: signingKeySeed,
+		UserName:       acc.Name,
+	})
 	if err != nil {
 		h.Log.Error("mint user after reactivate", "name", name, "err", err)
 		h.recordAudit(r.Context(), AuditEntry{Account: name, Action: AuditActionReactivated, Actor: actor, SourceIP: sourceIP,

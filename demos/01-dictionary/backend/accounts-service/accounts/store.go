@@ -171,6 +171,49 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
 		`INSERT INTO accounts.system_config (singleton) VALUES (true) ON CONFLICT (singleton) DO NOTHING`,
+		// Phase 50a (BR-AC38/BR-AC39): the user registry — see users.go's
+		// header for why one has to exist at all. Deliberately NOT foreign-keyed
+		// to accounts.accounts: createAccount mints the tenant's first user
+		// before it inserts the account row (handler.go), and a bootstrap user
+		// backfilled from the creds volume may name an account this service
+		// never recorded. public_key (the user NKey) is the natural key — it is
+		// what /connz reports as authorized_user, and it is what makes a
+		// registry row joinable to a live connection.
+		`CREATE TABLE IF NOT EXISTS accounts.users (
+			id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			public_key   TEXT NOT NULL UNIQUE,
+			name         TEXT NOT NULL,
+			account      TEXT NOT NULL,
+			account_key  TEXT NOT NULL DEFAULT '',
+			kind         TEXT NOT NULL,
+			status       TEXT NOT NULL,
+			bearer       BOOLEAN NOT NULL DEFAULT false,
+			source       TEXT NOT NULL DEFAULT 'service',
+			issued_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+			expires_at   TIMESTAMPTZ,
+			activated_at TIMESTAMPTZ
+		)`,
+		`CREATE INDEX IF NOT EXISTS users_account_idx ON accounts.users (account, name)`,
+
+		// Phase 50b (BR-AC41). issuer_key is the key that SIGNED the user
+		// JWT — an account signing key, or the account identity key for an
+		// nsc-minted user signed without one. It is not derivable from
+		// account_key: only the signing key identifies which scope, if any,
+		// the account applies to this user, and a scoped key's template
+		// silently replaces everything in permissions below.
+		//
+		// permissions is the user claims' own grants and limits
+		// (jwt.UserPermissionLimits), recorded at mint time. NULL means this
+		// service does not know — a row backfilled from a .creds file it
+		// could not decode, or written before this column existed — and the
+		// claims view reports that rather than rendering an empty permission
+		// set, which would read as "denied everything".
+		//
+		// Added as ALTER rather than folded into the CREATE above so a stack
+		// already carrying Phase 50a's table converges without a reseed;
+		// Migrate is idempotent and runs on every start.
+		`ALTER TABLE accounts.users ADD COLUMN IF NOT EXISTS issuer_key TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE accounts.users ADD COLUMN IF NOT EXISTS permissions JSONB`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {

@@ -75,7 +75,7 @@ var _ = Describe("Handlers", func() {
 		DeferCleanup(sysNC.Close)
 
 		var err error
-		provisioner, err = accounts.NewProvisioner(ots.OperatorSigningKeySeed, sysNC)
+		provisioner, err = accounts.NewProvisioner(ots.OperatorSigningKeySeed, sysNC, &fakeUserRegistry{})
 		Expect(err).NotTo(HaveOccurred())
 
 		store = accounts.NewStore(storeTestDB)

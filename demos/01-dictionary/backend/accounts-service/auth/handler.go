@@ -148,7 +148,7 @@ func (h *Handlers) connectInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := MintBrowserToken(acc.PublicKey, acc.SigningKeySeed, tenant, h.WSUrl, h.tokenTTL(r.Context()))
+	info, err := MintBrowserToken(r.Context(), h.Store, acc.PublicKey, acc.SigningKeySeed, tenant, h.WSUrl, h.tokenTTL(r.Context()))
 	if err != nil {
 		h.Log.Error("mint browser token", "tenant", tenant, "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to mint browser credential")
@@ -192,7 +192,7 @@ func (h *Handlers) adminConnectInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := MintAdminToken(acc.PublicKey, acc.SigningKeySeed, h.WSUrl, h.tokenTTL(r.Context()))
+	info, err := MintAdminToken(r.Context(), h.Store, acc.PublicKey, acc.SigningKeySeed, h.WSUrl, h.tokenTTL(r.Context()))
 	if err != nil {
 		h.Log.Error("mint admin token", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to mint admin credential")
@@ -235,7 +235,7 @@ func (h *Handlers) refdataAdminConnectInfo(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	info, err := MintRefdataAdminToken(acc.PublicKey, acc.SigningKeySeed, h.WSUrl, h.tokenTTL(r.Context()))
+	info, err := MintRefdataAdminToken(r.Context(), h.Store, acc.PublicKey, acc.SigningKeySeed, h.WSUrl, h.tokenTTL(r.Context()))
 	if err != nil {
 		h.Log.Error("mint refdata admin token", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to mint refdata admin credential")

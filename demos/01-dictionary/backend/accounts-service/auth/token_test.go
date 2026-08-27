@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"context"
 	"time"
 
 	"github.com/nats-io/jwt/v2"
@@ -30,7 +31,7 @@ var _ = Describe("MintBrowserToken", func() {
 	})
 
 	It("mints a JWT signed by the account's signing key, scoped to api.>/notify.> unparameterized by tenant", func() {
-		info, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "acme", "ws://localhost:9222", 15*time.Minute)
+		info, err := auth.MintBrowserToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "acme", "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(info.WSUrl).To(Equal("ws://localhost:9222"))
 		Expect(info.Tenant).To(Equal("acme"))
@@ -71,7 +72,7 @@ var _ = Describe("MintBrowserToken", func() {
 	// is what keeps the namespace split a real, server-enforced boundary
 	// rather than a naming convention.
 	It("BR-D41: denies api.*.refdata.admin.> on both pub and sub while leaving the business subjects reachable", func() {
-		info, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "acme", "ws://localhost:9222", 15*time.Minute)
+		info, err := auth.MintBrowserToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "acme", "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 		claims, err := jwt.DecodeUserClaims(info.JWT)
 		Expect(err).NotTo(HaveOccurred())
@@ -91,7 +92,7 @@ var _ = Describe("MintBrowserToken", func() {
 		before := time.Now()
 		// A non-default ttl proves the argument flows through to Expires
 		// rather than a hardcoded constant.
-		info, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "acme", "ws://localhost:9222", 22*time.Minute)
+		info, err := auth.MintBrowserToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "acme", "ws://localhost:9222", 22*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 
 		claims, err := jwt.DecodeUserClaims(info.JWT)
@@ -102,7 +103,7 @@ var _ = Describe("MintBrowserToken", func() {
 	})
 
 	It("produces an NKey seed matching a valid NATS user identity", func() {
-		info, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "acme", "ws://localhost:9222", 15*time.Minute)
+		info, err := auth.MintBrowserToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "acme", "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 
 		userKP, err := nkeys.FromSeed([]byte(info.NKeySeed))
@@ -116,9 +117,9 @@ var _ = Describe("MintBrowserToken", func() {
 	})
 
 	It("gives every tenant the identical api.>/notify.> subject permissions — isolation comes from the account, not the subject", func() {
-		infoAcme, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "acme", "ws://localhost:9222", 15*time.Minute)
+		infoAcme, err := auth.MintBrowserToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "acme", "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
-		infoGlobex, err := auth.MintBrowserToken(accountPub, accountSigningSeed, "globex", "ws://localhost:9222", 15*time.Minute)
+		infoGlobex, err := auth.MintBrowserToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "globex", "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 
 		claimsAcme, err := jwt.DecodeUserClaims(infoAcme.JWT)
@@ -136,7 +137,7 @@ var _ = Describe("MintBrowserToken", func() {
 	})
 
 	It("returns an error when the signing key seed is invalid", func() {
-		_, err := auth.MintBrowserToken(accountPub, "not-a-real-seed", "acme", "ws://localhost:9222", 15*time.Minute)
+		_, err := auth.MintBrowserToken(context.Background(), &fakeSessionRegistry{}, accountPub, "not-a-real-seed", "acme", "ws://localhost:9222", 15*time.Minute)
 		Expect(err).To(HaveOccurred())
 	})
 })
@@ -163,7 +164,7 @@ var _ = Describe("MintAdminToken", func() {
 	// three read-only refdata calls Admin needs for UI copy/context bootstrap.
 	// No broad api.>, tenant notify.*, obs.*, $JS.API.>, or $KV.> access.
 	It("mints one PLATFORM JWT scoped to centralized notifications and exact read-only refdata requests", func() {
-		info, err := auth.MintAdminToken(accountPub, accountSigningSeed, "ws://localhost:9222", 15*time.Minute)
+		info, err := auth.MintAdminToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(info.WSUrl).To(Equal("ws://localhost:9222"))
 		Expect(info.Tenant).To(Equal("platform"))
@@ -187,10 +188,17 @@ var _ = Describe("MintAdminToken", func() {
 		))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("obs.")))
 		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("rpctrace")))
+		// Phase 50b (BR-AC40) adds the two user-registry subjects. They are
+		// listed individually rather than as an api._platform.accounts.>
+		// prefix: this allowlist is exact precisely so a future accounts
+		// endpoint is not reachable from the browser merely by being named
+		// consistently with these two.
 		Expect(claims.Permissions.Pub.Allow).To(ConsistOf(
 			"api._platform.refdata.type.list.v1",
 			"api._platform.refdata.locales.list.v1",
 			"api._platform.refdata.context.list.v1",
+			"api._platform.accounts.user.list.v1",
+			"api._platform.accounts.user.get.v1",
 		))
 		Expect(claims.Permissions.Pub.Deny).To(BeEmpty())
 
@@ -203,7 +211,7 @@ var _ = Describe("MintAdminToken", func() {
 
 	It("stamps the expiry from the ttl argument", func() {
 		before := time.Now()
-		info, err := auth.MintAdminToken(accountPub, accountSigningSeed, "ws://localhost:9222", 22*time.Minute)
+		info, err := auth.MintAdminToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "ws://localhost:9222", 22*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 
 		claims, err := jwt.DecodeUserClaims(info.JWT)
@@ -214,7 +222,7 @@ var _ = Describe("MintAdminToken", func() {
 	})
 
 	It("returns an error when the signing key seed is invalid", func() {
-		_, err := auth.MintAdminToken(accountPub, "not-a-real-seed", "ws://localhost:9222", 15*time.Minute)
+		_, err := auth.MintAdminToken(context.Background(), &fakeSessionRegistry{}, accountPub, "not-a-real-seed", "ws://localhost:9222", 15*time.Minute)
 		Expect(err).To(HaveOccurred())
 	})
 })
@@ -246,7 +254,7 @@ var _ = Describe("MintRefdataAdminToken", func() {
 	// would silently allow purely because it shares the PLATFORM account
 	// with MintAdminToken's narrow read profile.
 	It("mints a JWT scoped to api.*.refdata.> (pub+sub) and notify._platform.refdata.> (sub), with no broader api.> or notify.> grant", func() {
-		info, err := auth.MintRefdataAdminToken(accountPub, accountSigningSeed, "ws://localhost:9222", 15*time.Minute)
+		info, err := auth.MintRefdataAdminToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "ws://localhost:9222", 15*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(info.WSUrl).To(Equal("ws://localhost:9222"))
 		Expect(info.Tenant).To(Equal("platform"))
@@ -273,7 +281,7 @@ var _ = Describe("MintRefdataAdminToken", func() {
 
 	It("stamps the expiry from the ttl argument", func() {
 		before := time.Now()
-		info, err := auth.MintRefdataAdminToken(accountPub, accountSigningSeed, "ws://localhost:9222", 22*time.Minute)
+		info, err := auth.MintRefdataAdminToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "ws://localhost:9222", 22*time.Minute)
 		Expect(err).NotTo(HaveOccurred())
 
 		claims, err := jwt.DecodeUserClaims(info.JWT)
@@ -284,7 +292,7 @@ var _ = Describe("MintRefdataAdminToken", func() {
 	})
 
 	It("returns an error when the signing key seed is invalid", func() {
-		_, err := auth.MintRefdataAdminToken(accountPub, "not-a-real-seed", "ws://localhost:9222", 15*time.Minute)
+		_, err := auth.MintRefdataAdminToken(context.Background(), &fakeSessionRegistry{}, accountPub, "not-a-real-seed", "ws://localhost:9222", 15*time.Minute)
 		Expect(err).To(HaveOccurred())
 	})
 })

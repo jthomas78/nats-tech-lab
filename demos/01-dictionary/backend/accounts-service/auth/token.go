@@ -1,11 +1,14 @@
 package auth
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
+
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
 )
 
 // The TTL stamped on minted browser/admin JWTs is no longer a constant here:
@@ -87,8 +90,8 @@ type ConnectInfo struct {
 // derives from obs.trace.*/the trace-request-reply KV bucket instead (BR-026's Phase
 // 28g amendment, BUSINESS_RULES-SHIPPING.md). obs.trace.* itself is never
 // granted here — it publishes to the PLATFORM account only, per BR-036.
-func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string, ttl time.Duration) (ConnectInfo, error) {
-	return mintUserToken(accountPub, accountSigningKeySeed, "browser-"+tenant, tenant, wsURL, ttl, func(claims *jwt.UserClaims) {
+func MintBrowserToken(ctx context.Context, reg accounts.UserRegistry, accountPub, accountSigningKeySeed, tenant, wsURL string, ttl time.Duration) (ConnectInfo, error) {
+	return mintUserToken(ctx, reg, accountPub, accountSigningKeySeed, "browser-"+tenant, tenant, wsURL, ttl, func(claims *jwt.UserClaims) {
 		claims.Permissions.Pub.Allow.Add("api.>", "_INBOX.>")
 		claims.Permissions.Sub.Allow.Add("api.>", "notify.>", "_INBOX.>")
 		// BR-D41 (Phase 32): refdata-service's api.*.refdata.admin.* namespace is
@@ -122,13 +125,20 @@ func MintBrowserToken(accountPub, accountSigningKeySeed, tenant, wsURL string, t
 // notify._platform.rpctrace.> (Phase 23) was retired in Phase
 // 28g along with the RPCTRACE stream and its notify bridge
 // (eventhandler.RegisterRPCTraceNotify) — nothing publishes there anymore.
-func MintAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl time.Duration) (ConnectInfo, error) {
-	return mintUserToken(accountPub, accountSigningKeySeed, "admin-app", "platform", wsURL, ttl, func(claims *jwt.UserClaims) {
+func MintAdminToken(ctx context.Context, reg accounts.UserRegistry, accountPub, accountSigningKeySeed, wsURL string, ttl time.Duration) (ConnectInfo, error) {
+	return mintUserToken(ctx, reg, accountPub, accountSigningKeySeed, "admin-app", "platform", wsURL, ttl, func(claims *jwt.UserClaims) {
 		claims.Permissions.Pub.Allow.Add(
 			"api._platform.refdata.type.list.v1",
 			"api._platform.refdata.locales.list.v1",
 			"api._platform.refdata.context.list.v1",
 		)
+		// Phase 50b (BR-AC40) — the Users panel's two reads, served by this
+		// service's own api.* adapter on the PLATFORM connection. Added as
+		// individual subjects, not an api._platform.accounts.> prefix: the
+		// Pub.Allow list above is an explicit allowlist precisely so a future
+		// accounts endpoint is not reachable by a browser credential merely
+		// by being named consistently.
+		claims.Permissions.Pub.Allow.Add(accounts.UsersAdapterSubjects()...)
 		claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.kv.trace-request-reply.>",
 			// Phase 43b (BR-047): the Messages panel's live feed, the same
 			// bucket-notify shape as trace-request-reply above. This grants the
@@ -165,8 +175,8 @@ func MintAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl time.Du
 // bridge frontend/refdata subscribes to in place of the retired
 // /api/refdata-watch SSE stream, the same subject MintAdminToken already
 // grants the Admin UI for the identical reason.
-func MintRefdataAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl time.Duration) (ConnectInfo, error) {
-	return mintUserToken(accountPub, accountSigningKeySeed, "operator-app", "platform", wsURL, ttl, func(claims *jwt.UserClaims) {
+func MintRefdataAdminToken(ctx context.Context, reg accounts.UserRegistry, accountPub, accountSigningKeySeed, wsURL string, ttl time.Duration) (ConnectInfo, error) {
+	return mintUserToken(ctx, reg, accountPub, accountSigningKeySeed, "operator-app", "platform", wsURL, ttl, func(claims *jwt.UserClaims) {
 		claims.Permissions.Pub.Allow.Add("api.*.refdata.>", "_INBOX.>")
 		claims.Permissions.Sub.Allow.Add("api.*.refdata.>", "notify._platform.refdata.>", "_INBOX.>")
 	})
@@ -175,7 +185,25 @@ func MintRefdataAdminToken(accountPub, accountSigningKeySeed, wsURL string, ttl 
 // mintUserToken holds the key-generation/claims/encode boilerplate shared by
 // every Mint*Token above; configure applies the profile-specific permission
 // grants (and any other claims) before the claims are signed.
-func mintUserToken(accountPub, accountSigningKeySeed, name, tenant, wsURL string, ttl time.Duration, configure func(*jwt.UserClaims)) (ConnectInfo, error) {
+//
+// It also records the session in the user registry, in the BR-AC38 order:
+// keypair, pending row, sign, active. A browser session is a NATS user like
+// any other — thousands of them over a stack's life — and the Users panel
+// has no other way to know one existed, since a user JWT is never stored
+// server-side and /connz only knows who is connected right now. The registry
+// is not optional here (ErrNoUserRegistry): every caller on this path
+// already reads Postgres for the account's signing key seed and the TTL
+// config before reaching this function, so recording costs no new
+// dependency, and a session credential nothing recorded is one nothing can
+// later account for.
+//
+// Unlike a service credential, a session carries an expiry — which is what
+// lets a row stuck at pending be swept once its TTL passes
+// (Store.SweepExpiredPendingUsers) instead of waiting for an operator.
+func mintUserToken(ctx context.Context, reg accounts.UserRegistry, accountPub, accountSigningKeySeed, name, tenant, wsURL string, ttl time.Duration, configure func(*jwt.UserClaims)) (ConnectInfo, error) {
+	if reg == nil {
+		return ConnectInfo{}, accounts.ErrNoUserRegistry
+	}
 	signingKP, err := nkeys.FromSeed([]byte(accountSigningKeySeed))
 	if err != nil {
 		return ConnectInfo{}, fmt.Errorf("load account signing key: %w", err)
@@ -198,11 +226,40 @@ func mintUserToken(accountPub, accountSigningKeySeed, name, tenant, wsURL string
 	claims.Name = name
 	claims.IssuerAccount = accountPub
 	configure(claims)
-	claims.Expires = time.Now().Add(ttl).Unix()
+	expires := time.Now().Add(ttl)
+	claims.Expires = expires.Unix()
+
+	// The signing key's public key is the row's issuer (BR-AC41) — the
+	// account key alone can't tell the Users panel whether these permissions
+	// are the ones the server enforces or a scope's template replaced them.
+	signingPub, err := signingKP.PublicKey()
+	if err != nil {
+		return ConnectInfo{}, fmt.Errorf("account signing key public key: %w", err)
+	}
+	perms := claims.UserPermissionLimits
+
+	if err := reg.RecordPendingUser(ctx, accounts.NewUser{
+		PublicKey:   userPub,
+		Name:        name,
+		Account:     tenant,
+		AccountKey:  accountPub,
+		IssuerKey:   signingPub,
+		Permissions: &perms,
+		Kind:        accounts.UserKindSession,
+		Bearer:      claims.BearerToken,
+		ExpiresAt:   &expires,
+		Source:      accounts.UserSourceService,
+	}); err != nil {
+		return ConnectInfo{}, err
+	}
 
 	token, err := claims.Encode(signingKP)
 	if err != nil {
 		return ConnectInfo{}, fmt.Errorf("encode user jwt: %w", err)
+	}
+
+	if err := reg.MarkUserActive(ctx, userPub); err != nil {
+		return ConnectInfo{}, err
 	}
 
 	return ConnectInfo{

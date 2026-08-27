@@ -148,12 +148,14 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	provisioner, err := accounts.NewProvisioner(operatorSigningKeySeed, sysNC)
+	store := accounts.NewStore(db)
+	// BR-AC38: the provisioner records every user it mints, before it signs
+	// it, so the store has to exist before the provisioner does.
+	provisioner, err := accounts.NewProvisioner(operatorSigningKeySeed, sysNC, store)
 	if err != nil {
 		return err
 	}
 
-	store := accounts.NewStore(db)
 	if resolverSeedDir != "" {
 		if err := seedPreexistingAccounts(ctx, store, provisioner, resolverSeedDir, accountKeysDir, refdataURL, log); err != nil {
 			return err
@@ -162,6 +164,44 @@ func run(log *slog.Logger) error {
 	// Phase 22: seed demo BUs for the pre-existing acme account idempotently.
 	if err := seedDemoBusinessUnits(ctx, store, refdataURL, log); err != nil {
 		log.Warn("seed demo business units", "err", err)
+	}
+	// Phase 50a (BR-AC39): converge the user registry for credentials minted
+	// outside this service — nats/bootstrap-operator.sh's `nsc add user`
+	// runs before this process has ever started, and the .creds files it
+	// leaves on the shared volume are the only record those users exist. Run
+	// after the account seeding above so account names are already on record
+	// and a credential can be filed under its account rather than its
+	// issuer's public key. Warn-only: a stray file on the creds volume must
+	// not stop the service from booting.
+	if err := backfillBootstrapUsers(ctx, store, credsDir, log); err != nil {
+		log.Warn("backfill bootstrap users", "err", err)
+	}
+	// BR-AC38: a session row that never reached active is dead once its TTL
+	// has passed — sweep those on start rather than leaving them to
+	// accumulate. Credentials have no expiry and are never swept; a pending
+	// one persists until an operator resolves it.
+	if swept, err := store.SweepExpiredPendingUsers(ctx); err != nil {
+		log.Warn("sweep expired pending sessions", "err", err)
+	} else if swept > 0 {
+		log.Info("swept expired pending sessions", "count", swept)
+	}
+
+	// Phase 50b (BR-AC40) — the Admin UI's Users panel, served on the
+	// PLATFORM connection the Admin UI's own browser credential authenticates
+	// into. Mounting it here and nowhere else is what makes "PLATFORM-only" a
+	// server-enforced account boundary rather than a check inside a handler:
+	// a tenant's browser cannot publish onto another account's subjects at
+	// all. Skipped without platformNC — the panel is simply absent, which is
+	// the same graceful degradation notify.accounts.* already accepts.
+	if platformNC != nil {
+		usersAdapter, err := accounts.NewUsersAdapter(platformNC,
+			accounts.NewUserClaimsReader(store, provisioner, log), log)
+		if err != nil {
+			log.Warn("users api adapter: not registered", "err", err)
+		} else {
+			defer usersAdapter.Stop() //nolint:errcheck
+			log.Info("users api adapter registered", "subjects", accounts.UsersAdapterSubjects())
+		}
 	}
 
 	auditLog := accounts.NewAuditLog(db)
@@ -531,5 +571,30 @@ func seedDemoBusinessUnits(ctx context.Context, store *accounts.Store, refdataUR
 	if err := store.SetBusinessUnitVisible(ctx, "acme", defaultSlug, false); err != nil && !errors.Is(err, accounts.ErrBUNotFound) {
 		return fmt.Errorf("hide default BU for acme: %w", err)
 	}
+	return nil
+}
+
+// backfillBootstrapUsers builds the account public key → name map the
+// registry backfill files credentials under, then converges the registry
+// from the shared creds directory (BR-AC39). Idempotent by construction:
+// InsertUserIfMissing never overwrites, and nothing here signs, pushes or
+// rewrites a JWT.
+func backfillBootstrapUsers(ctx context.Context, store *accounts.Store, credsDir string, log *slog.Logger) error {
+	if credsDir == "" {
+		return nil
+	}
+	all, err := store.List(ctx)
+	if err != nil {
+		return err
+	}
+	names := make(map[string]string, len(all))
+	for _, a := range all {
+		names[a.PublicKey] = a.Name
+	}
+	n, err := accounts.BackfillCredsDirUsers(ctx, store, credsDir, names, log)
+	if err != nil {
+		return err
+	}
+	log.Info("user registry converged from creds directory", "dir", credsDir, "credentials", n)
 	return nil
 }
