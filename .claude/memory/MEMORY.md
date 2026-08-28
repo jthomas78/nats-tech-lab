@@ -1,65 +1,76 @@
 # Memory Index
 
-- [Project plan location](project_plan_location.md) — Plans live in `.claude/plans/`, not repo root
-- [Dev machine toolchain](dev_machine_toolchain.md) — Linux box has no Docker; Mac (Homebrew/Volta) does — check before assuming
-- [Shipping domain overview](shipping_domain_overview.md) — Ship/Container on SHIPPING stream; `{context}`=business-unit, not tenant; Ship UUID-keyed like Container
-- [NATS volume legacy messages](nats_volume_legacy_messages.md) — stale-subject Nak loop after a domain rename; fix: `docker compose down -v`
-- [Container status model](container_status_model.md) — only `in-terminal`/`on-ship` exist; derive UI splits from `destPort` client-side
-- [frontend-port structure](frontend_port_structure.md) — now at `frontend/seafreight-app/`; Fleet/Port view split, refdata l10n, Vitest gotchas
-- [Stale Select value bug pattern](stale_select_value_bug_pattern.md) — PrimeVue `Select` v-model doesn't auto-clear on option-list change
-- [swag regen diff noise](swag_regen_diff_noise.md) — `swag init` rewrites all `$ref` names repo-wide; hand-patch docs instead
-- [BR classification heuristic](br_classification_heuristic.md) — check `commands/*.go` for precedent before asking BR vs input-validation
-- [Event sourcing source-of-truth patterns](event_sourcing_source_of_truth_patterns.md) — Postgres+outbox vs JetStream-as-truth; this POC uses B
-- [UI bug triage: trust framing](ui_bug_triage_trust_framing.md) — user names "the UI" as broken → investigate frontend first
-- [PrimeVue RadioButtonGroup for shared state](primevue_radiobutton_group_for_shared_state.md) — standalone RadioButtons in v-for need grouping
-- [Locale switch race condition](locale_switch_race_condition.md) — overlapping fetches resolve out of order; fixed with a request-token guard
-- [Verify before resuming offloaded work](verify_before_resuming_offloaded_work.md) — check git log before trusting a resumed summary's claims
-- [Design discussion vs. implementation signal](design_discussion_vs_implementation_signal.md) — user iterates/reverts ideas before "let's plan" — don't implement early
-- [NATS Tower operator-mode tradeoff](nats_tower_operator_mode_tradeoff.md) — resolved 2026-07-28: server is operator mode; Tower→sys.creds via its own UI not done yet
-- [Tenant-service separation decision](tenant_service_separation_decision.md) — implemented: accounts-service is its own service/DB, separate from refdata-service; Admin UI merges both
-- [Accounts service plan](accounts_service_plan.md) — Phase 14 dynamic tenant provisioning; BR-032/033 fixed reactivation bug; open gap: unrestricted service creds
-- [Phase 21 account exports/imports](phase21_account_exports_imports.md) — IMPLEMENTED 2026-08-03 + Phase 28f trace leg; PLATFORM/tenant two-account partitioning via NATS exports/imports
-- [$SYS.REQ.CLAIMS reference](nats_sys_claims_subjects.md) — core NATS request-reply (not JetStream), for JWT resolver mgmt in operator mode
-- [refdata database-per-service](refdata_database_per_service.md) — refdata-service moved off shared postgres to its own instance (port 5433)
-- [Admin UI realtime transport options](admin_ui_realtime_transport_options.md) — Admin now uses one PLATFORM WebSocket; Phase 23 tenant connection retired
-- [Phase 16 tenancy/taxonomy](phase16_tenancy_taxonomy.md) — 13-point record, 16a-16f DONE; gap: refdata reads don't track Sea Freight Flow's own tenant
-- [Phase 17 Request/Reply panel](phase17_request_reply_panel.md) — DONE (obs envelope + RpcPanel.vue rebuild); admin frontend has no Vitest infra
-- [Phase 18 Requestor/Responder headers](phase18_requestor_responder_headers.md) — DONE; also fixed micro.Config.Name vs nats.Name mismatch
-- [Ports tenant scoping (pending)](project-ports-tenant-scoping.md) — ports/refdata should scope to tenant not BU; temp hack uses `_default_bu`
-- [Phase 25i diesel overlay](phase25i_diesel_overlay.md) — DONE; fixed BR-P24 zero-baseline corruption + a DatePicker UTC date-shift bug; 25j not started
-- [V3 tenancy axes decision](v3_tenancy_axes_decision.md) — tenant = marketplace-operating business, not region; 5 axes; discussion only except the Organisation axis (Shipper|Transporter|…), settled by Phase 26
-- [NATS scoped signing keys](nats_scoped_signing_keys.md) — server enforces the key's permission template, discards user JWT's own; check JWT bloat
-- [Linebooker V2 refdata candidates](linebooker_v2_refdata_candidates.md) — enum+table duplicates (VehicleType etc) are tier 1; versioning+l10n are net-new
-- [Linebooker refdata layering model](linebooker_refdata_layering_model.md) — Codex's platform/tenant/org 3-layer framework; flags snapshot-onto-history as a gap
-- [refdata cross-tenant stream import](refdata_cross_tenant_stream_import.md) — open bug: tenants import `evt.*.refdata.*.changed` unbounded, see each other's metadata
-- [Platform/Marketplace/Tenant diagram](linebooker_platform_marketplace_tenant_diagram.md) — draft: Marketplace under PLATFORM; Trips per-tenant; 2 UIs per tenant
-- [BusinessType vs BusinessEntityType](linebooker_business_type_vs_entity_type.md) — "Company" is a legal-structure value, not a 3rd role; V2's roles are Customer/Transporter/Operator/Integrator (V3 renames Customer→Shipper)
-- [Bid/Tender allocation rules](linebooker_bid_tender_allocation_rules.md) — Bid/Tender are unconnected tracks (no FK), map to "Submission/Bidding Tenders" UI tabs; lowest-bid wins at expiry
-- [Shipper vs Customer naming](linebooker_shipper_vs_customer_naming.md) — ADOPTED: "Shipper" is the V3 term, pairs with "Transporter"; V2's `CUSTOMER` renames at the port boundary
-- [Transport execution phase naming](linebooker_transport_execution_phase_naming.md) — term for post-marketplace loads/trucks/POD/collection; 4 stages: dispatch→collection→in-transit→delivery
-- [Payments/settlement phase](linebooker_payments_settlement_phase.md) — 3rd end-to-end phase; real V2 entities: PaymentEntity, InvoiceSplitType, EarlySettlementRequest (factoring)
-- [Platform vs tenant service split](linebooker_platform_vs_tenant_service_split.md) — Refdata+Accounts/Auth are platform; Marketplace/Payments likely tenant-scoped (corrects original diagram)
-- [Registration UI placement](linebooker_registration_ui_placement.md) — Trading-partner Registration belongs in Admin UI ("Trading partners"), not RefData UI — master data, not a vocabulary
-- [Trading partners term + fleet cardinality](linebooker_trading_partners_term_and_fleet_cardinality.md) — collective term "Trading partners"; Transporter→truck is one-to-many via FleetAssetEntity FK
-- [Trading Partner phase v1 scope](linebooker_trading_partner_phase_v1_scope.md) — Phase 26 IMPLEMENTED end-to-end (organizations-service + Admin UI), live-verified; BR-TP01-14
-- [Phase 38b transporter vetting](phase38b_transporter_vetting.md) — Temporal two-branch saga, attempt-keyed JetStream dedup, aggregate fleet gate, Schedule-based GIT-drop handling; BR-TP21-28
-- [Phase 38c-i/38d-i Transporter UI](phase38di_transporter_ui.md) — dedicated panel + drill-in tabs; branch on the error envelope's conflict/notFound flags, never message prose; dev-stack gaps (no vehicle-type corpus, 7103 taken)
-- [Phase 38c-ii document Object Store](phase38_document_object_store.md) — an OBJ bucket is a JetStream stream sharing the tenant's 1 GiB; blob-before-record, write-once bytes, service-minted names; nginx 1 MiB body default
-- [Phase 38e organizations rename](phase38e_organizations_rename.md) — `trading-partner-service`→`organizations-service`, `TradingPartnersPanel.vue`→`OrganizationsPanel.vue`; read before trusting any older doc's names, but "trading partner" stays as domain vocabulary and BR-TP* keep their numbers
-- [NATS account is the only authn](nats_account_is_the_only_authn.md) — nothing in this repo verifies a JWT; a new HTTP ingress has nothing to reuse — use a capability ticket minted over NATS
-- [Admin stat card conventions](admin_stat_card_one_ratio_rule.md) — one `value / max` + bar per card, one 20px value size per row; long counters shorten, rows wrap
-- [/connz limit vs max_connections](connz_limit_is_page_size_not_capacity.md) — `/connz` limit 1024 is a page size; the real ceiling is `/varz` max_connections
-- [Phase 28 trace detail request/response split](phase28_trace_detail_request_response_split.md) — natstrace dropped Nats-Requestor on the wire; fixed + TraceWaterfall.vue redesigned; Phase 28l: KV bucket renamed to `trace-request-reply`; Phase 28m: shipping-service HTTP tracing middleware added; Phase 28n: waterfall row order now walks parentSpanId tree, not flat offset sort; Phase 28o: rest/nats kind tag + toolbar filter; Phase 28p: pulse strip (request/error/latency histograms) under the toolbar; Phase 28q: REST tag recolored yellow + KeepAlive fixes Traces↔Messages remount perf bug
-- [Vue toDisplayString array gotcha](vue_todisplaystring_array_gotcha.md) — `{{ }}` JSON-stringifies arrays; join NATS header values before binding
-- [REST→NATS transport consolidation](rest_nats_transport_consolidation.md) — Phases 31-34: business comms NATS-only, REST for admin/health only; `.v1` suffix stays
-- [Phase 31 Shape B consolidation](phase31_shape_b_consolidation.md) — implemented 2026-08-17; Shapes A/C retired, `queries.Ships`/`ships` bucket/`ship-projector` are the neutral names now
-- [tenants.Manager triplication](tenants_manager_triplication.md) — RESOLVED Phase 35 (2026-08-18); historical record only, extracted into shared/natstenants.Manager[R]
-- [Phase 32 refdata PLATFORM credential](phase32_refdata_platform_credential.md) — frontend/refdata is cross-tenant, needed its own MintRefdataAdminToken + MountPlatformAPI; also fixed a context-from-subject convention bug
-- [Phase 33 refdata admin REST exemption](phase33_refdata_admin_rest_exemption.md) — /api/refdata/admin/* stays REST permanently; accounts-service calls it server-to-server, no NATS path exists
-- [Phase 34 boundary enforcement](phase34_boundary_enforcement.md) — IMPLEMENTED 2026-08-17; mux allowlist tests (BR-040) + traceSpan.Requester (BR-041) + Admin UI 2-axis filter
-- [Phase 35 shared Go package extraction](phase35_shared_go_package_extraction.md) — IMPLEMENTED 2026-08-18; shared/natstenants, shared/natstrace, shared/browserrpc extracted; go.work + per-service replace directives
-- [Phase 63 NATS hop tracing renumbered](phase63_nats_hop_tracing_renumbered.md) — NATS 2.11 Server-Hop Tracing is Phase 63 (was 29→41→36→43→63), DEFERRED; "Phase 36" now means something else, see next line
-- [Phase 36 Tech Lab Operator rebrand](phase36_tech_lab_operator_rebrand.md) — 36.1 + 36.2 IMPLEMENTED 2026-08-19 (refdata → "Tech Lab Operator" + Trading Partners migrated from admin, own tenant-scoped NATS connection)
-- [Accounts Overview/Sharing redesign](accounts_overview_pulse_design.md) — IMPLEMENTED Phase 45 (2026-08-18): ring buffer + duration selector (BR-043) + gated search (BR-044), live-verified
-- [Mockup fidelity: functional capability](mockup_fidelity_functional_capability.md) — design-gate mockups must show real create/edit affordances verified against the running app, not read-only layout
-- [Admin UI design viewport](admin_ui_design_viewport.md) — UIs target **1920x1080**; verify layout at that width, not the preview pane's default
+One-line hooks. Open a file only when its hook looks relevant to the task.
+
+## Conventions / gotchas (evergreen)
+- [project_plan_location](project_plan_location.md) — plans live in `.claude/plans/`, not repo root
+- [dev_machine_toolchain](dev_machine_toolchain.md) — Linux box has no Docker; Mac does — check before assuming
+- [br_classification_heuristic](br_classification_heuristic.md) — check `commands/*.go` for precedent before asking BR vs input-validation
+- [design_discussion_vs_implementation_signal](design_discussion_vs_implementation_signal.md) — user iterates/reverts ideas before "let's plan" — don't implement early
+- [verify_before_resuming_offloaded_work](verify_before_resuming_offloaded_work.md) — check git log before trusting a resumed summary
+- [ui_bug_triage_trust_framing](ui_bug_triage_trust_framing.md) — user says "the UI" is broken → check frontend first
+- [admin_ui_design_viewport](admin_ui_design_viewport.md) — UIs target 1920x1080; verify at that width
+- [swag_regen_diff_noise](swag_regen_diff_noise.md) — `swag init` rewrites all `$ref` repo-wide; hand-patch instead
+
+## Frontend gotchas
+- [stale_select_value_bug_pattern](stale_select_value_bug_pattern.md) — PrimeVue `Select` v-model doesn't auto-clear on option-list change
+- [primevue_radiobutton_group_for_shared_state](primevue_radiobutton_group_for_shared_state.md) — standalone RadioButtons in v-for need grouping
+- [locale_switch_race_condition](locale_switch_race_condition.md) — overlapping fetches resolve out of order; fix with a request-token guard
+- [vue_todisplaystring_array_gotcha](vue_todisplaystring_array_gotcha.md) — `{{ }}` JSON-stringifies arrays; join NATS header values first
+- [frontend_port_structure](frontend_port_structure.md) — `frontend/seafreight-app/`; Fleet/Port split, refdata l10n, Vitest gotchas
+- [admin_stat_card_one_ratio_rule](admin_stat_card_one_ratio_rule.md) — one `value / max` + bar per card, one 20px value size per row
+- [mockup_fidelity_functional_capability](mockup_fidelity_functional_capability.md) — design-gate mockups must show real create/edit affordances vs the running app
+
+## Architecture / NATS
+- [shipping_domain_overview](shipping_domain_overview.md) — Ship/Container on SHIPPING stream; `{context}`=business-unit; both UUID-keyed
+- [container_status_model](container_status_model.md) — only `in-terminal`/`on-ship`; derive UI splits from `destPort` client-side
+- [event_sourcing_source_of_truth_patterns](event_sourcing_source_of_truth_patterns.md) — Postgres+outbox vs JetStream-as-truth; POC uses B
+- [nats_volume_legacy_messages](nats_volume_legacy_messages.md) — stale-subject Nak loop after a rename; fix `docker compose down -v`
+- [nats_account_is_the_only_authn](nats_account_is_the_only_authn.md) — nothing verifies a JWT; new HTTP ingress needs a capability ticket minted over NATS
+- [nats_sys_claims_subjects](nats_sys_claims_subjects.md) — `$SYS.REQ.CLAIMS` is core request-reply (not JetStream) for JWT resolver mgmt in operator mode
+- [nats_scoped_signing_keys](nats_scoped_signing_keys.md) — server enforces the key's permission template, discards user JWT's own
+- [nats_tower_operator_mode_tradeoff](nats_tower_operator_mode_tradeoff.md) — server is operator mode; Tower→sys.creds via its UI not done
+- [connz_limit_is_page_size_not_capacity](connz_limit_is_page_size_not_capacity.md) — `/connz` limit 1024 is page size; ceiling is `/varz` max_connections
+- [refdata_database_per_service](refdata_database_per_service.md) — refdata-service on its own Postgres (port 5433)
+- [refdata_cross_tenant_stream_import](refdata_cross_tenant_stream_import.md) — open bug: tenants import `evt.*.refdata.*.changed` unbounded, see each other's metadata
+- [v3_tenancy_axes_decision](v3_tenancy_axes_decision.md) — tenant = marketplace-operating business, not region; 5 axes
+- [phase16_tenancy_taxonomy](phase16_tenancy_taxonomy.md) — 13-point record; 16a–16f DONE; gap: refdata reads don't track own tenant
+- [tenant_service_separation_decision](tenant_service_separation_decision.md) — accounts-service is its own service/DB; Admin UI merges both
+- [project-ports-tenant-scoping](project-ports-tenant-scoping.md) — pending: ports/refdata should scope to tenant not BU; hack uses `_default_bu`
+
+## Linebooker / V3 domain modelling
+- [linebooker_platform_vs_tenant_service_split](linebooker_platform_vs_tenant_service_split.md) — Refdata+Accounts/Auth platform; Marketplace/Payments tenant-scoped
+- [linebooker_platform_marketplace_tenant_diagram](linebooker_platform_marketplace_tenant_diagram.md) — Marketplace under PLATFORM; Trips per-tenant; 2 UIs per tenant
+- [linebooker_refdata_layering_model](linebooker_refdata_layering_model.md) — platform/tenant/org 3-layer; flags snapshot-onto-history gap
+- [linebooker_v2_refdata_candidates](linebooker_v2_refdata_candidates.md) — enum+table duplicates tier 1; versioning+l10n net-new
+- [linebooker_business_type_vs_entity_type](linebooker_business_type_vs_entity_type.md) — "Company" is legal structure; roles Customer/Transporter/Operator/Integrator
+- [linebooker_shipper_vs_customer_naming](linebooker_shipper_vs_customer_naming.md) — "Shipper" is the V3 term, pairs with "Transporter"
+- [linebooker_trading_partners_term_and_fleet_cardinality](linebooker_trading_partners_term_and_fleet_cardinality.md) — "Trading partners"; Transporter→truck one-to-many via FleetAssetEntity
+- [linebooker_trading_partner_phase_v1_scope](linebooker_trading_partner_phase_v1_scope.md) — Phase 26 IMPLEMENTED e2e (organizations-service + Admin UI); BR-TP01-14
+- [linebooker_registration_ui_placement](linebooker_registration_ui_placement.md) — Registration → Admin UI "Trading partners", not RefData UI
+- [linebooker_bid_tender_allocation_rules](linebooker_bid_tender_allocation_rules.md) — Bid/Tender unconnected tracks; lowest-bid wins at expiry
+- [linebooker_transport_execution_phase_naming](linebooker_transport_execution_phase_naming.md) — 4 stages: dispatch→collection→in-transit→delivery
+- [linebooker_payments_settlement_phase](linebooker_payments_settlement_phase.md) — PaymentEntity, InvoiceSplitType, EarlySettlementRequest (factoring)
+
+## Phase history (completed — consult for background only)
+- [phase17_request_reply_panel](phase17_request_reply_panel.md) — DONE; admin frontend has no Vitest infra
+- [phase18_requestor_responder_headers](phase18_requestor_responder_headers.md) — DONE; fixed micro.Config.Name vs nats.Name mismatch
+- [phase21_account_exports_imports](phase21_account_exports_imports.md) — DONE 2026-08-03; PLATFORM/tenant two-account partitioning via NATS exports/imports
+- [admin_ui_realtime_transport_options](admin_ui_realtime_transport_options.md) — Admin uses one PLATFORM WebSocket; Phase 23 tenant conn retired
+- [accounts_service_plan](accounts_service_plan.md) — Phase 14 dynamic provisioning; open gap: unrestricted service creds
+- [phase25i_diesel_overlay](phase25i_diesel_overlay.md) — DONE; fixed BR-P24 zero-baseline + DatePicker UTC shift; 25j not started
+- [phase28_trace_detail_request_response_split](phase28_trace_detail_request_response_split.md) — DONE through 28q; KV bucket `trace-request-reply`; waterfall walks parentSpanId tree
+- [rest_nats_transport_consolidation](rest_nats_transport_consolidation.md) — Phases 31-34: business comms NATS-only, REST for admin/health; `.v1` stays
+- [phase31_shape_b_consolidation](phase31_shape_b_consolidation.md) — DONE 2026-08-17; Shapes A/C retired; `queries.Ships`/`ships` bucket/`ship-projector`
+- [phase32_refdata_platform_credential](phase32_refdata_platform_credential.md) — frontend/refdata cross-tenant; own MintRefdataAdminToken + MountPlatformAPI
+- [phase33_refdata_admin_rest_exemption](phase33_refdata_admin_rest_exemption.md) — `/api/refdata/admin/*` stays REST; accounts-service calls it server-to-server
+- [phase34_boundary_enforcement](phase34_boundary_enforcement.md) — DONE 2026-08-17; mux allowlist (BR-040) + traceSpan.Requester (BR-041) + 2-axis filter
+- [phase35_shared_go_package_extraction](phase35_shared_go_package_extraction.md) — DONE 2026-08-18; shared/natstenants, natstrace, browserrpc; go.work
+- [tenants_manager_triplication](tenants_manager_triplication.md) — RESOLVED Phase 35; historical only
+- [phase36_tech_lab_operator_rebrand](phase36_tech_lab_operator_rebrand.md) — 36.1+36.2 DONE 2026-08-19; refdata → "Tech Lab Operator" + Trading Partners migrated
+- [phase63_nats_hop_tracing_renumbered](phase63_nats_hop_tracing_renumbered.md) — NATS 2.11 Server-Hop Tracing is Phase 63, DEFERRED
+- [phase38b_transporter_vetting](phase38b_transporter_vetting.md) — Temporal two-branch saga, attempt-keyed dedup, fleet gate; BR-TP21-28
+- [phase38di_transporter_ui](phase38di_transporter_ui.md) — panel + drill-in tabs; branch on error-envelope flags not prose; dev gaps
+- [phase38_document_object_store](phase38_document_object_store.md) — OBJ bucket = stream sharing tenant 1 GiB; blob-before-record, write-once; nginx 1 MiB default
+- [phase38e_organizations_rename](phase38e_organizations_rename.md) — `trading-partner-service`→`organizations-service`; "trading partner" stays as vocab, BR-TP* keep numbers
+- [accounts_overview_pulse_design](accounts_overview_pulse_design.md) — DONE Phase 45; ring buffer + duration selector (BR-043) + gated search (BR-044)
