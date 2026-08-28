@@ -18,6 +18,7 @@
   "plugins": [
     {
       "id": "example-plugin",
+      "enabled": true,
       "name": "Example Plugin",
       "version": "0.1.1",
       "description": "The BR-AS15 proof plugin: one contribution of every kind, built and served independently on port 7110.",
@@ -85,6 +86,7 @@
     },
     {
       "id": "example-plugin-slow",
+      "enabled": true,
       "name": "Example Plugin (slow remote)",
       "version": "0.1.1",
       "description": "Task 1b-4 (a): the same code behind a six-second module-scope delay, so the pending-region animation can be watched.",
@@ -117,6 +119,7 @@
     },
     {
       "id": "example-plugin-unreachable",
+      "enabled": true,
       "name": "Example Plugin (unreachable remote)",
       "version": "0.1.1",
       "description": "Task 1b-4 (b): a curated remote whose chunk 404s. The plugin goes failed; nothing else moves.",
@@ -149,6 +152,7 @@
     },
     {
       "id": "example-plugin-activate-throws",
+      "enabled": true,
       "name": "Example Plugin (activate throws)",
       "version": "0.1.1",
       "description": "Task 1b-4 (c): the chunk arrives and activate() throws. Distinguished from an unreachable remote by its cause code, not by a shrug.",
@@ -181,6 +185,7 @@
     },
     {
       "id": "example-plugin-incompatible",
+      "enabled": true,
       "name": "Example Plugin (future shell API)",
       "version": "0.1.1",
       "description": "Task 1b-4 (d): built against shellApiVersion 2. Rejected on metadata alone — its remote is never fetched (BR-AS13).",

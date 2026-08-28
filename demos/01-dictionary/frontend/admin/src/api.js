@@ -13,15 +13,26 @@ import { REQUESTOR_HEADER, REST_REQUESTOR_ID } from './requestorId.js'
 // instead of reading "no Nats-Requestor on this span". Observability only,
 // never authorization (BR-041).
 async function request(path, options = {}) {
+  // Caller headers MERGE with the defaults rather than replacing them: the
+  // registry writes below send If-Match, and losing Content-Type or the
+  // requestor header along the way would be silent.
+  const { headers, ...rest } = options
   const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json', [REQUESTOR_HEADER]: REST_REQUESTOR_ID },
-    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      [REQUESTOR_HEADER]: REST_REQUESTOR_ID,
+      ...headers,
+    },
+    ...rest,
   })
   if (res.status === 204) return null
   const body = await res.json().catch(() => ({}))
   if (!res.ok) {
     const err = new Error(body.error || `${res.status} ${res.statusText}`)
     err.status = res.status
+    // The parsed body rides along: a 409 from the registry carries the
+    // revision the caller lost to, which the stale-revision panel needs.
+    err.body = body
     throw err
   }
   return body
@@ -250,4 +261,35 @@ export function getNatsLog({ level, q, tail } = {}) {
   if (tail) params.set('tail', tail)
   const qs = params.toString()
   return request(`/api/nats/log${qs ? `?${qs}` : ''}`)
+}
+
+// ── Frontend plugin registry (accounts-service `registry` module) ────────────
+// Curated registry state, proxied at /api/platform/registry. Writes are
+// optimistically concurrent: every write carries the revision it was made
+// against in If-Match, and a refusal (409) names the revision that won
+// instead of merging (BR-AS18). There is no delete — an entry is disabled,
+// never torn out from under a shell that already loaded it (BR-AS24).
+
+export function getRegistryEntries() {
+  return request('/api/platform/registry/entries')
+}
+
+export function upsertRegistryEntry(entry, ifRevision) {
+  return request('/api/platform/registry/entries', {
+    method: 'POST',
+    headers: { 'If-Match': `"${ifRevision}"` },
+    body: JSON.stringify({ entry }),
+  })
+}
+
+export function setRegistryEntryEnabled(id, enabled, ifRevision) {
+  return request(`/api/platform/registry/entries/${encodeURIComponent(id)}/enabled`, {
+    method: 'POST',
+    headers: { 'If-Match': `"${ifRevision}"` },
+    body: JSON.stringify({ enabled }),
+  })
+}
+
+export function getRegistryAudit(limit) {
+  return request(`/api/platform/registry/audit${limit ? `?limit=${limit}` : ''}`)
 }

@@ -367,17 +367,17 @@ from hiding inside a change that also touches Go.
 
 ##### 2b — the admin surface
 
-- [ ] Two nav keys under the existing **Platform** group in `frontend/admin/src/App.vue` beside
+- [x] Two nav keys under the existing **Platform** group in `frontend/admin/src/App.vue` beside
       `settings` — `frontend-plugins` and `registry-audit`. The admin app has no router; it is a
       grouped activity bar with `activeView` and `v-else-if` sections, so this follows that pattern
       rather than introducing one.
-- [ ] `FrontendPluginsPanel.vue` — the registry list (mockup `body-Main.html`).
-- [ ] The entry drawer (mockup `body-EntryEditor.html`), with both refusal panels: stale revision
+- [x] `FrontendPluginsPanel.vue` — the registry list (mockup `body-Main.html`).
+- [x] The entry drawer (mockup `body-EntryEditor.html`), with both refusal panels: stale revision
       (`body-StaleRevision.html`, BR-AS18) and origin-not-allowlisted (BR-AS20).
-- [ ] `RegistryAuditPanel.vue` — the audit trail (mockup `body-AuditTrail.html`), actor column
+- [x] `RegistryAuditPanel.vue` — the audit trail (mockup `body-AuditTrail.html`), actor column
       showing the shared `admin` identity and nothing stronger (BR-AS23).
-- [ ] Disable/enable as the only lifecycle control; no delete affordance (BR-AS24).
-- [ ] `api.js` calls against `/api/platform/registry/...`, and specs in the `*Panel.spec.js` idiom
+- [x] Disable/enable as the only lifecycle control; no delete affordance (BR-AS24).
+- [x] `api.js` calls against `/api/platform/registry/...`, and specs in the `*Panel.spec.js` idiom
       the admin app already uses.
 
 ##### 2c — the shell notices a change

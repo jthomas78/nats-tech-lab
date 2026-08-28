@@ -7,12 +7,14 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import AccountsView from './components/AccountsView.vue'
 import ConnectionsPanel from './components/ConnectionsPanel.vue'
+import FrontendPluginsPanel from './components/FrontendPluginsPanel.vue'
 import JetStreamPanel from './components/JetStreamPanel.vue'
 import KvInspector from './components/KvInspector.vue'
 import LogPanel from './components/LogPanel.vue'
 import OverviewPanel from './components/OverviewPanel.vue'
 import PostgresTablesPanel from './components/PostgresTablesPanel.vue'
 import MessagesPanel from './components/MessagesPanel.vue'
+import RegistryAuditPanel from './components/RegistryAuditPanel.vue'
 import RpcPanel from './components/RpcPanel.vue'
 import ServicesPanel from './components/ServicesPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
@@ -81,6 +83,15 @@ const sections = [
     group: 'Platform',
     sections: [
       { items: [{ key: 'settings', label: 'Settings', icon: IconSettings }] },
+      // The curated frontend plugin registry (Phase 2) and its write history.
+      // Platform, not System: this is what the shells are served, not how the
+      // stack is wired.
+      {
+        items: [
+          { key: 'frontend-plugins', label: 'Frontend Plugins', icon: IconServices },
+          { key: 'registry-audit', label: 'Registry Audit', icon: IconLog },
+        ],
+      },
     ],
   },
   {
@@ -134,6 +145,8 @@ const SUBTITLES = {
   log: 'nats server log · level + text filter, no rotation',
   tables: 'canonical Postgres tables by schema',
   settings: 'platform-global system configuration',
+  'frontend-plugins': 'the curated micro-frontend registry served to every shell',
+  'registry-audit': 'every write the registry accepted or refused, in order',
 }
 // accounts has three tabs (AccountsView.vue) with distinct enough subject
 // matter — fleet health, provisioning, and the export/import graph — that
@@ -273,6 +286,23 @@ onUnmounted(() => {
     <!-- System — platform-global configuration (BR-AC20) -->
     <section v-else-if="activeView === 'settings'" class="group" data-testid="settings-view">
       <SettingsPanel />
+    </section>
+
+    <!-- Platform — the curated plugin registry (Phase 2, BR-AS16–AS24) -->
+    <section
+      v-else-if="activeView === 'frontend-plugins'"
+      class="group"
+      data-testid="frontend-plugins-view"
+    >
+      <FrontendPluginsPanel />
+    </section>
+
+    <section
+      v-else-if="activeView === 'registry-audit'"
+      class="group"
+      data-testid="registry-audit-view"
+    >
+      <RegistryAuditPanel />
     </section>
 
     <!-- Users — the credential/session roster from accounts-service's user
