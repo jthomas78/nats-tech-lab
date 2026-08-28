@@ -294,3 +294,57 @@ describe('BR-AS02 — a plugin may own extension points', () => {
     expect(validateManifest(manifest()).plugin.extensionPoints).toEqual([])
   })
 })
+
+describe('federated container name (recorded revision of the 1a remote contract)', () => {
+  // Phase 1b needed one field 1a did not have: Module Federation addresses a
+  // container by a JS-identifier-shaped global name, while a plugin id is
+  // kebab-case because it lands in URLs and store keys. Rather than mangle one
+  // into the other by convention, the manifest may carry both, and the id
+  // remains the identity everywhere above the loader.
+  const federated = (remote) => validateManifest(manifest({ remote }))
+
+  it('defaults the container name to the plugin id, made identifier-safe', () => {
+    const result = federated({ kind: 'federated', url: 'http://localhost:7110/remoteEntry.js', module: 'plugin' })
+
+    expect(result.ok).toBe(true)
+    expect(result.plugin.remote.name).toBe('example_plugin')
+  })
+
+  it('carries an explicit container name through unchanged', () => {
+    const result = federated({
+      kind: 'federated',
+      url: 'http://localhost:7110/remoteEntry.js',
+      module: 'plugin',
+      name: 'example_plugin',
+    })
+
+    expect(result.plugin.remote.name).toBe('example_plugin')
+  })
+
+  it('rejects a container name that is not a legal identifier', () => {
+    // The name is interpolated into a federation module specifier and, in some
+    // builds, a global. A registry entry is operator-supplied data, so it is
+    // validated rather than trusted.
+    for (const name of ['has space', '1leading-digit', 'semi;colon', '', 42]) {
+      const result = federated({
+        kind: 'federated',
+        url: 'http://localhost:7110/remoteEntry.js',
+        module: 'plugin',
+        name,
+      })
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('malformed')
+    }
+  })
+
+  it('freezes the remote, name included', () => {
+    const { plugin } = federated({
+      kind: 'federated',
+      url: 'http://localhost:7110/remoteEntry.js',
+      module: 'plugin',
+      name: 'example_plugin',
+    })
+
+    expect(Object.isFrozen(plugin.remote)).toBe(true)
+  })
+})

@@ -229,6 +229,22 @@ func run(log *slog.Logger) error {
 		handlers.UsageFetcher = accounts.NewUsageFetcher(natsMonitorURL, store)
 	}
 	handlers.RefdataURL = refdataURL
+	// BR-AS01/BR-AS03 — the application shell's curated plugin registry. The
+	// compiled-in set is the default; FRONTEND_PLUGIN_REGISTRY_FILE overrides
+	// it so a deployment can curate (and a developer can point at a local
+	// remote) without rebuilding this service. A bad file is logged and
+	// ignored: the shell degrades on a missing registry, and this service
+	// refusing to start would be a worse failure than serving the default.
+	if path := os.Getenv("FRONTEND_PLUGIN_REGISTRY_FILE"); path != "" {
+		plugins, err := accounts.LoadCuratedFrontendPlugins(path)
+		if err != nil {
+			log.Warn("frontend plugin registry not loaded, serving built-in set", "error", err)
+		} else {
+			accounts.SetCuratedFrontendPlugins(plugins)
+			log.Info("frontend plugin registry loaded", "path", path, "plugins", len(plugins))
+		}
+	}
+
 	mux := http.NewServeMux()
 	handlers.Mount(mux, authSecret)
 

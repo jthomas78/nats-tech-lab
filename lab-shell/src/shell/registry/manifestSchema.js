@@ -202,9 +202,28 @@ function validateRemote(pluginId, remote) {
   if (typeof remote.module !== 'string' || remote.module === '') {
     return REJECT('malformed', `Plugin ${pluginId} federated remote has no module`)
   }
+  /* `name` is the Module Federation *container* name — the identifier the
+     remote was built under, which the loader must ask for by exactly that
+     spelling. It is separate from the plugin id because the two answer to
+     different constraints: an id is kebab-case because it lands in URLs and
+     store keys, while a container name becomes a global identifier in some
+     federation output formats and is conventionally snake_case. Defaulting it
+     to the id keeps the common case a single field.
+
+     Phase 1b addition, recorded as a revision of the 1a contract rather than a
+     silent edit (task 1b-1). It is optional, so no Phase 1a manifest changes
+     meaning: an entry that omits it gets its id with the hyphens an identifier
+     cannot carry turned into underscores. */
+  const name = remote.name ?? pluginId.replaceAll('-', '_')
+  if (typeof name !== 'string' || !/^[A-Za-z_$][\w$]*$/.test(name)) {
+    return REJECT(
+      'malformed',
+      `Plugin ${pluginId} federated remote name ${JSON.stringify(name)} is not a valid container name`,
+    )
+  }
   return {
     ok: true,
-    remote: Object.freeze({ kind: 'federated', url: remote.url, module: remote.module }),
+    remote: Object.freeze({ kind: 'federated', url: remote.url, module: remote.module, name }),
   }
 }
 

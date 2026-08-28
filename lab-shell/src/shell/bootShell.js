@@ -19,6 +19,8 @@
   reached from this path.
 */
 
+import { reactive } from 'vue'
+
 import { createContributionRegistry } from './contributions/contributionRegistry.js'
 import { declareShellExtensionPoints } from './extensions/extensionPoints.js'
 import { validateManifest } from './registry/manifestSchema.js'
@@ -45,7 +47,12 @@ export async function bootShell({
 
   const admit = (raw, { builtin }) => {
     const id = typeof raw?.id === 'string' ? raw.id : '<unnamed>'
-    const record = new PluginStatusRecord(id, { name: raw?.name ?? id })
+    /* Reactive, because the Plugins screen is a live inventory: a plugin that
+       fails on first use transitions long after boot, and a table that still
+       said `available` next to a visibly broken feature would be worse than
+       no table. The proxy tracks the record's own mutations, so the state
+       machine itself stays a plain class with no framework in it. */
+    const record = reactive(new PluginStatusRecord(id, { name: raw?.name ?? id }))
     /* A duplicate plugin id would give two plugins one status record and one
        nav namespace. The first wins; the second is reported rather than
        quietly shadowing it. */
@@ -129,4 +136,18 @@ export async function bootShell({
       }))
     },
   }
+}
+
+/**
+ * Compose the booted shell with its runtime collaborators (loader, router)
+ * into the one object the app provides.
+ *
+ * A spread would be wrong here, and silently so: `inventory` is a getter, and
+ * `{...shell}` evaluates it once and copies the resulting array. The Plugins
+ * screen would then render the inventory as it stood at boot forever — every
+ * plugin `available`, including one the user just watched fail. Prototype
+ * delegation keeps the getter live.
+ */
+export function withRuntime(shell, extras) {
+  return Object.assign(Object.create(shell), extras)
 }

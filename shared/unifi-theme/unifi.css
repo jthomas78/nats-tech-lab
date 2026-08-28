@@ -26,6 +26,11 @@
      row — distinguishes the nested content from the panel around it. */
   --lab-nested-bg: #171c29;
   --lab-nested-bg-hover: #1d2336;
+  /* Highlight tone that sweeps across a loading skeleton (lab-shell's
+     pending route/extension placeholders). Lighter than --lab-disabled-bg on
+     dark and lighter than the panel on light, so the sweep reads as motion
+     rather than as a second surface. */
+  --lab-skel-hi: #4d5560;
 }
 
 /* Light overrides — applied when .p-dark is absent */
@@ -42,6 +47,7 @@
   --lab-disabled-text: #9aa1a9;
   --lab-nested-bg: #eef1f7;
   --lab-nested-bg-hover: #e3e8f2;
+  --lab-skel-hi: #f3f5f8;
 }
 
 html,

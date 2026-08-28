@@ -1,7 +1,10 @@
 package accounts
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
 	"sort"
 )
 
@@ -32,8 +35,15 @@ const RegistrySchemaVersion = 1
 const ShellAPIVersion = 1
 
 type frontendPluginRemote struct {
-	Kind   string `json:"kind"`
-	URL    string `json:"url,omitempty"`
+	Kind string `json:"kind"`
+	URL  string `json:"url,omitempty"`
+	// Name is the Module Federation container name the remote was BUILT
+	// under, which the shell must ask for by exactly that spelling. It is
+	// separate from the plugin id because the two answer to different
+	// constraints — an id lands in URLs and store keys (kebab-case), a
+	// container name becomes a global identifier (snake_case). Omitted means
+	// "same as the id" (Phase 1b).
+	Name   string `json:"name,omitempty"`
 	Module string `json:"module"`
 }
 
@@ -63,18 +73,26 @@ type frontendPluginContribution struct {
 	Icon  string `json:"icon,omitempty"`
 
 	Target string `json:"target,omitempty"`
+	Region string `json:"region,omitempty"`
 
-	RouteMatch string `json:"routeMatch,omitempty"`
+	// Routes scopes a shell-control to the route prefixes it appears under.
+	// Empty means unscoped. (Phase 1a shipped this as `routeMatch`, which the
+	// shell never read — corrected in 1b, before any curated entry used it.)
+	Routes []string `json:"routes,omitempty"`
 }
 
 type frontendPlugin struct {
-	ID              string                         `json:"id"`
-	Name            string                         `json:"name"`
-	Description     string                         `json:"description,omitempty"`
-	SchemaVersion   int                            `json:"schemaVersion"`
-	ShellAPIVersion int                            `json:"shellApiVersion"`
-	RoutePrefix     string                         `json:"routePrefix,omitempty"`
-	Enabled         bool                           `json:"enabled"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Description     string `json:"description,omitempty"`
+	SchemaVersion   int    `json:"schemaVersion"`
+	ShellAPIVersion int    `json:"shellApiVersion"`
+	RoutePrefix     string `json:"routePrefix,omitempty"`
+	// Enabled is a pointer so "absent" and "false" stay distinguishable when
+	// a curated document is read from a file: the shell treats an absent flag
+	// as enabled, and a Go bool would silently turn every entry that omits it
+	// into a disabled one.
+	Enabled         *bool                          `json:"enabled"`
 	Remote          frontendPluginRemote           `json:"remote"`
 	ExtensionPoints []frontendPluginExtensionPoint `json:"extensionPoints,omitempty"`
 	Contributions   []frontendPluginContribution   `json:"contributions"`
@@ -100,6 +118,44 @@ type frontendPluginRegistry struct {
 // (BR-AS04).
 var curatedFrontendPlugins = []frontendPlugin{}
 
+// LoadCuratedFrontendPlugins replaces the curated set from a JSON document on
+// disk, named by FRONTEND_PLUGIN_REGISTRY_FILE.
+//
+// Curation stays an operator decision either way; the file is what lets that
+// decision be made without rebuilding *this* service, in the same way the
+// registry itself is what lets it be made without rebuilding the shell
+// (BR-AS03). It is also what keeps a localhost:7110 development remote out of
+// the platform's own source.
+//
+// A malformed or unreadable file is an error the caller reports and continues
+// past: an unreadable curation file must leave the endpoint serving the
+// compiled-in set, not take the service down — the shell already treats a
+// missing registry as a degraded shell rather than a broken one (BR-AS04).
+func LoadCuratedFrontendPlugins(path string) ([]frontendPlugin, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read frontend plugin registry %s: %w", path, err)
+	}
+	var doc frontendPluginRegistry
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("parse frontend plugin registry %s: %w", path, err)
+	}
+	if doc.SchemaVersion != RegistrySchemaVersion {
+		return nil, fmt.Errorf(
+			"frontend plugin registry %s declares schemaVersion %d; this service serves %d",
+			path, doc.SchemaVersion, RegistrySchemaVersion)
+	}
+	return doc.Plugins, nil
+}
+
+// SetCuratedFrontendPlugins installs a curated set. Called once at startup;
+// exported so the loading policy (which file, what to do when it is missing)
+// lives in main.go with the rest of the service's configuration rather than
+// in this file.
+func SetCuratedFrontendPlugins(plugins []frontendPlugin) {
+	curatedFrontendPlugins = plugins
+}
+
 // @Summary      List curated frontend plugins
 // @Description  The application shell's plugin registry: every micro-frontend the platform curates, with its remote entry point and the contributions it declares. The shell loads code only from remotes listed here. Read-only, and carries no {context} token — the curated set is platform-wide, and per-user visibility is decided in the shell from the caller's own claims, not by filtering this document.
 // @Tags         accounts
@@ -109,6 +165,16 @@ var curatedFrontendPlugins = []frontendPlugin{}
 func (h *Handlers) listFrontendPlugins(w http.ResponseWriter, r *http.Request) {
 	plugins := make([]frontendPlugin, len(curatedFrontendPlugins))
 	copy(plugins, curatedFrontendPlugins)
+	// `enabled` is a pointer so a curated *file* can distinguish "absent" from
+	// "false", but the document the shell reads always states it: the flag
+	// decides whether code is fetched, and a boundary that carries it
+	// sometimes is a worse contract than one that carries it always.
+	for i := range plugins {
+		if plugins[i].Enabled == nil {
+			enabled := true
+			plugins[i].Enabled = &enabled
+		}
+	}
 	// Sorted by id so the document is byte-stable across restarts: the shell
 	// breaks ordering ties between plugins by id anyway (BR-AS06), and a
 	// registry whose order wandered would make a nav bar that reordered

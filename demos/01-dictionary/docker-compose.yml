@@ -356,12 +356,20 @@ services:
       # RETENTION to 0 DISABLES the reaper; it does not mean reap-on-expiry.
       ACCOUNTS_SESSION_RETENTION: 24h
       ACCOUNTS_REAPER_INTERVAL: 15m
+      # Phase 1b (application shell) — the curated frontend plugin registry
+      # (BR-AS01), read at startup. Mounted rather than compiled in: curation
+      # is an operator decision, and a localhost:7110 development remote has no
+      # business in this service's source. An unreadable file is logged and the
+      # compiled-in (empty) set is served, so a bad document degrades the shell
+      # rather than stopping this service.
+      FRONTEND_PLUGIN_REGISTRY_FILE: /etc/lab-shell/frontend-plugins.json
     ports:
       - "7202:8080"
     volumes:
       - ./nats/creds:/etc/nats/creds
       - ./nats/keys:/etc/nats/keys:ro
       - ./nats/resolver:/etc/nats/resolver:ro
+      - ../../lab-shell/plugins/example-plugin/registry.dev.json:/etc/lab-shell/frontend-plugins.json:ro
     depends_on:
       nats:
         condition: service_started

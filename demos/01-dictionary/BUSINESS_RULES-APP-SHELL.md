@@ -366,7 +366,10 @@ aligned or explicitly exempted as part of Phase 1a.
 | Build-time graph/lint checks (BR-AS09, BR-AS14) | `lab-shell/eslint.config.js` (editor-time) + `lab-shell/tools/frameOwnership.js` (whole-graph; run by its spec in `npm test` and standalone in `npm run lint`) |
 | Curated registry endpoint (BR-AS01) | `accounts-service/accounts/frontendplugins.go`, `GET /api/accounts/frontend-plugins` — see `BUSINESS_RULES-ACCOUNTS.md` |
 | Demo catalog, as a plugin like any other (BR-AS15) | `lab-shell/src/plugins/demo-catalog/` — built-in remote, routes under `/demos` |
-| Example proof plugin (BR-AS15) | `lab-shell/plugins/example-plugin/` — its own build, own dev server on 7110 (Phase 1b) |
+| Example proof plugin (BR-AS15) | `lab-shell/plugins/example-plugin/` — its own build, own dev server on 7110, curated by `registry.dev.json` (Phase 1b) |
+| Module Federation loader adapter (BR-AS03) | `lab-shell/src/shell/loader/federatedAdapter.js` (Phase 1b) |
+| Contribution rendering, failure isolation, placeholders (BR-AS04, AS07) | `lab-shell/src/shell/ui/` (Phase 1b) |
+| No-host-rebuild proof (BR-AS03) | `lab-shell/tools/hostBundleFingerprint.mjs` (Phase 1b) |
 
 Paths are the intended layout at approval time; the authority once code
 exists is the tree itself.
@@ -400,3 +403,74 @@ because a plugin author reads this file as the contract:
   Routing those through `loading` first would claim a fetch that never
   happened, and the Loading artboard would show a spinner for work nobody
   started.
+
+## As-built contract deltas (Phase 1b)
+
+The Module Federation loader landed under the interface Phase 1a defined; the
+one place it did not fit is recorded here rather than edited in silently.
+
+- **`remote.name` — the federated container name — is a new optional manifest
+  field.** Federation addresses a container by a name that must be a legal JS
+  identifier (and, in some output formats, a global), while a plugin id is
+  kebab-case because it lands in URLs, route prefixes and store keys. Rather
+  than mangle one into the other by convention at the call site, a federated
+  remote may state both. Omitted, it defaults to the plugin id with hyphens
+  turned into underscores (`example-plugin` → `example_plugin`), so no Phase 1a
+  manifest changes meaning. A name that is not a legal identifier is
+  `malformed` — a registry entry is operator-supplied data, and this value is
+  interpolated into a module specifier. Enforced in
+  `lab-shell/src/shell/registry/manifestSchema.js`; the id remains the identity
+  everywhere above the loader.
+- **`remote.module` may be spelled with or without federation's `./`
+  prefix.** The adapter strips a leading `./`, because the plugin's own
+  `vite.config.js` writes `exposes: { './plugin': ... }` and an operator
+  copying that spelling into a registry entry should not get a 404 for the
+  punctuation.
+- **A contribution's `routes` replaced the never-read `routeMatch`** on the
+  service-side registry struct (`accounts-service/accounts/frontendplugins.go`).
+  Phase 1a shipped the wrong field name; the shell has always read `routes`.
+  Corrected before any curated entry used it.
+- **`enabled` is a pointer in the service's struct and always present in the
+  served document.** A curated *file* must be able to distinguish "absent" from
+  "false" — a plain `bool` would turn every entry that omits the flag into a
+  disabled one — while the document the shell reads states it explicitly,
+  because the flag decides whether code is fetched.
+- **Curation may come from a file.** `accounts-service` reads
+  `FRONTEND_PLUGIN_REGISTRY_FILE` at startup and falls back to the compiled-in
+  set when the file is missing or malformed, logging rather than failing to
+  start — the same "degraded, not broken" posture BR-AS04 requires of the
+  shell. This is what keeps a `localhost:7110` development remote out of the
+  platform's own source, and what makes BR-AS03 true of the *service* as well
+  as the shell.
+
+Three defects the live BR-AS15 review turned up, all in Phase 1a code that
+only a running remote could exercise:
+
+- **The route-level failure panel showed the underlying error text.** A
+  federation failure quotes the remote's URL in its message, so
+  `PluginErrorView` was printing `http://localhost:7110/...` on screen — a
+  BR-AS04 leak that no built-in plugin could have produced, since a built-in
+  never fails with a URL in hand. The panel now renders stage and cause code
+  only, exactly as `PluginSlot` already did, and points at the console.
+- **Status records were not reactive**, so the Plugins inventory kept
+  reporting `available` beside a feature the user had just watched fail. The
+  record stays a plain state machine; `bootShell` wraps each one in
+  `reactive()` as it is created.
+- **The provided shell object was built with a spread**, which evaluated the
+  `inventory` getter once and froze its result at boot. Composition now goes
+  through `withRuntime()` (prototype delegation), and a spec asserts a
+  post-boot transition is visible through the composed object.
+
+### How Phase 1b's claims are checked
+
+| Rule | Check |
+| --- | --- |
+| BR-AS03 — no host rebuild | `lab-shell/tools/hostBundleFingerprint.mjs --record` / `--verify` around an independent plugin rebuild: the host digest must be identical, and the host bundle must contain no plugin name, container name or remote URL |
+| BR-AS08 — lazy loading | `federatedAdapter.spec.js` (nothing is registered or fetched until a load is asked for) and `PluginSlot.spec.js` (a mounted slot loads; an unmounted contribution does not) |
+| BR-AS08 — deep link | `navigationPending.spec.js` — a deep link into an unloaded remote shows a pending frame, which clears on settle *and* on error |
+| BR-AS04 — isolation | `ExtensionRegion.spec.js` — a failing sibling leaves the healthy contributions in the same region rendered |
+| BR-AS04 — error denylist | `PluginSlot.spec.js` asserts the rendered card contains no URL, host, port or credential from the underlying error; the detail goes to the console |
+| BR-AS13 — incompatible | a curated entry with `shellApiVersion: 2`, refused on metadata with its remote never fetched |
+| BR-AS04 — route-level denylist | `PluginErrorView.spec.js` — the rendered panel names the plugin and the cause code and contains no URL, host or port from the federation error |
+| BR-AS04 — a live inventory | `bootShell.spec.js` — a transition after boot is observed by `inventory`, both directly and through the composed object the app provides |
+| BR-AS01 — no browser-nominated remotes | the four failure modes are curated registry entries, not query parameters — the shell offers no channel by which a browser could select one |

@@ -11,19 +11,40 @@ function launch(demo) {
 
 <template>
   <div class="menu">
-    <article v-for="demo in demos" :key="demo.id" class="lab-panel demo-card">
+    <article
+      v-for="demo in demos"
+      :key="demo.id"
+      class="lab-panel demo-card"
+    >
       <div class="demo-info">
         <h2>{{ demo.title }}</h2>
-        <p class="lab-muted">{{ demo.description }}</p>
+        <p class="lab-muted">
+          {{ demo.description }}
+        </p>
         <div class="tags">
-          <Tag v-for="tag in demo.tags" :key="tag" :value="tag" severity="secondary" />
+          <Tag
+            v-for="tag in demo.tags"
+            :key="tag"
+            :value="tag"
+            severity="secondary"
+          />
         </div>
       </div>
       <div class="demo-actions">
         <router-link :to="{ name: 'demo-catalog/intro', params: { id: demo.id } }">
-          <Button label="Intro" size="small" severity="secondary" outlined />
+          <Button
+            label="Intro"
+            size="small"
+            severity="secondary"
+            outlined
+          />
         </router-link>
-        <Button label="Launch" size="small" icon="pi pi-external-link" @click="launch(demo)" />
+        <Button
+          label="Launch"
+          size="small"
+          icon="pi pi-external-link"
+          @click="launch(demo)"
+        />
       </div>
     </article>
   </div>

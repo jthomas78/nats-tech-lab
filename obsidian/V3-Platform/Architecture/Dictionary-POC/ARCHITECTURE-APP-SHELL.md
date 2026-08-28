@@ -708,6 +708,64 @@ every call site is already the one Phase 2 will use.
 
 ---
 
+## As built — Phase 1b (2026-08-28)
+
+Phase 1b is the same contract with a real remote behind it. Nothing in `src/shell/` changed shape:
+the loader gained a second adapter, and the host gained the surfaces on which a contribution becomes
+DOM. The federation runtime is reachable from exactly one file.
+
+| Module | What it owns |
+|---|---|
+| `loader/federatedAdapter.js` | `registerRemotes` + `loadRemote`, and nothing else. Registration is per container name, once; the host's federation identity is initialised lazily with **no** remotes. The runtime is injectable, so its specs run with no network at all. |
+| `ui/PluginSlot.vue` | One contribution, rendered — the only place a plugin's component becomes DOM. Loading starts here (not at boot), both failure surfaces are caught here (chunk and render), and the error card is shell-owned text: stage and cause code, never the underlying message. |
+| `ui/ExtensionRegion.vue` | A host renders a *point*; the region resolves which contributions were placed and freezes the context on every render rather than trusting its caller. |
+| `ui/PendingExtension.vue`, `ui/SkeletonRows.vue`, `ui/loading.css` | The pending affordances from the mockups — the fuzzy region placeholder and the sweeping panel rows, both silent under `prefers-reduced-motion`. |
+| `ui/ShellFooter.vue` | The footer bar and its `shell-footer` contributions, plus the degraded notice when the registry was unreachable. |
+| `routing/navigationPending.js` | The gap a deep link opens: vue-router renders nothing while a route contribution's chunk is in flight, and for a shell whose premise is runtime features, "nothing happened" is the wrong reading of a slow remote. Raised only for plugin routes; lowered on settle *and* on error. |
+| `views/HomeView.vue`, `views/PluginsView.vue` | Shell-owned screens: the host of `shell/home-main/v1`, and the plugin inventory with each plugin's status and cause. Frame, not feature — `tools/frameOwnership.js` still passes. |
+| `tools/hostBundleFingerprint.mjs` | The no-host-rebuild proof: builds the host, refuses if any asset's digest moved across a plugin deployment, and refuses if the host bundle contains a plugin name, container name or remote URL. |
+
+Outside the shell: `lab-shell/plugins/example-plugin/` — its own `package.json`, its own Vite
+config, its own `node_modules`, its own dev server on 7110. The shell has never compiled it. That
+separation is the *only* thing that makes BR-AS03 a measurement rather than an assertion.
+
+**Curation moved to a file.** `accounts-service` reads `FRONTEND_PLUGIN_REGISTRY_FILE` at startup
+(compose mounts `registry.dev.json` read-only) and falls back to the compiled-in set when the file
+is missing or malformed, logging rather than failing to start. A development remote on `localhost`
+does not belong in the platform's source, and a registry that can be swapped without rebuilding
+either side is what independent deployment actually claims — for the service as much as the shell.
+
+**The four failure states are curated entries, not switches.** `loading` is a six-second delay in a
+second exposed module; `failed` is either a curated URL with no chunk behind it or an `activate()`
+that throws (distinguished by cause code, not by a shrug); `incompatible` is an entry declaring
+`shellApiVersion: 2`, refused on metadata with its remote never fetched. A fifth failure — a
+contribution throwing while it renders — sits inside the healthy plugin, next to a working panel on
+the home screen. None of them is selectable from the browser: a remote nominated by a query
+parameter or a message is refused (BR-AS01), so a demo switch in the URL would contradict the rule
+it exists to show.
+
+**Two as-built deltas**, both recorded in the rules file: `remote.name` (the federation container
+name, optional, defaulting to the id with hyphens turned to underscores) and `remote.module`
+tolerating federation's own `./` prefix. Both are revisions of the 1a loader contract, recorded
+rather than edited in silently.
+
+### What the live review changed (2026-08-28)
+
+Running a real remote exercised three paths no built-in plugin can reach, and each turned up a
+Phase 1a defect:
+
+- `PluginErrorView` rendered the raw error, which for a federation failure contains the remote's
+  URL — a BR-AS04 leak. The route-level panel now carries stage and cause code only, matching
+  `PluginSlot`.
+- `PluginStatusRecord` instances were plain objects, so the Plugins inventory never showed the
+  transition to `failed` that happened on first use. `bootShell` now wraps each record in
+  `reactive()`; the state machine itself stays framework-free.
+- The provided shell object was assembled with `{...shell, loader, ...}`, which evaluated the
+  `inventory` getter once and froze it at boot. Composition is now `withRuntime()` in
+  `bootShell.js`, which delegates through the prototype and keeps the getter live.
+
+---
+
 ## Related artifacts
 
 - [Application shell plan](../../../../.claude/plans/Application-Shell-Microfrontend-Plan.md)

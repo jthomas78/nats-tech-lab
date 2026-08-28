@@ -11,6 +11,8 @@ const route = useRoute()
       No plugin claims <code>{{ route.fullPath }}</code>. It may belong to a plugin that is
       disabled, incompatible with this shell, or not visible to you.
     </p>
-    <router-link to="/demos">Back to the demo catalog</router-link>
+    <router-link to="/demos">
+      Back to the demo catalog
+    </router-link>
   </div>
 </template>

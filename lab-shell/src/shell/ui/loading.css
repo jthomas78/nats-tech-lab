@@ -1,0 +1,85 @@
+/*
+  Pending-region motion (BR-AS08, BR-AS14). Values are lifted from the Phase 1
+  mockup `lab-shell/diagrams/phase1-shell-mockups/Loading.dc.html`, reviewed at
+  1920x1080 — the sweep and the breathe are the design of record, not
+  invention. Tokens come from shared/unifi-theme/unifi.css (--lab-skel-hi was
+  added there for this).
+
+  The sweep is the signal that the shell is WORKING rather than stalled: a
+  static gray bar is indistinguishable from a broken render, and an extension
+  point — waiting on a third party's chunk — is exactly where a stall is most
+  likely.
+*/
+
+@keyframes lab-skel-sweep {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes lab-skel-breathe {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.9; }
+}
+
+.skel {
+  background: linear-gradient(
+    90deg,
+    var(--lab-disabled-bg) 0%,
+    var(--lab-disabled-bg) 35%,
+    var(--lab-skel-hi) 50%,
+    var(--lab-disabled-bg) 65%,
+    var(--lab-disabled-bg) 100%
+  );
+  background-size: 220% 100%;
+  animation: lab-skel-sweep 1.8s linear infinite;
+  border-radius: 3px;
+  height: 10px;
+  opacity: 0.5;
+}
+.skel.delay-1 { animation-delay: -0.6s; }
+.skel.delay-2 { animation-delay: -1.2s; }
+
+/* Deliberately FUZZY: the host reserves the region and says "something is
+   arriving here" without drawing a false shape for content it has not seen.
+   Each instance offsets its phase so a screen full of pending regions does not
+   pulse in lockstep. */
+.skel-ext {
+  position: relative;
+  border: 1px dashed var(--lab-panel-border);
+  border-radius: 4px;
+  background: var(--lab-disabled-bg);
+  opacity: 0.5;
+  overflow: hidden;
+  animation: lab-skel-breathe 2.4s ease-in-out infinite;
+}
+.skel-ext::after {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  background: radial-gradient(ellipse at 30% 50%, var(--lab-skel-hi) 0%, transparent 60%);
+  background-size: 220% 100%;
+  filter: blur(14px);
+  animation: lab-skel-sweep 2.8s linear infinite;
+}
+.skel-ext.delay-1 { animation-delay: -0.8s; }
+.skel-ext.delay-2 { animation-delay: -1.6s; }
+.skel-ext-label {
+  position: absolute;
+  left: 10px;
+  bottom: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--p-text-disabled-color);
+}
+
+/* Motion is decoration, never the only carrier of meaning — every pending
+   region also carries a text label saying what it is waiting for. */
+@media (prefers-reduced-motion: reduce) {
+  .skel,
+  .skel-ext,
+  .skel-ext::after {
+    animation: none;
+  }
+  .skel { background: var(--lab-disabled-bg); }
+}

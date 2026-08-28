@@ -13,13 +13,16 @@ import { createUnifiPreset, enableDarkMode, themeOptions } from '@unifi-theme/pr
 import App from './App.vue'
 import { demoCatalogManifest, DEMO_CATALOG_MODULE } from './plugins/demo-catalog/manifest.js'
 import { createPermissionEvaluator } from './shell/auth/permissions.js'
-import { bootShell } from './shell/bootShell.js'
+import { bootShell, withRuntime } from './shell/bootShell.js'
+import { createFederatedAdapter } from './shell/loader/federatedAdapter.js'
 import { createBuiltinAdapter, createPluginLoader } from './shell/loader/pluginLoader.js'
 import { createRegistryClient } from './shell/registry/registryClient.js'
 import { createShellRoutes } from './shell/routing/shellRoutes.js'
 import { SHELL } from './shell/shellKey.js'
+import HomeView from './views/HomeView.vue'
 import NotFoundView from './views/NotFoundView.vue'
 import PluginErrorView from './views/PluginErrorView.vue'
+import PluginsView from './views/PluginsView.vue'
 
 enableDarkMode()
 
@@ -49,15 +52,21 @@ async function bootstrap() {
       builtin: createBuiltinAdapter({
         [DEMO_CATALOG_MODULE]: () => import('./plugins/demo-catalog/index.js'),
       }),
+      /* Phase 1b. No remote is named here: the adapter registers containers at
+         runtime from the curated registry, so adding a plugin never touches
+         this file (BR-AS03, proven by tools/hostBundleFingerprint.mjs). */
+      federated: createFederatedAdapter(),
     },
   })
 
   const router = createRouter({
     history: createWebHistory(),
     routes: [
-      /* The shell owns no content route of its own — `/` is a doorway into a
-         plugin's namespace, not a page (BR-AS09). */
-      { path: '/', redirect: '/demos' },
+      /* The shell's own two screens. Neither carries feature content: Home
+         hosts `shell/home-main/v1` and Plugins is the inventory — the frame
+         and its regions, which is exactly what BR-AS09 says the shell owns. */
+      { path: '/', name: 'shell/home', component: HomeView, meta: { title: 'Home' } },
+      { path: '/plugins', name: 'shell/plugins', component: PluginsView, meta: { title: 'Plugins' } },
       ...createShellRoutes({
         contributions: shell.contributions,
         loader,
@@ -69,7 +78,7 @@ async function bootstrap() {
   })
 
   const app = createApp(App)
-  app.provide(SHELL, { ...shell, loader, plugins, router })
+  app.provide(SHELL, withRuntime(shell, { loader, plugins, router }))
   app.use(createPinia())
   app.use(router)
   app.use(PrimeVue, {

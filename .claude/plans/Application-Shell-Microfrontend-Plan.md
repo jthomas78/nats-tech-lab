@@ -669,29 +669,29 @@ route-scoped shell control, footer) and must be able to demonstrate each failure
 
 #### Phase 1b tasks
 
-- [ ] **1b-1 — Module Federation loader.** `@module-federation/vite` implementing the 1a loader
+- [x] **1b-1 — Module Federation loader.** `@module-federation/vite` implementing the 1a loader
       interface. If the interface has to change to accommodate it, that is a recorded revision of the
       1a contract, not a silent edit. *(BR-AS03.)*
-- [ ] **1b-2 — Example plugin package** at `lab-shell/plugins/example-plugin/` — its own
+- [x] **1b-2 — Example plugin package** at `lab-shell/plugins/example-plugin/` — its own
       `package.json`, Vite config and build, dev port **7110**, built and served independently of the
       host. *(BR-AS03, BR-AS15.)*
-- [ ] **1b-3 — One contribution of every kind.** Route; navigation; an extension into
+- [x] **1b-3 — One contribution of every kind.** Route; navigation; an extension into
       `shell/home-main/v1` (shell-owned) **and** into `demo-catalog/details-sidebar/v1` (owned by a
       built-in feature — the cross-owner case); a route-scoped `shell-control`; a `shell-footer`.
       *(BR-AS07, BR-AS15 — this is the capability review, not a smoke test.)*
-- [ ] **1b-4 — On-demand failure switches.** `loading` (injected delay), `failed` (unreachable
+- [x] **1b-4 — On-demand failure switches.** `loading` (injected delay), `failed` (unreachable
       chunk), `incompatible` (bumped `shellApiVersion`), and a contribution throwing inside
       `activate()`. Each is both a spec and something the user can trigger live during the review.
       *(BR-AS04, BR-AS13.)*
-- [ ] **1b-5 — Lazy loading on first use.** *(BR-AS08 — no remote chunk is requested while only
+- [x] **1b-5 — Lazy loading on first use.** *(BR-AS08 — no remote chunk is requested while only
       metadata is needed; the nav entry exists before its code does.)*
-- [ ] **1b-6 — Deep link into a not-yet-loaded remote.** Cold start resolves the route, loads the
+- [x] **1b-6 — Deep link into a not-yet-loaded remote.** Cold start resolves the route, loads the
       remote, and renders, with the loading state visible in between. *(BR-AS08, BR-AS12.)*
-- [ ] **1b-7 — Failure isolation proof.** With the example plugin failing, the shell, the demo
+- [x] **1b-7 — Failure isolation proof.** With the example plugin failing, the shell, the demo
       catalog, and any second plugin stay loaded and operable. *(BR-AS04.)*
-- [ ] **1b-8 — No-host-rebuild proof.** Deploy the example plugin twice with a visible change and
+- [x] **1b-8 — No-host-rebuild proof.** Deploy the example plugin twice with a visible change and
       show the host bundle hash unchanged. A scripted check, not an assertion in prose. *(BR-AS03.)*
-- [ ] **1b-9 — Loading affordance as designed.** Skeleton sweep plus the fuzzy extension-point
+- [x] **1b-9 — Loading affordance as designed.** Skeleton sweep plus the fuzzy extension-point
       placeholder, `prefers-reduced-motion` honoured, reviewed at 1920×1080. *(BR-AS08, BR-AS14 —
       motion is the signal that the shell is working rather than stalled.)*
 - [ ] **1b-10 — User review of the running example plugin.** The gate itself; nothing below it

@@ -27,7 +27,7 @@ type frontendPluginRegistryJSON struct {
 		Name            string `json:"name"`
 		SchemaVersion   int    `json:"schemaVersion"`
 		ShellAPIVersion int    `json:"shellApiVersion"`
-		Enabled         bool   `json:"enabled"`
+		Enabled         *bool  `json:"enabled"`
 		Remote          struct {
 			Kind   string `json:"kind"`
 			URL    string `json:"url"`
@@ -38,6 +38,15 @@ type frontendPluginRegistryJSON struct {
 			ID   string `json:"id"`
 		} `json:"contributions"`
 	} `json:"plugins"`
+}
+
+// decodeRegistry is shared with frontendplugins_file_test.go, which installs a
+// curated set from a file and then reads it back through this same endpoint.
+func decodeRegistry(rec *httptest.ResponseRecorder) frontendPluginRegistryJSON {
+	GinkgoHelper()
+	var doc frontendPluginRegistryJSON
+	Expect(json.Unmarshal(rec.Body.Bytes(), &doc)).To(Succeed())
+	return doc
 }
 
 var _ = Describe("GET /api/accounts/frontend-plugins", func() {

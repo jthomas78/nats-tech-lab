@@ -62,6 +62,14 @@
       "port": 7109
     },
     {
+      "//": "Phase 1b's example plugin. Its own toolchain, its own build, its own server \u2014 the shell never compiles it, which is what makes BR-AS03's no-host-rebuild claim testable rather than asserted (lab-shell/tools/hostBundleFingerprint.mjs). strictPort, because the shell reaches it by URL from the curated registry (registry.dev.json) and a plugin that quietly moved to 7111 would look like an unreachable remote.",
+      "name": "example-plugin",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "lab-shell/plugins/example-plugin",
+      "port": 7110
+    },
+    {
       "name": "docs",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],

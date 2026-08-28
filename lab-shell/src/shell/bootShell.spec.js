@@ -1,9 +1,10 @@
+import { watchSyncEffect } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
 
 import { createPermissionEvaluator } from './auth/permissions.js'
 import { PLUGIN_STATUS } from './registry/pluginStatus.js'
 import { REGISTRY_SCHEMA_VERSION, SHELL_API_VERSION } from './versions.js'
-import { bootShell } from './bootShell.js'
+import { bootShell, withRuntime } from './bootShell.js'
 
 const manifest = (id, overrides = {}) => ({
   id,
@@ -210,5 +211,53 @@ describe('BR-AS02 — plugin-owned extension points open at boot', () => {
 
     expect(shell.extensionPoints.has('demo-catalog/x/v1')).toBe(true)
     expect(shell.contributions.routes.map((r) => r.path)).toEqual(['/demos'])
+  })
+})
+
+describe('the inventory tracks transitions that happen after boot', () => {
+  /* A plugin only fails when something first asks for its code, which is long
+     after boot. The Plugins screen is the one surface that reports it, so a
+     status record whose later mutations nothing can observe would leave the
+     table permanently stale — showing `available` beside a visibly broken
+     feature. */
+  it('re-renders a row when a plugin fails on first use', async () => {
+    const shell = await bootShell({
+      registryClient: client({ ok: true, plugins: [manifest('fleet-ops')] }),
+      permissions,
+    })
+
+    const seen = []
+    watchSyncEffect(() => {
+      seen.push(shell.inventory.find((row) => row.id === 'fleet-ops').status)
+    })
+    expect(seen).toEqual([PLUGIN_STATUS.AVAILABLE])
+
+    shell.statuses.get('fleet-ops').transition(PLUGIN_STATUS.FAILED, {
+      code: 'chunk-load-failed',
+      message: 'unreachable',
+    })
+
+    /* `transition` writes several fields, so the sync effect runs more than
+       once — what matters is that it ran at all and settled on the new
+       status. */
+    expect(seen.at(-1)).toBe(PLUGIN_STATUS.FAILED)
+    expect(shell.inventory.find((row) => row.id === 'fleet-ops').reasonCode).toBe(
+      'chunk-load-failed',
+    )
+  })
+
+  it('keeps the inventory live through the composed object the app provides', async () => {
+    const booted = await bootShell({
+      registryClient: client({ ok: true, plugins: [manifest('fleet-ops')] }),
+      permissions,
+    })
+    const shell = withRuntime(booted, { loader: {}, router: {} })
+
+    shell.statuses.get('fleet-ops').transition(PLUGIN_STATUS.FAILED, {
+      code: 'chunk-load-failed',
+    })
+
+    expect(shell.inventory.find((row) => row.id === 'fleet-ops').status).toBe(PLUGIN_STATUS.FAILED)
+    expect(shell.loader).toBeDefined()
   })
 })
