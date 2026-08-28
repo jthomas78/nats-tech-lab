@@ -44,7 +44,61 @@ var _ = Describe("the curated frontend plugin registry file", func() {
 
 	// The curated set is package state, so every spec that installs one puts
 	// the compiled-in (empty) set back.
-	BeforeEach(func() { DeferCleanup(func() { accounts.SetCuratedFrontendPlugins(nil) }) })
+	BeforeEach(func() {
+		DeferCleanup(func() {
+			accounts.SetCuratedFrontendPlugins(nil)
+			accounts.SetCuratedFrontendRevision("")
+		})
+	})
+
+	// The shell displays both of these and interprets neither: `version` names
+	// which build of a plugin is on screen, `revision` names which curated set
+	// the shell read. Compatibility stays decided by schemaVersion and
+	// shellApiVersion alone.
+	Context("the optional version and revision fields", func() {
+		It("serves them through to the shell when the file states them", func() {
+			plugins, revision, err := accounts.LoadCuratedFrontendRegistry(write(`{
+			  "schemaVersion": 1,
+			  "revision": "47",
+			  "plugins": [
+			    {
+			      "id": "example-plugin", "name": "Example Plugin", "version": "0.1.1",
+			      "schemaVersion": 1, "shellApiVersion": 1,
+			      "remote": { "kind": "federated", "url": "http://localhost:7110/remoteEntry.js", "module": "plugin" },
+			      "contributions": [{ "kind": "route", "id": "overview", "path": "/example-plugin", "title": "X", "component": "overview" }]
+			    }
+			  ]
+			}`))
+			Expect(err).NotTo(HaveOccurred())
+			accounts.SetCuratedFrontendPlugins(plugins)
+			accounts.SetCuratedFrontendRevision(revision)
+
+			served := serve()
+			Expect(served.Revision).To(Equal("47"))
+			Expect(served.Plugins[0].Version).To(Equal("0.1.1"))
+		})
+
+		It("still serves a document that omits both", func() {
+			plugins, revision, err := accounts.LoadCuratedFrontendRegistry(write(`{
+			  "schemaVersion": 1,
+			  "plugins": [
+			    {
+			      "id": "example-plugin", "name": "Example Plugin",
+			      "schemaVersion": 1, "shellApiVersion": 1,
+			      "remote": { "kind": "federated", "url": "http://localhost:7110/remoteEntry.js", "module": "plugin" },
+			      "contributions": [{ "kind": "route", "id": "overview", "path": "/example-plugin", "title": "X", "component": "overview" }]
+			    }
+			  ]
+			}`))
+			Expect(err).NotTo(HaveOccurred())
+			accounts.SetCuratedFrontendPlugins(plugins)
+			accounts.SetCuratedFrontendRevision(revision)
+
+			served := serve()
+			Expect(served.Revision).To(BeEmpty())
+			Expect(served.Plugins[0].Version).To(BeEmpty())
+		})
+	})
 
 	Context("a well-formed document", func() {
 		const doc = `{

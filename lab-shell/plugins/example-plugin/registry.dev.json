@@ -13,10 +13,12 @@
     "a remote or alter one (BR-AS01)."
   ],
   "schemaVersion": 1,
+  "revision": "dev-1b",
   "plugins": [
     {
       "id": "example-plugin",
       "name": "Example Plugin",
+      "version": "0.1.1",
       "description": "The BR-AS15 proof plugin: one contribution of every kind, built and served independently on port 7110.",
       "schemaVersion": 1,
       "shellApiVersion": 1,
@@ -83,6 +85,7 @@
     {
       "id": "example-plugin-slow",
       "name": "Example Plugin (slow remote)",
+      "version": "0.1.1",
       "description": "Task 1b-4 (a): the same code behind a six-second module-scope delay, so the pending-region animation can be watched.",
       "schemaVersion": 1,
       "shellApiVersion": 1,
@@ -114,6 +117,7 @@
     {
       "id": "example-plugin-unreachable",
       "name": "Example Plugin (unreachable remote)",
+      "version": "0.1.1",
       "description": "Task 1b-4 (b): a curated remote whose chunk 404s. The plugin goes failed; nothing else moves.",
       "schemaVersion": 1,
       "shellApiVersion": 1,
@@ -145,6 +149,7 @@
     {
       "id": "example-plugin-activate-throws",
       "name": "Example Plugin (activate throws)",
+      "version": "0.1.1",
       "description": "Task 1b-4 (c): the chunk arrives and activate() throws. Distinguished from an unreachable remote by its cause code, not by a shrug.",
       "schemaVersion": 1,
       "shellApiVersion": 1,
@@ -176,6 +181,7 @@
     {
       "id": "example-plugin-incompatible",
       "name": "Example Plugin (future shell API)",
+      "version": "0.1.1",
       "description": "Task 1b-4 (d): built against shellApiVersion 2. Rejected on metadata alone — its remote is never fetched (BR-AS13).",
       "schemaVersion": 1,
       "shellApiVersion": 2,

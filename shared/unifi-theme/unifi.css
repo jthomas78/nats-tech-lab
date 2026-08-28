@@ -31,6 +31,19 @@
      dark and lighter than the panel on light, so the sweep reads as motion
      rather than as a second surface. */
   --lab-skel-hi: #4d5560;
+  /* Status tones. One vocabulary for "this is fine / this needs a look /
+     this is broken", shared by every app so a red pill means the same thing
+     in the Admin UI as it does in the shell's plugin inventory.
+
+     These were previously defined only in app-shell-reference.html, the
+     static composition reference, so every `var(--ok)` in an actual app
+     resolved to nothing and fell back to currentColor — which is how the
+     shell shipped with `available`, `failed` and `incompatible` all rendering
+     in body text colour. Tokens belong here; the reference is a picture of
+     this file, not a source for it. */
+  --ok: #27c07f;
+  --warn: #f0b429;
+  --err: #e5484d;
 }
 
 /* Light overrides — applied when .p-dark is absent */
@@ -48,6 +61,11 @@
   --lab-nested-bg: #eef1f7;
   --lab-nested-bg-hover: #e3e8f2;
   --lab-skel-hi: #f3f5f8;
+  /* Darker on light: these are read as text on a near-white panel, so they
+     carry contrast rather than the glow the dark palette can afford. */
+  --ok: #1a8f5e;
+  --warn: #b4770a;
+  --err: #c1373b;
 }
 
 html,

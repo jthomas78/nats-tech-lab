@@ -82,9 +82,14 @@ type frontendPluginContribution struct {
 }
 
 type frontendPlugin struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	Description     string `json:"description,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Version is the plugin's own release version. Free-form and never
+	// interpreted here or in the shell — compatibility is decided by
+	// SchemaVersion and ShellAPIVersion alone — it exists so an operator
+	// reading the shell's Plugins screen can see which build is on screen.
+	Version         string `json:"version,omitempty"`
 	SchemaVersion   int    `json:"schemaVersion"`
 	ShellAPIVersion int    `json:"shellApiVersion"`
 	RoutePrefix     string `json:"routePrefix,omitempty"`
@@ -99,8 +104,13 @@ type frontendPlugin struct {
 }
 
 type frontendPluginRegistry struct {
-	SchemaVersion int              `json:"schemaVersion"`
-	Plugins       []frontendPlugin `json:"plugins"`
+	SchemaVersion int `json:"schemaVersion"`
+	// Revision names *which* curated set this is. Opaque to the shell, which
+	// displays it and does nothing else with it, so an omitted revision still
+	// serves — it is an operator's handle for "the shell read the registry I
+	// think it read", not a version the shell branches on.
+	Revision string           `json:"revision,omitempty"`
+	Plugins  []frontendPlugin `json:"plugins"`
 }
 
 // curatedFrontendPlugins is the registry itself.
@@ -118,6 +128,9 @@ type frontendPluginRegistry struct {
 // (BR-AS04).
 var curatedFrontendPlugins = []frontendPlugin{}
 
+// curatedFrontendRevision accompanies the set above and is replaced with it.
+var curatedFrontendRevision string
+
 // LoadCuratedFrontendPlugins replaces the curated set from a JSON document on
 // disk, named by FRONTEND_PLUGIN_REGISTRY_FILE.
 //
@@ -132,20 +145,31 @@ var curatedFrontendPlugins = []frontendPlugin{}
 // compiled-in set, not take the service down — the shell already treats a
 // missing registry as a degraded shell rather than a broken one (BR-AS04).
 func LoadCuratedFrontendPlugins(path string) ([]frontendPlugin, error) {
+	plugins, _, err := loadCuratedFrontendRegistry(path)
+	return plugins, err
+}
+
+// LoadCuratedFrontendRegistry is LoadCuratedFrontendPlugins plus the
+// document's revision, for a caller that installs both.
+func LoadCuratedFrontendRegistry(path string) ([]frontendPlugin, string, error) {
+	return loadCuratedFrontendRegistry(path)
+}
+
+func loadCuratedFrontendRegistry(path string) ([]frontendPlugin, string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read frontend plugin registry %s: %w", path, err)
+		return nil, "", fmt.Errorf("read frontend plugin registry %s: %w", path, err)
 	}
 	var doc frontendPluginRegistry
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return nil, fmt.Errorf("parse frontend plugin registry %s: %w", path, err)
+		return nil, "", fmt.Errorf("parse frontend plugin registry %s: %w", path, err)
 	}
 	if doc.SchemaVersion != RegistrySchemaVersion {
-		return nil, fmt.Errorf(
+		return nil, "", fmt.Errorf(
 			"frontend plugin registry %s declares schemaVersion %d; this service serves %d",
 			path, doc.SchemaVersion, RegistrySchemaVersion)
 	}
-	return doc.Plugins, nil
+	return doc.Plugins, doc.Revision, nil
 }
 
 // SetCuratedFrontendPlugins installs a curated set. Called once at startup;
@@ -154,6 +178,11 @@ func LoadCuratedFrontendPlugins(path string) ([]frontendPlugin, error) {
 // in this file.
 func SetCuratedFrontendPlugins(plugins []frontendPlugin) {
 	curatedFrontendPlugins = plugins
+}
+
+// SetCuratedFrontendRevision installs the revision served alongside the set.
+func SetCuratedFrontendRevision(revision string) {
+	curatedFrontendRevision = revision
 }
 
 // @Summary      List curated frontend plugins
@@ -183,6 +212,7 @@ func (h *Handlers) listFrontendPlugins(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, frontendPluginRegistry{
 		SchemaVersion: RegistrySchemaVersion,
+		Revision:      curatedFrontendRevision,
 		Plugins:       plugins,
 	})
 }

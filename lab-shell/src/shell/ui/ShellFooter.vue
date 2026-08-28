@@ -5,6 +5,7 @@
 import { computed, inject } from 'vue'
 
 import { SHELL } from '../shellKey.js'
+import { SHELL_API_VERSION } from '../versions.js'
 import PluginSlot from './PluginSlot.vue'
 
 const shell = inject(SHELL)
@@ -29,6 +30,13 @@ const pluginCount = computed(
       :contribution="item"
       placeholder="quiet"
     />
+    <!-- The two constants an operator needs to read a screenshot: which shell
+         contract is running, and which registry it was told to trust. The
+         revision, never the endpoint (BR-AS04). -->
+    <span class="tail">
+      <span class="k">shell api</span> {{ SHELL_API_VERSION }} ·
+      <span class="k">registry</span> rev {{ shell.registry?.revision ?? 'n/a' }}
+    </span>
   </div>
 </template>
 
@@ -45,5 +53,6 @@ const pluginCount = computed(
   color: var(--p-text-muted-color);
 }
 .k { color: var(--p-text-disabled-color); }
+.tail { margin-left: auto; }
 .degraded { color: var(--warn); }
 </style>

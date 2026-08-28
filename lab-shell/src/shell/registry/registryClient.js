@@ -92,7 +92,7 @@ export function createRegistryClient({
       if (!validated.ok) {
         return { ok: false, code: validated.code, message: validated.message }
       }
-      return { ok: true, plugins: validated.plugins }
+      return { ok: true, plugins: validated.plugins, revision: validated.revision, fetchedAt: new Date().toISOString() }
     },
   }
 }

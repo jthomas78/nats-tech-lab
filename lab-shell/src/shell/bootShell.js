@@ -102,7 +102,11 @@ export async function bootShell({
   for (const manifest of builtins) admit(manifest, { builtin: true })
 
   const discovery = await registryClient.fetchRegistry()
+  /* What the shell read, so the Plugins screen and the footer can name the
+     registry revision on screen. Never the endpoint URL (BR-AS04). */
+  let registry = { revision: null, fetchedAt: null }
   if (discovery.ok) {
+    registry = { revision: discovery.revision ?? null, fetchedAt: discovery.fetchedAt ?? null }
     for (const manifest of discovery.plugins) admit(manifest, { builtin: false })
   } else {
     /* Recorded, not thrown. The shell continues with its built-ins, and the
@@ -121,14 +125,25 @@ export async function bootShell({
     contributions,
     extensionPoints,
     allowlist,
+    registry,
     registryError,
     /* Everything the Plugins screen renders, in one shape (see the Plugins
        artboard): a row per plugin with its status and reason, plus the
        contribution-level refusals that a plugin-level status cannot express. */
     get inventory() {
+      const manifestOf = (id) => plugins.find((plugin) => plugin.id === id) ?? null
       return [...statuses.values()].map((record) => ({
         id: record.id,
         name: record.name,
+        version: manifestOf(record.id)?.version ?? null,
+        builtin: manifestOf(record.id)?.remote?.kind === 'builtin',
+        shellApiVersion: manifestOf(record.id)?.shellApiVersion ?? null,
+        /* Placed contributions, not declared ones: a contribution the index
+           refused is in `refusals`, and listing it here would tell the
+           operator the plugin contributed something it does not. */
+        contributionKinds: contributions.all
+          .filter((c) => c.pluginId === record.id)
+          .map((c) => c.kind),
         status: record.status,
         reasonCode: record.reasonCode,
         reason: record.reason,

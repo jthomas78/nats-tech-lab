@@ -127,9 +127,11 @@ const label = computed(() => {
       :context="context"
     />
 
+    <!-- The Loading artboard labels a reserved panel with what is arriving:
+         the contribution's kind and its qualified id, both curated metadata. -->
     <SkeletonRows
       v-else-if="placeholder === 'panel'"
-      :label="`Loading ${label}`"
+      :label="`${contribution.kind} contribution — ${contribution.qualifiedId}`"
     />
     <PendingExtension
       v-else-if="placeholder === 'extension'"

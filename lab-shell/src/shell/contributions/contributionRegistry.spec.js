@@ -277,3 +277,19 @@ describe('BR-AS12 — one route prefix, one owner', () => {
     expect(registry.shellFooter).toHaveLength(1)
   })
 })
+
+/* The Plugins screen counts a plugin's contributions from `all`. A refused
+   contribution was declared but never placed, so counting it would tell the
+   operator the plugin contributed something the index rejected. */
+describe('the placed-contribution view', () => {
+  it('omits a contribution the index refused', () => {
+    const p = plugin('fleet-ops', [
+      { kind: 'route', id: 'vessels', path: '/fleet-ops/vessels', title: 'Vessels' },
+      { kind: 'navigation', id: 'ghost-nav', label: 'Ghost', route: 'no-such-route' },
+    ])
+    const registry = build().index([p], statusesFor(p))
+
+    expect(registry.refusals.map((r) => r.code)).toContain('unresolved-route')
+    expect(registry.all.map((c) => c.id)).toEqual(['vessels'])
+  })
+})

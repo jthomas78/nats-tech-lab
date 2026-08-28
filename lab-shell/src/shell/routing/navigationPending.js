@@ -17,18 +17,30 @@ import { ref } from 'vue'
 */
 export function createNavigationPending(router) {
   const pending = ref(false)
+  /* What is being waited for, so the placeholder can name the contribution
+     rather than saying "loading" into the void (the Loading artboard labels
+     the region with the kind and the qualified id). Curated metadata only —
+     never the remote's URL (BR-AS04). */
+  const target = ref(null)
 
   router.beforeEach((to) => {
     pending.value = Boolean(to.meta?.pluginId)
+    target.value = pending.value
+      ? {
+          pluginId: to.meta.pluginId,
+          title: to.meta.title ?? '',
+          contributionId: to.meta.contributionId ?? '',
+        }
+      : null
   })
   /* Both hooks, because a navigation that fails or is redirected still has to
      put the frame back — a stuck skeleton would be a worse lie than none. */
-  router.afterEach(() => {
+  const settle = () => {
     pending.value = false
-  })
-  router.onError(() => {
-    pending.value = false
-  })
+    target.value = null
+  }
+  router.afterEach(settle)
+  router.onError(settle)
 
-  return pending
+  return { pending, target }
 }

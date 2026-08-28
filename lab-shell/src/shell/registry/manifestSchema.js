@@ -166,6 +166,12 @@ export function validateManifest(manifest) {
       name: manifest.name,
       routePrefix,
       description: typeof manifest.description === 'string' ? manifest.description : '',
+      /* The plugin's own release version — free-form, optional, and never
+         interpreted by the shell: compatibility is decided by schemaVersion
+         and shellApiVersion alone (BR-AS13). It exists so the inventory and
+         the failure panel can say *which build* of a plugin is on screen,
+         which is the first question asked of a failure report. */
+      version: typeof manifest.version === 'string' ? manifest.version : null,
       schemaVersion: manifest.schemaVersion,
       shellApiVersion: manifest.shellApiVersion,
       /* Absent means enabled. An operator disables a plugin by setting it
@@ -388,5 +394,12 @@ export function validateRegistryDocument(doc) {
   if (!Array.isArray(doc.plugins)) {
     return REJECT('malformed', 'Registry document has no plugins array')
   }
-  return { ok: true, plugins: doc.plugins }
+  /* The revision is the operator's handle on *which* registry the shell read.
+     Optional and opaque — the shell displays it and does nothing else with
+     it, so an older accounts-service that omits it still serves. */
+  return {
+    ok: true,
+    plugins: doc.plugins,
+    revision: typeof doc.revision === 'string' || typeof doc.revision === 'number' ? String(doc.revision) : null,
+  }
 }

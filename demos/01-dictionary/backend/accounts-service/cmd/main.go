@@ -236,12 +236,13 @@ func run(log *slog.Logger) error {
 	// ignored: the shell degrades on a missing registry, and this service
 	// refusing to start would be a worse failure than serving the default.
 	if path := os.Getenv("FRONTEND_PLUGIN_REGISTRY_FILE"); path != "" {
-		plugins, err := accounts.LoadCuratedFrontendPlugins(path)
+		plugins, revision, err := accounts.LoadCuratedFrontendRegistry(path)
 		if err != nil {
 			log.Warn("frontend plugin registry not loaded, serving built-in set", "error", err)
 		} else {
 			accounts.SetCuratedFrontendPlugins(plugins)
-			log.Info("frontend plugin registry loaded", "path", path, "plugins", len(plugins))
+			accounts.SetCuratedFrontendRevision(revision)
+			log.Info("frontend plugin registry loaded", "path", path, "plugins", len(plugins), "revision", revision)
 		}
 	}
 

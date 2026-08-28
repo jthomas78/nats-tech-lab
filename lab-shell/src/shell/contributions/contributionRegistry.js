@@ -178,6 +178,13 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
     get shellFooter() {
       return [...footerItems]
     },
+    /* Every contribution that was actually placed, in one list — the Plugins
+       screen counts per plugin from this, so the count can never claim a
+       contribution the index refused. */
+    get all() {
+      const refused = new Set(refusals.map((r) => r.qualifiedId))
+      return [...byQualifiedId.values()].filter((c) => !refused.has(c.qualifiedId))
+    },
     get refusals() {
       return [...refusals]
     },

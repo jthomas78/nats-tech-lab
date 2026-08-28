@@ -21,10 +21,12 @@ import (
 )
 
 type frontendPluginRegistryJSON struct {
-	SchemaVersion int `json:"schemaVersion"`
+	SchemaVersion int    `json:"schemaVersion"`
+	Revision      string `json:"revision"`
 	Plugins       []struct {
 		ID              string `json:"id"`
 		Name            string `json:"name"`
+		Version         string `json:"version"`
 		SchemaVersion   int    `json:"schemaVersion"`
 		ShellAPIVersion int    `json:"shellApiVersion"`
 		Enabled         *bool  `json:"enabled"`
