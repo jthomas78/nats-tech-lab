@@ -638,7 +638,7 @@ Settled at the gate, beyond the original nine:
 | Demo catalog | Remains, as a **built-in plugin** at `/demos`, using the public contribution API with no privileged path |
 | Migration order | SeaFreight Flow → Admin → Tech Lab Operator, ordered by *credential-profile complexity ascending* |
 | Test runner | Mandatory. Vitest in `lab-shell/` is Phase 1a's first task — no rule here is enforceable without it |
-| Mockup gate for migrations | **Delta** mockups for Phases 2–4; capability-complete for Phase 1 only (satisfied 2026-08-28) |
+| Mockup gate for migrations | **Delta** mockups for Phases 10–12; capability-complete for Phase 1 only (satisfied 2026-08-28) |
 
 Phase 1 is split: **1a** proves the contract with no remote at all (built-in `demo-catalog` as the
 fixture), **1b** introduces Module Federation and the example plugin.
@@ -704,7 +704,7 @@ known to fail when it should, rather than only known to pass on a tree that happ
 `shell-footer` *rendering* (indexed and refusable now, rendered when a plugin contributes one in
 1b), the pending-region animation component (1b, built from the mockups' `.skel`/`.skel-ext`), and
 real auth claims — the permission evaluator is wired with a grant-all claim set, so the shape at
-every call site is already the one Phase 2 will use.
+every call site is already the one Phase 10 will use.
 
 ---
 
@@ -766,9 +766,48 @@ Phase 1a defect:
 
 ---
 
+## As built — Phase 1b mockup-fidelity pass (2026-08-28)
+
+The Phase 1b build satisfied the behaviour the mockups described but not the chrome they drew.
+This pass closed the gap; the artboards remain the reference, and the deltas below are the parts
+of the contract they implied and the rules file did not yet state.
+
+**Registry document — two optional display fields.** A registry entry may state `version`, and the
+document may state `revision`. Both are display-only: compatibility stays decided by
+`schemaVersion` and `shellApiVersion` alone, and a document omitting either is served and accepted
+unchanged. `accounts-service` carries them through (`LoadCuratedFrontendRegistry` +
+`SetCuratedFrontendRevision`); the shell surfaces them on the Plugins screen and in the footer, so
+"which build is on screen, from which curated set" is answerable without opening a console.
+
+**Shell chrome now carries plugin health.** Three signals, all derived from the same status
+records, all shell-authored:
+
+- a **nav dot** beside a feature whose plugin is `failed` (err tone) or `incompatible` (warn tone).
+  `disabled` is deliberately unmarked — an operator switch-off is not a fault.
+- a **topbar aggregate** (`1 need attention`) linking to `/plugins`, silent when nothing is wrong.
+- a **two-segment breadcrumb** — owner then leaf, where the owner is `Shell` for shell-owned
+  routes and the plugin's curated name for a plugin route, falling back to its id. Never a URL.
+
+**The route-level failure panel is a real retry.** `failed → loading` is a legal transition and the
+loader has dropped its cached in-flight promise, so Retry re-runs the whole load rather than
+reloading the page. The panel shows plugin id, version, shell API, the route contribution, the
+shell-authored stage label and the cause code — and says the detail is in the console (BR-AS04).
+
+**Placed contributions, not declared ones.** `contributions.all` excludes anything in `refusals`,
+so the Plugins screen's per-plugin summary can never claim a contribution the index rejected.
+
+Checks: `statusRollup.spec.js`, `inventoryText.spec.js`, `failureStage.spec.js`, `breadcrumb.spec.js`,
+`navigationPending.spec.js`, `PluginErrorView.spec.js` (BR-AS04 denylist), and the placed-contribution
+spec in `contributionRegistry.spec.js`. Rules-file detail:
+`demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md` § "As-built contract deltas".
+
+---
+
 ## Related artifacts
 
 - [Application shell plan](../../../../.claude/plans/Application-Shell-Microfrontend-Plan.md)
+  — phases renumbered 2026-08-28: the three migrations are now **10, 11, 12**; the dynamic
+  platform registry is **2**; the registry service and publishing lifecycle stays **6**
 - [Application shell design discussion](../../../../lab-shell/application-shell-microfrontend-chat.md)
 - [System design review](../../../../lab-shell/Application-Shell-System-Design-Review.docx)
 - [Editable diagram source](../../../../lab-shell/diagrams/application-shell-overview.html)

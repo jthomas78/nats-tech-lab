@@ -159,7 +159,7 @@ dependency-injection container into this Vue application.
 
 ### Module Federation for Vite
 
-The current [`@module-federation/vite`](https://github.com/module-federation/vite) project includes a
+The current [`module-federation/vite`](https://github.com/module-federation/vite) project includes a
 Vue 3 host/remote example and shares Vue between builds. The Module Federation runtime supports
 registering and loading remotes discovered at runtime. This is the proposed loader, behind a
 shell-owned adapter rather than exposed as the application architecture.
@@ -187,7 +187,7 @@ provenance — **the rules file is authoritative**, not this list.
 
 Approval-time changes: BR-AS05 gains a permission source (auth-service JWT claims); BR-AS01 gains a
 registry transport (operator-curated backend endpoint, not a file in the shell bundle); BR-AS14's
-migration gate becomes **delta** mockups for Phases 2–4 while Phase 1 stays capability-complete; and
+migration gate becomes **delta** mockups for Phases 10–12 while Phase 1 stays capability-complete; and
 **BR-AS15 is new** — a reviewable example plugin must exist and be signed off before any real
 application is migrated.
 
@@ -319,7 +319,7 @@ that plugin only. Plugin IDs are lowercase kebab-case. Contribution IDs begin wi
 **4. Keep Module Federation behind a loader interface.**
 
 The host uses the pure Module Federation runtime to register dynamically discovered remotes. A
-service-owned Vite remote uses `@module-federation/vite` and exposes one `./plugin` module containing
+service-owned Vite remote uses `module-federation/vite` and exposes one `./plugin` module containing
 named lazy component/lifecycle exports.
 
 The host loader understands `entry`, `remote.name`, `module`, and `export`; registries and UI
@@ -553,7 +553,7 @@ tests.
 testable.** `lab-shell/package.json` today has only `dev`, `build` and `preview` — no runner at all,
 so not one of BR-AS01–BR-AS15 is currently enforceable there. **Phase 1a's first task** is adding
 Vitest to `lab-shell/`, matching the setup already proven in
-`demos/01-dictionary/frontend/admin/`: Vitest 4 + happy-dom + `@vue/test-utils`, `test` config inside
+`demos/01-dictionary/frontend/admin/`: Vitest 4 + happy-dom + `vue/test-utils`, `test` config inside
 `vite.config.js`, `test` / `test:watch` scripts. Two rules (BR-AS09's no-plugin-imports graph check
 and BR-AS14's no-competing-theme-tokens check) are enforced as build-time lint/graph checks run from
 `npm test` rather than as runtime specs — a runtime spec would catch those too late to be useful. Existing app suites remain green throughout migration, and every plugin must pass a production
@@ -592,7 +592,7 @@ explicitly exempted.
 Derived from the approved rules; each task names the rule whose observable failure its specs must
 reproduce. `1a-1` is first by Design decision 20 — no other 1a task lands without specs.
 
-- [x] **1a-1 — Test runner.** Vitest 4 + happy-dom + `@vue/test-utils` in `lab-shell/`, config in the
+- [x] **1a-1 — Test runner.** Vitest 4 + happy-dom + `vue/test-utils` in `lab-shell/`, config in the
       existing `vite.config.js` (`test` block, matching the other three frontends), `npm test` script.
       Precondition for every rule below, not a rule of its own.
 - [x] **1a-2 — Port alignment.** Move the dev server off `5170` to **7109**, and add a
@@ -658,7 +658,7 @@ contract deltas" and `ARCHITECTURE-APP-SHELL.md` § "As built — Phase 1a".
 
 #### Phase 1b — the example plugin, and everything that can only fail across a network
 
-Scope: the `@module-federation/vite` implementation of the loader interface; the **example plugin**
+Scope: the `module-federation/vite` implementation of the loader interface; the **example plugin**
 required by BR-AS15, built and served independently on port 7110; no-host-rebuild deployment; lazy
 loading on first use; deep links into a not-yet-loaded remote; and the four states the mockups
 specify — `loading`, `failed`, `incompatible`, and a contribution throwing inside `activate()`.
@@ -669,7 +669,7 @@ route-scoped shell control, footer) and must be able to demonstrate each failure
 
 #### Phase 1b tasks
 
-- [x] **1b-1 — Module Federation loader.** `@module-federation/vite` implementing the 1a loader
+- [x] **1b-1 — Module Federation loader.** `module-federation/vite` implementing the 1a loader
       interface. If the interface has to change to accommodate it, that is a recorded revision of the
       1a contract, not a silent edit. *(BR-AS03.)*
 - [x] **1b-2 — Example plugin package** at `lab-shell/plugins/example-plugin/` — its own
@@ -698,10 +698,10 @@ route-scoped shell control, footer) and must be able to demonstrate each failure
       proceeds without sign-off. *(BR-AS15.)*
 
 Exit criteria: the Phase 1 mockup gate (BR-AS14, satisfied 2026-08-28); the host demonstrably not
-rebuilt between two deployments of the example plugin; and — the gate that actually opens Phase 2 —
+rebuilt between two deployments of the example plugin; and — the gate that actually opens Phase 10 —
 **the user has reviewed the running example plugin and signed off on capability and integration**.
 
-#### Gate before Phase 2
+#### Gate before Phase 10
 
 **No existing application is migrated until the Phase 1b example plugin has been reviewed by the
 user** (BR-AS15). The automated assertions are necessary for that review but do not substitute for
@@ -709,7 +709,106 @@ it.
 
 ---
 
-### Phase 2 — NOT OPENED (blocked on the BR-AS15 example-plugin review) — SeaFreight Flow Plugin Migration
+### Phase 2 — PROPOSED (2026-08-28), awaiting design gate — Dynamic Platform Registry (registry as service state)
+
+**Not blocked on Phases 10–12.** This phase changes only where the curated registry lives and how it
+propagates; the shell's read contract (`GET` a document carrying `schemaVersion`, `revision` and
+entries) is unchanged, which is what makes it independent of the migrations and reversible if the
+store choice turns out wrong.
+
+**Problem.** The registry is centralized already — one operator-curated document, one endpoint — but
+statically sourced: a JSON file bind-mounted into `accounts-service` and read once at process start
+(`FRONTEND_PLUGIN_REGISTRY_FILE`). Changing curation therefore means editing a file on the host and
+restarting a backend service. There is no audit of who changed what, no concurrency story when two
+pipelines write, and `revision` is a hand-typed string (`"dev-1b"`) rather than a value anything can
+trust. single-spa built a dedicated *import map deployer* service largely to solve that last problem —
+the race when several deployments update one shared document — which is the clearest external signal
+that a file does not survive past one team.
+
+**Scope.** Registry entries become service state in `accounts-service`: Postgres as source of truth,
+a KV read cache in front of it (the shape the POC settled on), an admin CRUD surface, a real
+monotonic `revision`, and change propagation over the existing `notify.*` family. The mounted JSON
+file becomes a **seed**, the same relationship the rest of this repo already has between seed data
+and Postgres.
+
+**Explicitly out of scope** (this is Phase 6's subject, and the boundary is the point): plugin
+publishing — upload, signing, verification, staging, promotion — and any notion of a plugin
+announcing itself. Also out of scope: unloading a plugin whose `activate()` has run.
+
+#### Design decisions — proposed, for approval
+
+| # | Decision | Rationale |
+| --- | --- | --- |
+| 22 | **Curation is platform-wide, not per-tenant** (user's call, 2026-08-28) | One curated set for every shell. Per-`{context}` curation is a schema question, so the table keeps room for it (see 24), but no read path or UI takes a scope argument in this phase. |
+| 23 | **Postgres source of truth, KV as write-through read cache** | The registry is small, read on every shell boot and rarely written — the exact profile the POC's chosen shape serves. The KV entry also gives the watch that decision 25 needs, so the cache and the change channel are one mechanism, not two. |
+| 24 | **Entries are rows, seeded from the existing JSON** | `registry.dev.json` stays in the repo as the seed input, so local review keeps working unchanged and the file stops being production configuration. Seeding follows the repo's existing `cmd/seed-*` idiom. |
+| 25 | **Propagation is a signal, never a hot-swap** | A revision change publishes on `notify.*`; the shell surfaces "the plugin catalog changed — reload to apply". This is not timidity: the status machine has no transition out of `active`, so a plugin whose entry disappears while its components are mounted has no legal state to move to. Reload is the only sound way to apply a removal, and the contract should say so rather than imply otherwise. |
+| 26 | **Additions may be indexed live; removals and URL changes may not** | Indexing is metadata-only and touches no running code (BR-AS08), so a new entry is safe to place without a reload. This gets the valuable half of live update with none of the risk. |
+| 27 | **`revision` becomes the concurrency token** | Monotonic, server-assigned. ETag / `If-None-Match` on the read; optimistic concurrency on the write, keyed on the revision the writer read. This is the single-spa race, answered by a transaction instead of a service — but only if writes are actually keyed on it. |
+| 28 | **Remote origins are allowlisted in service configuration, not in the mutable document** | A dynamic write path widens the blast radius of a compromised registry from "filesystem access on the host" to "one API call". Config-level origin allowlisting means a rogue write still cannot point the shell at an arbitrary host. Per-entry SRI (`remote.integrity`) is the second layer, and is proposed here rather than deferred to Phase 6 because it is cheap to add while the schema is already changing. |
+| 29 | **Self-registration stays prohibited** | A plugin may not announce itself, by any transport. This is BR-AS01's guarantee restated for a write path that did not previously exist; without it the registry stops being an operator decision and becomes an ambient one. |
+| 30 | **The degraded path is preserved and tested** | An unavailable registry (Postgres down, KV cold, malformed row) logs and serves the built-in set, so the shell renders. This behaviour exists today and a move to a database is exactly the kind of change that quietly loses it. |
+| 31 | **Registry writes are audited** | "Who enabled this plugin, when" is asked after an incident, not before one. Low-volume, high-consequence writes are a good candidate for the repo's own event-sourcing test — the write log, notably, not the plugin list, which remains plain CRUD. |
+| 32 | **Own bounded-context module, same process** | The registry becomes its own module with its own domain package and `composition.go`, reaching `accounts` only through a port for the BR-AS05 claims — never into its internals. A separate *process* is deferred to Phase 6 because it buys none of what makes Phase 6 expensive (the publishing lifecycle, which exists in neither option today) while paying now: its own NATS credential and account user, a 72xx port, its own database and migrations, compose service, health/observability wiring, docs and suite — and it turns the shell's boot-path read into a cross-service call for a document that changes a few times a month. Phase 6 then moves a module into its own `main.go`, which is the shape `cmd/main.go`'s per-module `Startup` was built for. |
+| 33 | **The registry owns its tables outright** | No join from an accounts table into a registry table, in either direction. This, not the code's location, is what decides whether the Phase 6 split is small or structural. |
+| 34 | **The endpoint path names the capability, not today's host** | Move the shell to `/api/platform/registry/frontend-plugins`, still served by `accounts-service`. `/api/platform/accounts/...` bakes the current owner into the shell's constant and every frontend's Vite proxy; renaming it now is one line, renaming it at Phase 6 is a client change across apps. Phase 6 then becomes a routing change. |
+
+#### Proposed business rules — BR-AS16 to BR-AS22 (for confirmation before any test or code)
+
+- **BR-AS16 — The registry is service state.** The shell's registry response is served from
+  `accounts-service`'s own store. A curated entry added or removed through the admin surface is
+  visible to a newly booting shell **without restarting any service**. *Failure:* an entry changed
+  through the admin surface is still absent from a fresh boot's response.
+- **BR-AS17 — Revision is server-assigned and monotonic.** Every response carries a `revision` the
+  server assigned; it increases on every accepted write and never repeats. *Failure:* two different
+  documents are served under one revision.
+- **BR-AS18 — Writes are revision-checked.** A write carrying a stale revision is refused, not
+  merged. *Failure:* two concurrent writes both succeed and one silently loses.
+- **BR-AS19 — A registry change notifies, and never unloads.** A revision change is published on
+  `notify.*`; a shell with an active plugin whose entry was removed keeps rendering it and offers a
+  reload. *Failure:* a running plugin is torn down under the user, or the change is silent until the
+  next boot.
+- **BR-AS20 — Origin allowlist.** A registry entry whose remote URL is not on the service's
+  configured origin allowlist is refused at write time and never served. *Failure:* the shell is
+  offered a remote on an unconfigured host.
+- **BR-AS21 — No self-registration.** No transport permits a plugin to add, modify or enable its own
+  registry entry. *Failure:* an entry appears that no operator wrote.
+- **BR-AS22 — The registry degrades, it does not fail.** With the store unavailable, the endpoint
+  serves the built-in set and the shell renders. *Failure:* a registry outage produces a blank shell.
+
+**Gate.** This phase stays PROPOSED — no tasks, tests or code — until the design decisions above and
+BR-AS16–BR-AS22 are confirmed.
+
+---
+
+### Phase 6 — CANDIDATE (not opened) — Plugin Registry Service and publishing lifecycle (the Grafana shape)
+
+Stub, recorded so the idea is not lost. A dedicated platform registry service, separate from
+`accounts-service`, owning the plugin **publishing lifecycle**: upload → sign → verify → stage →
+promote → deprecate/delist. This is Grafana's model, where every plugin is cryptographically signed
+to be loadable at all and the catalog owner may delist for security, quality or compatibility —
+the centralized-governance end of the spectrum, as against Backstage's decentralized one, and the
+end this platform's tenants want.
+
+**Triggers that would justify opening it**, none of which hold today: frontends outnumbering the
+three or four in this repo; plugin publishing acquiring a lifecycle of its own (a build produced by
+a team that does not operate the platform); several products sharing one catalog; or an external or
+semi-trusted plugin author appearing, at which point signing stops being optional.
+
+Deliberately a destination rather than a starting point. The shell's read contract does not change
+between Phase 2 and Phase 6 — the server behind the endpoint does — so everything worth learning
+about curation, revisioning, propagation and integrity can be learned inside Phase 2 first, and
+Phase 6 is then about the lifecycle, which is the part that actually needs the separate service.
+Per-tenant curation (deferred by Design decision 22) is the other candidate for this phase.
+
+Phase 2's decisions 32–34 exist to make this phase small when it opens: the registry is already its
+own bounded-context module owning its own tables, and the shell already reads a capability-named
+path (`/api/platform/registry/frontend-plugins`), so opening Phase 6 is a `main.go` plus routing
+change rather than a client change across every frontend.
+
+---
+
+### Phase 10 — NOT OPENED (blocked on the BR-AS15 example-plugin review) — SeaFreight Flow Plugin Migration
 
 Goal stub only: migrate Fleet, Port Management, and Pricing into the approved shell contract while
 preserving tenant/business-unit switching, localization and cold-paint rules, NATS lifecycle,
@@ -719,7 +818,7 @@ It does not open until the user has reviewed the running Phase 1b example plugin
 
 ---
 
-### Phase 3 — NOT OPENED (after Phase 2) — Admin Plugin Migration
+### Phase 11 — NOT OPENED (after Phase 10) — Admin Plugin Migration
 
 Goal stub only: migrate Admin's full navigation and operational panels, including route-scoped
 topbar controls and telemetry footer, without weakening PLATFORM permissions or dropping current
@@ -728,13 +827,21 @@ and derived tests.
 
 ---
 
-### Phase 4 — NOT OPENED (after Phase 3) — Tech Lab Operator Plugin Migration
+### Phase 12 — NOT OPENED (after Phase 11) — Tech Lab Operator Plugin Migration
 
 Goal stub only: migrate Reference Data, Shippers, and Transporters while preserving the separate
 PLATFORM refdata and tenant Organizations connections, all editing/document/fleet/certificate
 capabilities, and map/file assets. Last in the order because it is the only app holding **two**
 credential profiles at once. This phase requires its own business-rule confirmation, **delta**
 mockup, design gate, and derived tests.
+
+## Renumbering log
+
+**2026-08-28.** Phases 2, 3 and 4 (the three app migrations) became **10, 11 and 12**; the dynamic
+platform registry phase became **2**. Registry work therefore precedes the migrations, and the
+migration chain keeps its own order and its own gates unchanged. Phase 6 (registry service and
+publishing lifecycle) keeps its number, so the plan now reads 1, 2, 6, 10, 11, 12 with deliberate
+gaps rather than a dense sequence. No phase's content, status or gate changed in this move.
 
 ## Working assumptions
 
@@ -771,12 +878,14 @@ mockup, design gate, and derived tests.
 | --- | --- |
 | BR-AS05's permission source | **auth-service JWT claims** held by the shell. One source for every plugin, independent of which NATS credential a plugin opens — which is what keeps BR-AS05 compatible with BR-AS08's metadata-before-code ordering and BR-AS10's four profiles. |
 | Registry transport and owner | **Operator-curated endpoint on `accounts-service`** (Design decision 21). Not a new service, and not a file in the shell's bundle. |
-| Test runner | **Mandatory** — Vitest in `lab-shell/`, Phase 1a's first task, matching admin's Vitest 4 + happy-dom + `@vue/test-utils` setup. Nothing is enforceable without it. |
+| Test runner | **Mandatory** — Vitest in `lab-shell/`, Phase 1a's first task, matching admin's Vitest 4 + happy-dom + `vue/test-utils` setup. Nothing is enforceable without it. |
 | Example plugin before migration | **BR-AS15, new.** No real app is migrated until a purpose-built example plugin exercising every contribution kind has been deployed and reviewed by the user. |
 
 ### Still open
 
-- **Registry endpoint placement** is the one decision made without strong precedent — `accounts-service`
-  is defensible (context-free, owns the auth claims that gate the registry) but a dedicated platform
-  service is a small, contained alternative. Reversible within Phase 1a.
+- ~~**Registry endpoint placement** is the one decision made without strong precedent~~ —
+  **carried forward, 2026-08-28.** `accounts-service` keeps the endpoint through Phase 2 (registry as
+  service state); a dedicated platform service is now recorded as Phase 6, opened only by the triggers
+  listed there. The shell's read contract is identical either way, which is what keeps the decision
+  reversible.
 - **Task checklists for 1a and 1b** are derived next from the approved rules.

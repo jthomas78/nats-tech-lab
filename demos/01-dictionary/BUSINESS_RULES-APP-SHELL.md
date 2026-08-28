@@ -17,7 +17,7 @@
 confirmed with three amendments made at approval time, recorded inline below:
 BR-AS05's permission source (auth-service JWT claims), BR-AS01's registry
 transport (operator-curated backend endpoint), and BR-AS14's migration gate
-(delta mockups, not capability-complete, for Phases 2–4). **BR-AS15 was added
+(delta mockups, not capability-complete, for Phases 10–12). **BR-AS15 was added
 at approval** — a reviewable example plugin must exist and be signed off
 before any real application is migrated.
 
@@ -290,7 +290,7 @@ reviewed at **1920×1080**.
 set — delivered and approved 2026-08-28, seven artboards covering active,
 empty, loading, failed, the extension-point contract, cross-owner
 composition, and the plugin status surface. Each real-app migration
-(Phases 2–4) requires an approved **delta** mockup instead: only screens
+(Phases 10–12) requires an approved **delta** mockup instead: only screens
 where shell composition changes what the user sees — nav merge across
 plugins, route-scoped topbar controls, footer contributions, failure states.
 Screens that are pixel-identical before and after do not need an artboard to
@@ -336,7 +336,7 @@ registered, one entry of each kind is indexed and rendered. The host is
 rebuilt zero times between the example plugin's first and second deployment
 (BR-AS03).
 
-**Gate:** Phase 2 (SeaFreight Flow migration) does not open until the user
+**Gate:** Phase 10 (SeaFreight Flow migration, renumbered from 2 on 2026-08-28) does not open until the user
 has reviewed the running example plugin. This is a human gate on capability
 and integration, recorded in the plan — the automated assertions above are
 necessary for it but do not substitute for it.
@@ -460,6 +460,64 @@ only a running remote could exercise:
   `inventory` getter once and froze its result at boot. Composition now goes
   through `withRuntime()` (prototype delegation), and a spec asserts a
   post-boot transition is visible through the composed object.
+
+## As-built contract deltas (Phase 1b, mockup-fidelity pass)
+
+The BR-AS14 artboards were approved as a design, and approval is not
+construction: a comparison of the running shell against
+`lab-shell/diagrams/phase1-shell-mockups/` found the chrome carrying less of
+the design's information than the artboards do. Closing that gap added two
+optional fields and one shared token block, all recorded here.
+
+- **`version` is a new optional manifest field.** Free-form, never
+  interpreted: compatibility stays decided by `schemaVersion` and
+  `shellApiVersion` alone (BR-AS13). It exists so the inventory and the failure
+  panel can name *which build* of a plugin is on screen, which is the first
+  question asked of any failure report. Absent renders as `built-in`.
+- **`revision` is a new optional registry-document field.** Opaque to the
+  shell — displayed in the Plugins header and the footer, and nothing else —
+  so an accounts-service that omits it still serves. It names *which* registry
+  the shell read; the endpoint itself is never displayed (BR-AS04).
+- **`--ok` / `--warn` / `--err` moved into `shared/unifi-theme/unifi.css`.**
+  They existed only in the static composition reference, so every `var(--ok)`
+  in a real app resolved to nothing and fell back to `currentColor` — which is
+  how the shell shipped with `available`, `failed` and `incompatible` all
+  rendering in body text colour. This is a shared-theme fix, not a lab-shell
+  one: every app in the repo drawing a status colour was affected.
+
+Three chrome behaviours the artboards specify and the build did not have:
+
+- **The nav marks the plugin that is in trouble, and only that one.** A `failed`
+  entry takes an error dot, an `incompatible` one a warning dot; `disabled` is
+  deliberately unmarked, because an operator switching a plugin off is not a
+  fault and a signal that fires on intended states gets ignored. A sibling's
+  failure never dots a healthy entry — that isolation is the claim BR-AS04
+  makes, so the chrome has to show it.
+- **The topbar carries one aggregate signal** — `1 plugin failed` /
+  `N need attention`, linking to the inventory — so a failure is visible from
+  every screen without opening it. Status words only, never a cause string: a
+  cause can quote a remote URL (BR-AS04).
+- **The breadcrumb attributes the screen to its plugin by display name.** Two
+  segments, never more: the shell's route table is one level deep by
+  construction, and a trail that grew arms would invent structure the router
+  does not have.
+
+The failure panel now matches the Failed artboard: a monospace block naming
+plugin, route, stage and cause; Retry, Plugin status and Back to demos; and the
+BR-AS04 footnote stating that error summaries never include credentials, tokens
+or registry URLs. **Retry is a real second attempt, not a page reload** —
+`failed -> loading` is a legal transition and the loader drops its cached
+in-flight promise on failure, so re-entering the route runs the whole load
+again.
+
+| Rule | Check |
+| --- | --- |
+| BR-AS04 — which statuses the chrome marks | `statusRollup.spec.js` — `failed` and `incompatible` are marked, `disabled` and every transient status are not; the summary phrase and tone are asserted per set |
+| BR-AS04 — the Detail column is shell-authored | `inventoryText.spec.js` — a failed row reports stage and cause code and contains no `http` |
+| BR-AS04 — stage never leaks the message | `failureStage.spec.js` — every cause code maps to a shell-owned stage label, and an unmapped code reads `unknown` rather than blank |
+| BR-AS04 — retry, not reload | `PluginErrorView.spec.js` — the Retry button calls `loader.load` with the plugin's manifest |
+| Breadcrumb attribution | `breadcrumb.spec.js` — a plugin screen is attributed to the plugin's display name, a shell screen to the shell, and a plugin with no record falls back to its curated id |
+| Loading affordance names what is arriving | `PluginSlot.vue` labels a reserved panel `{kind} contribution — {qualifiedId}`; `navigationPending` carries the same metadata for a deep link |
 
 ### How Phase 1b's claims are checked
 
