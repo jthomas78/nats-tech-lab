@@ -53,9 +53,17 @@ export default defineConfig({
     // claimed in .claude/launch.json. Phase 1b's example plugin takes 7110.
     port: 7109,
     proxy: {
-      // BR-AS01 — the curated plugin registry on accounts-service. Mirrors
-      // admin/vite.config.js's rule: drop the '/platform' segment and inject
-      // the Basic credentials the browser never holds itself.
+      // BR-AS01 — the curated plugin registry, its own bounded context in
+      // accounts-service since Phase 2a. Its own rule rather than an edit to
+      // the accounts one: /api/platform/accounts is a shared prefix other
+      // routes still need. Drops the '/platform' segment and injects the
+      // Basic credentials the browser never holds itself.
+      '/api/platform/registry': {
+        target: 'http://localhost:7202',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/platform/, '/api'),
+        headers: { Authorization: 'Basic YWRtaW46YWNjb3VudHMtc3Bpa2UtcGFzcw==' },
+      },
       '/api/platform/accounts': {
         target: 'http://localhost:7202',
         changeOrigin: true,

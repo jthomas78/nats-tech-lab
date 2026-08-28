@@ -19,16 +19,21 @@ Port **7110** (`strictPort`) — the shell reaches it by URL, so a plugin that
 quietly moved would present as an unreachable remote rather than a moved one.
 The shell itself is on 7109.
 
-To point the shell at it, run `accounts-service` with the curated document in
-this directory:
+To point the shell at it, seed the curated document in this directory into a
+running `accounts-service` (Phase 2a — curation is rows now, not a mounted
+file):
 
 ```bash
-FRONTEND_PLUGIN_REGISTRY_FILE=lab-shell/plugins/example-plugin/registry.dev.json go run ./cmd
+go run ./cmd/seed-registry -file ../../../../lab-shell/plugins/example-plugin/registry.dev.json
 ```
 
-Curation is configuration, not source: a development remote on `localhost` has
+from `demos/01-dictionary/backend/accounts-service/`. The service must already
+be running, and `REGISTRY_ALLOWED_ORIGINS` must include `http://localhost:7110`
+or every entry here is refused (BR-AS20) — compose sets it.
+
+Curation is operator state, not source: a development remote on `localhost` has
 no business compiled into the platform's own service, and a registry that can
-be swapped without rebuilding either side is what BR-AS03 actually claims.
+be changed without rebuilding either side is what BR-AS03 actually claims.
 
 ## What it contributes
 

@@ -1,0 +1,323 @@
+// Package domain holds the frontend plugin registry's rules: what a curated
+// document is, which writes are legal, how a revision moves, and which
+// remote origins the platform will let the shell fetch code from
+// (BR-AS16–BR-AS24 in BUSINESS_RULES-APP-SHELL.md).
+//
+// Nothing here knows about Postgres, NATS KV or HTTP. That is deliberate and
+// load-bearing: Phase 2's claim is that the store choice is reversible, and a
+// claim like that is a property of the interface, not of the store.
+package domain
+
+import (
+	"errors"
+	"fmt"
+	"net/url"
+	"sort"
+	"strings"
+)
+
+// SchemaVersion is the shape of the document the shell reads. The shell
+// refuses a document whose version it does not know rather than guessing at
+// the fields, so this number moving is a breaking change for every shell.
+const SchemaVersion = 1
+
+// ShellAPIVersion is the host contract each plugin is built against —
+// a separate number from SchemaVersion because the document's shape and the
+// API a plugin calls change for different reasons.
+const ShellAPIVersion = 1
+
+// SharedAdminActor is the only actor this service can honestly record.
+// accounts-service authenticates every request as one shared BasicAuth
+// identity, so the audit says a curated change was made through the admin
+// surface — never who made it (BR-AS23). When real operator identity lands,
+// this constant is what stops being the only value.
+const SharedAdminActor = "admin"
+
+// Revision values. NoRevision is "this registry has never been written";
+// DegradedRevision is reserved for the outage document and can never collide
+// with a real revision, which starts at 1 (BR-AS17, BR-AS22).
+const (
+	NoRevision       int64 = 0
+	DegradedRevision int64 = 0
+)
+
+// Remote kinds. Only federated remotes exist today; the field is here so a
+// second kind is a new case rather than a new schema.
+const RemoteFederated = "federated"
+
+// Errors the adapters translate into refusals. Each maps to a rule.
+var (
+	ErrStaleRevision    = errors.New("registry: write is not keyed on the current revision")
+	ErrOriginNotAllowed = errors.New("registry: remote origin is not on the configured allowlist")
+	ErrUnknownOp        = errors.New("registry: unknown write op")
+	ErrEntryIDMismatch  = errors.New("registry: entry body does not match the id it is filed under")
+	ErrNoActor          = errors.New("registry: write carries no actor")
+	ErrNoEntryID        = errors.New("registry: write names no entry")
+	ErrNoEntry          = errors.New("registry: upsert carries no entry body")
+)
+
+// StaleRevisionError carries what the refusal has to say for the admin
+// surface to be usable: which revision the writer must reapply on top of.
+// Nothing is merged — two curation decisions are not something a server
+// should guess at (decision 27).
+type StaleRevisionError struct {
+	Current  int64
+	Supplied int64
+}
+
+func (e StaleRevisionError) Error() string {
+	return fmt.Sprintf("registry: write supplied revision %d, registry is on %d", e.Supplied, e.Current)
+}
+
+func (e StaleRevisionError) Unwrap() error { return ErrStaleRevision }
+
+// NextRevision returns the revision an accepted write installs. Monotonic by
+// construction and never 0, so DegradedRevision stays unambiguous.
+func NextRevision(current int64) int64 { return current + 1 }
+
+// CheckRevision enforces BR-AS18. A write must be keyed on exactly the
+// revision its author read: older means someone else wrote first, newer means
+// the author read a registry this one never served. Neither is merged.
+func CheckRevision(current, supplied int64) error {
+	if current == supplied {
+		return nil
+	}
+	return StaleRevisionError{Current: current, Supplied: supplied}
+}
+
+// Remote is where the shell fetches a plugin's code from.
+type Remote struct {
+	Kind   string `json:"kind"`
+	URL    string `json:"url,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Module string `json:"module"`
+}
+
+// ExtensionPoint is a slot an entry declares for others to contribute into.
+type ExtensionPoint struct {
+	ID          string `json:"id"`
+	Capacity    int    `json:"capacity,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// Contribution is deliberately one flat struct covering all five kinds
+// rather than a union: the shell validates each kind's own required fields,
+// and duplicating that knowledge here would give the two sides two
+// definitions of one contract to drift apart.
+type Contribution struct {
+	Kind       string `json:"kind"`
+	ID         string `json:"id"`
+	Order      int    `json:"order,omitempty"`
+	Permission string `json:"permission,omitempty"`
+	Component  string `json:"component,omitempty"`
+
+	Path  string `json:"path,omitempty"`
+	Title string `json:"title,omitempty"`
+
+	Label string `json:"label,omitempty"`
+	Route string `json:"route,omitempty"`
+	Group string `json:"group,omitempty"`
+	Icon  string `json:"icon,omitempty"`
+
+	Target string `json:"target,omitempty"`
+	Region string `json:"region,omitempty"`
+
+	Routes []string `json:"routes,omitempty"`
+}
+
+// Entry is one curated plugin.
+//
+// Enabled is a plain bool here, unlike the pointer the file-backed registry
+// needed: a stored row always states it. The pointer existed only so an
+// operator hand-editing JSON could omit the field, and rows do not have that
+// problem.
+type Entry struct {
+	ID              string           `json:"id"`
+	Name            string           `json:"name"`
+	Description     string           `json:"description,omitempty"`
+	Version         string           `json:"version,omitempty"`
+	SchemaVersion   int              `json:"schemaVersion"`
+	ShellAPIVersion int              `json:"shellApiVersion"`
+	RoutePrefix     string           `json:"routePrefix,omitempty"`
+	Enabled         bool             `json:"enabled"`
+	Remote          Remote           `json:"remote"`
+	ExtensionPoints []ExtensionPoint `json:"extensionPoints,omitempty"`
+	Contributions   []Contribution   `json:"contributions"`
+}
+
+// Document is what a reader gets: the whole curated set at one revision.
+type Document struct {
+	SchemaVersion int     `json:"schemaVersion"`
+	Revision      int64   `json:"revision"`
+	Degraded      bool    `json:"degraded,omitempty"`
+	Entries       []Entry `json:"plugins"`
+}
+
+// Degraded is the answer when neither Postgres nor the KV cache can be read
+// (BR-AS22). An empty document that says so — not a substitute catalog,
+// because there is none: the shell's built-ins ship inside the shell's own
+// bundle and are deliberately never curated.
+func Degraded() Document {
+	return Document{SchemaVersion: SchemaVersion, Revision: DegradedRevision, Degraded: true, Entries: []Entry{}}
+}
+
+// Readable is the document as the shell may see it: disabled entries and
+// entries the allowlist no longer covers are withheld.
+//
+// The read-side allowlist check is not redundant with the write-side one.
+// Narrowing REGISTRY_ALLOWED_ORIGINS leaves already-stored rows
+// non-conforming, and that is exactly the case a write-time check cannot
+// cover (BR-AS20). Withholding is not a write: the row, its history and the
+// revision are all untouched.
+func (d Document) Readable(allowlist Allowlist) Document {
+	out := Document{SchemaVersion: SchemaVersion, Revision: d.Revision, Degraded: d.Degraded, Entries: []Entry{}}
+	for _, e := range d.Entries {
+		if !e.Enabled {
+			continue
+		}
+		if allowlist.Check(e) != nil {
+			continue
+		}
+		out.Entries = append(out.Entries, e)
+	}
+	// Sorted by id so the document is byte-stable across reads: the shell
+	// breaks ordering ties by id anyway (BR-AS06), and a nav bar that
+	// reordered itself between boots would look like a shell bug.
+	sort.Slice(out.Entries, func(i, j int) bool { return out.Entries[i].ID < out.Entries[j].ID })
+	return out
+}
+
+// Write ops. Exhaustive: there is no delete, and BR-AS24 is checked against
+// this list rather than against the absence of one.
+const (
+	OpUpsert     = "upsert"
+	OpSetEnabled = "set-enabled"
+)
+
+// WriteOps returns every legal op. A new op added without a rule fails the
+// spec that pins this list.
+func WriteOps() []string { return []string{OpUpsert, OpSetEnabled} }
+
+// Write is one curated change. It carries its own actor because an
+// authorless write cannot be audited, and BR-AS23 requires every accepted
+// *and* refused write to leave a row.
+type Write struct {
+	Op      string
+	EntryID string
+	Actor   string
+	Entry   *Entry
+	Enabled bool
+	// IfRevision is the revision the author read. Checked by Apply, not here:
+	// the shape of a write is knowable on its own, its freshness is not.
+	IfRevision int64
+}
+
+// Validate checks everything about a write that is true without reading the
+// registry.
+func (w Write) Validate() error {
+	if w.Actor == "" {
+		return ErrNoActor
+	}
+	if w.EntryID == "" {
+		return ErrNoEntryID
+	}
+	switch w.Op {
+	case OpSetEnabled:
+		return nil
+	case OpUpsert:
+		if w.Entry == nil {
+			return ErrNoEntry
+		}
+		if w.Entry.ID != w.EntryID {
+			return ErrEntryIDMismatch
+		}
+		return nil
+	default:
+		return fmt.Errorf("%w: %q", ErrUnknownOp, w.Op)
+	}
+}
+
+// Allowlist is the set of origins the platform will let the shell fetch
+// plugin code from. Configuration, never a stored row: a dynamic write path
+// widens the blast radius of a compromised registry from "filesystem access
+// on the host" to "one API call", and an envelope that *is* the business
+// rule belongs in configuration, not behind a runtime toggle the same
+// compromised path could widen (decisions 28, 43).
+type Allowlist struct {
+	origins map[string]struct{}
+}
+
+// NewAllowlist builds the allowlist from configured origin strings. An empty
+// list permits nothing — not everything. A deployment that forgot to
+// configure it curates no remotes, which is the safe direction for a list
+// that decides which code a browser fetches.
+func NewAllowlist(origins []string) Allowlist {
+	set := make(map[string]struct{}, len(origins))
+	for _, raw := range origins {
+		if o, ok := originOf(strings.TrimSpace(raw)); ok {
+			set[o] = struct{}{}
+		}
+	}
+	return Allowlist{origins: set}
+}
+
+// Origins returns the configured origins, sorted — for the degraded/config
+// display, and so a spec can assert what a deployment actually parsed.
+func (a Allowlist) Origins() []string {
+	out := make([]string, 0, len(a.origins))
+	for o := range a.origins {
+		out = append(out, o)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Permits reports whether rawURL's origin is configured. Scheme, host and
+// port all count: an https entry does not bless the same host over http.
+func (a Allowlist) Permits(rawURL string) bool {
+	o, ok := originOf(rawURL)
+	if !ok {
+		return false
+	}
+	_, allowed := a.origins[o]
+	return allowed
+}
+
+// Check is Permits for a whole entry, as an error, so a refusal reads the
+// same on the write path and the read path.
+func (a Allowlist) Check(e Entry) error {
+	if e.Remote.Kind != RemoteFederated {
+		return fmt.Errorf("%w: unknown remote kind %q", ErrOriginNotAllowed, e.Remote.Kind)
+	}
+	if !a.Permits(e.Remote.URL) {
+		// The error names the entry, never the URL: a refusal surfaced to a
+		// user carries stage and cause only (BR-AS04).
+		return fmt.Errorf("%w: entry %q", ErrOriginNotAllowed, e.ID)
+	}
+	return nil
+}
+
+// originOf reduces a URL to scheme://host[:port], the unit the allowlist
+// compares. Anything without both a scheme and a host — a bare path, a
+// javascript: URL, an empty string — has no origin and is refused.
+func originOf(raw string) (string, bool) {
+	if raw == "" {
+		return "", false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "", false
+	}
+	switch u.Scheme {
+	case "http", "https":
+	default:
+		return "", false
+	}
+	return u.Scheme + "://" + u.Host, true
+}
+
+// Audit outcomes. Every write leaves a row, applied or not (BR-AS23).
+const (
+	AuditAccepted = "accepted"
+	AuditRefused  = "refused"
+)

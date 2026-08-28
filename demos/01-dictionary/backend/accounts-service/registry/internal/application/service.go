@@ -1,0 +1,116 @@
+// Package application composes the registry's store, read cache and change
+// notification behind the two calls decision 35 named: Read and Apply.
+package application
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/registry/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
+)
+
+// Store is the source of truth this service reads and writes through.
+type Store interface {
+	Current(ctx context.Context) (domain.Document, error)
+	Apply(ctx context.Context, w domain.Write) (domain.Document, error)
+}
+
+// Cache is the read cache. Optional: a nil Cache means every read goes to
+// Postgres, which is a supported deployment, not an error.
+type Cache interface {
+	Get(ctx context.Context) (domain.Document, bool, error)
+	Put(ctx context.Context, doc domain.Document) error
+}
+
+// NotifySubject is the change notification the shell and the admin surface
+// watch. Four tokens after notify., in the platform context.
+func NotifySubject() natsnotify.Subject {
+	return natsnotify.Subject{
+		Name: "notify._platform.registry.frontend-plugins.changed",
+		Tokens: natsnotify.Tokens{
+			Context: "_platform",
+			Service: "registry",
+			Entity:  "frontend-plugins",
+			Action:  "changed",
+		},
+	}
+}
+
+// Service is the registry module's whole behaviour.
+type Service struct {
+	store     Store
+	cache     Cache
+	allowlist domain.Allowlist
+	notifier  *natsnotify.Notifier
+	log       *slog.Logger
+}
+
+func New(store Store, cache Cache, allowlist domain.Allowlist, notifier *natsnotify.Notifier, log *slog.Logger) *Service {
+	return &Service{store: store, cache: cache, allowlist: allowlist, notifier: notifier, log: log}
+}
+
+// Curated returns the stored document unfiltered — what the admin surface
+// needs in order to fix a disabled or non-conforming entry.
+func (s *Service) Curated(ctx context.Context) (domain.Document, error) {
+	return s.store.Current(ctx)
+}
+
+// Read returns the document as a shell may see it.
+//
+// Postgres first, KV on failure, degraded when neither answers (BR-AS22).
+// That order is the opposite of a hot-path cache and is deliberate: this
+// document is read once per shell boot, so correctness is worth more than
+// the microseconds, and the cache earns its keep as the thing that keeps the
+// shell booting through a Postgres outage.
+func (s *Service) Read(ctx context.Context) domain.Document {
+	doc, err := s.store.Current(ctx)
+	if err == nil {
+		if s.cache != nil {
+			// Repair a cold or stale cache on the way past, so the fallback
+			// is warm before the outage that needs it.
+			if putErr := s.cache.Put(ctx, doc); putErr != nil {
+				s.logWarn("registry: could not refresh the read cache", putErr)
+			}
+		}
+		return doc.Readable(s.allowlist)
+	}
+	s.logWarn("registry: source of truth is unreadable, trying the cache", err)
+
+	if s.cache != nil {
+		cached, ok, cacheErr := s.cache.Get(ctx)
+		if cacheErr != nil {
+			s.logWarn("registry: read cache is unreadable", cacheErr)
+		} else if ok {
+			return cached.Readable(s.allowlist)
+		}
+	}
+	return domain.Degraded()
+}
+
+// Apply performs one curated write, refreshes the cache and announces the
+// change. The notify goes last and can never fail the write: a dropped
+// notification costs a subscriber a refresh it takes on its next poll.
+func (s *Service) Apply(ctx context.Context, w domain.Write) (domain.Document, error) {
+	doc, err := s.store.Apply(ctx, w)
+	if err != nil {
+		return domain.Document{}, err
+	}
+	if s.cache != nil {
+		if putErr := s.cache.Put(ctx, doc); putErr != nil {
+			s.logWarn("registry: write committed but the read cache was not refreshed", putErr)
+		}
+	}
+	s.notifier.Publish(ctx, NotifySubject(), nil)
+	return doc, nil
+}
+
+// Allowlist is the configured origin set, for the admin surface to show an
+// operator why an entry was refused without having to guess at the config.
+func (s *Service) Allowlist() domain.Allowlist { return s.allowlist }
+
+func (s *Service) logWarn(msg string, err error) {
+	if s.log != nil {
+		s.log.Warn(msg, "error", err)
+	}
+}

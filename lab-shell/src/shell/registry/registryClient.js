@@ -22,7 +22,7 @@ import { validateRegistryDocument } from './manifestSchema.js'
    accounts-service in every frontend here — the registry is platform-wide, not
    account-scoped, and the prefix is a deployment fact rather than a claim
    about ownership. */
-export const REGISTRY_ENDPOINT = '/api/platform/accounts/frontend-plugins'
+export const REGISTRY_ENDPOINT = '/api/platform/registry/frontend-plugins'
 
 /**
  * @param {object} options

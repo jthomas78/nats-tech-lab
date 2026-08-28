@@ -433,18 +433,18 @@ one place it did not fit is recorded here rather than edited in silently.
   service-side registry struct (`accounts-service/accounts/frontendplugins.go`).
   Phase 1a shipped the wrong field name; the shell has always read `routes`.
   Corrected before any curated entry used it.
-- **`enabled` is a pointer in the service's struct and always present in the
-  served document.** A curated *file* must be able to distinguish "absent" from
-  "false" — a plain `bool` would turn every entry that omits the flag into a
-  disabled one — while the document the shell reads states it explicitly,
-  because the flag decides whether code is fetched.
-- **Curation may come from a file.** `accounts-service` reads
-  `FRONTEND_PLUGIN_REGISTRY_FILE` at startup and falls back to the compiled-in
-  set when the file is missing or malformed, logging rather than failing to
-  start — the same "degraded, not broken" posture BR-AS04 requires of the
-  shell. This is what keeps a `localhost:7110` development remote out of the
-  platform's own source, and what makes BR-AS03 true of the *service* as well
-  as the shell.
+- **`enabled` is always present in the served document**, because the flag
+  decides whether code is fetched. It was a *pointer* in the file-backed
+  struct so a hand-edited file could distinguish "absent" from "false";
+  Phase 2a made it a plain `bool`, since a stored row always states it.
+- **~~Curation may come from a file.~~** Superseded by Phase 2a. Curation is
+  rows in `registry.entries`, written through the module's endpoints;
+  `FRONTEND_PLUGIN_REGISTRY_FILE` and the boot-time file read are gone
+  (decision 24 — a boot-time file read alongside a database would let a
+  restart silently revert curation). `registry.dev.json` survives as the
+  *seed input* for `cmd/seed-registry`, which writes over REST against a
+  running service. What made BR-AS03 true of the service is now the database,
+  not the file.
 
 Three defects the live BR-AS15 review turned up, all in Phase 1a code that
 only a running remote could exercise:
@@ -599,14 +599,14 @@ write path exists at all.
 
 | Rule | Check |
 | --- | --- |
-| BR-AS16 — service state | *2a.* A registry module spec: an entry applied through `Apply` is present in the next `Current`, with no process restart between them |
-| BR-AS17 — monotonic revision | *2a.* `Apply` assigns the revision; two accepted writes never share one. The current shape's defect — `SetCuratedFrontendPlugins` and `SetCuratedFrontendRevision` are two setters for one fact — is what the single-method interface removes |
-| BR-AS18 — revision-checked writes | *2a.* A write keyed on a stale revision is refused and consumes no revision. *2b* renders the refusal (`body-StaleRevision.html`) |
+| BR-AS16 — service state | *2a, done.* `registry/store_integration_test.go`, against real Postgres: an entry applied through `Apply` is present in the next `Current`, and reads back through a *second* `Store` so nothing is held in process memory |
+| BR-AS17 — monotonic revision | *2a, done.* `domain.NextRevision` in `registry/rules_test.go`; end to end in `store_integration_test.go` — first write is revision 1, three accepted writes are 1/2/3, and `Apply` returns the entries and the revision together. The two setters (`SetCuratedFrontendPlugins`/`SetCuratedFrontendRevision`) are gone with the endpoint |
+| BR-AS18 — revision-checked writes | *2a, done.* `domain.CheckRevision` (both directions — a future revision was never served either); `store_integration_test.go` proves a stale write consumes no revision and stores nothing; `rest_test.go` proves a write with no `If-Match` never reaches the store, and that a stale one answers `409` naming the revision to reapply on top of. *2b* renders the refusal (`body-StaleRevision.html`) |
 | BR-AS19 — notify, never unload | *2c.* `it.todo` in `lab-shell/src/shell/registry/phase2RegistryContract.spec.js` — the conditional read, the `visibilitychange` + interval trigger, and a removed entry leaving an `active` plugin rendering. **No ETag, interval or visibility handling exists in `lab-shell/src` today**, so these are red-then-green in 2c, not characterizations |
-| BR-AS20 — origin allowlist | *2a.* Refused on write and withheld on read, the second checked by narrowing `REGISTRY_ALLOWED_ORIGINS` against an already-stored row |
-| BR-AS21 — no self-registration | *Today:* `accounts/frontendplugins_test.go`, "the endpoint is read-only" — `POST`, `PUT` and `PATCH` all answer `405`, and `handler_allowlist_test.go` is an exact-match route list, so an added route fails it. *2a* moves these specs to the registry module, where `POST` becomes a gated, audited, revision-checked write |
+| BR-AS20 — origin allowlist | *2a, done.* Refused on write (`store_integration_test.go`: nothing stored, revision unmoved) and withheld on read (`rules_test.go`: `Document.Readable` against a narrowed allowlist and an already-stored row, leaving the stored document unmutated). `NewAllowlist(nil)` permits nothing — empty is not allow-all |
+| BR-AS21 — no self-registration | *2a, done.* `registry/internal/rest/rest_test.go` pins `Mount`'s route list exactly, so a transport added without a rule fails the test rather than review. `set-enabled` cannot insert: enabling an uncurated id is refused, not created. The old `accounts/frontendplugins_test.go` 405 specs went with the endpoint |
 | BR-AS22 — degrades, does not fail | *2a* for the response shape; *2c* for the shell's handling — **`lab-shell/src` has no `degraded` handling at all today**, so a degraded document is currently indistinguishable from an empty one. `phase2RegistryContract.spec.js` pins the one half that already holds: `revision: 0` validates as `"0"` rather than being dropped, which is what lets 0 carry the degraded meaning |
-| BR-AS23 — audit records the surface | *2a.* Every accepted and refused write appends a row whose actor is `accounts.BasicAuthUser` (the literal `admin`). *2b*'s panel shows that column and nothing stronger |
-| BR-AS24 — disable, never delete | *Today:* `DELETE` answers `405` (`frontendplugins_test.go`) and the route allowlist admits none. *2a.* No `DELETE` route in the module; a disabled entry is withheld from the read with its row and audit trail intact |
+| BR-AS23 — audit records the surface | *2a, done.* `store_integration_test.go`: an accepted write appends a row against the revision it installed, a refused one appends a row with no revision. The actor is `domain.SharedAdminActor` (the literal `admin`), and `rules_test.go` refuses an authorless write outright. *2b*'s panel shows that column and nothing stronger |
+| BR-AS24 — disable, never delete | *2a, done.* `domain.WriteOps()` is an exhaustive list with no delete op, asserted by `registry/rules_test.go`; `rest_test.go` asserts no route is a `DELETE` and that `DELETE` on both entry paths is unreachable on a live mux. A disabled entry is withheld from the read with its row and audit trail intact |
 | decision 27 — the read contract is unchanged | *Now, and this is the load-bearing one.* `phase2RegistryContract.spec.js` characterizes `validateRegistryDocument`: `revision` is accepted as a string *or* a number and stringified, `0` survives, absent is `null` not an error, and a schema-version move rejects the whole document. Phase 2 replaces `"dev-1b"` with a monotonic integer on the strength of these |
 | decision 34 — one endpoint constant | *Now.* `phase2RegistryContract.spec.js` — `createRegistryClient` defaults to the exported `REGISTRY_ENDPOINT` and the path sits under the `/api/platform/` prefix each app rewrites, which is what makes the 2a move a proxy rule plus one constant |

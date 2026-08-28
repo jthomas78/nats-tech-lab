@@ -1,10 +1,11 @@
 {
   "_comment": [
-    "The curated plugin registry for local Phase 1b review (BR-AS01, BR-AS15).",
-    "Point accounts-service at this file with FRONTEND_PLUGIN_REGISTRY_FILE and",
-    "run `npm run dev` in this directory; the shell on :7109 will discover all",
-    "five entries below. Curation is the operator's, and it lives in",
-    "configuration rather than in either codebase — which is what makes adding",
+    "The curated plugin registry for local review (BR-AS01, BR-AS15).",
+    "Since Phase 2a this is the SEED INPUT, not configuration the service",
+    "reads at boot: load it with `go run ./cmd/seed-registry -file <this>`",
+    "against a running accounts-service, then run `npm run dev` here; the",
+    "shell on :7109 will discover all five entries below. Curation is the",
+    "operator's and lives outside both codebases — which is what makes adding",
     "a plugin cost neither a shell rebuild nor a service rebuild (BR-AS03).",
     "",
     "Four of the five entries are deliberately broken, one per failure mode the",

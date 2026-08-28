@@ -732,11 +732,20 @@ Outside the shell: `lab-shell/plugins/example-plugin/` — its own `package.json
 config, its own `node_modules`, its own dev server on 7110. The shell has never compiled it. That
 separation is the *only* thing that makes BR-AS03 a measurement rather than an assertion.
 
-**Curation moved to a file.** `accounts-service` reads `FRONTEND_PLUGIN_REGISTRY_FILE` at startup
-(compose mounts `registry.dev.json` read-only) and falls back to the compiled-in set when the file
-is missing or malformed, logging rather than failing to start. A development remote on `localhost`
-does not belong in the platform's source, and a registry that can be swapped without rebuilding
-either side is what independent deployment actually claims — for the service as much as the shell.
+**Curation is service state** (Phase 2a; it was a mounted file through Phase 1b). It lives in the
+`registry` module inside `accounts-service` — its own bounded context, sharing no table and no
+foreign key with `accounts`, so the day it wants its own service the move is a deployment change
+rather than an untangling. Postgres (`registry.entries`, `registry.revision`, `registry.audit`) is
+the source of truth; a single NATS KV entry (`registry` bucket, key
+`_platform.frontend-plugins.current`) caches the whole serialized document so the shell keeps
+booting through a Postgres outage; the read order is Postgres → KV → a degraded document at
+revision 0. The shell reads `GET /api/platform/registry/frontend-plugins`, conditionally
+(`ETag`/`If-None-Match` on the revision). Writes are `POST` only, keyed on `If-Match`, audited
+accepted *and* refused, and there is no `DELETE` route anywhere in the module. Which origins a
+shell may fetch plugin code from is `REGISTRY_ALLOWED_ORIGINS` — configuration, never a stored row,
+so a compromised write path cannot widen the envelope it sits inside. A development remote on
+`localhost` still does not belong in the platform's source: `lab-shell/plugins/example-plugin/registry.dev.json`
+is the input to `cmd/seed-registry`, which writes it over REST against a running service.
 
 **The four failure states are curated entries, not switches.** `loading` is a six-second delay in a
 second exposed module; `failed` is either a curated URL with no chunk behind it or an `activate()`

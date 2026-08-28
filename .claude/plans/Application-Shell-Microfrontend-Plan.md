@@ -337,33 +337,33 @@ from hiding inside a change that also touches Go.
 
 ##### 2a — the module and its store
 
-- [ ] `accounts-service/registry/` as a new hexagonal module — `composition.go` plus
+- [x] `accounts-service/registry/` as a new hexagonal module — `composition.go` plus
       `internal/{domain,postgres,kvcache,rest}`, following `pricing-service/pricing/` (decision 39).
       The flat `accounts` package is not restructured (decision 32's note).
-- [ ] Decision 35's interface first, before the store changes: `Current(ctx) (Document, error)` and
+- [x] Decision 35's interface first, before the store changes: `Current(ctx) (Document, error)` and
       `Apply(ctx, Write) (Document, error)`, with revision assignment, the origin check, the KV
       write-through, the audit append and the `notify` publish all behind them. `Apply` installs the
       entry set and the revision together — the defect the two setters
       (`SetCuratedFrontendPlugins` / `SetCuratedFrontendRevision`) allow today.
-- [ ] Postgres migrations: the entry table, the monotonic revision, and the append-only audit table
+- [x] Postgres migrations: the entry table, the monotonic revision, and the append-only audit table
       in the registry's own schema (decision 33 — no join to an accounts table, either direction).
-- [ ] KV write-through cache: bucket `registry`, key `_platform.frontend-plugins.current`, one whole
+- [x] KV write-through cache: bucket `registry`, key `_platform.frontend-plugins.current`, one whole
       serialized document (decision 41). Read order Postgres → KV → degraded (decision 30).
-- [ ] `REGISTRY_ALLOWED_ORIGINS` read at start (decision 43), enforced on write **and** on read.
-- [ ] Endpoint move to `/api/platform/registry/frontend-plugins`, clean break (decision 34). The
+- [x] `REGISTRY_ALLOWED_ORIGINS` read at start (decision 43), enforced on write **and** on read.
+- [x] Endpoint move to `/api/platform/registry/frontend-plugins`, clean break (decision 34). The
       proxy prefix is shared, so this is a **new proxy rule** in `lab-shell/vite.config.js`,
       `frontend/admin/vite.config.js` and `frontend/admin/nginx.conf` (each rewriting
       `/api/platform` → `/api`), plus the shell's `REGISTRY_ENDPOINT` constant — not an edit to the
       existing `/api/platform/accounts` rules, which other routes still need.
-- [ ] Remove `GET /api/accounts/frontend-plugins` from `accounts/handler.go:316` and from
+- [x] Remove `GET /api/accounts/frontend-plugins` from `accounts/handler.go:316` and from
       `handler_allowlist_test.go:41`; the new module gets its own route-allowlist test.
-- [ ] Remove `FRONTEND_PLUGIN_REGISTRY_FILE` and the boot-time file read (decision 24), and delete
+- [x] Remove `FRONTEND_PLUGIN_REGISTRY_FILE` and the boot-time file read (decision 24), and delete
       `frontendplugins_file_test.go` with it.
-- [ ] `cmd/seed-registry` — reads `registry.dev.json`, writes over REST against a running service,
+- [x] `cmd/seed-registry` — reads `registry.dev.json`, writes over REST against a running service,
       never at process start.
-- [ ] `notify._platform.registry.frontend-plugins.changed` published last, after the commit and the
+- [x] `notify._platform.registry.frontend-plugins.changed` published last, after the commit and the
       KV write, and never failing the write (decisions 36, 45).
-- [ ] No `DELETE` route anywhere in the module (decision 42 / BR-AS24).
+- [x] No `DELETE` route anywhere in the module (decision 42 / BR-AS24).
 
 ##### 2b — the admin surface
 

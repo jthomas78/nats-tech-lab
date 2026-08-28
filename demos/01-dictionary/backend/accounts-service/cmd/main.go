@@ -25,12 +25,14 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
 	httpSwagger "github.com/swaggo/http-swagger"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/auth"
 	_ "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/docs"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/registry"
 	"github.com/jthomas78/nats-tech-lab/shared/natsconn"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
@@ -229,25 +231,32 @@ func run(log *slog.Logger) error {
 		handlers.UsageFetcher = accounts.NewUsageFetcher(natsMonitorURL, store)
 	}
 	handlers.RefdataURL = refdataURL
-	// BR-AS01/BR-AS03 — the application shell's curated plugin registry. The
-	// compiled-in set is the default; FRONTEND_PLUGIN_REGISTRY_FILE overrides
-	// it so a deployment can curate (and a developer can point at a local
-	// remote) without rebuilding this service. A bad file is logged and
-	// ignored: the shell degrades on a missing registry, and this service
-	// refusing to start would be a worse failure than serving the default.
-	if path := os.Getenv("FRONTEND_PLUGIN_REGISTRY_FILE"); path != "" {
-		plugins, revision, err := accounts.LoadCuratedFrontendRegistry(path)
-		if err != nil {
-			log.Warn("frontend plugin registry not loaded, serving built-in set", "error", err)
-		} else {
-			accounts.SetCuratedFrontendPlugins(plugins)
-			accounts.SetCuratedFrontendRevision(revision)
-			log.Info("frontend plugin registry loaded", "path", path, "plugins", len(plugins), "revision", revision)
-		}
-	}
-
 	mux := http.NewServeMux()
 	handlers.Mount(mux, authSecret)
+
+	// Phase 2a — the curated frontend plugin registry, its own bounded
+	// context in this process (decision 39). Postgres is the source of truth
+	// and NATS KV the read cache, so the endpoint keeps answering a shell
+	// through a Postgres outage; REGISTRY_ALLOWED_ORIGINS is the envelope
+	// the registry sits inside and is read here, from configuration, never
+	// from a row a write path could widen (BR-AS20).
+	allowlist := registry.ParseAllowedOrigins(os.Getenv("REGISTRY_ALLOWED_ORIGINS"))
+	var registryJS jetstream.JetStream
+	if platformNC != nil {
+		if js, err := jetstream.New(platformNC); err != nil {
+			log.Warn("registry: no read cache", "error", err)
+		} else {
+			registryJS = js
+		}
+	}
+	registryModule, err := registry.Startup(startupCtx, db, registryJS, platformNC, allowlist, log)
+	if err != nil {
+		return fmt.Errorf("registry startup: %w", err)
+	}
+	registryRoutes := registryModule.Mount(mux, func(fn http.HandlerFunc) http.Handler {
+		return accounts.BasicAuth(authSecret, fn)
+	})
+	log.Info("frontend plugin registry mounted", "routes", len(registryRoutes), "allowedOrigins", allowlist.Origins())
 
 	// Phase 19 — auth-service folded into this binary: same Store, same
 	// Postgres pool, no more cross-service read. Routes are ungated (see
