@@ -1,0 +1,45 @@
+<div style="padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+  <div>
+    <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #737c87;">Save entry</div>
+    <div style="font-size: 16px; line-height: 24px; font-weight: 600; margin-top: 3px;">Refused &mdash; remote origin not allowlisted</div>
+  </div>
+
+  <label class="field">
+    <span class="lbl">Entry URL</span>
+    <span class="inp mono bad">https://cdn.plugins.example.net/seafreight/1.4.0/remoteEntry.js</span>
+    <span class="hint bad">cdn.plugins.example.net is not a configured origin.</span>
+  </label>
+
+  <div class="notice bad">
+    <span class="bar"></span>
+    <div>
+      <h4>Nothing was stored, and no shell was ever offered this remote.</h4>
+      <div class="lab-muted">
+        The check runs at write time, not at load time &mdash; so a registry that is
+        wrong is a registry that was never written, rather than one every shell has
+        to defend itself against.
+      </div>
+    </div>
+  </div>
+
+  <div class="lab-panel">
+    <h3>Configured origins</h3>
+    <table class="tbl">
+      <tbody>
+        <tr>
+          <td class="mono" style="width: 58%">https://plugins.acme.internal</td>
+          <td class="lab-muted">production remotes</td>
+        </tr>
+        <tr>
+          <td class="mono">http://localhost:7110</td>
+          <td class="lab-muted">dev profile only</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="hint" style="margin: 10px 0 0;">
+      This list is service configuration, not registry data. Widening it is a
+      deployment change with its own review &mdash; it cannot be done from this screen,
+      by anyone, including an operator.
+    </p>
+  </div>
+</div>

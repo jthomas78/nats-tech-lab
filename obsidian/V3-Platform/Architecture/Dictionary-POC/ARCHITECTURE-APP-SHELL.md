@@ -818,6 +818,11 @@ spec in `contributionRegistry.spec.js`. Rules-file detail:
   (seven 1920×1080 artboards: Main, ExtensionPoints, Composition, Empty, Loading, Failed, Plugins;
   rebuild with `build.sh`, re-seed with the design canvas helper)
 - [Phase 1 shell mockups — published canvas](https://claude.ai/code/artifact/2bd8787c-79a0-4e40-ac39-41429a405da3)
+- [Phase 2 registry mockups — working files](../../../../lab-shell/diagrams/phase2-registry-mockups/)
+  (six artboards: Main, ShellSignal, EntryEditor, AuditTrail, StaleRevision, OriginRefused —
+  the four screens at 1920×1080, the two write refusals as 640×460 panel excerpts; rebuild with
+  `build.sh`, re-seed with the design canvas helper)
+- [Phase 2 registry mockups — published canvas](https://claude.ai/code/artifact/c7d139c4-1e7a-4ac2-9d41-cb0611409118)
 - [Canonical shell composition reference](../../../../shared/unifi-theme/app-shell-reference.html)
 - [Shared layout contract](../../../../shared/unifi-theme/LAYOUT.md)
 - [Shared AppShell.vue extraction plan (DONE, 2026-07-23)](../../../../.claude/plans/AppShell-Extraction-Plan.md)

@@ -24,6 +24,11 @@
 > published as a canvas at
 > <https://claude.ai/code/artifact/2bd8787c-79a0-4e40-ac39-41429a405da3>
 >
+> Phase 2 registry mockups:
+> [`lab-shell/diagrams/phase2-registry-mockups/`](../../lab-shell/diagrams/phase2-registry-mockups/),
+> published as a canvas at
+> <https://claude.ai/code/artifact/c7d139c4-1e7a-4ac2-9d41-cb0611409118>
+>
 > Phase structure reference: [`Main-POC-Plan.md`](Main-POC-Plan.md)
 
 ## Purpose
