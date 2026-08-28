@@ -7,3 +7,8 @@ dist/
 # nsc scratch store — bootstrap-operator.sh creates and deletes this itself;
 # only ignored as a backstop if the script is interrupted mid-run.
 demos/01-dictionary/nats/.nsc-store/
+
+# Claude Code session exports. These land in the repo root and carry the whole
+# transcript — including credentials minted during the session — so a `git add
+# -A` publishing one into a public repo is a real leak, not just clutter.
+session-export-*.zip
