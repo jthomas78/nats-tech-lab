@@ -13,6 +13,19 @@
   --lab-panel-bg: #131416;
   --lab-panel-border: #2c3138;
   --lab-accent: #006fff;
+  /* Text/icon colour on a --lab-accent fill: primary buttons, the brandmark
+     dot, numbered step markers. White on both accents, and measurably so —
+     #ffffff scores 4.45:1 on #006fff and 5.74:1 on #005fdb, where the
+     near-black #06121f that app-shell-reference.html used scores 4.23 and
+     3.29. That dark ink was chosen against a #2b8fff accent the reference had
+     drifted to and the theme never used.
+
+     Same failure as the status tones below: this token was defined only in
+     app-shell-reference.html, so every `var(--lab-accent-ink)` in an actual
+     app — app-shell.css's brandmark, and the primary buttons in HomeView,
+     PluginsView and PluginErrorView — resolved to nothing and inherited body
+     text colour, painting #dee0e3 labels on a blue fill. */
+  --lab-accent-ink: #ffffff;
   /* Selected sidebar nav item — sampled directly off the real controller.
      Distinct from --lab-panel-bg (which now matches --lab-bg exactly) since
      this is the one deliberate highlight surface left in the sidebar. */
@@ -55,6 +68,7 @@
   --lab-panel-bg: #ffffff;
   --lab-panel-border: #d1d5db;
   --lab-accent: #005fdb;
+  --lab-accent-ink: #ffffff;
   --lab-nav-active-bg: #ffffff;
   --lab-disabled-bg: #e2e5e9;
   --lab-disabled-text: #9aa1a9;

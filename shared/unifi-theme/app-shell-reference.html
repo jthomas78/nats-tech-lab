@@ -2,6 +2,12 @@
   Canonical app-shell reference for shared/unifi-theme/LAYOUT.md.
   Open directly in a browser — no build step, no dependencies.
   Update this file (and LAYOUT.md) together when the shell changes.
+
+  The :root blocks below are a COPY of unifi.css's tokens, kept here only so
+  the file opens with no build step. unifi.css is the source; this is a
+  picture of it. Drift here has twice shipped a real bug — the status tones
+  and --lab-accent-ink were both defined here and nowhere else — so when a
+  token changes, change unifi.css first and mirror it here, never the reverse.
 -->
 <title>Tech Lab — App Shell Reference</title>
 <style>
@@ -24,30 +30,30 @@
       --lab-bg: #131416;
       --lab-panel-bg: #131416;
       --lab-panel-border: #2c3138;
-      --lab-accent: #2b8fff;
-      --lab-accent-ink: #06121f;
+      --lab-accent: #006fff;
+      --lab-accent-ink: #ffffff;
       --lab-nav-active-bg: #1c1d1f;
       --p-text-color: #dee0e3;
       --p-text-muted-color: #b7bcc2;
       --p-text-disabled-color: #737c87;
       --lab-disabled-bg: #3a4049;
-      --ok: #3ecf8e;
-      --warn: #e0a439;
+      --ok: #27c07f;
+      --warn: #f0b429;
     }
   }
   :root[data-theme="dark"] {
     --lab-bg: #131416;
     --lab-panel-bg: #131416;
     --lab-panel-border: #2c3138;
-    --lab-accent: #2b8fff;
-    --lab-accent-ink: #06121f;
+    --lab-accent: #006fff;
+    --lab-accent-ink: #ffffff;
     --lab-nav-active-bg: #1c1d1f;
     --p-text-color: #dee0e3;
     --p-text-muted-color: #b7bcc2;
     --p-text-disabled-color: #737c87;
     --lab-disabled-bg: #3a4049;
-    --ok: #3ecf8e;
-    --warn: #e0a439;
+    --ok: #27c07f;
+    --warn: #f0b429;
   }
   :root[data-theme="light"] {
     --lab-bg: #f4f5f7;
