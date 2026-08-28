@@ -336,10 +336,13 @@ registered, one entry of each kind is indexed and rendered. The host is
 rebuilt zero times between the example plugin's first and second deployment
 (BR-AS03).
 
-**Gate:** Phase 10 (SeaFreight Flow migration, renumbered from 2 on 2026-08-28) does not open until the user
-has reviewed the running example plugin. This is a human gate on capability
-and integration, recorded in the plan — the automated assertions above are
-necessary for it but do not substitute for it.
+**Gate — PASSED 2026-08-28.** Phase 10 (SeaFreight Flow migration, renumbered
+from 2 on 2026-08-28) did not open until the user had reviewed the running
+example plugin. This is a human gate on capability and integration, recorded
+in the plan — the automated assertions above are necessary for it but do not
+substitute for it. **The user reviewed the running plugin on 2026-08-28,
+after the mockup-fidelity pass, and signed off**; the rule stands for any
+future shell contract change that would need re-proving.
 
 **Port:** 7103. 7100/7101/7102 are taken by the existing frontends, and
 CLAUDE.md's allocation rule assigns frontend dev servers from 7100–7199;

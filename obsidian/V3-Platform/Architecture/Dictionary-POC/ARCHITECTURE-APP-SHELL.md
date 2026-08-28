@@ -808,6 +808,9 @@ spec in `contributionRegistry.spec.js`. Rules-file detail:
 - [Application shell plan](../../../../.claude/plans/Application-Shell-Microfrontend-Plan.md)
   — phases renumbered 2026-08-28: the three migrations are now **10, 11, 12**; the dynamic
   platform registry is **2**; the registry service and publishing lifecycle stays **6**
+- [Application shell plan — ARCHIVE](../../../../.claude/plans/Application-Shell-Microfrontend-Plan-ARCHIVE.md)
+  — Phase 1 (1a + 1b) in full, archived 2026-08-28 once the BR-AS15 review passed, plus the
+  renumbering history. Append-only; not read into context by default
 - [Application shell design discussion](../../../../lab-shell/application-shell-microfrontend-chat.md)
 - [System design review](../../../../lab-shell/Application-Shell-System-Design-Review.docx)
 - [Editable diagram source](../../../../lab-shell/diagrams/application-shell-overview.html)
