@@ -48,7 +48,7 @@ cat > "$WORK/sheet.html" <<'SHEET'
   .foot{color:#737c87;font-size:11px;margin-top:4px;}
 </style></head>
 <body><div class="page">
-  <div class="eyebrow">Application shell · Phase 2 — proposed</div>
+  <div class="eyebrow">Application shell · Phase 2 — approved 2026-08-28</div>
   <h1>Dynamic platform registry — curation screens</h1>
   <div class="sub">Four screens and the two write refusals the design creates. Curated registry as service state: Postgres source of truth, KV write-through read cache, server-assigned revision as the concurrency token, config-level origin allowlist, audited writes. Nothing active is ever torn down — a removal is offered to a running shell as a reload.</div>
   <div class="rule"></div>

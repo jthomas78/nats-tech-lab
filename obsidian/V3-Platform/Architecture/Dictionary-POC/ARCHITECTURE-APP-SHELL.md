@@ -5,11 +5,14 @@ shell-owned composition, lazy remote loading, contribution contracts, and the mi
 for the three existing Vue applications under
 [`demos/01-dictionary/frontend/`](../../../../demos/01-dictionary/frontend/).
 
-> **Status: PROPOSED — Phase 1 design gate.**
+> **Status: Phase 1a IMPLEMENTED; Phase 2 design gate PASSED 2026-08-28.**
 >
-> This document records the reviewed architecture; it does not authorize implementation or
-> migration. The proposed business rules and approval questions remain in
-> [Application-Shell-Microfrontend-Plan.md](../../../../.claude/plans/Application-Shell-Microfrontend-Plan.md).
+> Parts of this document now describe shipped code (the plugin contract, the contribution registry,
+> the federated loader) and parts still describe a proposal — the migration of the three existing
+> Vue applications is not authorized by anything here. Phase status and the business rules live in
+> [Application-Shell-Microfrontend-Plan.md](../../../../.claude/plans/Application-Shell-Microfrontend-Plan.md)
+> and [BUSINESS_RULES-APP-SHELL.md](../../../../demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md);
+> read those for what is built, not this line.
 
 For the source discussion, see
 [application-shell-microfrontend-chat.md](../../../../lab-shell/application-shell-microfrontend-chat.md).
@@ -823,6 +826,10 @@ spec in `contributionRegistry.spec.js`. Rules-file detail:
   the four screens at 1920×1080, the two write refusals as 640×460 panel excerpts; rebuild with
   `build.sh`, re-seed with the design canvas helper)
 - [Phase 2 registry mockups — published canvas](https://claude.ai/code/artifact/c7d139c4-1e7a-4ac2-9d41-cb0611409118)
+- [Phase 2 registry mockups — contact sheet PNG](../../../../lab-shell/diagrams/phase2-registry-mockups/phase2-registry-mockups.png)
+  (all six artboards on one 4112×3750 sheet; regenerate with `render-png.sh`, which needs a local
+  Chrome — the `.dc.html` artboards wrap their body in `<x-dc>`/`<helmet>` for the canvas and do not
+  render standalone, so the script reassembles them from `parts/` before shooting)
 - [Canonical shell composition reference](../../../../shared/unifi-theme/app-shell-reference.html)
 - [Shared layout contract](../../../../shared/unifi-theme/LAYOUT.md)
 - [Shared AppShell.vue extraction plan (DONE, 2026-07-23)](../../../../.claude/plans/AppShell-Extraction-Plan.md)

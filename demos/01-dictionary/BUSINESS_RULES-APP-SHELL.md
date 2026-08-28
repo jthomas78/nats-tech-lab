@@ -535,3 +535,55 @@ again.
 | BR-AS04 — route-level denylist | `PluginErrorView.spec.js` — the rendered panel names the plugin and the cause code and contains no URL, host or port from the federation error |
 | BR-AS04 — a live inventory | `bootShell.spec.js` — a transition after boot is observed by `inventory`, both directly and through the composed object the app provides |
 | BR-AS01 — no browser-nominated remotes | the four failure modes are curated registry entries, not query parameters — the shell offers no channel by which a browser could select one |
+
+## Phase 2 — the registry as service state (BR-AS16 to BR-AS24)
+
+Confirmed at the design gate on 2026-08-28, alongside decisions 22–46 in
+`.claude/plans/Application-Shell-Microfrontend-Plan.md`. Not yet implemented —
+these are the rules the Phase 2 specs are derived from, not a description of
+shipped code. They live here rather than in `BUSINESS_RULES-ACCOUNTS.md` because
+they describe the shell's registry contract whichever service hosts it, and so
+survive the Phase 6 move (decision 40).
+
+- **BR-AS16 — The registry is service state.** The shell's registry response is
+  served from the hosting service's own store. A curated entry added or removed
+  through the admin surface is visible to a newly booting shell **without
+  restarting any service**.
+- **BR-AS17 — Revision is server-assigned and monotonic.** Every response
+  carries a `revision` the server assigned; it increases on every accepted write
+  and never repeats. The entries and the revision are installed together or not
+  at all — a set may never be served under the previous revision.
+- **BR-AS18 — Writes are revision-checked.** A write carrying a stale revision
+  is refused, not merged. Two curation decisions are never combined by the
+  server.
+- **BR-AS19 — A registry change notifies, and never unloads.** A revision change
+  is published on `notify._platform.registry.frontend-plugins.changed`, and
+  becomes visible to a running shell through a conditional read of the registry
+  endpoint, triggered on window focus and on a slow interval. A shell with an
+  active plugin whose entry was removed keeps rendering it and offers a reload:
+  the status machine has no transition out of `active`, so a reload is the only
+  sound way to apply a removal. Additions may be indexed live.
+- **BR-AS20 — Origin allowlist, enforced on write and on read.** An entry whose
+  remote URL is not on the service's configured origin allowlist is refused at
+  write time **and** withheld at read time. The read-side check is not
+  redundant: narrowing the allowlist leaves already-stored rows non-conforming,
+  which is the case the write-time check cannot cover.
+- **BR-AS21 — No self-registration.** No transport permits a plugin to add,
+  modify or enable its own registry entry. This is BR-AS01 restated for a write
+  path that did not previously exist.
+- **BR-AS22 — The registry degrades, it does not fail.** With Postgres
+  unavailable the read falls back to the KV cache; with both unavailable the
+  endpoint answers `200` with an empty plugin list, `revision: 0` and
+  `degraded: true`, and the shell renders its built-ins. It never answers `5xx`,
+  and a degraded response is distinguishable from a genuinely empty registry.
+  There is no server-side "built-in set" to serve: built-ins ship inside the
+  shell's own bundle and are deliberately never curated.
+- **BR-AS23 — The audit records the surface, not an identity.** Every accepted
+  and every refused write appends an audit row whose actor is the shared
+  administrative identity the request authenticated as. The rule is deliberately
+  weaker than "who did it": while the hosting service authenticates every
+  request as one shared secret, no stronger claim is true, and neither the
+  stored row nor the audit panel may imply one.
+- **BR-AS24 — An entry is disabled, never deleted.** No transport removes a
+  registry row. A disabled entry is withheld from the read and its history is
+  retained.

@@ -1558,3 +1558,12 @@ distinguishes "curates nothing" from "unreadable"), refuses an anonymous or
 wrongly-credentialed request, is not mounted for writes, and every curated
 entry carries both contract versions and a loadable remote. The specs are
 deliberately DB-free, so they never `Skip`.
+
+### The frontend plugin registry's own rules live elsewhere
+
+`accounts-service` hosts the curated frontend-plugin registry, and from Phase 2
+owns its write path, KV cache and audit trail as a separate bounded-context
+module (`registry/`, decisions 32/39). Its rules — **BR-AS16 to BR-AS24** — are
+in `BUSINESS_RULES-APP-SHELL.md`, not here: they describe the application
+shell's registry contract whichever service happens to host it, and Phase 6
+moves that host without changing them.

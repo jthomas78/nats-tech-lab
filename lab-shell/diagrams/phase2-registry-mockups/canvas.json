@@ -1,16 +1,78 @@
 {
   "artboards": [
-    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1920, "h": 1080, "title": "Frontend Plugins — curated registry" },
-    { "file": "ShellSignal.dc.html", "x": 2040, "y": 0, "w": 1920, "h": 1080, "title": "Shell — catalog changed" },
-    { "file": "EntryEditor.dc.html", "x": 0, "y": 1240, "w": 1920, "h": 1080, "title": "Entry editor" },
-    { "file": "AuditTrail.dc.html", "x": 2040, "y": 1240, "w": 1920, "h": 1080, "title": "Registry audit" },
-    { "file": "StaleRevision.dc.html", "x": 0, "y": 2480, "w": 640, "h": 460, "title": "Refused — stale revision" },
-    { "file": "OriginRefused.dc.html", "x": 760, "y": 2480, "w": 640, "h": 460, "title": "Refused — origin not allowlisted" }
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "title": "Frontend Plugins — curated registry"
+    },
+    {
+      "file": "ShellSignal.dc.html",
+      "x": 2040,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "title": "Shell — catalog changed"
+    },
+    {
+      "file": "EntryEditor.dc.html",
+      "x": 0,
+      "y": 1240,
+      "w": 1920,
+      "h": 1080,
+      "title": "Entry editor"
+    },
+    {
+      "file": "AuditTrail.dc.html",
+      "x": 2040,
+      "y": 1240,
+      "w": 1920,
+      "h": 1080,
+      "title": "Registry audit"
+    },
+    {
+      "file": "StaleRevision.dc.html",
+      "x": 0,
+      "y": 2480,
+      "w": 640,
+      "h": 460,
+      "title": "Refused — stale revision"
+    },
+    {
+      "file": "OriginRefused.dc.html",
+      "x": 760,
+      "y": 2480,
+      "w": 640,
+      "h": 460,
+      "title": "Refused — origin not allowlisted"
+    }
   ],
   "annotations": [
-    { "id": "decisions-23-27", "x": 0, "y": -210, "w": 520, "text": "Curated registry as service state.\nDecisions 23, 24, 27, 28, 31 — Postgres source of truth, KV write-through, server-assigned revision, config-level origin allowlist, audited writes." },
-    { "id": "decisions-25-26", "x": 2040, "y": -210, "w": 520, "text": "BR-AS19 / decisions 25 and 26.\nAn addition is indexed live; a removal or URL change is offered as a reload. Nothing active is ever torn down." },
-    { "id": "decision-18-20", "x": 0, "y": 2370, "w": 520, "text": "The two write refusals the design creates: BR-AS18 optimistic concurrency, BR-AS20 origin allowlist. Both refuse rather than merge or defer." }
+    {
+      "id": "decisions-23-27",
+      "x": 0,
+      "y": -210,
+      "w": 520,
+      "text": "Curated registry as service state.\nDecisions 23, 24, 27, 28, 31 — Postgres source of truth, KV write-through cache, server-assigned revision, config-level origin allowlist (SRI deferred to Phase 6), audited writes whose actor is the shared admin identity (BR-AS23)."
+    },
+    {
+      "id": "decisions-25-26",
+      "x": 2040,
+      "y": -210,
+      "w": 520,
+      "text": "BR-AS19 / decisions 25 and 26.\nAn addition is indexed live; a removal or URL change is offered as a reload. Nothing active is ever torn down."
+    },
+    {
+      "id": "decision-18-20",
+      "x": 0,
+      "y": 2370,
+      "w": 520,
+      "text": "The two write refusals the design creates: BR-AS18 optimistic concurrency, BR-AS20 origin allowlist. Both refuse rather than merge or defer."
+    }
   ],
-  "launch": { "view": "canvas" }
+  "launch": {
+    "view": "canvas"
+  }
 }
