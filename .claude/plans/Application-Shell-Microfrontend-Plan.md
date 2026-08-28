@@ -200,8 +200,12 @@ by default**.
 
 **Not blocked on Phases 10–12.** This phase changes only where the curated registry lives and how it
 propagates; the shell's read contract (`GET` a document carrying `schemaVersion`, `revision` and
-entries) is unchanged, which is what makes it independent of the migrations and reversible if the
-store choice turns out wrong.
+entries) is unchanged — confirmed against `manifestSchema.js`, not assumed (decision 27) — which is
+what makes it independent of the migrations. The independence is real only because the change signal
+rides that same read path: routing it over NATS instead would have made this phase wait for the
+credential profiles Phases 10–12 bring, since `lab-shell` holds no NATS connection today (decision
+36). Reversibility of the store choice is likewise not free — it is bought by decision 35's
+interface, and without that it is a claim rather than a property.
 
 **Problem.** The registry is centralized already — one operator-curated document, one endpoint — but
 statically sourced: a JSON file bind-mounted into `accounts-service` and read once at process start
@@ -224,21 +228,30 @@ announcing itself. Also out of scope: unloading a plugin whose `activate()` has 
 
 #### Design decisions — proposed, for approval
 
+> Revised 2026-08-28 after a `codebase-design` review of this phase against the shipped Phase 1 code
+> and `accounts-service`'s current registry implementation. Decisions 23, 25, 26, 27, 31 and 32 were
+> amended (23's stated rationale did not hold; 26 and 32 were under-priced); 35 and 36 are new and
+> name two interfaces the phase had left implicit. BR-AS19 and BR-AS20 were amended in the same pass.
+> Nothing was implemented — the gate below still stands.
+
+
 | # | Decision | Rationale |
 | --- | --- | --- |
 | 22 | **Curation is platform-wide, not per-tenant** (user's call, 2026-08-28) | One curated set for every shell. Per-`{context}` curation is a schema question, so the table keeps room for it (see 24), but no read path or UI takes a scope argument in this phase. |
-| 23 | **Postgres source of truth, KV as write-through read cache** | The registry is small, read on every shell boot and rarely written — the exact profile the POC's chosen shape serves. The KV entry also gives the watch that decision 25 needs, so the cache and the change channel are one mechanism, not two. |
+| 23 | **Postgres source of truth, KV as write-through read cache** | The registry is small, read on every shell boot and rarely written. Applied honestly, the deletion test does not carry the cache on its own: six rows read at boot is not a cost, and a second store adds a coherence path plus a warm/cold state an operator has to learn. It is here because *this shape is the POC's subject* — the registry is a good small instance of the pattern the lab exists to evaluate — not because the read is slow. **The earlier rationale (that the KV entry supplies the watch decision 25 needs) is withdrawn: nothing in this phase consumes a KV watch.** If the cache is dropped later, decision 35's interface is what makes that a one-adapter change. |
 | 24 | **Entries are rows, seeded from the existing JSON** | `registry.dev.json` stays in the repo as the seed input, so local review keeps working unchanged and the file stops being production configuration. Seeding follows the repo's existing `cmd/seed-*` idiom. |
-| 25 | **Propagation is a signal, never a hot-swap** | A revision change publishes on `notify.*`; the shell surfaces "the plugin catalog changed — reload to apply". This is not timidity: the status machine has no transition out of `active`, so a plugin whose entry disappears while its components are mounted has no legal state to move to. Reload is the only sound way to apply a removal, and the contract should say so rather than imply otherwise. |
-| 26 | **Additions may be indexed live; removals and URL changes may not** | Indexing is metadata-only and touches no running code (BR-AS08), so a new entry is safe to place without a reload. This gets the valuable half of live update with none of the risk. |
-| 27 | **`revision` becomes the concurrency token** | Monotonic, server-assigned. ETag / `If-None-Match` on the read; optimistic concurrency on the write, keyed on the revision the writer read. This is the single-spa race, answered by a transaction instead of a service — but only if writes are actually keyed on it. |
+| 25 | **Propagation is a signal, never a hot-swap** | A revision change is published on `notify.*` for service-side consumers, and reaches the *shell* over its existing read path (decision 27's conditional GET) — see decision 36 for why the browser is not on NATS in this phase. Either way the shell surfaces "the plugin catalog changed — reload to apply". This is not timidity: the status machine has no transition out of `active`, so a plugin whose entry disappears while its components are mounted has no legal state to move to. Reload is the only sound way to apply a removal, and the contract should say so rather than imply otherwise. |
+| 26 | **Additions may be indexed live; removals and URL changes may not** | Indexing reads metadata and fetches no remote code (BR-AS08), so a new entry is safe to place without a reload. This gets the valuable half of live update with none of the risk. **It is not free on the shell side, though, and the phase prices it:** `contributionRegistry.index()` appends to its arrays (re-indexing the same set duplicates) and `createShellRoutes` maps `contributions.routes` into router config once at boot, so live indexing needs an incremental `index()` and a runtime `router.addRoute`. "Built once at boot" is an invariant callers rely on today; this decision retires it deliberately rather than by accident. |
+| 27 | **`revision` becomes the concurrency token** | Monotonic, server-assigned. ETag / `If-None-Match` on the read; optimistic concurrency on the write, keyed on the revision the writer read. This is the single-spa race, answered by a transaction instead of a service — but only if writes are actually keyed on it. **The read contract is confirmed unchanged, not assumed:** `manifestSchema.js` already validates `revision` as `string \| number` and stringifies it, so moving from `"dev-1b"` to a monotonic integer needs no shell change. The conditional GET also carries the change signal decision 25 needs. |
 | 28 | **Remote origins are allowlisted in service configuration, not in the mutable document** | A dynamic write path widens the blast radius of a compromised registry from "filesystem access on the host" to "one API call". Config-level origin allowlisting means a rogue write still cannot point the shell at an arbitrary host. Per-entry SRI (`remote.integrity`) is the second layer, and is proposed here rather than deferred to Phase 6 because it is cheap to add while the schema is already changing. |
 | 29 | **Self-registration stays prohibited** | A plugin may not announce itself, by any transport. This is BR-AS01's guarantee restated for a write path that did not previously exist; without it the registry stops being an operator decision and becomes an ambient one. |
 | 30 | **The degraded path is preserved and tested** | An unavailable registry (Postgres down, KV cold, malformed row) logs and serves the built-in set, so the shell renders. This behaviour exists today and a move to a database is exactly the kind of change that quietly loses it. |
-| 31 | **Registry writes are audited** | "Who enabled this plugin, when" is asked after an incident, not before one. Low-volume, high-consequence writes are a good candidate for the repo's own event-sourcing test — the write log, notably, not the plugin list, which remains plain CRUD. |
-| 32 | **Own bounded-context module, same process** | The registry becomes its own module with its own domain package and `composition.go`, reaching `accounts` only through a port for the BR-AS05 claims — never into its internals. A separate *process* is deferred to Phase 6 because it buys none of what makes Phase 6 expensive (the publishing lifecycle, which exists in neither option today) while paying now: its own NATS credential and account user, a 72xx port, its own database and migrations, compose service, health/observability wiring, docs and suite — and it turns the shell's boot-path read into a cross-service call for a document that changes a few times a month. Phase 6 then moves a module into its own `main.go`, which is the shape `cmd/main.go`'s per-module `Startup` was built for. |
+| 31 | **Registry writes are audited** | "Who enabled this plugin, when" is asked after an incident, not before one. **Plain append-only rows, not an event-sourced log.** CLAUDE.md's deciding question is whether anything replays the history: the audit panel reads writes in order and nothing reconstructs registry state from them, so this is CRUD. It reuses the *shape* of `accounts/audit.go` (action, actor, outcome, JSONB metadata, no UPDATE, no DELETE) in the registry's own schema — the shape, never the table, since decision 33 forbids the join. It flips to event-sourced only if "what was curated at revision N" becomes a real requirement; that is the named trigger, and it is not in this phase. A refused write consumes no revision and is recorded as refused. |
+| 32 | **Own bounded-context module, same process** | The registry becomes its own module with its own domain package and `composition.go`, reaching `accounts` only through a port for the BR-AS05 claims — never into its internals. **Note the real cost: `accounts-service` has no `composition.go` and no hexagonal split today** — it is a flat ~40-file `accounts` package, the one backend module that never adopted the layout the other five use. This decision introduces that pattern to the service, which is more than "move some files"; the gate should price it as such. A separate *process* is still deferred to Phase 6, because it buys none of what makes Phase 6 expensive (the publishing lifecycle, which exists in neither option today) while paying now: its own NATS credential and account user, a 72xx port, its own database and migrations, compose service, health/observability wiring, docs and suite — and it turns the shell's boot-path read into a cross-service call for a document that changes a few times a month. Phase 6 then moves a module into its own `main.go`. |
 | 33 | **The registry owns its tables outright** | No join from an accounts table into a registry table, in either direction. This, not the code's location, is what decides whether the Phase 6 split is small or structural. |
 | 34 | **The endpoint path names the capability, not today's host** | Move the shell to `/api/platform/registry/frontend-plugins`, still served by `accounts-service`. `/api/platform/accounts/...` bakes the current owner into the shell's constant and every frontend's Vite proxy; renaming it now is one line, renaming it at Phase 6 is a client change across apps. Phase 6 then becomes a routing change. |
+| 35 | **The module's interface is named before its store changes** | The phase's own claim — reversible if the store choice turns out wrong — is a property of the interface, not of the store, and today there is no interface to be reversible behind: the registry is two package-level mutable globals, four exported loaders/setters and a handler, which is as much surface as implementation. Phase 2 replaces the implementation and therefore must name the seam it is replacing it behind. Two methods carry the phase — `Current(ctx) (Document, error)` and `Apply(ctx, Write) (Document, error)` — with revision assignment (27), the origin check (28), the KV write-through (23), the audit append (31) and the notification (25) all *behind* them. The handler and the seeder then each learn two methods, and the store swap stays in one place. This also retires a live defect in the current shape: `SetCuratedFrontendPlugins` and `SetCuratedFrontendRevision` are two setters for one fact, so a caller can install a set under the previous revision — exactly BR-AS17's failure mode. `Apply` installs both or neither. |
+| 36 | **The change notification is a five-token subject, and the browser is not on NATS in this phase** | Two separate points the phase kept implicit. (a) The subject is `notify._platform.registry.frontend-plugins.changed` — five tokens, matching the `notify.{context}.{service}.{entity}.{action}` family that `shipping-service`'s `internal/notify` already builds and that CLAUDE.md's fixed-arity positional parsers require. `_platform` is the reserved platform context; this is the one place an `accounts-service`-hosted subject carries a context token, and it does so because the registry is its own bounded context (32), not the tenant axis `accounts-service` otherwise administers. (b) **`lab-shell` has no NATS client** — all three migrating apps depend on `@nats-io/nats-core`; the shell does not, and `connectionRegistry.js` is profile bookkeeping rather than a connection. So `notify.*` reaches service-side consumers, and the shell learns of a change through decision 27's conditional GET. Without this, BR-AS19 would have silently depended on Phases 10–12 while the phase header claims independence from them. |
 
 #### Proposed business rules — BR-AS16 to BR-AS22 (for confirmation before any test or code)
 
@@ -252,18 +265,23 @@ announcing itself. Also out of scope: unloading a plugin whose `activate()` has 
 - **BR-AS18 — Writes are revision-checked.** A write carrying a stale revision is refused, not
   merged. *Failure:* two concurrent writes both succeed and one silently loses.
 - **BR-AS19 — A registry change notifies, and never unloads.** A revision change is published on
-  `notify.*`; a shell with an active plugin whose entry was removed keeps rendering it and offers a
-  reload. *Failure:* a running plugin is torn down under the user, or the change is silent until the
-  next boot.
-- **BR-AS20 — Origin allowlist.** A registry entry whose remote URL is not on the service's
-  configured origin allowlist is refused at write time and never served. *Failure:* the shell is
-  offered a remote on an unconfigured host.
+  `notify._platform.registry.frontend-plugins.changed` for service-side consumers, and becomes
+  visible to a running shell through a conditional read of the registry endpoint (decision 36 — the
+  shell holds no NATS connection in this phase). A shell with an active plugin whose entry was
+  removed keeps rendering it and offers a reload. *Failure:* a running plugin is torn down under the
+  user, or the change is silent until the next boot.
+- **BR-AS20 — Origin allowlist, enforced on write and on read.** A registry entry whose remote URL
+  is not on the service's configured origin allowlist is refused at write time **and** withheld at
+  read time. The read-side check is not redundant: narrowing the allowlist in configuration leaves
+  already-stored rows non-conforming, and that is the case the write-time check cannot cover.
+  *Failure:* the shell is offered a remote on an unconfigured host — including after an allowlist
+  was narrowed.
 - **BR-AS21 — No self-registration.** No transport permits a plugin to add, modify or enable its own
   registry entry. *Failure:* an entry appears that no operator wrote.
 - **BR-AS22 — The registry degrades, it does not fail.** With the store unavailable, the endpoint
   serves the built-in set and the shell renders. *Failure:* a registry outage produces a blank shell.
 
-**Gate.** This phase stays PROPOSED — no tasks, tests or code — until the design decisions above and
+**Gate.** This phase stays PROPOSED — no tasks, tests or code — until design decisions 22–36 above and
 BR-AS16–BR-AS22 are confirmed.
 
 ---

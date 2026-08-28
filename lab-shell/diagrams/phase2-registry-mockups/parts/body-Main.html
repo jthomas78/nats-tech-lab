@@ -58,7 +58,7 @@
           <div>
             <h1>Frontend Plugins</h1>
             <p>
-              Curated registry &middot; platform-wide &middot; 6 entries, 5 enabled &middot;
+              Curated registry &middot; platform-wide &middot; 7 entries, 4 enabled &middot;
               served to every shell on boot. Curation is an operator decision: no plugin can add itself.
             </p>
           </div>
@@ -72,13 +72,13 @@
           <div class="stat-row">
             <div class="stat">
               <div class="k">Revision</div>
-              <div class="v mono">47</div>
+              <div class="v mono">50</div>
               <div class="n">server-assigned, monotonic</div>
             </div>
             <div class="stat">
               <div class="k">Last write</div>
-              <div class="v">14:02:11</div>
-              <div class="n">jeremy@linebooker-tech.com &middot; enabled seafreight-flow</div>
+              <div class="v">14:12:40</div>
+              <div class="n">ops@linebooker-tech.com &middot; disabled example-plugin-slow</div>
             </div>
             <div class="stat">
               <div class="k">Store</div>
@@ -86,9 +86,9 @@
               <div class="n">KV <span class="mono">frontend-plugins</span> written through</div>
             </div>
             <div class="stat">
-              <div class="k">Shells behind</div>
-              <div class="v warn">3 on rev 46</div>
-              <div class="n">notified; applying on next reload</div>
+              <div class="k">Origins</div>
+              <div class="v">2 allowlisted</div>
+              <div class="n">service configuration &middot; a write outside them is refused</div>
             </div>
           </div>
         </div>
@@ -114,7 +114,7 @@
                 <td class="mono">plugins.acme.internal<span class="id">sha384-9Qk2&hellip;7fA1</span></td>
                 <td class="lab-muted">4 routes, 4 nav, 1 control</td>
                 <td><span class="pill ok"><span class="pip"></span>enabled</span></td>
-                <td class="lab-muted">rev 47 &middot; jeremy<span class="id">today 14:02</span></td>
+                <td class="lab-muted">rev 48 &middot; ops<span class="id">today 14:08</span></td>
               </tr>
               <tr>
                 <td><b>Example Plugin</b><span class="id">example-plugin</span></td>
@@ -131,8 +131,23 @@
                 <td class="mono">1</td>
                 <td class="mono">localhost:7110</td>
                 <td class="lab-muted">route, nav</td>
-                <td><span class="pill ok"><span class="pip"></span>enabled</span></td>
-                <td class="lab-muted">rev 12 &middot; seed<span class="id">28 Aug 09:14</span></td>
+                <td>
+                  <span class="pill off"><span class="pip"></span>disabled</span>
+                  <span class="id">still running in shells until they reload</span>
+                </td>
+                <td class="lab-muted">rev 50 &middot; ops<span class="id">today 14:12</span></td>
+              </tr>
+              <tr>
+                <td><b>Pricing</b><span class="id">pricing-plugin</span></td>
+                <td class="mono">2.0.0</td>
+                <td class="mono">1</td>
+                <td class="mono">plugins.acme.internal<span class="id">sha384-4Cd8&hellip;1bE9</span></td>
+                <td class="lab-muted">1 route, 1 nav</td>
+                <td>
+                  <span class="pill ok"><span class="pip"></span>enabled</span>
+                  <span class="id">indexed live &mdash; no reload needed</span>
+                </td>
+                <td class="lab-muted">rev 49 &middot; ops<span class="id">today 14:11</span></td>
               </tr>
               <tr>
                 <td><b>Example Plugin (unreachable remote)</b><span class="id">example-plugin-unreachable</span></td>
@@ -142,7 +157,6 @@
                 <td class="lab-muted">route, nav</td>
                 <td>
                   <span class="pill ok"><span class="pip"></span>enabled</span>
-                  <span class="id bad">failing in 2 shells</span>
                 </td>
                 <td class="lab-muted">rev 12 &middot; seed<span class="id">28 Aug 09:14</span></td>
               </tr>
@@ -216,7 +230,7 @@
             </table>
             <p class="lab-muted" style="margin: 10px 0 0; font-size: 12px;">
               Every accepted write raises the revision and publishes on
-              <span class="mono">notify._platform.registry.frontend-plugins</span>.
+              <span class="mono">notify._platform.registry.frontend-plugins.changed</span>.
             </p>
           </div>
         </div>
