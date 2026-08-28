@@ -321,6 +321,79 @@ announcing itself. Also out of scope: unloading a plugin whose `activate()` has 
 across fifteen questions. The phase may be broken into tasks; rules go into
 `BUSINESS_RULES-APP-SHELL.md` and specs are derived from them before implementation.
 
+#### Sub-phases — 2a, 2b, 2c (split 2026-08-28)
+
+The phase divides on *what kind of code changes*, and the seam between the three is decision 35's
+interface. **2a is blocking** — everything else reads its endpoints — and **2c is the risky one**,
+because it is the only part that retires an invariant the shipped shell relies on ("the contribution
+registry and the router are built once at boot", decision 26). Isolating 2c keeps that retirement
+from hiding inside a change that also touches Go.
+
+| | Scope | Touches | Rules provable here |
+| --- | --- | --- | --- |
+| **2a** | The module and its store — no UI at all | `accounts-service/registry/`, migrations, `cmd/seed-registry`, endpoint move | BR-AS16, AS17, AS18, AS20, AS21, AS22, AS23, AS24 |
+| **2b** | The admin surface | `frontend/admin/src` only, against 2a's endpoints | AS18 and AS20's refusals, AS23's audit, AS24's disable — *as surfaces* |
+| **2c** | The shell notices a change | `lab-shell/src` only | BR-AS19 |
+
+##### 2a — the module and its store
+
+- [ ] `accounts-service/registry/` as a new hexagonal module — `composition.go` plus
+      `internal/{domain,postgres,kvcache,rest}`, following `pricing-service/pricing/` (decision 39).
+      The flat `accounts` package is not restructured (decision 32's note).
+- [ ] Decision 35's interface first, before the store changes: `Current(ctx) (Document, error)` and
+      `Apply(ctx, Write) (Document, error)`, with revision assignment, the origin check, the KV
+      write-through, the audit append and the `notify` publish all behind them. `Apply` installs the
+      entry set and the revision together — the defect the two setters
+      (`SetCuratedFrontendPlugins` / `SetCuratedFrontendRevision`) allow today.
+- [ ] Postgres migrations: the entry table, the monotonic revision, and the append-only audit table
+      in the registry's own schema (decision 33 — no join to an accounts table, either direction).
+- [ ] KV write-through cache: bucket `registry`, key `_platform.frontend-plugins.current`, one whole
+      serialized document (decision 41). Read order Postgres → KV → degraded (decision 30).
+- [ ] `REGISTRY_ALLOWED_ORIGINS` read at start (decision 43), enforced on write **and** on read.
+- [ ] Endpoint move to `/api/platform/registry/frontend-plugins`, clean break (decision 34). The
+      proxy prefix is shared, so this is a **new proxy rule** in `lab-shell/vite.config.js`,
+      `frontend/admin/vite.config.js` and `frontend/admin/nginx.conf` (each rewriting
+      `/api/platform` → `/api`), plus the shell's `REGISTRY_ENDPOINT` constant — not an edit to the
+      existing `/api/platform/accounts` rules, which other routes still need.
+- [ ] Remove `GET /api/accounts/frontend-plugins` from `accounts/handler.go:316` and from
+      `handler_allowlist_test.go:41`; the new module gets its own route-allowlist test.
+- [ ] Remove `FRONTEND_PLUGIN_REGISTRY_FILE` and the boot-time file read (decision 24), and delete
+      `frontendplugins_file_test.go` with it.
+- [ ] `cmd/seed-registry` — reads `registry.dev.json`, writes over REST against a running service,
+      never at process start.
+- [ ] `notify._platform.registry.frontend-plugins.changed` published last, after the commit and the
+      KV write, and never failing the write (decisions 36, 45).
+- [ ] No `DELETE` route anywhere in the module (decision 42 / BR-AS24).
+
+##### 2b — the admin surface
+
+- [ ] Two nav keys under the existing **Platform** group in `frontend/admin/src/App.vue` beside
+      `settings` — `frontend-plugins` and `registry-audit`. The admin app has no router; it is a
+      grouped activity bar with `activeView` and `v-else-if` sections, so this follows that pattern
+      rather than introducing one.
+- [ ] `FrontendPluginsPanel.vue` — the registry list (mockup `body-Main.html`).
+- [ ] The entry drawer (mockup `body-EntryEditor.html`), with both refusal panels: stale revision
+      (`body-StaleRevision.html`, BR-AS18) and origin-not-allowlisted (BR-AS20).
+- [ ] `RegistryAuditPanel.vue` — the audit trail (mockup `body-AuditTrail.html`), actor column
+      showing the shared `admin` identity and nothing stronger (BR-AS23).
+- [ ] Disable/enable as the only lifecycle control; no delete affordance (BR-AS24).
+- [ ] `api.js` calls against `/api/platform/registry/...`, and specs in the `*Panel.spec.js` idiom
+      the admin app already uses.
+
+##### 2c — the shell notices a change
+
+- [ ] `If-None-Match` on `fetchRegistry()`, and a `304` result the caller can distinguish from a
+      fresh document. Nothing in `lab-shell/src` sends or stores an ETag today.
+- [ ] A re-read trigger: `visibilitychange` (hidden → visible) plus a ~10-minute interval
+      (decision 44). `fetchRegistry()` has exactly one caller today (`bootShell.js:104`); this is
+      new behaviour, not a rewiring of existing behaviour.
+- [ ] Handle `degraded: true` — the shell renders its built-ins and says the registry is degraded.
+      No `degraded` handling exists anywhere in `lab-shell/src` today (BR-AS22).
+- [ ] Incremental `contributionRegistry.index()` (it appends today, so re-indexing the same set
+      duplicates) and runtime `router.addRoute`, so an *addition* can be placed live (decision 26).
+- [ ] The reload banner for removals and URL changes — offered, never applied (decision 25 /
+      BR-AS19). A plugin already `active` keeps rendering.
+
 ---
 
 ### Phase 6 — CANDIDATE (not opened) — Plugin Registry Service and publishing lifecycle (the Grafana shape)

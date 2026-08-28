@@ -133,13 +133,33 @@ var _ = Describe("GET /api/accounts/frontend-plugins", func() {
 	})
 
 	Context("the endpoint is read-only", func() {
-		It("is not mounted for writes", func() {
-			req := httptest.NewRequest(http.MethodPost, "/api/accounts/frontend-plugins", nil)
+		// BR-AS21 (no self-registration) and BR-AS24 (disable, never delete)
+		// are read-side guarantees today because no write transport exists at
+		// all. Phase 2 adds one, and when it does these specs move to the new
+		// registry module rather than being deleted: POST there becomes a
+		// gated, audited, revision-checked write, and DELETE must still be
+		// absent. Stated per method so a route added for one verb cannot pass
+		// under a spec written for another.
+		write := func(method string) *httptest.ResponseRecorder {
+			GinkgoHelper()
+			req := httptest.NewRequest(method, "/api/accounts/frontend-plugins", nil)
 			req.SetBasicAuth(accounts.BasicAuthUser, authSecret)
 			rec := httptest.NewRecorder()
 			mux.ServeHTTP(rec, req)
+			return rec
+		}
 
-			Expect(rec.Code).To(Equal(http.StatusMethodNotAllowed))
+		It("is not mounted for writes", func() {
+			Expect(write(http.MethodPost).Code).To(Equal(http.StatusMethodNotAllowed))
+		})
+
+		It("BR-AS21 — offers no transport for a plugin to register or amend itself", func() {
+			Expect(write(http.MethodPut).Code).To(Equal(http.StatusMethodNotAllowed))
+			Expect(write(http.MethodPatch).Code).To(Equal(http.StatusMethodNotAllowed))
+		})
+
+		It("BR-AS24 — offers no transport that removes a curated entry", func() {
+			Expect(write(http.MethodDelete).Code).To(Equal(http.StatusMethodNotAllowed))
 		})
 	})
 

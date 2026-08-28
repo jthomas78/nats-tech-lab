@@ -587,3 +587,26 @@ survive the Phase 6 move (decision 40).
 - **BR-AS24 — An entry is disabled, never deleted.** No transport removes a
   registry row. A disabled entry is withheld from the read and its history is
   retained.
+
+### How Phase 2's rules are checked
+
+Phase 2 is split 2a (the module and its store) / 2b (the admin surface) /
+2c (the shell notices a change) — see
+`.claude/plans/Application-Shell-Microfrontend-Plan.md`. The table therefore
+records what a rule is checked *by* today as well as what it will be checked by,
+because several of these rules hold right now for the accidental reason that no
+write path exists at all.
+
+| Rule | Check |
+| --- | --- |
+| BR-AS16 — service state | *2a.* A registry module spec: an entry applied through `Apply` is present in the next `Current`, with no process restart between them |
+| BR-AS17 — monotonic revision | *2a.* `Apply` assigns the revision; two accepted writes never share one. The current shape's defect — `SetCuratedFrontendPlugins` and `SetCuratedFrontendRevision` are two setters for one fact — is what the single-method interface removes |
+| BR-AS18 — revision-checked writes | *2a.* A write keyed on a stale revision is refused and consumes no revision. *2b* renders the refusal (`body-StaleRevision.html`) |
+| BR-AS19 — notify, never unload | *2c.* `it.todo` in `lab-shell/src/shell/registry/phase2RegistryContract.spec.js` — the conditional read, the `visibilitychange` + interval trigger, and a removed entry leaving an `active` plugin rendering. **No ETag, interval or visibility handling exists in `lab-shell/src` today**, so these are red-then-green in 2c, not characterizations |
+| BR-AS20 — origin allowlist | *2a.* Refused on write and withheld on read, the second checked by narrowing `REGISTRY_ALLOWED_ORIGINS` against an already-stored row |
+| BR-AS21 — no self-registration | *Today:* `accounts/frontendplugins_test.go`, "the endpoint is read-only" — `POST`, `PUT` and `PATCH` all answer `405`, and `handler_allowlist_test.go` is an exact-match route list, so an added route fails it. *2a* moves these specs to the registry module, where `POST` becomes a gated, audited, revision-checked write |
+| BR-AS22 — degrades, does not fail | *2a* for the response shape; *2c* for the shell's handling — **`lab-shell/src` has no `degraded` handling at all today**, so a degraded document is currently indistinguishable from an empty one. `phase2RegistryContract.spec.js` pins the one half that already holds: `revision: 0` validates as `"0"` rather than being dropped, which is what lets 0 carry the degraded meaning |
+| BR-AS23 — audit records the surface | *2a.* Every accepted and refused write appends a row whose actor is `accounts.BasicAuthUser` (the literal `admin`). *2b*'s panel shows that column and nothing stronger |
+| BR-AS24 — disable, never delete | *Today:* `DELETE` answers `405` (`frontendplugins_test.go`) and the route allowlist admits none. *2a.* No `DELETE` route in the module; a disabled entry is withheld from the read with its row and audit trail intact |
+| decision 27 — the read contract is unchanged | *Now, and this is the load-bearing one.* `phase2RegistryContract.spec.js` characterizes `validateRegistryDocument`: `revision` is accepted as a string *or* a number and stringified, `0` survives, absent is `null` not an error, and a schema-version move rejects the whole document. Phase 2 replaces `"dev-1b"` with a monotonic integer on the strength of these |
+| decision 34 — one endpoint constant | *Now.* `phase2RegistryContract.spec.js` — `createRegistryClient` defaults to the exported `REGISTRY_ENDPOINT` and the path sits under the `/api/platform/` prefix each app rewrites, which is what makes the 2a move a proxy rule plus one constant |
