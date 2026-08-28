@@ -1,0 +1,11 @@
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1920,"height":1080}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const theme = this.props.theme ?? 'dark';
+    return { themeClass: theme === 'light' ? 'theme-light' : 'theme-dark' };
+  }
+}
+</script>
+</body>
+</html>

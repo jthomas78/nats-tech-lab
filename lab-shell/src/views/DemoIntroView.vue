@@ -20,7 +20,7 @@ function launch() {
 <template>
   <div v-if="demo" class="intro">
     <div class="intro-actions">
-      <router-link to="/">
+      <router-link to="/demos">
         <Button label="Back" size="small" severity="secondary" text icon="pi pi-arrow-left" />
       </router-link>
       <Button label="Launch demo" size="small" icon="pi pi-external-link" @click="launch" />

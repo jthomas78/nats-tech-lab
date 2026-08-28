@@ -38,6 +38,10 @@ nats-tech-lab/
 **Key design note:** Pinia stores are intentionally used as a frontend analogue to server-side materialized views. Both are projected read models derived from an event source — just at different layers (KV/Postgres on server, Pinia in browser). This parallel should be explicit in the UI and docs.
 
 **Phase 1 scope:** Static menu + intro pages only. No live status. Microfrontend integration is out of scope.
+Microfrontend integration is planned separately in
+[Application-Shell-Microfrontend-Plan.md](Application-Shell-Microfrontend-Plan.md)
+(design gate, 2026-08-27), whose design of record is
+[`ARCHITECTURE-APP-SHELL.md`](../../obsidian/V3-Platform/Architecture/Dictionary-POC/ARCHITECTURE-APP-SHELL.md).
 
 ---
 

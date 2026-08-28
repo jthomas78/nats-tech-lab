@@ -160,12 +160,17 @@ consumption), `ARCHITECTURE-COMMUNICATIONS.md` (REST/Swagger + NATS
 create/suspend/reactivate lifecycle, user auth and token lifecycle),
 `ARCHITECTURE-ADMIN.md` (the Admin UI's SYSTEM → NATS navbar group —
 per-panel architecture and data-flow patterns, plus the shared UI design
-system these panels draw from), and `ARCHITECTURE-PLATFORM.md` (entry point
+system these panels draw from), `ARCHITECTURE-PLATFORM.md` (entry point
 for the "Tech Lab Operator" frontend — the `refdata` app's operator/tenant-
 facing nav and feature surface; owns the nav taxonomy and cross-feature
 design, while `ARCHITECTURE-DICTIONARY.md` continues to own the Reference
-Data feature's own backend/schema detail as one subset of it) — live in the obsidian vault
-under `obsidian/V3-Platform/Architecture/Dictionary-POC/`, not in the repo
+Data feature's own backend/schema detail as one subset of it), and
+`ARCHITECTURE-APP-SHELL.md` (the extensible application shell — curated
+frontend plugin registry, contribution kinds, host-owned extension points,
+the Module Federation loader adapter, and the migration map for the three
+existing frontends; its phase plan is
+`.claude/plans/Application-Shell-Microfrontend-Plan.md`) — live in the obsidian
+vault under `obsidian/V3-Platform/Architecture/Dictionary-POC/`, not in the repo
 tree, alongside the editable `architecture-dictionary.drawio` workbook and its
 exported PNGs (`images/`). This is a different vault location from
 `obsidian/POC-Dictionaries/` above: `POC-Dictionaries/` is the narrative/
@@ -381,7 +386,7 @@ These apply to every task — new features, changes, and bug fixes alike:
 1. **Every business rule must have a test.** If a domain rule is added or changed, a corresponding integration test must be added or updated in the same task before marking it complete.
 2. **All tests must be green before a task is complete.** Run `ginkgo ./...` from the service you changed — the backend is seven modules (`accounts-service`, `observability-service`, `organizations-service`, `otlp-bridge`, `pricing-service`, `refdata-service`, `shipping-service`), not one. Run `shipping-service`'s suite as well whenever the change reaches into it. A task is not done until this passes clean.
 3. **Business rules live in the domain layer.** Each service keeps its own domain package and the path differs per service (`dictionary/internal/domain/` in `shipping-service`, `refdata/internal/domain/` in `refdata-service`, and so on) — read the module you're in rather than assuming shipping's layout. Rule enforcement must not leak into handlers or application services.
-4. **The business rules summary must be kept in sync.** When a rule is added or removed, update the matching domain file under `demos/01-dictionary/` — `BUSINESS_RULES-SHIPPING.md` (Ship/Container), `-REFDATA.md`, `-ACCOUNTS.md`, `-ORGANIZATIONS.md`, or `-PRICING.md` — as part of the same task. `BUSINESS_RULES.md` is just an index; don't add rule detail there.
+4. **The business rules summary must be kept in sync.** When a rule is added or removed, update the matching domain file under `demos/01-dictionary/` — `BUSINESS_RULES-SHIPPING.md` (Ship/Container), `-REFDATA.md`, `-ACCOUNTS.md`, `-ORGANIZATIONS.md`, `-PRICING.md`, or `-APP-SHELL.md` (the `lab-shell/` application shell and its micro-frontend plugins — the one rules file whose subject is a frontend, not a Go service) — as part of the same task. `BUSINESS_RULES.md` is just an index; don't add rule detail there.
 
 ## AI Agent Workflow
 

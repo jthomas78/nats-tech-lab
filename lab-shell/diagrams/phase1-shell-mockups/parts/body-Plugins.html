@@ -1,0 +1,104 @@
+<div class="root {{themeClass}}">
+<div class="app">
+
+  <header class="topbar">
+    <div class="brandmark">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5.5" y="1.5" width="5" height="4" rx="1"/><rect x="1" y="10.5" width="4.5" height="4" rx="1"/><rect x="10.5" y="10.5" width="4.5" height="4" rx="1"/><path d="M8 5.5v2.5M3.25 10.5V8h9.5v2.5"/></svg>
+      <span>NATS Tech Lab</span>
+    </div>
+    <div class="crumb"><span>Lab</span><span class="sep">/</span><b>Plugins</b></div>
+    <div class="topbar-right">
+      <span class="status-tag" style="color: var(--warn);"><span class="pip" style="background: var(--warn);"></span>2 need attention</span>
+      <span class="icon-btn">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="3.2"/><path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3 3l1.2 1.2M11.8 11.8 13 13M13 3l-1.2 1.2M4.2 11.8 3 13"/></svg>
+      </span>
+    </div>
+  </header>
+
+  <div class="shell">
+    <div class="sidebar">
+      <div class="nav-scroll">
+        <div class="nav-group">
+          <div class="eyebrow"><span>Lab</span></div>
+          <div class="nav-item"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 7 8 2.5 13.5 7v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/></svg>Home</div>
+          <div class="nav-item"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.8" y="1.8" width="5" height="5" rx="1"/><rect x="9.2" y="1.8" width="5" height="5" rx="1"/><rect x="1.8" y="9.2" width="5" height="5" rx="1"/><rect x="9.2" y="9.2" width="5" height="5" rx="1"/></svg>Demos<span class="nav-badge">1</span></div>
+          <div class="nav-item active"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M6 1.5v4M10 1.5v4M4 5.5h8v2.8a4 4 0 0 1-8 0zM8 12.3v2.2"/></svg>Plugins<span class="nav-badge">6</span></div>
+        </div>
+        <div class="nav-group">
+          <div class="eyebrow"><span>Fleet Ops</span></div>
+          <div class="nav-item"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 10.6 8 12.7l6-2.1M3.6 10.1V6.2L8 4.1l4.4 2.1v3.9M8 1.6v2.5"/></svg>Vessels</div>
+          <div class="nav-item"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="3.2" r="1.7"/><path d="M8 4.9v8.5M4.6 6.6h6.8M2.6 9.4a5.4 5.4 0 0 0 10.8 0"/></svg>Berths</div>
+        </div>
+        <div class="nav-group">
+          <div class="eyebrow"><span>Port Insights</span></div>
+          <div class="nav-item"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 13.5h12M4.4 13.5V8.2M7.5 13.5V4.6M10.6 13.5V6.9M13.6 13.5v-3"/></svg>Throughput</div>
+        </div>
+      </div>
+      <div class="sidebar-foot">
+        <span class="sidebar-collapse-btn">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.6" y="2.6" width="12.8" height="10.8" rx="2.4"/><path d="M6.2 2.6v10.8"/><rect x="2.9" y="3.9" width="2" height="8.2" rx="1" fill="currentColor" stroke="none" opacity="0.55"/></svg>
+        </span>
+      </div>
+    </div>
+
+    <div class="main">
+      <div class="main-inner">
+        <div class="page-head">
+          <div>
+            <h1>Plugins</h1>
+            <p>Registry rev 47 · fetched 12:04:31 · shell API 1 · six entries, two rejected before any remote code ran.</p>
+          </div>
+          <span class="btn ghost">Reload registry</span>
+        </div>
+
+        <div class="lab-panel" style="flex: 1 1 auto; min-height: 0;">
+          <table class="tbl">
+            <thead>
+              <tr><th style="width: 15%">Plugin</th><th style="width: 8%">Version</th><th style="width: 8%">Shell API</th><th style="width: 11%">Status</th><th style="width: 22%">Contributions</th><th>Detail</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>port-insights</td><td class="mono">0.1.4</td><td class="mono">1</td><td><span class="pill ok"><span class="pip"></span>active</span></td><td class="lab-muted">1 route · 1 nav · 2 extensions · 1 footer</td><td class="lab-muted">activated 12:04:33 · 3 disposers registered</td></tr>
+              <tr><td>demo-catalog</td><td class="mono">built-in</td><td class="mono">1</td><td><span class="pill ok"><span class="pip"></span>active</span></td><td class="lab-muted">2 routes · 1 nav · owns 1 target</td><td class="lab-muted">bundled with the host, same contract</td></tr>
+              <tr><td>fleet-ops</td><td class="mono">0.3.1</td><td class="mono">1</td><td><span class="pill bad"><span class="pip"></span>failed</span></td><td class="lab-muted">2 routes · 2 nav · 1 control</td><td style="color: var(--err);">remote entry fetch — 504 on mf-manifest.json</td></tr>
+              <tr><td>berth-planner</td><td class="mono">1.2.0</td><td class="mono">1</td><td><span class="pill busy"><span class="pip"></span>loading</span></td><td class="lab-muted">1 route · 1 nav</td><td class="lab-muted">first use at 12:06:02 · fetching chunk</td></tr>
+              <tr><td>tariff-preview</td><td class="mono">0.9.0</td><td class="mono">1</td><td><span class="pill off"><span class="pip"></span>available</span></td><td class="lab-muted">1 route · 1 nav</td><td class="lab-muted">metadata indexed · no code loaded yet</td></tr>
+              <tr><td>customs-docs</td><td class="mono">2.0.0</td><td class="mono" style="color: var(--warn);">2</td><td><span class="pill warn"><span class="pip"></span>incompatible</span></td><td class="lab-dim">— rejected —</td><td style="color: var(--warn);">shellApiVersion 2 &gt; supported 1 · no code executed</td></tr>
+              <tr><td>legacy-fleet</td><td class="mono">0.1.0</td><td class="mono">1</td><td><span class="pill off"><span class="pip"></span>disabled</span></td><td class="lab-dim">— not indexed —</td><td class="lab-muted">enabled: false in registry</td></tr>
+              <tr><td>route-audit</td><td class="mono">0.4.2</td><td class="mono">1</td><td><span class="pill warn"><span class="pip"></span>rejected</span></td><td class="lab-dim">1 of 2 contributions</td><td style="color: var(--warn);">route id "audit.page" claims reserved path /plugins</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="grid-2">
+          <div class="lab-panel">
+            <h3>Lifecycle</h3>
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--p-text-muted-color);">
+              <span class="tag">discovered</span><span class="lab-dim">&rsaquo;</span>
+              <span class="tag">validated</span><span class="lab-dim">&rsaquo;</span>
+              <span class="tag">indexed</span><span class="lab-dim">&rsaquo;</span>
+              <span class="tag" style="color: var(--p-text-color); border-color: var(--lab-accent);">first use</span><span class="lab-dim">&rsaquo;</span>
+              <span class="tag">loaded</span><span class="lab-dim">&rsaquo;</span>
+              <span class="tag">activated once</span><span class="lab-dim">&rsaquo;</span>
+              <span class="tag">rendered</span>
+            </div>
+            <p style="margin: 12px 0 0; font-size: 12px; color: var(--p-text-muted-color);">Everything left of <b style="color: var(--p-text-color); font-weight: 600;">first use</b> is metadata only — no remote code has run, so permissions and routes are already answerable.</p>
+          </div>
+          <div class="lab-panel">
+            <h3>Rejection is per entry, never per registry</h3>
+            <table class="tbl">
+              <tbody>
+                <tr><td class="lab-muted">Unknown optional field</td><td>tolerated</td></tr>
+                <tr><td class="lab-muted">Invalid required field</td><td>that plugin only</td></tr>
+                <tr><td class="lab-muted">Unsupported shell API</td><td>that plugin only, pre-execution</td></tr>
+                <tr><td class="lab-muted">Duplicate or reserved id</td><td>that contribution only</td></tr>
+                <tr><td class="lab-muted">Unparsable registry</td><td>built-ins still load</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>

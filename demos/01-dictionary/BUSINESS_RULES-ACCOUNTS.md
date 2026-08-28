@@ -1528,3 +1528,33 @@ The reversible lifecycle that does exist is the tenant one (suspend / reactivate
 - **Enforced in:** `accounts/reaper.go` — `SessionReaper.Run` (immediate run, then ticker, returning on context cancellation) and `reapOnce`'s warn-vs-log-vs-silent branches; `accounts-service/cmd/main.go` — started in its own goroutine on the process context, with a fatal return on a bad config.
 - **Test:** `accounts/reaper_test.go` (BR-AC45) — reaps once immediately rather than waiting out the first interval; keeps reaping on the interval; stops on context cancellation and stays stopped; retries on the next tick after two failed ones; and does not run at all when retention is disabled. Asserted against an in-memory `ExpiredSessionReaper` rather than Postgres, since the cadence is the thing under test and a database would only make it flaky.
 - **Not covered:** coordination between replicas — two accounts-service instances would each run their own reaper. The `DELETE` is idempotent and row-scoped so the outcome is correct, but the work is duplicated; a single-writer lease is a scaling concern this POC does not have.
+
+### BR-AS01 (Phase 1a, IMPLEMENTED 2026-08-28) — `accounts-service` serves the application shell's curated frontend plugin registry
+
+The rule itself belongs to the application shell and is stated in full in
+`BUSINESS_RULES-APP-SHELL.md` (BR-AS01). It is cross-referenced here because
+this service is where the curated list is served from, and a change to this
+endpoint changes which micro-frontend code a browser is permitted to fetch.
+
+- `GET /api/accounts/frontend-plugins` returns
+  `{schemaVersion, plugins[]}` — read-only, gated by the same BasicAuth as
+  every other `/api/accounts` route, and reachable from a frontend at
+  `/api/platform/accounts/frontend-plugins` through the existing proxy rewrite.
+- **It carries no `{context}` token.** The curated set is platform-wide; per-
+  user visibility is decided in the shell from the caller's own claims. A
+  context in the path would assert that the plugin *inventory* varies per
+  business unit, which it does not.
+- **It sits under `/api/accounts` for the proxy, not because it is
+  account-scoped** — the same reasoning already recorded for
+  `system-config`, `usage` and `topology` (BR-AC20).
+- The curated list is Go data (`accounts/frontendplugins.go`), empty in Phase
+  1a: the shell's only plugin is built into its own bundle. `enabled` is the
+  field expected to move to Postgres first, once disabling a misbehaving
+  plugin has to be possible without a deploy.
+
+**Testable:** `accounts/frontendplugins_test.go` — the document declares the
+schema version, serialises an empty list as `[]` rather than `null` (the shell
+distinguishes "curates nothing" from "unreadable"), refuses an anonymous or
+wrongly-credentialed request, is not mounted for writes, and every curated
+entry carries both contract versions and a loadable remote. The specs are
+deliberately DB-free, so they never `Skip`.

@@ -310,6 +310,10 @@ func (h *Handlers) Mount(mux *http.ServeMux, authSecret string) []string {
 	// "system-config" segment).
 	handle("GET /api/accounts/system-config", h.getSystemConfig)
 	handle("PUT /api/accounts/system-config", h.updateSystemConfig)
+	// BR-AS01: the application shell's curated frontend plugin registry.
+	// Platform-wide and read-only, and under /api/accounts for the same proxy
+	// reason system-config is (see above), not because it is account-scoped.
+	handle("GET /api/accounts/frontend-plugins", h.listFrontendPlugins)
 	// Phase 22: business unit management (BR-AC15/BR-AC16/BR-AC17)
 	handle("GET /api/accounts/{name}/business-units", h.listBusinessUnits)
 	handle("POST /api/accounts/{name}/business-units", h.createBusinessUnit)

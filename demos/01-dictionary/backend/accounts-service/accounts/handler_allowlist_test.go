@@ -38,6 +38,7 @@ func TestAccountsMountRoutesMatchAdminAllowlist(t *testing.T) {
 		"POST /api/accounts/{name}/jslimits",
 		"GET /api/accounts/system-config",
 		"PUT /api/accounts/system-config",
+		"GET /api/accounts/frontend-plugins",
 		"GET /api/accounts/{name}/business-units",
 		"POST /api/accounts/{name}/business-units",
 		"PATCH /api/accounts/{name}/business-units/{buContext}",

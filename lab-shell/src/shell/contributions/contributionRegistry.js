@@ -1,0 +1,213 @@
+/*
+  The contribution registry — where validated metadata becomes placed UI
+  (BR-AS02, BR-AS06, BR-AS07).
+
+  Indexing happens once per boot, over metadata only. Nothing here loads,
+  imports or executes plugin code; a fully indexed shell has a complete nav
+  tree, a complete route table and every extension slot accounted for, with
+  zero remote chunks fetched. That gap is what BR-AS08 asserts, and keeping
+  this module free of the loader is what makes it true rather than incidental.
+
+  Every refusal is recorded rather than thrown. One plugin's bad contribution
+  must not cost another plugin its nav entry (BR-AS04), and — less obviously —
+  it must not cost the *same* plugin its other contributions: a plugin whose
+  footer item targets a full region still gets its route. The Plugins screen
+  reads `refusals` to explain what is missing and why.
+*/
+
+import { PLUGIN_STATUS } from '../registry/pluginStatus.js'
+
+export function createContributionRegistry({ extensionPoints, permissions }) {
+  const routes = []
+  const navigation = []
+  const extensions = new Map() // point id -> contribution[]
+  const shellControls = []
+  const footerItems = []
+  const refusals = []
+  const byQualifiedId = new Map()
+  const routePrefixOwners = new Map() // prefix -> plugin id
+
+  const refuse = (contribution, code, message) => {
+    refusals.push({
+      qualifiedId: contribution.qualifiedId,
+      pluginId: contribution.pluginId,
+      kind: contribution.kind,
+      code,
+      message,
+    })
+  }
+
+  const placeExtension = (contribution, pointId) => {
+    const placed = extensions.get(pointId) ?? []
+    const verdict = extensionPoints.accepts(pointId, { placedCount: placed.length })
+    if (!verdict.ok) {
+      refuse(contribution, verdict.code, verdict.message)
+      return false
+    }
+    placed.push(contribution)
+    extensions.set(pointId, placed)
+    return true
+  }
+
+  return {
+    /**
+     * @param {object[]} plugins validated, normalized manifests
+     * @param {Map<string, import('../registry/pluginStatus.js').PluginStatusRecord>} [statuses]
+     *   updated in place when supplied, so the caller does not have to
+     *   re-derive which plugins ended up placed.
+     */
+    index(plugins, statuses = null) {
+      for (const plugin of plugins) {
+        if (!plugin.enabled) {
+          statuses?.get(plugin.id)?.transition(PLUGIN_STATUS.DISABLED, {
+            code: 'operator-disabled',
+            message: `${plugin.name} is switched off in the plugin registry`,
+          })
+          continue
+        }
+
+        /* Two plugins claiming one route prefix is unresolvable: the URL
+           would name both. The first claim wins — deterministically, since
+           plugins are indexed in registry order — and the second plugin keeps
+           everything of its own that is not a route. */
+        const prefixOwner = routePrefixOwners.get(plugin.routePrefix)
+        const prefixTaken = prefixOwner !== undefined && prefixOwner !== plugin.id
+        if (!prefixTaken) routePrefixOwners.set(plugin.routePrefix, plugin.id)
+
+        let placedAny = false
+        for (const contribution of plugin.contributions) {
+          /* Permission is checked before placement, not at render: a
+             contribution the viewer may not see must not occupy capacity at
+             an extension point that someone else could have used. */
+          if (!permissions.can(contribution.permission)) {
+            refuse(
+              contribution,
+              'permission-denied',
+              `Requires ${contribution.permission}, which this session's claims do not grant`,
+            )
+            continue
+          }
+
+          switch (contribution.kind) {
+            case 'route':
+              if (prefixTaken) {
+                refuse(
+                  contribution,
+                  'route-prefix-conflict',
+                  `Route prefix /${plugin.routePrefix} is already claimed by ${prefixOwner}`,
+                )
+                break
+              }
+              routes.push(contribution)
+              placedAny = true
+              break
+            case 'navigation':
+              navigation.push(contribution)
+              placedAny = true
+              break
+            case 'extension':
+              placedAny = placeExtension(contribution, contribution.target) || placedAny
+              break
+            case 'shell-control':
+              if (placeExtension(contribution, contribution.region)) {
+                shellControls.push(contribution)
+                placedAny = true
+              }
+              break
+            case 'shell-footer':
+              if (placeExtension(contribution, 'shell/footer/v1')) {
+                footerItems.push(contribution)
+                placedAny = true
+              }
+              break
+            default:
+              refuse(contribution, 'unknown-contribution-kind', `Unhandled kind ${contribution.kind}`)
+          }
+          byQualifiedId.set(contribution.qualifiedId, contribution)
+        }
+
+        const record = statuses?.get(plugin.id)
+        if (!record) continue
+        if (placedAny) {
+          record.transition(PLUGIN_STATUS.AVAILABLE)
+        } else {
+          /* Nothing of this plugin is reachable in this session. That is the
+             same observable outcome as an operator switch-off, so it gets the
+             same status with a different reason — the Plugins screen shows
+             one word and one explanation, never a contradiction. */
+          record.transition(PLUGIN_STATUS.DISABLED, {
+            code: 'no-permitted-contributions',
+            message: `No contribution of ${plugin.name} is available to this session`,
+          })
+        }
+      }
+
+      /* Cross-plugin order is settled here, once. Within one order value the
+         tiebreak is plugin id then declaration index — stable, and independent
+         of the order plugins happened to arrive from the registry (BR-AS06). */
+      routes.sort(byOrder)
+      navigation.sort(byOrder)
+      shellControls.sort(byOrder)
+      footerItems.sort(byOrder)
+      for (const [pointId, list] of extensions) extensions.set(pointId, [...list].sort(byOrder))
+
+      /* Nav entries are resolved after every route is indexed, so a nav entry
+         may name a route declared later in the manifest. A nav entry naming a
+         route that does not exist is caught here rather than on click. */
+      for (let i = navigation.length - 1; i >= 0; i -= 1) {
+        const entry = navigation[i]
+        if (!routes.some((route) => route.qualifiedId === entry.routeQualifiedId)) {
+          refuse(
+            entry,
+            'unresolved-route',
+            `Navigation ${entry.qualifiedId} names route ${entry.routeQualifiedId}, which is not placed`,
+          )
+          navigation.splice(i, 1)
+        }
+      }
+
+      return this
+    },
+
+    get routes() {
+      return [...routes]
+    },
+    get navigation() {
+      return [...navigation]
+    },
+    get shellFooter() {
+      return [...footerItems]
+    },
+    get refusals() {
+      return [...refusals]
+    },
+
+    extensionsFor(pointId) {
+      return [...(extensions.get(pointId) ?? [])]
+    },
+
+    /* Route-scoped topbar controls (BR-AS07): a control with no `routes` is
+       unscoped and always shown; one with routes appears only under them.
+       Prefix matching, so a control declared for '/fleet-ops' covers its
+       detail routes without listing each. */
+    shellControlsFor(path) {
+      return shellControls.filter(
+        (control) =>
+          control.routes.length === 0 ||
+          control.routes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`)),
+      )
+    },
+
+    get(qualifiedId) {
+      return byQualifiedId.get(qualifiedId) ?? null
+    },
+  }
+}
+
+function byOrder(a, b) {
+  return (
+    a.order - b.order ||
+    a.pluginId.localeCompare(b.pluginId) ||
+    a.declarationIndex - b.declarationIndex
+  )
+}

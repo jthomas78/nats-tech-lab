@@ -1,0 +1,238 @@
+<title>Application shell — architecture overview</title>
+<style>
+:root {
+  --text: #dee0e3; --muted: #b7bcc2; --dim: #737c87;
+  --bg: #14171b; --panel: #1a1e23; --border: #2c3138;
+  --accent: #006fff; --nested: #171c29;
+  --sync: #4d94ff; --store: #2dd4bf; --evtl: #f0b429; --bad: #f87171; --hop: #8b93a1;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --sans: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 13px; line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 18px 64px; display: flex; flex-direction: column; gap: 26px; }
+.head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.head-txt { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 3px; }
+.eyebrow { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0; font-size: 15px; line-height: 21px; font-weight: 600; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); max-width: 76ch; }
+
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.fig-body { padding: 14px 14px 4px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 0; max-width: 100%; height: auto; color: var(--muted); }
+figcaption {
+  padding: 9px 14px 11px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; line-height: 18px;
+}
+figcaption b { color: var(--text); font-weight: 600; }
+figcaption code, .sub code, li code, p code { font-family: var(--mono); font-size: 11px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 3px; padding: 0 4px; }
+
+.sec { display: flex; flex-direction: column; gap: 11px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; max-width: 86ch; }
+li b { color: var(--text); font-weight: 600; }
+
+.n  { fill: none; stroke: currentColor; stroke-width: 1; }
+.nb { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 4 3; stroke-opacity: 0.5; }
+.lbl  { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+.lbl2 { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); }
+.grp  { font-family: var(--mono); font-size: 9.5px; fill: var(--dim); letter-spacing: 0.07em; }
+.edge { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.flow { fill: none; stroke: var(--sync); stroke-width: 1.4; }
+.proj { fill: none; stroke: var(--store); stroke-width: 1.4; }
+.rep  { fill: none; stroke: var(--evtl); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.err  { fill: none; stroke: var(--bad); stroke-width: 1.4; }
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <div class="head-txt">
+      <span class="eyebrow">Phase 1 · Application Shell Design Gate · PROPOSED</span>
+      <h1>Application shell structure and frontend injection</h1>
+      <p class="sub">A single Vue host owns the UniFi frame and global providers. Curated metadata declares where independently built frontends contribute; implementation code is loaded only when a route or extension point needs it.</p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 548" role="img"
+        aria-label="A platform-controlled frontend plugin registry sends validated metadata into the lab-shell Vue host. Inside the shell, the shell kernel initializes global providers, focused contribution registries index routes and extensions, and rendering hosts own the AppShell, RouterView, topbar, footer, and named extension points. Separately built Admin, Tech Lab Operator, and SeaFreight Flow remotes are selected by the shell-owned Module Federation loader and injected as Vue components without mounting a second application shell. Each plugin retains its own feature state, endpoint adapters, NATS credentials, connections, and cleanup lifecycle.">
+        <defs>
+          <marker id="overview-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="overview-proj" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--store)"/>
+          </marker>
+        </defs>
+
+        <!-- platform-controlled discovery -->
+        <rect class="nb" x="18" y="26" width="286" height="286" rx="4"/>
+        <text class="grp" x="30" y="44">PLATFORM-CONTROLLED DISCOVERY</text>
+
+        <rect class="n" x="38" y="68" width="246" height="70" rx="3"/>
+        <text class="lbl" x="161" y="89" text-anchor="middle">frontend-plugin-registry.json</text>
+        <text class="lbl2" x="161" y="105" text-anchor="middle">identity · version · shell API</text>
+        <text class="lbl2" x="161" y="119" text-anchor="middle">permissions · contributions · remote</text>
+
+        <rect class="n" x="38" y="170" width="246" height="96" rx="3"/>
+        <text class="lbl" x="161" y="191" text-anchor="middle">declarative contribution metadata</text>
+        <text class="lbl2" x="161" y="209" text-anchor="middle">navigation · namespaced routes</text>
+        <text class="lbl2" x="161" y="225" text-anchor="middle">topbar · footer · extension assignments</text>
+        <text class="lbl2" x="161" y="241" text-anchor="middle">validated before remote code executes</text>
+
+        <path class="flow" marker-end="url(#overview-sync)" d="M161 138 L161 162"/>
+        <text class="edge" x="170" y="155">read</text>
+
+        <!-- shell boundary -->
+        <rect class="nb" x="326" y="26" width="656" height="350" rx="4"/>
+        <text class="grp" x="338" y="44">LAB-SHELL — SINGLE VUE 3 + VITE HOST</text>
+
+        <rect class="n" x="348" y="68" width="184" height="74" rx="3"/>
+        <text class="lbl" x="440" y="89" text-anchor="middle">shell kernel</text>
+        <text class="lbl2" x="440" y="106" text-anchor="middle">router · Pinia · PrimeVue</text>
+        <text class="lbl2" x="440" y="121" text-anchor="middle">UniFi theme · toast · locale</text>
+
+        <rect class="n" x="556" y="68" width="184" height="74" rx="3"/>
+        <text class="lbl" x="648" y="89" text-anchor="middle">contribution registries</text>
+        <text class="lbl2" x="648" y="106" text-anchor="middle">navigation · routes</text>
+        <text class="lbl2" x="648" y="121" text-anchor="middle">topbar · footer · extensions</text>
+
+        <rect class="n" x="764" y="68" width="196" height="74" rx="3"/>
+        <text class="lbl" x="862" y="89" text-anchor="middle">rendering hosts</text>
+        <text class="lbl2" x="862" y="106" text-anchor="middle">AppShell · RouterView</text>
+        <text class="lbl2" x="862" y="121" text-anchor="middle">named slots · readonly context</text>
+
+        <path class="flow" marker-end="url(#overview-sync)" d="M284 103 L340 103"/>
+        <text class="edge" x="312" y="94" text-anchor="middle">registry</text>
+
+        <path class="flow" marker-end="url(#overview-sync)" d="M532 105 L548 105"/>
+        <text class="edge" x="540" y="96" text-anchor="middle">index</text>
+
+        <path class="flow" marker-end="url(#overview-sync)" d="M740 105 L756 105"/>
+        <text class="edge" x="748" y="96" text-anchor="middle">resolve</text>
+
+        <rect class="n" x="348" y="184" width="184" height="72" rx="3"/>
+        <text class="lbl" x="440" y="205" text-anchor="middle">policy + compatibility</text>
+        <text class="lbl2" x="440" y="222" text-anchor="middle">unique IDs · allowed origins</text>
+        <text class="lbl2" x="440" y="237" text-anchor="middle">permissions · API versions</text>
+
+        <rect class="n" x="556" y="184" width="184" height="72" rx="3"/>
+        <text class="lbl" x="648" y="205" text-anchor="middle">failure boundaries</text>
+        <text class="lbl2" x="648" y="222" text-anchor="middle">load · activate · render</text>
+        <text class="lbl2" x="648" y="237" text-anchor="middle">local fallback · diagnostics</text>
+
+        <rect class="n" x="764" y="184" width="196" height="72" rx="3"/>
+        <text class="lbl" x="862" y="205" text-anchor="middle">remote loader</text>
+        <text class="lbl2" x="862" y="222" text-anchor="middle">Module Federation adapter</text>
+        <text class="lbl2" x="862" y="237" text-anchor="middle">allowlisted · lazy · activate once</text>
+
+        <path class="flow" marker-end="url(#overview-sync)" d="M862 184 L862 150"/>
+        <text class="edge" x="871" y="169">Vue component</text>
+
+        <rect class="n" x="348" y="298" width="612" height="50" rx="3"/>
+        <text class="lbl" x="654" y="318" text-anchor="middle">shell-owned integration contract</text>
+        <text class="lbl2" x="654" y="334" text-anchor="middle">versioned APIs + readonly context — no shell DOM or global provider ownership</text>
+
+        <!-- independently built plugin boundary -->
+        <rect class="nb" x="18" y="408" width="964" height="122" rx="4"/>
+        <text class="grp" x="30" y="426">INDEPENDENTLY BUILT FRONTEND REMOTES — PLUGIN-OWNED RUNTIME</text>
+
+        <rect class="n" x="38" y="450" width="282" height="58" rx="3"/>
+        <text class="lbl" x="179" y="470" text-anchor="middle">Admin frontend</text>
+        <text class="lbl2" x="179" y="486" text-anchor="middle">PLATFORM NATS · REST · feature stores · cleanup</text>
+
+        <rect class="n" x="359" y="450" width="282" height="58" rx="3"/>
+        <text class="lbl" x="500" y="470" text-anchor="middle">Tech Lab Operator frontend</text>
+        <text class="lbl2" x="500" y="486" text-anchor="middle">PLATFORM + tenant NATS · feature stores · cleanup</text>
+
+        <rect class="n" x="680" y="450" width="282" height="58" rx="3"/>
+        <text class="lbl" x="821" y="470" text-anchor="middle">SeaFreight Flow frontend</text>
+        <text class="lbl2" x="821" y="486" text-anchor="middle">tenant NATS · endpoints · stores · cleanup</text>
+
+        <path class="proj" marker-end="url(#overview-proj)" d="M962 479 L972 479 L972 276 L862 276 L862 264"/>
+        <text class="edge" x="962" y="391" text-anchor="end">selected remote module</text>
+        <text class="edge" x="962" y="406" text-anchor="end">first route / slot use</text>
+      </svg>
+    </div>
+    <figcaption><b>Composition boundary.</b> The curated registry supplies metadata and remote locations; it is not a source of backend authorization. The shell validates and indexes contributions before code is loaded, then injects a selected remote's Vue component into a host-owned route or extension point. The shell remains the only owner of global UI composition (<code>BR-AS01</code>, <code>BR-AS02</code>, <code>BR-AS08</code>, <code>BR-AS09</code>, <code>BR-AS13</code>).</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-body">
+      <svg viewBox="0 0 1000 230" role="img"
+        aria-label="The injection lifecycle starts by booting one application shell, then fetching and validating the curated registry, indexing contribution metadata, waiting until a route or extension slot is first used, loading and activating the selected remote exactly once, and rendering its Vue component inside a host-owned boundary. Plugin or registry replacement requires a page reload in the first release, while a failed plugin is contained locally and does not stop the shell or sibling plugins.">
+        <defs>
+          <marker id="lifecycle-sync" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--sync)"/>
+          </marker>
+          <marker id="lifecycle-rep" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--evtl)"/>
+          </marker>
+          <marker id="lifecycle-err" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 8,4 0,7" fill="var(--bad)"/>
+          </marker>
+        </defs>
+
+        <text class="grp" x="18" y="20">FRONTEND INJECTION LIFECYCLE</text>
+
+        <rect class="n" x="18" y="48" width="150" height="58" rx="3"/>
+        <text class="lbl" x="93" y="70" text-anchor="middle">1 · boot shell once</text>
+        <text class="lbl2" x="93" y="87" text-anchor="middle">global providers + frame</text>
+
+        <rect class="n" x="212" y="48" width="160" height="58" rx="3"/>
+        <text class="lbl" x="292" y="70" text-anchor="middle">2 · validate registry</text>
+        <text class="lbl2" x="292" y="87" text-anchor="middle">invalid entry isolated</text>
+
+        <rect class="n" x="416" y="48" width="160" height="58" rx="3"/>
+        <text class="lbl" x="496" y="70" text-anchor="middle">3 · index metadata</text>
+        <text class="lbl2" x="496" y="87" text-anchor="middle">routes · nav · extensions</text>
+
+        <rect class="n" x="620" y="48" width="160" height="58" rx="3"/>
+        <text class="lbl" x="700" y="70" text-anchor="middle">4 · first use</text>
+        <text class="lbl2" x="700" y="87" text-anchor="middle">route match or active slot</text>
+
+        <rect class="n" x="824" y="48" width="158" height="58" rx="3"/>
+        <text class="lbl" x="903" y="70" text-anchor="middle">5 · load + render</text>
+        <text class="lbl2" x="903" y="87" text-anchor="middle">activate once · host render</text>
+
+        <path class="flow" marker-end="url(#lifecycle-sync)" d="M168 77 L204 77"/>
+        <text class="edge" x="186" y="68" text-anchor="middle">fetch</text>
+
+        <path class="flow" marker-end="url(#lifecycle-sync)" d="M372 77 L408 77"/>
+        <text class="edge" x="390" y="68" text-anchor="middle">accept</text>
+
+        <path class="flow" marker-end="url(#lifecycle-sync)" d="M576 77 L612 77"/>
+        <text class="edge" x="594" y="68" text-anchor="middle">wait</text>
+
+        <path class="flow" marker-end="url(#lifecycle-sync)" d="M780 77 L816 77"/>
+        <text class="edge" x="798" y="68" text-anchor="middle">resolve</text>
+
+        <rect class="n" x="620" y="144" width="160" height="48" rx="3"/>
+        <text class="lbl" x="700" y="165" text-anchor="middle">local fallback + retry</text>
+        <text class="lbl2" x="700" y="181" text-anchor="middle">siblings keep operating</text>
+
+        <path class="err" marker-end="url(#lifecycle-err)" d="M866 106 L866 124 L700 124 L700 136"/>
+        <text class="edge" x="856" y="118" text-anchor="end">load · activate · render failure</text>
+
+        <path class="rep" marker-end="url(#lifecycle-rep)" d="M940 106 L940 212 L292 212 L292 114"/>
+        <text class="edge" x="597" y="204" text-anchor="middle">plugin or registry version changes → page reload in Phase 1</text>
+      </svg>
+    </div>
+    <figcaption><b>Lazy injection lifecycle.</b> Contribution metadata exists before implementation code. A route match or active extension assignment triggers the loader; failures render a local fallback and remain retryable, while a version replacement uses a clean page reload in the first release (<code>BR-AS04</code>, <code>BR-AS08</code>, <code>BR-AS12</code>, <code>BR-AS13</code>).</figcaption>
+  </figure>
+
+  <section class="sec">
+    <h2>Ownership rules carried into migration</h2>
+    <ul>
+      <li><b>The shell owns composition.</b> One <code>AppShell</code>, router, UniFi theme, PrimeVue setup, toast outlet, global locale selection, permission gates, and global error boundaries.</li>
+      <li><b>Plugins own feature execution.</b> Feature components, namespaced stores, API adapters, watchers, and disposal remain with the independently built remote.</li>
+      <li><b>Credentials do not collapse.</b> Admin, Tech Lab Operator, and SeaFreight retain their existing PLATFORM and tenant NATS identities and connection lifecycles (<code>BR-AS10</code>).</li>
+      <li><b>Migration remains gated.</b> This is a proposed Phase 1 architecture; the three current applications move only after the independent remote proof and capability-complete mockups are approved.</li>
+    </ul>
+  </section>
+</div>

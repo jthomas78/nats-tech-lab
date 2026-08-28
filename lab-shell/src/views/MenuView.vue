@@ -20,7 +20,7 @@ function launch(demo) {
         </div>
       </div>
       <div class="demo-actions">
-        <router-link :to="{ name: 'demo-intro', params: { id: demo.id } }">
+        <router-link :to="{ name: 'demo-catalog/intro', params: { id: demo.id } }">
           <Button label="Intro" size="small" severity="secondary" outlined />
         </router-link>
         <Button label="Launch" size="small" icon="pi pi-external-link" @click="launch(demo)" />

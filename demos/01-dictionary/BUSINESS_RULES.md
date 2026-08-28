@@ -234,6 +234,26 @@ Split by domain so a rule add/edit only requires reading its own file:
   review. Rules will live in
   `organizations-service/organizations/internal/domain/`.
 
+- **[BUSINESS_RULES-APP-SHELL.md](BUSINESS_RULES-APP-SHELL.md)** — the
+  extensible application shell and its micro-frontend plugins
+  (BR-AS01–BR-AS15, approved 2026-08-28). The one rules file whose subject is
+  a **frontend, not a Go service**: the code lives in `lab-shell/`, not under
+  `backend/`. Covers curated registry discovery and contract-version
+  rejection before remote code executes (BR-AS01, BR-AS13), the
+  contribution-only integration surface and single global UI frame
+  (BR-AS02, BR-AS09), host-owned versioned extension points and namespaced
+  identity/order (BR-AS07, BR-AS06 — which also settles the existing Pinia
+  store-ID collisions), the two-stage lazy lifecycle and failure isolation at
+  contribution granularity (BR-AS08, BR-AS04), independent deployment and
+  deep-linkable routes (BR-AS03, BR-AS12), shell-owned authorization from
+  auth-service JWT claims (BR-AS05), the four NATS credential profiles that
+  must not be merged (BR-AS10), behavior preservation across migration
+  including the `useRefdataLabels.js` shared-transport hazard (BR-AS11), the
+  1920×1080 UniFi fidelity gate (BR-AS14), and the reviewable example plugin
+  that must ship before any real app is migrated (BR-AS15). Rules are
+  enforced under `lab-shell/src/shell/`, with two as build-time lint/graph
+  checks rather than runtime specs.
+
 When CLAUDE.md's Quality Rule #4 says "update `BUSINESS_RULES.md`," it means:
 add/edit the rule in whichever of the domain files above matches the domain
 the change touches. This index file itself should stay a pointer — don't add

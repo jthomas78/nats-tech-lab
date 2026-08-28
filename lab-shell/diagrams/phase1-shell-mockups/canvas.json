@@ -1,0 +1,121 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "title": "Active \u2014 contributed route, nav, topbar control, footer"
+    },
+    {
+      "file": "ExtensionPoints.dc.html",
+      "x": 2020,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "title": "Extension points and contribution kinds"
+    },
+    {
+      "file": "Composition.dc.html",
+      "x": 4040,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "title": "Cross-owner composition \u2014 built-in catalog target"
+    },
+    {
+      "file": "Empty.dc.html",
+      "x": 6060,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "title": "Empty \u2014 no contributions for this view"
+    },
+    {
+      "file": "Loading.dc.html",
+      "x": 0,
+      "y": 1240,
+      "w": 1920,
+      "h": 1080,
+      "title": "Loading \u2014 metadata indexed, remote code in flight"
+    },
+    {
+      "file": "Failed.dc.html",
+      "x": 2020,
+      "y": 1240,
+      "w": 1920,
+      "h": 1080,
+      "title": "Failed \u2014 isolation at contribution granularity"
+    },
+    {
+      "file": "Plugins.dc.html",
+      "x": 4040,
+      "y": 1240,
+      "w": 1920,
+      "h": 1080,
+      "title": "Plugin status \u2014 the seven lifecycle states"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "gate",
+      "x": 0,
+      "y": -230,
+      "w": 900,
+      "text": "Phase 1 mockup gate \u2014 Design decision 18.\n\nSeven artboards covering the four states the gate names (empty, loading, active, failed) plus the contributed route/panel composition, the extension-point contract, and the plugin status surface.\n\nStatic mockups, not a clickable prototype. Chrome is copied from shared/ui-shell/app-shell.css at its real values; vessel/berth data is sample."
+    },
+    {
+      "id": "n-main",
+      "x": 960,
+      "y": -230,
+      "w": 620,
+      "text": "ACTIVE \u2014 BR-AS02, BR-AS06, BR-AS12.\n\nfleet-ops contributes a nav group, a deep-linkable route, one topbar control scoped to the active route, and the footer strip. The shell imported none of it."
+    },
+    {
+      "id": "n-ext",
+      "x": 2020,
+      "y": 1130,
+      "w": 620,
+      "text": "BR-AS07 \u2014 the owner of a region declares and versions its target, sets order and capacity, and freezes the context it passes. Plugins fill targets; they never choose where one lives."
+    },
+    {
+      "id": "n-comp",
+      "x": 4040,
+      "y": 1130,
+      "w": 620,
+      "text": "Two remotes contribute into demo-catalog/details-sidebar/v1 \u2014 a target owned by a BUILT-IN feature, not the shell. This is the cross-owner case Design decision 16 requires the proof remote to exercise."
+    },
+    {
+      "id": "n-empty",
+      "x": 6060,
+      "y": 1130,
+      "w": 620,
+      "text": "EMPTY \u2014 the neutral shell root after Design decision 15 moves the catalog to /demos. Zero contributions is a designed state, not a broken one."
+    },
+    {
+      "id": "n-load",
+      "x": 0,
+      "y": 2370,
+      "w": 620,
+      "text": "LOADING \u2014 BR-AS08. Nav, router and built-ins are already live because contribution METADATA arrived from the registry; only the implementation chunk is in flight. The topbar control slot stays empty rather than reserving a false shape.\n\nPlaceholders ANIMATE: table skeletons sweep, and a reserved extension point gets a deliberately fuzzy breathing block. Motion is the signal that the shell is working rather than stalled \u2014 a static gray bar is indistinguishable from a broken render. Phases are offset so a screen of pending targets does not pulse in lockstep, and all of it stops under prefers-reduced-motion, where the text still carries the meaning."
+    },
+    {
+      "id": "n-fail",
+      "x": 2020,
+      "y": 2370,
+      "w": 620,
+      "text": "FAILED \u2014 BR-AS04. A route failure gets a shell-owned error; the sibling panel from port-insights keeps rendering. Error summaries carry stage and cause, never credentials, tokens or registry URLs."
+    },
+    {
+      "id": "n-plug",
+      "x": 4040,
+      "y": 2370,
+      "w": 620,
+      "text": "BR-AS13 \u2014 customs-docs is rejected on shellApiVersion before any of its code executes, and route-audit loses one contribution for claiming a reserved path while its sibling survives. Rejection is per entry, never per registry."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

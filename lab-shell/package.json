@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint . && node tools/frameOwnership.js"
   },
   "dependencies": {
     "@primevue/themes": "^4",
@@ -19,6 +22,11 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6",
-    "vite": "^7"
+    "@vue/test-utils": "^2.5.0",
+    "eslint": "^10.6.0",
+    "eslint-plugin-vue": "^10.9.2",
+    "happy-dom": "^20.11.12",
+    "vite": "^7",
+    "vitest": "^4.1.11"
   }
 }
