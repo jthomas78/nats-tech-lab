@@ -10,6 +10,7 @@ import {
   listNatsUsers,
   revokeNatsUser,
 } from '../api'
+import { useDeferredLoading } from '../useDeferredLoading'
 import NKey from './NKey.vue'
 
 // Users panel (Phase 50c, BR-060) — the roster of NATS users this stack has,
@@ -60,6 +61,10 @@ const connsAvailable = ref(true)
 const closedConnections = ref([])
 const closedPage = ref({ numConnections: 0, total: 0, offset: 0, limit: 0 })
 const loading = ref(true)
+// The table binds `overlayLoading`, not `loading`: a mount fetch that beats the
+// threshold shows no mask at all, which is the common case here. See
+// useDeferredLoading for why the raw flag flashed for ~340ms.
+const overlayLoading = useDeferredLoading(loading)
 const errorMsg = ref('')
 
 // `now` is reactive and re-stamped on every refresh, so the health column and
@@ -69,36 +74,52 @@ const now = ref(Date.now())
 
 async function refresh() {
   now.value = Date.now()
-  try {
-    users.value = await listNatsUsers()
-    errorMsg.value = ''
-  } catch (err) {
-    errorMsg.value = err.message || 'Failed to load users'
-  } finally {
-    loading.value = false
-  }
-  try {
-    const res = await getNatsConnections()
-    connections.value = res?.connections ?? []
-    connPage.value = res?.page ?? { numConnections: 0, total: 0, offset: 0, limit: 0 }
-    connsAvailable.value = true
-  } catch {
-    connsAvailable.value = false
-    // Best-effort: /connz is the live-counts half. Losing it must not empty
-    // the roster, which is the half that answers "who exists" — so the
-    // columns it feeds fall back to zero and the rows stay.
-    connections.value = []
-  }
-  try {
-    const res = await getNatsClosedConnections()
-    closedConnections.value = res?.connections ?? []
-    closedPage.value = res?.page ?? { numConnections: 0, total: 0, offset: 0, limit: 0 }
-  } catch {
-    // Same best-effort contract as the live half above, and for a stronger
-    // reason: the closed ring is an overlay on the roster, so losing it costs
-    // one column rather than the table.
-    closedConnections.value = []
-  }
+  // All three calls are independent, so they go out together rather than in
+  // series — the roster answers "who exists", the two /connz calls only
+  // decorate it, and awaiting them one after another tripled the panel's
+  // wall-clock load for no ordering benefit.
+  //
+  // Each keeps its own catch so one failing endpoint still can't take the
+  // other two down with it; Promise.all over already-caught promises never
+  // rejects, so there is no outer failure path left to handle.
+  await Promise.all([
+    listNatsUsers()
+      .then((res) => {
+        users.value = res
+        errorMsg.value = ''
+      })
+      .catch((err) => {
+        errorMsg.value = err.message || 'Failed to load users'
+      }),
+    getNatsConnections()
+      .then((res) => {
+        connections.value = res?.connections ?? []
+        connPage.value = res?.page ?? { numConnections: 0, total: 0, offset: 0, limit: 0 }
+        connsAvailable.value = true
+      })
+      .catch(() => {
+        connsAvailable.value = false
+        // Best-effort: /connz is the live-counts half. Losing it must not empty
+        // the roster, which is the half that answers "who exists" — so the
+        // columns it feeds fall back to zero and the rows stay.
+        connections.value = []
+      }),
+    getNatsClosedConnections()
+      .then((res) => {
+        closedConnections.value = res?.connections ?? []
+        closedPage.value = res?.page ?? { numConnections: 0, total: 0, offset: 0, limit: 0 }
+      })
+      .catch(() => {
+        // Same best-effort contract as the live half above, and for a stronger
+        // reason: the closed ring is an overlay on the roster, so losing it costs
+        // one column rather than the table.
+        closedConnections.value = []
+      }),
+  ])
+  // Only the mount fetch draws the overlay. The REFRESH_MS interval below
+  // re-runs this against a table that already has rows in it, and flashing a
+  // spinner over good data every ten seconds reads as a fault, not as progress.
+  loading.value = false
 }
 
 let timer = null
@@ -543,7 +564,7 @@ function expiresLabel(user) {
 
     <DataTable
       :value="rows"
-      :loading="loading"
+      :loading="overlayLoading"
       size="small"
       scrollable
       scroll-height="flex"

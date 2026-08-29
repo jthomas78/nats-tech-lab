@@ -6,6 +6,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import { getNatsConnections, listAccounts } from '../api'
 import { compactCount, exactCount } from '../format'
+import { useDeferredLoading } from '../useDeferredLoading'
 import NKey from './NKey.vue'
 
 // Connections panel (Phase 17c) — every active NATS connection, proxied
@@ -20,6 +21,8 @@ const REFRESH_MS = 10000
 
 const connections = ref([])
 const loading = ref(true)
+// Same 300ms mask tail UsersPanel hit — see useDeferredLoading.
+const overlayLoading = useDeferredLoading(loading)
 const errorMsg = ref('')
 
 // /connz's paging envelope, passed straight through by the backend. `limit`
@@ -62,22 +65,34 @@ function resolveLabel(row) {
 }
 
 async function refresh() {
-  try {
-    const res = await getNatsConnections()
-    connections.value = res?.connections ?? []
-    page.value = res?.page ?? { numConnections: 0, total: 0, offset: 0, limit: 0 }
-    serverLimits.value = res?.server ?? { maxConnections: 0 }
-    errorMsg.value = ''
-  } catch (err) {
-    errorMsg.value = err.message || 'Failed to load connections'
-  } finally {
-    loading.value = false
-  }
-  try {
-    accounts.value = await listAccounts()
-  } catch {
-    // best-effort — see accounts/accountNameByKey doc comment above
-  }
+  // Both calls go out together. The account list is only a naming lookup for
+  // rows the connection list supplies, so nothing here depends on ordering —
+  // awaiting one after the other just doubled the panel's load for no reason.
+  //
+  // Each keeps its own catch, so a failure on either side stays scoped to what
+  // it feeds: a dead /connz is the error line, a dead account list is rows
+  // falling back to their raw NKey. Promise.all over already-caught promises
+  // never rejects, so there is no outer failure path left to handle.
+  await Promise.all([
+    getNatsConnections()
+      .then((res) => {
+        connections.value = res?.connections ?? []
+        page.value = res?.page ?? { numConnections: 0, total: 0, offset: 0, limit: 0 }
+        serverLimits.value = res?.server ?? { maxConnections: 0 }
+        errorMsg.value = ''
+      })
+      .catch((err) => {
+        errorMsg.value = err.message || 'Failed to load connections'
+      }),
+    listAccounts()
+      .then((res) => {
+        accounts.value = res
+      })
+      .catch(() => {
+        // best-effort — see accounts/accountNameByKey doc comment above
+      }),
+  ])
+  loading.value = false
 }
 
 let timer = null
@@ -285,7 +300,7 @@ function credentialDiverges(row) {
 
     <DataTable
       :value="rows"
-      :loading="loading"
+      :loading="overlayLoading"
       size="small"
       scrollable
       scroll-height="flex"

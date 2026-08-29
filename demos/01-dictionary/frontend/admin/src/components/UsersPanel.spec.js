@@ -275,6 +275,58 @@ describe('UsersPanel', () => {
     expect(shipping.findAll('td.num-cell').at(1).text()).toBe('5')
   })
 
+  // Load shape (2026-08-29) — the panel felt slower than Accounts on every
+  // tab switch. Two causes, one per spec below: three serialized round trips,
+  // and a spinner that fired on the interval refresh as well as on mount.
+  describe('load shape', () => {
+    it('issues the roster and both /connz calls together, not in series', async () => {
+      let resolveUsers
+      listNatsUsers.mockReturnValue(new Promise((r) => { resolveUsers = r }))
+      mountPanel()
+      // The /connz calls are in flight while the roster is still pending — if
+      // they were awaited after it, neither would have been called yet.
+      expect(getNatsConnections).toHaveBeenCalled()
+      expect(getNatsClosedConnections).toHaveBeenCalled()
+      resolveUsers(USERS)
+      await flushPromises()
+    })
+
+    it('shows the overlay once a mount fetch outruns the threshold', async () => {
+      let resolveUsers
+      listNatsUsers.mockReturnValue(new Promise((r) => { resolveUsers = r }))
+      const w = mountPanel()
+      expect(w.findComponent({ name: 'DataTable' }).props('loading')).toBe(false)
+      // A load slow enough to need acknowledging still gets it.
+      await vi.advanceTimersByTimeAsync(200)
+      expect(w.findComponent({ name: 'DataTable' }).props('loading')).toBe(true)
+      resolveUsers(USERS)
+      await flushPromises()
+      expect(w.findComponent({ name: 'DataTable' }).props('loading')).toBe(false)
+    })
+
+    it('holds the overlay back on a fast mount fetch, and never shows it after', async () => {
+      const w = mountPanel()
+      // Nothing on the first frame — the 300ms mask fade-out means an overlay
+      // raised for a 40ms fetch stays on screen far longer than the work.
+      expect(w.findComponent({ name: 'DataTable' }).props('loading')).toBe(false)
+      await flushPromises()
+      expect(w.findComponent({ name: 'DataTable' }).props('loading')).toBe(false)
+      // Ten seconds on, the timer re-runs refresh() against a table that
+      // already has rows. The assertion is made while that refresh is still
+      // in flight — a spinner that only flashes mid-fetch is exactly the
+      // regression this guards, and it would be invisible after the fetch
+      // settles.
+      let resolveUsers
+      listNatsUsers.mockReturnValue(new Promise((r) => { resolveUsers = r }))
+      vi.advanceTimersByTime(10000)
+      await Promise.resolve()
+      expect(getNatsConnections).toHaveBeenCalledTimes(2)
+      expect(w.findComponent({ name: 'DataTable' }).props('loading')).toBe(false)
+      resolveUsers(USERS)
+      await flushPromises()
+    })
+  })
+
   it('keeps the roster when /connz fails, since it is the counts that were lost', async () => {
     getNatsConnections.mockRejectedValue(new Error('connz unreachable'))
     const w = mountPanel()

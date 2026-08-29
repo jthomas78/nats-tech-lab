@@ -15,9 +15,10 @@ import ConnectionsPanel from './ConnectionsPanel.vue'
 
 vi.mock('../api', () => ({
   getNatsConnections: vi.fn(),
+  listAccounts: vi.fn(),
 }))
 
-import { getNatsConnections } from '../api'
+import { getNatsConnections, listAccounts } from '../api'
 
 const CONNECTIONS = [
   {
@@ -98,6 +99,48 @@ describe('ConnectionsPanel', () => {
       page: { numConnections: 3, total: 3, offset: 0, limit: 1024 },
       server: { maxConnections: 65536 },
     })
+    // Was missing until 2026-08-29, so every spec in this file raised an
+    // unhandled "No listAccounts export is defined on the ../api mock" that
+    // the panel's own try/catch swallowed — the account-name resolution path
+    // was never actually exercised here.
+    listAccounts.mockResolvedValue([])
+  })
+
+  // Load shape (2026-08-29) — the two calls used to be awaited in series even
+  // though the account list only supplies names for rows the connection list
+  // returns. See UsersPanel for the same fix and useDeferredLoading for why
+  // the overlay is held back rather than shown for a load this short.
+  describe('load shape', () => {
+    it('issues the connection list and the account list together, not in series', async () => {
+      let resolveConns
+      getNatsConnections.mockReturnValue(new Promise((r) => { resolveConns = r }))
+      mountPanel()
+      // In flight while /connz is still pending — awaited after it, this would
+      // not have been called yet.
+      expect(listAccounts).toHaveBeenCalled()
+      resolveConns({ connections: CONNECTIONS, page: {}, server: {} })
+      await flushPromises()
+    })
+
+    it('clears loading once both halves have settled', async () => {
+      const w = mountPanel()
+      await flushPromises()
+      expect(w.findComponent({ name: 'DataTable' }).props('loading')).toBe(false)
+    })
+
+    it('keeps the rows when the account list fails, losing only the names', async () => {
+      listAccounts.mockRejectedValue(new Error('accounts-service down'))
+      const w = mountPanel()
+      await flushPromises()
+      expect(w.findAll('tbody tr').length).toBe(CONNECTIONS.length)
+      expect(w.text()).not.toContain('accounts-service down')
+    })
+  })
+
+  it('PROBE clears loading', async () => {
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.findComponent({ name: 'DataTable' }).props('loading')).toBe(false)
   })
 
   it('BR-028: renders the resolved tenantLabel as a tag instead of the raw account NKey', async () => {
