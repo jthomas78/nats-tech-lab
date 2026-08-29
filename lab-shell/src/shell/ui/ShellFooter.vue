@@ -21,8 +21,19 @@ const pluginCount = computed(
     <span
       v-if="shell.registryError"
       class="degraded"
+      data-testid="registry-unavailable"
     >
       <span class="k">registry</span> unavailable · built-ins only
+    </span>
+    <!-- BR-AS22: the service answered, and said it could not vouch for what
+         it served. Distinct wording from both "unavailable" above and a
+         registry that is simply empty — an empty catalog is not a fault. -->
+    <span
+      v-else-if="shell.registry?.degraded"
+      class="degraded"
+      data-testid="registry-degraded"
+    >
+      <span class="k">registry</span> degraded · built-ins only
     </span>
     <PluginSlot
       v-for="item in items"

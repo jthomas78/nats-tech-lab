@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { REGISTRY_SCHEMA_VERSION } from '../versions.js'
+import { bootShell } from '../bootShell.js'
+import { createPermissionEvaluator } from '../auth/permissions.js'
+import { REGISTRY_SCHEMA_VERSION, SHELL_API_VERSION } from '../versions.js'
 import { validateRegistryDocument } from './manifestSchema.js'
 import { createRegistryClient, REGISTRY_ENDPOINT } from './registryClient.js'
+import { createRegistryWatcher } from './registryWatcher.js'
 
 /*
   Phase 2 turns the curated registry into service state (Postgres source of
@@ -82,14 +85,109 @@ describe('decision 34 — the endpoint path is named in exactly one place', () =
   })
 })
 
-describe('Phase 2c — rules whose implementation does not exist yet', () => {
-  // Registered, not skipped-with-a-body: there is nothing to assert against
-  // until 2c lands, and a spec asserting absent behaviour would be red for the
-  // whole of 2a and 2b.
+const permissions = createPermissionEvaluator({ permissions: ['*'] })
 
-  it.todo('BR-AS19 — a conditional read sends If-None-Match and can report 304 unchanged')
-  it.todo('BR-AS19 — a re-read fires on visibilitychange (hidden -> visible) and on a slow interval')
-  it.todo('BR-AS19 — a removed entry offers a reload and leaves an active plugin rendering')
-  it.todo('BR-AS22 — a degraded:true document renders built-ins and is distinguishable from an empty registry')
-  it.todo('decision 26 — indexing an added entry twice does not duplicate its contributions')
+const manifest = (id, overrides = {}) => ({
+  id,
+  name: id,
+  schemaVersion: REGISTRY_SCHEMA_VERSION,
+  shellApiVersion: SHELL_API_VERSION,
+  remote: { kind: 'federated', url: `http://localhost:7110/${id}.js`, module: './plugin' },
+  contributions: [
+    { kind: 'route', id: 'home', path: `/${id}`, title: id },
+    { kind: 'navigation', id: 'nav', label: id, route: 'home' },
+  ],
+  ...overrides,
+})
+
+describe('Phase 2c — the shell notices a change', () => {
+  it('BR-AS19 — a conditional read sends If-None-Match and can report 304 unchanged', async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 304, headers: { get: () => null } }))
+    const client = createRegistryClient({ fetch: fetchImpl })
+
+    const result = await client.fetchRegistry({ etag: '"47"' })
+
+    expect(fetchImpl.mock.calls[0][1].headers['If-None-Match']).toBe('"47"')
+    // Unchanged is a fact the SERVICE states. A shell that inferred it by
+    // comparing documents would re-diff, and re-offer, on every quiet read.
+    expect(result).toMatchObject({ ok: true, unchanged: true, etag: '"47"' })
+  })
+
+  it('BR-AS19 — a re-read fires on visibilitychange (hidden -> visible) and on a slow interval', async () => {
+    const listeners = {}
+    const fakeDoc = {
+      visibilityState: 'visible',
+      addEventListener: (type, fn) => { listeners[type] = fn },
+      removeEventListener: () => {},
+    }
+    let tick = null
+    const client = { fetchRegistry: vi.fn(async () => ({ ok: true, unchanged: true, etag: '"47"' })) }
+    const watcher = createRegistryWatcher({
+      client,
+      onResult: () => {},
+      doc: fakeDoc,
+      timers: { setInterval: (fn) => { tick = fn; return 1 }, clearInterval: () => {} },
+    })
+
+    watcher.start()
+    listeners.visibilitychange()
+    // Let the focus read settle first. Concurrent triggers coalesce on
+    // purpose, so a tick fired inside the first read is one read, not two —
+    // which is the behaviour being separated from "the interval never fires".
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    tick()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    // Decision 44's two triggers, and no third: the shell never subscribes to
+    // a push channel for this, so a change is noticed within one interval.
+    expect(client.fetchRegistry).toHaveBeenCalledTimes(2)
+    watcher.stop()
+  })
+
+  it('BR-AS19 — a removed entry offers a reload and leaves an active plugin rendering', async () => {
+    const shell = await bootShell({
+      registryClient: { fetchRegistry: vi.fn(async () => ({ ok: true, revision: '1', plugins: [manifest('fleet-ops')] })) },
+      permissions,
+    })
+
+    shell.applyRegistry({ ok: true, revision: '2', plugins: [] })
+
+    // The offer is the whole of decision 25: `active` has no exit transition,
+    // so the route the user may be standing on is still placed.
+    expect(shell.pendingReload).toEqual([
+      { id: 'fleet-ops', name: 'fleet-ops', reason: 'entry-removed' },
+    ])
+    expect(shell.contributions.routes.map((r) => r.path)).toContain('/fleet-ops')
+    expect(shell.registry.revision).toBe('2')
+  })
+
+  it('BR-AS22 — a degraded:true document renders built-ins and is distinguishable from an empty registry', async () => {
+    const shell = await bootShell({
+      registryClient: { fetchRegistry: vi.fn(async () => ({ ok: true, revision: '3', plugins: [manifest('fleet-ops')] })) },
+      builtins: [manifest('demo-catalog', { remote: { kind: 'builtin', module: 'demo-catalog' } })],
+      permissions,
+    })
+
+    shell.applyRegistry({ ok: true, revision: '0', degraded: true, plugins: [] })
+
+    expect(shell.registry.degraded).toBe(true)
+    expect(shell.contributions.routes.map((r) => r.path)).toContain('/demo-catalog')
+    // Not read as "everything was withdrawn": the service already said it
+    // could not vouch for this document, so it is no basis for an offer.
+    expect(shell.pendingReload).toHaveLength(0)
+  })
+
+  it('decision 26 — indexing an added entry twice does not duplicate its contributions', async () => {
+    const shell = await bootShell({
+      registryClient: { fetchRegistry: vi.fn(async () => ({ ok: true, revision: '1', plugins: [] })) },
+      permissions,
+    })
+
+    const added = shell.applyRegistry({ ok: true, revision: '2', plugins: [manifest('fleet-ops')] })
+    shell.applyRegistry({ ok: true, revision: '3', plugins: [manifest('fleet-ops')] })
+
+    expect(added.addedRoutes.map((r) => r.path)).toEqual(['/fleet-ops'])
+    expect(shell.contributions.routes).toHaveLength(1)
+    expect(shell.contributions.navigation).toHaveLength(1)
+  })
 })

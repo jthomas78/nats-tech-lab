@@ -25,6 +25,7 @@ import { createContributionRegistry } from './contributions/contributionRegistry
 import { declareShellExtensionPoints } from './extensions/extensionPoints.js'
 import { validateManifest } from './registry/manifestSchema.js'
 import { PLUGIN_STATUS, PluginStatusRecord } from './registry/pluginStatus.js'
+import { diffRegistry } from './registry/registryDiff.js'
 import { RemoteAllowlist } from './registry/registryClient.js'
 
 /**
@@ -44,6 +45,14 @@ export async function bootShell({
   const allowlist = new RemoteAllowlist()
   const plugins = []
   let registryError = null
+  /* Reactive, because these three are on screen (the footer's revision, the
+     banner's degraded note) and BR-AS19 lets them move while the shell runs. */
+  const registry = reactive({ revision: null, fetchedAt: null, degraded: false, etag: null })
+  /* Changes the shell may not apply to itself: a withdrawn entry or a moved
+     remote (decision 25). Offered here, applied only by a reload — there is
+     no transition out of `active`, so tearing a mounted plugin down is not a
+     move the state machine has. */
+  const pendingReload = reactive([])
 
   const admit = (raw, { builtin }) => {
     const id = typeof raw?.id === 'string' ? raw.id : '<unnamed>'
@@ -101,23 +110,71 @@ export async function bootShell({
 
   for (const manifest of builtins) admit(manifest, { builtin: true })
 
-  const discovery = await registryClient.fetchRegistry()
-  /* What the shell read, so the Plugins screen and the footer can name the
-     registry revision on screen. Never the endpoint URL (BR-AS04). */
-  let registry = { revision: null, fetchedAt: null }
-  if (discovery.ok) {
-    registry = { revision: discovery.revision ?? null, fetchedAt: discovery.fetchedAt ?? null }
-    for (const manifest of discovery.plugins) admit(manifest, { builtin: false })
-  } else {
-    /* Recorded, not thrown. The shell continues with its built-ins, and the
-       Plugins screen shows why the remote list is empty. */
-    registryError = { code: discovery.code, message: discovery.message }
+  const contributions = createContributionRegistry({ extensionPoints, permissions })
+
+  /*
+    One path for the first read and every later one (BR-AS19). Boot is not a
+    special case with its own rules — it is simply the read where everything
+    is an addition, which is why the live path gets exercised on every boot
+    rather than only when a registry happens to change.
+
+    Never throws, and never tears anything down: additions are indexed,
+    everything else is *offered*.
+  */
+  const applyRegistry = (discovery) => {
+    if (!discovery?.ok) {
+      /* Recorded, not thrown. The shell continues with its built-ins, and the
+         Plugins screen shows why the remote list is empty. */
+      registryError = { code: discovery?.code ?? 'registry-malformed', message: discovery?.message ?? '' }
+      return { added: [], addedRoutes: [], reloadRequired: [] }
+    }
+
+    registryError = null
+    registry.fetchedAt = discovery.fetchedAt ?? registry.fetchedAt
+    /* Kept beside the revision so the watcher can pick the conditional read
+       up from wherever the shell left off — including a boot read it did not
+       make itself. */
+    registry.etag = discovery.etag ?? registry.etag
+    /* A 304 carries no document. Nothing to diff, nothing to place — and
+       deliberately no clearing of what is already on screen. */
+    if (discovery.unchanged) return { added: [], addedRoutes: [], reloadRequired: [] }
+
+    registry.revision = discovery.revision ?? null
+    /* BR-AS22: an empty document that says it is degraded is not the same
+       claim as an empty registry, and the shell renders its built-ins either
+       way. A degraded read is therefore never read as "everything was
+       withdrawn" — diffing it would offer a reload for every remote plugin
+       the shell is running, on the strength of a document the service already
+       said it could not vouch for. */
+    registry.degraded = discovery.degraded === true
+    if (registry.degraded) return { added: [], addedRoutes: [], reloadRequired: [] }
+
+    const { added, reloadRequired } = diffRegistry(plugins, discovery.plugins)
+    const before = new Set(contributions.routes.map((route) => route.qualifiedId))
+    for (const manifest of added) admit(manifest, { builtin: false })
+    contributions.index(plugins, statuses)
+
+    for (const change of reloadRequired) {
+      if (!pendingReload.some((p) => p.id === change.id && p.reason === change.reason)) {
+        pendingReload.push(change)
+      }
+    }
+
+    return {
+      added,
+      /* Only the routes this read placed. The caller adds them to a router
+         that already holds the rest, so handing back all of them would
+         re-register every route on every change. */
+      addedRoutes: contributions.routes.filter((route) => !before.has(route.qualifiedId)),
+      reloadRequired,
+    }
   }
 
-  const contributions = createContributionRegistry({ extensionPoints, permissions }).index(
-    plugins,
-    statuses,
-  )
+  applyRegistry(await registryClient.fetchRegistry())
+  /* Built-ins are indexed whether or not the registry answered — a shell that
+     rendered nothing when accounts-service is down would fail BR-AS04 at the
+     first hop. index() is incremental, so this places what the read did not. */
+  contributions.index(plugins, statuses)
 
   return {
     plugins,
@@ -126,7 +183,12 @@ export async function bootShell({
     extensionPoints,
     allowlist,
     registry,
-    registryError,
+    get registryError() {
+      return registryError
+    },
+    /* Offered, never applied (decision 25 / BR-AS19). */
+    pendingReload,
+    applyRegistry,
     /* Everything the Plugins screen renders, in one shape (see the Plugins
        artboard): a row per plugin with its status and reason, plus the
        contribution-level refusals that a plugin-level status cannot express. */

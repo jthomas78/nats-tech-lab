@@ -26,8 +26,17 @@
  * @param {Map<string, object>} options.plugins by plugin id
  * @param {any} [options.errorComponent] rendered when the remote will not load
  */
-export function createShellRoutes({ contributions, loader, plugins, errorComponent = null }) {
-  return contributions.routes.map((route) => ({
+export function createShellRoutes({
+  contributions,
+  loader,
+  plugins,
+  errorComponent = null,
+  /* Which route contributions to build. Boot passes them all; a live addition
+     passes only the ones that read placed, because the router already holds
+     the rest (BR-AS19, decision 26). */
+  routes = contributions.routes,
+}) {
+  return routes.map((route) => ({
     path: route.path,
     /* The qualified id is already globally unique (BR-AS06), so it is the
        route name too — a nav entry resolves to a name, never to a hand-built

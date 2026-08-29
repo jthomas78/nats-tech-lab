@@ -11,6 +11,7 @@ import { attentionTone, summarizeAttention } from './shell/registry/statusRollup
 import { breadcrumbTrail } from './shell/routing/breadcrumb.js'
 import { createNavigationPending } from './shell/routing/navigationPending.js'
 import { SHELL } from './shell/shellKey.js'
+import RegistrySignalBanner from './shell/ui/RegistrySignalBanner.vue'
 import ShellFooter from './shell/ui/ShellFooter.vue'
 import PluginSlot from './shell/ui/PluginSlot.vue'
 import SkeletonRows from './shell/ui/SkeletonRows.vue'
@@ -152,6 +153,10 @@ function isActive(entry) {
     <template #footer>
       <ShellFooter />
     </template>
+
+    <!-- Above the content, not in the topbar: it is about the whole catalog,
+         and it must not compete with a plugin's own route-scoped controls. -->
+    <RegistrySignalBanner />
 
     <SkeletonRows
       v-if="navigating"

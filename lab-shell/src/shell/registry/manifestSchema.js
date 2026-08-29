@@ -400,6 +400,9 @@ export function validateRegistryDocument(doc) {
   return {
     ok: true,
     plugins: doc.plugins,
+    /* BR-AS22: the service says so explicitly, and the shell must be able to
+       tell "nothing is curated" from "the registry could not be read". */
+    degraded: doc.degraded === true,
     revision: typeof doc.revision === 'string' || typeof doc.revision === 'number' ? String(doc.revision) : null,
   }
 }

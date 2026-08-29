@@ -26,6 +26,12 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
   const refusals = []
   const byQualifiedId = new Map()
   const routePrefixOwners = new Map() // prefix -> plugin id
+  /* Indexing is no longer a once-per-boot event: BR-AS19 lets an entry added
+     to the registry be placed into a running shell (decision 26). The arrays
+     above append, so re-indexing a plugin already placed would duplicate its
+     nav entry and its route. This is what makes index() incremental rather
+     than idempotent-by-luck. */
+  const indexedPluginIds = new Set()
 
   const refuse = (contribution, code, message) => {
     refusals.push({
@@ -58,6 +64,11 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
      */
     index(plugins, statuses = null) {
       for (const plugin of plugins) {
+        /* Seen before — including one that was disabled or refused, whose
+           outcome was already recorded. A second pass must not re-record it. */
+        if (indexedPluginIds.has(plugin.id)) continue
+        indexedPluginIds.add(plugin.id)
+
         if (!plugin.enabled) {
           statuses?.get(plugin.id)?.transition(PLUGIN_STATUS.DISABLED, {
             code: 'operator-disabled',

@@ -17,6 +17,7 @@ import { bootShell, withRuntime } from './shell/bootShell.js'
 import { createFederatedAdapter } from './shell/loader/federatedAdapter.js'
 import { createBuiltinAdapter, createPluginLoader } from './shell/loader/pluginLoader.js'
 import { createRegistryClient } from './shell/registry/registryClient.js'
+import { createRegistryWatcher } from './shell/registry/registryWatcher.js'
 import { createShellRoutes } from './shell/routing/shellRoutes.js'
 import { SHELL } from './shell/shellKey.js'
 import HomeView from './views/HomeView.vue'
@@ -35,8 +36,10 @@ const permissions = createPermissionEvaluator({ permissions: ['*'] })
 /* Wrapped rather than top-level `await`: TLA constrains the build target, and
    the shell has to boot the same way in every browser the demos are shown in. */
 async function bootstrap() {
+  const registryClient = createRegistryClient({ fetch: globalThis.fetch.bind(globalThis) })
+
   const shell = await bootShell({
-    registryClient: createRegistryClient({ fetch: globalThis.fetch.bind(globalThis) }),
+    registryClient,
     builtins: [demoCatalogManifest],
     permissions,
   })
@@ -76,6 +79,35 @@ async function bootstrap() {
       { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundView },
     ],
   })
+
+  /*
+    The shell re-reads the registry on focus and on a slow interval (decision
+    44) and applies what it safely can: an addition is placed live, a removal
+    or a moved remote is only offered as a reload (decision 25 / BR-AS19).
+    Started after the router exists, because placing a route needs one.
+  */
+  const watcher = createRegistryWatcher({
+    client: registryClient,
+    etag: shell.registry.etag,
+    onResult: (discovery) => {
+      const { added, addedRoutes } = shell.applyRegistry(discovery)
+      if (added.length === 0) return
+      /* Re-synced rather than merged from `added`: the registry holds the
+         VALIDATED manifests, and a manifest that failed validation must not
+         reach the loader wearing the raw shape it was refused in. */
+      for (const plugin of shell.plugins) plugins.set(plugin.id, plugin)
+      for (const route of createShellRoutes({
+        contributions: shell.contributions,
+        loader,
+        plugins,
+        errorComponent: PluginErrorView,
+        routes: addedRoutes,
+      })) {
+        router.addRoute(route)
+      }
+    },
+  })
+  watcher.start()
 
   const app = createApp(App)
   app.provide(SHELL, withRuntime(shell, { loader, plugins, router }))

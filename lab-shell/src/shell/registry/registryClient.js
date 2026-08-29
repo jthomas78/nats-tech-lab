@@ -45,13 +45,21 @@ export function createRegistryClient({
      *
      * @returns {Promise<{ok: true, plugins: object[]} | {ok: false, code: string, message: string}>}
      */
-    async fetchRegistry() {
+    async fetchRegistry({ etag = null } = {}) {
       let response
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), timeoutMs)
       try {
         response = await fetchImpl(endpoint, {
-          headers: { Accept: 'application/json' },
+          headers: {
+            Accept: 'application/json',
+            /* The conditional read (BR-AS19, decision 27). A running shell
+               re-reads on focus and on a slow interval; without this every
+               one of those reads would ship the whole document to learn
+               nothing. The revision is the ETag, so "unchanged" is a fact the
+               server states rather than one the shell infers by comparison. */
+            ...(etag ? { 'If-None-Match': etag } : {}),
+          },
           signal: controller.signal,
           /* The registry is per-viewer: BR-AS05's claims decide which plugins
              an operator has published to this account, so the request carries
@@ -67,6 +75,15 @@ export function createRegistryClient({
         }
       } finally {
         clearTimeout(timer)
+      }
+
+      /* 304 is a success with no body: the shell keeps everything it has and
+         the caller learns only that nothing moved. Deliberately not folded
+         into the ok:false branch — an unchanged registry is not a failure,
+         and a caller that treated it as one would degrade on a healthy
+         read. */
+      if (response.status === 304) {
+        return { ok: true, unchanged: true, etag, fetchedAt: new Date().toISOString() }
       }
 
       if (!response.ok) {
@@ -92,7 +109,21 @@ export function createRegistryClient({
       if (!validated.ok) {
         return { ok: false, code: validated.code, message: validated.message }
       }
-      return { ok: true, plugins: validated.plugins, revision: validated.revision, fetchedAt: new Date().toISOString() }
+      return {
+        ok: true,
+        unchanged: false,
+        plugins: validated.plugins,
+        revision: validated.revision,
+        /* Carried through rather than inferred from an empty plugin list: a
+           degraded registry and an empty one look identical otherwise, and
+           only one of them means "this is not what is curated" (BR-AS22). */
+        degraded: validated.degraded,
+        /* Whatever the server will honour on the next If-None-Match. Never
+           reconstructed from the revision here — the header is the server's
+           to shape. */
+        etag: response.headers?.get?.('ETag') ?? null,
+        fetchedAt: new Date().toISOString(),
+      }
     },
   }
 }

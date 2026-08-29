@@ -382,16 +382,16 @@ from hiding inside a change that also touches Go.
 
 ##### 2c — the shell notices a change
 
-- [ ] `If-None-Match` on `fetchRegistry()`, and a `304` result the caller can distinguish from a
+- [x] `If-None-Match` on `fetchRegistry()`, and a `304` result the caller can distinguish from a
       fresh document. Nothing in `lab-shell/src` sends or stores an ETag today.
-- [ ] A re-read trigger: `visibilitychange` (hidden → visible) plus a ~10-minute interval
+- [x] A re-read trigger: `visibilitychange` (hidden → visible) plus a ~10-minute interval
       (decision 44). `fetchRegistry()` has exactly one caller today (`bootShell.js:104`); this is
       new behaviour, not a rewiring of existing behaviour.
-- [ ] Handle `degraded: true` — the shell renders its built-ins and says the registry is degraded.
+- [x] Handle `degraded: true` — the shell renders its built-ins and says the registry is degraded.
       No `degraded` handling exists anywhere in `lab-shell/src` today (BR-AS22).
-- [ ] Incremental `contributionRegistry.index()` (it appends today, so re-indexing the same set
+- [x] Incremental `contributionRegistry.index()` (it appends today, so re-indexing the same set
       duplicates) and runtime `router.addRoute`, so an *addition* can be placed live (decision 26).
-- [ ] The reload banner for removals and URL changes — offered, never applied (decision 25 /
+- [x] The reload banner for removals and URL changes — offered, never applied (decision 25 /
       BR-AS19). A plugin already `active` keeps rendering.
 
 ---
