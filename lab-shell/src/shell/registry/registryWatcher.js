@@ -65,10 +65,15 @@ export function createRegistryWatcher({
 
     inFlight = (async () => {
       const result = await client.fetchRegistry({ etag: lastEtag })
-      /* Only a successful read moves the ETag. A failed one leaves it alone,
-         so the next attempt still asks the conditional question rather than
-         silently falling back to a full read forever. */
-      if (result?.ok && result.etag) lastEtag = result.etag
+      /* Decision 48, the watcher's half. A failed or degraded read CLEARS the
+         token rather than leaving it alone: a degraded response carries no
+         ETag, so holding the pre-outage one made the recovery read — at the
+         same revision, which is the normal case — answer 304, and the shell
+         never learned the registry was healthy again. Clearing costs one
+         unconditional read after an outage and is what makes recovery
+         reachable at all. */
+      if (!result?.ok || result.degraded === true) lastEtag = null
+      else if (result.etag) lastEtag = result.etag
       onResult?.({ ...result, reason })
       return result
     })()

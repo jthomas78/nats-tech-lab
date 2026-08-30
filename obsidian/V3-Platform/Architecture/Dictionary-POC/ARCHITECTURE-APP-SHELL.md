@@ -274,8 +274,24 @@ sequenceDiagram
     end
 ```
 
-The snapshot is frozen for the session. A registry change mid-session is adopted only by page
-reload, so one browser session never mixes policy, metadata, contract and executable versions.
+The snapshot is **almost** frozen for the session, and the exception is precise (decision 46):
+**a new plugin id is the only difference a running shell applies to itself.** Everything else a
+later read carries — a changed label, order, route prefix, permission, version, remote or
+contribution list, or a withdrawn entry — is offered as a reload and never applied, because the
+status machine has no transition out of `active` and re-placing a plugin already mounted would
+tear it down under the user.
+
+That keeps the guarantee the frozen-snapshot wording was protecting: an id the shell has already
+admitted keeps exactly the policy, metadata, contract and executable version it was admitted
+with, for the life of the session. What a live addition can do is add an id that was not there.
+Anything less than this whitelist would be unsound rather than merely conservative, because the
+write path replaces a whole entry: one transaction that edits plugin A and adds plugin B arrives
+as a single document, and a shell that applied only the addition would hold a catalog that
+existed at no revision on the server.
+
+Comparison is a deep equality over the **validated** manifest, so both sides are normalised the
+same way — a raw entry and its validated form differ in defaulted and derived fields, and
+comparing the two forms directly would report every plugin as edited on every read.
 
 ---
 
@@ -520,7 +536,7 @@ transport. It must be fixed **before a second plugin exists**, which places it i
 | Remote load times out or fails | Render a local retryable fallback; keep the shell and sibling plugins operational |
 | Plugin activation throws | Roll back partial registration and expose the failure against the stable plugin ID/version |
 | Contribution render fails | Contain the error at the route or extension host boundary |
-| Registry changes during a session | Retain the accepted snapshot until a page reload |
+| Registry changes during a session | Index a new plugin id live; offer a reload for every other difference, and apply none of it (decision 46) |
 | Shell API or extension-point version is unsupported | Reject before the remote implementation executes |
 
 Failure isolation is architectural, not merely a visual error message. Registration must be
@@ -559,7 +575,7 @@ surface.
 | Application | Natural first contributions | Migration-specific risks |
 |---|---|---|
 | SeaFreight Flow | Fleet, Port Management, Pricing routes; tenant/business-unit/locale controls | Tenant reconnect lifecycle, origin-relative `/api`, `/nats`, `/files`, and `/geo` endpoints |
-| Admin | Overview, Accounts, Users, Services, Connections, Pub/Sub, Request/Reply, Streams, KV, Logs, Tables, Settings, telemetry footer | Restricted PLATFORM identity, REST diagnostics, large navigation surface, footer and route-specific controls |
+| Admin | Overview, Settings, Frontend Shell, Accounts, Users, Services, Connections, Pub/Sub, Request/Reply, Streams, KV, Logs, Tables, telemetry footer | Restricted PLATFORM identity, REST diagnostics, large navigation surface, footer and route-specific controls |
 | Tech Lab Operator | Reference Data, Shippers, Transporters routes and contextual controls | Two NATS identities, shared refdata transport isolation, persisted context and locale behavior |
 
 The recommended migration sequence is **SeaFreight Flow → Admin → Tech Lab Operator**. SeaFreight

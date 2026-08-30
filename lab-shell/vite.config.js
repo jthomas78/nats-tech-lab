@@ -56,19 +56,21 @@ export default defineConfig({
       // BR-AS01 — the curated plugin registry, its own bounded context in
       // accounts-service since Phase 2a. Its own rule rather than an edit to
       // the accounts one: /api/platform/accounts is a shared prefix other
-      // routes still need. Drops the '/platform' segment and injects the
-      // Basic credentials the browser never holds itself.
+      // routes still need. Drops the '/platform' segment.
+      //
+      // NO Authorization header (BR-AS25, decision 50). This rule used to
+      // inject the shared admin Basic credential, and a proxy rule is a
+      // PREFIX: /api/platform/registry covers the two write routes as well as
+      // the shell's read, so the shell's origin held curate capability over
+      // the registry that curates it — and federated plugin code runs in the
+      // shell's own realm, which makes that every loaded plugin's capability
+      // too. The read is mounted ungated in registry/internal/rest.Mount, so
+      // the shell needs no credential; the admin app keeps its own copy of
+      // this rule, with the header, for the four operator routes.
       '/api/platform/registry': {
         target: 'http://localhost:7202',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/platform/, '/api'),
-        headers: { Authorization: 'Basic YWRtaW46YWNjb3VudHMtc3Bpa2UtcGFzcw==' },
-      },
-      '/api/platform/accounts': {
-        target: 'http://localhost:7202',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/platform/, '/api'),
-        headers: { Authorization: 'Basic YWRtaW46YWNjb3VudHMtc3Bpa2UtcGFzcw==' },
       },
     },
     fs: {

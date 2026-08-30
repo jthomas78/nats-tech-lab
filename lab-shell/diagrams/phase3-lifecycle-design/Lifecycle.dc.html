@@ -1,0 +1,139 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0; background: #131416; color: #dee0e3;
+      font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased;
+    }
+    .board { padding: 28px 32px 32px; display: flex; flex-direction: column; gap: 20px; min-height: 100vh; }
+    .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px;
+      border-bottom: 1px solid #2c3138; padding-bottom: 14px; }
+    .eyebrow { font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: #737c87; margin-bottom: 5px; }
+    h1 { margin: 0; font-size: 21px; line-height: 27px; font-weight: 600; letter-spacing: -0.01em; }
+    .head-note { color: #b7bcc2; font-size: 12px; max-width: 420px; text-align: right; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+    .muted { color: #b7bcc2; }
+    .dim { color: #737c87; }
+    .panel { background: #1a1e23; border: 1px solid #2c3138; border-radius: 6px; padding: 14px 16px; }
+    .panel h3 { margin: 0 0 10px; font-size: 10px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; color: #737c87; }
+    .row { display: flex; gap: 14px; align-items: stretch; }
+    .col { display: flex; flex-direction: column; gap: 14px; }
+    .grow { flex: 1; min-width: 0; }
+    .node { background: #1a1e23; border: 1px solid #4a515b; border-radius: 6px; padding: 11px 13px; }
+    .node .t { font-weight: 600; font-size: 13px; }
+    .node .s { color: #b7bcc2; font-size: 11.5px; line-height: 17px; margin-top: 3px; }
+    .accent { border-color: #006fff; }
+    .accent-bar { border-left: 3px solid #006fff; }
+    .green { color: #27c07f; }
+    .green-bar { border-left: 3px solid #27c07f; }
+    .warn { color: #c8a63a; }
+    .warn-bar { border-left: 3px solid #9a7b1e; }
+    .arrow { display: flex; align-items: center; justify-content: center; color: #4a515b; flex-shrink: 0; font-size: 16px; }
+    .tag { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700;
+      letter-spacing: 0.04em; padding: 2px 7px; border-radius: 100px; border: 1px solid #2c3138; color: #b7bcc2; }
+    .tag.b { color: #006fff; border-color: #1d4b8f; }
+    .tag.g { color: #27c07f; border-color: #1e5f45; }
+    .tag.w { color: #c8a63a; border-color: #5a4a1a; }
+    .pip { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+      color: #737c87; padding: 0 10px 7px 0; border-bottom: 1px solid #2c3138; }
+    td { padding: 8px 10px 8px 0; border-bottom: 1px solid #21262c; vertical-align: top; line-height: 18px; }
+    tr:last-child td { border-bottom: none; }
+    .rule { background: #131416; border: 1px solid #4a515b; border-left: 3px solid #006fff; border-radius: 5px; padding: 11px 14px; }
+    .rule b { font-weight: 600; }
+    .foot { color: #737c87; font-size: 11px; border-top: 1px solid #2c3138; padding-top: 10px; }
+  </style>
+</helmet>
+<div class="board">
+  <div class="head">
+    <div>
+      <div class="eyebrow">App Shell &middot; Phase 3 design</div>
+      <h1>Two lifecycle classes</h1>
+    </div>
+    <div class="head-note">The class is stored on the entry, not inferred. <span class="mono">diffRegistry</span> branches on it: a static removal is offered, a dynamic removal is applied.</div>
+  </div>
+
+  <div class="row">
+    <div class="panel grow">
+      <h3><span class="tag b">Static</span> &nbsp;curated or preloaded &mdash; today's semantics, unchanged</h3>
+      <div class="col">
+        <div class="node accent-bar"><div class="t">registered</div><div class="s">Manifest validated, contributions indexed. No code fetched.</div></div>
+        <div class="arrow" style="justify-content:flex-start; padding-left:22px;">&darr; <span class="dim mono" style="margin-left:8px;">first navigation loads the remote</span></div>
+        <div class="node accent" style="border-width:2px;"><div class="t">active</div><div class="s"><b>No transition out.</b> The status machine has no legal successor state, which is exactly why nothing needs a teardown path.</div></div>
+        <div class="arrow" style="justify-content:flex-start; padding-left:22px;">&darr;</div>
+        <div class="node warn-bar"><div class="t warn">pendingReload &mdash; offered, never applied</div><div class="s">Entry removed, or its remote URL moved. The shell shows the banner; the browser's own reload is the only thing that applies it. <span class="mono">BR-AS19</span></div></div>
+      </div>
+      <div class="rule" style="margin-top:14px; border-left-color:#4a515b;">
+        <span class="muted">Disable takes effect <b>next reload</b>. A static plugin keeps running until then, and the Admin panel says so.</span>
+      </div>
+    </div>
+
+    <div class="panel grow">
+      <h3><span class="tag g">Dynamic</span> &nbsp;announced by a service &mdash; the only class that disposes</h3>
+      <div class="col">
+        <div class="node warn-bar"><div class="t warn">announced</div><div class="s">Signature verified, origin allowlisted, recorded &mdash; and <b>served to no shell</b>. Visible in Admin as pending.</div></div>
+        <div class="arrow" style="justify-content:flex-start; padding-left:22px;">&darr; <span class="dim" style="margin-left:8px;">operator enables</span></div>
+        <div class="node green-bar"><div class="t">registered &rarr; active</div><div class="s">Indexed live into the running shell. Same loader seam, same at-most-once rule.</div></div>
+        <div class="arrow" style="justify-content:flex-start; padding-left:22px;">&darr; <span class="dim" style="margin-left:8px;">unregister, or operator disable</span></div>
+        <div class="node" style="border-color:#8a4a4a;"><div class="t" style="color:#e08a8a;">withdrawn &mdash; disposed</div><div class="s">Scope disposed: routes, nav, extensions, controls, footer items, stores, watchers. Nav item goes at once; the route stops resolving for new navigations.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="panel grow">
+      <h3>Health is an overlay, not a state</h3>
+      <div class="row">
+        <div class="node grow"><div class="t"><span class="pip" style="background:#27c07f;"></span> connected</div><div class="s">Backing service present on NATS.</div></div>
+        <div class="arrow">&harr;</div>
+        <div class="node grow warn-bar"><div class="t warn"><span class="pip" style="background:#c8a63a;"></span> unavailable</div><div class="s">Debounced red dot beside the nav item. Contributions stay indexed; nothing is torn down. Clicking shows the inline error panel with Retry.</div></div>
+      </div>
+      <div class="rule" style="margin-top:12px;">
+        <b>Disconnect never removes anything.</b> A <span class="mono">docker compose restart</span> must not yank a feature mid-session, and a dot that flickers on every deploy trains people to ignore it. Only an explicit unregister or an operator disable withdraws a plugin.
+      </div>
+    </div>
+
+    <div class="panel grow">
+      <h3>Withdrawn while the user is inside it</h3>
+      <div class="node" style="border-color:#8a4a4a; border-left:3px solid #8a4a4a;">
+        <div class="t">In-place tombstone</div>
+        <div class="s">The occupied view is replaced by a shell-owned panel &mdash; this feature was withdrawn, with a link back. The user is never teleported mid-task and nothing unsaved vanishes without explanation.</div>
+      </div>
+      <div class="s muted" style="margin-top:12px; font-size:11.5px; line-height:17px;">
+        Consequence for the router: a withdrawn route stays resolvable for <b>exactly one occupant</b> while being removed from the nav and from new navigations. More work than a redirect, and the only option where disposal is deterministic <i>and</i> the user is left in control.
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>The split at a glance</h3>
+    <table>
+      <thead><tr><th style="width:24%"></th><th style="width:38%">Static</th><th>Dynamic</th></tr></thead>
+      <tbody>
+        <tr><td class="dim">Present at</td><td>First paint</td><td>Any time after boot</td></tr>
+        <tr><td class="dim">Registration</td><td>Operator curation, or server-side preload seeding</td><td>Service announces (signed) &rarr; operator enables</td></tr>
+        <tr><td class="dim">Signature</td><td class="muted">Not required &mdash; a human already vouched</td><td class="green">Required. Unsigned announcements are refused outright</td></tr>
+        <tr><td class="dim">Removal</td><td class="warn">Reload banner (BR-AS19)</td><td>Contributions disposed live</td></tr>
+        <tr><td class="dim">Disable</td><td class="warn">Takes effect next reload</td><td>Takes effect immediately</td></tr>
+        <tr><td class="dim">Service disconnects</td><td colspan="2">Red dot, stays in nav &mdash; identical for both classes</td></tr>
+        <tr><td class="dim">Degraded-read floor</td><td class="green">Yes &mdash; this is the shell's floor</td><td>No</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="foot">Collision rule: an id that is both preloaded and announced resolves to <b>static</b> &mdash; the operator's act outranks the service's. The announcement is recorded and shown in Admin as ignored.</div>
+</div>
+</x-dc>
+</body>
+</html>

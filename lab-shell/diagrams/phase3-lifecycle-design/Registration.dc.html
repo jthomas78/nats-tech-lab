@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0; background: #131416; color: #dee0e3;
+      font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased;
+    }
+    .board { padding: 28px 32px 32px; display: flex; flex-direction: column; gap: 20px; min-height: 100vh; }
+    .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px;
+      border-bottom: 1px solid #2c3138; padding-bottom: 14px; }
+    .eyebrow { font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: #737c87; margin-bottom: 5px; }
+    h1 { margin: 0; font-size: 21px; line-height: 27px; font-weight: 600; letter-spacing: -0.01em; }
+    .head-note { color: #b7bcc2; font-size: 12px; max-width: 420px; text-align: right; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+    .muted { color: #b7bcc2; }
+    .dim { color: #737c87; }
+    .panel { background: #1a1e23; border: 1px solid #2c3138; border-radius: 6px; padding: 14px 16px; }
+    .panel h3 { margin: 0 0 10px; font-size: 10px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; color: #737c87; }
+    .row { display: flex; gap: 14px; align-items: stretch; }
+    .col { display: flex; flex-direction: column; gap: 14px; }
+    .grow { flex: 1; min-width: 0; }
+    .node { background: #1a1e23; border: 1px solid #4a515b; border-radius: 6px; padding: 11px 13px; }
+    .node .t { font-weight: 600; font-size: 13px; }
+    .node .s { color: #b7bcc2; font-size: 11.5px; line-height: 17px; margin-top: 3px; }
+    .accent { border-color: #006fff; }
+    .accent-bar { border-left: 3px solid #006fff; }
+    .green { color: #27c07f; }
+    .green-bar { border-left: 3px solid #27c07f; }
+    .warn { color: #c8a63a; }
+    .warn-bar { border-left: 3px solid #9a7b1e; }
+    .arrow { display: flex; align-items: center; justify-content: center; color: #4a515b; flex-shrink: 0; font-size: 16px; }
+    .tag { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700;
+      letter-spacing: 0.04em; padding: 2px 7px; border-radius: 100px; border: 1px solid #2c3138; color: #b7bcc2; }
+    .tag.b { color: #006fff; border-color: #1d4b8f; }
+    .tag.g { color: #27c07f; border-color: #1e5f45; }
+    .tag.w { color: #c8a63a; border-color: #5a4a1a; }
+    .pip { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+      color: #737c87; padding: 0 10px 7px 0; border-bottom: 1px solid #2c3138; }
+    td { padding: 8px 10px 8px 0; border-bottom: 1px solid #21262c; vertical-align: top; line-height: 18px; }
+    tr:last-child td { border-bottom: none; }
+    .rule { background: #131416; border: 1px solid #4a515b; border-left: 3px solid #006fff; border-radius: 5px; padding: 11px 14px; }
+    .rule b { font-weight: 600; }
+    .foot { color: #737c87; font-size: 11px; border-top: 1px solid #2c3138; padding-top: 10px; }
+  </style>
+</helmet>
+<div class="board">
+  <div class="head">
+    <div>
+      <div class="eyebrow">App Shell &middot; Phase 3 design</div>
+      <h1>Three ways in, one source of truth</h1>
+    </div>
+    <div class="head-note">Every path runs through the same <span class="mono">Apply</span> &mdash; allowlist, revision, audit. There is no second store and no boot-time file the service trusts over its own rows.</div>
+  </div>
+
+  <div class="row">
+    <div class="panel grow accent-bar">
+      <h3>1 &middot; Operator curation</h3>
+      <div class="node"><div class="t">Admin UI upsert</div><div class="s"><span class="mono">If-Match</span> on the held revision &rarr; 409 on a stale write, 428 with no revision at all.</div></div>
+      <div class="s muted" style="margin-top:10px;">Audit actor <span class="mono">admin</span>. Disable, never delete.</div>
+    </div>
+
+    <div class="panel grow green-bar">
+      <h3>2 &middot; Preload seeding</h3>
+      <div class="node"><div class="t">Seed file read at service start</div><div class="s">Inserts <b>only ids the store has never seen</b>, through the normal write path.</div></div>
+      <div class="s muted" style="margin-top:10px;">Audit actor <span class="mono">preload</span>. An entry the operator has since edited or disabled is <b>never</b> reverted by a restart &mdash; which is decision 24's whole objection, answered.</div>
+    </div>
+
+    <div class="panel grow warn-bar">
+      <h3>3 &middot; Service announcement</h3>
+      <div class="node"><div class="t">Service publishes a signed manifest on start</div><div class="s">Verified server-side against the trusted-publishers table before anything is stored.</div></div>
+      <div class="s muted" style="margin-top:10px;">Audit actor is the <b>publisher key</b>. Recorded as <span class="mono">announced</span> &mdash; stored, and served to no shell.</div>
+    </div>
+  </div>
+
+  <div class="arrow" style="font-size:20px;">&darr;</div>
+
+  <div class="panel accent" style="border-width:2px;">
+    <h3>The gate</h3>
+    <div class="row" style="align-items:center;">
+      <div class="grow">
+        <div style="font-size:16px; font-weight:600; margin-bottom:5px;">Announce &ne; activate</div>
+        <div class="muted" style="font-size:12px; line-height:19px;">
+          A service may say &ldquo;I exist, here is my manifest, here is my signature.&rdquo; It may not say &ldquo;put this in every operator's browser.&rdquo;
+          A <b>new</b> id is a one-click approval; an id the operator has <b>already enabled</b> comes back on its own after a restart, with no human in the loop.
+        </div>
+      </div>
+      <div class="node" style="width: 300px; flex-shrink:0;">
+        <div class="t">Changed remote URL on an enabled id</div>
+        <div class="s">Auto-follow <b>within the same origin</b>; re-approve <b>across origins</b>. Deploys stay quiet, substitutions do not.</div>
+      </div>
+    </div>
+    <div class="rule" style="margin-top:14px;">
+      <b>BR-AS21 relaxes, it does not disappear.</b> &ldquo;No self-registration by any transport&rdquo; becomes &ldquo;self-registration permitted with a verified publisher key, and never self-activation.&rdquo;
+    </div>
+  </div>
+
+  <div class="arrow" style="font-size:20px;">&darr;</div>
+
+  <div class="row">
+    <div class="panel grow">
+      <h3>Registry &mdash; service state</h3>
+      <div class="node green-bar"><div class="t">Postgres</div><div class="s">Source of truth. <b>Signed manifest bytes stored verbatim</b>; the columns are a derived projection for querying and display.</div></div>
+      <div class="s warn" style="margin-top:10px; font-size:11.5px; line-height:17px;">Schema consequence: today the service reassembles the document from columns, and any reassembly invalidates a signature. Cheap to change now, expensive after Phase 3.</div>
+    </div>
+    <div class="arrow">&rarr;</div>
+    <div class="panel grow">
+      <h3>KV cache</h3>
+      <div class="node"><div class="t mono" style="font-size:12px;">registry / _platform.frontend-plugins.current</div><div class="s">Whole document, write-through, miss falls to Postgres &mdash; so no reader can assemble a catalog that existed at no revision.</div></div>
+    </div>
+    <div class="arrow">&rarr;</div>
+    <div class="panel grow">
+      <h3>Notify</h3>
+      <div class="node accent-bar"><div class="t mono" style="font-size:12px;">notify._platform.registry .frontend-plugins.changed</div><div class="s">Revision only. Every subscribed shell answers with a conditional read.</div></div>
+    </div>
+  </div>
+
+  <div class="foot">Missing today and closed by path 3: the Admin panel has no &ldquo;Add plugin&rdquo; affordance at all &mdash; a new manifest can only arrive by curl or by the seeder.</div>
+</div>
+</x-dc>
+</body>
+</html>

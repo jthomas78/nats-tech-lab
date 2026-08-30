@@ -13,18 +13,33 @@
   it must not cost the *same* plugin its other contributions: a plugin whose
   footer item targets a full region still gets its route. The Plugins screen
   reads `refusals` to explain what is missing and why.
+
+  The collections below are reactive, and that is decision 47 rather than a
+  convenience. Every getter here hands back a copy — `[...routes]` — so a
+  reader's `computed(() => shell.contributions.navigation)` evaluated once
+  over a plain array and registered ZERO dependencies: a plugin added to a
+  running shell got its route record and never appeared in the nav. Tracking
+  belongs at the source, because the copy is the whole point of the getter and
+  no future reader should have to know the rule. The placement RULES stay
+  framework-free — what is reactive is the container the rules write into,
+  not the deciding.
 */
+
+import { reactive } from 'vue'
 
 import { PLUGIN_STATUS } from '../registry/pluginStatus.js'
 
 export function createContributionRegistry({ extensionPoints, permissions }) {
-  const routes = []
-  const navigation = []
-  const extensions = new Map() // point id -> contribution[]
-  const shellControls = []
-  const footerItems = []
-  const refusals = []
-  const byQualifiedId = new Map()
+  const routes = reactive([])
+  const navigation = reactive([])
+  const extensions = reactive(new Map()) // point id -> contribution[]
+  const shellControls = reactive([])
+  const footerItems = reactive([])
+  const refusals = reactive([])
+  const byQualifiedId = reactive(new Map())
+  /* Deliberately NOT reactive: bookkeeping the index reads to decide, never
+     state a reader can see. Proxying it would cost every lookup and track a
+     dependency nothing renders. */
   const routePrefixOwners = new Map() // prefix -> plugin id
   /* Indexing is no longer a once-per-boot event: BR-AS19 lets an entry added
      to the registry be placed into a running shell (decision 26). The arrays

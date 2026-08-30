@@ -1,0 +1,187 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0; background: #131416; color: #dee0e3;
+      font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased;
+    }
+    .board { padding: 28px 32px 32px; display: flex; flex-direction: column; gap: 20px; min-height: 100vh; }
+    .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px;
+      border-bottom: 1px solid #2c3138; padding-bottom: 14px; }
+    .eyebrow { font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: #737c87; margin-bottom: 5px; }
+    h1 { margin: 0; font-size: 21px; line-height: 27px; font-weight: 600; letter-spacing: -0.01em; }
+    .head-note { color: #b7bcc2; font-size: 12px; max-width: 420px; text-align: right; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+    .muted { color: #b7bcc2; }
+    .dim { color: #737c87; }
+    .panel { background: #1a1e23; border: 1px solid #2c3138; border-radius: 6px; padding: 14px 16px; }
+    .panel h3 { margin: 0 0 10px; font-size: 10px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; color: #737c87; }
+    .row { display: flex; gap: 14px; align-items: stretch; }
+    .col { display: flex; flex-direction: column; gap: 14px; }
+    .grow { flex: 1; min-width: 0; }
+    .node { background: #1a1e23; border: 1px solid #4a515b; border-radius: 6px; padding: 11px 13px; }
+    .node .t { font-weight: 600; font-size: 13px; }
+    .node .s { color: #b7bcc2; font-size: 11.5px; line-height: 17px; margin-top: 3px; }
+    .accent { border-color: #006fff; }
+    .accent-bar { border-left: 3px solid #006fff; }
+    .green { color: #27c07f; }
+    .green-bar { border-left: 3px solid #27c07f; }
+    .warn { color: #c8a63a; }
+    .warn-bar { border-left: 3px solid #9a7b1e; }
+    .arrow { display: flex; align-items: center; justify-content: center; color: #4a515b; flex-shrink: 0; font-size: 16px; }
+    .tag { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700;
+      letter-spacing: 0.04em; padding: 2px 7px; border-radius: 100px; border: 1px solid #2c3138; color: #b7bcc2; }
+    .tag.b { color: #006fff; border-color: #1d4b8f; }
+    .tag.g { color: #27c07f; border-color: #1e5f45; }
+    .tag.w { color: #c8a63a; border-color: #5a4a1a; }
+    .pip { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+      color: #737c87; padding: 0 10px 7px 0; border-bottom: 1px solid #2c3138; }
+    td { padding: 8px 10px 8px 0; border-bottom: 1px solid #21262c; vertical-align: top; line-height: 18px; }
+    tr:last-child td { border-bottom: none; }
+    .rule { background: #131416; border: 1px solid #4a515b; border-left: 3px solid #006fff; border-radius: 5px; padding: 11px 14px; }
+    .rule b { font-weight: 600; }
+    .foot { color: #737c87; font-size: 11px; border-top: 1px solid #2c3138; padding-top: 10px; }
+  </style>
+</helmet>
+<div class="board">
+  <div class="head">
+    <div>
+      <div class="eyebrow">App Shell &middot; Phase 3 design</div>
+      <h1>How a plugin loads &mdash; static and dynamic</h1>
+    </div>
+    <div class="head-note">The two classes differ only in <b>how they arrive</b> and <b>how they leave</b>. From the first navigation onward the load path is byte-for-byte the same code.</div>
+  </div>
+
+  <style>
+    .seq-title { font-size: 13px; line-height: 18px; color: #b7bcc2; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 8px; }
+    .seq-title b { color: #dee0e3; }
+    .seq { position: relative; }
+    .seq-head { display: grid; grid-template-columns: repeat(10, 1fr); margin-bottom: 8px; }
+    .part { grid-column: span 2; text-align: center; }
+    .part .box { display: inline-block; background: #1a1e23; border: 1px solid #4a515b; border-radius: 5px;
+      padding: 6px 10px; font-size: 11.5px; font-weight: 600; line-height: 15px; }
+    .part .sub { color: #737c87; font-size: 10px; margin-top: 3px; }
+    .seq-body { position: relative; display: grid; grid-template-columns: repeat(10, 1fr); row-gap: 0; padding: 6px 0 2px; }
+    .lines { position: absolute; inset: 0; pointer-events: none; }
+    .lines i { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed #343b44; }
+    .msg { position: relative; z-index: 1; padding: 7px 0 9px; }
+    .msg .lbl { font-size: 11.5px; line-height: 16px; padding: 0 8px 4px; }
+    .msg .lbl .n { color: #737c87; font-weight: 700; margin-right: 6px; }
+    .msg .ln { height: 0; border-top: 1px solid #6b7784; position: relative; }
+    .msg .ln::after { content: ''; position: absolute; top: -4px; right: -1px;
+      border-left: 7px solid #6b7784; border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
+    .msg.rtl .ln::after { left: -1px; right: auto; border-left: none;
+      border-right: 7px solid #6b7784; }
+    .msg.b .ln { border-top-color: #006fff; }
+    .msg.b .ln::after { border-left-color: #006fff; border-right-color: #006fff; }
+    .msg.g .ln { border-top-color: #27c07f; }
+    .msg.g .ln::after { border-left-color: #27c07f; border-right-color: #27c07f; }
+    .msg.w .ln { border-top-color: #9a7b1e; }
+    .msg.w .ln::after { border-left-color: #9a7b1e; border-right-color: #9a7b1e; }
+    .msg.dash .ln { border-top-style: dashed; }
+    .self { position: relative; z-index: 1; padding: 7px 0 9px; }
+    .self .box { background: #1a1e23; border: 1px solid #4a515b; border-left: 3px solid #4a515b;
+      border-radius: 4px; padding: 6px 10px; font-size: 11.5px; line-height: 16px; }
+    .self.b .box { border-left-color: #006fff; }
+    .self.g .box { border-left-color: #27c07f; }
+    .self.w .box { border-left-color: #9a7b1e; }
+    .self .box .n { color: #737c87; font-weight: 700; margin-right: 6px; }
+    .band { grid-column: 1 / 11; position: relative; z-index: 1; margin: 9px 0;
+      border-top: 1px solid #2c3138; border-bottom: 1px solid #2c3138; background: #16233a;
+      padding: 6px 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; color: #4a97ff; text-align: center; }
+    .band.q { background: #1a1e23; color: #737c87; }
+  </style>
+
+  <div class="panel">
+    <div class="seq-title"><span class="tag b">Static</span> <b>curated or preloaded</b> &mdash; registered before paint, loaded on first use</div>
+    <div class="seq">
+      <div class="seq-head">
+        <div class="part"><span class="box">Shell</span><div class="sub">bootShell</div></div>
+        <div class="part"><span class="box">Registry</span><div class="sub">accounts-service</div></div>
+        <div class="part"><span class="box">Contributions</span><div class="sub">nav / routes</div></div>
+        <div class="part"><span class="box">Loader</span><div class="sub">pluginLoader</div></div>
+        <div class="part"><span class="box">Remote</span><div class="sub">remoteEntry.js</div></div>
+      </div>
+      <div class="seq-body">
+        <div class="lines"><i style="left:10%"></i><i style="left:30%"></i><i style="left:50%"></i><i style="left:70%"></i><i style="left:90%"></i></div>
+
+        <div class="self b" style="grid-column: 2 / 6;"><div class="box"><span class="n">1</span>index built-ins &mdash; nav tree and route table placed, <b>zero chunks fetched</b></div></div>
+        <div class="band">First paint &mdash; the shell is usable</div>
+
+        <div class="msg b" style="grid-column: 2 / 4;"><div class="lbl"><span class="n">2</span>connect + mint credential, then read at revision N</div><div class="ln"></div></div>
+        <div class="msg b rtl" style="grid-column: 2 / 4;"><div class="lbl"><span class="n">3</span>document &mdash; curated and preloaded entries, allowlist-filtered</div><div class="ln"></div></div>
+        <div class="msg b" style="grid-column: 2 / 6;"><div class="lbl"><span class="n">4</span>admit &rarr; index &mdash; nav and routes placed, <b>still no chunk fetched</b></div><div class="ln"></div></div>
+
+        <div class="band q">&mdash;&mdash; user clicks the nav item &mdash;&mdash;</div>
+
+        <div class="msg" style="grid-column: 6 / 8;"><div class="lbl"><span class="n">5</span>route resolves &rarr; load(remote), at most once</div><div class="ln"></div></div>
+        <div class="msg" style="grid-column: 8 / 10;"><div class="lbl"><span class="n">6</span>fetch container, resolve exposed module</div><div class="ln"></div></div>
+        <div class="msg rtl" style="grid-column: 8 / 10;"><div class="lbl"><span class="n">7</span>module &rarr; activate() &rarr; contributions render</div><div class="ln"></div></div>
+
+        <div class="msg w rtl dash" style="grid-column: 8 / 10;"><div class="lbl"><span class="n">7a</span><span class="warn">failure branch</span> &mdash; chunk-load-failed / activate-threw &rarr; inline PluginErrorView, stage and cause only</div><div class="ln"></div></div>
+
+        <div class="band q">&mdash;&mdash; later: the operator removes, edits or disables the entry &mdash;&mdash;</div>
+
+        <div class="msg w rtl" style="grid-column: 2 / 4;"><div class="lbl"><span class="n">8</span>notify &rarr; conditional read &rarr; diff finds a difference that is not a new id</div><div class="ln"></div></div>
+        <div class="self w" style="grid-column: 2 / 6;"><div class="box"><span class="n">9</span><b>pendingReload banner</b> &mdash; offered, never applied. The plugin keeps rendering; the browser's own reload is the only thing that changes it. <span class="mono">BR-AS19</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="seq-title"><span class="tag g">Dynamic</span> <b>announced by a service</b> &mdash; arrives and leaves while the shell runs</div>
+    <div class="seq">
+      <div class="seq-head">
+        <div class="part"><span class="box">Service</span><div class="sub">the MFE's backend</div></div>
+        <div class="part"><span class="box">Registry</span><div class="sub">verify &middot; store &middot; notify</div></div>
+        <div class="part"><span class="box">Admin</span><div class="sub">operator</div></div>
+        <div class="part"><span class="box">Shell</span><div class="sub">+ contributions</div></div>
+        <div class="part"><span class="box">Remote</span><div class="sub">remoteEntry.js</div></div>
+      </div>
+      <div class="seq-body">
+        <div class="lines"><i style="left:10%"></i><i style="left:30%"></i><i style="left:50%"></i><i style="left:70%"></i><i style="left:90%"></i></div>
+
+        <div class="msg g" style="grid-column: 2 / 4;"><div class="lbl"><span class="n">1</span>service starts &rarr; announces its signed manifest</div><div class="ln"></div></div>
+        <div class="self g" style="grid-column: 2 / 6;"><div class="box"><span class="n">2</span>verify NKey signature &rarr; check origin allowlist &rarr; store as <b>announced</b>. Unsigned is refused outright, not queued. <b>Served to no shell.</b></div></div>
+        <div class="msg g rtl" style="grid-column: 4 / 6;"><div class="lbl"><span class="n">3</span>appears in the Admin pending tier &mdash; who announced, its remote, its contributions</div><div class="ln"></div></div>
+        <div class="msg g" style="grid-column: 4 / 6;"><div class="lbl"><span class="n">4</span><b>operator enables</b> &mdash; the only gate a machine cannot pass &rarr; revision N+1</div><div class="ln"></div></div>
+        <div class="msg b" style="grid-column: 4 / 8;"><div class="lbl"><span class="n">5</span>notify (revision only) &rarr; shell answers with a conditional read</div><div class="ln"></div></div>
+        <div class="self b" style="grid-column: 4 / 8;"><div class="box"><span class="n">6</span>diff finds a <b>new id</b> &rarr; admit &rarr; index. Nav item and route appear <b>in the running shell</b>, no reload, no chunk fetched.</div></div>
+
+        <div class="band">From here the load path is identical to static &mdash; steps 5 to 7 above</div>
+
+        <div class="msg" style="grid-column: 8 / 10;"><div class="lbl"><span class="n">7</span>first navigation &rarr; fetch, activate, render</div><div class="ln"></div></div>
+
+        <div class="band q">&mdash;&mdash; the service goes away &mdash;&mdash;</div>
+
+        <div class="msg w dash" style="grid-column: 2 / 8;"><div class="lbl"><span class="n">8</span>disconnect observed &rarr; <b>debounced red dot</b> beside the nav item</div><div class="ln"></div></div>
+        <div class="self w" style="grid-column: 4 / 8;"><div class="box"><span class="n">9</span>Contributions untouched. A restart or deploy must never yank a feature mid-session &mdash; health decorates, it never removes.</div></div>
+
+        <div class="band q">&mdash;&mdash; explicit unregister, or the operator disables it &mdash;&mdash;</div>
+
+        <div class="msg" style="grid-column: 4 / 8; " ><div class="lbl"><span class="n">10</span>notify &rarr; conditional read &rarr; diff finds a removal on a <b>dynamic</b> entry</div><div class="ln"></div></div>
+        <div class="self" style="grid-column: 4 / 8;"><div class="box" style="border-left-color:#8a4a4a;"><span class="n">11</span><b>withdraw</b> &mdash; the plugin's routes, nav items, extensions, controls and footer items are removed. The federated module stays resident; nothing can un-evaluate it.</div></div>
+        <div class="self" style="grid-column: 4 / 8;"><div class="box" style="border-left-color:#8a4a4a;"><span class="n">12</span>If a user is standing on one of its routes: <b>in-place tombstone</b>. The route resolves for that occupant and for no new navigation.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">Steps 5&ndash;7 of the static sequence are the whole loading story for both classes &mdash; <span class="mono">pluginLoader</span> owns when and at-most-once, and federation only ever answers &ldquo;fetch this container, give me this module&rdquo;. Registration decides what is in the nav; it never decides what is downloaded.</div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -19,13 +19,19 @@ const pending = computed(() => shell.pendingReload ?? [])
 const visible = computed(() => pending.value.length > 0 && !dismissed.value)
 
 const summary = computed(() => {
-  const removed = pending.value.filter((p) => p.reason === RELOAD_REASON.REMOVED)
-  const moved = pending.value.filter((p) => p.reason === RELOAD_REASON.REMOTE_CHANGED)
+  const of = (reason) => pending.value.filter((p) => p.reason === reason)
+  const removed = of(RELOAD_REASON.REMOVED)
+  const moved = of(RELOAD_REASON.REMOTE_CHANGED)
+  /* Decision 46 made this the common case rather than the exotic one: any
+     curated edit that is not a new id lands here, so a missing clause would
+     leave the banner announcing a change and then naming nothing. */
+  const edited = of(RELOAD_REASON.CHANGED)
   const parts = []
   /* Named, not counted, while the list is short: "Fleet Ops" tells the user
      whether the thing they are standing in is the thing that changed. */
   if (removed.length) parts.push(`${label(removed)} withdrawn from the catalog`)
   if (moved.length) parts.push(`${label(moved)} now served from a different build`)
+  if (edited.length) parts.push(`${label(edited)} edited in the catalog`)
   return parts.join('; ')
 })
 
@@ -49,8 +55,10 @@ const reload = () => globalThis.location?.reload?.()
   >
     <i class="pi pi-sync" />
     <span class="text">
-      <b>The plugin catalog changed.</b>
-      <span data-testid="registry-signal-summary"> {{ summary }}. Still running until you reload.</span>
+      <!-- One line on purpose: Vue's whitespace condensing drops the gap
+           between two elements separated by a newline, which ran the bold
+           sentence into the summary. -->
+      <b>The plugin catalog changed.</b> <span data-testid="registry-signal-summary">{{ summary }}. Still running until you reload.</span>
     </span>
     <span
       class="rev"

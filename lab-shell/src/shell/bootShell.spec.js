@@ -261,3 +261,58 @@ describe('the inventory tracks transitions that happen after boot', () => {
     expect(shell.loader).toBeDefined()
   })
 })
+
+describe('BR-AS22 / decision 48 — degraded is a state the shell leaves', () => {
+  const twoPlugins = { ok: true, revision: 12, etag: '"12"', plugins: [manifest('fleet-ops')] }
+
+  it('holds what it has and offers no reload when a read comes back degraded', async () => {
+    const shell = await bootShell({ registryClient: client(twoPlugins), permissions })
+
+    shell.applyRegistry({ ok: true, degraded: true, plugins: [] })
+
+    expect(shell.registry.degraded).toBe(true)
+    // An empty degraded document is not the claim "everything was withdrawn".
+    expect(shell.pendingReload).toHaveLength(0)
+    expect(shell.contributions.navigation).toHaveLength(1)
+    // Held revision survives: the shell still knows what it is running.
+    expect(shell.registry.revision).toBe(12)
+  })
+
+  it('drops the conditional token when it degrades, so recovery is unconditional', async () => {
+    const shell = await bootShell({ registryClient: client(twoPlugins), permissions })
+    expect(shell.registry.etag).toBe('"12"')
+
+    shell.applyRegistry({ ok: true, degraded: true, plugins: [] })
+
+    expect(shell.registry.etag).toBeNull()
+  })
+
+  it('recovers at the same revision — the case that answers 304', async () => {
+    /* The one-way door, in the order it actually happened: degrade, then
+       recover with nothing having changed server-side. Keeping the pre-outage
+       ETag made the recovery read a 304, and the `unchanged` guard used to sit
+       ABOVE the line that clears `degraded` — so the shell stayed degraded on
+       screen until something else was published. */
+    const shell = await bootShell({ registryClient: client(twoPlugins), permissions })
+    shell.applyRegistry({ ok: true, degraded: true, plugins: [] })
+
+    // Same revision, no document: exactly what a recovered service answers to
+    // an unconditional read it can satisfy from cache, or to a 304.
+    shell.applyRegistry({ ok: true, unchanged: true, etag: '"12"' })
+
+    expect(shell.registry.degraded).toBe(false)
+    expect(shell.registry.etag).toBe('"12"')
+    expect(shell.registry.revision).toBe(12)
+  })
+
+  it('clears degraded on a failed read too, by refusing to keep a token it cannot trust', async () => {
+    const shell = await bootShell({ registryClient: client(twoPlugins), permissions })
+
+    shell.applyRegistry({ ok: false, code: 'registry-unreachable', message: '' })
+
+    expect(shell.registry.etag).toBeNull()
+    expect(shell.registryError.code).toBe('registry-unreachable')
+    // Still running everything it had.
+    expect(shell.contributions.navigation).toHaveLength(1)
+  })
+})

@@ -30,15 +30,33 @@ func NewStore(db *sql.DB, allowlist domain.Allowlist) *Store {
 // the admin surface has to see a disabled or newly non-conforming entry in
 // order to fix it, and the shell must not.
 func (s *Store) Current(ctx context.Context) (domain.Document, error) {
+	return currentDoc(ctx, s.db)
+}
+
+// querier is the intersection of *sql.DB and *sql.Tx that current needs.
+//
+// It exists so a write can read back the document it installed from INSIDE
+// its own transaction (decision 49). Reading it afterwards on the request
+// context looked equivalent and was not: the commit had already happened, so
+// a client that hung up in that window made Apply return an error for a
+// durably applied write — audited as a refusal, answered 500, and the cache
+// refresh and the change notification skipped, leaving every shell holding a
+// revision the database no longer had.
+type querier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func currentDoc(ctx context.Context, q querier) (domain.Document, error) {
 	var revision int64
-	if err := s.db.QueryRowContext(ctx, `SELECT revision FROM registry.revision WHERE only_row`).Scan(&revision); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT revision FROM registry.revision WHERE only_row`).Scan(&revision); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			revision = domain.NoRevision
 		} else {
 			return domain.Document{}, err
 		}
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, enabled, entry FROM registry.entries ORDER BY id`)
+	rows, err := q.QueryContext(ctx, `SELECT id, enabled, entry FROM registry.entries ORDER BY id`)
 	if err != nil {
 		return domain.Document{}, err
 	}
@@ -70,7 +88,9 @@ func (s *Store) Current(ctx context.Context) (domain.Document, error) {
 // Everything happens in one transaction against a locked revision row, so a
 // second writer either waits or is refused — never merged (BR-AS18). A
 // refusal is audited on its own connection, after the rollback, because a
-// rolled-back audit row is no audit at all.
+// rolled-back audit row is no audit at all — and every error path below is a
+// path that did NOT commit, which is the property that makes auditing them
+// all as refusals true (decision 49).
 func (s *Store) Apply(ctx context.Context, w domain.Write) (domain.Document, error) {
 	if err := w.Validate(); err != nil {
 		s.auditRefusal(ctx, w, err)
@@ -142,10 +162,20 @@ func (s *Store) apply(ctx context.Context, w domain.Write) (domain.Document, err
 		next, w.Op, w.EntryID, w.Actor, domain.AuditAccepted); err != nil {
 		return domain.Document{}, err
 	}
+	// Read back before the commit, not after. Inside the transaction this is
+	// the document the write installs, under the same revision lock that
+	// decided it — so it cannot race a later writer, and it cannot be lost to
+	// a cancellation that arrives once the write is already durable.
+	doc, err := currentDoc(ctx, tx)
+	if err != nil {
+		return domain.Document{}, err
+	}
+	// The last statement that can fail. Every error path above this line
+	// rolled back, which is what lets Apply audit them all as refusals.
 	if err := tx.Commit(); err != nil {
 		return domain.Document{}, err
 	}
-	return s.Current(ctx)
+	return doc, nil
 }
 
 // auditRefusal records a write that was not applied. Best effort by design:
@@ -160,7 +190,11 @@ func (s *Store) auditRefusal(ctx context.Context, w domain.Write, cause error) {
 	if op == "" {
 		op = "unknown"
 	}
-	_, _ = s.db.ExecContext(ctx,
+	// Detached from the caller's context: the audit row is the record that a
+	// write was refused, and a client hanging up is one of the ways a write
+	// gets refused. Cancelling the audit with the request would lose exactly
+	// the entries an operator most needs.
+	_, _ = s.db.ExecContext(context.WithoutCancel(ctx),
 		`INSERT INTO registry.audit (revision, op, entry_id, actor, outcome, detail) VALUES (NULL, $1, $2, $3, $4, $5)`,
 		op, w.EntryID, actor, domain.AuditRefused, cause.Error())
 }

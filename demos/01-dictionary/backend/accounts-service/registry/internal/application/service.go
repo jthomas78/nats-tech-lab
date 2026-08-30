@@ -96,12 +96,22 @@ func (s *Service) Apply(ctx context.Context, w domain.Write) (domain.Document, e
 	if err != nil {
 		return domain.Document{}, err
 	}
+	/*
+		Past this line the write is durable, so the two steps that follow run
+		on a context that outlives the request (decision 49). They are not
+		optional work — the cache is what keeps shells booting through a
+		Postgres outage, and the notification is what makes BR-AS19's live
+		change live. Leaving them on the request context meant a client that
+		hung up between the commit and here left the KV copy stale and every
+		watching shell unaware of a revision that had already happened.
+	*/
+	after := context.WithoutCancel(ctx)
 	if s.cache != nil {
-		if putErr := s.cache.Put(ctx, doc); putErr != nil {
+		if putErr := s.cache.Put(after, doc); putErr != nil {
 			s.logWarn("registry: write committed but the read cache was not refreshed", putErr)
 		}
 	}
-	s.notifier.Publish(ctx, NotifySubject(), nil)
+	s.notifier.Publish(after, NotifySubject(), nil)
 	return doc, nil
 }
 

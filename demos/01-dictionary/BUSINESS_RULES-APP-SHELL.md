@@ -101,11 +101,22 @@ A plugin extends the application only through the published contribution
 contract. It must not mount another top-level shell, replace global
 providers, or manipulate shell DOM.
 
-**Testable (runtime):** a plugin that attempts to mount a second `AppShell`,
-or to write outside its assigned container, is contained — the shell's own
-chrome is unchanged after the attempt, and the offending contribution is
-recorded `failed`. Assert the shell's topbar/sidebar DOM is identical before
-and after.
+**Testable (runtime), narrowed to what the code actually enforces:** the
+shell offers a plugin no channel other than its contributions — it is placed
+into a container the host chose, and nothing in the contract hands it the
+router, the theme or the shell's own DOM. A contribution the registry refuses
+is recorded in `refusals` and never placed, and a contribution that throws on
+activation transitions its plugin to `failed` with the rest of the shell
+still rendering.
+
+What is **not** claimed: containment. A plugin's code runs in the shell's JS
+realm with full access to `document`, so a plugin determined to mount a second
+`AppShell` or write outside its container can, and no assertion in this repo
+prevents it. The rule is a contract plugins are expected to honour, enforced
+by review and by the registry being curated (BR-AS01) — not a sandbox. Stating
+it as though the shell contained a hostile plugin would be a false claim, and
+it is the same realm-sharing fact that makes BR-AS25 a security rule rather
+than a hygiene one.
 
 ### BR-AS09 — One global UI frame
 
@@ -536,7 +547,7 @@ again.
 | BR-AS04 — a live inventory | `bootShell.spec.js` — a transition after boot is observed by `inventory`, both directly and through the composed object the app provides |
 | BR-AS01 — no browser-nominated remotes | the four failure modes are curated registry entries, not query parameters — the shell offers no channel by which a browser could select one |
 
-## Phase 2 — the registry as service state (BR-AS16 to BR-AS24)
+## Phase 2 — the registry as service state (BR-AS16 to BR-AS26)
 
 Confirmed at the design gate on 2026-08-28, alongside decisions 22–46 in
 `.claude/plans/Application-Shell-Microfrontend-Plan.md`. Not yet implemented —
@@ -562,7 +573,23 @@ survive the Phase 6 move (decision 40).
   endpoint, triggered on window focus and on a slow interval. A shell with an
   active plugin whose entry was removed keeps rendering it and offers a reload:
   the status machine has no transition out of `active`, so a reload is the only
-  sound way to apply a removal. Additions may be indexed live.
+  sound way to apply a removal.
+
+  **A new entry id is the only difference a running shell may apply to itself
+  (decision 46).** Every other difference between the entry it holds and the
+  entry that arrives — a changed label, order, route prefix, permission,
+  version, remote or contribution list — is a reload offer. The rule is stated
+  as a whitelist because the write path is `ON CONFLICT DO UPDATE`, which
+  replaces the whole entry: a single transaction that edits plugin A and adds
+  plugin B arrives as one document, and a shell that applies only the addition
+  is left holding a catalog that existed at no revision. The comparison is a
+  deep equality over the *validated* manifest, so the two sides are normalised
+  the same way before they are compared.
+
+  A live addition must reach the **screen**, not only the shell's collections:
+  the contribution state is reactive at its source, because a reader's
+  `computed()` over a getter that returns a copy registers no dependency and is
+  never invalidated.
 - **BR-AS20 — Origin allowlist, enforced on write and on read.** An entry whose
   remote URL is not on the service's configured origin allowlist is refused at
   write time **and** withheld at read time. The read-side check is not
@@ -578,6 +605,13 @@ survive the Phase 6 move (decision 40).
   and a degraded response is distinguishable from a genuinely empty registry.
   There is no server-side "built-in set" to serve: built-ins ship inside the
   shell's own bundle and are deliberately never curated.
+
+  **Degraded is a state the shell leaves (decision 48).** It is cleared on any
+  successful read, a `304` included, and a read the shell could not complete —
+  failed or degraded — discards the conditional token so the next read is
+  unconditional. Both halves are needed for the same case: recovery at an
+  unchanged revision is exactly what answers `304`, so keeping a pre-outage
+  ETag and clearing the flag only on a document made degraded a one-way door.
 - **BR-AS23 — The audit records the surface, not an identity.** Every accepted
   and every refused write appends an audit row whose actor is the shared
   administrative identity the request authenticated as. The rule is deliberately
@@ -587,6 +621,28 @@ survive the Phase 6 move (decision 40).
 - **BR-AS24 — An entry is disabled, never deleted.** No transport removes a
   registry row. A disabled entry is withheld from the read and its history is
   retained.
+- **BR-AS25 — The shell's origin holds read capability only.** The endpoint a
+  shell reads is served ungated; every route that curates the registry —
+  both writes and the two admin reads that disclose withheld entries — is
+  behind the operator credential, and no credential that opens them is ever
+  presented from the shell's origin. This is not a preference for least
+  privilege. Federated plugin code executes in the shell's own JS realm, so
+  **any credential the shell's origin can use is a credential every loaded
+  plugin holds**; a shell that authenticated its read with the operator
+  credential would hand each plugin the ability to curate the registry that
+  curates it (BR-AS21 defeated from inside the browser). A dev proxy rule is a
+  *prefix*, so gating "the registry endpoint" gates the write routes with it —
+  the split is enforced at the mount, not at the proxy. The ungated read
+  discloses nothing extra: it is already filtered for a reader, so disabled and
+  non-conforming entries are withheld from it.
+- **BR-AS26 — A committed write is reported as committed.** Once the write
+  transaction commits, no later failure may be reported to the caller as a
+  refusal, audited as one, or allowed to skip the cache refresh and the change
+  notification. The document a write answers with is read back inside its own
+  transaction, and the post-commit steps run on a context detached from the
+  request — a caller that hangs up after the commit must not leave the audit
+  disagreeing with the database or every watching shell unaware of a revision
+  that already happened.
 
 ### How Phase 2's rules are checked
 
@@ -597,16 +653,26 @@ records what a rule is checked *by* today as well as what it will be checked by,
 because several of these rules hold right now for the accidental reason that no
 write path exists at all.
 
+The admin surface is one nav item, **Frontend Shell**, under the admin UI's
+PLATFORM group, with two tabs — `Plugins` (`FrontendPluginsPanel.vue`) and
+`Registry Audit` (`RegistryAuditPanel.vue`), wrapped by `FrontendShellView.vue`.
+The catalog and its write history are one subject read two ways, so the rules
+below that name either panel are reached through that one item.
+`FrontendShellView.spec.js` holds the tab order and the only-the-active-tab-
+mounts rule.
+
 | Rule | Check |
 | --- | --- |
 | BR-AS16 — service state | *2a, done.* `registry/store_integration_test.go`, against real Postgres: an entry applied through `Apply` is present in the next `Current`, and reads back through a *second* `Store` so nothing is held in process memory |
 | BR-AS17 — monotonic revision | *2a, done.* `domain.NextRevision` in `registry/rules_test.go`; end to end in `store_integration_test.go` — first write is revision 1, three accepted writes are 1/2/3, and `Apply` returns the entries and the revision together. The two setters (`SetCuratedFrontendPlugins`/`SetCuratedFrontendRevision`) are gone with the endpoint |
 | BR-AS18 — revision-checked writes | *2a, done.* `domain.CheckRevision` (both directions — a future revision was never served either); `store_integration_test.go` proves a stale write consumes no revision and stores nothing; `rest_test.go` proves a write with no `If-Match` never reaches the store, and that a stale one answers `409` naming the revision to reapply on top of. *2b, done.* `FrontendPluginsPanel.spec.js` — the panel writes with the revision it read, renders the 409 as a stale-revision notice naming both revisions, and offers a reload rather than a merge or a force |
-| BR-AS19 — notify, never unload | *2c.* `phase2RegistryContract.spec.js` — the conditional read sends `If-None-Match` and reports 304 `unchanged`; the watcher fires on `visibilitychange` and on the interval (`registryWatcher.spec.js`, 9 specs); a removed entry lands in `shell.pendingReload` and leaves its route placed. `registryDiff.spec.js` separates an addition from a removal from a moved remote; `RegistrySignalBanner.spec.js` asserts the bar offers a reload and carries no verb that unloads |
-| BR-AS20 — origin allowlist | *2a, done.* Refused on write (`store_integration_test.go`: nothing stored, revision unmoved) and withheld on read (`rules_test.go`: `Document.Readable` against a narrowed allowlist and an already-stored row, leaving the stored document unmutated). `NewAllowlist(nil)` permits nothing — empty is not allow-all. *2b, done.* `FrontendPluginsPanel.spec.js` — a non-conforming entry is listed as `withheld` rather than dropped, and the 422 is surfaced by stage and cause with neither the URL nor the configured origins echoed back (BR-AS04) |
+| BR-AS19 — notify, never unload | *2c.* `phase2RegistryContract.spec.js` — the conditional read sends `If-None-Match` and reports 304 `unchanged`; the watcher fires on `visibilitychange` and on the interval (`registryWatcher.spec.js`, 9 specs); a removed entry lands in `shell.pendingReload` and leaves its route placed. `registryDiff.spec.js` separates an addition from a removal from a moved remote; `RegistrySignalBanner.spec.js` asserts the bar offers a reload and carries no verb that unloads ; `FrontendPluginsPanel.spec.js` asserts a disabled row still says it keeps running in shells until they reload, and the panel states what a write does and does not do to a shell already running the plugin |
+| BR-AS20 — origin allowlist | *2a, done.* Refused on write (`store_integration_test.go`: nothing stored, revision unmoved) and withheld on read (`rules_test.go`: `Document.Readable` against a narrowed allowlist and an already-stored row, leaving the stored document unmutated). `NewAllowlist(nil)` permits nothing — empty is not allow-all. *2b, done.* `FrontendPluginsPanel.spec.js` — a non-conforming entry is listed as `withheld` rather than dropped, and the 422 is surfaced by stage and cause with neither the URL nor the configured origins echoed back (BR-AS04) . The allowlist itself is shown on the panel as service configuration with no control to widen it |
 | BR-AS21 — no self-registration | *2a, done.* `registry/internal/rest/rest_test.go` pins `Mount`'s route list exactly, so a transport added without a rule fails the test rather than review. `set-enabled` cannot insert: enabling an uncurated id is refused, not created. The old `accounts/frontendplugins_test.go` 405 specs went with the endpoint |
 | BR-AS22 — degrades, does not fail | *2a* for the response shape; *2c* for the shell's handling. `manifestSchema.js` passes `degraded` through, `bootShell.applyRegistry` records it and skips the diff (a document the service could not vouch for is no basis for offering a reload), and `ShellFooter.spec.js` pins the three-way distinction: normal, degraded, and unreachable. `phase2RegistryContract.spec.js` still pins `revision: 0` validating as `"0"`, which is what lets 0 carry the degraded meaning |
 | BR-AS23 — audit records the surface | *2a, done.* `store_integration_test.go`: an accepted write appends a row against the revision it installed, a refused one appends a row with no revision. The actor is `domain.SharedAdminActor` (the literal `admin`), and `rules_test.go` refuses an authorless write outright. *2b, done.* `RegistryAuditPanel.spec.js` — accepted and refused writes are listed together, a refused row shows no revision, and the actor column shows the shared `admin` identity with a note saying so |
 | BR-AS24 — disable, never delete | *2a, done.* `domain.WriteOps()` is an exhaustive list with no delete op, asserted by `registry/rules_test.go`; `rest_test.go` asserts no route is a `DELETE` and that `DELETE` on both entry paths is unreachable on a live mux. A disabled entry is withheld from the read with its row and audit trail intact. *2b, done.* `FrontendPluginsPanel.spec.js` asserts the panel offers enable/disable on every row and no delete affordance anywhere in its markup |
+| BR-AS25 — the shell's origin reads only | *3c, done.* `rest.Mount` splits the surface: `GET /api/registry/frontend-plugins` is mounted ungated, the four operator routes behind the supplied middleware. `rest_test.go`'s `TestShellReadIsUngatedAndEverythingElseIsNot` mounts with a refuse-everything middleware and asserts the shell read still answers `200` while all four others answer `401` — so the split is pinned at the mount, where it is enforced, not at a proxy config no test can see. `lab-shell/vite.config.js` carries no `Authorization` on `/api/platform/registry`; the admin app's copy of the rule keeps it |
+| BR-AS26 — a committed write is reported as committed | *3b, done.* `postgres.Store.apply` reads the installed document through `currentDoc(ctx, tx)` **inside** the transaction and commits last, so every error path it returns is one that rolled back — which is what makes `Apply` auditing them all as refusals true. `auditRefusal` and the post-commit cache refresh and notify run on `context.WithoutCancel(ctx)`. `store_integration_test.go` § decision 49 pins all three: a cancelled caller leaves an *accepted* audit row, an already-dead context still records a refusal, and a refused write moves no revision |
 | decision 27 — the read contract is unchanged | *Now, and this is the load-bearing one.* `phase2RegistryContract.spec.js` characterizes `validateRegistryDocument`: `revision` is accepted as a string *or* a number and stringified, `0` survives, absent is `null` not an error, and a schema-version move rejects the whole document. Phase 2 replaces `"dev-1b"` with a monotonic integer on the strength of these |
 | decision 34 — one endpoint constant | *Now.* `phase2RegistryContract.spec.js` — `createRegistryClient` defaults to the exported `REGISTRY_ENDPOINT` and the path sits under the `/api/platform/` prefix each app rewrites, which is what makes the 2a move a proxy rule plus one constant |

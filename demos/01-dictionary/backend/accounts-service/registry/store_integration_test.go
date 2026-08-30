@@ -246,6 +246,80 @@ var _ = Describe("the registry store", func() {
 		})
 	})
 
+	Context("decision 49 — a committed write is reported as committed", func() {
+		/*
+			The defect this pins: apply() used to commit and then call
+			Current(ctx) on the REQUEST context to read back what it installed.
+			A cancellation in that window — a client hanging up, a proxy
+			timeout, a browser tab closing on a slow write — made Apply return
+			an error for a write that was already durable. The wrapper then
+			audited a refusal for it, answered 500, and skipped both the cache
+			refresh and the change notification. The operator saw a failure,
+			the audit agreed with the operator, and the database disagreed with
+			both.
+
+			Cancelling immediately after Apply returns is the closest a spec
+			can get to "cancelled in that window" without instrumenting the
+			transaction; what makes the case provable is the pair of
+			assertions below — the entry is there, and no refusal was recorded
+			for it.
+		*/
+		It("does not audit a refusal for a write whose caller went away", func() {
+			writeCtx, cancel := context.WithCancel(context.Background())
+			e := federated("example-plugin", "http://localhost:7110/remoteEntry.js")
+			doc, err := store.Apply(writeCtx, domain.Write{
+				Op: domain.OpUpsert, EntryID: "example-plugin", Actor: domain.SharedAdminActor,
+				Entry: &e, IfRevision: domain.NoRevision,
+			})
+			cancel()
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(doc.Entries).To(HaveLen(1), "Apply returns the document it installed, read inside its own transaction")
+			Expect(doc.Revision).To(Equal(int64(1)))
+
+			entries, err := store.Audit(ctx, 10)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(entries).To(HaveLen(1))
+			Expect(entries[0].Outcome).To(Equal(domain.AuditAccepted),
+				"a durable write audited as refused is the one audit entry an operator can never recover from")
+		})
+
+		It("still records a refusal when the caller's context is already cancelled", func() {
+			// The other half: detaching the audit write from the request
+			// context must not be detaching it from correctness. A refusal on
+			// a dead context is still a refusal that has to be recorded.
+			dead, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			_, err := store.Apply(dead, domain.Write{
+				Op: domain.OpUpsert, EntryID: "example-plugin", Actor: domain.SharedAdminActor,
+				Entry: nil, IfRevision: domain.NoRevision,
+			})
+			Expect(err).To(HaveOccurred())
+
+			entries, err := store.Audit(ctx, 10)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(entries).To(HaveLen(1))
+			Expect(entries[0].Outcome).To(Equal(domain.AuditRefused))
+			Expect(entries[0].Revision).To(BeNil())
+		})
+
+		It("leaves nothing behind when the write itself is refused", func() {
+			// The property that makes auditing every apply() error as a
+			// refusal true: every one of those paths rolled back. If any of
+			// them could commit, this revision would have moved.
+			_, err := upsert("plugin-a", domain.NoRevision)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = upsert("plugin-b", domain.NoRevision) // stale IfRevision
+			Expect(err).To(HaveOccurred())
+
+			doc, err := store.Current(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(doc.Revision).To(Equal(int64(1)), "the refused write moved nothing")
+			Expect(doc.Entries).To(HaveLen(1))
+		})
+	})
+
 	Context("BR-AS24 — an entry is disabled, never deleted", func() {
 		It("keeps the row and its audit trail when an entry is disabled", func() {
 			first, err := upsert("example-plugin", domain.NoRevision)

@@ -1,0 +1,91 @@
+<div class="board">
+  <div class="head">
+    <div>
+      <div class="eyebrow">App Shell &middot; Phase 3 design</div>
+      <h1>Boot sequence and change propagation</h1>
+    </div>
+    <div class="head-note">First paint is bounded by the shell's own bundle. No remote chunk is fetched before it, and none is fetched by the registry read &mdash; BR-AS08 holds.</div>
+  </div>
+
+  <div class="panel">
+    <h3>Boot</h3>
+    <div class="row" style="align-items: stretch;">
+      <div class="node grow accent-bar">
+        <div class="t">1 &middot; Bootstrap</div>
+        <div class="s">Shell bundle only. No network, no credential.</div>
+      </div>
+      <div class="arrow">&rarr;</div>
+      <div class="node grow accent-bar">
+        <div class="t">2 &middot; Index built-ins</div>
+        <div class="s">Nav tree and route table placed. <b>Zero remote chunks fetched.</b></div>
+      </div>
+      <div class="arrow">&rarr;</div>
+      <div class="node grow accent" style="border-width: 2px; background: #16233a;">
+        <div class="t" style="color: #4a97ff;">3 &middot; FIRST PAINT</div>
+        <div class="s">The shell is usable. Nothing downstream can delay it.</div>
+      </div>
+      <div class="arrow">&rarr;</div>
+      <div class="node grow green-bar">
+        <div class="t">4 &middot; NATS connect</div>
+        <div class="s">Credential minted by the same path the Admin, Refdata and Seafreight apps already use.</div>
+      </div>
+      <div class="arrow">&rarr;</div>
+      <div class="node grow green-bar">
+        <div class="t">5 &middot; Registry read</div>
+        <div class="s"><span class="mono">api.*</span> request/reply. Revision reconciled; curated, preloaded and enabled dynamic entries admitted.</div>
+      </div>
+      <div class="arrow">&rarr;</div>
+      <div class="node grow warn-bar">
+        <div class="t">6 &middot; First navigation</div>
+        <div class="s">Only now is a remote fetched &mdash; <span class="mono">pluginLoader</span> decides when, at most once.</div>
+      </div>
+    </div>
+    <div class="rule" style="margin-top: 14px;">
+      <b>Preload is registration, never loading.</b> A preloaded entry reaches the shell through step 5 like any other curated entry; the loader seam is untouched. A static plugin whose remote is down is a red dot and an inline error panel on click &mdash; never a blank shell.
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="panel grow">
+      <h3>Steady state &mdash; push, not poll</h3>
+      <div class="col">
+        <div class="node accent-bar">
+          <div class="t mono" style="font-size: 12px;">notify._platform.registry.frontend-plugins.changed</div>
+          <div class="s">Published on every accepted write. Already implemented &mdash; nothing subscribes to it today.</div>
+        </div>
+        <div class="arrow" style="justify-content: flex-start; padding-left: 22px;">&darr;</div>
+        <div class="node">
+          <div class="t">Shell performs a conditional read</div>
+          <div class="s">The message carries a revision and nothing else the shell trusts. If the revision already matches what it holds, the read is a no-op.</div>
+        </div>
+        <div class="arrow" style="justify-content: flex-start; padding-left: 22px;">&darr;</div>
+        <div class="node">
+          <div class="t">Diff &rarr; place, offer, or dispose</div>
+          <div class="s">Additions indexed live. Static removals offered as a reload. Dynamic removals disposed.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col grow">
+      <div class="panel">
+        <h3>The rule to write down first</h3>
+        <div class="rule" style="border-left-color: #9a7b1e;">
+          <b>The notification is a hint. The read is authoritative.</b><br>
+          <span class="muted">Core NATS is fire-and-forget: a shell that is disconnected, backgrounded or reconnecting misses messages with no gap detection. So <b>on every reconnect the shell re-reads unconditionally.</b> Without that rule, a shell offline for one minute is silently stale forever &mdash; a worse failure than the poll it replaced, because nothing detects it.</span>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>What this deletes</h3>
+        <table>
+          <tbody>
+            <tr><td class="mono">registryWatcher.js</td><td class="muted">The 10-minute poll and its <span class="mono">visibilitychange</span> trigger exist only because there was no push. Both go.</td></tr>
+            <tr><td class="mono">ETag / If-None-Match</td><td class="muted">Revision moves into the request/reply payload. The 428 / 409 / 422 vocabulary is re-implemented deliberately, not translated.</td></tr>
+            <tr><td class="mono">Vite proxy BasicAuth</td><td class="muted">Subject permissions make &ldquo;the shell may read and may not write&rdquo; server-enforced, closing decision 50.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">Gated on Phase 3 decision 47 &mdash; contribution state must be reactive at source, or none of the live behaviour above reaches the rendered shell.</div>
+</div>

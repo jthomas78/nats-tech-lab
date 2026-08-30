@@ -1,0 +1,125 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0; background: #131416; color: #dee0e3;
+      font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased;
+    }
+    .board { padding: 28px 32px 32px; display: flex; flex-direction: column; gap: 20px; min-height: 100vh; }
+    .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px;
+      border-bottom: 1px solid #2c3138; padding-bottom: 14px; }
+    .eyebrow { font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: #737c87; margin-bottom: 5px; }
+    h1 { margin: 0; font-size: 21px; line-height: 27px; font-weight: 600; letter-spacing: -0.01em; }
+    .head-note { color: #b7bcc2; font-size: 12px; max-width: 420px; text-align: right; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+    .muted { color: #b7bcc2; }
+    .dim { color: #737c87; }
+    .panel { background: #1a1e23; border: 1px solid #2c3138; border-radius: 6px; padding: 14px 16px; }
+    .panel h3 { margin: 0 0 10px; font-size: 10px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; color: #737c87; }
+    .row { display: flex; gap: 14px; align-items: stretch; }
+    .col { display: flex; flex-direction: column; gap: 14px; }
+    .grow { flex: 1; min-width: 0; }
+    .node { background: #1a1e23; border: 1px solid #4a515b; border-radius: 6px; padding: 11px 13px; }
+    .node .t { font-weight: 600; font-size: 13px; }
+    .node .s { color: #b7bcc2; font-size: 11.5px; line-height: 17px; margin-top: 3px; }
+    .accent { border-color: #006fff; }
+    .accent-bar { border-left: 3px solid #006fff; }
+    .green { color: #27c07f; }
+    .green-bar { border-left: 3px solid #27c07f; }
+    .warn { color: #c8a63a; }
+    .warn-bar { border-left: 3px solid #9a7b1e; }
+    .arrow { display: flex; align-items: center; justify-content: center; color: #4a515b; flex-shrink: 0; font-size: 16px; }
+    .tag { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700;
+      letter-spacing: 0.04em; padding: 2px 7px; border-radius: 100px; border: 1px solid #2c3138; color: #b7bcc2; }
+    .tag.b { color: #006fff; border-color: #1d4b8f; }
+    .tag.g { color: #27c07f; border-color: #1e5f45; }
+    .tag.w { color: #c8a63a; border-color: #5a4a1a; }
+    .pip { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+      color: #737c87; padding: 0 10px 7px 0; border-bottom: 1px solid #2c3138; }
+    td { padding: 8px 10px 8px 0; border-bottom: 1px solid #21262c; vertical-align: top; line-height: 18px; }
+    tr:last-child td { border-bottom: none; }
+    .rule { background: #131416; border: 1px solid #4a515b; border-left: 3px solid #006fff; border-radius: 5px; padding: 11px 14px; }
+    .rule b { font-weight: 600; }
+    .foot { color: #737c87; font-size: 11px; border-top: 1px solid #2c3138; padding-top: 10px; }
+  </style>
+</helmet>
+<div class="board">
+  <div class="head">
+    <div>
+      <div class="eyebrow">App Shell &middot; Phase 3 design</div>
+      <h1>Three trust gates</h1>
+    </div>
+    <div class="head-note">Independent, and they compose. Dynamic + signed + operator-enabled is a defensible auto-injection story; dynamic + unsigned is refused outright.</div>
+  </div>
+
+  <div class="row" style="align-items:stretch;">
+    <div class="node grow accent-bar" style="padding:16px;">
+      <div class="tag b" style="margin-bottom:9px;">Gate 1</div>
+      <div class="t" style="font-size:15px;">Origin allowlist</div>
+      <div class="s" style="margin-top:6px;"><b>Where code may come from.</b> Config-level, server-side. <span class="mono">NewAllowlist(nil)</span> permits nothing &mdash; the safe default is a shell with no remotes, not a shell with all of them.</div>
+      <div class="s dim" style="margin-top:9px;">A refusal renders as stage and cause only. Never the URL, host, port or credential. <span class="mono">BR-AS04, BR-AS20</span></div>
+    </div>
+    <div class="arrow" style="font-size:20px;">&rarr;</div>
+    <div class="node grow green-bar" style="padding:16px;">
+      <div class="tag g" style="margin-bottom:9px;">Gate 2</div>
+      <div class="t" style="font-size:15px;">Publisher signature</div>
+      <div class="s" style="margin-top:6px;"><b>Who vouched for this manifest.</b> NKey (Ed25519), verified in the domain layer at curation time, against a trusted-publishers table carrying the same revision, audit and disable-never-delete semantics as the registry itself.</div>
+      <div class="s dim" style="margin-top:9px;">Required on <b>dynamic</b> entries only. Operator-placed entries may be unsigned &mdash; a human already vouched, and a hello-world plugin should not need an nsc key.</div>
+    </div>
+    <div class="arrow" style="font-size:20px;">&rarr;</div>
+    <div class="node grow" style="padding:16px; border-left:3px solid #4a515b;">
+      <div class="tag" style="margin-bottom:9px;">Gate 3</div>
+      <div class="t" style="font-size:15px;">Operator enablement</div>
+      <div class="s" style="margin-top:6px;"><b>Who said it may run here.</b> The only gate a machine cannot pass on its own. Enabling is an act with an actor and an audit row.</div>
+      <div class="s dim" style="margin-top:9px;">Withheld entries are not merely hidden &mdash; a disabled or non-conforming entry is absent from the readable document entirely.</div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="panel grow">
+      <h3>What Gate 2 does not cover &mdash; say it out loud</h3>
+      <div class="rule" style="border-left-color:#9a7b1e;">
+        <b>Signing the manifest is not signing the code.</b><br>
+        <span class="muted">A signature over the manifest proves the <b>pointer</b> is authentic. It says nothing about what <span class="mono">remoteEntry.js</span> serves tomorrow. Module Federation makes this worse than usual: hashing the entry chunk SRI-style still leaves every lazily-fetched chunk unhashed.</span>
+      </div>
+      <div class="s muted" style="margin-top:12px; font-size:12px; line-height:19px;">
+        So this phase buys <b>authenticated provenance of the pointer</b>, with origin-allowlist trust for the code itself. That is a real improvement. It is not &ldquo;no unauthorised code can run&rdquo;, and the design should not be described as if it were.
+      </div>
+    </div>
+
+    <div class="panel grow">
+      <h3>The next gate, deliberately deferred</h3>
+      <div class="node" style="border-style:dashed;">
+        <div class="t dim">Phase 6 &mdash; immutable signed bundles</div>
+        <div class="s">The plugin is published as a versioned, immutable bundle to an object store <b>we</b> control; its digest is signed; the shell loads only from that store. This is what actually binds the code rather than the pointer.</div>
+      </div>
+      <div class="s muted" style="margin-top:12px; font-size:12px; line-height:19px;">
+        Needs a publishing pipeline, storage and a release flow per plugin &mdash; a phase in its own right. Ship provenance now, <b>design toward</b> bundles: verbatim signed bytes and a publisher-key table are the parts that carry over unchanged.
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Revocation &mdash; the fan-out the current write path does not have</h3>
+    <div class="muted" style="font-size:12px; line-height:19px;">
+      Disabling a publisher key must <b>re-evaluate every entry that key signed</b>, not just stop accepting new ones. Today <span class="mono">Apply</span> touches one entry per write and raises the revision by one; a key revocation touches an unbounded set in a single revision. Worth designing before it is needed, because it is the one operation in the whole trust model with no per-entry actor.
+    </div>
+  </div>
+
+  <div class="foot">Verification is server-side by design. Browser-side checking is mostly theatre &mdash; the verifier arrived from the same origin as the code it would be checking. It earns its keep only in the bundle model, where the digest and the signature are fetched independently.</div>
+</div>
+</x-dc>
+</body>
+</html>

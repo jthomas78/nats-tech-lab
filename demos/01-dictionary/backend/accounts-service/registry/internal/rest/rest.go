@@ -40,9 +40,27 @@ type Middleware func(http.HandlerFunc) http.Handler
 // Mount wires the routes onto mux and returns the exact "METHOD /pattern"
 // list it registered, so a test can assert the surface hasn't grown a write
 // transport nobody wrote a rule for.
+//
+// The shell's read is mounted UNGATED and every other route behind mw
+// (BR-AS25, decision 50). That split is the whole point of this function.
+// Gating the read too reads like defence in depth and is the opposite: the
+// only credential a browser could present for it is one the shell's origin
+// holds, and federated plugin code runs in the shell's own JS realm — so any
+// credential the shell can use is a credential every loaded plugin holds.
+// A credential that opens the two write routes as well would let a plugin
+// curate the registry that curates it. The document this route serves is
+// already filtered for a reader (Document.Readable): disabled and
+// non-conforming entries are withheld, so it discloses only what the shell is
+// about to load anyway.
 func Mount(mux *http.ServeMux, svc Service, audit Auditor, mw Middleware) []string {
 	var routes []string
-	handle := func(pattern string, fn http.HandlerFunc) {
+	h := &handlers{svc: svc, audit: audit}
+
+	open := func(pattern string, fn http.HandlerFunc) {
+		mux.HandleFunc(pattern, fn)
+		routes = append(routes, pattern)
+	}
+	gated := func(pattern string, fn http.HandlerFunc) {
 		if mw != nil {
 			mux.Handle(pattern, mw(fn))
 		} else {
@@ -51,12 +69,15 @@ func Mount(mux *http.ServeMux, svc Service, audit Auditor, mw Middleware) []stri
 		routes = append(routes, pattern)
 	}
 
-	h := &handlers{svc: svc, audit: audit}
-	handle("GET /api/registry/frontend-plugins", h.read)
-	handle("GET /api/registry/entries", h.curated)
-	handle("POST /api/registry/entries", h.upsert)
-	handle("POST /api/registry/entries/{id}/enabled", h.setEnabled)
-	handle("GET /api/registry/audit", h.auditTrail)
+	// Read capability only, for the shell's origin.
+	open("GET /api/registry/frontend-plugins", h.read)
+	// Everything an operator does. The two writes are the reason the
+	// credential exists; the two admin reads are gated with them because
+	// they disclose entries a shell is deliberately not shown.
+	gated("GET /api/registry/entries", h.curated)
+	gated("POST /api/registry/entries", h.upsert)
+	gated("POST /api/registry/entries/{id}/enabled", h.setEnabled)
+	gated("GET /api/registry/audit", h.auditTrail)
 	return routes
 }
 
@@ -82,32 +103,49 @@ func (h *handlers) read(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, doc)
 }
 
+// entryView is a curated entry as the admin surface needs it.
+type entryView struct {
+	domain.Entry
+	// Conforming says whether this entry would be served to a shell
+	// today. An entry can stop conforming without being edited, when the
+	// configured origins narrow (BR-AS20) — the admin surface has to be
+	// able to say so, or the entry just silently stops appearing.
+	Conforming bool `json:"conforming"`
+}
+
+type curatedView struct {
+	SchemaVersion int         `json:"schemaVersion"`
+	Revision      int64       `json:"revision"`
+	Origins       []string    `json:"allowedOrigins"`
+	Entries       []entryView `json:"plugins"`
+}
+
+// curate renders the curated document for the admin surface. One shape for
+// the read and for what a write answers with: the panel displays whatever a
+// write returned, so a leaner write response would leave every row looking
+// withheld and no origin configured until the next read.
+func (h *handlers) curate(doc domain.Document) curatedView {
+	allowed := h.svc.Allowlist()
+	out := curatedView{
+		SchemaVersion: doc.SchemaVersion,
+		Revision:      doc.Revision,
+		Origins:       allowed.Origins(),
+		Entries:       []entryView{},
+	}
+	for _, e := range doc.Entries {
+		out.Entries = append(out.Entries, entryView{Entry: e, Conforming: allowed.Check(e) == nil})
+	}
+	return out
+}
+
 func (h *handlers) curated(w http.ResponseWriter, r *http.Request) {
 	doc, err := h.svc.Curated(r.Context())
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "the registry could not be read")
 		return
 	}
-	allowed := h.svc.Allowlist()
-	type view struct {
-		domain.Entry
-		// Conforming says whether this entry would be served to a shell
-		// today. An entry can stop conforming without being edited, when the
-		// configured origins narrow (BR-AS20) — the admin surface has to be
-		// able to say so, or the entry just silently stops appearing.
-		Conforming bool `json:"conforming"`
-	}
-	out := struct {
-		SchemaVersion int      `json:"schemaVersion"`
-		Revision      int64    `json:"revision"`
-		Origins       []string `json:"allowedOrigins"`
-		Entries       []view   `json:"plugins"`
-	}{SchemaVersion: doc.SchemaVersion, Revision: doc.Revision, Origins: allowed.Origins(), Entries: []view{}}
-	for _, e := range doc.Entries {
-		out.Entries = append(out.Entries, view{Entry: e, Conforming: allowed.Check(e) == nil})
-	}
 	w.Header().Set("ETag", revisionETag(doc.Revision))
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, h.curate(doc))
 }
 
 type upsertRequest struct {
@@ -159,7 +197,7 @@ func (h *handlers) apply(w http.ResponseWriter, r *http.Request, write domain.Wr
 	switch {
 	case err == nil:
 		w.Header().Set("ETag", revisionETag(doc.Revision))
-		writeJSON(w, http.StatusOK, doc)
+		writeJSON(w, http.StatusOK, h.curate(doc))
 	case errors.Is(err, domain.ErrStaleRevision):
 		// 409, and the refusal names the revision to reapply on top of.
 		// Nothing is merged: two curation decisions are not something a

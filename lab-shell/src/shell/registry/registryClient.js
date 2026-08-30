@@ -17,11 +17,12 @@
 
 import { validateRegistryDocument } from './manifestSchema.js'
 
-/* accounts-service serves the curated registry (Design decision 21). The path
-   sits under /api/platform/accounts because that prefix is already proxied to
-   accounts-service in every frontend here — the registry is platform-wide, not
-   account-scoped, and the prefix is a deployment fact rather than a claim
-   about ownership. */
+/* accounts-service serves the curated registry (Design decision 21), under
+   its own /api/platform/registry prefix rather than the accounts one — the
+   registry is platform-wide, not account-scoped, and its own prefix is what
+   lets the shell's proxy rule carry no credential while the admin app's
+   carries one (BR-AS25, decision 50). The prefix is a deployment fact rather
+   than a claim about ownership. */
 export const REGISTRY_ENDPOINT = '/api/platform/registry/frontend-plugins'
 
 /**

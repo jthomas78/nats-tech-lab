@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0; background: #131416; color: #dee0e3;
+      font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased;
+    }
+    .board { padding: 28px 32px 32px; display: flex; flex-direction: column; gap: 20px; min-height: 100vh; }
+    .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px;
+      border-bottom: 1px solid #2c3138; padding-bottom: 14px; }
+    .eyebrow { font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: #737c87; margin-bottom: 5px; }
+    h1 { margin: 0; font-size: 21px; line-height: 27px; font-weight: 600; letter-spacing: -0.01em; }
+    .head-note { color: #b7bcc2; font-size: 12px; max-width: 420px; text-align: right; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+    .muted { color: #b7bcc2; }
+    .dim { color: #737c87; }
+    .panel { background: #1a1e23; border: 1px solid #2c3138; border-radius: 6px; padding: 14px 16px; }
+    .panel h3 { margin: 0 0 10px; font-size: 10px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; color: #737c87; }
+    .row { display: flex; gap: 14px; align-items: stretch; }
+    .col { display: flex; flex-direction: column; gap: 14px; }
+    .grow { flex: 1; min-width: 0; }
+    .node { background: #1a1e23; border: 1px solid #4a515b; border-radius: 6px; padding: 11px 13px; }
+    .node .t { font-weight: 600; font-size: 13px; }
+    .node .s { color: #b7bcc2; font-size: 11.5px; line-height: 17px; margin-top: 3px; }
+    .accent { border-color: #006fff; }
+    .accent-bar { border-left: 3px solid #006fff; }
+    .green { color: #27c07f; }
+    .green-bar { border-left: 3px solid #27c07f; }
+    .warn { color: #c8a63a; }
+    .warn-bar { border-left: 3px solid #9a7b1e; }
+    .arrow { display: flex; align-items: center; justify-content: center; color: #4a515b; flex-shrink: 0; font-size: 16px; }
+    .tag { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700;
+      letter-spacing: 0.04em; padding: 2px 7px; border-radius: 100px; border: 1px solid #2c3138; color: #b7bcc2; }
+    .tag.b { color: #006fff; border-color: #1d4b8f; }
+    .tag.g { color: #27c07f; border-color: #1e5f45; }
+    .tag.w { color: #c8a63a; border-color: #5a4a1a; }
+    .pip { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+      color: #737c87; padding: 0 10px 7px 0; border-bottom: 1px solid #2c3138; }
+    td { padding: 8px 10px 8px 0; border-bottom: 1px solid #21262c; vertical-align: top; line-height: 18px; }
+    tr:last-child td { border-bottom: none; }
+    .rule { background: #131416; border: 1px solid #4a515b; border-left: 3px solid #006fff; border-radius: 5px; padding: 11px 14px; }
+    .rule b { font-weight: 600; }
+    .foot { color: #737c87; font-size: 11px; border-top: 1px solid #2c3138; padding-top: 10px; }
+  </style>
+</helmet>

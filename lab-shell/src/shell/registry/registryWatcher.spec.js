@@ -47,11 +47,40 @@ describe('BR-AS19 — the shell re-reads the registry it is already running', ()
     expect(h.client.fetchRegistry.mock.calls[1][0]).toEqual({ etag: '"9"' })
   })
 
-  it('keeps the last good revision when a read fails, so the next one is still conditional', async () => {
+  /* Decision 48. The rule this replaced kept the token through a failure "so
+     the next read is still conditional", which sounds thriftier and is the
+     bug: the shell asks about a revision the service never served it, is told
+     nothing moved, and stays degraded forever. */
+  it('drops the conditional token when a read fails, so the next one is unconditional', async () => {
     const h = harness({ results: [{ ok: false, code: 'registry-unreachable', message: 'x' }] })
     await h.watcher.check()
     await h.watcher.check()
-    expect(h.client.fetchRegistry.mock.calls[1][0]).toEqual({ etag: '"7"' })
+    expect(h.client.fetchRegistry.mock.calls[1][0]).toEqual({ etag: null })
+  })
+
+  it('drops the conditional token on a degraded read, which carries no ETag of its own', async () => {
+    const h = harness({ results: [{ ok: true, unchanged: false, degraded: true, plugins: [], etag: null }] })
+    await h.watcher.check()
+    await h.watcher.check()
+    expect(h.client.fetchRegistry.mock.calls[1][0]).toEqual({ etag: null })
+  })
+
+  it('recovers at the same revision: the unconditional read after an outage returns a document', async () => {
+    // The regression in one spec. Nothing moved while the service was down,
+    // so recovery IS a read at the revision the shell already holds — the
+    // one case a stale conditional token turns into a permanent 304.
+    const h = harness({
+      results: [
+        { ok: true, unchanged: false, degraded: true, plugins: [], etag: null },
+        { ok: true, unchanged: false, degraded: false, plugins: [], revision: 7, etag: '"7"' },
+      ],
+    })
+    await h.watcher.check()
+    await h.watcher.check()
+
+    expect(h.client.fetchRegistry.mock.calls[1][0]).toEqual({ etag: null })
+    expect(h.onResult.mock.calls[1][0]).toMatchObject({ ok: true, degraded: false, revision: 7 })
+    expect(h.watcher.etag).toBe('"7"')
   })
 
   it('reads when the tab comes back into view', async () => {

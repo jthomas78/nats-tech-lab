@@ -1,0 +1,70 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 1020,
+      "title": "Boot and change propagation"
+    },
+    {
+      "file": "Lifecycle.dc.html",
+      "x": 1560,
+      "y": 0,
+      "w": 1360,
+      "h": 1440,
+      "title": "Two lifecycle classes"
+    },
+    {
+      "file": "Registration.dc.html",
+      "x": 0,
+      "y": 1580,
+      "w": 1240,
+      "h": 1180,
+      "title": "Three ways in"
+    },
+    {
+      "file": "Trust.dc.html",
+      "x": 1360,
+      "y": 1580,
+      "w": 1300,
+      "h": 1000,
+      "title": "Three trust gates"
+    },
+    {
+      "file": "LoadSequence.dc.html",
+      "x": 0,
+      "y": 2900,
+      "w": 1440,
+      "h": 1720,
+      "title": "How a plugin loads — static vs dynamic"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "settled-forks",
+      "x": 0,
+      "y": -230,
+      "w": 520,
+      "text": "Four forks settled 2026-08-30.\n1. Preload is a server-side tier only — no client-side static set.\n2. Static remotes register before paint, load lazily (BR-AS08 intact).\n3. Disconnect marks unavailable; only unregister or disable withdraws.\n4. Manifest provenance signing, required on dynamic entries only."
+    },
+    {
+      "id": "gated-on-47",
+      "x": 1560,
+      "y": -230,
+      "w": 520,
+      "text": "Everything live here is gated on Phase 3 decision 47.\nWithout reactive contribution state, contributionRegistry's arrays and bootShell's statuses Map never re-render — so live injection, live withdrawal and the red dot are invisible however correct the service side is."
+    },
+    {
+      "id": "open-questions",
+      "x": 1620,
+      "y": 2900,
+      "w": 560,
+      "text": "Still open.\n• Does a dynamic plugin get a full scope.dispose(), or contribution-removal only with the module left resident? The second is roughly a fifth of the work and delivers all of the visible behaviour — a federated container cannot truly be un-evaluated anyway.\n• Revocation fan-out: one revision touching an unbounded set of entries."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

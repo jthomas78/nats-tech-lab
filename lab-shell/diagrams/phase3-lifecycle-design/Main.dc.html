@@ -1,0 +1,151 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0; background: #131416; color: #dee0e3;
+      font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-size: 13px; line-height: 20px; -webkit-font-smoothing: antialiased;
+    }
+    .board { padding: 28px 32px 32px; display: flex; flex-direction: column; gap: 20px; min-height: 100vh; }
+    .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px;
+      border-bottom: 1px solid #2c3138; padding-bottom: 14px; }
+    .eyebrow { font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: #737c87; margin-bottom: 5px; }
+    h1 { margin: 0; font-size: 21px; line-height: 27px; font-weight: 600; letter-spacing: -0.01em; }
+    .head-note { color: #b7bcc2; font-size: 12px; max-width: 420px; text-align: right; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+    .muted { color: #b7bcc2; }
+    .dim { color: #737c87; }
+    .panel { background: #1a1e23; border: 1px solid #2c3138; border-radius: 6px; padding: 14px 16px; }
+    .panel h3 { margin: 0 0 10px; font-size: 10px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; color: #737c87; }
+    .row { display: flex; gap: 14px; align-items: stretch; }
+    .col { display: flex; flex-direction: column; gap: 14px; }
+    .grow { flex: 1; min-width: 0; }
+    .node { background: #1a1e23; border: 1px solid #4a515b; border-radius: 6px; padding: 11px 13px; }
+    .node .t { font-weight: 600; font-size: 13px; }
+    .node .s { color: #b7bcc2; font-size: 11.5px; line-height: 17px; margin-top: 3px; }
+    .accent { border-color: #006fff; }
+    .accent-bar { border-left: 3px solid #006fff; }
+    .green { color: #27c07f; }
+    .green-bar { border-left: 3px solid #27c07f; }
+    .warn { color: #c8a63a; }
+    .warn-bar { border-left: 3px solid #9a7b1e; }
+    .arrow { display: flex; align-items: center; justify-content: center; color: #4a515b; flex-shrink: 0; font-size: 16px; }
+    .tag { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700;
+      letter-spacing: 0.04em; padding: 2px 7px; border-radius: 100px; border: 1px solid #2c3138; color: #b7bcc2; }
+    .tag.b { color: #006fff; border-color: #1d4b8f; }
+    .tag.g { color: #27c07f; border-color: #1e5f45; }
+    .tag.w { color: #c8a63a; border-color: #5a4a1a; }
+    .pip { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+      color: #737c87; padding: 0 10px 7px 0; border-bottom: 1px solid #2c3138; }
+    td { padding: 8px 10px 8px 0; border-bottom: 1px solid #21262c; vertical-align: top; line-height: 18px; }
+    tr:last-child td { border-bottom: none; }
+    .rule { background: #131416; border: 1px solid #4a515b; border-left: 3px solid #006fff; border-radius: 5px; padding: 11px 14px; }
+    .rule b { font-weight: 600; }
+    .foot { color: #737c87; font-size: 11px; border-top: 1px solid #2c3138; padding-top: 10px; }
+  </style>
+</helmet>
+<div class="board">
+  <div class="head">
+    <div>
+      <div class="eyebrow">App Shell &middot; Phase 3 design</div>
+      <h1>Boot sequence and change propagation</h1>
+    </div>
+    <div class="head-note">First paint is bounded by the shell's own bundle. No remote chunk is fetched before it, and none is fetched by the registry read &mdash; BR-AS08 holds.</div>
+  </div>
+
+  <div class="panel">
+    <h3>Boot</h3>
+    <div class="row" style="align-items: stretch;">
+      <div class="node grow accent-bar">
+        <div class="t">1 &middot; Bootstrap</div>
+        <div class="s">Shell bundle only. No network, no credential.</div>
+      </div>
+      <div class="arrow">&rarr;</div>
+      <div class="node grow accent-bar">
+        <div class="t">2 &middot; Index built-ins</div>
+        <div class="s">Nav tree and route table placed. <b>Zero remote chunks fetched.</b></div>
+      </div>
+      <div class="arrow">&rarr;</div>
+      <div class="node grow accent" style="border-width: 2px; background: #16233a;">
+        <div class="t" style="color: #4a97ff;">3 &middot; FIRST PAINT</div>
+        <div class="s">The shell is usable. Nothing downstream can delay it.</div>
+      </div>
+      <div class="arrow">&rarr;</div>
+      <div class="node grow green-bar">
+        <div class="t">4 &middot; NATS connect</div>
+        <div class="s">Credential minted by the same path the Admin, Refdata and Seafreight apps already use.</div>
+      </div>
+      <div class="arrow">&rarr;</div>
+      <div class="node grow green-bar">
+        <div class="t">5 &middot; Registry read</div>
+        <div class="s"><span class="mono">api.*</span> request/reply. Revision reconciled; curated, preloaded and enabled dynamic entries admitted.</div>
+      </div>
+      <div class="arrow">&rarr;</div>
+      <div class="node grow warn-bar">
+        <div class="t">6 &middot; First navigation</div>
+        <div class="s">Only now is a remote fetched &mdash; <span class="mono">pluginLoader</span> decides when, at most once.</div>
+      </div>
+    </div>
+    <div class="rule" style="margin-top: 14px;">
+      <b>Preload is registration, never loading.</b> A preloaded entry reaches the shell through step 5 like any other curated entry; the loader seam is untouched. A static plugin whose remote is down is a red dot and an inline error panel on click &mdash; never a blank shell.
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="panel grow">
+      <h3>Steady state &mdash; push, not poll</h3>
+      <div class="col">
+        <div class="node accent-bar">
+          <div class="t mono" style="font-size: 12px;">notify._platform.registry.frontend-plugins.changed</div>
+          <div class="s">Published on every accepted write. Already implemented &mdash; nothing subscribes to it today.</div>
+        </div>
+        <div class="arrow" style="justify-content: flex-start; padding-left: 22px;">&darr;</div>
+        <div class="node">
+          <div class="t">Shell performs a conditional read</div>
+          <div class="s">The message carries a revision and nothing else the shell trusts. If the revision already matches what it holds, the read is a no-op.</div>
+        </div>
+        <div class="arrow" style="justify-content: flex-start; padding-left: 22px;">&darr;</div>
+        <div class="node">
+          <div class="t">Diff &rarr; place, offer, or dispose</div>
+          <div class="s">Additions indexed live. Static removals offered as a reload. Dynamic removals disposed.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col grow">
+      <div class="panel">
+        <h3>The rule to write down first</h3>
+        <div class="rule" style="border-left-color: #9a7b1e;">
+          <b>The notification is a hint. The read is authoritative.</b><br>
+          <span class="muted">Core NATS is fire-and-forget: a shell that is disconnected, backgrounded or reconnecting misses messages with no gap detection. So <b>on every reconnect the shell re-reads unconditionally.</b> Without that rule, a shell offline for one minute is silently stale forever &mdash; a worse failure than the poll it replaced, because nothing detects it.</span>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>What this deletes</h3>
+        <table>
+          <tbody>
+            <tr><td class="mono">registryWatcher.js</td><td class="muted">The 10-minute poll and its <span class="mono">visibilitychange</span> trigger exist only because there was no push. Both go.</td></tr>
+            <tr><td class="mono">ETag / If-None-Match</td><td class="muted">Revision moves into the request/reply payload. The 428 / 409 / 422 vocabulary is re-implemented deliberately, not translated.</td></tr>
+            <tr><td class="mono">Vite proxy BasicAuth</td><td class="muted">Subject permissions make &ldquo;the shell may read and may not write&rdquo; server-enforced, closing decision 50.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">Gated on Phase 3 decision 47 &mdash; contribution state must be reactive at source, or none of the live behaviour above reaches the rendered shell.</div>
+</div>
+</x-dc>
+</body>
+</html>

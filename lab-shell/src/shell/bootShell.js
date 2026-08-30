@@ -41,7 +41,13 @@ export async function bootShell({
   permissions,
   extensionPoints = declareShellExtensionPoints(),
 }) {
-  const statuses = new Map()
+  /* Reactive for the same reason the contribution arrays are (decision 47):
+     App.vue resolves a breadcrumb through `shell.statuses.get(id)`, and the
+     Plugins screen counts from `inventory`, which iterates this map. A plain
+     Map registers no dependency, so a plugin admitted into a running shell
+     stayed invisible to both. The records inside were already reactive; the
+     container holding them was not. */
+  const statuses = reactive(new Map())
   const allowlist = new RemoteAllowlist()
   const plugins = []
   let registryError = null
@@ -126,11 +132,38 @@ export async function bootShell({
       /* Recorded, not thrown. The shell continues with its built-ins, and the
          Plugins screen shows why the remote list is empty. */
       registryError = { code: discovery?.code ?? 'registry-malformed', message: discovery?.message ?? '' }
+      /* Same rule as the degraded branch (decision 48): a read the shell
+         could not complete leaves it unable to say what the server would
+         honour, so the next one asks unconditionally rather than betting the
+         recovery on a token from before the outage. */
+      registry.etag = null
       return { added: [], addedRoutes: [], reloadRequired: [] }
     }
 
     registryError = null
     registry.fetchedAt = discovery.fetchedAt ?? registry.fetchedAt
+    /* Cleared on ANY successful read, a 304 included, and therefore before
+       the `unchanged` guard below rather than after it (decision 48). A 304
+       is positive evidence the service is answering; leaving the flag set
+       through one made degraded a one-way door, because recovery at the same
+       revision is exactly what answers 304. */
+    registry.degraded = discovery.degraded === true
+    /* BR-AS22: an empty document that says it is degraded is not the same
+       claim as an empty registry, and the shell renders its built-ins either
+       way. A degraded read is therefore never read as "everything was
+       withdrawn" — diffing it would offer a reload for every remote plugin
+       the shell is running, on the strength of a document the service already
+       said it could not vouch for. */
+    if (registry.degraded) {
+      /* And the conditional token goes with it. A degraded response carries
+         no ETag, so keeping the pre-outage one would have the shell ask
+         "anything newer than the revision I hold?" and be told no — for a
+         document the service never served it. The next read is unconditional
+         and the answer is a real document. */
+      registry.etag = null
+      return { added: [], addedRoutes: [], reloadRequired: [] }
+    }
+
     /* Kept beside the revision so the watcher can pick the conditional read
        up from wherever the shell left off — including a boot read it did not
        make itself. */
@@ -140,14 +173,6 @@ export async function bootShell({
     if (discovery.unchanged) return { added: [], addedRoutes: [], reloadRequired: [] }
 
     registry.revision = discovery.revision ?? null
-    /* BR-AS22: an empty document that says it is degraded is not the same
-       claim as an empty registry, and the shell renders its built-ins either
-       way. A degraded read is therefore never read as "everything was
-       withdrawn" — diffing it would offer a reload for every remote plugin
-       the shell is running, on the strength of a document the service already
-       said it could not vouch for. */
-    registry.degraded = discovery.degraded === true
-    if (registry.degraded) return { added: [], addedRoutes: [], reloadRequired: [] }
 
     const { added, reloadRequired } = diffRegistry(plugins, discovery.plugins)
     const before = new Set(contributions.routes.map((route) => route.qualifiedId))

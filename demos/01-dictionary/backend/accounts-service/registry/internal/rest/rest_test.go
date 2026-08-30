@@ -15,13 +15,16 @@ import (
 
 type stubService struct {
 	doc     domain.Document
+	origins []string
 	applied domain.Write
 	err     error
 }
 
 func (s *stubService) Read(context.Context) domain.Document             { return s.doc }
 func (s *stubService) Curated(context.Context) (domain.Document, error) { return s.doc, nil }
-func (s *stubService) Allowlist() domain.Allowlist                      { return domain.NewAllowlist(nil) }
+func (s *stubService) Allowlist() domain.Allowlist {
+	return domain.NewAllowlist(s.origins)
+}
 func (s *stubService) Apply(_ context.Context, w domain.Write) (domain.Document, error) {
 	s.applied = w
 	if s.err != nil {
@@ -161,4 +164,76 @@ func TestDegradedReadIsNeverAnswered304(t *testing.T) {
 	g.Expect(rec.Code).To(Equal(http.StatusOK))
 	g.Expect(rec.Body.String()).To(ContainSubstring(`"degraded":true`))
 	g.Expect(rec.Header().Get("ETag")).To(BeEmpty())
+}
+
+// The admin panel renders whatever a write answered with, so an accepted
+// write has to answer in the same shape the read does: every entry carrying
+// the read-side `conforming` judgement, and the configured origins alongside.
+// A leaner write response left every row looking withheld, and no origin
+// configured, until the operator reloaded the screen.
+func TestAcceptedWriteAnswersInTheCuratedShape(t *testing.T) {
+	g := NewWithT(t)
+	svc := &stubService{
+		origins: []string{"http://localhost:7110"},
+		doc: domain.Document{
+			SchemaVersion: 1,
+			Revision:      12,
+			Entries: []domain.Entry{{
+				ID:      "example-plugin",
+				Enabled: true,
+				Remote:  domain.Remote{Kind: "federated", URL: "http://localhost:7110/remoteEntry.js", Module: "plugin"},
+			}},
+		},
+	}
+	mux := mount(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/registry/entries/example-plugin/enabled", strings.NewReader(`{"enabled":true}`))
+	req.Header.Set("If-Match", `"11"`)
+	mux.ServeHTTP(rec, req)
+
+	g.Expect(rec.Code).To(Equal(http.StatusOK))
+	g.Expect(rec.Body.String()).To(ContainSubstring(`"conforming":true`))
+	g.Expect(rec.Body.String()).To(ContainSubstring(`"allowedOrigins":["http://localhost:7110"]`))
+}
+
+// BR-AS25 / decision 50: the shell's origin holds read capability only.
+//
+// Asserted with a middleware that refuses everything it is given. Whatever
+// route survives it is a route mounted ungated, so the two assertions below
+// are the complete statement of the split — the shell reads, and nothing
+// else on this surface is reachable without the operator credential.
+//
+// This matters more than an ordinary auth test because of who is on the other
+// side: federated plugin code runs inside the shell's JS realm, so a
+// credential the shell presents here is a credential every loaded plugin
+// holds. Before this split, that credential was the admin one, and it opened
+// both write routes.
+func TestShellReadIsUngatedAndEverythingElseIsNot(t *testing.T) {
+	g := NewWithT(t)
+
+	refuseEverything := func(http.HandlerFunc) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+		})
+	}
+	mux := http.NewServeMux()
+	Mount(mux, &stubService{}, stubAudit{}, refuseEverything)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/registry/frontend-plugins", nil))
+	g.Expect(rec.Code).To(Equal(http.StatusOK),
+		"the shell must boot without holding an operator credential")
+
+	for _, c := range []struct{ method, target string }{
+		{http.MethodGet, "/api/registry/entries"},
+		{http.MethodPost, "/api/registry/entries"},
+		{http.MethodPost, "/api/registry/entries/example-plugin/enabled"},
+		{http.MethodGet, "/api/registry/audit"},
+	} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(c.method, c.target, nil))
+		g.Expect(rec.Code).To(Equal(http.StatusUnauthorized),
+			"%s %s must stay behind the operator credential", c.method, c.target)
+	}
 }
