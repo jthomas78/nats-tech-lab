@@ -17,17 +17,16 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
-	"net/http"
 	"strings"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/registry/internal/application"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/registry/internal/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/registry/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/registry/internal/kvcache"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/registry/internal/postgres"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/registry/internal/rest"
 	"github.com/jthomas78/nats-tech-lab/shared/natsnotify"
 )
 
@@ -35,7 +34,11 @@ import (
 type Module struct {
 	Service *application.Service
 	store   *postgres.Store
+	adapter *browserrpc.Adapter
 }
+
+// Subjects is the module's exhaustive browser-facing API surface.
+func Subjects() []string { return browserrpc.Subjects() }
 
 // ParseAllowedOrigins reads REGISTRY_ALLOWED_ORIGINS — a comma-separated
 // list of scheme://host[:port]. Configuration, never a stored row: the
@@ -70,12 +73,15 @@ func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream, nc *nats.C
 	}
 
 	notifier := natsnotify.New(nc, log)
-	return &Module{Service: application.New(store, cache, allowlist, notifier, log), store: store}, nil
+	m := &Module{Service: application.New(store, cache, allowlist, notifier, log), store: store}
+	if nc != nil {
+		adapter, err := browserrpc.Mount(nc, browserrpc.New(m.Service, store), log)
+		if err != nil {
+			return nil, err
+		}
+		m.adapter = adapter
+	}
+	return m, nil
 }
 
-// Mount wires the registry's routes onto mux, wrapping each in mw (the
-// composition root supplies the auth middleware), and returns the exact
-// route list it registered.
-func (m *Module) Mount(mux *http.ServeMux, mw rest.Middleware) []string {
-	return rest.Mount(mux, m.Service, m.store, mw)
-}
+func (m *Module) Stop() error { return m.adapter.Stop() }

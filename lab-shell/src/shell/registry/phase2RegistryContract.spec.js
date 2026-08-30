@@ -5,7 +5,7 @@ import { createPermissionEvaluator } from '../auth/permissions.js'
 import { REGISTRY_SCHEMA_VERSION, SHELL_API_VERSION } from '../versions.js'
 import { validateRegistryDocument } from './manifestSchema.js'
 import { createRegistryClient, REGISTRY_ENDPOINT } from './registryClient.js'
-import { createRegistryWatcher } from './registryWatcher.js'
+import { createChangeSubscription } from './changeSubscription.js'
 
 /*
   Phase 2 turns the curated registry into service state (Postgres source of
@@ -113,35 +113,23 @@ describe('Phase 2c — the shell notices a change', () => {
     expect(result).toMatchObject({ ok: true, unchanged: true, etag: '"47"' })
   })
 
-  it('BR-AS19 — a re-read fires on visibilitychange (hidden -> visible) and on a slow interval', async () => {
-    const listeners = {}
-    const fakeDoc = {
-      visibilityState: 'visible',
-      addEventListener: (type, fn) => { listeners[type] = fn },
-      removeEventListener: () => {},
-    }
-    let tick = null
-    const client = { fetchRegistry: vi.fn(async () => ({ ok: true, unchanged: true, etag: '"47"' })) }
-    const watcher = createRegistryWatcher({
-      client,
-      onResult: () => {},
-      doc: fakeDoc,
-      timers: { setInterval: (fn) => { tick = fn; return 1 }, clearInterval: () => {} },
+  it('BR-AS19 — Phase 4 replaces focus/interval triggers with push and reconnect', async () => {
+    let deliver
+    const read = vi.fn(async () => ({ ok: true, unchanged: true }))
+    const subscription = createChangeSubscription({
+      subscribe: (_subject, handler) => { deliver = handler; return { unsubscribe() {} } },
+      read,
+      currentRevision: () => 47,
     })
-
-    watcher.start()
-    listeners.visibilitychange()
-    // Let the focus read settle first. Concurrent triggers coalesce on
-    // purpose, so a tick fired inside the first read is one read, not two —
-    // which is the behaviour being separated from "the interval never fires".
+    subscription.start()
+    deliver({ revision: 48 })
     await new Promise((resolve) => setTimeout(resolve, 0))
-    tick()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    // Decision 44's two triggers, and no third: the shell never subscribes to
-    // a push channel for this, so a change is noticed within one interval.
-    expect(client.fetchRegistry).toHaveBeenCalledTimes(2)
-    watcher.stop()
+    await subscription.onReconnect()
+    expect(read.mock.calls.map(([opts]) => opts)).toEqual([
+      { unconditional: false, reason: 'notify' },
+      { unconditional: true, reason: 'reconnect' },
+    ])
+    subscription.stop()
   })
 
   it('BR-AS19 — a removed entry offers a reload and leaves an active plugin rendering', async () => {

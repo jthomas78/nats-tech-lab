@@ -54,7 +54,17 @@ var (
 	ErrNoActor          = errors.New("registry: write carries no actor")
 	ErrNoEntryID        = errors.New("registry: write names no entry")
 	ErrNoEntry          = errors.New("registry: upsert carries no entry body")
+	ErrRevisionRequired = errors.New("registry: the write must carry the revision it was made against")
 )
+
+// RequireRevision distinguishes an absent precondition from revision zero,
+// which is the legitimate version of a registry that has not yet been curated.
+func RequireRevision(present bool) error {
+	if !present {
+		return ErrRevisionRequired
+	}
+	return nil
+}
 
 // StaleRevisionError carries what the refusal has to say for the admin
 // surface to be usable: which revision the writer must reapply on top of.

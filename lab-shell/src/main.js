@@ -2,10 +2,12 @@ import '@unifi-theme/unifi.css'
 import 'primeicons/primeicons.css'
 
 import { definePreset } from '@primevue/themes'
+import { jwtAuthenticator, wsconnect } from '@nats-io/nats-core'
+import { resolveWsUrl } from '@nats-shared/resolveWsUrl.js'
 import Aura from '@primevue/themes/aura'
 import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
-import { createApp } from 'vue'
+import { createApp, nextTick } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 
 import { createUnifiPreset, enableDarkMode, themeOptions } from '@unifi-theme/preset.js'
@@ -14,11 +16,14 @@ import App from './App.vue'
 import { demoCatalogManifest, DEMO_CATALOG_MODULE } from './plugins/demo-catalog/manifest.js'
 import { createPermissionEvaluator } from './shell/auth/permissions.js'
 import { bootShell, withRuntime } from './shell/bootShell.js'
+import { createConnectionRegistry, CREDENTIAL_PROFILE } from './shell/connections/connectionRegistry.js'
+import { createShellConnection } from './shell/connections/shellConnection.js'
+import { createShellDialer } from './shell/connections/shellDialer.js'
 import { createFederatedAdapter } from './shell/loader/federatedAdapter.js'
 import { createBuiltinAdapter, createPluginLoader } from './shell/loader/pluginLoader.js'
-import { createRegistryClient } from './shell/registry/registryClient.js'
-import { createRegistryWatcher } from './shell/registry/registryWatcher.js'
-import { createShellRoutes } from './shell/routing/shellRoutes.js'
+import { createRegistryTransport } from './shell/registry/registryTransport.js'
+import { createRegistrySession } from './shell/registry/registrySession.js'
+import { createShellRoutes, installShellRoutes } from './shell/routing/shellRoutes.js'
 import { SHELL } from './shell/shellKey.js'
 import HomeView from './views/HomeView.vue'
 import NotFoundView from './views/NotFoundView.vue'
@@ -36,10 +41,7 @@ const permissions = createPermissionEvaluator({ permissions: ['*'] })
 /* Wrapped rather than top-level `await`: TLA constrains the build target, and
    the shell has to boot the same way in every browser the demos are shown in. */
 async function bootstrap() {
-  const registryClient = createRegistryClient({ fetch: globalThis.fetch.bind(globalThis) })
-
   const shell = await bootShell({
-    registryClient,
     builtins: [demoCatalogManifest],
     permissions,
   })
@@ -80,15 +82,22 @@ async function bootstrap() {
     ],
   })
 
-  /*
-    The shell re-reads the registry on focus and on a slow interval (decision
-    44) and applies what it safely can: an addition is placed live, a removal
-    or a moved remote is only offered as a reload (decision 25 / BR-AS19).
-    Started after the router exists, because placing a route needs one.
-  */
-  const watcher = createRegistryWatcher({
-    client: registryClient,
-    etag: shell.registry.etag,
+  const dial = createShellDialer({ fetch: window.fetch.bind(window), location: window.location, dial: wsconnect, authenticate: jwtAuthenticator, resolveWsUrl })
+  const connections = createConnectionRegistry({ connect: async ({ profile }) => {
+    if (profile !== CREDENTIAL_PROFILE.SHELL_PLATFORM) throw new Error('profile-unavailable')
+    return createShellConnection({ connect: dial })
+  } })
+  const connection = await connections.acquire(CREDENTIAL_PROFILE.SHELL_PLATFORM)
+  const session = createRegistrySession({
+    connection,
+    client: createRegistryTransport({ request: connection.request }),
+    shell,
+    afterPaint: async () => {
+      await nextTick()
+      // A double animation frame yields a browser paint before credential
+      // minting starts; nextTick alone only waits for the DOM patch.
+      await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)))
+    },
     onResult: (discovery) => {
       const { added, addedRoutes } = shell.applyRegistry(discovery)
       if (added.length === 0) return
@@ -96,21 +105,18 @@ async function bootstrap() {
          VALIDATED manifests, and a manifest that failed validation must not
          reach the loader wearing the raw shape it was refused in. */
       for (const plugin of shell.plugins) plugins.set(plugin.id, plugin)
-      for (const route of createShellRoutes({
+      void installShellRoutes({
+        router,
         contributions: shell.contributions,
         loader,
         plugins,
         errorComponent: PluginErrorView,
         routes: addedRoutes,
-      })) {
-        router.addRoute(route)
-      }
+      })
     },
   })
-  watcher.start()
-
   const app = createApp(App)
-  app.provide(SHELL, withRuntime(shell, { loader, plugins, router }))
+  app.provide(SHELL, withRuntime(shell, { loader, plugins, router, connections, connection: connection.state }))
   app.use(createPinia())
   app.use(router)
   app.use(PrimeVue, {
@@ -120,6 +126,8 @@ async function bootstrap() {
     },
   })
   app.mount('#app')
+  void session.start()
+  if (import.meta.hot) import.meta.hot.dispose(() => { void session.stop() })
 }
 
 bootstrap()

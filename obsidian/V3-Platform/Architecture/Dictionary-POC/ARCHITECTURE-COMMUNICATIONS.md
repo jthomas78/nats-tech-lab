@@ -506,8 +506,24 @@ refdata-service example.
 | `shipping-service` | yes | yes (`internal/browserrpc`) | — | yes |
 | `refdata-service` | yes | — | yes (`internal/natsrpc`) | yes |
 | `pricing-service` | yes (no browser proxy route) | yes (`internal/browserrpc`) | — | yes |
-| `accounts-service` | yes | — | — | no |
+| `accounts-service` | admin/auth/health; registry HTTP retired | Users panel; registry (`registry/internal/browserrpc`, Phase 4) on PLATFORM | — | yes |
 | `organizations-service` | yes | yes (`internal/browserrpc`, Phase 26h) | — | yes (Phase 26g) |
+
+The frontend registry's Phase 4 PLATFORM subjects are deliberately exact, not a
+wildcard grant:
+
+| Subject | Credential / purpose |
+| --- | --- |
+| `api._platform.registry.frontend-plugins.read.v1` | `lab-shell` only; `{heldRevision}` → unchanged/document/degraded |
+| `api._platform.registry.entries.curated.v1` | Admin; includes withheld entries and configured origins |
+| `api._platform.registry.entries.upsert.v1` | Admin; `{ifRevision, entryId, entry}` |
+| `api._platform.registry.entries.set-enabled.v1` | Admin; `{ifRevision, entryId, enabled}`, never creates |
+| `api._platform.registry.audit.list.v1` | Admin; `{limit}` |
+| `notify._platform.registry.frontend-plugins.changed` | Shell subscription; committed `{revision}` hint only |
+
+The shell connects after first paint; every reconnect reads unconditionally.
+Operator refusals keep shared `error`/`conflict` semantics with additive revision
+details. There is no registry `rpc.*`, delete subject, REST route, or HTTP fallback.
 
 Two notes worth carrying forward from Phase 26g/26h:
 

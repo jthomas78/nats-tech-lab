@@ -31,6 +31,11 @@ from `demos/01-dictionary/backend/accounts-service/`. The service must already
 be running, and `REGISTRY_ALLOWED_ORIGINS` must include `http://localhost:7110`
 or every entry here is refused (BR-AS20) — compose sets it.
 
+Phase 4 uses the operator's NATS curation subjects, not REST writes. The CLI
+mints an Admin credential from `http://localhost:7202` (`-url` / `ACCOUNTS_URL`)
+and connects to `nats://localhost:4222` (`-nats-url` / `NATS_URL`). It preserves
+revision checks and auditing, including the first write at revision zero.
+
 Curation is operator state, not source: a development remote on `localhost` has
 no business compiled into the platform's own service, and a registry that can
 be changed without rebuilding either side is what BR-AS03 actually claims.

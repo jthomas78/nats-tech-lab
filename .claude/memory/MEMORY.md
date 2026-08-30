@@ -13,6 +13,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [swag_regen_diff_noise](swag_regen_diff_noise.md) — `swag init` rewrites all `$ref` repo-wide; hand-patch instead
 
 ## Frontend gotchas
+- [phase4_shell_nats_transport](phase4_shell_nats_transport.md) — shell registry NATS-only, first-paint/reconnect rules; shipping notifycoverage baseline caveat
 - [stale_select_value_bug_pattern](stale_select_value_bug_pattern.md) — PrimeVue `Select` v-model doesn't auto-clear on option-list change
 - [primevue_radiobutton_group_for_shared_state](primevue_radiobutton_group_for_shared_state.md) — standalone RadioButtons in v-for need grouping
 - [locale_switch_race_condition](locale_switch_race_condition.md) — overlapping fetches resolve out of order; fix with a request-token guard

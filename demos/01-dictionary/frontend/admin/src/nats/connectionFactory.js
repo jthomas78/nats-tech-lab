@@ -1,6 +1,6 @@
 // Connect/reconnect/subscribe/request machinery for frontend/admin's single
-// PLATFORM connection. MintAdminToken restricts request() to three read-only
-// refdata subjects; every other publish is denied by omission from Pub.Allow.
+// PLATFORM connection. MintAdminToken enumerates read-only refdata, Users and
+// operator registry subjects; all other publishes are denied by omission.
 //
 // Modeled directly on seafreight-app/src/nats/useNatsConnection.js's
 // connect/disconnect/auto-reconnect-on-close shape (same short-lived-JWT,
@@ -228,7 +228,7 @@ export function createConnectionState({ fetchConnectInfo, connectionName }) {
       headers: h,
     })
     const body = msg.data.length ? JSON.parse(decoder.decode(msg.data)) : {}
-    if (body.error) throw new Error(body.error)
+    if (body.error) throw Object.assign(new Error(body.error), { body, code: body.code, conflict: body.conflict })
     return body
   }
 

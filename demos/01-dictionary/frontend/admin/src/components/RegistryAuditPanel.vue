@@ -1,8 +1,9 @@
 <script setup>
 import Message from 'primevue/message'
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 
 import { getRegistryAudit } from '../api'
+import { usePlatformConnection } from '../nats/usePlatformConnection.js'
 
 // Every write the registry accepted — and every write it refused — in the
 // order the server recorded them (BR-AS23). A refusal consumes no revision,
@@ -43,6 +44,7 @@ function when(at) {
 }
 
 onMounted(load)
+watch(usePlatformConnection().epoch, load)
 </script>
 
 <template>

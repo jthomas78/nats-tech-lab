@@ -4,6 +4,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/registry/internal/domain"
@@ -90,7 +91,7 @@ func (s *Service) Read(ctx context.Context) domain.Document {
 
 // Apply performs one curated write, refreshes the cache and announces the
 // change. The notify goes last and can never fail the write: a dropped
-// notification costs a subscriber a refresh it takes on its next poll.
+// notification is recovered by the shell's unconditional read on reconnect.
 func (s *Service) Apply(ctx context.Context, w domain.Write) (domain.Document, error) {
 	doc, err := s.store.Apply(ctx, w)
 	if err != nil {
@@ -111,7 +112,10 @@ func (s *Service) Apply(ctx context.Context, w domain.Write) (domain.Document, e
 			s.logWarn("registry: write committed but the read cache was not refreshed", putErr)
 		}
 	}
-	s.notifier.Publish(after, NotifySubject(), nil)
+	payload, _ := json.Marshal(struct {
+		Revision int64 `json:"revision"`
+	}{doc.Revision})
+	s.notifier.Publish(after, NotifySubject(), payload)
 	return doc, nil
 }
 

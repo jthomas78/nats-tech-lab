@@ -128,4 +128,15 @@ describe('createConnectionState reconnect lifecycle', () => {
     expect(state.connected.value).toBe(false)
     expect(wsconnect).toHaveBeenCalledTimes(1) // never retried
   })
+
+  it('preserves the shared conflict envelope and registry revision details', async () => {
+    const f = fakeConn()
+    const body = { error: 'registry moved', conflict: true, code: 'stale-revision', currentRevision: 9, yourRevision: 4 }
+    f.conn.request = vi.fn(async () => ({ data: new TextEncoder().encode(JSON.stringify(body)) }))
+    wsconnect.mockResolvedValue(f.conn)
+    const state = makeState()
+    await state.connect()
+    await expect(state.request('api._platform.registry.entries.upsert.v1', {})).rejects.toMatchObject({ conflict: true, code: 'stale-revision', body })
+    await state.disconnect()
+  })
 })

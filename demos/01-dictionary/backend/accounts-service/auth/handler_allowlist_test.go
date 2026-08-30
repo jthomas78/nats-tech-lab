@@ -33,6 +33,7 @@ func TestAuthMountRoutesMatchAdminAllowlist(t *testing.T) {
 		"GET /api/auth/connectInfo",
 		"GET /api/auth/adminConnectInfo",
 		"GET /api/auth/refdataAdminConnectInfo",
+		"GET /api/auth/shellConnectInfo",
 		"GET /api/auth/tenants",
 		"POST /api/auth/login",
 	))

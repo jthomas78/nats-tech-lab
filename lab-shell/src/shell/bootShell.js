@@ -19,7 +19,7 @@
   reached from this path.
 */
 
-import { reactive } from 'vue'
+import { reactive, ref } from 'vue'
 
 import { createContributionRegistry } from './contributions/contributionRegistry.js'
 import { declareShellExtensionPoints } from './extensions/extensionPoints.js'
@@ -30,7 +30,7 @@ import { RemoteAllowlist } from './registry/registryClient.js'
 
 /**
  * @param {object} options
- * @param {{fetchRegistry(): Promise<object>}} options.registryClient
+ * @param {{fetchRegistry(): Promise<object>}} [options.registryClient] optional fixture read; the host discovers after paint
  * @param {object[]} options.builtins manifests for plugins the shell bundles
  * @param {{can(permission: string|null): boolean}} options.permissions
  * @param {import('./extensions/extensionPoints.js').ExtensionPointRegistry} [options.extensionPoints]
@@ -50,7 +50,7 @@ export async function bootShell({
   const statuses = reactive(new Map())
   const allowlist = new RemoteAllowlist()
   const plugins = []
-  let registryError = null
+  const registryError = ref(null)
   /* Reactive, because these three are on screen (the footer's revision, the
      banner's degraded note) and BR-AS19 lets them move while the shell runs. */
   const registry = reactive({ revision: null, fetchedAt: null, degraded: false, etag: null })
@@ -131,7 +131,7 @@ export async function bootShell({
     if (!discovery?.ok) {
       /* Recorded, not thrown. The shell continues with its built-ins, and the
          Plugins screen shows why the remote list is empty. */
-      registryError = { code: discovery?.code ?? 'registry-malformed', message: discovery?.message ?? '' }
+      registryError.value = { code: discovery?.code ?? 'registry-malformed', message: discovery?.message ?? '' }
       /* Same rule as the degraded branch (decision 48): a read the shell
          could not complete leaves it unable to say what the server would
          honour, so the next one asks unconditionally rather than betting the
@@ -140,7 +140,7 @@ export async function bootShell({
       return { added: [], addedRoutes: [], reloadRequired: [] }
     }
 
-    registryError = null
+    registryError.value = null
     registry.fetchedAt = discovery.fetchedAt ?? registry.fetchedAt
     /* Cleared on ANY successful read, a 304 included, and therefore before
        the `unchanged` guard below rather than after it (decision 48). A 304
@@ -195,7 +195,9 @@ export async function bootShell({
     }
   }
 
-  applyRegistry(await registryClient.fetchRegistry())
+  // The live host boots only built-ins here; its NATS discovery begins after
+  // first paint. An injected client still supports isolated/offline fixtures.
+  if (registryClient) applyRegistry(await registryClient.fetchRegistry())
   /* Built-ins are indexed whether or not the registry answered — a shell that
      rendered nothing when accounts-service is down would fail BR-AS04 at the
      first hop. index() is incremental, so this places what the read did not. */
@@ -209,7 +211,7 @@ export async function bootShell({
     allowlist,
     registry,
     get registryError() {
-      return registryError
+      return registryError.value
     },
     /* Offered, never applied (decision 25 / BR-AS19). */
     pendingReload,

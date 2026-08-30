@@ -37,6 +37,7 @@ export default defineConfig({
       '@unifi-theme': fileURLToPath(new URL('../shared/unifi-theme', import.meta.url)),
       // Shared AppShell.vue + app-shell.css (see .claude/plans/AppShell-Extraction-Plan.md).
       '@ui-shell': fileURLToPath(new URL('../shared/ui-shell', import.meta.url)),
+      '@nats-shared': fileURLToPath(new URL('../demos/01-dictionary/shared/nats', import.meta.url)),
     },
   },
   build: {
@@ -53,24 +54,17 @@ export default defineConfig({
     // claimed in .claude/launch.json. Phase 1b's example plugin takes 7110.
     port: 7109,
     proxy: {
-      // BR-AS01 — the curated plugin registry, its own bounded context in
-      // accounts-service since Phase 2a. Its own rule rather than an edit to
-      // the accounts one: /api/platform/accounts is a shared prefix other
-      // routes still need. Drops the '/platform' segment.
-      //
-      // NO Authorization header (BR-AS25, decision 50). This rule used to
-      // inject the shared admin Basic credential, and a proxy rule is a
-      // PREFIX: /api/platform/registry covers the two write routes as well as
-      // the shell's read, so the shell's origin held curate capability over
-      // the registry that curates it — and federated plugin code runs in the
-      // shell's own realm, which makes that every loaded plugin's capability
-      // too. The read is mounted ungated in registry/internal/rest.Mount, so
-      // the shell needs no credential; the admin app keeps its own copy of
-      // this rule, with the header, for the four operator routes.
-      '/api/platform/registry': {
+      // Exact mint route: a prefix grant would expose operator credentials
+      // to federated code in the shell's realm (BR-AS25/BR-AS27).
+      '^/api/auth/shellConnectInfo(?:\\?.*)?$': {
         target: 'http://localhost:7202',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/platform/, '/api'),
+      },
+      '/nats': {
+        target: 'ws://localhost:9222',
+        ws: true,
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/nats/, ''),
       },
     },
     fs: {

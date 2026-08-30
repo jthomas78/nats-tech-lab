@@ -95,7 +95,7 @@ feature components and metadata; it does not call `createApp`, install another r
 ### Curated frontend plugin registry
 
 The registry is an aggregated, versioned contract under platform control, **served at runtime by an
-operator-curated endpoint on `accounts-service`** (decided 2026-08-28). It is deliberately not a
+operator-curated NATS `api.*` endpoint on `accounts-service`** (Phase 4, 2026-08-30). It is deliberately not a
 JSON file inside the shell's bundle: that would make BR-AS03 only nearly true, since adding a plugin
 would still require redeploying the shell's deployment unit. `accounts-service` is the owner because
 it is already the context-free service administering the platform/tenant axis, and it already owns
@@ -233,11 +233,12 @@ means *we tried and it broke*. Collapsing them would hide the case BR-AS13 exist
 
 ### Stage 1–3 — Boot, discovery, and indexing
 
-The shell boots with no service knowledge, fetches one curated registry snapshot, validates every
-entry independently, and indexes contribution **metadata**. Navigation is fully rendered at the end
-of this stage with no remote code fetched — that ordering is the whole point of metadata-first
-discovery (BR-AS08), and it is what allows permission gating to run before any plugin exists in
-memory (BR-AS05).
+The shell indexes its bundled plugins and paints before minting a credential or
+connecting (BR-AS30). It then opens its own least-privilege PLATFORM WebSocket
+connection, reads the curated registry over NATS, validates every entry independently,
+and indexes contribution **metadata**. Remote navigation arrives after the built-in
+navigation; neither read fetches remote code (BR-AS08). A cold deep link initially
+resolved by the catch-all is re-resolved when its admitted route arrives (BR-AS12).
 
 ```mermaid
 sequenceDiagram
@@ -250,16 +251,18 @@ sequenceDiagram
 
     U->>Shell: load /
     Shell->>Shell: init router, Pinia, PrimeVue,<br/>UniFi theme, toast, locale,<br/>global error boundary (BR-AS09)
-    Shell->>Auth: fetch user token claims
-    Auth-->>Shell: scopes / roles (BR-AS05)
-
-    Shell->>Reg: GET frontend plugin registry
+    Shell->>Idx: index bundled plugins
+    Shell-->>U: first paint — built-in nav is usable
+    Shell->>Auth: GET /api/auth/shellConnectInfo
+    Auth-->>Shell: short-lived lab-shell PLATFORM JWT + NKey seed
+    Shell->>Shell: NATS WebSocket connect (unlimited reconnect attempts)
+    Note over Shell: NATS credential is not permission-evaluator claims.<br/>The POC evaluator still grants '*'.
+    Shell->>Reg: api._platform.registry.frontend-plugins.read.v1<br/>{heldRevision: null}
     alt registry unreachable or malformed
         Reg--xShell: error
-        Shell->>Idx: index built-ins only
-        Shell-->>U: degraded state, explicit diagnostic<br/>(BR-AS04 case d)
+        Shell-->>U: built-ins stay usable; connection notice<br/>after 5000 ms down (BR-AS30)
     else registry accepted
-        Reg-->>Shell: snapshot { schemaVersion, entries[] }
+        Reg-->>Shell: {ok, unchanged, revision, schemaVersion, entries[], degraded}
         loop per entry, independently
             Shell->>Shell: check schemaVersion, shellApiVersion,<br/>unique namespaced ID, allowed origin,<br/>contribution shapes, declared permissions
             alt entry rejected
@@ -272,6 +275,9 @@ sequenceDiagram
         Idx-->>Shell: nav tree, route table,<br/>extension assignments
         Shell-->>U: full chrome + nav rendered<br/>0 remote entry points fetched
     end
+    Shell->>Reg: subscribe notify._platform.registry.frontend-plugins.changed
+    Shell->>Reg: conditional catch-up read after subscription flush
+    Note over Shell,Reg: Notify is a hint only. Every reconnect reads unconditionally.<br/>No focus/interval polling and no HTTP fallback.
 ```
 
 The snapshot is **almost** frozen for the session, and the exception is precise (decision 46):
@@ -748,20 +754,53 @@ Outside the shell: `lab-shell/plugins/example-plugin/` — its own `package.json
 config, its own `node_modules`, its own dev server on 7110. The shell has never compiled it. That
 separation is the *only* thing that makes BR-AS03 a measurement rather than an assertion.
 
-**Curation is service state** (Phase 2a; it was a mounted file through Phase 1b). It lives in the
+**Curation is service state** (Phase 2a; NATS transport in Phase 4). It lives in the
 `registry` module inside `accounts-service` — its own bounded context, sharing no table and no
 foreign key with `accounts`, so the day it wants its own service the move is a deployment change
 rather than an untangling. Postgres (`registry.entries`, `registry.revision`, `registry.audit`) is
 the source of truth; a single NATS KV entry (`registry` bucket, key
 `_platform.frontend-plugins.current`) caches the whole serialized document so the shell keeps
 booting through a Postgres outage; the read order is Postgres → KV → a degraded document at
-revision 0. The shell reads `GET /api/platform/registry/frontend-plugins`, conditionally
-(`ETag`/`If-None-Match` on the revision). Writes are `POST` only, keyed on `If-Match`, audited
-accepted *and* refused, and there is no `DELETE` route anywhere in the module. Which origins a
+revision 0. The shell reads `api._platform.registry.frontend-plugins.read.v1`,
+conditionally with `{heldRevision}` (`null` means unconditional); a matching healthy
+revision answers `unchanged`, never a degraded one. The adapter returns `entries`
+and the shell transport maps them to the existing `plugins` contract. Operator
+writes name `ifRevision`, are audited accepted *and* refused, and no delete/remove
+subject exists. Explicit zero is valid for the first write; absent/null yields
+`revision-required`, stale yields `conflict: true` plus `currentRevision` and
+`yourRevision`, and an origin refusal yields `origin-not-allowed`. Which origins a
 shell may fetch plugin code from is `REGISTRY_ALLOWED_ORIGINS` — configuration, never a stored row,
 so a compromised write path cannot widen the envelope it sits inside. A development remote on
 `localhost` still does not belong in the platform's source: `lab-shell/plugins/example-plugin/registry.dev.json`
-is the input to `cmd/seed-registry`, which writes it over REST against a running service.
+is the input to `cmd/seed-registry`, an operator CLI that mints an Admin credential
+and calls the same curated/upsert NATS subjects as the Admin UI. It is never run at
+service startup.
+
+### Phase 4 transport and capability boundary (2026-08-30)
+
+The shell owns a fifth credential profile, `shell-platform`, which cannot merge
+with either existing operator PLATFORM profile. `MintShellToken` uses the normal
+ephemeral-session mint/registry path: name `lab-shell`, publish only the shell read
+plus `_INBOX.>`, subscribe only the registry notify plus `_INBOX.>`. Federated code
+shares the shell's realm and therefore its credential; no operator grant is present.
+The Vite proxy exposes only the exact shell mint route, never all `/api/auth`.
+
+Admin keeps its existing PLATFORM connection and gains four explicit subjects:
+`api._platform.registry.entries.{curated,upsert,set-enabled}.v1` and
+`api._platform.registry.audit.list.v1`. The shared error envelope retains its
+`error`/`conflict` fields; registry-specific code/revision details are additive.
+Both operator panels re-read on connection epochs, including a late initial mint.
+All former registry HTTP routes and proxy rules are retired; **no HTTP boot fallback**.
+
+`registrySession` waits for first paint, connects, performs the boot read, subscribes,
+flushes, then catches up conditionally to close the read/subscribe gap. All results
+still use `bootShell.applyRegistry`; only error storage became reactive for late
+reads. Notifications install nothing, coalesce bursts, and retain a trailing read
+if a later hint exceeds the completed snapshot. Every reconnect queues an
+unconditional read. Failed/degraded reads clear the conditional token; recovery at
+the same revision clears the degraded state. `registryWatcher.js` is deleted.
+`ShellFooter` debounces down-state 5000 ms, clears immediately on recovery, and
+never removes contributions. All styling reuses the existing UniFi footer tokens.
 
 **The four failure states are curated entries, not switches.** `loading` is a six-second delay in a
 second exposed module; `failed` is either a curated URL with no chunk behind it or an `activate()`

@@ -56,15 +56,6 @@ export default defineConfig({
       // Phase 14c — accounts-service, ahead of the general '/api' rule so
       // Vite's longest-prefix match picks it first. rewrite drops only the
       // '/api/platform' segment, mirroring nginx.conf's production rule.
-      // Phase 2a — the frontend plugin registry's own module in
-      // accounts-service. Separate rule, same rewrite: /api/platform/accounts
-      // is a shared prefix, not a spare one.
-      '/api/platform/registry': {
-        target: 'http://localhost:7202',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/platform/, '/api'),
-        headers: { Authorization: 'Basic YWRtaW46YWNjb3VudHMtc3Bpa2UtcGFzcw==' },
-      },
       '/api/platform/accounts': {
         target: 'http://localhost:7202',
         changeOrigin: true,

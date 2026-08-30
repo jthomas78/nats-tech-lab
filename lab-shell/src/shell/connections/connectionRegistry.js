@@ -21,6 +21,8 @@
    credential filenames — the shell asks accounts-service for connect info per
    profile and never holds a .creds file. */
 export const CREDENTIAL_PROFILE = Object.freeze({
+  /* Shell-owned PLATFORM connection: registry read and notify only. */
+  SHELL_PLATFORM: 'shell-platform',
   /* Admin UI, PLATFORM account — cross-account diagnostics. */
   ADMIN_PLATFORM: 'admin-platform',
   /* Tech Lab Operator's refdata-admin token, also PLATFORM: reference data is

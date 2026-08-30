@@ -1,9 +1,10 @@
 <script setup>
 import Button from 'primevue/button'
 import Message from 'primevue/message'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import { getRegistryEntries, setRegistryEntryEnabled, upsertRegistryEntry } from '../api'
+import { usePlatformConnection } from '../nats/usePlatformConnection.js'
 
 // The curated frontend plugin registry (Phase 2, accounts-service `registry`
 // module). Curation is service state, not a file: everything here is read from
@@ -95,9 +96,9 @@ async function write(fn) {
     apply(await fn())
     return true
   } catch (e) {
-    if (e.status === 409) {
+    if (e.conflict || e.status === 409) {
       stale.value = { yours: e.body?.yourRevision ?? revision.value, current: e.body?.currentRevision }
-    } else if (e.status === 422) {
+    } else if (e.code === 'origin-not-allowed' || e.status === 422) {
       originRefusal.value = e.message
     } else {
       loadError.value = e.message
@@ -136,6 +137,9 @@ async function saveDraft() {
 }
 
 onMounted(load)
+// A direct navigation can mount before the app's PLATFORM mint completes.
+// Retry that read on establishment, and recover after later reconnects.
+watch(usePlatformConnection().epoch, load)
 </script>
 
 <template>

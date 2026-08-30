@@ -110,7 +110,8 @@ func MintBrowserToken(ctx context.Context, reg accounts.UserRegistry, accountPub
 // so this is a separate least-privilege profile rather than MintBrowserToken
 // parameterized with tenant=platform. It subscribes to account/refdata and
 // centralized observability notifications, plus reply inboxes for exactly
-// three read-only refdata requests: type.list, locales.list, and context.list.
+// three read-only refdata requests: type.list, locales.list, and context.list,
+// the Users panel's explicit subjects, and four operator registry subjects.
 // No tenant business api.* or direct obs.* subject is reachable.
 //
 // The notification set is notify.accounts.account.>, the REFDATA notify.*
@@ -148,12 +149,27 @@ func MintAdminToken(ctx context.Context, reg accounts.UserRegistry, accountPub, 
 		// an endpoint breaks it, and the fix is to look at the subject and
 		// decide, not to paste it in.
 		claims.Permissions.Pub.Allow.Add(accounts.UsersAdapterSubjects()...)
+		claims.Permissions.Pub.Allow.Add(
+			"api._platform.registry.entries.curated.v1",
+			"api._platform.registry.entries.upsert.v1",
+			"api._platform.registry.entries.set-enabled.v1",
+			"api._platform.registry.audit.list.v1",
+		)
 		claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.kv.trace-request-reply.>",
 			// Phase 43b (BR-047): the Messages panel's live feed, the same
 			// bucket-notify shape as trace-request-reply above. This grants the
 			// KV-change notify only — obs.pubsub.> itself is still never granted
 			// to a browser credential (BR-AC34).
 			"notify._platform.kv.pubsub-messages.>", "_INBOX.>")
+	})
+}
+
+// MintShellToken is the shell's own PLATFORM profile. Federated code shares
+// its realm and therefore this credential: never grant an operator capability.
+func MintShellToken(ctx context.Context, reg accounts.UserRegistry, accountPub, accountSigningKeySeed, wsURL string, ttl time.Duration) (ConnectInfo, error) {
+	return mintUserToken(ctx, reg, accountPub, accountSigningKeySeed, "lab-shell", "platform", wsURL, ttl, func(claims *jwt.UserClaims) {
+		claims.Permissions.Pub.Allow.Add("api._platform.registry.frontend-plugins.read.v1", "_INBOX.>")
+		claims.Permissions.Sub.Allow.Add("notify._platform.registry.frontend-plugins.changed", "_INBOX.>")
 	})
 }
 

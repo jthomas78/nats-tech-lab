@@ -52,6 +52,17 @@ export function createShellRoutes({
   }))
 }
 
+// Discovery now happens after the router has painted. Re-resolve an initial
+// catch-all only when this read supplied its real route; a cold deep link
+// must not remain a 404 after its plugin arrives (BR-AS12).
+export async function installShellRoutes({ router, ...options }) {
+  for (const route of createShellRoutes(options)) router.addRoute(route)
+  const current = router.currentRoute.value
+  if (current.name === 'not-found' && router.resolve(current.fullPath).name !== 'not-found') {
+    await router.replace(current.fullPath)
+  }
+}
+
 /**
  * Load the plugin behind one route contribution and hand back the component it
  * named. Never rejects: an unresolvable route renders the error component so

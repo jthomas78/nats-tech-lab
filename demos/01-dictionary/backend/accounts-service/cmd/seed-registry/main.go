@@ -1,7 +1,9 @@
 // Command seed-registry loads a curated frontend plugin registry document
-// into a running accounts-service over REST.
+// into a running accounts-service over NATS request/reply.
 //
-// Over REST, by hand, never at process start (decision 24). A boot-time file
+// An operator client, run by hand, never at process start (decision 24). It
+// mints the same restricted PLATFORM credential as the Admin UI and calls
+// its api.* subjects; this is not a service-to-service rpc.* caller. A boot-time file
 // read alongside a database would let a restart silently revert curation;
 // running the seeder through the same endpoint the admin surface uses means
 // the seed obeys the same rules — origin allowlist, revision check, audit —
@@ -9,16 +11,15 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
+
+	"github.com/nats-io/nats.go"
 )
 
 type seedDocument struct {
@@ -37,8 +38,7 @@ func run() error {
 	var (
 		file    = flag.String("file", "", "registry document to seed (schemaVersion + plugins)")
 		baseURL = flag.String("url", envOr("ACCOUNTS_URL", "http://localhost:7202"), "accounts-service base URL")
-		user    = flag.String("user", envOr("ACCOUNTS_USER", "admin"), "basic auth user")
-		pass    = flag.String("pass", envOr("ACCOUNTS_PASS", "accounts-spike-pass"), "basic auth password")
+		natsURL = flag.String("nats-url", envOr("NATS_URL", nats.DefaultURL), "NATS server URL")
 	)
 	flag.Parse()
 	if *file == "" {
@@ -57,7 +57,18 @@ func run() error {
 		return fmt.Errorf("%s is schemaVersion %d, this seeder writes 1", *file, doc.SchemaVersion)
 	}
 
-	c := &client{base: *baseURL, user: *user, pass: *pass, http: &http.Client{Timeout: 10 * time.Second}}
+	nc, err := connect(*baseURL, *natsURL)
+	if err != nil {
+		return err
+	}
+	defer nc.Close()
+	c := &client{request: func(subject string, payload []byte) ([]byte, error) {
+		msg, err := nc.Request(subject, payload, 10*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		return msg.Data, nil
+	}}
 
 	// One entry per request, each keyed on the revision the last one
 	// installed. Sequential rather than batched on purpose: a batch would
@@ -78,58 +89,68 @@ func run() error {
 }
 
 type client struct {
-	base string
-	user string
-	pass string
-	http *http.Client
+	request func(subject string, payload []byte) ([]byte, error)
+}
+
+func connect(base, natsURL string) (*nats.Conn, error) {
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	resp, err := httpClient.Get(base + "/api/auth/adminConnectInfo")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("minting an operator credential returned %s", resp.Status)
+	}
+	var info struct {
+		JWT  string `json:"jwt"`
+		Seed string `json:"nkeySeed"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return nil, err
+	}
+	// This short-lived operator CLI fails fast, unlike a long-lived service.
+	return nats.Connect(natsURL, nats.Name("seed-registry"), nats.UserJWTAndSeed(info.JWT, info.Seed), nats.NoReconnect())
+}
+
+type response struct {
+	Revision int64  `json:"revision"`
+	Error    string `json:"error"`
+}
+
+func (c *client) call(subject string, payload []byte) (response, error) {
+	data, err := c.request(subject, payload)
+	if err != nil {
+		return response{}, err
+	}
+	var out response
+	if err := json.Unmarshal(data, &out); err != nil {
+		return out, err
+	}
+	if out.Error != "" {
+		return out, errors.New(out.Error)
+	}
+	return out, nil
 }
 
 func (c *client) revision() (int64, error) {
-	req, err := http.NewRequest(http.MethodGet, c.base+"/api/registry/entries", nil)
-	if err != nil {
-		return 0, err
-	}
-	req.SetBasicAuth(c.user, c.pass)
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("reading the registry returned %s", resp.Status)
-	}
-	var body struct {
-		Revision int64 `json:"revision"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return 0, err
-	}
-	return body.Revision, nil
+	out, err := c.call("api._platform.registry.entries.curated.v1", []byte(`{}`))
+	return out.Revision, err
 }
 
 func (c *client) upsert(entry json.RawMessage, revision int64) error {
-	payload, err := json.Marshal(map[string]json.RawMessage{"entry": entry})
+	var identity struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(entry, &identity); err != nil {
+		return err
+	}
+	payload, err := json.Marshal(map[string]any{"entry": entry, "entryId": identity.ID, "ifRevision": revision})
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPost, c.base+"/api/registry/entries", bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	req.SetBasicAuth(c.user, c.pass)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("If-Match", strconv.FormatInt(revision, 10))
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("%s: %s", resp.Status, bytes.TrimSpace(detail))
-	}
-	return nil
+	_, err = c.call("api._platform.registry.entries.upsert.v1", payload)
+	return err
 }
 
 func envOr(key, fallback string) string {

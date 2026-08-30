@@ -136,7 +136,6 @@ func RespondConflictableError(req micro.Request, svc micro.Service, log *slog.Lo
 }
 
 func respondError(req micro.Request, svc micro.Service, log *slog.Logger, subject, correlationID string, err error, notFound, conflict bool) {
-	data, _ := json.Marshal(ErrorResponse{Error: err.Error(), NotFound: notFound, Conflict: conflict && !notFound})
 	code := "500"
 	switch {
 	case notFound:
@@ -144,13 +143,26 @@ func respondError(req micro.Request, svc micro.Service, log *slog.Logger, subjec
 	case conflict:
 		code = "409"
 	}
+	RespondErrorBody(req, svc, log, err, code, ErrorResponse{Error: err.Error(), NotFound: notFound, Conflict: conflict && !notFound})
+}
+
+// RespondErrorBody preserves the shared error envelope/headers/failed span
+// when an adapter adds domain-specific refusal metadata. body must embed
+// ErrorResponse; for example a stale revision also names the two revisions.
+func RespondErrorBody(req micro.Request, svc micro.Service, log *slog.Logger, err error, code string, body any) {
+	data, marshalErr := json.Marshal(body)
+	if marshalErr != nil {
+		err = fmt.Errorf("could not encode failure response")
+		code = "500"
+		data, _ = json.Marshal(ErrorResponse{Error: err.Error()})
+	}
 	headers := map[string][]string{
 		micro.ErrorHeader:     {err.Error()},
 		micro.ErrorCodeHeader: {code},
 		ResponderHeader:       {ResponderIdentity(svc)},
 	}
 	if respErr := req.Respond(data, micro.WithHeaders(micro.Headers(headers))); respErr != nil && log != nil {
-		log.Error("browserrpc: respond failed", "subject", subject, "err", respErr)
+		log.Error("browserrpc: respond failed", "subject", req.Subject(), "err", respErr)
 	}
 	natstrace.SpanFrom(req).Fail(err, data, headers)
 }

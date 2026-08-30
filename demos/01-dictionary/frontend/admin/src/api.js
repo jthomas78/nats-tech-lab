@@ -266,30 +266,33 @@ export function getNatsLog({ level, q, tail } = {}) {
 // ── Frontend plugin registry (accounts-service `registry` module) ────────────
 // Curated registry state, proxied at /api/platform/registry. Writes are
 // optimistically concurrent: every write carries the revision it was made
-// against in If-Match, and a refusal (409) names the revision that won
+// against in ifRevision, and a conflict refusal names the revision that won
 // instead of merging (BR-AS18). There is no delete — an entry is disabled,
 // never torn out from under a shell that already loaded it (BR-AS24).
 
 export function getRegistryEntries() {
-  return request('/api/platform/registry/entries')
+  return registryRequest('api._platform.registry.entries.curated.v1', {})
 }
 
 export function upsertRegistryEntry(entry, ifRevision) {
-  return request('/api/platform/registry/entries', {
-    method: 'POST',
-    headers: { 'If-Match': `"${ifRevision}"` },
-    body: JSON.stringify({ entry }),
-  })
+  return registryRequest('api._platform.registry.entries.upsert.v1', { ifRevision, entryId: entry.id, entry })
 }
 
 export function setRegistryEntryEnabled(id, enabled, ifRevision) {
-  return request(`/api/platform/registry/entries/${encodeURIComponent(id)}/enabled`, {
-    method: 'POST',
-    headers: { 'If-Match': `"${ifRevision}"` },
-    body: JSON.stringify({ enabled }),
-  })
+  return registryRequest('api._platform.registry.entries.set-enabled.v1', { ifRevision, entryId: id, enabled })
 }
 
 export function getRegistryAudit(limit) {
-  return request(`/api/platform/registry/audit${limit ? `?limit=${limit}` : ''}`)
+  return registryRequest('api._platform.registry.audit.list.v1', { limit })
+}
+
+async function registryRequest(subject, payload) {
+  try {
+    return await usePlatformConnection().request(subject, payload)
+  } catch (error) {
+    // Domain refusals are address-free and carry structured concurrency
+    // metadata. A socket error is not safe text for this panel (BR-AS04).
+    if (error.body?.error) throw error
+    throw new Error('The registry could not be reached')
+  }
 }

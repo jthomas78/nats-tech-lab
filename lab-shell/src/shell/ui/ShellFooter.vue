@@ -2,13 +2,21 @@
 /* The shell's footer bar — its own region (`shell/footer/v1`), rendered
    full-bleed under the content by AppShell's #footer slot. Plugins contribute
    status items into it; the shell owns the bar itself (BR-AS09). */
-import { computed, inject } from 'vue'
+import { computed, inject, onBeforeUnmount, ref, watch } from 'vue'
 
 import { SHELL } from '../shellKey.js'
 import { SHELL_API_VERSION } from '../versions.js'
 import PluginSlot from './PluginSlot.vue'
 
 const shell = inject(SHELL)
+const disconnected = ref(false)
+let disconnectTimer = null
+watch(() => shell.connection?.connected, (connected) => {
+  clearTimeout(disconnectTimer)
+  disconnected.value = false
+  if (connected === false) disconnectTimer = setTimeout(() => { disconnected.value = true }, 5000)
+}, { immediate: true })
+onBeforeUnmount(() => clearTimeout(disconnectTimer))
 const items = computed(() => shell.contributions.shellFooter)
 const pluginCount = computed(
   () => [...shell.statuses.values()].filter((r) => r.status !== 'incompatible').length,
@@ -45,6 +53,14 @@ const pluginCount = computed(
          contract is running, and which registry it was told to trust. The
          revision, never the endpoint (BR-AS04). -->
     <span class="tail">
+      <span
+        v-if="disconnected"
+        class="degraded"
+        data-testid="shell-disconnected"
+        role="status"
+      >
+        connection offline · registry may be out of date ·
+      </span>
       <span class="k">shell api</span> {{ SHELL_API_VERSION }} ·
       <span class="k">registry</span> rev {{ shell.registry?.revision ?? 'n/a' }}
     </span>

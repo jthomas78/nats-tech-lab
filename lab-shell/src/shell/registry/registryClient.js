@@ -1,5 +1,7 @@
 /*
-  The registry client — the shell's only source of *remote* plugins (BR-AS01).
+  Historical HTTP client retained for the Phase 2 characterization tests.
+  Phase 4's host uses registryTransport exclusively; the HTTP endpoint is gone
+  and this is NOT a fallback. RemoteAllowlist below still gates the loader.
 
   Curation is the whole point of this module. A domain service must not be able
   to advertise its own frontend and have the browser run it; the only URLs the

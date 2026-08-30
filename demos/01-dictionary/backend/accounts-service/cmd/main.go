@@ -253,10 +253,8 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("registry startup: %w", err)
 	}
-	registryRoutes := registryModule.Mount(mux, func(fn http.HandlerFunc) http.Handler {
-		return accounts.BasicAuth(authSecret, fn)
-	})
-	log.Info("frontend plugin registry mounted", "routes", len(registryRoutes), "allowedOrigins", allowlist.Origins())
+	defer registryModule.Stop() //nolint:errcheck
+	log.Info("frontend plugin registry mounted on PLATFORM api.*", "allowedOrigins", allowlist.Origins())
 
 	// Phase 19 — auth-service folded into this binary: same Store, same
 	// Postgres pool, no more cross-service read. Routes are ungated (see

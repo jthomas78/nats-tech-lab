@@ -202,6 +202,14 @@ var _ = Describe("MintAdminToken", func() {
 			"api._platform.accounts.user.list.v1",
 			"api._platform.accounts.user.get.v1",
 			"api._platform.accounts.user.revoke.v1",
+			// Phase 4 (BR-AS31) — the registry curation surface, moved off
+			// REST. Operator-scoped: these three are granted here and to no
+			// other credential, and MintShellToken below must never carry
+			// them.
+			"api._platform.registry.entries.curated.v1",
+			"api._platform.registry.entries.upsert.v1",
+			"api._platform.registry.entries.set-enabled.v1",
+			"api._platform.registry.audit.list.v1",
 		))
 		Expect(claims.Permissions.Pub.Deny).To(BeEmpty())
 
@@ -226,6 +234,125 @@ var _ = Describe("MintAdminToken", func() {
 
 	It("returns an error when the signing key seed is invalid", func() {
 		_, err := auth.MintAdminToken(context.Background(), &fakeSessionRegistry{}, accountPub, "not-a-real-seed", "ws://localhost:9222", 15*time.Minute)
+		Expect(err).To(HaveOccurred())
+	})
+})
+
+// BR-AS27 — the lab shell's own credential.
+//
+// The narrowest profile in this repo, and deliberately so. Federated plugin
+// code executes inside the shell's JS realm, so this credential is not "the
+// shell's" in any way a plugin is excluded from: whatever it can reach, every
+// loaded plugin can reach. That is why the shell gets its own profile instead
+// of reusing operator-refdata-platform, and why the assertion below is an
+// exact ConsistOf rather than a check that some particular write subject is
+// absent — the failure to catch is the subject nobody thought about, added a
+// year from now by someone who saw a credential that already existed and
+// looked convenient.
+var _ = Describe("MintShellToken", func() {
+	var accountPub, accountSigningSeed string
+
+	BeforeEach(func() {
+		accountKP, err := nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		accountPub, err = accountKP.PublicKey()
+		Expect(err).NotTo(HaveOccurred())
+
+		signingKP, err := nkeys.CreateAccount()
+		Expect(err).NotTo(HaveOccurred())
+		seed, err := signingKP.Seed()
+		Expect(err).NotTo(HaveOccurred())
+		accountSigningSeed = string(seed)
+	})
+
+	It("mints a PLATFORM JWT that can read the registry and do nothing else", func() {
+		info, err := auth.MintShellToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "ws://localhost:9222", 15*time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(info.Tenant).To(Equal("platform"))
+		Expect(info.JWT).NotTo(BeEmpty())
+		Expect(info.NKeySeed).NotTo(BeEmpty())
+
+		claims, err := jwt.DecodeUserClaims(info.JWT)
+		Expect(err).NotTo(HaveOccurred())
+		// Named for its holder, spelled as the process's nats.Name()
+		// (CLAUDE.md, credential naming).
+		Expect(claims.Name).To(Equal("lab-shell"))
+		Expect(claims.IssuerAccount).To(Equal(accountPub))
+
+		// One read subject and its reply inbox. Nothing else.
+		Expect(claims.Permissions.Pub.Allow).To(ConsistOf(
+			"api._platform.registry.frontend-plugins.read.v1",
+			"_INBOX.>",
+		))
+		// One notification to hear, plus the inbox. The notify subject is
+		// subscribe-only by construction: it is not in Pub.Allow, so a plugin
+		// cannot forge a change notification to its own shell (BR-AS28 makes
+		// the notification a hint, and this is what keeps the hint honest).
+		Expect(claims.Permissions.Sub.Allow).To(ConsistOf(
+			"notify._platform.registry.frontend-plugins.changed",
+			"_INBOX.>",
+		))
+	})
+
+	It("carries no curation subject — BR-AS27, and BR-AS21 from inside the browser", func() {
+		info, err := auth.MintShellToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "ws://localhost:9222", 15*time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		claims, err := jwt.DecodeUserClaims(info.JWT)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Stated separately from the ConsistOf above because these are the
+		// claims that would still be true if someone "fixed" the exact match
+		// by widening it. A plugin that could reach any of these would be
+		// curating the registry that curates it.
+		for _, forbidden := range []string{"upsert", "set-enabled", "entries", "audit"} {
+			Expect(claims.Permissions.Pub.Allow).NotTo(ContainElement(ContainSubstring(forbidden)))
+			Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring(forbidden)))
+		}
+		// No prefix grants of any kind: api.> would reach every other
+		// service's surface, and rpc.> is never granted to a browser
+		// credential at all (CLAUDE.md).
+		Expect(claims.Permissions.Pub.Allow).NotTo(ContainElement(Equal("api.>")))
+		Expect(claims.Permissions.Pub.Allow).NotTo(ContainElement(ContainSubstring("rpc.")))
+		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("rpc.")))
+		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(Equal("notify.>")))
+		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("$KV")))
+		Expect(claims.Permissions.Sub.Allow).NotTo(ContainElement(ContainSubstring("$JS.API")))
+	})
+
+	It("is not the admin credential wearing a different name", func() {
+		// The reuse this profile exists to prevent, asserted as a difference
+		// rather than as a list: if these two ever converge, one of them has
+		// been widened into the other.
+		shell, err := auth.MintShellToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "ws://localhost:9222", 15*time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		admin, err := auth.MintAdminToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "ws://localhost:9222", 15*time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+
+		shellClaims, err := jwt.DecodeUserClaims(shell.JWT)
+		Expect(err).NotTo(HaveOccurred())
+		adminClaims, err := jwt.DecodeUserClaims(admin.JWT)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(shellClaims.Name).NotTo(Equal(adminClaims.Name))
+		for _, subject := range adminClaims.Permissions.Pub.Allow {
+			if subject == "_INBOX.>" {
+				continue
+			}
+			Expect(shellClaims.Permissions.Pub.Allow).NotTo(ContainElement(subject),
+				"the shell must hold no subject the operator credential holds")
+		}
+	})
+
+	It("stamps the expiry from the ttl argument", func() {
+		info, err := auth.MintShellToken(context.Background(), &fakeSessionRegistry{}, accountPub, accountSigningSeed, "ws://localhost:9222", 22*time.Minute)
+		Expect(err).NotTo(HaveOccurred())
+		claims, err := jwt.DecodeUserClaims(info.JWT)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(claims.Expires - claims.IssuedAt).To(BeNumerically("~", (22 * time.Minute).Seconds(), 2))
+	})
+
+	It("returns an error when the signing key seed is invalid", func() {
+		_, err := auth.MintShellToken(context.Background(), &fakeSessionRegistry{}, accountPub, "not-a-real-seed", "ws://localhost:9222", 15*time.Minute)
 		Expect(err).To(HaveOccurred())
 	})
 })

@@ -495,7 +495,7 @@ the escape hatch).
 
 ---
 
-### Phase 4 — PROPOSED (design gate not passed) — The shell's NATS transport and push change propagation
+### Phase 4 — IMPLEMENTED 2026-08-30 (validation caveat below) — The shell's NATS transport and push change propagation
 
 **Why this is a phase.** Phase 2c gave the shell a change *model* and Phase 3 makes it reach the
 screen, but the shell still learns about change by polling every ten minutes over HTTP. The
@@ -517,10 +517,17 @@ request/reply; a subscription to the existing notify subject; the reconnect resy
 vocabulary the HTTP surface carries today.
 
 **Explicitly out of scope.** Connection *presence* as a health signal (Phase 5 — health has no meaning
-until entries carry a lifecycle class). Moving the admin write routes off REST. Anything about
-plugins registering themselves.
+until entries carry a lifecycle class). Anything about plugins registering themselves.
 
-#### Design decisions — 53–58, PROPOSED
+**Amended at the gate (2026-08-30):** the admin write routes DO move in this phase — see gate
+answer 2. The scope above therefore also covers the two write subjects, the admin credential's
+`Pub.Allow` widening, and retirement of the REST write surface. This was cheaper than the phase
+entry assumed: the Admin UI already holds a live PLATFORM connection
+(`frontend/admin/src/nats/connectionFactory.js`, whose `MintAdminToken` restricts `request()` to
+three read-only refdata subjects and denies every other publish by omission), so this is a
+permission widening plus two handlers, not an app migration.
+
+#### Design decisions — 53–58, APPROVED 2026-08-30
 
 | # | Decision | Rationale |
 | --- | --- | --- |
@@ -531,19 +538,23 @@ plugins registering themselves.
 | 57 | **`registryWatcher.js` is deleted, not retained as a fallback.** | A poll kept "just in case" beside a push channel means two paths that can install a document, divergent conditional-read state (`lastEtag` vs the subscription's revision), and a failure mode nobody exercises because the poll quietly covers it. Decision 56 is what makes the fallback unnecessary; keeping both would make decision 56 untestable. |
 | 58 | **The conditional-read and concurrency vocabulary is re-implemented in the payload, deliberately.** | ETag/`If-None-Match`/304 and `If-Match`/409/428 are doing real work today and none of it is free over request/reply. Revision is already a domain concept, so the payload carries it explicitly: a read states the revision it holds and may be answered "unchanged"; a write states the revision it saw and may be refused as stale or as missing. This is re-implementation, not deletion, and it is the part most likely to acquire subtle bugs — so it ships with its own spec class. |
 
-#### Business rules — BR-AS26 to BR-AS29 (draft, to be confirmed at the gate)
+#### Business rules — BR-AS27 to BR-AS31 (confirmed at the gate 2026-08-30)
 
-- **BR-AS26 — The shell's registry read is a NATS request/reply on an `api.*` subject.** The browser
+> Renumbered at the gate: Phase 3 shipped **BR-AS26** (a committed write is reported as committed),
+> so these four shift up by one. The numbers below are the ones to write into
+> `BUSINESS_RULES-APP-SHELL.md`.
+
+- **BR-AS27 — The shell's registry read is a NATS request/reply on an `api.*` subject.** The browser
   never calls `rpc.>`. The subject the shell can reach carries read capability only; no write
   subject is in its permission set (extends BR-AS25 from proxy shape to transport shape).
-- **BR-AS27 — A change notification is a hint, never a payload.** The shell reacts to
+- **BR-AS28 — A change notification is a hint, never a payload.** The shell reacts to
   `notify._platform.registry.frontend-plugins.changed` by performing a conditional read. It never
   installs a catalog from the message body, and a message whose revision matches what the shell
   holds changes nothing.
-- **BR-AS28 — A reconnected shell re-reads unconditionally.** On every reconnect the shell performs
+- **BR-AS29 — A reconnected shell re-reads unconditionally.** On every reconnect the shell performs
   an unconditional read and reconciles by revision, because messages published while it was
   disconnected are not redelivered.
-- **BR-AS29 — First paint precedes the connection.** The shell renders its built-ins before it
+- **BR-AS30 — First paint precedes the connection.** The shell renders its built-ins before it
   connects or reads. A shell that cannot connect, cannot mint a credential, or is answered with a
   degraded document still renders (BR-AS22 unchanged in effect, restated for the new transport).
 
@@ -557,29 +568,93 @@ plugins registering themselves.
 3. **What does the shell do while unconnected but painted** — retry silently, or surface a
    connection state in the footer beside the revision?
 
-#### Tasks — not started; this phase is PROPOSED
+#### Gate answers — 2026-08-30
 
-> No code, specs or business-rule edits until the gate passes (AI Agent Workflow step 2).
+1. **Credential scope — the shell gets its own profile.** A fifth entry in `CREDENTIAL_PROFILE`,
+   minted for read capability on the registry `api.*` subject and nothing else. This is BR-AS25
+   restated at transport level, and the reasoning is decision 50's: federated plugin code runs in
+   the shell's JS realm, so *the shell's credential is the credential every loaded plugin holds* —
+   it has to be the narrowest one in the repo. Reuse of `operator-refdata-platform` was rejected
+   because that profile is the Tech Lab Operator's refdata-admin token: the shell would inherit its
+   write subjects, and "the shell's subjects carry read capability only" would stop being
+   assertable, since the profile is shared with a writer. Cost accepted: one nsc user, one `.creds`
+   filename, and the reseed that a new nsc user implies (`docker compose down -v` — renaming or
+   adding an nsc user is delete-and-re-add, CLAUDE.md).
+2. **The admin write routes move in this phase.** Overturns the entry's own out-of-scope line, and
+   the scope note above is amended to match. The reason to do both halves together is that subject
+   permissions only carry the whole boundary if they carry the writes too; splitting them would
+   leave Phase 3's `rest_test.go` mount-split as the only thing holding the write boundary while
+   the read had already moved to a different transport — one boundary in two mechanisms, which is
+   the shape decision 57 rejects for the read path. Consequences to plan for: 4b roughly doubles,
+   the optimistic-concurrency vocabulary of decision 58 is needed for writes as well as reads
+   (`If-Match`/409/428 equivalents, not just 304), the admin credential's permission set is a
+   second thing to design, and Phase 3's REST surface plus its specs retire inside this phase —
+   `TestShellReadIsUngatedAndEverythingElseIsNot` is replaced by a subject-permission assertion,
+   not deleted.
+3. **Connection state is surfaced in the footer, debounced.** Beside the revision that is already
+   there. Decision 55 makes the read authoritative and decision 56 resyncs on reconnect, so a
+   disconnected shell is genuinely stale — and *silently* stale is the exact failure BR-AS22
+   exists to prevent, so the state has to be visible. Debounced because a routine reconnect must
+   not flicker, and the revision beside it is what makes the indicator readable rather than
+   decorative. Contributions are untouched by a disconnect: this is a status indicator, never a
+   reason to unload anything (BR-AS19). The phase3 `LoadSequence` artboard already drew this
+   exact behaviour as its dynamic-lane tail.
+
+**Design gate passed 2026-08-30** — decisions 53–58 approved as written, with the scope amendment
+from answer 2. Specs are written first (AI Agent Workflow step 3): every rule below gets its Ginkgo
+`Context` / Vitest `describe` before any implementation exists, so the suites go red before they go
+green.
+
+#### Tasks — gate passed; specs first
 
 ##### 4a — the connection
-- [ ] The shell's NATS WebSocket connection and credential mint, following the existing three apps.
-- [ ] `connectionRegistry.js` gains the transport it was designed as a placeholder for.
-- [ ] Specs: a shell that cannot connect still renders its built-ins and reports why.
+- [x] The shell's NATS WebSocket connection and credential mint, following the existing three apps.
+- [x] `connectionRegistry.js` gains the shell-platform transport profile, separate from all operator profiles.
+- [x] Specs: a shell that cannot connect still renders its built-ins and reports why; footer down-state debounces 5000 ms.
 
 ##### 4b — the read
-- [ ] `registryClient` gains an `api.*` request/reply path; the revision-conditional read moves into the payload.
-- [ ] Service side: the read subject and its handler, answering unchanged / document / degraded.
-- [ ] Specs: unchanged, changed, and degraded answers over the new transport; the 428/409/422 equivalents.
+- [x] `registryTransport` replaces the host's HTTP read; the revision-conditional read moves into the payload without changing `applyRegistry`'s result contract.
+- [x] Service side: the read subject and its handler, answering unchanged / document / degraded.
+- [x] Specs: unchanged, changed, and degraded answers over the new transport; the 428/409/422 equivalents.
+- [x] Four operator subjects granted to Admin; both panels and the manual seed CLI moved to NATS. HTTP registry routes/proxies retired, including the read; **no HTTP fallback**.
+- [x] BR-AS25 mount-split test re-expressed against actual subjects and minted shell/admin permissions; REST route list remains exhaustively empty.
 
 ##### 4c — push
-- [ ] Subscribe to `notify._platform.registry.frontend-plugins.changed`; a message triggers a conditional read.
-- [ ] Reconnect handler performs an unconditional read (decision 56).
-- [ ] Delete `registryWatcher.js` and its specs; move what they proved onto the subscription.
-- [ ] Specs: a message whose revision matches is a no-op; a shell that missed a message while disconnected converges on reconnect.
+- [x] Subscribe to `notify._platform.registry.frontend-plugins.changed`; a revision-only message triggers a conditional read.
+- [x] Reconnect handler performs an unconditional read (decision 56), including reconnects during an in-flight read.
+- [x] Delete `registryWatcher.js` and its specs; move what they proved onto the subscription.
+- [x] Specs: matching/older hints are no-ops; missed messages converge on reconnect; bursts retain a trailing read if the completed snapshot missed a newer hint.
+- [x] Conditional catch-up after subscribe/flush closes the initial snapshot/subscription gap; cold deep links re-resolve when their routes arrive.
 
 ##### 4d — rules and docs
-- [ ] `BUSINESS_RULES-APP-SHELL.md` — BR-AS26 to BR-AS29; BR-AS19's "triggered on window focus and on a slow interval" restated as push.
-- [ ] `ARCHITECTURE-APP-SHELL.md` — the read contract restated for request/reply; `ARCHITECTURE-COMMUNICATIONS.md` gains the new `api.*` subject.
+- [x] `BUSINESS_RULES-APP-SHELL.md` — BR-AS27 to BR-AS31; BR-AS19 restated as push, checking-file table updated.
+- [x] `ARCHITECTURE-APP-SHELL.md` — request/reply boot and lifecycle; `ARCHITECTURE-COMMUNICATIONS.md` records all five `api.*` subjects.
+
+**Implementation notes.** The existing `mintUserToken` helper issues an ephemeral
+`lab-shell` session on PLATFORM. No static nsc user, credential file, or destructive
+volume reseed is needed (the gate's cost estimate assumed a static user). Explicit
+JSON `ifRevision: 0` remains valid for first curation; absent/null is refused before
+the store. The old HTTP helper is retained only for historical characterization
+tests; the running host never calls it and the service serves no HTTP registry route.
+
+**Validation.** Full accounts-service Ginkgo passed: Accounts 160/160, Auth 40/40,
+Registry 38/38, plus plain-Go adapter/permission/route tests, with no Postgres skips.
+The new adapter's original 13 specs are unchanged; added wire/integration tests cover
+the zero-revision edge and committed notify. Shell Vitest: 334 passing; Admin:
+287 passing; both builds pass and shell lint has only pre-existing warnings.
+browser QA at 1920×1080 verified the disconnected footer and usable built-ins.
+Browser QA also caught an illegal native timer receiver on retry; the lifecycle
+regression now enforces the binding, and failed initial connections keep retrying.
+
+**Outstanding baseline guard (not edited).** The broader shipping suite reports
+`internal/notifycoverage/TestNotifySubjectsAreNamedOnlyInSubjectBuilders`: its
+allowlist already omitted `accounts-service/registry/internal/application/service.go`
+before Phase 4 (verified against HEAD). Its existing `NotifySubject` builder uses
+the shared publish seam but has no allowlist entry. The supplied-spec no-edit
+instruction is respected; owner direction is needed before amending that guard.
+Shipping also has 13 existing pending specs. The running Docker images were not
+rebuilt; healthy browser NATS transport is covered through embedded NATS/Postgres
+integration, while the browser check exercised the old image's refused mint.
 
 ---
 

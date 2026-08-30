@@ -12,6 +12,7 @@
 //	GET   /api/auth/connectInfo?tenant={name}   mint a browser NATS user JWT for tenant
 //	GET   /api/auth/adminConnectInfo            mint a browser NATS user JWT under PLATFORM (Phase 23, BR-AC18)
 //	GET   /api/auth/refdataAdminConnectInfo     mint a refdata-admin-UI NATS user JWT under PLATFORM (Phase 32)
+//	GET   /api/auth/shellConnectInfo            mint the shell's read-only registry credential (Phase 4)
 //	GET   /api/auth/tenants                     list switchable tenant names
 //	POST  /api/auth/login                       placeholder for the future WorkOS flow (BR-UA01) — 501
 package auth
@@ -89,13 +90,41 @@ func (h *Handlers) Mount(mux *http.ServeMux) []string {
 		"GET /api/auth/refdataAdminConnectInfo",
 		"GET /api/auth/tenants",
 		"POST /api/auth/login",
+		"GET /api/auth/shellConnectInfo",
 	}
 	mux.HandleFunc(routes[0], h.connectInfo)
 	mux.HandleFunc(routes[1], h.adminConnectInfo)
 	mux.HandleFunc(routes[2], h.refdataAdminConnectInfo)
 	mux.HandleFunc(routes[3], h.tenants)
 	mux.HandleFunc(routes[4], h.login)
+	mux.HandleFunc(routes[5], h.shellConnectInfo)
 	return routes
+}
+
+// shellConnectInfo follows the other PLATFORM mints, but grants only registry
+// read/notify. No operator credential is returned to the shell's origin.
+func (h *Handlers) shellConnectInfo(w http.ResponseWriter, r *http.Request) {
+	acc, err := h.Store.Get(r.Context(), platformAccountName)
+	if errors.Is(err, accounts.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "platform account not seeded")
+		return
+	}
+	if err != nil {
+		h.Log.Error("look up platform account", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if acc.SigningKeySeed == "" {
+		writeError(w, http.StatusConflict, "platform account has no signing key on record")
+		return
+	}
+	info, err := MintShellToken(r.Context(), h.Store, acc.PublicKey, acc.SigningKeySeed, h.WSUrl, h.tokenTTL(r.Context()))
+	if err != nil {
+		h.Log.Error("mint shell token", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to mint shell credential")
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
 }
 
 // connectInfo mints and returns a fresh browser NATS credential for the
