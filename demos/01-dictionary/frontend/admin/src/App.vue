@@ -7,14 +7,13 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import AccountsView from './components/AccountsView.vue'
 import ConnectionsPanel from './components/ConnectionsPanel.vue'
-import FrontendPluginsPanel from './components/FrontendPluginsPanel.vue'
+import FrontendShellView from './components/FrontendShellView.vue'
 import JetStreamPanel from './components/JetStreamPanel.vue'
 import KvInspector from './components/KvInspector.vue'
 import LogPanel from './components/LogPanel.vue'
 import OverviewPanel from './components/OverviewPanel.vue'
 import PostgresTablesPanel from './components/PostgresTablesPanel.vue'
 import MessagesPanel from './components/MessagesPanel.vue'
-import RegistryAuditPanel from './components/RegistryAuditPanel.vue'
 import RpcPanel from './components/RpcPanel.vue'
 import ServicesPanel from './components/ServicesPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
@@ -85,12 +84,11 @@ const sections = [
       { items: [{ key: 'settings', label: 'Settings', icon: IconSettings }] },
       // The curated frontend plugin registry (Phase 2) and its write history.
       // Platform, not System: this is what the shells are served, not how the
-      // stack is wired.
+      // stack is wired. One nav item, two tabs (FrontendShellView.vue) — the
+      // catalog and its audit trail are one subject read two ways, and two
+      // rail entries for it crowded out the group they sit in.
       {
-        items: [
-          { key: 'frontend-plugins', label: 'Frontend Plugins', icon: IconServices },
-          { key: 'registry-audit', label: 'Registry Audit', icon: IconLog },
-        ],
+        items: [{ key: 'frontend-shell', label: 'Frontend Shell', icon: IconServices }],
       },
     ],
   },
@@ -145,8 +143,12 @@ const SUBTITLES = {
   log: 'nats server log · level + text filter, no rotation',
   tables: 'canonical Postgres tables by schema',
   settings: 'platform-global system configuration',
-  'frontend-plugins': 'the curated micro-frontend registry served to every shell',
-  'registry-audit': 'every write the registry accepted or refused, in order',
+}
+// frontend-shell is the second tabbed view, for the same reason as accounts
+// below: the catalog and its write history need different subtitles.
+const FRONTEND_SHELL_SUBTITLES = {
+  plugins: 'the curated micro-frontend registry served to every shell',
+  audit: 'every write the registry accepted or refused, in order',
 }
 // accounts has three tabs (AccountsView.vue) with distinct enough subject
 // matter — fleet health, provisioning, and the export/import graph — that
@@ -157,9 +159,11 @@ const ACCOUNTS_SUBTITLES = {
   provisioning: 'dynamic tenant provisioning · decentralized JWTs',
   sharing: 'declared export/import edges between accounts · read from resolver JWTs',
 }
-const subtitle = computed(() =>
-  activeView.value === 'accounts' ? ACCOUNTS_SUBTITLES[uiStore.accountsTab] : SUBTITLES[activeView.value] ?? '',
-)
+const subtitle = computed(() => {
+  if (activeView.value === 'accounts') return ACCOUNTS_SUBTITLES[uiStore.accountsTab]
+  if (activeView.value === 'frontend-shell') return FRONTEND_SHELL_SUBTITLES[uiStore.frontendShellTab]
+  return SUBTITLES[activeView.value] ?? ''
+})
 
 onMounted(async () => {
   // The refdata reads below need the PLATFORM request transport, while the
@@ -288,21 +292,14 @@ onUnmounted(() => {
       <SettingsPanel />
     </section>
 
-    <!-- Platform — the curated plugin registry (Phase 2, BR-AS16–AS24) -->
+    <!-- Platform — the curated plugin registry and its write history, as tabs
+         of one view (Phase 2, BR-AS16–AS24) -->
     <section
-      v-else-if="activeView === 'frontend-plugins'"
+      v-else-if="activeView === 'frontend-shell'"
       class="group"
-      data-testid="frontend-plugins-view"
+      data-testid="frontend-shell-view"
     >
-      <FrontendPluginsPanel />
-    </section>
-
-    <section
-      v-else-if="activeView === 'registry-audit'"
-      class="group"
-      data-testid="registry-audit-view"
-    >
-      <RegistryAuditPanel />
+      <FrontendShellView />
     </section>
 
     <!-- Users — the credential/session roster from accounts-service's user

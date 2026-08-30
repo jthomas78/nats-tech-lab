@@ -6,7 +6,7 @@
       "y": 0,
       "w": 1920,
       "h": 1080,
-      "title": "Frontend Plugins — curated registry"
+      "title": "Frontend Shell \u2014 Plugins tab"
     },
     {
       "file": "ShellSignal.dc.html",
@@ -14,7 +14,7 @@
       "y": 0,
       "w": 1920,
       "h": 1080,
-      "title": "Shell — catalog changed"
+      "title": "Shell \u2014 catalog changed"
     },
     {
       "file": "EntryEditor.dc.html",
@@ -30,7 +30,7 @@
       "y": 1240,
       "w": 1920,
       "h": 1080,
-      "title": "Registry audit"
+      "title": "Frontend Shell \u2014 Registry Audit tab"
     },
     {
       "file": "StaleRevision.dc.html",
@@ -38,7 +38,7 @@
       "y": 2480,
       "w": 640,
       "h": 460,
-      "title": "Refused — stale revision"
+      "title": "Refused \u2014 stale revision"
     },
     {
       "file": "OriginRefused.dc.html",
@@ -46,7 +46,7 @@
       "y": 2480,
       "w": 640,
       "h": 460,
-      "title": "Refused — origin not allowlisted"
+      "title": "Refused \u2014 origin not allowlisted"
     }
   ],
   "annotations": [
@@ -55,7 +55,7 @@
       "x": 0,
       "y": -210,
       "w": 520,
-      "text": "Curated registry as service state.\nDecisions 23, 24, 27, 28, 31 — Postgres source of truth, KV write-through cache, server-assigned revision, config-level origin allowlist (SRI deferred to Phase 6), audited writes whose actor is the shared admin identity (BR-AS23)."
+      "text": "Curated registry as service state.\nDecisions 23, 24, 27, 28, 31 \u2014 Postgres source of truth, KV write-through cache, server-assigned revision, config-level origin allowlist (SRI deferred to Phase 6), audited writes whose actor is the shared admin identity (BR-AS23)."
     },
     {
       "id": "decisions-25-26",

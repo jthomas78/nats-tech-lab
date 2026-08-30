@@ -54,7 +54,7 @@ cat > "$WORK/sheet.html" <<'SHEET'
   <div class="rule"></div>
 
   <div class="row big">
-    <div class="cell"><div class="cap"><span class="n">01</span>Frontend Plugins — curated registry</div>
+    <div class="cell"><div class="cap"><span class="n">01</span>Frontend Shell — Plugins tab</div>
       <div class="frame"><iframe src="r-Main.html" scrolling="no"></iframe></div></div>
     <div class="cell"><div class="cap"><span class="n">02</span>Shell — catalog changed</div>
       <div class="frame"><iframe src="r-ShellSignal.html" scrolling="no"></iframe></div></div>
@@ -62,7 +62,7 @@ cat > "$WORK/sheet.html" <<'SHEET'
   <div class="row big">
     <div class="cell"><div class="cap"><span class="n">03</span>Entry editor</div>
       <div class="frame"><iframe src="r-EntryEditor.html" scrolling="no"></iframe></div></div>
-    <div class="cell"><div class="cap"><span class="n">04</span>Registry audit</div>
+    <div class="cell"><div class="cap"><span class="n">04</span>Frontend Shell — Registry Audit tab</div>
       <div class="frame"><iframe src="r-AuditTrail.html" scrolling="no"></iframe></div></div>
   </div>
   <div class="row sm">

@@ -80,6 +80,17 @@
     .page-head h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 600; }
     .page-head p { margin: 2px 0 0; font-size: 12px; color: #b7bcc2; }
     .head-actions { display: flex; gap: 10px; flex-shrink: 0; }
+
+    /* Panel tabs — the admin UI's PrimeVue tab strip (Frontend Shell,
+       Accounts). Values lifted from the running app: 13px/600, 13px 15px
+       padding, the active tab in accent with a matching bottom border over
+       the strip's own hairline. */
+    .panel-tabs { display: flex; border-bottom: 1px solid #22262c; margin-bottom: 18px; }
+    .panel-tabs .tab {
+      padding: 13px 15px; font-size: 13px; font-weight: 600; color: #b7bcc2;
+      border-bottom: 1px solid transparent; margin-bottom: -1px;
+    }
+    .panel-tabs .tab.active { color: #3390ff; border-bottom-color: #3390ff; }
     .btn {
       display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px;
       border: 1px solid transparent; border-radius: 5px; font-size: 12px; font-weight: 600;
@@ -215,19 +226,19 @@
       <tbody>
         <tr>
           <td class="mono" style="width: 12%">48</td>
-          <td style="width: 30%">ops@linebooker-tech.com</td>
+          <td style="width: 30%">admin</td>
           <td class="lab-muted">changed remote URL on <span class="mono">seafreight-flow</span></td>
           <td class="lab-dim" style="width: 16%; text-align: right;">14:08:37</td>
         </tr>
         <tr>
           <td class="mono">49</td>
-          <td>ops@linebooker-tech.com</td>
+          <td>admin</td>
           <td class="lab-muted">added <span class="mono">pricing-plugin</span></td>
           <td class="lab-dim" style="text-align: right;">14:11:06</td>
         </tr>
         <tr>
           <td class="mono">50</td>
-          <td>ops@linebooker-tech.com</td>
+          <td>admin</td>
           <td class="lab-muted">disabled <span class="mono">example-plugin-slow</span></td>
           <td class="lab-dim" style="text-align: right;">14:12:40</td>
         </tr>

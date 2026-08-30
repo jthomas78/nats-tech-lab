@@ -14,8 +14,14 @@ import { getRegistryEntries, setRegistryEntryEnabled, upsertRegistryEntry } from
 //     the offer is a reload, not a force.
 //   · origin not allowlisted (BR-AS20) — stated by stage and cause only, never
 //     echoing the URL or the configured origins (BR-AS04).
-// There is no delete: `active` has no exit transition, so disabling is the
+// There is no removal: `active` has no exit transition, so disabling is the
 // whole lifecycle (BR-AS24).
+
+// The shell API this platform serves. An entry built against any other version
+// is refused on metadata alone, before its remote is fetched (BR-AS13) — worth
+// colouring in the table, because it is the one number that fails a plugin
+// without anything having gone wrong at runtime.
+const SHELL_API_VERSION = 1
 
 const revision = ref(0)
 const origins = ref([])
@@ -33,6 +39,36 @@ const draft = ref(null)
 
 const enabledCount = computed(() => entries.value.filter((e) => e.enabled).length)
 const servedCount = computed(() => entries.value.filter((e) => e.enabled && e.conforming).length)
+
+// Contribution kinds, counted rather than listed: the useful thing at a glance
+// is the *shape* of what an entry adds to the shell, not its ids.
+const KIND_LABELS = {
+  route: 'route',
+  navigation: 'nav',
+  extension: 'extension',
+  'shell-control': 'control',
+  'shell-footer': 'footer',
+}
+
+function contributionSummary(entry) {
+  const counts = new Map()
+  for (const c of entry.contributions || []) {
+    const label = KIND_LABELS[c.kind] || c.kind
+    counts.set(label, (counts.get(label) || 0) + 1)
+  }
+  return [...counts].map(([label, n]) => (n === 1 ? label : `${n} ${label}s`)).join(', ')
+}
+
+// One place decides how a row reports itself, because the three states are not
+// the same kind of fact: `withheld` is a judgement the server made about the
+// entry, `disabled` is a curation decision, `enabled` is neither.
+function state(entry) {
+  if (!entry.conforming) {
+    return { tone: 'bad', label: 'withheld', note: 'stored, not served to any shell' }
+  }
+  if (entry.enabled) return { tone: 'ok', label: 'enabled', note: '' }
+  return { tone: 'off', label: 'disabled', note: 'still running in shells until they reload' }
+}
 
 function apply(doc) {
   revision.value = doc.revision
@@ -123,20 +159,27 @@ onMounted(load)
     </div>
 
     <div class="lab-panel stat-row">
-      <div>
-        <span class="lab-muted">Revision</span>
-        <strong data-testid="registry-revision">{{ revision }}</strong>
-        <span class="lab-muted">server-assigned, monotonic</span>
+      <div class="stat">
+        <div class="k">Revision</div>
+        <div class="v mono" data-testid="registry-revision">{{ revision }}</div>
+        <div class="n">server-assigned, monotonic</div>
       </div>
-      <div>
-        <span class="lab-muted">Curated</span>
-        <strong>{{ entries.length }}</strong>
-        <span class="lab-muted">{{ enabledCount }} enabled · {{ servedCount }} served to shells</span>
+      <div class="stat">
+        <div class="k">Curated</div>
+        <div class="v">{{ entries.length }} entries</div>
+        <div class="n">
+          <span class="ok">{{ enabledCount }} enabled</span> · {{ servedCount }} served to shells
+        </div>
       </div>
-      <div>
-        <span class="lab-muted">Origins</span>
-        <strong>{{ origins.length }}</strong>
-        <span class="lab-muted">service configuration, not registry data</span>
+      <div class="stat">
+        <div class="k">Store</div>
+        <div class="v ok">Postgres → KV</div>
+        <div class="n">KV is written through on every accepted write</div>
+      </div>
+      <div class="stat">
+        <div class="k">Origins</div>
+        <div class="v">{{ origins.length }} allowlisted</div>
+        <div class="n">service configuration · a write outside them is refused</div>
       </div>
     </div>
 
@@ -144,29 +187,32 @@ onMounted(load)
       <table v-if="!loading" class="tbl">
         <thead>
           <tr>
-            <th>Plugin</th>
-            <th>Version</th>
-            <th>Shell API</th>
-            <th>Route prefix</th>
-            <th>Contributions</th>
-            <th>State</th>
+            <th style="width: 24%">Plugin</th>
+            <th style="width: 8%">Version</th>
+            <th style="width: 8%">Shell API</th>
+            <th style="width: 14%">Route prefix</th>
+            <th style="width: 22%">Contributions</th>
+            <th style="width: 16%">State</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="e in entries" :key="e.id" data-testid="entry-row">
             <td>
-              {{ e.name }}
-              <div class="mono lab-muted" data-testid="entry-id">{{ e.id }}</div>
+              <b>{{ e.name }}</b>
+              <span class="id mono" data-testid="entry-id">{{ e.id }}</span>
             </td>
             <td class="mono">{{ e.version }}</td>
-            <td class="mono">{{ e.shellApiVersion }}</td>
+            <td class="mono" :class="{ warn: e.shellApiVersion !== SHELL_API_VERSION }">
+              {{ e.shellApiVersion }}
+            </td>
             <td class="mono">{{ e.routePrefix }}</td>
-            <td class="lab-muted">{{ (e.contributions || []).length }}</td>
+            <td :class="contributionSummary(e) ? 'lab-muted' : 'lab-dim'">
+              {{ contributionSummary(e) || '— none —' }}
+            </td>
             <td>
-              <span v-if="!e.conforming" class="pill bad">withheld</span>
-              <span v-else-if="e.enabled" class="pill ok">enabled</span>
-              <span v-else class="pill off">disabled</span>
+              <span class="pill" :class="state(e).tone"><span class="pip"></span>{{ state(e).label }}</span>
+              <span v-if="state(e).note" class="id">{{ state(e).note }}</span>
             </td>
             <td class="row-actions">
               <Button
@@ -193,11 +239,56 @@ onMounted(load)
       <p v-if="!loading && !entries.length" class="lab-muted">Nothing is curated yet.</p>
     </div>
 
-    <p class="lab-muted footnote">
-      An entry marked <em>withheld</em> is stored but not served: its remote origin is not
-      one this platform is configured to load code from. Widening that list is a deployment
-      change with its own review — it cannot be done from this screen, by anyone.
-    </p>
+    <div class="grid-2">
+      <div class="lab-panel" data-testid="origins-panel">
+        <h3>Remote origins — service configuration, not registry data</h3>
+        <table class="tbl">
+          <tbody>
+            <tr v-for="o in origins" :key="o">
+              <td class="mono">{{ o }}</td>
+            </tr>
+            <tr v-if="!origins.length">
+              <td class="lab-dim">— none configured —</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="lab-muted note">
+          An entry marked <em class="bad">withheld</em> is stored but not served: its remote
+          origin is not one this platform is configured to load code from. An entry pointing
+          anywhere else is refused as it is written, so a compromised write cannot aim a shell
+          at an arbitrary host. Widening this list is a deployment change with its own review —
+          it cannot be done from this screen, by anyone.
+        </p>
+      </div>
+
+      <div class="lab-panel" data-testid="write-effects-panel">
+        <h3>What a write does</h3>
+        <table class="tbl">
+          <tbody>
+            <tr>
+              <td class="lab-muted" style="width: 46%">Entry added</td>
+              <td>indexed live — metadata only, no remote fetched</td>
+            </tr>
+            <tr>
+              <td class="lab-muted">Entry withdrawn, or its URL changed</td>
+              <td class="warn">reload offered, never applied under the user</td>
+            </tr>
+            <tr>
+              <td class="lab-muted">Plugin already running</td>
+              <td>keeps rendering until that shell reloads</td>
+            </tr>
+            <tr>
+              <td class="lab-muted">Store unavailable</td>
+              <td class="ok">built-ins still served; the shell renders</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="lab-muted note">
+          Every accepted write raises the revision and publishes on
+          <span class="mono">notify._platform.registry.frontend-plugins.changed</span>.
+        </p>
+      </div>
+    </div>
 
     <div v-if="draft" class="scrim" @click.self="closeDrawer">
       <aside class="drawer lab-panel">
@@ -255,18 +346,35 @@ onMounted(load)
   flex-direction: column;
   gap: 0.875rem;
 }
+/* Four stats on one grid, matching the Phase 2 mockup's rhythm: a small
+   uppercase key, the value, and a note that says what the value means. */
 .stat-row {
-  display: flex;
-  gap: 2.5rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.5rem;
 }
-.stat-row > div {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+.stat .k {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--p-text-disabled-color);
 }
-.stat-row strong {
-  font-size: 20px;
-  line-height: 26px;
+.stat .v {
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+.stat .n {
+  font-size: 11px;
+  color: var(--p-text-muted-color);
+}
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.875rem;
+  align-items: start;
 }
 .tbl {
   width: 100%;
@@ -278,25 +386,37 @@ onMounted(load)
   text-transform: uppercase;
   letter-spacing: 0.06em;
   padding: 0 0.5rem 0.4rem;
+  color: var(--p-text-muted-color);
 }
 .tbl td {
   padding: 0.4rem 0.5rem;
   border-top: 1px solid var(--p-content-border-color);
   vertical-align: top;
 }
+/* A second line under a cell's own value — the id under a name, the caveat
+   under a state. Dimmer than muted on purpose: it is context, not content. */
+.id {
+  display: block;
+  font-size: 11px;
+  color: var(--p-text-disabled-color);
+}
+.ok {
+  color: var(--ok);
+}
+.warn {
+  color: var(--warn);
+}
+.bad {
+  color: var(--err);
+  font-style: normal;
+}
+.note {
+  margin: 0.625rem 0 0;
+  font-size: 12px;
+}
 .row-actions {
   text-align: right;
   white-space: nowrap;
-}
-.pill {
-  font-size: 11px;
-  padding: 0.1rem 0.45rem;
-  border-radius: 999px;
-  border: 1px solid var(--p-content-border-color);
-}
-.footnote {
-  margin: 0;
-  max-width: 78ch;
 }
 .scrim {
   position: fixed;
@@ -339,6 +459,6 @@ onMounted(load)
   gap: 0.5rem;
 }
 .stale {
-  border-left: 3px solid var(--p-red-500, #d9534f);
+  border-left: 3px solid var(--err);
 }
 </style>

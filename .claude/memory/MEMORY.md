@@ -38,6 +38,9 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [tenant_service_separation_decision](tenant_service_separation_decision.md) — accounts-service is its own service/DB; Admin UI merges both
 - [project-ports-tenant-scoping](project-ports-tenant-scoping.md) — pending: ports/refdata should scope to tenant not BU; hack uses `_default_bu`
 
+## Reference material
+- [aws_console_as_shell_app](aws_console_as_shell_app.md) — AWS Console as app-shell mental model; documented MFE discovery pattern + where our contribution points go further
+
 ## Linebooker / V3 domain modelling
 - [linebooker_platform_vs_tenant_service_split](linebooker_platform_vs_tenant_service_split.md) — Refdata+Accounts/Auth platform; Marketplace/Payments tenant-scoped
 - [linebooker_platform_marketplace_tenant_diagram](linebooker_platform_marketplace_tenant_diagram.md) — Marketplace under PLATFORM; Trips per-tenant; 2 UIs per tenant

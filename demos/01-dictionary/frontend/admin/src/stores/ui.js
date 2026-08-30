@@ -15,6 +15,10 @@
 // traceRailWidth is the same pattern again, for TraceWaterfall's draggable
 // trace-list rail — 420 is 50% wider than the panel's original fixed 280px.
 //
+// frontendShellTab is the same pattern again, for FrontendShellView's
+// [Plugins]/[Registry Audit] tabs (Phase 2) — the two panels were separate
+// nav items until they were collapsed under one "Frontend Shell" entry.
+//
 // spanListHeight is the same pattern for TraceWaterfall's Span list / Span
 // details vertical split (Phase 28j) — 260px default shows a handful of
 // waterfall rows before the Span details card takes the rest.
@@ -23,6 +27,7 @@ import { defineStore } from 'pinia'
 export const useUiStore = defineStore('ui', {
   state: () => ({
     accountsTab: 'overview',
+    frontendShellTab: 'plugins',
     rpcTab: 'pulse',
     traceRailWidth: 420,
     spanListHeight: 260,

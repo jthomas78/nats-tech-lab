@@ -131,6 +131,44 @@ body {
   color: var(--p-text-muted-color);
 }
 
+.lab-dim {
+  color: var(--p-text-disabled-color);
+}
+
+/* Monospace run-in for an identifier, subject, URL or revision. Family only —
+   the size belongs to whatever is around it. */
+.mono {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* ── Status pill — the one status chip for a state a row or panel reports
+   (`ok`/`warn`/`bad`/`off`/`busy`). Shared rather than per-panel: the lab
+   shell's Plugins view and the Admin UI's registry panels all report the same
+   five states, and a colourless copy of the chip in one of them reads as a
+   different control. The pip carries the colour alongside the text, so the
+   state is never signalled by hue alone. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border-radius: 100px;
+  border: 1px solid var(--lab-panel-border);
+  font-size: 11px;
+  font-weight: 600;
+}
+.pill .pip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.pill.ok { color: var(--ok); }
+.pill.warn { color: var(--warn); }
+.pill.bad { color: var(--err); }
+.pill.busy { color: var(--lab-accent); }
+.pill.off { color: var(--p-text-disabled-color); }
+
 /* ── Panel top tabs — the ONE tab style for any top-position tab strip on a
    right-side detail panel (the panels next to the left navbar), e.g.
    Accounts' Provisioning/Topology and the NATS Request/Reply panel's

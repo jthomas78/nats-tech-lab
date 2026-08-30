@@ -172,4 +172,37 @@ describe('FrontendPluginsPanel', () => {
     expect(entry.version).toBe('1.5.0')
     expect(entry.contributions).toEqual(DOC.plugins[0].contributions)
   })
+
+  it('colours each state apart — withheld is a refusal, disabled is a decision', async () => {
+    const w = mountPanel()
+    await flushPromises()
+    const pills = w.findAll('[data-testid="entry-row"]').map((r) => r.get('.pill'))
+    expect(pills[0].classes()).toContain('ok')
+    expect(pills[1].classes()).toContain('off')
+    expect(pills[2].classes()).toContain('bad')
+  })
+
+  it('says a disabled entry keeps running in shells until they reload (BR-AS19)', async () => {
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.findAll('[data-testid="entry-row"]')[1].text()).toContain('until they reload')
+  })
+
+  it('lists the configured origins as what they are — service configuration, not a screen (BR-AS20)', async () => {
+    const w = mountPanel()
+    await flushPromises()
+    const panel = w.get('[data-testid="origins-panel"]')
+    expect(panel.text()).toContain('https://plugins.acme.internal')
+    expect(panel.text()).toContain('http://localhost:7110')
+    expect(panel.text().toLowerCase()).toContain('deployment change')
+  })
+
+  it('states what a write does and does not do to a shell already running the plugin', async () => {
+    const w = mountPanel()
+    await flushPromises()
+    const panel = w.get('[data-testid="write-effects-panel"]')
+    expect(panel.text()).toContain('indexed live')
+    expect(panel.text()).toContain('never applied under the user')
+    expect(panel.text()).toContain('notify._platform.registry.frontend-plugins.changed')
+  })
 })

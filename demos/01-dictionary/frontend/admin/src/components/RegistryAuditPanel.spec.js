@@ -59,4 +59,19 @@ describe('RegistryAuditPanel', () => {
     expect(w.findAll('[data-testid="audit-actor"]').map((n) => n.text())).toEqual(['admin', 'admin', 'admin'])
     expect(w.get('[data-testid="audit-actor-note"]').text().toLowerCase()).toContain('shared')
   })
+  it('colours a refusal apart from an accepted write, and keeps the op verbatim', async () => {
+    const w = mountPanel()
+    await flushPromises()
+    const rows = w.findAll('[data-testid="audit-row"]')
+    expect(rows[0].get('.pill').classes()).toContain('ok')
+    expect(rows[1].get('.pill').classes()).toContain('bad')
+    expect(rows[2].get('.pill').classes()).toContain('busy')
+    expect(rows[1].text()).toContain('upsert')
+  })
+
+  it('says why the write history is the event-sourced half of this registry', async () => {
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.get('[data-testid="audit-sourcing-note"]').text()).toContain('plain CRUD')
+  })
 })

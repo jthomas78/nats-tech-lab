@@ -209,16 +209,9 @@ table.tbl td {
 .id { display: block; font-size: 11px; color: var(--p-text-disabled-color); }
 .bad { color: var(--err); }
 .warn { color: var(--warn); }
-.pill {
-  display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 100px;
-  border: 1px solid var(--lab-panel-border); font-size: 11px; font-weight: 600;
-}
-.pill .pip { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.pill.ok { color: var(--ok); }
-.pill.busy { color: var(--lab-accent); }
-.pill.warn { color: var(--warn); }
-.pill.bad { color: var(--err); }
-.pill.off { color: var(--p-text-disabled-color); }
+/* .pill and its five tones are the shared theme's (unifi.css) — one chip,
+   one definition, so this view and the Admin UI's registry panels can never
+   drift apart on what `enabled` looks like. */
 .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .lifecycle { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
 .tag {

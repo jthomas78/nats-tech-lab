@@ -1,7 +1,7 @@
 <div class="app">
   <div class="topbar">
     <div class="brandmark"><span class="dot">N</span>NATS Tech Lab</div>
-    <div class="crumb"><span>Admin</span><span class="sep">/</span><span>Platform</span><span class="sep">/</span><b>Frontend Plugins</b></div>
+    <div class="crumb"><span>Admin</span><span class="sep">/</span><span>Platform</span><span class="sep">/</span><b>Frontend Shell</b></div>
     <div class="topbar-right">
       <span class="status-tag"><span class="pip"></span>nats connected</span>
       <span class="lab-dim mono">acme</span>
@@ -24,8 +24,7 @@
           <div class="nav-group-body">
             <div class="nav-group">
               <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="1em" height="1em" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v2.5M12 19v2.5M4.4 4.4l1.8 1.8M17.8 17.8l1.8 1.8M2.5 12H5M19 12h2.5M4.4 19.6l1.8-1.8M17.8 6.2l1.8-1.8"/></svg>Settings</div>
-              <div class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="1em" height="1em" aria-hidden="true"><path d="M12 2.6 20.5 7v10L12 21.4 3.5 17V7z"/><path d="M3.5 7 12 11.6 20.5 7M12 11.6v9.8"/></svg>Frontend Plugins</div>
-              <div class="nav-item "><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="1em" height="1em" aria-hidden="true"><rect x="3.5" y="3" width="17" height="18" rx="1.5"/><path d="M7 8h10M7 12h10M7 16h6"/></svg>Registry Audit</div>
+              <div class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="1em" height="1em" aria-hidden="true"><path d="M12 2.6 20.5 7v10L12 21.4 3.5 17V7z"/><path d="M3.5 7 12 11.6 20.5 7M12 11.6v9.8"/></svg>Frontend Shell</div>
             </div>
           </div>
         </div>
@@ -56,15 +55,18 @@
       <div class="main-inner">
         <header class="page-head">
           <div>
-            <h1>Frontend Plugins</h1>
+            <h1>Frontend Shell</h1>
             <p>Curated registry &middot; platform-wide &middot; 7 entries, 4 enabled</p>
           </div>
           <div class="head-actions">
-            <span class="btn ghost">Registry audit</span>
             <span class="btn">Add entry</span>
           </div>
         </header>
 
+        <div class="panel-tabs">
+          <div class="tab active">Plugins</div>
+          <div class="tab">Registry Audit</div>
+        </div>
         <div class="lab-panel">
           <table class="tbl">
             <thead>
