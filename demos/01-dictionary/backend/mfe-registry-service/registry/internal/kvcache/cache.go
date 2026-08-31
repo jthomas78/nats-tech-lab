@@ -80,8 +80,15 @@ func (c *Cache) Get(ctx context.Context) (domain.Document, bool, error) {
 	return doc, true, nil
 }
 
-// Put overwrites the cached document. Called by the same code path that
-// committed the write, after the commit — the cache never leads Postgres.
+// Put overwrites the cached document.
+//
+// The whole document is marshalled as-is, which is what keeps a signed
+// entry's manifest bytes intact (BR-AS50): domain.Manifest.Bytes is []byte,
+// so encoding/json carries it as base64 in both directions and this hop
+// never re-serialises the artifact it is copying.
+//
+// Called by the same code path that committed the write, after the commit —
+// the cache never leads Postgres.
 func (c *Cache) Put(ctx context.Context, doc domain.Document) error {
 	kv, err := c.bucket(ctx)
 	if err != nil {

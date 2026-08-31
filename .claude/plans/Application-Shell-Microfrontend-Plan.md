@@ -907,14 +907,18 @@ manifests other than a test fixture; Phase 8 brings the first real one.
 > identity that signs them (7b), then verification (7c), then the paths that withdraw trust (7d, 7e).
 > 8c — the manifest-drift checker — unblocks when 7c lands.
 
-##### 7a — verbatim storage
-- [ ] Entry storage holds the verified manifest bytes in their own base64 column; the queryable
+##### 7a — verbatim storage — DONE 2026-08-31
+- [x] Entry storage holds the verified manifest bytes in their own base64 column; the queryable
       columns become a projection; `Document` assembles from the bytes (decisions 68, 101).
-- [ ] The KV cache copies the blob unchanged and the browser/service transports carry it as base64 —
-      no hop re-serialises it.
-- [ ] Specs: a stored entry round-trips byte-identically through Postgres, through the KV cache
+      `registry.entries.manifest`/`.signature` are TEXT beside the JSONB projection;
+      `postgres.entryOf` builds a signed entry from the bytes and never from the column.
+- [x] The KV cache copies the blob unchanged and the browser/service transports carry it as base64 —
+      no hop re-serialises it. `domain.Manifest.Bytes` is `[]byte`, so encoding/json carries it as
+      base64 both ways and the transports, which embed `domain.Entry`, needed no change.
+- [x] Specs: a stored entry round-trips byte-identically through Postgres, through the KV cache
       **and** through transport; a projection change does not alter what is served for verification;
-      an edit to signed content invalidates its attestation (BR-AS37, BR-AS50).
+      an edit to signed content invalidates its attestation (BR-AS37, BR-AS50). `manifest_test.go`,
+      10 specs; suite 99/99, 0 skipped.
 
 ##### 7b — publishers, keys and ownership
 - [ ] Trusted-publishers table: stable publisher id, many keys, owned plugin ids, with the registry's

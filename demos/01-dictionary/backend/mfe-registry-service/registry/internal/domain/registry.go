@@ -153,9 +153,13 @@ type Entry struct {
 	// supplies the default and an operator may override it (decision 86).
 	// Empty on rows written before the field existed; readers treat empty
 	// as "not yet classified", which is not the same as dynamic.
-	Lifecycle       string           `json:"lifecycle,omitempty"`
-	AnnouncedAt     string           `json:"announcedAt,omitempty"`
-	LastAnnouncedAt string           `json:"lastAnnouncedAt,omitempty"`
+	Lifecycle       string `json:"lifecycle,omitempty"`
+	AnnouncedAt     string `json:"announcedAt,omitempty"`
+	LastAnnouncedAt string `json:"lastAnnouncedAt,omitempty"`
+	// Manifest is the publisher's signed bytes, when there are any. Held
+	// beside the projection above rather than derived from it: see
+	// manifest.go for why reassembly is what the rule forbids.
+	Manifest        *Manifest        `json:"manifest,omitempty"`
 	Remote          Remote           `json:"remote"`
 	ExtensionPoints []ExtensionPoint `json:"extensionPoints,omitempty"`
 	Contributions   []Contribution   `json:"contributions"`

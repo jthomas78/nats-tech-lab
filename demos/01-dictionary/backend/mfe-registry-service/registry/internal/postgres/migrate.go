@@ -32,6 +32,15 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// preserves unclassified legacy rows; it must never default to dynamic.
 		`ALTER TABLE registry.entries ADD COLUMN IF NOT EXISTS lifecycle TEXT NOT NULL DEFAULT ''`,
 
+		// The publisher's signed bytes, base64, in a column of their own
+		// (BR-AS37, decisions 68 and 101). Deliberately NOT the `entry`
+		// column and deliberately not JSONB: JSONB reorders keys and strips
+		// whitespace, which is exactly what invalidates a signature. `entry`
+		// stays the queryable projection; this is the artifact. Empty is the
+		// normal state of a curated or preload row, which nobody signed.
+		`ALTER TABLE registry.entries ADD COLUMN IF NOT EXISTS manifest TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE registry.entries ADD COLUMN IF NOT EXISTS signature TEXT NOT NULL DEFAULT ''`,
+
 		// The revision is a single row, not a sequence: it must be readable,
 		// lockable and comparable inside the same transaction as the write
 		// it keys (BR-AS17, BR-AS18), and a sequence gives none of that.

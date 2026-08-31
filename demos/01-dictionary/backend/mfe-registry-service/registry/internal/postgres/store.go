@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -56,7 +57,7 @@ func currentDoc(ctx context.Context, q querier) (domain.Document, error) {
 			return domain.Document{}, err
 		}
 	}
-	rows, err := q.QueryContext(ctx, `SELECT id, enabled, lifecycle, entry FROM registry.entries ORDER BY id`)
+	rows, err := q.QueryContext(ctx, `SELECT id, enabled, lifecycle, entry, manifest, signature FROM registry.entries ORDER BY id`)
 	if err != nil {
 		return domain.Document{}, err
 	}
@@ -64,15 +65,15 @@ func currentDoc(ctx context.Context, q querier) (domain.Document, error) {
 
 	doc := domain.Document{SchemaVersion: domain.SchemaVersion, Revision: revision, Entries: []domain.Entry{}}
 	for rows.Next() {
-		var id, lifecycle string
+		var id, lifecycle, manifest, signature string
 		var enabled bool
 		var raw []byte
-		if err := rows.Scan(&id, &enabled, &lifecycle, &raw); err != nil {
+		if err := rows.Scan(&id, &enabled, &lifecycle, &raw, &manifest, &signature); err != nil {
 			return domain.Document{}, err
 		}
-		var e domain.Entry
-		if err := json.Unmarshal(raw, &e); err != nil {
-			return domain.Document{}, fmt.Errorf("registry: entry %q is not readable: %w", id, err)
+		e, err := entryOf(id, raw, manifest, signature)
+		if err != nil {
+			return domain.Document{}, err
 		}
 		// The columns win over the document body for the facts the
 		// columns own, so a hand-edited row can't disagree with itself.
@@ -82,6 +83,31 @@ func currentDoc(ctx context.Context, q querier) (domain.Document, error) {
 		doc.Entries = append(doc.Entries, e)
 	}
 	return doc, rows.Err()
+}
+
+// entryOf builds one entry from its row.
+//
+// A signed row is assembled from the manifest bytes, never from the `entry`
+// column: the column is a projection this service derived, and re-serving a
+// derived shape is the failure BR-AS37 names. The projection column stays for
+// query and display, and for the rows nobody signed it is all there is.
+func entryOf(id string, raw []byte, manifest, signature string) (domain.Entry, error) {
+	if manifest != "" {
+		blob, err := base64.StdEncoding.DecodeString(manifest)
+		if err != nil {
+			return domain.Entry{}, fmt.Errorf("registry: entry %q has an unreadable manifest: %w", id, err)
+		}
+		e, err := domain.EntryFromManifest(blob, signature)
+		if err != nil {
+			return domain.Entry{}, fmt.Errorf("registry: entry %q has an unreadable manifest: %w", id, err)
+		}
+		return e, nil
+	}
+	var e domain.Entry
+	if err := json.Unmarshal(raw, &e); err != nil {
+		return domain.Entry{}, fmt.Errorf("registry: entry %q is not readable: %w", id, err)
+	}
+	return e, nil
 }
 
 // Apply performs one curated write and returns the document it installed.
@@ -135,14 +161,22 @@ func (s *Store) apply(ctx context.Context, w domain.Write) (domain.Document, err
 		// JSON. currentDoc overlays the column even on legacy JSON bodies.
 		entry := *w.Entry
 		entry.Lifecycle = ""
+		// The manifest goes to its own column, so it is not also embedded in
+		// the projection where JSONB would quietly rewrite it.
+		var manifest, signature string
+		if entry.Signed() {
+			manifest = base64.StdEncoding.EncodeToString(entry.Manifest.Bytes)
+			signature = entry.Manifest.Signature
+		}
+		entry.Manifest = nil
 		body, err := json.Marshal(entry)
 		if err != nil {
 			return domain.Document{}, err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO registry.entries (id, enabled, entry, lifecycle) VALUES ($1, $2, $3, $4)
-			 ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled, entry = EXCLUDED.entry, lifecycle = EXCLUDED.lifecycle, updated_at = now()`,
-			w.EntryID, w.Entry.Enabled, body, w.Entry.Lifecycle); err != nil {
+			`INSERT INTO registry.entries (id, enabled, entry, lifecycle, manifest, signature) VALUES ($1, $2, $3, $4, $5, $6)
+			 ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled, entry = EXCLUDED.entry, lifecycle = EXCLUDED.lifecycle, manifest = EXCLUDED.manifest, signature = EXCLUDED.signature, updated_at = now()`,
+			w.EntryID, w.Entry.Enabled, body, w.Entry.Lifecycle, manifest, signature); err != nil {
 			return domain.Document{}, err
 		}
 	case domain.OpSetEnabled:
