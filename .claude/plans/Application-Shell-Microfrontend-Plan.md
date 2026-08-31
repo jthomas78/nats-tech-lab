@@ -1035,11 +1035,12 @@ Where the bulk path actually landed, and why it is not where the task said:
   "both surfaces" is the shell and the shell's read API; the Admin's absence of a label is the
   honest answer, not a gap.
 
-##### 7f — rules and docs
-- [ ] `BUSINESS_RULES-APP-SHELL.md` — BR-AS35 to BR-AS38 (two rewritten) and BR-AS46 to BR-AS51.
-- [ ] `ARCHITECTURE-APP-SHELL.md` — the three trust gates; what signing does **not** cover
+##### 7f — rules and docs — DONE 2026-08-31
+- [x] `BUSINESS_RULES-APP-SHELL.md` — BR-AS35 to BR-AS38 (two rewritten) and BR-AS46 to BR-AS51, with
+      a "what signing does not cover" section and a Phase 7 enforcement table.
+- [x] `ARCHITECTURE-APP-SHELL.md` — the three trust gates; what signing does **not** cover
       (decision 66); and what revocation does not promise (decision 100), stated as plainly.
-- [ ] Phase 8's BR-AS40 cross-referenced against BR-AS46: an origin-unchanged update is still refused
+- [x] Phase 8's BR-AS40 cross-referenced against BR-AS46: an origin-unchanged update is still refused
       when the signer does not own the id.
 
 ---

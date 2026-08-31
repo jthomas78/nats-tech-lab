@@ -763,6 +763,105 @@ mounts rule.
 | decisions 34/58 — one read subject | `registryTransport.spec.js` pins `SHELL_READ_SUBJECT` and the held-revision payload. Historical HTTP characterization remains in `phase2RegistryContract.spec.js`/`registryClient.spec.js`, but the host uses no HTTP client or fallback |
 
 
+## Phase 7 — publisher signing and the trust table (BR-AS35 to BR-AS38, BR-AS46 to BR-AS51)
+
+Phase 7 answers one question: **on what authority does a plugin the operator never
+typed in get into the catalogue?** The answer is a publisher — a named holder of
+keys that owns a list of plugin ids. Everything below follows from that, including
+the parts that say what signing does *not* buy.
+
+- **BR-AS35 — An announced entry must carry a valid publisher signature.** *Rewritten
+  2026-08-31 (decision 102): the rule used to key off `lifecycle`, which an operator may
+  edit.* An announcement is refused, and never stored as pending, when it carries no
+  signature, an invalid one, one from a key that is not trusted and enabled, or one over
+  a plugin id the signer does not own. An entry whose `source` is `curated` or `preload`
+  may be unsigned. Changing an entry's `lifecycle` never changes what this rule requires
+  of it.
+- **BR-AS36 — Signature verification happens in the service, never in the browser.** The
+  document the shell reads carries the verification outcome. The shell does not re-verify
+  and is never asked to hold a trust anchor.
+- **BR-AS37 — The signed manifest is stored as signed.** The bytes that were verified are
+  the bytes that are stored and re-served. Any representation the service derives for
+  query or display is a projection, and is never the artifact a signature is checked
+  against.
+- **BR-AS38 — Publisher trust is curated, audited state, and a publisher outlives its
+  keys.** *Rewritten 2026-08-31 (decisions 103, 104).* A publisher has a stable id and
+  holds a list of keys and a list of owned plugin ids. Adding, retiring or revoking a key,
+  and every transfer of a plugin id between publishers, is a revision-bearing, audited
+  write with an actor. **Retiring a key is not revoking it**: entries signed by a retired
+  key remain valid; entries signed by a revoked key are re-evaluated and withheld.
+  Re-enabling a revoked key restores nothing on its own — each withheld entry is restored
+  individually by an operator, as its own audited write. Revocation is bulk and automatic;
+  restoration is one entry at a time and manual.
+- **BR-AS46 — Ownership authorises; a signature alone does not.** A publisher may announce
+  only the plugin ids its row owns. An announcement for any other id is refused with its
+  own cause, whatever the signature proves and whatever origin the remote names.
+- **BR-AS47 — An announcement carries a release number and never goes backwards.** The
+  signed bytes include the plugin id and a release counter. The registry refuses a release
+  lower than the highest it has accepted for that id, and treats an equal one as a no-op so
+  a retry is safe. Returning to an earlier release is an operator act, never an effect of a
+  received message.
+- **BR-AS48 — Trust is re-checked where the write commits.** The publisher's key state is
+  read again inside the transaction that checks the revision. A key revoked after
+  verification and before commit causes the write to fail.
+- **BR-AS49 — Revocation reaches the running browser.** A revoked entry is withheld from
+  the readable document *and* the shell is told to reload, overriding the rule that a
+  `static` plugin is not unloaded under the user. **What this rule promises is that the
+  plugin stops at the next paint — and nothing more.** It does not promise that an
+  in-flight callback is interrupted, that a timer already scheduled will not fire, or that
+  anything the plugin wrote to shared state is undone. It is not runtime isolation and must
+  never be described as such: a plugin's code runs in the shell's own page, and the whole
+  of the containment is that the next page load will not include it.
+- **BR-AS50 — The signed bytes survive every hop unchanged.** Storage, the KV cache and the
+  wire all carry the verified bytes opaquely. Nothing re-serialises them. Any edit to signed
+  content invalidates its attestation; the entry is re-signed, or it falls back to operator
+  curation.
+- **BR-AS51 — A degraded read is stale, never regressive, and always says so.** A cached
+  document may be served while Postgres is unavailable — refusing would turn a rare security
+  event into a routine availability failure. A lower revision never overwrites a higher one
+  in the cache, **and** the served document carries its revision and age, so the reader shows
+  `degraded, as of revision N` rather than presenting stale trust as current. Monotonic
+  writes alone were judged insufficient: the staleness has to be visible, not merely bounded.
+
+### What signing does not cover (decision 66)
+
+Stated plainly so nobody reads a signature for more than it is:
+
+- **A signature proves who published a manifest. It says nothing about what the code does.**
+  A trusted publisher shipping hostile code is trusted hostile code.
+- **The signature covers the manifest, not the remote it points at.** The bytes served from
+  the remote URL are not signed and are not checked; a compromised CDN serves whatever it
+  likes under a valid attestation. The BR-AS20 origin allowlist, not the signature, is what
+  bounds where code may come from.
+- **What is signed is the manifest, its plugin id, and its release number — not the
+  announcing service's identity** (gate question 1). Ownership (BR-AS46) already stops a key
+  speaking for another plugin and the release number (BR-AS47) already stops replay, so
+  binding the announcer would add nothing, while ruling out ever handing a signed manifest to
+  an operator to place by hand.
+- **The publisher keypair is not the NATS trust chain** (gate question 2). It is separate on
+  purpose: plugin publishing does not widen the account chain, and a leaked publisher key
+  cannot connect to NATS as anything.
+- **Withheld is not disabled** (gate question 3). `disabled` means "not reviewed yet";
+  `withheld` means "we withdrew this". They are separate state, shown under separate words —
+  the Admin says `revoked`, and reserves `withheld` for a non-conforming origin — because an
+  operator must never have to guess which of the two they are looking at.
+
+### How Phase 7's rules are checked
+
+| Rule | Where |
+|---|---|
+| BR-AS35 — a valid publisher signature | `verify_test.go` and `announce_transport_test.go`: no signature, a bad signature, a key that is not enabled, and a foreign id are each refused with their own cause and store no pending row |
+| BR-AS36 — verification is server-side | `browserrpc/endpoints.go` serves the outcome only; the shell holds no key material — `manifestSchema.spec.js` has no signature field to validate |
+| BR-AS37 / BR-AS50 — the bytes survive | `manifest_test.go`: the verified bytes round-trip through Postgres, the KV cache and the wire without re-serialisation, and an edited manifest fails verification |
+| BR-AS38 — trust is curated and audited | `publishers_test.go` (key add/retire/revoke, id transfer, actor and revision on every write) and `revocation_test.go` (retire leaves entries valid; revoke withholds in bulk; re-enabling a key restores nothing until each entry is enabled on its own) |
+| BR-AS46 — ownership authorises | `verify_test.go` and `announce_transport_test.go`: a valid signature over an unowned id is refused, with a cause distinct from a signature failure |
+| BR-AS47 — releases never go backwards | `verify_test.go` and `announce_transport_test.go`: a lower release is refused, an equal one is a no-op, and a retry is safe |
+| BR-AS48 — re-checked at commit | `announce_transport_test.go`: a key revoked between verification and commit fails the write, and the revision does not move |
+| BR-AS49 — revocation reaches the browser | Go: `revocation_test.go` and `degraded_test.go` pin the tombstone (`{id, withheld: true}`, no remote, no manifest) and its ordering ahead of the `enabled` and allowlist filters. Browser: `registryDiff.spec.js` (a tombstone for a running plugin is a `forced` reload; for one never held, nothing), `bootShell.spec.js` (tombstones are taken even from a degraded read, and never retract a standing offer), `RegistrySignalBanner.spec.js` (a forced banner reloads on its own and offers nothing to dismiss) |
+| BR-AS51 — degraded, never regressive, labelled | `degraded_test.go`: `domain.SupersedesCached` directly, plus a real `kvcache` on an embedded NATS server refusing a lower revision; the served document carries `AsOf`. `RegistrySignalBanner.spec.js` pins the `degraded, as of revision N` label. The Admin has no such label by design — its curated read goes straight to Postgres with no cache, so it cannot serve a stale copy |
+| decision 100 — what revocation does not promise | Nothing asserts an in-flight callback is stopped, because nothing does. The specs are worded as "reloaded away", never as "isolated" |
+
+
 ## Phase 8 — preload and announcement
 
 - **BR-AS39 — An announcement never activates.** A verified announcement for an unknown id is stored
@@ -771,7 +870,10 @@ mounts rule.
 - **BR-AS40 — An enabled dynamic id re-announcing is followed within its origin.** For a
   `lifecycle: dynamic` entry only, a remote change that stays
   within the entry's allowlisted origin is applied without review; one that changes origin returns the
-  entry to `announced` and withholds it until an operator re-enables it.
+  entry to `announced` and withholds it until an operator re-enables it. **Read with BR-AS46:**
+  "origin unchanged" is not authority. An update whose origin never moved is still refused when the
+  signer does not own the id — ownership is answered before the origin question is asked, so this
+  rule only ever relaxes review for a publisher already entitled to speak for that plugin.
 - **BR-AS41 — Preload never reverts curation.** A preloaded entry is written only for an id with no
   existing row. An id the operator has edited, disabled or removed is never re-created or overwritten
   by a service restart.

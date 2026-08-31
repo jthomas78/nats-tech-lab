@@ -641,6 +641,76 @@ The plugin system must not turn convenience into privilege aggregation. A shared
 may coordinate lifecycle mechanics in the future, but it cannot substitute a broader credential for
 the profiles above.
 
+### The three trust gates (Phase 7, as built 2026-08-31)
+
+An entry that no operator typed in passes **three independent gates**, in this order, all three in
+the service and none in the browser (BR-AS36):
+
+1. **Ownership** — does this publisher own this plugin id? Checked first and on its own cause,
+   because a valid signature over someone else's id is a different failure from a bad signature and
+   an operator must be able to tell them apart (BR-AS46).
+2. **Signature** — do the signed bytes verify against a key that is *trusted and enabled* right now?
+   Retired keys still verify; revoked ones do not (BR-AS35, BR-AS38).
+3. **Release** — is this release number higher than the highest already accepted for that id? Lower
+   is refused, equal is a no-op so a retry is safe (BR-AS47).
+
+The gates are re-checked where the write commits, not only where it was verified: the publisher's
+key state is read again inside the same transaction that checks the document revision, so a key
+revoked in the gap fails the write (BR-AS48). The lock order is always `publisher_revision` then
+`registry.revision`; the announce path takes only the second, so the two cannot deadlock.
+
+**What signing does not cover.** A signature proves *who published a manifest*, and nothing else. It
+does not say what the code does — a trusted publisher shipping hostile code is trusted hostile code.
+It does not cover the remote the manifest points at: those bytes are unsigned and unchecked, and the
+BR-AS20 origin allowlist, not the signature, is what bounds where code may come from. It does not
+bind the announcing service's identity, deliberately (gate question 1): ownership already stops a key
+speaking for another plugin, and the release counter already stops replay, so binding the announcer
+would buy nothing and would rule out handing a signed manifest to an operator to place by hand. And
+the publisher keypair is deliberately not the NATS account trust chain — a leaked publisher key
+cannot connect to NATS as anything.
+
+### What revocation does, and what it does not promise
+
+Revoking a key withholds, in the same transaction, every entry that key signed (BR-AS38). Withheld is
+its own column, not a flavour of `enabled = false`: `disabled` means "not reviewed yet" and `withheld`
+means "we withdrew this", and only the second unloads anything. **Revocation is bulk and automatic;
+restoration is one entry at a time and manual** — re-enabling the key restores nothing by itself.
+
+A withheld entry is served to the shell as a **tombstone** — `{id, withheld: true}`, with no remote,
+no manifest and no contributions — carried *in the document*, not in the change notification. A
+notify is fire-and-forget and recovered by the next unconditional read; a revocation must not depend
+on a message arriving. The shell's diff reports a tombstone for a plugin it is running as a `forced`
+reload, and the banner takes it rather than offering it, overriding the rule that a `static` plugin
+is never unloaded under the user (BR-AS49).
+
+**Stated as plainly as the rule deserves: the only promise is that the plugin stops at the next
+paint.** An in-flight callback is not interrupted. A timer already scheduled still fires. Anything
+the plugin wrote into shared state stays written. This is **not runtime isolation** and must never
+be described as such — the plugin's code runs in the shell's own page, and the whole of the
+containment is that the next page load will not include it. Anyone who needs more than that needs a
+different mechanism, not a stronger reading of this one.
+
+### The degraded read
+
+With Postgres unavailable the read falls back to the NATS KV cache rather than failing, because
+refusing would turn a rare security event into a routine availability outage — one database restart
+would drop every shell to its native frame. Two properties make that safe enough to ship (BR-AS51):
+
+- **Cache writes are monotonic.** `domain.SupersedesCached` refuses a lower revision, and the KV
+  write is a compare-and-swap loop on the revision it read, so a late writer cannot resurrect a
+  document from before a revocation.
+- **The staleness is visible, not merely bounded.** The served copy carries its revision and the time
+  it was stored, and the shell shows `degraded, as of revision N`. Monotonic writes alone were
+  explicitly judged insufficient: stale trust presented as current is the thing that was refused.
+
+A degraded document may say what was **withdrawn**, never what **exists**. The shell still refuses to
+diff it — an absent entry in a stale document is not evidence of a removal — but it does take the
+tombstones out of it, because withdrawal is the safe direction to be wrong in. So a degraded read
+raises a forced reload and never retracts a standing one.
+
+The Admin has no degraded label, deliberately: its curated read goes straight to Postgres with no
+cache in front of it, so it cannot serve a stale copy and has nothing to label.
+
 ---
 
 ## Existing frontend migration map
