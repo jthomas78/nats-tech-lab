@@ -286,6 +286,40 @@ export function getRegistryAudit(limit) {
   return registryRequest('api._platform.registry.audit.list.v1', { limit })
 }
 
+// ── Publisher trust table (Phase 7b) ─────────────────────────────────────────
+// The table that says which signing keys are trusted and which plugin ids each
+// publisher owns. It carries its own revision, separate from the plugin
+// document's: renaming a publisher is not a reason to make every shell re-read
+// its catalog. Four ops share one write subject — they are one capability over
+// one curated table, revision-checked identically (BR-AS38, BR-AS46).
+//
+// There is no delete. Trust is withdrawn by moving a key to `revoked`, so the
+// row that once signed something is still there to be read afterwards.
+
+export function getRegistryPublishers() {
+  return registryRequest('api._platform.registry.publishers.list.v1', {})
+}
+
+export function upsertPublisher(publisher, ifRevision) {
+  return publisherWrite({ op: 'publisher-upsert', publisherId: publisher.id, publisher }, ifRevision)
+}
+
+export function addPublisherKey(publisherId, publicKey, ifRevision) {
+  return publisherWrite({ op: 'publisher-add-key', publisherId, publicKey }, ifRevision)
+}
+
+export function setPublisherKeyState(publisherId, publicKey, keyState, ifRevision) {
+  return publisherWrite({ op: 'publisher-set-key-state', publisherId, publicKey, keyState }, ifRevision)
+}
+
+export function transferPlugin(publisherId, pluginId, ifRevision) {
+  return publisherWrite({ op: 'publisher-transfer', publisherId, pluginId }, ifRevision)
+}
+
+function publisherWrite(payload, ifRevision) {
+  return registryRequest('api._platform.registry.publishers.write.v1', { ...payload, ifRevision })
+}
+
 async function registryRequest(subject, payload) {
   try {
     return await usePlatformConnection().request(subject, payload)

@@ -7,10 +7,12 @@ import FrontendShellView from './FrontendShellView.vue'
 import { useUiStore } from '../stores/ui'
 
 // Phase 2 — the catalog and its write history are one nav item, "Frontend
-// Shell", with two tabs. Two things this view exists to guarantee:
+// Shell", with tabs. Phase 7b added a third: who is trusted to sign what.
+// Two things this view exists to guarantee:
 //
-//   · Both readings of the registry are reachable from one rail entry, in a
-//     fixed order — what is served now, then how it got that way.
+//   · Every reading of the registry is reachable from one rail entry, in a
+//     fixed order — what is served now, who may sign it, then how it got
+//     that way.
 //   · Only the active tab's panel is mounted. Each panel polls the registry
 //     on its own onMounted, so mounting both would double the poll rate for
 //     a panel nobody is looking at.
@@ -18,9 +20,14 @@ import { useUiStore } from '../stores/ui'
 vi.mock('../api', () => ({
   getRegistryEntries: vi.fn().mockResolvedValue({ revision: 1, allowedOrigins: [], plugins: [] }),
   getRegistryAudit: vi.fn().mockResolvedValue([]),
+  getRegistryPublishers: vi.fn().mockResolvedValue({ revision: 1, publishers: [] }),
+  upsertPublisher: vi.fn(),
+  addPublisherKey: vi.fn(),
+  setPublisherKeyState: vi.fn(),
+  transferPlugin: vi.fn(),
 }))
 
-import { getRegistryAudit, getRegistryEntries } from '../api'
+import { getRegistryAudit, getRegistryEntries, getRegistryPublishers } from '../api'
 
 const mountView = () => mount(FrontendShellView, { global: { plugins: [PrimeVue] } })
 
@@ -30,10 +37,14 @@ beforeEach(() => {
 })
 
 describe('FrontendShellView', () => {
-  it('offers exactly the two registry readings, Plugins first', async () => {
+  it('offers exactly the three registry readings, Plugins first', async () => {
     const w = mountView()
     await flushPromises()
-    expect(w.findAll('[role="tab"]').map((t) => t.text())).toEqual(['Plugins', 'Registry Audit'])
+    expect(w.findAll('[role="tab"]').map((t) => t.text())).toEqual([
+      'Plugins',
+      'Publishers',
+      'Registry Audit',
+    ])
   })
 
   it('mounts only the active tab, so the idle panel does not poll', async () => {
@@ -41,6 +52,7 @@ describe('FrontendShellView', () => {
     await flushPromises()
     expect(getRegistryEntries).toHaveBeenCalled()
     expect(getRegistryAudit).not.toHaveBeenCalled()
+    expect(getRegistryPublishers).not.toHaveBeenCalled()
   })
 
   it('reads the tab from the ui store, so the choice survives navigating away and back', async () => {
@@ -50,5 +62,15 @@ describe('FrontendShellView', () => {
     await flushPromises()
     expect(getRegistryAudit).toHaveBeenCalled()
     expect(getRegistryEntries).not.toHaveBeenCalled()
+  })
+
+  it('mounts the trust table only when its own tab is the active one', async () => {
+    const ui = useUiStore()
+    ui.frontendShellTab = 'publishers'
+    mountView()
+    await flushPromises()
+    expect(getRegistryPublishers).toHaveBeenCalled()
+    expect(getRegistryEntries).not.toHaveBeenCalled()
+    expect(getRegistryAudit).not.toHaveBeenCalled()
   })
 })

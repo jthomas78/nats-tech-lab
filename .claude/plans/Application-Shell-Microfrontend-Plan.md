@@ -920,18 +920,33 @@ manifests other than a test fixture; Phase 8 brings the first real one.
       an edit to signed content invalidates its attestation (BR-AS37, BR-AS50). `manifest_test.go`,
       10 specs; suite 99/99, 0 skipped.
 
-##### 7b — publishers, keys and ownership
-- [ ] Trusted-publishers table: stable publisher id, many keys, owned plugin ids, with the registry's
+##### 7b — publishers, keys and ownership — DONE 2026-08-31
+- [x] Trusted-publishers table: stable publisher id, many keys, owned plugin ids, with the registry's
       revision, audit and disable-never-delete semantics (decisions 69, 97, 103).
-- [ ] Key states are distinct: enabled, **retired** (successor exists, signed entries stay valid) and
+      Three tables (`registry.publishers`, `registry.publisher_keys`, `registry.plugin_owners`), not one
+      JSON document, so a key write cannot rewrite an ownership list by accident. Its own counter in
+      `registry.publisher_revision`: the shells watch the plugin document's revision, and renaming a
+      publisher is not a reason to make every one of them re-read. One audit table serves both, split by
+      a new `scope` column, so the Admin audit panel stays a single panel. No delete op exists.
+- [x] Key states are distinct: enabled, **retired** (successor exists, signed entries stay valid) and
       **revoked** (trust withdrawn, entries re-evaluated). Each stored manifest records the key that
       actually signed it, not only its publisher.
-- [ ] Transferring a plugin id between publishers is its own audited write; keys are dedicated
+      `Manifest.SigningKey` (added in 7a) is that record; `registry.entries.signing_key` is its own
+      indexed column, which is what 7d's revocation sweep reads.
+- [x] Transferring a plugin id between publishers is its own audited write; keys are dedicated
       publisher keypairs, minted outside the NATS account trust chain (gate answer 2).
-- [ ] Admin surface for the table, showing the `revoked` trust state separately from `enabled`.
-- [ ] Specs: a publisher write is revision-checked and audited exactly as a registry write is;
+      `OpPublisherTransfer` audits under the *plugin* id, not the publisher's. `ValidatePublicKey`
+      refuses a seed explicitly before falling through to `nkeys.FromPublicKey`.
+- [x] Admin surface for the table, showing the `revoked` trust state separately from `enabled`.
+      `RegistryPublishersPanel.vue`, a third tab under Frontend Shell. Keys nest under the publisher
+      that holds them, so the key never reads as the identity; revoked is coloured, noted and counted
+      apart from retired; a revoked key is offered restoration rather than a second revoke.
+- [x] Specs: a publisher write is revision-checked and audited exactly as a registry write is;
       retiring a key leaves its entries admitted; a transfer moves ownership and nothing else
       (BR-AS38, BR-AS46).
+      Backend 121 specs, 0 skipped. Admin 303 specs (14 new panel specs, 1 new API-subject spec).
+      Two guards fired on purpose and were updated: `TestSubjectsAreTheGrantedSet` and
+      accounts-service's `MintAdminToken` `Pub.Allow` pin.
 
 ##### 7c — verification
 - [ ] NKey verification in `registry/internal/domain`, over the manifest, the plugin id and the

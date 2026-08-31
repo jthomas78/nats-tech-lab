@@ -8,6 +8,7 @@ import Tabs from 'primevue/tabs'
 import { useUiStore } from '../stores/ui'
 import FrontendPluginsPanel from './FrontendPluginsPanel.vue'
 import RegistryAuditPanel from './RegistryAuditPanel.vue'
+import RegistryPublishersPanel from './RegistryPublishersPanel.vue'
 
 const ui = useUiStore()
 </script>
@@ -23,8 +24,15 @@ const ui = useUiStore()
     data-testid="frontend-shell-tabs"
   >
     <TabList>
-      <Tab value="plugins">Plugins</Tab>
-      <Tab value="audit">Registry Audit</Tab>
+      <Tab value="plugins">
+        Plugins
+      </Tab>
+      <Tab value="publishers">
+        Publishers
+      </Tab>
+      <Tab value="audit">
+        Registry Audit
+      </Tab>
     </TabList>
     <TabPanels>
       <!-- v-if, not just a hidden TabPanel — each panel polls the registry on
@@ -32,6 +40,9 @@ const ui = useUiStore()
            poll from running while the user sits elsewhere. -->
       <TabPanel value="plugins">
         <FrontendPluginsPanel v-if="ui.frontendShellTab === 'plugins'" />
+      </TabPanel>
+      <TabPanel value="publishers">
+        <RegistryPublishersPanel v-if="ui.frontendShellTab === 'publishers'" />
       </TabPanel>
       <TabPanel value="audit">
         <RegistryAuditPanel v-if="ui.frontendShellTab === 'audit'" />
