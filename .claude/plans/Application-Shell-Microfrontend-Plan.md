@@ -1007,8 +1007,8 @@ Where the bulk path actually landed, and why it is not where the task said:
 ##### 7e — revocation reaches the browser, and the degraded read
 - [ ] A withheld-by-revocation entry makes the shell reload, overriding the `static` no-unload rule
       (decision 100).
-- [ ] Cache writes are monotonic and the served document carries its revision and age; the shell and
-      Admin show `degraded, as of revision N` (decision 105).
+- [x] Cache writes are monotonic and the served document carries its revision and age (decision 105)
+      — service side done; the shell and Admin labels are the browser half below.
 - [ ] Specs: a revoked static plugin is reloaded away rather than left running; a lower revision
       never overwrites a higher one in the cache; a degraded read is labelled as stale in both
       surfaces (BR-AS49, BR-AS51).

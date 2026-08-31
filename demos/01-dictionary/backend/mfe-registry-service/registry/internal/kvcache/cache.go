@@ -57,27 +57,27 @@ func (c *Cache) Ensure(ctx context.Context) error {
 	return err
 }
 
-// Get returns the cached document. A miss is (Document{}, false, nil) — the
+// Get returns the cached document. A miss is (domain.Cached{}, false, nil) — the
 // caller falls through to Postgres rather than treating it as an error.
-func (c *Cache) Get(ctx context.Context) (domain.Document, bool, error) {
+func (c *Cache) Get(ctx context.Context) (domain.Cached, bool, error) {
 	kv, err := c.bucket(ctx)
 	if err != nil {
-		return domain.Document{}, false, err
+		return domain.Cached{}, false, err
 	}
 	e, err := kv.Get(ctx, Key)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
-			return domain.Document{}, false, nil
+			return domain.Cached{}, false, nil
 		}
-		return domain.Document{}, false, err
+		return domain.Cached{}, false, err
 	}
 	var doc domain.Document
 	if err := json.Unmarshal(e.Value(), &doc); err != nil {
 		// A cache entry that will not parse is a miss, not an outage: the
 		// source of truth is one query away.
-		return domain.Document{}, false, nil
+		return domain.Cached{}, false, nil
 	}
-	return doc, true, nil
+	return domain.Cached{Document: doc, StoredAt: e.Created()}, true, nil
 }
 
 // Put overwrites the cached document.
@@ -89,6 +89,14 @@ func (c *Cache) Get(ctx context.Context) (domain.Document, bool, error) {
 //
 // Called by the same code path that committed the write, after the commit —
 // the cache never leads Postgres.
+//
+// The write is monotonic and compare-and-swapped (BR-AS51): the held revision
+// is read, domain.SupersedesCached decides, and the update names the KV
+// revision it read. A writer that lost the race is refused by the server and
+// tries again from the new state, so two services putting concurrently cannot
+// interleave a lower revision on top of a higher one. Refusing to go backwards
+// is success, not an error — the newer document is already there, which is
+// what the caller wanted.
 func (c *Cache) Put(ctx context.Context, doc domain.Document) error {
 	kv, err := c.bucket(ctx)
 	if err != nil {
@@ -98,6 +106,50 @@ func (c *Cache) Put(ctx context.Context, doc domain.Document) error {
 	if err != nil {
 		return err
 	}
-	_, err = kv.Put(ctx, Key, body)
-	return err
+	// Bounded: each attempt either writes, declines, or loses to a writer that
+	// did write, and a winner raises the held revision every time.
+	for attempt := 0; attempt < putAttempts; attempt++ {
+		e, err := kv.Get(ctx, Key)
+		if errors.Is(err, jetstream.ErrKeyNotFound) {
+			_, err = kv.Create(ctx, Key, body)
+			if errors.Is(err, jetstream.ErrKeyExists) {
+				continue
+			}
+			return err
+		}
+		if err != nil {
+			return err
+		}
+		var held domain.Document
+		if err := json.Unmarshal(e.Value(), &held); err != nil {
+			// Unparseable is not a revision to be superseded by. Overwrite it:
+			// a cache entry nobody can read protects nothing.
+			held = domain.Document{}
+		}
+		if !domain.SupersedesCached(held.Revision, doc.Revision) {
+			return nil
+		}
+		_, err = kv.Update(ctx, Key, body, e.Revision())
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, jetstream.ErrKeyExists) && !isWrongLastRevision(err) {
+			return err
+		}
+	}
+	// Every attempt lost to another writer, which means something newer than
+	// this landed each time. Nothing is missing from the cache.
+	return nil
+}
+
+const putAttempts = 5
+
+// isWrongLastRevision spots the server”'s CAS refusal, which nats.go surfaces
+// as an API error rather than a sentinel on every path.
+func isWrongLastRevision(err error) bool {
+	var apiErr *jetstream.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence
+	}
+	return false
 }

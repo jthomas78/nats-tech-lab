@@ -55,20 +55,30 @@ type ReadRequest struct {
 }
 
 type ReadResponse struct {
-	OK            bool           `json:"ok"`
-	Unchanged     bool           `json:"unchanged"`
-	SchemaVersion int            `json:"schemaVersion"`
-	Revision      int64          `json:"revision"`
-	Degraded      bool           `json:"degraded"`
-	Plugins       []domain.Entry `json:"entries"`
+	OK            bool  `json:"ok"`
+	Unchanged     bool  `json:"unchanged"`
+	SchemaVersion int   `json:"schemaVersion"`
+	Revision      int64 `json:"revision"`
+	Degraded      bool  `json:"degraded"`
+	// AsOf is when the served copy was stored, present only on a degraded
+	// read the cache answered (BR-AS51). Seconds since the epoch, and absent
+	// rather than zero on a fresh read: the shell shows "degraded, as of
+	// revision N" and needs to know the difference between an old catalogue
+	// and no catalogue at all.
+	AsOf    int64          `json:"asOf,omitempty"`
+	Plugins []domain.Entry `json:"entries"`
 }
 
 func (e *Endpoints) Read(ctx context.Context, req ReadRequest) (ReadResponse, error) {
 	doc := e.svc.Read(ctx).Readable(e.svc.Allowlist())
-	if doc.Degraded {
-		doc = domain.Degraded()
-	}
 	out := ReadResponse{OK: true, SchemaVersion: doc.SchemaVersion, Revision: doc.Revision, Degraded: doc.Degraded}
+	if !doc.AsOf.IsZero() {
+		out.AsOf = doc.AsOf.Unix()
+	}
+	/* A degraded read is never answered "unchanged", even when the revisions
+	   match. The shell holding revision N from a healthy read and the shell
+	   being handed revision N from a cache during an outage are in different
+	   situations, and only the second has to say so. */
 	out.Unchanged = !doc.Degraded && req.HeldRevision != 0 && req.HeldRevision == doc.Revision
 	if !out.Unchanged {
 		out.Plugins = doc.Entries

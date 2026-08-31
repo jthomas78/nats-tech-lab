@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 )
 
 // SchemaVersion is the shape of the document the shell reads. The shell
@@ -179,10 +180,15 @@ type Entry struct {
 
 // Document is what a reader gets: the whole curated set at one revision.
 type Document struct {
-	SchemaVersion int     `json:"schemaVersion"`
-	Revision      int64   `json:"revision"`
-	Degraded      bool    `json:"degraded,omitempty"`
-	Entries       []Entry `json:"plugins"`
+	SchemaVersion int   `json:"schemaVersion"`
+	Revision      int64 `json:"revision"`
+	Degraded      bool  `json:"degraded,omitempty"`
+	// AsOf is when the copy being served was stored, set only on a degraded
+	// read that the cache answered (BR-AS51). Never serialised: it is a
+	// property of the copy, not of the document, and writing it into the
+	// cached bytes would make every later read report the age of the first.
+	AsOf    time.Time `json:"-"`
+	Entries []Entry   `json:"plugins"`
 }
 
 // Degraded is the answer when neither Postgres nor the KV cache can be read
@@ -202,7 +208,7 @@ func Degraded() Document {
 // cover (BR-AS20). Withholding is not a write: the row, its history and the
 // revision are all untouched.
 func (d Document) Readable(allowlist Allowlist) Document {
-	out := Document{SchemaVersion: SchemaVersion, Revision: d.Revision, Degraded: d.Degraded, Entries: []Entry{}}
+	out := Document{SchemaVersion: SchemaVersion, Revision: d.Revision, Degraded: d.Degraded, AsOf: d.AsOf, Entries: []Entry{}}
 	for _, e := range d.Entries {
 		if !e.Enabled {
 			continue

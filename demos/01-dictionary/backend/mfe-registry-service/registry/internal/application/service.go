@@ -23,7 +23,7 @@ type Store interface {
 // Cache is the read cache. Optional: a nil Cache means every read goes to
 // Postgres, which is a supported deployment, not an error.
 type Cache interface {
-	Get(ctx context.Context) (domain.Document, bool, error)
+	Get(ctx context.Context) (domain.Cached, bool, error)
 	Put(ctx context.Context, doc domain.Document) error
 }
 
@@ -72,7 +72,15 @@ func (s *Service) Read(ctx context.Context) domain.Document {
 		if cacheErr != nil {
 			s.logWarn("registry: read cache is unreadable", cacheErr)
 		} else if ok {
-			return cached.Readable(s.allowlist)
+			/* Served, and labelled. Decision 105 judged monotonic writes
+			   insufficient on their own: this copy may predate a revocation,
+			   and handing it over unmarked would present stale trust as
+			   current. The reader gets the catalogue, its revision and its
+			   age, and decides for itself. */
+			doc := cached.Document
+			doc.Degraded = true
+			doc.AsOf = cached.StoredAt
+			return doc.Readable(s.allowlist)
 		}
 	}
 	return domain.Degraded()
