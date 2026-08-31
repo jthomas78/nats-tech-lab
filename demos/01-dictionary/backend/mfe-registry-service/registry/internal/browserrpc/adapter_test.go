@@ -39,6 +39,11 @@ type stubService struct {
 func (s *stubService) Read(context.Context) domain.Document             { return s.doc }
 func (s *stubService) Curated(context.Context) (domain.Document, error) { return s.doc, nil }
 
+// The source badge is 8c's operator affordance and not what these specs are
+// about; an empty map is the honest stub, and the adapter's own rule — an id
+// with no row reads as unknown — is asserted in source_test.go.
+func (s *stubService) Sources(context.Context) map[string]string { return map[string]string{} }
+
 // The trust table is not what these specs are about; they exist so the stub
 // satisfies the port.
 func (s *stubService) Publishers(context.Context) (domain.PublisherDocument, error) {

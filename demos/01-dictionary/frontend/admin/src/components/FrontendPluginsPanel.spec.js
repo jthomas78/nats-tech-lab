@@ -264,3 +264,45 @@ describe('FrontendPluginsPanel — a withheld entry (BR-AS49)', () => {
     expect(rowFor(w, 'example-plugin-slow').text()).not.toContain('revoked')
   })
 })
+
+// Decision 80 — the source badge. It answers "how did this row get here",
+// which is a different kind of fact from the State column beside it: State is
+// a judgement that can change, source is history and cannot. The service
+// derives it from the first audit row; the panel's whole job is to show it and
+// to never dress up an absent one.
+describe('FrontendPluginsPanel — the source badge (decision 80)', () => {
+  const withSources = () => {
+    const d = doc()
+    d.plugins[0].source = 'announced'
+    d.plugins[1].source = 'preload'
+    d.plugins[2].source = 'curated'
+    return d
+  }
+
+  it('shows the tier each entry registered through', async () => {
+    getRegistryEntries.mockResolvedValue(withSources())
+    const w = mountPanel()
+    await flushPromises()
+    const badges = w.findAll('[data-testid="entry-source"]').map((n) => n.text())
+    expect(badges).toEqual(['announced', 'preload', 'curated'])
+  })
+
+  it('says unknown rather than nothing when the service could not tell', async () => {
+    // A blank cell in one row among many reads as a rendering fault, and the
+    // one thing this column must never look like is agreement.
+    getRegistryEntries.mockResolvedValue(doc())
+    const w = mountPanel()
+    await flushPromises()
+    const badges = w.findAll('[data-testid="entry-source"]').map((n) => n.text())
+    expect(badges).toEqual(['unknown', 'unknown', 'unknown'])
+  })
+
+  it('does not render it as a state pill', async () => {
+    // The two columns must not be read as the same kind of claim.
+    getRegistryEntries.mockResolvedValue(withSources())
+    const w = mountPanel()
+    await flushPromises()
+    const badge = w.find('[data-testid="entry-source"]')
+    expect(badge.classes()).not.toContain('pill')
+  })
+})

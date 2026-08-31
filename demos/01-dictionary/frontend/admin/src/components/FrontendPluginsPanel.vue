@@ -204,8 +204,9 @@ watch(usePlatformConnection().epoch, load)
             <th style="width: 8%">Version</th>
             <th style="width: 8%">Shell API</th>
             <th style="width: 14%">Route prefix</th>
-            <th style="width: 22%">Contributions</th>
-            <th style="width: 16%">State</th>
+            <th style="width: 18%">Contributions</th>
+            <th style="width: 9%">Source</th>
+            <th style="width: 15%">State</th>
             <th></th>
           </tr>
         </thead>
@@ -222,6 +223,13 @@ watch(usePlatformConnection().epoch, load)
             <td class="mono">{{ e.routePrefix }}</td>
             <td :class="contributionSummary(e) ? 'lab-muted' : 'lab-dim'">
               {{ contributionSummary(e) || '— none —' }}
+            </td>
+            <td>
+              <!-- Deliberately not a pill. The State column next to it is a
+                   judgement that can change; this one is a fact about how the
+                   row got here and never changes, and decision 80 asks for the
+                   two to be told apart at a glance rather than read. -->
+              <span class="tier mono" data-testid="entry-source">{{ e.source || 'unknown' }}</span>
             </td>
             <td>
               <span class="pill" :class="state(e).tone"><span class="pip"></span>{{ state(e).label }}</span>
@@ -408,6 +416,16 @@ watch(usePlatformConnection().epoch, load)
 }
 /* A second line under a cell's own value — the id under a name, the caveat
    under a state. Dimmer than muted on purpose: it is context, not content. */
+.tier {
+  display: inline-block;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border: 1px solid var(--lab-panel-border);
+  border-radius: 3px;
+  color: var(--p-text-muted-color);
+}
 .id {
   display: block;
   font-size: 11px;

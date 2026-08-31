@@ -1219,9 +1219,15 @@ than silently classifying legacy rows as dynamic.
 - [ ] Admin surface for announced entries: what announced, its remote, its contributions, its
       publisher, and its age.
 - [ ] Enable/disable from that surface; the missing Add affordance for a manual entry.
-- [ ] `source` badge (`curated`/`preload`/`announced`) derived from the **first** audit row's actor —
+- [x] `source` badge (`curated`/`preload`/`announced`) derived from the **first** audit row's actor —
       the creating actor, never the latest — not from a stored field, and visually distinct from
-      Phase 5's `lifecycle` column (decision 80).
+      Phase 5's `lifecycle` column (decision 80). *Done 2026-08-31.* `domain.SourceOf` maps the
+      creating actor; `postgres.Store.Sources` is a `DISTINCT ON (entry_id) … ORDER BY id ASC`
+      restricted to `outcome = accepted` and `scope = registry` — each of those three clauses is a
+      rule with its own spec, because each is wrong in a way that looks plausible on screen. A
+      fourth, `SourceUnknown`, exists so a row with no accepted history says so rather than
+      defaulting to `curated`. It rides on `EntryView` only: the shell's read carries no such
+      field.
 - [ ] Manifest-drift indicator on a preloaded entry: the served `manifest.json` compared against the
       curated copy, differing fields named, the curated copy still served (decision 85). **The
       registry service performs the fetch** (settled 2026-08-31), not the Admin browser — bounded by

@@ -33,6 +33,7 @@ var ErrRevisionRequired = domain.ErrRevisionRequired
 type Service interface {
 	Read(context.Context) domain.Document
 	Curated(context.Context) (domain.Document, error)
+	Sources(context.Context) map[string]string
 	Apply(context.Context, domain.Write) (domain.Document, error)
 	Publishers(context.Context) (domain.PublisherDocument, error)
 	ApplyPublisher(context.Context, domain.PublisherWrite) (domain.PublisherDocument, error)
@@ -89,6 +90,11 @@ func (e *Endpoints) Read(ctx context.Context, req ReadRequest) (ReadResponse, er
 type EntryView struct {
 	domain.Entry
 	Conforming bool `json:"conforming"`
+	// Source is the tier this entry registered through, derived from the
+	// audit trail and never stored on the entry (decision 80, BR-AS43).
+	// Operator surface only — the shell's read carries no such field, and
+	// nothing about how a plugin arrived changes how it loads.
+	Source string `json:"source"`
 }
 
 type CuratedResponse struct {
@@ -98,11 +104,18 @@ type CuratedResponse struct {
 	Plugins        []EntryView `json:"plugins"`
 }
 
-func (e *Endpoints) curate(doc domain.Document) CuratedResponse {
+func (e *Endpoints) curate(doc domain.Document, sources map[string]string) CuratedResponse {
 	allowed := e.svc.Allowlist()
 	out := CuratedResponse{SchemaVersion: doc.SchemaVersion, Revision: doc.Revision, AllowedOrigins: allowed.Origins(), Plugins: []EntryView{}}
 	for _, entry := range doc.Entries {
-		out.Plugins = append(out.Plugins, EntryView{Entry: entry, Conforming: allowed.Check(entry) == nil})
+		/* Absent means unknown, spelled out rather than left empty: a blank
+		   badge on one row among many reads as a rendering fault, and the
+		   one thing this field must never do is look like agreement. */
+		source, ok := sources[entry.ID]
+		if !ok {
+			source = domain.SourceUnknown
+		}
+		out.Plugins = append(out.Plugins, EntryView{Entry: entry, Conforming: allowed.Check(entry) == nil, Source: source})
 	}
 	return out
 }
@@ -112,7 +125,7 @@ func (e *Endpoints) Curated(ctx context.Context) (CuratedResponse, error) {
 	if err != nil {
 		return CuratedResponse{}, errors.New("the registry could not be read")
 	}
-	return e.curate(doc), nil
+	return e.curate(doc, e.svc.Sources(ctx)), nil
 }
 
 type UpsertRequest struct {
@@ -195,7 +208,7 @@ func AsStaleRefusal(err error, target *StaleRefusal) bool { return errors.As(err
 func (e *Endpoints) apply(ctx context.Context, w domain.Write) (CuratedResponse, error) {
 	doc, err := e.svc.Apply(ctx, w)
 	if err == nil {
-		return e.curate(doc), nil
+		return e.curate(doc, e.svc.Sources(ctx)), nil
 	}
 	var stale domain.StaleRevisionError
 	if errors.As(err, &stale) {

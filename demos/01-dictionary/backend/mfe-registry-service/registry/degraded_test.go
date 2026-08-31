@@ -39,6 +39,9 @@ type stubStore struct {
 }
 
 func (s *stubStore) Current(context.Context) (domain.Document, error) { return s.doc, s.err }
+func (s *stubStore) Sources(context.Context) (map[string]string, error) {
+	return map[string]string{}, nil
+}
 func (s *stubStore) Apply(context.Context, domain.Write) (domain.Document, error) {
 	return domain.Document{}, errors.New("not used")
 }
