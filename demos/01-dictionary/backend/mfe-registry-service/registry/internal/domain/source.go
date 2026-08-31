@@ -41,3 +41,24 @@ func SourceOf(creatingActor string) string {
 		return SourceAnnounced
 	}
 }
+
+// Registration is how one entry got here: the tier, and the actor that put it
+// there.
+//
+// Both, not just the tier, because "announced" without a name is the one thing
+// an operator cannot act on — approving an announcement means deciding whether
+// you trust that publisher, and a badge reading only `announced` asks them to
+// decide about nobody in particular. The tier is derived from the actor and
+// travels beside it rather than replacing it.
+type Registration struct {
+	Source string `json:"source"`
+	// By is the raw creating actor: the shared operator identity, the preload
+	// actor, or a publisher key. Shown for an announcement and largely noise
+	// for the other two, which name a mechanism rather than a party.
+	By string `json:"by,omitempty"`
+}
+
+// RegistrationOf pairs an actor with the tier it registered through.
+func RegistrationOf(creatingActor string) Registration {
+	return Registration{Source: SourceOf(creatingActor), By: creatingActor}
+}

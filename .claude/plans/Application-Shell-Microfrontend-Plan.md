@@ -1216,9 +1216,19 @@ replaces `NoVerifier`. The new storage migration preserves empty lifecycle rathe
 than silently classifying legacy rows as dynamic.
 
 ##### 8c — the pending tier
-- [ ] Admin surface for announced entries: what announced, its remote, its contributions, its
-      publisher, and its age.
-- [ ] Enable/disable from that surface; the missing Add affordance for a manual entry.
+- [x] Admin surface for announced entries: what announced, its remote, its contributions, its
+      publisher, and its age. *Done 2026-08-31.* An announced entry that is not enabled reads as
+      `pending — awaiting your review`, deliberately not as `disabled`: the two have opposite
+      consequences, since a disabled plugin is still running in shells and a pending one has never
+      run anywhere. The row names the publisher key (approving an announcement is a decision about a
+      publisher) and shows an **age**, not an instant, because "how long has this been waiting" is
+      the question being asked. `withheld` still outranks it — a revocation is not a review queue.
+- [x] Enable/disable from that surface; the missing Add affordance for a manual entry. *Done
+      2026-08-31.* Enable was already the toggle. Add opens the same drawer with `creating: true`,
+      which is the one state where the id and route prefix are editable — afterwards the id is what
+      every audit row and every shell's held catalogue refers to, and the route prefix may already
+      be placed in a running shell. A hand-added entry is written **disabled**, for the reason
+      BR-AS21 refuses self-activation: adding and serving are two decisions.
 - [x] `source` badge (`curated`/`preload`/`announced`) derived from the **first** audit row's actor —
       the creating actor, never the latest — not from a stored field, and visually distinct from
       Phase 5's `lifecycle` column (decision 80). *Done 2026-08-31.* `domain.SourceOf` maps the
@@ -1238,7 +1248,9 @@ than silently classifying legacy rows as dynamic.
       is `not checked`, never `checked`; the map cannot introduce an origin the allowlist lacks.
 - [ ] Three drift states in Admin — `checked`, `drift`, `not checked` — with a failed or unparsable
       fetch rendering as `not checked` and never as agreement.
-- [ ] Specs: an announced entry is absent from the shell's document until enabled.
+- [x] Specs: an announced entry is absent from the shell's document until enabled — already pinned
+      by `announce_transport_test.go` ("is absent from the shell until an operator enables it") and
+      `announce_test.go`; re-checked 2026-08-31 rather than duplicated.
 
 ##### 8d — the demo catalog as a federated plugin
 - [x] `lab-shell/src/plugins/demo-catalog/` becomes its own package, image and origin (**7112**),

@@ -57,7 +57,9 @@ var _ = Describe("decision 80 — the source is read from the audit trail", func
 
 			sources, err := store.Sources(ctx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(sources["acme-flow"]).To(Equal(domain.SourceAnnounced))
+			Expect(sources["acme-flow"].Source).To(Equal(domain.SourceAnnounced))
+			// And it names the publisher, which is who the operator is deciding about.
+			Expect(sources["acme-flow"].By).To(Equal("pub_7f3a91c4"))
 		})
 
 		It("reports each tier under its own word", func() {
@@ -67,10 +69,10 @@ var _ = Describe("decision 80 — the source is read from the audit trail", func
 
 			sources, err := store.Sources(ctx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(sources).To(Equal(map[string]string{
-				"by-hand":   domain.SourceCurated,
-				"seeded":    domain.SourcePreload,
-				"announced": domain.SourceAnnounced,
+			Expect(sources).To(Equal(map[string]domain.Registration{
+				"by-hand":   {Source: domain.SourceCurated, By: domain.SharedAdminActor},
+				"seeded":    {Source: domain.SourcePreload, By: domain.PreloadActor},
+				"announced": {Source: domain.SourceAnnounced, By: "pub_7f3a91c4"},
 			}))
 		})
 	})
@@ -85,7 +87,7 @@ var _ = Describe("decision 80 — the source is read from the audit trail", func
 
 			sources, err := store.Sources(ctx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(sources["example-plugin"]).To(Equal(domain.SourcePreload))
+			Expect(sources["example-plugin"].Source).To(Equal(domain.SourcePreload))
 		})
 
 		It("ignores the trust table's rows, which share the audit trail", func() {

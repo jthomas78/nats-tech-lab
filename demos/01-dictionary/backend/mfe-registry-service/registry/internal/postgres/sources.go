@@ -23,7 +23,7 @@ import (
 //
 // Ids with no accepted row simply do not appear; the caller maps that to
 // SourceUnknown rather than guessing.
-func (s *Store) Sources(ctx context.Context) (map[string]string, error) {
+func (s *Store) Sources(ctx context.Context) (map[string]domain.Registration, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT DISTINCT ON (entry_id) entry_id, actor
 		   FROM registry.audit
@@ -35,13 +35,13 @@ func (s *Store) Sources(ctx context.Context) (map[string]string, error) {
 	}
 	defer rows.Close()
 
-	out := map[string]string{}
+	out := map[string]domain.Registration{}
 	for rows.Next() {
 		var id, actor string
 		if err := rows.Scan(&id, &actor); err != nil {
 			return nil, err
 		}
-		out[id] = domain.SourceOf(actor)
+		out[id] = domain.RegistrationOf(actor)
 	}
 	return out, rows.Err()
 }

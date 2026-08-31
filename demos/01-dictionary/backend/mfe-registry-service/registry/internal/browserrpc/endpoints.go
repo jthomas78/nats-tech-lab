@@ -33,7 +33,7 @@ var ErrRevisionRequired = domain.ErrRevisionRequired
 type Service interface {
 	Read(context.Context) domain.Document
 	Curated(context.Context) (domain.Document, error)
-	Sources(context.Context) map[string]string
+	Sources(context.Context) map[string]domain.Registration
 	Apply(context.Context, domain.Write) (domain.Document, error)
 	Publishers(context.Context) (domain.PublisherDocument, error)
 	ApplyPublisher(context.Context, domain.PublisherWrite) (domain.PublisherDocument, error)
@@ -95,6 +95,11 @@ type EntryView struct {
 	// Operator surface only — the shell's read carries no such field, and
 	// nothing about how a plugin arrived changes how it loads.
 	Source string `json:"source"`
+	// RegisteredBy is the actor that created the row — a publisher key on an
+	// announcement, and the platform's own actor otherwise. Present because
+	// approving an announcement is a decision about a publisher, and a badge
+	// that says only "announced" names nobody to decide about.
+	RegisteredBy string `json:"registeredBy,omitempty"`
 }
 
 type CuratedResponse struct {
@@ -104,18 +109,23 @@ type CuratedResponse struct {
 	Plugins        []EntryView `json:"plugins"`
 }
 
-func (e *Endpoints) curate(doc domain.Document, sources map[string]string) CuratedResponse {
+func (e *Endpoints) curate(doc domain.Document, sources map[string]domain.Registration) CuratedResponse {
 	allowed := e.svc.Allowlist()
 	out := CuratedResponse{SchemaVersion: doc.SchemaVersion, Revision: doc.Revision, AllowedOrigins: allowed.Origins(), Plugins: []EntryView{}}
 	for _, entry := range doc.Entries {
 		/* Absent means unknown, spelled out rather than left empty: a blank
 		   badge on one row among many reads as a rendering fault, and the
 		   one thing this field must never do is look like agreement. */
-		source, ok := sources[entry.ID]
+		reg, ok := sources[entry.ID]
 		if !ok {
-			source = domain.SourceUnknown
+			reg = domain.Registration{Source: domain.SourceUnknown}
 		}
-		out.Plugins = append(out.Plugins, EntryView{Entry: entry, Conforming: allowed.Check(entry) == nil, Source: source})
+		out.Plugins = append(out.Plugins, EntryView{
+			Entry:        entry,
+			Conforming:   allowed.Check(entry) == nil,
+			Source:       reg.Source,
+			RegisteredBy: reg.By,
+		})
 	}
 	return out
 }

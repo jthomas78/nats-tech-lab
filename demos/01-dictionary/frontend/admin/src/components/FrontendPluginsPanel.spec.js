@@ -306,3 +306,162 @@ describe('FrontendPluginsPanel — the source badge (decision 80)', () => {
     expect(badge.classes()).not.toContain('pill')
   })
 })
+
+// Phase 8c — the pending tier. An announced entry that is not enabled is
+// waiting on an operator: either nobody has reviewed it, or BR-AS40 bounced it
+// back when its remote left the origin it was approved on. The panel's job is
+// to make that a different fact from "disabled", because the two have opposite
+// consequences — a disabled plugin is still running in shells, and a pending
+// one has never run anywhere.
+describe('FrontendPluginsPanel — the pending tier', () => {
+  const announced = (over = {}) => ({
+    id: 'acme-flow',
+    name: 'Acme Flow',
+    version: '2.0.0',
+    shellApiVersion: 1,
+    routePrefix: '/acme',
+    enabled: false,
+    conforming: true,
+    source: 'announced',
+    registeredBy: 'pub_7f3a91c4',
+    announcedAt: new Date(Date.now() - 3 * 3600 * 1000).toISOString(),
+    remote: { kind: 'federated', url: 'https://plugins.acme.internal/acme/remoteEntry.js', module: './Plugin' },
+    contributions: [],
+    ...over,
+  })
+
+  const withPending = (over) => {
+    const d = doc()
+    d.plugins.push(announced(over))
+    return d
+  }
+
+  const rowFor = (w, id) =>
+    w.findAll('[data-testid="entry-row"]').find((r) => r.text().includes(id))
+
+  it('says pending, and does not claim it is running anywhere', async () => {
+    getRegistryEntries.mockResolvedValue(withPending())
+    const w = mountPanel()
+    await flushPromises()
+    const row = rowFor(w, 'acme-flow')
+    expect(row.text()).toContain('pending')
+    expect(row.text()).toContain('awaiting your review')
+    expect(row.text()).not.toContain('still running in shells')
+  })
+
+  it('names the publisher, because approving is a decision about them', async () => {
+    getRegistryEntries.mockResolvedValue(withPending())
+    const w = mountPanel()
+    await flushPromises()
+    expect(rowFor(w, 'acme-flow').get('[data-testid="entry-publisher"]').text()).toBe('pub_7f3a91c4')
+  })
+
+  it('says how long it has been waiting, as an age rather than an instant', async () => {
+    getRegistryEntries.mockResolvedValue(withPending())
+    const w = mountPanel()
+    await flushPromises()
+    expect(rowFor(w, 'acme-flow').get('[data-testid="entry-announced-age"]').text()).toBe('3h ago')
+  })
+
+  it('counts what is waiting, so an operator sees it without reading the table', async () => {
+    getRegistryEntries.mockResolvedValue(withPending())
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.get('[data-testid="pending-count"]').text()).toContain('1 awaiting review')
+  })
+
+  it('is not pending once enabled — it is simply enabled', async () => {
+    getRegistryEntries.mockResolvedValue(withPending({ enabled: true }))
+    const w = mountPanel()
+    await flushPromises()
+    expect(rowFor(w, 'acme-flow').text()).toContain('enabled')
+    expect(rowFor(w, 'acme-flow').text()).not.toContain('pending')
+    expect(w.find('[data-testid="pending-count"]').exists()).toBe(false)
+  })
+
+  it('is revoked, not pending, when the publisher key was withdrawn', async () => {
+    // A revocation is not a review queue. BR-AS49 outranks it.
+    getRegistryEntries.mockResolvedValue(withPending({ withheld: true }))
+    const w = mountPanel()
+    await flushPromises()
+    expect(rowFor(w, 'acme-flow').text()).toContain('revoked')
+    expect(rowFor(w, 'acme-flow').text()).not.toContain('pending')
+  })
+
+  it('offers enable on a pending entry, which is the whole review action', async () => {
+    getRegistryEntries.mockResolvedValue(withPending())
+    setRegistryEntryEnabled.mockResolvedValue(withPending({ enabled: true }))
+    const w = mountPanel()
+    await flushPromises()
+    await rowFor(w, 'acme-flow').get('[data-testid="toggle-enabled"]').trigger('click')
+    await flushPromises()
+    expect(setRegistryEntryEnabled).toHaveBeenCalledWith('acme-flow', true, 50)
+  })
+})
+
+// Phase 8c — adding an entry by hand. The panel could read and write entries
+// but never create one, which left the curated tier reachable only by seeding a
+// file. The id and route prefix are editable exactly once: afterwards the id is
+// what every audit row and every shell's held catalogue refers to, and the
+// route prefix is something a shell may already have placed.
+describe('FrontendPluginsPanel — adding an entry by hand', () => {
+  it('opens an empty drawer', async () => {
+    const w = mountPanel()
+    await flushPromises()
+    await w.get('[data-testid="add-entry"]').trigger('click')
+    expect(w.get('[data-testid="entry-new-id"]').element.value).toBe('')
+    expect(w.get('[data-testid="entry-name"]').element.value).toBe('')
+  })
+
+  it('lets the id and route prefix be set while creating, and never after', async () => {
+    const w = mountPanel()
+    await flushPromises()
+    await w.get('[data-testid="add-entry"]').trigger('click')
+    expect(w.get('[data-testid="entry-new-id"]').attributes('disabled')).toBeUndefined()
+    expect(w.get('[data-testid="entry-new-route"]').attributes('disabled')).toBeUndefined()
+
+    await w.get('[data-testid="add-entry"]').trigger('click')
+    await w.findAll('[data-testid="edit-entry"]')[0].trigger('click')
+    expect(w.get('[data-testid="entry-new-id"]').attributes('disabled')).toBeDefined()
+    expect(w.get('[data-testid="entry-new-route"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('writes the new entry disabled, against the current revision', async () => {
+    // Adding an entry and serving it to every shell are two decisions, taken
+    // one at a time — the same reason a publisher cannot self-activate.
+    upsertRegistryEntry.mockResolvedValue(doc())
+    const w = mountPanel()
+    await flushPromises()
+    await w.get('[data-testid="add-entry"]').trigger('click')
+    await w.get('[data-testid="entry-new-id"]').setValue('by-hand')
+    await w.get('[data-testid="entry-name"]').setValue('By Hand')
+    await w.get('[data-testid="entry-new-route"]').setValue('/by-hand')
+    await w.get('[data-testid="entry-url"]').setValue('https://plugins.acme.internal/x/remoteEntry.js')
+    await w.get('[data-testid="entry-save"]').trigger('click')
+    await flushPromises()
+
+    const [entry, rev] = upsertRegistryEntry.mock.calls[0]
+    expect(entry.id).toBe('by-hand')
+    expect(entry.routePrefix).toBe('/by-hand')
+    expect(entry.enabled).toBe(false)
+    expect(rev).toBe(50)
+  })
+
+  it('sends no read-side or derived fields back to the server', async () => {
+    // `conforming`, `source` and `registeredBy` are the server's answers about
+    // the entry, not part of it. `creating` is this panel's own bookkeeping.
+    upsertRegistryEntry.mockResolvedValue(doc())
+    const w = mountPanel()
+    await flushPromises()
+    await w.get('[data-testid="add-entry"]').trigger('click')
+    await w.get('[data-testid="entry-new-id"]').setValue('by-hand')
+    await w.get('[data-testid="entry-save"]').trigger('click')
+    await flushPromises()
+
+    const [entry] = upsertRegistryEntry.mock.calls[0]
+    expect(entry).not.toHaveProperty('creating')
+    expect(entry).not.toHaveProperty('conforming')
+    expect(entry).not.toHaveProperty('source')
+    expect(entry).not.toHaveProperty('registeredBy')
+  })
+})

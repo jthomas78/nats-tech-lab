@@ -64,6 +64,15 @@ function contributionSummary(entry) {
 // the same kind of fact: `revoked` is a security event, `withheld` is a
 // judgement the server made about the entry, `disabled` is a curation
 // decision, `enabled` is neither.
+// An announced entry that is not enabled is the pending tier: either nobody
+// has reviewed it yet, or BR-AS40 bounced it back when its remote left the
+// origin it was approved on. Both mean the same thing to an operator — it is
+// waiting on you — and neither is the ordinary "disabled" note below, which
+// tells them plugins are still running in shells. Nothing is running here.
+function isPending(entry) {
+  return entry.source === 'announced' && !entry.enabled && !entry.withheld
+}
+
 function state(entry) {
   /* First, and under its own word. The panel already spends "withheld" on a
      non-conforming origin, and an operator reading one word for two unrelated
@@ -77,6 +86,9 @@ function state(entry) {
     return { tone: 'bad', label: 'withheld', note: 'stored, not served to any shell' }
   }
   if (entry.enabled) return { tone: 'ok', label: 'enabled', note: '' }
+  if (isPending(entry)) {
+    return { tone: 'warn', label: 'pending', note: 'announced, never served — awaiting your review' }
+  }
   return { tone: 'off', label: 'disabled', note: 'still running in shells until they reload' }
 }
 
@@ -127,6 +139,42 @@ async function reloadFromStale() {
   await load()
 }
 
+const pendingCount = computed(() => entries.value.filter(isPending).length)
+
+// Age, not a timestamp: "how long has this been waiting" is the question an
+// operator is actually asking of the pending tier, and a UTC instant makes
+// them do the subtraction. Absent when the entry never announced.
+function announcedAge(entry) {
+  const at = entry.announcedAt
+  if (!at) return ''
+  const ms = Date.now() - Date.parse(at)
+  if (Number.isNaN(ms)) return ''
+  const mins = Math.floor(ms / 60000)
+  if (mins < 60) return `${Math.max(mins, 0)}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 48) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
+/* A hand-added entry starts disabled, like an announced one. Adding an entry
+   and serving it to every shell are two decisions, and the panel makes the
+   operator take them one at a time — the same reason BR-AS21 refuses
+   self-activation to a publisher. */
+function addEntry() {
+  originRefusal.value = ''
+  draft.value = {
+    id: '',
+    name: '',
+    version: '',
+    shellApiVersion: SHELL_API_VERSION,
+    routePrefix: '',
+    enabled: false,
+    contributions: [],
+    remote: { kind: 'federated', url: '', module: '' },
+    creating: true,
+  }
+}
+
 function edit(entry) {
   originRefusal.value = ''
   draft.value = JSON.parse(JSON.stringify(entry))
@@ -141,7 +189,7 @@ async function saveDraft() {
   originRefusal.value = ''
   // `conforming` is a read-side judgement the server computes; it is not part
   // of the entry and is never written back.
-  const { conforming, ...entry } = draft.value
+  const { conforming, creating, source, registeredBy, ...entry } = draft.value
   if (await write(() => upsertRegistryEntry(entry, revision.value))) closeDrawer()
 }
 
@@ -182,6 +230,9 @@ watch(usePlatformConnection().epoch, load)
         <div class="v">{{ entries.length }} entries</div>
         <div class="n">
           <span class="ok">{{ enabledCount }} enabled</span> · {{ servedCount }} served to shells
+          <span v-if="pendingCount" class="warn" data-testid="pending-count">
+            · {{ pendingCount }} awaiting review
+          </span>
         </div>
       </div>
       <div class="stat">
@@ -197,6 +248,19 @@ watch(usePlatformConnection().epoch, load)
     </div>
 
     <div class="lab-panel">
+      <div class="tbl-head">
+        <span class="lab-muted">
+          Curation decides what is served. An announcement never serves itself (BR-AS21).
+        </span>
+        <Button
+          label="Add plugin"
+          size="small"
+          severity="secondary"
+          icon="pi pi-plus"
+          data-testid="add-entry"
+          @click="addEntry"
+        />
+      </div>
       <table v-if="!loading" class="tbl">
         <thead>
           <tr>
@@ -230,6 +294,19 @@ watch(usePlatformConnection().epoch, load)
                    row got here and never changes, and decision 80 asks for the
                    two to be told apart at a glance rather than read. -->
               <span class="tier mono" data-testid="entry-source">{{ e.source || 'unknown' }}</span>
+              <!-- Who and when, on the announced rows only. Approving an
+                   announcement is a decision about a publisher, and "how long
+                   has this been sitting here" is the other half of it. -->
+              <span
+                v-if="e.source === 'announced' && e.registeredBy"
+                class="id mono"
+                data-testid="entry-publisher"
+              >{{ e.registeredBy }}</span>
+              <span
+                v-if="announcedAge(e)"
+                class="id"
+                data-testid="entry-announced-age"
+              >{{ announcedAge(e) }}</span>
             </td>
             <td>
               <span class="pill" :class="state(e).tone"><span class="pip"></span>{{ state(e).label }}</span>
@@ -313,19 +390,39 @@ watch(usePlatformConnection().epoch, load)
 
     <div v-if="draft" class="scrim" @click.self="closeDrawer">
       <aside class="drawer lab-panel">
-        <h3>{{ draft.name }}</h3>
+        <h3>{{ draft.creating ? 'Add a plugin' : draft.name }}</h3>
 
         <Message v-if="originRefusal" severity="error" :closable="false" data-testid="origin-refused">
           {{ originRefusal }} Nothing was stored, and no shell was ever offered this remote.
         </Message>
 
+        <!-- Editable exactly once. An id is immutable after the entry exists
+             because it is what every audit row, every announcement and every
+             shell's held catalogue refers to; a route prefix is immutable
+             because a shell that has already placed it cannot un-place it. -->
         <label class="field">
-          <span class="lbl">Plugin id <span class="lab-muted">— immutable</span></span>
-          <input class="inp mono" :value="draft.id" disabled />
+          <span class="lbl">
+            Plugin id
+            <span class="lab-muted">— {{ draft.creating ? 'set once, never changed' : 'immutable' }}</span>
+          </span>
+          <input
+            v-model="draft.id"
+            class="inp mono"
+            :disabled="!draft.creating"
+            data-testid="entry-new-id"
+          />
         </label>
         <label class="field">
-          <span class="lbl">Route prefix <span class="lab-muted">— immutable</span></span>
-          <input class="inp mono" :value="draft.routePrefix" disabled />
+          <span class="lbl">
+            Route prefix
+            <span class="lab-muted">— {{ draft.creating ? 'set once, never changed' : 'immutable' }}</span>
+          </span>
+          <input
+            v-model="draft.routePrefix"
+            class="inp mono"
+            :disabled="!draft.creating"
+            data-testid="entry-new-route"
+          />
         </label>
         <label class="field">
           <span class="lbl">Display name</span>
@@ -350,7 +447,9 @@ watch(usePlatformConnection().epoch, load)
         </p>
 
         <div class="drawer-foot">
-          <span class="lab-muted">Writing against revision {{ revision }}</span>
+          <span class="lab-muted">
+            Writing against revision {{ revision }}<span v-if="draft.creating"> · added disabled; enable it when you are ready</span>
+          </span>
           <div>
             <Button label="Cancel" size="small" severity="secondary" text @click="closeDrawer" />
             <Button label="Save entry" size="small" data-testid="entry-save" @click="saveDraft" />
@@ -416,6 +515,13 @@ watch(usePlatformConnection().epoch, load)
 }
 /* A second line under a cell's own value — the id under a name, the caveat
    under a state. Dimmer than muted on purpose: it is context, not content. */
+.tbl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
 .tier {
   display: inline-block;
   font-size: 10px;

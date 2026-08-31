@@ -18,7 +18,7 @@ type Store interface {
 	Apply(ctx context.Context, w domain.Write) (domain.Document, error)
 	Publishers(ctx context.Context) (domain.PublisherDocument, error)
 	ApplyPublisher(ctx context.Context, w domain.PublisherWrite) (domain.PublisherDocument, error)
-	Sources(ctx context.Context) (map[string]string, error)
+	Sources(ctx context.Context) (map[string]domain.Registration, error)
 }
 
 // Cache is the read cache. Optional: a nil Cache means every read goes to
@@ -55,11 +55,11 @@ func (s *Service) Curated(ctx context.Context) (domain.Document, error) {
 // A read failure is not fatal to the screen. The panel shows every entry with
 // an unknown source rather than no entries at all — the badge is context, and
 // losing it is not a reason to lose the catalogue.
-func (s *Service) Sources(ctx context.Context) map[string]string {
+func (s *Service) Sources(ctx context.Context) map[string]domain.Registration {
 	out, err := s.store.Sources(ctx)
 	if err != nil {
 		s.logWarn("registry: entry sources could not be read; the panel will say unknown", err)
-		return map[string]string{}
+		return map[string]domain.Registration{}
 	}
 	return out
 }
