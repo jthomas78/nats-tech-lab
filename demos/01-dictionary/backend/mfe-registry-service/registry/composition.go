@@ -98,7 +98,11 @@ func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream, nc *nats.C
 			return nil, err
 		}
 		m.adapter = adapter
-		m.announcements, err = servicerpc.Mount(nc, servicerpc.New(m.Service, store, domain.NoVerifier{}), log)
+		// Real verification from Phase 7c. The trust anchor is the operator's
+		// publisher table, not this line — an empty table refuses everything,
+		// which is the same fail-closed behaviour NoVerifier gave, arrived at
+		// by policy instead of by placeholder.
+		m.announcements, err = servicerpc.Mount(nc, servicerpc.New(m.Service, store, domain.NKeyVerifier{}), log)
 		if err != nil {
 			_ = m.adapter.Stop()
 			return nil, err

@@ -948,19 +948,33 @@ manifests other than a test fixture; Phase 8 brings the first real one.
       Two guards fired on purpose and were updated: `TestSubjectsAreTheGrantedSet` and
       accounts-service's `MintAdminToken` `Pub.Allow` pin.
 
-##### 7c — verification
-- [ ] NKey verification in `registry/internal/domain`, over the manifest, the plugin id and the
-      release number; the outcome and the signing key stored with the entry (decisions 67, 98).
-- [ ] Ownership is checked ahead of everything else; the release counter is stored per plugin id, a
-      lower release is refused and an equal one is a no-op.
-- [ ] Trust is re-read at commit, inside the transaction that checks the revision (decision 99).
-- [ ] `domain.NoVerifier{}` is replaced in `composition.go`; the announce path stops being
-      fail-closed. Signatures are required by `source`, never by `lifecycle` (decision 102).
-- [ ] Specs: valid, invalid, unknown-key, retired-key, revoked-key, not-owned, replayed and
-      equal-release announcements each with their own refusal cause; a key revoked between
-      verification and commit fails the write; an operator-placed entry is admitted unsigned; editing
-      an entry's `lifecycle` changes nothing about what is required of it
-      (BR-AS35, BR-AS46, BR-AS47, BR-AS48).
+##### 7c — verification — DONE 2026-08-31
+- [x] NKey verification in `registry/internal/domain` (`verify.go`): `AdmitAnnouncement` is the whole
+      gate, `NKeyVerifier` answers only "did this key sign these bytes". `Entry.Release` carries the
+      counter; the signing key is stored with the entry in `Manifest.SigningKey` (decisions 67, 98).
+- [x] Ownership first, literally — `OwnerOf(pluginID)` is asked before the key is even resolved, so a
+      revoked key speaking for another team's plugin reports `not-owned`, not `key-revoked`. The
+      release is the entry's own; lower is `release-backwards` (409), equal is a `NoOp` success.
+- [x] Trust is re-read at commit: `Write.RequireKeyEnabled` + `requireKeyEnabled` inside
+      `postgres.apply`, after the `FOR UPDATE` on the revision row (decision 99, BR-AS48).
+- [x] `domain.NKeyVerifier{}` replaces `NoVerifier{}` in `composition.go`. The trust anchor is now the
+      operator's publisher table — an empty table still refuses everything, by policy rather than by
+      placeholder. `lifecycle` is not an input to the gate at all (decision 102), pinned by a spec.
+- [x] Specs: 148/148, `0 Skipped`. `verify_test.go` covers each refusal cause separately and pins the
+      *order* of the four checks; `announce_transport_test.go` now signs with a real NKey against a
+      seeded trust table and covers not-owned, replay, no-op re-send and revoke-between-verify-and-
+      commit end to end.
+
+Two things 7c found and fixed on the way:
+- **A signed entry lost its announcement stamps.** `entryOf` rebuilds a signed entry from the
+  manifest bytes, and `announcedAt`/`lastAnnouncedAt` are not in them — they are the store's record,
+  which is why `signedContent` excludes them. They are now carried over from the projection column.
+- **The unclassified-lifecycle edge left open at the 8a/8b review is closed.** An *enabled* entry with
+  no recorded lifecycle took the no-review update branch, which decision 74 grants to `dynamic`
+  alone. It is now `AnnounceIgnored` — pending would disable an entry that is serving fine over
+  nothing worse than a missing column.
+
+(BR-AS35, BR-AS46, BR-AS47, BR-AS48.)
 
 ##### 7d — revocation
 - [ ] Revoking a key re-evaluates every entry that key signed and withholds them in **one** audited

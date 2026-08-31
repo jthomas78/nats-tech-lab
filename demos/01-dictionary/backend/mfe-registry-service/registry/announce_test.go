@@ -161,20 +161,35 @@ var _ = Describe("Announcement", func() {
 		})
 	})
 
-	Context("decision 72 / Phase 7 seam: nothing is trusted until a verifier exists", func() {
-		It("refuses every announcement while no trust anchor is configured", func() {
-			_, err := domain.NoVerifier{}.Verify([]byte(`{"id":"a"}`), "any-signature")
-			Expect(errors.Is(err, domain.ErrUnverified)).To(BeTrue())
+	// The three "no verifier is wired" cases moved to verify_test.go with the
+	// rest of the admission gate in Phase 7c.
+	Context("decision 74 — the no-review update belongs to dynamic entries alone", func() {
+		It("ignores an enabled entry whose lifecycle was never classified", func() {
+			existing := federated("a", originA+"/old.js")
+			existing.Enabled = true
+			existing.Lifecycle = ""
+			outcome, next := domain.DecideAnnounce(&existing, federated("a", originA+"/new.js"))
+			Expect(outcome).To(Equal(domain.AnnounceIgnored))
+			Expect(next).To(Equal(existing))
 		})
 
-		It("refuses an unsigned announcement without consulting a verifier at all", func() {
-			_, err := domain.VerifyAnnouncement(nil, []byte(`{"id":"a"}`), "")
-			Expect(errors.Is(err, domain.ErrUnsigned)).To(BeTrue())
+		It("leaves an unclassified entry running rather than disabling it", func() {
+			existing := federated("a", originA+"/old.js")
+			existing.Enabled = true
+			existing.Lifecycle = ""
+			_, next := domain.DecideAnnounce(&existing, federated("a", originB+"/new.js"))
+			// Not pending, not requeued: an entry serving fine is not taken
+			// away from every shell over a missing classification.
+			Expect(next.Enabled).To(BeTrue())
+			Expect(next.Remote.URL).To(Equal(originA + "/old.js"))
 		})
 
-		It("refuses a signed announcement when no verifier is wired, rather than accepting it", func() {
-			_, err := domain.VerifyAnnouncement(nil, []byte(`{"id":"a"}`), "a-signature")
-			Expect(errors.Is(err, domain.ErrUnverified)).To(BeTrue())
+		It("still gives a classified dynamic entry the in-origin update", func() {
+			existing := federated("a", originA+"/old.js")
+			existing.Enabled = true
+			existing.Lifecycle = domain.LifecycleDynamic
+			outcome, _ := domain.DecideAnnounce(&existing, federated("a", originA+"/new.js"))
+			Expect(outcome).To(Equal(domain.AnnounceUpdated))
 		})
 	})
 })

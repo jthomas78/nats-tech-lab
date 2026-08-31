@@ -20,6 +20,7 @@ import (
 type Service interface {
 	Curated(context.Context) (domain.Document, error)
 	Apply(context.Context, domain.Write) (domain.Document, error)
+	Publishers(context.Context) (domain.PublisherDocument, error)
 	Allowlist() domain.Allowlist
 }
 
@@ -38,10 +39,16 @@ func New(svc Service, recorder Recorder, verifier domain.Verifier) *Endpoints {
 }
 
 // Payload is the exact JSON manifest byte sequence verified, not a remarshal of
-// Entry. The signature is opaque here; Phase 7 owns its format and trust anchor.
+// Entry.
+//
+// SigningKey is a lookup hint and nothing more: it says which key to check the
+// signature under, and it is worth nothing until the trust table says that key
+// belongs to the publisher who owns this plugin id (decision 103). Naming
+// someone else's key only changes which check refuses you.
 type Request struct {
-	Payload   json.RawMessage `json:"payload"`
-	Signature string          `json:"signature"`
+	Payload    json.RawMessage `json:"payload"`
+	Signature  string          `json:"signature"`
+	SigningKey string          `json:"signingKey"`
 }
 
 type Response struct {
@@ -50,19 +57,19 @@ type Response struct {
 	Revision int64                  `json:"revision"`
 	Error    string                 `json:"error,omitempty"`
 	Code     string                 `json:"code,omitempty"`
+	// NoOp marks a re-send of the release already accepted (BR-AS47). It is
+	// success, not refusal: a publisher whose request timed out and retried
+	// gets the same answer it would have got the first time.
+	NoOp bool `json:"noOp,omitempty"`
 }
 
 func (e *Endpoints) Announce(ctx context.Context, req Request) (Response, error) {
-	publisher, err := domain.VerifyAnnouncement(e.verifier, req.Payload, req.Signature)
-	if err != nil {
-		return Response{}, err
-	}
+	// Parsed before anything is decided, because the plugin id the trust
+	// table is asked about lives inside the payload. Parsing is not a trust
+	// decision — a payload that will not parse names nothing to own.
 	incoming, err := domain.ParseManifest(req.Payload)
 	if err != nil {
 		return Response{}, errors.Join(errManifest, err)
-	}
-	if err := e.svc.Allowlist().Check(incoming); err != nil {
-		return Response{}, err
 	}
 	doc, err := e.svc.Curated(ctx)
 	if err != nil {
@@ -75,16 +82,51 @@ func (e *Endpoints) Announce(ctx context.Context, req Request) (Response, error)
 			break
 		}
 	}
-	outcome, next := domain.DecideAnnounce(existing, incoming)
+	trust, err := e.svc.Publishers(ctx)
+	if err != nil {
+		return Response{}, err
+	}
+	var accepted int64
+	if existing != nil {
+		accepted = existing.Release
+	}
+	admission, err := domain.AdmitAnnouncement(trust, e.verifier, domain.Announcement{
+		PluginID:   incoming.ID,
+		SigningKey: req.SigningKey,
+		Payload:    req.Payload,
+		Signature:  req.Signature,
+		Release:    incoming.Release,
+		Accepted:   accepted,
+	})
+	if err != nil {
+		return Response{}, err
+	}
+	if admission.NoOp {
+		// The release already stored. Nothing to write, nothing to audit —
+		// the accepted announcement is already on the record.
+		return Response{OK: true, NoOp: true, Revision: doc.Revision}, nil
+	}
+	if err := e.svc.Allowlist().Check(incoming); err != nil {
+		return Response{}, err
+	}
+	// Reassembled from the bytes that were just verified, so what is stored
+	// is what was signed (BR-AS37) rather than a remarshal of the projection.
+	signed, err := domain.EntryFromManifest(req.Payload, req.Signature, admission.SigningKey)
+	if err != nil {
+		return Response{}, errors.Join(errManifest, err)
+	}
+	outcome, next := domain.DecideAnnounce(existing, signed)
 	if outcome == domain.AnnounceIgnored {
 		// An observation, not a registry write: no revision, cache refresh or hint.
-		if err := e.recorder.RecordIgnored(ctx, domain.AnnounceWrite(next, publisher, doc.Revision)); err != nil {
+		if err := e.recorder.RecordIgnored(ctx, domain.AnnounceWrite(next, admission.SigningKey, doc.Revision)); err != nil {
 			return Response{}, err
 		}
 		return Response{OK: true, Outcome: outcome, Revision: doc.Revision}, nil
 	}
 	next = domain.StampAnnouncement(existing, next, time.Now())
-	written, err := e.svc.Apply(ctx, domain.AnnounceWrite(next, publisher, doc.Revision))
+	write := domain.AnnounceWrite(next, admission.SigningKey, doc.Revision)
+	write.RequireKeyEnabled = admission.SigningKey
+	written, err := e.svc.Apply(ctx, write)
 	if err != nil {
 		return Response{}, err
 	}
@@ -128,6 +170,21 @@ func Mount(nc *nats.Conn, endpoints *Endpoints, log *slog.Logger) (*Adapter, err
 			out.Error, out.Code, status = domain.ErrStaleRevision.Error(), "stale-revision", "409"
 		case errors.Is(err, domain.ErrNoEntryID):
 			out.Error, out.Code, status = domain.ErrNoEntryID.Error(), "manifest-refused", "400"
+		// Ownership before key state before signature — the same order
+		// AdmitAnnouncement decides in, so the code a publisher reads is the
+		// first thing actually wrong (BR-AS46).
+		case errors.Is(err, domain.ErrNotOwned):
+			out.Error, out.Code, status = domain.ErrNotOwned.Error(), "not-owned", "403"
+		case errors.Is(err, domain.ErrKeyNotTrusted):
+			out.Error, out.Code, status = domain.ErrKeyNotTrusted.Error(), "key-not-trusted", "403"
+		case errors.Is(err, domain.ErrKeyRetired):
+			out.Error, out.Code, status = domain.ErrKeyRetired.Error(), "key-retired", "403"
+		case errors.Is(err, domain.ErrKeyRevoked):
+			out.Error, out.Code, status = domain.ErrKeyRevoked.Error(), "key-revoked", "403"
+		case errors.Is(err, domain.ErrNoRelease):
+			out.Error, out.Code, status = domain.ErrNoRelease.Error(), "manifest-refused", "400"
+		case errors.Is(err, domain.ErrReleaseBackwards):
+			out.Error, out.Code, status = domain.ErrReleaseBackwards.Error(), "release-backwards", "409"
 		}
 		shared.RespondErrorBody(req, svc, log, err, status, out)
 	})

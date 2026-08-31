@@ -156,6 +156,11 @@ type Entry struct {
 	Lifecycle       string `json:"lifecycle,omitempty"`
 	AnnouncedAt     string `json:"announcedAt,omitempty"`
 	LastAnnouncedAt string `json:"lastAnnouncedAt,omitempty"`
+	// Release is the monotonic counter inside the signed bytes (BR-AS47).
+	// Self-asserted on purpose — it is signed, so a publisher cannot move it
+	// without the key. Stored only as part of the projection: the highest
+	// release accepted for an id is that id's entry, there being one.
+	Release int64 `json:"release,omitempty"`
 	// Manifest is the publisher's signed bytes, when there are any. Held
 	// beside the projection above rather than derived from it: see
 	// manifest.go for why reassembly is what the rule forbids.
@@ -230,6 +235,14 @@ type Write struct {
 	// IfRevision is the revision the author read. Checked by Apply, not here:
 	// the shape of a write is knowable on its own, its freshness is not.
 	IfRevision int64
+	// RequireKeyEnabled names a publisher key that must still be enabled at
+	// the moment the write commits (BR-AS48, decision 99). Verifying and then
+	// reading the trust table leaves a window: a key revoked in between would
+	// still get its announcement in. The store re-reads this key inside the
+	// same transaction that holds the revision lock, so revocation and write
+	// cannot interleave. Empty on operator writes — an operator's authority
+	// is their credential, not a publisher key.
+	RequireKeyEnabled string
 }
 
 // Validate checks everything about a write that is true without reading the

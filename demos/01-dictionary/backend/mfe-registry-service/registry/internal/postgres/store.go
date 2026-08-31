@@ -101,6 +101,16 @@ func entryOf(id string, raw []byte, manifest, signature, signingKey string) (dom
 		if err != nil {
 			return domain.Entry{}, fmt.Errorf("registry: entry %q has an unreadable manifest: %w", id, err)
 		}
+		// The announcement stamps are the store's own record of when it saw
+		// this publisher, not something the publisher signed — signedContent
+		// excludes them for exactly that reason. They live in the projection
+		// column, so they are carried across rather than lost with the rest
+		// of it.
+		var projected domain.Entry
+		if err := json.Unmarshal(raw, &projected); err == nil {
+			e.AnnouncedAt = projected.AnnouncedAt
+			e.LastAnnouncedAt = projected.LastAnnouncedAt
+		}
 		return e, nil
 	}
 	var e domain.Entry
@@ -152,6 +162,12 @@ func (s *Store) apply(ctx context.Context, w domain.Write) (domain.Document, err
 		return domain.Document{}, err
 	}
 	if err := domain.CheckRevision(current, w.IfRevision); err != nil {
+		return domain.Document{}, err
+	}
+	// BR-AS48 — trust is re-read here, under the revision lock, not back
+	// where the signature was checked. Between those two points a key can be
+	// revoked, and the announcement it signed must not land after that.
+	if err := requireKeyEnabled(ctx, tx, w.RequireKeyEnabled); err != nil {
 		return domain.Document{}, err
 	}
 
@@ -221,6 +237,32 @@ func (s *Store) apply(ctx context.Context, w domain.Write) (domain.Document, err
 // auditRefusal records a write that was not applied. Best effort by design:
 // a failure to audit a refusal must not turn into a second, different error
 // on the caller's path, where it would say less than the real one.
+// requireKeyEnabled re-reads one publisher key's state inside the caller's
+// transaction. A key that has vanished is refused as untrusted, not as
+// missing: to a publisher the two are the same answer.
+func requireKeyEnabled(ctx context.Context, tx *sql.Tx, publicKey string) error {
+	if publicKey == "" {
+		return nil
+	}
+	var state string
+	err := tx.QueryRowContext(ctx, `SELECT state FROM registry.publisher_keys WHERE public_key = $1`, publicKey).Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.ErrKeyNotTrusted
+	}
+	if err != nil {
+		return err
+	}
+	switch state {
+	case domain.KeyEnabled:
+		return nil
+	case domain.KeyRetired:
+		return domain.ErrKeyRetired
+	case domain.KeyRevoked:
+		return domain.ErrKeyRevoked
+	}
+	return domain.ErrKeyNotTrusted
+}
+
 func (s *Store) auditRefusal(ctx context.Context, w domain.Write, cause error) {
 	actor := w.Actor
 	if actor == "" {

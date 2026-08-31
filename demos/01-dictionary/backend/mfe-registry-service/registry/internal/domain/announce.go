@@ -1,9 +1,6 @@
 package domain
 
-import (
-	"errors"
-	"fmt"
-)
+import "errors"
 
 var (
 	// ErrUnsigned refuses an announcement carrying no signature, before any
@@ -12,48 +9,13 @@ var (
 	// publisher debugging an integration.
 	ErrUnsigned = errors.New("registry: an announcement must be signed")
 
-	// ErrUnverified refuses an announcement this deployment cannot check.
-	// Until Phase 7 supplies a trust anchor, that is every announcement:
-	// the safe direction for a check that decides which code a browser
-	// fetches is to fail closed.
+	// ErrUnverified refuses an announcement whose signature does not check
+	// out under the key it named. The safe direction for a check that
+	// decides which code a browser fetches is to fail closed, so a
+	// deployment with no trust anchor at all refuses under this cause too
+	// (see NoVerifier in verify.go).
 	ErrUnverified = errors.New("registry: announcement signature could not be verified")
 )
-
-// Verifier is Phase 7's seam. It answers with the publisher key an
-// announcement was signed by, which is also the audit actor the write is
-// filed under (BR-AS42).
-type Verifier interface {
-	Verify(payload []byte, signature string) (publisherKey string, err error)
-}
-
-// NoVerifier is the verifier a deployment has until Phase 7 lands: it
-// verifies nothing and says so. It exists so that "no trust anchor" is a
-// configured state with a spec on it, rather than a nil check someone can
-// forget on the one path where forgetting means injecting JavaScript into an
-// operator's browser (decision 72).
-type NoVerifier struct{}
-
-func (NoVerifier) Verify([]byte, string) (string, error) { return "", ErrUnverified }
-
-// VerifyAnnouncement is the whole gate an announcement passes before the
-// registry considers what it says. A nil verifier is not "skip the check" —
-// it is NoVerifier.
-func VerifyAnnouncement(v Verifier, payload []byte, signature string) (string, error) {
-	if signature == "" {
-		return "", ErrUnsigned
-	}
-	if v == nil {
-		v = NoVerifier{}
-	}
-	key, err := v.Verify(payload, signature)
-	if err != nil {
-		return "", fmt.Errorf("%w: %s", ErrUnverified, err)
-	}
-	if key == "" {
-		return "", ErrUnverified
-	}
-	return key, nil
-}
 
 // AnnounceOutcome is what an announcement did. Five values rather than a
 // bool because an operator reviewing the pending tier needs the difference,
@@ -96,8 +58,9 @@ func (o AnnounceOutcome) Recorded() bool { return o != "" }
 //     that is both static and enabled, which is every preloaded entry.
 //  2. BR-AS39 — an unknown id lands pending. Never enabled, whatever the
 //     payload claims about itself.
-//  3. BR-AS40 — an enabled dynamic entry follows its publisher within its
-//     own origin, and re-queues when the remote crosses one.
+//  3. BR-AS40 — an enabled *dynamic* entry follows its publisher within its
+//     own origin, and re-queues when the remote crosses one. An enabled entry
+//     with no recorded lifecycle is not dynamic and does not get this.
 func DecideAnnounce(existing *Entry, incoming Entry) (AnnounceOutcome, Entry) {
 	// A plugin never states its own trust tier or activation. ParseManifest
 	// refuses a payload that tried; this is the second line, so a caller
@@ -114,6 +77,16 @@ func DecideAnnounce(existing *Entry, incoming Entry) (AnnounceOutcome, Entry) {
 	}
 	if !existing.Enabled {
 		return AnnouncePending, incoming
+	}
+	// An enabled entry whose withdrawal class was never recorded is not
+	// dynamic — it is unclassified, and decision 74 grants the no-review
+	// update to `dynamic` alone. Ignored rather than pending: pending would
+	// disable an entry that is running fine, on nothing worse than a legacy
+	// row missing a column. The operator classifies it, then it follows its
+	// publisher. (Edge left open at the 8a/8b review, closed here because
+	// this is the branch a real signature now flows through.)
+	if existing.Lifecycle != LifecycleDynamic {
+		return AnnounceIgnored, *existing
 	}
 
 	if sameOrigin(existing.Remote.URL, incoming.Remote.URL) {
