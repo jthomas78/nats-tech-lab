@@ -11,25 +11,38 @@ never heard of it; it learns the URL from the registry document at boot.
 
 ## Run it
 
+The plugin ships as its own image and comes up with the stack:
+
+```bash
+docker compose up -d example-plugin-frontend
+```
+
+from `demos/01-dictionary/`. Port **7111**, and the shell is on **7110** — both
+are containers now, and the dev servers below publish the same two ports so a
+curated remote URL is correct either way.
+
+To iterate on the source instead, stop the container and run the dev server:
+
 ```bash
 npm install && npm run dev
 ```
 
-Port **7110** (`strictPort`) — the shell reaches it by URL, so a plugin that
+Also 7111 (`strictPort`) — the shell reaches it by URL, so a plugin that
 quietly moved would present as an unreachable remote rather than a moved one.
-The shell itself is on 7109.
 
-To point the shell at it, seed the curated document in this directory into a
-running `accounts-service` (Phase 2a — curation is rows now, not a mounted
-file):
+Compose mounts `demos/01-dictionary/registry.json` into the registry service;
+startup seeds only unseen ids and never reverts curation. This is also the single
+seed file for local development. To update already-curated rows after changing
+origins or manifests, run from `demos/01-dictionary/backend/mfe-registry-service/`:
 
 ```bash
-go run ./cmd/seed-registry -file ../../../../lab-shell/plugins/example-plugin/registry.dev.json
+go run ./cmd/seed-registry -file ../../registry.json
 ```
 
-from `demos/01-dictionary/backend/accounts-service/`. The service must already
-be running, and `REGISTRY_ALLOWED_ORIGINS` must include `http://localhost:7110`
-or every entry here is refused (BR-AS20) — compose sets it.
+The file is `demos/01-dictionary/registry.json` relative to the repository root.
+The service must be running and its configured origin allowlist must cover each
+remote. Existing rows require this explicit operator update; restart does not
+replace them.
 
 Phase 4 uses the operator's NATS curation subjects, not REST writes. The CLI
 mints an Admin credential from `http://localhost:7202` (`-url` / `ACCOUNTS_URL`)
@@ -39,6 +52,25 @@ revision checks and auditing, including the first write at revision zero.
 Curation is operator state, not source: a development remote on `localhost` has
 no business compiled into the platform's own service, and a registry that can
 be changed without rebuilding either side is what BR-AS03 actually claims.
+
+## Its container
+
+`Dockerfile` + `nginx.conf` here, built from this directory's own
+`package.json` and lockfile — the shell's image copies none of it. The nginx
+config is a static file server with **no `proxy_pass` rule of any kind**: a
+plugin origin with a route to accounts-service or the bus would be a second,
+unaudited door beside the narrow one the shell keeps. Two details in it are
+load-bearing rather than boilerplate:
+
+- `try_files $uri =404`, not the SPA fallback the other frontends use — the
+  `example-plugin-unreachable` entry demonstrates a fetch that 404s, and an
+  `/index.html` fallback would answer 200 with HTML and fail later, in the
+  wrong state.
+- `Access-Control-Allow-Origin: http://localhost:7110` — federation loads
+  `remoteEntry.js` and its chunks as ES modules, fetched in CORS mode, which
+  Vite's `cors: true` supplies in development and nginx has to state
+  explicitly. Named origin rather than `*`: the allowlist on the registry side
+  is only half a statement if this side hands its code to anyone.
 
 ## What it contributes
 
@@ -54,18 +86,22 @@ demo:
 | `shell-control` | `stream-toggle` | the topbar, on `/example` only |
 | `shell-footer` | `version` | the footer bar |
 
-## The four failure states, on demand
+## Independent fixture services
 
-`registry.dev.json` curates five entries. Four of them are broken on purpose —
+`demos/01-dictionary/registry.json` curates the plugin fixtures. Four of them are broken on purpose —
 one per state the shell has to render — and each is broken in a different
 place, because "the plugin is unavailable" is not one state:
 
 | Entry | State | Broken where |
 | --- | --- | --- |
-| `example-plugin-slow` | `loading` | a six-second delay in the remote's module scope |
+| `example-plugin-slow` | `loading`, then `active` | a six-second delay in the remote's module scope |
 | `example-plugin-unreachable` | `failed` | a curated URL with no chunk behind it |
 | `example-plugin-activate-throws` | `failed`, cause `activate-threw` | the chunk arrives; `activate()` throws |
 | `example-plugin-incompatible` | `incompatible` | `shellApiVersion: 2` — rejected on metadata, its remote never fetched |
+
+The healthy plugin stays on 7111; slow, activate-throws and incompatible have
+independent services on 7113, 7114 and 7115. Each exposes only `plugin`, and
+each serves its own `/manifest.json`. Unreachable has no service of its own.
 
 A fifth failure — a contribution throwing while it *renders* — is inside the
 healthy plugin: `render-throws` sits next to `home-panel` on the home screen,

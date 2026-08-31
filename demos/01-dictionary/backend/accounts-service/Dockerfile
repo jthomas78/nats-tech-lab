@@ -9,6 +9,10 @@ COPY shared/natsnotify ./shared/natsnotify
 # Phase 50b: accounts/usersrpc.go answers the browser over api.* through the
 # shared browserrpc envelope, so its module has to be in the build context too.
 COPY shared/browserrpc ./shared/browserrpc
+# The registry left for mfe-registry-service, but auth still names its subjects
+# when it mints the shell's and the operator's browser credentials — from this
+# shared contract module rather than local literals (BR-AS25/AS27).
+COPY shared/mferegistry ./shared/mferegistry
 COPY demos/01-dictionary/backend/accounts-service ./demos/01-dictionary/backend/accounts-service
 WORKDIR /src/demos/01-dictionary/backend/accounts-service
 RUN go mod download

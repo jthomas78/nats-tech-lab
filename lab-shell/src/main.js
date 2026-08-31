@@ -13,14 +13,14 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { createUnifiPreset, enableDarkMode, themeOptions } from '@unifi-theme/preset.js'
 
 import App from './App.vue'
-import { demoCatalogManifest, DEMO_CATALOG_MODULE } from './plugins/demo-catalog/manifest.js'
 import { createPermissionEvaluator } from './shell/auth/permissions.js'
+import { createAfterPaint } from './shell/afterPaint.js'
 import { bootShell, withRuntime } from './shell/bootShell.js'
 import { createConnectionRegistry, CREDENTIAL_PROFILE } from './shell/connections/connectionRegistry.js'
 import { createShellConnection } from './shell/connections/shellConnection.js'
 import { createShellDialer } from './shell/connections/shellDialer.js'
 import { createFederatedAdapter } from './shell/loader/federatedAdapter.js'
-import { createBuiltinAdapter, createPluginLoader } from './shell/loader/pluginLoader.js'
+import { createPluginLoader } from './shell/loader/pluginLoader.js'
 import { createRegistryTransport } from './shell/registry/registryTransport.js'
 import { createRegistrySession } from './shell/registry/registrySession.js'
 import { createShellRoutes, installShellRoutes } from './shell/routing/shellRoutes.js'
@@ -38,11 +38,12 @@ enableDarkMode()
    changes, not any call site. */
 const permissions = createPermissionEvaluator({ permissions: ['*'] })
 
+const waitForPaint = createAfterPaint()
+
 /* Wrapped rather than top-level `await`: TLA constrains the build target, and
    the shell has to boot the same way in every browser the demos are shown in. */
 async function bootstrap() {
   const shell = await bootShell({
-    builtins: [demoCatalogManifest],
     permissions,
   })
 
@@ -52,11 +53,6 @@ async function bootstrap() {
     allowlist: shell.allowlist,
     statuses: shell.statuses,
     adapters: {
-      /* Phase 1a ships one adapter. Phase 1b adds `federated` beside it without
-         touching anything above — that is what the adapter seam is for. */
-      builtin: createBuiltinAdapter({
-        [DEMO_CATALOG_MODULE]: () => import('./plugins/demo-catalog/index.js'),
-      }),
       /* Phase 1b. No remote is named here: the adapter registers containers at
          runtime from the curated registry, so adding a plugin never touches
          this file (BR-AS03, proven by tools/hostBundleFingerprint.mjs). */
@@ -92,11 +88,12 @@ async function bootstrap() {
     connection,
     client: createRegistryTransport({ request: connection.request }),
     shell,
+    // A double animation frame yields a browser paint before credential
+    // minting starts; nextTick alone only waits for the DOM patch. The
+    // timeout inside createAfterPaint covers the tab that never paints.
     afterPaint: async () => {
       await nextTick()
-      // A double animation frame yields a browser paint before credential
-      // minting starts; nextTick alone only waits for the DOM patch.
-      await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)))
+      await waitForPaint()
     },
     onResult: (discovery) => {
       const { added, addedRoutes } = shell.applyRegistry(discovery)

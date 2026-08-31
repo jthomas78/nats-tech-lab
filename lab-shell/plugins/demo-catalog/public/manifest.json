@@ -1,0 +1,46 @@
+{
+  "id": "demo-catalog",
+  "name": "Demo Catalog",
+  "version": "1.0.0",
+  "description": "The lab menu: every demo, its intro, and how to launch it.",
+  "schemaVersion": 1,
+  "shellApiVersion": 1,
+  "routePrefix": "demos",
+  "remote": {
+    "kind": "federated",
+    "name": "demo_catalog",
+    "url": "http://localhost:7112/remoteEntry.js",
+    "module": "plugin"
+  },
+  "extensionPoints": [
+    {
+      "id": "demo-catalog/details-sidebar/v1",
+      "capacity": 4,
+      "description": "Sidebar panels beside a demo intro."
+    }
+  ],
+  "contributions": [
+    {
+      "kind": "route",
+      "id": "catalog",
+      "path": "/demos",
+      "title": "Demos",
+      "component": "catalog"
+    },
+    {
+      "kind": "route",
+      "id": "intro",
+      "path": "/demos/:id",
+      "title": "Demo intro",
+      "component": "intro"
+    },
+    {
+      "kind": "navigation",
+      "id": "demos",
+      "label": "Demos",
+      "route": "catalog",
+      "icon": "pi pi-th-large",
+      "order": -100
+    }
+  ]
+}

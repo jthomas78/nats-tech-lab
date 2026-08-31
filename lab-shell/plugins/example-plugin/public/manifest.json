@@ -1,0 +1,69 @@
+{
+  "id": "example-plugin",
+  "name": "Example Plugin",
+  "version": "0.1.1",
+  "description": "The BR-AS15 proof plugin: one contribution of every kind, built and served independently on port 7111.",
+  "schemaVersion": 1,
+  "shellApiVersion": 1,
+  "routePrefix": "example",
+  "remote": {
+    "kind": "federated",
+    "url": "http://localhost:7111/remoteEntry.js",
+    "name": "example_plugin",
+    "module": "plugin"
+  },
+  "contributions": [
+    {
+      "kind": "route",
+      "id": "overview",
+      "path": "/example",
+      "title": "Example Plugin",
+      "component": "overview"
+    },
+    {
+      "kind": "navigation",
+      "id": "overview-nav",
+      "label": "Example Plugin",
+      "route": "overview",
+      "icon": "pi pi-bolt",
+      "order": 10
+    },
+    {
+      "kind": "extension",
+      "id": "home-panel",
+      "target": "shell/home-main/v1",
+      "component": "home-panel",
+      "order": 10
+    },
+    {
+      "kind": "extension",
+      "id": "home-panel-broken",
+      "target": "shell/home-main/v1",
+      "component": "render-throws",
+      "order": 20
+    },
+    {
+      "kind": "extension",
+      "id": "demo-sidebar",
+      "target": "demo-catalog/details-sidebar/v1",
+      "component": "demo-sidebar",
+      "order": 10
+    },
+    {
+      "kind": "shell-control",
+      "id": "stream-toggle",
+      "region": "shell/topbar-controls/v1",
+      "component": "topbar-control",
+      "routes": [
+        "/example"
+      ],
+      "order": 10
+    },
+    {
+      "kind": "shell-footer",
+      "id": "version",
+      "component": "footer-item",
+      "order": 10
+    }
+  ]
+}

@@ -2,6 +2,7 @@ go 1.27
 
 use (
 	./demos/01-dictionary/backend/accounts-service
+	./demos/01-dictionary/backend/mfe-registry-service
 	./demos/01-dictionary/backend/observability-service
 	./demos/01-dictionary/backend/organizations-service
 	./demos/01-dictionary/backend/otlp-bridge
@@ -10,6 +11,7 @@ use (
 	./demos/01-dictionary/backend/shipping-service
 	./shared/browserrpc
 	./shared/jstream
+	./shared/mferegistry
 	./shared/natsconn
 	./shared/natsnotify
 	./shared/natstenants

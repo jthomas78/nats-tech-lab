@@ -54,20 +54,20 @@
       "autoPort": true
     },
     {
-      "//": "Phase 1a moved the shell off 5170 (this entry said 5176 — it had drifted) into the 7100-7199 frontend range CLAUDE.md defines. 7109 is the first free port: docker-compose publishes 7100-7106 and holds them whenever the stack is up, 7107 and 7108 are claimed above. No autoPort — the point of the move is that the shell is always at a known port, since Phase 1b's example plugin (7110) is loaded by URL.",
+      "//": "The shell is containerised (lab-shell/Dockerfile) and published on 7110 by the compose stack; this entry runs the same app from source on the SAME port, so a registry entry curated for the stack stays correct either way and only one of the two can be up at a time. 7100-7106 are held by docker-compose whenever the stack is up and 7107/7108 are claimed above. No autoPort \u2014 the shell must be at a known port, since the example plugin (7111) is loaded by URL.",
       "name": "lab-shell",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "cwd": "lab-shell",
-      "port": 7109
+      "port": 7110
     },
     {
-      "//": "Phase 1b's example plugin. Its own toolchain, its own build, its own server \u2014 the shell never compiles it, which is what makes BR-AS03's no-host-rebuild claim testable rather than asserted (lab-shell/tools/hostBundleFingerprint.mjs). strictPort, because the shell reaches it by URL from the curated registry (registry.dev.json) and a plugin that quietly moved to 7111 would look like an unreachable remote.",
+      "//": "Phase 1b's example plugin. Its own toolchain, its own build, its own server \u2014 the shell never compiles it, which is what makes BR-AS03's no-host-rebuild claim testable rather than asserted (lab-shell/tools/hostBundleFingerprint.mjs). strictPort, because the shell reaches it by URL from the curated registry (demos/01-dictionary/registry.json) and a plugin that quietly moved would look like an unreachable remote rather than a moved one. Containerised too (its own Dockerfile), published on the same 7111 by the compose stack.",
       "name": "example-plugin",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "cwd": "lab-shell/plugins/example-plugin",
-      "port": 7110
+      "port": 7111
     },
     {
       "name": "docs",

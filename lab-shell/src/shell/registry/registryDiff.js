@@ -102,9 +102,7 @@ export function diffRegistry(current = [], next = [], { normalize = validated } 
   }
 
   for (const [id, plugin] of held) {
-    /* Built-ins are not curated and never appear in the document (decision
-       30), so their absence is not a removal — it is the normal case. */
-    if (plugin?.remote?.kind === 'builtin') continue
+    // All plugins are curated; an omitted entry requires a reload.
     if (!arrived.has(id)) {
       reloadRequired.push({ id, name: nameOf(plugin), reason: RELOAD_REASON.REMOVED })
     }

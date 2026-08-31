@@ -1,6 +1,6 @@
 <script setup>
 /* The cross-owner case (BR-AS07): this fills `demo-catalog/details-sidebar/v1`,
-   a region owned by a BUILT-IN feature rather than by the shell. The demo
+   a region owned by a federated feature rather than by the shell. The demo
    catalog need not be loaded for this contribution to be placed — placement is
    metadata-only — and the catalog knows nothing about this plugin. */
 defineProps({

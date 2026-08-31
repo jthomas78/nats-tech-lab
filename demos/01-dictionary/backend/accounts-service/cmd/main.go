@@ -25,14 +25,12 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
 	httpSwagger "github.com/swaggo/http-swagger"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/auth"
 	_ "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/docs"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/registry"
 	"github.com/jthomas78/nats-tech-lab/shared/natsconn"
 	"github.com/jthomas78/nats-tech-lab/shared/natstrace"
 )
@@ -234,27 +232,13 @@ func run(log *slog.Logger) error {
 	mux := http.NewServeMux()
 	handlers.Mount(mux, authSecret)
 
-	// Phase 2a — the curated frontend plugin registry, its own bounded
-	// context in this process (decision 39). Postgres is the source of truth
-	// and NATS KV the read cache, so the endpoint keeps answering a shell
-	// through a Postgres outage; REGISTRY_ALLOWED_ORIGINS is the envelope
-	// the registry sits inside and is read here, from configuration, never
-	// from a row a write path could widen (BR-AS20).
-	allowlist := registry.ParseAllowedOrigins(os.Getenv("REGISTRY_ALLOWED_ORIGINS"))
-	var registryJS jetstream.JetStream
-	if platformNC != nil {
-		if js, err := jetstream.New(platformNC); err != nil {
-			log.Warn("registry: no read cache", "error", err)
-		} else {
-			registryJS = js
-		}
-	}
-	registryModule, err := registry.Startup(startupCtx, db, registryJS, platformNC, allowlist, log)
-	if err != nil {
-		return fmt.Errorf("registry startup: %w", err)
-	}
-	defer registryModule.Stop() //nolint:errcheck
-	log.Info("frontend plugin registry mounted on PLATFORM api.*", "allowedOrigins", allowlist.Origins())
+	// The curated frontend plugin registry used to be composed here, as its
+	// own bounded context in this process (decision 39). It is now
+	// mfe-registry-service. What stayed behind is the credential minting in
+	// auth: this service owns the NATS trust chain, so it is still the thing
+	// that names the registry's subjects in a browser grant — from
+	// shared/mferegistry, so the two sides cannot drift apart across the new
+	// service boundary (BR-AS25/AS27).
 
 	// Phase 19 — auth-service folded into this binary: same Store, same
 	// Postgres pool, no more cross-service read. Routes are ungated (see

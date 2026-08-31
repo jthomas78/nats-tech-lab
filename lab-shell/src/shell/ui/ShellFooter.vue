@@ -31,7 +31,7 @@ const pluginCount = computed(
       class="degraded"
       data-testid="registry-unavailable"
     >
-      <span class="k">registry</span> unavailable · built-ins only
+      <span class="k">registry</span> unavailable · shell available
     </span>
     <!-- BR-AS22: the service answered, and said it could not vouch for what
          it served. Distinct wording from both "unavailable" above and a
@@ -41,7 +41,7 @@ const pluginCount = computed(
       class="degraded"
       data-testid="registry-degraded"
     >
-      <span class="k">registry</span> degraded · built-ins only
+      <span class="k">registry</span> degraded · shell available
     </span>
     <PluginSlot
       v-for="item in items"

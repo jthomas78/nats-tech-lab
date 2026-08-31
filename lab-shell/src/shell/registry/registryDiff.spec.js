@@ -72,13 +72,9 @@ describe('diffRegistry', () => {
     )
   })
 
-  it('does not read a built-in as removed when it is absent from the document', () => {
-    // Built-ins ship in the shell's own bundle and are deliberately never
-    // curated, so every document "omits" them.
-    const builtin = validateManifest(
-      raw('demo-catalog', { remote: { kind: 'builtin', module: 'demo-catalog' } }),
-    ).plugin
-    expect(diffRegistry([builtin], []).reloadRequired).toEqual([])
+  it('offers a reload when the federated catalog is withdrawn', () => {
+    const catalog = validateManifest(raw('demo-catalog')).plugin
+    expect(diffRegistry([catalog], []).reloadRequired).toEqual([{ id: 'demo-catalog', name: 'demo-catalog', reason: RELOAD_REASON.REMOVED }])
   })
 
   it('reports no change at all when the same document comes back', () => {

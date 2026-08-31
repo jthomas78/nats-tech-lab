@@ -28,8 +28,8 @@ export const components = {
 }
 
 /* Called at most once per plugin, by the loader, after the chunk arrives and
-   before anything renders. It gets no shell handle on purpose: whatever a
-   contribution needs is passed to it as props by the host that renders it. */
+   before anything renders. This plugin ignores the additive shellApi argument;
+   its contributions need only the context props supplied by their hosts. */
 export function activate() {
    
   console.info('[example-plugin] activate() ran once')

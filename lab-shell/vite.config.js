@@ -20,7 +20,11 @@ const federationPlugin = process.env.VITEST
       federation({
         name: 'lab_shell',
         remotes: {},
-        shared: { vue: { singleton: true, requiredVersion: '^3.5' } },
+        shared: {
+          vue: { singleton: true, requiredVersion: '^3.5' },
+          // PrimeVue remotes read the theme configured once by the host.
+          '@primeuix/styled': { singleton: true, requiredVersion: '^0.7.4' },
+        },
         /* No .d.ts generation or consumption: there is no TypeScript in this
            repo's frontends, and the dts worker shells out to tsc against a
            tsconfig that does not exist, which takes the dev server down on
@@ -49,10 +53,13 @@ export default defineConfig({
     environment: 'happy-dom',
   },
   server: {
-    // 7109, not 7100-7108: docker-compose publishes every port from 7100 to
-    // 7106 and holds them whenever the stack is up, and 7107/7108 are already
-    // claimed in .claude/launch.json. Phase 1b's example plugin takes 7110.
-    port: 7109,
+    // 7110 — the same port the shell's own container publishes, so a
+    // registry entry curated for the stack is not silently wrong when the
+    // shell is run from source instead. 7100-7106 are held by docker-compose
+    // whenever the stack is up and 7107/7108 are claimed in
+    // .claude/launch.json; the example plugin's remote takes 7111.
+    port: 7110,
+    strictPort: true,
     proxy: {
       // Exact mint route: a prefix grant would expose operator credentials
       // to federated code in the shell's realm (BR-AS25/BR-AS27).
@@ -68,7 +75,7 @@ export default defineConfig({
       },
     },
     fs: {
-      // Shared theme + demo READMEs (imported ?raw for intro pages).
+      // Shared theme, frame and NATS URL resolver.
       allow: [fileURLToPath(new URL('..', import.meta.url))],
     },
   },

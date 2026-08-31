@@ -124,7 +124,12 @@ re-export the whole retained hour on the next start instead.
 
 | Service              | Host address                                                 |
 | -------------------- | ------------------------------------------------------------ |
-| Lab shell            | http://localhost:5170                                        |
+| App shell (lab-shell) | http://localhost:7110                                       |
+| Example plugin | http://localhost:7111 |
+| Demo catalog plugin | http://localhost:7112 |
+| Slow plugin fixture | http://localhost:7113 |
+| Activation failure plugin fixture | http://localhost:7114 |
+| Incompatible plugin fixture | http://localhost:7115 |
 | Admin UI              | http://localhost:7100                                        |
 | Port Management       | http://localhost:7101                                        |
 | Tech Lab Operator     | http://localhost:7102                                        |
@@ -139,15 +144,17 @@ re-export the whole retained hour on the next start instead.
 | accounts-service API  | http://localhost:7202                                       |
 | pricing-service API   | http://localhost:7203                                       |
 | organizations-service API | http://localhost:7204                                |
+| mfe-registry-service  | http://localhost:7206/healthz — no API surface; the registry answers on `api.*` subjects only |
 | NATS client           | nats://localhost:4222                                       |
 | NATS monitor          | http://localhost:8222                                       |
 | NATS WebSocket (direct)   | ws://localhost:9222                                     |
-| NATS WebSocket (via a frontend) | http://localhost:7100/nats (also :7101, :7102)     |
+| NATS WebSocket (via a frontend) | http://localhost:7100/nats (also :7101, :7102, :7110) |
 | Postgres (shipping-service) | localhost:5432                                         |
 | Postgres (refdata-service)  | localhost:5433                                         |
 | Postgres (accounts-service) | localhost:5434                                         |
 | Postgres (pricing-service)  | localhost:5435                                         |
 | Postgres (organizations-service) | localhost:5436                                  |
+| Postgres (mfe-registry-service)  | localhost:5437                                  |
 | Temporal gRPC        | localhost:7233                                               |
 | Temporal UI          | http://localhost:8233                                        |
 | Jaeger UI (opt-in, `--profile otlp`) | http://localhost:16686                           |
@@ -160,6 +167,8 @@ re-export the whole retained hour on the next start instead.
 **Postgres credentials (accounts-service):** host `localhost`, port `5434`, user `accounts`, password `accounts`, database `accounts` — its own instance. Browser NATS credential minting (Phase 15c, folded into this service as its `auth` package in Phase 19 — see `backend/accounts-service/auth/`) reads the same instance in-process, no longer a separate service.
 
 **Postgres credentials (pricing-service):** host `localhost`, port `5435`, user `pricing`, password `pricing`, database `pricing` — its own instance (Phase 25).
+
+**Postgres credentials (mfe-registry-service):** host `localhost`, port `5437`, user `mfe_registry`, password `mfe_registry`, database `mfe_registry` — its own instance. The curated micro-frontend registry, split out of accounts-service; its schema shared no table with accounts, which is what made the move a deployment change.
 
 **Postgres credentials (organizations-service):** host `localhost`, port `5436`, user `trading_partner`, password `trading_partner`, database `trading_partner` — legacy physical names deliberately retained to preserve the existing `pg-trading-partner-data` dev volume (Phase 26).
 

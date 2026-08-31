@@ -236,11 +236,11 @@ describe('manifest hygiene', () => {
     expect(result.code).toBe('malformed')
   })
 
-  it('accepts a builtin remote, which needs no url', () => {
+  it('rejects the retired builtin remote kind', () => {
     const result = validateManifest(manifest({ remote: { kind: 'builtin', module: 'demo-catalog' } }))
 
-    expect(result.ok).toBe(true)
-    expect(result.plugin.remote.kind).toBe('builtin')
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('malformed')
   })
 
   it('freezes the normalized plugin so indexing cannot mutate it', () => {

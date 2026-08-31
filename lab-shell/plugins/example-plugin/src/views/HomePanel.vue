@@ -14,7 +14,7 @@ defineProps({
     <span class="ex-eyebrow">example-plugin</span>
     <h2>Remote panel on the shell's home</h2>
     <p>
-      This panel's code arrived from port 7110 after the home screen had already
+      This panel's code arrived from port 7111 after the home screen had already
       painted. The shell reserved the space from metadata alone.
     </p>
     <p

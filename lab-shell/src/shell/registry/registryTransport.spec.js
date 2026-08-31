@@ -10,7 +10,7 @@
   holds, and "unchanged" is an answer, not an absence.
 
   Never throws. Every failure is an `{ok: false, code}` the shell records
-  (BR-AS22), because the shell renders its built-ins either way.
+  (BR-AS22), because the shell renders its native frame either way.
 */
 
 import { describe, expect, it, vi } from 'vitest'

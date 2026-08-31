@@ -40,24 +40,17 @@ const enabled = computed(() => shell.inventory.filter((row) => row.status !== 'd
         :context="{ region: point }"
       />
       <!-- An empty region is a legitimate state, not a broken one, so it says
-           what happened and offers the two places worth going next. -->
+           what happened and offers the inventory for diagnosis. -->
       <div
         v-if="placed === 0"
         class="empty"
       >
         <h3>No plugins have contributed to this view</h3>
         <p>
-          The registry returned no enabled plugin with a contribution for
-          <span class="mono">{{ point }}</span>. The shell, its router and the
-          built-in catalog are unaffected.
+          No enabled plugin has contributed to
+          <span class="mono">{{ point }}</span>. Home and Plugins remain available.
         </p>
         <div class="empty-actions">
-          <router-link
-            class="btn"
-            to="/demos"
-          >
-            Open the demo catalog
-          </router-link>
           <router-link
             class="btn ghost"
             to="/plugins"

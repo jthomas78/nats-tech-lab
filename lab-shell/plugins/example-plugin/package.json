@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview --port 7110 --strictPort"
+    "preview": "vite preview --port 7111 --strictPort"
   },
   "dependencies": {
     "vue": "^3.5"

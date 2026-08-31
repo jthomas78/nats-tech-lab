@@ -300,8 +300,10 @@ announcing itself. Also out of scope: unloading a plugin whose `activate()` has 
   already-stored rows non-conforming, and that is the case the write-time check cannot cover.
   *Failure:* the shell is offered a remote on an unconfigured host — including after an allowlist
   was narrowed.
-- **BR-AS21 — No self-registration.** No transport permits a plugin to add, modify or enable its own
-  registry entry. *Failure:* an entry appears that no operator wrote.
+- **BR-AS21 — No self-activation.** Revised by Phase 8 decision 73: a verified publisher may
+  announce over `rpc._platform.registry.entries.announce.v1`, never self-enable or set lifecycle or
+  revision. Pending announcements are inert until operator enablement; browsers cannot announce.
+  *Failure:* a service decides what runs in a browser.
 - **BR-AS22 — The registry degrades, it does not fail.** With Postgres unavailable the endpoint falls
   back to the KV cache; with both unavailable it answers `200` with an empty plugin list, `revision:
   0` and `degraded: true`, and the shell renders its built-ins. It never answers `5xx` and never
@@ -652,6 +654,11 @@ allowlist already omitted `accounts-service/registry/internal/application/servic
 before Phase 4 (verified against HEAD). Its existing `NotifySubject` builder uses
 the shared publish seam but has no allowlist entry. The supplied-spec no-edit
 instruction is respected; owner direction is needed before amending that guard.
+
+> **Closed 2026-08-31** by the `mfe-registry-service` split. The subject was
+> extracted out of the application service into `registry/internal/notify/`, which
+> is the subject-builder layer the guard was asking for, and that file is now in
+> the allowlist with its reason. The guard is green.
 Shipping also has 13 existing pending specs. The running Docker images were not
 rebuilt; healthy browser NATS transport is covered through embedded NATS/Postgres
 integration, while the browser check exercised the old image's refused mint.
@@ -718,9 +725,10 @@ entry in this phase is one an operator marked by hand, which is the seam Phase 8
    showing it is the same; the argument against is that the operator cannot act on it without a
    deploy.
 
-#### Tasks — not started; this phase is PROPOSED
+#### Tasks — gate passed 2026-08-31; 8a and 8d are open for work
 
-> No code, specs or business-rule edits until the gate passes (AI Agent Workflow step 2).
+> 8a and 8d ship ahead of Phase 5 and Phase 7. The follow-up authorizes fail-closed 8b wiring;
+> real publisher verification still awaits Phase 7 (see the note above 8b).
 
 ##### 5a — the class
 - [ ] `lifecycle` on the entry: domain, store, document, admin surface, manifest schema.
@@ -770,6 +778,26 @@ Phase 2's decisions 32–34 exist to make this phase small when it opens: the re
 own bounded-context module owning its own tables, and the shell already reads a capability-named
 path (`/api/platform/registry/frontend-plugins`), so opening Phase 6 is a `main.go` plus routing
 change rather than a client change across every frontend.
+
+**The process split was taken early, 2026-08-31, on its own — `mfe-registry-service`.** Not Phase 6
+opening: the publishing lifecycle above is untouched and every trigger listed still fails to hold.
+What moved is the module and nothing else — `mfe-registry-service/registry/` (same hexagonal
+layout, same schema), its own Postgres on 5437, its own PLATFORM credential, 7206 for `/healthz`,
+and the KV bucket renamed `registry` → `mfe-registry`.
+
+Decisions 32–34 priced it correctly, and one of them turned out to be worth more than expected:
+because Phase 4 had already moved the read to an `api.*` subject, **neither frontend changed at
+all** — not a proxy rule, not a constant. NATS resolves a subject to whichever process is
+listening. The costs decision 32 named were the real ones and were all paid: a credential and nsc
+user, a port, a database and compose service, a Dockerfile, docs and a suite. The one thing that
+deliberately did *not* move is credential minting — `accounts-service` owns the trust chain, so it
+still names the registry's subjects when it mints the shell's and the operator's browser grants.
+That is now a cross-service contract, held in `shared/mferegistry` and enforced by
+`TestShellReadIsUngatedAndEverythingElseIsNot` reading the same list both sides use.
+
+The split needs `docker compose down -v` and a bootstrap reseed (new nsc user, new database, new
+bucket). Curated entries do not survive it; there is no seed for them beyond
+`cmd/seed-registry`.
 
 ---
 
@@ -860,7 +888,7 @@ manifests other than a test fixture; Phase 8 brings the first real one.
 
 ---
 
-### Phase 8 — PROPOSED (design gate not passed) — Announcement, preload seeding, and the pending tier
+### Phase 8 — APPROVED (design gate passed 2026-08-31) — Announcement, preload seeding, and the pending tier
 
 **Why this is a phase.** With a lifecycle class (Phase 5) and a trust anchor (Phase 7) in place, a
 service can be allowed to say "I exist, here is my manifest, here is my signature" without that
@@ -873,23 +901,43 @@ by `curl` or by the seeder, and the seeder is a manual `go run` that is not revi
 
 **Scope.** The announce subject and its handler; the `announced` pending state and the Admin tier that
 shows it; operator enablement of an announced entry; server-side preload seeding; the changed-remote
-rule.
+rule; the demo catalog's move from a bundled built-in to a preloaded federated plugin.
 
 **Explicitly out of scope.** Anything that lets an announcement activate itself. A client-side static
-plugin set — settled against on 2026-08-30; preload is a server-side tier only.
+plugin set — settled against on 2026-08-30 and restated as decision 78; preload is a server-side tier
+only.
 
-#### Design decisions — 72–77, PROPOSED
+#### Design decisions — 72–86, APPROVED 2026-08-31 (84 RETIRED at the architecture review)
 
 | # | Decision | Rationale |
 | --- | --- | --- |
 | 72 | **Announce is not activate.** | A service may announce; only an operator may enable. If any service could insert a remote URL, compromising *any* backend service would mean injecting JavaScript into every operator's browser, in the shell's own realm, alongside their NATS credentials. The origin allowlist blunts that and does not close it. An announced entry is stored, visible in Admin, and served to no shell. |
 | 73 | **BR-AS21 is relaxed, not deleted.** | "No self-registration by any transport" becomes "self-registration permitted with a verified publisher key, and never self-activation." The rule that mattered was never "services may not speak" — it was "a service may not decide what runs in a browser", and that half is preserved exactly. |
-| 74 | **An already-enabled id re-announcing is applied without review, within the same origin.** | A restart or redeploy of an enabled plugin must not need a human, or operators will click approve without reading — which is worse than not asking. A remote that moves to a *different* origin re-queues as announced, because a substitution attack has to cross an origin boundary to matter and that is the boundary the allowlist already defends. |
+| 74 | **A `lifecycle: dynamic` entry that is already enabled and re-announces is applied without review, within the same origin.** | A restart or redeploy of an enabled plugin must not need a human, or operators will click approve without reading — which is worse than not asking. A remote that moves to a *different* origin re-queues as `announced`, because a substitution attack has to cross an origin boundary to matter and that is the boundary the allowlist already defends. **Scoped to `dynamic` at the 2026-08-31 review**, which resolved a direct contradiction with decision 77: a preloaded entry is both `enabled` (gate answer 3) and `static` (decision 86), so an announcement for its id satisfied this rule and decision 77 at once, with opposite outcomes. Decision 77 wins; this rule therefore only ever helps entries that announce created in the first place. |
 | 75 | **A preloaded entry is inserted only for an id the store has never seen.** | This is NATS's own `resolver_preload` shape: a fallback tier, not a competing source of truth. It answers decision 24's objection — "a boot-time file read alongside a database would let a restart silently revert curation" — because an entry the operator has since edited or disabled is never touched. The write goes through the normal `Apply` path so it carries a revision and an audit row like any other. |
 | 76 | **Preload's audit actor is `preload`, and an announcement's is the publisher key.** | "Where did this entry come from" must stay answerable from the audit trail alone. Attributing either to the shared admin identity (BR-AS23) would make the one artifact whose honesty decision 31 sells as the feature quietly untrue. |
-| 77 | **A static entry outranks an announcement for the same id.** | The operator's act outranks the service's. The announcement is recorded and shown in Admin as ignored rather than dropped, so a publisher who believes they are registering can see why nothing happened. |
+| 77 | **A `static` entry outranks an announcement for the same id — always.** | The operator's act outranks the service's. The announcement is recorded and shown in Admin as ignored rather than dropped, so a publisher who believes they are registering can see why nothing happened. **Confirmed at full force on 2026-08-31** against the narrower reading that would have let an enabled preloaded entry follow its service (decision 74): a preloaded plugin never updates itself, and **decision 85's drift display is what it gets instead** — which is the case decision 85 was written for. The consequence is deliberate: redeploying a preloaded plugin with changed contributions needs an operator to edit `registry.json`, or to migrate that plugin onto announce. |
+| 78 | **The preload file is mounted into `mfe-registry-service`. There is no preload list in the shell.** | Restates decision 21's ruling against static JSON in the shell's bundle, now against a preload section specifically. A shell carrying plugin ids and remote URLs must be rebuilt to add a plugin, which is BR-AS03 exactly. `hostBundleFingerprint.mjs` would refuse such a bundle by construction — it already refuses a *documentation table* naming a plugin origin. Both registration tiers are server-side; "static" and "dynamic" distinguish **who asserts the entry**, never where the file sits. |
+| 79 | **`manifest.json` is one plugin's self-description; `registry.json` is the operator's curated set.** | The two differ by exactly `enabled` and `revision` — the two fields a plugin must never set about itself, and therefore the whole of decision 72 expressed as a file boundary. The names do not divide by mode: **every plugin has a manifest in both modes**, and `registry.json` exists only for preload because announce has no operator file. A plugin serves `manifest.json` from its own origin beside `remoteEntry.js`; preload wraps that same manifest in `registry.json` entries, and announce carries it as the subject's payload. One shape, two carriers — so a plugin can be preloaded today and announce later without changing any artifact, and while it is preloaded the served manifest is checkable against the operator's copy rather than assumed to match. |
+| 80 | **Provenance is observed, not declared — and it is a different axis from Phase 5's lifecycle class.** | A `loadMode` or `source` field on a manifest is a plugin asserting its own trust tier: the self-nomination shape BR-AS01 and decision 72 refuse, and a compromised remote's first move. Decision 76 already makes provenance derivable from the audit actor, so Admin renders `source: curated | preload | announced` as a derived badge with no stored copy to disagree with the audit. **It is named `source`, not load mode, because Phase 5 decision 59 has the prior claim on `static` / `dynamic`** — that field answers "may a removal be applied to a running shell", this one answers "which path put this entry here", and one Admin row carrying both words for two meanings is how a reviewer misreads the pending tier. Three values rather than two is also the point: `announced` and `preload` are different stories, and an operator reviewing the pending tier needs the difference. A `com.nats-tech-lab.mfe.source` compose label on a frontend service is permitted as operator-authored documentation, read by no code on the trust path. **Which audit row, settled 2026-08-31: the *first* one for that id — the creating actor, not the latest.** Decision 74 lets a service's announcement write an audit row against an entry an operator created, so a latest-actor reading would silently flip a `curated` badge to `announced` and mislabel exactly the entry an operator most needs to recognise. A separate *last touched by* column may show the latest actor; the `source` badge answers only "which path put this entry here". |
+| 81 | **A preload entry the allowlist refuses is refused per entry, not fatally.** | Preload runs through `Apply`, so an off-allowlist origin already returns `ErrOriginNotAllowed` per entry with no new code path. Failing the process instead would let one line of operator convenience take down the tier every shell reads — a blast radius the input does not earn. The refusal is logged by id and cause and surfaced in Admin with the `withheld` vocabulary BR-AS20 already established, so a skipped entry is visible rather than silent. |
+| 82 | **The preload file carries no revision.** | Revision is the store's monotonic count of accepted writes (BR-AS17/AS18); a file cannot hold one without claiming to be the source of truth that decision 75 says it is not. `registry.dev.json`'s `"revision": "dev-1b"` is a string nothing reads and is dropped. |
+| 83 | **The demo catalog becomes a federated plugin with its own manifest, preloaded like any other.** | It is already a plugin in every respect but its bundling (`remote.kind: 'builtin'`), so the move is a deployment change, and it retires the last first-party shortcut. It also resolves a live BR-AS03 tension: `demos.js` imports the demo README `?raw`, which is why that README is compiled into the *host* bundle and why its port table cannot name a plugin origin. Moving the catalog moves that import into the catalog's own bundle, where naming plugin origins is unremarkable. |
+| 84 | **RETIRED 2026-08-31 — the `builtin` kind goes with the demo catalog.** | *Originally: "the shell keeps at least one built-in, and the `builtin` adapter stays."* Reversed at the architecture review on two findings. First, the harm it named was overstated: `HomeView.vue` and `PluginsView.vue` are shell-*native* views, not plugins, so the shell renders a usable frame with zero plugins loaded — the sidebar loses its FEATURES group, not its chrome. Second, `main.js` passes exactly one built-in (`builtins: [demoCatalogManifest]`), so decision 83 empties the array, and this decision's own argument — *a kind with no users is a kind that has quietly become dead code* — cuts against keeping it. `builtin` was scaffolding for a shell that had to run before federation existed; federation exists. `createBuiltinAdapter`, `bootShell.js`'s `builtins` option, the `builtin-must-be-bundled` path and their specs are removed in 8d. BR-AS44 is reworded to match. |
+| 85 | **Manifest drift is surfaced, never resolved.** | A preloaded plugin serves its own `manifest.json` (decision 79), so it can disagree with the operator's copy in `registry.json` — a plugin redeployed with a new contribution is the ordinary way this happens, not an attack. The file keeps winning, because decision 77 says the operator's act outranks the service's and a served file is the service speaking. But the disagreement is shown in Admin against the entry, naming the fields that differ, rather than silently discarded: an entry whose real manifest has moved on from what was curated is exactly the case announce mode exists to handle, and seeing it is how an operator learns to migrate that plugin off preload. Withholding the entry instead was rejected — it would let a plugin take itself out of service by editing a file the platform does not trust, which is decision 72 inverted. **Who fetches, settled 2026-08-31: the registry service does**, not the Admin browser — no CORS header is then required on a plugin's static server and drift is known with no screen open, at the price of the service's first outbound HTTP. That price is bounded by **BR-AS45**, which is the rule this decision was missing. |
+| 86 | **The registration path supplies `lifecycle`'s default; the operator may override it.** | Phase 5 decision 59 requires `lifecycle` to be stored rather than inferred, so the shell never guesses at the moment it must not — and that is satisfied by the registry writing the field at write time, not by an operator typing it. Preload writes `static`, announce writes `dynamic`, and Admin can change either afterwards. The defaults are the causal case: an entry a service announced is one that can legitimately leave, and an entry an operator mounted is one that should not vanish from under a user. BR-AS43 is untouched, because the *manifest* still cannot carry the field — the registry sets it from the path, which is the platform speaking about the plugin rather than the plugin speaking about itself. This is the seam Phase 5's out-of-scope note reserves for Phase 8. |
+| 87 | **One image, one origin, one `manifest.json` per plugin — the shared example image is split.** | Today five registry entries point at one origin (`http://localhost:7111`) and differ only by federated `module` name, so they exercise one service pretending to be five. That proves the *loader* but not the *platform*: nothing about five modules in one bundle tests independent deployment, five allowlist origins, or five services each answering for itself — which is the whole claim of BR-AS03 and the thing Phase 8 exists to make real. Each becomes its own package, Dockerfile, nginx, port and `manifest.json`. `example-plugin` keeps **7111** (already allowlisted and documented, so the churn is avoided), the demo catalog takes **7112** (decision 83), and the variants take **7113–7115**. |
+| 88 | **`example-plugin-unreachable` gets no service of its own, and keeps pointing at an allowlisted origin.** | Its whole job is a curated remote whose chunk 404s (task 1b-4 b). Giving it an unused port would put an origin in `REGISTRY_ALLOWED_ORIGINS` that nothing serves — and *omitting* that origin is worse: BR-AS20 would refuse the entry on write and it would render as `withheld`, silently converting a `failed`-status fixture into a different fixture entirely. It therefore keeps `http://localhost:7111/no-such-remoteEntry.js`: a real, allowlisted origin and a missing path. Unchanged from today, and now deliberate rather than incidental. |
+| 89 | **All six entries ship in the mounted `registry.json` — revising the "healthy entries only" ruling of earlier the same day.** | That ruling assumed the four broken entries were only a manual demo, loaded on purpose through `cmd/seed-registry`. Decision 87 changes what they are: with one service each they become the **multi-service fixture** — the thing that shows several independently deployed plugins registering and appearing together, which is the scenario preload exists to make available on a bare `docker compose up`. Two of the six render `failed` and one `incompatible` on a fresh stack; that is the point, not a defect, and the Plugins screen already states the cause for each. `lab-shell/plugins/example-plugin/registry.dev.json` is still left untouched. **Amended at the 8a/8b review, 2026-08-31: five entries, not six.** `demo-catalog` is still a shell **built-in** until 8d gives it its own origin, so curating it now made the shell admit the built-in first and then refuse the curated copy as `duplicate-plugin-id` — a red row on the Plugins screen for a plugin that works. The catalog entry and `http://localhost:7112` join `registry.json` and `REGISTRY_ALLOWED_ORIGINS` together, in 8d. |
+| 90 | **`activate(shellApi)` — a narrow, versioned runtime contract, in place of the shell becoming a federated remote.** | Settled 2026-08-31 with the user; Codex's proposal, preferred over both options put to the gate. 8d federates the demo catalog, which owns `demo-catalog/details-sidebar/v1` and today renders it by importing `../shell/ui/ExtensionRegion.vue` — shell internals a remote cannot reach. Three ways out were weighed. Exposing `./shell-api` from `lab-shell`'s own federation config makes the host a remote of its own plugins: workable, but it adds container init-order coupling in both directions for one component. Threading the component through the frozen `context` prop needs no federation change but reaches only the top component of a contribution, never a nested one — and the catalog needs it inside `DemoIntroView`'s own subtree. The contract chosen instead hands the plugin a shell-built object at `activate()` time: it crosses no new boundary, it reaches descendants through a plugin-local wrapper, and it gives `SHELL_API_VERSION` — which already exists, already describes "the runtime surface a plugin's code calls", and is already enforced by `manifestSchema.js` and BR-AS13 — its first actual content. **No version bump**: a plugin that ignores the argument behaves exactly as before, so v1 gains the surface additively. |
+| 91 | **The v1 `shellApi` is `{ version, ui: { ExtensionRegion } }` and nothing else.** | Settled 2026-08-31 with the user. Only what the catalog needs, plus a number a plugin can assert on. A narrow surface can be widened when a real plugin needs more; a wide one can never be narrowed once plugins depend on it. The shell's authenticated NATS connection was considered and **excluded**: it is the largest object in the shell and it carries the user's credential, so admitting it to v1 would be irreversible. Plugins that need NATS dial their own until a decision says otherwise. |
+| 92 | **`activate()` stops "getting nothing on purpose"; the reason is re-argued, not edited around.** | `pluginLoader.js`'s comment states that activate() is handed nothing so "a plugin cannot reach the shell's internals just by being loaded". Decision 90 hands over a **shell-authored, shell-sized** object, which is not the shell's internals — but the claim as written stops being true, so the comment and its spec are rewritten rather than silently amended. What survives intact: a plugin still cannot reach anything the shell did not choose to put in the object. |
+| 93 | **The four plugin packages are standalone; the three variants are minimal.** | Settled 2026-08-31 with the user. `example-plugin` keeps all six views. `example-plugin-slow`, `-activate-throws` and `-incompatible` each get their own small `OverviewView.vue` — the only component their registry entries ever render. No shared source folder (it would weaken the independent-build claim 8f exists to demonstrate) and no four-way copy of six files (four of which nothing renders). Each package keeps **its own Dockerfile**, matching the existing one rather than a shared parameterised build: the near-identical files are accepted so that each package is buildable and readable on its own. |
+| 94 | **`example-plugin-incompatible` gets a real service on 7115, though nothing ever fetches it.** | Settled 2026-08-31 with the user, closing a gap decision 87 left. BR-AS13 rejects it on metadata alone, so the shell never requests its remote — a server there proves nothing *today*. It is built anyway for two reasons: every allowlisted origin then has something behind it, and Phase 7's announcement comes from a **running process**, which this entry will need before it can announce. Contrast decision 88: `example-plugin-unreachable` stays service-less because its whole fixture is a 404, and a served origin would destroy it. |
+| 95 | **`lab-shell/plugins/example-plugin/registry.dev.json` is deleted at 8f, revising decision 89's "left untouched".** | Settled 2026-08-31 with the user. That protection assumed 7111 kept serving all three variant modules; 8f moves them to their own origins, which makes the dev file point at modules that no longer exist. Two files holding the same five entries drift the first time only one is edited, so the dev workflow moves onto the one file compose already reads: `go run ./cmd/seed-registry -file demos/01-dictionary/registry.json`. The plugin README's dev instructions change with it. |
+| 96 | **The shell itself becomes a compose service on 7110 — recorded after the fact at the 8f/8d/8e review, 2026-08-31.** | Not in the 8f→8d→8e handoff; Codex added it and the user kept it. Until now `lab-shell/` ran only under `npm run dev`, which was tenable while its only plugin was bundled into it. 8d ends that: the demo catalog is fetched from another origin, so the arrangement the phase exists to demonstrate cannot be seen on a bare `docker compose up` unless the host is served too — and a plugin's CORS header names the *shell's* origin, which a developer-chosen dev-server port cannot pin down. `lab-shell/Dockerfile` and `nginx.conf` are added with it; the nginx conf proxies only the `/api/auth/shellConnectInfo` mint route and the `/nats` WebSocket, with no general `/api/` rule, because Phase 4 moved the registry read onto NATS and left no HTTP boot fallback. **7110, not the next free 7107/7108**: those are claimed by the dev-docker launch configs, and unlike theirs this port is load-bearing — it is curated data in every plugin's CORS header. The dev server stays exactly as it was; this adds a second way to run the shell, it does not replace the first. |
 
-#### Business rules — BR-AS39 to BR-AS42 (draft, to be confirmed at the gate)
+#### Business rules — BR-AS39 to BR-AS45 (confirmed at the gate 2026-08-31)
 
 - **BR-AS39 — An announcement never activates.** A verified announcement for an unknown id is stored
   as `announced` and served to no shell until an operator enables it. No transport, payload or
@@ -903,41 +951,238 @@ plugin set — settled against on 2026-08-30; preload is a server-side tier only
 - **BR-AS42 — Every write names its true actor.** `admin` for a curation, `preload` for a seeded
   insert, the publisher key for an announcement. The audit trail answers "who put this here" without
   reference to any other source.
+- **BR-AS43 — A manifest never carries its own trust tier.** A plugin's manifest states what the
+  plugin is, never how far it is trusted or by which path it arrived. A `source`, `lifecycle`,
+  `enabled` or `revision` field in an announced or preloaded manifest is refused, not ignored: a
+  silently dropped claim is one a publisher believes was honoured.
+- **BR-AS44 — The shell renders without a registry.** An unreachable, malformed or degraded registry
+  read leaves the shell running its **native frame** — `HomeView` and `PluginsView`, which are shell
+  views rather than plugins — with the reason visible on the Plugins screen. Reworded 2026-08-31: the
+  original said "its built-ins", which decision 84's retirement leaves empty. No registration tier
+  may reduce the native frame or prevent the Plugins screen stating why the plugin list is empty.
+- **BR-AS45 — The drift check is the service's only outbound HTTP, and it is bounded.** The registry
+  service may fetch a served `manifest.json` only for an entry whose remote origin is already on the
+  BR-AS20 allowlist. The fetch is read-only, time-bounded, and never on a request path the shell or an
+  operator waits on. Drift is displayed only: the curated copy still wins (decision 77) and a drifting
+  entry is never withheld. This is the one outbound HTTP capability the service holds; anything wider
+  is a new gate. (It already egresses to Postgres and NATS — the claim is about HTTP, corrected
+  2026-08-31.)
+  **The allowlist is not the fetch address.** `REGISTRY_ALLOWED_ORIGINS` holds *browser* origins
+  (`http://localhost:7111`); `mfe-registry-service` is a container, for which `localhost:7111` is
+  itself. A second start-time config maps each allowlisted origin to the URL the *service* reaches it
+  on (`http://example-plugin-frontend:80` — the service is already on the `frontend` network). An
+  origin with no mapping is simply not checked. The map may never introduce an origin the allowlist
+  does not already carry: it translates addresses, it never widens the envelope.
+  **The check has three outcomes, not two:** `checked` (agrees), `drift` (differs, fields named), and
+  `not checked` (unmapped, timed out, non-200, or unparsable). A failed fetch must never render as
+  "no drift".
 
-#### Gate questions
+#### Gate questions — answered and accepted at the gate, 2026-08-31
 
-1. **Announce subject family** — `notify.*` (a service reporting its own state, fire-and-forget) or
-   `rpc.*` (a request the registry answers, so the service learns it was refused)? The second gives a
-   publisher feedback on an invalid signature, which is the difference between a debuggable
-   integration and a silent one.
-2. **Does an announcement expire?** A service that announces and never returns leaves a pending row
-   forever. A TTL keeps the review queue honest; no TTL keeps the record.
-3. **Does preload seed announced entries too**, or only enabled ones? Seeding straight to enabled is
-   what makes a fresh dev environment usable; seeding to announced is what makes preload safe to point
-   at an unfamiliar file.
+1. **Announce subject family — `rpc.`, as `rpc._platform.registry.entries.announce.v1`.** Two reasons,
+   the second decisive. It is genuinely service-to-service, which is what `rpc.*` means in the
+   taxonomy; and **a browser credential is never granted `rpc.>`**, so "no shell can announce" is
+   enforced by the account grant rather than by a check someone can forget. It therefore does *not*
+   join `mferegistry.Subjects()`, which stays the exhaustive *browser-facing* surface whose grant test
+   asserts every member is either the shell's one read or an operator-only write — an announce subject
+   inside that list would be neither and would break a claim worth keeping. It lives beside `Changed`
+   as a named non-`api.*` subject. Request/reply also gives the publisher its refusal, which is the
+   difference between a debuggable integration and a silent one.
+2. **No TTL. An announcement is a record, not a queue item.** It carries `announcedAt` and
+   `lastAnnouncedAt`; Admin shows the age and can sort by it. A timer that deletes pending rows means
+   a publisher who announced while an operator was away disappears with no trace of having tried,
+   which is the one outcome the pending tier exists to prevent. Staleness is a thing to display, not
+   a thing to collect.
+3. **Preload seeds `enabled`; announce lands `announced`.** Trust follows authorship, not transport.
+   Decision 78 makes the preload file operator-authored and operator-mounted, so the file *is* the
+   act of curation — asking the operator to then approve their own file in Admin is theatre, and
+   theatre is what teaches people to click approve without reading (decision 74's concern). The
+   untrusted path is the one where a *service* asserts itself, and that one lands pending. This also
+   keeps a fresh `docker compose up` usable, which was the practical half of the question.
 
-#### Tasks — not started; this phase is PROPOSED
+#### Tasks — APPROVED; 8a, fail-closed 8b, 8d, 8e and 8f implemented; 8c deferred
 
-> No code, specs or business-rule edits until the gate passes (AI Agent Workflow step 2).
+> Follow-up task authorizes the 8b adapter with `NoVerifier` before Phase 7; it
+> must fail closed. This does not open the publisher trust-anchor design gate.
 
 ##### 8a — preload
-- [ ] Seed-on-start in the service, inserting only unseen ids through `Apply`, actor `preload`.
-- [ ] `registry.dev.json` becomes compose configuration rather than a manual `go run`.
-- [ ] Specs: a restart does not revert an edited, disabled or removed entry; a fresh store is seeded once.
+- [x] Seed-on-start in the service, inserting only unseen ids through `Apply`, actor `preload`.
+      Follow-up task brings lifecycle persistence forward: a lifted column stores `static` for
+      preload; legacy rows retain empty/unclassified values. Withdrawal remains Phase 5 work.
+- [x] A **new `demos/01-dictionary/registry.json`** becomes the compose-mounted file read at start,
+      replacing the manual `go run`; `revision` dropped from its schema (decision 82). **It carries the
+      five example-plugin entries** — `example-plugin`, its three variants and
+      `example-plugin-unreachable` (decision 89, revising the earlier same-day "healthy entries only"
+      ruling once decision 87 gave each variant its own service). The demo catalog is **not** among them:
+      it is still a shell built-in, and curating it before 8d gives it an origin made the curated copy
+      refuse as `duplicate-plugin-id` (decision 89 as amended at the 8a/8b review). **`lab-shell/plugins/example-plugin/registry.dev.json`
+      is left exactly as it is**: its four deliberately-broken entries stay the live failure-mode
+      fixture for task 1b-4, loaded through `cmd/seed-registry`, which stays as the operator's ad-hoc
+      path against a running service. Two files, two jobs (settled 2026-08-31).
+- [x] Per-entry refusal on an off-allowlist origin: logged by id and cause, surfaced as `withheld`,
+      never fatal (decision 81). Admin display remains 8c; startup retains the result and logs each cause.
+- [x] Specs: a restart does not revert an edited, disabled or removed entry; a fresh store is seeded
+      once; one refused entry does not prevent the others being seeded or the service starting.
+
+> **Live publisher verification remains blocked on Phase 7 (PROPOSED, unbuilt).** The follow-up
+> task explicitly authorizes 8b's handler and tests with `NoVerifier`; production refuses every
+> announcement until the trust anchor exists. No signing scheme or bypass is introduced. 8c's
+> pending UI and drift checker remain separate work.
 
 ##### 8b — announcement
-- [ ] The announce subject and handler: verify signature, check origin, record as `announced`.
-- [ ] The changed-remote rule (decision 74) and the static-wins collision rule (decision 77).
-- [ ] Specs: unsigned refused; unknown id pending; enabled id re-announcing applied; cross-origin move re-queued.
+- [x] `rpc._platform.registry.entries.announce.v1` and its handler: verify signature, check origin,
+      record as `announced` with `announcedAt`. Not added to `mferegistry.Subjects()`.
+- [x] The changed-remote rule (decision 74, `lifecycle: dynamic` entries only) and the static-wins
+      rule (decision 77, which always beats 74 on a `static` entry).
+- [x] Manifest schema refuses `source`, `lifecycle`, `enabled` and `revision` on an announced or
+      preloaded manifest (BR-AS43).
+- [x] Specs: unsigned refused; unknown id pending; enabled id re-announcing applied; cross-origin move
+      re-queued; a shell credential cannot reach the subject (grant test).
+
+**8a/8b verification — 2026-08-31.** Baseline `go test ./registry/ -v`: 74/74,
+0 skipped. Final `go build ./...` and `go test ./... -v` passed; registry suite
+89/89, 0 skipped. `ginkgo ./...` passed for registry and accounts-service
+(accounts 160/160; auth 41/41, including the broker-enforced shell grant test).
+`docker compose up --build -d` succeeded. An isolated Compose copy of the production
+registry/NATS/Postgres services on fresh volumes logged `seeded=6 skipped=0 withheld=0`;
+restart logged `seeded=0 skipped=6 withheld=0`, with revision, entry count and audit
+count unchanged at six. Existing development volumes were retained: five existing
+entries were skipped and only the catalog was added. The catalog entry stages port
+7112; deployment of that frontend remains 8d. Production announcements are still
+refused by `NoVerifier` until Phase 7. No `lab-shell/` files were changed by this task.
+
+**Existing domain edge retained per the task's no-refactor constraint:**
+`DecideAnnounce` lets an enabled entry with empty/unclassified lifecycle take its
+same-origin update branch. Decision 74 grants that behavior only to `dynamic`.
+The completed domain function was left unchanged; resolve this edge before Phase 7
+replaces `NoVerifier`. The new storage migration preserves empty lifecycle rather
+than silently classifying legacy rows as dynamic.
 
 ##### 8c — the pending tier
-- [ ] Admin surface for announced entries: what announced, its remote, its contributions, its publisher.
+- [ ] Admin surface for announced entries: what announced, its remote, its contributions, its
+      publisher, and its age.
 - [ ] Enable/disable from that surface; the missing Add affordance for a manual entry.
+- [ ] `source` badge (`curated`/`preload`/`announced`) derived from the **first** audit row's actor —
+      the creating actor, never the latest — not from a stored field, and visually distinct from
+      Phase 5's `lifecycle` column (decision 80).
+- [ ] Manifest-drift indicator on a preloaded entry: the served `manifest.json` compared against the
+      curated copy, differing fields named, the curated copy still served (decision 85). **The
+      registry service performs the fetch** (settled 2026-08-31), not the Admin browser — bounded by
+      BR-AS45: allowlisted origins only, read-only, time-bounded, off any path the shell waits on.
+      Needs a timeout, a bounded retry and a poll schedule; a slow origin must not block a handler.
+- [ ] The origin-to-fetch-URL map (BR-AS45): a start-time config beside `REGISTRY_ALLOWED_ORIGINS`
+      translating a browser origin to the address the service reaches it on. Specs: an unmapped origin
+      is `not checked`, never `checked`; the map cannot introduce an origin the allowlist lacks.
+- [ ] Three drift states in Admin — `checked`, `drift`, `not checked` — with a failed or unparsable
+      fetch rendering as `not checked` and never as agreement.
 - [ ] Specs: an announced entry is absent from the shell's document until enabled.
 
-##### 8d — rules and docs
-- [ ] `BUSINESS_RULES-APP-SHELL.md` — BR-AS39 to BR-AS42; BR-AS21 relaxed per decision 73.
-- [ ] `ARCHITECTURE-APP-SHELL.md` — the three registration paths and the gate between announce and activate.
+##### 8d — the demo catalog as a federated plugin
+- [x] `lab-shell/src/plugins/demo-catalog/` becomes its own package, image and origin (**7112**),
+      serving `remoteEntry.js` and `manifest.json`, with `demos.js` and the `?raw` README import
+      moving with it.
+- [x] Its `registry.json` for preload; `REGISTRY_ALLOWED_ORIGINS` extended; compose service tagged
+      with the `com.nats-tech-lab.mfe.source` label.
+- [x] The `builtin` kind retired with the catalog (decision 84, RETIRED): remove
+      `createBuiltinAdapter`, `bootShell.js`'s `builtins` option and its `builtin-must-be-bundled`
+      path, `main.js`'s `builtins: [demoCatalogManifest]`, and the specs that cover them. The shell's
+      fallback is its native frame (`HomeView`, `PluginsView`), not a bundled plugin — BR-AS44 as
+      reworded.
+- [x] **The `activate(shellApi)` contract (decisions 90–92).** `pluginLoader.js` builds
+      `{ version: SHELL_API_VERSION, ui: { ExtensionRegion } }` and passes it to `activate()`.
+      The catalog stores it in module scope and re-exports a plugin-local `ExtensionRegion` wrapper
+      so its own nested components reach it; `DemoIntroView.vue`'s
+      `import ExtensionRegion from '../shell/ui/ExtensionRegion.vue'` goes away. `SHELL_API_VERSION`
+      stays **1** — the argument is additive. The loader's "activate() gets nothing on purpose"
+      comment and its spec are rewritten, not edited around (decision 92).
+- [x] `demos.js`, `MenuView.vue` and `DemoIntroView.vue` move into the catalog package; the
+      `?raw` README import is kept, with the image's build context at the repo root
+      (as `example-plugin`'s Dockerfile already does).
+- [x] **The shell gains its own compose service on 7110** (`lab-shell/Dockerfile`, `nginx.conf`) —
+      unplanned, kept and recorded as decision 96. A federated catalog cannot be demonstrated on a
+      bare `docker compose up` with the host running only under `npm run dev`.
+- [x] Specs: the catalog's routes and its `demo-catalog/details-sidebar/v1` extension point behave
+      identically when federated; a plugin that ignores `shellApi` still activates; a plugin's
+      nested component reaches `ui.ExtensionRegion`; the object holds nothing beyond
+      `version` and `ui` (decision 91); the shell with an unreachable registry still renders its native
+      frame with the reason on the Plugins screen (BR-AS44), with zero plugins loaded;
+      `hostBundleFingerprint.mjs` passes with the demo README no longer in the host bundle.
+
+##### 8f — one service per plugin (added 2026-08-31 at the user's request; decisions 87–89)
+> Implemented before 8d, after 8a, as requested in the handoff. The services
+> remain preloaded; 8b is wired fail-closed and Phase 7 must provide verification
+> before a service can switch to announcement without rebuilding (decision 79).
+
+- [x] Split `lab-shell/plugins/example-plugin/` into four packages, each with its own Dockerfile,
+      nginx conf, Vite/Module Federation build and served `manifest.json`:
+      `example-plugin` (**7111**, unchanged), `example-plugin-slow` (**7113**),
+      `example-plugin-activate-throws` (**7114**), `example-plugin-incompatible` (**7115**).
+      Each exposes a single `plugin` module; the `module` field stops carrying the variant.
+- [x] `example-plugin-unreachable` stays service-less, pointing at `http://localhost:7111/no-such-remoteEntry.js`
+      (decision 88). Its entry must render `failed`, never `withheld`.
+- [x] Four compose services on the `frontend` network, each tagged
+      `com.nats-tech-lab.mfe.source=preload`; `REGISTRY_ALLOWED_ORIGINS` extended to
+      `http://localhost:7111,7112,7113,7114,7115`.
+- ~~The BR-AS45 origin-to-fetch-URL map gains an entry per service.~~ **Moved to 8c at the
+      8f review, 2026-08-31**: that map does not exist yet — it is built with the drift checker,
+      which is blocked on Phase 7. 8f cannot add entries to a thing with no reader. When 8c builds
+      it, it maps 7111 and 7113–7115 onto their container addresses in one change.
+- [x] Each package is standalone with **its own Dockerfile**, and the three variants ship one
+      minimal `OverviewView.vue` each rather than sharing or copying the full six views
+      (decision 93). `example-plugin-incompatible` gets a real service despite never being
+      fetched (decision 94).
+- [x] `lab-shell/plugins/example-plugin/registry.dev.json` is **deleted** (decision 95, revising
+      decision 89): `demos/01-dictionary/registry.json` becomes the single seed file for both
+      compose and the dev-server workflow, and the plugin README's instructions change to name it.
+- [x] `demos/01-dictionary/README.md` port table — 7112 through 7115.
+- [x] Specs: each plugin's status is unchanged from the single-image arrangement
+      (`active`/`active`/`failed`/`incompatible`/`failed`); a shell boot with one service stopped
+      fails only that plugin; `hostBundleFingerprint.mjs` still passes.
+
+##### 8e — rules and docs
+- [x] `BUSINESS_RULES-APP-SHELL.md` — BR-AS39 to BR-AS45; **BR-AS21 renamed and rewritten** per
+      decision 73 (settled 2026-08-31). New text: *"**BR-AS21 — No self-activation.** A service may
+      announce its own entry over `rpc._platform.registry.entries.announce.v1` when it presents a
+      verified publisher key. It may never enable an entry, nor alter `enabled`, `lifecycle` or
+      `revision` on any entry, including its own. An announced entry that is not already enabled lands
+      `announced` and is inert until an operator enables it. No browser transport permits announcement
+      at all."* The title now states the half decision 73 says survived. Every cross-reference to
+      "no self-registration" moves with it — including the traceability table row.
+- [x] `ARCHITECTURE-APP-SHELL.md` — the three registration paths, the gate between announce and
+      activate, and the `manifest.json` / `registry.json` split (decision 79).
+- [x] `demos/01-dictionary/README.md` port table — 7112; the BR-AS03 note removed once the demo README
+      is no longer compiled into the host bundle.
+
+
+**8f → 8d → 8e verification — 2026-08-31.** Implemented in that order. The
+starting frontend suite reproduced the expected 7 failures / 350 passes; final
+`npm test` is **366/366 across 39 files**. Retired builtin-only cases were removed;
+the prewritten activation and preload contracts were preserved, with the catalog
+presence assertion updated at 8d. `npm run lint` passes with 0 errors (20 warnings,
+including generated assets and test-component style warnings); frame ownership
+and `git diff --check` pass. No Go source or Go module was changed in this task.
+
+All five plugin images and the shell build independently. HTTP checks confirm
+five served manifests, five remote entries and shell-origin CORS; the unreachable
+fixture is a real HTTP 404. The live browser at 1920×1080 verified the catalog's
+routes and nested sidebar, loading then active for the six-second service, the
+expected six-entry inventory, a stopped slow service affecting only itself, and
+native Home/Plugins with zero entries and `registry-unreachable` when the registry
+was stopped. Both stopped services were restored. Existing fixture rows were
+updated deliberately through the operator seeder, not overwritten by preload.
+
+Visual verification caught missing remote CSS and isolated PrimeVue theme state:
+plugin exposes now include their CSS, and host/catalog share the theme engine
+singleton. No new palette or shell layout was introduced. The catalog retained
+its 320px sidebar and the README `?raw` import in its own build. Native error and
+not-found links now return Home without assuming that any catalog exists.
+
+The final host fingerprint is
+`8c55a929ce508c66e5495d4c78cfacd078b0a44ba7b7a192b78ce2dfb0eec620` (17 assets),
+unchanged after independently rebuilding/deploying the catalog and example. The
+checker excludes all five plugin origins, plugin identities and demo README
+content. Both version constants remain 1. Phase 7, `NoVerifier`, browser/operator
+announcement grants and the 8c fetch-URL map remain untouched.
 
 ---
 
@@ -991,7 +1236,7 @@ mockup, design gate, and derived tests.
 | 1 | BR-AS01–BR-AS14 as the initial rules | **Approved with amendments.** Restated testably and moved to `BUSINESS_RULES-APP-SHELL.md`; BR-AS15 added (see below). |
 | 2 | Metadata-first discovery over eager `activate()` | **Approved.** Eager discovery would collapse lazy loading, failure isolation and version rejection at once — a plugin throwing on activate would take the nav with it. |
 | 3 | Vue-only Module Federation for Phase 1 | **Approved.** Every existing frontend is Vue 3 + Vite + PrimeVue. Reversibility is preserved by Design decision 12's loader adapter: no plugin imports a federation type directly. |
-| 4 | Demo catalog stays as a built-in plugin at `/demos` | **Approved**, and promoted to Phase 1a's primary test fixture — it proves the contract before any remote exists. No privileged path: it uses the public contribution API. |
+| 4 | Demo catalog stays as a built-in plugin at `/demos` | **Approved**, and promoted to Phase 1a's primary test fixture — it proves the contract before any remote exists. No privileged path: it uses the public contribution API. **Revisited by Phase 8 decision 83:** having served as the fixture, it becomes a federated plugin preloaded like any other, and the `builtin` kind is retired with it (decision 84, RETIRED 2026-08-31) — the shell's fallback becomes its native frame, not a bundled plugin. |
 | 5 | One remote per current app for first migration | **Approved.** Per-service decomposition during migration would make every failure ambiguous between "the contract is wrong" and "we split this app badly". |
 | 6 | Migration order SeaFreight → Admin → Tech Lab Operator | **Approved.** Rationale recorded as *credential-profile complexity ascending*, not app size: SeaFreight is single-tenant-scoped, Admin holds PLATFORM, Tech Lab Operator is last because it is the only app holding **two** profiles at once (refdata-admin PLATFORM + tenant Organizations). |
 | 7 | Shell-global locale, credential-scoped refdata clients | **Approved.** Locale belongs to the person, refdata content to the credential. Prerequisite recorded in BR-AS11: `useRefdataLabels.js`'s module-global `transport` must be fixed before a second plugin exists — it is a cross-tenant leak shape, not a migration nicety. |

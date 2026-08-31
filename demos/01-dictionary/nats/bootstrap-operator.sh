@@ -459,6 +459,37 @@ nsc edit user --account PLATFORM --name observability \
   --allow-sub 'monitor.>,$SRV.>,_INBOX.>' >/dev/null
 nsc generate creds --account PLATFORM --name observability >"$NATS_DIR/creds/observability.creds"
 
+# mfe-registry-service — the curated micro-frontend registry, split out of
+# accounts-service into its own process. Its own credential rather than the
+# shared platform.creds: the grant is narrow enough to state, and a shared one
+# would say nothing about what this service may do.
+#
+# Publish covers four things and no more: the $SRV.> micro discovery replies
+# and _INBOX.> replies its api.* endpoints answer on; the JetStream calls that
+# provision and write the mfe-registry KV bucket (resource-scoped to that one
+# bucket, the same shape observability's grants above use); the one notify
+# subject it announces a catalog change on; and its natstrace spans.
+#
+# The trace grant is scoped to obs.trace._platform.registry.> rather than
+# obs.trace.>, because natstrace builds the subject from the service's own
+# context and service tokens and this service only ever has one of each. It
+# was missed on the first pass and the stack said so immediately: every
+# registry call logged a permissions violation publishing its span, which is
+# how a service goes invisible in the Admin UI's trace waterfall while
+# answering every request correctly. Subscribe is exactly the five api.*
+# subjects it serves — as a prefix here, because unlike a browser credential
+# this IS the service that owns them, and the endpoint table in
+# internal/browserrpc is what decides which exist.
+#
+# Announcements add exactly rpc._platform.registry.entries.announce.v1.
+# What is deliberately absent: broad rpc.>, any evt.>, any other service's api.*,
+# and the whole $SYS axis. The registry reads and writes one catalog.
+nsc add user --account PLATFORM mfe-registry-service >/dev/null
+nsc edit user --account PLATFORM --name mfe-registry-service \
+  --allow-pub '$SRV.>,_INBOX.>,notify._platform.registry.frontend-plugins.changed,$JS.API.INFO,$JS.API.STREAM.CREATE.KV_mfe-registry,$JS.API.STREAM.UPDATE.KV_mfe-registry,$JS.API.STREAM.INFO.KV_mfe-registry,$JS.API.DIRECT.GET.KV_mfe-registry.>,$KV.mfe-registry.>,obs.trace._platform.registry.>' \
+  --allow-sub 'api._platform.registry.>,rpc._platform.registry.entries.announce.v1,$SRV.>,_INBOX.>' >/dev/null
+nsc generate creds --account PLATFORM --name mfe-registry-service >"$NATS_DIR/creds/mfe-registry-service.creds"
+
 echo "==> SYS account user creds (accounts-service, Phase 14b)"
 nsc generate creds --account SYS --name sys >"$NATS_DIR/creds/sys.creds"
 

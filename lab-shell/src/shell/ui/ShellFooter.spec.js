@@ -118,7 +118,7 @@ describe('BR-AS30 — the shell reports its connection without crying wolf', () 
   })
 
   /* Decision 54, said in the UI: a shell that never connected is a shell
-     running its built-ins, not a broken one. The notice is a notice — there
+     rendering its native frame, not a broken one. The notice is a notice — there
      is no verb here that unloads, retries destructively, or blocks the page. */
   it('offers no affordance that tears anything down', async () => {
     vi.useFakeTimers()

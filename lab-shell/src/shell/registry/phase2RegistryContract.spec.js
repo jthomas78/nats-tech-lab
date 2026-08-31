@@ -149,17 +149,16 @@ describe('Phase 2c — the shell notices a change', () => {
     expect(shell.registry.revision).toBe('2')
   })
 
-  it('BR-AS22 — a degraded:true document renders built-ins and is distinguishable from an empty registry', async () => {
+  it('BR-AS22 — a degraded:true document preserves running plugins and differs from an empty registry', async () => {
     const shell = await bootShell({
       registryClient: { fetchRegistry: vi.fn(async () => ({ ok: true, revision: '3', plugins: [manifest('fleet-ops')] })) },
-      builtins: [manifest('demo-catalog', { remote: { kind: 'builtin', module: 'demo-catalog' } })],
       permissions,
     })
 
     shell.applyRegistry({ ok: true, revision: '0', degraded: true, plugins: [] })
 
     expect(shell.registry.degraded).toBe(true)
-    expect(shell.contributions.routes.map((r) => r.path)).toContain('/demo-catalog')
+    expect(shell.contributions.routes.map((r) => r.path)).toContain('/fleet-ops')
     // Not read as "everything was withdrawn": the service already said it
     // could not vouch for this document, so it is no basis for an offer.
     expect(shell.pendingReload).toHaveLength(0)

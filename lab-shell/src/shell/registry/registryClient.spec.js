@@ -53,14 +53,6 @@ describe('BR-AS01 — curated discovery', () => {
     expect(allowlist.size).toBe(0)
   })
 
-  it('contributes no URL for a builtin plugin, which has none to fetch', () => {
-    const { plugin } = validateManifest(
-      manifest({ remote: { kind: 'builtin', module: 'demo-catalog' } }),
-    )
-    const allowlist = new RemoteAllowlist().add(plugin)
-
-    expect(allowlist.size).toBe(0)
-  })
 
   it('sends the viewer credentials and refuses a shared cache', async () => {
     // The document is per-viewer (BR-AS05), so a cached copy would leak one

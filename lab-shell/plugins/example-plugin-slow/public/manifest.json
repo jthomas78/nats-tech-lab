@@ -1,0 +1,32 @@
+{
+  "id": "example-plugin-slow",
+  "name": "Example Plugin (slow remote)",
+  "version": "0.1.1",
+  "description": "Task 1b-4 (a): the same code behind a six-second module-scope delay, so the pending-region animation can be watched.",
+  "schemaVersion": 1,
+  "shellApiVersion": 1,
+  "routePrefix": "example-slow",
+  "remote": {
+    "kind": "federated",
+    "url": "http://localhost:7113/remoteEntry.js",
+    "name": "example_plugin_slow",
+    "module": "plugin"
+  },
+  "contributions": [
+    {
+      "kind": "route",
+      "id": "overview",
+      "path": "/example-slow",
+      "title": "Slow remote",
+      "component": "overview"
+    },
+    {
+      "kind": "navigation",
+      "id": "overview-nav",
+      "label": "Slow remote",
+      "route": "overview",
+      "icon": "pi pi-hourglass",
+      "order": 20
+    }
+  ]
+}

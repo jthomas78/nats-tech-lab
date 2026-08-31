@@ -33,7 +33,7 @@ export const CONTRIBUTION_KINDS = Object.freeze([
 
 /* {owner}/{region}/v{major} — see shell/extensions/. Parsed here only far
    enough to reject something that is not an extension-point id at all; whether
-   the point *exists* is the extension registry's business, since built-in
+   the point *exists* is the extension registry's business, since plugin-owned
    features declare points too and the manifest validator has no view of them. */
 export const EXTENSION_POINT_PATTERN = /^([a-z0-9]+(?:-[a-z0-9]+)*)\/([a-z0-9]+(?:-[a-z0-9]+)*)\/v(\d+)$/
 
@@ -82,7 +82,7 @@ export function validateManifest(manifest) {
   if (!remote.ok) return remote
 
   /* A plugin's routes live under one path segment, but not necessarily its own
-     id: the built-in demo catalog is `demo-catalog` and serves `/demos`, and a
+     id: the federated demo catalog is `demo-catalog` and serves `/demos`, and a
      migrated SeaFreight plugin will want `/fleet` rather than
      `/seafreight-flow`. What BR-AS12 needs is that the segment is namespaced,
      unique, and knowable from the URL alone — not that it repeats the id.
@@ -189,18 +189,9 @@ function validateRemote(pluginId, remote) {
   if (!remote || typeof remote !== 'object') {
     return REJECT('malformed', `Plugin ${pluginId} has no remote`)
   }
-  /* `kind` is what lets Phase 1a ship with no Module Federation at all: a
-     built-in plugin names a module the shell already bundles, and the loader
-     resolves it synchronously. Phase 1b adds 'federated' beside it without
-     the manifest shape changing. */
-  if (remote.kind !== 'builtin' && remote.kind !== 'federated') {
+  // All plugin code is discovered and loaded from a curated federated remote.
+  if (remote.kind !== 'federated') {
     return REJECT('malformed', `Plugin ${pluginId} declares unknown remote kind ${JSON.stringify(remote.kind)}`)
-  }
-  if (remote.kind === 'builtin') {
-    if (typeof remote.module !== 'string' || remote.module === '') {
-      return REJECT('malformed', `Plugin ${pluginId} builtin remote has no module`)
-    }
-    return { ok: true, remote: Object.freeze({ kind: 'builtin', module: remote.module }) }
   }
   if (typeof remote.url !== 'string' || remote.url === '') {
     return REJECT('malformed', `Plugin ${pluginId} federated remote has no url`)

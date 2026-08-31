@@ -11,7 +11,7 @@ const clicks = ref(0)
   <section class="ex-panel">
     <h1>Example Plugin</h1>
     <p class="ex-muted">
-      Served from <code>http://localhost:7110</code> and built by its own Vite
+      Served from <code>http://localhost:7111</code> and built by its own Vite
       toolchain. The shell has never imported this file.
     </p>
 

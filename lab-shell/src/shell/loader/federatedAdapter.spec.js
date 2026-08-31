@@ -76,16 +76,16 @@ describe('BR-AS03 — the federated adapter registers containers at runtime', ()
   })
 
   it('loads two exposed modules of one container without re-registering it', async () => {
-    // How the failure switches work: `plugin` and `plugin-activate-throws` are
-    // two exposes of the same remote, curated as two registry entries.
+    // The adapter supports multiple exposes generically, even though every
+    // deployed fixture now has its own service and a single plugin expose.
     const runtime = fakeRuntime()
     const adapter = createFederatedAdapter({ runtime })
 
     await adapter.load(remote())
-    await adapter.load(remote({ module: 'plugin-activate-throws' }))
+    await adapter.load(remote({ module: 'secondary' }))
 
     expect(runtime.registerRemotes).toHaveBeenCalledTimes(1)
-    expect(runtime.loadRemote).toHaveBeenLastCalledWith('example_plugin/plugin-activate-throws')
+    expect(runtime.loadRemote).toHaveBeenLastCalledWith('example_plugin/secondary')
   })
 
   it("accepts an expose spelled with federation's own './' prefix", async () => {

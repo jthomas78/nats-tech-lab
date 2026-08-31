@@ -103,6 +103,30 @@ services:
       timeout: 2s
       retries: 15
 
+  # mfe-registry-service's own Postgres instance — same
+  # database-per-service isolation as accounts-postgres. The registry left
+  # accounts-service with its schema intact precisely because it shared no
+  # table and no foreign key with accounts (decision 39); giving it its own
+  # instance is what makes that true at the infrastructure layer too.
+  mfe-registry-postgres:
+    image: postgres:16-alpine
+    container_name: lb-mfe-registry-postgres
+    environment:
+      POSTGRES_USER: mfe_registry
+      POSTGRES_PASSWORD: mfe_registry
+      POSTGRES_DB: mfe_registry
+    ports:
+      - "5437:5432"
+    networks:
+      - backend
+    volumes:
+      - pg-mfe-registry-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mfe_registry -d mfe_registry"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
   # pricing-service's own Postgres instance (Phase 25) — same
   # database-per-service isolation as refdata-postgres/accounts-postgres.
   # This domain is write-adjacent in the source system it was ported from
@@ -356,12 +380,6 @@ services:
       # RETENTION to 0 DISABLES the reaper; it does not mean reap-on-expiry.
       ACCOUNTS_SESSION_RETENTION: 24h
       ACCOUNTS_REAPER_INTERVAL: 15m
-      # Phase 2a (application shell) — the origins this platform will let a
-      # shell fetch plugin code from (BR-AS20). Configuration, never a stored
-      # row: the allowlist is the envelope the registry itself sits inside, so
-      # a compromised write path must not be able to widen it. Empty permits
-      # nothing. 7110 is the example plugin's development remote.
-      REGISTRY_ALLOWED_ORIGINS: "http://localhost:7110"
     ports:
       - "7202:8080"
     volumes:
@@ -375,6 +393,55 @@ services:
         condition: service_healthy
       refdata-service:
         condition: service_started
+
+  # The curated micro-frontend registry: which micro-frontends the platform
+  # will let an application shell load, from which origins, at which revision.
+  # Was a bounded context inside accounts-service until the split.
+  #
+  # Note there is no port mapping for an API: browsers use api.*; publishers
+  # announce on a separate rpc.* subject. Both frontends use NATS, unchanged
+  # when it moved out. 7206 exposes /healthz and nothing else.
+  mfe-registry-service:
+    build:
+      # Context is the repo root so the build can copy the shared modules
+      # alongside the service source.
+      context: ../..
+      dockerfile: demos/01-dictionary/backend/mfe-registry-service/Dockerfile
+    container_name: lb-mfe-registry-service
+    networks:
+      - backend
+      - frontend
+    environment:
+      DATABASE_URL: postgres://mfe_registry:mfe_registry@mfe-registry-postgres:5432/mfe_registry?sslmode=disable
+      NATS_URL: nats://nats:4222
+      # PLATFORM: the registry's subjects are all _platform-context, and core
+      # NATS never crosses an account boundary — a connection on any other
+      # account would register endpoints no browser could reach. Its own
+      # credential, not platform.creds: the grant is narrow enough to state
+      # (see nats/bootstrap-operator.sh) and a shared one would say nothing.
+      NATS_CREDS_PATH: /etc/nats/creds/mfe-registry-service.creds
+      HTTP_ADDR: ":8080"
+      # Phase 2a (application shell) — the origins this platform will let a
+      # shell fetch plugin code from (BR-AS20). Configuration, never a stored
+      # row: the allowlist is the envelope the registry itself sits inside, so
+      # a compromised write path must not be able to widen it. Empty permits
+      # nothing. 7111 is the example plugin's remote — the same origin whether
+      # it is served by its container (example-plugin-frontend, below) or by
+      # its dev server, which is why one value covers both. The catalog owns
+      # 7112; the independent failure fixtures own 7113–7115. Each origin
+      # has a running service and a manifest in the mounted preload file.
+      REGISTRY_ALLOWED_ORIGINS: "http://localhost:7111,http://localhost:7112,http://localhost:7113,http://localhost:7114,http://localhost:7115"
+      REGISTRY_PRELOAD_FILE: /etc/registry/registry.json
+    ports:
+      - "7206:8080"
+    volumes:
+      - ./nats/creds:/etc/nats/creds
+      - ./registry.json:/etc/registry/registry.json:ro
+    depends_on:
+      nats:
+        condition: service_started
+      mfe-registry-postgres:
+        condition: service_healthy
 
   # Phase 25 — pricing/rate domain ported from Linebooker
   # (RateSheet/FeeScale/FixedRate). No NATS wiring yet: Postgres + REST
@@ -573,6 +640,108 @@ services:
     networks:
       - frontend
 
+  # The application shell (lab-shell/) — the micro-frontend host. Its two
+  # nginx routes are the whole of its backend surface: the single exact
+  # /api/auth/shellConnectInfo mint route and the /nats WebSocket. It has no
+  # general /api/ rule, because the shell's registry read moved onto NATS in
+  # Phase 4 and left no HTTP boot fallback behind (see lab-shell/nginx.conf).
+  #
+  # 7110 rather than the next free 7107/7108: those are claimed by the dev
+  # -docker launch configs, and the shell's port is load-bearing in a way
+  # theirs are not — the example plugin's remote URL is curated data, and it
+  # is the shell's origin the plugin's CORS header names.
+  app-shell-frontend:
+    build:
+      # Context is the repo root so the build can copy the shared UniFi
+      # theme, the shared AppShell and demo-01's shared NATS URL resolver.
+      context: ../..
+      dockerfile: lab-shell/Dockerfile
+    container_name: lb-app-shell
+    restart: on-failure # nginx resolves upstream hostnames at startup; retry if accounts-service DNS isn't ready yet
+    ports:
+      - "7110:80"
+    networks:
+      - frontend
+    depends_on:
+      - accounts-service
+      - mfe-registry-service
+
+  # The BR-AS15 proof plugin's remote, served from its own image on its own
+  # port. It is listed here so `docker compose up` brings up a complete,
+  # working stack — NOT because the shell needs it at build time. The shell
+  # image contains no reference to this service, the two builds share only
+  # the theme directory, and the shell still learns this URL at runtime from
+  # the curated registry (BR-AS03). Adding a second plugin means adding a
+  # service here and a registry row; it does not mean rebuilding the shell.
+  #
+  # Its origin must appear in mfe-registry-service's REGISTRY_ALLOWED_ORIGINS
+  # or every entry pointing at it is refused on write and filtered on read
+  # (BR-AS20).
+  example-plugin-frontend:
+    build:
+      # Context is the repo root for shared/unifi-theme; nothing else of the
+      # repo enters this build.
+      context: ../..
+      dockerfile: lab-shell/plugins/example-plugin/Dockerfile
+    container_name: lb-example-plugin
+    ports:
+      - "7111:80"
+    labels:
+      com.nats-tech-lab.mfe.source: preload
+    networks:
+      # `frontend` for uniformity only. This container has no proxy_pass rule
+      # of any kind, so joining the network gains it nothing it can use — the
+      # browser reaches it on the published port above.
+      - frontend
+
+  demo-catalog-frontend:
+    build:
+      context: ../..
+      dockerfile: lab-shell/plugins/demo-catalog/Dockerfile
+    container_name: lb-demo-catalog
+    ports:
+      - "7112:80"
+    networks:
+      - frontend
+    labels:
+      com.nats-tech-lab.mfe.source: preload
+
+  example-plugin-slow-frontend:
+    build:
+      context: ../..
+      dockerfile: lab-shell/plugins/example-plugin-slow/Dockerfile
+    container_name: lb-example-plugin-slow
+    ports:
+      - "7113:80"
+    networks:
+      - frontend
+    labels:
+      com.nats-tech-lab.mfe.source: preload
+
+  example-plugin-activate-throws-frontend:
+    build:
+      context: ../..
+      dockerfile: lab-shell/plugins/example-plugin-activate-throws/Dockerfile
+    container_name: lb-example-plugin-activate-throws
+    ports:
+      - "7114:80"
+    networks:
+      - frontend
+    labels:
+      com.nats-tech-lab.mfe.source: preload
+
+  example-plugin-incompatible-frontend:
+    build:
+      context: ../..
+      dockerfile: lab-shell/plugins/example-plugin-incompatible/Dockerfile
+    container_name: lb-example-plugin-incompatible
+    ports:
+      - "7115:80"
+    networks:
+      - frontend
+    labels:
+      com.nats-tech-lab.mfe.source: preload
+
   # Under review — third-party NATS monitoring UI, not part of the demo's
   # own frontend set. Uses the published image directly: the upstream
   # project's own compose file builds from local source (`context: ..`,
@@ -714,6 +883,7 @@ volumes:
   pg-data:
   pg-refdata-data:
   pg-accounts-data:
+  pg-mfe-registry-data:
   pg-pricing-data:
   pg-trading-partner-data:
   temporal-postgres-data:

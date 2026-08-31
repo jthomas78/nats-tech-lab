@@ -5,7 +5,7 @@
 </script>
 
 <template>
-  <span class="ex-foot"><span class="k">example-plugin</span> 0.1.1 · :7110</span>
+  <span class="ex-foot"><span class="k">example-plugin</span> 0.1.1 · :7111</span>
 </template>
 
 <style scoped>

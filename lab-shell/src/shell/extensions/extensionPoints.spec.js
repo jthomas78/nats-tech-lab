@@ -17,7 +17,7 @@ describe('BR-AS07 — the owner of a region declares and versions it', () => {
     ])
   })
 
-  it('lets a built-in feature own a point the shell does not', () => {
+  it('lets a federated feature own a point the shell does not', () => {
     const registry = declareShellExtensionPoints()
     registry.declare({ id: 'demo-catalog/details-sidebar/v1', capacity: 2 })
 

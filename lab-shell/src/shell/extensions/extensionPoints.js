@@ -3,7 +3,7 @@
 
   The owner of a screen declares where it will accept contributions, how many
   it will render, and what contextual data contributors get. "Owner" is not a
-  synonym for "shell": the demo catalog is a built-in feature that owns
+  synonym for "shell": the demo catalog is a federated feature that owns
   `demo-catalog/details-sidebar/v1`, and a remote plugin contributing into it
   is the cross-owner case Phase 1b has to demonstrate. That is why the id
   carries the owner rather than the registry inferring it.
@@ -113,7 +113,7 @@ export function readonlyContext(values) {
 }
 
 /* The three regions the shell itself owns (Design decision: the shell owns the
-   frame — BR-AS09). Everything else is owned by a feature, built-in or remote.
+   frame — BR-AS09). Everything else is owned by a federated plugin.
    Capacities come from the Phase 1 mockups, reviewed at 1920x1080. */
 export function declareShellExtensionPoints(registry = new ExtensionPointRegistry()) {
   registry.declare({

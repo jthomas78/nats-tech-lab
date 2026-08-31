@@ -33,7 +33,12 @@ const fingerprintFile = join(shellRoot, 'tools', '.host-bundle-fingerprint.json'
 /* Strings that must never appear in the host bundle. A plugin's identity is
    registry data at runtime; if the compiler saw it, the deployment story is
    already broken. */
-const FORBIDDEN = ['localhost:7110', 'example_plugin', 'remoteEntry.js" + ""']
+const FORBIDDEN = [
+  ...[7111, 7112, 7113, 7114, 7115].map((port) => `localhost:${port}`),
+  'example_plugin', 'example-plugin', 'demo_catalog', 'demo-catalog',
+  // The README belongs to the catalog build, never the host.
+  'Dictionary POC', 'Admin UI layout — data flow top to bottom',
+]
 
 function walk(dir) {
   const out = []

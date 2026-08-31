@@ -1,0 +1,24 @@
+{
+  "id": "example-plugin-incompatible",
+  "name": "Example Plugin (future shell API)",
+  "version": "0.1.1",
+  "description": "Task 1b-4 (d): built against shellApiVersion 2. Rejected on metadata alone \u2014 its remote is never fetched (BR-AS13).",
+  "schemaVersion": 1,
+  "shellApiVersion": 2,
+  "routePrefix": "example-next",
+  "remote": {
+    "kind": "federated",
+    "url": "http://localhost:7115/remoteEntry.js",
+    "name": "example_plugin_incompatible",
+    "module": "plugin"
+  },
+  "contributions": [
+    {
+      "kind": "route",
+      "id": "overview",
+      "path": "/example-next",
+      "title": "Future shell API",
+      "component": "overview"
+    }
+  ]
+}

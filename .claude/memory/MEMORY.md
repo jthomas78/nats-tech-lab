@@ -13,6 +13,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [swag_regen_diff_noise](swag_regen_diff_noise.md) — `swag init` rewrites all `$ref` repo-wide; hand-patch instead
 
 ## Frontend gotchas
+- [phase8_federated_catalog](phase8_federated_catalog.md) — 8f/d/e done; five plugin origins, frozen activation API, native fallback, remote CSS/theme singleton
 - [phase4_shell_nats_transport](phase4_shell_nats_transport.md) — shell registry NATS-only, first-paint/reconnect rules; shipping notifycoverage baseline caveat
 - [stale_select_value_bug_pattern](stale_select_value_bug_pattern.md) — PrimeVue `Select` v-model doesn't auto-clear on option-list change
 - [primevue_radiobutton_group_for_shared_state](primevue_radiobutton_group_for_shared_state.md) — standalone RadioButtons in v-for need grouping
@@ -57,6 +58,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [linebooker_payments_settlement_phase](linebooker_payments_settlement_phase.md) — PaymentEntity, InvoiceSplitType, EarlySettlementRequest (factoring)
 
 ## Phase history (completed — consult for background only)
+- [phase8_registry_preload_announce](phase8_registry_preload_announce.md) — preload/announce wiring done; fail-closed publisher; staged catalog; legacy lifecycle edge
 - [phase17_request_reply_panel](phase17_request_reply_panel.md) — DONE; admin frontend has no Vitest infra
 - [phase18_requestor_responder_headers](phase18_requestor_responder_headers.md) — DONE; fixed micro.Config.Name vs nats.Name mismatch
 - [phase21_account_exports_imports](phase21_account_exports_imports.md) — DONE 2026-08-03; PLATFORM/tenant two-account partitioning via NATS exports/imports

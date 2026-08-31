@@ -21,10 +21,8 @@ const rejected = computed(
   () => rows.value.filter((r) => r.status === 'incompatible' || r.status === 'disabled').length,
 )
 
-/* The registry is read once, at boot, before the router exists — so re-reading
-   it is a boot, and a boot is a page load. Honest and cheap; a partial re-boot
-   would leave already-activated plugins in a state the status machine has no
-   transition for. */
+/* A page reload applies pending removals and changed entries. Live discovery
+   can add plugins, but cannot tear down an already-activated plugin. */
 const reload = () => window.location.reload()
 
 const TONE = {
@@ -46,7 +44,7 @@ const TOLERANCE = [
   ['Invalid required field', 'that plugin only'],
   ['Unsupported shell API', 'that plugin only, pre-execution'],
   ['Duplicate or reserved id', 'that contribution only'],
-  ['Unparsable registry', 'built-ins still load'],
+  ['Unparsable registry', 'native frame remains available'],
 ]
 </script>
 
@@ -60,7 +58,14 @@ const TOLERANCE = [
           class="degraded"
         >
           The plugin registry could not be read ({{ shell.registryError.code }}).
-          Built-in plugins are listed; remote plugins are not.
+          The native frame remains available; previously discovered plugins stay listed.
+        </p>
+        <p
+          v-else-if="shell.registry?.degraded"
+          class="degraded"
+        >
+          The plugin registry is degraded: its database and cache are unavailable.
+          The native frame remains available; previously discovered plugins stay listed.
         </p>
         <p v-else>
           Registry rev {{ shell.registry?.revision ?? 'n/a' }}
@@ -112,7 +117,7 @@ const TOLERANCE = [
               <span class="id">{{ row.id }}</span>
             </td>
             <td class="mono">
-              {{ row.version ?? (row.builtin ? 'built-in' : '—') }}
+              {{ row.version ?? '—' }}
             </td>
             <td class="mono">
               {{ row.shellApiVersion ?? '—' }}

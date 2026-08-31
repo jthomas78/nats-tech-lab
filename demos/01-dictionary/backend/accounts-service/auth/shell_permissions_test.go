@@ -10,10 +10,13 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/auth"
-	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/registry"
+	"github.com/jthomas78/nats-tech-lab/shared/mferegistry"
 )
 
-// The former REST mount-split assertion, now enforced by subject grants.
+// The former REST mount-split assertion, now enforced by subject grants —
+// and, since the split, across a service boundary: mfe-registry-service
+// serves these subjects, this service grants them, and shared/mferegistry is
+// the single list both read so the two cannot drift.
 // "Ungated" here means no operator credential is needed: the shell has its
 // own read-only profile. Every other registered subject requires the admin.
 func TestShellReadIsUngatedAndEverythingElseIsNot(t *testing.T) {
@@ -32,13 +35,18 @@ func TestShellReadIsUngatedAndEverythingElseIsNot(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	adminClaims, err := jwt.DecodeUserClaims(admin.JWT)
 	g.Expect(err).NotTo(HaveOccurred())
-	for _, subject := range registry.Subjects() {
-		if subject == "api._platform.registry.frontend-plugins.read.v1" {
+	for _, subject := range mferegistry.Subjects() {
+		if subject == mferegistry.ShellRead {
 			g.Expect(shellClaims.Permissions.Pub.Allow).To(ContainElement(subject))
 		} else {
 			g.Expect(shellClaims.Permissions.Pub.Allow).NotTo(ContainElement(subject))
 			g.Expect(adminClaims.Permissions.Pub.Allow).To(ContainElement(subject))
 		}
 	}
-	g.Expect(shellClaims.Permissions.Pub.Allow).To(ConsistOf("api._platform.registry.frontend-plugins.read.v1", "_INBOX.>"))
+	g.Expect(shellClaims.Permissions.Pub.Allow).To(ConsistOf(mferegistry.ShellRead, "_INBOX.>"))
+	// Announce is service-to-service, outside both browser profiles and the
+	// exhaustive browser surface. Exact grants above also exclude wildcards.
+	g.Expect(mferegistry.Subjects()).NotTo(ContainElement(mferegistry.Announce))
+	g.Expect(shellClaims.Permissions.Pub.Allow).NotTo(ContainElement(mferegistry.Announce))
+	g.Expect(adminClaims.Permissions.Pub.Allow).NotTo(ContainElement(mferegistry.Announce))
 }

@@ -122,7 +122,7 @@ func newManager(t *testing.T, srv *natsserver.Server, credsDir string) (*Manager
 
 func TestDiscoverExcludesNonTenantCredsFiles(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"platform", "shipping-admin", "sys", "observability", "acme"} {
+	for _, name := range []string{"platform", "shipping-admin", "sys", "observability", "mfe-registry-service", "acme"} {
 		if err := os.WriteFile(filepath.Join(dir, name+".creds"), []byte("x"), 0o600); err != nil {
 			t.Fatalf("write %s.creds: %v", name, err)
 		}
@@ -142,7 +142,7 @@ func TestDiscoverExcludesNonTenantCredsFiles(t *testing.T) {
 	if _, ok := found["acme"]; !ok {
 		t.Fatalf("Discover did not find acme: %v", found)
 	}
-	for _, excluded := range []string{"platform", "shipping-admin", "sys", "observability"} {
+	for _, excluded := range []string{"platform", "shipping-admin", "sys", "observability", "mfe-registry-service"} {
 		if _, ok := found[excluded]; ok {
 			t.Errorf("Discover treated %q as a tenant — NonTenantCredsFiles is not excluding it", excluded)
 		}

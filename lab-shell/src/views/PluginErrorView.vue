@@ -93,7 +93,7 @@ async function retry() {
           class="btn ghost"
           to="/"
         >
-          Back to demos
+          Back to Home
         </router-link>
       </div>
 

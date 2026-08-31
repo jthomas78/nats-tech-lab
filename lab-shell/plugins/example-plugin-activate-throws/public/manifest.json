@@ -1,0 +1,32 @@
+{
+  "id": "example-plugin-activate-throws",
+  "name": "Example Plugin (activate throws)",
+  "version": "0.1.1",
+  "description": "Task 1b-4 (c): the chunk arrives and activate() throws. Distinguished from an unreachable remote by its cause code, not by a shrug.",
+  "schemaVersion": 1,
+  "shellApiVersion": 1,
+  "routePrefix": "example-throws",
+  "remote": {
+    "kind": "federated",
+    "url": "http://localhost:7114/remoteEntry.js",
+    "name": "example_plugin_activate_throws",
+    "module": "plugin"
+  },
+  "contributions": [
+    {
+      "kind": "route",
+      "id": "overview",
+      "path": "/example-throws",
+      "title": "Activate throws",
+      "component": "overview"
+    },
+    {
+      "kind": "navigation",
+      "id": "overview-nav",
+      "label": "Activate throws",
+      "route": "overview",
+      "icon": "pi pi-exclamation-triangle",
+      "order": 40
+    }
+  ]
+}

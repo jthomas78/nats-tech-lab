@@ -4,7 +4,7 @@ import { validateManifest } from '../registry/manifestSchema.js'
 import { PLUGIN_STATUS, PluginStatusRecord } from '../registry/pluginStatus.js'
 import { RemoteAllowlist } from '../registry/registryClient.js'
 import { REGISTRY_SCHEMA_VERSION, SHELL_API_VERSION } from '../versions.js'
-import { createBuiltinAdapter, createPluginLoader } from './pluginLoader.js'
+import { createPluginLoader } from './pluginLoader.js'
 
 const REMOTE_URL = 'http://localhost:7110/remoteEntry.js'
 
@@ -28,7 +28,7 @@ const harness = ({ adapter, curated = true, plugin: p = plugin() } = {}) => {
   statuses.get(p.id).transition(PLUGIN_STATUS.AVAILABLE)
   const loader = createPluginLoader({
     allowlist,
-    adapters: { federated: adapter, builtin: adapter },
+    adapters: { federated: adapter },
     statuses,
   })
   return { loader, statuses, plugin: p, record: statuses.get(p.id) }
@@ -55,13 +55,6 @@ describe('BR-AS01 — the loader fetches only curated remotes', () => {
     expect(adapter.load).not.toHaveBeenCalled()
   })
 
-  it('needs no allowlist entry for a builtin, which is in the shell bundle already', async () => {
-    const p = plugin({ remote: { kind: 'builtin', module: 'demo-catalog' } })
-    const adapter = createBuiltinAdapter({ 'demo-catalog': { activate() {} } })
-    const { loader } = harness({ adapter, curated: false, plugin: p })
-
-    await expect(loader.load(p)).resolves.toBeTruthy()
-  })
 })
 
 describe('BR-AS08 — code loads once, on demand', () => {
@@ -116,13 +109,84 @@ describe('BR-AS08 — code loads once, on demand', () => {
     expect(loader.isLoaded(p.id)).toBe(true)
   })
 
-  it('passes the shell nothing to activate(), so loading grants no access', async () => {
+  /* Rewritten at 8d (decision 92). This spec used to assert that activate()
+     was passed nothing at all, on the argument that loading a plugin must not
+     grant it access to the shell. Decision 90 hands over a shell-authored
+     object instead — which is not the shell's internals, but does make the old
+     wording false. What survives is the part that mattered: a plugin reaches
+     exactly what the shell chose to put in the object, and nothing else. That
+     is now decision 91's surface, asserted below. */
+  it('passes activate() the shell API and nothing else', async () => {
     const activate = vi.fn()
     const { loader, plugin: p } = harness({ adapter: { load: async () => ({ activate }) } })
 
     await loader.load(p)
 
-    expect(activate).toHaveBeenCalledWith()
+    expect(activate).toHaveBeenCalledTimes(1)
+    const [api, ...rest] = activate.mock.calls[0]
+    expect(rest).toEqual([])
+    expect(api).toBeTypeOf('object')
+  })
+
+  it('activates a plugin that ignores the argument, unchanged', async () => {
+    // The contract is additive: every plugin written before decision 90 takes
+    // no parameter, and must behave exactly as it did.
+    const activate = vi.fn(function noArgs() {})
+    const { loader, plugin: p, record } = harness({
+      adapter: { load: async () => ({ activate }) },
+    })
+
+    await loader.load(p)
+
+    expect(record.status).toBe(PLUGIN_STATUS.ACTIVE)
+  })
+})
+
+describe('decision 91 — the v1 shell API surface is narrow and fixed', () => {
+  const apiFrom = async () => {
+    let seen = null
+    const activate = vi.fn((api) => { seen = api })
+    const { loader, plugin: p } = harness({ adapter: { load: async () => ({ activate }) } })
+    await loader.load(p)
+    return seen
+  }
+
+  it('shares one immutable API across plugins without freezing the Vue component', async () => {
+    const first = await apiFrom()
+    expect(await apiFrom()).toBe(first)
+    expect(Object.isFrozen(first.ui)).toBe(true)
+    expect(Object.isFrozen(first.ui.ExtensionRegion)).toBe(false)
+  })
+
+  it('carries exactly version and ui, so a widened surface fails here first', async () => {
+    // Pinned rather than sampled. A surface can be widened by a decision and
+    // never by an accident, and once a plugin depends on a field it cannot be
+    // taken back out — so an unreviewed addition has to break a spec.
+    expect(Object.keys(await apiFrom()).sort()).toEqual(['ui', 'version'])
+  })
+
+  it('reports the shell API version the manifest gate already enforces', async () => {
+    // Same number manifestSchema.js checks shellApiVersion against (BR-AS13),
+    // so a plugin can assert on it rather than guessing.
+    expect((await apiFrom()).version).toBe(SHELL_API_VERSION)
+  })
+
+  it('exposes ExtensionRegion, and nothing else, under ui', async () => {
+    const { ui } = await apiFrom()
+    expect(Object.keys(ui)).toEqual(['ExtensionRegion'])
+    expect(ui.ExtensionRegion).toBeTruthy()
+  })
+
+  it('withholds the shell connection, which decision 91 excluded from v1', async () => {
+    // Explicit because the omission is the decision: the connection carries
+    // the user's credential, and admitting it to v1 would be irreversible.
+    const api = await apiFrom()
+    expect(api.connection).toBeUndefined()
+    expect(api.nats).toBeUndefined()
+  })
+
+  it('hands every plugin the same object, so one cannot mutate another\'s', async () => {
+    expect(Object.isFrozen(await apiFrom())).toBe(true)
   })
 })
 
@@ -190,26 +254,5 @@ describe('BR-AS04 — a load failure is recorded, isolated, and retryable', () =
 
     await expect(loader.load(p)).rejects.toThrow(/exported no module/)
     expect(record.reasonCode).toBe('malformed-module')
-  })
-})
-
-describe('the builtin adapter', () => {
-  it('resolves a module the shell bundles', async () => {
-    const module = { activate() {} }
-    const adapter = createBuiltinAdapter({ 'demo-catalog': module })
-
-    await expect(adapter.load({ module: 'demo-catalog' })).resolves.toBe(module)
-  })
-
-  it('accepts a factory, so a built-in can still be code-split', async () => {
-    const adapter = createBuiltinAdapter({ 'demo-catalog': () => ({ activate() {} }) })
-
-    await expect(adapter.load({ module: 'demo-catalog' })).resolves.toHaveProperty('activate')
-  })
-
-  it('throws for a module it does not bundle', async () => {
-    const adapter = createBuiltinAdapter({})
-
-    await expect(adapter.load({ module: 'nope' })).rejects.toThrow(/No built-in module/)
   })
 })

@@ -57,13 +57,23 @@ import (
 // NonTenantCredsFiles are the .creds stems (checked case-insensitively) in
 // the shared creds directory that are never switchable tenants: "platform"
 // and "shipping-admin" are permanent PLATFORM credentials, "sys" is
-// accounts-service's own credential, and "observability" is
-// observability-service's restricted PLATFORM connection (Phase 30c). BR-D40:
+// accounts-service's own credential, "observability" is
+// observability-service's restricted PLATFORM connection (Phase 30c), and
+// "mfe-registry-service" is mfe-registry-service's own restricted PLATFORM
+// connection (Phase 6 of the app-shell plan).
+//
+// A stem in this directory IS a tenant name unless it is listed here, so
+// dropping a new service credential into the shared creds dir without adding
+// it here makes every natstenants-based service open a bogus tenant
+// connection on that service's grants and have every subscription denied.
+// That is exactly what mfe-registry-service.creds did on its first boot.
+//
+// BR-D40:
 // this list's own incompleteness — missing "observability" — was the actual
 // bug this extraction closes; three services had independently fixed it and
 // a fourth (refdata-service) never had the gap at all, only for a fifth
 // copy of the same list to inevitably need the same fix again.
-var NonTenantCredsFiles = map[string]bool{"platform": true, "shipping-admin": true, "sys": true, "observability": true}
+var NonTenantCredsFiles = map[string]bool{"platform": true, "shipping-admin": true, "sys": true, "observability": true, "mfe-registry-service": true}
 
 // Credentials is one discovered tenant's creds file path.
 type Credentials struct {

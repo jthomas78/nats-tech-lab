@@ -95,12 +95,25 @@ feature components and metadata; it does not call `createApp`, install another r
 ### Curated frontend plugin registry
 
 The registry is an aggregated, versioned contract under platform control, **served at runtime by an
-operator-curated NATS `api.*` endpoint on `accounts-service`** (Phase 4, 2026-08-30). It is deliberately not a
+operator-curated NATS `api.*` endpoint on `mfe-registry-service`** (Phase 4, 2026-08-30; split out of
+`accounts-service` on 2026-08-31). It is deliberately not a
 JSON file inside the shell's bundle: that would make BR-AS03 only nearly true, since adding a plugin
-would still require redeploying the shell's deployment unit. `accounts-service` is the owner because
-it is already the context-free service administering the platform/tenant axis, and it already owns
-the auth and token lifecycle supplying the permission claims that gate the registry's own entries —
-so the registry and the claims that gate it share one owner rather than two.
+would still require redeploying the shell's deployment unit.
+
+`accounts-service` was the original owner because it was already the context-free service
+administering the platform/tenant axis, and already owned the auth and token lifecycle supplying the
+permission claims that gate the registry's entries. What the split showed is that only the *second*
+half of that argument was load-bearing, and that it never required co-location: **credential minting
+stayed in `accounts-service`, which still names the registry's subjects when it mints the shell's
+and the operator's browser grants (BR-AS25/AS27).** Those subject literals now live in
+`shared/mferegistry`, read by the service that serves them and the service that grants them, so the
+two cannot drift apart across the new boundary — drift is exactly what
+`TestShellReadIsUngatedAndEverythingElseIsNot` exists to catch, and it now catches it across a
+service boundary rather than within one process.
+
+The move cost neither frontend a line of code. Phase 4 had already retired the registry's HTTP
+surface, and NATS resolves a subject to whichever process is listening: the shell and the Admin UI
+address a subject, not a host.
 
 Its first schema contains at least:
 
@@ -125,6 +138,64 @@ a plugin later opens. A credential-derived source was rejected: it would require
 navigation could render, breaking the metadata-before-code ordering that BR-AS08 depends on, and it
 would have to reconcile four separate credential profiles (BR-AS10) into one nav decision. Hiding UI
 never replaces server-side authorization; the same claims gate the server.
+
+### Registration paths and plugin activation — Phase 8 (2026-08-31)
+
+All paths write the same curated registry and pass the origin allowlist. They
+have different authority and defaults:
+
+| Path | Input and authority | Result |
+| --- | --- | --- |
+| Admin curation | Operator `api.*` writes with a revision check | Operator controls enablement and lifecycle; actor `admin` |
+| Preload | Optional mounted `registry.json` at service boot | Insert only when the id has never existed; default `static`, actor `preload`; restart never overwrites curation |
+| Service announcement | Signed manifest over `rpc._platform.registry.entries.announce.v1` | Verified publisher identity, default `dynamic`; a new entry remains `announced` and withheld until operator enablement |
+
+**Announcement is not activation.** A publisher can report its own manifest but
+cannot grant itself permission to execute. An enabled dynamic entry can update
+within its approved origin; an origin change returns it to `announced` until
+operator reapproval. Static curation wins. Announcement is absent from browser
+and operator grant lists. Production still uses fail-closed `NoVerifier` until
+Phase 7 provides publisher verification; there is no bypass.
+
+Browser activation is a later, separate step: the shell reads the enabled,
+allowlisted registry document, validates metadata and indexes contributions.
+Only first use fetches the remote and calls `activate(shellApi)`. It receives
+one shared frozen object, `{ version: 1, ui: { ExtensionRegion } }`, whose `ui`
+container is also frozen. Vue's component definition remains unfrozen. No
+connection, credential or host registry is exposed; plugins that need NATS use
+their own connection. This narrow API is not a sandbox for same-realm code.
+
+**Two files, two owners.** Each plugin serves `public/manifest.json` to describe
+its identity, version, remote and contributions. It cannot claim `source`,
+`lifecycle`, `enabled` or `revision`. The operator's
+`demos/01-dictionary/registry.json` is a preload wrapper containing those manifests
+and optional enablement. The service supplies provenance and lifecycle defaults.
+That file is also the single input to the explicit operator seeder. Editing it
+and restarting does not change existing rows; use Admin curation or the seeder
+for an intentional update. A plugin can later switch registration paths without
+rebuilding its feature code.
+
+**Every plugin is independently built.** The catalog is on 7112; the healthy
+example on 7111; slow, activation-throws and incompatible fixtures on 7113–7115.
+Each has its own package, lockfile, Dockerfile, nginx server and single `plugin`
+exposure. The missing-remote fixture has no service and points to a real 404 on
+7111. Compose marks the five services `com.nats-tech-lab.mfe.source=preload`.
+No origin-to-fetch-URL map or drift checker is implemented here: that remains
+8c, blocked on Phase 7.
+
+Remote builds include their stylesheet assets in the federation expose loader
+(`bundleAllCSS`). The host and catalog share `@primeuix/styled` as a singleton,
+so PrimeVue widgets use the host-configured UniFi theme rather than an empty
+remote theme store. Browser verification checks the existing 320px sidebar and
+styled controls at 1920×1080.
+
+The catalog owns `/demos`, `/demos/:id` and
+`demo-catalog/details-sidebar/v1`. It saves the API in module scope and exports
+a plugin-local `ExtensionRegion` wrapper for nested views. The demo README stays
+a `?raw` import in this package and is copied only into this image. The host
+imports no catalog code, names no plugin and has no `builtin` loader path.
+If discovery fails, native Home and Plugins render with the failure reason and
+zero plugins. A later failed read preserves already-discovered contributions.
 
 ### Focused contribution registries
 
@@ -233,10 +304,10 @@ means *we tried and it broke*. Collapsing them would hide the case BR-AS13 exist
 
 ### Stage 1–3 — Boot, discovery, and indexing
 
-The shell indexes its bundled plugins and paints before minting a credential or
+The shell paints its native Home and Plugins frame before minting a credential or
 connecting (BR-AS30). It then opens its own least-privilege PLATFORM WebSocket
 connection, reads the curated registry over NATS, validates every entry independently,
-and indexes contribution **metadata**. Remote navigation arrives after the built-in
+and indexes contribution **metadata**. Remote navigation arrives after the native
 navigation; neither read fetches remote code (BR-AS08). A cold deep link initially
 resolved by the catch-all is re-resolved when its admitted route arrives (BR-AS12).
 
@@ -246,13 +317,13 @@ sequenceDiagram
     participant U as Browser tab
     participant Shell as Shell kernel<br/>(lab-shell)
     participant Auth as accounts-service<br/>(auth claims)
-    participant Reg as accounts-service<br/>(registry endpoint)
+    participant Reg as mfe-registry-service<br/>(registry endpoint)
     participant Idx as Contribution registries
 
     U->>Shell: load /
     Shell->>Shell: init router, Pinia, PrimeVue,<br/>UniFi theme, toast, locale,<br/>global error boundary (BR-AS09)
-    Shell->>Idx: index bundled plugins
-    Shell-->>U: first paint — built-in nav is usable
+    Shell->>Idx: initialize empty contribution registries
+    Shell-->>U: first paint — Home and Plugins are usable
     Shell->>Auth: GET /api/auth/shellConnectInfo
     Auth-->>Shell: short-lived lab-shell PLATFORM JWT + NKey seed
     Shell->>Shell: NATS WebSocket connect (unlimited reconnect attempts)
@@ -260,7 +331,7 @@ sequenceDiagram
     Shell->>Reg: api._platform.registry.frontend-plugins.read.v1<br/>{heldRevision: null}
     alt registry unreachable or malformed
         Reg--xShell: error
-        Shell-->>U: built-ins stay usable; connection notice<br/>after 5000 ms down (BR-AS30)
+        Shell-->>U: native frame stays usable; connection notice<br/>after 5000 ms down (BR-AS30)
     else registry accepted
         Reg-->>Shell: {ok, unchanged, revision, schemaVersion, entries[], degraded}
         loop per entry, independently
@@ -411,7 +482,7 @@ sequenceDiagram
         Shell->>B: render panel into same target
         B-->>U: panel renders normally
     end
-    Note over Shell,U: shell chrome, built-ins and every<br/>other contribution stay operational
+    Note over Shell,U: shell chrome and every<br/>other contribution stay operational
 ```
 
 Registration is transactional enough that a failed activation cannot leave half-installed routes,
@@ -423,7 +494,7 @@ navigation entries or extension assignments behind.
 
 A region's **owner** declares it, versions it, sets order and capacity, and freezes the context it
 passes. Contributors fill targets; they never choose where a target lives (BR-AS07). The case worth
-diagramming is the one a shell-only proof would miss: a target owned by a **built-in feature**,
+diagramming is the one a shell-only proof would miss: a target owned by a **federated feature**,
 filled by two independent remotes.
 
 ```mermaid
@@ -433,7 +504,7 @@ flowchart TB
         T2["shell/footer/v1"]
         T3["shell/home-main/v1"]
     end
-    subgraph Builtin["demo-catalog — a BUILT-IN feature, not the shell"]
+    subgraph Catalog["demo-catalog — a federated feature on 7112"]
         T4["demo-catalog/details-sidebar/v1<br/><i>capacity 4, ordered</i>"]
     end
 
@@ -536,7 +607,7 @@ transport. It must be fixed **before a second plugin exists**, which places it i
 
 | Scenario | Required behavior |
 |---|---|
-| Registry is unavailable or malformed | Start safe built-in capabilities only and expose an explicit degraded diagnostic state |
+| Registry is unavailable or malformed | Render native Home and Plugins, with an explicit registry diagnostic and no plugin loads on an initial failed read |
 | One registry entry is invalid | Reject that entry before code execution; continue with valid siblings |
 | Duplicate plugin or contribution ID | Reject the conflict rather than accepting nondeterministic registration order |
 | Remote load times out or fails | Render a local retryable fallback; keep the shell and sibling plugins operational |
@@ -657,10 +728,10 @@ Settled at the gate, beyond the original nine:
 
 | Question | Outcome |
 |---|---|
-| Registry production, hosting and ownership | Operator-curated endpoint on `accounts-service`; not a new service, not a bundled file |
+| Registry production, hosting and ownership | Operator-curated endpoint, not a bundled file. Ran inside `accounts-service` through Phases 2–4; extracted to `mfe-registry-service` on 2026-08-31 |
 | Permission source for shell-side gating | auth-service JWT claims held by the shell (BR-AS05) |
 | Global locale vs. reference-data boundary | Locale shell-global; refdata clients credential-scoped (BR-AS11) |
-| Demo catalog | Remains, as a **built-in plugin** at `/demos`, using the public contribution API with no privileged path |
+| Demo catalog | Independent **federated plugin** on 7112 at `/demos`, using the public contribution API with no privileged path |
 | Migration order | SeaFreight Flow → Admin → Tech Lab Operator, ordered by *credential-profile complexity ascending* |
 | Test runner | Mandatory. Vitest in `lab-shell/` is Phase 1a's first task — no rule here is enforceable without it |
 | Mockup gate for migrations | **Delta** mockups for Phases 10–12; capability-complete for Phase 1 only (satisfied 2026-08-28) |
@@ -675,7 +746,10 @@ into both a shell-owned and a built-in-owned target, route-scoped shell control,
 able to demonstrate the `loading`, `failed`, `incompatible` and activation-throws states on demand,
 so failure isolation can be seen rather than only asserted.
 
-## As built — Phase 1a (2026-08-28)
+## As built — Phase 1a (2026-08-28, historical)
+
+The bundled catalog and builtin adapter described in this historical section
+were retired in Phase 8d; the current registration/runtime contract is above.
 
 Phase 1a is the contract with no remote in it: every mechanism above exists and is tested, and the
 only plugin is built into the shell's own bundle. What the tree actually contains, and the four
@@ -751,17 +825,19 @@ DOM. The federation runtime is reachable from exactly one file.
 | `tools/hostBundleFingerprint.mjs` | The no-host-rebuild proof: builds the host, refuses if any asset's digest moved across a plugin deployment, and refuses if the host bundle contains a plugin name, container name or remote URL. |
 
 Outside the shell: `lab-shell/plugins/example-plugin/` — its own `package.json`, its own Vite
-config, its own `node_modules`, its own dev server on 7110. The shell has never compiled it. That
+config, its own `node_modules`, its own dev server on 7111. The shell has never compiled it. That
 separation is the *only* thing that makes BR-AS03 a measurement rather than an assertion.
 
 **Curation is service state** (Phase 2a; NATS transport in Phase 4). It lives in the
-`registry` module inside `accounts-service` — its own bounded context, sharing no table and no
-foreign key with `accounts`, so the day it wants its own service the move is a deployment change
-rather than an untangling. Postgres (`registry.entries`, `registry.revision`, `registry.audit`) is
-the source of truth; a single NATS KV entry (`registry` bucket, key
+`registry` module, its own bounded context sharing no table and no foreign key with `accounts` —
+which is why extracting it into **`mfe-registry-service`** (2026-08-31: its own Postgres instance on
+5437, its own PLATFORM credential `mfe-registry-service.creds`, and 7206 serving `/healthz` and
+nothing else) was a deployment change rather than an untangling. Postgres (`registry.entries`, `registry.revision`, `registry.audit`) is
+the source of truth; a single NATS KV entry (`mfe-registry` bucket, key
 `_platform.frontend-plugins.current`) caches the whole serialized document so the shell keeps
 booting through a Postgres outage; the read order is Postgres → KV → a degraded document at
-revision 0. The shell reads `api._platform.registry.frontend-plugins.read.v1`,
+revision 0. The KV bucket is `mfe-registry` (renamed with the service; a bucket name is a stream
+name, so this was a `down -v` and a reseed, not a migration). The shell reads `api._platform.registry.frontend-plugins.read.v1`,
 conditionally with `{heldRevision}` (`null` means unconditional); a matching healthy
 revision answers `unchanged`, never a degraded one. The adapter returns `entries`
 and the shell transport maps them to the existing `plugins` contract. Operator
@@ -771,7 +847,7 @@ subject exists. Explicit zero is valid for the first write; absent/null yields
 `yourRevision`, and an origin refusal yields `origin-not-allowed`. Which origins a
 shell may fetch plugin code from is `REGISTRY_ALLOWED_ORIGINS` — configuration, never a stored row,
 so a compromised write path cannot widen the envelope it sits inside. A development remote on
-`localhost` still does not belong in the platform's source: `lab-shell/plugins/example-plugin/registry.dev.json`
+`localhost` still does not belong in the platform's source: `demos/01-dictionary/registry.json`
 is the input to `cmd/seed-registry`, an operator CLI that mints an Admin credential
 and calls the same curated/upsert NATS subjects as the Admin UI. It is never run at
 service startup.
@@ -803,7 +879,7 @@ the same revision clears the degraded state. `registryWatcher.js` is deleted.
 never removes contributions. All styling reuses the existing UniFi footer tokens.
 
 **The four failure states are curated entries, not switches.** `loading` is a six-second delay in a
-second exposed module; `failed` is either a curated URL with no chunk behind it or an `activate()`
+separate service on 7113; `failed` is either a curated URL with no chunk behind it or an `activate()`
 that throws (distinguished by cause code, not by a shrug); `incompatible` is an entry declaring
 `shellApiVersion: 2`, refused on metadata with its remote never fetched. A fifth failure — a
 contribution throwing while it renders — sits inside the healthy plugin, next to a working panel on

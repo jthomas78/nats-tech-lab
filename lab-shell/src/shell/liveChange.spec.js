@@ -140,6 +140,93 @@ describe('BR-AS19 / decision 26 — a live addition reaches the screen, not just
     expect(w.find('nav').text()).toContain('fleet-ops')
   })
 
+  /* Live finding, 2026-08-30: an operator disabled an entry and re-enabled it
+     seconds later. The shell read the entry back — but the offer stayed, so
+     every running shell kept saying a plugin it was still happily rendering
+     had been withdrawn. An offer is a statement about the document the shell
+     just read, so a read that no longer produces it must take it back. */
+  it('retracts the reload offer when the withdrawn entry comes back unchanged', async () => {
+    const shell = await bootShell({
+      registryClient: client({ ok: true, revision: 7, etag: '"7"', plugins: [manifest('fleet-ops')] }),
+      permissions,
+    })
+    const w = mountShell(shell)
+
+    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [] })
+    await flushPromises()
+    expect(w.find('footer').text()).toBe(RELOAD_REASON.REMOVED)
+
+    shell.applyRegistry({ ok: true, revision: 9, etag: '"9"', plugins: [manifest('fleet-ops')] })
+    await flushPromises()
+
+    expect(w.find('footer').text()).toBe('')
+    // Nothing was applied on the way through: the plugin never stopped running.
+    expect(w.find('nav').text()).toContain('fleet-ops')
+  })
+
+  it('replaces the offer rather than clearing it when the entry comes back edited', async () => {
+    const shell = await bootShell({
+      registryClient: client({ ok: true, revision: 7, etag: '"7"', plugins: [manifest('fleet-ops')] }),
+      permissions,
+    })
+    const w = mountShell(shell)
+
+    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [] })
+    await flushPromises()
+
+    shell.applyRegistry({
+      ok: true,
+      revision: 9,
+      etag: '"9"',
+      plugins: [manifest('fleet-ops', { name: 'Fleet Operations' })],
+    })
+    await flushPromises()
+
+    expect(w.find('footer').text()).toBe(RELOAD_REASON.CHANGED)
+  })
+
+  it('keeps an offer the next read still produces, and drops only the one it does not', async () => {
+    const shell = await bootShell({
+      registryClient: client({
+        ok: true,
+        revision: 7,
+        etag: '"7"',
+        plugins: [manifest('fleet-ops'), manifest('billing')],
+      }),
+      permissions,
+    })
+    const w = mountShell(shell)
+
+    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [] })
+    await flushPromises()
+    expect(w.findAll('footer b')).toHaveLength(2)
+
+    shell.applyRegistry({ ok: true, revision: 9, etag: '"9"', plugins: [manifest('billing')] })
+    await flushPromises()
+
+    expect(w.findAll('footer b').map((b) => b.text())).toEqual([RELOAD_REASON.REMOVED])
+    expect(w.find('nav').text()).toContain('fleet-ops')
+  })
+
+  /* A 304 and a degraded read both carry no document, so neither is evidence
+     that anything was taken back (decision 48). */
+  it('does not retract an offer on an unchanged or degraded read', async () => {
+    const shell = await bootShell({
+      registryClient: client({ ok: true, revision: 7, etag: '"7"', plugins: [manifest('fleet-ops')] }),
+      permissions,
+    })
+    const w = mountShell(shell)
+
+    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [] })
+    await flushPromises()
+
+    shell.applyRegistry({ ok: true, unchanged: true, etag: '"8"' })
+    shell.applyRegistry({ ok: true, degraded: true, plugins: [] })
+    await flushPromises()
+
+    expect(w.find('footer').text()).toBe(RELOAD_REASON.REMOVED)
+  })
+
   it('applies the addition and offers the edit when one read carried both', async () => {
     // Decision 46's interleaving, end to end. The old diff applied only the
     // addition, leaving the shell holding a catalog that existed at no

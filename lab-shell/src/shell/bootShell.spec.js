@@ -19,9 +19,6 @@ const manifest = (id, overrides = {}) => ({
   ...overrides,
 })
 
-const builtin = (id, overrides = {}) =>
-  manifest(id, { remote: { kind: 'builtin', module: id }, ...overrides })
-
 const client = (result) => ({ fetchRegistry: vi.fn(async () => result) })
 const permissions = createPermissionEvaluator({ permissions: ['*'] })
 
@@ -41,17 +38,14 @@ describe('BR-AS08 — a booted shell has placed everything and loaded nothing', 
 })
 
 describe('BR-AS04 — the shell boots when the registry does not answer', () => {
-  it('keeps its built-ins and records why the remote list is empty', async () => {
+  it('keeps an empty plugin set and records why the remote list is empty', async () => {
     const shell = await bootShell({
       registryClient: client({ ok: false, code: 'registry-unreachable', message: 'down' }),
-      builtins: [builtin('demo-catalog', {
-        routePrefix: 'demos',
-        contributions: [{ kind: 'route', id: 'catalog', path: '/demos', title: 'Demos' }],
-      })],
       permissions,
     })
 
-    expect(shell.contributions.routes.map((r) => r.path)).toEqual(['/demos'])
+    expect(shell.contributions.routes).toEqual([])
+    expect(shell.plugins).toEqual([])
     expect(shell.registryError.code).toBe('registry-unreachable')
   })
 
@@ -92,54 +86,34 @@ describe('BR-AS01 — only curated remotes reach the allowlist', () => {
   it('allows nothing when the document could not be read', async () => {
     const shell = await bootShell({
       registryClient: client({ ok: false, code: 'registry-unreachable', message: 'down' }),
-      builtins: [builtin('demo-catalog', {
-        routePrefix: 'demos',
-        contributions: [{ kind: 'route', id: 'catalog', path: '/demos', title: 'Demos' }],
-      })],
       permissions,
     })
 
-    expect(shell.allowlist.size).toBe(0)
-  })
-
-  it('refuses a built-in that claims a federated remote', async () => {
-    // A built-in is trusted because it is in the shell's bundle. One that
-    // names a URL is asking for that trust while fetching from elsewhere.
-    const shell = await bootShell({
-      registryClient: client({ ok: true, plugins: [] }),
-      builtins: [manifest('smuggler')],
-      permissions,
-    })
-
-    expect(shell.statuses.get('smuggler').reasonCode).toBe('builtin-must-be-bundled')
     expect(shell.allowlist.size).toBe(0)
   })
 })
 
 describe('BR-AS06 — one id, one plugin', () => {
-  it('refuses a remote plugin that reuses a built-in id', async () => {
+  it('keeps the first curated plugin when an entry duplicates its id', async () => {
     const shell = await bootShell({
-      registryClient: client({ ok: true, plugins: [manifest('demo-catalog')] }),
-      builtins: [builtin('demo-catalog', {
-        routePrefix: 'demos',
-        contributions: [{ kind: 'route', id: 'catalog', path: '/demos', title: 'Demos' }],
-      })],
+      registryClient: client({ ok: true, plugins: [manifest('demo-catalog'), manifest('demo-catalog', { name: 'impostor' })] }),
       permissions,
     })
 
-    // The built-in keeps the id and the route; the impostor is reported.
+    // The first curated manifest keeps the id and route.
+    expect(shell.plugins).toHaveLength(1)
+    expect(shell.plugins[0].name).toBe('demo-catalog')
     expect(shell.contributions.routes.map((r) => r.pluginId)).toEqual(['demo-catalog'])
     expect(shell.statuses.get('demo-catalog').status).toBe(PLUGIN_STATUS.AVAILABLE)
   })
 
-  it('indexes built-ins before remotes, so ordering does not depend on the network', async () => {
+  it('indexes in curated order without loading remote code', async () => {
     const shell = await bootShell({
-      registryClient: client({ ok: true, plugins: [manifest('aaa-plugin')] }),
-      builtins: [builtin('zzz-builtin')],
+      registryClient: client({ ok: true, plugins: [manifest('zzz-plugin'), manifest('aaa-plugin')] }),
       permissions,
     })
 
-    expect(shell.plugins.map((p) => p.id)).toEqual(['zzz-builtin', 'aaa-plugin'])
+    expect(shell.plugins.map((p) => p.id)).toEqual(['zzz-plugin', 'aaa-plugin'])
   })
 })
 
@@ -171,7 +145,7 @@ describe('the Plugins screen inventory', () => {
 
 describe('BR-AS02 — plugin-owned extension points open at boot', () => {
   const catalog = (overrides = {}) =>
-    builtin('demo-catalog', {
+    manifest('demo-catalog', {
       routePrefix: 'demos',
       contributions: [{ kind: 'route', id: 'catalog', path: '/demos', title: 'Demos' }],
       extensionPoints: [{ id: 'demo-catalog/details-sidebar/v1', capacity: 2 }],
@@ -188,9 +162,9 @@ describe('BR-AS02 — plugin-owned extension points open at boot', () => {
               { kind: 'extension', id: 'panel', target: 'demo-catalog/details-sidebar/v1' },
             ],
           }),
+          catalog(),
         ],
       }),
-      builtins: [catalog()],
       permissions,
     })
 
@@ -199,13 +173,12 @@ describe('BR-AS02 — plugin-owned extension points open at boot', () => {
     expect(shell.statuses.get('demo-catalog').status).toBe(PLUGIN_STATUS.AVAILABLE)
   })
 
-  it('refuses the second plugin to claim the same region', async () => {
+  it('does not let a duplicate plugin redeclare the owner region', async () => {
     const shell = await bootShell({
       registryClient: client({
         ok: true,
-        plugins: [manifest('demo-catalog', { extensionPoints: [{ id: 'demo-catalog/x/v1' }] })],
+        plugins: [catalog({ extensionPoints: [{ id: 'demo-catalog/x/v1' }] }), manifest('demo-catalog', { extensionPoints: [{ id: 'demo-catalog/x/v1' }] })],
       }),
-      builtins: [catalog({ extensionPoints: [{ id: 'demo-catalog/x/v1' }] })],
       permissions,
     })
 

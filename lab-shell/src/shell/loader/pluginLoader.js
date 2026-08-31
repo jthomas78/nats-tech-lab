@@ -2,12 +2,8 @@
   The loader adapter interface (BR-AS08), plus the two guards that sit in front
   of every adapter.
 
-  Phase 1a ships this with one adapter — `builtin`, which resolves a module the
-  shell already bundles, synchronously. Phase 1b adds a `federated` adapter over
-  @module-federation/vite. The point of the split is that everything above the
-  adapter — when code loads, how often activate() runs, what a failure does to
-  the plugin's status — is decided here and is provable without a network. If
-  federation misbehaves in 1b, this contract has still shipped.
+  All plugins use a federated adapter. Loading, activation and failure
+  isolation remain behind this network-independent contract.
 
   An adapter is an object with one method:
 
@@ -25,7 +21,17 @@
     rather than merely intended.
 */
 
+import ExtensionRegion from '../ui/ExtensionRegion.vue'
+import { SHELL_API_VERSION } from '../versions.js'
+
 import { PLUGIN_STATUS } from '../registry/pluginStatus.js'
+
+// One public API object for all plugins. Freeze the containers, not the Vue
+// component: Vue may attach rendering metadata to component definitions.
+const shellApi = Object.freeze({
+  version: SHELL_API_VERSION,
+  ui: Object.freeze({ ExtensionRegion }),
+})
 
 /**
  * @param {object} options
@@ -83,7 +89,7 @@ export function createPluginLoader({ allowlist, adapters, statuses }) {
         /* BR-AS01's second gate. A federated remote whose URL is not in the
            curated document is refused before the adapter sees it, whatever
            route the plugin record took to get here. */
-        if (plugin.remote.kind === 'federated' && !allowlist.allows(plugin.remote.url)) {
+        if (!allowlist.allows(plugin.remote.url)) {
           fail(
             plugin,
             'remote-not-curated',
@@ -114,11 +120,10 @@ export function createPluginLoader({ allowlist, adapters, statuses }) {
 
         if (typeof module.activate === 'function') {
           try {
-            /* activate() gets nothing from the shell here on purpose. Whatever
-               a plugin needs — the extension registry, its connection — is
-               handed to it by the host that renders it, so a plugin cannot
-               reach the shell's internals just by being loaded. */
-            await module.activate()
+            /* Plugins receive only this explicitly versioned public surface.
+               The shell's connection, credentials and registries remain
+               private; an argument-ignoring v1 plugin still works unchanged. */
+            await module.activate(shellApi)
           } catch (error) {
             fail(plugin, 'activate-threw', error)
           }
@@ -141,21 +146,4 @@ export function createPluginLoader({ allowlist, adapters, statuses }) {
 
 function canLoad(status) {
   return status === PLUGIN_STATUS.AVAILABLE || status === PLUGIN_STATUS.FAILED
-}
-
-/**
- * The Phase 1a adapter: modules the shell already bundles, resolved
- * synchronously. A built-in plugin is platform-controlled by construction —
- * it is in the shell's own bundle — so it needs no allowlist entry.
- *
- * @param {Record<string, object|(() => object|Promise<object>)>} registry
- */
-export function createBuiltinAdapter(registry) {
-  return {
-    async load(remote) {
-      const entry = registry[remote.module]
-      if (!entry) throw new Error(`No built-in module named ${remote.module}`)
-      return typeof entry === 'function' ? entry() : entry
-    },
-  }
 }

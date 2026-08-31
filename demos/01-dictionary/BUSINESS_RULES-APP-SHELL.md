@@ -143,7 +143,7 @@ lives.
 Extension points are named `{owner}/{region}/v{major}` — e.g.
 `shell/topbar-controls/v1`, `shell/footer/v1`, `shell/home-main/v1`,
 `demo-catalog/details-sidebar/v1`. The last of those is owned by a
-**built-in feature, not the shell**, which is the cross-owner case the proof
+**federated feature, not the shell**, which is the cross-owner case the proof
 remote must exercise.
 
 **Testable:** a contribution targeting an undeclared or wrong-version
@@ -202,8 +202,7 @@ repeated navigations to its contributions.
 
 ### BR-AS04 — Failure isolation
 
-A failed plugin or contribution must not prevent the shell, built-in
-capabilities, or other plugins from loading and operating.
+A failed plugin or contribution must not prevent the native shell frame or other plugins from loading and operating.
 
 Isolation is at **contribution granularity**, not plugin granularity: a
 plugin whose route fails still renders its panel contribution elsewhere if
@@ -213,7 +212,7 @@ that panel is sound.
 other plugin operating — (a) the remote 404s, (b) the remote loads but
 `activate()` throws, (c) a rendered contribution throws during render,
 (d) the registry endpoint itself is unreachable. In (d) the shell renders
-with built-ins only. Error summaries surfaced to the user carry stage and
+its native Home and Plugins frame, with zero plugins. Error summaries surfaced to the user carry stage and
 cause and **never** credentials, tokens, or registry URLs — assert the
 rendered error text against a denylist.
 
@@ -226,6 +225,14 @@ plugin must not require a shell source change or shell rebuild.
 produce a shell with one more plugin, with no change to any file under
 `lab-shell/src/`. Proven end to end in Phase 1b by deploying the example
 remote twice without rebuilding the host.
+
+Containerising both sides did not weaken this. The shell's image is built from
+`lab-shell/` with `plugins/` deliberately excluded from its build context, so
+the plugin's source cannot reach the host bundle even by accident; the plugin
+has its own Dockerfile, lockfile and image. A second plugin costs a compose
+service and a registry row — never a shell rebuild. `hostBundleFingerprint.mjs`
+still asserts the host bundle names no plugin, container or remote origin (its
+denylist covers all five plugin origins, both catalog identity spellings and demo README text).
 
 ### BR-AS12 — Addressable feature routes
 
@@ -329,7 +336,7 @@ least once**:
 - `route` — a deep-linkable, permission-checked feature route;
 - `navigation` — a nav group and entries merged into the shell's rail;
 - `extension` — a panel into a shell-owned target (`shell/home-main/v1`)
-  **and** one into a target owned by a built-in feature
+  **and** one into a target owned by another federated feature
   (`demo-catalog/details-sidebar/v1`), since cross-owner composition is the
   case a shell-only proof would miss;
 - `shell-control` — a topbar control scoped to the active route, appearing
@@ -378,9 +385,10 @@ aligned or explicitly exempted as part of Phase 1a.
 | Route contributions → vue-router records | `lab-shell/src/shell/routing/` |
 | Pinia store-id namespacing (`{plugin-id}/{store-id}`) | `lab-shell/src/shell/state/` |
 | Build-time graph/lint checks (BR-AS09, BR-AS14) | `lab-shell/eslint.config.js` (editor-time) + `lab-shell/tools/frameOwnership.js` (whole-graph; run by its spec in `npm test` and standalone in `npm run lint`) |
-| Curated registry endpoint (BR-AS01) | `accounts-service/accounts/frontendplugins.go`, `GET /api/accounts/frontend-plugins` — see `BUSINESS_RULES-ACCOUNTS.md` |
-| Demo catalog, as a plugin like any other (BR-AS15) | `lab-shell/src/plugins/demo-catalog/` — built-in remote, routes under `/demos` |
-| Example proof plugin (BR-AS15) | `lab-shell/plugins/example-plugin/` — its own build, own dev server on 7110, curated by `registry.dev.json` (Phase 1b) |
+| Curated registry endpoint (BR-AS01) | `mfe-registry-service/registry/` — `api._platform.registry.*` subjects, served by its own process since 2026-08-31. The subject list is `shared/mferegistry`, read by this service and by `accounts-service`, which grants the subjects when it mints a browser credential (BR-AS25/AS27). |
+| Demo catalog, as a plugin like any other (BR-AS15) | `lab-shell/plugins/demo-catalog/` — independent federated package on **7112**, routes under `/demos` |
+| App shell deployment | `lab-shell/Dockerfile` + `lab-shell/nginx.conf` — containerised on **7110** as `app-shell-frontend`; the dev server publishes the same port. Its nginx proxies exactly two paths: the single exact `/api/auth/shellConnectInfo` mint route and the `/nats` WebSocket. Every other `/api/` path returns 404 rather than the SPA page, so a misroute is loud. |
+| Example proof plugin (BR-AS15) | `lab-shell/plugins/example-plugin/` — its own build, its own image and `nginx.conf`, served on **7111** as `example-plugin-frontend` (dev server on the same port), curated by `demos/01-dictionary/registry.json` (Phase 1b) |
 | Module Federation loader adapter (BR-AS03) | `lab-shell/src/shell/loader/federatedAdapter.js` (Phase 1b) |
 | Contribution rendering, failure isolation, placeholders (BR-AS04, AS07) | `lab-shell/src/shell/ui/` (Phase 1b) |
 | No-host-rebuild proof (BR-AS03) | `lab-shell/tools/hostBundleFingerprint.mjs` (Phase 1b) |
@@ -487,7 +495,7 @@ optional fields and one shared token block, all recorded here.
   interpreted: compatibility stays decided by `schemaVersion` and
   `shellApiVersion` alone (BR-AS13). It exists so the inventory and the failure
   panel can name *which build* of a plugin is on screen, which is the first
-  question asked of any failure report. Absent renders as `built-in`.
+  question asked of any failure report. Absent renders as `—`.
 - **`revision` is a new optional registry-document field.** Opaque to the
   shell — displayed in the Plugins header and the footer, and nothing else —
   so an accounts-service that omits it still serves. It names *which* registry
@@ -575,6 +583,17 @@ survive the Phase 6 move (decision 40).
   the status machine has no transition out of `active`, so a reload is the only
   sound way to apply a removal.
 
+  **An offer describes the document the shell last read, so a read that no
+  longer supports it takes it back.** The pending offers are synced with each
+  successful read rather than accumulated across reads: a withdrawn entry that
+  comes back unchanged retracts its offer, one that comes back edited replaces
+  it, and every other offer the read still produces stands. A read carrying no
+  document — `unchanged`, or degraded — retracts nothing. Retraction withdraws
+  the offer and never the plugin: nothing is applied or unloaded either way.
+  (Found live: an operator disabling an entry and re-enabling it seconds later
+  left every running shell claiming a plugin it was still rendering had been
+  withdrawn.)
+
   **A new entry id is the only difference a running shell may apply to itself
   (decision 46).** Every other difference between the entry it holds and the
   entry that arrives — a changed label, order, route prefix, permission,
@@ -595,16 +614,19 @@ survive the Phase 6 move (decision 40).
   write time **and** withheld at read time. The read-side check is not
   redundant: narrowing the allowlist leaves already-stored rows non-conforming,
   which is the case the write-time check cannot cover.
-- **BR-AS21 — No self-registration.** No transport permits a plugin to add,
-  modify or enable its own registry entry. This is BR-AS01 restated for a write
-  path that did not previously exist.
+- **BR-AS21 — No self-activation.** A service may announce its own entry over
+  `rpc._platform.registry.entries.announce.v1` when it presents a verified
+  publisher key. It may never enable an entry, nor alter `enabled`, `lifecycle`
+  or `revision` on any entry, including its own. An announced entry that is not
+  already enabled lands `announced` and is inert until an operator enables it.
+  No browser transport permits announcement at all.
 - **BR-AS22 — The registry degrades, it does not fail.** With Postgres
   unavailable the read falls back to the KV cache; with both unavailable the
   read answers successfully with an empty plugin list, `revision: 0` and
-  `degraded: true`, and the shell renders its built-ins. It never returns a transport error for this state,
+  `degraded: true`, and the shell renders its native frame. It never returns a transport error for this state,
   and a degraded response is distinguishable from a genuinely empty registry.
-  There is no server-side "built-in set" to serve: built-ins ship inside the
-  shell's own bundle and are deliberately never curated.
+  There is no substitute plugin set: the catalog is also federated. Previously
+  discovered plugins remain in a running shell; an initial degraded read loads none.
 
   **Degraded is a state the shell leaves (decision 48).** It is cleared on any
   successful read, an `unchanged` answer included, and a read the shell could not complete —
@@ -613,11 +635,11 @@ survive the Phase 6 move (decision 40).
   unchanged revision is exactly what answers `unchanged`, so keeping a pre-outage
   ETag and clearing the flag only on a document made degraded a one-way door.
 - **BR-AS23 — The audit records the surface, not an identity.** Every accepted
-  and every refused write appends an audit row whose actor is the shared
-  administrative identity the request authenticated as. The rule is deliberately
-  weaker than "who did it": while the hosting service authenticates every
-  request as one shared secret, no stronger claim is true, and neither the
-  stored row nor the audit panel may imply one.
+  and every refused curation write appends an audit row whose actor is the shared
+  administrative identity. This does not identify an individual operator, and
+  neither the stored row nor the audit panel may imply it does. Phase 8's
+  BR-AS42 extends the actor vocabulary to `preload` and a verified publisher
+  key; neither path is misattributed to the shared admin identity.
 - **BR-AS24 — An entry is disabled, never deleted.** No transport removes a
   registry row. A disabled entry is withheld from the read and its history is
   retained.
@@ -678,21 +700,24 @@ answers are in `.claude/plans/Application-Shell-Microfrontend-Plan.md`.
   detection and no redelivery, so without this rule a shell offline for one
   minute is stale forever — strictly worse than the poll it replaces, which at
   least self-healed.
-- **BR-AS30 — First paint precedes the connection.** The shell indexes its
-  built-ins and renders before it connects, mints a credential or reads. A shell
+- **BR-AS30 — First paint precedes the connection.** The shell renders its
+  native Home and Plugins frame before it connects, mints a credential or reads. A shell
   that cannot connect, cannot mint, or is answered with a degraded document still
   renders (BR-AS22 unchanged in effect, restated for the new transport). A
   connection state that is down is surfaced beside the revision in the footer,
   debounced so a routine reconnect does not flicker — visible because a silently
   stale shell is the exact failure BR-AS22 exists to prevent, and never a reason
-  to unload a contribution (BR-AS19).
+  to unload a contribution (BR-AS19). Paint is the gate, but not an unbounded
+  one: a tab that is never displayed never composites a frame, so the wait falls
+  back to a 1 s timeout — a shell deep-linked into a background tab connects and
+  reads on its own rather than waiting for the first look at it.
 - **BR-AS31 — Curation writes move to `api.*` and stay operator-scoped.** The
   admin write routes leave REST for request/reply on their own subjects, granted
   to the Admin UI's credential and to no other. The revision vocabulary the HTTP
   surface carried is re-implemented in the payload rather than dropped: a read
   states the revision it holds and may be answered `unchanged`; a write states
   the revision it saw and may be refused as stale or as missing. BR-AS21 is
-  unaffected — no plugin-reachable subject writes to the registry.
+  preserved as no self-activation — no browser-reachable subject permits announcement.
 
 ### How Phase 4's rules are checked
 
@@ -701,7 +726,7 @@ answers are in `.claude/plans/Application-Shell-Microfrontend-Plan.md`.
 | BR-AS27 — read capability only | `auth/token_test.go` § `MintShellToken` — an exact `ConsistOf` over `Pub.Allow` and `Sub.Allow`, the same idiom that already forces `MintAdminToken`'s set to be a deliberate list. An exact match rather than a "does not contain a write subject" assertion, because the failure to catch is a subject added later that nobody thought about |
 | BR-AS28 — hint, never payload | `changeSubscription.spec.js` and `changeSubscription.concurrent.spec.js` — bodies are never installed, matching/older revisions read nothing, bursts coalesce without losing a later revision; `registry/transport_integration_test.go` proves the committed `{revision}` hint over real NATS and Postgres |
 | BR-AS29 — reconnect re-reads | `changeSubscription.spec.js` — a reconnect performs an **unconditional** read (no held revision in the payload) and converges on a revision published while the shell was disconnected |
-| BR-AS30 — first paint precedes connect | `registrySession.spec.js` mounts built-in nav before paint permits connect, covers refused connect and reactive late read errors; `shellConnection.spec.js` and `shellConnection.lifecycle.spec.js` cover socket lifecycle; `ShellFooter.spec.js` pins the 5000 ms notice and immediate recovery |
+| BR-AS30 — first paint precedes connect | `afterPaint.spec.js` pins the two-frame gate, the 1 s no-frame fallback and the single settle; `registrySession.spec.js` mounts native navigation before paint permits connect, covers refused connect and reactive late read errors; `shellConnection.spec.js` and `shellConnection.lifecycle.spec.js` cover socket lifecycle; `ShellFooter.spec.js` pins the 5000 ms notice and immediate recovery |
 | BR-AS31 — writes are operator-scoped | `auth/token_test.go` exact grants; `shell_permissions_test.go` compares the registered subject surface with both profiles; `registry/internal/browserrpc/{adapter,wire}_test.go` pins accepted/stale/missing/origin-refused payloads, including explicit zero; Admin `registryApi.spec.js`, `RegistryNatsPanels.spec.js`, and `connectionFactory.spec.js` cover callers and structured refusals |
 
 ### How Phase 2's rules are checked
@@ -726,9 +751,9 @@ mounts rule.
 | BR-AS16 — service state | *2a, done.* `registry/store_integration_test.go`, against real Postgres: an entry applied through `Apply` is present in the next `Current`, and reads back through a *second* `Store` so nothing is held in process memory |
 | BR-AS17 — monotonic revision | *2a, done.* `domain.NextRevision` in `registry/rules_test.go`; end to end in `store_integration_test.go` — first write is revision 1, three accepted writes are 1/2/3, and `Apply` returns the entries and the revision together. The two setters (`SetCuratedFrontendPlugins`/`SetCuratedFrontendRevision`) are gone with the endpoint |
 | BR-AS18 — revision-checked writes | `domain.CheckRevision` and `store_integration_test.go` pin both directions and no revision consumed on refusal; `browserrpc/adapter_test.go` and `wire_test.go` pin missing/stale payload refusals. Explicit JSON `ifRevision: 0` is valid for the first curation; omission/null never reaches the store. `FrontendPluginsPanel.spec.js` and `RegistryNatsPanels.spec.js` show both revisions and offer reload, never merge/force |
-| BR-AS19 — notify, never unload | `registryTransport.spec.js` pins conditional read/unchanged; `changeSubscription.spec.js` pins push/reconnect instead of the deleted watcher. `registrySession.spec.js` covers recovery and the boot-read/subscription gap. `phase2RegistryContract.spec.js`, `registryDiff.spec.js`, `RegistrySignalBanner.spec.js`, and `FrontendPluginsPanel.spec.js` preserve reload offers and leave existing contributions running |
+| BR-AS19 — notify, never unload | `registryTransport.spec.js` pins conditional read/unchanged; `changeSubscription.spec.js` pins push/reconnect instead of the deleted watcher. `registrySession.spec.js` covers recovery and the boot-read/subscription gap. `phase2RegistryContract.spec.js`, `registryDiff.spec.js`, `RegistrySignalBanner.spec.js`, and `FrontendPluginsPanel.spec.js` preserve reload offers and leave existing contributions running; `liveChange.spec.js` pins retraction on a re-added entry, replacement on an edited one, and no retraction from an unchanged or degraded read |
 | BR-AS20 — origin allowlist | *2a, done.* Refused on write (`store_integration_test.go`: nothing stored, revision unmoved) and withheld on read (`rules_test.go`: `Document.Readable` against a narrowed allowlist and an already-stored row, leaving the stored document unmutated). `NewAllowlist(nil)` permits nothing — empty is not allow-all. *2b, done.* `FrontendPluginsPanel.spec.js` — a non-conforming entry is listed as `withheld` rather than dropped, and the 422 is surfaced by stage and cause with neither the URL nor the configured origins echoed back (BR-AS04) . The allowlist itself is shown on the panel as service configuration with no control to widen it |
-| BR-AS21 — no self-registration | `browserrpc/adapter_test.go` pins the exact five registered subjects, `auth/token_test.go` pins their grants, and `rest_test.go` pins an empty route list and 404s. `set-enabled` cannot insert (`adapter_test.go`, `store_integration_test.go`) |
+| BR-AS21 — no self-activation | `browserrpc/adapter_test.go` pins the exact five registered subjects, `auth/token_test.go` pins their grants, and `rest_test.go` pins an empty route list and 404s. `set-enabled` cannot insert (`adapter_test.go`, `store_integration_test.go`). Phase 8 adds `announce_transport_test.go` (fail-closed verification and pending entries) and `auth/announce_permissions_test.go` (the broker refuses shell announcement) |
 | BR-AS22 — degrades, does not fail | *2a* for the response shape; *2c* for the shell's handling. `manifestSchema.js` passes `degraded` through, `bootShell.applyRegistry` records it and skips the diff (a document the service could not vouch for is no basis for offering a reload), and `ShellFooter.spec.js` pins the three-way distinction: normal, degraded, and unreachable. `phase2RegistryContract.spec.js` still pins `revision: 0` validating as `"0"`, which is what lets 0 carry the degraded meaning |
 | BR-AS23 — audit records the surface | *2a, done.* `store_integration_test.go`: an accepted write appends a row against the revision it installed, a refused one appends a row with no revision. The actor is `domain.SharedAdminActor` (the literal `admin`), and `rules_test.go` refuses an authorless write outright. *2b, done.* `RegistryAuditPanel.spec.js` — accepted and refused writes are listed together, a refused row shows no revision, and the actor column shows the shared `admin` identity with a note saying so |
 | BR-AS24 — disable, never delete | `domain.WriteOps()` is exhaustively pinned by `registry/rules_test.go`; `browserrpc/adapter_test.go` allows no delete/remove subject and `rest_test.go` proves retired paths unreachable. `store_integration_test.go` retains disabled rows/history; `FrontendPluginsPanel.spec.js` offers enable/disable, never delete |
@@ -736,3 +761,107 @@ mounts rule.
 | BR-AS26 — a committed write is reported as committed | *3b, done.* `postgres.Store.apply` reads the installed document through `currentDoc(ctx, tx)` **inside** the transaction and commits last, so every error path it returns is one that rolled back — which is what makes `Apply` auditing them all as refusals true. `auditRefusal` and the post-commit cache refresh and notify run on `context.WithoutCancel(ctx)`. `store_integration_test.go` § decision 49 pins all three: a cancelled caller leaves an *accepted* audit row, an already-dead context still records a refusal, and a refused write moves no revision |
 | decision 27 — the read contract is unchanged | *Now, and this is the load-bearing one.* `phase2RegistryContract.spec.js` characterizes `validateRegistryDocument`: `revision` is accepted as a string *or* a number and stringified, `0` survives, absent is `null` not an error, and a schema-version move rejects the whole document. Phase 2 replaces `"dev-1b"` with a monotonic integer on the strength of these |
 | decisions 34/58 — one read subject | `registryTransport.spec.js` pins `SHELL_READ_SUBJECT` and the held-revision payload. Historical HTTP characterization remains in `phase2RegistryContract.spec.js`/`registryClient.spec.js`, but the host uses no HTTP client or fallback |
+
+
+## Phase 8 — preload and announcement
+
+- **BR-AS39 — An announcement never activates.** A verified announcement for an unknown id is stored
+  as `announced` and served to no shell until an operator enables it. No transport, payload or
+  signature makes an announcement self-activating.
+- **BR-AS40 — An enabled dynamic id re-announcing is followed within its origin.** For a
+  `lifecycle: dynamic` entry only, a remote change that stays
+  within the entry's allowlisted origin is applied without review; one that changes origin returns the
+  entry to `announced` and withholds it until an operator re-enables it.
+- **BR-AS41 — Preload never reverts curation.** A preloaded entry is written only for an id with no
+  existing row. An id the operator has edited, disabled or removed is never re-created or overwritten
+  by a service restart.
+- **BR-AS42 — Every write names its true actor.** `admin` for a curation, `preload` for a seeded
+  insert, the publisher key for an announcement. The audit trail answers "who put this here" without
+  reference to any other source.
+- **BR-AS43 — A manifest never carries its own trust tier.** A plugin's manifest states what the
+  plugin is, never how far it is trusted or by which path it arrived. A `source`, `lifecycle`,
+  `enabled` or `revision` field in an announced or preloaded manifest is refused, not ignored: a
+  silently dropped claim is one a publisher believes was honoured.
+- **BR-AS44 — The shell renders without a registry.** An unreachable, malformed or degraded registry
+  read leaves the shell running its **native frame** — `HomeView` and `PluginsView`, which are shell
+  views rather than plugins — with the reason visible on the Plugins screen. Reworded 2026-08-31: the
+  original said "its built-ins", which decision 84's retirement leaves empty. No registration tier
+  may reduce the native frame or prevent the Plugins screen stating why the plugin list is empty.
+- **BR-AS45 — The drift check is the service's only outbound HTTP, and it is bounded.** The registry
+  service may fetch a served `manifest.json` only for an entry whose remote origin is already on the
+  BR-AS20 allowlist. The fetch is read-only, time-bounded, and never on a request path the shell or an
+  operator waits on. Drift is displayed only: the curated copy still wins (decision 77) and a drifting
+  entry is never withheld. This is the one outbound HTTP capability the service holds; anything wider
+  is a new gate. (It already egresses to Postgres and NATS — the claim is about HTTP, corrected
+  2026-08-31.)
+  **The allowlist is not the fetch address.** `REGISTRY_ALLOWED_ORIGINS` holds *browser* origins
+  (`http://localhost:7111`); `mfe-registry-service` is a container, for which `localhost:7111` is
+  itself. A second start-time config maps each allowlisted origin to the URL the *service* reaches it
+  on (`http://example-plugin-frontend:80` — the service is already on the `frontend` network). An
+  origin with no mapping is simply not checked. The map may never introduce an origin the allowlist
+  does not already carry: it translates addresses, it never widens the envelope.
+  **The check has three outcomes, not two:** `checked` (agrees), `drift` (differs, fields named), and
+  `not checked` (unmapped, timed out, non-200, or unparsable). A failed fetch must never render as
+  "no drift".
+
+
+The operator's preload wrapper may carry `enabled` (decision 79); a plugin's
+manifest may not. Preload writes `static`; announcements write `dynamic` by
+default. Legacy empty lifecycle values remain unclassified. Neither manifest
+may choose lifecycle or provenance.
+
+### Phase 8d/8f runtime contract (decisions 87–95)
+
+`builtin` is retired. Every plugin has its own package, lockfile, Dockerfile,
+origin and served `manifest.json`; each exposes one `plugin` module. The healthy
+example retains six views, while each failure variant has one Overview view.
+The unreachable fixture has no service: its allowlisted origin returns a real
+404 at `http://localhost:7111/no-such-remoteEntry.js`.
+
+BR-AS08's activation receives exactly one shared frozen object:
+`{ version: 1, ui: { ExtensionRegion } }`. The `ui` container is frozen too,
+but the Vue component definition is not. The API contains neither credentials
+nor a NATS connection nor host registries. Ignoring the argument remains valid
+v1 behavior. This is a public API boundary, not a security sandbox: federated
+code still executes in the browser's realm and requires server-enforced grants.
+
+Remote builds include their stylesheet assets in the federation expose loader
+(`bundleAllCSS`). The host and catalog share `@primeuix/styled` as a singleton,
+so PrimeVue widgets use the host-configured UniFi theme rather than an empty
+remote theme store. Browser verification checks the existing 320px sidebar and
+styled controls at 1920×1080.
+
+The catalog retains the API in plugin module scope. Its local wrapper forwards
+attributes and slots to `ui.ExtensionRegion`, including from nested views.
+It imports no host runtime module or host version constants. The raw demo README
+is compiled into the catalog only; native Home has no hardcoded catalog link.
+
+`pluginLoader.spec.js` checks API shape, identity, freezing and compatibility;
+`catalogRuntime.spec.js` checks real routes and nested contributions;
+`pluginServices.spec.js` checks independent packages, fixture statuses and
+single-service failure isolation. The bundle fingerprint rejects plugin
+identities, origins and README content from host assets.
+
+### How Phase 8's rules are checked
+
+| Rule | Checked by |
+| --- | --- |
+| BR-AS39 — announcement never activates | `registry/announce_test.go` and `registry/announce_transport_test.go`: pending rows persist, and the browser read withholds them until operator enablement |
+| BR-AS40 — dynamic updates remain in-origin | `registry/announce_test.go` and `registry/announce_transport_test.go`: in-origin updates and cross-origin requeue; static always wins |
+| BR-AS41 — preload never reverts curation | `registry/preload_test.go` and `registry/phase8_integration_test.go`: real Postgres restarts preserve edits, disabled/removed rows, and revision; duplicate ids seed once |
+| BR-AS42 — true actor | Domain write-builder specs plus `phase8_integration_test.go` and `announce_transport_test.go`: `preload`/publisher actors, and ignored observations append an audit row without a registry write or notify |
+| BR-AS43 — no self-asserted trust tier | `preload_test.go` refuses manifest fields and file revisions; `announce_transport_test.go` exercises each forbidden field through NATS |
+| BR-AS44 — native frame survives registry failure | `catalogRuntime.spec.js` mounts the actual App/Home/Plugins for unreachable, malformed and degraded reads, asserts the reason, no catalog link and zero plugin loads |
+| BR-AS45 — bounded drift HTTP | Approved rule; the checker and its specifications remain in 8c. No outbound HTTP capability is added by 8a/8b |
+
+`REGISTRY_PRELOAD_FILE` is optional; Compose mounts `demos/01-dictionary/registry.json`.
+Whole-file parse/read failures fail boot. Entry refusals log `withheld`, id and
+cause, while other entries continue. The result is retained on the module for
+future Admin integration; the 8c pending/withheld UI is not implemented here.
+
+The dedicated announcement request is `{ "payload": <manifest object>,
+"signature": "<opaque signature>" }`. Verification receives the exact payload
+bytes before parsing. Production uses `NoVerifier` and refuses every announcement
+until Phase 7 supplies the trust anchor; no bypass setting exists. Successful
+observations retain `announcedAt`/`lastAnnouncedAt`; no TTL is installed. Ignored
+static announcements record their time and cause in the audit only.

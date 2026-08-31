@@ -57,7 +57,7 @@ export function createPermissionEvaluator(claims) {
 }
 
 /* No claims at all is an anonymous viewer, not an error: the shell still boots
-   and still renders its unrestricted built-ins (BR-AS04). */
+   and still renders its native frame (BR-AS04). */
 export const ANONYMOUS = createPermissionEvaluator(null)
 
 function normalizeGrants(permissions) {

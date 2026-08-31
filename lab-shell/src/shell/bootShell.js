@@ -6,12 +6,8 @@
   example plugin's failure switches need to boot one with a broken registry on
   demand.
 
-  The ordering is the contract. Built-in plugins are indexed first and
-  unconditionally: they are in the shell's own bundle, so they are available
-  whether or not accounts-service answers, and a shell that renders nothing
-  when its registry is down would fail BR-AS04 at the first hop. Remote
-  plugins are then appended in the order the operator curated them, which is
-  what makes cross-plugin ordering reproducible.
+  Plugins are indexed in curated document order. With no registry, the
+  native Home and Plugins frame remains usable without loading any plugin.
 
   Nothing here loads code. A booted shell has a complete nav tree, a complete
   route table and zero remote chunks fetched — that is BR-AS08, and it is
@@ -31,13 +27,11 @@ import { RemoteAllowlist } from './registry/registryClient.js'
 /**
  * @param {object} options
  * @param {{fetchRegistry(): Promise<object>}} [options.registryClient] optional fixture read; the host discovers after paint
- * @param {object[]} options.builtins manifests for plugins the shell bundles
  * @param {{can(permission: string|null): boolean}} options.permissions
  * @param {import('./extensions/extensionPoints.js').ExtensionPointRegistry} [options.extensionPoints]
  */
 export async function bootShell({
   registryClient,
-  builtins = [],
   permissions,
   extensionPoints = declareShellExtensionPoints(),
 }) {
@@ -60,7 +54,7 @@ export async function bootShell({
      move the state machine has. */
   const pendingReload = reactive([])
 
-  const admit = (raw, { builtin }) => {
+  const admit = (raw) => {
     const id = typeof raw?.id === 'string' ? raw.id : '<unnamed>'
     /* Reactive, because the Plugins screen is a live inventory: a plugin that
        fails on first use transitions long after boot, and a table that still
@@ -88,13 +82,6 @@ export async function bootShell({
       })
       return
     }
-    if (builtin && result.plugin.remote.kind !== 'builtin') {
-      record.transition(PLUGIN_STATUS.INCOMPATIBLE, {
-        code: 'builtin-must-be-bundled',
-        message: `Built-in plugin ${id} declares a ${result.plugin.remote.kind} remote`,
-      })
-      return
-    }
     /* Regions the plugin owns are opened before anything is indexed, so a
        contribution can target `demo-catalog/details-sidebar/v1` whether or
        not the catalog itself has been loaded. A collision is the plugin's
@@ -114,8 +101,6 @@ export async function bootShell({
     plugins.push(result.plugin)
   }
 
-  for (const manifest of builtins) admit(manifest, { builtin: true })
-
   const contributions = createContributionRegistry({ extensionPoints, permissions })
 
   /*
@@ -129,7 +114,7 @@ export async function bootShell({
   */
   const applyRegistry = (discovery) => {
     if (!discovery?.ok) {
-      /* Recorded, not thrown. The shell continues with its built-ins, and the
+      /* Recorded, not thrown. The native shell frame remains usable, and the
          Plugins screen shows why the remote list is empty. */
       registryError.value = { code: discovery?.code ?? 'registry-malformed', message: discovery?.message ?? '' }
       /* Same rule as the degraded branch (decision 48): a read the shell
@@ -149,7 +134,7 @@ export async function bootShell({
        revision is exactly what answers 304. */
     registry.degraded = discovery.degraded === true
     /* BR-AS22: an empty document that says it is degraded is not the same
-       claim as an empty registry, and the shell renders its built-ins either
+       claim as an empty registry, and the native frame remains usable either
        way. A degraded read is therefore never read as "everything was
        withdrawn" — diffing it would offer a reload for every remote plugin
        the shell is running, on the strength of a document the service already
@@ -176,12 +161,29 @@ export async function bootShell({
 
     const { added, reloadRequired } = diffRegistry(plugins, discovery.plugins)
     const before = new Set(contributions.routes.map((route) => route.qualifiedId))
-    for (const manifest of added) admit(manifest, { builtin: false })
+    for (const manifest of added) admit(manifest)
     contributions.index(plugins, statuses)
 
+    /* Synced with this read, not accumulated across reads. `diffRegistry` is a
+       pure comparison of the document against the manifests the shell is
+       running, and the running set only ever grows — so a change that still
+       holds is produced again by every later read, and one this read did not
+       produce is one the document no longer supports.
+
+       Retraction is what that buys, and it is not a nicety: an operator who
+       disabled an entry and re-enabled it seconds later left every running
+       shell insisting a plugin it was still rendering had been withdrawn.
+       Nothing here applies anything — the offer is withdrawn, never the
+       plugin (decision 25 / BR-AS19). */
     for (const change of reloadRequired) {
       if (!pendingReload.some((p) => p.id === change.id && p.reason === change.reason)) {
         pendingReload.push(change)
+      }
+    }
+    for (let i = pendingReload.length - 1; i >= 0; i--) {
+      const held = pendingReload[i]
+      if (!reloadRequired.some((c) => c.id === held.id && c.reason === held.reason)) {
+        pendingReload.splice(i, 1)
       }
     }
 
@@ -195,13 +197,9 @@ export async function bootShell({
     }
   }
 
-  // The live host boots only built-ins here; its NATS discovery begins after
-  // first paint. An injected client still supports isolated/offline fixtures.
+  // Live discovery starts after the native frame paints. An injected client
+  // supports isolated/offline fixtures through the same admission path.
   if (registryClient) applyRegistry(await registryClient.fetchRegistry())
-  /* Built-ins are indexed whether or not the registry answered — a shell that
-     rendered nothing when accounts-service is down would fail BR-AS04 at the
-     first hop. index() is incremental, so this places what the read did not. */
-  contributions.index(plugins, statuses)
 
   return {
     plugins,
@@ -225,7 +223,6 @@ export async function bootShell({
         id: record.id,
         name: record.name,
         version: manifestOf(record.id)?.version ?? null,
-        builtin: manifestOf(record.id)?.remote?.kind === 'builtin',
         shellApiVersion: manifestOf(record.id)?.shellApiVersion ?? null,
         /* Placed contributions, not declared ones: a contribution the index
            refused is in `refusals`, and listing it here would tell the

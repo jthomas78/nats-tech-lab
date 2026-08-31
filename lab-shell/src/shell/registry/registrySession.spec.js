@@ -1,7 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { h } from 'vue'
-import { demoCatalogManifest } from '../../plugins/demo-catalog/manifest.js'
 import { bootShell } from '../bootShell.js'
 import { createPermissionEvaluator } from '../auth/permissions.js'
 import { createShellConnection } from '../connections/shellConnection.js'
@@ -14,7 +13,7 @@ const cleanup = []
 afterEach(async () => { while (cleanup.length) await cleanup.pop()() })
 
 async function fixture({ connect = async () => ({ close() {} }), afterPaint = async () => {}, client } = {}) {
-  const shell = await bootShell({ builtins: [demoCatalogManifest], permissions: createPermissionEvaluator({ permissions: ['*'] }) })
+  const shell = await bootShell({ permissions: createPermissionEvaluator({ permissions: ['*'] }) })
   const connection = createShellConnection({ connect })
   let deliver
   connection.subscribe = vi.fn((_subject, handler) => { deliver = handler; return { unsubscribe: vi.fn() } })
@@ -27,15 +26,16 @@ async function fixture({ connect = async () => ({ close() {} }), afterPaint = as
 }
 
 describe('BR-AS30 — live host boot ordering', () => {
-  it('renders built-in navigation before painting permits minting or connecting', async () => {
+  it('paints the native frame before minting or connecting', async () => {
     const paint = deferred()
     const socket = deferred()
     const connect = vi.fn(() => socket.promise)
     const f = await fixture({ connect, afterPaint: () => paint.promise })
-    const view = mount({ render: () => h('nav', f.shell.contributions.navigation.map((n) => n.label).join(', ')) })
+    const view = mount({ render: () => h('nav', 'Home, Plugins') })
     cleanup.push(() => view.unmount())
     const started = f.session.start()
-    expect(view.text()).toContain('Demos')
+    expect(view.text()).toContain('Home, Plugins')
+    expect(f.shell.plugins).toHaveLength(0)
     expect(connect).not.toHaveBeenCalled()
     paint.resolve()
     await flushPromises()
@@ -47,12 +47,12 @@ describe('BR-AS30 — live host boot ordering', () => {
     expect(f.client.fetchRegistry).toHaveBeenCalled()
   })
 
-  it('keeps built-ins after a refused connection and reflects a late read error reactively', async () => {
+  it('keeps the native frame after a refused connection and reflects a late read error reactively', async () => {
     const f = await fixture({ connect: async () => { throw new Error('refused') } })
     const view = mount(ShellFooter, { global: { provide: { [SHELL]: f.shell }, stubs: { PluginSlot: true } } })
     cleanup.push(() => view.unmount())
     await f.session.start()
-    expect(f.shell.contributions.navigation).toHaveLength(1)
+    expect(f.shell.contributions.navigation).toHaveLength(0)
     f.shell.applyRegistry({ ok: false, code: 'registry-unreachable' })
     await view.vm.$nextTick()
     expect(view.find('[data-testid="registry-unavailable"]').exists()).toBe(true)

@@ -9,6 +9,7 @@ import (
 	"github.com/nats-io/nkeys"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/accounts-service/accounts"
+	"github.com/jthomas78/nats-tech-lab/shared/mferegistry"
 )
 
 // The TTL stamped on minted browser/admin JWTs is no longer a constant here:
@@ -149,12 +150,11 @@ func MintAdminToken(ctx context.Context, reg accounts.UserRegistry, accountPub, 
 		// an endpoint breaks it, and the fix is to look at the subject and
 		// decide, not to paste it in.
 		claims.Permissions.Pub.Allow.Add(accounts.UsersAdapterSubjects()...)
-		claims.Permissions.Pub.Allow.Add(
-			"api._platform.registry.entries.curated.v1",
-			"api._platform.registry.entries.upsert.v1",
-			"api._platform.registry.entries.set-enabled.v1",
-			"api._platform.registry.audit.list.v1",
-		)
+		// The registry moved to mfe-registry-service, so these subjects are
+		// no longer literals this module can check against a local
+		// registration table. shared/mferegistry is the one copy both sides
+		// read — the grant here and the endpoints there.
+		claims.Permissions.Pub.Allow.Add(mferegistry.Operator()...)
 		claims.Permissions.Sub.Allow.Add("notify.accounts.account.>", "notify._platform.refdata.>", "notify._platform.kv.trace-request-reply.>",
 			// Phase 43b (BR-047): the Messages panel's live feed, the same
 			// bucket-notify shape as trace-request-reply above. This grants the
@@ -168,8 +168,8 @@ func MintAdminToken(ctx context.Context, reg accounts.UserRegistry, accountPub, 
 // its realm and therefore this credential: never grant an operator capability.
 func MintShellToken(ctx context.Context, reg accounts.UserRegistry, accountPub, accountSigningKeySeed, wsURL string, ttl time.Duration) (ConnectInfo, error) {
 	return mintUserToken(ctx, reg, accountPub, accountSigningKeySeed, "lab-shell", "platform", wsURL, ttl, func(claims *jwt.UserClaims) {
-		claims.Permissions.Pub.Allow.Add("api._platform.registry.frontend-plugins.read.v1", "_INBOX.>")
-		claims.Permissions.Sub.Allow.Add("notify._platform.registry.frontend-plugins.changed", "_INBOX.>")
+		claims.Permissions.Pub.Allow.Add(mferegistry.ShellRead, "_INBOX.>")
+		claims.Permissions.Sub.Allow.Add(mferegistry.Changed, "_INBOX.>")
 	})
 }
 

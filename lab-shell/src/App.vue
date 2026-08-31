@@ -1,8 +1,7 @@
 <script setup>
 /* The shell frame. It renders the topbar, the nav built from contributions,
    the route-scoped controls, the footer bar, and whatever the router resolved
-   — and it knows nothing about any feature. The one import that names a plugin
-   is main.js's built-in adapter; nothing here does (BR-AS09). */
+   — and it knows nothing about any feature or plugin identity (BR-AS09). */
 import AppShell from '@ui-shell/AppShell.vue'
 import { computed, inject } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
