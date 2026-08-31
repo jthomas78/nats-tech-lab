@@ -801,7 +801,7 @@ bucket). Curated entries do not survive it; there is no seed for them beyond
 
 ---
 
-### Phase 7 — PROPOSED (design gate not passed) — Publisher signing and the trust table
+### Phase 7 — APPROVED (design gate passed 2026-08-31) — Publisher signing and the trust table
 
 **Why this is a phase, and why it comes before Phase 8.** The requirements pass of 2026-08-30 asked
 for plugins to be digitally signed so no unauthorised MFE can be injected, and settled that a service
@@ -823,7 +823,7 @@ revision, audit and disable-never-delete semantics; the revocation fan-out.
 phase must not be described as if it delivered it. Browser-side verification. Any producer of signed
 manifests other than a test fixture; Phase 8 brings the first real one.
 
-#### Design decisions — 66–71, PROPOSED
+#### Design decisions — 66–70 as proposed; 71 revised; 97–105 added at the gate, 2026-08-31
 
 | # | Decision | Rationale |
 | --- | --- | --- |
@@ -832,59 +832,140 @@ manifests other than a test fixture; Phase 8 brings the first real one.
 | 68 | **The signed manifest bytes are the entry's source of truth; the columns are a derived projection.** | The store reassembles the document from columns today, and reassembly — key ordering, whitespace, a field defaulted on read — invalidates a signature. The alternative is canonical serialisation (JCS/RFC 8785) applied identically before every sign and every verify, which is one more thing that must never drift. Storing bytes verbatim and projecting for query and display removes the failure mode instead of managing it. |
 | 69 | **Publisher keys are NKeys, curated as service state.** | The repo is already in operator mode with `nsc`; NKeys are Ed25519 with the encoding and tooling used everywhere else, and `nkeys.FromPublicKey(...).Verify(...)` is the whole verification. The trusted-publishers table carries the registry's own semantics — server-assigned revision, audited writes, disable rather than delete — because a key list that can be silently edited is not a trust anchor. |
 | 70 | **Revoking a key re-evaluates every entry that key signed.** | Disabling a key must do more than stop accepting new manifests; entries already admitted on that signature are exactly the ones at risk. This is the only operation in the trust model that touches an unbounded set of entries in a single revision, and the current `Apply` path is one entry per write. Designing it now is cheaper than discovering it during an incident, which is the only other time it runs. |
-| 71 | **Signature is required on dynamic entries and optional on operator-placed ones.** | The threat is an untrusted announcer, and an operator-placed entry has a human who already vouched, with an audit row naming them. Requiring signatures everywhere would mean an `nsc` key before a hello-world plugin and a signed dev seed file, which buys nothing against the actual threat. Unsigned *dynamic* entries are refused outright rather than queued — there is nothing for an operator to review, because the announcement proves nothing. |
+| 71 | **REVISED 2026-08-31 — the signature rule keys off provenance, not lifecycle.** | *Originally: "required on dynamic entries and optional on operator-placed ones."* Reversed at the gate on an external review finding. Phase 8's decision 86 lets an operator edit `lifecycle` after the fact, so keying a security rule off it puts the rule under the control of an editable field — an operator could relax a signature requirement by changing a classification. What the decision was reaching for was never lifecycle but **who placed the entry**, which is exactly what `source` records and no operator edit can change. Superseded by decision 102; the reasoning about why a hello-world plugin should not need an `nsc` key survives there intact. |
+| 97 | **A publisher key owns a named set of plugin ids; a valid signature alone authorises nothing.** | Settled 2026-08-31 with the user. Decisions 66–71 made a key *trusted* and stopped there, so any trusted key could replace any entry — and Phase 8's BR-AS40 admits an update whenever the origin is unchanged, while several plugins routinely share one origin. Ownership is therefore carried by the publisher row (an explicit id list, or a prefix), not derived from the origin: origin-derived ownership collapses the moment two teams deploy behind one host, which is the normal case rather than the exotic one. An announcement for a plugin id the signer does not own is refused with its own cause, ahead of any other check. |
+| 98 | **Replay is closed by a monotonic release number inside the signed bytes, not by binding the announcer.** | Settled 2026-08-31 with the user, correcting gate question 1. That question claimed signing the announcing service's identity "closes replay of a valid manifest"; it does not — it stops a *different* service replaying it, and leaves the original publisher's own old message replayable forever, which would silently roll a plugin back to a superseded remote. Each signed manifest carries a release counter for its plugin id. The registry stores the highest it has seen: lower is refused, **equal is accepted as a no-op** so an ordinary retry after a timeout is safe. Chosen over a timestamp-and-nonce window, which would require clock agreement between services and a nonce cache that survives restart. The registry's own revision cannot serve here, because the handler reads that revision on the announcement's behalf. Going back to an earlier release is deliberately not automatic — it is an operator act, because a silent rollback is the attack. |
+| 99 | **Publisher trust is re-checked at commit, inside the transaction that checks the revision.** | Settled 2026-08-31 with the user. `servicerpc`'s flow verifies the signature and only then reads the curated document, so a key revoked in that window still commits — the announcement was verified against a trust state that no longer exists. Re-reading the publisher's state at commit costs one small read per announcement and needs no new machinery. Pinning the trust-table revision in the write was rejected: it would refuse perfectly valid announcements whenever any unrelated publisher row was edited. |
+| 100 | **Revocation forces a reload, overriding the static-plugin no-unload rule.** | Settled 2026-08-31 with the user. Withholding an entry governs the *next* admission and does nothing to code already running — its timers, subscriptions and handlers continue in every open tab. Phase 5's rule that a `static` plugin is not unloaded under the user is a **catalogue** rule; revocation is a security event and outranks it. Phase 7 therefore promises the plugin stops at the next paint, and the docs state plainly what it cannot promise: an in-flight callback is not interrupted, and true containment (isolating a plugin's runtime) is a separate phase that this one must not be described as delivering. |
+| 101 | **The verified bytes travel as an opaque base64 blob through storage, cache and transport alike.** | Settled 2026-08-31 with the user, extending decision 68 to the two hops it did not name. Verbatim storage is not enough on its own: JSONB reorders keys and strips whitespace, and an ordinary JSON round trip over NATS does the same, so bytes that survived Postgres could still fail verification after a cache read or a transport hop. The blob sits in its own column beside the queryable projection, is copied into KV unchanged, and is carried as base64 on the wire. Nothing re-serialises it anywhere. Editing signed content is not an edit — it invalidates the attestation, and the entry must be re-signed or fall back to operator curation. |
+| 102 | **Every announced entry must be signed; curated and preload entries need not be.** (Replaces decision 71.) | Settled 2026-08-31 with the user. The rule keys off `source`, which the registration path sets and no operator edit can change, so altering `lifecycle` can never bypass a signature requirement or a revocation. The exception for operator-placed entries is stated on its own terms rather than as a lifecycle side effect: a human vouched and the audit row names them, which is the thing a signature would otherwise supply. Requiring signatures everywhere was rejected for the reason decision 71 already gave — an `nsc` ceremony before a hello-world plugin, and a signed dev seed file, neither of which defends against an untrusted announcer. |
+| 103 | **A publisher is a stable identity holding many keys; retired and revoked are different states.** | Settled 2026-08-31 with the user, who refined the option put to the gate. The publisher row carries the stable id and owns both the key list and the plugin-id list from decision 97, so **rotation is not revocation**: retiring a key adds its successor and leaves every entry that key signed valid, while revoking one withdraws trust and re-evaluates them. Making the key itself the identity was rejected precisely because it collapses those two into one event. Each stored manifest additionally records **the key that actually signed it**, not just the publisher — without it a revocation cannot tell which entries it must touch. Moving a plugin id between publishers is an explicit, audited write, never a side effect of a key change. |
+| 104 | **A revocation is one audited write over many entries, in a single revision.** | Settled 2026-08-31 with the user, answering the question decision 70 raised and left open. Every write path today is one entry per revision; fanning a revocation out across that path would produce one revision and one change notification per affected entry, and a failure halfway would leave the registry partly revoked with no name for the state it was in. The application layer gains a bulk path used by this operation alone. Shells see one change. |
+| 105 | **A degraded read serves the cached document, never a lower revision, and says how old it is.** | Settled 2026-08-31 with the user. With Postgres unavailable the KV cache may hold a document written before a revocation. Refusing to serve would convert a rare security event into a routine availability failure — one database outage would drop every shell to its native frame. Cache writes are therefore monotonic (a lower revision can never overwrite a higher one) **and** the served document carries its revision and age, so the shell and the Admin surface show `degraded, as of revision N` rather than presenting stale trust as current. Monotonic writes alone were explicitly judged insufficient: the staleness has to be visible, not merely bounded. |
 
-#### Business rules — BR-AS35 to BR-AS38 (draft, to be confirmed at the gate)
+#### Business rules — BR-AS35 to BR-AS38 (confirmed, two rewritten) and BR-AS46 to BR-AS51 (added at the gate)
 
-- **BR-AS35 — A dynamic entry must carry a valid publisher signature.** An announcement with no
-  signature, an invalid signature, or a signature from a key that is not trusted and enabled is
-  refused and never stored as pending. Operator-placed entries may be unsigned.
+- **BR-AS35 — An announced entry must carry a valid publisher signature.** *Rewritten at the gate
+  2026-08-31 (decision 102): the rule keyed off `lifecycle`, which an operator may edit.* An
+  announcement with no signature, an invalid signature, a signature from a key that is not trusted
+  and enabled, or a signature over a plugin id the signer does not own, is refused and never stored
+  as pending. Entries whose `source` is `curated` or `preload` may be unsigned. Changing an entry's
+  `lifecycle` never changes what this rule requires of it.
 - **BR-AS36 — Signature verification happens in the service, never in the browser.** The document the
   shell reads carries the verification outcome; the shell does not re-verify and is not asked to hold
   a trust anchor.
 - **BR-AS37 — The signed manifest is stored as signed.** The bytes that were verified are the bytes
   that are stored and re-served. Any representation the service derives for query or display is a
   projection and is never the artifact a signature is checked against.
-- **BR-AS38 — Publisher trust is curated, audited state.** Adding or disabling a publisher key is a
-  revision-bearing, audited write with an actor. Disabling a key re-evaluates every entry signed by
-  it; entries that no longer verify are withheld from the readable document.
+- **BR-AS38 — Publisher trust is curated, audited state, and a publisher outlives its keys.**
+  *Rewritten at the gate 2026-08-31 (decisions 103, 104).* A publisher has a stable id and holds a
+  list of keys and a list of owned plugin ids. Adding, retiring or revoking a key, and every transfer
+  of a plugin id between publishers, is a revision-bearing, audited write with an actor. **Retiring a
+  key is not revoking it**: entries signed by a retired key remain valid, entries signed by a revoked
+  key are re-evaluated and withheld. Re-enabling a revoked key restores nothing on its own — each
+  withheld entry is restored individually by an operator, as its own audited write.
+- **BR-AS46 — Ownership authorises; a signature alone does not.** A publisher may announce only the
+  plugin ids its row owns. An announcement for any other id is refused with its own cause, whatever
+  the signature proves and whatever origin the remote names.
+- **BR-AS47 — An announcement carries a release number and never goes backwards.** The signed bytes
+  include the plugin id and a release counter. The registry refuses a release lower than the highest
+  it has accepted for that id, and treats an equal one as a no-op so a retry is safe. Returning to an
+  earlier release is an operator act, never an effect of a received message.
+- **BR-AS48 — Trust is re-checked where the write commits.** The publisher's key state is read again
+  inside the transaction that checks the revision. A key revoked after verification and before commit
+  causes the write to fail.
+- **BR-AS49 — Revocation reaches the running browser.** A revoked entry is withheld from the readable
+  document *and* the shell is told to reload, overriding the rule that a `static` plugin is not
+  unloaded under the user. The rule promises the plugin stops at the next paint; it does not promise
+  that an in-flight callback is interrupted, and it is never described as isolating a plugin's
+  runtime.
+- **BR-AS50 — The signed bytes survive every hop unchanged.** Storage, the KV cache and the wire all
+  carry the verified bytes opaquely. Nothing re-serialises them. Any edit to signed content
+  invalidates its attestation; the entry is re-signed or falls back to operator curation.
+- **BR-AS51 — A degraded read is stale, never regressive, and always says so.** A cached document may
+  be served while Postgres is unavailable. A lower revision never overwrites a higher one in the
+  cache, and the served document carries its revision and age so the shell and Admin can show that
+  trust is stale rather than current.
 
-#### Gate questions
+#### Gate questions — answered 2026-08-31
 
-1. **What exactly is signed** — the manifest object alone, or the manifest plus the announcing
-   service's identity? The second binds "who published" to "who announced" and closes replay of a
-   valid manifest by a different service; it also means a manifest cannot be handed to an operator to
-   curate by hand.
-2. **Key provisioning** — does a publisher key come from `nsc` alongside the account trust chain, or
-   is it an independent keypair the registry knows nothing else about? The first reuses the existing
-   ceremony; the second keeps plugin publishing from widening the NATS trust chain.
-3. **Does a revoked key's entry get disabled or deleted-by-withholding?** Disable-never-delete says
-   the row stays; the question is whether the operator sees it as disabled-by-revocation, which is a
-   state the admin surface does not have today.
+1. **What exactly is signed** — the manifest, the plugin id it claims, and the release number.
+   **Not** the announcing service's identity: ownership (decision 97) already stops a key speaking
+   for another plugin and the release number (decision 98) already stops replay, so binding the
+   announcer would add nothing while permanently ruling out handing a signed manifest to an operator
+   to place by hand.
+2. **Key provisioning** — a dedicated publisher keypair, independent of the NATS account trust chain.
+   Plugin publishing does not widen that chain, and a leaked publisher key cannot connect to NATS as
+   anything. The cost is a second small key ceremony beside `nsc`.
+3. **Does a revoked key's entry get disabled or deleted-by-withholding?** — withheld, and shown in a
+   distinct `revoked` trust state, separate from the operator's `enabled` flag, so "an operator
+   turned this off" and "trust was withdrawn" never look alike on the Plugins or Admin screens.
 
-#### Tasks — not started; this phase is PROPOSED
+#### Tasks — approved 2026-08-31, not started
 
-> No code, specs or business-rule edits until the gate passes (AI Agent Workflow step 2).
+> Sequenced so nothing is built on a representation that later changes: bytes first (7a), then the
+> identity that signs them (7b), then verification (7c), then the paths that withdraw trust (7d, 7e).
+> 8c — the manifest-drift checker — unblocks when 7c lands.
 
 ##### 7a — verbatim storage
-- [ ] Entry storage holds the manifest bytes; columns become a projection; `Document` assembles from bytes.
-- [ ] Specs: a stored entry round-trips byte-identically; a projection change does not alter what is served for verification.
+- [ ] Entry storage holds the verified manifest bytes in their own base64 column; the queryable
+      columns become a projection; `Document` assembles from the bytes (decisions 68, 101).
+- [ ] The KV cache copies the blob unchanged and the browser/service transports carry it as base64 —
+      no hop re-serialises it.
+- [ ] Specs: a stored entry round-trips byte-identically through Postgres, through the KV cache
+      **and** through transport; a projection change does not alter what is served for verification;
+      an edit to signed content invalidates its attestation (BR-AS37, BR-AS50).
 
-##### 7b — verification
-- [ ] NKey verification in `registry/internal/domain`; the outcome stored with the entry.
-- [ ] Specs: valid, invalid, unknown-key and disabled-key signatures, each with its own refusal cause.
+##### 7b — publishers, keys and ownership
+- [ ] Trusted-publishers table: stable publisher id, many keys, owned plugin ids, with the registry's
+      revision, audit and disable-never-delete semantics (decisions 69, 97, 103).
+- [ ] Key states are distinct: enabled, **retired** (successor exists, signed entries stay valid) and
+      **revoked** (trust withdrawn, entries re-evaluated). Each stored manifest records the key that
+      actually signed it, not only its publisher.
+- [ ] Transferring a plugin id between publishers is its own audited write; keys are dedicated
+      publisher keypairs, minted outside the NATS account trust chain (gate answer 2).
+- [ ] Admin surface for the table, showing the `revoked` trust state separately from `enabled`.
+- [ ] Specs: a publisher write is revision-checked and audited exactly as a registry write is;
+      retiring a key leaves its entries admitted; a transfer moves ownership and nothing else
+      (BR-AS38, BR-AS46).
 
-##### 7c — the trust table
-- [ ] Trusted-publishers table with revision, audit and disable-never-delete; admin surface for it.
-- [ ] Specs: a publisher write is revision-checked and audited exactly as a registry write is.
+##### 7c — verification
+- [ ] NKey verification in `registry/internal/domain`, over the manifest, the plugin id and the
+      release number; the outcome and the signing key stored with the entry (decisions 67, 98).
+- [ ] Ownership is checked ahead of everything else; the release counter is stored per plugin id, a
+      lower release is refused and an equal one is a no-op.
+- [ ] Trust is re-read at commit, inside the transaction that checks the revision (decision 99).
+- [ ] `domain.NoVerifier{}` is replaced in `composition.go`; the announce path stops being
+      fail-closed. Signatures are required by `source`, never by `lifecycle` (decision 102).
+- [ ] Specs: valid, invalid, unknown-key, retired-key, revoked-key, not-owned, replayed and
+      equal-release announcements each with their own refusal cause; a key revoked between
+      verification and commit fails the write; an operator-placed entry is admitted unsigned; editing
+      an entry's `lifecycle` changes nothing about what is required of it
+      (BR-AS35, BR-AS46, BR-AS47, BR-AS48).
 
 ##### 7d — revocation
-- [ ] Disabling a key re-evaluates every entry it signed, in one revision.
-- [ ] Specs: entries signed by a revoked key are withheld; entries signed by other keys are untouched.
+- [ ] Revoking a key re-evaluates every entry that key signed and withholds them in **one** audited
+      write and one revision, through a new bulk path in the application layer (decisions 70, 104).
+- [ ] Re-enabling a revoked key restores nothing; each entry is restored individually by an operator.
+- [ ] Specs: entries signed by a revoked key are withheld and entries signed by other keys are
+      untouched; shells observe one revision change, not one per entry; a re-enabled key leaves every
+      withheld entry withheld until restored (BR-AS38).
 
-##### 7e — rules and docs
-- [ ] `BUSINESS_RULES-APP-SHELL.md` — BR-AS35 to BR-AS38.
-- [ ] `ARCHITECTURE-APP-SHELL.md` — the three trust gates, and an explicit statement of what signing does not cover.
+##### 7e — revocation reaches the browser, and the degraded read
+- [ ] A withheld-by-revocation entry makes the shell reload, overriding the `static` no-unload rule
+      (decision 100).
+- [ ] Cache writes are monotonic and the served document carries its revision and age; the shell and
+      Admin show `degraded, as of revision N` (decision 105).
+- [ ] Specs: a revoked static plugin is reloaded away rather than left running; a lower revision
+      never overwrites a higher one in the cache; a degraded read is labelled as stale in both
+      surfaces (BR-AS49, BR-AS51).
+
+##### 7f — rules and docs
+- [ ] `BUSINESS_RULES-APP-SHELL.md` — BR-AS35 to BR-AS38 (two rewritten) and BR-AS46 to BR-AS51.
+- [ ] `ARCHITECTURE-APP-SHELL.md` — the three trust gates; what signing does **not** cover
+      (decision 66); and what revocation does not promise (decision 100), stated as plainly.
+- [ ] Phase 8's BR-AS40 cross-referenced against BR-AS46: an origin-unchanged update is still refused
+      when the signer does not own the id.
 
 ---
 
@@ -1024,7 +1105,7 @@ only.
 - [x] Specs: a restart does not revert an edited, disabled or removed entry; a fresh store is seeded
       once; one refused entry does not prevent the others being seeded or the service starting.
 
-> **Live publisher verification remains blocked on Phase 7 (PROPOSED, unbuilt).** The follow-up
+> **Live publisher verification remains blocked on Phase 7 (APPROVED 2026-08-31, not started).** The follow-up
 > task explicitly authorizes 8b's handler and tests with `NoVerifier`; production refuses every
 > announcement until the trust anchor exists. No signing scheme or bypass is introduced. 8c's
 > pending UI and drift checker remain separate work.
