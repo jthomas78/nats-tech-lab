@@ -189,7 +189,7 @@ async function saveDraft() {
   originRefusal.value = ''
   // `conforming` is a read-side judgement the server computes; it is not part
   // of the entry and is never written back.
-  const { conforming, creating, source, registeredBy, ...entry } = draft.value
+  const { conforming, creating, source, registeredBy, drift, ...entry } = draft.value
   if (await write(() => upsertRegistryEntry(entry, revision.value))) closeDrawer()
 }
 
@@ -253,6 +253,15 @@ watch(usePlatformConnection().epoch, load)
           Curation decides what is served. An announcement never serves itself (BR-AS21).
         </span>
         <Button
+          label="Refresh observations"
+          size="small"
+          severity="secondary"
+          text
+          :loading="loading"
+          data-testid="refresh-observations"
+          @click="load"
+        />
+        <Button
           label="Add plugin"
           size="small"
           severity="secondary"
@@ -264,13 +273,14 @@ watch(usePlatformConnection().epoch, load)
       <table v-if="!loading" class="tbl">
         <thead>
           <tr>
-            <th style="width: 24%">Plugin</th>
-            <th style="width: 8%">Version</th>
-            <th style="width: 8%">Shell API</th>
-            <th style="width: 14%">Route prefix</th>
-            <th style="width: 18%">Contributions</th>
+            <th style="width: 20%">Plugin</th>
+            <th style="width: 6%">Version</th>
+            <th style="width: 6%">Shell API</th>
+            <th style="width: 11%">Route prefix</th>
+            <th style="width: 14%">Contributions</th>
             <th style="width: 9%">Source</th>
             <th style="width: 15%">State</th>
+            <th style="width: 13%">Manifest</th>
             <th></th>
           </tr>
         </thead>
@@ -312,6 +322,22 @@ watch(usePlatformConnection().epoch, load)
               <span class="pill" :class="state(e).tone"><span class="pip"></span>{{ state(e).label }}</span>
               <span v-if="state(e).note" class="id">{{ state(e).note }}</span>
             </td>
+            <td>
+              <!-- Drift is evidence for a later curation decision, never a
+                   serving state. Keep it separate so a changed manifest
+                   cannot make an enabled plugin look withheld. -->
+              <template v-if="e.source === 'preload'">
+                <span
+                  class="mono"
+                  :class="e.drift?.state === 'drift' ? 'warn' : 'lab-muted'"
+                  data-testid="entry-drift"
+                >{{ e.drift?.state || 'not checked' }}</span>
+                <span v-if="e.drift?.fields?.length" class="id" data-testid="drift-fields">{{ e.drift.fields.join(', ') }}</span>
+                <span v-if="e.drift?.cause" class="id" data-testid="drift-cause">{{ e.drift.stage }}: {{ e.drift.cause }}</span>
+                <span v-if="e.drift?.attemptedAt" class="id" :title="e.drift.attemptedAt">last attempt {{ new Date(e.drift.attemptedAt).toLocaleTimeString() }}</span>
+              </template>
+              <span v-else class="lab-dim">—</span>
+            </td>
             <td class="row-actions">
               <Button
                 :label="e.enabled ? 'Disable' : 'Enable'"
@@ -335,6 +361,7 @@ watch(usePlatformConnection().epoch, load)
         </tbody>
       </table>
       <p v-if="!loading && !entries.length" class="lab-muted">Nothing is curated yet.</p>
+      <p class="lab-muted note">Manifest checks run in the registry once a minute after each pass. Refresh reads the last result; it does not start a fetch. Drift leaves the curated copy in service.</p>
     </div>
 
     <div class="grid-2">

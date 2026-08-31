@@ -16,11 +16,13 @@ package registry
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -29,6 +31,7 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/kvcache"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/manifesthttp"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/postgres"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/preload"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/rest"
@@ -43,6 +46,9 @@ type Module struct {
 	store         *postgres.Store
 	adapter       *browserrpc.Adapter
 	announcements *servicerpc.Adapter
+	driftCancel   context.CancelFunc
+	driftDone     chan struct{}
+	driftHTTP     *manifesthttp.Client
 }
 
 // MountHTTP mounts the registry's HTTP surface, which is exhaustively empty:
@@ -61,13 +67,32 @@ func ParseAllowedOrigins(raw string) domain.Allowlist {
 	return domain.NewAllowlist(strings.Split(raw, ","))
 }
 
+// ParseFetchOrigins reads REGISTRY_FETCH_ORIGINS, a JSON object mapping each
+// browser origin to its service-reachable origin. Warnings are returned as
+// data so parsing stays pure; main logs them once at startup. Invalid config
+// checks nothing, and never falls back to the browser's localhost address.
+func ParseFetchOrigins(raw string, allowed domain.Allowlist) (domain.FetchOrigins, []string) {
+	mappings := map[string]string{}
+	if strings.TrimSpace(raw) != "" {
+		if err := json.Unmarshal([]byte(raw), &mappings); err != nil || mappings == nil {
+			origins, _ := domain.NewFetchOrigins(allowed, nil)
+			return origins, []string{"ignored fetch mappings: expected a JSON object of browser origins to service origins"}
+		}
+	}
+	return domain.NewFetchOrigins(allowed, mappings)
+}
+
 // Startup migrates the registry schema and wires the module.
 //
 // nc may be nil and js may be nil: without a NATS connection the module
 // still serves reads and writes, it just has no read cache and announces
 // nothing. That degradation is deliberate: it is what lets a store-level test
 // compose the module without a broker.
-func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream, nc *nats.Conn, allowlist domain.Allowlist, log *slog.Logger) (*Module, error) {
+func Startup(lifetime context.Context, db *sql.DB, js jetstream.JetStream, nc *nats.Conn, allowlist domain.Allowlist, log *slog.Logger, fetchOrigins ...domain.FetchOrigins) (*Module, error) {
+	// Startup is bounded separately from the worker's lifetime. Passing a
+	// startup deadline to Run would quietly stop checks after one minute.
+	ctx, cancel := context.WithTimeout(lifetime, 60*time.Second)
+	defer cancel()
 	if err := postgres.Migrate(ctx, db); err != nil {
 		return nil, err
 	}
@@ -92,8 +117,14 @@ func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream, nc *nats.C
 	if err != nil {
 		return nil, err
 	}
+	origins, _ := domain.NewFetchOrigins(allowlist, nil)
+	if len(fetchOrigins) > 0 {
+		origins = fetchOrigins[0]
+	}
+	m.driftHTTP = manifesthttp.New()
+	checker := application.NewDriftChecker(m.Service, origins, m.driftHTTP, application.DriftSchedule{})
 	if nc != nil {
-		adapter, err := browserrpc.Mount(nc, browserrpc.New(m.Service, store), log)
+		adapter, err := browserrpc.Mount(nc, browserrpc.New(m.Service, store, checker), log)
 		if err != nil {
 			return nil, err
 		}
@@ -108,7 +139,17 @@ func Startup(ctx context.Context, db *sql.DB, js jetstream.JetStream, nc *nats.C
 			return nil, err
 		}
 	}
+	workerCtx, workerCancel := context.WithCancel(lifetime)
+	m.driftCancel, m.driftDone = workerCancel, make(chan struct{})
+	go func() { defer close(m.driftDone); checker.Run(workerCtx) }()
 	return m, nil
 }
 
-func (m *Module) Stop() error { return errors.Join(m.adapter.Stop(), m.announcements.Stop()) }
+func (m *Module) Stop() error {
+	if m.driftCancel != nil {
+		m.driftCancel()
+		<-m.driftDone
+		m.driftHTTP.Close()
+	}
+	return errors.Join(m.adapter.Stop(), m.announcements.Stop())
+}

@@ -431,6 +431,14 @@ services:
       # 7112; the independent failure fixtures own 7113–7115. Each origin
       # has a running service and a manifest in the mounted preload file.
       REGISTRY_ALLOWED_ORIGINS: "http://localhost:7111,http://localhost:7112,http://localhost:7113,http://localhost:7114,http://localhost:7115"
+      # Browser localhost is not this container's localhost. These translate
+      # existing grants only; missing mappings leave drift as not checked.
+      REGISTRY_FETCH_ORIGINS: >-
+        {"http://localhost:7111":"http://example-plugin-frontend:80",
+         "http://localhost:7112":"http://demo-catalog-frontend:80",
+         "http://localhost:7113":"http://example-plugin-slow-frontend:80",
+         "http://localhost:7114":"http://example-plugin-activate-throws-frontend:80",
+         "http://localhost:7115":"http://example-plugin-incompatible-frontend:80"}
       REGISTRY_PRELOAD_FILE: /etc/registry/registry.json
     ports:
       - "7206:8080"

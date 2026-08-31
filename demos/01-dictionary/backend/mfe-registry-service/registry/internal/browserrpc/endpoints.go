@@ -47,9 +47,22 @@ type Auditor interface {
 type Endpoints struct {
 	svc   Service
 	audit Auditor
+	drift DriftReader
 }
 
-func New(svc Service, audit Auditor) *Endpoints { return &Endpoints{svc: svc, audit: audit} }
+// DriftReader exposes only a completed observation. Fetching is deliberately
+// not part of this interface: no NATS handler may wait on a plugin's HTTP.
+type DriftReader interface {
+	Snapshot(domain.Entry, string) domain.Drift
+}
+
+func New(svc Service, audit Auditor, drift ...DriftReader) *Endpoints {
+	e := &Endpoints{svc: svc, audit: audit}
+	if len(drift) > 0 {
+		e.drift = drift[0]
+	}
+	return e
+}
 
 type ReadRequest struct {
 	HeldRevision int64 `json:"heldRevision"`
@@ -100,6 +113,9 @@ type EntryView struct {
 	// approving an announcement is a decision about a publisher, and a badge
 	// that says only "announced" names nobody to decide about.
 	RegisteredBy string `json:"registeredBy,omitempty"`
+	// Drift is a last observation, independent of conforming and enabled.
+	// It never travels on the shell's read or back into the stored entry.
+	Drift domain.Drift `json:"drift"`
 }
 
 type CuratedResponse struct {
@@ -120,11 +136,16 @@ func (e *Endpoints) curate(doc domain.Document, sources map[string]domain.Regist
 		if !ok {
 			reg = domain.Registration{Source: domain.SourceUnknown}
 		}
+		drift := domain.UncheckedDrift("awaiting-check")
+		if e.drift != nil {
+			drift = e.drift.Snapshot(entry, reg.Source)
+		}
 		out.Plugins = append(out.Plugins, EntryView{
 			Entry:        entry,
 			Conforming:   allowed.Check(entry) == nil,
 			Source:       reg.Source,
 			RegisteredBy: reg.By,
+			Drift:        drift,
 		})
 	}
 	return out

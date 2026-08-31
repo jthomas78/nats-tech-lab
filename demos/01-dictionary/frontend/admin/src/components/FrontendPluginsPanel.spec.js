@@ -78,6 +78,91 @@ beforeEach(() => {
 })
 
 describe('FrontendPluginsPanel', () => {
+  describe('BR-AS45 / decisions 77 and 85 — manifest drift is display only', () => {
+    it('refreshes the last observation from the registry without writing or fetching a plugin', async () => {
+      const d = doc()
+      d.plugins[0].source = 'preload'
+      d.plugins[0].drift = { state: 'checked' }
+      getRegistryEntries.mockResolvedValue(d)
+      const w = mountPanel()
+      await flushPromises()
+      expect(w.get('[data-testid="entry-drift"]').text()).toBe('checked')
+      getRegistryEntries.mockResolvedValue({ ...d, plugins: [{ ...d.plugins[0], drift: { state: 'not checked', stage: 'manifest-drift', cause: 'fetch-failed' } }] })
+      await w.get('[data-testid="refresh-observations"]').trigger('click')
+      await flushPromises()
+      expect(w.get('[data-testid="entry-drift"]').text()).toBe('not checked')
+      expect(getRegistryEntries).toHaveBeenCalledTimes(2)
+      expect(upsertRegistryEntry).not.toHaveBeenCalled()
+      expect(setRegistryEntryEnabled).not.toHaveBeenCalled()
+      w.unmount()
+    })
+
+    it.each(['fetch-failed', 'timeout', 'http-status', 'invalid-manifest', 'origin-unmapped'])(
+      'shows %s as not checked, never agreement', async (cause) => {
+        const d = doc()
+        d.plugins[0].source = 'preload'
+        d.plugins[0].drift = { state: 'not checked', stage: 'manifest-drift', cause }
+        getRegistryEntries.mockResolvedValue(d)
+        const w = mountPanel()
+        await flushPromises()
+        const row = w.findAll('[data-testid="entry-row"]')[0]
+        expect(row.get('[data-testid="entry-drift"]').text()).toBe('not checked')
+        expect(row.get('[data-testid="drift-cause"]').text()).toBe(`manifest-drift: ${cause}`)
+        expect(row.get('.pill').text()).toBe('enabled')
+        w.unmount()
+      },
+    )
+
+    it('does not claim agreement when no observation has arrived', async () => {
+      const d = doc()
+      d.plugins[0].source = 'preload'
+      getRegistryEntries.mockResolvedValue(d)
+      const w = mountPanel()
+      await flushPromises()
+      expect(w.get('[data-testid="entry-drift"]').text()).toBe('not checked')
+      w.unmount()
+    })
+
+    it('names differing fields separately from source and state, leaving curation alone', async () => {
+      const d = doc()
+      d.plugins[0].source = 'preload'
+      d.plugins[0].drift = { state: 'drift', fields: ['contributions', 'version'] }
+      d.plugins[1].source = 'preload'
+      d.plugins[1].drift = { state: 'checked' }
+      getRegistryEntries.mockResolvedValue(d)
+      const w = mountPanel()
+      await flushPromises()
+      const rows = w.findAll('[data-testid="entry-row"]')
+      expect(rows[0].get('[data-testid="entry-drift"]').text()).toBe('drift')
+      expect(rows[0].get('[data-testid="drift-fields"]').text()).toBe('contributions, version')
+      expect(rows[0].get('[data-testid="entry-source"]').text()).toBe('preload')
+      expect(rows[0].get('.pill').text()).toBe('enabled')
+      expect(rows[0].get('[data-testid="toggle-enabled"]').text()).toBe('Disable')
+      expect(rows[1].get('[data-testid="entry-drift"]').text()).toBe('checked')
+      expect(rows[1].get('.pill').text()).toBe('disabled')
+      expect(rows[2].find('[data-testid="entry-drift"]').exists()).toBe(false)
+      expect(upsertRegistryEntry).not.toHaveBeenCalled()
+      expect(setRegistryEntryEnabled).not.toHaveBeenCalled()
+      w.unmount()
+    })
+
+    it('does not write derived diagnostics back when an operator edits an entry', async () => {
+      const d = doc()
+      d.plugins[0].source = 'preload'
+      d.plugins[0].drift = { state: 'drift', fields: ['version'] }
+      getRegistryEntries.mockResolvedValue(d)
+      upsertRegistryEntry.mockResolvedValue(d)
+      const w = mountPanel()
+      await flushPromises()
+      await w.findAll('[data-testid="edit-entry"]')[0].trigger('click')
+      await w.get('[data-testid="entry-save"]').trigger('click')
+      await flushPromises()
+      expect(upsertRegistryEntry).toHaveBeenCalled()
+      expect(upsertRegistryEntry.mock.calls[0][0]).not.toHaveProperty('drift')
+      w.unmount()
+    })
+  })
+
   it('reports the revision it is reading and writing against', async () => {
     const w = mountPanel()
     await flushPromises()

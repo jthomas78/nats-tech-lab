@@ -180,8 +180,22 @@ example on 7111; slow, activation-throws and incompatible fixtures on 7113–711
 Each has its own package, lockfile, Dockerfile, nginx server and single `plugin`
 exposure. The missing-remote fixture has no service and points to a real 404 on
 7111. Compose marks the five services `com.nats-tech-lab.mfe.source=preload`.
-No origin-to-fetch-URL map or drift checker is implemented here: that remains
-8c, blocked on Phase 7.
+**Manifest drift (Phase 8c).** The registry's only outbound HTTP reads
+`/manifest.json` for preload entries, on its own schedule. The optional
+`REGISTRY_FETCH_ORIGINS` JSON map translates an already allowlisted browser
+origin to a service-reachable origin; it cannot grant an origin, and missing
+mappings never fall back to browser localhost. Compose supplies all five.
+Each attempt is bounded to two seconds and 1 MiB, redirects are refused, and
+failure gets one retry after 200 ms. Serial passes are separated by one minute.
+The worker shares the service lifetime, not the startup deadline.
+
+The domain compares manifest content without platform-owned state. Admin's
+separate Manifest column reads `checked`, `drift` (differing fields named), or
+`not checked` (including failed and invalid responses). Observations are held
+in memory, invalidated by a curated edit, and exposed only through `EntryView`.
+Refresh reads that snapshot and never initiates HTTP. Neither disagreement nor
+failure writes to the catalogue or changes whether a plugin is served: the
+curated copy still wins, as decisions 77/85 require.
 
 Remote builds include their stylesheet assets in the federation expose loader
 (`bundleAllCSS`). The host and catalog share `@primeuix/styled` as a singleton,

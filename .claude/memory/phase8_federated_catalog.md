@@ -21,7 +21,8 @@
   stopped slow service isolation and registry-offline native frame. Services restored.
 - Host fingerprint 8c55a929ce508c66e5495d4c78cfacd078b0a44ba7b7a192b78ce2dfb0eec620
   stays unchanged across catalog/example rebuilds; excludes identities and README.
-- 8c drift map/UI remains deferred; Phase7 NoVerifier/grants untouched. No Go changes.
+- At this checkpoint 8c drift map/UI remained deferred; subsequently completed — see
+  `phase8c_manifest_drift.md`. This phase did not change Go or Phase 7 verification/grants.
 - Committed with its registry-service/preload prerequisites at user request.
   Generated NATS credentials/config and unrelated shipping test work remain
   local. Plan + business rules + architecture updated together.

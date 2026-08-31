@@ -117,7 +117,11 @@ func run(log *slog.Logger) error {
 		js = j
 	}
 
-	module, err := registry.Startup(startupCtx, db, js, nc, allowlist, log)
+	fetchOrigins, warnings := registry.ParseFetchOrigins(os.Getenv("REGISTRY_FETCH_ORIGINS"), allowlist)
+	for _, warning := range warnings {
+		log.Warn("registry: " + warning)
+	}
+	module, err := registry.Startup(ctx, db, js, nc, allowlist, log, fetchOrigins)
 	if err != nil {
 		return fmt.Errorf("registry startup: %w", err)
 	}

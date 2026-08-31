@@ -954,7 +954,33 @@ identities, origins and README content from host assets.
 | BR-AS42 — true actor | Domain write-builder specs plus `phase8_integration_test.go` and `announce_transport_test.go`: `preload`/publisher actors, and ignored observations append an audit row without a registry write or notify |
 | BR-AS43 — no self-asserted trust tier | `preload_test.go` refuses manifest fields and file revisions; `announce_transport_test.go` exercises each forbidden field through NATS |
 | BR-AS44 — native frame survives registry failure | `catalogRuntime.spec.js` mounts the actual App/Home/Plugins for unreachable, malformed and degraded reads, asserts the reason, no catalog link and zero plugin loads |
-| BR-AS45 — bounded drift HTTP | Approved rule; the checker and its specifications remain in 8c. No outbound HTTP capability is added by 8a/8b |
+| BR-AS45 — bounded drift HTTP | `registry/drift_test.go`: failed/invalid responses never agree, one retry, timeout, poll recovery, nonblocking snapshots, redirects refused, body capped; `registry/drift_integration_test.go`: composed NATS reads return during a hanging fetch |
+| BR-AS20 / BR-AS45 — mapping translates existing grants only | `registry/drift_test.go`: unmapped origins are not checked, unallowlisted mappings are ignored with a warning, invalid config fails closed, only the mapped `/manifest.json` is fetched |
+| Decisions 77/85 — drift is display only | `registry/drift_test.go`: named content fields, platform state excluded, stale observations invalidated; `registry/drift_integration_test.go`: curated entry, revision, audit and notifications unchanged; `FrontendPluginsPanel.spec.js`: separate Manifest column, no automatic write, refresh and edit exclude diagnostics |
+| BR-AS04 — drift refusals name stage and cause only | `registry/drift_test.go`: transport/parser errors become fixed codes, no remote values in differences; `FrontendPluginsPanel.spec.js`: `manifest-drift` stage and failure cause remain distinct from serving state |
+
+Phase 8c checks entries whose creating audit actor identifies **preload**; a later
+operator edit does not change that source. `REGISTRY_FETCH_ORIGINS` is an optional
+JSON object of browser origin to service-reachable HTTP(S) origin, for example
+`{"http://localhost:7111":"http://example-plugin-frontend:80"}`. Addresses are
+origins only (no credentials, non-root paths, query or fragment); the checker
+appends `/manifest.json`. Compose maps the five existing browser origins without
+changing `REGISTRY_ALLOWED_ORIGINS`. Missing mappings remain `not checked`.
+
+The checker starts after composition, makes one serial pass, then waits one minute
+before the next. Each GET has a two-second deadline and a 1 MiB response limit;
+failure gets one retry after 200 ms. Redirects are not followed, and no ambient
+HTTP proxy is used. Failure immediately replaces any earlier agreement with
+`not checked`, including during retry backoff. A valid response yields `checked`
+or `drift` with differing top-level manifest fields; platform-owned state is
+excluded. Unknown fields, including nested ones, render as `not checked` rather
+than being silently dropped into agreement. The service never applies the fetched content.
+
+Observations live in memory and carry the last attempt time. They start afresh on
+restart, and a changed curated entry cannot reuse an observation of its old copy.
+Admin reads the last result through `EntryView`; **Refresh observations** only
+repeats that registry read, never starts HTTP. There is no drift field on the
+stored entry, shell document, revision, audit trail, KV cache or notification.
 
 `REGISTRY_PRELOAD_FILE` is optional; Compose mounts `demos/01-dictionary/registry.json`.
 Whole-file parse/read failures fail boot. Entry refusals log `withheld`, id and

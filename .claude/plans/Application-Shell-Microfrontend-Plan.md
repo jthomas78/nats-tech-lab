@@ -1157,7 +1157,7 @@ only.
    untrusted path is the one where a *service* asserts itself, and that one lands pending. This also
    keeps a fresh `docker compose up` usable, which was the practical half of the question.
 
-#### Tasks — APPROVED; 8a, fail-closed 8b, 8d, 8e and 8f implemented; 8c deferred
+#### Tasks — APPROVED; 8a–8f implemented (8c completed 2026-08-31)
 
 > Follow-up task authorizes the 8b adapter with `NoVerifier` before Phase 7; it
 > must fail closed. This does not open the publisher trust-anchor design gate.
@@ -1238,19 +1238,42 @@ than silently classifying legacy rows as dynamic.
       fourth, `SourceUnknown`, exists so a row with no accepted history says so rather than
       defaulting to `curated`. It rides on `EntryView` only: the shell's read carries no such
       field.
-- [ ] Manifest-drift indicator on a preloaded entry: the served `manifest.json` compared against the
+- [x] Manifest-drift indicator on a preloaded entry: the served `manifest.json` compared against the
       curated copy, differing fields named, the curated copy still served (decision 85). **The
       registry service performs the fetch** (settled 2026-08-31), not the Admin browser — bounded by
       BR-AS45: allowlisted origins only, read-only, time-bounded, off any path the shell waits on.
       Needs a timeout, a bounded retry and a poll schedule; a slow origin must not block a handler.
-- [ ] The origin-to-fetch-URL map (BR-AS45): a start-time config beside `REGISTRY_ALLOWED_ORIGINS`
+- [x] The origin-to-fetch-URL map (BR-AS45): a start-time config beside `REGISTRY_ALLOWED_ORIGINS`
       translating a browser origin to the address the service reaches it on. Specs: an unmapped origin
       is `not checked`, never `checked`; the map cannot introduce an origin the allowlist lacks.
-- [ ] Three drift states in Admin — `checked`, `drift`, `not checked` — with a failed or unparsable
+- [x] Three drift states in Admin — `checked`, `drift`, `not checked` — with a failed or unparsable
       fetch rendering as `not checked` and never as agreement.
 - [x] Specs: an announced entry is absent from the shell's document until enabled — already pinned
       by `announce_transport_test.go` ("is absent from the shell until an operator enables it") and
       `announce_test.go`; re-checked 2026-08-31 rather than duplicated.
+
+**8c completed 2026-08-31.** `REGISTRY_FETCH_ORIGINS` is a JSON browser-origin → service-origin
+map, parsed beside the allowlist and restricted to it. Compose supplies the five existing origins;
+an absent or invalid mapping never falls back to browser localhost. Only preload provenance is
+checked, independently of enabled state or lifecycle. The domain compares content and names differing
+top-level fields; HTTP lives in `manifesthttp`, with no redirects, a 1 MiB body cap and two-second
+deadline. The application worker retries once after 200 ms and polls one minute after each serial
+pass. It runs on the service lifetime, not the 60-second startup context.
+
+Observations are memory-only, invalidated by a changed curated entry, and carried solely on Admin's
+`EntryView`. Failure replaces a previous success immediately. The Manifest column is separate from
+Source and State; its refresh button reads the last observation without initiating HTTP. The composed
+NATS spec holds an origin open while both reads return, then proves a drift changes no stored entry,
+revision, audit or notification. Existing announcement-absence coverage remains in place: this
+checkout had three unticked 8c boxes, with that fourth specification box already complete.
+
+Verification: registry **221/221, 0 Skipped**, both ordinary and race-detector runs;
+Admin **330/330**, lint has no errors (style warnings remain), and production build passes;
+registry per-module build passes.
+The two changed Compose services build and start. At 1920×1080 the live Admin shows
+agreement, then `not checked` after a stopped catalog, then `drift — version` after a
+temporary served-manifest edit, retaining the curated version, enabled state and registry
+revision throughout. The catalog was restored. The checker continues beyond the startup deadline.
 
 ##### 8d — the demo catalog as a federated plugin
 - [x] `lab-shell/src/plugins/demo-catalog/` becomes its own package, image and origin (**7112**),
