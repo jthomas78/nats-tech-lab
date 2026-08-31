@@ -57,7 +57,7 @@ func currentDoc(ctx context.Context, q querier) (domain.Document, error) {
 			return domain.Document{}, err
 		}
 	}
-	rows, err := q.QueryContext(ctx, `SELECT id, enabled, lifecycle, entry, manifest, signature, signing_key FROM registry.entries ORDER BY id`)
+	rows, err := q.QueryContext(ctx, `SELECT id, enabled, lifecycle, withheld, entry, manifest, signature, signing_key FROM registry.entries ORDER BY id`)
 	if err != nil {
 		return domain.Document{}, err
 	}
@@ -66,9 +66,9 @@ func currentDoc(ctx context.Context, q querier) (domain.Document, error) {
 	doc := domain.Document{SchemaVersion: domain.SchemaVersion, Revision: revision, Entries: []domain.Entry{}}
 	for rows.Next() {
 		var id, lifecycle, manifest, signature, signingKey string
-		var enabled bool
+		var enabled, withheld bool
 		var raw []byte
-		if err := rows.Scan(&id, &enabled, &lifecycle, &raw, &manifest, &signature, &signingKey); err != nil {
+		if err := rows.Scan(&id, &enabled, &lifecycle, &withheld, &raw, &manifest, &signature, &signingKey); err != nil {
 			return domain.Document{}, err
 		}
 		e, err := entryOf(id, raw, manifest, signature, signingKey)
@@ -80,6 +80,7 @@ func currentDoc(ctx context.Context, q querier) (domain.Document, error) {
 		e.ID = id
 		e.Enabled = enabled
 		e.Lifecycle = lifecycle
+		e.Withheld = withheld
 		doc.Entries = append(doc.Entries, e)
 	}
 	return doc, rows.Err()
@@ -199,8 +200,13 @@ func (s *Store) apply(ctx context.Context, w domain.Write) (domain.Document, err
 	case domain.OpSetEnabled:
 		// No insert: enabling something that was never curated would be a
 		// plugin announcing itself by the back door (BR-AS21).
+		//
+		// Enabling clears the withheld mark, and only enabling does. That is
+		// the deliberate half of BR-AS38: an operator putting a withheld entry
+		// back is looking at that entry, which is exactly what re-enabling the
+		// key was not.
 		res, err := tx.ExecContext(ctx,
-			`UPDATE registry.entries SET enabled = $2, updated_at = now() WHERE id = $1`, w.EntryID, w.Enabled)
+			`UPDATE registry.entries SET enabled = $2, withheld = withheld AND NOT $2, updated_at = now() WHERE id = $1`, w.EntryID, w.Enabled)
 		if err != nil {
 			return domain.Document{}, err
 		}
@@ -237,6 +243,26 @@ func (s *Store) apply(ctx context.Context, w domain.Write) (domain.Document, err
 // auditRefusal records a write that was not applied. Best effort by design:
 // a failure to audit a refusal must not turn into a second, different error
 // on the caller's path, where it would say less than the real one.
+// withholdKey takes every entry a key signed out of service and reports which
+// ids it touched, in id order. The selection rule lives in the domain; this
+// runs it against the rows inside the caller's transaction.
+func withholdKey(ctx context.Context, tx *sql.Tx, publicKey string) ([]string, error) {
+	doc, err := currentDoc(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	ids := domain.RevocationEffect(doc.Entries, publicKey)
+	if len(ids) == 0 {
+		return ids, nil
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE registry.entries SET enabled = false, withheld = true, updated_at = now() WHERE signing_key = $1`,
+		publicKey); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
 // requireKeyEnabled re-reads one publisher key's state inside the caller's
 // transaction. A key that has vanished is refused as untrusted, not as
 // missing: to a publisher the two are the same answer.

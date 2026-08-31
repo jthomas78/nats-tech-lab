@@ -117,11 +117,59 @@ func (s *Service) Publishers(ctx context.Context) (domain.PublisherDocument, err
 	return s.store.Publishers(ctx)
 }
 
-// ApplyPublisher performs one curated change to the trust table. It moves the
-// trust table's own revision and leaves the plugin document's alone; the two
-// meet in 7d, where a revocation withholds entries.
+// ApplyPublisher performs one curated change to the trust table.
+//
+// Most trust writes move the trust table's own revision and leave the plugin
+// document's alone: adding a key has not changed the catalogue, and bumping
+// the other counter would make every shell re-read for nothing.
+//
+// A revocation is the exception. The store withholds the entries that key
+// signed in the same transaction (BR-AS38, decision 104), so the plugin
+// document has moved and the shells have to be told — once, for the whole
+// revocation, not once per entry.
 func (s *Service) ApplyPublisher(ctx context.Context, w domain.PublisherWrite) (domain.PublisherDocument, error) {
-	return s.store.ApplyPublisher(ctx, w)
+	before := int64(0)
+	revoking := w.Op == domain.OpPublisherSetKeyState && w.KeyState == domain.KeyRevoked
+	if revoking {
+		if doc, err := s.store.Current(ctx); err == nil {
+			before = doc.Revision
+		}
+	}
+	trust, err := s.store.ApplyPublisher(ctx, w)
+	if err != nil {
+		return domain.PublisherDocument{}, err
+	}
+	if revoking {
+		s.announceWithholding(ctx, before)
+	}
+	return trust, nil
+}
+
+// announceWithholding refreshes the cache and hints the shells, but only if
+// the revocation actually withheld something — a revocation that touched no
+// entry does not move the plugin revision, and there is nothing to tell.
+//
+// Past this point the revocation is durable, so the work runs on a context
+// that outlives the request, for the reasons Apply gives.
+func (s *Service) announceWithholding(ctx context.Context, before int64) {
+	after := context.WithoutCancel(ctx)
+	doc, err := s.store.Current(after)
+	if err != nil {
+		s.logWarn("registry: keys revoked but the plugin document could not be re-read", err)
+		return
+	}
+	if doc.Revision == before {
+		return
+	}
+	if s.cache != nil {
+		if putErr := s.cache.Put(after, doc); putErr != nil {
+			s.logWarn("registry: entries withheld but the read cache was not refreshed", putErr)
+		}
+	}
+	payload, _ := json.Marshal(struct {
+		Revision int64 `json:"revision"`
+	}{doc.Revision})
+	s.notifier.Publish(after, notify.Changed(), payload)
 }
 
 // Allowlist is the configured origin set, for the admin surface to show an

@@ -161,6 +161,13 @@ type Entry struct {
 	// without the key. Stored only as part of the projection: the highest
 	// release accepted for an id is that id's entry, there being one.
 	Release int64 `json:"release,omitempty"`
+	// Withheld marks an entry taken out of service because the key that
+	// signed it was revoked (BR-AS38). Distinct from a merely disabled entry:
+	// disabled is "not reviewed yet", withheld is "we withdrew this". The
+	// shell needs the difference in 7e — a withheld entry is unloaded from a
+	// running shell, which a pending one never was. Store-owned, like Enabled
+	// and Lifecycle: no publisher asserts it.
+	Withheld bool `json:"withheld,omitempty"`
 	// Manifest is the publisher's signed bytes, when there are any. Held
 	// beside the projection above rather than derived from it: see
 	// manifest.go for why reassembly is what the rule forbids.
@@ -218,6 +225,15 @@ const (
 	OpUpsert     = "upsert"
 	OpSetEnabled = "set-enabled"
 )
+
+// OpWithholdKey names the audit row a revocation leaves against the plugin
+// document (decision 104). It is not a Write op and never appears in
+// WriteOps: no caller may ask for it. It happens only as part of revoking a
+// key, inside that same transaction, so that trust cannot be withdrawn
+// without the entries following. It files itself under the key, not under any
+// one entry — the operator's act was about the key, and which entries follow
+// is the registry's job to work out.
+const OpWithholdKey = "withhold-key"
 
 // WriteOps returns every legal op. A new op added without a rule fails the
 // spec that pins this list.

@@ -45,6 +45,10 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// signed, and a publisher rotating keys has several.
 		`ALTER TABLE registry.entries ADD COLUMN IF NOT EXISTS signing_key TEXT NOT NULL DEFAULT ''`,
 		`CREATE INDEX IF NOT EXISTS registry_entries_signing_key ON registry.entries(signing_key)`,
+		// Withheld is its own column rather than a flavour of enabled=false,
+		// because 7e has to tell "never reviewed" apart from "we took this
+		// away": only the second unloads a plugin from a running shell.
+		`ALTER TABLE registry.entries ADD COLUMN IF NOT EXISTS withheld BOOLEAN NOT NULL DEFAULT false`,
 
 		// The revision is a single row, not a sequence: it must be readable,
 		// lockable and comparable inside the same transaction as the write

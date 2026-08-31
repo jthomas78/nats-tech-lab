@@ -323,16 +323,24 @@ var _ = Describe("service announcement transport", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
+			// The revocation withheld what the key signed, so the plugin
+			// document has moved (BR-AS38). The write below is keyed on where
+			// it landed: this spec is about the trust re-read, and a stale
+			// revision would refuse it one check earlier.
+			withheld, err := store.Current(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(withheld.Revision).To(Equal(doc.Revision + 1))
+
 			// The write below already passed verification against a trust
 			// table read before the revocation. The store re-reads the key.
 			entry := doc.Entries[0]
-			write := domain.AnnounceWrite(entry, publicKey, doc.Revision)
+			write := domain.AnnounceWrite(entry, publicKey, withheld.Revision)
 			write.RequireKeyEnabled = publicKey
 			_, err = store.Apply(ctx, write)
 			Expect(errors.Is(err, domain.ErrKeyRevoked)).To(BeTrue())
 			after, err := store.Current(ctx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(after.Revision).To(Equal(doc.Revision))
+			Expect(after.Revision).To(Equal(withheld.Revision))
 		})
 
 		It("lets an operator write through, having no publisher key to re-read", func() {

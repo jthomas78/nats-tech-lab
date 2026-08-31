@@ -976,13 +976,33 @@ Two things 7c found and fixed on the way:
 
 (BR-AS35, BR-AS46, BR-AS47, BR-AS48.)
 
-##### 7d — revocation
-- [ ] Revoking a key re-evaluates every entry that key signed and withholds them in **one** audited
+##### 7d — revocation — DONE 2026-08-31
+- [x] Revoking a key re-evaluates every entry that key signed and withholds them in **one** audited
       write and one revision, through a new bulk path in the application layer (decisions 70, 104).
-- [ ] Re-enabling a revoked key restores nothing; each entry is restored individually by an operator.
-- [ ] Specs: entries signed by a revoked key are withheld and entries signed by other keys are
+- [x] Re-enabling a revoked key restores nothing; each entry is restored individually by an operator.
+- [x] Specs: entries signed by a revoked key are withheld and entries signed by other keys are
       untouched; shells observe one revision change, not one per entry; a re-enabled key leaves every
       withheld entry withheld until restored (BR-AS38).
+
+Where the bulk path actually landed, and why it is not where the task said:
+
+- **Inside the trust-table transaction, not beside it.** `postgres.withholdInTx` runs within
+  `applyPublisher`, taking the plugin document's revision lock after the publisher one. A second
+  transaction would leave a window in which trust is withdrawn but the code that key signed is still
+  being served, and closing that window is the whole point of a revocation. Lock order is
+  publisher_revision then registry.revision, always — the announce path takes only the second, so the
+  two cannot deadlock.
+- **`OpWithholdKey` is an audit op, not a `Write` op.** It is absent from `WriteOps()` on purpose: no
+  caller may ask for it, because it is only correct as part of revoking a key. It files itself under
+  the public key rather than any one entry — the operator's act was about the key, and working out
+  which entries follow is the registry's job.
+- **A revocation that withheld nothing moves no revision.** A publisher's first key is routinely
+  revoked before it has signed anything, and a bump would make every connected shell re-read an
+  unchanged document.
+- **`withheld` is its own column**, not a flavour of `enabled = false`. 7e has to tell "never
+  reviewed" apart from "we took this away"; only the second unloads a plugin from a running shell.
+  Re-enabling an entry clears the mark, and only re-enabling does — that is the manual half of
+  BR-AS38.
 
 ##### 7e — revocation reaches the browser, and the degraded read
 - [ ] A withheld-by-revocation entry makes the shell reload, overriding the `static` no-unload rule

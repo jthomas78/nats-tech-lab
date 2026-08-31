@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/domain"
 )
@@ -199,6 +200,16 @@ func (s *Store) applyPublisher(ctx context.Context, w domain.PublisherWrite) (do
 		}
 	}
 
+	// A revocation reaches the plugin document, in this same transaction
+	// (decision 104, BR-AS38). Two transactions would leave a window where
+	// trust is withdrawn but the code it signed is still being served, and
+	// that window is the whole thing a revocation exists to close.
+	if w.Op == domain.OpPublisherSetKeyState && w.KeyState == domain.KeyRevoked {
+		if err := withholdInTx(ctx, tx, w); err != nil {
+			return domain.PublisherDocument{}, err
+		}
+	}
+
 	next := domain.NextRevision(current)
 	if _, err := tx.ExecContext(ctx, `UPDATE registry.publisher_revision SET revision = $1, updated_at = now() WHERE only_row`, next); err != nil {
 		return domain.PublisherDocument{}, err
@@ -216,6 +227,40 @@ func (s *Store) applyPublisher(ctx context.Context, w domain.PublisherWrite) (do
 		return domain.PublisherDocument{}, err
 	}
 	return doc, nil
+}
+
+// withholdInTx takes every entry the revoked key signed out of service, under
+// the plugin document's own revision lock, and leaves exactly one audit row
+// naming the key and the entries that followed from it.
+//
+// A revocation that touched nothing moves no revision. Bumping it would make
+// every connected shell re-read a document that did not change, and a
+// publisher's first key is routinely revoked before it has signed anything.
+//
+// Lock order is publisher_revision then registry.revision, always — the
+// announce path takes only the second, so nothing can hold them the other way
+// round and deadlock.
+func withholdInTx(ctx context.Context, tx *sql.Tx, w domain.PublisherWrite) error {
+	var current int64
+	if err := tx.QueryRowContext(ctx, `SELECT revision FROM registry.revision WHERE only_row FOR UPDATE`).Scan(&current); err != nil {
+		return err
+	}
+	ids, err := withholdKey(ctx, tx, w.PublicKey)
+	if err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	next := domain.NextRevision(current)
+	if _, err := tx.ExecContext(ctx, `UPDATE registry.revision SET revision = $1, updated_at = now() WHERE only_row`, next); err != nil {
+		return err
+	}
+	detail := "key revoked; withheld " + strings.Join(ids, ", ")
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO registry.audit (revision, op, entry_id, actor, outcome, detail, scope) VALUES ($1, $2, $3, $4, $5, $6, 'registry')`,
+		next, domain.OpWithholdKey, w.PublicKey, w.Actor, domain.AuditAccepted, detail)
+	return err
 }
 
 func requirePublisher(ctx context.Context, q querier, id string) error {
