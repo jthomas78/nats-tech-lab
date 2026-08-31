@@ -31,8 +31,12 @@ var signedBytes = []byte("{\n  \"remote\": {\n    \"module\": \"./plugin\",\n   
 
 const signedSignature = "dGVzdC1zaWduYXR1cmU="
 
+// The key that actually signed, recorded per manifest (decision 103) so 7d's
+// revocation can find the entries one key is responsible for.
+const signedSigningKey = "UDXU4RCSJNZOEKVFDVIDNBGZZBVEXQFTGCM5PGL6EWDJT7C4XMDGVCXA"
+
 func signedEntry() domain.Entry {
-	e, err := domain.EntryFromManifest(signedBytes, signedSignature)
+	e, err := domain.EntryFromManifest(signedBytes, signedSignature, signedSigningKey)
 	Expect(err).NotTo(HaveOccurred())
 	return e
 }
@@ -84,6 +88,7 @@ var _ = Describe("BR-AS37/BR-AS50 — the signed manifest is stored and served a
 			Expect(json.Unmarshal(wire, &back)).To(Succeed())
 			Expect(back.Entries[0].Manifest.Bytes).To(Equal(signedBytes))
 			Expect(back.Entries[0].Manifest.Signature).To(Equal(signedSignature))
+			Expect(back.Entries[0].Manifest.SigningKey).To(Equal(signedSigningKey))
 			Expect(back.Entries[0].Attested()).To(BeTrue())
 		})
 	})
@@ -107,6 +112,7 @@ var _ = Describe("BR-AS37/BR-AS50 — the signed manifest is stored and served a
 			Expect(err).NotTo(HaveOccurred())
 			Expect(read.Entries[0].Manifest.Bytes).To(Equal(signedBytes))
 			Expect(read.Entries[0].Manifest.Signature).To(Equal(signedSignature))
+			Expect(read.Entries[0].Manifest.SigningKey).To(Equal(signedSigningKey), "the signing key is stored per manifest, not only its publisher")
 			Expect(read.Entries[0].Attested()).To(BeTrue())
 		})
 

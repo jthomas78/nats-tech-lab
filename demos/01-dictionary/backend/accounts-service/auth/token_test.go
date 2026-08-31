@@ -203,13 +203,15 @@ var _ = Describe("MintAdminToken", func() {
 			"api._platform.accounts.user.get.v1",
 			"api._platform.accounts.user.revoke.v1",
 			// Phase 4 (BR-AS31) — the registry curation surface, moved off
-			// REST. Operator-scoped: these three are granted here and to no
-			// other credential, and MintShellToken below must never carry
-			// them.
+			// REST. Phase 7b (BR-AS38) adds the trusted-publishers table to
+			// it. Operator-scoped: these are granted here and to no other
+			// credential, and MintShellToken below must never carry them.
 			"api._platform.registry.entries.curated.v1",
 			"api._platform.registry.entries.upsert.v1",
 			"api._platform.registry.entries.set-enabled.v1",
 			"api._platform.registry.audit.list.v1",
+			"api._platform.registry.publishers.list.v1",
+			"api._platform.registry.publishers.write.v1",
 		))
 		Expect(claims.Permissions.Pub.Deny).To(BeEmpty())
 

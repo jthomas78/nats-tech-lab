@@ -16,6 +16,8 @@ import (
 type Store interface {
 	Current(ctx context.Context) (domain.Document, error)
 	Apply(ctx context.Context, w domain.Write) (domain.Document, error)
+	Publishers(ctx context.Context) (domain.PublisherDocument, error)
+	ApplyPublisher(ctx context.Context, w domain.PublisherWrite) (domain.PublisherDocument, error)
 }
 
 // Cache is the read cache. Optional: a nil Cache means every read goes to
@@ -104,6 +106,22 @@ func (s *Service) Apply(ctx context.Context, w domain.Write) (domain.Document, e
 	}{doc.Revision})
 	s.notifier.Publish(after, notify.Changed(), payload)
 	return doc, nil
+}
+
+// Publishers returns the trust table (BR-AS38).
+//
+// No cache and no change notification, unlike the plugin document: the trust
+// table is read by the operator surface and by the announce path, never by a
+// shell, so there is nothing to keep warm and nobody to tell.
+func (s *Service) Publishers(ctx context.Context) (domain.PublisherDocument, error) {
+	return s.store.Publishers(ctx)
+}
+
+// ApplyPublisher performs one curated change to the trust table. It moves the
+// trust table's own revision and leaves the plugin document's alone; the two
+// meet in 7d, where a revocation withholds entries.
+func (s *Service) ApplyPublisher(ctx context.Context, w domain.PublisherWrite) (domain.PublisherDocument, error) {
+	return s.store.ApplyPublisher(ctx, w)
 }
 
 // Allowlist is the configured origin set, for the admin surface to show an

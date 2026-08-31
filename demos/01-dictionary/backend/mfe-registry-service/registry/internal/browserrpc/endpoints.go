@@ -22,6 +22,10 @@ const (
 	UpsertSubject     = mferegistry.Upsert
 	SetEnabledSubject = mferegistry.SetEnabled
 	AuditSubject      = mferegistry.Audit
+
+	// The trust table: one read, one write carrying its op (BR-AS38).
+	PublishersSubject     = mferegistry.Publishers
+	PublisherWriteSubject = mferegistry.PublisherWrite
 )
 
 var ErrRevisionRequired = domain.ErrRevisionRequired
@@ -30,6 +34,8 @@ type Service interface {
 	Read(context.Context) domain.Document
 	Curated(context.Context) (domain.Document, error)
 	Apply(context.Context, domain.Write) (domain.Document, error)
+	Publishers(context.Context) (domain.PublisherDocument, error)
+	ApplyPublisher(context.Context, domain.PublisherWrite) (domain.PublisherDocument, error)
 	Allowlist() domain.Allowlist
 }
 
@@ -210,4 +216,93 @@ func (e *Endpoints) Audit(ctx context.Context, req AuditRequest) ([]postgres.Aud
 		rows = []postgres.AuditPage{}
 	}
 	return rows, nil
+}
+
+// PublishersResponse is the trust table as the operator surface sees it.
+// Whole, never filtered: a revoked key is exactly what an operator has to be
+// able to see in order to act on it.
+type PublishersResponse struct {
+	Revision   int64              `json:"revision"`
+	Publishers []domain.Publisher `json:"publishers"`
+}
+
+func (e *Endpoints) Publishers(ctx context.Context) (PublishersResponse, error) {
+	doc, err := e.svc.Publishers(ctx)
+	if err != nil {
+		return PublishersResponse{}, errors.New("the trust table could not be read")
+	}
+	if doc.Publishers == nil {
+		doc.Publishers = []domain.Publisher{}
+	}
+	return PublishersResponse{Revision: doc.Revision, Publishers: doc.Publishers}, nil
+}
+
+// PublisherWriteRequest carries its op, unlike the entry surface where the op
+// is the subject. See shared/mferegistry for why the trust table is one
+// subject rather than four.
+type PublisherWriteRequest struct {
+	IfRevision      int64             `json:"ifRevision"`
+	Op              string            `json:"op"`
+	PublisherID     string            `json:"publisherId"`
+	Publisher       *domain.Publisher `json:"publisher,omitempty"`
+	PublicKey       string            `json:"publicKey,omitempty"`
+	KeyState        string            `json:"keyState,omitempty"`
+	PluginID        string            `json:"pluginId,omitempty"`
+	revisionPresent bool
+}
+
+func (r *PublisherWriteRequest) UnmarshalJSON(data []byte) error {
+	type plain PublisherWriteRequest
+	var wire struct {
+		*plain
+		IfRevision *int64 `json:"ifRevision"`
+	}
+	*r = PublisherWriteRequest{}
+	wire.plain = (*plain)(r)
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	r.revisionPresent = wire.IfRevision != nil
+	if wire.IfRevision != nil {
+		r.IfRevision = *wire.IfRevision
+	}
+	return nil
+}
+
+func (e *Endpoints) PublisherWrite(ctx context.Context, req PublisherWriteRequest) (PublishersResponse, error) {
+	if err := domain.RequireRevision(req.revisionPresent || req.IfRevision != 0); err != nil {
+		return PublishersResponse{}, err
+	}
+	doc, err := e.svc.ApplyPublisher(ctx, domain.PublisherWrite{
+		Op:          req.Op,
+		PublisherID: req.PublisherID,
+		Actor:       domain.SharedAdminActor,
+		Publisher:   req.Publisher,
+		PublicKey:   req.PublicKey,
+		KeyState:    req.KeyState,
+		PluginID:    req.PluginID,
+		IfRevision:  req.IfRevision,
+	})
+	if err == nil {
+		if doc.Publishers == nil {
+			doc.Publishers = []domain.Publisher{}
+		}
+		return PublishersResponse{Revision: doc.Revision, Publishers: doc.Publishers}, nil
+	}
+	var stale domain.StaleRevisionError
+	if errors.As(err, &stale) {
+		return PublishersResponse{}, StaleRefusal{Current: stale.Current, Supplied: stale.Supplied}
+	}
+	// Same rule as the entry surface: only known, address-free refusals reach
+	// the browser, so a database error cannot leak its message (BR-AS04).
+	for _, safe := range []error{
+		domain.ErrNoActor, domain.ErrNoPublisher, domain.ErrNoPluginID, domain.ErrPublisherIDMismatch,
+		domain.ErrBadPublisherKey, domain.ErrBadKeyState, domain.ErrNoPublisherRow, domain.ErrNoPublisherKey,
+		domain.ErrUnknownOp,
+	} {
+		if errors.Is(err, safe) {
+			return PublishersResponse{}, safe
+		}
+	}
+	return PublishersResponse{}, errors.New("the write could not be applied")
 }

@@ -57,7 +57,7 @@ func currentDoc(ctx context.Context, q querier) (domain.Document, error) {
 			return domain.Document{}, err
 		}
 	}
-	rows, err := q.QueryContext(ctx, `SELECT id, enabled, lifecycle, entry, manifest, signature FROM registry.entries ORDER BY id`)
+	rows, err := q.QueryContext(ctx, `SELECT id, enabled, lifecycle, entry, manifest, signature, signing_key FROM registry.entries ORDER BY id`)
 	if err != nil {
 		return domain.Document{}, err
 	}
@@ -65,13 +65,13 @@ func currentDoc(ctx context.Context, q querier) (domain.Document, error) {
 
 	doc := domain.Document{SchemaVersion: domain.SchemaVersion, Revision: revision, Entries: []domain.Entry{}}
 	for rows.Next() {
-		var id, lifecycle, manifest, signature string
+		var id, lifecycle, manifest, signature, signingKey string
 		var enabled bool
 		var raw []byte
-		if err := rows.Scan(&id, &enabled, &lifecycle, &raw, &manifest, &signature); err != nil {
+		if err := rows.Scan(&id, &enabled, &lifecycle, &raw, &manifest, &signature, &signingKey); err != nil {
 			return domain.Document{}, err
 		}
-		e, err := entryOf(id, raw, manifest, signature)
+		e, err := entryOf(id, raw, manifest, signature, signingKey)
 		if err != nil {
 			return domain.Document{}, err
 		}
@@ -91,13 +91,13 @@ func currentDoc(ctx context.Context, q querier) (domain.Document, error) {
 // column: the column is a projection this service derived, and re-serving a
 // derived shape is the failure BR-AS37 names. The projection column stays for
 // query and display, and for the rows nobody signed it is all there is.
-func entryOf(id string, raw []byte, manifest, signature string) (domain.Entry, error) {
+func entryOf(id string, raw []byte, manifest, signature, signingKey string) (domain.Entry, error) {
 	if manifest != "" {
 		blob, err := base64.StdEncoding.DecodeString(manifest)
 		if err != nil {
 			return domain.Entry{}, fmt.Errorf("registry: entry %q has an unreadable manifest: %w", id, err)
 		}
-		e, err := domain.EntryFromManifest(blob, signature)
+		e, err := domain.EntryFromManifest(blob, signature, signingKey)
 		if err != nil {
 			return domain.Entry{}, fmt.Errorf("registry: entry %q has an unreadable manifest: %w", id, err)
 		}
@@ -163,10 +163,11 @@ func (s *Store) apply(ctx context.Context, w domain.Write) (domain.Document, err
 		entry.Lifecycle = ""
 		// The manifest goes to its own column, so it is not also embedded in
 		// the projection where JSONB would quietly rewrite it.
-		var manifest, signature string
+		var manifest, signature, signingKey string
 		if entry.Signed() {
 			manifest = base64.StdEncoding.EncodeToString(entry.Manifest.Bytes)
 			signature = entry.Manifest.Signature
+			signingKey = entry.Manifest.SigningKey
 		}
 		entry.Manifest = nil
 		body, err := json.Marshal(entry)
@@ -174,9 +175,9 @@ func (s *Store) apply(ctx context.Context, w domain.Write) (domain.Document, err
 			return domain.Document{}, err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO registry.entries (id, enabled, entry, lifecycle, manifest, signature) VALUES ($1, $2, $3, $4, $5, $6)
-			 ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled, entry = EXCLUDED.entry, lifecycle = EXCLUDED.lifecycle, manifest = EXCLUDED.manifest, signature = EXCLUDED.signature, updated_at = now()`,
-			w.EntryID, w.Entry.Enabled, body, w.Entry.Lifecycle, manifest, signature); err != nil {
+			`INSERT INTO registry.entries (id, enabled, entry, lifecycle, manifest, signature, signing_key) VALUES ($1, $2, $3, $4, $5, $6, $7)
+			 ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled, entry = EXCLUDED.entry, lifecycle = EXCLUDED.lifecycle, manifest = EXCLUDED.manifest, signature = EXCLUDED.signature, signing_key = EXCLUDED.signing_key, updated_at = now()`,
+			w.EntryID, w.Entry.Enabled, body, w.Entry.Lifecycle, manifest, signature, signingKey); err != nil {
 			return domain.Document{}, err
 		}
 	case domain.OpSetEnabled:

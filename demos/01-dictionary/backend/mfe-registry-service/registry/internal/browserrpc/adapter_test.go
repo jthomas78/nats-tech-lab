@@ -38,7 +38,17 @@ type stubService struct {
 
 func (s *stubService) Read(context.Context) domain.Document             { return s.doc }
 func (s *stubService) Curated(context.Context) (domain.Document, error) { return s.doc, nil }
-func (s *stubService) Allowlist() domain.Allowlist                      { return domain.NewAllowlist(s.origins) }
+
+// The trust table is not what these specs are about; they exist so the stub
+// satisfies the port.
+func (s *stubService) Publishers(context.Context) (domain.PublisherDocument, error) {
+	return domain.PublisherDocument{}, nil
+}
+
+func (s *stubService) ApplyPublisher(_ context.Context, w domain.PublisherWrite) (domain.PublisherDocument, error) {
+	return domain.PublisherDocument{Revision: w.IfRevision + 1}, nil
+}
+func (s *stubService) Allowlist() domain.Allowlist { return domain.NewAllowlist(s.origins) }
 func (s *stubService) Apply(_ context.Context, w domain.Write) (domain.Document, error) {
 	s.applied = w
 	if s.err != nil {
@@ -74,7 +84,7 @@ func endpoints(svc *stubService) *Endpoints { return New(svc, stubAudit{}) }
 // rest_test.go's TestMountRoutes pins the route surface.
 //
 // The list is the credential design: MintShellToken grants exactly the read
-// subject, and MintAdminToken grants exactly the other four. A subject added
+// subject, and MintAdminToken grants exactly the other six. A subject added
 // here without a corresponding decision about which credential reaches it is
 // the failure this catches — and over NATS that failure is quieter than its
 // HTTP equivalent, because there is no 404 to notice, just a subject nobody
@@ -88,6 +98,8 @@ func TestSubjectsAreTheGrantedSet(t *testing.T) {
 		"api._platform.registry.entries.upsert.v1",
 		"api._platform.registry.entries.set-enabled.v1",
 		"api._platform.registry.audit.list.v1",
+		"api._platform.registry.publishers.list.v1",
+		"api._platform.registry.publishers.write.v1",
 	))
 
 	// BR-AS24 restated for the new transport: there is no delete subject, and

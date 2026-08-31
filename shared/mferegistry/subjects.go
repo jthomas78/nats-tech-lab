@@ -32,6 +32,14 @@ const (
 	SetEnabled = "api._platform.registry.entries.set-enabled.v1"
 	Audit      = "api._platform.registry.audit.list.v1"
 
+	// The trusted-publishers table, also the operator's (BR-AS38). One read
+	// and one write, rather than a subject per op as the entry surface has:
+	// four ops over one curated table, all operator-only and all
+	// revision-checked identically, are not four capabilities, and four more
+	// grants would say they were.
+	Publishers     = "api._platform.registry.publishers.list.v1"
+	PublisherWrite = "api._platform.registry.publishers.write.v1"
+
 	// Changed is the registry's change notification. It is not an api.*
 	// subject and so is not in Subjects(), but it lives here for the same
 	// reason they do: the shell subscribes to it under a grant minted by
@@ -49,11 +57,11 @@ const (
 // a subject added to the service without a decision about who may reach it
 // fails there rather than shipping open.
 func Subjects() []string {
-	return []string{ShellRead, Curated, Upsert, SetEnabled, Audit}
+	return []string{ShellRead, Curated, Upsert, SetEnabled, Audit, Publishers, PublisherWrite}
 }
 
 // Operator is everything a curating operator may publish on: Subjects minus
 // the shell's read.
 func Operator() []string {
-	return []string{Curated, Upsert, SetEnabled, Audit}
+	return []string{Curated, Upsert, SetEnabled, Audit, Publishers, PublisherWrite}
 }

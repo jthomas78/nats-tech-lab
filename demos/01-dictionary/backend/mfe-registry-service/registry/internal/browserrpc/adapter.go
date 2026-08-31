@@ -58,6 +58,11 @@ func (a *Adapter) routes() []endpoint {
 		{"registry-upsert", UpsertSubject, handle(a, (*Endpoints).Upsert)},
 		{"registry-set-enabled", SetEnabledSubject, handle(a, (*Endpoints).SetEnabled)},
 		{"registry-audit", AuditSubject, handle(a, (*Endpoints).Audit)},
+		{"registry-publishers", PublishersSubject, func(req micro.Request) {
+			out, err := a.endpoints.Publishers(shared.SpanContext(req))
+			a.reply(req, out, err)
+		}},
+		{"registry-publisher-write", PublisherWriteSubject, handle(a, (*Endpoints).PublisherWrite)},
 	}
 }
 

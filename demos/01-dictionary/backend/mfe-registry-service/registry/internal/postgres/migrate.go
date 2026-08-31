@@ -40,6 +40,11 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// normal state of a curated or preload row, which nobody signed.
 		`ALTER TABLE registry.entries ADD COLUMN IF NOT EXISTS manifest TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE registry.entries ADD COLUMN IF NOT EXISTS signature TEXT NOT NULL DEFAULT ''`,
+		// The key that actually signed, not only the publisher holding it
+		// (decision 103): a revocation re-evaluates the entries one key
+		// signed, and a publisher rotating keys has several.
+		`ALTER TABLE registry.entries ADD COLUMN IF NOT EXISTS signing_key TEXT NOT NULL DEFAULT ''`,
+		`CREATE INDEX IF NOT EXISTS registry_entries_signing_key ON registry.entries(signing_key)`,
 
 		// The revision is a single row, not a sequence: it must be readable,
 		// lockable and comparable inside the same transaction as the write
@@ -66,6 +71,48 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
 		`CREATE INDEX IF NOT EXISTS registry_audit_created_at ON registry.audit(created_at DESC)`,
+		// One audit trail, two revision counters. `scope` says which counter
+		// a row's revision belongs to, so an operator reads one history
+		// instead of two and the numbers still mean something (BR-AS38).
+		`ALTER TABLE registry.audit ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'registry'`,
+
+		// The trusted-publishers table (BR-AS38, decisions 69, 97, 103). Three
+		// tables, not one document, because each is written on its own: a key
+		// change must not be able to rewrite an ownership list by accident,
+		// which is exactly what a single JSON body would allow.
+		`CREATE TABLE IF NOT EXISTS registry.publishers (
+			id         TEXT        NOT NULL PRIMARY KEY,
+			name       TEXT        NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		// No delete: trust is withdrawn by moving a key to `revoked`, and the
+		// row stays so an entry that key signed can still be attributed.
+		`CREATE TABLE IF NOT EXISTS registry.publisher_keys (
+			public_key   TEXT        NOT NULL PRIMARY KEY,
+			publisher_id TEXT        NOT NULL REFERENCES registry.publishers(id),
+			state        TEXT        NOT NULL,
+			added_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+			changed_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE INDEX IF NOT EXISTS registry_publisher_keys_publisher ON registry.publisher_keys(publisher_id)`,
+		// Ownership is its own table keyed on the plugin id, so a plugin has
+		// exactly one owner by construction rather than by convention.
+		`CREATE TABLE IF NOT EXISTS registry.plugin_owners (
+			plugin_id    TEXT        NOT NULL PRIMARY KEY,
+			publisher_id TEXT        NOT NULL REFERENCES registry.publishers(id),
+			updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		// The trust table carries its own revision. Adding a key has not
+		// changed the catalogue, and bumping the plugin document's revision
+		// for it would make every shell re-read for nothing. The counters
+		// meet in 7d, where a revocation does withhold entries.
+		`CREATE TABLE IF NOT EXISTS registry.publisher_revision (
+			only_row   BOOLEAN     NOT NULL PRIMARY KEY DEFAULT true CHECK (only_row),
+			revision   BIGINT      NOT NULL DEFAULT 0 CHECK (revision >= 0),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`INSERT INTO registry.publisher_revision (only_row, revision) VALUES (true, 0) ON CONFLICT DO NOTHING`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {

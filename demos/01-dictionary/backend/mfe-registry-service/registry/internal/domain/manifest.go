@@ -21,11 +21,16 @@ import (
 type Manifest struct {
 	Bytes     []byte `json:"bytes"`
 	Signature string `json:"signature,omitempty"`
+	// SigningKey is the key that actually signed these bytes, not merely the
+	// publisher that holds it (decision 103). Without it a revocation cannot
+	// tell which entries it must touch: a publisher rotating through several
+	// keys would have every one of its entries re-evaluated, or none.
+	SigningKey string `json:"signingKey,omitempty"`
 }
 
 // EntryFromManifest is the only way a signed entry is assembled. The bytes
 // are parsed for the projection and then kept, unmodified, beside it.
-func EntryFromManifest(manifest []byte, signature string) (Entry, error) {
+func EntryFromManifest(manifest []byte, signature, signingKey string) (Entry, error) {
 	var e Entry
 	if err := json.Unmarshal(manifest, &e); err != nil {
 		return Entry{}, err
@@ -34,7 +39,7 @@ func EntryFromManifest(manifest []byte, signature string) (Entry, error) {
 	// able to change what the registry believes was signed.
 	blob := make([]byte, len(manifest))
 	copy(blob, manifest)
-	e.Manifest = &Manifest{Bytes: blob, Signature: signature}
+	e.Manifest = &Manifest{Bytes: blob, Signature: signature, SigningKey: signingKey}
 	return e, nil
 }
 
@@ -55,7 +60,7 @@ func (e Entry) Attested() bool {
 	if !e.Signed() {
 		return false
 	}
-	projected, err := EntryFromManifest(e.Manifest.Bytes, e.Manifest.Signature)
+	projected, err := EntryFromManifest(e.Manifest.Bytes, e.Manifest.Signature, e.Manifest.SigningKey)
 	if err != nil {
 		return false
 	}
