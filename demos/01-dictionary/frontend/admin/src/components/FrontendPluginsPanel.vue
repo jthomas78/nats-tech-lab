@@ -60,10 +60,19 @@ function contributionSummary(entry) {
   return [...counts].map(([label, n]) => (n === 1 ? label : `${n} ${label}s`)).join(', ')
 }
 
-// One place decides how a row reports itself, because the three states are not
-// the same kind of fact: `withheld` is a judgement the server made about the
-// entry, `disabled` is a curation decision, `enabled` is neither.
+// One place decides how a row reports itself, because the four states are not
+// the same kind of fact: `revoked` is a security event, `withheld` is a
+// judgement the server made about the entry, `disabled` is a curation
+// decision, `enabled` is neither.
 function state(entry) {
+  /* First, and under its own word. The panel already spends "withheld" on a
+     non-conforming origin, and an operator reading one word for two unrelated
+     causes would have no way to tell a narrowed allowlist from a revoked
+     publisher key. Re-enabling is the only way back, one entry at a time
+     (BR-AS38). */
+  if (entry.withheld) {
+    return { tone: 'bad', label: 'revoked', note: 'publisher key revoked; enable to restore' }
+  }
   if (!entry.conforming) {
     return { tone: 'bad', label: 'withheld', note: 'stored, not served to any shell' }
   }

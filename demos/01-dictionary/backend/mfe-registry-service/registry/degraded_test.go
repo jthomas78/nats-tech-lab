@@ -209,3 +209,87 @@ func freshCache() *kvcache.Cache {
 	Expect(err).NotTo(HaveOccurred())
 	return kvcache.New(js)
 }
+
+/*
+BR-AS49 / decision 100 — revocation reaches the running browser.
+
+Withholding an entry governs the next admission. It does nothing at all to
+code already running: a plugin's timers, subscriptions and handlers keep
+going in every open tab. Phase 5 settled that a `static` plugin is not
+unloaded under the user, and that stays true of every ordinary catalogue
+change — but revocation is a security event and outranks it.
+
+For the shell to act on that it has to be able to SEE it, and an entry that
+simply vanished from the readable document is indistinguishable from one an
+operator disabled. So a withheld entry is served as a tombstone: its id,
+marked withheld, and nothing else. Not the remote, not the manifest, not the
+contribution list — nothing a shell could load and nothing the revoked key
+signed.
+
+Carried in the document rather than in the change notification on purpose. A
+notify message is fire-and-forget and is recovered by the shell's next
+unconditional read; a revocation that only travelled that way would be lost
+by a shell that reconnected at the wrong moment.
+*/
+var _ = Describe("a withheld entry on the wire", func() {
+	allowlist := domain.NewAllowlist([]string{"http://localhost:7110"})
+	live := func(id string) domain.Entry {
+		return domain.Entry{
+			ID: id, Name: id, Enabled: true, Lifecycle: domain.LifecycleDynamic,
+			Remote: domain.Remote{Kind: "federated", URL: "http://localhost:7110/" + id + ".js", Module: id},
+		}
+	}
+	withheld := func(id string) domain.Entry {
+		e := live(id)
+		e.Enabled, e.Withheld = false, true
+		e.Manifest = &domain.Manifest{Bytes: []byte(`{"id":"` + id + `"}`), Signature: "sig", SigningKey: "key"}
+		return e
+	}
+
+	It("is served, where a merely disabled entry is not", func() {
+		doc := domain.Document{Revision: 4, Entries: []domain.Entry{withheld("alpha")}}
+		out := doc.Readable(allowlist)
+
+		Expect(out.Entries).To(HaveLen(1))
+		Expect(out.Entries[0].ID).To(Equal("alpha"))
+		Expect(out.Entries[0].Withheld).To(BeTrue())
+	})
+
+	It("carries nothing loadable, and nothing the revoked key signed", func() {
+		doc := domain.Document{Revision: 4, Entries: []domain.Entry{withheld("alpha")}}
+		out := doc.Readable(allowlist)
+
+		Expect(out.Entries[0].Remote).To(Equal(domain.Remote{}))
+		Expect(out.Entries[0].Manifest).To(BeNil())
+		Expect(out.Entries[0].Contributions).To(BeEmpty())
+		Expect(out.Entries[0].ExtensionPoints).To(BeEmpty())
+		Expect(out.Entries[0].Enabled).To(BeFalse())
+	})
+
+	It("is served even though its origin is no longer allowed, having no origin left to check", func() {
+		// The tombstone is built before the allowlist runs. It has to be: a
+		// tombstone has no remote, so an allowlist check would drop the very
+		// news the shell is waiting for.
+		narrowed := domain.NewAllowlist([]string{"http://localhost:7999"})
+		doc := domain.Document{Revision: 4, Entries: []domain.Entry{withheld("alpha")}}
+
+		Expect(doc.Readable(narrowed).Entries).To(HaveLen(1))
+	})
+
+	It("leaves a merely disabled entry withheld from the document entirely", func() {
+		disabled := live("beta")
+		disabled.Enabled = false
+		doc := domain.Document{Revision: 4, Entries: []domain.Entry{disabled}}
+
+		Expect(doc.Readable(allowlist).Entries).To(BeEmpty())
+	})
+
+	It("sits in id order beside the entries that are still running", func() {
+		doc := domain.Document{Revision: 4, Entries: []domain.Entry{live("charlie"), withheld("alpha")}}
+		out := doc.Readable(allowlist)
+
+		Expect(out.Entries).To(HaveLen(2))
+		Expect(out.Entries[0].ID).To(Equal("alpha"))
+		Expect(out.Entries[1].ID).To(Equal("charlie"))
+	})
+})

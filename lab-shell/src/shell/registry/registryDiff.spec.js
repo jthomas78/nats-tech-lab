@@ -162,3 +162,72 @@ describe('decision 46 — every difference that is not a new id is a reload offe
     expect(result.reloadRequired).toEqual([{ id: 'a', name: 'a', reason: RELOAD_REASON.CHANGED }])
   })
 })
+
+/*
+  BR-AS49 / decision 100 — a revoked entry arrives as a tombstone.
+
+  The service serves the id marked `withheld` and nothing else, so the shell
+  can tell a revocation from an operator switching an entry off. The two look
+  identical otherwise, and only one of them may be applied under the user.
+*/
+describe('a tombstone for a revoked entry', () => {
+  const running = (id, name) => ({
+    id,
+    name,
+    remote: { kind: 'federated', url: `http://localhost:7110/${id}.js`, module: id },
+  })
+  const tombstone = (id) => ({ id, withheld: true })
+
+  it('is a forced reload for a plugin the shell is running', () => {
+    const { reloadRequired } = diffRegistry([running('fleet', 'Fleet Ops')], [tombstone('fleet')])
+
+    expect(reloadRequired).toHaveLength(1)
+    expect(reloadRequired[0]).toMatchObject({
+      id: 'fleet',
+      name: 'Fleet Ops',
+      reason: RELOAD_REASON.REVOKED,
+      forced: true,
+    })
+  })
+
+  it('is never an addition, so it never reaches the validator', () => {
+    const { added } = diffRegistry([running('fleet', 'Fleet Ops')], [tombstone('fleet')])
+
+    expect(added).toEqual([])
+  })
+
+  it('is ignored for a plugin the shell never held', () => {
+    // News about something that was never on screen. Nothing to withdraw and
+    // nothing to reload for.
+    const { added, reloadRequired } = diffRegistry([], [tombstone('fleet')])
+
+    expect(added).toEqual([])
+    expect(reloadRequired).toEqual([])
+  })
+
+  it('is not also reported as removed, having arrived in the document', () => {
+    const { reloadRequired } = diffRegistry([running('fleet', 'Fleet Ops')], [tombstone('fleet')])
+
+    expect(reloadRequired.map((c) => c.reason)).toEqual([RELOAD_REASON.REVOKED])
+  })
+
+  it('leaves the other plugins in the document alone', () => {
+    /* `normalize` is the identity here so the untouched plugin compares
+       equal to itself: this spec is about the tombstone not spilling onto its
+       neighbours, not about the validator's defaulting. */
+    const { reloadRequired } = diffRegistry(
+      [running('fleet', 'Fleet Ops'), running('yard', 'Yard')],
+      [tombstone('fleet'), running('yard', 'Yard')],
+      { normalize: (m) => m },
+    )
+
+    expect(reloadRequired.map((c) => c.id)).toEqual(['fleet'])
+  })
+
+  it('is distinguishable from an operator disabling an entry, which just vanishes', () => {
+    const { reloadRequired } = diffRegistry([running('fleet', 'Fleet Ops')], [])
+
+    expect(reloadRequired[0].reason).toBe(RELOAD_REASON.REMOVED)
+    expect(reloadRequired[0].forced).toBeUndefined()
+  })
+})

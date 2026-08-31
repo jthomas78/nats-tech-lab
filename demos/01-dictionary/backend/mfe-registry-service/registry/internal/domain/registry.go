@@ -210,6 +210,15 @@ func Degraded() Document {
 func (d Document) Readable(allowlist Allowlist) Document {
 	out := Document{SchemaVersion: SchemaVersion, Revision: d.Revision, Degraded: d.Degraded, AsOf: d.AsOf, Entries: []Entry{}}
 	for _, e := range d.Entries {
+		/* Checked before Enabled and before the allowlist, and both orderings
+		   matter. A withheld entry is disabled, so an Enabled check first would
+		   drop it; and a tombstone has no remote, so an allowlist check would
+		   drop it too. The shell is told about this one precisely because it
+		   may be running the code that was just withdrawn (BR-AS49). */
+		if e.Withheld {
+			out.Entries = append(out.Entries, Tombstone(e.ID))
+			continue
+		}
 		if !e.Enabled {
 			continue
 		}
@@ -223,6 +232,19 @@ func (d Document) Readable(allowlist Allowlist) Document {
 	// reordered itself between boots would look like a shell bug.
 	sort.Slice(out.Entries, func(i, j int) bool { return out.Entries[i].ID < out.Entries[j].ID })
 	return out
+}
+
+// Tombstone is a withheld entry as a reader sees it: the id, the mark, and
+// nothing else (BR-AS49).
+//
+// Everything else is deliberately absent rather than merely unused. The
+// remote is what a shell would load, and this entry is exactly the one it
+// must not; the manifest is the artifact the revoked key signed, and
+// re-serving it would hand out the attestation that was just withdrawn. What
+// is left is enough to say "you may be running this — stop", which is the
+// whole message.
+func Tombstone(id string) Entry {
+	return Entry{ID: id, Withheld: true, Contributions: []Contribution{}}
 }
 
 // Write ops. Exhaustive: there is no delete, and BR-AS24 is checked against

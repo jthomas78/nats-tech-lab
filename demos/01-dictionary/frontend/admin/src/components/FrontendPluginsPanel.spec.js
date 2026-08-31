@@ -206,3 +206,61 @@ describe('FrontendPluginsPanel', () => {
     expect(panel.text()).toContain('notify._platform.registry.frontend-plugins.changed')
   })
 })
+
+// BR-AS49 — a revoked publisher key withholds what it signed. The panel already
+// spends the word "withheld" on a non-conforming origin, so a revocation gets
+// its own word: an operator must be able to tell a narrowed allowlist from a
+// withdrawn key, because only the second is a security event.
+describe('FrontendPluginsPanel — a withheld entry (BR-AS49)', () => {
+  const withRevoked = () => {
+    const d = doc()
+    d.plugins.push({
+      id: 'revoked-plugin',
+      name: 'Revoked',
+      version: '1.0.0',
+      shellApiVersion: 1,
+      routePrefix: '/revoked',
+      enabled: false,
+      conforming: true,
+      withheld: true,
+      remote: { kind: 'federated', url: 'https://plugins.acme.internal/revoked/remoteEntry.js', module: './Plugin' },
+      contributions: [],
+    })
+    return d
+  }
+
+  const rowFor = (w, id) =>
+    w.findAll('[data-testid="entry-row"]').find((r) => r.text().includes(id))
+
+  it('reads as revoked, not as withheld', async () => {
+    getRegistryEntries.mockResolvedValue(withRevoked())
+    const w = mountPanel()
+    await flushPromises()
+    const row = rowFor(w, 'revoked-plugin')
+    expect(row.text()).toContain('revoked')
+  })
+
+  it('names the publisher key as the cause, and re-enabling as the way back', async () => {
+    getRegistryEntries.mockResolvedValue(withRevoked())
+    const w = mountPanel()
+    await flushPromises()
+    expect(rowFor(w, 'revoked-plugin').text()).toContain('publisher key revoked')
+    expect(rowFor(w, 'revoked-plugin').text()).toContain('enable to restore')
+  })
+
+  it('leaves a non-conforming origin reading withheld, so the two causes stay apart', async () => {
+    getRegistryEntries.mockResolvedValue(withRevoked())
+    const w = mountPanel()
+    await flushPromises()
+    const legacy = rowFor(w, 'legacy-plugin')
+    expect(legacy.text()).toContain('withheld')
+    expect(legacy.text()).not.toContain('revoked')
+  })
+
+  it('says nothing about a revocation on an ordinary disabled entry', async () => {
+    getRegistryEntries.mockResolvedValue(withRevoked())
+    const w = mountPanel()
+    await flushPromises()
+    expect(rowFor(w, 'example-plugin-slow').text()).not.toContain('revoked')
+  })
+})

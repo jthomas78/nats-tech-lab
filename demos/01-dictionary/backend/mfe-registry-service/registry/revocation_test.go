@@ -182,9 +182,18 @@ var _ = Describe("revocation through the store", func() {
 			Expect(err).NotTo(HaveOccurred())
 			// One revision for the whole revocation, not one per entry.
 			Expect(after.Revision).To(Equal(before.Revision + 1))
+			/* The two withheld ids are still in the readable document, as
+			   tombstones — that is how a running shell learns to stop them
+			   (BR-AS49). Only bravo is still loadable. */
 			readable := after.Readable(allowed)
-			Expect(readable.Entries).To(HaveLen(1))
-			Expect(readable.Entries[0].ID).To(Equal("bravo"))
+			Expect(readable.Entries).To(HaveLen(3))
+			loadable := []string{}
+			for _, e := range readable.Entries {
+				if !e.Withheld {
+					loadable = append(loadable, e.ID)
+				}
+			}
+			Expect(loadable).To(Equal([]string{"bravo"}))
 			Expect(entryByID("alpha").Withheld).To(BeTrue())
 			Expect(entryByID("charlie").Withheld).To(BeTrue())
 			Expect(entryByID("bravo").Withheld).To(BeFalse())

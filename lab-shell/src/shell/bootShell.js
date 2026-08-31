@@ -21,7 +21,7 @@ import { createContributionRegistry } from './contributions/contributionRegistry
 import { declareShellExtensionPoints } from './extensions/extensionPoints.js'
 import { validateManifest } from './registry/manifestSchema.js'
 import { PLUGIN_STATUS, PluginStatusRecord } from './registry/pluginStatus.js'
-import { diffRegistry } from './registry/registryDiff.js'
+import { diffRegistry, RELOAD_REASON } from './registry/registryDiff.js'
 import { RemoteAllowlist } from './registry/registryClient.js'
 
 /**
@@ -112,6 +112,44 @@ export async function bootShell({
     Never throws, and never tears anything down: additions are indexed,
     everything else is *offered*.
   */
+  const raiseReload = (changes) => {
+    for (const change of changes) {
+      if (!pendingReload.some((p) => p.id === change.id && p.reason === change.reason)) {
+        pendingReload.push(change)
+      }
+    }
+  }
+
+  /* Raise, then retract what this read no longer supports. Only a read the
+     service vouched for may retract — see the reasoning at the call site —
+     which is why the degraded branch calls raiseReload alone. */
+  const syncPendingReload = (reloadRequired) => {
+    raiseReload(reloadRequired)
+    for (let i = pendingReload.length - 1; i >= 0; i--) {
+      const held = pendingReload[i]
+      if (!reloadRequired.some((c) => c.id === held.id && c.reason === held.reason)) {
+        pendingReload.splice(i, 1)
+      }
+    }
+  }
+
+  /* The tombstones in a document, against what the shell is running.
+     Deliberately NOT diffRegistry: that function reads an absent id as a
+     removal, which is right for a document the service vouched for and wrong
+     for a stale one. Here the only signal taken is the presence of a
+     tombstone — never the absence of an entry. */
+  const revocationsIn = (entries = []) => {
+    const running = new Set(plugins.map((p) => p.id))
+    return (entries ?? [])
+      .filter((e) => e?.withheld === true && running.has(e.id))
+      .map((e) => ({
+        id: e.id,
+        name: plugins.find((p) => p.id === e.id)?.name ?? e.id,
+        reason: RELOAD_REASON.REVOKED,
+        forced: true,
+      }))
+  }
+
   const applyRegistry = (discovery) => {
     if (!discovery?.ok) {
       /* Recorded, not thrown. The native shell frame remains usable, and the
@@ -146,7 +184,18 @@ export async function bootShell({
          document the service never served it. The next read is unconditional
          and the answer is a real document. */
       registry.etag = null
-      return { added: [], addedRoutes: [], reloadRequired: [] }
+      /* One thing IS taken from a degraded document: a tombstone (BR-AS49).
+         The reasoning above is that a stale document cannot be trusted to
+         say what exists — but it can be trusted to say what was withdrawn,
+         because cache writes are monotonic (BR-AS51) and withdrawal is the
+         safe direction to be wrong in. A revocation that arrived just before
+         Postgres went down must not wait out the outage. */
+      /* Raised, never synced. A degraded document is not evidence that
+         anything was taken back (decision 48), so an offer standing from a
+         healthy read must survive the outage. */
+      const withheld = revocationsIn(discovery.plugins)
+      raiseReload(withheld)
+      return { added: [], addedRoutes: [], reloadRequired: withheld }
     }
 
     /* Kept beside the revision so the watcher can pick the conditional read
@@ -175,17 +224,7 @@ export async function bootShell({
        shell insisting a plugin it was still rendering had been withdrawn.
        Nothing here applies anything — the offer is withdrawn, never the
        plugin (decision 25 / BR-AS19). */
-    for (const change of reloadRequired) {
-      if (!pendingReload.some((p) => p.id === change.id && p.reason === change.reason)) {
-        pendingReload.push(change)
-      }
-    }
-    for (let i = pendingReload.length - 1; i >= 0; i--) {
-      const held = pendingReload[i]
-      if (!reloadRequired.some((c) => c.id === held.id && c.reason === held.reason)) {
-        pendingReload.splice(i, 1)
-      }
-    }
+    syncPendingReload(reloadRequired)
 
     return {
       added,

@@ -289,3 +289,55 @@ describe('BR-AS22 / decision 48 — degraded is a state the shell leaves', () =>
     expect(shell.contributions.navigation).toHaveLength(1)
   })
 })
+
+/*
+  BR-AS49 / decision 100 — a revocation reaches a running shell.
+
+  The service serves a withheld entry as a tombstone rather than dropping it,
+  precisely so the shell can tell "an operator switched this off" from "the
+  platform withdrew trust in this". Only the second is applied under the user.
+*/
+describe('BR-AS49 — a tombstone forces a reload', () => {
+  const tombstone = (id) => ({ id, withheld: true })
+
+  const bootedWith = (id) =>
+    bootShell({
+      registryClient: client({ ok: true, revision: 7, etag: '"7"', plugins: [manifest(id)] }),
+      permissions,
+    })
+
+  it('raises a forced reload for the plugin it is running', async () => {
+    const shell = await bootedWith('fleet-ops')
+    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [tombstone('fleet-ops')] })
+
+    expect(shell.pendingReload).toHaveLength(1)
+    expect(shell.pendingReload[0]).toMatchObject({ id: 'fleet-ops', forced: true })
+  })
+
+  it('does not admit the tombstone as a plugin', async () => {
+    const shell = await bootedWith('fleet-ops')
+    shell.applyRegistry({ ok: true, revision: 8, etag: '"8"', plugins: [tombstone('billing')] })
+
+    expect(shell.plugins.map((p) => p.id)).toEqual(['fleet-ops'])
+  })
+
+  it('acts on a tombstone in a degraded read, which it does not do for any other change', async () => {
+    /* A degraded document cannot say what exists — the reason decision 48
+       makes the shell hold what it has. It can say what was withdrawn: cache
+       writes are monotonic, so a tombstone in a stale copy is real, and
+       withdrawal is the safe direction to be wrong in. */
+    const shell = await bootedWith('fleet-ops')
+    shell.applyRegistry({ ok: true, degraded: true, plugins: [tombstone('fleet-ops')] })
+
+    expect(shell.pendingReload).toHaveLength(1)
+    expect(shell.pendingReload[0]).toMatchObject({ id: 'fleet-ops', forced: true })
+  })
+
+  it('still holds what it has through a degraded read that carries no tombstone', async () => {
+    const shell = await bootedWith('fleet-ops')
+    shell.applyRegistry({ ok: true, degraded: true, plugins: [] })
+
+    expect(shell.plugins.map((p) => p.id)).toEqual(['fleet-ops'])
+    expect(shell.pendingReload).toEqual([])
+  })
+})

@@ -1004,14 +1004,36 @@ Where the bulk path actually landed, and why it is not where the task said:
   Re-enabling an entry clears the mark, and only re-enabling does — that is the manual half of
   BR-AS38.
 
-##### 7e — revocation reaches the browser, and the degraded read
-- [ ] A withheld-by-revocation entry makes the shell reload, overriding the `static` no-unload rule
+##### 7e — revocation reaches the browser, and the degraded read — DONE 2026-08-31
+- [x] A withheld-by-revocation entry makes the shell reload, overriding the `static` no-unload rule
       (decision 100).
-- [x] Cache writes are monotonic and the served document carries its revision and age (decision 105)
-      — service side done; the shell and Admin labels are the browser half below.
-- [ ] Specs: a revoked static plugin is reloaded away rather than left running; a lower revision
+- [x] Cache writes are monotonic and the served document carries its revision and age (decision 105).
+- [x] Specs: a revoked static plugin is reloaded away rather than left running; a lower revision
       never overwrites a higher one in the cache; a degraded read is labelled as stale in both
       surfaces (BR-AS49, BR-AS51).
+
+**Where it landed, and the two choices the task did not name.**
+
+- **The revocation travels in the document, as a tombstone**, not in the notify payload. A withheld
+  entry is served as `{id, withheld: true}` — no remote, no manifest, no contributions — by
+  `domain.Tombstone`, checked in `Readable` *before* the `Enabled` and allowlist filters (a withheld
+  entry is disabled, and a tombstone has no remote, so either check first would drop the very news
+  the shell is waiting for). A notify is fire-and-forget and recovered by the next unconditional
+  read; a revocation must not depend on a message arriving.
+- **A degraded document may say what was withdrawn, never what exists.** `bootShell` still refuses to
+  diff a degraded read (decision 48), but it does take the tombstones out of it — cache writes are
+  monotonic (BR-AS51) and withdrawal is the safe direction to be wrong in. So the degraded branch
+  *raises* a forced reload and never retracts a standing one.
+- **The forced reload lives in `RegistrySignalBanner.vue`**, which already owns the shell's one
+  `location.reload()`. The watch is `immediate` so a shell that boots into an already-revoked
+  document reloads too; the banner offers nothing to dismiss while `forced`.
+- **The Admin calls it `revoked`, not `withheld`.** The panel already spends "withheld" on a
+  non-conforming origin, and an operator reading one word for two unrelated causes could not tell a
+  narrowed allowlist from a revoked key.
+- **The Admin has no degraded label, deliberately.** Its curated read goes straight to Postgres with
+  no cache in front of it, so it cannot serve a stale copy and has nothing to label. BR-AS51's
+  "both surfaces" is the shell and the shell's read API; the Admin's absence of a label is the
+  honest answer, not a gap.
 
 ##### 7f — rules and docs
 - [ ] `BUSINESS_RULES-APP-SHELL.md` — BR-AS35 to BR-AS38 (two rewritten) and BR-AS46 to BR-AS51.
