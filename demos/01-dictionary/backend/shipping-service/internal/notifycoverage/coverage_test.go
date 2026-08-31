@@ -81,6 +81,12 @@ var subjectBuilders = map[string]string{
 		"names notify.* subjects in JWT permission grants — subscribe " +
 		"allow-lists, not publishes.",
 
+	"mfe-registry-service/registry/internal/notify/notify.go": "" +
+		"the registry's subject-builder layer, extracted from its application " +
+		"service when the context left accounts-service. One shape, four " +
+		"tokens, _platform context — the subject is platform-wide because " +
+		"the catalog is.",
+
 	"accounts-service/accounts/provisioner.go": "" +
 		"names notify.accounts.account.* as a JetStream export subject, not " +
 		"a publish.",
