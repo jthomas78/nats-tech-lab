@@ -11,6 +11,7 @@
 */
 import { computed, inject } from 'vue'
 
+import { healthCheckedAt, healthLabel, healthTone } from '../shell/registry/healthText.js'
 import { describeContributions, statusDetail } from '../shell/registry/inventoryText.js'
 import { SHELL } from '../shell/shellKey.js'
 import { SHELL_API_VERSION } from '../shell/versions.js'
@@ -24,6 +25,13 @@ const rejected = computed(
 /* A page reload applies pending removals and changed entries. Live discovery
    can add plugins, but cannot tear down an already-activated plugin. */
 const reload = () => window.location.reload()
+
+/* Two cells, never one verdict (BR-AS60). A plugin whose UI is served fine
+   while its API is down is the case an operator most needs to see, and a
+   merged column would hide it. Health decorates the row; it never changes the
+   status beside it, because a plugin loaded correctly whether or not its
+   backend is answering right now. */
+const signalsFor = (id) => shell.health?.signals?.[id] ?? {}
 
 const TONE = {
   active: 'ok',
@@ -101,7 +109,13 @@ const TOLERANCE = [
             <th style="width: 11%">
               Status
             </th>
-            <th style="width: 22%">
+            <th style="width: 10%">
+              Frontend
+            </th>
+            <th style="width: 10%">
+              Backend
+            </th>
+            <th style="width: 16%">
               Contributions
             </th>
             <th>Detail</th>
@@ -127,6 +141,18 @@ const TOLERANCE = [
                 class="pill"
                 :class="TONE[row.status]"
               ><span class="pip" />{{ row.status }}</span>
+            </td>
+            <td
+              v-for="side in ['frontend', 'backend']"
+              :key="side"
+            >
+              <span
+                class="pill"
+                :class="healthTone(signalsFor(row.id)[side]?.state)"
+                :title="healthCheckedAt(signalsFor(row.id)[side])
+                  ? `last checked ${healthCheckedAt(signalsFor(row.id)[side])}`
+                  : 'never checked'"
+              ><span class="pip" />{{ healthLabel(signalsFor(row.id)[side]) }}</span>
             </td>
             <td :class="describeContributions(row.contributionKinds) ? 'lab-muted' : 'lab-dim'">
               {{ describeContributions(row.contributionKinds) || '— not indexed —' }}

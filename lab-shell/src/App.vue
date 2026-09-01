@@ -6,6 +6,7 @@ import AppShell from '@ui-shell/AppShell.vue'
 import { computed, inject } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { healthAttention } from './shell/registry/healthText.js'
 import { attentionTone, summarizeAttention } from './shell/registry/statusRollup.js'
 import { breadcrumbTrail } from './shell/routing/breadcrumb.js'
 import { createNavigationPending } from './shell/routing/navigationPending.js'
@@ -35,6 +36,15 @@ const controls = computed(() => shell.contributions.shellControlsFor(route.path)
    string, because a cause can quote a remote URL (BR-AS04). */
 const attention = computed(() => summarizeAttention(inventory.value))
 const statusOf = (pluginId) => shell.statuses.get(pluginId)?.status ?? null
+
+/* Health decorates a nav item the shell otherwise believes is fine. A plugin
+   that failed to load is the bigger news and keeps the dot to itself —
+   two marks in one corner of the eye would compete rather than inform
+   (BR-AS60). */
+const healthOf = (pluginId) => {
+  if (attentionTone(statusOf(pluginId))) return null
+  return healthAttention(shell.health?.signals?.[pluginId])
+}
 
 /* A deep link into a remote that has never been loaded spends a network fetch
    before the view exists; this is what fills that gap (task 1b-6). */
@@ -152,6 +162,14 @@ function isActive(entry) {
             class="nav-dot"
             :class="attentionTone(statusOf(entry.pluginId))"
             :title="statusOf(entry.pluginId)"
+          />
+          <!-- The health mark. Same dot, quieter reason: this plugin loaded,
+               and something it depends on is not answering right now. -->
+          <span
+            v-else-if="healthOf(entry.pluginId)"
+            class="nav-dot"
+            :class="healthOf(entry.pluginId)"
+            title="a dependency is unavailable"
           />
         </router-link>
       </nav>

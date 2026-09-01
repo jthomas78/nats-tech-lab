@@ -7,7 +7,7 @@ import { resolveWsUrl } from '@nats-shared/resolveWsUrl.js'
 import Aura from '@primevue/themes/aura'
 import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
-import { createApp, nextTick } from 'vue'
+import { createApp, nextTick, reactive } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 
 import { createUnifiPreset, enableDarkMode, themeOptions } from '@unifi-theme/preset.js'
@@ -21,6 +21,7 @@ import { createShellConnection } from './shell/connections/shellConnection.js'
 import { createShellDialer } from './shell/connections/shellDialer.js'
 import { createFederatedAdapter } from './shell/loader/federatedAdapter.js'
 import { createPluginLoader } from './shell/loader/pluginLoader.js'
+import { createHealthPlane, createHealthTransport } from './shell/registry/healthPlane.js'
 import { createRegistryTransport } from './shell/registry/registryTransport.js'
 import { createRegistrySession } from './shell/registry/registrySession.js'
 import { createShellRoutes, installShellRoutes } from './shell/routing/shellRoutes.js'
@@ -118,8 +119,19 @@ async function bootstrap() {
       })
     },
   })
+  /* The health plane is started alongside the session and never awaited by
+     it (BR-AS65). A health read that hangs must not delay a single plugin:
+     the catalogue is what the boot depends on, and health is decoration on
+     top of whatever the boot produced. */
+  const health = reactive({ signals: {} })
+  const healthPlane = createHealthPlane({
+    transport: createHealthTransport({ request: connection.request }),
+    subscribe: (subject, handler) => connection.subscribe(subject, handler),
+  })
+  const refreshHealth = () => { health.signals = healthPlane.snapshot() }
+
   const app = createApp(App)
-  app.provide(SHELL, withRuntime(shell, { loader, plugins, router, connections, connection: connection.state }))
+  app.provide(SHELL, withRuntime(shell, { loader, plugins, router, connections, connection: connection.state, health, healthPlane, refreshHealth }))
   app.use(createPinia())
   app.use(router)
   app.use(PrimeVue, {
@@ -130,7 +142,17 @@ async function bootstrap() {
   })
   app.mount('#app')
   void session.start()
-  if (import.meta.hot) import.meta.hot.dispose(() => { void session.stop() })
+  healthPlane.start()
+  /* Re-read the plane on the same cadence the registry probes on, so a
+     reading that has aged into `stale` is replaced rather than merely
+     labelled. The interval only copies memory into a reactive object; the
+     network read is the plane's own business. */
+  const healthTimer = setInterval(refreshHealth, 5_000)
+  if (import.meta.hot) import.meta.hot.dispose(() => {
+    clearInterval(healthTimer)
+    healthPlane.stop()
+    void session.stop()
+  })
 }
 
 bootstrap()
