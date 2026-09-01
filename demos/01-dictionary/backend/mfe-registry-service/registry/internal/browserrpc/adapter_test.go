@@ -91,7 +91,8 @@ func endpoints(svc *stubService) *Endpoints { return New(svc, stubAudit{}) }
 // rest_test.go's TestMountRoutes pins the route surface.
 //
 // The list is the credential design: MintShellToken grants exactly the read
-// subject, and MintAdminToken grants exactly the other six. A subject added
+// subject and the health read, and MintAdminToken grants exactly the other
+// six. A subject added
 // here without a corresponding decision about which credential reaches it is
 // the failure this catches — and over NATS that failure is quieter than its
 // HTTP equivalent, because there is no 404 to notice, just a subject nobody
@@ -101,6 +102,7 @@ func TestSubjectsAreTheGrantedSet(t *testing.T) {
 
 	g.Expect(Subjects()).To(ConsistOf(
 		"api._platform.registry.frontend-plugins.read.v1",
+		"api._platform.registry.frontend-plugins.health.v1",
 		"api._platform.registry.entries.curated.v1",
 		"api._platform.registry.entries.upsert.v1",
 		"api._platform.registry.entries.set-enabled.v1",
@@ -116,11 +118,13 @@ func TestSubjectsAreTheGrantedSet(t *testing.T) {
 		g.Expect(s).NotTo(ContainSubstring("remove"))
 	}
 
-	// The read subject is the ONLY one the shell's credential holds
-	// (BR-AS27). Asserted here as well as in token_test.go because the two
+	// The two read subjects are the ONLY ones the shell's credential holds
+	// (BR-AS27, BR-AS65). Asserted here as well as in token_test.go because the two
 	// facts live in different modules and only agree by intention.
 	g.Expect(ShellReadSubject).To(Equal("api._platform.registry.frontend-plugins.read.v1"))
 	g.Expect(Subjects()).To(ContainElement(ShellReadSubject))
+	g.Expect(HealthReadSubject).To(Equal("api._platform.registry.frontend-plugins.health.v1"))
+	g.Expect(Subjects()).To(ContainElement(HealthReadSubject))
 }
 
 // --- the read (BR-AS27, decision 58) ---

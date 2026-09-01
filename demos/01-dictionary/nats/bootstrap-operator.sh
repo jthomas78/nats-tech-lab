@@ -481,12 +481,19 @@ nsc generate creds --account PLATFORM --name observability >"$NATS_DIR/creds/obs
 # this IS the service that owns them, and the endpoint table in
 # internal/browserrpc is what decides which exist.
 #
+# Health (Phase 5d, BR-AS62) adds outbound rpc._platform.health.*.ready.v1 —
+# publish only, one token wide, and only ever the readiness question. It asks
+# services whether they are ready; the reply comes back on the _INBOX.> it
+# already holds. A `>` here would let the registry call anything under
+# health.*, and the whole point of the subject is that it carries no verb but
+# this one.
+#
 # Announcements add exactly rpc._platform.registry.entries.announce.v1.
 # What is deliberately absent: broad rpc.>, any evt.>, any other service's api.*,
 # and the whole $SYS axis. The registry reads and writes one catalog.
 nsc add user --account PLATFORM mfe-registry-service >/dev/null
 nsc edit user --account PLATFORM --name mfe-registry-service \
-  --allow-pub '$SRV.>,_INBOX.>,notify._platform.registry.frontend-plugins.changed,$JS.API.INFO,$JS.API.STREAM.CREATE.KV_mfe-registry,$JS.API.STREAM.UPDATE.KV_mfe-registry,$JS.API.STREAM.INFO.KV_mfe-registry,$JS.API.DIRECT.GET.KV_mfe-registry.>,$KV.mfe-registry.>,obs.trace._platform.registry.>' \
+  --allow-pub '$SRV.>,_INBOX.>,notify._platform.registry.frontend-plugins.changed,notify._platform.registry.frontend-plugins.health,rpc._platform.health.*.ready.v1,$JS.API.INFO,$JS.API.STREAM.CREATE.KV_mfe-registry,$JS.API.STREAM.UPDATE.KV_mfe-registry,$JS.API.STREAM.INFO.KV_mfe-registry,$JS.API.DIRECT.GET.KV_mfe-registry.>,$KV.mfe-registry.>,obs.trace._platform.registry.>' \
   --allow-sub 'api._platform.registry.>,rpc._platform.registry.entries.announce.v1,$SRV.>,_INBOX.>' >/dev/null
 nsc generate creds --account PLATFORM --name mfe-registry-service >"$NATS_DIR/creds/mfe-registry-service.creds"
 

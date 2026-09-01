@@ -1,0 +1,32 @@
+module github.com/jthomas78/nats-tech-lab/shared/natsready
+
+go 1.27
+
+require (
+	github.com/jthomas78/nats-tech-lab/shared/mferegistry v0.0.0-00010101000000-000000000000
+	github.com/jthomas78/nats-tech-lab/shared/natstest v0.0.0-00010101000000-000000000000
+	github.com/nats-io/nats.go v1.52.0
+	github.com/onsi/gomega v1.38.2
+)
+
+require (
+	github.com/antithesishq/antithesis-sdk-go v0.7.2-default-no-op // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/google/go-tpm v0.9.8 // indirect
+	github.com/klauspost/compress v1.19.2 // indirect
+	github.com/minio/highwayhash v1.0.4 // indirect
+	github.com/nats-io/jwt/v2 v2.8.2 // indirect
+	github.com/nats-io/nats-server/v2 v2.14.5 // indirect
+	github.com/nats-io/nkeys v0.4.16 // indirect
+	github.com/nats-io/nuid v1.0.1 // indirect
+	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/time v0.15.0 // indirect
+)
+
+replace github.com/jthomas78/nats-tech-lab/shared/mferegistry => ../mferegistry
+
+replace github.com/jthomas78/nats-tech-lab/shared/natstest => ../natstest

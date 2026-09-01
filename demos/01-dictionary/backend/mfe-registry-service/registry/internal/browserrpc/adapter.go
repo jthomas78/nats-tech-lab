@@ -51,6 +51,10 @@ func Subjects() []string {
 func (a *Adapter) routes() []endpoint {
 	return []endpoint{
 		{"registry-read", ShellReadSubject, handle(a, (*Endpoints).Read)},
+		{"registry-health", HealthReadSubject, func(req micro.Request) {
+			out, err := a.endpoints.Health(shared.SpanContext(req))
+			a.reply(req, out, err)
+		}},
 		{"registry-curated", CuratedSubject, func(req micro.Request) {
 			out, err := a.endpoints.Curated(shared.SpanContext(req))
 			a.reply(req, out, err)

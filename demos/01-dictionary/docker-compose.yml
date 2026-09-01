@@ -439,6 +439,34 @@ services:
          "http://localhost:7113":"http://example-plugin-slow-frontend:80",
          "http://localhost:7114":"http://example-plugin-activate-throws-frontend:80",
          "http://localhost:7115":"http://example-plugin-incompatible-frontend:80"}
+      # Phase 5d (BR-AS61/AS62/AS65) — the health plane, deployment-owned end
+      # to end. Both maps are configuration and never manifest data: a
+      # publisher that could name its own probe target would be choosing what
+      # the platform dials, and could read the answer back out of the health
+      # decoration.
+      #
+      # Frontend: browser origin -> the address this container reaches it on,
+      # same translation REGISTRY_FETCH_ORIGINS makes and for the same reason
+      # (browser localhost is not this container's localhost). "/healthz" is
+      # appended by the registry; each plugin's nginx.conf serves it.
+      REGISTRY_HEALTH_ORIGINS: >-
+        {"http://localhost:7111":"http://example-plugin-frontend:80",
+         "http://localhost:7112":"http://demo-catalog-frontend:80",
+         "http://localhost:7113":"http://example-plugin-slow-frontend:80",
+         "http://localhost:7114":"http://example-plugin-activate-throws-frontend:80",
+         "http://localhost:7115":"http://example-plugin-incompatible-frontend:80"}
+      # Backend: plugin id -> the services it cannot work without. An id
+      # missing here is "not configured"; an id mapped to [] is a
+      # frontend-only plugin, which is "not applicable" — a different fact,
+      # and the shell shows it as one. Only refdata-service answers the
+      # readiness question today (see shared/natsready), so it is the only
+      # service named.
+      REGISTRY_HEALTH_TARGETS: >-
+        {"demo-catalog":["refdata-service"],
+         "example-plugin":[],
+         "example-plugin-slow":[],
+         "example-plugin-activate-throws":[],
+         "example-plugin-incompatible":[]}
       REGISTRY_PRELOAD_FILE: /etc/registry/registry.json
     ports:
       - "7206:8080"

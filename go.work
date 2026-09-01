@@ -14,6 +14,7 @@ use (
 	./shared/mferegistry
 	./shared/natsconn
 	./shared/natsnotify
+	./shared/natsready
 	./shared/natstenants
 	./shared/natstest
 	./shared/natstrace

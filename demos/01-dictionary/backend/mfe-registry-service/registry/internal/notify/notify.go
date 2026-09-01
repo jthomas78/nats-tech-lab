@@ -31,3 +31,22 @@ func Changed() natsnotify.Subject {
 		},
 	}
 }
+
+// HealthChanged is the health plane's hint (BR-AS64/AS65). Same shape and the
+// same promise as Changed, on its own action token: a shell that hears it
+// re-reads the health subject, and the read is what is authoritative.
+//
+// The hint carries no state at all. A delivery proves that a message arrived,
+// never that a service was alive, so a payload here would be an observation
+// that nothing re-checked.
+func HealthChanged() natsnotify.Subject {
+	return natsnotify.Subject{
+		Name: "notify._platform.registry.frontend-plugins.health",
+		Tokens: natsnotify.Tokens{
+			Context: "_platform",
+			Service: "registry",
+			Entity:  "frontend-plugins",
+			Action:  "health",
+		},
+	}
+}

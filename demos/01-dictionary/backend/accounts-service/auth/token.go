@@ -168,8 +168,8 @@ func MintAdminToken(ctx context.Context, reg accounts.UserRegistry, accountPub, 
 // its realm and therefore this credential: never grant an operator capability.
 func MintShellToken(ctx context.Context, reg accounts.UserRegistry, accountPub, accountSigningKeySeed, wsURL string, ttl time.Duration) (ConnectInfo, error) {
 	return mintUserToken(ctx, reg, accountPub, accountSigningKeySeed, "lab-shell", "platform", wsURL, ttl, func(claims *jwt.UserClaims) {
-		claims.Permissions.Pub.Allow.Add(mferegistry.ShellRead, "_INBOX.>")
-		claims.Permissions.Sub.Allow.Add(mferegistry.Changed, "_INBOX.>")
+		claims.Permissions.Pub.Allow.Add(mferegistry.ShellRead, mferegistry.HealthRead, "_INBOX.>")
+		claims.Permissions.Sub.Allow.Add(mferegistry.Changed, mferegistry.HealthChanged, "_INBOX.>")
 	})
 }
 

@@ -8,6 +8,7 @@ require (
 	github.com/jthomas78/nats-tech-lab/shared/jstream v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natsconn v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natsnotify v0.0.0-00010101000000-000000000000
+	github.com/jthomas78/nats-tech-lab/shared/natsready v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natstenants v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natstest v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natstrace v0.0.0-00010101000000-000000000000
@@ -36,6 +37,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
+	github.com/jthomas78/nats-tech-lab/shared/mferegistry v0.0.0-00010101000000-000000000000 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/mailru/easyjson v0.7.6 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
@@ -73,3 +75,7 @@ replace github.com/jthomas78/nats-tech-lab/shared/natstenants => ../../../../sha
 replace github.com/jthomas78/nats-tech-lab/shared/browserrpc => ../../../../shared/browserrpc
 
 replace github.com/jthomas78/nats-tech-lab/shared/natsconn => ../../../../shared/natsconn
+
+replace github.com/jthomas78/nats-tech-lab/shared/natsready => ../../../../shared/natsready
+
+replace github.com/jthomas78/nats-tech-lab/shared/mferegistry => ../../../../shared/mferegistry

@@ -30,8 +30,11 @@ import (
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/application"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/browserrpc"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/domain"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/healthhttp"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/healthnats"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/kvcache"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/manifesthttp"
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/notify"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/postgres"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/preload"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/rest"
@@ -49,6 +52,18 @@ type Module struct {
 	driftCancel   context.CancelFunc
 	driftDone     chan struct{}
 	driftHTTP     *manifesthttp.Client
+	healthCancel  context.CancelFunc
+	healthDone    chan struct{}
+	healthHTTP    *healthhttp.Client
+}
+
+// healthHint publishes the health plane's hint. A tiny adapter rather than
+// handing the checker a Notifier, so the checker keeps knowing nothing about
+// NATS and a deployment without a broker simply has no hinter (BR-AS64).
+type healthHint struct{ notifier *natsnotify.Notifier }
+
+func (h healthHint) HealthChanged(ctx context.Context) {
+	h.notifier.Publish(ctx, notify.HealthChanged(), nil)
 }
 
 // MountHTTP mounts the registry's HTTP surface, which is exhaustively empty:
@@ -80,6 +95,37 @@ func ParseFetchOrigins(raw string, allowed domain.Allowlist) (domain.FetchOrigin
 		}
 	}
 	return domain.NewFetchOrigins(allowed, mappings)
+}
+
+// ParseHealthOrigins reads REGISTRY_HEALTH_ORIGINS, the same shape as
+// REGISTRY_FETCH_ORIGINS and read separately on purpose: an operator may want
+// the registry to watch a plugin's availability without granting it a
+// manifest fetch, or the other way round. Unmapped is not checked, never
+// healthy (BR-AS61).
+func ParseHealthOrigins(raw string, allowed domain.Allowlist) (domain.HealthOrigins, []string) {
+	mappings := map[string]string{}
+	if strings.TrimSpace(raw) != "" {
+		if err := json.Unmarshal([]byte(raw), &mappings); err != nil || mappings == nil {
+			origins, _ := domain.NewHealthOrigins(allowed, nil)
+			return origins, []string{"ignored health mappings: expected a JSON object of browser origins to service origins"}
+		}
+	}
+	return domain.NewHealthOrigins(allowed, mappings)
+}
+
+// ParseHealthTargets reads REGISTRY_HEALTH_TARGETS, a JSON object mapping a
+// plugin id to the backend service ids it depends on. An absent plugin is not
+// configured; a plugin mapped to an empty list is frontend-only. Both are
+// states, not health (BR-AS62).
+func ParseHealthTargets(raw string) (domain.HealthTargets, []string) {
+	mappings := map[string][]string{}
+	if strings.TrimSpace(raw) != "" {
+		if err := json.Unmarshal([]byte(raw), &mappings); err != nil || mappings == nil {
+			targets, _ := domain.NewHealthTargets(nil)
+			return targets, []string{"ignored health targets: expected a JSON object of plugin ids to service ids"}
+		}
+	}
+	return domain.NewHealthTargets(mappings)
 }
 
 // Startup migrates the registry schema and wires the module.
@@ -121,10 +167,27 @@ func Startup(lifetime context.Context, db *sql.DB, js jetstream.JetStream, nc *n
 	if len(fetchOrigins) > 0 {
 		origins = fetchOrigins[0]
 	}
+	healthOrigins, warnings := ParseHealthOrigins(os.Getenv("REGISTRY_HEALTH_ORIGINS"), allowlist)
+	healthTargets, targetWarnings := ParseHealthTargets(os.Getenv("REGISTRY_HEALTH_TARGETS"))
+	for _, w := range append(warnings, targetWarnings...) {
+		log.Warn("registry health: " + w)
+	}
+	m.healthHTTP = healthhttp.New()
+	// Health is deployment-owned end to end: the frontend addresses and the
+	// backend service ids both come from configuration, never from a
+	// manifest, so no publisher can point the registry at something it does
+	// not own (BR-AS62/AS65).
+	var health *application.HealthChecker
+	if nc != nil {
+		health = application.NewHealthChecker(m.Service, healthOrigins, healthTargets, m.healthHTTP, healthnats.New(nc), healthHint{notifier: notifier})
+	} else {
+		health = application.NewHealthChecker(m.Service, healthOrigins, healthTargets, m.healthHTTP, healthnats.New(nil))
+	}
+
 	m.driftHTTP = manifesthttp.New()
 	checker := application.NewDriftChecker(m.Service, origins, m.driftHTTP, application.DriftSchedule{})
 	if nc != nil {
-		adapter, err := browserrpc.Mount(nc, browserrpc.New(m.Service, store, checker), log)
+		adapter, err := browserrpc.Mount(nc, browserrpc.NewWithHealth(m.Service, store, health, checker), log)
 		if err != nil {
 			return nil, err
 		}
@@ -142,6 +205,10 @@ func Startup(lifetime context.Context, db *sql.DB, js jetstream.JetStream, nc *n
 	workerCtx, workerCancel := context.WithCancel(lifetime)
 	m.driftCancel, m.driftDone = workerCancel, make(chan struct{})
 	go func() { defer close(m.driftDone); checker.Run(workerCtx) }()
+
+	healthCtx, healthCancel := context.WithCancel(lifetime)
+	m.healthCancel, m.healthDone = healthCancel, make(chan struct{})
+	go func() { defer close(m.healthDone); health.Run(healthCtx) }()
 	return m, nil
 }
 
@@ -150,6 +217,11 @@ func (m *Module) Stop() error {
 		m.driftCancel()
 		<-m.driftDone
 		m.driftHTTP.Close()
+	}
+	if m.healthCancel != nil {
+		m.healthCancel()
+		<-m.healthDone
+		m.healthHTTP.Close()
 	}
 	return errors.Join(m.adapter.Stop(), m.announcements.Stop())
 }

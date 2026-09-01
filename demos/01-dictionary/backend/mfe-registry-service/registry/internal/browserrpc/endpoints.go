@@ -6,6 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
+
+	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/application"
 
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/domain"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/mfe-registry-service/registry/internal/postgres"
@@ -17,7 +20,14 @@ import (
 // (BR-AS25/AS27) and now does so from another module, so the list lives in
 // shared/mferegistry where both sides read one copy.
 const (
-	ShellReadSubject  = mferegistry.ShellRead
+	ShellReadSubject = mferegistry.ShellRead
+
+	// The health plane's own read (BR-AS65). A separate subject rather than
+	// more fields on the shell read: the catalogue changes when an operator
+	// curates, health changes every few seconds, and folding them together
+	// would make a shell re-read the whole signed catalogue on a timer.
+	HealthReadSubject = mferegistry.HealthRead
+
 	CuratedSubject    = mferegistry.Curated
 	UpsertSubject     = mferegistry.Upsert
 	SetEnabledSubject = mferegistry.SetEnabled
@@ -45,9 +55,18 @@ type Auditor interface {
 }
 
 type Endpoints struct {
-	svc   Service
-	audit Auditor
-	drift DriftReader
+	svc    Service
+	audit  Auditor
+	drift  DriftReader
+	health HealthReader
+}
+
+// HealthReader is the same shape of interface as DriftReader and for the same
+// reason: it exposes a completed observation only. No NATS handler may wait
+// on a plugin's HTTP or on another service's readiness reply, so there is no
+// way to ask for a probe from here — only to read what the checker last saw.
+type HealthReader interface {
+	Snapshot(time.Time) map[string]application.PluginHealth
 }
 
 // DriftReader exposes only a completed observation. Fetching is deliberately
@@ -62,6 +81,43 @@ func New(svc Service, audit Auditor, drift ...DriftReader) *Endpoints {
 		e.drift = drift[0]
 	}
 	return e
+}
+
+// NewWithHealth is New plus the health plane. Separate constructor rather
+// than another variadic, so a deployment that maps no health at all is a
+// visible choice in composition and not an omitted argument.
+func NewWithHealth(svc Service, audit Auditor, health HealthReader, drift ...DriftReader) *Endpoints {
+	e := New(svc, audit, drift...)
+	e.health = health
+	return e
+}
+
+// HealthResponse carries observations and nothing else. No revision, no
+// entries, no signed bytes: a health reply that could move a shell's idea of
+// the catalogue would be an observation with curation authority (BR-AS65).
+type HealthResponse struct {
+	OK bool `json:"ok"`
+	// Plugins is keyed by plugin id, each with its two independent signals.
+	Plugins map[string]application.PluginHealth `json:"plugins"`
+	// AsOf is when the snapshot was read, seconds since the epoch. Present so
+	// a shell can tell a fresh empty snapshot from a stalled checker.
+	AsOf int64 `json:"asOf,omitempty"`
+}
+
+// Health answers from memory. An unwired checker answers with an empty
+// snapshot rather than an error: a deployment that mapped nothing and a
+// health plane that is broken must not look the same to a shell, and an
+// error is what broken looks like.
+func (e *Endpoints) Health(ctx context.Context) (HealthResponse, error) {
+	now := time.Now().UTC()
+	out := HealthResponse{OK: true, Plugins: map[string]application.PluginHealth{}, AsOf: now.Unix()}
+	if e.health == nil {
+		return out, nil
+	}
+	for id, h := range e.health.Snapshot(now) {
+		out.Plugins[id] = h
+	}
+	return out, nil
 }
 
 type ReadRequest struct {

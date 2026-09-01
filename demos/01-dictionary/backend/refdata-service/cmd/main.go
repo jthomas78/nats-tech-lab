@@ -27,6 +27,7 @@ import (
 	_ "github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/docs"
 	"github.com/jthomas78/nats-tech-lab/demos/01-dictionary/backend/refdata-service/refdata"
 	"github.com/jthomas78/nats-tech-lab/shared/natsconn"
+	"github.com/jthomas78/nats-tech-lab/shared/natsready"
 )
 
 func main() {
@@ -92,6 +93,17 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	defer rpcAdapter.Stop() //nolint:errcheck
+
+	// Phase 5d (BR-AS62): answer whether this service is READY, which is not
+	// the same question as whether it is connected. The check pings Postgres
+	// on every ask, because a service whose database has gone holds its NATS
+	// connection open and would otherwise look perfectly alive to anything
+	// watching the bus.
+	readiness, err := natsready.Mount(nc, "refdata-service", db.PingContext, log)
+	if err != nil {
+		return err
+	}
+	defer readiness.Stop() //nolint:errcheck
 
 	// Phase 32 (BR-D40): one api.* adapter per known tenant, additive to the
 	// rpc.* adapter above — see shared/natstenants.

@@ -19,11 +19,31 @@
 package mferegistry
 
 const (
-	// ShellRead is the one subject a shell's own credential may publish on.
+	// ShellRead and HealthRead are the only subjects a shell's own credential
+	// may publish on.
 	// Federated plugin code runs in the shell's JS realm, so any capability
 	// this subject carries is a capability every loaded plugin holds — which
 	// is why it is read-only and why the split below is exhaustive.
 	ShellRead = "api._platform.registry.frontend-plugins.read.v1"
+
+	// HealthRead is the shell's read of the health plane (BR-AS65). A second
+	// subject rather than more fields on the first, because the two carry
+	// different things at different rates: the catalogue is signed manifests
+	// that change when an operator curates, health is an observation that
+	// changes every few seconds. Folding them together would make a shell
+	// re-read the whole signed catalogue on a five-second timer, and would
+	// give an observation a way into the reply that carries curation.
+	//
+	// Read-only in the strong sense: nothing a plugin or a shell says can
+	// write here, so a decoration cannot be forged from inside the realm the
+	// plugins share.
+	HealthRead = "api._platform.registry.frontend-plugins.health.v1"
+
+	// HealthChanged is the hint that a snapshot moved. A hint, not the
+	// observation: it carries no state and refreshes nothing, because a
+	// delivery is proof that a message arrived and never proof that a service
+	// was alive (BR-AS64). The shell reads HealthRead to find out.
+	HealthChanged = "notify._platform.registry.frontend-plugins.health"
 
 	// Curated, Upsert, SetEnabled and Audit are the operator's. The Admin
 	// UI's credential publishes on them; a shell's never does.
@@ -57,13 +77,25 @@ const (
 	Unregister = "rpc._platform.registry.entries.unregister.v1"
 )
 
+// ServiceReady names the readiness probe for one backend service. It is
+// built from a deployment-configured service ID and never from anything in a
+// manifest: a publisher choosing its own probe target could point the
+// registry at a service it does not own and read the answer back through the
+// health decoration (BR-AS62).
+//
+// Outbound and service-to-service, like Announce and Unregister — it is in
+// neither browser profile, so no shell and no operator credential carries it.
+func ServiceReady(serviceID string) string {
+	return "rpc._platform.health." + serviceID + ".ready.v1"
+}
+
 // Subjects is the exhaustive browser-facing API surface, in registration
 // order. Exhaustive is the point: the grant test iterates it and asserts that
 // every subject is either the shell's one read or an operator-only write, so
 // a subject added to the service without a decision about who may reach it
 // fails there rather than shipping open.
 func Subjects() []string {
-	return []string{ShellRead, Curated, Upsert, SetEnabled, Audit, Publishers, PublisherWrite}
+	return []string{ShellRead, HealthRead, Curated, Upsert, SetEnabled, Audit, Publishers, PublisherWrite}
 }
 
 // Operator is everything a curating operator may publish on: Subjects minus

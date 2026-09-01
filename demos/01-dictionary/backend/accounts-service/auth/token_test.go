@@ -281,17 +281,22 @@ var _ = Describe("MintShellToken", func() {
 		Expect(claims.Name).To(Equal("lab-shell"))
 		Expect(claims.IssuerAccount).To(Equal(accountPub))
 
-		// One read subject and its reply inbox. Nothing else.
+		// Two read subjects and their reply inbox. Nothing else. Health is
+		// the second (BR-AS65) and is a read like the first: a shell asks,
+		// and nothing it publishes can write an observation.
 		Expect(claims.Permissions.Pub.Allow).To(ConsistOf(
 			"api._platform.registry.frontend-plugins.read.v1",
+			"api._platform.registry.frontend-plugins.health.v1",
 			"_INBOX.>",
 		))
-		// One notification to hear, plus the inbox. The notify subject is
-		// subscribe-only by construction: it is not in Pub.Allow, so a plugin
-		// cannot forge a change notification to its own shell (BR-AS28 makes
-		// the notification a hint, and this is what keeps the hint honest).
+		// Two notifications to hear, plus the inbox. Both are subscribe-only
+		// by construction: neither is in Pub.Allow, so a plugin cannot forge a
+		// change notification — or a health hint — to its own shell (BR-AS28
+		// makes the notification a hint, and this is what keeps the hint
+		// honest; BR-AS65 says the same of health).
 		Expect(claims.Permissions.Sub.Allow).To(ConsistOf(
 			"notify._platform.registry.frontend-plugins.changed",
+			"notify._platform.registry.frontend-plugins.health",
 			"_INBOX.>",
 		))
 	})
