@@ -6,6 +6,7 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jthomas78/nats-tech-lab/shared/browserrpc v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/mferegistry v0.0.0-00010101000000-000000000000
+	github.com/jthomas78/nats-tech-lab/shared/mferegistry/client v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natsconn v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natsnotify v0.0.0-00010101000000-000000000000
 	github.com/jthomas78/nats-tech-lab/shared/natstrace v0.0.0-00010101000000-000000000000
@@ -48,6 +49,8 @@ require (
 replace github.com/jthomas78/nats-tech-lab/shared/browserrpc => ../../../../shared/browserrpc
 
 replace github.com/jthomas78/nats-tech-lab/shared/mferegistry => ../../../../shared/mferegistry
+
+replace github.com/jthomas78/nats-tech-lab/shared/mferegistry/client => ../../../../shared/mferegistry/client
 
 replace github.com/jthomas78/nats-tech-lab/shared/natsconn => ../../../../shared/natsconn
 

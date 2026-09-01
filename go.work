@@ -12,6 +12,7 @@ use (
 	./shared/browserrpc
 	./shared/jstream
 	./shared/mferegistry
+	./shared/mferegistry/client
 	./shared/natsconn
 	./shared/natsnotify
 	./shared/natsready

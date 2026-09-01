@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/jthomas78/nats-tech-lab/shared/mferegistry"
 )
 
 // The signed unregister command (BR-AS54).
@@ -19,8 +21,8 @@ import (
 // carries its own copies as lookup hints; binding them here means a signature
 // cannot be lifted onto a request that names some other key.
 const (
-	UnregisterAction        = "unregister"
-	UnregisterSchemaVersion = 1
+	UnregisterAction        = mferegistry.UnregisterAction
+	UnregisterSchemaVersion = mferegistry.UnregisterSchemaVersion
 )
 
 var (
@@ -161,14 +163,14 @@ func AdmitUnregister(trust PublisherDocument, v Verifier, u Unregister) (Admissi
 }
 
 // UnregisterOutcome is what an unregister did.
-type UnregisterOutcome string
+type UnregisterOutcome = mferegistry.UnregisterOutcome
 
 const (
 	// UnregisterWithdrawn — availability removed, approval untouched.
-	UnregisterWithdrawn UnregisterOutcome = "withdrawn"
+	UnregisterWithdrawn = mferegistry.UnregisterWithdrawn
 	// UnregisterIgnored — a static entry outranks a publisher, always
 	// (decision 77, BR-AS55). Recorded and shown, never silently dropped.
-	UnregisterIgnored UnregisterOutcome = "ignored"
+	UnregisterIgnored = mferegistry.UnregisterIgnored
 )
 
 // DecideUnregister returns the entry the store should hold afterwards. It

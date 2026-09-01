@@ -1188,8 +1188,15 @@ below add no new ID — they record a decision *not* to grow an existing rule.
   re-announce. A publisher that loses its local counter must recover it before
   announcing again, because re-announcing a spent release leaves the plugin
   withdrawn with no error. The registry side is already covered by
-  `registry/announce_test.go` and `registry/unregister_test.go`; the publisher
-  side is Phase 13's to build and to test.
+  `registry/announce_test.go` and `registry/unregister_test.go`. **Publisher
+  side built 2026-09-01 (13b)** in `cmd/announce-plugin/` — `release.go` holds
+  the counter in an atomically written state file, and `main_test.go` pins
+  `N`/`N+1`/`N+2`, a crash restart retrying `N`, and explicit recovery after
+  state loss. **The release is injected into the manifest at runtime, just
+  before signing**, not baked into the build artifact: the counter is the
+  publisher's state, so an image rebuild must not be needed to withdraw and
+  return. BR-AS37 still holds — the re-encode happens before signing, never
+  between signing and publishing.
 
 ### Clarification — a seeded publisher key has no state of its own (BR-AS38)
 

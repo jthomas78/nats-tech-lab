@@ -45,23 +45,8 @@ func New(svc Service, recorder Recorder, verifier domain.Verifier) *Endpoints {
 // signature under, and it is worth nothing until the trust table says that key
 // belongs to the publisher who owns this plugin id (decision 103). Naming
 // someone else's key only changes which check refuses you.
-type Request struct {
-	Payload    json.RawMessage `json:"payload"`
-	Signature  string          `json:"signature"`
-	SigningKey string          `json:"signingKey"`
-}
-
-type Response struct {
-	OK       bool                   `json:"ok"`
-	Outcome  domain.AnnounceOutcome `json:"outcome,omitempty"`
-	Revision int64                  `json:"revision"`
-	Error    string                 `json:"error,omitempty"`
-	Code     string                 `json:"code,omitempty"`
-	// NoOp marks a re-send of the release already accepted (BR-AS47). It is
-	// success, not refusal: a publisher whose request timed out and retried
-	// gets the same answer it would have got the first time.
-	NoOp bool `json:"noOp,omitempty"`
-}
+type Request = mferegistry.Request
+type Response = mferegistry.Response
 
 func (e *Endpoints) Announce(ctx context.Context, req Request) (Response, error) {
 	// Parsed before anything is decided, because the plugin id the trust
@@ -137,17 +122,7 @@ func (e *Endpoints) Announce(ctx context.Context, req Request) (Response, error)
 // a reused announcement response: the outcomes are a different closed set,
 // and one field carrying two vocabularies is how a caller ends up switching
 // on a string it cannot enumerate.
-type UnregisterResponse struct {
-	OK       bool                     `json:"ok"`
-	Outcome  domain.UnregisterOutcome `json:"outcome,omitempty"`
-	Revision int64                    `json:"revision"`
-	Error    string                   `json:"error,omitempty"`
-	Code     string                   `json:"code,omitempty"`
-	// NoOp marks a duplicate delivery of the withdrawal already accepted.
-	// Success, not refusal — a publisher whose request timed out and retried
-	// gets the answer it would have got the first time.
-	NoOp bool `json:"noOp,omitempty"`
-}
+type UnregisterResponse = mferegistry.UnregisterResponse
 
 // Unregister withdraws a publisher's availability (BR-AS54, BR-AS55).
 //

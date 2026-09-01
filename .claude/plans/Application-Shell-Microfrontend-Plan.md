@@ -625,12 +625,28 @@ shutdown, never with failure detection.
     row it covers.
 
     A manifest provenance decision is still needed, for a different reason: the
-    exact bytes signed must come from a build-owned artifact, not a
+    plugin's *content* must come from a build-owned artifact, not a
     hand-maintained copy. Four fixtures already have
     `lab-shell/plugins/<id>/public/manifest.json`; `example-plugin-unreachable`
-    has none (see decision 4). **And no manifest carries a `release` today** —
-    every announced manifest needs an explicit positive one, since gate 5
-    refuses `release <= 0`.
+    has none (see decision 4).
+
+    **Amended 2026-09-01 after 13b was built.** Revision 2 said every manifest
+    needed an explicit positive `release` baked in at build time, since gate 5
+    refuses `release <= 0`. That is wrong, and 13b's implementation is right:
+    **the announcer injects the release into the manifest at runtime, just
+    before signing** (`cmd/announce-plugin/main.go`, `manifestAtRelease`). The
+    release is the *publisher's* state, not the build's (BR-AS67) — baking it
+    into an image would mean rebuilding a container every time a plugin
+    withdraws and returns, and would put one process's counter in an artifact
+    several things read. So:
+
+    - the build-owned `manifest.json` carries the plugin's content and **no**
+      `release` field;
+    - the announcer re-encodes it with the release it owns, and signs that;
+    - BR-AS37 is preserved because it signs and sends the same bytes — the
+      re-encode happens before signing, never between signing and publishing.
+
+    13e therefore does **not** add `release` fields to the fixture manifests.
 12. **`REGISTRY_HEALTH_TARGETS` and the origin maps stay configuration.**
     Keyed by plugin id, deployment-owned regardless of tier (BR-AS61/AS62).
     Nothing here moves them into the manifest.
@@ -663,12 +679,12 @@ during implementation; neither is complete without it.
 
 #### Sub-phases (shape only — not tasks until approved)
 
-- [ ] **13a** — `shared/mferegistry` wire DTOs and outcome constants
+- [x] **13a** (built 2026-09-01) — `shared/mferegistry` wire DTOs and outcome constants
       (dependency-free), plus `shared/mferegistry/client` for signing and
       request/reply — `Announce` and `Unregister`, each with its own signed
       command builder. `internal/servicerpc` aliases them. Specs assert the
       bytes signed are the bytes sent (BR-AS37).
-- [ ] **13b** — a resident `cmd/announce-plugin` on 13a: announce at start,
+- [x] **13b** (built 2026-09-01) — a resident `cmd/announce-plugin` on 13a: announce at start,
       signed unregister on `SIGTERM`, release-counter persistence and recovery
       per decisions 3 and 5.
 - [ ] **13c** — bootstrap: five publisher signing keypairs and five holder-named
@@ -677,8 +693,9 @@ during implementation; neither is complete without it.
 - [ ] **13d** — convergent, boot-ordered trust seeding through the existing
       curated write path.
 - [ ] **13e** — five announcer sidecars, the `example-plugin-unreachable`
-      asymmetry resolved, manifests carrying an explicit `release`;
-      `registry.json` reduced to `demo-catalog`.
+      asymmetry resolved, a writable release-state volume and a real
+      `stop_grace_period` per sidecar; `registry.json` reduced to
+      `demo-catalog`. No `release` field is added to any manifest (D11).
 - [ ] **13f** — a Compose-level acceptance sequence driving `AnnounceUpdated`,
       `AnnounceRequeued`, rotation, revocation and recovery, plus a live
       withdrawal (`docker compose stop`) and unchanged return (`start`) showing

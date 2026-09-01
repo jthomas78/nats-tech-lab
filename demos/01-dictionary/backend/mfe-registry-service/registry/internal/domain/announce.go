@@ -1,6 +1,10 @@
 package domain
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/jthomas78/nats-tech-lab/shared/mferegistry"
+)
 
 var (
 	// ErrUnsigned refuses an announcement carrying no signature, before any
@@ -21,29 +25,24 @@ var (
 // bool because an operator reviewing the pending tier needs the difference,
 // and a publisher who believes they registered needs to be told which of
 // these happened to them.
-type AnnounceOutcome string
+type AnnounceOutcome = mferegistry.AnnounceOutcome
 
 const (
 	// AnnounceInserted — an id the store had never seen, stored pending.
-	AnnounceInserted AnnounceOutcome = "inserted"
+	AnnounceInserted = mferegistry.AnnounceInserted
 	// AnnouncePending — a known id that is still awaiting review; the
 	// record is refreshed and stays out of every shell's document.
-	AnnouncePending AnnounceOutcome = "pending"
+	AnnouncePending = mferegistry.AnnouncePending
 	// AnnounceUpdated — an enabled dynamic entry moving within its own
 	// allowlisted origin, applied without review (BR-AS40, decision 74).
-	AnnounceUpdated AnnounceOutcome = "updated"
+	AnnounceUpdated = mferegistry.AnnounceUpdated
 	// AnnounceRequeued — an enabled dynamic entry whose remote crossed an
 	// origin boundary; withheld until an operator re-enables it.
-	AnnounceRequeued AnnounceOutcome = "requeued"
+	AnnounceRequeued = mferegistry.AnnounceRequeued
 	// AnnounceIgnored — a static entry outranks the announcement, always
 	// (decision 77). Recorded and shown, never silently dropped.
-	AnnounceIgnored AnnounceOutcome = "ignored"
+	AnnounceIgnored = mferegistry.AnnounceIgnored
 )
-
-// Recorded reports whether the outcome leaves an audit row. Every one of
-// them does — including the ignored case, which exists precisely so a
-// publisher can be shown why nothing happened (decision 77, BR-AS23).
-func (o AnnounceOutcome) Recorded() bool { return o != "" }
 
 // DecideAnnounce is the whole of the announcement ruleset, as a pure
 // function of what is stored and what arrived. It returns the entry the
