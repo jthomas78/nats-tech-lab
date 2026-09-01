@@ -497,7 +497,7 @@ the escape hatch).
 
 ---
 
-### Phase 4 — IMPLEMENTED 2026-08-30 (validation caveat below) — The shell's NATS transport and push change propagation
+### Phase 4 — COMPLETE 2026-08-30 — The shell's NATS transport and push change propagation
 
 **Why this is a phase.** Phase 2c gave the shell a change *model* and Phase 3 makes it reach the
 screen, but the shell still learns about change by polling every ten minutes over HTTP. The
@@ -665,7 +665,7 @@ integration, while the browser check exercised the old image's refused mint.
 
 ---
 
-### Phase 5 — DESIGN APPROVED; implementation not started — Lifecycle, withdrawal, and health
+### Phase 5 — COMPLETE 2026-09-01 (verified live) — Lifecycle, withdrawal, and health
 
 **Gate passed 2026-08-31.** The user settled the 14 questions below, then explicitly approved
 updating this plan, the business rules and required test cases **without starting implementation**.
