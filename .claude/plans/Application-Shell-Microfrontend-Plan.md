@@ -405,9 +405,11 @@ capabilities, and map/file assets. Last in the order because it is the only app 
 credential profiles at once. This phase requires its own business-rule confirmation, **delta**
 mockup, design gate, and derived tests.
 
-### Phase 13 — PROPOSED (design gate OPEN — first review 2026-09-01 did not pass) — Announce the `example-plugin*` Fixtures; Leave Only `demo-catalog` Preloaded
+### Phase 13 — APPROVED 2026-09-01 — Announce the `example-plugin*` Fixtures; Leave Only `demo-catalog` Preloaded
 
-> **Status: PROPOSED. No tasks, no specs, no code.** Requested 2026-09-01.
+> **Status: APPROVED 2026-09-01** — design gate passed at revision 3, after a
+> failed first review and four business rules confirmed by the user.
+> Implementation may start. Requested 2026-09-01.
 > Follows Phase 7 (publisher signing and the trust table) and Phase 8
 > (announcement, preload seeding and the pending tier), both archived
 > 2026-09-01 — this phase builds nothing new in the registry's rules, it makes
