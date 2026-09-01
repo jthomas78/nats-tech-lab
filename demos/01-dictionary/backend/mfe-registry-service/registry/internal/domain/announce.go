@@ -68,6 +68,9 @@ func DecideAnnounce(existing *Entry, incoming Entry) (AnnounceOutcome, Entry) {
 	// (BR-AS39, BR-AS43).
 	incoming.Enabled = false
 	incoming.Lifecycle = LifecycleDynamic
+	// Availability is store-owned too (BR-AS43): a payload cannot declare
+	// itself back. Whether it comes back is decided below, per branch.
+	incoming.Withdrawn = false
 
 	if existing == nil {
 		return AnnounceInserted, incoming
@@ -76,6 +79,11 @@ func DecideAnnounce(existing *Entry, incoming Entry) (AnnounceOutcome, Entry) {
 		return AnnounceIgnored, *existing
 	}
 	if !existing.Enabled {
+		// An operator either has not approved this yet or has withheld
+		// approval. Either way a return does not restore availability — the
+		// entry is not running, and only an operator can decide that it
+		// should (BR-AS55).
+		incoming.Withdrawn = existing.Withdrawn
 		return AnnouncePending, incoming
 	}
 	// An enabled entry whose withdrawal class was never recorded is not
@@ -94,6 +102,11 @@ func DecideAnnounce(existing *Entry, incoming Entry) (AnnounceOutcome, Entry) {
 		incoming.Lifecycle = existing.Lifecycle
 		return AnnounceUpdated, incoming
 	}
+	// A cross-origin return is a new place to fetch code from, so it goes
+	// back to an operator. It does not clear the withdrawal on its own: the
+	// approval that would put it back on screen is the same approval this
+	// branch is asking for (BR-AS55).
+	incoming.Withdrawn = existing.Withdrawn
 	return AnnounceRequeued, incoming
 }
 

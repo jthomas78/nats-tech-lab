@@ -169,6 +169,12 @@ type Entry struct {
 	// running shell, which a pending one never was. Store-owned, like Enabled
 	// and Lifecycle: no publisher asserts it.
 	Withheld bool `json:"withheld,omitempty"`
+	// Withdrawn marks an entry whose publisher said it is gone: an accepted,
+	// signed unregister (BR-AS54). Separate from Enabled on purpose —
+	// availability is the publisher's to state, approval is the operator's,
+	// and BR-AS55 turns on the two never being one flag. Store-owned: a
+	// payload asserting it says nothing.
+	Withdrawn bool `json:"withdrawn,omitempty"`
 	// Manifest is the publisher's signed bytes, when there are any. Held
 	// beside the projection above rather than derived from it: see
 	// manifest.go for why reassembly is what the rule forbids.

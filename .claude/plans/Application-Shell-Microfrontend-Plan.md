@@ -784,7 +784,18 @@ been added by this planning change; every matrix row is a requirement for implem
       class-change/disable sequences, which need the dynamic withdrawal that 5b builds.
 
 ##### 5b — unregister, withdrawal and return (BR-AS54–56, BR-AS59)
-- [ ] Write domain Ginkgo contexts for ownership, signature/action binding, replay order, operator precedence, transaction races and accepted/refused audit.
+- [x] Write domain Ginkgo contexts for ownership, signature/action binding, replay order, operator precedence, transaction races and accepted/refused audit.
+      Done 2026-09-01 in `registry/unregister_test.go` (32 specs). The envelope is versioned and signs the action,
+      the plugin, the publisher and the key: `ParseUnregister` refuses an announcement's manifest bytes as "not an
+      unregister" rather than as malformed, and `AdmitUnregister` refuses a request whose key or publisher differs
+      from the signed ones. Ownership, key state and the signature itself go through Phase 7's `AdmitAnnouncement`
+      unchanged, so there is one gate and not two. Ordering: older is backwards, the release the running
+      announcement spent is `ErrReleaseReused`, and only an equal release on an already-withdrawn entry is the
+      duplicate-delivery no-op. `DecideUnregister` sets a new store-owned `Entry.Withdrawn` beside `Enabled` —
+      availability is the publisher's, approval is the operator's — refuses an unknown id, and ignores a static or
+      unclassified entry. `DecideAnnounce` clears the withdrawal only on a same-origin return of an approved entry.
+      Registry suite 265/265, 0 Skipped. **Transaction races are only half covered here:** commit-time trust and
+      concurrent operator writes need the store, which is the next box.
 - [ ] Add persistent publisher availability and service-only unregister transport; extend actual broker/credential integration specs, migration/restart and cache tests.
 - [ ] Write shell specs for explicit withdrawal, sibling isolation, duplicate events, return equality and withdrawal during lazy import/activation.
 - [ ] Implement contribution removal/restoration and `withdrawn` status; retain cached modules without full disposal or duplicate activation.
