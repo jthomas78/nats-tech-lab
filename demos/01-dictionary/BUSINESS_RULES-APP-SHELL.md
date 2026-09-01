@@ -1161,3 +1161,52 @@ fail-closed behaviour the earlier `NoVerifier` placeholder gave, now reached by 
 setting exists. Successful
 observations retain `announcedAt`/`lastAnnouncedAt`; no TTL is installed. Ignored
 static announcements record their time and cause in the audit only.
+
+## Phase 13 — confirmed requirements, not yet implemented
+
+Confirmed by the user 2026-09-01 at the Phase 13 design gate
+(`.claude/plans/Application-Shell-Microfrontend-Plan.md`). **BR-AS66 and
+BR-AS67 are new unique IDs.** Both require executable coverage during Phase 13
+implementation; neither is complete until it has one. The two clarifications
+below add no new ID — they record a decision *not* to grow an existing rule.
+
+- **BR-AS66 — A fresh lab serves only its preloaded plugin.** On first boot
+  against an empty registry database, `demo-catalog` is the only plugin served
+  to the shell. Every announced candidate is stored disabled and stays disabled
+  until an operator enables it. This is BR-AS39 seen from the deployment's side
+  and it is a first-boot property only: once an operator has enabled an entry,
+  Postgres keeps that decision across restarts, and an equal-release
+  re-announcement is a no-op that must not disable it again. **The lab-shell
+  intro copy must state this**, or a correct first run reads as a broken one.
+- **BR-AS67 — A publisher owns its release counter, and it only goes up.** Each
+  plugin has one release sequence, shared by announce and unregister, held
+  inside the signed bytes (BR-AS47) and persisted by the *publisher*, never
+  minted by the registry and never derived from a clock. An announcement at the
+  accepted release is a no-op; an unregister at the accepted release is refused
+  as reused unless the entry is already withdrawn. So a withdraw-then-return
+  spends three numbers, not two: `N` announce, `N+1` unregister, `N+2`
+  re-announce. A publisher that loses its local counter must recover it before
+  announcing again, because re-announcing a spent release leaves the plugin
+  withdrawn with no error. The registry side is already covered by
+  `registry/announce_test.go` and `registry/unregister_test.go`; the publisher
+  side is Phase 13's to build and to test.
+
+### Clarification — a seeded publisher key has no state of its own (BR-AS38)
+
+`KeyStates()` stays three: `enabled`, `retired`, `revoked`
+(`registry/internal/domain/publisher.go:27`). A key written by the Phase 13
+bootstrap seeder is an ordinary `enabled` key. **No fourth "seeded" state.**
+Who created a key is read out of the audit trail, the same way an entry's
+`source` is (BR-AS42, decision 80) — provenance is derived, never stored, and a
+fourth state would add a case to every gate, badge and spec to record something
+already recorded.
+
+### Clarification — key revocation is a documented demo step (BR-AS38)
+
+Revoking one fixture's signing key is a first-class thing to demonstrate, not
+an edge case: it withholds exactly the plugins that key signed and leaves every
+other publisher untouched. The recovery path is **not** `docker compose down
+-v`. As `registry/revocation_test.go` already proves, re-enabling the key
+restores nothing on its own — each withheld entry must be enabled again
+individually. That asymmetry is the point of the demo and the intro copy must
+not hide it.
