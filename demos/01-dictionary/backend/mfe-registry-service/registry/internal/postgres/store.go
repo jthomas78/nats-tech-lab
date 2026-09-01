@@ -216,10 +216,18 @@ func (s *Store) apply(ctx context.Context, w domain.Write) (domain.Document, err
 		// It clears the publisher's withdrawal for the same reason (BR-AS55):
 		// approval outranks availability, and an operator re-enabling a
 		// withdrawn entry is looking at that entry and saying run it.
-		// Disabling sets neither — it says nothing about whether the
-		// publisher is still there.
+		//
+		// Disabling still says nothing about the publisher, but for a DYNAMIC
+		// entry it withdraws the plugin itself (BR-AS54): a running shell has
+		// to be told to take the UI away, and a marker is the only way to say
+		// that (absence is what an outage looks like). Three conditions, each
+		// load-bearing: NOT $2 because enabling is the opposite move; enabled
+		// because an entry no operator ever approved was never running and
+		// needs nothing said about it; lifecycle = 'dynamic' because BR-AS53
+		// says a static plugin's contributions keep running and are offered a
+		// reload instead — that one leaves the document by the Enabled check.
 		res, err := tx.ExecContext(ctx,
-			`UPDATE registry.entries SET enabled = $2, withheld = withheld AND NOT $2, withdrawn = withdrawn AND NOT $2, updated_at = now() WHERE id = $1`, w.EntryID, w.Enabled)
+			`UPDATE registry.entries SET enabled = $2, withheld = withheld AND NOT $2, withdrawn = (withdrawn OR (NOT $2 AND enabled AND lifecycle = 'dynamic')) AND NOT $2, updated_at = now() WHERE id = $1`, w.EntryID, w.Enabled)
 		if err != nil {
 			return domain.Document{}, err
 		}

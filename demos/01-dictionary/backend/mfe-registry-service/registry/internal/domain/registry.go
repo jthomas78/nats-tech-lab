@@ -225,17 +225,21 @@ func (d Document) Readable(allowlist Allowlist) Document {
 			out.Entries = append(out.Entries, Tombstone(e.ID))
 			continue
 		}
-		if !e.Enabled {
-			continue
-		}
 		/* A withdrawn plugin is served as a MARKER, not by disappearing
 		   (BR-AS54). Absence is not authoritative — a filter, a malformed
 		   row or a degraded read all look like absence — so a running shell
 		   that withdrew on absence alone could be talked into unloading a
-		   plugin by an outage. Checked after Enabled: an entry no operator
-		   ever approved was never running, and needs nothing said about it. */
+		   plugin by an outage. Checked BEFORE Enabled, because an operator
+		   disabling a dynamic plugin is itself a withdrawal: the row is left
+		   enabled = false and withdrawn = true together, and an Enabled check
+		   first would turn the marker back into plain absence. Nothing leaks
+		   from this: withdrawn is only ever set on a row an operator had
+		   already approved, so an entry nobody approved still says nothing. */
 		if e.Withdrawn {
 			out.Entries = append(out.Entries, Withdrawal(e.ID))
+			continue
+		}
+		if !e.Enabled {
 			continue
 		}
 		if allowlist.Check(e) != nil {

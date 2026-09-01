@@ -24,6 +24,7 @@ import { createPluginLoader } from './shell/loader/pluginLoader.js'
 import { createRegistryTransport } from './shell/registry/registryTransport.js'
 import { createRegistrySession } from './shell/registry/registrySession.js'
 import { createShellRoutes, installShellRoutes } from './shell/routing/shellRoutes.js'
+import { installWithdrawalGuard } from './shell/routing/withdrawnRoutes.js'
 import { SHELL } from './shell/shellKey.js'
 import HomeView from './views/HomeView.vue'
 import NotFoundView from './views/NotFoundView.vue'
@@ -77,6 +78,11 @@ async function bootstrap() {
       { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundView },
     ],
   })
+
+  /* Nobody new enters a withdrawn plugin's route (BR-AS57). The route record
+     stays registered — the occupant keeps their URL, and an unchanged return
+     is then a change to a set rather than to the route table. */
+  installWithdrawalGuard({ router, contributions: shell.contributions })
 
   const dial = createShellDialer({ fetch: window.fetch.bind(window), location: window.location, dial: wsconnect, authenticate: jwtAuthenticator, resolveWsUrl })
   const connections = createConnectionRegistry({ connect: async ({ profile }) => {

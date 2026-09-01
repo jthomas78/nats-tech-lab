@@ -14,6 +14,8 @@ import RegistrySignalBanner from './shell/ui/RegistrySignalBanner.vue'
 import ShellFooter from './shell/ui/ShellFooter.vue'
 import PluginSlot from './shell/ui/PluginSlot.vue'
 import SkeletonRows from './shell/ui/SkeletonRows.vue'
+import { isWithdrawnRoute } from './shell/routing/withdrawnRoutes.js'
+import PluginWithdrawnView from './views/PluginWithdrawnView.vue'
 
 const shell = inject(SHELL)
 const route = useRoute()
@@ -37,6 +39,12 @@ const statusOf = (pluginId) => shell.statuses.get(pluginId)?.status ?? null
 /* A deep link into a remote that has never been loaded spends a network fetch
    before the view exists; this is what fills that gap (task 1b-6). */
 const { pending: navigating, target: navigatingTo } = createNavigationPending(router)
+
+/* The occupant of a route whose plugin was withdrawn under them (BR-AS57).
+   Swapped here rather than in the route record: the record resolved its
+   component before the withdrawal, and re-resolving it would mean a live
+   navigation on a URL nobody asked to leave. */
+const withdrawnHere = computed(() => isWithdrawnRoute(shell.contributions, route))
 
 function isActive(entry) {
   const target = router.resolve({ name: entry.routeQualifiedId })
@@ -163,6 +171,7 @@ function isActive(entry) {
         ? `Route contribution — ${navigatingTo.contributionId}`
         : 'Loading feature'"
     />
+    <PluginWithdrawnView v-else-if="withdrawnHere" />
     <router-view v-else />
   </AppShell>
 </template>

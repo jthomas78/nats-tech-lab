@@ -53,6 +53,11 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
      that is a reload, decided before the call. */
   const placedPlugins = new Map()
   const withdrawnPluginIds = reactive(new Set())
+  /* Placements that are nobody's fault: a contribution aimed at a slot whose
+     OWNER is withdrawn (BR-AS58). Held rather than refused, because the
+     contributor is still running and the placement is owed back — once — when
+     the slot returns. */
+  const suspended = []
 
   const refuse = (contribution, code, message) => {
     refusals.push({
@@ -64,7 +69,28 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
     })
   }
 
+  const ownerOf = (pointId) => String(pointId ?? '').split('/')[0]
+
+  /* Order is a property of the whole shell, not of one plugin, so it is
+     settled after any batch of placement — an indexing pass or a return. */
+  const resort = () => {
+    routes.sort(byOrder)
+    navigation.sort(byOrder)
+    shellControls.sort(byOrder)
+    footerItems.sort(byOrder)
+    for (const [pointId, list] of extensions) extensions.set(pointId, [...list].sort(byOrder))
+  }
+
   const placeExtension = (contribution, pointId) => {
+    if (withdrawnPluginIds.has(ownerOf(pointId))) {
+      /* Suspended, not refused. The Plugins screen must not tell an operator
+         that this plugin's panel was rejected — the slot it targets simply is
+         not there at the moment. */
+      if (!suspended.some((s) => s.contribution.qualifiedId === contribution.qualifiedId)) {
+        suspended.push({ pointId, contribution })
+      }
+      return false
+    }
     const placed = extensions.get(pointId) ?? []
     const verdict = extensionPoints.accepts(pointId, { placedCount: placed.length })
     if (!verdict.ok) {
@@ -180,11 +206,7 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
       /* Cross-plugin order is settled here, once. Within one order value the
          tiebreak is plugin id then declaration index — stable, and independent
          of the order plugins happened to arrive from the registry (BR-AS06). */
-      routes.sort(byOrder)
-      navigation.sort(byOrder)
-      shellControls.sort(byOrder)
-      footerItems.sort(byOrder)
-      for (const [pointId, list] of extensions) extensions.set(pointId, [...list].sort(byOrder))
+      resort()
 
       /* Nav entries are resolved after every route is indexed, so a nav entry
          may name a route declared later in the manifest. A nav entry naming a
@@ -230,6 +252,16 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
          refusal held over from before would be recorded twice and would
          describe a placement nobody attempted this time. */
       dropFrom(refusals, (r) => r.pluginId === pluginId)
+
+      /* And the slots this plugin OWNED go with it (BR-AS58). Everything
+         placed into them belongs to plugins that are still running, so the
+         placements are suspended and the contributors are left alone. */
+      for (const [pointId, list] of extensions) {
+        if (ownerOf(pointId) !== pluginId) continue
+        for (const contribution of list) suspended.push({ pointId, contribution })
+        extensions.set(pointId, [])
+      }
+      dropFrom(shellControls, (c) => ownerOf(c.region) === pluginId)
       for (const [qualifiedId, contribution] of byQualifiedId) {
         if (mine(contribution)) byQualifiedId.delete(qualifiedId)
       }
@@ -262,6 +294,21 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
         withdrawnPluginIds.add(pluginId)
         return false
       }
+
+      /* The slots it owns are open again, so the placements waiting on them
+         go back — once, and only for contributors that are themselves still
+         running. Capacity is re-checked by going through the same placement
+         path, so a slot that shrank does not overfill on the way back. */
+      for (let i = suspended.length - 1; i >= 0; i -= 1) {
+        const { pointId, contribution } = suspended[i]
+        if (ownerOf(pointId) !== pluginId) continue
+        if (withdrawnPluginIds.has(contribution.pluginId)) continue
+        suspended.splice(i, 1)
+        if (placeExtension(contribution, pointId) && contribution.kind === 'shell-control') {
+          shellControls.push(contribution)
+        }
+      }
+      resort()
       statuses?.get(pluginId)?.restore()
       return true
     },

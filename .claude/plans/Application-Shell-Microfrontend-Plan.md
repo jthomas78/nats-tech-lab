@@ -776,12 +776,25 @@ been added by this planning change; every matrix row is a requirement for implem
       validator now admits `lifecycle`, defaulting an unstated *or unrecognised* value to static rather
       than refusing the entry — the closed set is enforced at the registry's write door, and taking a
       running plugin off screen over a metadata value that runs no code would be the worse failure.
-- [ ] Implement held-class diff semantics, reload offers and the security-revocation exception; test both classes and class-change/disable sequences.
-      **Half done 2026-09-01:** because the validated form now carries the class, `diffRegistry`'s deep
+- [x] Implement held-class diff semantics, reload offers and the security-revocation exception; test both classes and class-change/disable sequences.
+      **First half 2026-09-01:** because the validated form now carries the class, `diffRegistry`'s deep
       equality makes a class edit an ordinary reload offer, and BR-AS49's forced revocation already
       outranks it. `registryDiff.spec.js` pins both, plus the case that matters for the migration — a
-      backfilled `static` against an unstated held class is no change at all. **Still open:** the
-      class-change/disable sequences, which need the dynamic withdrawal that 5b builds.
+      backfilled `static` against an unstated held class is no change at all. **Finished 2026-09-01**
+      once 5b's withdrawal existed. The registry half is `registry/operator_withdrawal_test.go`: an
+      operator disable of a DYNAMIC row now sets `withdrawn` in the same `OpSetEnabled` statement, so
+      the shell is told rather than left to infer a withdrawal from absence, while a static disable
+      still simply leaves the document (BR-AS53). Three conditions guard it — not enabling, currently
+      enabled, and `lifecycle = 'dynamic'` — the middle one because an entry no operator ever approved
+      was never running and needs nothing said about it. That forced `Document.Readable` to check
+      `Withdrawn` BEFORE `Enabled`, since the disabled row now carries both flags and the old order
+      turned the marker back into plain absence. The shell half is
+      `registry/registryDiff.classSequences.spec.js` (10 specs), written against the two documents the
+      registry produces rather than against a class field: a shell that read the class itself would be
+      trusting metadata to decide whether to take a running plugin off screen. Sequences covered: class
+      edit under a running plugin is an ordinary offer; a class edit and a disable in the same read are
+      one piece of news and not two; a revocation outranks both. Registry 291/291, 0 Skipped; shell
+      453/453.
 
 ##### 5b — unregister, withdrawal and return (BR-AS54–56, BR-AS59)
 - [x] Write domain Ginkgo contexts for ownership, signature/action binding, replay order, operator precedence, transaction races and accepted/refused audit.
@@ -826,9 +839,24 @@ been added by this planning change; every matrix row is a requirement for implem
       resolves until the occupant/tombstone work lands.
 
 ##### 5c — occupant and dependent placements (BR-AS57–59)
-- [ ] Write mounted-shell/router specs for tombstone in place, new navigation refusal, unchanged return, changed return requiring reload and departure cleanup.
-- [ ] Write cross-owner slot specs: suspend only affected placements and restore exactly once without breaking siblings or host-owned slots.
-- [ ] Implement tombstone/router behavior and placement suspension; keep errors inline.
+- [x] Write mounted-shell/router specs for tombstone in place, new navigation refusal, unchanged return, changed return requiring reload and departure cleanup.
+      Done 2026-09-01 in `routing/withdrawnRoutes.spec.js` (a real `createMemoryHistory` router, not a
+      double) and `views/PluginWithdrawnView.spec.js`.
+- [x] Write cross-owner slot specs: suspend only affected placements and restore exactly once without breaking siblings or host-owned slots.
+      Done 2026-09-01 in `contributions/slotWithdrawal.spec.js`.
+- [x] Implement tombstone/router behavior and placement suspension; keep errors inline.
+      Done 2026-09-01. The occupant and the newcomer are treated differently on purpose (BR-AS57): the
+      route RECORD stays registered and a `beforeEach` guard returns `false` for anyone navigating in,
+      while whoever is already standing there keeps their URL and gets a shell-owned
+      `PluginWithdrawnView` in place. Removing the route instead would turn the path into a not-found,
+      and an unchanged return would then have to re-register a route with a navigation already in
+      flight; refusing at the guard is one place, checked every time. The view carries curated metadata
+      only — no remote URL — and offers no retry, because there is nothing to retry.
+      Cross-owner slots (BR-AS58): withdrawing the owner of an extension point SUSPENDS the placements
+      aimed at it rather than refusing them. The contributor is not at fault and is still running
+      elsewhere, so the Plugins screen must not report a rejection, and the placement is owed back
+      exactly once — restoration re-places only the slots the returning plugin owns, skipping
+      contributors that are themselves withdrawn. Shell 453/453, Admin 335/335.
 
 ##### 5d — health worker, transport and UI (BR-AS60–65; BR-AS45 extension)
 - [ ] Write deterministic fake-clock domain specs for 5-second cadence, 2-second timeout, 2 failures, 1-success recovery, independent signals and 15-second freshness.
