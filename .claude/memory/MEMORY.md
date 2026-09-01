@@ -13,6 +13,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [swag_regen_diff_noise](swag_regen_diff_noise.md) — `swag init` rewrites all `$ref` repo-wide; hand-patch instead
 
 ## Frontend gotchas
+- [phase5_lifecycle_health_plan](phase5_lifecycle_health_plan.md) — 14 decisions approved; plan/rules/test matrix only, implementation not authorized
 - [phase8c_manifest_drift](phase8c_manifest_drift.md) — checker done; preload-only, mapped service origins, memory-only observations, independent Manifest column
 - [phase8_federated_catalog](phase8_federated_catalog.md) — 8f/d/e done; five plugin origins, frozen activation API, native fallback, remote CSS/theme singleton
 - [phase4_shell_nats_transport](phase4_shell_nats_transport.md) — shell registry NATS-only, first-paint/reconnect rules; shipping notifycoverage baseline caveat

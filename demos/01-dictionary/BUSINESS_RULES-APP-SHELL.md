@@ -21,6 +21,10 @@ transport (operator-curated backend endpoint), and BR-AS14's migration gate
 at approval** — a reviewable example plugin must exist and be signed off
 before any real application is migrated.
 
+**Phase 5 status (2026-08-31):** BR-AS52–65 and the explicitly labelled amendments below are
+approved requirements, not implemented behavior. Their coverage table is a planned test matrix;
+no executable Phase 5 tests were added in the documentation-only approval task.
+
 **Every rule below states an observable failure**, per CLAUDE.md Quality
 Rule 1. Rules originally phrased as properties of the architecture
 ("the shell starts with no service-specific knowledge") were restated as
@@ -574,7 +578,7 @@ survive the Phase 6 move (decision 40).
 - **BR-AS18 — Writes are revision-checked.** A write carrying a stale revision
   is refused, not merged. Two curation decisions are never combined by the
   server.
-- **BR-AS19 — A registry change notifies, and never unloads.** A revision change
+- **BR-AS19 — A registry change notifies; ordinary changes offer reload.** A revision change
   is published on `notify._platform.registry.frontend-plugins.changed`, and
   becomes visible to a running shell through a conditional NATS read triggered
   by that hint. Every reconnect reads unconditionally; there is no focus or
@@ -605,6 +609,12 @@ survive the Phase 6 move (decision 40).
   deep equality over the *validated* manifest, so the two sides are normalised
   the same way before they are compared.
 
+  **Approved Phase 5 amendment, not implemented:** the paragraphs above describe the current
+  ordinary-change behavior. BR-AS53–59 add explicit dynamic withdrawal and unchanged return;
+  static removal/disable and changed runtime definitions still offer reload. A held lifecycle
+  class changes only on reload. BR-AS49's forced security reload already overrides this rule
+  for either class; a degraded/missing document never authorizes ordinary withdrawal.
+
   A live addition must reach the **screen**, not only the shell's collections:
   the contribution state is reactive at its source, because a reader's
   `computed()` over a getter that returns a copy registers no dependency and is
@@ -620,6 +630,10 @@ survive the Phase 6 move (decision 40).
   or `revision` on any entry, including its own. An announced entry that is not
   already enabled lands `announced` and is inert until an operator enables it.
   No browser transport permits announcement at all.
+  **Approved Phase 5 extension, not implemented:** an owned, verified publisher may unregister
+  its dynamic plugin using a new service-only signed command. This changes publisher availability,
+  not operator enablement. Valid return may reuse existing approval; it cannot override operator
+  disable or revoked trust (BR-AS54–55).
 - **BR-AS22 — The registry degrades, it does not fail.** With Postgres
   unavailable the read falls back to the KV cache; with both unavailable the
   read answers successfully with an empty plugin list, `revision: 0` and
@@ -642,7 +656,8 @@ survive the Phase 6 move (decision 40).
   key; neither path is misattributed to the shared admin identity.
 - **BR-AS24 — An entry is disabled, never deleted.** No transport removes a
   registry row. A disabled entry is withheld from the read and its history is
-  retained.
+  retained. **Approved Phase 5 extension, not implemented:** publisher unregister also retains
+  the row/history and records withdrawal separately from operator disable (BR-AS55).
 - **BR-AS25 — The shell's origin holds read capability only.** The subject a
   shell reads uses its dedicated read-only credential; every subject that curates
   the registry — both writes and the two admin reads that disclose withheld
@@ -761,6 +776,120 @@ mounts rule.
 | BR-AS26 — a committed write is reported as committed | *3b, done.* `postgres.Store.apply` reads the installed document through `currentDoc(ctx, tx)` **inside** the transaction and commits last, so every error path it returns is one that rolled back — which is what makes `Apply` auditing them all as refusals true. `auditRefusal` and the post-commit cache refresh and notify run on `context.WithoutCancel(ctx)`. `store_integration_test.go` § decision 49 pins all three: a cancelled caller leaves an *accepted* audit row, an already-dead context still records a refusal, and a refused write moves no revision |
 | decision 27 — the read contract is unchanged | *Now, and this is the load-bearing one.* `phase2RegistryContract.spec.js` characterizes `validateRegistryDocument`: `revision` is accepted as a string *or* a number and stringified, `0` survives, absent is `null` not an error, and a schema-version move rejects the whole document. Phase 2 replaces `"dev-1b"` with a monotonic integer on the strength of these |
 | decisions 34/58 — one read subject | `registryTransport.spec.js` pins `SHELL_READ_SUBJECT` and the held-revision payload. Historical HTTP characterization remains in `phase2RegistryContract.spec.js`/`registryClient.spec.js`, but the host uses no HTTP client or fallback |
+
+
+## Phase 5 — approved requirements, not yet implemented
+
+Approved 2026-08-31 after 14 user decisions and explicit permission to update planning documents.
+The implemented backend lifecycle storage is a prerequisite, not completion of this phase.
+**BR-AS52–65 are unique new IDs.** The old plan-only draft BR-AS30–34 is superseded; canonical
+Phase 4 BR-AS30/31 are unchanged. Each row below requires executable coverage during implementation,
+with Go domain rules in Ginkgo `Context`s and real shell/Admin behavior in Vitest mounted specs.
+
+- **BR-AS52 — Lifecycle is explicit and preserved.** Each full registry entry is served with
+  `static` or `dynamic`; BR-AS49 security tombstones retain their minimal shape. Source never
+  determines shell semantics. Backfill unclassified legacy entries as
+  static without disabling them, changing ownership or rewriting signed manifest bytes. The operator
+  can inspect/edit lifecycle; publishers cannot supply it in manifests. A running shell holds the
+  class it admitted until reload, offering reload for a class edit.
+- **BR-AS53 — Static changes require reload.** Removing/disabling an admitted static plugin leaves
+  its contributions running and offers reload. Changed runtime definitions require reload for both
+  classes. This rule never weakens BR-AS49: revoked trust forces reload for either class. Degraded or
+  incomplete reads cannot be interpreted as ordinary withdrawal.
+- **BR-AS54 — Dynamic withdrawal requires an authoritative explicit action.** Operator disable or
+  signed publisher unregister withdraws a dynamic plugin live. A crashed service, timeout, disconnect,
+  health result, drift result or filtered/missing entry alone never does. Unregister must verify
+  action-bound signature, current publisher/key trust and ownership, replay order and commit-time
+  authorization. Duplicate/stale/replayed actions cannot reverse newer accepted state. Accepted and
+  refused actions identify the true actor in audit, with no mutation/revision change on refusal.
+- **BR-AS55 — Publisher availability never overrides operator approval.** Unregister retains the
+  row, approval and history; publisher withdrawal is stored separately from operator enablement.
+  A valid owned reannouncement can restore availability within the approved origin only while trust
+  remains valid and the operator has not disabled the entry. Cross-origin return needs approval.
+  Restart, replay and concurrent operator writes must preserve these boundaries; unknown IDs cannot
+  obtain approval through unregister/return.
+- **BR-AS56 — Withdrawal removes owned contributions, not modules or siblings.** Remove the
+  plugin's routes for new navigation, navigation entries, controls, footer items and extensions.
+  Mark it withdrawn; retain its loaded module and activation results. Repeated withdrawal is safe,
+  sibling contributions remain, and import/activation finishing late cannot resurrect withdrawn UI.
+  No promise is made to cancel plugin callbacks or fully dispose its resources.
+- **BR-AS57 — The occupant stays at the withdrawn route.** Replace the occupied view in place with
+  a shell-owned withdrawal explanation and a link back; do not redirect. New navigation/deep links
+  cannot enter that withdrawn route. An unchanged authorized return can restore the route in place;
+  a changed definition offers reload. This does not promise recovery of unsaved component state.
+- **BR-AS58 — Slot withdrawal suspends placements, not their contributors.** When a withdrawn
+  plugin owns a slot, suspend only placements targeting that slot. Their contributing plugins remain
+  active in other locations. Restore those placements exactly once when the unchanged slot returns,
+  provided their contributors are still eligible; host-owned slots and unrelated placements survive.
+- **BR-AS59 — Unchanged return reuses activation.** A withdrawn plugin that returns unchanged and
+  authorized restores its cached contributions without another `activate()` call. A never-loaded
+  plugin remains lazy. Runtime definition equality includes version, remote, contracts, contributions,
+  routes, permissions, labels and ordering; changes require reload. Platform control, health and
+  signature metadata do not alone mean new code, but never bypass independent trust checks or the
+  held-class rule. Return cannot duplicate registrations or restore an ineligible placement.
+- **BR-AS60 — Frontend and backend health are separate decorations.** Both static and dynamic
+  plugins expose independent frontend/backend results in navigation and the Plugins inventory.
+  Health never removes, disables, reorders or automatically reloads content. Background failure
+  stays inline with safe stage/cause, no URL/host/port/credential, and no unsolicited modal. Existing
+  loading/render errors stay visible independently of probe results.
+- **BR-AS61 — Frontend availability is centrally probed through a bounded endpoint.** The registry
+  checks a dedicated frontend `/healthz` with a small validated response, off shell/admin request
+  paths, using BR-AS45's explicit mapped allowlisted origins. No mapping means not checked, never
+  healthy. Timeout, invalid response or non-success status cannot claim health. Redirects, oversized
+  bodies, arbitrary egress and browser-origin fallback are refused. A successful probe does not
+  attest that browser networking, `remoteEntry.js` or lazy assets work.
+- **BR-AS62 — Backend targets are deployment-controlled readiness probes.** Deployment configuration
+  maps plugin IDs to backend service IDs resolved to narrowly granted NATS request/reply subjects.
+  Manifests cannot choose probe targets. Missing mapping is not configured; explicit empty list is
+  frontend-only/not applicable. Keep per-service readiness results: any unavailable dependency makes
+  the backend summary unavailable; otherwise any unknown/stale dependency makes it unknown/stale;
+  all healthy makes it healthy. Presence alone is insufficient; malformed responses, timeouts and
+  no responders cannot be reported healthy. No browser `rpc.>` or new broad registry grants.
+- **BR-AS63 — Health transitions use deterministic thresholds.** Probe each configured target every
+  5 seconds with a 2-second timeout; two consecutive failed probes make it unavailable, one success
+  makes it healthy again. Frontend/backend/dependency counters are independent. Initial state is
+  unknown until evidence exists; a first failure from unknown never claims healthy. After a previous
+  success, one failure may retain healthy while within the freshness window. Probes do not overlap
+  for a target and are cancelled/joined at shutdown.
+- **BR-AS64 — Missing freshness becomes unknown/stale.** After 15 seconds without a fresh health
+  observation, show unknown/stale with last-check time; before the first check, show unknown with
+  no invented timestamp. Assess freshness per signal. Duplicate or old snapshots never refresh
+  their check times. Loss of transport or reconnect cannot leave old health looking current and
+  cannot remove content. Explicit not-configured/not-applicable states are not fabricated health.
+- **BR-AS65 — Health observations are separate from catalogue state.** Share read-only health
+  snapshots and update hints through dedicated NATS subjects, with initial/catch-up/reconnect reads.
+  A hint is not a fresh observation. Health never changes catalogue revision, signed bytes, approval,
+  curation audit, drift results or reload offers. Responses contain safe result codes/times, not
+  configured addresses or credentials. Probe work cannot block catalogue reads/writes.
+
+### Phase 5 rule-to-test matrix — planned, no executable coverage added yet
+
+Every row is **PLANNED / UNIMPLEMENTED**, including extensions to existing specs. File basenames
+below identify suites to extend or planned suites to create, not claims that those cases exist.
+Use domain fake clocks and real adapter/broker integration where boundaries matter; do not mark a
+rule covered by tests of a look-alike mechanism such as shell connection debounce or security reload.
+
+| Rule | Required cases and intended test location | Phase |
+| --- | --- | --- |
+| BR-AS52 | Registry migration/integration and shell `manifestSchema.spec.js`: explicit classes round-trip; legacy static backfill preserves enablement, ownership and signed bytes; source does not imply class. Admin `FrontendPluginsPanel.spec.js`: display/edit class. `registryDiff.spec.js`: held class survives edits until reload, including edit then disable. | 5a |
+| BR-AS53 | `registryDiff.spec.js`, `liveChange.spec.js`, `bootShell.spec.js`: identical disable gives static reload vs dynamic withdrawal; edited definitions reload; retracted offers; degraded/missing reads preserve content; BR-AS49 revocation still forces both classes. | 5a/5b |
+| BR-AS54 | New registry unregister domain/transport/integration specs: owned signature succeeds; wrong action, owner, key, revoked trust, replay, duplicates and stale order fail safely; trust revoked before commit; precise accepted/refused audit and revision; real broker denies browser unregister. Shell: service stop/missing data never withdraw. | 5b |
+| BR-AS55 | Unregister/reannounce transaction/restart specs: approval retained; operator disable wins either write ordering; stale return cannot undo later unregister; unknown ID cannot gain approval; same-origin trusted return allowed, cross-origin pending, revoked return refused. | 5b |
+| BR-AS56 | New mounted withdrawal specs plus contribution/status suites: remove every owned kind; keep siblings/module; idempotency; withdraw before import, during activation and after activation; late completion cannot publish; no assertions of full JS disposal. | 5b |
+| BR-AS57 | Mounted router withdrawal specs: URL unchanged and tombstone visible to occupant; direct link/new navigation denied; navigate away clears occupant exception; unchanged return restores route, changed return needs reload. | 5c |
+| BR-AS58 | Mounted `ExtensionRegion`/cross-owner specs: slot owner withdrawn with contributor elsewhere; only target placements suspend; unchanged slot restores once; contributor withdrawn while suspended stays absent; changed slot waits for reload. | 5c |
+| BR-AS59 | Loader/withdrawal specs: cached unchanged return invokes activate once total; unloaded return lazy; definition edits require reload; control/signature-only changes do not falsely hot-replace; invalid trust never restores; repeated events do not duplicate registrations. | 5b/5c |
+| BR-AS60 | Shell nav/Plugins view specs for both classes and independently failing signals: inline sanitized status, no modal, unchanged contribution order/availability; healthy endpoint plus broken asset still displays loading error. | 5d |
+| BR-AS61 | New health HTTP adapter/domain/integration specs: actual dedicated endpoint contract; mapped target only; no mapping/denied origin; malformed/non-success/timeout/oversized/redirect/proxy refusals; slow probe leaves catalogue request responsive; preload-only drift unaffected. | 5d |
+| BR-AS62 | Backend health domain and embedded-NATS/grant specs: configured IDs only; absent vs empty mapping; readiness false despite connection; mixed dependency aggregation; malformed/timeout/no-responder; no browser RPC or wildcard grant expansion. | 5d |
+| BR-AS63 | Fake-clock health-worker/domain specs: 5-second cadence, 2-second timeout, first vs second failure, intervening success resets failures, one-success recovery, initial unknown, independent counters, non-overlap and cancelled/joined shutdown. | 5d |
+| BR-AS64 | Health snapshot/store and mounted UI fake-clock specs: before/at 15-second boundary, initial no timestamp, independent ages, duplicate/out-of-order snapshots, transport loss/reconnect with old data; content remains; configuration states distinct. | 5d |
+| BR-AS65 | Health NATS/session integration and shell tests: initial read, subscription gap/catch-up, missed hint, reconnect resync; least-privilege/sanitized payload; probes change no revision/audit/manifest/drift/reload offer; slow health read never blocks catalogue. | 5d |
+
+**Completion evidence:** execute these tests before claiming implementation complete, with affected
+Ginkgo suites using real dependencies (zero skipped Phase 5 specs), shell/Admin Vitest/builds and
+1920×1080 UI verification. Existing Phase 4/7/8 tests must keep passing. Documentation-only planning
+approval does not authorize starting those implementation tasks.
 
 
 ## Phase 7 — publisher signing and the trust table (BR-AS35 to BR-AS38, BR-AS46 to BR-AS51)
@@ -889,13 +1018,13 @@ Stated plainly so nobody reads a signature for more than it is:
   views rather than plugins — with the reason visible on the Plugins screen. Reworded 2026-08-31: the
   original said "its built-ins", which decision 84's retirement leaves empty. No registration tier
   may reduce the native frame or prevent the Plugins screen stating why the plugin list is empty.
-- **BR-AS45 — The drift check is the service's only outbound HTTP, and it is bounded.** The registry
+- **BR-AS45 — Registry outbound HTTP is explicitly bounded.** The registry
   service may fetch a served `manifest.json` only for an entry whose remote origin is already on the
   BR-AS20 allowlist. The fetch is read-only, time-bounded, and never on a request path the shell or an
   operator waits on. Drift is displayed only: the curated copy still wins (decision 77) and a drifting
-  entry is never withheld. This is the one outbound HTTP capability the service holds; anything wider
-  is a new gate. (It already egresses to Postgres and NATS — the claim is about HTTP, corrected
-  2026-08-31.)
+  entry is never withheld. This is the one outbound HTTP capability currently implemented; the
+  approved Phase 5 extension below is the only additional permission, and anything wider needs a
+  new gate. (It already egresses to Postgres and NATS — the claim is about HTTP, corrected 2026-08-31.)
   **The allowlist is not the fetch address.** `REGISTRY_ALLOWED_ORIGINS` holds *browser* origins
   (`http://localhost:7111`); `mfe-registry-service` is a container, for which `localhost:7111` is
   itself. A second start-time config maps each allowlisted origin to the URL the *service* reaches it
@@ -906,10 +1035,17 @@ Stated plainly so nobody reads a signature for more than it is:
   `not checked` (unmapped, timed out, non-200, or unparsable). A failed fetch must never render as
   "no drift".
 
+  **Approved Phase 5 extension, not implemented:** the new gate permits one additional HTTP
+  operation: background frontend `GET /healthz` probes (BR-AS61). They reuse the allowlist and
+  explicit service-origin mapping; no redirects, arbitrary paths, ambient proxy or browser-origin
+  fallback. Health observes both lifecycle classes regardless of source. This does not widen
+  preload-only manifest drift, change its outcomes or permit either observation to curate entries.
+
 
 The operator's preload wrapper may carry `enabled` (decision 79); a plugin's
 manifest may not. Preload writes `static`; announcements write `dynamic` by
-default. Legacy empty lifecycle values remain unclassified. Neither manifest
+default. Legacy empty lifecycle values remain unclassified today; approved Phase 5 BR-AS52
+backfills them as static. Neither manifest
 may choose lifecycle or provenance.
 
 ### Phase 8d/8f runtime contract (decisions 87–95)

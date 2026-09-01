@@ -146,7 +146,7 @@ have different authority and defaults:
 
 | Path | Input and authority | Result |
 | --- | --- | --- |
-| Admin curation | Operator `api.*` writes with a revision check | Operator controls enablement and lifecycle; actor `admin` |
+| Admin curation | Operator `api.*` writes with a revision check | Operator controls enablement and lifecycle; actor `admin`. Lifecycle editing in the Admin UI is Phase 5 work. |
 | Preload | Optional mounted `registry.json` at service boot | Insert only when the id has never existed; default `static`, actor `preload`; restart never overwrites curation |
 | Service announcement | Signed manifest over `rpc._platform.registry.entries.announce.v1` | Verified publisher identity, default `dynamic`; a new entry remains `announced` and withheld until operator enablement |
 
@@ -154,8 +154,8 @@ have different authority and defaults:
 cannot grant itself permission to execute. An enabled dynamic entry can update
 within its approved origin; an origin change returns it to `announced` until
 operator reapproval. Static curation wins. Announcement is absent from browser
-and operator grant lists. Production still uses fail-closed `NoVerifier` until
-Phase 7 provides publisher verification; there is no bypass.
+and operator grant lists. Phase 7 now supplies publisher verification, ownership
+and commit-time trust checks; there is no verification bypass.
 
 Browser activation is a later, separate step: the shell reads the enabled,
 allowlisted registry document, validates metadata and indexes contributions.
@@ -180,8 +180,9 @@ example on 7111; slow, activation-throws and incompatible fixtures on 7113–711
 Each has its own package, lockfile, Dockerfile, nginx server and single `plugin`
 exposure. The missing-remote fixture has no service and points to a real 404 on
 7111. Compose marks the five services `com.nats-tech-lab.mfe.source=preload`.
-**Manifest drift (Phase 8c).** The registry's only outbound HTTP reads
-`/manifest.json` for preload entries, on its own schedule. The optional
+**Manifest drift (Phase 8c).** The registry's only currently implemented outbound HTTP reads
+`/manifest.json` for preload entries, on its own schedule. Phase 5 will add the separately approved
+bounded `/healthz` probes described below (BR-AS45/61). The optional
 `REGISTRY_FETCH_ORIGINS` JSON map translates an already allowlisted browser
 origin to a service-reachable origin; it cannot grant an origin, and missing
 mappings never fall back to browser localhost. Compose supplies all five.
@@ -248,6 +249,91 @@ does not download or execute its implementation.
 
 ---
 
+## Phase 5 — approved design, implementation pending (2026-08-31)
+
+The user approved 14 lifecycle/health decisions and documentation work only. The implementation
+backlog is Phase 5a–5e in the application-shell plan; canonical rules **BR-AS52–65** and their
+planned test matrix live in `demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md`. Backend lifecycle
+storage already exists from Phase 8. Shell class handling, Admin class editing, signed unregister,
+contribution withdrawal and operational health remain unimplemented.
+
+### Lifecycle and authority
+
+Lifecycle is explicit platform metadata, independent of source. Legacy unclassified entries become
+static without changing enabled state or publisher-signed bytes. Operator class edits take effect
+on reload; a running shell continues using its admitted class. Native Home/Plugins views remain the
+fallback, not a special set of static plugins.
+
+| Event | Admitted static plugin | Admitted dynamic plugin |
+| --- | --- | --- |
+| Operator disable | Keep content, offer reload | Withdraw contributions live |
+| Accepted signed publisher unregister | No live withdrawal; static curation remains authoritative | Withdraw contributions live, preserve operator approval |
+| Service stop / failed health / lost NATS connection | Decorate only | Decorate only |
+| Unchanged authorized return | Retract obsolete reload offer under existing rules | Restore cached contributions without activating twice |
+| Changed runtime definition | Offer reload | Offer reload, no hot replacement |
+| Operator class edit | Offer reload, retain admitted class | Offer reload, retain admitted class |
+| Publisher/key security revocation | BR-AS49 forced reload | BR-AS49 forced reload |
+
+Publisher availability is separate persisted state from operator enablement. The new service-only
+unregister command must bind the signed action, plugin/publisher identity and replay-ordering data;
+reuse Phase 7 ownership/trust checks, including at commit. Retain rows, history and operator approval.
+An owned, trusted return within the approved origin may clear publisher withdrawal, never operator
+disable. Cross-origin return requires operator approval. Persist ordering across unregister/return
+and restart; transaction specs cover concurrent disable and trust revocation. Exact transport schema
+and subjects are specified before implementation, through shared builders and narrow grants.
+
+The shell acts on authoritative disable/unregister state, never on an entry merely missing from a
+filtered or degraded read. Security revocation wire tombstones retain their existing precedence,
+including on degraded reads. They are distinct from the new UI tombstone for an occupied route.
+
+### Withdrawal and restoration
+
+Withdrawal removes owned navigation, routes for new navigation, extension placements, controls and
+footer items; retains the loaded module and activation result; and records `withdrawn`. Import or
+activation completing late cannot register withdrawn contributions. Duplicate events are idempotent.
+Full `scope.dispose()`, callback cancellation and JavaScript isolation are outside this phase.
+
+The occupied route stays at the same URL with a shell-owned explanation and link back. New navigation
+cannot enter it. Unchanged authorized return restores contributions and the route without a second
+activation; a never-loaded plugin remains lazy. Version, remote, contract, permission, label/order,
+route or contribution changes require reload. Control/signature/health metadata is compared separately
+from runtime definition, without bypassing trust or held-class checks. Component/form state is not
+promised to survive withdrawal.
+
+If a withdrawn plugin owns a slot, only placements into that slot suspend. Their contributors remain
+active elsewhere; eligible placements return exactly once when the unchanged slot returns. Withdrawing
+an owner must not withdraw its contributors or affect unrelated host-owned slots.
+
+### Independent health observations
+
+The registry centrally probes frontend `GET /healthz` and configured backend NATS readiness subjects,
+then shares read-only snapshots/update hints with shells. Frontend HTTP reuses BR-AS45's explicit
+allowlisted browser-origin → service-origin mapping: no redirects, arbitrary URLs, ambient proxy or
+fallback to browser addresses. Frontend services need the dedicated small-response endpoint; a healthy
+endpoint does not prove a browser can load JavaScript assets. Phase 8c manifest drift remains separate
+and preload-only; health covers both lifecycle classes regardless of source.
+
+Deployment configuration maps plugin IDs to backend service IDs, never manifest-supplied targets.
+Absent mapping means not configured; an explicit empty list means frontend-only/not applicable. Keep
+individual dependency results; any unavailable makes the backend summary unavailable, otherwise any
+unknown/stale makes it unknown/stale, and all healthy makes it healthy. Presence alone is insufficient.
+Subject builders/grants must keep probe RPC away from browser credentials and avoid broad registry
+or `$SYS` permissions.
+
+Each target is checked every **5 seconds**, times out after **2 seconds**, becomes unavailable after
+**2 consecutive failures** and recovers after **1 success**. Counters are independent. Start unknown,
+and show unknown/stale after **15 seconds** without a fresh observation, with the last-check time.
+Old snapshots and hints cannot refresh it. Initial read, subscription catch-up and reconnect resync
+close delivery gaps; bounded workers run off request paths and cancel/join at shutdown.
+
+Frontend/backend status appears separately in navigation and the Plugins inventory. Health never
+removes, reorders, disables or reloads content. Failures stay inline with safe codes and no unsolicited
+modal, independently of existing loader errors. Observations do not change catalogue revision, audit,
+signed bytes, approval, reload offers or drift results. None of these operational health indicators
+should be claimed as present until the Phase 5 specs and UI verification pass.
+
+---
+
 ## Frontend injection lifecycle
 
 1. **Boot the host once.** The shell initializes the router, Pinia, PrimeVue, UniFi theme, toast
@@ -262,8 +348,9 @@ does not download or execute its implementation.
    that plugin exactly once.
 6. **Render through a host boundary.** The selected Vue component receives a versioned API and
    readonly context. The host retains control of layout and error presentation.
-7. **Dispose plugin resources.** Plugin-owned watchers, requests, and NATS connections close through
-   the lifecycle contract when the runtime ends.
+7. **End the runtime.** Reload ends the browser runtime. Full plugin resource disposal remains a
+   future contract; Phase 5 contribution withdrawal will not promise to close plugin-owned watchers,
+   requests or NATS connections.
 
 The first release uses a page reload to adopt a new registry or plugin version. A browser session
 therefore uses one accepted registry snapshot and never mixes policy, metadata, contract, and
@@ -365,8 +452,10 @@ sequenceDiagram
     Note over Shell,Reg: Notify is a hint only. Every reconnect reads unconditionally.<br/>No focus/interval polling and no HTTP fallback.
 ```
 
-The snapshot is **almost** frozen for the session, and the exception is precise (decision 46):
-**a new plugin id is the only difference a running shell applies to itself.** Everything else a
+**Current ordinary-change behavior (before Phase 5):** the snapshot is almost frozen for the
+session, and the exception is precise (decision 46). BR-AS49 security revocation already forces
+reload. Phase 5 will add dynamic withdrawal/return as described above. Until then,
+**a new plugin id is the only ordinary difference a running shell applies to itself.** Everything else a
 later read carries — a changed label, order, route prefix, permission, version, remote or
 contribution list, or a withdrawn entry — is offered as a reload and never applied, because the
 status machine has no transition out of `active` and re-placing a plugin already mounted would
@@ -1006,8 +1095,9 @@ unchanged. `accounts-service` carries them through (`LoadCuratedFrontendRegistry
 `SetCuratedFrontendRevision`); the shell surfaces them on the Plugins screen and in the footer, so
 "which build is on screen, from which curated set" is answerable without opening a console.
 
-**Shell chrome now carries plugin health.** Three signals, all derived from the same status
-records, all shell-authored:
+**Shell chrome carries plugin load/compatibility status.** These existing signals do not probe
+frontend or backend availability; that is approved Phase 5 work. Three signals, all derived from
+the same status records, all shell-authored:
 
 - a **nav dot** beside a feature whose plugin is `failed` (err tone) or `incompatible` (warn tone).
   `disabled` is deliberately unmarked — an operator switch-off is not a fault.

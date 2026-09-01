@@ -665,92 +665,131 @@ integration, while the browser check exercised the old image's refused mint.
 
 ---
 
-### Phase 5 — PROPOSED (design gate not passed) — Two lifecycle classes, withdrawal, and health
+### Phase 5 — DESIGN APPROVED; implementation not started — Lifecycle, withdrawal, and health
 
-**Why this is a phase.** BR-AS19's "notify, never unload" was written when every plugin was
-permanent, and the code is built on that assumption: `contributionRegistry`'s arrays are append-only
-behind an `indexedPluginIds` set, and the status machine has no transition out of `active`. The
-requirements pass of 2026-08-30 settled that this stays true for plugins an operator placed, and
-stops being true for plugins a service announced. Splitting the classes is what makes withdrawal
-affordable — the expensive semantics are paid for only where they are needed.
+**Gate passed 2026-08-31.** The user settled the 14 questions below, then explicitly approved
+updating this plan, the business rules and required test cases **without starting implementation**.
+Phase 5 is not complete. Phase 7 publisher verification and Phase 8 registration paths already exist;
+the backend stores lifecycle, but the shell still needs class-aware behavior, withdrawal and health.
 
-**Problem.** Three behaviours have nowhere to live today. An operator can disable a plugin and the
-shell keeps rendering it until reload, with no way to express anything else. A plugin whose backing
-service is down looks identical to one that is healthy. And there is no concept of a plugin that may
-legitimately leave.
+**Scope.** Stored lifecycle end to end; signed publisher unregister and operator disable; reversible
+contribution withdrawal; occupied-route tombstones; separate frontend/backend health for both classes.
+No full module disposal, hot replacement of changed definitions, Phase 6 bundle publishing, or claim
+that loaded JavaScript/callbacks can be stopped. Native shell views remain available independently.
 
-**Scope.** A stored lifecycle class on each entry; a plugin scope that tracks what a plugin
-registered so it can be withdrawn; the tombstone view; the health overlay and its debounce; live
-enable/disable for the dynamic class.
+#### Design decisions — 59–65, confirmed and refined 2026-08-31
 
-**Explicitly out of scope.** Full `scope.dispose()` — this phase removes contributions and leaves the
-federated module resident (see decision 62). Any way for a plugin to *become* dynamic; every dynamic
-entry in this phase is one an operator marked by hand, which is the seam Phase 8 later fills.
-
-#### Design decisions — 59–65, PROPOSED
-
-| # | Decision | Rationale |
+| # | Decision | Boundary |
 | --- | --- | --- |
-| 59 | **The lifecycle class is stored on the entry, not inferred.** | `diffRegistry` branches on `remote.kind === 'builtin'` today; the new branch is "may this removal be applied, or must it be offered". Deriving that from provenance ("did this come from preload") leaves the shell guessing at the one moment it must not, and makes the rule invisible in the document an operator reads. An explicit `lifecycle: 'static' | 'dynamic'` is also the thing a spec can assert on. |
-| 60 | **Static keeps today's semantics exactly.** | No transition out of `active`; a removal or an edit is a `pendingReload` offer; disable takes effect on the next reload and the Admin panel says so. This is not a compromise pending better machinery — it is the correct behaviour for a plugin an operator placed deliberately, and it keeps the shell's degraded floor (BR-AS22) intact, because the static set is what renders when the registry cannot be read. |
-| 61 | **Only an explicit unregister or an operator disable withdraws a plugin. Disconnection never does.** | Presence tells you a *backend service* is reachable. Treating that as the plugin's existence means a `docker compose restart` yanks a feature out from under whoever is using it, and a slow deploy silently removes it and puts it back — nav items appearing and vanishing on their own. Health is an overlay on `active`, not a state beside it. |
-| 62 | **Withdrawal removes contributions; the loaded module stays resident.** | A federated container cannot be un-evaluated from the JavaScript realm — dropping references is all any implementation can do — so full disposal buys memory hygiene in a long session, not a cleaner UI. Contribution removal is roughly a fifth of the work, has no leak surface to get wrong, and delivers every visible behaviour: the nav item goes, the route stops resolving, the occupant is told. Full `scope.dispose()` stays a later question, not a promise made in a shipped contract. |
-| 63 | **A withdrawn route stays resolvable for exactly one occupant, and renders a shell-owned tombstone.** | Redirecting a user who is reading a page moves them without warning and loses anything unsaved with no explanation. The tombstone replaces the view in place — this feature was withdrawn, with a link back — while the nav item goes immediately and the route stops resolving for new navigations. It is more work than a redirect and it is the only option where disposal is deterministic *and* the user stays in control. |
-| 64 | **The health signal is debounced, and is decoration only.** | A dot that flickers on every transient failure trains people to ignore it, which is worse than no dot. The nav item is never removed, reordered or greyed to the point of looking disabled — deployment availability controls presence, operational health controls appearance, and that line is the one the AWS Console prior art is most insistent about. |
-| 65 | **Failure surfaces stay inline; a dialog is reserved for a failure the user's own action caused.** | The shell already has the better pattern: `PluginSlot` and `ExtensionRegion` contain a failing contribution as a card beside healthy siblings, and `PluginErrorView` names the plugin and cause at route level. A modal for an unsolicited background failure interrupts work the user was doing for something they cannot act on. A user who clicked into a plugin that will not load is a different case and deserves an answer at the point of the click. |
+| 59 | Lifecycle is explicitly stored as `static` or `dynamic`. | Never infer runtime behavior from source. Backfill legacy unclassified entries as static. |
+| 60 | Static removal/disable/edit remains a reload offer. | The shell holds its admitted class until reload; BR-AS49 security revocation overrides either class. |
+| 61 | Dynamic withdrawal follows operator disable or authenticated publisher unregister. | Service failure, missing health, disconnect and degraded reads never withdraw. |
+| 62 | Withdrawal removes contributions, retaining loaded modules and activation results. | Unchanged returns restore cached contributions without a second activation; changed definitions need reload. |
+| 63 | Withdrawal keeps an occupied URL in place with a shell-owned tombstone. | New navigation cannot enter it; no forced redirect or promise to preserve unmounted form state. |
+| 64 | Health is debounced decoration only. | Frontend/backend results are independent; neither removes, disables nor reorders content. |
+| 65 | Background failures stay inline. | No unsolicited modal; action-triggered loading errors stay distinct from health. |
 
-#### Business rules — BR-AS30 to BR-AS34 (draft, to be confirmed at the gate)
+#### Resolved questionnaire — all 14 answers
 
-- **BR-AS30 — Every entry carries a lifecycle class.** `static` or `dynamic`, stored on the entry and
-  served in the document. The shell applies removal semantics by class and never by inference.
-- **BR-AS31 — A static plugin is never withdrawn from a running shell.** Its removal, edit or
-  disable is offered as a reload and never applied (BR-AS19, unchanged, now scoped to the class).
-- **BR-AS32 — A dynamic plugin's withdrawal removes its contributions.** Routes, navigation,
-  extensions, shell controls and footer items registered by that plugin are removed from the running
-  shell. The plugin's loaded module is not required to be unloaded.
-- **BR-AS33 — Withdrawal never relocates the user.** A user occupying a withdrawn plugin's route is
-  shown a shell-owned tombstone in place. The route resolves for that occupant and for no new
-  navigation.
-- **BR-AS34 — Backing-service health decorates, it never removes.** An unreachable backing service is
-  reported beside the plugin's nav entry and in the Plugins inventory. It does not remove, reorder or
-  disable any contribution, and the report contains no URL, host, port or credential (BR-AS04).
+Question labels are local to Phase 5, not new global decision numbers.
 
-#### Gate questions
+| Question | Answer | Approved requirement |
+| --- | --- | --- |
+| Q1 | A | Show separate frontend and backend health. |
+| Q2 | A | Monitor both static and dynamic plugins. |
+| Q3 | A | Registry centrally probes frontend availability and shares observations; extend BR-AS45 narrowly, reusing allowlisted service-origin mapping. Browser reachability remains a loader concern. |
+| Q4 | A | Backend health uses bounded, narrowly scoped NATS request/reply probes that can report readiness; connection presence is insufficient. |
+| Q5 | A | Probe every 5 seconds, timeout after 2 seconds, mark unavailable after 2 consecutive failures, recover after 1 success; track frontend/backend independently. |
+| Q6 | A | Deployment config maps plugin IDs to backend service IDs. Empty list means frontend-only; absent mapping means not configured. Manifests cannot choose targets. |
+| Q7 | A | Add a dedicated frontend `/healthz` endpoint with a small predictable response. Healthy HTTP does not prove JavaScript assets load. |
+| Q8 | B | Both operator disable and signed publisher unregister cause dynamic live withdrawal. Unregister needs ownership checks, replay protection and audit. |
+| Q9 | A | Publisher unregister preserves operator approval. Valid return within the approved origin may restore only while trust remains valid and the operator has not disabled it. |
+| Q10 | A | Restore an unchanged plugin live from its cached module/contributions. Changed version, remote or contribution definition requires reload. |
+| Q11 | A | Backfill legacy unclassified lifecycle as static without disabling entries. |
+| Q12 | A | Operator class changes apply after reload; existing shells retain the class they admitted and offer reload. |
+| Q13 | A | When a slot owner withdraws, suspend only dependent placements. Their contributing plugins remain active elsewhere; restore placements when the unchanged slot returns. |
+| Q14 | A | After 15 seconds without fresh health updates show unknown/stale with last-check time; leave content untouched. |
 
-1. **What actually reports health?** NATS presence of the backing service, or a liveness check the
-   shell performs against the remote? These answer different questions — a plugin whose service is up
-   but whose `remoteEntry.js` 404s is healthy by the first measure and broken by the second.
-2. **Debounce window** — a fixed interval, or "unavailable only after a failed retry"?
-3. **Does a static plugin ever show the dot?** It has a backing service too, and the argument for
-   showing it is the same; the argument against is that the operator cannot act on it without a
-   deploy.
+#### Business rules and rule-to-test matrix
 
-#### Tasks — gate passed 2026-08-31; 8a and 8d are open for work
+Canonical requirements and the complete planned coverage matrix are in
+[`BUSINESS_RULES-APP-SHELL.md`, Phase 5](../../demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md#phase-5--approved-requirements-not-yet-implemented).
+New IDs are **BR-AS52–BR-AS65**. The abandoned draft BR-AS30–34 labels are superseded:
+class → 52; static behavior → 53; withdrawal → 54/56; occupant → 57; health → 60–65.
+Implemented Phase 4 BR-AS30/31 keep their numbers and meaning. No executable Phase 5 specs have
+been added by this planning change; every matrix row is a requirement for implementation completion.
 
-> 8a and 8d ship ahead of Phase 5 and Phase 7. The follow-up authorizes fail-closed 8b wiring;
-> real publisher verification still awaits Phase 7 (see the note above 8b).
+#### Implementation contracts to carry into specs
 
-##### 5a — the class
-- [ ] `lifecycle` on the entry: domain, store, document, admin surface, manifest schema.
-- [ ] `registryDiff.js` branches on class: static removal offers, dynamic removal withdraws.
-- [ ] Specs: the same removal produces a reload offer for one class and a withdrawal for the other.
+- **Separate control state.** Persist publisher availability separately from operator enablement.
+  Unregister retains the row, approved origin and audit history. A fresh, owned, verified reannounce
+  can clear publisher withdrawal, never operator disable. Static entries retain their behavior.
+- **Authenticated unregister.** Add a versioned, service-only unregister command, signing the action
+  as well as plugin identity, publisher/key identity and replay-ordering data. Reuse Phase 7's trust,
+  ownership and commit-time checks. Specify exact envelope/subject in 5b specs before code; signature
+  domain separation must prevent an announcement being replayed as unregister. Persist ordering so
+  delayed unregister/reannounce, duplicate delivery, restart and concurrent operator writes cannot
+  reverse a newer decision. Accepted writes advance the registry revision atomically with audit;
+  refusals cannot mutate it. Browser/admin curation grants do not gain publisher authority.
+- **Authoritative withdrawal.** Registry responses must distinguish accepted disable/unregister from
+  absence caused by filters, malformed reads or degraded fallback. Do not treat a missing ID alone
+  as proof of publisher withdrawal. Preserve BR-AS49's security tombstones even on degraded reads.
+- **Held definition.** Define equality on validated runtime metadata: identity, version, remote,
+  contract, routes, contributions, permissions, labels and ordering. Control/observation/signing
+  metadata are not executable changes; trust is still rechecked independently. A class-only edit
+  stays pending reload, with the admitted class governing the current session.
+- **Races and retention.** Gate import/activation completion against withdrawal so late work cannot
+  republish contributions. Restore cached activation results once, not by calling `activate()` twice.
+  A never-loaded returning plugin remains lazy. Withdrawal is idempotent. Retain ownership and placement
+  definitions without reserving duplicate live registrations or withdrawing unrelated siblings.
+- **Health plane.** Keep observations out of signed manifests, catalogue revisions, curation audit,
+  drift comparison and runtime-definition equality. Use a dedicated read-only NATS snapshot/notification
+  path, initial read, subscription catch-up and reconnect resync. Notifications are hints; loss cannot
+  extend an observation's freshness. Per-check timestamps and bounded freshness handling must stop
+  repeated old snapshots looking healthy. Exact subject names and response schema are specified in 5d
+  specs using shared builders and narrow grants, not browser `rpc.>` or `$SYS` access.
+- **Probe contract.** For multiple backend dependencies, retain each service result and derive the
+  backend summary: any unavailable → unavailable; otherwise any unknown/stale → unknown/stale;
+  all healthy → healthy. Missing mapping → not configured; explicit empty list → not applicable.
+  These summary rules are implementation definitions of Q1/Q6, not additional withdrawal triggers.
+  Start unknown; one failure before any success does not claim healthy. Run non-overlapping bounded
+  checks off request paths, validate response size/schema, cancel/join on shutdown. Frontend GET
+  `/healthz` uses explicit allowlisted mappings only, no redirects, ambient proxy or fallback URLs;
+  set a small response cap in specs. Backend service IDs resolve only through deployment-controlled
+  subject mappings. Invalid/timeout/no-responder responses count as failed probes, never healthy.
 
-##### 5b — the scope
-- [ ] `contributionRegistry` learns to remove a plugin's contributions; the append-only invariant becomes append-and-withdraw, guarded by the same id set.
-- [ ] `pluginStatus` gains `withdrawn`; the state machine's transitions are stated for both classes.
-- [ ] Specs: a mounted shell loses the nav entry, the route and the extension placement of a withdrawn plugin, and keeps every sibling.
+#### Tasks — approved backlog; implementation requires a separate go-ahead
 
-##### 5c — the occupant
-- [ ] The tombstone view and the router rule that keeps a withdrawn route resolvable for its occupant.
-- [ ] Specs: a user on the withdrawn route sees the tombstone; a fresh navigation to it does not resolve.
+##### 5a — lifecycle through the stack (BR-AS52–53)
+- [ ] Write specs for legacy backfill, signed-byte preservation, schema round-trip and operator class editing.
+- [ ] Backfill unclassified rows to static; preserve enabled/source/attestation. Complete Admin and shell lifecycle fields using existing backend storage.
+- [ ] Implement held-class diff semantics, reload offers and the security-revocation exception; test both classes and class-change/disable sequences.
 
-##### 5d — health
-- [ ] The health overlay, its debounce, and its rendering beside the nav entry and in the inventory.
-- [ ] Specs: a flapping service produces one state change, not many; an unavailable plugin keeps its contributions.
+##### 5b — unregister, withdrawal and return (BR-AS54–56, BR-AS59)
+- [ ] Write domain Ginkgo contexts for ownership, signature/action binding, replay order, operator precedence, transaction races and accepted/refused audit.
+- [ ] Add persistent publisher availability and service-only unregister transport; extend actual broker/credential integration specs, migration/restart and cache tests.
+- [ ] Write shell specs for explicit withdrawal, sibling isolation, duplicate events, return equality and withdrawal during lazy import/activation.
+- [ ] Implement contribution removal/restoration and `withdrawn` status; retain cached modules without full disposal or duplicate activation.
 
-##### 5e — rules and docs
-- [ ] `BUSINESS_RULES-APP-SHELL.md` — BR-AS30 to BR-AS34; BR-AS19 scoped to the static class.
-- [ ] `ARCHITECTURE-APP-SHELL.md` — the two state machines and the health overlay.
+##### 5c — occupant and dependent placements (BR-AS57–59)
+- [ ] Write mounted-shell/router specs for tombstone in place, new navigation refusal, unchanged return, changed return requiring reload and departure cleanup.
+- [ ] Write cross-owner slot specs: suspend only affected placements and restore exactly once without breaking siblings or host-owned slots.
+- [ ] Implement tombstone/router behavior and placement suspension; keep errors inline.
+
+##### 5d — health worker, transport and UI (BR-AS60–65; BR-AS45 extension)
+- [ ] Write deterministic fake-clock domain specs for 5-second cadence, 2-second timeout, 2 failures, 1-success recovery, independent signals and 15-second freshness.
+- [ ] Write real adapter/transport specs for frontend response contracts, mapped HTTP bounds, backend readiness/dependency aggregation, narrow NATS grants and shutdown cancellation.
+- [ ] Add deployment-owned backend mappings, frontend `/healthz` configs and registry probe adapters; keep observations separate from drift and curation.
+- [ ] Write snapshot/hint/catch-up/reconnect and UI specs, including stale snapshots, absent/empty config and malformed telemetry.
+- [ ] Render separate frontend/backend health in shell navigation and Plugins inventory with last-check time and safe failure codes; preserve content and existing loading-error display.
+
+##### 5e — evidence, rules and docs
+- [x] Record 14 approved decisions, uniquely numbered rules and planned coverage matrix (2026-08-31).
+- [x] Document intended lifecycle/health architecture with explicit unimplemented status.
+- [ ] Implement every planned rule spec before its code; record actual spec locations/results in the canonical table only after they exist.
+- [ ] Run affected Ginkgo suites with their real dependencies and zero skipped Phase 5 specs; run shell/Admin Vitest and builds. Preserve Phase 4, 7 and 8 regression coverage.
+- [ ] Verify at 1920×1080: loaded service stop leaves content/nav, health changes; restart recovers; static disable offers reload; dynamic disable/unregister withdraws; occupied route tombstones; unchanged return restores; telemetry loss becomes stale.
+- [ ] Update as-built architecture and narrative findings with evidence, limitations and actual test totals; mark complete only after these checks pass.
 
 ---
 
@@ -1117,13 +1156,13 @@ only.
   views rather than plugins — with the reason visible on the Plugins screen. Reworded 2026-08-31: the
   original said "its built-ins", which decision 84's retirement leaves empty. No registration tier
   may reduce the native frame or prevent the Plugins screen stating why the plugin list is empty.
-- **BR-AS45 — The drift check is the service's only outbound HTTP, and it is bounded.** The registry
+- **BR-AS45 — The drift check is the service's only currently implemented outbound HTTP, and it is bounded.** The registry
   service may fetch a served `manifest.json` only for an entry whose remote origin is already on the
   BR-AS20 allowlist. The fetch is read-only, time-bounded, and never on a request path the shell or an
   operator waits on. Drift is displayed only: the curated copy still wins (decision 77) and a drifting
-  entry is never withheld. This is the one outbound HTTP capability the service holds; anything wider
-  is a new gate. (It already egresses to Postgres and NATS — the claim is about HTTP, corrected
-  2026-08-31.)
+  entry is never withheld. This records the Phase 8c boundary. Phase 5's approved, unimplemented
+  BR-AS61 adds bounded `/healthz` probes; see the canonical BR-AS45 amendment. Anything wider needs
+  a new gate. (It already egresses to Postgres and NATS — the claim is about HTTP, corrected 2026-08-31.)
   **The allowlist is not the fetch address.** `REGISTRY_ALLOWED_ORIGINS` holds *browser* origins
   (`http://localhost:7111`); `mfe-registry-service` is a container, for which `localhost:7111` is
   itself. A second start-time config maps each allowlisted origin to the URL the *service* reaches it
