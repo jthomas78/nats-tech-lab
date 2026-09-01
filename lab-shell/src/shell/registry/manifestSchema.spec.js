@@ -348,3 +348,42 @@ describe('federated container name (recorded revision of the 1a remote contract)
     expect(Object.isFrozen(plugin.remote)).toBe(true)
   })
 })
+
+describe('BR-AS52 — the withdrawal class the shell admits', () => {
+  const admit = (overrides) => validateManifest({
+    id: 'example-plugin',
+    name: 'Example',
+    schemaVersion: REGISTRY_SCHEMA_VERSION,
+    shellApiVersion: SHELL_API_VERSION,
+    remote: { kind: 'federated', url: 'http://localhost:7110/remoteEntry.js', module: './Plugin' },
+    contributions: [{ kind: 'route', id: 'home', path: '/example-plugin', title: 'Example' }],
+    ...overrides,
+  })
+
+  it('carries the class the registry stated', () => {
+    expect(admit({ lifecycle: 'dynamic' }).plugin.lifecycle).toBe('dynamic')
+    expect(admit({ lifecycle: 'static' }).plugin.lifecycle).toBe('static')
+  })
+
+  it('admits an entry with no stated class as static', () => {
+    // The service backfills these, but a shell must not depend on having read
+    // a migrated document: static is the class that assumes least, because
+    // its answer to a withdrawal is to keep running and offer a reload.
+    expect(admit({}).plugin.lifecycle).toBe('static')
+  })
+
+  it('admits a class it has no behavior for as static, rather than refusing the plugin', () => {
+    // The closed set is enforced at the registry's write door. If a third
+    // word reaches the shell anyway, falling back to static costs an operator
+    // one reload; refusing the entry would take a running plugin off screen
+    // over a metadata value that runs no code.
+    expect(admit({ lifecycle: 'hot' }).plugin.lifecycle).toBe('static')
+  })
+
+  it('never infers the class from where the entry came from', () => {
+    // Source is an operator-facing badge, not shell semantics (BR-AS52).
+    expect(admit({ source: 'announced' }).plugin.lifecycle).toBe('static')
+    expect(admit({ source: 'announced', lifecycle: 'dynamic' }).plugin.lifecycle).toBe('dynamic')
+  })
+})
+

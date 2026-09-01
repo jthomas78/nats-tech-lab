@@ -69,6 +69,15 @@ function contributionSummary(entry) {
 // origin it was approved on. Both mean the same thing to an operator — it is
 // waiting on you — and neither is the ordinary "disabled" note below, which
 // tells them plugins are still running in shells. Nothing is running here.
+// The withdrawal class, and the shell has behavior for exactly two (BR-AS52).
+// An entry stored before the class existed states none, and the service reads
+// that as static; the panel says the same word rather than leaving a blank
+// cell, which among filled ones reads as a rendering fault.
+const LIFECYCLES = ['static', 'dynamic']
+function lifecycleOf(entry) {
+  return entry.lifecycle || 'static'
+}
+
 function isPending(entry) {
   return entry.source === 'announced' && !entry.enabled && !entry.withheld
 }
@@ -169,6 +178,10 @@ function addEntry() {
     shellApiVersion: SHELL_API_VERSION,
     routePrefix: '',
     enabled: false,
+    // Static by default, for the same reason the migration backfills to it:
+    // its answer to a withdrawal is to leave the plugin running and offer a
+    // reload, which is the class that assumes least about the plugin.
+    lifecycle: 'static',
     contributions: [],
     remote: { kind: 'federated', url: '', module: '' },
     creating: true,
@@ -178,6 +191,9 @@ function addEntry() {
 function edit(entry) {
   originRefusal.value = ''
   draft.value = JSON.parse(JSON.stringify(entry))
+  // An unclassified entry is edited as what it is read as, so that saving an
+  // unrelated field cannot quietly leave the class unstated.
+  draft.value.lifecycle = lifecycleOf(entry)
 }
 
 function closeDrawer() {
@@ -277,7 +293,8 @@ watch(usePlatformConnection().epoch, load)
             <th style="width: 6%">Version</th>
             <th style="width: 6%">Shell API</th>
             <th style="width: 11%">Route prefix</th>
-            <th style="width: 14%">Contributions</th>
+            <th style="width: 11%">Contributions</th>
+            <th style="width: 6%">Class</th>
             <th style="width: 9%">Source</th>
             <th style="width: 15%">State</th>
             <th style="width: 13%">Manifest</th>
@@ -303,6 +320,9 @@ watch(usePlatformConnection().epoch, load)
                    judgement that can change; this one is a fact about how the
                    row got here and never changes, and decision 80 asks for the
                    two to be told apart at a glance rather than read. -->
+              <span class="tier mono" data-testid="entry-lifecycle">{{ lifecycleOf(e) }}</span>
+            </td>
+            <td>
               <span class="tier mono" data-testid="entry-source">{{ e.source || 'unknown' }}</span>
               <!-- Who and when, on the announced rows only. Approving an
                    announcement is a decision about a publisher, and "how long
@@ -450,6 +470,17 @@ watch(usePlatformConnection().epoch, load)
             :disabled="!draft.creating"
             data-testid="entry-new-route"
           />
+        </label>
+        <label class="field">
+          <span class="lbl">
+            Withdrawal class
+            <span class="lab-muted" data-testid="entry-lifecycle-note">
+              — takes effect when a shell reloads; a running shell keeps the class it admitted
+            </span>
+          </span>
+          <select v-model="draft.lifecycle" class="inp mono" data-testid="entry-lifecycle-input">
+            <option v-for="c in LIFECYCLES" :key="c" :value="c">{{ c }}</option>
+          </select>
         </label>
         <label class="field">
           <span class="lbl">Display name</span>

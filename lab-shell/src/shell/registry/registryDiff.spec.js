@@ -231,3 +231,32 @@ describe('a tombstone for a revoked entry', () => {
     expect(reloadRequired[0].forced).toBeUndefined()
   })
 })
+
+describe('BR-AS52 — a running shell holds the class it admitted', () => {
+  it('offers a reload for a class edit rather than applying it', () => {
+    // Q12. The class decides what happens when the plugin is withdrawn, and
+    // a shell that changed its mind mid-session would answer one withdrawal
+    // by two different rules depending on when the document arrived.
+    const { added, reloadRequired } = diffRegistry(
+      [held('alpha', { lifecycle: 'static' })],
+      [raw('alpha', { lifecycle: 'dynamic' })],
+    )
+
+    expect(added).toEqual([])
+    expect(reloadRequired).toEqual([
+      { id: 'alpha', name: 'alpha', reason: RELOAD_REASON.CHANGED },
+    ])
+  })
+
+  it('does not report a reload when an unstated class is later stated as static', () => {
+    // The registry's backfill classifies an old row without changing what it
+    // means. A shell that already read it as static has nothing to reload for.
+    const { reloadRequired } = diffRegistry(
+      [held('alpha')],
+      [raw('alpha', { lifecycle: 'static' })],
+    )
+
+    expect(reloadRequired).toEqual([])
+  })
+})
+

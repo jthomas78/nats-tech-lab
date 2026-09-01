@@ -178,6 +178,15 @@ export function validateManifest(manifest) {
          false in the registry document, which is BR-AS03's point: the shell
          is not rebuilt to turn one off. */
       enabled: manifest.enabled !== false,
+      /* The withdrawal class (BR-AS52, decision 59). Stored by the registry,
+         never inferred from the registration path, and never chosen here from
+         anything the plugin itself said. The shell has behavior for exactly
+         two, so a missing or unrecognised value is admitted as `static`: its
+         answer to a withdrawal is to leave the plugin running and offer a
+         reload, which is the class that assumes least. Whichever value is
+         admitted is the one this session keeps — a later change to it is an
+         ordinary reload offer, not a live switch. */
+      lifecycle: manifest.lifecycle === 'dynamic' ? 'dynamic' : 'static',
       remote: remote.remote,
       extensionPoints: Object.freeze(extensionPoints),
       contributions: Object.freeze(sortContributions(contributions)),

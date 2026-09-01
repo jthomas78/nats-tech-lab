@@ -770,8 +770,18 @@ been added by this planning change; every matrix row is a requirement for implem
       manifest bytes and the registry revision are all untouched, each with its own spec. The Phase 8
       round-trip spec was amended rather than deleted — its third case now asserts the backfill.
       Registry suite 233/233, 0 Skipped.
-- [ ] Backfill unclassified rows to static; preserve enabled/source/attestation. Complete Admin and shell lifecycle fields using existing backend storage.
+- [x] Backfill unclassified rows to static; preserve enabled/source/attestation. Complete Admin and shell lifecycle fields using existing backend storage.
+      Done 2026-09-01. Admin gained a Class column and a drawer control offering only the two classes,
+      with a note that the change waits for a reload (Q12); a new entry is drafted static. The shell's
+      validator now admits `lifecycle`, defaulting an unstated *or unrecognised* value to static rather
+      than refusing the entry — the closed set is enforced at the registry's write door, and taking a
+      running plugin off screen over a metadata value that runs no code would be the worse failure.
 - [ ] Implement held-class diff semantics, reload offers and the security-revocation exception; test both classes and class-change/disable sequences.
+      **Half done 2026-09-01:** because the validated form now carries the class, `diffRegistry`'s deep
+      equality makes a class edit an ordinary reload offer, and BR-AS49's forced revocation already
+      outranks it. `registryDiff.spec.js` pins both, plus the case that matters for the migration — a
+      backfilled `static` against an unstated held class is no change at all. **Still open:** the
+      class-change/disable sequences, which need the dynamic withdrawal that 5b builds.
 
 ##### 5b — unregister, withdrawal and return (BR-AS54–56, BR-AS59)
 - [ ] Write domain Ginkgo contexts for ownership, signature/action binding, replay order, operator precedence, transaction races and accepted/refused audit.

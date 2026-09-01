@@ -550,3 +550,68 @@ describe('FrontendPluginsPanel — adding an entry by hand', () => {
     expect(entry).not.toHaveProperty('registeredBy')
   })
 })
+
+describe('BR-AS52 — the withdrawal class an operator can see and set', () => {
+  const rowFor = (w, id) => w.findAll('[data-testid="entry-row"]').find((r) => r.text().includes(id))
+
+  it('reads an unclassified entry as static rather than showing a blank', async () => {
+    // The service backfills a legacy row on migration, but a document read
+    // before that must not leave the column empty: a blank cell among
+    // filled ones reads as a rendering fault, not as "we do not know".
+    const d = doc()
+    delete d.plugins[0].lifecycle
+    getRegistryEntries.mockResolvedValue(d)
+    const w = mountPanel()
+    await flushPromises()
+    expect(rowFor(w, 'seafreight-flow').get('[data-testid="entry-lifecycle"]').text()).toBe('static')
+    w.unmount()
+  })
+
+  it('shows each stated class in its own word', async () => {
+    const d = doc()
+    d.plugins[0].lifecycle = 'static'
+    d.plugins[1].lifecycle = 'dynamic'
+    getRegistryEntries.mockResolvedValue(d)
+    const w = mountPanel()
+    await flushPromises()
+    expect(rowFor(w, 'seafreight-flow').get('[data-testid="entry-lifecycle"]').text()).toBe('static')
+    expect(rowFor(w, 'example-plugin-slow').get('[data-testid="entry-lifecycle"]').text()).toBe('dynamic')
+    w.unmount()
+  })
+
+  it('sends the edited class with the write', async () => {
+    const d = doc()
+    d.plugins[0].lifecycle = 'static'
+    getRegistryEntries.mockResolvedValue(d)
+    upsertRegistryEntry.mockResolvedValue(d)
+    const w = mountPanel()
+    await flushPromises()
+    await rowFor(w, 'seafreight-flow').get('[data-testid="edit-entry"]').trigger('click')
+    await w.get('[data-testid="entry-lifecycle-input"]').setValue('dynamic')
+    await w.get('[data-testid="entry-save"]').trigger('click')
+    await flushPromises()
+    const [entry] = upsertRegistryEntry.mock.calls[0]
+    expect(entry.lifecycle).toBe('dynamic')
+    w.unmount()
+  })
+
+  it('says a class change only takes effect when a shell reloads', async () => {
+    // Q12: a running shell keeps the class it admitted. Saying so on the
+    // screen that makes the change is the difference between an operator
+    // waiting and an operator filing a bug.
+    const w = mountPanel()
+    await flushPromises()
+    await w.findAll('[data-testid="edit-entry"]')[0].trigger('click')
+    expect(w.get('[data-testid="entry-lifecycle-note"]').text()).toMatch(/reload/i)
+    w.unmount()
+  })
+
+  it('offers only the two classes the shell has behavior for', async () => {
+    const w = mountPanel()
+    await flushPromises()
+    await w.findAll('[data-testid="edit-entry"]')[0].trigger('click')
+    const options = w.get('[data-testid="entry-lifecycle-input"]').findAll('option').map((o) => o.element.value)
+    expect(options).toEqual(['static', 'dynamic'])
+    w.unmount()
+  })
+})
