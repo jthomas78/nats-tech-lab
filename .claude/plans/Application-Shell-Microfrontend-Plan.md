@@ -696,8 +696,11 @@ during implementation; neither is complete without it.
       every `natstenants`-based service (BR-D40's documented failure mode,
       arriving five at a time). Closed by `NonTenantCredsSuffixes`
       (`-announcer`), with a spec, rather than by five more map entries.
-- [ ] **13d** — convergent, boot-ordered trust seeding through the existing
-      curated write path.
+- [x] **13d** (built 2026-09-01) — convergent, boot-ordered trust seeding through the existing
+      curated write path: `cmd/seed-publishers` reads the publishers document,
+      applies only the missing ops and leaves revoked/retired keys and operator
+      transfers alone (BR-AS68), run as the `registry-publisher-seed` one-shot
+      that 13e's sidecars gate on.
 - [ ] **13e** — five announcer sidecars, the `example-plugin-unreachable`
       asymmetry resolved, a writable release-state volume and a real
       `stop_grace_period` per sidecar; `registry.json` reduced to

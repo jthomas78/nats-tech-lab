@@ -479,6 +479,53 @@ services:
       mfe-registry-postgres:
         condition: service_healthy
 
+  # App-shell Phase 13d — publisher trust seeding, as a one-shot.
+  #
+  # Reuses mfe-registry-service's image (a second binary in it, not a second
+  # image) and overrides the entrypoint. It reads nats/keys/publishers.json —
+  # the public halves bootstrap-operator.sh minted in 13c — and writes the
+  # publisher rows through api._platform.registry.publishers.write.v1, the
+  # same operator endpoint the Registry Publishers panel uses. No boot-time
+  # bypass of the revision check or the audit trail (decision 7).
+  #
+  # It runs on every `up`, so it converges rather than replays: it reads
+  # first, writes only what is missing, and never reverses an operator
+  # decision — a revoked key stays revoked (BR-AS68). Neither accounts-service
+  # nor mfe-registry-service has a healthcheck, so service_started is all
+  # Compose can offer here; the seeder does its own bounded, logged wait on
+  # the registry's read subject rather than racing it and dying.
+  #
+  # This is the ordering gate decision 6 requires: the announcer sidecars
+  # added in 13e hang off it with
+  #   depends_on: { registry-publisher-seed: { condition: service_completed_successfully } }
+  # so no announcer can start before the trust table it will be judged
+  # against exists. Without that they race the seed and exit on `not-owned`.
+  registry-publisher-seed:
+    build:
+      context: ../..
+      dockerfile: demos/01-dictionary/backend/mfe-registry-service/Dockerfile
+    container_name: lb-registry-publisher-seed
+    entrypoint: ["seed-publishers"]
+    networks:
+      - backend
+    environment:
+      NATS_URL: nats://nats:4222
+      # The operator credential is minted by accounts-service, which owns the
+      # trust chain, even though the subjects called are served by the
+      # registry — the same split cmd/seed-registry's own doc comment records.
+      ACCOUNTS_URL: http://accounts-service:8080
+      PUBLISHERS_FILE: /etc/registry/publishers.json
+    restart: "no"
+    volumes:
+      - ./nats/keys/publishers.json:/etc/registry/publishers.json:ro
+    depends_on:
+      nats:
+        condition: service_started
+      accounts-service:
+        condition: service_started
+      mfe-registry-service:
+        condition: service_started
+
   # Phase 25 — pricing/rate domain ported from Linebooker
   # (RateSheet/FeeScale/FixedRate). No NATS wiring yet: Postgres + REST
   # only, since whether shipping-service ever consults it is still

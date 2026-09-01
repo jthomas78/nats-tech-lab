@@ -65,3 +65,34 @@ const (
 	UnregisterAction        = "unregister"
 	UnregisterSchemaVersion = 1
 )
+
+// Publisher trust vocabulary — the closed sets the
+// api._platform.registry.publishers.write.v1 surface accepts. They live here
+// with the rest of the wire contract so an operator client outside this
+// service (cmd/seed-publishers, the Admin UI's Registry Publishers panel)
+// can name an op or a key state without reaching into the registry's own
+// internal domain package, which the Go internal rule forbids anyway.
+//
+// Vocabulary only. Which op an actor may send, what a state means for the
+// entries a key signed, and every admission consequence of a revocation
+// remain in the registry domain (BR-AS38).
+const (
+	// OpPublisherUpsert creates the publisher row, or renames it. Deliberately
+	// no delete op: a trust anchor that can be silently emptied is not one.
+	OpPublisherUpsert = "publisher-upsert"
+	// OpPublisherAddKey attaches a signing key, enabled.
+	OpPublisherAddKey = "publisher-add-key"
+	// OpPublisherSetKeyState moves an existing key between the states below.
+	OpPublisherSetKeyState = "publisher-set-key-state"
+	// OpPublisherTransfer moves ownership of one plugin id.
+	OpPublisherTransfer = "publisher-transfer"
+)
+
+const (
+	// KeyEnabled — may sign new announcements.
+	KeyEnabled = "enabled"
+	// KeyRetired — superseded. Signs nothing new; what it already signed stays.
+	KeyRetired = "retired"
+	// KeyRevoked — trust withdrawn, and the entries it signed are withheld.
+	KeyRevoked = "revoked"
+)

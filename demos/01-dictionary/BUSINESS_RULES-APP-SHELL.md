@@ -1165,9 +1165,10 @@ static announcements record their time and cause in the audit only.
 ## Phase 13 — confirmed requirements, not yet implemented
 
 Confirmed by the user 2026-09-01 at the Phase 13 design gate
-(`.claude/plans/Application-Shell-Microfrontend-Plan.md`). **BR-AS66 and
-BR-AS67 are new unique IDs.** Both require executable coverage during Phase 13
-implementation; neither is complete until it has one. The two clarifications
+(`.claude/plans/Application-Shell-Microfrontend-Plan.md`). **BR-AS66, BR-AS67
+and BR-AS68 are new unique IDs.** Each requires executable coverage during
+Phase 13 implementation; none is complete until it has one. BR-AS67 and
+BR-AS68 have theirs (13b and 13d); BR-AS66 is still owed. The two clarifications
 below add no new ID — they record a decision *not* to grow an existing rule.
 
 - **BR-AS66 — A fresh lab serves only its preloaded plugin.** On first boot
@@ -1197,6 +1198,40 @@ below add no new ID — they record a decision *not* to grow an existing rule.
   publisher's state, so an image rebuild must not be needed to withdraw and
   return. BR-AS37 still holds — the re-encode happens before signing, never
   between signing and publishing.
+
+- **BR-AS68 — Trust seeding converges, and never reverses an operator
+  decision.** The boot-time seeder (`cmd/seed-publishers`, 13d) reads the
+  publishers document first and applies only the operations actually missing
+  from it: it creates a publisher row only when absent, attaches a signing key
+  only when no publisher holds it, and claims a plugin id only when nobody owns
+  it. Three differences are deliberately left alone and reported rather than
+  written: a key present in **any** state keeps that state, so a `revoked` key
+  is never handed its trust back and a `retired` one is never un-retired; a
+  plugin owned by a different publisher stays owned by them, because that is an
+  operator transfer; a key held by a different publisher is named, not
+  re-claimed. Re-running the seeder against a converged registry performs
+  **zero** writes — not a cosmetic property, since every publisher op is
+  revision-checked and spends a revision plus an audit row even when it changes
+  nothing (decision 6). The seeder writes through
+  `api._platform.registry.publishers.write.v1` under the shared operator
+  identity, the same endpoint the Registry Publishers panel uses: seeded rows
+  are curated writes, not a new tier and not a boot-time bypass of the revision
+  check or the audit trail (decision 7, decision 75). A refused write is a
+  decision, never a timing accident, so it is surfaced and the one-shot exits
+  non-zero; only the *read* is retried, on a bounded and logged schedule, so a
+  registry still running its migrations does not become a failed seed.
+  Compose orders the seed strictly before anything that announces
+  (`registry-publisher-seed`, `service_completed_successfully`) — without that
+  the announcers race it and exit on `not-owned`.
+  - **Test:** `cmd/seed-publishers/main_test.go` — pins the exact op sequence
+    for an empty registry and its ordering independence from the file's own
+    order; a second run planning zero writes; a `revoked` key left revoked and
+    a `retired` key left retired; an ownership transfer not reversed; a key
+    held by another publisher not stolen; a partially seeded registry filling
+    only its gaps; the revision threaded through each write with no
+    client-supplied actor on the wire; a stale-revision refusal surfacing
+    instead of being retried; and the bounded read retry giving up rather than
+    waiting forever.
 
 ### Clarification — a seeded publisher key has no state of its own (BR-AS38)
 

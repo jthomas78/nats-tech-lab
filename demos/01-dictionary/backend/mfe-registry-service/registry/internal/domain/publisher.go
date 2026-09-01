@@ -6,6 +6,8 @@ import (
 	"sort"
 
 	"github.com/nats-io/nkeys"
+
+	"github.com/jthomas78/nats-tech-lab/shared/mferegistry"
 )
 
 // A publisher is a stable identity that holds keys and owns plugin ids
@@ -23,15 +25,22 @@ import (
 // this row as an explicit list of plugin ids, because origin-derived
 // ownership collapses the moment two teams deploy behind one host — the
 // normal case, not the exotic one.
+//
+// The state and op names themselves are wire vocabulary, shared with the
+// operator clients that send them (shared/mferegistry). Aliased rather than
+// re-declared for the same reason the announce outcomes are: the registry's
+// internal package is unreachable from cmd/, and a second copy of a closed
+// set is a second copy that can drift. The rules below are still this
+// package's, and only this package's.
 const (
 	// KeyEnabled — may sign new announcements.
-	KeyEnabled = "enabled"
+	KeyEnabled = mferegistry.KeyEnabled
 	// KeyRetired — superseded. Signs nothing new; everything it already
 	// signed remains admitted.
-	KeyRetired = "retired"
+	KeyRetired = mferegistry.KeyRetired
 	// KeyRevoked — trust withdrawn. Signs nothing new, and the entries it
 	// signed are re-evaluated and withheld.
-	KeyRevoked = "revoked"
+	KeyRevoked = mferegistry.KeyRevoked
 )
 
 // KeyStates returns every legal key state. A state added without a rule fails
@@ -42,10 +51,10 @@ func KeyStates() []string { return []string{KeyEnabled, KeyRetired, KeyRevoked} 
 // anchor that can be silently emptied is not a trust anchor, so trust is
 // withdrawn by state and a row is never removed.
 const (
-	OpPublisherUpsert      = "publisher-upsert"
-	OpPublisherAddKey      = "publisher-add-key"
-	OpPublisherSetKeyState = "publisher-set-key-state"
-	OpPublisherTransfer    = "publisher-transfer"
+	OpPublisherUpsert      = mferegistry.OpPublisherUpsert
+	OpPublisherAddKey      = mferegistry.OpPublisherAddKey
+	OpPublisherSetKeyState = mferegistry.OpPublisherSetKeyState
+	OpPublisherTransfer    = mferegistry.OpPublisherTransfer
 )
 
 // PublisherWriteOps returns every legal publisher op.
