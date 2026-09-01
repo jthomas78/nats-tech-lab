@@ -14,13 +14,17 @@
 </script>
 
 <template>
+  <!-- The line breaks matter: Vue's `condense` whitespace handling drops a
+       whitespace-only text node that contains a newline, so a `</b>` and the
+       tag after it must share a line or the two words run together. -->
   <p class="first-boot">
-    <b>A fresh lab serves only its preloaded plugin.</b>
-    <span class="mono">demo-catalog</span> is curated in the lab's preload file, so it
-    starts enabled. The <span class="mono">example-plugin*</span> fixtures announce
-    themselves from their own publisher sidecars and arrive <b>disabled</b>, waiting for
-    an operator to enable them in the Admin UI's Frontend Plugins panel. Disabled here
-    means awaiting review, not failed — and an enable, once granted, survives restarts.
+    <b>A fresh lab serves only its preloaded plugin.</b> <span class="mono">demo-catalog</span>
+    is curated in the lab's preload file, so it starts enabled. The
+    <span class="mono">example-plugin*</span> fixtures announce themselves from their own
+    publisher sidecars and arrive <b>disabled</b>, waiting for an operator to enable them
+    in the Admin UI's Frontend Plugins panel. Until then they are not served to this shell
+    at all, so a short plugin list is the rule working, not a fault. Disabled means awaiting
+    review, not failed — and an enable, once granted, survives restarts.
   </p>
 </template>
 

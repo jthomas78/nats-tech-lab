@@ -20,6 +20,19 @@ describe('BR-AS66 — the first-boot note', () => {
     expect(text()).toContain('A fresh lab serves only its preloaded plugin')
   })
 
+  it('keeps the space between the claim and the plugin it names', () => {
+    // Vue's `condense` whitespace handling drops a whitespace-only text node
+    // that contains a newline, so a line break after `</b>` silently glues two
+    // words together. It shipped that way once.
+    expect(text()).toContain('preloaded plugin. demo-catalog')
+  })
+
+  it('says an entry awaiting an operator is not served at all', () => {
+    // Otherwise the note explains a row that is not on the screen: a disabled
+    // entry never reaches the shell, so the list is short rather than red.
+    expect(text()).toContain('not served to this shell')
+  })
+
   it('names the preloaded plugin and the announced fixtures separately', () => {
     // Two tiers with two different stories is the whole point of the note; a
     // reader who cannot tell which plugin is which learns nothing from it.
