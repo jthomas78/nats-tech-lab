@@ -859,19 +859,55 @@ been added by this planning change; every matrix row is a requirement for implem
       contributors that are themselves withdrawn. Shell 453/453, Admin 335/335.
 
 ##### 5d — health worker, transport and UI (BR-AS60–65; BR-AS45 extension)
-- [ ] Write deterministic fake-clock domain specs for 5-second cadence, 2-second timeout, 2 failures, 1-success recovery, independent signals and 15-second freshness.
-- [ ] Write real adapter/transport specs for frontend response contracts, mapped HTTP bounds, backend readiness/dependency aggregation, narrow NATS grants and shutdown cancellation.
-- [ ] Add deployment-owned backend mappings, frontend `/healthz` configs and registry probe adapters; keep observations separate from drift and curation.
-- [ ] Write snapshot/hint/catch-up/reconnect and UI specs, including stale snapshots, absent/empty config and malformed telemetry.
-- [ ] Render separate frontend/backend health in shell navigation and Plugins inventory with last-check time and safe failure codes; preserve content and existing loading-error display.
+- [x] Write deterministic fake-clock domain specs for 5-second cadence, 2-second timeout, 2 failures, 1-success recovery, independent signals and 15-second freshness.
+      Done 2026-09-01 in `registry/health_worker_test.go`. Every decision takes a `now` a spec supplies
+      (BR-AS63), and ageing happens at READ time in `Snapshot(now)` rather than on a timer — so a
+      reading stops claiming to be current without anything waking up, and there is no interval to
+      leak. `unknown` and `stale` stay different words: "we never looked" and "this was true once"
+      call for different operator responses.
+- [x] Write real adapter/transport specs for frontend response contracts, mapped HTTP bounds, backend readiness/dependency aggregation, narrow NATS grants and shutdown cancellation.
+      Done 2026-09-01 in `registry/health_frontend_test.go`, `registry/health_backend_test.go`,
+      `registry/health_transport_test.go` and `shared/natsready/natsready_test.go`. Presence is not
+      readiness (BR-AS62): the readiness responder runs the real check on every ask with a deadline
+      and caches nothing, because a service holds its NATS connection open while its database is
+      gone. Causes are a closed one-word vocabulary — hosts, ports and messages never leave the
+      process.
+- [x] Add deployment-owned backend mappings, frontend `/healthz` configs and registry probe adapters; keep observations separate from drift and curation.
+      Done 2026-09-01. `REGISTRY_HEALTH_ORIGINS` and `REGISTRY_HEALTH_TARGETS` are deployment
+      configuration read separately from the fetch mappings, so an operator may watch availability
+      without granting a manifest fetch, and no publisher can point the registry at a service it
+      does not own. Five plugin nginx images gained `/healthz` (no-store, deliberately no CORS
+      header). `shared/natsready` is a new module mounted by `refdata-service`; the registry's
+      publish grant is one token wide, not `>`. **The stack needs `docker compose down -v` before
+      health works in Docker** — the grant changed.
+- [x] Write snapshot/hint/catch-up/reconnect and UI specs, including stale snapshots, absent/empty config and malformed telemetry.
+      Done 2026-09-01 in `registry/health_hint_test.go` (application layer, spec-owned clock via the
+      exported `Step(ctx, now)`), `healthPlane.spec.js` (18) and `healthText.spec.js` (9). A hint
+      carries nothing to install and is sent only when the SERVED snapshot moved — a hint every five
+      seconds would train every shell to ignore the one that mattered.
+- [x] Render separate frontend/backend health in shell navigation and Plugins inventory with last-check time and safe failure codes; preserve content and existing loading-error display.
+      Done 2026-09-01. Two columns, not one verdict (BR-AS60): a plugin whose UI is served while its
+      API is down is exactly the case an operator needs. `unavailable` is a warning, not a failure —
+      the plugin has not failed, something it depends on is not answering. In the navigation the
+      load-status dot wins and the health dot is `v-else-if`, because two marks in one corner of the
+      eye compete rather than inform. The existing asset loading error still shows on a healthy
+      origin: health says the origin is serving, never that the code works.
 
 ##### 5e — evidence, rules and docs
 - [x] Record 14 approved decisions, uniquely numbered rules and planned coverage matrix (2026-08-31).
 - [x] Document intended lifecycle/health architecture with explicit unimplemented status.
-- [ ] Implement every planned rule spec before its code; record actual spec locations/results in the canonical table only after they exist.
-- [ ] Run affected Ginkgo suites with their real dependencies and zero skipped Phase 5 specs; run shell/Admin Vitest and builds. Preserve Phase 4, 7 and 8 regression coverage.
+- [x] Implement every planned rule spec before its code; record actual spec locations/results in the canonical table only after they exist.
+      Done 2026-09-01. Every BR-AS52–65 row in `BUSINESS_RULES-APP-SHELL.md` now names specs that
+      exist and pass; the matrix heading no longer says PLANNED.
+- [x] Run affected Ginkgo suites with their real dependencies and zero skipped Phase 5 specs; run shell/Admin Vitest and builds. Preserve Phase 4, 7 and 8 regression coverage.
+      Done 2026-09-01: registry **358/358, 0 Skipped** (real Postgres, in-process broker);
+      `shared/natsready` 6/6; lab-shell Vitest **480/480** plus clean `npm run build` and eslint;
+      Admin Vitest **335/335**; `docker compose config -q` clean.
 - [ ] Verify at 1920×1080: loaded service stop leaves content/nav, health changes; restart recovers; static disable offers reload; dynamic disable/unregister withdraws; occupied route tombstones; unchanged return restores; telemetry loss becomes stale.
-- [ ] Update as-built architecture and narrative findings with evidence, limitations and actual test totals; mark complete only after these checks pass.
+- [x] Update as-built architecture and narrative findings with evidence, limitations and actual test totals; mark complete only after these checks pass.
+      Done 2026-09-01 in `ARCHITECTURE-APP-SHELL.md` and `BUSINESS_RULES-APP-SHELL.md`, with the
+      limitation stated rather than smoothed over: the live 1920×1080 walkthrough is the one
+      remaining box and no unit spec observes it.
 
 ---
 

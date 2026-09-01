@@ -249,13 +249,20 @@ does not download or execute its implementation.
 
 ---
 
-## Phase 5 — approved design, implementation pending (2026-08-31)
+## Phase 5 — as built (2026-09-01)
 
-The user approved 14 lifecycle/health decisions and documentation work only. The implementation
-backlog is Phase 5a–5e in the application-shell plan; canonical rules **BR-AS52–65** and their
-planned test matrix live in `demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md`. Backend lifecycle
-storage already exists from Phase 8. Shell class handling, Admin class editing, signed unregister,
-contribution withdrawal and operational health remain unimplemented.
+Designed 2026-08-31 (14 approved decisions), built 5a–5e over 2026-09-01. Canonical rules
+**BR-AS52–65** and the now-implemented test matrix live in
+`demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md`. Totals: registry Ginkgo **358/358, 0 Skipped**;
+`shared/natsready` 6/6; lab-shell Vitest **480/480**; Admin Vitest **335/335**.
+
+**One limitation, stated plainly:** the live 1920×1080 walkthrough — stop a service and watch the
+signal move, restart and watch it recover, lose telemetry and watch it go stale — is not covered by
+any unit spec and has not been run. The NATS grant changed, so the stack needs
+`docker compose down -v && docker compose up --build` before health works in Docker.
+
+The sections below describe what the code does. Where a promise is deliberately NOT made — resource
+disposal, callback cancellation, component state surviving a withdrawal — it is called out.
 
 ### Lifecycle and authority
 
@@ -328,9 +335,33 @@ close delivery gaps; bounded workers run off request paths and cancel/join at sh
 
 Frontend/backend status appears separately in navigation and the Plugins inventory. Health never
 removes, reorders, disables or reloads content. Failures stay inline with safe codes and no unsolicited
-modal, independently of existing loader errors. Observations do not change catalogue revision, audit,
-signed bytes, approval, reload offers or drift results. None of these operational health indicators
-should be claimed as present until the Phase 5 specs and UI verification pass.
+modal, independently of existing loader errors.
+
+**As built.** Health is its own subject (`api._platform.registry.frontend-plugins.health.v1`) with
+its own hint (`notify._platform.registry.frontend-plugins.health`) and its own reply shape, carrying
+no revision, no entries and no signed bytes — the checker holds a read-only `Curated` interface, so
+the code that would move a revision or write an audit row is not reachable from a probe. A second
+subject rather than more fields on the catalogue read, because the catalogue is signed manifests
+that change on curation and health changes every few seconds; folding them would make a shell
+re-read the whole signed catalogue on a five-second timer.
+
+Ageing happens at READ time on both sides — `worker.Snapshot(now)` in Go, `signalsFor(id)` in the
+browser — so a stale reading stops claiming to be current with nothing awake, and there is no
+interval to leak. The browser restates `HEALTH_FRESHNESS_MS = 15_000` locally, so a registry cannot
+make a browser trust a reading for longer. A cause is one short lowercase word from a closed
+vocabulary (`^[a-z][a-z0-9-]{0,31}$` in the browser); hosts, ports and messages never leave the
+process.
+
+A hint is sent at most once per pass and only when the SERVED snapshot moved — two failures below
+the threshold are the same news as none, and a hint every five seconds would train every shell to
+ignore the one that mattered. `unavailable` renders as a warning, not a failure: the plugin has not
+failed, something it depends on is not answering, and it may answer again in five seconds. In the
+navigation the load-status dot wins and the health dot is `v-else-if`, because two marks in one
+corner of the eye compete rather than inform.
+
+Readiness lives in `shared/natsready`, mounted today by `refdata-service` against `db.PingContext`:
+every ask runs the real check with a 2-second deadline and nothing is cached, because a service
+holds its NATS connection open while its database is gone.
 
 ---
 
