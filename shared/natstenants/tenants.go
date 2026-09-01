@@ -75,6 +75,33 @@ import (
 // copy of the same list to inevitably need the same fix again.
 var NonTenantCredsFiles = map[string]bool{"platform": true, "shipping-admin": true, "sys": true, "observability": true, "mfe-registry-service": true}
 
+// NonTenantCredsSuffixes are stem suffixes (checked case-insensitively) that
+// mark a whole family of service credentials as never-a-tenant, so a family
+// that grows does not have to grow NonTenantCredsFiles with it.
+//
+// "-announcer" is the per-plugin micro-frontend publisher sidecar (Phase 13c
+// of the app-shell plan): one restricted PLATFORM credential per fixture,
+// five today and one more per plugin added later. Without this every
+// natstenants-based service opened a bogus tenant connection per announcer
+// on the announcer's own grants — exactly the failure BR-D40 describes,
+// arriving five at a time instead of one.
+var NonTenantCredsSuffixes = []string{"-announcer"}
+
+// isNonTenant reports whether a creds stem names a service credential rather
+// than a tenant.
+func isNonTenant(stem string) bool {
+	lower := strings.ToLower(stem)
+	if NonTenantCredsFiles[lower] {
+		return true
+	}
+	for _, suffix := range NonTenantCredsSuffixes {
+		if strings.HasSuffix(lower, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
 // Credentials is one discovered tenant's creds file path.
 type Credentials struct {
 	CredsPath string
@@ -95,7 +122,7 @@ func Discover(credsDir string) (map[string]Credentials, error) {
 			continue
 		}
 		name := strings.TrimSuffix(e.Name(), ".creds")
-		if NonTenantCredsFiles[strings.ToLower(name)] {
+		if isNonTenant(name) {
 			continue
 		}
 		out[name] = Credentials{CredsPath: filepath.Join(credsDir, e.Name())}

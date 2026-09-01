@@ -687,9 +687,15 @@ during implementation; neither is complete without it.
 - [x] **13b** (built 2026-09-01) — a resident `cmd/announce-plugin` on 13a: announce at start,
       signed unregister on `SIGTERM`, release-counter persistence and recovery
       per decisions 3 and 5.
-- [ ] **13c** — bootstrap: five publisher signing keypairs and five holder-named
+- [x] **13c** (built 2026-09-01) — bootstrap: five publisher signing keypairs and five holder-named
       NATS credentials granting `announce.v1` and `unregister.v1` by full
-      subject; `--force` reseed path documented.
+      subject; `--force` reseed path documented. The reseed exposed a latent
+      gap rather than causing one: `shared/natstenants.Discover` treats every
+      unlisted `.creds` stem in the shared directory as a tenant, so the five
+      new `*-announcer.creds` files became five bogus tenant connections in
+      every `natstenants`-based service (BR-D40's documented failure mode,
+      arriving five at a time). Closed by `NonTenantCredsSuffixes`
+      (`-announcer`), with a spec, rather than by five more map entries.
 - [ ] **13d** — convergent, boot-ordered trust seeding through the existing
       curated write path.
 - [ ] **13e** — five announcer sidecars, the `example-plugin-unreachable`

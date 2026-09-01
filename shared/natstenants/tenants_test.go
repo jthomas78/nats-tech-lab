@@ -149,6 +149,35 @@ func TestDiscoverExcludesNonTenantCredsFiles(t *testing.T) {
 	}
 }
 
+func TestDiscoverExcludesAnnouncerCredsFiles(t *testing.T) {
+	dir := t.TempDir()
+	names := []string{
+		"example-plugin-announcer",
+		"example-plugin-slow-announcer",
+		"example-plugin-unreachable-announcer",
+		"example-plugin-activate-throws-announcer",
+		"example-plugin-incompatible-announcer",
+		"Acme-Announcer",
+		"acme",
+	}
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(dir, name+".creds"), []byte("x"), 0o600); err != nil {
+			t.Fatalf("write %s.creds: %v", name, err)
+		}
+	}
+
+	found, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if len(found) != 1 {
+		t.Fatalf("Discover found %d tenants, want 1 (acme only): %v", len(found), found)
+	}
+	if _, ok := found["acme"]; !ok {
+		t.Fatalf("Discover did not find acme: %v", found)
+	}
+}
+
 func TestDiscoverIsCaseInsensitiveForExclusions(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "Platform.creds"), []byte("x"), 0o600); err != nil {

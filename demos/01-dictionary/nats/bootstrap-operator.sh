@@ -32,6 +32,19 @@
 #                                 a `docker compose down -v`, instead of being
 #                                 handed a fresh random key on each wiped boot.
 #                                 Same secrets-manager caveat as above.
+#   nats/keys/publisher-*.nk      one Ed25519 signing seed per plugin publisher
+#                                 (Phase 13c). Minted outside the nsc trust
+#                                 chain and never added to an account, so a
+#                                 leak cannot connect to NATS as anything. Real
+#                                 deployments keep these in a secrets manager
+#                                 and mount them read-only at runtime — never
+#                                 in an image layer.
+#   nats/keys/publishers.json     the PUBLIC half of each signing key, for
+#                                 Phase 13d's trust seeding to read. No seeds.
+#   nats/creds/*-announcer.creds  one transport credential per announcer,
+#                                 publish-only on the two registry publisher
+#                                 subjects. A different thing from the signing
+#                                 seed above (design decision 8).
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -501,6 +514,65 @@ nsc edit user --account PLATFORM --name mfe-registry-service \
   --allow-pub '$SRV.>,_INBOX.>,notify._platform.registry.frontend-plugins.changed,notify._platform.registry.frontend-plugins.health,rpc._platform.health.*.ready.v1,$JS.API.INFO,$JS.API.STREAM.CREATE.KV_mfe-registry,$JS.API.STREAM.UPDATE.KV_mfe-registry,$JS.API.STREAM.INFO.KV_mfe-registry,$JS.API.DIRECT.GET.KV_mfe-registry.>,$KV.mfe-registry.>,obs.trace._platform.registry.>' \
   --allow-sub 'api._platform.registry.>,rpc._platform.registry.entries.announce.v1,rpc._platform.registry.entries.unregister.v1,$SRV.>,_INBOX.>' >/dev/null
 nsc generate creds --account PLATFORM --name mfe-registry-service >"$NATS_DIR/creds/mfe-registry-service.creds"
+
+echo "==> plugin announcer signing keypairs + creds (Phase 13c)"
+# Two different things, deliberately kept apart (design decision 8).
+#
+# 1. A SIGNING keypair per publisher, minted with `nsc generate nkey --user`
+#    and then never added to any account. It is an Ed25519 keypair in NKey
+#    encoding and nothing else: NKeyVerifier checks announcements against the
+#    public half, and the trust table an operator curates is the only thing
+#    that says which publisher a key belongs to. Minted outside the nsc trust
+#    chain on purpose (Phase 7 gate answer 2) — a leaked signing key can sign
+#    announcements the registry will refuse for lack of trust, but it cannot
+#    connect to NATS as anything at all.
+#
+# 2. A NATS TRANSPORT credential per announcer, named for its holder exactly
+#    as that process's nats.Name(). Five of them rather than one shared: the
+#    reason there are five sidecars is per-publisher isolation and connection
+#    attribution, and one shared credential would give that away in the
+#    Connections panel.
+#
+# The grant is publish on exactly the two subjects, named in full — never
+# rpc._platform.registry.entries.>, for the same reason the registry's own
+# grant above names them: unregister is the one message that takes running
+# code off an operator's screen. _INBOX.> is the reply the request needs and
+# nothing more. There is no subscribe grant beyond that inbox: an announcer
+# speaks, it does not listen, and it has no business reading api._platform.>
+# or anyone else's rpc.
+#
+# publishers.json is the public half of each keypair, for Phase 13d's trust
+# seeding to read. Public keys only — the seeds stay in keys/.
+: >"$NATS_DIR/keys/publishers.json.tmp"
+for plugin in example-plugin example-plugin-slow example-plugin-unreachable \
+              example-plugin-activate-throws example-plugin-incompatible; do
+  holder="$plugin-announcer"
+
+  nsc generate nkey --user 2>/dev/null | head -2 >"$NATS_DIR/keys/publisher-$plugin.tmp"
+  seed="$(sed -n '1p' "$NATS_DIR/keys/publisher-$plugin.tmp")"
+  pubkey="$(sed -n '2p' "$NATS_DIR/keys/publisher-$plugin.tmp")"
+  rm -f "$NATS_DIR/keys/publisher-$plugin.tmp"
+  if [[ -z "$seed" || -z "$pubkey" ]]; then
+    echo "error: could not mint a signing keypair for $plugin" >&2
+    exit 1
+  fi
+  printf '%s\n' "$seed" >"$NATS_DIR/keys/publisher-$plugin.nk"
+  chmod 600 "$NATS_DIR/keys/publisher-$plugin.nk"
+  printf '  {"publisher": "%s", "plugin": "%s", "signingKey": "%s"},\n' \
+    "$plugin" "$plugin" "$pubkey" >>"$NATS_DIR/keys/publishers.json.tmp"
+
+  nsc add user --account PLATFORM "$holder" >/dev/null
+  nsc edit user --account PLATFORM --name "$holder" \
+    --allow-pub '_INBOX.>,rpc._platform.registry.entries.announce.v1,rpc._platform.registry.entries.unregister.v1' \
+    --allow-sub '_INBOX.>' >/dev/null
+  nsc generate creds --account PLATFORM --name "$holder" >"$NATS_DIR/creds/$holder.creds"
+done
+{
+  echo "["
+  sed '$ s/,$//' "$NATS_DIR/keys/publishers.json.tmp"
+  echo "]"
+} >"$NATS_DIR/keys/publishers.json"
+rm -f "$NATS_DIR/keys/publishers.json.tmp"
 
 echo "==> SYS account user creds (accounts-service, Phase 14b)"
 nsc generate creds --account SYS --name sys >"$NATS_DIR/creds/sys.creds"
