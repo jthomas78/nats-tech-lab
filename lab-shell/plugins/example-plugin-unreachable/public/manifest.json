@@ -1,0 +1,32 @@
+{
+  "id": "example-plugin-unreachable",
+  "name": "Example Plugin (unreachable remote)",
+  "version": "0.1.1",
+  "description": "Task 1b-4 (b): a curated remote whose chunk 404s. The plugin goes failed; nothing else moves.",
+  "schemaVersion": 1,
+  "shellApiVersion": 1,
+  "routePrefix": "example-gone",
+  "remote": {
+    "kind": "federated",
+    "url": "http://localhost:7111/no-such-remoteEntry.js",
+    "name": "example_plugin_missing",
+    "module": "plugin"
+  },
+  "contributions": [
+    {
+      "kind": "route",
+      "id": "overview",
+      "path": "/example-gone",
+      "title": "Unreachable remote",
+      "component": "overview"
+    },
+    {
+      "kind": "navigation",
+      "id": "overview-nav",
+      "label": "Unreachable remote",
+      "route": "overview",
+      "icon": "pi pi-times-circle",
+      "order": 30
+    }
+  ]
+}

@@ -6,9 +6,17 @@ import { bootShell } from '../bootShell.js'
 import { createPluginLoader } from '../loader/pluginLoader.js'
 
 const root = resolve(import.meta.dirname, '../../..')
-const fixture = JSON.parse(readFileSync(resolve(root, '../demos/01-dictionary/registry.json'), 'utf8'))
+const preload = JSON.parse(readFileSync(resolve(root, '../demos/01-dictionary/registry.json'), 'utf8'))
 const packages = ['example-plugin', 'example-plugin-slow', 'example-plugin-activate-throws', 'example-plugin-incompatible']
 const read = (name, path) => readFileSync(resolve(root, 'plugins', name, path), 'utf8')
+/* 13e moved the five examples out of the preload file and behind publisher
+   sidecars, so each plugin's own `public/manifest.json` is now the only place
+   its entry lives. That is the file its sidecar signs and announces, which
+   makes it the right thing for these specs to load the shell from — the same
+   bytes the running lab admits, not a second copy of them. */
+const manifest = (name) => JSON.parse(read(name, 'public/manifest.json'))
+const entryOf = (name) =>
+  name === 'demo-catalog' ? preload.plugins.find((p) => p.id === name) : manifest(name)
 const modules = {
   'example-plugin': () => import('../../../plugins/example-plugin/src/plugin.js'),
   'example-plugin-slow': () => import('../../../plugins/example-plugin-slow/src/plugin.js'),
@@ -19,7 +27,7 @@ const modules = {
 // Real entry modules, with only HTTP replaced: failures cross the same loader
 // and status boundary while remaining independent of Docker being available.
 async function loadServices(stopped) {
-  const entries = fixture.plugins.filter((p) => p.id.startsWith('example-plugin'))
+  const entries = [...packages, 'example-plugin-unreachable'].map(manifest)
   const shell = await bootShell({
     registryClient: { fetchRegistry: async () => ({ ok: true, revision: '1', plugins: entries }) },
     permissions: { can: () => true },
@@ -44,9 +52,9 @@ const expected = {
 
 describe('BR-AS03 / decisions 87, 93–95 — independently built plugin services', () => {
   it.each([...packages, 'demo-catalog'])('%s serves its own manifest and owns its build inputs', (name) => {
-    const entry = fixture.plugins.find((p) => p.id === name)
-    const { enabled: _enabled, ...manifest } = entry
-    expect(JSON.parse(read(name, 'public/manifest.json'))).toEqual(manifest)
+    const entry = entryOf(name)
+    const { enabled: _enabled, ...expected } = entry
+    expect(manifest(name)).toEqual(expected)
     const preview = JSON.parse(read(name, 'package.json')).scripts.preview
     const port = preview.match(/--port (\d+)/)?.[1]
     if (port) expect(port).toBe(new URL(entry.remote.url).port)

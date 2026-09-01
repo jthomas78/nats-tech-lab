@@ -1162,13 +1162,13 @@ setting exists. Successful
 observations retain `announcedAt`/`lastAnnouncedAt`; no TTL is installed. Ignored
 static announcements record their time and cause in the audit only.
 
-## Phase 13 — confirmed requirements, not yet implemented
+## Phase 13 — announced plugins, publisher trust and release counters
 
 Confirmed by the user 2026-09-01 at the Phase 13 design gate
 (`.claude/plans/Application-Shell-Microfrontend-Plan.md`). **BR-AS66, BR-AS67
 and BR-AS68 are new unique IDs.** Each requires executable coverage during
-Phase 13 implementation; none is complete until it has one. BR-AS67 and
-BR-AS68 have theirs (13b and 13d); BR-AS66 is still owed. The two clarifications
+Phase 13 implementation; none is complete until it has one. All three now have
+theirs (13b, 13d and 13e). The two clarifications
 below add no new ID — they record a decision *not* to grow an existing rule.
 
 - **BR-AS66 — A fresh lab serves only its preloaded plugin.** On first boot
@@ -1179,6 +1179,16 @@ below add no new ID — they record a decision *not* to grow an existing rule.
   Postgres keeps that decision across restarts, and an equal-release
   re-announcement is a no-op that must not disable it again. **The lab-shell
   intro copy must state this**, or a correct first run reads as a broken one.
+  - **Test:** `lab-shell/src/shell/registry/preloadFixture.spec.js` — the
+    preload document curates `demo-catalog` and nothing else, and no announced
+    id leaks back into it. The check is on the fixture rather than on a booted
+    stack because the failure it guards is an editing failure: BR-AS39 already
+    has the runtime half (an unknown id lands pending, never enabled), and
+    nothing else notices when a plugin is quietly re-added to the file that
+    bypasses it. Same file also holds 13e's wiring checks — every announced
+    plugin has exactly one publisher, one sidecar, and a release volume outside
+    the container, since a sidecar mounting another plugin's seed or manifest
+    is silent until a signature fails.
 - **BR-AS67 — A publisher owns its release counter, and it only goes up.** Each
   plugin has one release sequence, shared by announce and unregister, held
   inside the signed bytes (BR-AS47) and persisted by the *publisher*, never

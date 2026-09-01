@@ -532,6 +532,12 @@ shutdown, never with failure detection.
    sidecar. Either it gets an announcer-only container, or it is announced by
    the `example-plugin` sidecar, which contradicts decision 4's one-publisher-
    per-plugin premise.
+
+   **Resolved 2026-09-01 (13e):** announcer-only container. It keeps its own
+   publisher, and its manifest lives at
+   `lab-shell/plugins/example-plugin-unreachable/public/manifest.json` — under
+   `public/` like every other plugin's, even though nothing serves it there, so
+   the five sidecar mounts are identical.
 5. **The announcer is a resident process, not a one-shot.** It announces at
    start, stays connected for the container's life, and on `SIGTERM` publishes
    a signed unregister before exiting — the controlled-shutdown case BR-AS54
@@ -701,10 +707,31 @@ during implementation; neither is complete without it.
       applies only the missing ops and leaves revoked/retired keys and operator
       transfers alone (BR-AS68), run as the `registry-publisher-seed` one-shot
       that 13e's sidecars gate on.
-- [ ] **13e** — five announcer sidecars, the `example-plugin-unreachable`
-      asymmetry resolved, a writable release-state volume and a real
-      `stop_grace_period` per sidecar; `registry.json` reduced to
-      `demo-catalog`. No `release` field is added to any manifest (D11).
+- [x] **13e** (built 2026-09-01) — five announcer sidecars, each running the shared
+      `announce-plugin` binary from the registry image with only its mounts
+      differing: the plugin's own `public/manifest.json` (which already existed
+      and already matched the registry row — no new manifest files were
+      invented), its signing seed and its `-announcer` credential, all
+      read-only. Release counters live in a named volume per plugin, and
+      `stop_grace_period: 30s` leaves the 5s unregister round trip real margin.
+      The `example-plugin-unreachable` asymmetry is resolved as an
+      **announcer-only container**: no web server, no code, just the sidecar and
+      a manifest naming a dead path on 7111 — keeping decision 4's
+      one-publisher-per-plugin premise and using the keypair and credential 13c
+      already minted for it. `registry.json` is down to `demo-catalog`, which
+      gave BR-AS66 its coverage; the fixture specs that used to read the five
+      example entries out of it now read each plugin's own manifest, and gained
+      the 13e wiring checks. No `release` field was added to any manifest (D11).
+
+      Verified live after a scoped `DROP SCHEMA registry CASCADE` (user
+      approved; the registry database only). All five announce signed, land
+      `pending`, and sit `enabled=f, lifecycle=dynamic` beside an enabled
+      `static` unsigned `demo-catalog` — the tier split visible in one query. A
+      restart during the check also demonstrated BR-AS67's three numbers
+      unprompted: `3 inserted` → SIGTERM `4 withdrawn` → `5 pending`. Note that
+      `withdrawn` stays true through that return, which is BR-AS55 working as
+      written, not a defect — a disabled entry's return is not the operator's
+      approval to run it.
 - [ ] **13f** — a Compose-level acceptance sequence driving `AnnounceUpdated`,
       `AnnounceRequeued`, rotation, revocation and recovery, plus a live
       withdrawal (`docker compose stop`) and unchanged return (`start`) showing
