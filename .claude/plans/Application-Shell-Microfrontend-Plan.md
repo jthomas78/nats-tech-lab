@@ -732,11 +732,53 @@ during implementation; neither is complete without it.
       `withdrawn` stays true through that return, which is BR-AS55 working as
       written, not a defect — a disabled entry's return is not the operator's
       approval to run it.
-- [ ] **13f** — a Compose-level acceptance sequence driving `AnnounceUpdated`,
-      `AnnounceRequeued`, rotation, revocation and recovery, plus a live
-      withdrawal (`docker compose stop`) and unchanged return (`start`) showing
-      releases `N` / `N+1` / `N+2`. Without this the goal's claims are not
-      evidenced.
+- [x] **13f** (built 2026-09-01) — a Compose-level acceptance sequence, as
+      `cmd/registry-acceptance`. A command rather than a Ginkgo suite on
+      purpose: an env-gated spec that skips still prints `ok`, and this repo has
+      been bitten by that; a command exits non-zero and cannot silently skip.
+      It drives `docker compose` for the container lifecycle (which is the
+      point — a SIGTERM cannot be sent from inside the container being
+      stopped), talks the operator's own `api.*` subjects on an
+      `adminConnectInfo`-minted credential, and asserts on the curated
+      document. Its pure helpers (the origin rewrite, the origin comparison)
+      have unit tests; everything else is the live assertion.
+
+      Nine steps on `example-plugin` alone, with the other four sidecars as a
+      control group the last step proves never moved: announced-and-pending →
+      operator approval → `docker compose stop` (withdrawn, approval intact,
+      release `N+1`) → `start` (`updated`, withdrawal cleared, release `N+2`) →
+      key rotation (withdraw on the still-enabled key, add + retire, re-announce
+      from an override container mounting the new seed; the audit row names the
+      new key) → cross-origin move 7111 → 7113, both allowlisted (`requeued`) →
+      approval at the new origin → revocation, then recovery → the four
+      untouched plugins. Every wait tests the release counter as well as the
+      flag, because a flag can already hold the value being waited for and a
+      wait that returns on a state it did not cause is a green assertion about
+      nothing. Run from `demos/01-dictionary`:
+      `go run ./backend/mfe-registry-service/cmd/registry-acceptance` (add
+      `--reset` to drop and re-seed the registry schema first).
+
+      **Three assumptions the live run corrected, all of them the code being
+      stricter than expected:**
+      1. **A revocation clears the operator's approval**, in the same
+         transaction that withholds — `enabled = false, withheld = true`
+         together. Withdrawal and revocation are therefore not the same shape
+         of event: a withdrawal leaves approval alone (BR-AS55), a revocation
+         does not.
+      2. **A fresh, validly signed announcement cannot lift a withholding** —
+         only an operator enabling that entry does, because only that is
+         somebody looking at the entry rather than at the key. Re-enabling the
+         revoked key restores nothing either. This is the deliberate half of
+         BR-AS38 and the sequence now asserts all three parts of it.
+      3. **Both the `pending` and `requeued` branches preserve `withdrawn`**,
+         so a cross-origin move does not put a withdrawn plugin back on offer.
+         One operator decision answers approval and availability together.
+
+      Known trace: the rotation key is retired at the end, never deleted (there
+      is no delete op by design), so repeated runs stack retired keys in the
+      Publishers panel. `--reset` clears them. The `--reset` path itself has not
+      been exercised — every run so far started from the live lab, which the
+      sequence tolerates because each wait is release-relative.
 - [ ] **13g** — intro copy, `BUSINESS_RULES-APP-SHELL.md` and
       `ARCHITECTURE-APP-SHELL.md`, in the same commits as the code.
 

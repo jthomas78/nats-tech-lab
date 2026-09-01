@@ -1243,6 +1243,47 @@ below add no new ID — they record a decision *not* to grow an existing rule.
     instead of being retried; and the bounded read retry giving up rather than
     waiting forever.
 
+### Evidence — the publisher lifecycle end to end (13f)
+
+The rules above are each covered by their own specs. What no spec could show is
+that the deployed pieces meet: a bootstrap-minted credential, a seeded trust
+row, a sidecar holding its seed on a read-only mount, and a Compose `SIGTERM`.
+`backend/mfe-registry-service/cmd/registry-acceptance` drives the running lab
+through the whole lifecycle and asserts at each step. A command, not a spec: an
+env-gated spec that skips still prints `ok`, and this one either walks the
+sequence or exits non-zero. Run it from `demos/01-dictionary`:
+
+```
+go run ./backend/mfe-registry-service/cmd/registry-acceptance
+```
+
+It exercises BR-AS38, BR-AS42, BR-AS47, BR-AS54, BR-AS55 and BR-AS67 together
+on one plugin, with the other four announced plugins as a control group it
+proves never moved. Three statements it pins that are easy to read the wrong
+way round:
+
+- **A withdrawal and a revocation are not the same shape of event.** An
+  accepted unregister leaves the operator's approval alone (BR-AS55). A key
+  revocation clears it, in the same transaction that withholds the entry
+  (`enabled = false, withheld = true`) — because a withdrawal is the publisher
+  saying "not available" and a revocation is the platform saying "not this
+  code".
+- **A publisher cannot lift a withholding, however good its signature.**
+  Re-enabling the revoked key restores nothing, and neither does a fresh, valid
+  announcement: the entry comes back for review, still withheld. Only an
+  operator enabling *that entry* clears it, because only that is somebody
+  looking at the entry rather than at the key (BR-AS38).
+- **Neither `pending` nor `requeued` clears `withdrawn`.** A cross-origin move
+  does not put a withdrawn plugin back on offer, and a return is not an
+  approval. One operator decision answers approval and availability together
+  (BR-AS55).
+
+And the one rule the sequence exists to keep honest: the withdrawal it drives
+is a `docker compose stop` — a `SIGTERM`, so the sidecar sends an explicit
+signed unregister before exiting. **A crash, a failed health check, or a
+container disappearing withdraws nothing** (BR-AS54). Withdrawal is an action a
+publisher takes; it is never inferred from silence.
+
 ### Clarification — a seeded publisher key has no state of its own (BR-AS38)
 
 `KeyStates()` stays three: `enabled`, `retired`, `revoked`

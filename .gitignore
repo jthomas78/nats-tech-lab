@@ -12,3 +12,10 @@ demos/01-dictionary/nats/.nsc-store/
 # transcript — including credentials minted during the session — so a `git add
 # -A` publishing one into a public repo is a real leak, not just clutter.
 session-export-*.zip
+
+# registry-acceptance scratch (app-shell 13f). The harness generates a signing
+# seed here for its key-rotation step and mounts it into a sidecar, so it must
+# be a path the Docker daemon can see — hence inside the repo rather than
+# os.MkdirTemp. The command removes it on exit; ignored as a backstop, and
+# because a signing seed must never be committed.
+demos/01-dictionary/.acceptance/
