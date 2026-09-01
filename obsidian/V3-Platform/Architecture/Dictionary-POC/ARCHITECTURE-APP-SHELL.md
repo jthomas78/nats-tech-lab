@@ -213,6 +213,31 @@ imports no catalog code, names no plugin and has no `builtin` loader path.
 If discovery fails, native Home and Plugins render with the failure reason and
 zero plugins. A later failed read preserves already-discovered contributions.
 
+> **The announcement path end to end.**
+>
+> ![The announcement path from a publisher signing a manifest through the eight admission gates to a pending registry entry an operator must enable](images/registry-announce-flow.png)
+>
+> Two figures: the spine from a publisher's signed manifest to a stored
+> `announced` entry and the shell's next read, and the eight admission gates in
+> the fixed order `AdmitAnnouncement` applies them. Ownership is answered
+> before the signature, so a refusal cannot be used to enumerate registered
+> plugin ids. The closing section covers the five outcomes — `inserted`,
+> `pending`, `updated`, `requeued`, `ignored`.
+>
+> Nothing in the running stack exercises this path yet:
+> `bootstrap-operator.sh` grants `mfe-registry-service` *subscribe* on
+> `rpc._platform.registry.entries.announce.v1` and grants nobody *publish*, so
+> the tier lives only in Ginkgo specs. Phase 13 in
+> `.claude/plans/Application-Shell-Microfrontend-Plan.md` makes it runnable.
+>
+> Editable source: [registry-announce-flow.html](../../../../demos/01-dictionary/diagrams/registry-announce-flow.html)
+> — hand-authored inline SVG rather than a Draw.io workbook page, so
+> `./diagrams/export-png.sh` does **not** regenerate it. Re-export with
+> `node diagrams/export-html-png.mjs diagrams/registry-announce-flow.html \`
+> `  ../../obsidian/V3-Platform/Architecture/Dictionary-POC/images/registry-announce-flow.png 1024 --clip=".wrap"`
+> from `demos/01-dictionary/`. The 1024px width is the geometry the page was
+> reviewed at; changing it changes the layout.
+
 ### Focused contribution registries
 
 The shell maintains separate registries for routes, navigation, topbar controls, footer content,
