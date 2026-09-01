@@ -1895,3 +1895,408 @@ from hiding inside a change that also touches Go.
       BR-AS19). A plugin already `active` keeps rendering.
 
 ---
+
+## Phase 13 — Completed (archived 2026-09-01)
+
+### Phase 13 — APPROVED 2026-09-01 — Announce the `example-plugin*` Fixtures; Leave Only `demo-catalog` Preloaded
+
+> **Status: APPROVED 2026-09-01** — design gate passed at revision 3, after a
+> failed first review and four business rules confirmed by the user.
+> Implementation may start. Requested 2026-09-01.
+> Follows Phase 7 (publisher signing and the trust table) and Phase 8
+> (announcement, preload seeding and the pending tier), both archived
+> 2026-09-01 — this phase builds nothing new in the registry's rules, it makes
+> the ones already built runnable.
+>
+> **Revision 2 (2026-09-01)** after a design review found four P1 and four P2
+> defects in revision 1. All eight were verified against the code and all eight
+> were accepted. What changed: the release counter is now an owned, persisted
+> concern (D3); trust seeding is convergent and boot-ordered (D6); signing
+> keypairs and NATS credentials are separated (D8); the shared package is split
+> so `mferegistry` keeps its dependency-free promise (D1); the drift question
+> was withdrawn on a false premise and replaced with manifest provenance (D11);
+> the goal's claims were narrowed and an acceptance sub-phase added (13f).
+>
+> **Revision 3 (2026-09-01)** — the one open fork is resolved: the user chose
+> the **full lifecycle**, so Phase 13 carries signed unregister and a live
+> withdrawal-then-return, and the announcer becomes a resident process rather
+> than a one-shot (D5). See "Scope: full publisher lifecycle".
+
+#### Goal
+
+Move the five `example-plugin*` fixtures off the preload tier and onto the
+announcement tier, leaving `demo-catalog` as the only preloaded plugin.
+
+The point is not the fixtures. Phase 8 built the announcement path and Phase 7
+built the trust table, but **nothing in the running stack has ever announced,
+and no credential can**: `bootstrap-operator.sh:502` grants
+`mfe-registry-service` *subscribe* on the announce subject and grants nobody
+*publish*. So the whole tier exists only inside Ginkgo specs.
+
+**What first boot alone proves:** `AnnounceInserted` and `AnnouncePending`, and
+that an operator's enable puts an announced plugin on screen. **What it does
+not prove, and what 13f must drive deliberately:** `AnnounceUpdated`,
+`AnnounceRequeued`, key rotation, key revocation and recovery, publisher
+withdrawal, and unchanged return afterwards.
+
+#### What this is not
+
+**Not a conversion.** `SOURCE` is derived from the first accepted write's actor
+and is deliberately not stored or editable (Phase 8 decision 80, BR-AS43). A
+preloaded id cannot become an announced one; the ids are re-created from an
+empty store.
+
+#### Scope: full publisher lifecycle (resolved 2026-09-01)
+
+**Phase 13 demonstrates publisher withdrawal, not just operator disable.**
+Revision 1 was incoherent here — it moved the unregister DTOs and granted the
+unregister subject, but planned only `Sign`, `Announce` and a one-shot
+`cmd/announce-plugin`, which exits immediately and can never unregister
+anything. Resolved in favour of the full lifecycle, because the stated payoff
+of moving these fixtures to `dynamic` (D10) is a live unload, and narrowing to
+announce-only would prove little beyond what Phase 8's specs already prove.
+
+This adds to the phase:
+
+- a signed unregister command builder and an `Unregister` call in
+  `shared/mferegistry/client` (13a);
+- `.unregister.v1` in each announcer's NATS grant (D8);
+- a resident announcer rather than a one-shot (D5);
+- a live withdrawal-then-return scenario in 13f, which is the release
+  sequencing in D3 actually being exercised: `N` announce, `N+1` unregister,
+  `N+2` re-announce.
+
+**One rule is preserved and must be stated in the specs:** a crash,
+a failed health check, or a container disappearing **does not** authorize
+withdrawal. Unregister is an explicit signed action, associated with controlled
+shutdown, never with failure detection.
+
+#### Design decisions
+
+1. **The client half moves to a new `shared/mferegistry/client` subpackage —
+   NOT into `shared/mferegistry` itself.** `subjects.go:17` states the base
+   package's promise in as many words: *"Deliberately dependency-free: a
+   contract, not a client. Nothing here dials, encodes or knows what a registry
+   entry looks like."* Revision 1 would have broken that for every existing
+   importer by adding `nkeys` and `nats.go` to it. Split instead:
+
+   - `shared/mferegistry` — subjects, plus the dependency-free wire DTOs and
+     the five outcome constants. Still dials nothing.
+   - `shared/mferegistry/client` — NKey signing and NATS request/reply.
+
+   `internal/servicerpc` type-aliases the shared DTOs rather than declaring its
+   own, so server and client cannot drift.
+
+   There is no duplication to unwind today — there is no client at all — but
+   the wire types sit behind `internal/`, so the first publisher outside this
+   module would hand-redeclare the request struct, the response struct and the
+   outcome strings with no compiler link to the server.
+2. **The admission decisions do not move.** The eight gates, `DecideAnnounce`,
+   `DecideUnregister` and `NKeyVerifier` stay in the registry's domain. A
+   verifier in a shared package invites a caller to "pre-check" client-side and
+   then trust the answer, which is the precise failure the gates exist to
+   prevent.
+3. **The release counter is owned, persisted, and never derived from a
+   clock.** Revision 1 assumed a restart could safely re-announce the same
+   release as a harmless `NoOp`. That is true **only** for retrying the
+   currently accepted announcement. Announce and unregister share one
+   monotonic sequence per plugin: `AdmitUnregister` (`unregister.go:154`)
+   refuses an equal release unless the entry is already withdrawn, so a
+   withdrawal must spend `N+1`; re-announcing `N+1` afterwards then hits
+   `NoOp` at `verify.go:177` and **leaves the plugin withdrawn**. Phase 13
+   must decide and write down:
+
+   - who owns each plugin's counter and where it persists;
+   - how announce → unregister → unchanged re-announce obtains `N`, `N+1`,
+     `N+2`;
+   - whether an ordinary container restart is a retry of the current release
+     or a new availability action;
+   - how a publisher recovers after losing its local release state.
+4. **Per-plugin announcer sidecar, not one shared announcer.** Each fixture
+   gets its own announcer, publisher id and signing key. A single announcer
+   speaking for five plugins would be one publisher wearing five names, and the
+   two behaviours worth testing — rotation and revocation — are per-publisher:
+   revoking one key must withhold exactly one plugin (BR-AS38). A shared key
+   cannot show that.
+
+   **Note a fixture asymmetry to resolve in 13e:** `example-plugin-unreachable`
+   has **no plugin package and no container** — it exists only as a
+   `registry.json` row pointing at a dead path on port 7111. It has nothing to
+   sidecar. Either it gets an announcer-only container, or it is announced by
+   the `example-plugin` sidecar, which contradicts decision 4's one-publisher-
+   per-plugin premise.
+
+   **Resolved 2026-09-01 (13e):** announcer-only container. It keeps its own
+   publisher, and its manifest lives at
+   `lab-shell/plugins/example-plugin-unreachable/public/manifest.json` — under
+   `public/` like every other plugin's, even though nothing serves it there, so
+   the five sidecar mounts are identical.
+5. **The announcer is a resident process, not a one-shot.** It announces at
+   start, stays connected for the container's life, and on `SIGTERM` publishes
+   a signed unregister before exiting — the controlled-shutdown case BR-AS54
+   describes. It must:
+
+   - hold its release counter in a mounted writable volume, so `N` survives a
+     restart and `N+1`/`N+2` are reachable (D3);
+   - treat a failed unregister on shutdown as a logged warning, never a hang —
+     the container still exits, and the entry is then reconciled on next start;
+   - never unregister on a health-check failure or a crash. Only `SIGTERM`.
+
+   Compose must give it a real `stop_grace_period` so the unregister round trip
+   completes before the kill.
+6. **Trust seeding is convergent and boot-ordered, not a blind write.** "Write
+   each publisher with one enabled key" is not one operation. The API has four
+   separate revision-checked ops (`publisher.go:45–48`):
+   `publisher-upsert`, `publisher-add-key`, `publisher-set-key-state`,
+   `publisher-transfer` for plugin ownership. Each needs the latest trust-table
+   revision, and even a no-op write consumes a revision and an audit row. So
+   the seeder must **read, compare, and apply only what is missing**, and must
+   preserve operator decisions already made — retired and revoked keys,
+   and ownership transfers. Boot order is explicit and enforced:
+
+   ```
+   NATS + accounts + registry ready
+       -> trust seed completes successfully
+           -> announcer jobs start
+   ```
+
+   Without that ordering the one-shot announcers race the seed, get
+   `not-owned` or `key-not-trusted`, and exit.
+7. **The seeded trust rows are curated writes, not a new tier.** The seeder
+   uses the existing `api._platform.registry.publishers.write.v1` under the
+   shared operator identity — the same path the Registry Publishers panel uses.
+   No new write path, no boot-time bypass of the revision check or audit trail
+   (Phase 2 decision 75).
+8. **Signing keypairs and NATS credentials are different things, and revision
+   1 conflated them.** Separate the two axes:
+
+   - **Five publisher signing keypairs**, minted outside the nsc trust chain
+     (Phase 7 gate answer 2), so a leaked signing key cannot connect to NATS
+     as anything.
+   - **Five NATS transport credentials**, one per announcer. If per-publisher
+     isolation and connection attribution are the reason for five sidecars
+     (decision 4), one shared transport credential contradicts it — five
+     holder-named credentials are the coherent choice, and CLAUDE.md's
+     credential-naming rule already says a dedicated credential is named for
+     its holder.
+
+   Each grant covers exactly
+   `rpc._platform.registry.entries.announce.v1` (plus `.unregister.v1` if the
+   open fork resolves to full lifecycle), named in full, never as
+   `rpc._platform.registry.entries.>` — the same reasoning the registry's own
+   grant records at `bootstrap-operator.sh:491`.
+
+   Each container mounts only its own signing seed and its own creds,
+   read-only, at runtime. **Signing seeds must not enter image layers.**
+
+   **Adding NATS users means `down -v` is not enough.** The sequence is:
+
+   ```
+   ./nats/bootstrap-operator.sh --force
+   docker compose down -v
+   docker compose up --build
+   ```
+
+   `down -v` alone does not regenerate the PLATFORM JWT or the creds files.
+9. **Announced entries stay disabled on first boot.** BR-AS39 is not relaxed
+   and nothing auto-enables. **Scoped correctly this time:** this is a property
+   of a *fresh registry database*, not of every boot. Once an operator enables
+   the fixtures, Postgres keeps that decision across ordinary Compose restarts,
+   and equal-release re-announcements are no-ops that do not disable them
+   again. The acceptance rule is therefore:
+
+   > On first boot against an empty registry database, only `demo-catalog` is
+   > served, until an operator enables the five announced candidates.
+
+   The lab-shell intro copy must say so, or a first run reads as broken.
+10. **The five fixtures become `dynamic`, and that is the payoff.** Announce
+   forces `LifecycleDynamic` (`announce.go:70`). Withdrawal for those five goes
+   from a reload offer to a live unload — the sequence BR-AS52/AS54 describe,
+   which Phase 5 could only test against two constructed documents.
+   `demo-catalog` staying `static` keeps both classes represented live.
+11. **The announced bytes come from a build-owned artifact.** Revision 1 asked
+    whether drift would still pass. **That question was withdrawn: it had a
+    false premise.** Drift checking is preload-only by design —
+    `FetchOrigins.Target` returns `not-preloaded` for any other source
+    (`drift.go:156`), and the Admin UI shows drift only for preload rows. So
+    announced fixtures will neither stay `checked` nor go orange; the MANIFEST
+    column simply stops applying to them, and `demo-catalog` becomes the only
+    row it covers.
+
+    A manifest provenance decision is still needed, for a different reason: the
+    plugin's *content* must come from a build-owned artifact, not a
+    hand-maintained copy. Four fixtures already have
+    `lab-shell/plugins/<id>/public/manifest.json`; `example-plugin-unreachable`
+    has none (see decision 4).
+
+    **Amended 2026-09-01 after 13b was built.** Revision 2 said every manifest
+    needed an explicit positive `release` baked in at build time, since gate 5
+    refuses `release <= 0`. That is wrong, and 13b's implementation is right:
+    **the announcer injects the release into the manifest at runtime, just
+    before signing** (`cmd/announce-plugin/main.go`, `manifestAtRelease`). The
+    release is the *publisher's* state, not the build's (BR-AS67) — baking it
+    into an image would mean rebuilding a container every time a plugin
+    withdraws and returns, and would put one process's counter in an artifact
+    several things read. So:
+
+    - the build-owned `manifest.json` carries the plugin's content and **no**
+      `release` field;
+    - the announcer re-encodes it with the release it owns, and signs that;
+    - BR-AS37 is preserved because it signs and sends the same bytes — the
+      re-encode happens before signing, never between signing and publishing.
+
+    13e therefore does **not** add `release` fields to the fixture manifests.
+12. **`REGISTRY_HEALTH_TARGETS` and the origin maps stay configuration.**
+    Keyed by plugin id, deployment-owned regardless of tier (BR-AS61/AS62).
+    Nothing here moves them into the manifest.
+
+#### Business rules — CONFIRMED 2026-09-01
+
+All four candidates were put to the user and confirmed as recommended. Written
+into `demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md` § "Phase 13 — confirmed
+requirements, not yet implemented". Both new rules need executable coverage
+during implementation; neither is complete without it.
+
+- **BR-AS66 — A fresh lab serves only its preloaded plugin.** First boot against
+  an empty registry database serves `demo-catalog` alone; announced candidates
+  wait for an operator. A first-boot property only — an enable survives
+  restarts, and an equal-release re-announcement must not undo it. The intro
+  copy must say so.
+- **BR-AS67 — A publisher owns its release counter, and it only goes up.** One
+  sequence per plugin, shared by announce and unregister, persisted by the
+  publisher. Withdraw-then-return spends `N` / `N+1` / `N+2`. This is D3 and D5
+  stated as a rule.
+- **Clarification (BR-AS38) — a seeded key has no state of its own.**
+  `KeyStates()` stays `enabled` / `retired` / `revoked`. A bootstrap-seeded key
+  is an ordinary `enabled` key; its provenance is read from the audit trail,
+  the way an entry's `source` is. No fourth state.
+- **Clarification (BR-AS38) — key revocation is a documented demo step.**
+  Revoking one fixture's key withholds exactly that publisher's plugins.
+  Recovery is **not** `down -v`: re-enabling the key restores nothing until
+  each withheld entry is enabled individually
+  (`registry/revocation_test.go`). 13f drives this and 13g documents it.
+
+#### Sub-phases (shape only — not tasks until approved)
+
+- [x] **13a** (built 2026-09-01) — `shared/mferegistry` wire DTOs and outcome constants
+      (dependency-free), plus `shared/mferegistry/client` for signing and
+      request/reply — `Announce` and `Unregister`, each with its own signed
+      command builder. `internal/servicerpc` aliases them. Specs assert the
+      bytes signed are the bytes sent (BR-AS37).
+- [x] **13b** (built 2026-09-01) — a resident `cmd/announce-plugin` on 13a: announce at start,
+      signed unregister on `SIGTERM`, release-counter persistence and recovery
+      per decisions 3 and 5.
+- [x] **13c** (built 2026-09-01) — bootstrap: five publisher signing keypairs and five holder-named
+      NATS credentials granting `announce.v1` and `unregister.v1` by full
+      subject; `--force` reseed path documented. The reseed exposed a latent
+      gap rather than causing one: `shared/natstenants.Discover` treats every
+      unlisted `.creds` stem in the shared directory as a tenant, so the five
+      new `*-announcer.creds` files became five bogus tenant connections in
+      every `natstenants`-based service (BR-D40's documented failure mode,
+      arriving five at a time). Closed by `NonTenantCredsSuffixes`
+      (`-announcer`), with a spec, rather than by five more map entries.
+- [x] **13d** (built 2026-09-01) — convergent, boot-ordered trust seeding through the existing
+      curated write path: `cmd/seed-publishers` reads the publishers document,
+      applies only the missing ops and leaves revoked/retired keys and operator
+      transfers alone (BR-AS68), run as the `registry-publisher-seed` one-shot
+      that 13e's sidecars gate on.
+- [x] **13e** (built 2026-09-01) — five announcer sidecars, each running the shared
+      `announce-plugin` binary from the registry image with only its mounts
+      differing: the plugin's own `public/manifest.json` (which already existed
+      and already matched the registry row — no new manifest files were
+      invented), its signing seed and its `-announcer` credential, all
+      read-only. Release counters live in a named volume per plugin, and
+      `stop_grace_period: 30s` leaves the 5s unregister round trip real margin.
+      The `example-plugin-unreachable` asymmetry is resolved as an
+      **announcer-only container**: no web server, no code, just the sidecar and
+      a manifest naming a dead path on 7111 — keeping decision 4's
+      one-publisher-per-plugin premise and using the keypair and credential 13c
+      already minted for it. `registry.json` is down to `demo-catalog`, which
+      gave BR-AS66 its coverage; the fixture specs that used to read the five
+      example entries out of it now read each plugin's own manifest, and gained
+      the 13e wiring checks. No `release` field was added to any manifest (D11).
+
+      Verified live after a scoped `DROP SCHEMA registry CASCADE` (user
+      approved; the registry database only). All five announce signed, land
+      `pending`, and sit `enabled=f, lifecycle=dynamic` beside an enabled
+      `static` unsigned `demo-catalog` — the tier split visible in one query. A
+      restart during the check also demonstrated BR-AS67's three numbers
+      unprompted: `3 inserted` → SIGTERM `4 withdrawn` → `5 pending`. Note that
+      `withdrawn` stays true through that return, which is BR-AS55 working as
+      written, not a defect — a disabled entry's return is not the operator's
+      approval to run it.
+- [x] **13f** (built 2026-09-01) — a Compose-level acceptance sequence, as
+      `cmd/registry-acceptance`. A command rather than a Ginkgo suite on
+      purpose: an env-gated spec that skips still prints `ok`, and this repo has
+      been bitten by that; a command exits non-zero and cannot silently skip.
+      It drives `docker compose` for the container lifecycle (which is the
+      point — a SIGTERM cannot be sent from inside the container being
+      stopped), talks the operator's own `api.*` subjects on an
+      `adminConnectInfo`-minted credential, and asserts on the curated
+      document. Its pure helpers (the origin rewrite, the origin comparison)
+      have unit tests; everything else is the live assertion.
+
+      Nine steps on `example-plugin` alone, with the other four sidecars as a
+      control group the last step proves never moved: announced-and-pending →
+      operator approval → `docker compose stop` (withdrawn, approval intact,
+      release `N+1`) → `start` (`updated`, withdrawal cleared, release `N+2`) →
+      key rotation (withdraw on the still-enabled key, add + retire, re-announce
+      from an override container mounting the new seed; the audit row names the
+      new key) → cross-origin move 7111 → 7113, both allowlisted (`requeued`) →
+      approval at the new origin → revocation, then recovery → the four
+      untouched plugins. Every wait tests the release counter as well as the
+      flag, because a flag can already hold the value being waited for and a
+      wait that returns on a state it did not cause is a green assertion about
+      nothing. Run from `demos/01-dictionary`:
+      `go run ./backend/mfe-registry-service/cmd/registry-acceptance` (add
+      `--reset` to drop and re-seed the registry schema first).
+
+      **Three assumptions the live run corrected, all of them the code being
+      stricter than expected:**
+      1. **A revocation clears the operator's approval**, in the same
+         transaction that withholds — `enabled = false, withheld = true`
+         together. Withdrawal and revocation are therefore not the same shape
+         of event: a withdrawal leaves approval alone (BR-AS55), a revocation
+         does not.
+      2. **A fresh, validly signed announcement cannot lift a withholding** —
+         only an operator enabling that entry does, because only that is
+         somebody looking at the entry rather than at the key. Re-enabling the
+         revoked key restores nothing either. This is the deliberate half of
+         BR-AS38 and the sequence now asserts all three parts of it.
+      3. **Both the `pending` and `requeued` branches preserve `withdrawn`**,
+         so a cross-origin move does not put a withdrawn plugin back on offer.
+         One operator decision answers approval and availability together.
+
+      Known trace: the rotation key is retired at the end, never deleted (there
+      is no delete op by design), so repeated runs stack retired keys in the
+      Publishers panel. `--reset` clears them. The `--reset` path itself has not
+      been exercised — every run so far started from the live lab, which the
+      sequence tolerates because each wait is release-relative.
+- [x] **13g** (built 2026-09-01) — the documentation half, plus the one piece of
+      it that is really code. Decision 9 said the intro copy must state BR-AS66
+      or a correct first run reads as a broken one, so the copy is the rule's
+      surface and got a component and a spec rather than a paragraph in a
+      README: `shell/ui/FirstBootNote.vue`, rendered by both screens a fresh lab
+      lands on — Home's empty region and the plugin inventory —
+      with `FirstBootNote.spec.js` covering the four things it has to say and
+      the fact that both views actually render it (a component nothing renders
+      is copy that does not exist).
+
+      Compose's `com.nats-tech-lab.mfe.source` label still read `preload` on all
+      five frontends. It is documentation read by no code on the trust path
+      (decision 80), which is exactly why it drifted silently; the four example
+      frontends now read `announced` and `preloadFixture.spec.js` pins the tier
+      per service. lab-shell Vitest **518/518**, `npm run lint` clean.
+
+      `ARCHITECTURE-APP-SHELL.md` gained a "Phase 13 — the announced tier, as
+      built" section (the tier table, the four-link chain that must exist before
+      a plugin can announce, what moving tier changed, and 13f's evidence) and
+      lost four stale claims: that nothing exercises the announce path, that
+      `registry.json` wraps the example manifests, that Compose marks five
+      services `preload`, and — in the revocation section — the implication that
+      `withheld` moves without `enabled`. `BUSINESS_RULES-APP-SHELL.md` gained
+      BR-AS66's intro-copy test bullet and lost the stale "Phase 5 — approved
+      requirements, not yet implemented" heading over a matrix that says
+      implemented.
+
+---
