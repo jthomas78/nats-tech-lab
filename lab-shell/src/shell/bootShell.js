@@ -150,6 +150,21 @@ export async function bootShell({
       }))
   }
 
+  /* The withdrawal markers in a document, against what the shell is running
+     (BR-AS54). Read on the same terms as a tombstone: only the PRESENCE of a
+     marker is taken, never the absence of an entry, because a filtered,
+     degraded or failed read is also an absence. */
+  const withdrawalsIn = (entries = []) =>
+    (entries ?? [])
+      .filter((e) => e?.withdrawn === true && e?.withheld !== true)
+      .filter((e) => plugins.some((p) => p.id === e.id))
+      .map((e) => ({ id: e.id, name: plugins.find((p) => p.id === e.id)?.name ?? e.id }))
+
+  const applyWithdrawals = (changes) => {
+    for (const change of changes) contributions.withdraw(change.id, statuses)
+    return changes
+  }
+
   const applyRegistry = (discovery) => {
     if (!discovery?.ok) {
       /* Recorded, not thrown. The native shell frame remains usable, and the
@@ -160,7 +175,7 @@ export async function bootShell({
          honour, so the next one asks unconditionally rather than betting the
          recovery on a token from before the outage. */
       registry.etag = null
-      return { added: [], addedRoutes: [], reloadRequired: [] }
+      return { added: [], addedRoutes: [], reloadRequired: [], withdrawn: [], restored: [] }
     }
 
     registryError.value = null
@@ -195,7 +210,18 @@ export async function bootShell({
          healthy read must survive the outage. */
       const withheld = revocationsIn(discovery.plugins)
       raiseReload(withheld)
-      return { added: [], addedRoutes: [], reloadRequired: withheld }
+      /* A withdrawal is taken from a degraded document for the same reason a
+         tombstone is: the shell cannot trust a stale document to say what
+         exists, but it can trust it to say what was taken away, and away is
+         the safe direction to be wrong in. No RETURN is ever taken from one —
+         putting a plugin back needs a document the service vouched for. */
+      return {
+        added: [],
+        addedRoutes: [],
+        reloadRequired: withheld,
+        withdrawn: applyWithdrawals(withdrawalsIn(discovery.plugins)),
+        restored: [],
+      }
     }
 
     /* Kept beside the revision so the watcher can pick the conditional read
@@ -204,11 +230,17 @@ export async function bootShell({
     registry.etag = discovery.etag ?? registry.etag
     /* A 304 carries no document. Nothing to diff, nothing to place — and
        deliberately no clearing of what is already on screen. */
-    if (discovery.unchanged) return { added: [], addedRoutes: [], reloadRequired: [] }
+    if (discovery.unchanged) {
+      return { added: [], addedRoutes: [], reloadRequired: [], withdrawn: [], restored: [] }
+    }
 
     registry.revision = discovery.revision ?? null
 
-    const { added, reloadRequired } = diffRegistry(plugins, discovery.plugins)
+    const { added, reloadRequired, withdrawn, restored } = diffRegistry(
+      plugins,
+      discovery.plugins,
+      { isWithdrawn: (id) => contributions.isWithdrawn(id) },
+    )
     const before = new Set(contributions.routes.map((route) => route.qualifiedId))
     for (const manifest of added) admit(manifest)
     contributions.index(plugins, statuses)
@@ -226,8 +258,17 @@ export async function bootShell({
        plugin (decision 25 / BR-AS19). */
     syncPendingReload(reloadRequired)
 
+    /* Applied, not offered — the one catalogue change other than an addition
+       that a running shell may act on (BR-AS56). Taking UI away cannot leave
+       two versions of one plugin in one page, which is what every reload
+       offer above exists to prevent. */
+    applyWithdrawals(withdrawn)
+    for (const change of restored) contributions.restore(change.id, statuses)
+
     return {
       added,
+      withdrawn,
+      restored,
       /* Only the routes this read placed. The caller adds them to a router
          that already holds the rest, so handing back all of them would
          re-register every route on every change. */

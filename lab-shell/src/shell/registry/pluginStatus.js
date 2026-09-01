@@ -32,6 +32,10 @@ export const PLUGIN_STATUS = Object.freeze({
   /* Fetch failed, activate() threw, or a contribution threw while rendering
      (BR-AS04). Not terminal: a retry goes back through loading. */
   FAILED: 'failed',
+  /* The publisher said the plugin is gone (BR-AS54, BR-AS56). Its
+     contributions are off screen; its module, if any, is still in memory. Not
+     reached through the transition table below — see `withdraw()`. */
+  WITHDRAWN: 'withdrawn',
 })
 
 const TRANSITIONS = Object.freeze({
@@ -57,6 +61,11 @@ const TRANSITIONS = Object.freeze({
 })
 
 export function canTransition(from, to) {
+  /* Withdrawal is deliberately outside the table. It comes from the registry
+     rather than from the plugin's own progress, it can land on any placed
+     status, and the status it lands on is the one a return must go back to. A
+     table entry for it would have to be written into every row and would
+     still not carry the memory. */
   return (TRANSITIONS[from] ?? []).includes(to)
 }
 
@@ -75,9 +84,18 @@ export class PluginStatusRecord {
     this.reasonCode = null
     this.reason = null
     this.history = [PLUGIN_STATUS.DISCOVERED]
+    /* Where a withdrawal came from, so a return can go back to it. */
+    this.restoreTo = null
   }
 
   transition(to, { code = null, message = null } = {}) {
+    if (this.status === PLUGIN_STATUS.WITHDRAWN) {
+      /* The one status nothing may leave by the ordinary route. An import or
+         an activation that finishes after the withdrawal lands here, and
+         letting it through would put a plugin the publisher retracted back on
+         screen. Only `restore()` leaves. */
+      throw new Error(`Plugin ${this.id} is withdrawn and cannot transition to ${to}`)
+    }
     if (!canTransition(this.status, to)) {
       /* Thrown, not recorded: an illegal transition is a shell bug, not a
          plugin failure, and swallowing it would hide the bug behind the very
@@ -89,6 +107,34 @@ export class PluginStatusRecord {
     this.reason = message
     this.history.push(to)
     return this
+  }
+
+  /* The publisher retracted the plugin. Returns false when there was nothing
+     placed to take away — a disabled or incompatible plugin was never on
+     screen, and saying "withdrawn" about it would replace the reason the
+     Plugins screen needs to show. */
+  withdraw({ code = 'publisher-withdrawn', message = null } = {}) {
+    if (!this.isPlaced) return false
+    /* Remembered, not recomputed: a plugin withdrawn while active must come
+       back active, so that a return does not call activate() again
+       (BR-AS59). */
+    this.restoreTo = this.status
+    this.status = PLUGIN_STATUS.WITHDRAWN
+    this.reasonCode = code
+    this.reason = message
+    this.history.push(PLUGIN_STATUS.WITHDRAWN)
+    return true
+  }
+
+  /* Back to exactly where it was. */
+  restore() {
+    if (this.status !== PLUGIN_STATUS.WITHDRAWN) return false
+    this.status = this.restoreTo ?? PLUGIN_STATUS.AVAILABLE
+    this.restoreTo = null
+    this.reasonCode = null
+    this.reason = null
+    this.history.push(this.status)
+    return true
   }
 
   /* True once the shell has placed the plugin's contributions, whether or not

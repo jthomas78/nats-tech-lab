@@ -47,6 +47,12 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
      nav entry and its route. This is what makes index() incremental rather
      than idempotent-by-luck. */
   const indexedPluginIds = new Set()
+  /* The validated manifest of every plugin this registry has placed, kept so
+     a return can be re-placed from the same definition the shell is already
+     running (BR-AS59). A return whose definition differs never reaches here —
+     that is a reload, decided before the call. */
+  const placedPlugins = new Map()
+  const withdrawnPluginIds = reactive(new Set())
 
   const refuse = (contribution, code, message) => {
     refusals.push({
@@ -80,9 +86,12 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
     index(plugins, statuses = null) {
       for (const plugin of plugins) {
         /* Seen before — including one that was disabled or refused, whose
-           outcome was already recorded. A second pass must not re-record it. */
+           outcome was already recorded, and one that is withdrawn, whose
+           contributions must not come back through a re-index (BR-AS56). A
+           second pass must not re-record it. */
         if (indexedPluginIds.has(plugin.id)) continue
         indexedPluginIds.add(plugin.id)
+        placedPlugins.set(plugin.id, plugin)
 
         if (!plugin.enabled) {
           statuses?.get(plugin.id)?.transition(PLUGIN_STATUS.DISABLED, {
@@ -195,6 +204,72 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
       return this
     },
 
+    /*
+      The publisher said this plugin is gone (BR-AS54, BR-AS56).
+
+      Everything it contributed comes off screen; nothing else moves. The
+      manifest stays in `placedPlugins` and the id stays in
+      `indexedPluginIds`, which is what makes a later re-index — or an import
+      finishing late — unable to put it back. Its module is not touched: the
+      shell promises to stop showing a plugin, not to unload JavaScript.
+    */
+    withdraw(pluginId, statuses = null) {
+      if (!indexedPluginIds.has(pluginId)) return false
+      if (withdrawnPluginIds.has(pluginId)) return false
+      withdrawnPluginIds.add(pluginId)
+
+      const mine = (c) => c.pluginId === pluginId
+      dropFrom(routes, mine)
+      dropFrom(navigation, mine)
+      dropFrom(shellControls, mine)
+      dropFrom(footerItems, mine)
+      for (const [pointId, list] of extensions) {
+        extensions.set(pointId, list.filter((c) => !mine(c)))
+      }
+      /* Dropped, not kept: a return is a fresh placement decision, and a
+         refusal held over from before would be recorded twice and would
+         describe a placement nobody attempted this time. */
+      dropFrom(refusals, (r) => r.pluginId === pluginId)
+      for (const [qualifiedId, contribution] of byQualifiedId) {
+        if (mine(contribution)) byQualifiedId.delete(qualifiedId)
+      }
+
+      statuses?.get(pluginId)?.withdraw()
+      return true
+    },
+
+    /*
+      It came back, unchanged and authorized (BR-AS59). Placement runs again
+      from the same manifest rather than replaying the old decision, because
+      the session's claims may have changed while it was away — a contribution
+      the viewer may no longer see must not return. If nothing of it can be
+      placed, it stays withdrawn: a return that restores nothing is not a
+      return.
+    */
+    restore(pluginId, statuses = null) {
+      if (!withdrawnPluginIds.has(pluginId)) return false
+      const plugin = placedPlugins.get(pluginId)
+      if (!plugin) return false
+
+      withdrawnPluginIds.delete(pluginId)
+      indexedPluginIds.delete(pluginId)
+      /* Deliberately without `statuses`: the record is withdrawn, and the
+         status it goes back to is the one it left, not the `available` a
+         first indexing would assign. */
+      this.index([plugin])
+
+      if (!this.all.some((c) => c.pluginId === pluginId)) {
+        withdrawnPluginIds.add(pluginId)
+        return false
+      }
+      statuses?.get(pluginId)?.restore()
+      return true
+    },
+
+    isWithdrawn(pluginId) {
+      return withdrawnPluginIds.has(pluginId)
+    },
+
     get routes() {
       return [...routes]
     },
@@ -234,6 +309,14 @@ export function createContributionRegistry({ extensionPoints, permissions }) {
     get(qualifiedId) {
       return byQualifiedId.get(qualifiedId) ?? null
     },
+  }
+}
+
+/* In place, back to front: these arrays are reactive and readers hold the
+   containers, so a rebuilt array would silently stop updating the UI. */
+function dropFrom(list, matches) {
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    if (matches(list[i])) list.splice(i, 1)
   }
 }
 

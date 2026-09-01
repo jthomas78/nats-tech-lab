@@ -63,6 +63,16 @@ function isTombstone(manifest) {
   return manifest?.withheld === true
 }
 
+/* A withdrawal marker: the publisher's own retraction (BR-AS54), served in
+   place of the entry so a running shell can tell a withdrawal from an outage,
+   a filter or a failed read. Like a tombstone it is not a manifest and must
+   never be validated as one. Unlike a tombstone it is applied live rather
+   than offered — taking UI away is always safe, which is why it is the only
+   change other than an addition a running shell may act on. */
+function isWithdrawal(manifest) {
+  return manifest?.withdrawn === true && manifest?.withheld !== true
+}
+
 /**
  * @param {object[]} current validated manifests the shell is holding
  * @param {object[]} next raw manifests from the document just read
@@ -73,13 +83,23 @@ function isTombstone(manifest) {
  *   uses the validator the shell itself admits with, because a diff that
  *   normalized differently from `admit()` would disagree with the shell about
  *   what is on screen.
- * @returns {{added: object[], reloadRequired: {id: string, name: string, reason: string}[]}}
+ * @param {(id: string) => boolean} [options.isWithdrawn] whether the shell is
+ *   currently holding this plugin withdrawn. Injected because withdrawal is
+ *   the shell's state, not the manifest's: the same unchanged entry is
+ *   "nothing to do" for a running plugin and a return for a withdrawn one.
+ * @returns {{added: object[], reloadRequired: {id: string, name: string, reason: string}[], withdrawn: {id: string, name: string}[], restored: {id: string, name: string}[]}}
  */
-export function diffRegistry(current = [], next = [], { normalize = validated } = {}) {
+export function diffRegistry(
+  current = [],
+  next = [],
+  { normalize = validated, isWithdrawn = () => false } = {},
+) {
   const held = new Map(current.map((plugin) => [plugin.id, plugin]))
   const arrived = new Set()
   const added = []
   const reloadRequired = []
+  const withdrawn = []
+  const restored = []
 
   for (const manifest of next) {
     const id = typeof manifest?.id === 'string' ? manifest.id : null
@@ -111,6 +131,15 @@ export function diffRegistry(current = [], next = [], { normalize = validated } 
       continue
     }
 
+    /* Checked after the tombstone and before everything else. A marker for a
+       plugin the shell never held is news it does not need — dropped, not
+       added, because there is nothing to take away. */
+    if (isWithdrawal(manifest)) {
+      const running = held.get(id)
+      if (running) withdrawn.push({ id, name: nameOf(running) })
+      continue
+    }
+
     const before = held.get(id)
     if (!before) {
       /* The RAW manifest, deliberately: `admit()` validates it again and
@@ -135,6 +164,14 @@ export function diffRegistry(current = [], next = [], { normalize = validated } 
     }
     if (!deepEqual(before, after)) {
       reloadRequired.push({ id, name: nameOf(before), reason: RELOAD_REASON.CHANGED })
+      continue
+    }
+    /* Identical to what the shell is holding. For a running plugin that is
+       nothing to do; for a withdrawn one it is the return (BR-AS59), and the
+       equality just proved is exactly the condition that lets the cached
+       module be reused instead of re-activated. */
+    if (isWithdrawn(id)) {
+      restored.push({ id, name: nameOf(before) })
     }
   }
 
@@ -145,7 +182,7 @@ export function diffRegistry(current = [], next = [], { normalize = validated } 
     }
   }
 
-  return { added, reloadRequired }
+  return { added, reloadRequired, withdrawn, restored }
 }
 
 function validated(raw) {

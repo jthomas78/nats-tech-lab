@@ -48,6 +48,14 @@ export function createPluginLoader({ allowlist, adapters, statuses }) {
 
   const fail = (plugin, code, error) => {
     const record = statuses.get(plugin.id)
+    /* A load that fails after the plugin was withdrawn is news about code
+       nobody is showing. Recorded as the withdrawal's business, not as a
+       plugin failure the Plugins screen should explain. */
+    if (record?.status === PLUGIN_STATUS.WITHDRAWN) {
+      record.restoreTo = PLUGIN_STATUS.FAILED
+      inFlight.delete(plugin.id)
+      throw error
+    }
     record?.transition(PLUGIN_STATUS.FAILED, {
       code,
       message: error?.message ?? String(error),
@@ -79,6 +87,12 @@ export function createPluginLoader({ allowlist, adapters, statuses }) {
       if (inFlight.has(plugin.id)) return inFlight.get(plugin.id)
 
       const record = statuses.get(plugin.id)
+      if (record?.status === PLUGIN_STATUS.WITHDRAWN) {
+        /* Named separately from the generic refusal below because it is the
+           one a caller can hit through no fault of its own: a component may
+           ask for a plugin that was withdrawn a tick ago. */
+        throw new Error(`Plugin ${plugin.id} is withdrawn and cannot be loaded`)
+      }
       if (record && !canLoad(record.status)) {
         throw new Error(
           `Plugin ${plugin.id} cannot be loaded from status ${record.status}`,
@@ -130,6 +144,15 @@ export function createPluginLoader({ allowlist, adapters, statuses }) {
         }
 
         modules.set(plugin.id, module)
+        /* Withdrawn while this was in flight (BR-AS56). The module is kept —
+           activate() has already run and the shell does not unload code — but
+           the status stays withdrawn, and the return it is owed is `active`
+           so nothing calls activate() a second time (BR-AS59). */
+        if (record?.status === PLUGIN_STATUS.WITHDRAWN) {
+          record.restoreTo = PLUGIN_STATUS.ACTIVE
+          inFlight.delete(plugin.id)
+          return module
+        }
         record?.transition(PLUGIN_STATUS.ACTIVE)
         inFlight.delete(plugin.id)
         return module

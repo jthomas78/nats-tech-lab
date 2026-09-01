@@ -808,8 +808,22 @@ been added by this planning change; every matrix row is a requirement for implem
       refusal moves no revision. Registry suite 286/286, 0 Skipped. **The real-broker credential denial is still
       only argued from the subject lists** — proving a browser creds file is refused belongs with the browser
       permission work.
-- [ ] Write shell specs for explicit withdrawal, sibling isolation, duplicate events, return equality and withdrawal during lazy import/activation.
-- [ ] Implement contribution removal/restoration and `withdrawn` status; retain cached modules without full disposal or duplicate activation.
+- [x] Write shell specs for explicit withdrawal, sibling isolation, duplicate events, return equality and withdrawal during lazy import/activation.
+      Done 2026-09-01: `registry/pluginStatus.withdrawal.spec.js`, `contributions/contributionWithdrawal.spec.js`,
+      `loader/pluginLoader.withdrawal.spec.js`, `registry/registryDiff.withdrawal.spec.js` and the mounted
+      `liveWithdrawal.spec.js` — the last of these asserts on rendered output, because the shell's collections are
+      getters that hand back copies and a spec reading one twice can pass while the browser never updates.
+- [x] Implement contribution removal/restoration and `withdrawn` status; retain cached modules without full disposal or duplicate activation.
+      Done 2026-09-01. `withdrawn` is a status outside the transition table: it arrives from the registry rather
+      than from the plugin's own progress, it can land on any placed status, and the status it lands on is the one
+      a return goes back to — so an import finishing after a withdrawal keeps its module, records `active` as the
+      status it is owed, and does not go on screen. The contribution registry gains `withdraw`/`restore`/
+      `isWithdrawn`; a return re-runs placement rather than replaying the old decision, so a contribution the
+      session may no longer see stays absent and the plugin stays withdrawn. `diffRegistry` reports `withdrawn`
+      and `restored`, and `bootShell` applies both — the only catalogue changes other than an addition a running
+      shell may act on. A degraded document may still withdraw, never restore. Shell 425/425, Admin 335/335.
+      **The router half is 5c:** a withdrawn plugin's routes are still registered, so a deep link into one still
+      resolves until the occupant/tombstone work lands.
 
 ##### 5c — occupant and dependent placements (BR-AS57–59)
 - [ ] Write mounted-shell/router specs for tombstone in place, new navigation refusal, unchanged return, changed return requiring reload and departure cleanup.

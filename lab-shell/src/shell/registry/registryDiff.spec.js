@@ -83,7 +83,12 @@ describe('diffRegistry', () => {
     // two forms directly would report every plugin as edited on every read —
     // a reload banner on a registry nobody touched.
     const current = [held('a'), held('b')]
-    expect(diffRegistry(current, [raw('a'), raw('b')])).toEqual({ added: [], reloadRequired: [] })
+    expect(diffRegistry(current, [raw('a'), raw('b')])).toEqual({
+      added: [],
+      reloadRequired: [],
+      withdrawn: [],
+      restored: [],
+    })
   })
 })
 
