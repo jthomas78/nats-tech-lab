@@ -57,6 +57,20 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// because 7e has to tell "never reviewed" apart from "we took this
 		// away": only the second unloads a plugin from a running shell.
 		`ALTER TABLE registry.entries ADD COLUMN IF NOT EXISTS withheld BOOLEAN NOT NULL DEFAULT false`,
+		// Withdrawn is the publisher's half of availability: an accepted,
+		// signed unregister (BR-AS54). Its own column beside `enabled` and
+		// `withheld` because the three answer three questions — has an
+		// operator approved this, did we take it away, did its publisher say
+		// it is gone — and a restart that forgot the third would serve the
+		// withdrawn code again on the next shell boot. Defaulting false is
+		// right for every existing row: nobody had unregistered anything.
+		`ALTER TABLE registry.entries ADD COLUMN IF NOT EXISTS withdrawn BOOLEAN NOT NULL DEFAULT false`,
+		// The highest release accepted for this id, as a column rather than
+		// read out of the signed manifest. Once an unregister advances the
+		// counter, the manifest still carries the OLD number — reading it
+		// from there would let the stale announcement back in (BR-AS47).
+		// Zero means "never stated"; the read falls back to the manifest.
+		`ALTER TABLE registry.entries ADD COLUMN IF NOT EXISTS release BIGINT NOT NULL DEFAULT 0`,
 
 		// The revision is a single row, not a sequence: it must be readable,
 		// lockable and comparable inside the same transaction as the write

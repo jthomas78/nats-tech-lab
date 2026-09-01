@@ -796,7 +796,18 @@ been added by this planning change; every matrix row is a requirement for implem
       unclassified entry. `DecideAnnounce` clears the withdrawal only on a same-origin return of an approved entry.
       Registry suite 265/265, 0 Skipped. **Transaction races are only half covered here:** commit-time trust and
       concurrent operator writes need the store, which is the next box.
-- [ ] Add persistent publisher availability and service-only unregister transport; extend actual broker/credential integration specs, migration/restart and cache tests.
+- [x] Add persistent publisher availability and service-only unregister transport; extend actual broker/credential integration specs, migration/restart and cache tests.
+      Done 2026-09-01 in `registry/unregister_store_test.go` (Postgres) and `registry/unregister_transport_test.go`
+      (in-process broker). `withdrawn` and `release` are now real columns, not JSON-projection fields: a signed row
+      is reassembled from its manifest bytes, which still state the old release and say nothing about availability,
+      so either fact stored only there would vanish on the next read and let the stale announcement back in. A
+      SIGNED entry withdraws without its signed bytes being rewritten. Operator enable clears the withdrawal;
+      disable does not set one. Transport: `rpc._platform.registry.entries.unregister.v1` is on neither browser
+      subject list, the gate runs before existence is revealed (so refusals cannot enumerate ids), commit-time trust
+      re-reads key state inside the write transaction, a duplicate delivery is a no-op at the same revision, and a
+      refusal moves no revision. Registry suite 286/286, 0 Skipped. **The real-broker credential denial is still
+      only argued from the subject lists** — proving a browser creds file is refused belongs with the browser
+      permission work.
 - [ ] Write shell specs for explicit withdrawal, sibling isolation, duplicate events, return equality and withdrawal during lazy import/activation.
 - [ ] Implement contribution removal/restoration and `withdrawn` status; retain cached modules without full disposal or duplicate activation.
 

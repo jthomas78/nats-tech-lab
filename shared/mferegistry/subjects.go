@@ -49,6 +49,12 @@ const (
 	// Announce is a publisher's service-to-service request, never a browser
 	// grant. It deliberately belongs to neither Subjects nor Operator.
 	Announce = "rpc._platform.registry.entries.announce.v1"
+
+	// Unregister is the same kind of subject and for a stronger reason: it
+	// is the one message that takes running code off an operator's screen
+	// (BR-AS54). Service-to-service only — it belongs to neither Subjects
+	// nor Operator, so no browser credential can carry it.
+	Unregister = "rpc._platform.registry.entries.unregister.v1"
 )
 
 // Subjects is the exhaustive browser-facing API surface, in registration

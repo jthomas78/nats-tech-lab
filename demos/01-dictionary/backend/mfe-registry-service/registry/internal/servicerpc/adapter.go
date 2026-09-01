@@ -133,6 +133,89 @@ func (e *Endpoints) Announce(ctx context.Context, req Request) (Response, error)
 	return Response{OK: true, Outcome: outcome, Revision: written.Revision}, nil
 }
 
+// UnregisterResponse is the answer to a withdrawal. Its own type rather than
+// a reused announcement response: the outcomes are a different closed set,
+// and one field carrying two vocabularies is how a caller ends up switching
+// on a string it cannot enumerate.
+type UnregisterResponse struct {
+	OK       bool                     `json:"ok"`
+	Outcome  domain.UnregisterOutcome `json:"outcome,omitempty"`
+	Revision int64                    `json:"revision"`
+	Error    string                   `json:"error,omitempty"`
+	Code     string                   `json:"code,omitempty"`
+	// NoOp marks a duplicate delivery of the withdrawal already accepted.
+	// Success, not refusal — a publisher whose request timed out and retried
+	// gets the answer it would have got the first time.
+	NoOp bool `json:"noOp,omitempty"`
+}
+
+// Unregister withdraws a publisher's availability (BR-AS54, BR-AS55).
+//
+// The order below is the same as the announcement's and for the same reason:
+// the gate runs before the registry is consulted about what exists, so a
+// caller who owns nothing cannot learn which ids are registered by watching
+// which refusal comes back.
+func (e *Endpoints) Unregister(ctx context.Context, req Request) (UnregisterResponse, error) {
+	cmd, err := domain.ParseUnregister(req.Payload)
+	if err != nil {
+		return UnregisterResponse{}, err
+	}
+	doc, err := e.svc.Curated(ctx)
+	if err != nil {
+		return UnregisterResponse{}, err
+	}
+	var existing *domain.Entry
+	for i := range doc.Entries {
+		if doc.Entries[i].ID == cmd.PluginID {
+			existing = &doc.Entries[i]
+			break
+		}
+	}
+	trust, err := e.svc.Publishers(ctx)
+	if err != nil {
+		return UnregisterResponse{}, err
+	}
+	u := domain.Unregister{
+		Command:    cmd,
+		Payload:    req.Payload,
+		Signature:  req.Signature,
+		SigningKey: req.SigningKey,
+	}
+	if existing != nil {
+		u.Accepted = existing.Release
+		u.Withdrawn = existing.Withdrawn
+	}
+	admission, err := domain.AdmitUnregister(trust, e.verifier, u)
+	if err != nil {
+		return UnregisterResponse{}, err
+	}
+	if admission.NoOp {
+		return UnregisterResponse{OK: true, NoOp: true, Outcome: domain.UnregisterWithdrawn, Revision: doc.Revision}, nil
+	}
+	outcome, next, err := domain.DecideUnregister(existing, cmd)
+	if err != nil {
+		return UnregisterResponse{}, err
+	}
+	if outcome == domain.UnregisterIgnored {
+		// An observation, not a registry write: curation outranks the
+		// publisher, and the publisher is told so rather than ignored
+		// silently (decision 77, BR-AS23).
+		if err := e.recorder.RecordIgnored(ctx, domain.UnregisterWrite(next, admission.SigningKey, doc.Revision)); err != nil {
+			return UnregisterResponse{}, err
+		}
+		return UnregisterResponse{OK: true, Outcome: outcome, Revision: doc.Revision}, nil
+	}
+	write := domain.UnregisterWrite(next, admission.SigningKey, doc.Revision)
+	// BR-AS48 — the key must still be enabled when the write commits, not
+	// merely when the signature was checked.
+	write.RequireKeyEnabled = admission.SigningKey
+	written, err := e.svc.Apply(ctx, write)
+	if err != nil {
+		return UnregisterResponse{}, err
+	}
+	return UnregisterResponse{OK: true, Outcome: outcome, Revision: written.Revision}, nil
+}
+
 var errManifest = errors.New("registry: manifest refused")
 
 type Adapter struct{ svc micro.Service }
@@ -155,44 +238,92 @@ func Mount(nc *nats.Conn, endpoints *Endpoints, log *slog.Logger) (*Adapter, err
 			shared.Respond(req, svc, log, req.Subject(), req.Reply(), out)
 			return
 		}
-		out = Response{Error: "the announcement could not be recorded", Code: "registry-unavailable"}
-		status := "500"
-		switch {
-		case errors.Is(err, domain.ErrUnsigned):
-			out.Error, out.Code, status = domain.ErrUnsigned.Error(), "unsigned", "401"
-		case errors.Is(err, domain.ErrUnverified):
-			out.Error, out.Code, status = domain.ErrUnverified.Error(), "unverified", "403"
-		case errors.Is(err, errManifest):
-			out.Error, out.Code, status = err.Error(), "manifest-refused", "400"
-		case errors.Is(err, domain.ErrOriginNotAllowed):
-			out.Error, out.Code, status = domain.ErrOriginNotAllowed.Error(), "origin-not-allowed", "422"
-		case errors.Is(err, domain.ErrStaleRevision):
-			out.Error, out.Code, status = domain.ErrStaleRevision.Error(), "stale-revision", "409"
-		case errors.Is(err, domain.ErrNoEntryID):
-			out.Error, out.Code, status = domain.ErrNoEntryID.Error(), "manifest-refused", "400"
-		// Ownership before key state before signature — the same order
-		// AdmitAnnouncement decides in, so the code a publisher reads is the
-		// first thing actually wrong (BR-AS46).
-		case errors.Is(err, domain.ErrNotOwned):
-			out.Error, out.Code, status = domain.ErrNotOwned.Error(), "not-owned", "403"
-		case errors.Is(err, domain.ErrKeyNotTrusted):
-			out.Error, out.Code, status = domain.ErrKeyNotTrusted.Error(), "key-not-trusted", "403"
-		case errors.Is(err, domain.ErrKeyRetired):
-			out.Error, out.Code, status = domain.ErrKeyRetired.Error(), "key-retired", "403"
-		case errors.Is(err, domain.ErrKeyRevoked):
-			out.Error, out.Code, status = domain.ErrKeyRevoked.Error(), "key-revoked", "403"
-		case errors.Is(err, domain.ErrNoRelease):
-			out.Error, out.Code, status = domain.ErrNoRelease.Error(), "manifest-refused", "400"
-		case errors.Is(err, domain.ErrReleaseBackwards):
-			out.Error, out.Code, status = domain.ErrReleaseBackwards.Error(), "release-backwards", "409"
-		}
+		message, code, status := classify(err, "the announcement could not be recorded")
+		out = Response{Error: message, Code: code}
 		shared.RespondErrorBody(req, svc, log, err, status, out)
+	})
+	unregisterHandler := micro.HandlerFunc(func(req micro.Request) {
+		var in Request
+		var out UnregisterResponse
+		err := json.Unmarshal(req.Data(), &in)
+		if err != nil {
+			err = domain.ErrUnregisterMalformed
+		} else {
+			out, err = endpoints.Unregister(shared.SpanContext(req), in)
+		}
+		if err == nil {
+			shared.Respond(req, svc, log, req.Subject(), req.Reply(), out)
+			return
+		}
+		message, code, status := classify(err, "the withdrawal could not be recorded")
+		shared.RespondErrorBody(req, svc, log, err, status, UnregisterResponse{Error: message, Code: code})
 	})
 	if err := svc.AddEndpoint("registry-announce", natstrace.New(nc).Middleware(handler), micro.WithEndpointSubject(mferegistry.Announce)); err != nil {
 		_ = svc.Stop()
 		return nil, err
 	}
+	if err := svc.AddEndpoint("registry-unregister", natstrace.New(nc).Middleware(unregisterHandler), micro.WithEndpointSubject(mferegistry.Unregister)); err != nil {
+		_ = svc.Stop()
+		return nil, err
+	}
 	return &Adapter{svc: svc}, nil
+}
+
+// classify turns a refusal into what a publisher can act on: a stage-named
+// cause from a closed vocabulary, never a URL and never publisher-chosen text
+// (BR-AS04). One table for both endpoints, so the two cannot drift into
+// giving different names to the same refusal.
+//
+// The order mirrors the gate: ownership, then key state, then the signature,
+// then ordering — so the code a publisher reads is the first thing actually
+// wrong (BR-AS46).
+func classify(err error, fallback string) (message, code, status string) {
+	message, code, status = fallback, "registry-unavailable", "500"
+	switch {
+	case errors.Is(err, domain.ErrUnsigned):
+		return domain.ErrUnsigned.Error(), "unsigned", "401"
+	case errors.Is(err, domain.ErrUnverified):
+		return domain.ErrUnverified.Error(), "unverified", "403"
+	case errors.Is(err, errManifest):
+		return err.Error(), "manifest-refused", "400"
+	case errors.Is(err, domain.ErrOriginNotAllowed):
+		return domain.ErrOriginNotAllowed.Error(), "origin-not-allowed", "422"
+	case errors.Is(err, domain.ErrStaleRevision):
+		return domain.ErrStaleRevision.Error(), "stale-revision", "409"
+	case errors.Is(err, domain.ErrNoEntryID):
+		return domain.ErrNoEntryID.Error(), "manifest-refused", "400"
+	case errors.Is(err, domain.ErrNotOwned):
+		return domain.ErrNotOwned.Error(), "not-owned", "403"
+	case errors.Is(err, domain.ErrKeyNotTrusted):
+		return domain.ErrKeyNotTrusted.Error(), "key-not-trusted", "403"
+	case errors.Is(err, domain.ErrKeyRetired):
+		return domain.ErrKeyRetired.Error(), "key-retired", "403"
+	case errors.Is(err, domain.ErrKeyRevoked):
+		return domain.ErrKeyRevoked.Error(), "key-revoked", "403"
+	case errors.Is(err, domain.ErrNoRelease):
+		return domain.ErrNoRelease.Error(), "manifest-refused", "400"
+	case errors.Is(err, domain.ErrReleaseBackwards):
+		return domain.ErrReleaseBackwards.Error(), "release-backwards", "409"
+
+	// The withdrawal's own causes. Each is its own word because each has a
+	// different fix: sign the right envelope, use the key you named, ask an
+	// operator, or send a newer release.
+	case errors.Is(err, domain.ErrNotUnregister):
+		return domain.ErrNotUnregister.Error(), "not-unregister", "400"
+	case errors.Is(err, domain.ErrUnregisterVersion):
+		return domain.ErrUnregisterVersion.Error(), "unsupported-version", "400"
+	case errors.Is(err, domain.ErrUnregisterMalformed):
+		return domain.ErrUnregisterMalformed.Error(), "malformed", "400"
+	case errors.Is(err, domain.ErrUnregisterKeyMismatch):
+		return domain.ErrUnregisterKeyMismatch.Error(), "key-mismatch", "403"
+	case errors.Is(err, domain.ErrUnregisterPublisherMismatch):
+		return domain.ErrUnregisterPublisherMismatch.Error(), "publisher-mismatch", "403"
+	case errors.Is(err, domain.ErrReleaseReused):
+		return domain.ErrReleaseReused.Error(), "release-reused", "409"
+	case errors.Is(err, domain.ErrUnknownEntry):
+		return domain.ErrUnknownEntry.Error(), "unknown-entry", "404"
+	}
+	return message, code, status
 }
 
 func (a *Adapter) Stop() error {

@@ -228,6 +228,16 @@ func (d Document) Readable(allowlist Allowlist) Document {
 		if !e.Enabled {
 			continue
 		}
+		/* A withdrawn plugin is served as a MARKER, not by disappearing
+		   (BR-AS54). Absence is not authoritative — a filter, a malformed
+		   row or a degraded read all look like absence — so a running shell
+		   that withdrew on absence alone could be talked into unloading a
+		   plugin by an outage. Checked after Enabled: an entry no operator
+		   ever approved was never running, and needs nothing said about it. */
+		if e.Withdrawn {
+			out.Entries = append(out.Entries, Withdrawal(e.ID))
+			continue
+		}
 		if allowlist.Check(e) != nil {
 			continue
 		}
@@ -251,6 +261,26 @@ func (d Document) Readable(allowlist Allowlist) Document {
 // whole message.
 func Tombstone(id string) Entry {
 	return Entry{ID: id, Withheld: true, Contributions: []Contribution{}}
+}
+
+// Withdrawal is an unregistered entry as a reader sees it: the id, the mark,
+// and nothing else.
+//
+// The same shape as a tombstone and for one of the same reasons — the remote
+// is what a shell would load, and this is the entry it must not. It is a
+// separate mark because the two mean different things to a shell: a
+// tombstone says trust was withdrawn and forces a reload for either class
+// (BR-AS49), while this says the publisher is gone, which withdraws a
+// dynamic plugin live and offers a static one a reload (BR-AS53, BR-AS54).
+// Enabled stays true on the marker, which reads oddly until you notice that
+// Readable runs twice on the way to a browser — the service filters, and the
+// transport filters again as defence in depth. The withdrawn check sits after
+// the Enabled check on purpose (an entry no operator approved needs nothing
+// said about it), so a marker with Enabled false would be dropped by the
+// second pass and the withdrawal would arrive as plain absence. The flag
+// means what it says here: an operator did approve this, and it is gone.
+func Withdrawal(id string) Entry {
+	return Entry{ID: id, Withdrawn: true, Enabled: true, Contributions: []Contribution{}}
 }
 
 // Write ops. Exhaustive: there is no delete, and BR-AS24 is checked against

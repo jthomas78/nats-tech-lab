@@ -57,7 +57,7 @@ func currentDoc(ctx context.Context, q querier) (domain.Document, error) {
 			return domain.Document{}, err
 		}
 	}
-	rows, err := q.QueryContext(ctx, `SELECT id, enabled, lifecycle, withheld, entry, manifest, signature, signing_key FROM registry.entries ORDER BY id`)
+	rows, err := q.QueryContext(ctx, `SELECT id, enabled, lifecycle, withheld, withdrawn, release, entry, manifest, signature, signing_key FROM registry.entries ORDER BY id`)
 	if err != nil {
 		return domain.Document{}, err
 	}
@@ -66,9 +66,10 @@ func currentDoc(ctx context.Context, q querier) (domain.Document, error) {
 	doc := domain.Document{SchemaVersion: domain.SchemaVersion, Revision: revision, Entries: []domain.Entry{}}
 	for rows.Next() {
 		var id, lifecycle, manifest, signature, signingKey string
-		var enabled, withheld bool
+		var enabled, withheld, withdrawn bool
+		var release int64
 		var raw []byte
-		if err := rows.Scan(&id, &enabled, &lifecycle, &withheld, &raw, &manifest, &signature, &signingKey); err != nil {
+		if err := rows.Scan(&id, &enabled, &lifecycle, &withheld, &withdrawn, &release, &raw, &manifest, &signature, &signingKey); err != nil {
 			return domain.Document{}, err
 		}
 		e, err := entryOf(id, raw, manifest, signature, signingKey)
@@ -81,6 +82,12 @@ func currentDoc(ctx context.Context, q querier) (domain.Document, error) {
 		e.Enabled = enabled
 		e.Lifecycle = lifecycle
 		e.Withheld = withheld
+		e.Withdrawn = withdrawn
+		// Zero is "this row predates the column", and then the projection or
+		// the manifest is all there is to go on.
+		if release > 0 {
+			e.Release = release
+		}
 		doc.Entries = append(doc.Entries, e)
 	}
 	return doc, rows.Err()
@@ -192,9 +199,9 @@ func (s *Store) apply(ctx context.Context, w domain.Write) (domain.Document, err
 			return domain.Document{}, err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO registry.entries (id, enabled, entry, lifecycle, manifest, signature, signing_key) VALUES ($1, $2, $3, $4, $5, $6, $7)
-			 ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled, entry = EXCLUDED.entry, lifecycle = EXCLUDED.lifecycle, manifest = EXCLUDED.manifest, signature = EXCLUDED.signature, signing_key = EXCLUDED.signing_key, updated_at = now()`,
-			w.EntryID, w.Entry.Enabled, body, w.Entry.Lifecycle, manifest, signature, signingKey); err != nil {
+			`INSERT INTO registry.entries (id, enabled, entry, lifecycle, manifest, signature, signing_key, withdrawn, release) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			 ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled, entry = EXCLUDED.entry, lifecycle = EXCLUDED.lifecycle, manifest = EXCLUDED.manifest, signature = EXCLUDED.signature, signing_key = EXCLUDED.signing_key, withdrawn = EXCLUDED.withdrawn, release = EXCLUDED.release, updated_at = now()`,
+			w.EntryID, w.Entry.Enabled, body, w.Entry.Lifecycle, manifest, signature, signingKey, w.Entry.Withdrawn, w.Entry.Release); err != nil {
 			return domain.Document{}, err
 		}
 	case domain.OpSetEnabled:
@@ -205,8 +212,14 @@ func (s *Store) apply(ctx context.Context, w domain.Write) (domain.Document, err
 		// the deliberate half of BR-AS38: an operator putting a withheld entry
 		// back is looking at that entry, which is exactly what re-enabling the
 		// key was not.
+		//
+		// It clears the publisher's withdrawal for the same reason (BR-AS55):
+		// approval outranks availability, and an operator re-enabling a
+		// withdrawn entry is looking at that entry and saying run it.
+		// Disabling sets neither — it says nothing about whether the
+		// publisher is still there.
 		res, err := tx.ExecContext(ctx,
-			`UPDATE registry.entries SET enabled = $2, withheld = withheld AND NOT $2, updated_at = now() WHERE id = $1`, w.EntryID, w.Enabled)
+			`UPDATE registry.entries SET enabled = $2, withheld = withheld AND NOT $2, withdrawn = withdrawn AND NOT $2, updated_at = now() WHERE id = $1`, w.EntryID, w.Enabled)
 		if err != nil {
 			return domain.Document{}, err
 		}
