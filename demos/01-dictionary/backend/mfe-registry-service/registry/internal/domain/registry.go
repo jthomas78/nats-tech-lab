@@ -308,7 +308,11 @@ func (w Write) Validate() error {
 		if w.Entry.ID != w.EntryID {
 			return ErrEntryIDMismatch
 		}
-		return nil
+		// An operator may state the class or leave it unclassified; they may
+		// not invent one, because the shell's behavior is a closed set
+		// (BR-AS52). Checked here rather than at the store so a refusal is
+		// still audited as a refused write.
+		return ValidateLifecycle(w.Entry.Lifecycle)
 	default:
 		return fmt.Errorf("%w: %q", ErrUnknownOp, w.Op)
 	}

@@ -761,7 +761,15 @@ been added by this planning change; every matrix row is a requirement for implem
 #### Tasks — approved backlog; implementation requires a separate go-ahead
 
 ##### 5a — lifecycle through the stack (BR-AS52–53)
-- [ ] Write specs for legacy backfill, signed-byte preservation, schema round-trip and operator class editing.
+- [x] Write specs for legacy backfill, signed-byte preservation, schema round-trip and operator class editing.
+      Done 2026-09-01 in `registry/lifecycle_test.go`. `domain.ValidateLifecycle` closes the class set at
+      the write door — an operator may state `static` or `dynamic` or leave it unclassified, never invent
+      a third — and it is checked in `Write.Validate`, so a refusal is still audited as a refused write.
+      `domain.LifecycleOf` resolves an unclassified entry to static. The migration backfills
+      `lifecycle = ''` to `static` in one column and nothing else: enablement, withholding, the signed
+      manifest bytes and the registry revision are all untouched, each with its own spec. The Phase 8
+      round-trip spec was amended rather than deleted — its third case now asserts the backfill.
+      Registry suite 233/233, 0 Skipped.
 - [ ] Backfill unclassified rows to static; preserve enabled/source/attestation. Complete Admin and shell lifecycle fields using existing backend storage.
 - [ ] Implement held-class diff semantics, reload offers and the security-revocation exception; test both classes and class-change/disable sequences.
 

@@ -31,6 +31,14 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		// Lift lifecycle beside enabled: Admin will filter/sort by it. Empty
 		// preserves unclassified legacy rows; it must never default to dynamic.
 		`ALTER TABLE registry.entries ADD COLUMN IF NOT EXISTS lifecycle TEXT NOT NULL DEFAULT ''`,
+		// Backfill rows written before the column existed (BR-AS52). Static
+		// is the conservative class: its answer to a withdrawal is to leave
+		// the plugin running and offer a reload. This touches one column and
+		// deliberately nothing else — not `enabled`, not `withheld`, and
+		// above all not the signed bytes, which a rewrite would invalidate.
+		// It does not advance the revision either: classifying an old row is
+		// not a curated change for a running shell to load.
+		`UPDATE registry.entries SET lifecycle = 'static' WHERE lifecycle = ''`,
 
 		// The publisher's signed bytes, base64, in a column of their own
 		// (BR-AS37, decisions 68 and 101). Deliberately NOT the `entry`

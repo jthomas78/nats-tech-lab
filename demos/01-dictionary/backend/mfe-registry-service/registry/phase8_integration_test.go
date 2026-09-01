@@ -128,21 +128,32 @@ var _ = Describe("Phase 8 persistence", func() {
 
 	Context("decision 86 — lifecycle is stored, never inferred", func() {
 		It("round-trips static, dynamic and unclassified in the lifted column across migrations", func() {
+			// Phase 5a amends the third case: an unclassified write survives
+			// until the next migration, which backfills it to static
+			// (BR-AS52). The first two are unchanged — a stated class is
+			// never rewritten.
 			for i, lifecycle := range []string{domain.LifecycleStatic, domain.LifecycleDynamic, ""} {
+				expected := lifecycle
+				if expected == "" {
+					expected = domain.LifecycleStatic
+				}
 				e := federated("entry", "http://localhost:7110/remoteEntry.js")
 				e.Lifecycle = lifecycle
 				_, err := store.Apply(ctx, domain.Write{Op: domain.OpUpsert, EntryID: e.ID, Entry: &e, Actor: domain.SharedAdminActor, IfRevision: int64(i)})
 				Expect(err).NotTo(HaveOccurred())
+				var written string
+				Expect(pgDB.QueryRowContext(ctx, `SELECT lifecycle FROM registry.entries WHERE id='entry'`).Scan(&written)).To(Succeed())
+				Expect(written).To(Equal(lifecycle))
 				Expect(postgres.Migrate(ctx, pgDB)).To(Succeed())
 				var stored string
 				Expect(pgDB.QueryRowContext(ctx, `SELECT lifecycle FROM registry.entries WHERE id='entry'`).Scan(&stored)).To(Succeed())
-				Expect(stored).To(Equal(lifecycle))
+				Expect(stored).To(Equal(expected))
 				// Even an obsolete JSON copy cannot override the authoritative column.
 				_, err = pgDB.ExecContext(ctx, `UPDATE registry.entries SET entry = entry || '{"lifecycle":"wrong"}'::jsonb`)
 				Expect(err).NotTo(HaveOccurred())
 				doc, err := store.Current(ctx)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(doc.Entries[0].Lifecycle).To(Equal(lifecycle))
+				Expect(doc.Entries[0].Lifecycle).To(Equal(expected))
 			}
 		})
 	})
