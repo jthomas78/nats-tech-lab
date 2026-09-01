@@ -488,13 +488,18 @@ nsc generate creds --account PLATFORM --name observability >"$NATS_DIR/creds/obs
 # health.*, and the whole point of the subject is that it carries no verb but
 # this one.
 #
-# Announcements add exactly rpc._platform.registry.entries.announce.v1.
+# Announcements add exactly rpc._platform.registry.entries.announce.v1, and
+# Phase 5b's unregister adds exactly one more. Named in full rather than as
+# rpc._platform.registry.entries.> — the withdrawal is the one message that
+# takes running code off an operator's screen, so it is granted on purpose
+# and not swept up by a prefix.
+#
 # What is deliberately absent: broad rpc.>, any evt.>, any other service's api.*,
 # and the whole $SYS axis. The registry reads and writes one catalog.
 nsc add user --account PLATFORM mfe-registry-service >/dev/null
 nsc edit user --account PLATFORM --name mfe-registry-service \
   --allow-pub '$SRV.>,_INBOX.>,notify._platform.registry.frontend-plugins.changed,notify._platform.registry.frontend-plugins.health,rpc._platform.health.*.ready.v1,$JS.API.INFO,$JS.API.STREAM.CREATE.KV_mfe-registry,$JS.API.STREAM.UPDATE.KV_mfe-registry,$JS.API.STREAM.INFO.KV_mfe-registry,$JS.API.DIRECT.GET.KV_mfe-registry.>,$KV.mfe-registry.>,obs.trace._platform.registry.>' \
-  --allow-sub 'api._platform.registry.>,rpc._platform.registry.entries.announce.v1,$SRV.>,_INBOX.>' >/dev/null
+  --allow-sub 'api._platform.registry.>,rpc._platform.registry.entries.announce.v1,rpc._platform.registry.entries.unregister.v1,$SRV.>,_INBOX.>' >/dev/null
 nsc generate creds --account PLATFORM --name mfe-registry-service >"$NATS_DIR/creds/mfe-registry-service.creds"
 
 echo "==> SYS account user creds (accounts-service, Phase 14b)"

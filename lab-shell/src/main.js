@@ -128,7 +128,16 @@ async function bootstrap() {
     transport: createHealthTransport({ request: connection.request }),
     subscribe: (subject, handler) => connection.subscribe(subject, handler),
   })
-  const refreshHealth = () => { health.signals = healthPlane.snapshot() }
+  const refreshHealth = async () => {
+    /* Read, then copy. The read is what makes this a floor cadence and not
+       just a repaint: the plane otherwise reads on start, on a hint and after
+       a reconnect, so a first read that lost the race with the connection
+       coming up would leave every signal `unknown` forever with nothing to
+       wake it. Copying afterwards regardless of the read's outcome is what
+       lets a kept reading age into `stale` on schedule. */
+    await healthPlane.refresh()
+    health.signals = healthPlane.snapshot()
+  }
 
   const app = createApp(App)
   app.provide(SHELL, withRuntime(shell, { loader, plugins, router, connections, connection: connection.state, health, healthPlane, refreshHealth }))
@@ -147,7 +156,7 @@ async function bootstrap() {
      reading that has aged into `stale` is replaced rather than merely
      labelled. The interval only copies memory into a reactive object; the
      network read is the plane's own business. */
-  const healthTimer = setInterval(refreshHealth, 5_000)
+  const healthTimer = setInterval(() => { void refreshHealth() }, 5_000)
   if (import.meta.hot) import.meta.hot.dispose(() => {
     clearInterval(healthTimer)
     healthPlane.stop()

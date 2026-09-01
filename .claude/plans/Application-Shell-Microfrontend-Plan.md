@@ -903,7 +903,17 @@ been added by this planning change; every matrix row is a requirement for implem
       Done 2026-09-01: registry **358/358, 0 Skipped** (real Postgres, in-process broker);
       `shared/natsready` 6/6; lab-shell Vitest **480/480** plus clean `npm run build` and eslint;
       Admin Vitest **335/335**; `docker compose config -q` clean.
-- [ ] Verify at 1920×1080: loaded service stop leaves content/nav, health changes; restart recovers; static disable offers reload; dynamic disable/unregister withdraws; occupied route tombstones; unchanged return restores; telemetry loss becomes stale.
+- [x] Verify at 1920×1080: loaded service stop leaves content/nav, health changes; restart recovers; static disable offers reload; dynamic disable/unregister withdraws; occupied route tombstones; unchanged return restores; telemetry loss becomes stale.
+      Done 2026-09-01 against the full Docker stack. Health moves on screen: `demo-catalog` goes
+      healthy → `unavailable (not-ready)` → healthy as refdata Postgres stops and starts, the Demos
+      nav item takes a warning dot and loses it, and `/demos` keeps loading throughout — health
+      decorates, it never removes content. Zero NATS permissions violations.
+      **The run found three defects no unit spec could have caught**, all fixed: the refdata
+      Dockerfile copied neither new shared module, so the official build failed; the checked-in
+      credentials predated the grant change (`bootstrap-operator.sh --force` was never run) and the
+      regeneration exposed that the unregister subscribe grant had never been there at all; and the
+      shell's health timer repainted without re-reading, so a first read that lost the race with the
+      connection left every signal `unknown` forever. Details in `BUSINESS_RULES-APP-SHELL.md`.
 - [x] Update as-built architecture and narrative findings with evidence, limitations and actual test totals; mark complete only after these checks pass.
       Done 2026-09-01 in `ARCHITECTURE-APP-SHELL.md` and `BUSINESS_RULES-APP-SHELL.md`, with the
       limitation stated rather than smoothed over: the live 1920×1080 walkthrough is the one

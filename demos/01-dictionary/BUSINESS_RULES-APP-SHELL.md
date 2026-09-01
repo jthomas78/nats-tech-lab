@@ -892,10 +892,33 @@ and an in-process broker; `shared/natsready` 6/6; lab-shell Vitest 480/480 plus 
 build`; Admin Vitest 335/335; `docker compose config -q` clean. Phase 4, 7 and 8 coverage is
 unchanged.
 
-**Limitation — the live 1920×1080 walkthrough is still outstanding.** Stopping a service and
-watching the signal move, a restart recovering, a telemetry loss going stale and the withdrawal
-tombstone appearing in place are behaviours no unit spec observes. The NATS grant changed, so the
-stack needs `docker compose down -v && docker compose up --build` before health works in Docker.
+**Live verification (2026-09-01, 1920×1080, full Docker stack).** All five plugin origins served
+`/healthz`; the readiness responder answered `{"ready":true}`, then `{"ready":false,"cause":
+"not-ready"}` with refdata Postgres stopped, then true again — exposing no host, port, DSN or query
+text. On screen: separate Frontend and Backend columns, `demo-catalog` moving healthy →
+`unavailable (not-ready)` → healthy, `not applicable` for frontend-only plugins, `not configured`
+for the unmapped one, and a warning dot on the Demos nav item that cleared on recovery. The
+`/demos` route kept loading throughout — health decorates, it never removes content. NATS logged
+zero permissions violations.
+
+**Three real defects the live run found, all fixed the same day.** They are recorded because each
+is a class of thing no unit spec could have caught:
+
+1. `refdata-service/Dockerfile` copied neither `shared/mferegistry` nor `shared/natsready`, so the
+   official `docker compose up --build` failed outright. A new shared module is a new COPY line.
+2. `bootstrap-operator.sh` declared the health grants but the checked-in `.creds`/JWT artifacts
+   predated them, and the script short-circuits on an existing `operator.jwt` — so the running
+   stack logged `Publish Violation` on every probe. Exactly the failure BR-AC34 already warned
+   about: **a grant change is only live after `./bootstrap-operator.sh --force`.** The same
+   regeneration exposed a second gap — `rpc._platform.registry.entries.unregister.v1` was never in
+   the registry's `--allow-sub` at all, so Phase 5b's withdrawal transport could not have worked in
+   Docker. Named in full rather than swept up by a prefix.
+3. The shell's five-second health timer only copied memory into the reactive object; nothing
+   re-read the network. The plane reads on start, on a hint and after a reconnect, so a first read
+   that lost the race with the connection coming up left every signal `unknown` forever with
+   nothing left to wake it. The timer now refreshes and then copies — the read is what makes it a
+   floor cadence, the copy is what lets a kept reading age into `stale` on schedule.
+   `healthPlane.spec.js` gained a spec for the recovery.
 
 
 ## Phase 7 — publisher signing and the trust table (BR-AS35 to BR-AS38, BR-AS46 to BR-AS51)

@@ -256,6 +256,32 @@ describe('BR-AS65 — health never reaches into the catalogue', () => {
     expect(fetchHealth.mock.calls.length).toBeGreaterThan(afterStart)
   })
 
+  it('recovers from a first read that lost the race with the connection', async () => {
+    // Found live: the shell started the plane in the same tick it started the
+    // session, so the first read could be answered by a connection that was
+    // not up yet. The plane otherwise reads on start, on a hint and after a
+    // reconnect — with no hint arriving and no reconnect to speak of, every
+    // signal stayed `unknown` forever with nothing left to wake it. A later
+    // refresh has to be enough on its own.
+    const fetchHealth = vi.fn()
+      .mockResolvedValueOnce({ ok: false, code: 'health-unreachable' })
+      .mockResolvedValue(reply({ 'fleet-ops': { frontend: { state: 'healthy' }, backend: { state: 'healthy' } } }))
+    const plane = createHealthPlane({
+      transport: { fetchHealth },
+      subscribe: () => ({ unsubscribe: () => {} }),
+      now: () => 0,
+    })
+
+    plane.start()
+    await settle()
+    expect(plane.signalsFor('fleet-ops').frontend.state).toBe(HEALTH_STATE.UNKNOWN)
+
+    await plane.refresh()
+    await settle()
+
+    expect(plane.signalsFor('fleet-ops').frontend.state).toBe(HEALTH_STATE.HEALTHY)
+  })
+
   it('reads once on start, and again after a reconnect gap', async () => {
     const fetchHealth = vi.fn().mockResolvedValue(reply({}))
     const plane = createHealthPlane({
