@@ -13,7 +13,7 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [swag_regen_diff_noise](swag_regen_diff_noise.md) — `swag init` rewrites all `$ref` repo-wide; hand-patch instead
 
 ## Frontend gotchas
-- [phase5_lifecycle_health_plan](phase5_lifecycle_health_plan.md) — 14 decisions approved; plan/rules/test matrix only, implementation not authorized
+- [phase5_lifecycle_health_plan](phase5_lifecycle_health_plan.md) — Phase 5 lifecycle/withdrawal/health: COMPLETE and live-verified 2026-09-01
 - [phase8c_manifest_drift](phase8c_manifest_drift.md) — checker done; preload-only, mapped service origins, memory-only observations, independent Manifest column
 - [phase8_federated_catalog](phase8_federated_catalog.md) — 8f/d/e done; five plugin origins, frozen activation API, native fallback, remote CSS/theme singleton
 - [phase4_shell_nats_transport](phase4_shell_nats_transport.md) — shell registry NATS-only, first-paint/reconnect rules; shipping notifycoverage baseline caveat
@@ -82,3 +82,4 @@ One-line hooks. Open a file only when its hook looks relevant to the task.
 - [phase38_document_object_store](phase38_document_object_store.md) — OBJ bucket = stream sharing tenant 1 GiB; blob-before-record, write-once; nginx 1 MiB default
 - [phase38e_organizations_rename](phase38e_organizations_rename.md) — `trading-partner-service`→`organizations-service`; "trading partner" stays as vocab, BR-TP* keep numbers
 - [accounts_overview_pulse_design](accounts_overview_pulse_design.md) — DONE Phase 45; ring buffer + duration selector (BR-043) + gated search (BR-044)
+- [app-shell-deployment-gaps](app-shell-deployment-gaps.md) — green suites prove nothing about Dockerfile COPYs, NATS grants, or creds regeneration

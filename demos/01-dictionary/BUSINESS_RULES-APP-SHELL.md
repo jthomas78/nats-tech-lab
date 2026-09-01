@@ -21,9 +21,10 @@ transport (operator-curated backend endpoint), and BR-AS14's migration gate
 at approval** — a reviewable example plugin must exist and be signed off
 before any real application is migrated.
 
-**Phase 5 status (2026-08-31):** BR-AS52–65 and the explicitly labelled amendments below are
-approved requirements, not implemented behavior. Their coverage table is a planned test matrix;
-no executable Phase 5 tests were added in the documentation-only approval task.
+**Phase 5 status (2026-09-01): COMPLETE and verified live.** BR-AS52–65 and the amendments below
+describe implemented behavior; their coverage table names specs that exist and pass. The live
+1920×1080 walkthrough ran against the full Docker stack — and found three deployment defects the
+suites could not see, recorded with the matrix.
 
 **Every rule below states an observable failure**, per CLAUDE.md Quality
 Rule 1. Rules originally phrased as properties of the architecture
@@ -609,7 +610,7 @@ survive the Phase 6 move (decision 40).
   deep equality over the *validated* manifest, so the two sides are normalised
   the same way before they are compared.
 
-  **Approved Phase 5 amendment, not implemented:** the paragraphs above describe the current
+  **Phase 5 amendment, built 2026-09-01:** the paragraphs above describe the
   ordinary-change behavior. BR-AS53–59 add explicit dynamic withdrawal and unchanged return;
   static removal/disable and changed runtime definitions still offer reload. A held lifecycle
   class changes only on reload. BR-AS49's forced security reload already overrides this rule
@@ -630,7 +631,7 @@ survive the Phase 6 move (decision 40).
   or `revision` on any entry, including its own. An announced entry that is not
   already enabled lands `announced` and is inert until an operator enables it.
   No browser transport permits announcement at all.
-  **Approved Phase 5 extension, not implemented:** an owned, verified publisher may unregister
+  **Phase 5 extension, built 2026-09-01:** an owned, verified publisher may unregister
   its dynamic plugin using a new service-only signed command. This changes publisher availability,
   not operator enablement. Valid return may reuse existing approval; it cannot override operator
   disable or revoked trust (BR-AS54–55).
@@ -656,7 +657,7 @@ survive the Phase 6 move (decision 40).
   key; neither path is misattributed to the shared admin identity.
 - **BR-AS24 — An entry is disabled, never deleted.** No transport removes a
   registry row. A disabled entry is withheld from the read and its history is
-  retained. **Approved Phase 5 extension, not implemented:** publisher unregister also retains
+  retained. **Phase 5 extension, built 2026-09-01:** publisher unregister also retains
   the row/history and records withdrawal separately from operator disable (BR-AS55).
 - **BR-AS25 — The shell's origin holds read capability only.** The subject a
   shell reads uses its dedicated read-only credential; every subject that curates
@@ -1064,7 +1065,7 @@ Stated plainly so nobody reads a signature for more than it is:
   `not checked` (unmapped, timed out, non-200, or unparsable). A failed fetch must never render as
   "no drift".
 
-  **Approved Phase 5 extension, not implemented:** the new gate permits one additional HTTP
+  **Phase 5 extension, built 2026-09-01:** the gate permits one additional HTTP
   operation: background frontend `GET /healthz` probes (BR-AS61). They reuse the allowlist and
   explicit service-origin mapping; no redirects, arbitrary paths, ambient proxy or browser-origin
   fallback. Health observes both lifecycle classes regardless of source. This does not widen
@@ -1150,11 +1151,13 @@ stored entry, shell document, revision, audit trail, KV cache or notification.
 `REGISTRY_PRELOAD_FILE` is optional; Compose mounts `demos/01-dictionary/registry.json`.
 Whole-file parse/read failures fail boot. Entry refusals log `withheld`, id and
 cause, while other entries continue. The result is retained on the module for
-future Admin integration; the 8c pending/withheld UI is not implemented here.
+the 8c pending/withheld UI (built) reads it from there, not from this module.
 
 The dedicated announcement request is `{ "payload": <manifest object>,
 "signature": "<opaque signature>" }`. Verification receives the exact payload
-bytes before parsing. Production uses `NoVerifier` and refuses every announcement
-until Phase 7 supplies the trust anchor; no bypass setting exists. Successful
+bytes before parsing. Production uses `domain.NKeyVerifier{}` (Phase 7): the trust anchor is the
+operator's publisher table, so an empty table still refuses every announcement — the same
+fail-closed behaviour the earlier `NoVerifier` placeholder gave, now reached by policy. No bypass
+setting exists. Successful
 observations retain `announcedAt`/`lastAnnouncedAt`; no TTL is installed. Ignored
 static announcements record their time and cause in the audit only.

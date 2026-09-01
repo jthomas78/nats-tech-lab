@@ -1068,7 +1068,7 @@ manifests other than a test fixture; Phase 8 brings the first real one.
    distinct `revoked` trust state, separate from the operator's `enabled` flag, so "an operator
    turned this off" and "trust was withdrawn" never look alike on the Plugins or Admin screens.
 
-#### Tasks — approved 2026-08-31, not started
+#### Tasks — complete 2026-08-31
 
 > Sequenced so nothing is built on a representation that later changes: bytes first (7a), then the
 > identity that signs them (7b), then verification (7c), then the paths that withdraw trust (7d, 7e).
@@ -1288,8 +1288,9 @@ only.
   service may fetch a served `manifest.json` only for an entry whose remote origin is already on the
   BR-AS20 allowlist. The fetch is read-only, time-bounded, and never on a request path the shell or an
   operator waits on. Drift is displayed only: the curated copy still wins (decision 77) and a drifting
-  entry is never withheld. This records the Phase 8c boundary. Phase 5's approved, unimplemented
-  BR-AS61 adds bounded `/healthz` probes; see the canonical BR-AS45 amendment. Anything wider needs
+  entry is never withheld. This records the Phase 8c boundary. Phase 5's
+  BR-AS61 added bounded `/healthz` probes (built 2026-09-01, own origin map,
+  `REGISTRY_HEALTH_ORIGINS`); see the canonical BR-AS45 amendment. Anything wider needs
   a new gate. (It already egresses to Postgres and NATS — the claim is about HTTP, corrected 2026-08-31.)
   **The allowlist is not the fetch address.** `REGISTRY_ALLOWED_ORIGINS` holds *browser* origins
   (`http://localhost:7111`); `mfe-registry-service` is a container, for which `localhost:7111` is
@@ -1348,10 +1349,10 @@ only.
 - [x] Specs: a restart does not revert an edited, disabled or removed entry; a fresh store is seeded
       once; one refused entry does not prevent the others being seeded or the service starting.
 
-> **Live publisher verification remains blocked on Phase 7 (APPROVED 2026-08-31, not started).** The follow-up
-> task explicitly authorizes 8b's handler and tests with `NoVerifier`; production refuses every
-> announcement until the trust anchor exists. No signing scheme or bypass is introduced. 8c's
-> pending UI and drift checker remain separate work.
+> **Resolved.** Phase 7 landed 2026-08-31 and `NoVerifier` is gone: `composition.go` wires
+> `domain.NKeyVerifier{}`, and the trust anchor is the operator's publisher table — an empty table
+> refuses everything, the same fail-closed behaviour the placeholder gave, arrived at by policy
+> instead. 8c's pending UI and drift checker are both built.
 
 ##### 8b — announcement
 - [x] `rpc._platform.registry.entries.announce.v1` and its handler: verify signature, check origin,

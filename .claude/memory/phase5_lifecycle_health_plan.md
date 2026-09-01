@@ -1,27 +1,25 @@
-# Phase 5 lifecycle and health — planning approved 2026-08-31
+# Phase 5 lifecycle and health — COMPLETE 2026-09-01, verified live
 
-User completed 14 questions (all A except Q8 B), then explicitly approved updating the plan,
-business rules and required test cases **without implementation**. Phase 5 remains unimplemented
-except backend lifecycle storage inherited from Phase 8. Do not mistake documentation approval for
-permission to begin code or executable specs.
+Designed 2026-08-31 (14 questions, all A except Q8 B), built and verified 2026-09-01. **This file
+previously said "do not begin code" — that was the planning-only state and no longer applies.**
 
-Source of truth: `.claude/plans/Application-Shell-Microfrontend-Plan.md` Phase 5 (59–65 refined,
-Q1–Q14 recorded) and `demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md` BR-AS52–65 + planned matrix.
-Old draft BR-AS30–34 labels were superseded; canonical Phase 4 BR-AS30/31 remain unchanged.
+Source of truth: `.claude/plans/Application-Shell-Microfrontend-Plan.md` Phase 5 (5a–5e all ticked)
+and `demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md` BR-AS52–65 with an implemented matrix.
 
-Decisions: explicit static/dynamic; backfill legacy static; class edits after reload. Static disable
-offers reload; dynamic operator disable AND signed publisher unregister withdraw live. Unregister preserves
-approval separately from operator enablement; return never overrides operator disable/trust. Retain
-modules, restore unchanged cached contributions without reactivation; changed definitions reload.
-Occupied URL tombstones in place. Slot-owner withdrawal suspends placements, not other plugins.
-Security revocation always overrides, and outages/degraded reads never ordinary-withdraw.
+As built: explicit static/dynamic class, legacy backfilled static, class edits after reload. Static
+disable offers reload; dynamic operator disable and signed publisher unregister withdraw live.
+Withdrawal keeps the module and the row; an unchanged return restores without a second activation.
+An occupied URL tombstones in place behind a `beforeEach` guard, the route record staying
+registered. Slot-owner withdrawal suspends placements, never blames the contributor. Security
+revocation still outranks everything; a degraded read never ordinary-withdraws. No scope disposal.
 
-Health: frontend/backend separate, both classes, registry frontend `/healthz` via allowlisted mapped
-origins (explicit BR-AS45 extension), backend bounded NATS readiness, deployment plugin→service map;
-missing means not configured, empty means frontend-only. Every 5s, timeout 2s, fail after 2, recover
-after 1; stale after 15s without fresh observation with last-check time. Decoration only; separate
-health snapshots/hints, never catalogue revision/curation/drift. No full scope disposal.
+Health is decoration: its own subject, own hint, own reply shape, carrying no revision or signed
+bytes. Frontend and backend stay two signals. 5s interval, 2s timeout, 2 failures, 15s freshness;
+ageing happens at READ time on both sides, so there is no timer to leak. `shared/natsready` is a new
+module — every ask runs the real check, because presence is not readiness.
 
-Architecture has an explicitly planned section; narrative decisions note is not as-built findings.
-5a–5d and implementation evidence in 5e are unchecked. No Phase 5 executable tests added/run by this
-planning task. Future implementation must derive executable specs before code and run real suites.
+**The lesson worth keeping, from the live run:** all three suites were green while three deployment
+defects sat in the stack — a Dockerfile missing a COPY for two new shared modules, credentials that
+predated the grant change (`bootstrap-operator.sh --force` is required, per BR-AC34), and a shell
+timer that repainted without re-reading. A unit spec asserts what the code does; none of these were
+questions about the code. See [[app-shell-deployment-gaps]].

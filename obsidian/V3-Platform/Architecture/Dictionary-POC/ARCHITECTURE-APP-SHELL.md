@@ -180,9 +180,10 @@ example on 7111; slow, activation-throws and incompatible fixtures on 7113–711
 Each has its own package, lockfile, Dockerfile, nginx server and single `plugin`
 exposure. The missing-remote fixture has no service and points to a real 404 on
 7111. Compose marks the five services `com.nats-tech-lab.mfe.source=preload`.
-**Manifest drift (Phase 8c).** The registry's only currently implemented outbound HTTP reads
-`/manifest.json` for preload entries, on its own schedule. Phase 5 will add the separately approved
-bounded `/healthz` probes described below (BR-AS45/61). The optional
+**Manifest drift (Phase 8c).** The registry makes two outbound HTTP reads, kept apart on purpose:
+`/manifest.json` for preload entries on its own schedule, and the bounded `/healthz` probes
+described below (BR-AS45/61, Phase 5d, mapped by `REGISTRY_HEALTH_ORIGINS`). Drift compares a
+deployed declaration against curated content; health observes availability. Neither curates. The optional
 `REGISTRY_FETCH_ORIGINS` JSON map translates an already allowlisted browser
 origin to a service-reachable origin; it cannot grant an origin, and missing
 mappings never fall back to browser localhost. Compose supplies all five.
@@ -380,8 +381,8 @@ holds its NATS connection open while its database is gone.
 6. **Render through a host boundary.** The selected Vue component receives a versioned API and
    readonly context. The host retains control of layout and error presentation.
 7. **End the runtime.** Reload ends the browser runtime. Full plugin resource disposal remains a
-   future contract; Phase 5 contribution withdrawal will not promise to close plugin-owned watchers,
-   requests or NATS connections.
+   future contract; Phase 5 contribution withdrawal does not promise to close plugin-owned watchers,
+   requests or NATS connections — it removes contributions and keeps the module.
 
 The first release uses a page reload to adopt a new registry or plugin version. A browser session
 therefore uses one accepted registry snapshot and never mixes policy, metadata, contract, and
@@ -483,10 +484,10 @@ sequenceDiagram
     Note over Shell,Reg: Notify is a hint only. Every reconnect reads unconditionally.<br/>No focus/interval polling and no HTTP fallback.
 ```
 
-**Current ordinary-change behavior (before Phase 5):** the snapshot is almost frozen for the
-session, and the exception is precise (decision 46). BR-AS49 security revocation already forces
-reload. Phase 5 will add dynamic withdrawal/return as described above. Until then,
-**a new plugin id is the only ordinary difference a running shell applies to itself.** Everything else a
+**Ordinary-change behavior:** the snapshot is almost frozen for the session, and the exceptions
+are precise (decision 46). BR-AS49 security revocation forces reload. Phase 5 added dynamic
+withdrawal and return as described above, so as built there are exactly three ordinary differences
+a running shell applies to itself: **a new plugin id, a withdrawal, and an unchanged return.** Everything else a
 later read carries — a changed label, order, route prefix, permission, version, remote or
 contribution list, or a withdrawn entry — is offered as a reload and never applied, because the
 status machine has no transition out of `active` and re-placing a plugin already mounted would
