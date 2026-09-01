@@ -770,7 +770,7 @@ services:
     ports:
       - "7111:80"
     labels:
-      com.nats-tech-lab.mfe.source: preload
+      com.nats-tech-lab.mfe.source: announced
     networks:
       # `frontend` for uniformity only. This container has no proxy_pass rule
       # of any kind, so joining the network gains it nothing it can use — the
@@ -799,7 +799,7 @@ services:
     networks:
       - frontend
     labels:
-      com.nats-tech-lab.mfe.source: preload
+      com.nats-tech-lab.mfe.source: announced
 
   example-plugin-activate-throws-frontend:
     build:
@@ -811,7 +811,7 @@ services:
     networks:
       - frontend
     labels:
-      com.nats-tech-lab.mfe.source: preload
+      com.nats-tech-lab.mfe.source: announced
 
   example-plugin-incompatible-frontend:
     build:
@@ -823,7 +823,7 @@ services:
     networks:
       - frontend
     labels:
-      com.nats-tech-lab.mfe.source: preload
+      com.nats-tech-lab.mfe.source: announced
 
   # Announcer sidecars (app-shell 13e) — one resident publisher per plugin.
   #

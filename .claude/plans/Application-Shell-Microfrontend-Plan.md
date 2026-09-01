@@ -779,8 +779,32 @@ during implementation; neither is complete without it.
       Publishers panel. `--reset` clears them. The `--reset` path itself has not
       been exercised — every run so far started from the live lab, which the
       sequence tolerates because each wait is release-relative.
-- [ ] **13g** — intro copy, `BUSINESS_RULES-APP-SHELL.md` and
-      `ARCHITECTURE-APP-SHELL.md`, in the same commits as the code.
+- [x] **13g** (built 2026-09-01) — the documentation half, plus the one piece of
+      it that is really code. Decision 9 said the intro copy must state BR-AS66
+      or a correct first run reads as a broken one, so the copy is the rule's
+      surface and got a component and a spec rather than a paragraph in a
+      README: `shell/ui/FirstBootNote.vue`, rendered by both screens a fresh lab
+      lands on — Home's empty region and the plugin inventory —
+      with `FirstBootNote.spec.js` covering the four things it has to say and
+      the fact that both views actually render it (a component nothing renders
+      is copy that does not exist).
+
+      Compose's `com.nats-tech-lab.mfe.source` label still read `preload` on all
+      five frontends. It is documentation read by no code on the trust path
+      (decision 80), which is exactly why it drifted silently; the four example
+      frontends now read `announced` and `preloadFixture.spec.js` pins the tier
+      per service. lab-shell Vitest **518/518**, `npm run lint` clean.
+
+      `ARCHITECTURE-APP-SHELL.md` gained a "Phase 13 — the announced tier, as
+      built" section (the tier table, the four-link chain that must exist before
+      a plugin can announce, what moving tier changed, and 13f's evidence) and
+      lost four stale claims: that nothing exercises the announce path, that
+      `registry.json` wraps the example manifests, that Compose marks five
+      services `preload`, and — in the revocation section — the implication that
+      `withheld` moves without `enabled`. `BUSINESS_RULES-APP-SHELL.md` gained
+      BR-AS66's intro-copy test bullet and lost the stale "Phase 5 — approved
+      requirements, not yet implemented" heading over a matrix that says
+      implemented.
 
 ---
 

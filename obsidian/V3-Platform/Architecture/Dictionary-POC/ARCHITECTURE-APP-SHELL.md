@@ -147,7 +147,7 @@ have different authority and defaults:
 | Path | Input and authority | Result |
 | --- | --- | --- |
 | Admin curation | Operator `api.*` writes with a revision check | Operator controls enablement and lifecycle; actor `admin`. Lifecycle editing in the Admin UI is Phase 5 work. |
-| Preload | Optional mounted `registry.json` at service boot | Insert only when the id has never existed; default `static`, actor `preload`; restart never overwrites curation |
+| Preload | Optional mounted `registry.json` at service boot | Insert only when the id has never existed; default `static`, actor `preload`; restart never overwrites curation. Since Phase 13 the lab preloads `demo-catalog` only |
 | Service announcement | Signed manifest over `rpc._platform.registry.entries.announce.v1` | Verified publisher identity, default `dynamic`; a new entry remains `announced` and withheld until operator enablement |
 
 **Announcement is not activation.** A publisher can report its own manifest but
@@ -168,8 +168,10 @@ their own connection. This narrow API is not a sandbox for same-realm code.
 **Two files, two owners.** Each plugin serves `public/manifest.json` to describe
 its identity, version, remote and contributions. It cannot claim `source`,
 `lifecycle`, `enabled` or `revision`. The operator's
-`demos/01-dictionary/registry.json` is a preload wrapper containing those manifests
-and optional enablement. The service supplies provenance and lifecycle defaults.
+`demos/01-dictionary/registry.json` is a preload wrapper containing manifests and
+optional enablement — since Phase 13 it wraps `demo-catalog` alone (BR-AS66),
+and the example fixtures reach the registry by announcing their own manifests
+instead. The service supplies provenance and lifecycle defaults.
 That file is also the single input to the explicit operator seeder. Editing it
 and restarting does not change existing rows; use Admin curation or the seeder
 for an intentional update. A plugin can later switch registration paths without
@@ -179,7 +181,11 @@ rebuilding its feature code.
 example on 7111; slow, activation-throws and incompatible fixtures on 7113–7115.
 Each has its own package, lockfile, Dockerfile, nginx server and single `plugin`
 exposure. The missing-remote fixture has no service and points to a real 404 on
-7111. Compose marks the five services `com.nats-tech-lab.mfe.source=preload`.
+7111. Compose marks each with the tier it actually arrives by —
+`com.nats-tech-lab.mfe.source=preload` on the catalog, `=announced` on the four
+example frontends. The label is operator-authored documentation read by no code
+on the trust path (decision 80), so nothing failed while it was wrong; a spec in
+`preloadFixture.spec.js` now pins it.
 **Manifest drift (Phase 8c).** The registry makes two outbound HTTP reads, kept apart on purpose:
 `/manifest.json` for preload entries on its own schedule, and the bounded `/healthz` probes
 described below (BR-AS45/61, Phase 5d, mapped by `REGISTRY_HEALTH_ORIGINS`). Drift compares a
@@ -224,11 +230,12 @@ zero plugins. A later failed read preserves already-discovered contributions.
 > plugin ids. The closing section covers the five outcomes — `inserted`,
 > `pending`, `updated`, `requeued`, `ignored`.
 >
-> Nothing in the running stack exercises this path yet:
-> `bootstrap-operator.sh` grants `mfe-registry-service` *subscribe* on
-> `rpc._platform.registry.entries.announce.v1` and grants nobody *publish*, so
-> the tier lives only in Ginkgo specs. Phase 13 in
-> `.claude/plans/Application-Shell-Microfrontend-Plan.md` makes it runnable.
+> **Phase 13 made this path live (2026-09-01).** It used to be reachable only
+> from Ginkgo: `bootstrap-operator.sh` granted `mfe-registry-service`
+> *subscribe* on `rpc._platform.registry.entries.announce.v1` and granted
+> nobody *publish*. Five publisher accounts, five signing keys and five
+> announcer sidecars later, four of the five figures on this page describe
+> containers that are running. See "Phase 13 — the announced tier, as built".
 >
 > Editable source: [registry-announce-flow.html](../../../../demos/01-dictionary/diagrams/registry-announce-flow.html)
 > — hand-authored inline SVG rather than a Draw.io workbook page, so
@@ -388,6 +395,116 @@ corner of the eye compete rather than inform.
 Readiness lives in `shared/natsready`, mounted today by `refdata-service` against `db.PingContext`:
 every ask runs the real check with a 2-second deadline and nothing is cached, because a service
 holds its NATS connection open while its database is gone.
+
+---
+
+## Phase 13 — the announced tier, as built (2026-09-01)
+
+Designed and built 13a–13g on 2026-09-01. Canonical rules **BR-AS66–68** and the
+two BR-AS38 clarifications live in
+`demos/01-dictionary/BUSINESS_RULES-APP-SHELL.md`. Totals after 13g: lab-shell
+Vitest **518/518** with a clean `npm run lint`; registry Ginkgo unchanged and
+still green.
+
+Phase 8 built the announcement path and Phase 7 built the trust gates in front
+of it, but nothing in the lab ever published on
+`rpc._platform.registry.entries.announce.v1` — the tier existed only in specs.
+Phase 13 moved the five `example-plugin*` fixtures onto it and left
+`demo-catalog` as the only preloaded plugin, so both tiers are represented by
+something running:
+
+| Plugin | Origin | Tier | Lifecycle | On a fresh database |
+| --- | --- | --- | --- | --- |
+| `demo-catalog` | 7112 | preload | `static` | enabled |
+| `example-plugin` | 7111 | announced | `dynamic` | disabled, awaiting an operator |
+| `example-plugin-slow` | 7113 | announced | `dynamic` | disabled, awaiting an operator |
+| `example-plugin-activate-throws` | 7114 | announced | `dynamic` | disabled, awaiting an operator |
+| `example-plugin-incompatible` | 7115 | announced | `dynamic` | disabled, awaiting an operator |
+| `example-plugin-unreachable` | 7111 (a real 404) | announced | `dynamic` | disabled, awaiting an operator |
+
+### The chain that has to exist before a plugin can announce
+
+Four things in a fixed order, each the previous one's precondition:
+
+1. **A publisher account and credential per plugin** (13a/13c). `nsc` mints
+   `<plugin>-announcer` users with *publish* on the announce and unregister
+   subjects and nothing else. The five new `.creds` stems also tripped BR-D40's
+   documented failure mode — `natstenants` reads any unlisted stem in the shared
+   directory as a tenant — closed by a `NonTenantCredsSuffixes` entry rather
+   than five map entries.
+2. **A signing keypair per publisher** (13c), separate from the NATS trust
+   chain by design: a leaked signing key cannot connect to NATS as anything.
+   Seeds are mounted read-only at runtime and never enter an image layer.
+3. **A trust table row per publisher** (13d). `cmd/seed-publishers` runs as the
+   `registry-publisher-seed` one-shot, reads the publishers document first, and
+   applies only the missing operations (BR-AS68) — a converged registry costs
+   zero writes, zero revisions and zero audit rows. Compose orders it strictly
+   before anything that announces (`service_completed_successfully`); without
+   that ordering the sidecars race it and exit on `not-owned`.
+4. **An announcer sidecar per plugin** (13e). One shared `announce-plugin`
+   binary, built into the registry image beside the service and the seeder, with
+   only its three read-only mounts differing: the plugin's own build-owned
+   `public/manifest.json`, that publisher's signing seed, that publisher's
+   credential. `example-plugin-unreachable` is an **announcer-only** container —
+   no web server, no code, a manifest naming a dead path on 7111 — which keeps
+   one publisher per plugin while leaving its fixture a genuine 404.
+
+The release counter (BR-AS67) is the publisher's state, not the build's, so it
+lives in a named volume per plugin rather than in the image: the announcer
+injects it into the manifest at runtime, immediately before signing, and no
+fixture manifest carries a `release` field. Each sidecar gets
+`stop_grace_period: 30s`, because the unregister is a request/reply round trip
+and Compose's default 10s turns a slow bus into a kill — and a killed sidecar
+withdraws nothing, which is BR-AS54 working, not failing.
+
+### What moving tier changed
+
+- **The five became `dynamic`.** `AdmitAnnouncement` forces it. Withdrawal for
+  them is now a live unload rather than a reload offer, which is the sequence
+  BR-AS52–56 describe and Phase 5 could only test against two constructed
+  documents. `demo-catalog` staying `static` keeps both classes live.
+- **Drift stopped applying to them.** Drift checking is preload-only by design
+  (`FetchOrigins.Target` returns `not-preloaded` for anything else), so the
+  Admin MANIFEST column now covers exactly one row. This is not a regression to
+  fix: an announced entry's bytes are signed by their publisher, and comparing
+  them against a fetch would answer a question the signature already answers.
+- **A fresh lab now shows one plugin and five disabled rows** (BR-AS66). That
+  is the rule, not a broken boot, so the shell says so on both screens a first
+  run lands on — `shell/ui/FirstBootNote.vue`, rendered in Home's empty region
+  and above the plugin inventory.
+
+### Evidence: the lifecycle driven against the running lab (13f)
+
+`cmd/registry-acceptance` is a command rather than a Ginkgo suite on purpose —
+an env-gated spec that skips still prints `ok`, and this repo has been bitten by
+that. Run from `demos/01-dictionary` with
+`go run ./backend/mfe-registry-service/cmd/registry-acceptance`, it drives
+Compose for the container lifecycle (a SIGTERM cannot be sent from inside the
+container being stopped), talks the operator's own `api.*` subjects on an
+`adminConnectInfo`-minted credential, and asserts on the curated document:
+announced-and-pending → operator approval → `stop` (withdrawn, approval intact,
+release `N+1`) → `start` (`updated`, release `N+2`) → key rotation → a
+cross-origin move (`requeued`) → approval at the new origin → revocation and
+recovery, with the other four sidecars as a control group the last step proves
+never moved.
+
+Three things the live run corrected, all of them the implementation being
+stricter than the prose above assumed:
+
+1. **A revocation clears the operator's approval**, in the same transaction that
+   withholds. A withdrawal and a revocation are therefore not the same shape of
+   event: the first leaves approval alone (BR-AS55), the second does not.
+2. **A validly signed announcement cannot lift a withholding.** Only an
+   operator enabling that entry does, because only that is somebody looking at
+   the entry rather than at the key. Re-enabling the revoked key restores
+   nothing.
+3. **Both the `pending` and `requeued` branches preserve `withdrawn`**, so a
+   cross-origin move cannot put a withdrawn plugin back on offer. One operator
+   decision answers approval and availability together.
+
+Known trace: a rotated key is retired, never deleted — there is no delete
+operation by design — so repeated acceptance runs stack retired keys in the
+Publishers panel.
 
 ---
 
@@ -833,7 +950,10 @@ cannot connect to NATS as anything.
 
 Revoking a key withholds, in the same transaction, every entry that key signed (BR-AS38). Withheld is
 its own column, not a flavour of `enabled = false`: `disabled` means "not reviewed yet" and `withheld`
-means "we withdrew this", and only the second unloads anything. **Revocation is bulk and automatic;
+means "we withdrew this", and only the second unloads anything. Two columns, but **one revocation
+writes both** — `enabled = false, withheld = true` in the same statement (13f confirmed this against
+the running stack). Revoking a key therefore also spends the operator's approval, and getting the
+entry back takes an explicit enable, which is the only thing that clears `withheld`. **Revocation is bulk and automatic;
 restoration is one entry at a time and manual** — re-enabling the key restores nothing by itself.
 
 A withheld entry is served to the shell as a **tombstone** — `{id, withheld: true}`, with no remote,

@@ -779,13 +779,14 @@ mounts rule.
 | decisions 34/58 — one read subject | `registryTransport.spec.js` pins `SHELL_READ_SUBJECT` and the held-revision payload. Historical HTTP characterization remains in `phase2RegistryContract.spec.js`/`registryClient.spec.js`, but the host uses no HTTP client or fallback |
 
 
-## Phase 5 — approved requirements, not yet implemented
+## Phase 5 — approved requirements, as built
 
-Approved 2026-08-31 after 14 user decisions and explicit permission to update planning documents.
-The implemented backend lifecycle storage is a prerequisite, not completion of this phase.
-**BR-AS52–65 are unique new IDs.** The old plan-only draft BR-AS30–34 is superseded; canonical
-Phase 4 BR-AS30/31 are unchanged. Each row below requires executable coverage during implementation,
-with Go domain rules in Ginkgo `Context`s and real shell/Admin behavior in Vitest mounted specs.
+Approved 2026-08-31 after 14 user decisions and explicit permission to update planning documents,
+and built out across 5a–5e. **BR-AS52–65 are unique new IDs.** The old plan-only draft BR-AS30–34
+is superseded; canonical Phase 4 BR-AS30/31 are unchanged. Every rule below carries executable
+coverage — Go domain rules in Ginkgo `Context`s, real shell/Admin behavior in Vitest mounted specs
+— named row by row in the matrix that follows, which is also where the few remaining gaps are
+stated rather than implied.
 
 - **BR-AS52 — Lifecycle is explicit and preserved.** Each full registry entry is served with
   `static` or `dynamic`; BR-AS49 security tombstones retain their minimal shape. Source never
@@ -1188,7 +1189,17 @@ below add no new ID — they record a decision *not* to grow an existing rule.
     bypasses it. Same file also holds 13e's wiring checks — every announced
     plugin has exactly one publisher, one sidecar, and a release volume outside
     the container, since a sidecar mounting another plugin's seed or manifest
-    is silent until a signature fails.
+    is silent until a signature fails. Same file also pins Compose's
+    `com.nats-tech-lab.mfe.source` label per frontend — documentation read by
+    no code (decision 80), which is why it drifted to `preload` on all five
+    until 13g.
+  - **Test (the intro copy half, 13g):** `lab-shell/src/shell/ui/
+    FirstBootNote.spec.js` — the shell-owned note says the rule, names the
+    preloaded plugin and the announced fixtures separately, says `disabled`
+    means awaiting an operator rather than failed, and says the enable survives
+    restarts. It also asserts the note is rendered by both screens a first run
+    lands on (`HomeView.vue`'s empty region and `PluginsView.vue`), because a
+    component nothing renders is copy that does not exist.
 - **BR-AS67 — A publisher owns its release counter, and it only goes up.** Each
   plugin has one release sequence, shared by announce and unregister, held
   inside the signed bytes (BR-AS47) and persisted by the *publisher*, never

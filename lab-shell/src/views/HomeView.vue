@@ -10,6 +10,7 @@
 import { computed, inject } from 'vue'
 
 import ExtensionRegion from '../shell/ui/ExtensionRegion.vue'
+import FirstBootNote from '../shell/ui/FirstBootNote.vue'
 import { SHELL } from '../shell/shellKey.js'
 import { SHELL_API_VERSION } from '../shell/versions.js'
 
@@ -50,6 +51,10 @@ const enabled = computed(() => shell.inventory.filter((row) => row.status !== 'd
           No enabled plugin has contributed to
           <span class="mono">{{ point }}</span>. Home and Plugins remain available.
         </p>
+        <!-- On a fresh registry database this is the expected first screen, so
+             the empty state has to say which plugins are missing and why
+             (BR-AS66). Without it a correct first run reads as a broken one. -->
+        <FirstBootNote />
         <div class="empty-actions">
           <router-link
             class="btn ghost"

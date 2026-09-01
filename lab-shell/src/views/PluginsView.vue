@@ -12,6 +12,7 @@
 import { computed, inject } from 'vue'
 
 import { healthCheckedAt, healthLabel, healthTone } from '../shell/registry/healthText.js'
+import FirstBootNote from '../shell/ui/FirstBootNote.vue'
 import { describeContributions, statusDetail } from '../shell/registry/inventoryText.js'
 import { SHELL } from '../shell/shellKey.js'
 import { SHELL_API_VERSION } from '../shell/versions.js'
@@ -92,6 +93,10 @@ const TOLERANCE = [
         Reload registry
       </button>
     </header>
+
+    <!-- The five disabled rows below are the announced tier waiting for an
+         operator, not five failures (BR-AS66). -->
+    <FirstBootNote />
 
     <div class="lab-panel">
       <table class="tbl">

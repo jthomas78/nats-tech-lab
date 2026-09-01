@@ -183,6 +183,43 @@ describe('13e — one announcer sidecar per announced plugin (decisions 4, 6)', 
     expect(graces.every((g) => g >= 20)).toBe(true)
   })
 
+  /* Compose's provenance label (decision 80) is operator-authored
+     documentation, read by no code on the trust path — which is exactly why
+     it can drift without anything failing. It read `preload` on all five
+     frontends until 13g moved the examples to the announced tier. A wrong
+     badge here is a wrong answer to "how did this plugin get here" for the
+     next reader of the compose file. */
+  const sourceLabelOf = (service) => {
+    /* Line-walked rather than regex-matched: a service block runs from its
+       own 2-space key to the next one, and a blank line inside it must not
+       end it. */
+    const lines = compose.split('\n')
+    const start = lines.findIndex((l) => l === `  ${service}:`)
+    if (start < 0) return null
+    for (const line of lines.slice(start + 1)) {
+      if (/^ {2}\S/.test(line)) break
+      const hit = line.match(/com\.nats-tech-lab\.mfe\.source:\s*(\S+)/)
+      if (hit) return hit[1]
+    }
+    return null
+  }
+
+  it('labels each frontend with the tier it actually arrives by', () => {
+    expect({
+      'demo-catalog-frontend': sourceLabelOf('demo-catalog-frontend'),
+      'example-plugin-frontend': sourceLabelOf('example-plugin-frontend'),
+      'example-plugin-slow-frontend': sourceLabelOf('example-plugin-slow-frontend'),
+      'example-plugin-activate-throws-frontend': sourceLabelOf('example-plugin-activate-throws-frontend'),
+      'example-plugin-incompatible-frontend': sourceLabelOf('example-plugin-incompatible-frontend'),
+    }).toEqual({
+      'demo-catalog-frontend': 'preload',
+      'example-plugin-frontend': 'announced',
+      'example-plugin-slow-frontend': 'announced',
+      'example-plugin-activate-throws-frontend': 'announced',
+      'example-plugin-incompatible-frontend': 'announced',
+    })
+  })
+
   it('gives the preloaded catalog no sidecar', () => {
     // demo-catalog is curated by the lab, not announced by a publisher. A
     // sidecar for it would put the same plugin in two tiers at once.
